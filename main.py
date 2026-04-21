@@ -35,8 +35,10 @@ PORTAINER_URL = os.getenv("PORTAINER_URL", "").rstrip("/")
 PORTAINER_API_KEY = os.getenv("PORTAINER_API_KEY", "")
 PORTAINER_ENDPOINT_ID = int(os.getenv("PORTAINER_ENDPOINT_ID", "1"))
 CACHE_TTL = int(os.getenv("CACHE_TTL_SECONDS", "900"))
+STATS_CACHE_TTL = int(os.getenv("STATS_CACHE_TTL_SECONDS", "30"))
 VERIFY_TLS = os.getenv("VERIFY_TLS", "true").lower() == "true"
 CONCURRENCY = int(os.getenv("REGISTRY_CONCURRENCY", "8"))
+STATS_CONCURRENCY = int(os.getenv("STATS_CONCURRENCY", "16"))
 DB_PATH = os.getenv("DB_PATH", "/app/data/portaupdate.db")
 DOCKERHUB_USER = os.getenv("DOCKERHUB_USER", "")
 DOCKERHUB_TOKEN = os.getenv("DOCKERHUB_TOKEN", "")
@@ -290,6 +292,37 @@ async def _gather():
             if sid:
                 tasks_by_service.setdefault(sid, []).append(t)
 
+        # Build service-id → running containers map. Swarm stamps every task
+        # container with `com.docker.swarm.service.id`, so we can go from service
+        # → container → image → RepoDigests when neither the service spec nor the
+        # task spec carries a digest pin.
+        containers_by_service: dict[str, list] = {}
+        for c in containers:
+            sid = (c.get("Labels") or {}).get("com.docker.swarm.service.id")
+            if sid:
+                containers_by_service.setdefault(sid, []).append(c)
+
+        # Cache image-inspect results within this gather so services sharing an
+        # image don't trigger N image-inspect calls.
+        image_digest_cache: dict[str, Optional[str]] = {}
+
+        async def _digest_for_image_id(image_id: str) -> Optional[str]:
+            if not image_id:
+                return None
+            if image_id in image_digest_cache:
+                return image_digest_cache[image_id]
+            try:
+                img = await _pg(client, f"{ep}/images/{image_id}/json")
+                for rd in img.get("RepoDigests") or []:
+                    if "@" in rd:
+                        digest = rd.split("@", 1)[1]
+                        image_digest_cache[image_id] = digest
+                        return digest
+            except Exception as e:
+                print(f"[digest-fallback] {image_id[:12]}: {e}")
+            image_digest_cache[image_id] = None
+            return None
+
         with db_conn() as c:
             ignores = [dict(r) for r in c.execute("SELECT * FROM ignores").fetchall()]
 
@@ -331,6 +364,25 @@ async def _gather():
                             break
                         if not current_digest:
                             current_digest = t_img.split("@", 1)[1]
+            if not current_digest:
+                # Final fallback: inspect the running container for this service on
+                # any node. The container's image ID (sha256:...) maps to the image's
+                # RepoDigests, which gives us the actual `@sha256:...` that this
+                # service is currently executing. This covers services deployed
+                # with an unpinned tag that Swarm never resolved.
+                svc_containers = containers_by_service.get(svc["ID"], [])
+                for c in svc_containers:
+                    if (c.get("State") or "").lower() == "running":
+                        current_digest = await _digest_for_image_id(c.get("ImageID") or c.get("Image"))
+                        if current_digest:
+                            break
+                if not current_digest:
+                    # Even a stopped/crashlooping container's image tells us what
+                    # the service last tried to run.
+                    for c in svc_containers:
+                        current_digest = await _digest_for_image_id(c.get("ImageID") or c.get("Image"))
+                        if current_digest:
+                            break
             running = sum(
                 1 for t in svc_tasks
                 if (t.get("Status") or {}).get("State") == "running"
@@ -390,13 +442,23 @@ async def _gather():
                 "updated": spec.get("UpdatedAt") or svc.get("UpdatedAt"),
             })
 
-        # --- Standalone / compose (non-Swarm) containers ---
+        # --- Standalone / compose (non-Swarm) containers + orphan Swarm task containers ---
+        # We intentionally include Swarm task containers that are NOT currently
+        # running (exited / dead). Swarm often leaves these behind after replacing
+        # a task and they accumulate over time. Listing them here lets the user
+        # bulk-remove the orphans. Running Swarm task containers are still skipped
+        # because they're already represented via their parent service.
         for cont in containers:
             labels = cont.get("Labels") or {}
-            if labels.get("com.docker.swarm.service.id"):
+            state = (cont.get("State") or "").lower()
+            is_swarm_task = bool(labels.get("com.docker.swarm.service.id"))
+            if is_swarm_task and state == "running":
                 continue
             image_ref = cont.get("Image", "") or ""
-            compose_project = labels.get("com.docker.compose.project")
+            compose_project = (
+                labels.get("com.docker.compose.project")
+                or labels.get("com.docker.stack.namespace")
+            )
             stack = stack_by_name.get(compose_project) if compose_project else None
 
             current_digest = None
@@ -428,7 +490,7 @@ async def _gather():
                 "id": f"ctn:{cont['Id'][:12]}",
                 "raw_id": cont["Id"],
                 "name": name,
-                "type": "container",
+                "type": "orphan" if is_swarm_task else "container",
                 "image": image_ref,
                 "tag": _tag_of(image_ref),
                 "current_digest": current_digest,
@@ -478,18 +540,21 @@ async def _gather():
 
         for g in groups.values():
             its = g["items"]
+            its.sort(key=lambda i: (i.get("name") or "").lower())
             g["total"] = len(its)
             g["updates"] = sum(1 for i in its if i["status"] == "update")
-            g["errors"] = sum(1 for i in its if i["status"] in ("error", "unknown"))
+            g["errors"] = sum(1 for i in its if i["status"] == "error")
+            g["unknowns"] = sum(1 for i in its if i["status"] == "unknown")
             g["uptodate"] = sum(1 for i in its if i["status"] == "up-to-date")
             g["offline"] = sum(1 for i in its if i.get("health") == "offline")
             g["degraded"] = sum(1 for i in its if i.get("health") == "degraded")
 
+        items.sort(key=lambda i: (i.get("name") or "").lower())
         _cache["items"] = items
         _cache["nodes"] = node_map
         _cache["stacks"] = sorted(
             groups.values(),
-            key=lambda s: (-s["updates"], -s["errors"], s["name"].lower()),
+            key=lambda s: (s["name"] or "").lower(),
         )
         _cache["ts"] = time.time()
 
@@ -719,8 +784,138 @@ async def _do_restart_service(op: Operation, service_id: str):
 
 
 # ============================================================================
+# Live container stats (CPU / memory / disk) — cached separately from items
+# so the expensive registry digest pass doesn't throttle stats polling.
+# ============================================================================
+_stats_cache: dict = {"stats": {}, "ts": 0.0}
+
+
+async def _one_container_stats(client: httpx.AsyncClient, ep: str, cid: str) -> Optional[dict]:
+    """One-shot Docker stats for a running container. Returns None on failure."""
+    try:
+        r = await client.get(
+            f"{PORTAINER_URL}{ep}/containers/{cid}/stats?stream=false",
+            headers=_headers(), timeout=10.0,
+        )
+        if r.status_code != 200:
+            return None
+        s = r.json()
+        cpu_now = ((s.get("cpu_stats") or {}).get("cpu_usage") or {}).get("total_usage", 0)
+        cpu_prev = ((s.get("precpu_stats") or {}).get("cpu_usage") or {}).get("total_usage", 0)
+        sys_now = (s.get("cpu_stats") or {}).get("system_cpu_usage", 0)
+        sys_prev = (s.get("precpu_stats") or {}).get("system_cpu_usage", 0)
+        online = (
+            (s.get("cpu_stats") or {}).get("online_cpus")
+            or len(((s.get("cpu_stats") or {}).get("cpu_usage") or {}).get("percpu_usage") or [])
+            or 1
+        )
+        cpu_delta = cpu_now - cpu_prev
+        sys_delta = sys_now - sys_prev
+        cpu_percent = 0.0
+        if sys_delta > 0 and cpu_delta > 0:
+            cpu_percent = (cpu_delta / sys_delta) * online * 100.0
+
+        mem = s.get("memory_stats") or {}
+        mem_usage = mem.get("usage", 0) or 0
+        mem_limit = mem.get("limit", 0) or 0
+        # Docker's `usage` includes page cache; subtract inactive_file to match `docker stats`.
+        mstat = mem.get("stats") or {}
+        cache = mstat.get("inactive_file", 0) or mstat.get("cache", 0) or 0
+        mem_usage = max(0, mem_usage - cache)
+        return {
+            "cpu_percent": round(cpu_percent, 1),
+            "mem_usage": int(mem_usage),
+            "mem_limit": int(mem_limit),
+        }
+    except Exception as e:
+        print(f"[stats] {cid[:12]}: {e}")
+        return None
+
+
+async def _gather_stats():
+    """Compute per-item CPU/memory/disk using existing _cache["items"].
+
+    Services aggregate stats across all their running task containers.
+    Standalone containers map directly by ID.
+    """
+    if not _cache["items"]:
+        return
+    async with httpx.AsyncClient(verify=VERIFY_TLS, timeout=30.0) as client:
+        ep = f"/api/endpoints/{PORTAINER_ENDPOINT_ID}/docker"
+        try:
+            containers = await _pg(client, f"{ep}/containers/json?all=1&size=1")
+        except Exception:
+            containers = []
+
+        size_by_cid: dict[str, int] = {}
+        svc_by_cid: dict[str, Optional[str]] = {}
+        running_cids: list[str] = []
+        for c in containers:
+            cid = c["Id"]
+            size_by_cid[cid] = c.get("SizeRw", 0) or 0
+            svc_by_cid[cid] = (c.get("Labels") or {}).get("com.docker.swarm.service.id")
+            if (c.get("State") or "").lower() == "running":
+                running_cids.append(cid)
+
+        sem = asyncio.Semaphore(STATS_CONCURRENCY)
+
+        async def fetch(cid: str):
+            async with sem:
+                return cid, await _one_container_stats(client, ep, cid)
+
+        results = await asyncio.gather(*(fetch(cid) for cid in running_cids))
+        stats_by_cid = {cid: s for cid, s in results if s}
+
+        out: dict[str, dict] = {}
+        for item in _cache["items"]:
+            cpu = 0.0
+            mem_usage = 0
+            mem_limit = 0
+            size_rw = 0
+            if item.get("type") == "service":
+                sid = item["raw_id"]
+                for cid, owner in svc_by_cid.items():
+                    if owner != sid:
+                        continue
+                    size_rw += size_by_cid.get(cid, 0)
+                    st = stats_by_cid.get(cid)
+                    if st:
+                        cpu += st["cpu_percent"]
+                        mem_usage += st["mem_usage"]
+                        mem_limit = max(mem_limit, st["mem_limit"])
+            else:
+                cid = item["raw_id"]
+                size_rw = size_by_cid.get(cid, 0)
+                st = stats_by_cid.get(cid)
+                if st:
+                    cpu = st["cpu_percent"]
+                    mem_usage = st["mem_usage"]
+                    mem_limit = st["mem_limit"]
+            out[item["id"]] = {
+                "cpu_percent": round(cpu, 1),
+                "mem_usage": int(mem_usage),
+                "mem_limit": int(mem_limit),
+                "size_rw": int(size_rw),
+            }
+        _stats_cache["stats"] = out
+        _stats_cache["ts"] = time.time()
+
+
+# ============================================================================
 # API endpoints
 # ============================================================================
+@app.get("/api/stats")
+async def api_stats(force: bool = False):
+    now = time.time()
+    if force or not _stats_cache["stats"] or (now - _stats_cache["ts"] > STATS_CACHE_TTL):
+        await _gather_stats()
+    return {
+        "stats": _stats_cache["stats"],
+        "ts": _stats_cache["ts"],
+        "age": int(now - _stats_cache["ts"]) if _stats_cache["ts"] else None,
+    }
+
+
 @app.get("/api/items")
 async def api_items(force: bool = False):
     now = time.time()

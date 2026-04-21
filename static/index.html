@@ -127,6 +127,10 @@
   @keyframes fadeIn{from{opacity:0;}to{opacity:1;}}
   .glow{box-shadow:0 0 0 1px var(--primary),0 0 18px color-mix(in srgb, var(--primary) 20%, transparent);}
   @keyframes pulse{0%,100%{opacity:1;}50%{opacity:.35;}}
+  .stat-bar{position:relative;height:16px;min-width:70px;background:var(--surface-3);border-radius:3px;overflow:hidden;border:1px solid var(--border);}
+  .stat-bar > .fill{position:absolute;inset:0;width:var(--w,0%);background:var(--c,var(--success));transition:width .25s ease,background .25s ease;}
+  .stat-bar > .label{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:10.5px;font-weight:600;color:var(--text);text-shadow:0 1px 1px rgba(0,0,0,.4);white-space:nowrap;padding:0 4px;}
+  .stat-sub{font-size:10px;color:var(--text-faint);line-height:1;margin-top:2px;}
 
   /* Dense grouped table */
   .ptable{width:100%;border-collapse:separate;border-spacing:0;font-size:13px;}
@@ -321,6 +325,9 @@
               <th style="width:90px;">Health</th>
               <th style="width:100px;">Status</th>
               <th style="width:80px;" class="hidden lg:table-cell">Tasks</th>
+              <th style="width:90px;" class="hidden md:table-cell">CPU</th>
+              <th style="width:110px;" class="hidden md:table-cell">Memory</th>
+              <th style="width:90px;" class="hidden xl:table-cell">Disk</th>
               <th style="width:140px;" class="hidden xl:table-cell">Node</th>
               <th style="width:150px;text-align:right;">Action</th>
             </tr>
@@ -345,8 +352,12 @@
                 <td>
                   <span x-show="stack.updates>0" class="pill pill-update" x-text="stack.updates + ' upd'"></span>
                   <span x-show="stack.errors>0" class="pill pill-error ml-1" x-text="stack.errors + ' err'"></span>
+                  <span x-show="stack.unknowns>0" class="pill pill-unknown ml-1" x-text="stack.unknowns + ' ?'"></span>
                 </td>
                 <td class="hidden lg:table-cell text-[var(--text-faint)] text-[12px]" x-text="stack.uptodate + '/' + stack.total + ' ok'"></td>
+                <td class="hidden md:table-cell"></td>
+                <td class="hidden md:table-cell"></td>
+                <td class="hidden xl:table-cell"></td>
                 <td class="hidden xl:table-cell"></td>
                 <td style="text-align:right;" @click.stop>
                   <button x-show="stack.updates>0 && stack.stack_id"
@@ -444,6 +455,9 @@
               <th style="width:90px;">Health</th>
               <th style="width:100px;" class="sortable" @click="sortBy('status')">Status <span x-text="sortIndicator('status')"></span></th>
               <th style="width:80px;" class="hidden lg:table-cell">Tasks</th>
+              <th style="width:90px;" class="hidden md:table-cell">CPU</th>
+              <th style="width:110px;" class="hidden md:table-cell">Memory</th>
+              <th style="width:90px;" class="hidden xl:table-cell">Disk</th>
               <th style="width:140px;" class="hidden xl:table-cell">Node</th>
               <th style="width:150px;text-align:right;">Action</th>
             </tr>
@@ -468,6 +482,27 @@
                 <td class="hidden lg:table-cell text-[12px] mono"
                     :class="(item.replicas && item.replicas.running < item.replicas.desired) ? 'text-[var(--warning)]' : 'text-[var(--text-dim)]'">
                   <span x-text="item.replicas ? (item.replicas.running + '/' + item.replicas.desired) : '—'"></span>
+                </td>
+                <td class="hidden md:table-cell">
+                  <div class="stat-bar" :style="`--w:${statsFor(item).cpu_percent}%; --c:${barColor(statsFor(item).cpu_percent)}`">
+                    <div class="fill"></div>
+                    <div class="label" x-text="statsFor(item).cpu_percent > 0 ? statsFor(item).cpu_percent.toFixed(statsFor(item).cpu_percent >= 10 ? 0 : 1) + '%' : '—'"></div>
+                  </div>
+                </td>
+                <td class="hidden md:table-cell">
+                  <div class="stat-bar" :style="`--w:${memPercent(item)}%; --c:${barColor(memPercent(item))}`">
+                    <div class="fill"></div>
+                    <div class="label" x-text="statsFor(item).mem_limit > 0 ? memPercent(item).toFixed(0) + '%' : '—'"></div>
+                  </div>
+                  <div class="stat-sub" x-show="statsFor(item).mem_limit > 0"
+                       x-text="fmtBytes(statsFor(item).mem_usage) + ' / ' + fmtBytes(statsFor(item).mem_limit)"></div>
+                </td>
+                <td class="hidden xl:table-cell">
+                  <div class="stat-bar" :style="`--w:${diskPercent(item)}%; --c:var(--info)`" x-show="statsFor(item).size_rw > 0">
+                    <div class="fill"></div>
+                    <div class="label" x-text="fmtBytes(statsFor(item).size_rw)"></div>
+                  </div>
+                  <span x-show="!statsFor(item).size_rw" class="text-[11px] text-[var(--text-faint)]">—</span>
                 </td>
                 <td class="hidden xl:table-cell text-[11.5px] text-[var(--text-faint)] truncate max-w-[140px]" x-text="nodeSummary(item) || '—'"></td>
                 <td style="text-align:right;" @click.stop>
@@ -776,10 +811,11 @@ function app() {
   return {
     items: [], stacks: [], nodes: {},
     history: [], ignores: [],
+    stats: {}, _statsTimer: null, _maxSize: 1,
     activeOps: [],
     view: (['stacks','services','history'].includes(localStorage.getItem('view')) ? localStorage.getItem('view') : 'stacks'),
     search: '', statusFilter: '', healthFilter: '',
-    sortField: 'status', sortDir: 'asc',
+    sortField: 'name', sortDir: 'asc',
     selected: [], expanded: [],
     loading: false,
     drawerItem: null,
@@ -816,7 +852,31 @@ function app() {
       await this.refresh();
       await this.loadHistory();
       this.pollOps();
+      this.pollStats();
       setInterval(() => this.updateCacheLabel(), 1000);
+    },
+
+    async loadStats(force=false) {
+      try {
+        const r = await fetch('/api/stats' + (force ? '?force=true' : ''));
+        if (!r.ok) return;
+        const d = await r.json();
+        this.stats = d.stats || {};
+        // Compute max container size for disk-bar normalization.
+        let m = 1;
+        for (const id in this.stats) {
+          if (this.stats[id].size_rw > m) m = this.stats[id].size_rw;
+        }
+        this._maxSize = m;
+      } catch (e) {}
+    },
+    pollStats() {
+      if (this._statsTimer) clearTimeout(this._statsTimer);
+      const tick = async () => {
+        await this.loadStats();
+        this._statsTimer = setTimeout(tick, 15000);
+      };
+      tick();
     },
 
     async refresh(force=false) {
@@ -829,6 +889,7 @@ function app() {
         this.stacks = d.stacks || [];
         this.nodes = d.nodes || {};
         this.cacheLabel = d.cached ? `cached ${d.age}s ago` : 'fresh';
+        if (force) this.loadStats(true);  // fire-and-forget, don't block UI
       } catch (e) { this.showToast('Load failed: ' + e.message, 'error'); }
       this.loading = false;
     },
@@ -1016,6 +1077,9 @@ function app() {
     isItemBusy(item) {
       if (!item) return false;
       if (this.busy[this._busyKey('ctn', item.raw_id)]) return true;
+      if (item.type === 'orphan') {
+        return this.activeOps.some(o => o.op_type === 'remove_container' && o.target_id === item.raw_id);
+      }
       if (item.stack_id) return this.isStackBusy({ stack_id: item.stack_id });
       if (item.type === 'container') {
         return this.activeOps.some(o => ['update_container','remove_container','restart_container'].includes(o.op_type) && o.target_id === item.raw_id);
@@ -1058,6 +1122,31 @@ function app() {
     },
 
     statusKey(s) { return (s || 'unknown').replace('up-to-date','ok'); },
+    statsFor(item) {
+      return (item && this.stats[item.id]) || { cpu_percent: 0, mem_usage: 0, mem_limit: 0, size_rw: 0 };
+    },
+    fmtBytes(n) {
+      if (!n || n <= 0) return '—';
+      const u = ['B','KB','MB','GB','TB'];
+      let i = 0;
+      while (n >= 1024 && i < u.length - 1) { n /= 1024; i++; }
+      return (n >= 10 ? n.toFixed(0) : n.toFixed(1)) + ' ' + u[i];
+    },
+    memPercent(item) {
+      const s = this.statsFor(item);
+      if (!s.mem_limit) return 0;
+      return Math.min(100, (s.mem_usage / s.mem_limit) * 100);
+    },
+    diskPercent(item) {
+      const s = this.statsFor(item);
+      if (!this._maxSize) return 0;
+      return Math.min(100, (s.size_rw / this._maxSize) * 100);
+    },
+    barColor(pct) {
+      if (pct > 85) return 'var(--danger)';
+      if (pct > 60) return 'var(--warning)';
+      return 'var(--success)';
+    },
     imageRepo(item) {
       if (!item || !item.image) return '';
       const img = item.image;
@@ -1078,6 +1167,7 @@ function app() {
     },
     canUpdate(item) {
       if (!item) return false;
+      if (item.type === 'orphan') return false;
       if (item.stack_id) return true;
       if (item.type === 'container') return true;
       return false;
