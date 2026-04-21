@@ -643,6 +643,29 @@ async def _do_update_container(op: Operation, container_id: str):
         _cache["ts"] = 0
 
 
+async def _do_restart_container(op: Operation, container_id: str):
+    try:
+        op.log("Restarting container")
+        async with httpx.AsyncClient(verify=VERIFY_TLS, timeout=120.0) as client:
+            r = await client.post(
+                f"{PORTAINER_URL}/api/endpoints/{PORTAINER_ENDPOINT_ID}/docker/"
+                f"containers/{container_id}/restart",
+                headers=_headers(),
+            )
+            if r.status_code >= 400:
+                raise RuntimeError(f"HTTP {r.status_code}: {r.text[:300]}")
+            op.log("Container restarted", "success")
+        op.done("success")
+        await notify(f"🔄 Container restarted: {op.target_name}", "", "success")
+    except Exception as e:
+        op.log(str(e), "error")
+        op.done("error", str(e))
+        await notify(f"❌ Container restart failed: {op.target_name}", str(e)[:500], "error")
+    finally:
+        persist_history(op)
+        _cache["ts"] = 0
+
+
 async def _do_remove_container(op: Operation, container_id: str):
     try:
         op.log("Removing container (force=true, v=true)")
@@ -753,6 +776,18 @@ async def api_restart_service(service_id: str, bg: BackgroundTasks):
             break
     op = new_op("restart_service", service_id, name)
     bg.add_task(_do_restart_service, op, service_id)
+    return {"op_id": op.id}
+
+
+@app.post("/api/restart/container/{container_id}")
+async def api_restart_container(container_id: str, bg: BackgroundTasks):
+    name = container_id[:12]
+    for it in _cache["items"]:
+        if it["raw_id"].startswith(container_id) or container_id.startswith(it["raw_id"]):
+            name = it["name"]
+            break
+    op = new_op("restart_container", container_id, name)
+    bg.add_task(_do_restart_container, op, container_id)
     return {"op_id": op.id}
 
 

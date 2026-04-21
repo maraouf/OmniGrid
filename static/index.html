@@ -297,6 +297,10 @@
         <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M13 2 3 14h9l-1 8 10-12h-9l1-8z"/></svg>
         Update (<span x-text="selectionUpdatable().length"></span>)
       </button>
+      <button x-show="selectionRestartable().length > 0" @click="bulkRestart()" class="btn btn-soft text-[12px]">
+        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M3 12a9 9 0 0 1 15.5-6.36L22 8"/><path d="M22 3v5h-5"/><path d="M22 12a9 9 0 0 1-15.5 6.36L3 16"/><path d="M2 21v-5h5"/></svg>
+        Restart (<span x-text="selectionRestartable().length"></span>)
+      </button>
       <button x-show="selectionRemovable().length > 0" @click="bulkRemove()" class="btn btn-danger-outline text-[12px]">
         <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m3 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6h14z"/></svg>
         Remove (<span x-text="selectionRemovable().length"></span>)
@@ -389,6 +393,16 @@
                               class="btn btn-warning text-[11px]">
                         <template x-if="isItemBusy(item)"><span class="flex items-center gap-1"><span class="spin"></span>…</span></template>
                         <template x-if="!isItemBusy(item)"><span x-text="actionLabel(item)"></span></template>
+                      </button>
+                      <button x-show="isRestartable(item)"
+                              @click="restartItem(item)"
+                              :disabled="isRestartBusy(item)"
+                              class="btn btn-soft text-[11px]"
+                              title="Restart (force)">
+                        <template x-if="isRestartBusy(item)"><span class="spin"></span></template>
+                        <template x-if="!isRestartBusy(item)">
+                          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M3 12a9 9 0 0 1 15.5-6.36L22 8"/><path d="M22 3v5h-5"/><path d="M22 12a9 9 0 0 1-15.5 6.36L3 16"/><path d="M2 21v-5h5"/></svg>
+                        </template>
                       </button>
                       <button x-show="item.removable"
                               @click="removeContainer(item)"
@@ -594,12 +608,12 @@
               ⚠ This service has no associated Portainer stack (external / CLI-deployed).
             </div>
             <div class="grid grid-cols-2 gap-2">
-              <button x-show="drawerItem.type==='service'"
-                      @click="restartService(drawerItem)"
-                      :disabled="isServiceBusy(drawerItem)"
+              <button x-show="isRestartable(drawerItem)"
+                      @click="restartItem(drawerItem)"
+                      :disabled="isRestartBusy(drawerItem)"
                       class="btn btn-soft justify-center text-[12px]">
-                <template x-if="isServiceBusy(drawerItem)"><span class="flex items-center gap-1.5"><span class="spin"></span>Restarting…</span></template>
-                <template x-if="!isServiceBusy(drawerItem)"><span>🔄 Restart</span></template>
+                <template x-if="isRestartBusy(drawerItem)"><span class="flex items-center gap-1.5"><span class="spin"></span>Restarting…</span></template>
+                <template x-if="!isRestartBusy(drawerItem)"><span>🔄 Restart</span></template>
               </button>
               <button x-show="drawerItem.removable"
                       @click="removeContainer(drawerItem)"
@@ -763,7 +777,7 @@ function app() {
     items: [], stacks: [], nodes: {},
     history: [], ignores: [],
     activeOps: [],
-    view: 'stacks',
+    view: (['stacks','services','history'].includes(localStorage.getItem('view')) ? localStorage.getItem('view') : 'stacks'),
     search: '', statusFilter: '', healthFilter: '',
     sortField: 'status', sortDir: 'asc',
     selected: [], expanded: [],
@@ -787,6 +801,7 @@ function app() {
         mq.addEventListener ? mq.addEventListener('change', onSys) : mq.addListener(onSys);
       }
       this.applyTheme();
+      this.$watch('view', v => localStorage.setItem('view', v));
       window.addEventListener('keydown', (e) => {
         const inField = ['INPUT','TEXTAREA','SELECT'].includes(document.activeElement?.tagName);
         if (e.key === '/' && !inField) { e.preventDefault(); this.$refs.searchBox?.focus(); }
@@ -1003,7 +1018,7 @@ function app() {
       if (this.busy[this._busyKey('ctn', item.raw_id)]) return true;
       if (item.stack_id) return this.isStackBusy({ stack_id: item.stack_id });
       if (item.type === 'container') {
-        return this.activeOps.some(o => ['update_container','remove_container'].includes(o.op_type) && o.target_id === item.raw_id);
+        return this.activeOps.some(o => ['update_container','remove_container','restart_container'].includes(o.op_type) && o.target_id === item.raw_id);
       }
       return false;
     },
@@ -1011,6 +1026,11 @@ function app() {
       if (!item) return false;
       if (this.busy[this._busyKey('svc', item.raw_id)]) return true;
       return this.activeOps.some(o => o.op_type === 'restart_service' && o.target_id === item.raw_id);
+    },
+    isRestartBusy(item) {
+      if (!item) return false;
+      if (item.type === 'service') return this.isServiceBusy(item);
+      return this.isItemBusy(item);
     },
     _busyTimers: {},
     _markBusy(key) {
@@ -1032,7 +1052,7 @@ function app() {
     _opBusyKey(op) {
       if (!op) return null;
       if (op.op_type === 'update_stack') return this._busyKey('stack', op.target_id);
-      if (op.op_type === 'update_container' || op.op_type === 'remove_container') return this._busyKey('ctn', op.target_id);
+      if (['update_container','remove_container','restart_container'].includes(op.op_type)) return this._busyKey('ctn', op.target_id);
       if (op.op_type === 'restart_service') return this._busyKey('svc', op.target_id);
       return null;
     },
@@ -1069,10 +1089,14 @@ function app() {
       return 'No stack';
     },
     isSelectable(item) {
-      // Selectable if updatable OR removable
+      // Selectable if updatable, restartable (service/container), or removable.
       if (item.status === 'update' && this.canUpdate(item)) return true;
       if (item.removable) return true;
+      if (item.type === 'service' || item.type === 'container') return true;
       return false;
+    },
+    isRestartable(item) {
+      return item && (item.type === 'service' || item.type === 'container');
     },
     portainerDeepLink(x) {
       const base = (this.settings.portainer_public_url || '').replace(/\/$/,'');
@@ -1106,11 +1130,16 @@ function app() {
     selectionRemovable() {
       return this.items.filter(i => this.selected.includes(i.id) && i.removable);
     },
+    selectionRestartable() {
+      return this.items.filter(i => this.selected.includes(i.id) && this.isRestartable(i));
+    },
     selectionSummary() {
       const upd = this.selectionUpdatable().length;
+      const rst = this.selectionRestartable().length;
       const rem = this.selectionRemovable().length;
       const parts = [];
       if (upd) parts.push(`${upd} updatable`);
+      if (rst) parts.push(`${rst} restartable`);
       if (rem) parts.push(`${rem} removable`);
       return parts.length ? parts.join(' · ') : '';
     },
@@ -1200,19 +1229,28 @@ function app() {
         this.showToast('Failed: ' + e.message, 'error');
       }
     },
-    async restartService(item) {
-      if (this.isServiceBusy(item)) return;
+    async restartService(item) { return this.restartItem(item); },
+    async restartItem(item) {
+      if (!this.isRestartable(item)) return;
+      if (this.isRestartBusy(item)) return;
+      const isService = item.type === 'service';
+      const body = isService
+        ? `<code>${item.name}</code><div style="margin-top:12px;">Force an update with the same image — running tasks will be replaced. No image pull.</div>`
+        : `<code>${item.name}</code><div style="margin-top:12px;">Restart this container (stop + start).</div>`;
       const ok = await this.confirmDialog({
-        title: 'Restart service',
-        html: `<code>${item.name}</code><div style="margin-top:12px;">Force an update with the same image — running tasks will be replaced. No image pull.</div>`,
+        title: isService ? 'Restart service' : 'Restart container',
+        html: body,
         icon: 'question', confirmText: 'Restart', confirmColor: this._cssVar('--primary'),
       });
       if (!ok) return;
-      if (this.isServiceBusy(item)) return;
-      const key = this._busyKey('svc', item.raw_id);
+      if (this.isRestartBusy(item)) return;
+      const key = isService ? this._busyKey('svc', item.raw_id) : this._busyKey('ctn', item.raw_id);
+      const url = isService
+        ? `/api/restart/service/${item.raw_id}`
+        : `/api/restart/container/${item.raw_id}`;
       this._markBusy(key);
       try {
-        const r = await fetch(`/api/restart/service/${item.raw_id}`, { method: 'POST' });
+        const r = await fetch(url, { method: 'POST' });
         if (!r.ok) throw new Error(await r.text());
         this.showToast(`Restart queued: ${item.name}`);
         this.drawerItem = null;
@@ -1221,6 +1259,32 @@ function app() {
         this._clearBusy(key);
         this.showToast('Failed: ' + e.message, 'error');
       }
+    },
+    async bulkRestart() {
+      const picked = this.selectionRestartable().filter(i => !this.isRestartBusy(i));
+      if (picked.length === 0) { this.showToast('Nothing restartable', 'error'); return; }
+      const ok = await this.confirmDialog({
+        title: `Restart ${picked.length} target${picked.length>1?'s':''}?`,
+        html: `<div>Force-restart the following:</div><ul>${picked.slice(0,8).map(i => `<li><code>${i.name}</code> <span style="color:var(--text-faint);font-size:11px;">· ${i.type}</span></li>`).join('')}${picked.length>8 ? `<li style="color:var(--text-faint)">…and ${picked.length-8} more</li>`:''}</ul>`,
+        icon: 'question', confirmText: 'Restart all', confirmColor: this._cssVar('--primary'),
+      });
+      if (!ok) return;
+      let okCount = 0, fail = 0;
+      for (const i of picked) {
+        const isService = i.type === 'service';
+        const key = isService ? this._busyKey('svc', i.raw_id) : this._busyKey('ctn', i.raw_id);
+        if (this.busy[key]) continue;
+        this._markBusy(key);
+        try {
+          const url = isService ? `/api/restart/service/${i.raw_id}` : `/api/restart/container/${i.raw_id}`;
+          const r = await fetch(url, { method: 'POST' });
+          if (r.ok) okCount++;
+          else { fail++; this._clearBusy(key); }
+        } catch (e) { fail++; this._clearBusy(key); }
+      }
+      this.selected = [];
+      this.pollOpsNow();
+      this.showToast(`Restart: ${okCount} queued, ${fail} failed`, fail ? 'error' : 'success');
     },
     async removeContainer(item) {
       if (this.isItemBusy(item)) return;
