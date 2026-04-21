@@ -27,7 +27,7 @@
 
   <!-- ================== TOPBAR ================== -->
   <header class="sticky top-0 z-30 bg-[var(--surface)]/95 backdrop-blur border-b border-[var(--border)]">
-    <div class="flex items-center gap-4 px-5 py-2.5 max-w-[1600px] mx-auto">
+    <div class="flex items-center gap-4 px-5 py-2.5 max-w-full mx-auto">
       <div class="flex items-center gap-2 pr-4 mr-1 border-r border-[var(--border)]">
         <div class="app-logo">
           <svg width="16" height="16" viewBox="0 0 32 32" fill="none">
@@ -81,7 +81,7 @@
     </div>
 
     <!-- FILTER BAR -->
-    <div x-show="view!=='history'" class="px-5 pb-3 max-w-[1600px] mx-auto w-full flex items-center gap-2 flex-wrap">
+    <div x-show="view!=='history'" class="px-5 pb-3 max-w-full mx-auto w-full flex items-center gap-2 flex-wrap">
       <div class="flex items-center gap-1.5 flex-wrap">
         <button @click="healthFilter='';statusFilter=''"
                 :class="(!healthFilter && !statusFilter) ? 'active' : ''"
@@ -137,7 +137,7 @@
   </header>
 
   <!-- ================== MAIN ================== -->
-  <main class="flex-1 px-5 py-4 max-w-[1600px] mx-auto w-full">
+  <main class="flex-1 px-5 py-4 max-w-full mx-auto w-full">
 
     <!-- BULK BAR -->
     <div x-show="selected.length>0"
@@ -177,6 +177,7 @@
               <th class="col-cpu hidden md:table-cell">CPU</th>
               <th class="col-mem hidden md:table-cell">Memory</th>
               <th class="col-disk hidden xl:table-cell">Disk</th>
+              <th class="col-uptime hidden lg:table-cell">Uptime</th>
               <th class="col-node hidden xl:table-cell">Node</th>
               <th class="col-action">Action</th>
             </tr>
@@ -207,6 +208,7 @@
                 <td class="hidden md:table-cell"></td>
                 <td class="hidden md:table-cell"></td>
                 <td class="hidden xl:table-cell"></td>
+                <td class="hidden lg:table-cell"></td>
                 <td class="hidden xl:table-cell"></td>
                 <td class="align-right" @click.stop>
                   <button x-show="stack.updates>0 && stack.stack_id"
@@ -244,6 +246,43 @@
                       :class="(item.replicas && item.replicas.running < item.replicas.desired) ? 'text-[var(--warning)]' : 'text-[var(--text-dim)]'">
                     <span x-text="item.replicas ? (item.replicas.running + '/' + item.replicas.desired) : '—'"></span>
                   </td>
+                  <td class="hidden md:table-cell stat-cell">
+                    <template x-if="statsFor(item).has_stats">
+                      <div class="stat-bar" :style="`--w:${statsFor(item).cpu_percent}%; --c:${barColor(statsFor(item).cpu_percent)}`">
+                        <div class="fill"></div>
+                        <div class="label" x-text="statsFor(item).cpu_percent >= 10 ? statsFor(item).cpu_percent.toFixed(0) + '%' : statsFor(item).cpu_percent.toFixed(1) + '%'"></div>
+                      </div>
+                    </template>
+                    <template x-if="!statsFor(item).has_stats">
+                      <span class="text-[11px] text-faint">—</span>
+                    </template>
+                  </td>
+                  <td class="hidden md:table-cell stat-cell">
+                    <template x-if="statsFor(item).has_stats">
+                      <div>
+                        <div class="stat-bar" :style="`--w:${memPercent(item)}%; --c:${barColor(memPercent(item))}`">
+                          <div class="fill"></div>
+                          <div class="label" x-text="memPercent(item).toFixed(0) + '%'"></div>
+                        </div>
+                        <div class="stat-sub" x-text="fmtBytes(statsFor(item).mem_usage) + ' / ' + fmtBytes(statsFor(item).mem_limit)"></div>
+                      </div>
+                    </template>
+                    <template x-if="!statsFor(item).has_stats">
+                      <span class="text-[11px] text-faint">—</span>
+                    </template>
+                  </td>
+                  <td class="hidden xl:table-cell stat-cell">
+                    <template x-if="statsFor(item).has_size">
+                      <div class="stat-bar" :style="`--w:${diskPercent(item)}%; --c:var(--info)`">
+                        <div class="fill"></div>
+                        <div class="label" x-text="fmtBytes(statsFor(item).size_root)"></div>
+                      </div>
+                    </template>
+                    <template x-if="!statsFor(item).has_size">
+                      <span class="text-[11px] text-faint">—</span>
+                    </template>
+                  </td>
+                  <td class="hidden lg:table-cell text-[11.5px] mono text-dim" x-text="fmtAgo(uptimeFor(item))"></td>
                   <td class="hidden xl:table-cell text-[11.5px] text-[var(--text-faint)] truncate max-w-[140px]" x-text="nodeSummary(item) || '—'"></td>
                   <td class="align-right" @click.stop>
                     <div class="flex items-center justify-end gap-1.5">
@@ -307,6 +346,7 @@
               <th class="col-cpu hidden md:table-cell">CPU</th>
               <th class="col-mem hidden md:table-cell">Memory</th>
               <th class="col-disk hidden xl:table-cell">Disk</th>
+              <th class="col-uptime hidden lg:table-cell">Uptime</th>
               <th class="col-node hidden xl:table-cell">Node</th>
               <th class="col-action">Action</th>
             </tr>
@@ -368,6 +408,7 @@
                     <span class="text-[11px] text-[var(--text-faint)]">—</span>
                   </template>
                 </td>
+                <td class="hidden lg:table-cell text-[11.5px] mono text-dim" x-text="fmtAgo(uptimeFor(item))"></td>
                 <td class="hidden xl:table-cell text-[11.5px] text-[var(--text-faint)] truncate max-w-[140px]" x-text="nodeSummary(item) || '—'"></td>
                 <td class="align-right" @click.stop>
                   <div class="flex items-center justify-end gap-1.5">
@@ -1026,6 +1067,29 @@ function app() {
     nodeSummary(item) {
       const ns = (item.placements || []).map(p => p.node).filter(n => n && n !== '?');
       return [...new Set(ns)].join(', ');
+    },
+    uptimeFor(item) {
+      // Services: Swarm reports ISO-8601 `updated` — last spec change, a good
+      // proxy for "running since". Containers: Unix seconds `created`.
+      if (!item) return null;
+      const raw = item.type === 'service' ? item.updated : item.created;
+      if (raw == null || raw === '') return null;
+      const ms = typeof raw === 'number' ? raw * 1000 : Date.parse(raw);
+      return isNaN(ms) ? null : ms;
+    },
+    fmtAgo(ms) {
+      if (ms == null) return '—';
+      const sec = Math.max(0, Math.floor((Date.now() - ms) / 1000));
+      if (sec < 60) return sec + 's';
+      if (sec < 3600) return Math.floor(sec / 60) + 'm';
+      if (sec < 86400) {
+        const h = Math.floor(sec / 3600);
+        const m = Math.floor((sec % 3600) / 60);
+        return m > 0 ? `${h}h ${m}m` : `${h}h`;
+      }
+      const d = Math.floor(sec / 86400);
+      const h = Math.floor((sec % 86400) / 3600);
+      return h > 0 ? `${d}d ${h}h` : `${d}d`;
     },
     itemSubline(item) {
       const bits = [];

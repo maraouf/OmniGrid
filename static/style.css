@@ -94,6 +94,7 @@
   --col-health: 90px;
   --col-status: 100px;
   --col-tasks: 80px;
+  --col-uptime: 90px;
   --col-cpu: 90px;
   --col-mem: 110px;
   --col-disk: 90px;
@@ -473,10 +474,6 @@ details summary::-webkit-details-marker { display: none; }
   border-collapse: separate;
   border-spacing: 0;
   font-size: 13px;
-  /* Fixed layout: every column with an explicit width gets exactly that much,
-     every column with width:auto (Resource) absorbs the remainder. No more
-     guessing how the browser will distribute leftover space. */
-  table-layout: fixed;
 }
 .ptable thead th {
   position: sticky;
@@ -534,17 +531,18 @@ details summary::-webkit-details-marker { display: none; }
 .col-health   { width: var(--col-health); }
 .col-status   { width: var(--col-status); }
 .col-tasks    { width: var(--col-tasks); }
+.col-uptime   { width: var(--col-uptime); }
 .col-cpu      { width: var(--col-cpu); }
 .col-mem      { width: var(--col-mem); }
 .col-disk     { width: var(--col-disk); }
 .col-node     { width: var(--col-node); }
 .col-action   { width: var(--col-action); text-align: right; }
-/* Grow column — in fixed table layout, width:auto on a cell tells the browser
-   "give me whatever's left after the fixed-width columns are satisfied". */
-.col-grow     { width: auto; }
-/* Image column — fixed width so very long registry paths truncate with
-   ellipsis instead of pushing other columns off-screen. */
-.col-image    { width: 280px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Grow column — in HTML table auto-layout, width:100% on a single cell asks
+   the browser to absorb whatever's left after content-sized siblings. */
+.col-grow     { width: 100%; }
+/* Image column — soft cap: short image names stay compact, very long registry
+   paths truncate with ellipsis via an inner wrapper (see col-image > span). */
+.col-image    { max-width: 360px; }
 
 /* ---------------------------------------------------------------------------
    Text helpers that bind to theme variables
