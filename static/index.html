@@ -96,8 +96,18 @@
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/></svg>
           </template>
           <template x-if="themePref==='auto'">
-            <!-- Half-sun / half-moon: explicit "follow OS" glyph. -->
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 3a9 9 0 0 0 0 18 9 9 0 0 0 0-18z M12 3v18" fill="currentColor"/></svg>
+            <!-- Lucide "sun-moon": sun rays surrounding a crescent, i.e. "follow system". -->
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M12 8a2.83 2.83 0 0 0 4 4 4 4 0 1 1-4-4"/>
+              <path d="M12 2v2"/>
+              <path d="M12 20v2"/>
+              <path d="m4.9 4.9 1.4 1.4"/>
+              <path d="m17.7 17.7 1.4 1.4"/>
+              <path d="M2 12h2"/>
+              <path d="M20 12h2"/>
+              <path d="m6.3 17.7-1.4 1.4"/>
+              <path d="m19.1 4.9-1.4 1.4"/>
+            </svg>
           </template>
         </button>
         <button @click="showSettings=true" class="btn btn-soft" title="Settings">
