@@ -872,30 +872,43 @@ async def _gather_stats():
             mem_usage = 0
             mem_limit = 0
             size_rw = 0
+            has_stats = False
+            has_size = False
             if item.get("type") == "service":
                 sid = item["raw_id"]
                 for cid, owner in svc_by_cid.items():
                     if owner != sid:
                         continue
-                    size_rw += size_by_cid.get(cid, 0)
+                    if cid in size_by_cid:
+                        size_rw += size_by_cid[cid]
+                        has_size = True
                     st = stats_by_cid.get(cid)
                     if st:
                         cpu += st["cpu_percent"]
                         mem_usage += st["mem_usage"]
-                        mem_limit = max(mem_limit, st["mem_limit"])
+                        # Sum limits across replicas — 3 replicas at 1 GB each
+                        # mean the service's effective limit is 3 GB. Without
+                        # this, a perfectly-utilised service could exceed 100%.
+                        mem_limit += st["mem_limit"]
+                        has_stats = True
             else:
                 cid = item["raw_id"]
-                size_rw = size_by_cid.get(cid, 0)
+                if cid in size_by_cid:
+                    size_rw = size_by_cid[cid]
+                    has_size = True
                 st = stats_by_cid.get(cid)
                 if st:
                     cpu = st["cpu_percent"]
                     mem_usage = st["mem_usage"]
                     mem_limit = st["mem_limit"]
+                    has_stats = True
             out[item["id"]] = {
                 "cpu_percent": round(cpu, 1),
                 "mem_usage": int(mem_usage),
                 "mem_limit": int(mem_limit),
                 "size_rw": int(size_rw),
+                "has_stats": has_stats,
+                "has_size": has_size,
             }
         _stats_cache["stats"] = out
         _stats_cache["ts"] = time.time()

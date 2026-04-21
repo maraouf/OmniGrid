@@ -16,161 +16,10 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
-<script src="https://cdn.tailwindcss.com"></script>
-<script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
-<style>
-  :root, :root[data-theme="dark"] {
-    --bg:#070b13; --surface:#0d1420; --surface-2:#131c2b; --surface-3:#1b2538;
-    --border:#1e293b; --border-bright:#283449;
-    --text:#e2e8f0; --text-dim:#94a3b8; --text-faint:#64748b;
-    --text-on-primary:#ffffff;
-    --primary:#3b82f6; --primary-hov:#2563eb; --primary-soft:rgba(59,130,246,.12);
-    --success:#22c55e; --warning:#f59e0b; --danger:#ef4444; --info:#6366f1;
-    --pill-update-bg:rgba(245,158,11,.12); --pill-update-br:rgba(245,158,11,.25); --pill-update-fg:#fbbf24;
-    --pill-ok-bg:rgba(34,197,94,.10); --pill-ok-br:rgba(34,197,94,.22); --pill-ok-fg:#4ade80;
-    --pill-error-bg:rgba(239,68,68,.12); --pill-error-br:rgba(239,68,68,.25); --pill-error-fg:#f87171;
-    --pill-unknown-bg:rgba(148,163,184,.10); --pill-unknown-br:rgba(148,163,184,.20); --pill-unknown-fg:#94a3b8;
-    --pill-ignored-bg:rgba(100,116,139,.10); --pill-ignored-br:rgba(100,116,139,.20); --pill-ignored-fg:#64748b;
-    --pill-offline-bg:rgba(100,116,139,.12); --pill-offline-br:rgba(100,116,139,.25); --pill-offline-fg:#94a3b8;
-    --pill-degraded-bg:rgba(245,158,11,.12); --pill-degraded-br:rgba(245,158,11,.25); --pill-degraded-fg:#fbbf24;
-    --pill-healthy-bg:rgba(34,197,94,.10); --pill-healthy-br:rgba(34,197,94,.22); --pill-healthy-fg:#4ade80;
-    --backdrop:rgba(0,0,0,.55);
-    --backdrop-strong:rgba(0,0,0,.75);
-    --row-hover:rgba(255,255,255,.03);
-  }
-  :root[data-theme="light"] {
-    --bg:#f8fafc; --surface:#ffffff; --surface-2:#f1f5f9; --surface-3:#e2e8f0;
-    --border:#e2e8f0; --border-bright:#cbd5e1;
-    --text:#0f172a; --text-dim:#475569; --text-faint:#64748b;
-    --text-on-primary:#ffffff;
-    --primary:#2563eb; --primary-hov:#1d4ed8; --primary-soft:rgba(37,99,235,.08);
-    --success:#16a34a; --warning:#d97706; --danger:#dc2626; --info:#4f46e5;
-    --pill-update-bg:rgba(217,119,6,.10); --pill-update-br:rgba(217,119,6,.30); --pill-update-fg:#b45309;
-    --pill-ok-bg:rgba(22,163,74,.08); --pill-ok-br:rgba(22,163,74,.30); --pill-ok-fg:#15803d;
-    --pill-error-bg:rgba(220,38,38,.08); --pill-error-br:rgba(220,38,38,.30); --pill-error-fg:#b91c1c;
-    --pill-unknown-bg:rgba(100,116,139,.08); --pill-unknown-br:rgba(100,116,139,.25); --pill-unknown-fg:#475569;
-    --pill-ignored-bg:rgba(100,116,139,.06); --pill-ignored-br:rgba(100,116,139,.20); --pill-ignored-fg:#64748b;
-    --pill-offline-bg:rgba(100,116,139,.08); --pill-offline-br:rgba(100,116,139,.25); --pill-offline-fg:#475569;
-    --pill-degraded-bg:rgba(217,119,6,.10); --pill-degraded-br:rgba(217,119,6,.30); --pill-degraded-fg:#b45309;
-    --pill-healthy-bg:rgba(22,163,74,.08); --pill-healthy-br:rgba(22,163,74,.30); --pill-healthy-fg:#15803d;
-    --backdrop:rgba(15,23,42,.40);
-    --backdrop-strong:rgba(15,23,42,.60);
-    --row-hover:rgba(15,23,42,.03);
-  }
-  html,body{
-    background:var(--bg);color:var(--text);
-    font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
-    font-feature-settings:'cv02','cv03','cv04','cv11';
-    -webkit-font-smoothing:antialiased;
-  }
-  .mono{font-family:'JetBrains Mono',ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-feature-settings:'zero';}
-  .scrollbar::-webkit-scrollbar{width:8px;height:8px;}
-  .scrollbar::-webkit-scrollbar-track{background:transparent;}
-  .scrollbar::-webkit-scrollbar-thumb{background:var(--border-bright);border-radius:4px;}
-  input,select,button{font-family:inherit;}
-  input[type="text"],input[type="url"],input[type="search"],select{
-    background:var(--surface-2);border:1px solid var(--border);color:var(--text);
-    padding:7px 11px;border-radius:6px;outline:none;font-size:13px;
-    transition:border-color .15s, background .15s;
-  }
-  input[type="search"]{padding:8px 12px 8px 36px;}
-  input:focus,select:focus{border-color:var(--primary);background:var(--surface);}
-  .btn{padding:6px 12px;border-radius:6px;font-weight:500;font-size:13px;display:inline-flex;align-items:center;gap:6px;transition:all .15s;white-space:nowrap;border:1px solid transparent;}
-  .btn-primary{background:var(--primary);color:var(--text-on-primary);} .btn-primary:hover{background:var(--primary-hov);}
-  .btn-warning{background:var(--warning);color:#1a0e00;} .btn-warning:hover{filter:brightness(1.08);}
-  .btn-ghost{background:transparent;color:var(--text-dim);border-color:var(--border);}
-  .btn-ghost:hover{background:var(--surface-2);color:var(--text);}
-  .btn-soft{background:var(--surface-2);color:var(--text);border-color:var(--border);}
-  .btn-soft:hover{background:var(--surface-3);}
-  .btn-danger{background:var(--danger);color:var(--text-on-primary);} .btn-danger:hover{filter:brightness(1.08);}
-  .btn-danger-outline{background:transparent;color:var(--danger);border-color:var(--danger);}
-  .btn-danger-outline:hover{background:var(--danger);color:var(--text-on-primary);}
-  .btn:disabled{opacity:.45;cursor:not-allowed;}
-  .btn .spin{width:11px;height:11px;border-radius:999px;border:2px solid currentColor;border-top-color:transparent;animation:spin .7s linear infinite;display:inline-block;}
-  @keyframes spin{to{transform:rotate(360deg);}}
-
-  .pill{padding:2px 7px;border-radius:4px;font-size:10.5px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;display:inline-flex;align-items:center;gap:4px;line-height:1.5;border:1px solid;white-space:nowrap;}
-  .pill-update{background:var(--pill-update-bg);color:var(--pill-update-fg);border-color:var(--pill-update-br);}
-  .pill-ok{background:var(--pill-ok-bg);color:var(--pill-ok-fg);border-color:var(--pill-ok-br);}
-  .pill-error{background:var(--pill-error-bg);color:var(--pill-error-fg);border-color:var(--pill-error-br);}
-  .pill-unknown{background:var(--pill-unknown-bg);color:var(--pill-unknown-fg);border-color:var(--pill-unknown-br);}
-  .pill-ignored{background:var(--pill-ignored-bg);color:var(--pill-ignored-fg);border-color:var(--pill-ignored-br);}
-  .pill-healthy{background:var(--pill-healthy-bg);color:var(--pill-healthy-fg);border-color:var(--pill-healthy-br);}
-  .pill-degraded{background:var(--pill-degraded-bg);color:var(--pill-degraded-fg);border-color:var(--pill-degraded-br);}
-  .pill-offline{background:var(--pill-offline-bg);color:var(--pill-offline-fg);border-color:var(--pill-offline-br);}
-
-  .dot{width:7px;height:7px;border-radius:999px;display:inline-block;flex-shrink:0;}
-  .dot-update{background:var(--warning);}
-  .dot-ok{background:var(--success);}
-  .dot-error{background:var(--danger);}
-  .dot-unknown{background:var(--text-faint);}
-  .dot-ignored{background:var(--text-faint);opacity:.5;}
-  .dot-healthy{background:var(--success);}
-  .dot-degraded{background:var(--warning);}
-  .dot-offline{background:var(--text-faint);opacity:.6;}
-
-  .chip{background:var(--surface-2);padding:2px 6px;border-radius:4px;font-size:11px;color:var(--text-dim);border:1px solid var(--border);}
-
-  .filter-chip{padding:5px 12px;border-radius:999px;font-size:12px;font-weight:500;transition:all .15s;cursor:pointer;border:1px solid var(--border);background:transparent;color:var(--text-dim);white-space:nowrap;}
-  .filter-chip:hover{color:var(--text);background:var(--surface-2);}
-  .filter-chip.active{background:var(--surface-3);color:var(--text);border-color:var(--border-bright);}
-  .filter-chip .count{margin-left:4px;font-size:10.5px;color:var(--text-faint);font-weight:600;}
-  .filter-chip.active .count{color:var(--text-dim);}
-
-  [x-cloak]{display:none !important;}
-  details summary{list-style:none;cursor:pointer;}
-  details summary::-webkit-details-marker{display:none;}
-  .slide-in{animation:slideIn .2s ease-out;}
-  @keyframes slideIn{from{transform:translateX(100%);}to{transform:translateX(0);}}
-  .fade-in{animation:fadeIn .2s ease-out;}
-  @keyframes fadeIn{from{opacity:0;}to{opacity:1;}}
-  .glow{box-shadow:0 0 0 1px var(--primary),0 0 18px color-mix(in srgb, var(--primary) 20%, transparent);}
-  @keyframes pulse{0%,100%{opacity:1;}50%{opacity:.35;}}
-  .stat-bar{position:relative;height:16px;min-width:70px;background:var(--surface-3);border-radius:3px;overflow:hidden;border:1px solid var(--border);}
-  .stat-bar > .fill{position:absolute;inset:0;width:var(--w,0%);background:var(--c,var(--success));transition:width .25s ease,background .25s ease;}
-  .stat-bar > .label{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:10.5px;font-weight:600;color:var(--text);text-shadow:0 1px 1px rgba(0,0,0,.4);white-space:nowrap;padding:0 4px;}
-  .stat-sub{font-size:10px;color:var(--text-faint);line-height:1;margin-top:2px;}
-
-  /* Dense grouped table */
-  .ptable{width:100%;border-collapse:separate;border-spacing:0;font-size:13px;}
-  .ptable thead th{
-    position:sticky;top:0;z-index:2;background:var(--surface);
-    text-align:left;font-size:10.5px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;
-    color:var(--text-faint);padding:10px 12px;border-bottom:1px solid var(--border);
-    white-space:nowrap;
-  }
-  .ptable thead th.sortable{cursor:pointer;user-select:none;}
-  .ptable thead th.sortable:hover{color:var(--text-dim);}
-  .ptable td{padding:9px 12px;border-bottom:1px solid var(--border);vertical-align:middle;}
-  .ptable tr.group-row td{
-    background:var(--surface-2);font-weight:600;cursor:pointer;
-    border-top:1px solid var(--border);
-  }
-  .ptable tr.group-row:hover td{background:var(--surface-3);}
-  .ptable tr.item-row td{background:var(--surface);}
-  .ptable tr.item-row:hover td{background:var(--row-hover);}
-  .ptable tr.item-row.sel td{background:var(--primary-soft);}
-  .ptable .chev{display:inline-block;width:10px;color:var(--text-faint);transition:transform .15s;font-size:10px;}
-  .ptable .chev.open{transform:rotate(90deg);}
-
-  /* SweetAlert2 themed via CSS vars */
-  .swal2-popup{background:var(--surface) !important;color:var(--text) !important;border:1px solid var(--border);border-radius:10px !important;font-family:inherit !important;}
-  .swal2-title{color:var(--text) !important;font-weight:600 !important;}
-  .swal2-html-container{color:var(--text-dim) !important;font-size:13px !important;}
-  .swal2-html-container ul{text-align:left;display:inline-block;margin-top:8px;padding-left:0;list-style:none;}
-  .swal2-html-container li{padding:3px 0;color:var(--text);}
-  .swal2-html-container li::before{content:"• ";color:var(--primary);margin-right:6px;font-weight:bold;}
-  .swal2-html-container code{background:var(--surface-2);padding:1px 6px;border-radius:4px;color:var(--warning);font-family:'JetBrains Mono',monospace;font-size:12px;}
-  .swal2-confirm,.swal2-cancel{border-radius:6px !important;padding:8px 18px !important;font-weight:500 !important;box-shadow:none !important;font-size:13px !important;}
-  .swal2-icon{border-color:currentColor !important;}
-  .swal2-icon.swal2-warning{color:var(--warning) !important;border-color:var(--warning) !important;}
-  .swal2-icon.swal2-question{color:var(--primary) !important;border-color:var(--primary) !important;}
-  .swal2-icon.swal2-info{color:var(--primary) !important;border-color:var(--primary) !important;}
-  .swal2-icon.swal2-error{color:var(--danger) !important;border-color:var(--danger) !important;}
-  .swal2-icon .swal2-icon-content{color:inherit !important;}
-  .swal2-backdrop-show{backdrop-filter:blur(3px);}
-</style>
+<script src="vendor/tailwind.min.js"></script>
+<script defer src="vendor/alpine.min.js"></script>
+<script src="vendor/sweetalert2.all.min.js"></script>
+<link rel="stylesheet" href="style.css">
 </head>
 <body class="min-h-screen">
 
@@ -180,7 +29,7 @@
   <header class="sticky top-0 z-30 bg-[var(--surface)]/95 backdrop-blur border-b border-[var(--border)]">
     <div class="flex items-center gap-4 px-5 py-2.5 max-w-[1920px] mx-auto">
       <div class="flex items-center gap-2 pr-4 mr-1 border-r border-[var(--border)]">
-        <div class="w-7 h-7 rounded-md flex items-center justify-center" style="background:var(--primary);color:white;font-weight:700;">
+        <div class="app-logo">
           <svg width="16" height="16" viewBox="0 0 32 32" fill="none">
             <rect x="7" y="11" width="18" height="14" rx="2" stroke="white" stroke-width="2.2" fill="none"/>
             <path d="M16 4 L16 15 M11 10 L16 15 L21 10" stroke="white" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
@@ -279,7 +128,7 @@
 
       <div class="text-[11px] text-[var(--text-faint)] flex items-center gap-3">
         <span x-show="activeOps.length>0" class="flex items-center gap-1 text-[var(--primary)]">
-          <span class="dot" style="background:var(--primary);animation:pulse 1.2s infinite;"></span>
+          <span class="dot dot-primary dot-pulse"></span>
           <span x-text="activeOps.length+' running'"></span>
         </span>
         <span><span x-text="stacks.length"></span> stacks · <span x-text="Object.keys(nodes).length"></span> nodes</span>
@@ -318,18 +167,18 @@
         <table class="ptable">
           <thead>
             <tr>
-              <th style="width:32px;"></th>
-              <th style="width:24px;"></th>
-              <th>Resource</th>
-              <th>Image</th>
-              <th style="width:90px;">Health</th>
-              <th style="width:100px;">Status</th>
-              <th style="width:80px;" class="hidden lg:table-cell">Tasks</th>
-              <th style="width:90px;" class="hidden md:table-cell">CPU</th>
-              <th style="width:110px;" class="hidden md:table-cell">Memory</th>
-              <th style="width:90px;" class="hidden xl:table-cell">Disk</th>
-              <th style="width:140px;" class="hidden xl:table-cell">Node</th>
-              <th style="width:150px;text-align:right;">Action</th>
+              <th class="col-checkbox"></th>
+              <th class="col-chev"></th>
+              <th class="col-grow">Resource</th>
+              <th class="col-image">Image</th>
+              <th class="col-health">Health</th>
+              <th class="col-status">Status</th>
+              <th class="col-tasks hidden lg:table-cell">Tasks</th>
+              <th class="col-cpu hidden md:table-cell">CPU</th>
+              <th class="col-mem hidden md:table-cell">Memory</th>
+              <th class="col-disk hidden xl:table-cell">Disk</th>
+              <th class="col-node hidden xl:table-cell">Node</th>
+              <th class="col-action">Action</th>
             </tr>
           </thead>
           <template x-for="stack in filteredStacks" :key="stack.name">
@@ -342,7 +191,7 @@
                     <span x-text="stack.name"></span>
                     <span class="text-[var(--text-faint)] text-[11px] font-normal" x-text="'(' + stack.total + ')'"></span>
                     <span x-show="stack.is_standalone" class="chip text-[10px]">standalone</span>
-                    <span x-show="!stack.is_standalone && !stack.stack_id" class="chip text-[10px]" style="color:var(--warning);">external</span>
+                    <span x-show="!stack.is_standalone && !stack.stack_id" class="chip text-[10px] text-warning">external</span>
                   </div>
                 </td>
                 <td>
@@ -359,7 +208,7 @@
                 <td class="hidden md:table-cell"></td>
                 <td class="hidden xl:table-cell"></td>
                 <td class="hidden xl:table-cell"></td>
-                <td style="text-align:right;" @click.stop>
+                <td class="align-right" @click.stop>
                   <button x-show="stack.updates>0 && stack.stack_id"
                           @click="updateStack(stack)"
                           :disabled="isStackBusy(stack)"
@@ -386,7 +235,7 @@
                     <div class="mono text-[12.5px] text-[var(--text)]" x-text="item.name"></div>
                     <div class="text-[10.5px] text-[var(--text-faint)]" x-text="itemSubline(item)"></div>
                   </td>
-                  <td class="mono text-[11.5px] text-[var(--text-dim)] max-w-[320px] truncate">
+                  <td class="mono text-[11.5px] text-dim col-image">
                     <span x-text="imageRepo(item)"></span><span class="text-[var(--text-faint)]">:</span><span class="text-[var(--text-faint)]" x-text="item.tag"></span>
                   </td>
                   <td><span class="pill" :class="'pill-' + (item.health || 'unknown')" x-text="item.health || '—'"></span></td>
@@ -396,7 +245,7 @@
                     <span x-text="item.replicas ? (item.replicas.running + '/' + item.replicas.desired) : '—'"></span>
                   </td>
                   <td class="hidden xl:table-cell text-[11.5px] text-[var(--text-faint)] truncate max-w-[140px]" x-text="nodeSummary(item) || '—'"></td>
-                  <td style="text-align:right;" @click.stop>
+                  <td class="align-right" @click.stop>
                     <div class="flex items-center justify-end gap-1.5">
                       <button x-show="item.status==='update' && canUpdate(item)"
                               @click="itemAction(item)"
@@ -442,24 +291,24 @@
         <table class="ptable">
           <thead>
             <tr>
-              <th style="width:32px;">
+              <th class="col-checkbox">
                 <input type="checkbox"
                        :checked="selected.length>0 && selected.length===filteredItems.filter(i=>isSelectable(i)).length"
                        @click="toggleSelectAll()"
                        class="w-[13px] h-[13px] accent-[var(--primary)]">
               </th>
-              <th style="width:24px;"></th>
-              <th class="sortable" @click="sortBy('name')">Name <span x-text="sortIndicator('name')"></span></th>
+              <th class="col-chev"></th>
+              <th class="col-grow sortable" @click="sortBy('name')">Name <span x-text="sortIndicator('name')"></span></th>
               <th class="sortable" @click="sortBy('stack')">Stack</th>
-              <th class="sortable" @click="sortBy('image')">Image</th>
-              <th style="width:90px;">Health</th>
-              <th style="width:100px;" class="sortable" @click="sortBy('status')">Status <span x-text="sortIndicator('status')"></span></th>
-              <th style="width:80px;" class="hidden lg:table-cell">Tasks</th>
-              <th style="width:90px;" class="hidden md:table-cell">CPU</th>
-              <th style="width:110px;" class="hidden md:table-cell">Memory</th>
-              <th style="width:90px;" class="hidden xl:table-cell">Disk</th>
-              <th style="width:140px;" class="hidden xl:table-cell">Node</th>
-              <th style="width:150px;text-align:right;">Action</th>
+              <th class="col-image sortable" @click="sortBy('image')">Image</th>
+              <th class="col-health">Health</th>
+              <th class="col-status sortable" @click="sortBy('status')">Status <span x-text="sortIndicator('status')"></span></th>
+              <th class="col-tasks hidden lg:table-cell">Tasks</th>
+              <th class="col-cpu hidden md:table-cell">CPU</th>
+              <th class="col-mem hidden md:table-cell">Memory</th>
+              <th class="col-disk hidden xl:table-cell">Disk</th>
+              <th class="col-node hidden xl:table-cell">Node</th>
+              <th class="col-action">Action</th>
             </tr>
           </thead>
           <tbody>
@@ -474,7 +323,7 @@
                 <td><span class="dot" :class="'dot-' + statusKey(item.status)"></span></td>
                 <td class="mono text-[12.5px]" x-text="item.name"></td>
                 <td class="mono text-[11.5px] text-[var(--text-dim)]" x-text="item.stack || '—'"></td>
-                <td class="mono text-[11.5px] text-[var(--text-dim)] max-w-[320px] truncate">
+                <td class="mono text-[11.5px] text-dim col-image">
                   <span x-text="imageRepo(item)"></span><span class="text-[var(--text-faint)]">:</span><span class="text-[var(--text-faint)]" x-text="item.tag"></span>
                 </td>
                 <td><span class="pill" :class="'pill-' + (item.health || 'unknown')" x-text="item.health || '—'"></span></td>
@@ -483,29 +332,44 @@
                     :class="(item.replicas && item.replicas.running < item.replicas.desired) ? 'text-[var(--warning)]' : 'text-[var(--text-dim)]'">
                   <span x-text="item.replicas ? (item.replicas.running + '/' + item.replicas.desired) : '—'"></span>
                 </td>
-                <td class="hidden md:table-cell">
-                  <div class="stat-bar" :style="`--w:${statsFor(item).cpu_percent}%; --c:${barColor(statsFor(item).cpu_percent)}`">
-                    <div class="fill"></div>
-                    <div class="label" x-text="statsFor(item).cpu_percent > 0 ? statsFor(item).cpu_percent.toFixed(statsFor(item).cpu_percent >= 10 ? 0 : 1) + '%' : '—'"></div>
-                  </div>
+                <td class="hidden md:table-cell stat-cell">
+                  <template x-if="statsFor(item).has_stats">
+                    <div class="stat-bar" :style="`--w:${statsFor(item).cpu_percent}%; --c:${barColor(statsFor(item).cpu_percent)}`">
+                      <div class="fill"></div>
+                      <div class="label" x-text="statsFor(item).cpu_percent >= 10 ? statsFor(item).cpu_percent.toFixed(0) + '%' : statsFor(item).cpu_percent.toFixed(1) + '%'"></div>
+                    </div>
+                  </template>
+                  <template x-if="!statsFor(item).has_stats">
+                    <span class="text-[11px] text-[var(--text-faint)]">—</span>
+                  </template>
                 </td>
-                <td class="hidden md:table-cell">
-                  <div class="stat-bar" :style="`--w:${memPercent(item)}%; --c:${barColor(memPercent(item))}`">
-                    <div class="fill"></div>
-                    <div class="label" x-text="statsFor(item).mem_limit > 0 ? memPercent(item).toFixed(0) + '%' : '—'"></div>
-                  </div>
-                  <div class="stat-sub" x-show="statsFor(item).mem_limit > 0"
-                       x-text="fmtBytes(statsFor(item).mem_usage) + ' / ' + fmtBytes(statsFor(item).mem_limit)"></div>
+                <td class="hidden md:table-cell stat-cell">
+                  <template x-if="statsFor(item).has_stats">
+                    <div>
+                      <div class="stat-bar" :style="`--w:${memPercent(item)}%; --c:${barColor(memPercent(item))}`">
+                        <div class="fill"></div>
+                        <div class="label" x-text="memPercent(item).toFixed(0) + '%'"></div>
+                      </div>
+                      <div class="stat-sub" x-text="fmtBytes(statsFor(item).mem_usage) + ' / ' + fmtBytes(statsFor(item).mem_limit)"></div>
+                    </div>
+                  </template>
+                  <template x-if="!statsFor(item).has_stats">
+                    <span class="text-[11px] text-[var(--text-faint)]">—</span>
+                  </template>
                 </td>
-                <td class="hidden xl:table-cell">
-                  <div class="stat-bar" :style="`--w:${diskPercent(item)}%; --c:var(--info)`" x-show="statsFor(item).size_rw > 0">
-                    <div class="fill"></div>
-                    <div class="label" x-text="fmtBytes(statsFor(item).size_rw)"></div>
-                  </div>
-                  <span x-show="!statsFor(item).size_rw" class="text-[11px] text-[var(--text-faint)]">—</span>
+                <td class="hidden xl:table-cell stat-cell">
+                  <template x-if="statsFor(item).has_size">
+                    <div class="stat-bar" :style="`--w:${diskPercent(item)}%; --c:var(--info)`">
+                      <div class="fill"></div>
+                      <div class="label" x-text="fmtBytes(statsFor(item).size_rw) || '0 B'"></div>
+                    </div>
+                  </template>
+                  <template x-if="!statsFor(item).has_size">
+                    <span class="text-[11px] text-[var(--text-faint)]">—</span>
+                  </template>
                 </td>
                 <td class="hidden xl:table-cell text-[11.5px] text-[var(--text-faint)] truncate max-w-[140px]" x-text="nodeSummary(item) || '—'"></td>
-                <td style="text-align:right;" @click.stop>
+                <td class="align-right" @click.stop>
                   <div class="flex items-center justify-end gap-1.5">
                     <button x-show="item.status==='update' && canUpdate(item)"
                             @click="itemAction(item)"
@@ -542,7 +406,7 @@
         </div>
         <div class="flex gap-2">
           <button @click="loadHistory()" class="btn btn-ghost text-[12px]">Reload</button>
-          <button @click="clearHistory()" class="btn btn-ghost text-[12px]" style="color:var(--danger);">Clear all</button>
+          <button @click="clearHistory()" class="btn btn-ghost text-[12px] text-danger">Clear all</button>
         </div>
       </div>
       <template x-for="h in history" :key="h.id">
@@ -584,7 +448,7 @@
        class="fixed bottom-4 right-4 bg-[var(--surface)] border border-[var(--primary)]/40 rounded-md w-[380px] max-w-[calc(100vw-32px)] z-40 glow fade-in">
     <div class="px-3 py-2 bg-[var(--surface-2)] border-b border-[var(--border)] flex items-center gap-2 cursor-pointer rounded-t-md"
          @click="opsExpanded=!opsExpanded">
-      <span class="dot" style="background:var(--primary);animation:pulse 1.2s infinite;"></span>
+      <span class="dot dot-primary dot-pulse"></span>
       <span class="font-semibold text-[12px]"><span x-text="activeOps.length"></span> running</span>
       <span class="flex-1"></span>
       <span x-text="opsExpanded ? '▼' : '▲'" class="text-[var(--text-dim)] text-[10px]"></span>
@@ -611,7 +475,7 @@
 
   <!-- ================== DETAIL DRAWER ================== -->
   <div x-show="drawerItem" class="fixed inset-0 z-40 fade-in">
-    <div @click="drawerItem=null" class="absolute inset-0" style="background:var(--backdrop)"></div>
+    <div @click="drawerItem=null" class="absolute inset-0 backdrop"></div>
     <aside x-show="drawerItem" class="absolute inset-y-0 right-0 w-full md:w-[500px] bg-[var(--surface)] border-l border-[var(--border)] overflow-y-auto scrollbar slide-in">
       <template x-if="drawerItem">
         <div class="p-5">
@@ -639,7 +503,7 @@
               <template x-if="!isItemBusy(drawerItem)"><span>⚡ <span x-text="actionLabel(drawerItem)"></span></span></template>
             </button>
             <div x-show="drawerItem.status==='update' && !canUpdate(drawerItem)"
-                 class="w-full bg-[var(--surface-2)] border border-[var(--warning)]/30 rounded-md p-3 text-[11.5px]" style="color:var(--warning);">
+                 class="w-full bg-[var(--surface-2)] border border-[var(--warning)]/30 rounded-md p-3 text-[11.5px] text-warning">
               ⚠ This service has no associated Portainer stack (external / CLI-deployed).
             </div>
             <div class="grid grid-cols-2 gap-2">
@@ -679,9 +543,9 @@
                 <span class="text-[16px] font-semibold mono"
                       :class="(drawerItem.replicas.running < drawerItem.replicas.desired) ? 'text-[var(--warning)]' : 'text-[var(--success)]'"
                       x-text="drawerItem.replicas.running + ' / ' + drawerItem.replicas.desired"></span>
-                <span x-show="drawerItem.replicas.running < drawerItem.replicas.desired" class="text-[11px] ml-2" style="color:var(--warning);">⚠ degraded</span>
-                <span x-show="drawerItem.replicas.running === drawerItem.replicas.desired && drawerItem.replicas.desired > 0" class="text-[11px] ml-2" style="color:var(--success);">✓ healthy</span>
-                <span x-show="drawerItem.replicas.desired === 0 || drawerItem.replicas.running === 0" class="text-[11px] ml-2" style="color:var(--text-faint);">○ offline</span>
+                <span x-show="drawerItem.replicas.running < drawerItem.replicas.desired" class="text-[11px] ml-2 text-warning">⚠ degraded</span>
+                <span x-show="drawerItem.replicas.running === drawerItem.replicas.desired && drawerItem.replicas.desired > 0" class="text-[11px] ml-2 text-success">✓ healthy</span>
+                <span x-show="drawerItem.replicas.desired === 0 || drawerItem.replicas.running === 0" class="text-[11px] ml-2 text-faint">○ offline</span>
               </div>
             </div>
             <div x-show="drawerItem.placements && drawerItem.placements.length">
@@ -725,7 +589,7 @@
 
   <!-- ================== SETTINGS MODAL ================== -->
   <div x-show="showSettings" class="fixed inset-0 z-50 fade-in">
-    <div @click="showSettings=false" class="absolute inset-0" style="background:var(--backdrop-strong)"></div>
+    <div @click="showSettings=false" class="absolute inset-0 backdrop-strong"></div>
     <div class="relative flex items-center justify-center p-4 h-full overflow-auto">
       <div class="bg-[var(--surface)] border border-[var(--border)] rounded-md max-w-2xl w-full max-h-[90vh] overflow-y-auto scrollbar">
         <div class="p-4 border-b border-[var(--border)] flex justify-between items-center sticky top-0 bg-[var(--surface)] z-10">
@@ -1123,10 +987,11 @@ function app() {
 
     statusKey(s) { return (s || 'unknown').replace('up-to-date','ok'); },
     statsFor(item) {
-      return (item && this.stats[item.id]) || { cpu_percent: 0, mem_usage: 0, mem_limit: 0, size_rw: 0 };
+      return (item && this.stats[item.id]) || { cpu_percent: 0, mem_usage: 0, mem_limit: 0, size_rw: 0, has_stats: false, has_size: false };
     },
     fmtBytes(n) {
-      if (!n || n <= 0) return '—';
+      if (n == null) return '—';
+      if (n <= 0) return '0 B';
       const u = ['B','KB','MB','GB','TB'];
       let i = 0;
       while (n >= 1024 && i < u.length - 1) { n /= 1024; i++; }
@@ -1275,7 +1140,7 @@ function app() {
           })
         : await this.confirmDialog({
             title: 'Recreate container',
-            html: `<code>${item.name}</code><div style="margin-top:12px;">Pull the latest image and recreate the container.</div>`,
+            html: `<code>${item.name}</code><div class="hint-top">Pull the latest image and recreate the container.</div>`,
             icon: 'warning', confirmText: 'Recreate',
           });
       if (!ok) return;
@@ -1325,8 +1190,8 @@ function app() {
       if (this.isRestartBusy(item)) return;
       const isService = item.type === 'service';
       const body = isService
-        ? `<code>${item.name}</code><div style="margin-top:12px;">Force an update with the same image — running tasks will be replaced. No image pull.</div>`
-        : `<code>${item.name}</code><div style="margin-top:12px;">Restart this container (stop + start).</div>`;
+        ? `<code>${item.name}</code><div class="hint-top">Force an update with the same image — running tasks will be replaced. No image pull.</div>`
+        : `<code>${item.name}</code><div class="hint-top">Restart this container (stop + start).</div>`;
       const ok = await this.confirmDialog({
         title: isService ? 'Restart service' : 'Restart container',
         html: body,
@@ -1355,7 +1220,7 @@ function app() {
       if (picked.length === 0) { this.showToast('Nothing restartable', 'error'); return; }
       const ok = await this.confirmDialog({
         title: `Restart ${picked.length} target${picked.length>1?'s':''}?`,
-        html: `<div>Force-restart the following:</div><ul>${picked.slice(0,8).map(i => `<li><code>${i.name}</code> <span style="color:var(--text-faint);font-size:11px;">· ${i.type}</span></li>`).join('')}${picked.length>8 ? `<li style="color:var(--text-faint)">…and ${picked.length-8} more</li>`:''}</ul>`,
+        html: `<div>Force-restart the following:</div><ul>${picked.slice(0,8).map(i => `<li><code>${i.name}</code> <span class="hint-sub">· ${i.type}</span></li>`).join('')}${picked.length>8 ? `<li class="text-faint">…and ${picked.length-8} more</li>`:''}</ul>`,
         icon: 'question', confirmText: 'Restart all', confirmColor: this._cssVar('--primary'),
       });
       if (!ok) return;
@@ -1380,7 +1245,7 @@ function app() {
       if (this.isItemBusy(item)) return;
       const ok = await this.confirmDialog({
         title: 'Remove container',
-        html: `<code>${item.name}</code><div style="margin-top:12px;">Stops and deletes this container (force + volumes). Cannot be undone.</div>`,
+        html: `<code>${item.name}</code><div class="hint-top">Stops and deletes this container (force + volumes). Cannot be undone.</div>`,
         icon: 'warning', confirmText: 'Remove', confirmColor: this._cssVar('--danger'),
       });
       if (!ok) return;
@@ -1417,7 +1282,7 @@ function app() {
       }
       const ok = await this.confirmDialog({
         title: 'Bulk update',
-        html: `<div>Update <b>${runnable.length}</b> target(s) across <b>${stackIds.size}</b> stack(s)?${skipped ? `<br><span style="color:var(--text-faint);font-size:12px;">Skipping ${skipped} already running.</span>` : ''}</div><ul>${runnable.slice(0,8).map(i => `<li><code>${i.stack || i.name}</code></li>`).join('')}${runnable.length>8 ? `<li style="color:var(--text-faint)">…and ${runnable.length-8} more</li>`:''}</ul>`,
+        html: `<div>Update <b>${runnable.length}</b> target(s) across <b>${stackIds.size}</b> stack(s)?${skipped ? `<br><span class="hint-sub">Skipping ${skipped} already running.</span>` : ''}</div><ul>${runnable.slice(0,8).map(i => `<li><code>${i.stack || i.name}</code></li>`).join('')}${runnable.length>8 ? `<li class="text-faint">…and ${runnable.length-8} more</li>`:''}</ul>`,
         icon: 'warning', confirmText: 'Update all',
       });
       if (!ok) return;
@@ -1445,7 +1310,7 @@ function app() {
       }
       const ok = await this.confirmDialog({
         title: `Remove ${picked.length} container${picked.length>1?'s':''}?`,
-        html: `<div>Stops and deletes the following stopped container(s) (force + volumes). Cannot be undone.</div><ul>${picked.slice(0,8).map(i => `<li><code>${i.name}</code></li>`).join('')}${picked.length>8 ? `<li style="color:var(--text-faint)">…and ${picked.length-8} more</li>`:''}</ul>`,
+        html: `<div>Stops and deletes the following stopped container(s) (force + volumes). Cannot be undone.</div><ul>${picked.slice(0,8).map(i => `<li><code>${i.name}</code></li>`).join('')}${picked.length>8 ? `<li class="text-faint">…and ${picked.length-8} more</li>`:''}</ul>`,
         icon: 'warning', confirmText: 'Remove all', confirmColor: this._cssVar('--danger'),
       });
       if (!ok) return;
