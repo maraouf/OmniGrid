@@ -214,11 +214,11 @@
                   <span x-show="stack.unknowns>0" class="pill pill-unknown ml-1" x-text="stack.unknowns + ' ?'"></span>
                 </td>
                 <td class="hidden lg:table-cell text-[var(--text-faint)] text-[12px]" x-text="stack.uptodate + '/' + stack.total + ' ok'"></td>
-                <td class="hidden md:table-cell text-[11.5px] mono text-dim"
-                    x-text="stackStats(stack).hasStats ? (stackStats(stack).cpu >= 10 ? stackStats(stack).cpu.toFixed(0) + '%' : stackStats(stack).cpu.toFixed(1) + '%') : '—'"></td>
-                <td class="hidden md:table-cell text-[11.5px] mono text-dim"
+                <td class="hidden md:table-cell text-[11.5px] mono text-dim col-cpu"
+                    x-text="stackStats(stack).hasStats ? cpuLabel(stackStats(stack).cpu) : '—'"></td>
+                <td class="hidden md:table-cell text-[11.5px] mono text-dim col-mem"
                     x-text="stackStats(stack).hasStats ? fmtBytes(stackStats(stack).memUsage) : '—'"></td>
-                <td class="hidden xl:table-cell text-[11.5px] mono text-dim"
+                <td class="hidden xl:table-cell text-[11.5px] mono text-dim col-disk"
                     x-text="stackStats(stack).hasSize ? fmtBytes(stackStats(stack).sizeRoot) : '—'"></td>
                 <td class="hidden lg:table-cell"></td>
                 <td class="hidden xl:table-cell"></td>
