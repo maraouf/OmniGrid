@@ -60,10 +60,19 @@
       </div>
 
       <div class="flex items-center gap-2">
-        <div class="flex items-center gap-0 bg-[var(--surface-2)] rounded-md p-0.5 border border-[var(--border)]">
+        <div class="flex items-center gap-0 bg-[var(--surface-2)] rounded-md p-0.5 border border-[var(--border)]" title="Items auto-refresh">
+          <span class="px-1.5 text-[10px] text-faint uppercase tracking-wider">Sync</span>
           <template x-for="p in [['Off',0],['30s',30],['1m',60],['5m',300]]" :key="p[0]">
             <button @click="setAutoRefresh(p[1])"
                     :class="autoRefresh===p[1] ? 'bg-[var(--primary)] text-white' : 'text-[var(--text-dim)] hover:text-[var(--text)]'"
+                    class="px-2 py-1 rounded text-[11px] font-medium transition" x-text="p[0]"></button>
+          </template>
+        </div>
+        <div class="flex items-center gap-0 bg-[var(--surface-2)] rounded-md p-0.5 border border-[var(--border)] hidden lg:flex" title="Live stats polling cadence">
+          <span class="px-1.5 text-[10px] text-faint uppercase tracking-wider">Stats</span>
+          <template x-for="p in [['Off',0],['5s',5],['15s',15],['30s',30],['1m',60]]" :key="p[0]">
+            <button @click="setStatsInterval(p[1])"
+                    :class="statsInterval===p[1] ? 'bg-[var(--primary)] text-white' : 'text-[var(--text-dim)] hover:text-[var(--text)]'"
                     class="px-2 py-1 rounded text-[11px] font-medium transition" x-text="p[0]"></button>
           </template>
         </div>
@@ -205,9 +214,12 @@
                   <span x-show="stack.unknowns>0" class="pill pill-unknown ml-1" x-text="stack.unknowns + ' ?'"></span>
                 </td>
                 <td class="hidden lg:table-cell text-[var(--text-faint)] text-[12px]" x-text="stack.uptodate + '/' + stack.total + ' ok'"></td>
-                <td class="hidden md:table-cell"></td>
-                <td class="hidden md:table-cell"></td>
-                <td class="hidden xl:table-cell"></td>
+                <td class="hidden md:table-cell text-[11.5px] mono text-dim"
+                    x-text="stackStats(stack).hasStats ? (stackStats(stack).cpu >= 10 ? stackStats(stack).cpu.toFixed(0) + '%' : stackStats(stack).cpu.toFixed(1) + '%') : '—'"></td>
+                <td class="hidden md:table-cell text-[11.5px] mono text-dim"
+                    x-text="stackStats(stack).hasStats ? fmtBytes(stackStats(stack).memUsage) : '—'"></td>
+                <td class="hidden xl:table-cell text-[11.5px] mono text-dim"
+                    x-text="stackStats(stack).hasSize ? fmtBytes(stackStats(stack).sizeRoot) : '—'"></td>
                 <td class="hidden lg:table-cell"></td>
                 <td class="hidden xl:table-cell"></td>
                 <td class="align-right" @click.stop>
@@ -248,9 +260,9 @@
                   </td>
                   <td class="hidden md:table-cell stat-cell">
                     <template x-if="statsFor(item).has_stats">
-                      <div class="stat-bar" :style="`--w:${statsFor(item).cpu_percent}%; --c:${barColor(statsFor(item).cpu_percent)}`">
+                      <div class="stat-bar" :class="barLevel(statsFor(item).cpu_percent)" :style="`--w:${statsFor(item).cpu_percent}%`">
                         <div class="fill"></div>
-                        <div class="label" x-text="statsFor(item).cpu_percent >= 10 ? statsFor(item).cpu_percent.toFixed(0) + '%' : statsFor(item).cpu_percent.toFixed(1) + '%'"></div>
+                        <div class="label" x-text="cpuLabel(statsFor(item).cpu_percent)"></div>
                       </div>
                     </template>
                     <template x-if="!statsFor(item).has_stats">
@@ -260,7 +272,7 @@
                   <td class="hidden md:table-cell stat-cell">
                     <template x-if="statsFor(item).has_stats">
                       <div>
-                        <div class="stat-bar" :style="`--w:${memPercent(item)}%; --c:${barColor(memPercent(item))}`">
+                        <div class="stat-bar" :class="barLevel(memPercent(item))" :style="`--w:${memPercent(item)}%`">
                           <div class="fill"></div>
                           <div class="label" x-text="memPercent(item).toFixed(0) + '%'"></div>
                         </div>
@@ -273,7 +285,7 @@
                   </td>
                   <td class="hidden xl:table-cell stat-cell">
                     <template x-if="statsFor(item).has_size">
-                      <div class="stat-bar" :style="`--w:${diskPercent(item)}%; --c:var(--info)`">
+                      <div class="stat-bar info" :style="`--w:${diskPercent(item)}%`">
                         <div class="fill"></div>
                         <div class="label" x-text="fmtBytes(statsFor(item).size_root)"></div>
                       </div>
@@ -346,7 +358,7 @@
               <th class="col-cpu hidden md:table-cell">CPU</th>
               <th class="col-mem hidden md:table-cell">Memory</th>
               <th class="col-disk hidden xl:table-cell">Disk</th>
-              <th class="col-uptime hidden lg:table-cell">Uptime</th>
+              <th class="col-uptime sortable hidden lg:table-cell" @click="sortBy('uptime')">Uptime <span x-text="sortIndicator('uptime')"></span></th>
               <th class="col-node hidden xl:table-cell">Node</th>
               <th class="col-action">Action</th>
             </tr>
@@ -374,9 +386,9 @@
                 </td>
                 <td class="hidden md:table-cell stat-cell">
                   <template x-if="statsFor(item).has_stats">
-                    <div class="stat-bar" :style="`--w:${statsFor(item).cpu_percent}%; --c:${barColor(statsFor(item).cpu_percent)}`">
+                    <div class="stat-bar" :class="barLevel(statsFor(item).cpu_percent)" :style="`--w:${statsFor(item).cpu_percent}%`">
                       <div class="fill"></div>
-                      <div class="label" x-text="statsFor(item).cpu_percent >= 10 ? statsFor(item).cpu_percent.toFixed(0) + '%' : statsFor(item).cpu_percent.toFixed(1) + '%'"></div>
+                      <div class="label" x-text="cpuLabel(statsFor(item).cpu_percent)"></div>
                     </div>
                   </template>
                   <template x-if="!statsFor(item).has_stats">
@@ -386,7 +398,7 @@
                 <td class="hidden md:table-cell stat-cell">
                   <template x-if="statsFor(item).has_stats">
                     <div>
-                      <div class="stat-bar" :style="`--w:${memPercent(item)}%; --c:${barColor(memPercent(item))}`">
+                      <div class="stat-bar" :class="barLevel(memPercent(item))" :style="`--w:${memPercent(item)}%`">
                         <div class="fill"></div>
                         <div class="label" x-text="memPercent(item).toFixed(0) + '%'"></div>
                       </div>
@@ -399,7 +411,7 @@
                 </td>
                 <td class="hidden xl:table-cell stat-cell">
                   <template x-if="statsFor(item).has_size">
-                    <div class="stat-bar" :style="`--w:${diskPercent(item)}%; --c:var(--info)`">
+                    <div class="stat-bar info" :style="`--w:${diskPercent(item)}%`">
                       <div class="fill"></div>
                       <div class="label" x-text="fmtBytes(statsFor(item).size_root)"></div>
                     </div>
@@ -418,6 +430,16 @@
                             class="btn btn-warning text-[11px]">
                       <template x-if="isItemBusy(item)"><span class="flex items-center gap-1"><span class="spin"></span>…</span></template>
                       <template x-if="!isItemBusy(item)"><span x-text="actionLabel(item)"></span></template>
+                    </button>
+                    <button x-show="isRestartable(item)"
+                            @click="restartItem(item)"
+                            :disabled="isRestartBusy(item)"
+                            class="btn btn-soft text-[11px]"
+                            title="Restart (force)">
+                      <template x-if="isRestartBusy(item)"><span class="spin"></span></template>
+                      <template x-if="!isRestartBusy(item)">
+                        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M3 12a9 9 0 0 1 15.5-6.36L22 8"/><path d="M22 3v5h-5"/><path d="M22 12a9 9 0 0 1-15.5 6.36L3 16"/><path d="M2 21v-5h5"/></svg>
+                      </template>
                     </button>
                     <button x-show="item.removable"
                             @click="removeContainer(item)"
@@ -718,6 +740,10 @@ function app() {
     items: [], stacks: [], nodes: {},
     history: [], ignores: [],
     stats: {}, _statsTimer: null, _maxSize: 1,
+    statsInterval: (() => {
+      const v = parseInt(localStorage.getItem('statsInterval'), 10);
+      return [0, 5, 15, 30, 60].includes(v) ? v : 15;
+    })(),
     activeOps: [],
     view: (['stacks','services','history'].includes(localStorage.getItem('view')) ? localStorage.getItem('view') : 'stacks'),
     search: '', statusFilter: '', healthFilter: '',
@@ -783,9 +809,16 @@ function app() {
       if (this._statsTimer) clearTimeout(this._statsTimer);
       const tick = async () => {
         await this.loadStats();
-        this._statsTimer = setTimeout(tick, 15000);
+        if (this.statsInterval > 0) {
+          this._statsTimer = setTimeout(tick, this.statsInterval * 1000);
+        }
       };
       tick();
+    },
+    setStatsInterval(seconds) {
+      this.statsInterval = seconds;
+      localStorage.setItem('statsInterval', String(seconds));
+      this.pollStats();
     },
 
     async refresh(force=false) {
@@ -944,8 +977,23 @@ function app() {
       const statusRank = { update:0, error:1, unknown:2, 'up-to-date':3, ignored:4 };
       arr.sort((a,b) => {
         let va, vb;
-        if (f === 'status') { va = statusRank[a.status] ?? 99; vb = statusRank[b.status] ?? 99; }
-        else { va = (a[f]||'').toString().toLowerCase(); vb = (b[f]||'').toString().toLowerCase(); }
+        if (f === 'status') {
+          va = statusRank[a.status] ?? 99;
+          vb = statusRank[b.status] ?? 99;
+        } else if (f === 'uptime') {
+          // uptimeFor returns ms since epoch (start time). Newer starts = larger
+          // number, and we want "youngest first" when ascending. Missing values
+          // sort last regardless of direction.
+          const ua = this.uptimeFor(a);
+          const ub = this.uptimeFor(b);
+          if (ua == null && ub == null) return 0;
+          if (ua == null) return 1;
+          if (ub == null) return -1;
+          va = ua; vb = ub;
+        } else {
+          va = (a[f]||'').toString().toLowerCase();
+          vb = (b[f]||'').toString().toLowerCase();
+        }
         if (va < vb) return -1 * dir;
         if (va > vb) return 1 * dir;
         return 0;
@@ -1034,6 +1082,25 @@ function app() {
     statsFor(item) {
       return (item && this.stats[item.id]) || { cpu_percent: 0, mem_usage: 0, mem_limit: 0, size_root: 0, size_rw: 0, has_stats: false, has_size: false };
     },
+    stackStats(stack) {
+      // Aggregate CPU / memory / image-size across every item in the stack so
+      // collapsed stacks still display meaningful numbers on the group row.
+      let cpu = 0, memUsage = 0, sizeRoot = 0;
+      let hasStats = false, hasSize = false;
+      for (const item of (stack.items || [])) {
+        const s = this.statsFor(item);
+        if (s.has_stats) {
+          cpu += s.cpu_percent;
+          memUsage += s.mem_usage;
+          hasStats = true;
+        }
+        if (s.has_size) {
+          sizeRoot += s.size_root;
+          hasSize = true;
+        }
+      }
+      return { cpu, memUsage, sizeRoot, hasStats, hasSize };
+    },
     fmtBytes(n) {
       if (n == null) return '—';
       if (n <= 0) return '0 B';
@@ -1053,9 +1120,20 @@ function app() {
       return Math.min(100, (s.size_root / this._maxSize) * 100);
     },
     barColor(pct) {
+      // Kept for backward compat; prefer barLevel() which returns a CSS class.
       if (pct > 85) return 'var(--danger)';
       if (pct > 60) return 'var(--warning)';
       return 'var(--success)';
+    },
+    barLevel(pct) {
+      // Maps a percentage to the `.warn` / `.crit` class on `.stat-bar`, which
+      // drives the fill colour from the stylesheet. Empty string = default green.
+      if (pct > 85) return 'crit';
+      if (pct > 60) return 'warn';
+      return '';
+    },
+    cpuLabel(pct) {
+      return pct >= 10 ? pct.toFixed(0) + '%' : pct.toFixed(1) + '%';
     },
     imageRepo(item) {
       if (!item || !item.image) return '';

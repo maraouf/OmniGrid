@@ -443,9 +443,14 @@ details summary::-webkit-details-marker { display: none; }
   position: absolute;
   inset: 0;
   width: var(--w, 0%);
-  background: var(--c, var(--success));
+  background: var(--success);
   transition: width .25s ease, background .25s ease;
 }
+/* Threshold-based fill colour. Classes drive the palette so the markup only
+   needs to feed numeric state (--w) through :style. */
+.stat-bar.warn > .fill { background: var(--warning); }
+.stat-bar.crit > .fill { background: var(--danger); }
+.stat-bar.info > .fill { background: var(--info); }
 .stat-bar > .label {
   position: absolute;
   inset: 0;
@@ -530,11 +535,12 @@ details summary::-webkit-details-marker { display: none; }
 .col-chev     { width: var(--col-chev); }
 .col-health   { width: var(--col-health); }
 .col-status   { width: var(--col-status); }
-.col-tasks    { width: var(--col-tasks); }
-.col-uptime   { width: var(--col-uptime); }
-.col-cpu      { width: var(--col-cpu); }
-.col-mem      { width: var(--col-mem); }
-.col-disk     { width: var(--col-disk); }
+/* Metric columns — fixed widths + nowrap so units like "10 MB" stay on one line. */
+.col-tasks    { width: var(--col-tasks); white-space: nowrap; }
+.col-uptime   { width: var(--col-uptime); white-space: nowrap; }
+.col-cpu      { width: var(--col-cpu); white-space: nowrap; }
+.col-mem      { width: var(--col-mem); white-space: nowrap; }
+.col-disk     { width: var(--col-disk); white-space: nowrap; }
 .col-node     { width: var(--col-node); }
 .col-action   { width: var(--col-action); text-align: right; }
 /* Grow column — in HTML table auto-layout, width:100% on a single cell asks
