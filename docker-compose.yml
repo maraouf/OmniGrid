@@ -1,0 +1,63 @@
+version: "3.8"
+services:
+  portaupdate:
+    image: python:3.12-slim
+    command: >
+      sh -c "pip install --no-cache-dir --root-user-action=ignore -r /app/requirements.txt &&
+             cd /app &&
+             exec uvicorn main:app --host 0.0.0.0 --port 8088 --workers 1"
+    ports:
+      - "9500:8088"
+    environment:
+      # ----- required -----
+      PORTAINER_URL: "https://portainer.home.lan:8443"
+      PORTAINER_API_KEY: "ptr_lilANmU/zu9UiFadqxLgIhlCbgpUwaeWBgcgHLU5s40="    # create in Portainer → My account → Access tokens
+      PORTAINER_ENDPOINT_ID: "19"                            # usually 1 for the local Swarm endpoint
+
+      # ----- optional -----
+      CACHE_TTL_SECONDS: "900"            # re-poll registries every 15m
+      VERIFY_TLS: "true"                  # set "false" if Portainer uses a self-signed cert that isn't in the CA bundle
+      REGISTRY_CONCURRENCY: "8"           # parallel registry digest queries
+      DB_PATH: "/app/data/portaupdate.db" # SQLite location (kept on the bind mount)
+      VERIFY_TLS: "false" 
+
+      # ----- optional: Docker Hub pull auth (to avoid anonymous rate limits) -----
+      # DOCKERHUB_USER: "myuser"
+      # DOCKERHUB_TOKEN: "dckr_pat_xxx"
+
+    volumes:
+      - /opt/portaupdate/app:/app:ro          # source code (read-only, hot-reload with a container restart)
+      - /opt/portaupdate/data:/app/data       # SQLite for history / ignores / settings
+      - /etc/ssl/certs:/etc/ssl/certs:ro      # trust your internal CA so HTTPS calls to portainer.home.lan work
+
+    networks:
+      - nginx-proxy-manager_default
+      - default
+
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request;urllib.request.urlopen('http://localhost:8088/api/healthz',timeout=3)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 60s
+
+    deploy:
+      mode: replicated
+      replicas: 1
+      placement:
+        constraints:
+          - node.role == manager
+      restart_policy:
+        condition: on-failure
+        delay: 10s
+        max_attempts: 5
+      # exclude this service from Diun monitoring
+      labels:
+        - "diun.enable=false"
+    labels:
+      - "diun.enable=false"
+
+networks:
+  nginx-proxy-manager_default:
+    external: true
+    name: nginx-proxy-manager_default

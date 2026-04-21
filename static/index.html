@@ -1,0 +1,1171 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>PortaUpdate</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='7' fill='%233b82f6'/><rect x='8' y='11' width='16' height='13' rx='2' fill='none' stroke='white' stroke-width='2'/><path d='M16 5 L16 15 M12 11 L16 15 L20 11' fill='none' stroke='white' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/></svg>">
+<script>
+  // Apply theme preference before first paint to avoid flash
+  (function() {
+    var pref = localStorage.getItem('theme') || 'auto';
+    var sysLight = window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches;
+    var resolved = pref === 'auto' ? (sysLight ? 'light' : 'dark') : pref;
+    document.documentElement.setAttribute('data-theme', resolved);
+  })();
+</script>
+<script src="https://cdn.tailwindcss.com"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+<style>
+  :root, :root[data-theme="dark"] {
+    --bg:#0a0e14; --surface:#12171f; --surface-2:#1a2028; --surface-3:#242b36;
+    --border:#2a313c; --border-bright:#3a4251;
+    --text:#e5e7eb; --text-dim:#9ca3af; --text-faint:#6b7280;
+    --text-on-primary:#ffffff;
+    --primary:#3b82f6; --primary-hov:#2563eb;
+    --success:#10b981; --warning:#f59e0b; --danger:#ef4444;
+    --pill-update-bg:rgba(245,158,11,.15); --pill-update-br:rgba(245,158,11,.3);
+    --pill-ok-bg:rgba(16,185,129,.13); --pill-ok-br:rgba(16,185,129,.3);
+    --pill-error-bg:rgba(239,68,68,.15); --pill-error-br:rgba(239,68,68,.3);
+    --pill-unknown-bg:rgba(156,163,175,.13); --pill-unknown-br:rgba(156,163,175,.25);
+    --pill-ignored-bg:rgba(107,114,128,.13); --pill-ignored-br:rgba(107,114,128,.25);
+    --backdrop:rgba(0,0,0,.5);
+    --backdrop-strong:rgba(0,0,0,.7);
+  }
+  :root[data-theme="light"] {
+    --bg:#f7f8fa; --surface:#ffffff; --surface-2:#f3f4f6; --surface-3:#e5e7eb;
+    --border:#e5e7eb; --border-bright:#cbd5e1;
+    --text:#111827; --text-dim:#4b5563; --text-faint:#6b7280;
+    --text-on-primary:#ffffff;
+    --primary:#2563eb; --primary-hov:#1d4ed8;
+    --success:#059669; --warning:#d97706; --danger:#dc2626;
+    --pill-update-bg:rgba(217,119,6,.12); --pill-update-br:rgba(217,119,6,.35);
+    --pill-ok-bg:rgba(5,150,105,.10); --pill-ok-br:rgba(5,150,105,.35);
+    --pill-error-bg:rgba(220,38,38,.10); --pill-error-br:rgba(220,38,38,.35);
+    --pill-unknown-bg:rgba(107,114,128,.10); --pill-unknown-br:rgba(107,114,128,.3);
+    --pill-ignored-bg:rgba(107,114,128,.08); --pill-ignored-br:rgba(107,114,128,.25);
+    --backdrop:rgba(17,24,39,.35);
+    --backdrop-strong:rgba(17,24,39,.55);
+  }
+  html,body{background:var(--bg);color:var(--text);font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;}
+  .mono{font-family:"JetBrains Mono","Fira Code",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;}
+  .scrollbar::-webkit-scrollbar{width:8px;height:8px;}
+  .scrollbar::-webkit-scrollbar-track{background:var(--surface);}
+  .scrollbar::-webkit-scrollbar-thumb{background:var(--border-bright);border-radius:4px;}
+  input,select,button{font-family:inherit;}
+  input[type="text"],input[type="url"],select{
+    background:var(--surface-2);border:1px solid var(--border);color:var(--text);
+    padding:8px 12px;border-radius:8px;outline:none;
+  }
+  input[type="search"]{
+    background:var(--surface-2);border:1px solid var(--border);color:var(--text);
+    padding:8px 34px 8px 36px;border-radius:8px;outline:none;
+  }
+  input:focus,select:focus{border-color:var(--primary);}
+  .btn{padding:8px 14px;border-radius:8px;font-weight:500;display:inline-flex;align-items:center;gap:6px;transition:all .15s;white-space:nowrap;}
+  .btn-primary{background:var(--primary);color:var(--text-on-primary);} .btn-primary:hover{background:var(--primary-hov);}
+  .btn-warning{background:var(--warning);color:#1a1000;} .btn-warning:hover{filter:brightness(1.08);}
+  .btn-ghost{background:var(--surface-2);color:var(--text);} .btn-ghost:hover{background:var(--surface-3);}
+  .btn-danger{background:var(--danger);color:var(--text-on-primary);}
+  .btn:disabled{opacity:.55;cursor:not-allowed;}
+  .btn .spin{width:12px;height:12px;border-radius:999px;border:2px solid currentColor;border-top-color:transparent;animation:spin .7s linear infinite;display:inline-block;}
+  @keyframes spin{to{transform:rotate(360deg);}}
+  .pill{padding:2px 10px;border-radius:999px;font-size:11px;font-weight:600;letter-spacing:.3px;text-transform:uppercase;display:inline-flex;align-items:center;gap:4px;}
+  .pill-update{background:var(--pill-update-bg);color:var(--warning);border:1px solid var(--pill-update-br);}
+  .pill-ok{background:var(--pill-ok-bg);color:var(--success);border:1px solid var(--pill-ok-br);}
+  .pill-error{background:var(--pill-error-bg);color:var(--danger);border:1px solid var(--pill-error-br);}
+  .pill-unknown{background:var(--pill-unknown-bg);color:var(--text-dim);border:1px solid var(--pill-unknown-br);}
+  .pill-ignored{background:var(--pill-ignored-bg);color:var(--text-faint);border:1px solid var(--pill-ignored-br);}
+  .dot{width:8px;height:8px;border-radius:999px;display:inline-block;flex-shrink:0;}
+  .dot-update{background:var(--warning);box-shadow:0 0 6px var(--pill-update-br);}
+  .dot-ok{background:var(--success);}
+  .dot-error{background:var(--danger);}
+  .dot-unknown{background:var(--text-faint);}
+  .dot-ignored{background:var(--text-faint);opacity:.5;}
+  .chip{background:var(--surface-2);padding:2px 8px;border-radius:6px;font-size:11px;color:var(--text-dim);}
+  [x-cloak]{display:none !important;}
+  details summary{list-style:none;cursor:pointer;}
+  details summary::-webkit-details-marker{display:none;}
+  .slide-in{animation:slideIn .2s ease-out;}
+  @keyframes slideIn{from{transform:translateX(100%);}to{transform:translateX(0);}}
+  .fade-in{animation:fadeIn .2s ease-out;}
+  @keyframes fadeIn{from{opacity:0;}to{opacity:1;}}
+  .glow{box-shadow:0 0 0 1px var(--primary),0 0 20px color-mix(in srgb, var(--primary) 25%, transparent);}
+  /* SweetAlert2 themed via CSS vars */
+  .swal2-popup{background:var(--surface) !important;color:var(--text) !important;border:1px solid var(--border);border-radius:12px !important;font-family:inherit !important;}
+  .swal2-title{color:var(--text) !important;font-weight:600 !important;}
+  .swal2-html-container{color:var(--text-dim) !important;font-size:14px !important;}
+  .swal2-html-container ul{text-align:left;display:inline-block;margin-top:8px;padding-left:0;list-style:none;}
+  .swal2-html-container li{padding:3px 0;color:var(--text);}
+  .swal2-html-container li::before{content:"• ";color:var(--primary);margin-right:6px;font-weight:bold;}
+  .swal2-html-container code{background:var(--surface-2);padding:1px 6px;border-radius:4px;color:var(--warning);font-family:"JetBrains Mono",monospace;font-size:12px;}
+  .swal2-confirm,.swal2-cancel{border-radius:8px !important;padding:8px 20px !important;font-weight:500 !important;box-shadow:none !important;}
+  .swal2-icon{border-color:currentColor !important;}
+  .swal2-icon.swal2-warning{color:var(--warning) !important;border-color:var(--warning) !important;}
+  .swal2-icon.swal2-question{color:var(--primary) !important;border-color:var(--primary) !important;}
+  .swal2-icon.swal2-info{color:var(--primary) !important;border-color:var(--primary) !important;}
+  .swal2-icon.swal2-error{color:var(--danger) !important;border-color:var(--danger) !important;}
+  .swal2-icon .swal2-icon-content{color:inherit !important;}
+  .swal2-backdrop-show{backdrop-filter:blur(3px);}
+</style>
+</head>
+<body class="min-h-screen">
+
+<div x-data="app()" x-init="init()" x-cloak class="flex flex-col min-h-screen">
+
+  <!-- ================== TOPBAR ================== -->
+  <header class="sticky top-0 z-30 bg-[var(--surface)]/90 backdrop-blur border-b border-[var(--border)]">
+    <div class="flex items-center gap-3 px-5 py-3 max-w-[1920px] mx-auto">
+      <div class="flex items-center gap-2 pr-4 border-r border-[var(--border)] mr-2">
+        <span class="text-xl">📦</span>
+        <div>
+          <h1 class="font-bold text-base leading-tight">PortaUpdate</h1>
+          <div class="text-[10px] text-[var(--text-faint)] leading-tight">Portainer-native updater</div>
+        </div>
+      </div>
+
+      <div class="flex-1 relative max-w-xl">
+        <input type="search" x-model="search" x-ref="searchBox"
+               placeholder="Search stacks, services, images…  (press /)"
+               class="w-full pl-9">
+        <span class="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--text-faint)] text-sm">🔍</span>
+        <span x-show="search" @click="search=''" class="absolute right-3 top-1/2 -translate-y-1/2 text-[var(--text-faint)] cursor-pointer">✕</span>
+      </div>
+
+      <div class="flex items-center gap-2">
+        <div class="flex items-center gap-0.5 bg-[var(--surface-2)] rounded-lg p-0.5">
+          <template x-for="p in [['Off',0],['30s',30],['1m',60],['5m',300]]" :key="p[0]">
+            <button @click="setAutoRefresh(p[1])"
+                    :class="autoRefresh===p[1] ? 'bg-[var(--primary)] text-[var(--text-on-primary)]' : 'text-[var(--text-dim)] hover:text-[var(--text)]'"
+                    class="px-2.5 py-1 rounded text-xs transition" x-text="p[0]"></button>
+          </template>
+        </div>
+
+        <span class="text-xs text-[var(--text-faint)]" x-text="cacheLabel"></span>
+
+        <button @click="refresh(true)" :disabled="loading" class="btn btn-primary">
+          <span :class="loading && 'animate-spin inline-block'">↻</span>
+          <span>Refresh</span>
+        </button>
+
+        <button @click="cycleTheme()"
+                :title="'Theme: ' + themePref + ' (click to cycle)'"
+                class="btn btn-ghost" aria-label="Toggle theme">
+          <span x-text="themePref==='dark' ? '🌙' : themePref==='light' ? '☀️' : '🖥'"></span>
+        </button>
+
+        <button @click="showSettings=true" title="Settings" class="btn btn-ghost">⚙️</button>
+      </div>
+    </div>
+
+    <!-- STATS STRIP -->
+    <div class="px-5 py-2.5 border-t border-[var(--border)] flex gap-5 text-sm max-w-[1920px] mx-auto overflow-x-auto scrollbar">
+      <div><span class="text-[var(--text-faint)]">Services</span>
+           <span class="ml-1.5 font-bold" x-text="items.length"></span></div>
+      <div><span class="text-[var(--warning)]">●</span>
+           <span class="text-[var(--text-faint)] ml-1">Updates</span>
+           <span class="ml-1.5 font-bold text-[var(--warning)]" x-text="counts.update"></span></div>
+      <div><span class="text-[var(--success)]">●</span>
+           <span class="text-[var(--text-faint)] ml-1">Up-to-date</span>
+           <span class="ml-1.5 font-bold" x-text="counts.uptodate"></span></div>
+      <div><span class="text-[var(--text-faint)]">Stacks</span>
+           <span class="ml-1.5 font-bold" x-text="stacks.length"></span></div>
+      <div><span class="text-[var(--text-faint)]">Nodes</span>
+           <span class="ml-1.5 font-bold" x-text="Object.keys(nodes).length"></span>
+           <span class="ml-1.5 text-xs text-[var(--text-faint)]" x-text="Object.values(nodes).join(' · ')"></span></div>
+      <div x-show="counts.error>0">
+           <span class="text-[var(--danger)]">●</span>
+           <span class="text-[var(--text-faint)] ml-1">Errors</span>
+           <span class="ml-1.5 font-bold text-[var(--danger)]" x-text="counts.error"></span></div>
+      <div x-show="counts.ignored>0">
+           <span class="text-[var(--text-faint)]">Ignored</span>
+           <span class="ml-1.5 font-bold" x-text="counts.ignored"></span></div>
+      <div x-show="activeOps.length>0" class="flex items-center gap-1 text-[var(--primary)]">
+           <span class="animate-pulse">⏳</span>
+           <span class="font-bold" x-text="activeOps.length+ ' active'"></span></div>
+    </div>
+  </header>
+
+  <!-- ================== TABS & FILTERS ================== -->
+  <nav class="border-b border-[var(--border)] px-5 flex gap-1 max-w-[1920px] mx-auto w-full items-center flex-wrap">
+    <template x-for="t in [['stacks','📚 Stacks'],['services','🔩 Services'],['history','📜 History']]" :key="t[0]">
+      <button @click="view=t[0]"
+              :class="view===t[0] ? 'border-[var(--primary)] text-[var(--text)]' : 'border-transparent text-[var(--text-dim)] hover:text-[var(--text)]'"
+              class="px-4 py-3 border-b-2 text-sm transition" x-text="t[1]"></button>
+    </template>
+    <div class="flex-1"></div>
+    <div x-show="view!=='history'" class="flex gap-1 flex-wrap py-2">
+      <template x-for="f in [['','All'],['update','Updates'],['up-to-date','OK'],['error','Errors'],['unknown','Unknown'],['ignored','Ignored']]" :key="f[0]">
+        <button @click="statusFilter=f[0]"
+                :class="statusFilter===f[0] ? 'bg-[var(--primary)] text-[var(--text-on-primary)]' : 'bg-[var(--surface-2)] text-[var(--text-dim)] hover:text-[var(--text)]'"
+                class="px-3 py-1 rounded text-xs transition" x-text="f[1]"></button>
+      </template>
+    </div>
+  </nav>
+
+  <!-- ================== MAIN ================== -->
+  <main class="flex-1 px-5 py-4 max-w-[1920px] mx-auto w-full">
+
+    <!-- BULK BAR -->
+    <div x-show="selected.length>0 && view!=='history'"
+         class="sticky top-[130px] z-20 bg-[var(--primary)] text-[var(--text-on-primary)] px-4 py-2.5 rounded-lg flex items-center gap-3 mb-4 shadow-lg fade-in">
+      <span class="font-bold" x-text="selected.length + ' selected'"></span>
+      <span class="text-xs opacity-80" x-text="'→ ' + uniqueStackCount(selected) + ' stack(s) + ' + standaloneCount(selected) + ' container(s)'"></span>
+      <span class="flex-1"></span>
+      <button @click="bulkUpdate()" class="bg-white/20 hover:bg-white/30 px-3 py-1 rounded text-sm">⚡ Update selected</button>
+      <button @click="selected=[]" class="bg-white/10 hover:bg-white/20 px-3 py-1 rounded text-sm">Clear</button>
+    </div>
+
+    <!-- ===== STACKS VIEW ===== -->
+    <div x-show="view==='stacks'" class="space-y-3">
+      <template x-for="stack in filteredStacks" :key="stack.name">
+        <div class="bg-[var(--surface)] rounded-lg border border-[var(--border)] overflow-hidden">
+          <!-- Stack header -->
+          <div class="px-4 py-3 flex items-center gap-3 hover:bg-[var(--surface-2)] transition cursor-pointer"
+               @click="toggleStack(stack.name)">
+            <span class="transform transition inline-block w-3 text-[var(--text-dim)]"
+                  :class="expanded.includes(stack.name) ? 'rotate-90' : ''">▶</span>
+            <span class="text-lg" x-text="stack.is_standalone ? '🔸' : '📚'"></span>
+            <div class="flex-1 min-w-0">
+              <div class="font-bold flex items-center gap-2">
+                <span x-text="stack.name"></span>
+                <span x-show="stack.updates>0" class="pill pill-update" x-text="stack.updates + ' update' + (stack.updates>1?'s':'')"></span>
+                <span x-show="stack.errors>0" class="pill pill-error" x-text="stack.errors + ' err'"></span>
+              </div>
+              <div class="text-xs text-[var(--text-faint)] mt-0.5 flex gap-3 flex-wrap">
+                <span x-text="stack.total + ' items'"></span>
+                <span x-show="stack.uptodate>0" x-text="stack.uptodate + ' up-to-date'"></span>
+                <span x-show="stack.is_standalone">standalone</span>
+                <span x-show="!stack.is_standalone && !stack.stack_id" class="text-[var(--warning)]">external (no Portainer stack)</span>
+              </div>
+            </div>
+            <div @click.stop>
+              <button x-show="stack.updates>0 && stack.stack_id"
+                      @click="updateStack(stack)"
+                      :disabled="isStackBusy(stack)"
+                      class="btn btn-warning text-sm">
+                <span x-show="!isStackBusy(stack)">⚡ Update Stack</span>
+                <span x-show="isStackBusy(stack)" class="flex items-center gap-2">
+                  <span class="spin"></span><span>Updating…</span>
+                </span>
+              </button>
+              <a x-show="stack.stack_id"
+                 :href="portainerDeepLink(stack)" target="_blank" @click.stop
+                 class="text-xs text-[var(--text-faint)] hover:text-[var(--primary)] ml-2">↗</a>
+            </div>
+          </div>
+
+          <!-- Stack items -->
+          <div x-show="expanded.includes(stack.name)" class="border-t border-[var(--border)]">
+            <template x-for="item in stack.items" :key="item.id">
+              <div class="px-4 py-2 flex items-center gap-3 border-b border-[var(--border)]/40 last:border-0 hover:bg-[var(--surface-2)]/40 group"
+                   :class="selected.includes(item.id) ? 'bg-[var(--primary)]/10' : ''">
+                <input type="checkbox" :value="item.id" x-model="selected"
+                       :disabled="item.status!=='update' || !canUpdate(item)"
+                       @click.stop class="w-4 h-4 accent-[var(--primary)] disabled:opacity-30">
+                <span class="dot" :class="'dot-' + statusKey(item.status)"></span>
+                <div class="flex-1 min-w-0 cursor-pointer" @click="openDrawer(item)">
+                  <div class="mono text-sm truncate" x-text="item.name"></div>
+                  <div class="text-xs text-[var(--text-faint)] mono truncate">
+                    <span x-text="imageRepo(item)"></span><span class="text-[var(--text-dim)]">:</span><span class="text-[var(--text-dim)]" x-text="item.tag"></span>
+                  </div>
+                </div>
+                <span x-show="item.replicas && (item.replicas.running !== item.replicas.desired)"
+                      class="chip text-[var(--warning)]"
+                      x-text="item.replicas.running + '/' + item.replicas.desired"></span>
+                <span class="chip hidden md:inline" x-text="nodeSummary(item)"></span>
+                <span class="pill" :class="'pill-' + statusKey(item.status)" x-text="item.status"></span>
+                <button @click.stop="itemAction(item)"
+                        :disabled="item.status!=='update' || !canUpdate(item) || isItemBusy(item)"
+                        :class="(item.status==='update' && canUpdate(item)) ? 'btn btn-warning text-xs' : 'btn btn-ghost text-xs'">
+                  <template x-if="isItemBusy(item)">
+                    <span class="flex items-center gap-1.5"><span class="spin"></span><span>Working…</span></span>
+                  </template>
+                  <template x-if="!isItemBusy(item)">
+                    <span x-text="actionLabel(item)"></span>
+                  </template>
+                </button>
+              </div>
+            </template>
+          </div>
+        </div>
+      </template>
+
+      <div x-show="filteredStacks.length===0 && !loading" class="text-center py-16 text-[var(--text-faint)]">
+        <div class="text-4xl mb-2">🔍</div>
+        <div>No stacks match your filters.</div>
+        <button @click="search='';statusFilter=''" class="mt-3 text-[var(--primary)] hover:underline text-sm">Clear filters</button>
+      </div>
+    </div>
+
+    <!-- ===== SERVICES FLAT VIEW ===== -->
+    <div x-show="view==='services'" class="bg-[var(--surface)] rounded-lg border border-[var(--border)] overflow-hidden">
+      <div class="overflow-x-auto scrollbar">
+        <table class="w-full text-sm">
+          <thead class="text-xs uppercase text-[var(--text-faint)] bg-[var(--surface-2)]">
+            <tr>
+              <th class="px-3 py-2 w-8">
+                <input type="checkbox"
+                       :checked="selected.length>0 && selected.length===filteredItems.filter(i=>canUpdate(i) && i.status==='update').length"
+                       @click="toggleSelectAll()"
+                       class="w-4 h-4 accent-[var(--primary)]">
+              </th>
+              <th class="px-3 py-2 text-left cursor-pointer select-none" @click="sortBy('status')">Status <span x-text="sortIndicator('status')"></span></th>
+              <th class="px-3 py-2 text-left cursor-pointer select-none" @click="sortBy('name')">Name <span x-text="sortIndicator('name')"></span></th>
+              <th class="px-3 py-2 text-left cursor-pointer select-none" @click="sortBy('stack')">Stack <span x-text="sortIndicator('stack')"></span></th>
+              <th class="px-3 py-2 text-left cursor-pointer select-none" @click="sortBy('image')">Image <span x-text="sortIndicator('image')"></span></th>
+              <th class="px-3 py-2 text-left">Tag</th>
+              <th class="px-3 py-2 text-left hidden lg:table-cell">Node</th>
+              <th class="px-3 py-2 text-left hidden lg:table-cell">Replicas</th>
+              <th class="px-3 py-2 text-right">Action</th>
+            </tr>
+          </thead>
+          <tbody>
+            <template x-for="item in sortedFiltered" :key="item.id">
+              <tr class="border-t border-[var(--border)]/40 hover:bg-[var(--surface-2)]/40 cursor-pointer group"
+                  :class="selected.includes(item.id) ? 'bg-[var(--primary)]/10' : ''"
+                  @click="openDrawer(item)">
+                <td class="px-3 py-2" @click.stop>
+                  <input type="checkbox" :value="item.id" x-model="selected"
+                         :disabled="item.status!=='update' || !canUpdate(item)"
+                         class="w-4 h-4 accent-[var(--primary)] disabled:opacity-30">
+                </td>
+                <td class="px-3 py-2">
+                  <div class="flex items-center gap-2">
+                    <span class="dot" :class="'dot-' + statusKey(item.status)"></span>
+                    <span class="pill" :class="'pill-' + statusKey(item.status)" x-text="item.status"></span>
+                  </div>
+                </td>
+                <td class="px-3 py-2 mono" x-text="item.name"></td>
+                <td class="px-3 py-2 mono text-[var(--text-dim)]" x-text="item.stack || '—'"></td>
+                <td class="px-3 py-2 mono text-xs" x-text="item.image"></td>
+                <td class="px-3 py-2 mono text-xs text-[var(--text-dim)]" x-text="item.tag"></td>
+                <td class="px-3 py-2 text-xs text-[var(--text-dim)] hidden lg:table-cell" x-text="nodeSummary(item) || '—'"></td>
+                <td class="px-3 py-2 text-xs hidden lg:table-cell"
+                    :class="(item.replicas && item.replicas.running < item.replicas.desired) ? 'text-[var(--warning)]' : ''">
+                  <span x-text="(item.replicas ? (item.replicas.running + '/' + item.replicas.desired) : '—')"></span>
+                </td>
+                <td class="px-3 py-2 text-right" @click.stop>
+                  <button @click="itemAction(item)"
+                          :disabled="item.status!=='update' || !canUpdate(item) || isItemBusy(item)"
+                          :class="(item.status==='update' && canUpdate(item)) ? 'btn btn-warning text-xs' : 'btn btn-ghost text-xs'">
+                    <template x-if="isItemBusy(item)">
+                      <span class="flex items-center gap-1.5"><span class="spin"></span><span>Working…</span></span>
+                    </template>
+                    <template x-if="!isItemBusy(item)">
+                      <span x-text="actionLabel(item)"></span>
+                    </template>
+                  </button>
+                </td>
+              </tr>
+            </template>
+          </tbody>
+        </table>
+      </div>
+      <div x-show="filteredItems.length===0 && !loading" class="text-center py-16 text-[var(--text-faint)]">
+        No services match.
+      </div>
+    </div>
+
+    <!-- ===== HISTORY VIEW ===== -->
+    <div x-show="view==='history'" class="space-y-2">
+      <div class="flex justify-between items-center mb-3">
+        <div>
+          <h2 class="font-bold text-lg">Update History</h2>
+          <div class="text-xs text-[var(--text-faint)]" x-text="history.length + ' entries'"></div>
+        </div>
+        <div class="flex gap-2">
+          <button @click="loadHistory()" class="btn btn-ghost text-xs">↻ Reload</button>
+          <button @click="clearHistory()" class="btn btn-ghost text-xs text-[var(--danger)]">Clear all</button>
+        </div>
+      </div>
+      <template x-for="h in history" :key="h.id">
+        <div class="bg-[var(--surface)] rounded-lg border border-[var(--border)] p-4 flex items-start gap-3">
+          <span class="text-xl" x-text="h.status==='success' ? '✅' : '❌'"></span>
+          <div class="flex-1 min-w-0">
+            <div class="font-bold flex items-center gap-2 flex-wrap">
+              <span class="chip" x-text="h.op_type.replace('_',' ')"></span>
+              <span class="mono" x-text="h.target_name"></span>
+            </div>
+            <div class="text-xs text-[var(--text-faint)] mt-1">
+              <span x-text="formatTime(h.ts)"></span> ·
+              <span x-text="h.duration.toFixed(1) + 's'"></span>
+              <span x-show="h.error" class="text-[var(--danger)] ml-2 mono" x-text="h.error"></span>
+            </div>
+            <details class="mt-2 text-xs">
+              <summary class="text-[var(--text-dim)] hover:text-[var(--text)] select-none">▶ events</summary>
+              <div class="mt-2 bg-[var(--bg)] rounded p-3 mono text-[11px] space-y-1 max-h-60 overflow-y-auto scrollbar border border-[var(--border)]">
+                <template x-for="(ev,i) in parseEvents(h.events)" :key="i">
+                  <div :class="ev.level==='error' ? 'text-[var(--danger)]' : ev.level==='success' ? 'text-[var(--success)]' : 'text-[var(--text-dim)]'">
+                    <span class="text-[var(--text-faint)]" x-text="formatTimeShort(ev.ts)"></span>
+                    <span class="ml-2" x-text="ev.msg"></span>
+                  </div>
+                </template>
+              </div>
+            </details>
+          </div>
+        </div>
+      </template>
+      <div x-show="history.length===0" class="text-center py-16 text-[var(--text-faint)]">
+        <div class="text-4xl mb-2">📜</div>
+        <div>No history yet. Updates will show here.</div>
+      </div>
+    </div>
+
+  </main>
+
+  <!-- ================== ACTIVE OPS FLOATING PANEL ================== -->
+  <div x-show="activeOps.length>0"
+       class="fixed bottom-4 right-4 bg-[var(--surface)] border border-[var(--primary)] rounded-lg shadow-2xl w-[420px] max-w-[calc(100vw-32px)] z-40 glow fade-in">
+    <div class="px-4 py-2.5 bg-[var(--surface-2)] border-b border-[var(--border)] flex items-center gap-2 cursor-pointer rounded-t-lg"
+         @click="opsExpanded=!opsExpanded">
+      <span class="animate-pulse">⚡</span>
+      <span class="font-bold text-sm"><span x-text="activeOps.length"></span> operation(s) running</span>
+      <span class="flex-1"></span>
+      <span x-text="opsExpanded ? '▼' : '▲'" class="text-[var(--text-dim)]"></span>
+    </div>
+    <div x-show="opsExpanded" class="max-h-96 overflow-y-auto scrollbar">
+      <template x-for="op in activeOps" :key="op.id">
+        <div class="p-3 border-b border-[var(--border)] last:border-0">
+          <div class="flex items-center gap-2">
+            <span class="chip" x-text="op.op_type.replace('_',' ')"></span>
+            <span class="font-bold text-sm mono flex-1 truncate" x-text="op.target_name"></span>
+            <span class="text-xs text-[var(--text-faint)]" x-text="(op.duration || 0).toFixed(1) + 's'"></span>
+          </div>
+          <div class="mt-2 bg-[var(--bg)] rounded p-2 mono text-[11px] space-y-0.5 max-h-32 overflow-y-auto scrollbar border border-[var(--border)]">
+            <template x-for="(ev,i) in op.events" :key="i">
+              <div :class="ev.level==='error' ? 'text-[var(--danger)]' : ev.level==='success' ? 'text-[var(--success)]' : 'text-[var(--text-dim)]'"
+                   x-text="ev.msg"></div>
+            </template>
+            <div x-show="op.events.length===0" class="text-[var(--text-faint)]">Waiting for progress…</div>
+          </div>
+        </div>
+      </template>
+    </div>
+  </div>
+
+  <!-- ================== DETAIL DRAWER ================== -->
+  <div x-show="drawerItem" class="fixed inset-0 z-40 fade-in">
+    <div @click="drawerItem=null" class="absolute inset-0" style="background:var(--backdrop)"></div>
+    <aside x-show="drawerItem" class="absolute inset-y-0 right-0 w-full md:w-[520px] bg-[var(--surface)] border-l border-[var(--border)] overflow-y-auto scrollbar slide-in">
+      <template x-if="drawerItem">
+        <div class="p-5">
+          <div class="flex items-start justify-between gap-3">
+            <div class="min-w-0">
+              <div class="flex items-center gap-2">
+                <span class="chip" x-text="drawerItem.type"></span>
+                <span class="pill" :class="'pill-' + statusKey(drawerItem.status)" x-text="drawerItem.status"></span>
+              </div>
+              <h2 class="text-xl font-bold mt-2 mono break-all" x-text="drawerItem.name"></h2>
+              <div class="mono text-xs text-[var(--text-dim)] break-all mt-1">
+                <span x-text="imageRepo(drawerItem)"></span><span class="text-[var(--text-faint)]">:</span><span x-text="drawerItem.tag"></span>
+              </div>
+            </div>
+            <button @click="drawerItem=null" class="btn btn-ghost text-lg leading-none">✕</button>
+          </div>
+
+          <!-- Primary actions -->
+          <div class="mt-5 space-y-2">
+            <button x-show="drawerItem.status==='update' && canUpdate(drawerItem)"
+                    @click="itemAction(drawerItem)"
+                    :disabled="isItemBusy(drawerItem)"
+                    class="w-full btn btn-warning justify-center py-3 text-base">
+              <template x-if="isItemBusy(drawerItem)">
+                <span class="flex items-center gap-2"><span class="spin"></span><span>Updating…</span></span>
+              </template>
+              <template x-if="!isItemBusy(drawerItem)">
+                <span>⚡ <span x-text="actionLabel(drawerItem)"></span></span>
+              </template>
+            </button>
+            <div x-show="drawerItem.status==='update' && !canUpdate(drawerItem)"
+                 class="w-full bg-[var(--surface-2)] border border-[var(--warning)]/30 text-[var(--warning)] rounded-lg p-3 text-xs">
+              ⚠ This service has no associated Portainer stack (external / CLI-deployed). Update via CLI or use Restart below.
+            </div>
+            <div class="grid grid-cols-2 gap-2">
+              <button x-show="drawerItem.type==='service'"
+                      @click="restartService(drawerItem)"
+                      :disabled="isServiceBusy(drawerItem)"
+                      class="btn btn-ghost justify-center text-sm">
+                <template x-if="isServiceBusy(drawerItem)">
+                  <span class="flex items-center gap-1.5"><span class="spin"></span><span>Restarting…</span></span>
+                </template>
+                <template x-if="!isServiceBusy(drawerItem)">
+                  <span>🔄 Restart (no pull)</span>
+                </template>
+              </button>
+              <button @click="toggleIgnore(drawerItem)"
+                      class="btn btn-ghost justify-center text-sm"
+                      x-text="drawerItem.ignored ? '👁 Unignore' : '🚫 Ignore image'"></button>
+              <a x-show="drawerItem.stack_id"
+                 :href="portainerDeepLink(drawerItem)" target="_blank"
+                 class="btn btn-ghost justify-center text-sm text-center">↗ Portainer</a>
+              <a x-show="drawerItem.hub_link"
+                 :href="drawerItem.hub_link" target="_blank"
+                 class="btn btn-ghost justify-center text-sm text-center">📦 Registry</a>
+            </div>
+          </div>
+
+          <!-- Info sections -->
+          <div class="mt-6 space-y-4">
+            <div x-show="drawerItem.stack">
+              <div class="text-[10px] text-[var(--text-faint)] uppercase tracking-wide">Stack</div>
+              <div class="mono mt-1" x-text="drawerItem.stack"></div>
+            </div>
+            <div>
+              <div class="text-[10px] text-[var(--text-faint)] uppercase tracking-wide">Replicas</div>
+              <div class="mt-1">
+                <span class="text-lg font-bold mono"
+                      :class="(drawerItem.replicas.running < drawerItem.replicas.desired) ? 'text-[var(--warning)]' : 'text-[var(--success)]'"
+                      x-text="drawerItem.replicas.running + ' / ' + drawerItem.replicas.desired"></span>
+                <span x-show="drawerItem.replicas.running < drawerItem.replicas.desired" class="text-xs text-[var(--warning)] ml-2">⚠ degraded</span>
+                <span x-show="drawerItem.replicas.running === drawerItem.replicas.desired && drawerItem.replicas.desired > 0" class="text-xs text-[var(--success)] ml-2">✓ healthy</span>
+              </div>
+            </div>
+            <div x-show="drawerItem.placements && drawerItem.placements.length">
+              <div class="text-[10px] text-[var(--text-faint)] uppercase tracking-wide">Placement</div>
+              <div class="mt-1 space-y-1">
+                <template x-for="(p,i) in drawerItem.placements" :key="i">
+                  <div class="text-sm mono flex items-center gap-2 flex-wrap">
+                    <span class="dot" :class="p.state==='running' ? 'dot-ok' : p.state==='failed' ? 'dot-error' : 'dot-unknown'"></span>
+                    <span class="font-bold" x-text="p.node"></span>
+                    <span class="text-[var(--text-faint)] text-xs" x-text="p.state || '—'"></span>
+                    <span x-show="p.err" class="text-[var(--danger)] text-xs truncate" :title="p.err" x-text="p.err"></span>
+                  </div>
+                </template>
+              </div>
+            </div>
+            <div x-show="drawerItem.current_digest">
+              <div class="text-[10px] text-[var(--text-faint)] uppercase tracking-wide flex justify-between">
+                <span>Local digest</span>
+                <button @click="copy(drawerItem.current_digest)" class="hover:text-[var(--text)]">copy</button>
+              </div>
+              <div class="mono text-[11px] break-all mt-1 text-[var(--text-dim)]" x-text="drawerItem.current_digest"></div>
+            </div>
+            <div x-show="drawerItem.remote_digest">
+              <div class="text-[10px] text-[var(--text-faint)] uppercase tracking-wide flex justify-between">
+                <span>Remote digest</span>
+                <button @click="copy(drawerItem.remote_digest)" class="hover:text-[var(--text)]">copy</button>
+              </div>
+              <div class="mono text-[11px] break-all mt-1"
+                   :class="drawerItem.status==='update' ? 'text-[var(--warning)]' : 'text-[var(--text-dim)]'"
+                   x-text="drawerItem.remote_digest"></div>
+            </div>
+            <div x-show="drawerItem.updated">
+              <div class="text-[10px] text-[var(--text-faint)] uppercase tracking-wide">Last updated</div>
+              <div class="mt-1 text-sm mono" x-text="drawerItem.updated"></div>
+            </div>
+          </div>
+        </div>
+      </template>
+    </aside>
+  </div>
+
+  <!-- ================== SETTINGS MODAL ================== -->
+  <div x-show="showSettings" class="fixed inset-0 z-50 fade-in">
+    <div @click="showSettings=false" class="absolute inset-0" style="background:var(--backdrop-strong)"></div>
+    <div class="relative flex items-center justify-center p-4 h-full overflow-auto">
+      <div class="bg-[var(--surface)] border border-[var(--border)] rounded-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto scrollbar">
+        <div class="p-5 border-b border-[var(--border)] flex justify-between items-center sticky top-0 bg-[var(--surface)] z-10">
+          <h2 class="text-xl font-bold">⚙️ Settings</h2>
+          <button @click="showSettings=false" class="btn btn-ghost">✕</button>
+        </div>
+        <div class="p-5 space-y-6">
+
+          <section>
+            <h3 class="font-bold mb-2 flex items-center gap-2">🔔 Apprise notifications</h3>
+            <p class="text-xs text-[var(--text-faint)] mb-3">
+              Posts JSON to the endpoint on every update (success/failure). Use your homelab Apprise hub — e.g.
+              <code class="mono text-[var(--text-dim)]">http://apprise.home.lan:8005/notify/MyTag</code>
+            </p>
+            <input x-model="settings.apprise_url" type="url" placeholder="http://apprise.home.lan:8005/notify" class="w-full">
+            <input x-model="settings.apprise_tag" type="text" placeholder="Optional extra tag (e.g. telegram)" class="w-full mt-2">
+            <div class="flex gap-2 mt-3">
+              <button @click="saveSettings()" class="btn btn-primary text-sm">Save</button>
+              <button @click="testNotify()" class="btn btn-ghost text-sm">Send test</button>
+            </div>
+          </section>
+
+          <section>
+            <h3 class="font-bold mb-2 flex items-center gap-2">🔗 Portainer public URL</h3>
+            <p class="text-xs text-[var(--text-faint)] mb-3">
+              Used for "Open in Portainer" deep links. Browser-facing URL.
+            </p>
+            <input x-model="settings.portainer_public_url" type="url" placeholder="https://portainer.home.lan" class="w-full">
+            <button @click="saveSettings()" class="btn btn-primary text-sm mt-3">Save</button>
+          </section>
+
+          <section>
+            <h3 class="font-bold mb-2 flex items-center gap-2">🚫 Ignore list</h3>
+            <p class="text-xs text-[var(--text-faint)] mb-3">
+              Items matching these patterns show as <span class="pill pill-ignored">ignored</span> and won't offer updates.
+              Image matches are substring; stack matches are exact.
+            </p>
+            <div class="flex gap-2 flex-wrap">
+              <select x-model="newIgnore.kind" class="min-w-[100px]">
+                <option value="image">Image</option>
+                <option value="stack">Stack</option>
+              </select>
+              <input x-model="newIgnore.pattern" type="text" placeholder="e.g. plex or my-stack" class="flex-1 min-w-[200px]">
+              <button @click="addIgnore()" class="btn btn-primary text-sm">Add</button>
+            </div>
+            <div class="mt-3 space-y-1">
+              <template x-for="ig in ignores" :key="ig.pattern">
+                <div class="flex items-center justify-between bg-[var(--surface-2)] rounded px-3 py-2 text-sm">
+                  <div class="flex items-center gap-2">
+                    <span class="chip" x-text="ig.kind"></span>
+                    <span class="mono" x-text="ig.pattern"></span>
+                  </div>
+                  <button @click="delIgnore(ig.pattern)" class="text-[var(--danger)] hover:underline text-xs">Remove</button>
+                </div>
+              </template>
+              <div x-show="ignores.length===0" class="text-xs text-[var(--text-faint)] italic">No ignores configured.</div>
+            </div>
+          </section>
+
+          <section>
+            <h3 class="font-bold mb-2 flex items-center gap-2">⌨️ Shortcuts</h3>
+            <div class="text-xs text-[var(--text-dim)] space-y-1 mono">
+              <div><kbd class="chip">/</kbd> focus search</div>
+              <div><kbd class="chip">r</kbd> refresh</div>
+              <div><kbd class="chip">Esc</kbd> close drawer / modal</div>
+            </div>
+          </section>
+
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ================== TOAST ================== -->
+  <div x-show="toast"
+       x-transition:enter="transition ease-out duration-200"
+       x-transition:enter-start="opacity-0 translate-x-4"
+       x-transition:enter-end="opacity-100 translate-x-0"
+       x-transition:leave="transition ease-in duration-150"
+       x-transition:leave-start="opacity-100"
+       x-transition:leave-end="opacity-0"
+       class="fixed top-5 right-5 bg-[var(--surface)] border-l-4 px-5 py-3 rounded shadow-2xl z-[60] max-w-[90vw]"
+       :class="toastType==='error' ? 'border-[var(--danger)]' : 'border-[var(--success)]'">
+    <div class="text-sm" x-text="toast"></div>
+  </div>
+
+</div>
+
+<script>
+function app() {
+  return {
+    // ========== state ==========
+    items: [], stacks: [], nodes: {},
+    history: [], ignores: [],
+    activeOps: [],
+    view: 'stacks',
+    search: '', statusFilter: '',
+    sortField: 'status', sortDir: 'asc',
+    selected: [], expanded: [],
+    loading: false,
+    drawerItem: null,
+    showSettings: false,
+    opsExpanded: true,
+    toast: '', toastType: 'success', _tt: null,
+    autoRefresh: 0, _autoTimer: null, _opsTimer: null,
+    cacheLabel: '',
+    settings: { apprise_url: '', apprise_tag: '', portainer_public_url: '' },
+    newIgnore: { kind: 'image', pattern: '' },
+    endpointId: 1,
+    busy: {},                               // keys: 'stack:<id>' | 'ctn:<id>' | 'svc:<id>'
+    themePref: localStorage.getItem('theme') || 'auto',  // 'auto' | 'light' | 'dark'
+
+    async init() {
+      // React to OS theme changes when on 'auto'
+      if (window.matchMedia) {
+        const mq = window.matchMedia('(prefers-color-scheme: light)');
+        const onSys = () => { if (this.themePref === 'auto') this.applyTheme(); };
+        mq.addEventListener ? mq.addEventListener('change', onSys) : mq.addListener(onSys);
+      }
+      this.applyTheme();
+
+      window.addEventListener('keydown', (e) => {
+        const inField = ['INPUT','TEXTAREA','SELECT'].includes(document.activeElement?.tagName);
+        if (e.key === '/' && !inField) { e.preventDefault(); this.$refs.searchBox?.focus(); }
+        else if (e.key === 'Escape') {
+          if (this.drawerItem) { this.drawerItem = null; e.preventDefault(); }
+          else if (this.showSettings) { this.showSettings = false; e.preventDefault(); }
+        }
+        else if (e.key === 'r' && !inField) { e.preventDefault(); this.refresh(true); }
+      });
+      await this.loadSettings();
+      await this.loadIgnores();
+      await this.refresh();
+      await this.loadHistory();
+      this.pollOps();
+      setInterval(() => this.updateCacheLabel(), 1000);
+    },
+
+    // ========== data loading ==========
+    async refresh(force=false) {
+      this.loading = true;
+      try {
+        const r = await fetch('/api/items' + (force ? '?force=true' : ''));
+        if (!r.ok) throw new Error(await r.text());
+        const d = await r.json();
+        this.items = d.items || [];
+        this.stacks = d.stacks || [];
+        this.nodes = d.nodes || {};
+        this.cacheLabel = d.cached ? `cached ${d.age}s ago` : 'fresh';
+      } catch (e) {
+        this.showToast('Load failed: ' + e.message, 'error');
+      }
+      this.loading = false;
+    },
+    updateCacheLabel() {
+      // Visual-only. Actual staleness check done on refresh.
+    },
+    async loadSettings() {
+      try {
+        const r = await fetch('/api/settings');
+        const d = await r.json();
+        this.settings = {
+          apprise_url: d.apprise_url || '',
+          apprise_tag: d.apprise_tag || '',
+          portainer_public_url: d.portainer_public_url || '',
+        };
+        this.endpointId = d.endpoint_id || 1;
+      } catch (e) { console.error(e); }
+    },
+    async saveSettings() {
+      try {
+        const r = await fetch('/api/settings', {
+          method: 'POST', headers: {'Content-Type':'application/json'},
+          body: JSON.stringify(this.settings),
+        });
+        if (!r.ok) throw new Error(await r.text());
+        this.showToast('✓ Settings saved');
+      } catch (e) { this.showToast('Save failed: ' + e.message, 'error'); }
+    },
+    async testNotify() {
+      try {
+        const r = await fetch('/api/notify-test', { method: 'POST' });
+        if (!r.ok) throw new Error();
+        this.showToast('✓ Test notification sent (check your channel)');
+      } catch (e) { this.showToast('Test failed — check Apprise URL', 'error'); }
+    },
+    async loadIgnores() {
+      try {
+        const r = await fetch('/api/ignores');
+        this.ignores = (await r.json()).ignores || [];
+      } catch (e) { console.error(e); }
+    },
+    async addIgnore() {
+      if (!this.newIgnore.pattern.trim()) return;
+      await fetch('/api/ignores', {
+        method: 'POST', headers: {'Content-Type':'application/json'},
+        body: JSON.stringify(this.newIgnore),
+      });
+      this.newIgnore.pattern = '';
+      await this.loadIgnores();
+      await this.refresh(true);
+    },
+    async delIgnore(pattern) {
+      await fetch('/api/ignores/' + encodeURIComponent(pattern), { method: 'DELETE' });
+      await this.loadIgnores();
+      await this.refresh(true);
+    },
+    async toggleIgnore(item) {
+      if (item.ignored) {
+        const match = this.ignores.find(ig =>
+          (ig.kind === 'image' && (item.image || '').includes(ig.pattern)) ||
+          (ig.kind === 'stack' && ig.pattern === item.stack)
+        );
+        if (match) await this.delIgnore(match.pattern);
+      } else {
+        this.newIgnore = { kind: 'image', pattern: item.image };
+        await this.addIgnore();
+      }
+      this.drawerItem = null;
+    },
+    async loadHistory() {
+      try {
+        const r = await fetch('/api/history');
+        this.history = (await r.json()).history || [];
+      } catch (e) { console.error(e); }
+    },
+    async clearHistory() {
+      const ok = await this.confirmDialog({
+        title: 'Clear all history?',
+        html: '<div>This will permanently delete all past update records.</div>',
+        icon: 'warning', confirmText: '🗑 Clear', confirmColor: this._cssVar('--danger'),
+      });
+      if (!ok) return;
+      await fetch('/api/history', { method: 'DELETE' });
+      await this.loadHistory();
+      this.showToast('History cleared');
+    },
+    pollOps() {
+      if (this._opsTimer) clearTimeout(this._opsTimer);
+      const tick = async () => {
+        try {
+          const r = await fetch('/api/ops');
+          const all = (await r.json()).ops || [];
+          const prevRunning = this.activeOps.map(o => o.id);
+          this.activeOps = all.filter(o => o.status === 'running');
+          // Detect completions → refresh items + history
+          const justDone = all.filter(o => o.status !== 'running' && prevRunning.includes(o.id));
+          if (justDone.length > 0) {
+            // Hold the button disabled across the post-completion refresh window.
+            // Without this, activeOps is already empty but items haven't re-loaded yet,
+            // so the stale "update" status would make the button clickable again.
+            const holdKeys = [...new Set(justDone.map(o => this._opBusyKey(o)).filter(Boolean))];
+            holdKeys.forEach(k => this._holdBusy(k));
+            justDone.forEach(o => this.showToast(
+              `${o.status === 'success' ? '✓' : '✗'} ${o.op_type.replace('_',' ')}: ${o.target_name}`,
+              o.status === 'success' ? 'success' : 'error'
+            ));
+            Promise.all([this.refresh(true), this.loadHistory()])
+              .finally(() => holdKeys.forEach(k => this._clearBusy(k)));
+          }
+        } catch (e) { /* ignore */ }
+        this._opsTimer = setTimeout(tick, 1500);
+      };
+      tick();
+    },
+    pollOpsNow() { this.pollOps(); },
+    setAutoRefresh(seconds) {
+      this.autoRefresh = seconds;
+      if (this._autoTimer) clearInterval(this._autoTimer);
+      if (seconds > 0) this._autoTimer = setInterval(() => this.refresh(true), seconds * 1000);
+    },
+
+    // ========== computed ==========
+    get counts() {
+      const c = { update:0, uptodate:0, unknown:0, error:0, ignored:0 };
+      for (const i of this.items) {
+        if (i.status==='update') c.update++;
+        else if (i.status==='up-to-date') c.uptodate++;
+        else if (i.status==='unknown') c.unknown++;
+        else if (i.status==='error') c.error++;
+        else if (i.status==='ignored') c.ignored++;
+      }
+      return c;
+    },
+    get filteredStacks() {
+      const q = this.search.toLowerCase();
+      return this.stacks
+        .map(s => ({ ...s, items: s.items.filter(i => this.matches(i, q)) }))
+        .filter(s => s.items.length > 0);
+    },
+    get filteredItems() {
+      const q = this.search.toLowerCase();
+      return this.items.filter(i => this.matches(i, q));
+    },
+    get sortedFiltered() {
+      const arr = [...this.filteredItems];
+      const f = this.sortField, dir = this.sortDir === 'asc' ? 1 : -1;
+      const statusRank = { update:0, error:1, unknown:2, 'up-to-date':3, ignored:4 };
+      arr.sort((a,b) => {
+        let va, vb;
+        if (f === 'status') { va = statusRank[a.status] ?? 99; vb = statusRank[b.status] ?? 99; }
+        else { va = (a[f]||'').toString().toLowerCase(); vb = (b[f]||'').toString().toLowerCase(); }
+        if (va < vb) return -1 * dir;
+        if (va > vb) return 1 * dir;
+        return 0;
+      });
+      return arr;
+    },
+    matches(item, q) {
+      if (q) {
+        const hay = [item.name, item.image, item.stack, item.tag].filter(Boolean).join(' ').toLowerCase();
+        if (!hay.includes(q)) return false;
+      }
+      if (this.statusFilter && item.status !== this.statusFilter) return false;
+      return true;
+    },
+
+    // ========== theme ==========
+    applyTheme() {
+      const sysLight = window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches;
+      const resolved = this.themePref === 'auto' ? (sysLight ? 'light' : 'dark') : this.themePref;
+      document.documentElement.setAttribute('data-theme', resolved);
+    },
+    cycleTheme() {
+      const order = ['auto', 'light', 'dark'];
+      this.themePref = order[(order.indexOf(this.themePref) + 1) % order.length];
+      localStorage.setItem('theme', this.themePref);
+      this.applyTheme();
+    },
+    _cssVar(name) {
+      return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+    },
+
+    // ========== busy-state helpers ==========
+    _busyKey(kind, id) { return `${kind}:${id}`; },
+    isStackBusy(stack) {
+      if (!stack || !stack.stack_id) return false;
+      if (this.busy[this._busyKey('stack', stack.stack_id)]) return true;
+      return this.activeOps.some(o => o.op_type === 'update_stack' && String(o.target_id) === String(stack.stack_id));
+    },
+    isItemBusy(item) {
+      if (!item) return false;
+      if (item.stack_id) return this.isStackBusy({ stack_id: item.stack_id });
+      if (item.type === 'container') {
+        if (this.busy[this._busyKey('ctn', item.raw_id)]) return true;
+        return this.activeOps.some(o => o.op_type === 'update_container' && o.target_id === item.raw_id);
+      }
+      return false;
+    },
+    isServiceBusy(item) {
+      if (!item) return false;
+      if (this.busy[this._busyKey('svc', item.raw_id)]) return true;
+      return this.activeOps.some(o => o.op_type === 'restart_service' && o.target_id === item.raw_id);
+    },
+    _busyTimers: {},
+    _markBusy(key) {
+      this.busy = { ...this.busy, [key]: true };
+      if (this._busyTimers[key]) clearTimeout(this._busyTimers[key]);
+      // Fallback release: if pollOps never picks the op up, don't leave the button dead forever.
+      // 3s is enough time for at least one 1.5s poll cycle to observe the op in activeOps.
+      this._busyTimers[key] = setTimeout(() => {
+        delete this._busyTimers[key];
+        if (this.busy[key]) { const n = {...this.busy}; delete n[key]; this.busy = n; }
+      }, 3000);
+    },
+    _holdBusy(key) {
+      // Like _markBusy but no auto-clear — caller is responsible for _clearBusy.
+      if (this._busyTimers[key]) { clearTimeout(this._busyTimers[key]); delete this._busyTimers[key]; }
+      if (!this.busy[key]) this.busy = { ...this.busy, [key]: true };
+    },
+    _clearBusy(key) {
+      if (this._busyTimers[key]) { clearTimeout(this._busyTimers[key]); delete this._busyTimers[key]; }
+      if (this.busy[key]) { const n = {...this.busy}; delete n[key]; this.busy = n; }
+    },
+    _opBusyKey(op) {
+      if (!op) return null;
+      if (op.op_type === 'update_stack') return this._busyKey('stack', op.target_id);
+      if (op.op_type === 'update_container') return this._busyKey('ctn', op.target_id);
+      if (op.op_type === 'restart_service') return this._busyKey('svc', op.target_id);
+      return null;
+    },
+
+    // ========== utils ==========
+    statusKey(s) { return (s || 'unknown').replace('up-to-date','ok'); },
+    imageRepo(item) {
+      // Backend stores `image` as full "repo:tag". Strip the trailing :tag so the
+      // template can render "repo" + ":" + tag without doubling the tag.
+      if (!item || !item.image) return '';
+      const img = item.image;
+      const tag = item.tag || '';
+      if (tag && img.endsWith(':' + tag)) return img.slice(0, -(tag.length + 1));
+      return img;
+    },
+    nodeSummary(item) {
+      const ns = (item.placements || []).map(p => p.node).filter(n => n && n !== '?');
+      return [...new Set(ns)].join(', ');
+    },
+    canUpdate(item) {
+      if (!item) return false;
+      if (item.stack_id) return true;
+      if (item.type === 'container') return true;
+      return false;
+    },
+    actionLabel(item) {
+      if (item.status !== 'update') return '—';
+      if (item.stack_id) return 'Update Stack';
+      if (item.type === 'container') return 'Recreate';
+      return 'No stack';
+    },
+    portainerDeepLink(x) {
+      const base = (this.settings.portainer_public_url || '').replace(/\/$/,'');
+      if (!base) return '#';
+      if (x.stack_id) {
+        const stackName = x.stack || x.name;
+        return `${base}/#!/${this.endpointId}/docker/stacks/${stackName}?id=${x.stack_id}&type=1&external=false`;
+      }
+      return `${base}/#!/${this.endpointId}/docker/dashboard`;
+    },
+    sortBy(field) {
+      if (this.sortField === field) this.sortDir = this.sortDir === 'asc' ? 'desc' : 'asc';
+      else { this.sortField = field; this.sortDir = 'asc'; }
+    },
+    sortIndicator(field) {
+      if (this.sortField !== field) return '';
+      return this.sortDir === 'asc' ? '▲' : '▼';
+    },
+    toggleStack(name) {
+      if (this.expanded.includes(name)) this.expanded = this.expanded.filter(n => n !== name);
+      else this.expanded = [...this.expanded, name];
+    },
+    toggleSelectAll() {
+      const selectable = this.filteredItems.filter(i => this.canUpdate(i) && i.status === 'update');
+      if (this.selected.length === selectable.length) this.selected = [];
+      else this.selected = selectable.map(i => i.id);
+    },
+    uniqueStackCount(ids) {
+      const stackIds = new Set();
+      this.items.forEach(i => {
+        if (ids.includes(i.id) && i.stack_id) stackIds.add(i.stack_id);
+      });
+      return stackIds.size;
+    },
+    standaloneCount(ids) {
+      return this.items.filter(i => ids.includes(i.id) && !i.stack_id && i.type === 'container').length;
+    },
+    openDrawer(item) { this.drawerItem = item; },
+    parseEvents(j) { try { return JSON.parse(j || '[]'); } catch (e) { return []; } },
+    formatTime(ts) { return new Date(ts * 1000).toLocaleString(); },
+    formatTimeShort(ts) {
+      const d = new Date(ts * 1000);
+      return d.toLocaleTimeString(undefined, { hour12: false });
+    },
+    copy(text) {
+      navigator.clipboard?.writeText(text);
+      this.showToast('Copied to clipboard');
+    },
+    async confirmDialog({ title, html, icon = 'warning', confirmText = 'Confirm', confirmColor }) {
+      const isLight = document.documentElement.getAttribute('data-theme') === 'light';
+      const warn = this._cssVar('--warning') || '#f59e0b';
+      const r = await Swal.fire({
+        title, html, icon,
+        showCancelButton: true,
+        confirmButtonText: confirmText,
+        cancelButtonText: 'Cancel',
+        reverseButtons: true,
+        focusCancel: true,
+        background: this._cssVar('--surface'),
+        color: this._cssVar('--text'),
+        confirmButtonColor: confirmColor || warn,
+        cancelButtonColor: isLight ? '#9ca3af' : '#374151',
+      });
+      return r.isConfirmed;
+    },
+    showToast(msg, type='success') {
+      this.toast = msg;
+      this.toastType = type;
+      clearTimeout(this._tt);
+      this._tt = setTimeout(() => this.toast = '', 4000);
+    },
+
+    // ========== actions ==========
+    async itemAction(item) {
+      if (this.isItemBusy(item)) return;
+      const ok = item.stack_id
+        ? await this.confirmDialog({
+            title: 'Update stack',
+            html: `<code>${item.stack}</code><ul><li>Prune removed services</li><li>Re-pull all images</li><li>Redeploy the stack</li></ul><div style="margin-top:12px;color:var(--text-faint);font-size:12px;">Affects every service inside this stack.</div>`,
+            icon: 'warning', confirmText: '⚡ Update Stack',
+          })
+        : await this.confirmDialog({
+            title: 'Recreate container',
+            html: `<code>${item.name}</code><div style="margin-top:12px;">Pull the latest image and recreate the container.</div>`,
+            icon: 'warning', confirmText: '⚡ Recreate',
+          });
+      if (!ok) return;
+      if (this.isItemBusy(item)) return;
+      const key = item.stack_id
+        ? this._busyKey('stack', item.stack_id)
+        : this._busyKey('ctn', item.raw_id);
+      const url = item.stack_id
+        ? `/api/update/stack/${item.stack_id}`
+        : `/api/update/container/${item.raw_id}`;
+      this._markBusy(key);
+      try {
+        const r = await fetch(url, { method: 'POST' });
+        if (!r.ok) throw new Error(await r.text());
+        this.showToast(`Queued: ${item.stack || item.name}`);
+        this.drawerItem = null;
+        this.pollOpsNow();
+      } catch (e) {
+        const n = {...this.busy}; delete n[key]; this.busy = n;
+        this.showToast('Failed: ' + e.message, 'error');
+      }
+    },
+    async updateStack(stack) {
+      if (this.isStackBusy(stack)) return;
+      const ok = await this.confirmDialog({
+        title: 'Update stack',
+        html: `<code>${stack.name}</code><ul><li>Prune removed services</li><li>Re-pull all images</li><li>Redeploy the stack</li></ul>`,
+        icon: 'warning', confirmText: '⚡ Update Stack',
+      });
+      if (!ok) return;
+      if (this.isStackBusy(stack)) return;
+      const key = this._busyKey('stack', stack.stack_id);
+      this._markBusy(key);
+      try {
+        const r = await fetch(`/api/update/stack/${stack.stack_id}`, { method: 'POST' });
+        if (!r.ok) throw new Error(await r.text());
+        this.showToast(`Queued: ${stack.name}`);
+        this.pollOpsNow();
+      } catch (e) {
+        const n = {...this.busy}; delete n[key]; this.busy = n;
+        this.showToast('Failed: ' + e.message, 'error');
+      }
+    },
+    async restartService(item) {
+      if (this.isServiceBusy(item)) return;
+      const ok = await this.confirmDialog({
+        title: 'Restart service',
+        html: `<code>${item.name}</code><div style="margin-top:12px;">Force an update with the same image — running tasks will be replaced. No image pull.</div>`,
+        icon: 'question', confirmText: '🔄 Restart', confirmColor: this._cssVar('--primary'),
+      });
+      if (!ok) return;
+      if (this.isServiceBusy(item)) return;
+      const key = this._busyKey('svc', item.raw_id);
+      this._markBusy(key);
+      try {
+        const r = await fetch(`/api/restart/service/${item.raw_id}`, { method: 'POST' });
+        if (!r.ok) throw new Error(await r.text());
+        this.showToast(`Restart queued: ${item.name}`);
+        this.drawerItem = null;
+        this.pollOpsNow();
+      } catch (e) {
+        const n = {...this.busy}; delete n[key]; this.busy = n;
+        this.showToast('Failed: ' + e.message, 'error');
+      }
+    },
+    async bulkUpdate() {
+      const picked = this.items.filter(i => this.selected.includes(i.id));
+      const stackIds = new Set();
+      const queue = [];
+      for (const i of picked) {
+        if (i.stack_id) {
+          if (!stackIds.has(i.stack_id)) { stackIds.add(i.stack_id); queue.push(i); }
+        } else {
+          queue.push(i);
+        }
+      }
+      // Skip anything already in flight
+      const runnable = queue.filter(i => !this.isItemBusy(i));
+      const skipped = queue.length - runnable.length;
+      if (runnable.length === 0) {
+        this.showToast(skipped ? `All ${skipped} target(s) already running` : 'Nothing to update', 'error');
+        return;
+      }
+      const ok = await this.confirmDialog({
+        title: 'Bulk update',
+        html: `<div>Update <b>${runnable.length}</b> target(s) across <b>${stackIds.size}</b> stack(s)?${skipped ? `<br><span style="color:var(--text-faint);font-size:12px;">Skipping ${skipped} already running.</span>` : ''}</div><ul>${runnable.slice(0,8).map(i => `<li><code>${i.stack || i.name}</code></li>`).join('')}${runnable.length>8 ? `<li style="color:var(--text-faint)">…and ${runnable.length-8} more</li>`:''}</ul>`,
+        icon: 'warning', confirmText: '⚡ Update all',
+      });
+      if (!ok) return;
+      let okCount = 0, fail = 0;
+      for (const i of runnable) {
+        const key = i.stack_id ? this._busyKey('stack', i.stack_id) : this._busyKey('ctn', i.raw_id);
+        if (this.busy[key]) continue;
+        this._markBusy(key);
+        try {
+          const url = i.stack_id ? `/api/update/stack/${i.stack_id}` : `/api/update/container/${i.raw_id}`;
+          const r = await fetch(url, { method: 'POST' });
+          if (r.ok) okCount++;
+          else { fail++; const n = {...this.busy}; delete n[key]; this.busy = n; }
+        } catch (e) {
+          fail++; const n = {...this.busy}; delete n[key]; this.busy = n;
+        }
+      }
+      this.selected = [];
+      this.pollOpsNow();
+      this.showToast(`Bulk: ${okCount} queued, ${fail} failed`, fail ? 'error' : 'success');
+    },
+  };
+}
+</script>
+
+</body>
+</html>

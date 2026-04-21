@@ -1,0 +1,26 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# Runtime data (SQLite DB lives here)
+data/
+*.db
+*.db-journal
+
+# Agent state
+.claude/
+
+# PyCharm per-user state (keep deployment.xml, webServers.xml, runConfigurations/)
+.idea/workspace.xml
+.idea/shelf/
+.idea/httpRequests/
+.idea/usage.statistics.xml
+.idea/tasks.xml
+.idea/dictionaries/
+
+# OS
+.DS_Store
+Thumbs.db
