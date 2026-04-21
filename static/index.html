@@ -77,11 +77,28 @@
           </template>
         </div>
         <span class="text-[11px] text-[var(--text-faint)] hidden xl:inline" x-text="cacheLabel"></span>
+        <button x-show="removableAll().length > 0"
+                @click="bulkRemoveAll()"
+                class="btn btn-danger-outline"
+                :title="'Remove all '+removableAll().length+' stopped/failed container(s)'">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m3 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6h14z"/></svg>
+          <span class="text-[11px]">Cleanup <span x-text="removableAll().length"></span></span>
+        </button>
         <button @click="refresh(true)" :disabled="loading" class="btn btn-soft" title="Refresh (r)">
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" :class="loading && 'animate-spin'"><path d="M3 12a9 9 0 0 1 15.5-6.36L22 8"/><path d="M22 3v5h-5"/><path d="M22 12a9 9 0 0 1-15.5 6.36L3 16"/><path d="M2 21v-5h5"/></svg>
         </button>
-        <button @click="cycleTheme()" :title="'Theme: '+themePref" class="btn btn-soft">
-          <span x-text="themePref==='dark' ? '🌙' : themePref==='light' ? '☀' : '🖥'" class="text-[12px]"></span>
+        <button @click="cycleTheme()" :title="'Theme: '+themePref+' (click to cycle)'" class="btn btn-soft">
+          <!-- Moon for dark, sun for light, sun+moon split (crescent over sun) for auto. -->
+          <template x-if="themePref==='dark'">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+          </template>
+          <template x-if="themePref==='light'">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/></svg>
+          </template>
+          <template x-if="themePref==='auto'">
+            <!-- Half-sun / half-moon: explicit "follow OS" glyph. -->
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 3a9 9 0 0 0 0 18 9 9 0 0 0 0-18z M12 3v18" fill="currentColor"/></svg>
+          </template>
         </button>
         <button @click="showSettings=true" class="btn btn-soft" title="Settings">
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2Z"/><circle cx="12" cy="12" r="3"/></svg>
@@ -1288,6 +1305,11 @@ function app() {
     selectionRemovable() {
       return this.items.filter(i => this.selected.includes(i.id) && i.removable);
     },
+    removableAll() {
+      // Everything currently removable, regardless of selection. Drives the
+      // topbar "Cleanup N" fast-action button.
+      return this.items.filter(i => i.removable);
+    },
     selectionRestartable() {
       return this.items.filter(i => this.selected.includes(i.id) && this.isRestartable(i));
     },
@@ -1506,7 +1528,15 @@ function app() {
       this.showToast(`Bulk: ${okCount} queued, ${fail} failed`, fail ? 'error' : 'success');
     },
     async bulkRemove() {
-      const picked = this.selectionRemovable().filter(i => !this.isItemBusy(i));
+      return this._bulkRemoveItems(this.selectionRemovable(), { clearSelection: true });
+    },
+    async bulkRemoveAll() {
+      // Fast-action topbar button — clean up every stopped/failed container
+      // on the cluster without having to select them one by one.
+      return this._bulkRemoveItems(this.removableAll(), { clearSelection: false });
+    },
+    async _bulkRemoveItems(source, { clearSelection }) {
+      const picked = source.filter(i => !this.isItemBusy(i));
       if (picked.length === 0) {
         this.showToast('Nothing removable', 'error');
         return;
@@ -1528,7 +1558,7 @@ function app() {
           else { fail++; this._clearBusy(key); }
         } catch (e) { fail++; this._clearBusy(key); }
       }
-      this.selected = [];
+      if (clearSelection) this.selected = [];
       this.pollOpsNow();
       this.showToast(`Remove: ${okCount} queued, ${fail} failed`, fail ? 'error' : 'success');
     },

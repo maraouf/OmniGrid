@@ -2,8 +2,12 @@ version: "3.8"
 services:
   portaupdate:
     image: python:3.12-slim
+    # Persistent pip cache (see the extra volume below) so restarts don't
+    # re-download the dependency tree every time. Upgrading pip first makes
+    # the cache-hit check faster on modern indexes.
     command: >
-      sh -c "pip install --no-cache-dir --root-user-action=ignore -r /app/requirements.txt &&
+      sh -c "pip install --cache-dir=/pip-cache --root-user-action=ignore --upgrade pip &&
+             pip install --cache-dir=/pip-cache --root-user-action=ignore -r /app/requirements.txt &&
              cd /app &&
              exec uvicorn main:app --host 0.0.0.0 --port 8088 --workers 1"
     ports:
@@ -16,10 +20,9 @@ services:
 
       # ----- optional -----
       CACHE_TTL_SECONDS: "900"            # re-poll registries every 15m
-      VERIFY_TLS: "true"                  # set "false" if Portainer uses a self-signed cert that isn't in the CA bundle
       REGISTRY_CONCURRENCY: "8"           # parallel registry digest queries
       DB_PATH: "/app/data/portaupdate.db" # SQLite location (kept on the bind mount)
-      VERIFY_TLS: "false" 
+      VERIFY_TLS: "false"                 # self-signed Portainer cert — keep false on this cluster
 
       # ----- optional: Docker Hub pull auth (to avoid anonymous rate limits) -----
       # DOCKERHUB_USER: "myuser"
@@ -28,6 +31,7 @@ services:
     volumes:
       - /opt/portaupdate/app:/app:ro          # source code (read-only, hot-reload with a container restart)
       - /opt/portaupdate/data:/app/data       # SQLite for history / ignores / settings
+      - /opt/portaupdate/pip-cache:/pip-cache # persistent pip cache across restarts
       - /etc/ssl/certs:/etc/ssl/certs:ro      # trust your internal CA so HTTPS calls to portainer.home.lan work
 
     networks:
@@ -51,11 +55,20 @@ services:
         condition: on-failure
         delay: 10s
         max_attempts: 5
-      # exclude this service from Diun monitoring
-      labels:
-        - "diun.enable=false"
-    labels:
-      - "diun.enable=false"
+      # Zero-downtime rolling update. `start-first` boots the new task and
+      # waits for its healthcheck to pass before the old one is stopped,
+      # which also cuts the CI verify step's waiting time down to the
+      # healthcheck warm-up instead of a stop → start round-trip.
+      update_config:
+        parallelism: 1
+        delay: 0s
+        order: start-first
+        failure_action: rollback
+        monitor: 30s
+      rollback_config:
+        parallelism: 1
+        delay: 0s
+        order: start-first
 
 networks:
   nginx-proxy-manager_default:
