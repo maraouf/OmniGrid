@@ -27,7 +27,7 @@
 
   <!-- ================== TOPBAR ================== -->
   <header class="sticky top-0 z-30 bg-[var(--surface)]/95 backdrop-blur border-b border-[var(--border)]">
-    <div class="flex items-center gap-4 px-5 py-2.5 max-w-[1920px] mx-auto">
+    <div class="flex items-center gap-4 px-5 py-2.5 max-w-[1600px] mx-auto">
       <div class="flex items-center gap-2 pr-4 mr-1 border-r border-[var(--border)]">
         <div class="app-logo">
           <svg width="16" height="16" viewBox="0 0 32 32" fill="none">
@@ -81,7 +81,7 @@
     </div>
 
     <!-- FILTER BAR -->
-    <div x-show="view!=='history'" class="px-5 pb-3 max-w-[1920px] mx-auto w-full flex items-center gap-2 flex-wrap">
+    <div x-show="view!=='history'" class="px-5 pb-3 max-w-[1600px] mx-auto w-full flex items-center gap-2 flex-wrap">
       <div class="flex items-center gap-1.5 flex-wrap">
         <button @click="healthFilter='';statusFilter=''"
                 :class="(!healthFilter && !statusFilter) ? 'active' : ''"
@@ -137,7 +137,7 @@
   </header>
 
   <!-- ================== MAIN ================== -->
-  <main class="flex-1 px-5 py-4 max-w-[1920px] mx-auto w-full">
+  <main class="flex-1 px-5 py-4 max-w-[1600px] mx-auto w-full">
 
     <!-- BULK BAR -->
     <div x-show="selected.length>0"
@@ -681,7 +681,8 @@ function app() {
     view: (['stacks','services','history'].includes(localStorage.getItem('view')) ? localStorage.getItem('view') : 'stacks'),
     search: '', statusFilter: '', healthFilter: '',
     sortField: 'name', sortDir: 'asc',
-    selected: [], expanded: [],
+    selected: [],
+    expanded: (() => { try { return JSON.parse(localStorage.getItem('expanded') || '[]'); } catch (e) { return []; } })(),
     loading: false,
     drawerItem: null,
     showSettings: false,
@@ -703,6 +704,7 @@ function app() {
       }
       this.applyTheme();
       this.$watch('view', v => localStorage.setItem('view', v));
+      this.$watch('expanded', v => localStorage.setItem('expanded', JSON.stringify(v)));
       window.addEventListener('keydown', (e) => {
         const inField = ['INPUT','TEXTAREA','SELECT'].includes(document.activeElement?.tagName);
         if (e.key === '/' && !inField) { e.preventDefault(); this.$refs.searchBox?.focus(); }
