@@ -472,34 +472,25 @@ details summary::-webkit-details-marker { display: none; }
 }
 
 /* ---------------------------------------------------------------------------
-   Stack icon — SVG from selfhst/icons loaded as a CSS mask so the colour
-   follows the theme (`var(--primary)`). The URL is injected per-stack via
-   the inline `--icon-url` custom property on the element itself.
+   App icon — actual colored SVG from selfhst/icons. Render as an <img> so
+   brand detail is preserved (AdGuard shield, Apprise logo, etc). When the
+   icon 404s the element hides via `.broken`, leaving a clean gap instead of
+   a broken-image placeholder.
    --------------------------------------------------------------------------- */
-.stack-icon {
+.app-icon {
   width: 18px;
   height: 18px;
   display: inline-block;
   flex-shrink: 0;
-  background-color: var(--primary);
-  mask-image: var(--icon-url);
-  mask-size: contain;
-  mask-repeat: no-repeat;
-  mask-position: center;
-  -webkit-mask-image: var(--icon-url);
-  -webkit-mask-size: contain;
-  -webkit-mask-repeat: no-repeat;
-  -webkit-mask-position: center;
-  opacity: .9;
-}
-.stack-icon.fallback {
-  /* Rendered as a small tinted square outline when no icon URL is set. */
-  background: transparent;
-  border: 1px solid var(--border-bright);
+  object-fit: contain;
   border-radius: 3px;
-  mask: none;
-  -webkit-mask: none;
+  /* Slight contrast filter so pure-black icons still read on the dark bg. */
 }
+.app-icon.sm { width: 14px; height: 14px; }
+.app-icon.broken { display: none; }
+/* On the dark theme, pure-black logos vanish — lift them with a white
+   glow-like background. Only kicks in for known-dark icons via a class. */
+:root[data-theme="dark"] .app-icon { filter: drop-shadow(0 0 0.5px rgba(255,255,255,.15)); }
 
 /* ---------------------------------------------------------------------------
    Dense grouped table (primary layout)
