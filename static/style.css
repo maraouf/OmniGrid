@@ -473,6 +473,10 @@ details summary::-webkit-details-marker { display: none; }
   border-collapse: separate;
   border-spacing: 0;
   font-size: 13px;
+  /* Fixed layout: every column with an explicit width gets exactly that much,
+     every column with width:auto (Resource) absorbs the remainder. No more
+     guessing how the browser will distribute leftover space. */
+  table-layout: fixed;
 }
 .ptable thead th {
   position: sticky;
@@ -535,13 +539,12 @@ details summary::-webkit-details-marker { display: none; }
 .col-disk     { width: var(--col-disk); }
 .col-node     { width: var(--col-node); }
 .col-action   { width: var(--col-action); text-align: right; }
-/* Grow column — forces the resource/name column to absorb remaining width
-   so we don't get a huge gap between short cells. In HTML table auto-layout,
-   width:100% on a single column means "absorb all leftover width". */
-.col-grow     { width: 100%; }
-/* Image column has a fixed width (not max-width — tables ignore max-width in
-   auto-layout). Truncate anything longer with ellipsis. */
-.col-image    { width: 320px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Grow column — in fixed table layout, width:auto on a cell tells the browser
+   "give me whatever's left after the fixed-width columns are satisfied". */
+.col-grow     { width: auto; }
+/* Image column — fixed width so very long registry paths truncate with
+   ellipsis instead of pushing other columns off-screen. */
+.col-image    { width: 280px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* ---------------------------------------------------------------------------
    Text helpers that bind to theme variables
