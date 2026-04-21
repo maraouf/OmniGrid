@@ -626,8 +626,12 @@ def persist_history(op: Operation):
 async def notify(title: str, body: str, status: str = "info"):
     url = get_setting("apprise_url", "")
     if not url:
+        print("[notify] skipped — no apprise_url configured")
         return
     tag = get_setting("apprise_tag", "")
+    # Apprise requires a non-empty body. If our ops didn't produce one, echo
+    # the title so the notification isn't rejected as malformed.
+    body = body or title
     try:
         async with httpx.AsyncClient(verify=VERIFY_TLS, timeout=15.0) as client:
             payload = {
@@ -636,11 +640,15 @@ async def notify(title: str, body: str, status: str = "info"):
                 "type": "success" if status == "success" else "failure" if status == "error" else "info",
             }
             if tag:
+                # Apprise-API accepts `tag` (splits on comma/space internally).
                 payload["tag"] = tag
             r = await client.post(url, json=payload)
-            print(f"[notify] {r.status_code} → {url}")
+            if r.status_code >= 400:
+                print(f"[notify] FAILED {r.status_code} → {url} body={r.text[:200]}")
+            else:
+                print(f"[notify] ok {r.status_code} → {url} tag={tag!r}")
     except Exception as e:
-        print(f"[notify] {e}")
+        print(f"[notify] ERROR → {url}: {e}")
 
 
 # ============================================================================
