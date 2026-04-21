@@ -455,6 +455,17 @@ async def _gather():
             if is_swarm_task and state == "running":
                 continue
             image_ref = cont.get("Image", "") or ""
+            # Orphan Swarm task containers report their image as
+            # `repo:tag@sha256:...` — keep just the `repo:tag` for display so the
+            # UI cell doesn't overflow. The digest goes into current_digest.
+            if "@" in image_ref:
+                head, _, digest_suffix = image_ref.partition("@")
+                image_ref = head
+                # If the container's Image field already carried a digest, use it
+                # as a fallback for current_digest (the RepoDigests lookup below
+                # is the primary source).
+                if digest_suffix.startswith("sha256:"):
+                    cont.setdefault("_pu_fallback_digest", digest_suffix)
             compose_project = (
                 labels.get("com.docker.compose.project")
                 or labels.get("com.docker.stack.namespace")
@@ -476,6 +487,10 @@ async def _gather():
                         image_ref = real_tags[0]
             except Exception:
                 pass
+            # Fallback digest from the Image field (e.g. orphan task containers
+            # whose image was purged and image-inspect now 404s).
+            if not current_digest and cont.get("_pu_fallback_digest"):
+                current_digest = cont["_pu_fallback_digest"]
 
             name = (cont.get("Names") or ["?"])[0].lstrip("/")
             state = (cont.get("State") or "").lower()
