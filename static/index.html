@@ -330,7 +330,9 @@
                     </template>
                   </td>
                   <td class="hidden lg:table-cell text-[11.5px] mono text-dim" x-text="fmtAgo(uptimeFor(item))"></td>
-                  <td class="hidden xl:table-cell text-[11.5px] text-[var(--text-faint)] truncate max-w-[140px]" x-text="nodeSummary(item) || '—'"></td>
+                  <td class="hidden xl:table-cell text-[11.5px] text-[var(--text-faint)] truncate max-w-[140px]"
+                    :title="nodeSummary(item) || ''"
+                    x-text="nodeSummary(item) || '—'"></td>
                   <td class="align-right" @click.stop>
                     <div class="flex items-center justify-end gap-1.5">
                       <button x-show="item.status==='update' && canUpdate(item)"
@@ -462,7 +464,9 @@
                   </template>
                 </td>
                 <td class="hidden lg:table-cell text-[11.5px] mono text-dim" x-text="fmtAgo(uptimeFor(item))"></td>
-                <td class="hidden xl:table-cell text-[11.5px] text-[var(--text-faint)] truncate max-w-[140px]" x-text="nodeSummary(item) || '—'"></td>
+                <td class="hidden xl:table-cell text-[11.5px] text-[var(--text-faint)] truncate max-w-[140px]"
+                    :title="nodeSummary(item) || ''"
+                    x-text="nodeSummary(item) || '—'"></td>
                 <td class="align-right" @click.stop>
                   <div class="flex items-center justify-end gap-1.5">
                     <button x-show="item.status==='update' && canUpdate(item)"
