@@ -198,6 +198,7 @@
                 <td><span class="chev" :class="expanded.includes(stack.name) ? 'open' : ''">▶</span></td>
                 <td colspan="2">
                   <div class="flex items-center gap-2">
+                    <span class="stack-icon" :style="stackIconStyle(stack)"></span>
                     <span x-text="stack.name"></span>
                     <span class="text-[var(--text-faint)] text-[11px] font-normal" x-text="'(' + stack.total + ')'"></span>
                     <span x-show="stack.is_standalone" class="chip text-[10px]">standalone</span>
@@ -1081,6 +1082,31 @@ function app() {
     statusKey(s) { return (s || 'unknown').replace('up-to-date','ok'); },
     statsFor(item) {
       return (item && this.stats[item.id]) || { cpu_percent: 0, mem_usage: 0, mem_limit: 0, size_root: 0, size_rw: 0, has_stats: false, has_size: false };
+    },
+    stackIconStyle(stack) {
+      // Render the stack's app icon from selfhst/icons as a CSS mask so the
+      // colour follows --primary. Falls back to a tinted square outline when
+      // the slug doesn't map to a known icon.
+      if (!stack || !stack.name) return '';
+      const overrides = {
+        // Stack → canonical selfhst icon slug for things that wouldn't match
+        // directly off the stack name.
+        'seerr': 'jellyseerr',
+        'docker-prune': 'docker',
+        'standalone': 'docker',
+        'portaupdate': 'docker',  // no official icon for our own app
+        'nebula-sync': 'pi-hole',
+        'adguardhome-sync': 'adguard-home',
+        'adguard-exporter': 'adguard-home',
+        'blackbox-exporter': 'prometheus',
+        'fing-agent': 'fing',
+      };
+      const raw = stack.name.toLowerCase().trim();
+      const natural = raw.replace(/[\s_]+/g, '-').replace(/[^a-z0-9-]/g, '');
+      const slug = overrides[raw] || overrides[natural] || natural;
+      if (!slug) return '';
+      const url = `https://cdn.jsdelivr.net/gh/selfhst/icons/svg/${slug}.svg`;
+      return `--icon-url: url('${url}')`;
     },
     stackStats(stack) {
       // Aggregate CPU / memory / image-size across every item in the stack so
