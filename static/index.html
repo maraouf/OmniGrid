@@ -1135,6 +1135,7 @@ function app() {
       //   - a bare canonical slug (resolved to img/icons/<slug>.svg), or
       //   - a full URL or relative path ending in .svg/.png/.webp (used verbatim).
       if (!name) return '';
+      // Exact / whole-name overrides (checked first).
       const overrides = {
         'seerr': 'jellyseerr',
         'docker-prune': 'docker',
@@ -1150,16 +1151,30 @@ function app() {
         'myspeed': 'img/icons/myspeed.svg',
         'squid-proxy': 'img/icons/squid.png',
         'squid': 'img/icons/squid.png',
+        'tracearr': 'img/icons/tracearr.png',
+        'portainer': 'img/icons/portainer.png',
+        'portainer-agent': 'img/icons/portainer.png',
       };
+      // Prefix patterns — one entry covers all siblings of a product
+      // (authentik outposts: ak-outpost-authentik-ldap-outpost,
+      //  ak-outpost-authentik-radius-outpost, ak-outpost-authentik-proxy-outpost, ...).
+      // Checked after exact overrides, before the selfhst slug fallback.
+      const prefixes = [
+        ['ak-outpost-', 'authentik'],
+        ['komodo-',     'komodo'],
+      ];
       const raw = String(name).toLowerCase().trim();
       const natural = raw.replace(/[\s_]+/g, '-').replace(/[^a-z0-9-]/g, '');
       const mapped = overrides[raw] || overrides[natural];
       // If the override looks like a URL or path (contains a separator or
       // extension), return it verbatim. Otherwise treat it as a slug.
       if (mapped && /[/.]/.test(mapped)) return mapped;
-      const slug = mapped || natural;
-      if (!slug) return '';
-      return `img/icons/${slug}.svg`;
+      if (mapped) return `img/icons/${mapped}.svg`;
+      for (const [prefix, slug] of prefixes) {
+        if (natural.startsWith(prefix)) return `img/icons/${slug}.svg`;
+      }
+      if (!natural) return '';
+      return `img/icons/${natural}.svg`;
     },
     stackIconUrl(stack) {
       return stack ? this.iconUrlFor(stack.name) : '';
