@@ -1097,8 +1097,9 @@ function app() {
       return (item && this.stats[item.id]) || { cpu_percent: 0, mem_usage: 0, mem_limit: 0, size_root: 0, size_rw: 0, has_stats: false, has_size: false };
     },
     iconUrlFor(name) {
-      // Resolve an app name to a selfhst/icons SVG URL. Overrides map the
-      // known non-matching stack names to canonical icon slugs.
+      // Resolve an app name to an icon URL. Override values can either be
+      //   - a bare slug (looked up on selfhst/icons), or
+      //   - a full URL (simpleicons, a local file, anywhere) used verbatim.
       if (!name) return '';
       const overrides = {
         'seerr': 'jellyseerr',
@@ -1109,11 +1110,18 @@ function app() {
         'adguardhome-sync': 'adguard-home',
         'adguard-exporter': 'adguard-home',
         'blackbox-exporter': 'prometheus',
-        'fing-agent': 'fing',
+        'fing-agent': 'img/icons/fing.svg',
+        'fing': 'img/icons/fing.svg',
+        'lubelogger': 'img/icons/lubelogger.png',
+        'myspeed': 'img/icons/myspeed.svg',
+        'squid-proxy': 'img/icons/squid.png',
+        'squid': 'img/icons/squid.png',
       };
       const raw = String(name).toLowerCase().trim();
       const natural = raw.replace(/[\s_]+/g, '-').replace(/[^a-z0-9-]/g, '');
-      const slug = overrides[raw] || overrides[natural] || natural;
+      const mapped = overrides[raw] || overrides[natural];
+      if (mapped && mapped.includes('://')) return mapped;
+      const slug = mapped || natural;
       if (!slug) return '';
       return `https://cdn.jsdelivr.net/gh/selfhst/icons/svg/${slug}.svg`;
     },
