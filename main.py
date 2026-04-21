@@ -224,6 +224,47 @@ def _tag_of(image: str) -> str:
     return last.rsplit(":", 1)[1] if ":" in last else "latest"
 
 
+def _node_attr(node: dict, key: str):
+    """Resolve a Swarm placement-constraint attribute against a raw node dict."""
+    spec = node.get("Spec") or {}
+    desc = node.get("Description") or {}
+    if key == "node.id":
+        return node.get("ID")
+    if key == "node.role":
+        return spec.get("Role")
+    if key == "node.hostname":
+        return desc.get("Hostname")
+    if key == "node.platform.os":
+        return (desc.get("Platform") or {}).get("OS")
+    if key == "node.platform.arch":
+        return (desc.get("Platform") or {}).get("Architecture")
+    if key.startswith("node.labels."):
+        return (spec.get("Labels") or {}).get(key[len("node.labels."):])
+    if key.startswith("engine.labels."):
+        return ((desc.get("Engine") or {}).get("Labels") or {}).get(key[len("engine.labels."):])
+    return None
+
+
+def _node_matches(node: dict, constraints: list[str]) -> bool:
+    """Return True if the node satisfies every Swarm placement constraint."""
+    for c in constraints or []:
+        op = None
+        for candidate in ("==", "!="):
+            if candidate in c:
+                op = candidate
+                break
+        if not op:
+            continue  # unrecognised — don't filter it out
+        left, right = c.split(op, 1)
+        actual = _node_attr(node, left.strip())
+        equal = (str(actual) == right.strip())
+        if op == "==" and not equal:
+            return False
+        if op == "!=" and equal:
+            return False
+    return True
+
+
 async def _gather():
     async with httpx.AsyncClient(verify=VERIFY_TLS, timeout=60.0) as client:
         ep = f"/api/endpoints/{PORTAINER_ENDPOINT_ID}/docker"
@@ -299,7 +340,13 @@ async def _gather():
             if "Replicated" in mode:
                 desired = mode["Replicated"].get("Replicas", 1)
             elif "Global" in mode:
-                desired = len(node_map) or 1
+                # Only count nodes that actually satisfy the service's placement
+                # constraints, so a manager-pinned global service isn't flagged as
+                # degraded just because worker nodes exist.
+                placement = ((spec.get("TaskTemplate") or {}).get("Placement") or {})
+                constraints = placement.get("Constraints") or []
+                eligible = [n for n in nodes if _node_matches(n, constraints)]
+                desired = len(eligible) or 1
             else:
                 desired = 1
             placements = []
@@ -313,6 +360,15 @@ async def _gather():
                     "err": st.get("Err"),
                 })
 
+            if desired == 0:
+                health = "offline"
+            elif running == 0:
+                health = "offline"
+            elif running < desired:
+                health = "degraded"
+            else:
+                health = "healthy"
+
             items.append({
                 "id": f"svc:{svc['ID'][:12]}",
                 "raw_id": svc["ID"],
@@ -325,6 +381,9 @@ async def _gather():
                 "stack_id": stack["Id"] if stack else None,
                 "replicas": {"desired": desired, "running": running},
                 "placements": placements,
+                "health": health,
+                "state": "running" if running > 0 else "stopped",
+                "removable": False,
                 "hub_link": _hub_link(image_name_tag),
                 "ignored": is_ignored(image_name_tag, stack_name),
                 "created": spec.get("CreatedAt") or svc.get("CreatedAt"),
@@ -357,6 +416,14 @@ async def _gather():
                 pass
 
             name = (cont.get("Names") or ["?"])[0].lstrip("/")
+            state = (cont.get("State") or "").lower()
+            if state == "running":
+                health = "healthy"
+            elif state in ("restarting", "paused"):
+                health = "degraded"
+            else:
+                health = "offline"
+
             items.append({
                 "id": f"ctn:{cont['Id'][:12]}",
                 "raw_id": cont["Id"],
@@ -367,8 +434,11 @@ async def _gather():
                 "current_digest": current_digest,
                 "stack": compose_project,
                 "stack_id": stack["Id"] if stack else None,
-                "replicas": {"desired": 1, "running": 1 if cont.get("State") == "running" else 0},
-                "placements": [{"node": "local", "state": cont.get("State")}],
+                "replicas": {"desired": 1, "running": 1 if state == "running" else 0},
+                "placements": [{"node": "local", "state": state}],
+                "health": health,
+                "state": state,
+                "removable": health == "offline",
                 "hub_link": _hub_link(image_ref),
                 "ignored": is_ignored(image_ref, compose_project),
                 "created": cont.get("Created"),
@@ -412,6 +482,8 @@ async def _gather():
             g["updates"] = sum(1 for i in its if i["status"] == "update")
             g["errors"] = sum(1 for i in its if i["status"] in ("error", "unknown"))
             g["uptodate"] = sum(1 for i in its if i["status"] == "up-to-date")
+            g["offline"] = sum(1 for i in its if i.get("health") == "offline")
+            g["degraded"] = sum(1 for i in its if i.get("health") == "degraded")
 
         _cache["items"] = items
         _cache["nodes"] = node_map
@@ -571,6 +643,29 @@ async def _do_update_container(op: Operation, container_id: str):
         _cache["ts"] = 0
 
 
+async def _do_remove_container(op: Operation, container_id: str):
+    try:
+        op.log("Removing container (force=true, v=true)")
+        async with httpx.AsyncClient(verify=VERIFY_TLS, timeout=120.0) as client:
+            r = await client.delete(
+                f"{PORTAINER_URL}/api/endpoints/{PORTAINER_ENDPOINT_ID}/docker/"
+                f"containers/{container_id}?force=true&v=true",
+                headers=_headers(),
+            )
+            if r.status_code >= 400:
+                raise RuntimeError(f"HTTP {r.status_code}: {r.text[:300]}")
+            op.log("Container removed", "success")
+        op.done("success")
+        await notify(f"🗑 Container removed: {op.target_name}", "", "success")
+    except Exception as e:
+        op.log(str(e), "error")
+        op.done("error", str(e))
+        await notify(f"❌ Container remove failed: {op.target_name}", str(e)[:500], "error")
+    finally:
+        persist_history(op)
+        _cache["ts"] = 0
+
+
 async def _do_restart_service(op: Operation, service_id: str):
     try:
         op.log("Fetching current service spec")
@@ -658,6 +753,18 @@ async def api_restart_service(service_id: str, bg: BackgroundTasks):
             break
     op = new_op("restart_service", service_id, name)
     bg.add_task(_do_restart_service, op, service_id)
+    return {"op_id": op.id}
+
+
+@app.post("/api/remove/container/{container_id}")
+async def api_remove_container(container_id: str, bg: BackgroundTasks):
+    name = container_id[:12]
+    for it in _cache["items"]:
+        if it["raw_id"].startswith(container_id) or container_id.startswith(it["raw_id"]):
+            name = it["name"]
+            break
+    op = new_op("remove_container", container_id, name)
+    bg.add_task(_do_remove_container, op, container_id)
     return {"op_id": op.id}
 
 
