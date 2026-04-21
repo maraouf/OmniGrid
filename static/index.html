@@ -677,11 +677,12 @@
           <section>
             <h3 class="font-semibold text-[13px] mb-2">Apprise notifications</h3>
             <p class="text-[11.5px] text-[var(--text-faint)] mb-3">
-              Posts JSON to the endpoint on every update. e.g.
-              <code class="mono text-[var(--text-dim)]">http://apprise.home.lan:8005/notify/MyTag</code>
+              URL format: <code class="mono text-[var(--text-dim)]">http://&lt;host&gt;:&lt;port&gt;/notify/&lt;CONFIG-KEY&gt;</code> —
+              <code class="mono text-[var(--text-dim)]">&lt;CONFIG-KEY&gt;</code> is the bundle name you saved in the Apprise web UI (not a tag).
+              A <b>404</b> response means no config with that key exists on the server.
             </p>
-            <input x-model="settings.apprise_url" type="url" placeholder="http://apprise.home.lan:8005/notify" class="w-full">
-            <input x-model="settings.apprise_tag" type="text" placeholder="Optional extra tag (e.g. telegram)" class="w-full mt-2">
+            <input x-model="settings.apprise_url" type="url" placeholder="http://apprise.home.lan:8005/notify/<config-key>" class="w-full">
+            <input x-model="settings.apprise_tag" type="text" placeholder="Optional: filter URLs by tag within the config" class="w-full mt-2">
             <div class="flex gap-2 mt-3">
               <button @click="saveSettings()" class="btn btn-primary text-[12px]">Save</button>
               <button @click="testNotify()" class="btn btn-soft text-[12px]">Send test</button>
