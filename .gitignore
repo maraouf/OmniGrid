@@ -13,13 +13,8 @@ data/
 # Agent state
 .claude/
 
-# PyCharm per-user state (keep deployment.xml, webServers.xml, runConfigurations/)
-.idea/workspace.xml
-.idea/shelf/
-.idea/httpRequests/
-.idea/usage.statistics.xml
-.idea/tasks.xml
-.idea/dictionaries/
+# PyCharm
+.idea/
 
 # OS
 .DS_Store
