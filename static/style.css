@@ -83,6 +83,11 @@
   --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 
+  /* Stat-bar runtime inputs — set inline via :style on each bar. Declared here
+     so tooling (IDEs, linters) recognises them as known custom properties. */
+  --w: 0%;
+  --c: var(--success);
+
   /* Column widths */
   --col-checkbox: 32px;
   --col-chev: 24px;
@@ -531,11 +536,12 @@ details summary::-webkit-details-marker { display: none; }
 .col-node     { width: var(--col-node); }
 .col-action   { width: var(--col-action); text-align: right; }
 /* Grow column — forces the resource/name column to absorb remaining width
-   so we don't get a huge gap between short cells. */
+   so we don't get a huge gap between short cells. In HTML table auto-layout,
+   width:100% on a single column means "absorb all leftover width". */
 .col-grow     { width: 100%; }
-/* Image column caps at a readable width and truncates overflow so it
-   doesn't eat into the resource column. */
-.col-image    { max-width: 320px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Image column has a fixed width (not max-width — tables ignore max-width in
+   auto-layout). Truncate anything longer with ellipsis. */
+.col-image    { width: 320px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* ---------------------------------------------------------------------------
    Text helpers that bind to theme variables

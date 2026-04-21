@@ -231,7 +231,7 @@
                            class="w-[13px] h-[13px] accent-[var(--primary)] disabled:opacity-25">
                   </td>
                   <td><span class="dot" :class="'dot-' + statusKey(item.status)"></span></td>
-                  <td>
+                  <td class="col-grow">
                     <div class="mono text-[12.5px] text-[var(--text)]" x-text="item.name"></div>
                     <div class="text-[10.5px] text-[var(--text-faint)]" x-text="itemSubline(item)"></div>
                   </td>
@@ -321,7 +321,7 @@
                          class="w-[13px] h-[13px] accent-[var(--primary)] disabled:opacity-25">
                 </td>
                 <td><span class="dot" :class="'dot-' + statusKey(item.status)"></span></td>
-                <td class="mono text-[12.5px]" x-text="item.name"></td>
+                <td class="mono text-[12.5px] col-grow" x-text="item.name"></td>
                 <td class="mono text-[11.5px] text-[var(--text-dim)]" x-text="item.stack || '—'"></td>
                 <td class="mono text-[11.5px] text-dim col-image">
                   <span x-text="imageRepo(item)"></span><span class="text-[var(--text-faint)]">:</span><span class="text-[var(--text-faint)]" x-text="item.tag"></span>
@@ -361,7 +361,7 @@
                   <template x-if="statsFor(item).has_size">
                     <div class="stat-bar" :style="`--w:${diskPercent(item)}%; --c:var(--info)`">
                       <div class="fill"></div>
-                      <div class="label" x-text="fmtBytes(statsFor(item).size_rw) || '0 B'"></div>
+                      <div class="label" x-text="fmtBytes(statsFor(item).size_root)"></div>
                     </div>
                   </template>
                   <template x-if="!statsFor(item).has_size">
@@ -726,10 +726,11 @@ function app() {
         if (!r.ok) return;
         const d = await r.json();
         this.stats = d.stats || {};
-        // Compute max container size for disk-bar normalization.
+        // Compute max image size across all items so the disk bar is
+        // normalised against the largest thing on the cluster.
         let m = 1;
         for (const id in this.stats) {
-          if (this.stats[id].size_rw > m) m = this.stats[id].size_rw;
+          if (this.stats[id].size_root > m) m = this.stats[id].size_root;
         }
         this._maxSize = m;
       } catch (e) {}
@@ -987,7 +988,7 @@ function app() {
 
     statusKey(s) { return (s || 'unknown').replace('up-to-date','ok'); },
     statsFor(item) {
-      return (item && this.stats[item.id]) || { cpu_percent: 0, mem_usage: 0, mem_limit: 0, size_rw: 0, has_stats: false, has_size: false };
+      return (item && this.stats[item.id]) || { cpu_percent: 0, mem_usage: 0, mem_limit: 0, size_root: 0, size_rw: 0, has_stats: false, has_size: false };
     },
     fmtBytes(n) {
       if (n == null) return '—';
@@ -1005,7 +1006,7 @@ function app() {
     diskPercent(item) {
       const s = this.statsFor(item);
       if (!this._maxSize) return 0;
-      return Math.min(100, (s.size_rw / this._maxSize) * 100);
+      return Math.min(100, (s.size_root / this._maxSize) * 100);
     },
     barColor(pct) {
       if (pct > 85) return 'var(--danger)';

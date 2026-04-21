@@ -847,12 +847,19 @@ async def _gather_stats():
         except Exception:
             containers = []
 
-        size_by_cid: dict[str, int] = {}
+        # Track two sizes per container:
+        #   size_root = full image size on disk (SizeRootFs). Always non-zero and
+        #               the number a user thinks of when they say "disk size".
+        #   size_rw   = writable-layer delta. Useful to spot containers that are
+        #               leaking data into their filesystem, but usually ~0.
+        size_root_by_cid: dict[str, int] = {}
+        size_rw_by_cid: dict[str, int] = {}
         svc_by_cid: dict[str, Optional[str]] = {}
         running_cids: list[str] = []
         for c in containers:
             cid = c["Id"]
-            size_by_cid[cid] = c.get("SizeRw", 0) or 0
+            size_root_by_cid[cid] = c.get("SizeRootFs", 0) or 0
+            size_rw_by_cid[cid] = c.get("SizeRw", 0) or 0
             svc_by_cid[cid] = (c.get("Labels") or {}).get("com.docker.swarm.service.id")
             if (c.get("State") or "").lower() == "running":
                 running_cids.append(cid)
@@ -871,6 +878,10 @@ async def _gather_stats():
             cpu = 0.0
             mem_usage = 0
             mem_limit = 0
+            # Image size is per-image, not per-container. For services with
+            # multiple replicas, all replicas share the same image on disk, so
+            # we keep ONE representative value instead of summing.
+            size_root = 0
             size_rw = 0
             has_stats = False
             has_size = False
@@ -879,8 +890,10 @@ async def _gather_stats():
                 for cid, owner in svc_by_cid.items():
                     if owner != sid:
                         continue
-                    if cid in size_by_cid:
-                        size_rw += size_by_cid[cid]
+                    if cid in size_root_by_cid:
+                        # Representative image size — same for every replica.
+                        size_root = max(size_root, size_root_by_cid[cid])
+                        size_rw += size_rw_by_cid.get(cid, 0)
                         has_size = True
                     st = stats_by_cid.get(cid)
                     if st:
@@ -893,8 +906,9 @@ async def _gather_stats():
                         has_stats = True
             else:
                 cid = item["raw_id"]
-                if cid in size_by_cid:
-                    size_rw = size_by_cid[cid]
+                if cid in size_root_by_cid:
+                    size_root = size_root_by_cid[cid]
+                    size_rw = size_rw_by_cid.get(cid, 0)
                     has_size = True
                 st = stats_by_cid.get(cid)
                 if st:
@@ -906,6 +920,7 @@ async def _gather_stats():
                 "cpu_percent": round(cpu, 1),
                 "mem_usage": int(mem_usage),
                 "mem_limit": int(mem_limit),
+                "size_root": int(size_root),
                 "size_rw": int(size_rw),
                 "has_stats": has_stats,
                 "has_size": has_size,
