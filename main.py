@@ -21,7 +21,7 @@ import os
 import sqlite3
 import time
 import uuid
-from contextlib import asynccontextmanager, contextmanager
+from contextlib import asynccontextmanager
 from typing import Optional
 
 # Load .env BEFORE any os.getenv() calls (including those done at import time
@@ -52,23 +52,7 @@ from pydantic import BaseModel
 # managed and will be overwritten on every successful push to main.
 # Rendered in the UI footer and returned by /api/version.
 # ============================================================================
-def _read_version() -> str:
-    candidates = (
-        os.path.join(os.path.dirname(__file__), "VERSION.txt"),
-        "/app/VERSION.txt",
-    )
-    for p in candidates:
-        try:
-            with open(p, "r", encoding="utf-8") as f:
-                v = f.read().strip().splitlines()[0].strip()
-                if v:
-                    return v
-        except (OSError, IndexError):
-            continue
-    return "0.0.0-dev"
-
-
-APP_VERSION = _read_version()
+from logic.version import APP_VERSION
 
 # ============================================================================
 # Config
@@ -81,7 +65,7 @@ STATS_CACHE_TTL = int(os.getenv("STATS_CACHE_TTL_SECONDS", "30"))
 VERIFY_TLS = os.getenv("VERIFY_TLS", "true").lower() == "true"
 CONCURRENCY = int(os.getenv("REGISTRY_CONCURRENCY", "8"))
 STATS_CONCURRENCY = int(os.getenv("STATS_CONCURRENCY", "16"))
-DB_PATH = os.getenv("DB_PATH", "/app/data/portaupdate.db")
+from logic.db import DB_PATH, db_conn, get_setting, set_setting  # noqa: E402,F401
 DOCKERHUB_USER = os.getenv("DOCKERHUB_USER", "")
 DOCKERHUB_TOKEN = os.getenv("DOCKERHUB_TOKEN", "")
 STATS_HISTORY_DAYS = int(os.getenv("STATS_HISTORY_DAYS", "7"))
@@ -154,22 +138,11 @@ metrics.register_cache_age_collector(lambda: _cache)
 
 
 # ============================================================================
-# SQLite persistence
+# SQLite persistence — db_conn / get_setting / set_setting live in logic/db.py.
+# init_db() stays here as the boot orchestrator: it creates the core tables
+# (history / ignores / settings / stats_samples) and delegates to module
+# schema hooks (auth.init_auth_schema) for module-owned tables.
 # ============================================================================
-os.makedirs(os.path.dirname(DB_PATH) or ".", exist_ok=True)
-
-
-@contextmanager
-def db_conn():
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    try:
-        yield conn
-        conn.commit()
-    finally:
-        conn.close()
-
-
 def init_db():
     with db_conn() as c:
         c.executescript("""
@@ -226,17 +199,6 @@ def init_db():
         # Auth schema — users / sessions / api_tokens. Owned by auth.py but
         # created here so there's a single init_db() entry point.
         auth.init_auth_schema(c)
-
-
-def get_setting(key: str, default: str = "") -> str:
-    with db_conn() as c:
-        r = c.execute("SELECT value FROM settings WHERE key=?", (key,)).fetchone()
-    return r["value"] if r else default
-
-
-def set_setting(key: str, value: str):
-    with db_conn() as c:
-        c.execute("INSERT OR REPLACE INTO settings(key,value) VALUES (?,?)", (key, value))
 
 
 # ============================================================================
