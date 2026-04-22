@@ -439,7 +439,7 @@ async def _get_remote_digest(client: httpx.AsyncClient, image: str) -> Optional[
 # ============================================================================
 # Data aggregation
 # ============================================================================
-_cache: dict = {"items": [], "ts": 0.0, "nodes": {}, "stacks": []}
+_cache: dict = {"items": [], "ts": 0.0, "nodes": {}, "stacks": [], "task_node_by_id": {}}
 
 
 def _tag_of(image: str) -> str:
@@ -816,6 +816,7 @@ async def _gather_impl():
         items.sort(key=lambda i: (i.get("name") or "").lower())
         _cache["items"] = items
         _cache["nodes"] = node_map
+        _cache["task_node_by_id"] = task_node_by_id
         _cache["stacks"] = sorted(
             groups.values(),
             key=lambda s: (s["name"] or "").lower(),
@@ -1182,43 +1183,59 @@ def _stats_history(item_ids: list[str], since: float) -> dict[str, list[dict]]:
     return out
 
 
-async def _one_container_stats(client: httpx.AsyncClient, ep: str, cid: str) -> Optional[dict]:
-    """One-shot Docker stats for a running container. Returns None on failure."""
+def _parse_stats_payload(s: dict) -> dict:
+    cpu_now = ((s.get("cpu_stats") or {}).get("cpu_usage") or {}).get("total_usage", 0)
+    cpu_prev = ((s.get("precpu_stats") or {}).get("cpu_usage") or {}).get("total_usage", 0)
+    sys_now = (s.get("cpu_stats") or {}).get("system_cpu_usage", 0)
+    sys_prev = (s.get("precpu_stats") or {}).get("system_cpu_usage", 0)
+    online = (
+        (s.get("cpu_stats") or {}).get("online_cpus")
+        or len(((s.get("cpu_stats") or {}).get("cpu_usage") or {}).get("percpu_usage") or [])
+        or 1
+    )
+    cpu_delta = cpu_now - cpu_prev
+    sys_delta = sys_now - sys_prev
+    cpu_percent = 0.0
+    if sys_delta > 0 and cpu_delta > 0:
+        cpu_percent = (cpu_delta / sys_delta) * online * 100.0
+
+    mem = s.get("memory_stats") or {}
+    mem_usage = mem.get("usage", 0) or 0
+    mem_limit = mem.get("limit", 0) or 0
+    # Docker's `usage` includes page cache; subtract inactive_file to match `docker stats`.
+    mstat = mem.get("stats") or {}
+    cache = mstat.get("inactive_file", 0) or mstat.get("cache", 0) or 0
+    mem_usage = max(0, mem_usage - cache)
+    return {
+        "cpu_percent": round(cpu_percent, 1),
+        "mem_usage": int(mem_usage),
+        "mem_limit": int(mem_limit),
+    }
+
+
+async def _one_container_stats(client: httpx.AsyncClient, ep: str, cid: str, node: Optional[str] = None) -> Optional[dict]:
+    """One-shot Docker stats for a running container. Returns None on failure.
+
+    If `node` is known (Swarm task containers), first try with
+    `X-PortainerAgent-Target: <node>` on a short timeout. Needed for
+    single-replica services on worker nodes where Portainer's default
+    aggregation doesn't resolve the container. On any failure, fall back
+    to the untargeted call so we don't regress containers that today work
+    fine without a target header.
+    """
+    url = f"{PORTAINER_URL}{ep}/containers/{cid}/stats?stream=false"
+    if node:
+        try:
+            r = await client.get(url, headers=_headers(agent_target=node), timeout=4.0)
+            if r.status_code == 200:
+                return _parse_stats_payload(r.json())
+        except Exception:
+            pass
     try:
-        r = await client.get(
-            f"{PORTAINER_URL}{ep}/containers/{cid}/stats?stream=false",
-            headers=_headers(), timeout=10.0,
-        )
+        r = await client.get(url, headers=_headers(), timeout=10.0)
         if r.status_code != 200:
             return None
-        s = r.json()
-        cpu_now = ((s.get("cpu_stats") or {}).get("cpu_usage") or {}).get("total_usage", 0)
-        cpu_prev = ((s.get("precpu_stats") or {}).get("cpu_usage") or {}).get("total_usage", 0)
-        sys_now = (s.get("cpu_stats") or {}).get("system_cpu_usage", 0)
-        sys_prev = (s.get("precpu_stats") or {}).get("system_cpu_usage", 0)
-        online = (
-            (s.get("cpu_stats") or {}).get("online_cpus")
-            or len(((s.get("cpu_stats") or {}).get("cpu_usage") or {}).get("percpu_usage") or [])
-            or 1
-        )
-        cpu_delta = cpu_now - cpu_prev
-        sys_delta = sys_now - sys_prev
-        cpu_percent = 0.0
-        if sys_delta > 0 and cpu_delta > 0:
-            cpu_percent = (cpu_delta / sys_delta) * online * 100.0
-
-        mem = s.get("memory_stats") or {}
-        mem_usage = mem.get("usage", 0) or 0
-        mem_limit = mem.get("limit", 0) or 0
-        # Docker's `usage` includes page cache; subtract inactive_file to match `docker stats`.
-        mstat = mem.get("stats") or {}
-        cache = mstat.get("inactive_file", 0) or mstat.get("cache", 0) or 0
-        mem_usage = max(0, mem_usage - cache)
-        return {
-            "cpu_percent": round(cpu_percent, 1),
-            "mem_usage": int(mem_usage),
-            "mem_limit": int(mem_limit),
-        }
+        return _parse_stats_payload(r.json())
     except Exception as e:
         print(f"[stats] {cid[:12]}: {e}")
         return None
@@ -1247,12 +1264,21 @@ async def _gather_stats():
         size_root_by_cid: dict[str, int] = {}
         size_rw_by_cid: dict[str, int] = {}
         svc_by_cid: dict[str, Optional[str]] = {}
+        # cid → hostname for Swarm task containers. Resolved via the task-ID
+        # label against task_node_by_id (populated by _gather). Used only as
+        # a hint to _one_container_stats; it falls back to no-target on any
+        # failure, so plain standalone containers (None here) stay unchanged.
+        task_node_by_id = _cache.get("task_node_by_id") or {}
+        node_by_cid: dict[str, Optional[str]] = {}
         running_cids: list[str] = []
         for c in containers:
             cid = c["Id"]
             size_root_by_cid[cid] = c.get("SizeRootFs", 0) or 0
             size_rw_by_cid[cid] = c.get("SizeRw", 0) or 0
-            svc_by_cid[cid] = (c.get("Labels") or {}).get("com.docker.swarm.service.id")
+            labels = c.get("Labels") or {}
+            svc_by_cid[cid] = labels.get("com.docker.swarm.service.id")
+            task_id = labels.get("com.docker.swarm.task.id")
+            node_by_cid[cid] = task_node_by_id.get(task_id) if task_id else None
             if (c.get("State") or "").lower() == "running":
                 running_cids.append(cid)
 
@@ -1260,7 +1286,7 @@ async def _gather_stats():
 
         async def fetch(cid: str):
             async with sem:
-                return cid, await _one_container_stats(client, ep, cid)
+                return cid, await _one_container_stats(client, ep, cid, node_by_cid.get(cid))
 
         results = await asyncio.gather(*(fetch(cid) for cid in running_cids))
         stats_by_cid = {cid: s for cid, s in results if s}
