@@ -64,7 +64,7 @@ Portainer UI → profile menu → *My account* → *Access tokens* → add a new
 Portainer → *Stacks* → *Add stack* → paste `docker-compose.yml`, fill in `PORTAINER_API_KEY` / `PORTAINER_URL` / `PORTAINER_ENDPOINT_ID` in the environment fields → Deploy.
 
 **5. Point NPM at it**:
-Proxy host: `portaupdate.oufa.co` / `portaupdate.home.lan` → `http://<manager>:8088`. Add Authentik Forward Auth the same way you do for your other services — the app has no built-in auth by design.
+Proxy host: `portaupdate.oufa.co` / `portaupdate.home.lan` → `http://<manager>:8088`. The app has its own local login + optional Authentik OIDC SSO; no reverse-proxy auth gymnastics required. See `notes/note_authentik.txt` to wire up SSO.
 
 **6. Open it up**, hit ⚙️ Settings, configure:
 - Apprise URL: e.g. `http://apprise.home.lan:8005/notify/PortaUpdate` (or with a tag)

@@ -1136,6 +1136,18 @@
             </div>
           </div>
 
+          <label class="flex items-start gap-2 text-[12.5px] cursor-pointer">
+            <input type="checkbox" :checked="oidcForm.verify_tls"
+                   @change="oidcForm.verify_tls = $event.target.checked"
+                   :disabled="isReadonly()" class="mt-0.5">
+            <span>
+              <span class="font-medium">Verify TLS on discovery / token / JWKS calls</span>
+              <span class="block text-[11px] text-[var(--text-faint)] mt-0.5">
+                Leave on when the issuer has a publicly-trusted cert. Turn off for homelab issuers behind an internal CA whose root isn't in the container's trust store (e.g. <code class="mono">*.home.lan</code> with a self-signed PKI). Mirrors the behaviour of Portainer's Verify TLS toggle.
+              </span>
+            </span>
+          </label>
+
           <div x-show="isAdmin()" class="flex gap-2 pt-1 flex-wrap">
             <button @click="saveOidcSettings()" class="btn btn-primary text-[12px]">Save OIDC settings</button>
             <button @click="testOidcConnection()" class="btn btn-soft text-[12px]">Test connection</button>
@@ -2441,6 +2453,9 @@ function app() {
             redirect_uri:  this.oidcStatus.redirect_uri || this.oidcStatus.redirect_uri_default || '',
             scopes:        this.oidcStatus.scopes || 'openid email profile groups',
             admin_group:   this.oidcStatus.admin_group || 'portaupdate-admins',
+            // Default ON when the backend hasn't surfaced it yet (first load
+            // after the migration); otherwise reflect whatever's persisted.
+            verify_tls:    this.oidcStatus.verify_tls !== false,
           };
         }
 
@@ -2465,6 +2480,7 @@ function app() {
         oidc_redirect_uri: (this.oidcForm.redirect_uri || '').trim(),
         oidc_scopes:       (this.oidcForm.scopes || '').trim(),
         oidc_admin_group:  (this.oidcForm.admin_group || '').trim(),
+        oidc_verify_tls:   !!this.oidcForm.verify_tls,
       };
       // Client secret: only send when the admin actually typed one.
       // Empty / whitespace-only = "keep current" per the backend contract.

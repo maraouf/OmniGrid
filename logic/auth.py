@@ -70,6 +70,12 @@ _AUTH_DEFAULTS = {
     "oidc_client_secret": "",
     "oidc_redirect_uri":  "",
     "oidc_scopes":        "openid email profile groups",
+    # TLS verification for calls PortaUpdate makes TO the issuer (discovery,
+    # JWKS, token exchange). Leave on when the issuer has a publicly-trusted
+    # cert; turn OFF for homelab installs behind an internal CA whose root
+    # isn't in certifi's bundle. Mirrors the behaviour of Portainer's
+    # verify_tls setting.
+    "oidc_verify_tls":    True,
 }
 
 # In-memory cache for the three auth-setting values. First read after an
@@ -103,6 +109,7 @@ _AUTH_SETTING_KEYS = (
     "oidc_client_secret",
     "oidc_redirect_uri",
     "oidc_scopes",
+    "oidc_verify_tls",
 )
 
 
@@ -130,7 +137,7 @@ def bootstrap_auth_settings(conn: sqlite3.Connection) -> None:
 # Bool-typed auth settings — every other key stores its value verbatim as a
 # string. Keep this set in sync when adding new boolean settings so the
 # cache refresh coerces them back from their stringified form.
-_BOOL_AUTH_KEYS = ("oidc_enabled",)
+_BOOL_AUTH_KEYS = ("oidc_enabled", "oidc_verify_tls")
 
 
 def _refresh_auth_settings_cache(conn: sqlite3.Connection) -> None:

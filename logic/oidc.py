@@ -84,6 +84,14 @@ def _settings() -> dict:
         return auth.get_auth_settings(c)
 
 
+def _verify_tls() -> bool:
+    # True when PortaUpdate should verify the issuer's TLS cert against its
+    # trust store. Homelab installs behind an internal CA flip this off via
+    # the Settings → Authentik OIDC panel; the default stays on so
+    # public issuers aren't silently downgraded.
+    return bool(_settings().get("oidc_verify_tls", True))
+
+
 def is_configured() -> bool:
     """True when OIDC is enabled AND the three mandatory values are set.
 
@@ -111,7 +119,7 @@ async def _fetch_discovery(issuer: str) -> dict:
     if cached and cached[1] > now:
         return cached[0]
     url = issuer.rstrip("/") + "/.well-known/openid-configuration"
-    async with httpx.AsyncClient(timeout=15.0) as client:
+    async with httpx.AsyncClient(timeout=15.0, verify=_verify_tls()) as client:
         r = await client.get(url)
         if r.status_code != 200:
             raise HTTPException(
@@ -132,7 +140,7 @@ async def _fetch_jwks(issuer: str, jwks_uri: str, force: bool = False) -> dict:
         cached = _jwks_cache.get(issuer)
         if cached and cached[1] > now:
             return cached[0]
-    async with httpx.AsyncClient(timeout=15.0) as client:
+    async with httpx.AsyncClient(timeout=15.0, verify=_verify_tls()) as client:
         r = await client.get(jwks_uri)
         if r.status_code != 200:
             raise HTTPException(
@@ -159,7 +167,7 @@ async def test_discovery(issuer_url: str) -> dict:
         return {"ok": False, "status": 0, "detail": "Issuer URL is empty"}
     url = issuer_url.rstrip("/") + "/.well-known/openid-configuration"
     try:
-        async with httpx.AsyncClient(timeout=10.0) as client:
+        async with httpx.AsyncClient(timeout=10.0, verify=_verify_tls()) as client:
             r = await client.get(url)
         if r.status_code == 200:
             # Basic sanity check: discovery doc must advertise the three
@@ -356,7 +364,7 @@ async def callback(request: Request):
 
     # Token exchange. Authentik accepts client credentials in either the
     # Authorization header or the body; we use the body for clarity.
-    async with httpx.AsyncClient(timeout=15.0) as client:
+    async with httpx.AsyncClient(timeout=15.0, verify=_verify_tls()) as client:
         token_resp = await client.post(
             token_ep,
             data={

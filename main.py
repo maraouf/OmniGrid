@@ -616,6 +616,7 @@ class SettingsIn(BaseModel):
     oidc_redirect_uri: Optional[str] = None
     oidc_scopes: Optional[str] = None
     oidc_admin_group: Optional[str] = None
+    oidc_verify_tls: Optional[bool] = None
 
 
 @app.get("/api/settings")
@@ -653,6 +654,7 @@ async def api_get_settings(request: Request):
             "redirect_uri_default": oidc.public_redirect_uri(request),
             "scopes": a.get("oidc_scopes") or "openid email profile groups",
             "admin_group": a.get("oidc_admin_group") or "",
+            "verify_tls": bool(a.get("oidc_verify_tls", True)),
         },
     }
 
@@ -706,6 +708,9 @@ async def api_set_settings(
             auth_changed = True
         if s.oidc_admin_group is not None:
             auth.set_auth_setting(c, "oidc_admin_group", s.oidc_admin_group.strip())
+        if s.oidc_verify_tls is not None:
+            auth.set_auth_setting(c, "oidc_verify_tls",
+                                  "true" if s.oidc_verify_tls else "false")
             auth_changed = True
         # Client secret: keep-current-if-blank.
         if s.oidc_client_secret is not None and s.oidc_client_secret.strip() != "":

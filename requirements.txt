@@ -2,11 +2,12 @@ fastapi==0.136.0
 uvicorn[standard]==0.45.0
 httpx==0.28.1
 prometheus-client==0.25.0
-bcrypt==4.2.1
-python-multipart==0.0.20
-python-dotenv==1.0.1
-# OIDC (Authentik SSO) — JWT signature verification against the issuer's JWKS.
-# PyJWT is used instead of authlib: smaller surface, and we already own the
-# discovery + token exchange via httpx. The [crypto] extra pulls in the
-# cryptography package needed for RS256/ES256 verification of id_tokens.
-PyJWT[crypto]==2.10.1
+bcrypt==5.0.0
+python-multipart==0.0.26
+python-dotenv==1.2.2
+# OIDC SSO (Authentik / any OIDC provider) — JWT signature verification
+# against the issuer's JWKS. PyJWT is used instead of authlib: smaller
+# surface, and we already own the discovery + token-exchange httpx calls.
+# The [crypto] extra pulls in the cryptography package needed for RS256 /
+# ES256 verification of id_tokens. See logic/oidc.py.
+PyJWT[crypto]>=2.8.0
