@@ -208,8 +208,33 @@ def set_setting(key: str, value: str):
 # ============================================================================
 # Portainer client
 # ============================================================================
-def _headers():
-    return {"X-API-Key": PORTAINER_API_KEY}
+def _headers(agent_target: Optional[str] = None):
+    # `X-PortainerAgent-Target: <hostname>` routes the request through the
+    # Portainer agent to a specific Swarm node's Docker daemon. Required for
+    # container-level actions (delete, restart, recreate) when the container
+    # lives on a worker node — the manager's daemon would otherwise 404.
+    # Skip the header for synthetic fallback values.
+    h = {"X-API-Key": PORTAINER_API_KEY}
+    if agent_target and agent_target not in ("local", "?", ""):
+        h["X-PortainerAgent-Target"] = agent_target
+    return h
+
+
+def _node_for_container(container_id: str) -> Optional[str]:
+    """Return the hostname of the Swarm node hosting `container_id`, if known.
+
+    Reads the last gathered `_cache`. Returns None for standalone containers
+    whose node can't be determined from Swarm metadata (those stay routed to
+    the manager, same as before). Accepts either a prefixed id (`ctn:abc...`)
+    or the raw Docker ID.
+    """
+    for it in _cache.get("items", []):
+        if it.get("raw_id") == container_id or it.get("id") == container_id:
+            node = it.get("node")
+            if node and node not in ("local", "?", ""):
+                return node
+            break
+    return None
 
 
 async def _pg(client: httpx.AsyncClient, path: str):
@@ -416,10 +441,19 @@ async def _gather_impl():
         node_map = {n["ID"]: n["Description"]["Hostname"] for n in nodes}
         stack_by_name = {s["Name"]: s for s in stacks_list}
         tasks_by_service: dict[str, list] = {}
+        # task.ID → hostname — used later to pin orphan Swarm task containers
+        # to their actual worker node. Without this, `/api/containers/{id}`
+        # routes to the manager's Docker daemon and 404s for containers that
+        # live on a worker. Sending `X-PortainerAgent-Target: <node>` fixes it.
+        task_node_by_id: dict[str, str] = {}
         for t in tasks:
             sid = t.get("ServiceID")
             if sid:
                 tasks_by_service.setdefault(sid, []).append(t)
+            tid = t.get("ID")
+            nid = t.get("NodeID")
+            if tid and nid and nid in node_map:
+                task_node_by_id[tid] = node_map[nid]
 
         # Build service-id → running containers map. Swarm stamps every task
         # container with `com.docker.swarm.service.id`, so we can go from service
@@ -630,6 +664,15 @@ async def _gather_impl():
             else:
                 health = "offline"
 
+            # Resolve the real node. Swarm task containers carry their task
+            # ID as a label — look it up in task_node_by_id. Fallback "local"
+            # covers plain compose / standalone containers where the node is
+            # unknowable from the Swarm metadata.
+            swarm_task_id = labels.get("com.docker.swarm.task.id")
+            node_name = task_node_by_id.get(swarm_task_id) if swarm_task_id else None
+            if not node_name:
+                node_name = "local"
+
             items.append({
                 "id": f"ctn:{cont['Id'][:12]}",
                 "raw_id": cont["Id"],
@@ -641,7 +684,8 @@ async def _gather_impl():
                 "stack": compose_project,
                 "stack_id": stack["Id"] if stack else None,
                 "replicas": {"desired": 1, "running": 1 if state == "running" else 0},
-                "placements": [{"node": "local", "state": state}],
+                "placements": [{"node": node_name, "state": state}],
+                "node": node_name,
                 "health": health,
                 "state": state,
                 "removable": health == "offline",
@@ -846,12 +890,14 @@ async def _do_update_stack(op: Operation, stack_id: int):
 
 async def _do_update_container(op: Operation, container_id: str):
     try:
-        op.log("Recreating container with PullImage=true")
+        node = _node_for_container(container_id)
+        op.log(f"Recreating container with PullImage=true"
+               + (f" on node '{node}'" if node else ""))
         async with httpx.AsyncClient(verify=VERIFY_TLS, timeout=600.0) as client:
             r = await client.post(
                 f"{PORTAINER_URL}/api/docker/{PORTAINER_ENDPOINT_ID}/containers/"
                 f"{container_id}/recreate?PullImage=true",
-                headers=_headers(),
+                headers=_headers(agent_target=node),
             )
             if r.status_code >= 400:
                 raise RuntimeError(f"HTTP {r.status_code}: {r.text[:300]}")
@@ -869,12 +915,13 @@ async def _do_update_container(op: Operation, container_id: str):
 
 async def _do_restart_container(op: Operation, container_id: str):
     try:
-        op.log("Restarting container")
+        node = _node_for_container(container_id)
+        op.log("Restarting container" + (f" on node '{node}'" if node else ""))
         async with httpx.AsyncClient(verify=VERIFY_TLS, timeout=120.0) as client:
             r = await client.post(
                 f"{PORTAINER_URL}/api/endpoints/{PORTAINER_ENDPOINT_ID}/docker/"
                 f"containers/{container_id}/restart",
-                headers=_headers(),
+                headers=_headers(agent_target=node),
             )
             if r.status_code >= 400:
                 raise RuntimeError(f"HTTP {r.status_code}: {r.text[:300]}")
@@ -892,12 +939,16 @@ async def _do_restart_container(op: Operation, container_id: str):
 
 async def _do_remove_container(op: Operation, container_id: str):
     try:
-        op.log("Removing container (force=true, v=true)")
+        node = _node_for_container(container_id)
+        if node:
+            op.log(f"Removing container on node '{node}' (force=true, v=true)")
+        else:
+            op.log("Removing container (force=true, v=true)")
         async with httpx.AsyncClient(verify=VERIFY_TLS, timeout=120.0) as client:
             r = await client.delete(
                 f"{PORTAINER_URL}/api/endpoints/{PORTAINER_ENDPOINT_ID}/docker/"
                 f"containers/{container_id}?force=true&v=true",
-                headers=_headers(),
+                headers=_headers(agent_target=node),
             )
             # Idempotent removal: if the container is already gone (Swarm
             # cleanup, another operator, a previous click that succeeded
