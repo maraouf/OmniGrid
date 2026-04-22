@@ -702,20 +702,25 @@
     </div>
 
     <!-- ===== SETTINGS VIEW ===== -->
-    <div x-show="view==='settings'" class="max-w-3xl space-y-5">
-      <div>
-        <h2 class="font-semibold text-[15px]">Settings</h2>
-        <p class="text-[11px] text-[var(--text-faint)] mt-0.5">App-wide configuration. Role-gated where appropriate.</p>
-      </div>
+    <div x-show="view==='settings'" class="page-layout">
+      <aside class="page-sidebar">
+        <div class="page-sidebar-header">Settings</div>
+        <template x-for="s in settingsSections" :key="s.id">
+          <button @click="settingsSection = s.id"
+                  :class="settingsSection === s.id ? 'page-sidebar-item active' : 'page-sidebar-item'"
+                  x-text="s.label"></button>
+        </template>
+      </aside>
 
-      <!-- Readonly banner — clarifies why save buttons are missing. -->
-      <div x-show="isReadonly()"
-           class="bg-[var(--surface-2)] border border-[var(--border-bright)] rounded-md px-4 py-2 text-[12px] text-[var(--text-dim)] flex items-center gap-2">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
-        You're signed in as <span class="font-semibold">readonly</span> — settings are viewable but can't be changed. Ask an admin if you need edits.
-      </div>
+      <div class="page-content">
+        <!-- Readonly banner — clarifies why save buttons are missing. -->
+        <div x-show="isReadonly()"
+             class="bg-[var(--surface-2)] border border-[var(--border-bright)] rounded-md px-4 py-2 text-[12px] text-[var(--text-dim)] flex items-center gap-2">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+          You're signed in as <span class="font-semibold">readonly</span> — settings are viewable but can't be changed. Ask an admin if you need edits.
+        </div>
 
-      <section class="bg-[var(--surface)] border border-[var(--border)] rounded-md p-5">
+      <section x-show="settingsSection === 'notifications'" class="bg-[var(--surface)] border border-[var(--border)] rounded-md p-5">
         <h3 class="font-semibold text-[13px] mb-2">Apprise notifications</h3>
         <p class="text-[11.5px] text-[var(--text-faint)] mb-3">
           URL format: <code class="mono text-[var(--text-dim)]">http://&lt;host&gt;:&lt;port&gt;/notify/&lt;CONFIG-KEY&gt;</code> —
@@ -730,14 +735,14 @@
         </div>
       </section>
 
-      <section class="bg-[var(--surface)] border border-[var(--border)] rounded-md p-5">
+      <section x-show="settingsSection === 'portainer'" class="bg-[var(--surface)] border border-[var(--border)] rounded-md p-5">
         <h3 class="font-semibold text-[13px] mb-2">Portainer public URL</h3>
         <p class="text-[11.5px] text-[var(--text-faint)] mb-3">Browser-facing URL for "Open in Portainer" deep links.</p>
         <input x-model="settings.portainer_public_url" type="url" :disabled="isReadonly()" placeholder="https://portainer.home.lan" class="w-full">
         <button x-show="isAdmin()" @click="saveSettings()" class="btn btn-primary text-[12px] mt-3">Save</button>
       </section>
 
-      <section class="bg-[var(--surface)] border border-[var(--border)] rounded-md p-5">
+      <section x-show="settingsSection === 'ignores'" class="bg-[var(--surface)] border border-[var(--border)] rounded-md p-5">
         <h3 class="font-semibold text-[13px] mb-2">Ignore list</h3>
         <p class="text-[11.5px] text-[var(--text-faint)] mb-3">
           Items matching these patterns show as <span class="pill pill-ignored">ignored</span> and won't offer updates.
@@ -768,7 +773,7 @@
            write-only from the browser: we never return the current value,
            only whether it's set. Leaving the secret field empty means
            "keep the existing one". -->
-      <section class="bg-[var(--surface)] border border-[var(--border)] rounded-md p-5">
+      <section x-show="settingsSection === 'authentik'" class="bg-[var(--surface)] border border-[var(--border)] rounded-md p-5">
         <div class="flex items-start justify-between">
           <div>
             <h3 class="font-semibold text-[13px] mb-2">Authentik Forward Auth</h3>
@@ -829,29 +834,29 @@
         </div>
       </section>
 
-      <section class="bg-[var(--surface)] border border-[var(--border)] rounded-md p-5">
+      <section x-show="settingsSection === 'shortcuts'" class="bg-[var(--surface)] border border-[var(--border)] rounded-md p-5">
         <h3 class="font-semibold text-[13px] mb-2">Keyboard shortcuts</h3>
         <p class="text-[11.5px] text-[var(--text-faint)] mb-2">Press <kbd class="kbd">?</kbd> anywhere to open the full reference.</p>
         <button @click="showHotkeys=true" class="btn btn-soft text-[12px]">Open shortcut reference</button>
       </section>
+      </div>
     </div>
 
     <!-- ===== ADMIN VIEW (admin role only) ===== -->
-    <div x-show="view==='admin'" class="max-w-5xl space-y-4">
+    <div x-show="view==='admin'" class="page-layout">
+      <aside class="page-sidebar">
+        <div class="page-sidebar-header">Admin</div>
+        <template x-for="s in adminSections" :key="s.id">
+          <button @click="openAdminTab(s.id)"
+                  :class="adminTab === s.id ? 'page-sidebar-item active' : 'page-sidebar-item'"
+                  x-text="s.label"></button>
+        </template>
+      </aside>
+      <div class="page-content">
       <div>
-        <h2 class="font-semibold text-[15px]">Admin</h2>
         <p class="text-[11px] text-[var(--text-faint)] mt-0.5">
           User accounts, active sessions, and API tokens. Destructive actions prompt for confirmation.
         </p>
-      </div>
-
-      <!-- Subview tabs -->
-      <div class="flex items-center gap-1 bg-[var(--surface-2)] rounded-md p-0.5 border border-[var(--border)] w-fit">
-        <template x-for="t in [['users','Users'],['sessions','Sessions'],['tokens','API tokens']]" :key="t[0]">
-          <button @click="openAdminTab(t[0])"
-                  :class="adminTab===t[0] ? 'bg-[var(--surface)] text-[var(--text)]' : 'text-[var(--text-dim)]'"
-                  class="px-3 py-1 rounded text-[12px] font-medium transition" x-text="t[1]"></button>
-        </template>
       </div>
 
       <!-- USERS TAB -->
@@ -916,7 +921,7 @@
                             x-text="u.disabled ? 'disabled' : 'active'"></span>
                     </td>
                     <td class="px-4 py-2 mono text-[11px] text-[var(--text-dim)]"
-                        x-text="u.last_login_at ? new Date(u.last_login_at*1000).toLocaleString() : '—'"></td>
+                        x-text="fmtDate(u.last_login_at)"></td>
                     <td class="px-4 py-2 text-right">
                       <div class="inline-flex gap-1">
                         <button @click="toggleUserRole(u)" class="btn btn-soft text-[11px]"
@@ -971,9 +976,9 @@
                     <td class="px-4 py-2 mono text-[11px]" x-text="s.ip || '—'"></td>
                     <td class="px-4 py-2 text-[11.5px] text-[var(--text-dim)] truncate max-w-[280px]" x-text="s.user_agent || '—'" :title="s.user_agent || ''"></td>
                     <td class="px-4 py-2 mono text-[11px] text-[var(--text-dim)]"
-                        x-text="s.last_seen_at ? new Date(s.last_seen_at*1000).toLocaleString() : '—'"></td>
+                        x-text="fmtDate(s.last_seen_at)"></td>
                     <td class="px-4 py-2 mono text-[11px] text-[var(--text-dim)]"
-                        x-text="s.expires_at ? new Date(s.expires_at*1000).toLocaleString() : '—'"></td>
+                        x-text="fmtDate(s.expires_at)"></td>
                     <td class="px-4 py-2 text-right">
                       <button @click="revokeSession(s)" class="btn btn-ghost text-[11px] text-danger">Revoke</button>
                     </td>
@@ -1030,7 +1035,7 @@
                     </td>
                     <td class="px-4 py-2 text-[11.5px] text-[var(--text-dim)]" x-text="t.created_by_username || '—'"></td>
                     <td class="px-4 py-2 mono text-[11px] text-[var(--text-dim)]"
-                        x-text="t.last_used_at ? new Date(t.last_used_at*1000).toLocaleString() : 'never'"></td>
+                        x-text="t.last_used_at ? fmtDate(t.last_used_at) : 'never'"></td>
                     <td class="px-4 py-2 text-right">
                       <button @click="deleteToken(t)" class="btn btn-ghost text-[11px] text-danger">Revoke</button>
                     </td>
@@ -1043,6 +1048,7 @@
             </table>
           </div>
         </section>
+      </div>
       </div>
     </div>
 
@@ -1394,6 +1400,21 @@ function app() {
     // we never populate it from the server.
     authStatus: null,
     authForm: { enabled: false, admin_group: '', npm_secret: '' },
+    // Settings / Admin sidebar layout. Arrays drive the nav — adding a
+    // section is one entry here + one <section> in the markup.
+    settingsSections: [
+      { id: 'notifications', label: 'Notifications' },
+      { id: 'portainer',     label: 'Portainer' },
+      { id: 'ignores',       label: 'Ignore list' },
+      { id: 'authentik',     label: 'Authentik' },
+      { id: 'shortcuts',     label: 'Keyboard shortcuts' },
+    ],
+    settingsSection: localStorage.getItem('settingsSection') || 'notifications',
+    adminSections: [
+      { id: 'users',    label: 'Users' },
+      { id: 'sessions', label: 'Sessions' },
+      { id: 'tokens',   label: 'API tokens' },
+    ],
     // Admin view state
     adminTab: 'users',
     users: [],
@@ -1441,6 +1462,7 @@ function app() {
         // Load admin data lazily — only when the user actually navigates there.
         if (v === 'admin') this.openAdminTab(this.adminTab);
       });
+      this.$watch('settingsSection', v => localStorage.setItem('settingsSection', v));
       this.$watch('expanded', v => localStorage.setItem('expanded', JSON.stringify(v)));
       window.addEventListener('keydown', (e) => this.handleHotkey(e));
       await this.loadSettings();
@@ -2544,6 +2566,20 @@ function app() {
     parseEvents(j) { try { return JSON.parse(j || '[]'); } catch (e) { return []; } },
     formatTime(ts) { return new Date(ts * 1000).toLocaleString(); },
     formatTimeShort(ts) { return new Date(ts * 1000).toLocaleTimeString(undefined, { hour12: false }); },
+
+    // Consistent dd/mm/yyyy hh:mm:ss AM/PM regardless of browser locale.
+    // Used in admin tables so session/login timestamps match across users.
+    fmtDate(ts) {
+      if (!ts) return '—';
+      const d = new Date(ts * 1000);
+      if (isNaN(d.getTime())) return '—';
+      const pad = n => String(n).padStart(2, '0');
+      let h = d.getHours();
+      const ap = h >= 12 ? 'PM' : 'AM';
+      h = h % 12 || 12;
+      return pad(d.getDate()) + '/' + pad(d.getMonth() + 1) + '/' + d.getFullYear()
+           + ' ' + pad(h) + ':' + pad(d.getMinutes()) + ':' + pad(d.getSeconds()) + ' ' + ap;
+    },
     copy(text) {
       navigator.clipboard?.writeText(text);
       this.showToast('Copied to clipboard');

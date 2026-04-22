@@ -1209,6 +1209,85 @@ details summary::-webkit-details-marker {
 }
 
 /* ==========================================================================
+   Page layout for Settings + Admin views — Forgejo-style sidebar on the
+   left, content on the right, centered with a max-width. Array-driven
+   nav (see settingsSections / adminSections in index.html) so adding a
+   new section is: push one entry + one <section> block, nothing else.
+   ========================================================================== */
+.page-layout {
+  display: flex;
+  gap: var(--s-6);
+  max-width: 1100px;
+  margin-left: auto;
+  margin-right: auto;
+  width: 100%;
+}
+
+.page-sidebar {
+  width: 220px;
+  flex-shrink: 0;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  padding: var(--s-4);
+  align-self: flex-start;
+  /* Sticks just below the sticky topbar (header ≈ 56px + filter bar
+     reserve); keeps long settings pages scannable. */
+  position: sticky;
+  top: 72px;
+}
+
+.page-sidebar-header {
+  padding: var(--s-4) var(--s-5) var(--s-5);
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text);
+  border-bottom: 1px solid var(--border);
+  margin-bottom: var(--s-4);
+}
+
+.page-sidebar-item {
+  display: flex;
+  align-items: center;
+  gap: var(--s-4);
+  width: 100%;
+  padding: var(--s-4) var(--s-5);
+  background: transparent;
+  color: var(--text-dim);
+  border: 0;
+  border-radius: var(--r-md);
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.1s, color 0.1s;
+}
+
+.page-sidebar-item:hover {
+  background: var(--surface-2);
+  color: var(--text);
+}
+
+.page-sidebar-item.active {
+  background: var(--primary-soft);
+  color: var(--text);
+  font-weight: 500;
+}
+
+.page-content {
+  flex: 1;
+  min-width: 0; /* allow tables to overflow-scroll instead of forcing width */
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-5);
+}
+
+/* Narrow-viewport fallback: stack sidebar above content. */
+@media (max-width: 900px) {
+  .page-layout { flex-direction: column; }
+  .page-sidebar { width: 100%; position: static; }
+}
+
+/* ==========================================================================
    Top-right user-menu avatar + dropdown popup. Avatar hue is a runtime
    variable (--avatar-hue, set inline per user) so each username renders
    deterministically. hsl() saturation/lightness stay token-ish by using
