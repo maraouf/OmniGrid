@@ -13,9 +13,9 @@
     document.documentElement.setAttribute('data-theme', resolved);
   })();
 </script>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<!-- Poppins is vendored under /fonts/ and declared in css/style.css. No
+     external font fetches — the app stays functional fully offline. -->
+
 <script src="vendor/tailwind.min.js"></script>
 <script defer src="vendor/alpine.min.js"></script>
 <script src="vendor/sweetalert2.all.min.js"></script>
@@ -146,9 +146,6 @@
         <button @click="showHotkeys=true" class="btn btn-soft" title="Keyboard shortcuts (?)">
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><path d="M12 17h.01"/></svg>
         </button>
-        <button @click="view='settings'" class="btn btn-soft" title="Settings">
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2Z"/><circle cx="12" cy="12" r="3"/></svg>
-        </button>
       </div>
 
       <!-- User menu — avatar button in the top-right opens a dropdown with
@@ -174,7 +171,7 @@
           <div class="px-3 py-2 border-b border-[var(--border)] text-[10px] uppercase tracking-wider text-[var(--text-faint)]">
             Signed in as <span class="text-[var(--text-dim)] font-semibold normal-case" x-text="me && me.username"></span>
           </div>
-          <button @click="userMenuOpen=false; openProfile()" class="user-menu-item">
+          <button @click="userMenuOpen=false; view='settings'; settingsSection='profile'" class="user-menu-item">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
             Profile
           </button>
@@ -720,6 +717,140 @@
           You're signed in as <span class="font-semibold">readonly</span> — settings are viewable but can't be changed. Ask an admin if you need edits.
         </div>
 
+      <!-- ===== PROFILE section ===== -->
+      <!-- Two-column card: avatar + identity on the left, account info on the
+           right. Below: About + Security cards. Matches img_3.png without 2FA. -->
+      <div x-show="settingsSection === 'profile'" class="grid grid-cols-1 lg:grid-cols-[260px_1fr] gap-5">
+        <!-- Avatar / identity card -->
+        <section class="bg-[var(--surface)] border border-[var(--border)] rounded-md p-5 flex flex-col items-center text-center">
+          <div class="relative mb-4">
+            <template x-if="me && me.avatar_url">
+              <img :src="me.avatar_url" class="w-[120px] h-[120px] rounded-full object-cover border-2 border-[var(--border-bright)]" alt="Avatar">
+            </template>
+            <template x-if="!(me && me.avatar_url)">
+              <div class="flex items-center justify-center w-[120px] h-[120px] rounded-full text-[48px] font-semibold text-[var(--text-on-primary)] border-2 border-[var(--border-bright)]"
+                   :style="'background: hsl(' + avatarHue() + ', 55%, 45%)'"
+                   x-text="initial()"></div>
+            </template>
+            <label class="absolute bottom-1 right-1 w-8 h-8 rounded-full bg-[var(--surface-3)] border border-[var(--border-bright)] flex items-center justify-center cursor-pointer hover:bg-[var(--surface-2)]"
+                   :class="avatarBusy && 'opacity-60'"
+                   title="Upload a new avatar">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
+              <input type="file" accept="image/*" class="hidden" @change="uploadAvatar($event)" :disabled="avatarBusy">
+            </label>
+          </div>
+          <div class="text-[15px] font-semibold" x-text="(me && me.display_name) || (me && me.username) || ''"></div>
+          <div class="text-[11.5px] text-[var(--text-dim)] mt-0.5" x-text="me && me.username"></div>
+          <div class="mt-3 flex items-center gap-2">
+            <span class="pill" :class="me && me.role === 'admin' ? 'pill-primary' : 'pill-muted'" x-text="me && me.role"></span>
+            <span class="chip" x-text="me && me.source"></span>
+          </div>
+          <button x-show="me && me.avatar_url" @click="clearAvatar()"
+                  class="mt-4 text-[11px] text-[var(--danger)] hover:underline">Remove avatar</button>
+        </section>
+
+        <!-- Identity + account info card -->
+        <section class="bg-[var(--surface)] border border-[var(--border)] rounded-md p-5">
+          <h3 class="font-semibold text-[13px] mb-4">Account</h3>
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div>
+              <label class="block text-[11px] text-[var(--text-dim)] mb-1">Username</label>
+              <input :value="me && me.username" disabled class="w-full text-[12.5px]">
+              <p class="text-[10px] text-[var(--text-faint)] mt-1">Set by admin — can't be changed here.</p>
+            </div>
+            <div>
+              <label class="block text-[11px] text-[var(--text-dim)] mb-1">Source</label>
+              <input :value="me && me.source" disabled class="w-full text-[12.5px] mono">
+            </div>
+            <div>
+              <label class="block text-[11px] text-[var(--text-dim)] mb-1">Role</label>
+              <input :value="me && me.role" disabled class="w-full text-[12.5px] mono">
+            </div>
+            <div>
+              <label class="block text-[11px] text-[var(--text-dim)] mb-1">Last login</label>
+              <input :value="me && me.last_login_at ? fmtDate(me.last_login_at) : '—'" disabled class="w-full text-[12.5px] mono">
+            </div>
+            <div class="sm:col-span-2">
+              <label class="block text-[11px] text-[var(--text-dim)] mb-1">Member since</label>
+              <input :value="me && me.created_at ? fmtDate(me.created_at) : '—'" disabled class="w-full text-[12.5px] mono">
+            </div>
+          </div>
+        </section>
+
+        <!-- About card — editable display name + bio + email -->
+        <section class="bg-[var(--surface)] border border-[var(--border)] rounded-md p-5 lg:col-span-2">
+          <h3 class="font-semibold text-[13px] mb-4">About</h3>
+          <div class="space-y-3">
+            <div>
+              <label class="block text-[11px] text-[var(--text-dim)] mb-1">Display name</label>
+              <input x-model="profileForm.display_name" type="text" maxlength="80"
+                     placeholder="How you'd like your name shown (optional)" class="w-full text-[12.5px]">
+            </div>
+            <div>
+              <label class="block text-[11px] text-[var(--text-dim)] mb-1">Email</label>
+              <input x-model="profileForm.email" type="email" maxlength="200" placeholder="you@example.com" class="w-full text-[12.5px]">
+            </div>
+            <div>
+              <label class="block text-[11px] text-[var(--text-dim)] mb-1">Bio</label>
+              <textarea x-model="profileForm.bio" rows="3" maxlength="500"
+                        placeholder="A short description, role within the team, timezone — whatever helps others recognise you."
+                        class="w-full text-[12.5px]"></textarea>
+              <p class="text-[10px] text-[var(--text-faint)] mt-1"><span x-text="(profileForm.bio || '').length"></span> / 500</p>
+            </div>
+            <div>
+              <button @click="saveProfile()" :disabled="profileBusy" class="btn btn-primary text-[12px]"
+                      x-text="profileBusy ? 'Saving…' : 'Save changes'"></button>
+            </div>
+          </div>
+        </section>
+
+        <!-- Security card — change password (local users only) -->
+        <section class="bg-[var(--surface)] border border-[var(--border)] rounded-md p-5 lg:col-span-2">
+          <div class="flex items-center gap-2 mb-4">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-[var(--text-dim)]"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+            <h3 class="font-semibold text-[13px]">Security</h3>
+          </div>
+          <template x-if="me && me.source === 'local'">
+            <form @submit.prevent="changePassword()" class="space-y-3">
+              <h4 class="font-semibold text-[12px]">Change password</h4>
+              <p class="text-[11.5px] text-[var(--text-faint)]">
+                Changing your password signs out every other session for your account. The session you're using right now stays logged in.
+              </p>
+              <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div>
+                  <label class="block text-[11px] text-[var(--text-dim)] mb-1">Current password</label>
+                  <input x-model="passwordForm.current" type="password" required autocomplete="current-password" class="w-full text-[12.5px]">
+                </div>
+                <div>
+                  <label class="block text-[11px] text-[var(--text-dim)] mb-1">New password</label>
+                  <input x-model="passwordForm.next" type="password" required minlength="8" autocomplete="new-password" class="w-full text-[12.5px]">
+                </div>
+                <div>
+                  <label class="block text-[11px] text-[var(--text-dim)] mb-1">Confirm new password</label>
+                  <input x-model="passwordForm.confirm" type="password" required minlength="8" autocomplete="new-password" class="w-full text-[12.5px]">
+                </div>
+              </div>
+              <div>
+                <button type="submit" :disabled="passwordBusy" class="btn btn-primary text-[12px]"
+                        x-text="passwordBusy ? 'Saving…' : 'Change password'"></button>
+              </div>
+            </form>
+          </template>
+          <template x-if="me && me.source === 'authentik'">
+            <div class="text-[12.5px] text-[var(--text-dim)] leading-relaxed">
+              Your account is managed by Authentik. Change your password there —
+              PortaUpdate doesn't store one for SSO users.
+            </div>
+          </template>
+          <template x-if="me && me.source !== 'local' && me.source !== 'authentik'">
+            <div class="text-[12.5px] text-[var(--text-dim)]">
+              API-token sessions can't change a password. Sign in with the
+              underlying user account to manage credentials.
+            </div>
+          </template>
+        </section>
+      </div>
+
       <section x-show="settingsSection === 'notifications'" class="bg-[var(--surface)] border border-[var(--border)] rounded-md p-5">
         <h3 class="font-semibold text-[13px] mb-2">Apprise notifications</h3>
         <p class="text-[11.5px] text-[var(--text-faint)] mb-3">
@@ -1240,64 +1371,6 @@
     </div>
   </div>
 
-  <!-- ================== PROFILE MODAL ================== -->
-  <div x-show="showProfile" class="fixed inset-0 z-50 fade-in">
-    <div @click="showProfile=false" class="absolute inset-0 backdrop-strong"></div>
-    <div class="relative flex items-center justify-center p-4 h-full overflow-auto">
-      <div class="bg-[var(--surface)] border border-[var(--border)] rounded-md max-w-md w-full">
-        <div class="p-4 border-b border-[var(--border)] flex justify-between items-center">
-          <div>
-            <h2 class="text-[15px] font-semibold">Profile</h2>
-            <p class="text-[11px] text-[var(--text-faint)] mt-0.5">
-              Signed in as <span class="font-medium text-[var(--text-dim)]" x-text="me && me.username"></span>
-              <span x-text="me && ' (' + me.role + ')'"></span>
-              · source <span class="font-medium text-[var(--text-dim)]" x-text="me && me.source"></span>
-            </p>
-          </div>
-          <button @click="showProfile=false" class="btn btn-ghost">✕</button>
-        </div>
-        <div class="p-5">
-          <template x-if="me && me.source === 'local'">
-            <form @submit.prevent="changePassword()" class="space-y-3">
-              <h3 class="font-semibold text-[13px]">Change password</h3>
-              <p class="text-[11.5px] text-[var(--text-faint)]">
-                Changing your password signs out every other session for your account. The session you're using right now stays logged in.
-              </p>
-              <div>
-                <label class="block text-[11px] text-[var(--text-dim)] mb-1">Current password</label>
-                <input x-model="profileForm.current" type="password" required autocomplete="current-password" class="w-full">
-              </div>
-              <div>
-                <label class="block text-[11px] text-[var(--text-dim)] mb-1">New password</label>
-                <input x-model="profileForm.next" type="password" required minlength="8" autocomplete="new-password" class="w-full">
-              </div>
-              <div>
-                <label class="block text-[11px] text-[var(--text-dim)] mb-1">Confirm new password</label>
-                <input x-model="profileForm.confirm" type="password" required minlength="8" autocomplete="new-password" class="w-full">
-              </div>
-              <div class="flex gap-2 pt-1">
-                <button type="submit" :disabled="profileBusy" class="btn btn-primary text-[12px]" x-text="profileBusy ? 'Saving…' : 'Change password'"></button>
-                <button type="button" @click="showProfile=false" class="btn btn-soft text-[12px]">Cancel</button>
-              </div>
-            </form>
-          </template>
-          <template x-if="me && me.source === 'authentik'">
-            <div class="text-[12.5px] text-[var(--text-dim)] leading-relaxed">
-              Your account is managed by Authentik. Change your password
-              there — PortaUpdate doesn't store one for SSO users.
-            </div>
-          </template>
-          <template x-if="me && me.source !== 'local' && me.source !== 'authentik'">
-            <div class="text-[12.5px] text-[var(--text-dim)]">
-              API-token sessions can't change a password. Sign in with the
-              underlying user account to manage credentials.
-            </div>
-          </template>
-        </div>
-      </div>
-    </div>
-  </div>
-
   <!-- ================== HOTKEYS HELP MODAL ================== -->
   <div x-show="showHotkeys" class="fixed inset-0 z-50 fade-in">
     <div @click="showHotkeys=false" class="absolute inset-0 backdrop-strong"></div>
@@ -1390,10 +1463,9 @@ function app() {
     settings: { apprise_url: '', apprise_tag: '', portainer_public_url: '' },
     // User-menu dropdown (top-right avatar button)
     userMenuOpen: false,
-    // Profile / password change
-    showProfile: false,
-    profileForm: { current: '', next: '', confirm: '' },
-    profileBusy: false,
+    // Password change form (lives in the Profile settings section now, not a modal)
+    passwordForm: { current: '', next: '', confirm: '' },
+    passwordBusy: false,
     // Authentik settings — `authStatus` is the snapshot from /api/settings
     // (what the server has today), `authForm` is the editable form state
     // the admin mutates before clicking Save. NPM secret is write-only;
@@ -1403,13 +1475,19 @@ function app() {
     // Settings / Admin sidebar layout. Arrays drive the nav — adding a
     // section is one entry here + one <section> in the markup.
     settingsSections: [
+      { id: 'profile',       label: 'Profile' },
       { id: 'notifications', label: 'Notifications' },
       { id: 'portainer',     label: 'Portainer' },
       { id: 'ignores',       label: 'Ignore list' },
       { id: 'authentik',     label: 'Authentik' },
       { id: 'shortcuts',     label: 'Keyboard shortcuts' },
     ],
-    settingsSection: localStorage.getItem('settingsSection') || 'notifications',
+    settingsSection: localStorage.getItem('settingsSection') || 'profile',
+    // Profile form state — mirrors the `me` snapshot but held separately
+    // so the user can edit without losing unsaved changes across refetches.
+    profileForm: { display_name: '', bio: '', email: '' },
+    profileBusy: false,
+    avatarBusy: false,
     adminSections: [
       { id: 'users',    label: 'Users' },
       { id: 'sessions', label: 'Sessions' },
@@ -1448,6 +1526,7 @@ function app() {
             return;
           }
           this.me = m;
+          this.syncProfileForm();
         }
       } catch (_) { /* network hiccup — next fetch will trip the wrapper */ }
 
@@ -1483,14 +1562,10 @@ function app() {
       location.href = '/login';
     },
 
-    openProfile() {
-      this.profileForm = { current: '', next: '', confirm: '' };
-      this.showProfile = true;
-    },
-
+    // --- Profile: password change ---------------------------------------
     async changePassword() {
-      if (this.profileBusy) return;
-      const f = this.profileForm;
+      if (this.passwordBusy) return;
+      const f = this.passwordForm;
       if (f.next !== f.confirm) {
         this.showToast('New passwords do not match', 'error');
         return;
@@ -1499,7 +1574,7 @@ function app() {
         this.showToast('New password must be 8+ characters', 'error');
         return;
       }
-      this.profileBusy = true;
+      this.passwordBusy = true;
       try {
         const body = new URLSearchParams({
           current_password: f.current,
@@ -1509,11 +1584,46 @@ function app() {
         const r = await fetch('/api/local-auth/change-password', { method: 'POST', body });
         if (r.ok) {
           this.showToast('Password changed. Other sessions were signed out.', 'success');
-          this.showProfile = false;
-          this.profileForm = { current: '', next: '', confirm: '' };
+          this.passwordForm = { current: '', next: '', confirm: '' };
         } else {
           const j = await r.json().catch(() => ({}));
           this.showToast(j.detail || ('Change failed (' + r.status + ')'), 'error');
+        }
+      } catch (_) {
+        this.showToast('Network error', 'error');
+      } finally {
+        this.passwordBusy = false;
+      }
+    },
+
+    // --- Profile: display-name / bio / email edit ------------------------
+    syncProfileForm() {
+      // Called after /api/me loads to populate the editable form. Kept
+      // separate from `me` so unsaved edits aren't clobbered on refresh.
+      this.profileForm = {
+        display_name: (this.me && this.me.display_name) || '',
+        bio:          (this.me && this.me.bio)          || '',
+        email:        (this.me && this.me.email)        || '',
+      };
+    },
+
+    async saveProfile() {
+      if (this.profileBusy) return;
+      this.profileBusy = true;
+      try {
+        const r = await fetch('/api/me/profile', {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(this.profileForm),
+        });
+        if (r.ok) {
+          this.showToast('Profile saved');
+          // Refresh `me` so the avatar badge / dropdown header use the new name.
+          const rm = await fetch('/api/me');
+          if (rm.ok) { this.me = await rm.json(); this.syncProfileForm(); }
+        } else {
+          const j = await r.json().catch(() => ({}));
+          this.showToast(j.detail || 'Save failed', 'error');
         }
       } catch (_) {
         this.showToast('Network error', 'error');
@@ -1522,13 +1632,57 @@ function app() {
       }
     },
 
+    // --- Profile: avatar upload ------------------------------------------
+    async uploadAvatar(ev) {
+      const file = ev.target.files && ev.target.files[0];
+      if (!file) return;
+      // Client-side sanity — server re-validates.
+      if (!/^image\//.test(file.type)) {
+        this.showToast('Please pick an image file', 'error'); return;
+      }
+      if (file.size > 1_000_000) {
+        this.showToast('Image too large (max 1 MB)', 'error'); return;
+      }
+      this.avatarBusy = true;
+      try {
+        const fd = new FormData();
+        fd.append('file', file);
+        const r = await fetch('/api/me/avatar', { method: 'POST', body: fd });
+        if (r.ok) {
+          this.showToast('Avatar updated');
+          const rm = await fetch('/api/me');
+          if (rm.ok) this.me = await rm.json();
+        } else {
+          const j = await r.json().catch(() => ({}));
+          this.showToast(j.detail || 'Upload failed', 'error');
+        }
+      } catch (_) {
+        this.showToast('Network error', 'error');
+      } finally {
+        this.avatarBusy = false;
+        ev.target.value = '';
+      }
+    },
+
+    async clearAvatar() {
+      if (!confirm('Remove your avatar image?')) return;
+      try {
+        const r = await fetch('/api/me/avatar', { method: 'DELETE' });
+        if (r.ok) {
+          this.showToast('Avatar removed');
+          const rm = await fetch('/api/me');
+          if (rm.ok) this.me = await rm.json();
+        }
+      } catch (_) { this.showToast('Network error', 'error'); }
+    },
+
     // -----------------------------------------------------------------
     // Admin view — nav + data loaders + actions.
     // -----------------------------------------------------------------
     navItems() {
-      const base = [['stacks','Stacks'],['services','Services'],['history','History'],['settings','Settings']];
-      if (this.me && this.me.role === 'admin') base.push(['admin','Admin']);
-      return base;
+      // Settings + Admin live in the avatar dropdown, not the top nav —
+      // the top nav stays focused on the fleet views.
+      return [['stacks','Stacks'],['services','Services'],['history','History']];
     },
 
     // Single predicate for "can this user do writes?". Every write button
@@ -2507,7 +2661,6 @@ function app() {
       if (e.key === 'Escape') {
         if (this.userMenuOpen) { this.userMenuOpen = false; e.preventDefault(); return; }
         if (this.showHotkeys) { this.showHotkeys = false; e.preventDefault(); return; }
-        if (this.showProfile) { this.showProfile = false; e.preventDefault(); return; }
         if (this.drawerItem) { this.drawerItem = null; e.preventDefault(); return; }
         if (this.selected.length) { this.clearSelection(); e.preventDefault(); return; }
         if (this.search || this.statusFilter || this.healthFilter) {

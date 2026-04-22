@@ -5,6 +5,46 @@
    ============================================================================ */
 
 /* ---------------------------------------------------------------------------
+   Poppins font — vendored under static/fonts/ for offline operation.
+   Refresh with scripts/download_poppins.sh if Google ever changes the URLs.
+   --------------------------------------------------------------------------- */
+@font-face {
+    font-family: 'Poppins';
+    font-style: normal;
+    font-weight: 400;
+    font-display: swap;
+    src: url('/fonts/poppins-regular-400.woff2') format('woff2');
+}
+@font-face {
+    font-family: 'Poppins';
+    font-style: normal;
+    font-weight: 500;
+    font-display: swap;
+    src: url('/fonts/poppins-medium-500.woff2') format('woff2');
+}
+@font-face {
+    font-family: 'Poppins';
+    font-style: normal;
+    font-weight: 600;
+    font-display: swap;
+    src: url('/fonts/poppins-semibold-600.woff2') format('woff2');
+}
+@font-face {
+    font-family: 'Poppins';
+    font-style: normal;
+    font-weight: 700;
+    font-display: swap;
+    src: url('/fonts/poppins-bold-700.woff2') format('woff2');
+}
+@font-face {
+    font-family: 'Poppins';
+    font-style: italic;
+    font-weight: 400;
+    font-display: swap;
+    src: url('/fonts/poppins-italic-400.woff2') format('woff2');
+}
+
+/* ---------------------------------------------------------------------------
    Design tokens — dark (default) and light themes
    --------------------------------------------------------------------------- */
 :root,
@@ -80,8 +120,9 @@
     --r-lg: 6px;
     --r-xl: 10px;
 
-    /* Fonts */
-    --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    /* Fonts — Poppins is vendored under /fonts/. Fallbacks cover the tiny
+       window before the woff2 loads (font-display: swap). */
+    --font-sans: 'Poppins', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
     --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 
     /* Runtime-injected custom properties — set inline via :style on the
@@ -1238,12 +1279,12 @@ details summary::-webkit-details-marker {
 }
 
 .page-sidebar-header {
-  padding: var(--s-4) var(--s-5) var(--s-5);
-  font-size: 14px;
+  padding: var(--s-3) var(--s-5) var(--s-4);
+  font-size: 12px;
   font-weight: 600;
   color: var(--text);
   border-bottom: 1px solid var(--border);
-  margin-bottom: var(--s-4);
+  margin-bottom: var(--s-3);
 }
 
 .page-sidebar-item {
@@ -1251,12 +1292,14 @@ details summary::-webkit-details-marker {
   align-items: center;
   gap: var(--s-4);
   width: 100%;
-  padding: var(--s-4) var(--s-5);
+  padding: var(--s-3) var(--s-5);
   background: transparent;
   color: var(--text-dim);
   border: 0;
   border-radius: var(--r-md);
-  font-size: 13px;
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 500;
   text-align: left;
   cursor: pointer;
   transition: background 0.1s, color 0.1s;
@@ -1315,11 +1358,13 @@ details summary::-webkit-details-marker {
     align-items: center;
     gap: var(--s-4);
     width: 100%;
-    padding: var(--s-4) var(--s-5);
+    padding: var(--s-3) var(--s-5);
     background: transparent;
     color: var(--text);
     border: 0;
-    font-size: 12.5px;
+    font-family: inherit;
+    font-size: 12px;
+    font-weight: 500;
     text-align: left;
     cursor: pointer;
     transition: background 0.1s;

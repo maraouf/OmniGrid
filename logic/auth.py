@@ -187,6 +187,18 @@ def init_auth_schema(conn: sqlite3.Connection) -> None:
         created_by INTEGER REFERENCES users(id)
     );
     """)
+    # Idempotent column additions for existing deployments. SQLite pre-3.35
+    # has no "ADD COLUMN IF NOT EXISTS", so we catch the OperationalError
+    # that gets raised when the column already exists. Safe to re-run.
+    for ddl in (
+        "ALTER TABLE users ADD COLUMN display_name TEXT",
+        "ALTER TABLE users ADD COLUMN bio TEXT",
+        "ALTER TABLE users ADD COLUMN avatar_path TEXT",
+    ):
+        try:
+            conn.execute(ddl)
+        except sqlite3.OperationalError:
+            pass
 
 
 # ----------------------------------------------------------------------------
@@ -343,6 +355,55 @@ def delete_user(conn: sqlite3.Connection, user_id: int) -> None:
     delete_user_sessions(conn, user_id)
     conn.execute("UPDATE api_tokens SET created_by=NULL WHERE created_by=?", (user_id,))
     conn.execute("DELETE FROM users WHERE id=?", (user_id,))
+
+
+def get_user_profile(conn: sqlite3.Connection, user_id: int) -> Optional[dict]:
+    """Full profile row (all columns) as a dict — used by /api/me and the
+    profile page. Returns None for missing users."""
+    r = conn.execute("""
+        SELECT id, username, email, role, auth_source, disabled,
+               created_at, last_login_at, display_name, bio, avatar_path
+        FROM users WHERE id=?
+    """, (user_id,)).fetchone()
+    return dict(r) if r else None
+
+
+def update_user_profile(
+    conn: sqlite3.Connection,
+    user_id: int,
+    display_name: Optional[str] = None,
+    bio: Optional[str] = None,
+    email: Optional[str] = None,
+) -> None:
+    """Update display_name / bio / email on the user's own profile.
+
+    Each field is independently optional — None means "don't touch". Empty
+    string clears the field. Caller enforces whatever length / validation
+    rules apply; this helper just writes what it's given.
+    """
+    fields: list[str] = []
+    values: list = []
+    if display_name is not None:
+        fields.append("display_name=?"); values.append(display_name or None)
+    if bio is not None:
+        fields.append("bio=?"); values.append(bio or None)
+    if email is not None:
+        fields.append("email=?"); values.append(email or None)
+    if not fields:
+        return
+    values.append(user_id)
+    conn.execute(f"UPDATE users SET {', '.join(fields)} WHERE id=?", values)
+
+
+def set_user_avatar_path(
+    conn: sqlite3.Connection, user_id: int, path: Optional[str],
+) -> None:
+    """Store the relative avatar path (under /app/data/avatars/) or clear it.
+
+    Path is the basename only — the filesystem directory is owned by main.py.
+    Callers pass None to clear.
+    """
+    conn.execute("UPDATE users SET avatar_path=? WHERE id=?", (path, user_id))
 
 
 def admin_reset_password(

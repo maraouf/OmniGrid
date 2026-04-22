@@ -807,17 +807,156 @@ async def api_local_bootstrap(
 async def api_me(request: Request):
     """Return the current identity if any. Auth-optional — returns
     {authenticated: false} instead of 401 so the SPA can decide whether
-    to redirect to /login.
+    to redirect to /login. For real users, includes the full profile
+    (display_name, bio, avatar_url, timestamps) so the profile page can
+    render from a single fetch.
     """
     user = getattr(request.state, "user", None)
     if not user:
         return {"authenticated": False}
-    return {
+    # API-token "users" have negative ids (see _resolve_user) — skip the
+    # profile read for them, there's nothing in the users table.
+    profile = None
+    if user.id >= 0:
+        with db_conn() as c:
+            profile = auth.get_user_profile(c, user.id)
+    out = {
         "authenticated": True,
         "username": user.username,
         "role": user.role,
         "source": user.auth_source,
     }
+    if profile:
+        out.update({
+            "id":           profile["id"],
+            "email":        profile.get("email") or "",
+            "display_name": profile.get("display_name") or "",
+            "bio":          profile.get("bio") or "",
+            "created_at":   profile.get("created_at"),
+            "last_login_at": profile.get("last_login_at"),
+            "avatar_url":   f"/api/avatars/{profile['avatar_path']}" if profile.get("avatar_path") else None,
+        })
+    return out
+
+
+class ProfileIn(BaseModel):
+    display_name: Optional[str] = None
+    bio: Optional[str] = None
+    email: Optional[str] = None
+
+
+@app.patch("/api/me/profile")
+async def api_update_profile(
+    p: ProfileIn,
+    user: auth.User = Depends(auth.current_user),
+):
+    """Update the caller's own display_name / bio / email. Authentik users
+    CAN edit these locally — those values don't round-trip to Authentik,
+    they're PortaUpdate's own overlay for display purposes.
+    """
+    # Keep the fields bounded so someone can't store a MB of biography.
+    if p.display_name is not None and len(p.display_name) > 80:
+        raise HTTPException(status_code=400, detail="display_name must be 80 chars or less")
+    if p.bio is not None and len(p.bio) > 500:
+        raise HTTPException(status_code=400, detail="bio must be 500 chars or less")
+    if p.email is not None and p.email and len(p.email) > 200:
+        raise HTTPException(status_code=400, detail="email must be 200 chars or less")
+    with db_conn() as c:
+        auth.update_user_profile(
+            c, user.id,
+            display_name=p.display_name,
+            bio=p.bio,
+            email=p.email,
+        )
+    return {"ok": True}
+
+
+# Avatars live on the data volume next to the SQLite DB — persists across
+# container restarts and redeploys. Keep the path out of user control:
+# filename is derived from user id + content-type extension only.
+_AVATAR_DIR = os.path.join(os.path.dirname(DB_PATH), "avatars")
+os.makedirs(_AVATAR_DIR, exist_ok=True)
+_AVATAR_EXT = {
+    "image/png": "png", "image/jpeg": "jpg", "image/jpg": "jpg",
+    "image/gif": "gif", "image/webp": "webp",
+}
+_AVATAR_MAX_BYTES = 1_000_000  # 1 MB — avatars are small, reject uploads above
+
+
+@app.post("/api/me/avatar")
+async def api_upload_avatar(
+    request: Request,
+    user: auth.User = Depends(auth.current_user),
+):
+    """Accept a multipart image upload and store it under /app/data/avatars/.
+
+    Validates content-type against an allowlist, caps at 1 MB, and writes
+    a filename of the form `u<id>.<ext>` so the same user always overwrites
+    their previous avatar (no stale files left around).
+    """
+    form = await request.form()
+    file = form.get("file")
+    if file is None or not hasattr(file, "read"):
+        raise HTTPException(status_code=400, detail="Field 'file' missing")
+    ct = (file.content_type or "").lower()
+    ext = _AVATAR_EXT.get(ct)
+    if not ext:
+        raise HTTPException(
+            status_code=400,
+            detail="Unsupported image type. Allowed: PNG / JPEG / GIF / WEBP.",
+        )
+    data = await file.read()
+    if len(data) > _AVATAR_MAX_BYTES:
+        raise HTTPException(status_code=400, detail="Image too large (max 1 MB)")
+    if len(data) == 0:
+        raise HTTPException(status_code=400, detail="Empty upload")
+    # Clean up any existing avatar at a different extension.
+    with db_conn() as c:
+        old = auth.get_user_profile(c, user.id)
+    if old and old.get("avatar_path"):
+        old_full = os.path.join(_AVATAR_DIR, old["avatar_path"])
+        if os.path.exists(old_full) and old["avatar_path"] != f"u{user.id}.{ext}":
+            try: os.remove(old_full)
+            except OSError: pass
+    fname = f"u{user.id}.{ext}"
+    with open(os.path.join(_AVATAR_DIR, fname), "wb") as f:
+        f.write(data)
+    with db_conn() as c:
+        auth.set_user_avatar_path(c, user.id, fname)
+    return {"ok": True, "avatar_url": f"/api/avatars/{fname}"}
+
+
+@app.delete("/api/me/avatar")
+async def api_clear_avatar(user: auth.User = Depends(auth.current_user)):
+    with db_conn() as c:
+        p = auth.get_user_profile(c, user.id)
+    if p and p.get("avatar_path"):
+        full = os.path.join(_AVATAR_DIR, p["avatar_path"])
+        if os.path.exists(full):
+            try: os.remove(full)
+            except OSError: pass
+    with db_conn() as c:
+        auth.set_user_avatar_path(c, user.id, None)
+    return {"ok": True}
+
+
+@app.get("/api/avatars/{fname}")
+async def api_serve_avatar(fname: str, _user: auth.User = Depends(auth.current_user)):
+    """Serve an uploaded avatar. Authed — avatars are user data, shouldn't
+    be browsable anonymously. Path-traversal-guarded: only basenames are
+    accepted, and the final path is re-rooted under _AVATAR_DIR.
+    """
+    # Reject anything with a slash or path-escape attempt — we only store
+    # flat basenames of the form u<id>.<ext>, nothing else is valid.
+    if "/" in fname or ".." in fname or not fname:
+        raise HTTPException(status_code=404, detail="Not found")
+    full = os.path.join(_AVATAR_DIR, fname)
+    if not os.path.exists(full) or not os.path.isfile(full):
+        raise HTTPException(status_code=404, detail="Not found")
+    # Derive content-type from the stored extension.
+    ext = fname.rsplit(".", 1)[-1].lower()
+    ct = next((k for k, v in _AVATAR_EXT.items() if v == ext), "application/octet-stream")
+    return FileResponse(full, media_type=ct)
 
 
 # ============================================================================
