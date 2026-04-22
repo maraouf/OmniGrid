@@ -5,3 +5,8 @@ prometheus-client==0.25.0
 bcrypt==4.2.1
 python-multipart==0.0.20
 python-dotenv==1.0.1
+# OIDC (Authentik SSO) — JWT signature verification against the issuer's JWKS.
+# PyJWT is used instead of authlib: smaller surface, and we already own the
+# discovery + token exchange via httpx. The [crypto] extra pulls in the
+# cryptography package needed for RS256/ES256 verification of id_tokens.
+PyJWT[crypto]==2.10.1

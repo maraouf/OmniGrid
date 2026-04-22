@@ -239,6 +239,21 @@
 
       <div class="flex-1"></div>
 
+      <div x-show="view==='stacks'"
+           class="flex items-center gap-1 bg-[var(--surface-2)] rounded-md p-0.5 border border-[var(--border)]"
+           title="Expand / collapse every stack (shortcuts: e / c)">
+        <button @click="expandAllStacks()"
+                class="px-2.5 py-1 rounded text-[11px] font-medium text-[var(--text-dim)] hover:text-[var(--text)] transition flex items-center gap-1.5">
+          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+          Expand all
+        </button>
+        <button @click="collapseAllStacks()"
+                class="px-2.5 py-1 rounded text-[11px] font-medium text-[var(--text-dim)] hover:text-[var(--text)] transition flex items-center gap-1.5">
+          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="18 15 12 9 6 15"/></svg>
+          Collapse all
+        </button>
+      </div>
+
       <div class="flex items-center gap-1 bg-[var(--surface-2)] rounded-md p-0.5 border border-[var(--border)]">
         <button @click="view='stacks'" :class="view==='stacks' ? 'bg-[var(--surface)] text-[var(--text)]' : 'text-[var(--text-dim)]'"
                 class="px-2.5 py-1 rounded text-[11px] font-medium transition">Grouped</button>

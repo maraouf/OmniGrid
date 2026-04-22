@@ -24,7 +24,6 @@ services:
     # /data/compose/<stack-id>/ inside Portainer's container). Letting the
     # app read its own file sidesteps that entirely.
     #
-    # Reference: notes/notes_env_example.txt for every key PortaUpdate reads.
     environment:
       # Fixed container path — not an operator tunable, kept out of .env.
       DB_PATH: "/app/data/portaupdate.db"

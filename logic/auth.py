@@ -1,13 +1,20 @@
 """Auth module for PortaUpdate.
 
-Three identity sources, one authorization layer:
-  - Authentik Forward Auth header (X-Authentik-Email + group claim)
-  - Local session cookie (HMAC-signed, backed by `sessions` table)
-  - API bearer token (for machine clients)
+Two identity sources, one authorization layer:
+  - API bearer token (for machine clients; highest precedence)
+  - Local session cookie (HMAC-signed, backed by ``sessions`` table)
 
-Step-1 mode: the middleware only populates request.state.user — it never
-rejects. Step-2 will gate write routes via `require_admin`; step-3 will
-gate everything via `require_user`.
+OIDC SSO users land here as cookie-holders too — the OIDC callback route
+(see :mod:`logic.oidc`) calls ``auto_provision_authentik()`` to map the
+id_token claims onto a local user record, then mints a normal
+``pu_session`` cookie. From the middleware's perspective they look
+identical to a local login.
+
+All DB-backed settings (Portainer connection, OIDC provider config, the
+admin group) follow the same pattern: seed defaults in the ``settings``
+table on first boot, cache the values in-process, invalidate the cache
+on UI writes. No env-var reads for these settings — env is only used as
+a transitional bootstrap for Portainer, and never for OIDC.
 """
 import base64
 import hmac
@@ -42,16 +49,27 @@ if not SESSION_SECRET_ENV:
     _AUTO_SECRET = True
 SESSION_SECRET = SESSION_SECRET_ENV.encode("utf-8")
 
-# Authentik Forward Auth settings — env values are bootstrap defaults ONLY.
-# Once the settings table has been seeded (bootstrap_auth_settings() in the
-# lifespan handler), the DB is authoritative. The admin UI writes new values
-# via POST /api/settings; invalidate_auth_settings_cache() picks them up on
-# the next request. This keeps "set in .env once, then manage from UI"
-# ergonomic without any operator-facing precedence surprises.
-_AUTH_ENV_DEFAULTS = {
-    "authentik_enabled": os.getenv("AUTHENTIK_ENABLED", "false").lower() == "true",
-    "npm_auth_secret": os.getenv("NPM_AUTH_SECRET", ""),
-    "authentik_admin_group": os.getenv("AUTHENTIK_ADMIN_GROUP", "portaupdate-admins"),
+# Auth settings — DB-backed, UI-managed. Every entry below is the seed
+# default used when the `settings` table is empty on first boot. After
+# seeding the DB is authoritative; env is NOT consulted on subsequent
+# reads. The admin UI writes new values via POST /api/settings;
+# invalidate_auth_settings_cache() picks them up on the next request.
+#
+# `oidc_admin_group` is shared with local users — a user is an admin in
+# PortaUpdate iff they belong to this Authentik group on OIDC login.
+# Local users keep whatever role their admin assigned in the Users UI.
+_AUTH_DEFAULTS = {
+    # Group name whose members become admin when they sign in via OIDC.
+    # Kept editable for homelabs that rename groups.
+    "oidc_admin_group":   "portaupdate-admins",
+    # OIDC provider settings. Everything blank by default — the dashboard
+    # works fine without SSO configured; /api/oidc/login just 503s.
+    "oidc_enabled":       False,
+    "oidc_issuer_url":    "",
+    "oidc_client_id":     "",
+    "oidc_client_secret": "",
+    "oidc_redirect_uri":  "",
+    "oidc_scopes":        "openid email profile groups",
 }
 
 # In-memory cache for the three auth-setting values. First read after an
@@ -77,14 +95,22 @@ def auto_secret_warning() -> Optional[str]:
 # ----------------------------------------------------------------------------
 # Auth settings (DB-backed, env-seeded)
 # ----------------------------------------------------------------------------
-_AUTH_SETTING_KEYS = ("authentik_enabled", "npm_auth_secret", "authentik_admin_group")
+_AUTH_SETTING_KEYS = (
+    "oidc_admin_group",
+    "oidc_enabled",
+    "oidc_issuer_url",
+    "oidc_client_id",
+    "oidc_client_secret",
+    "oidc_redirect_uri",
+    "oidc_scopes",
+)
 
 
 def bootstrap_auth_settings(conn: sqlite3.Connection) -> None:
-    """Seed the three auth settings into the `settings` table from env on
-    first boot. No-op for keys that already exist in the DB — the UI is
-    authoritative after first deploy, so we don't overwrite operator
-    edits with env values on every restart.
+    """Seed the OIDC / admin-group settings into the ``settings`` table on
+    first boot with blank / disabled defaults. No-op for keys that
+    already exist — the UI is authoritative after first deploy, so
+    operator edits survive restarts.
 
     Called once from main.py's lifespan handler, after init_db().
     """
@@ -93,7 +119,7 @@ def bootstrap_auth_settings(conn: sqlite3.Connection) -> None:
             "SELECT value FROM settings WHERE key=?", (key,),
         ).fetchone()
         if existing is None:
-            default = _AUTH_ENV_DEFAULTS[key]
+            default = _AUTH_DEFAULTS[key]
             value = "true" if default is True else ("false" if default is False else str(default))
             conn.execute(
                 "INSERT INTO settings(key, value) VALUES (?, ?)",
@@ -101,17 +127,26 @@ def bootstrap_auth_settings(conn: sqlite3.Connection) -> None:
             )
 
 
+# Bool-typed auth settings — every other key stores its value verbatim as a
+# string. Keep this set in sync when adding new boolean settings so the
+# cache refresh coerces them back from their stringified form.
+_BOOL_AUTH_KEYS = ("oidc_enabled",)
+
+
 def _refresh_auth_settings_cache(conn: sqlite3.Connection) -> None:
     global _auth_settings_cache, _auth_settings_cache_valid
+    # IN (?,?,...) placeholder list built dynamically so this doesn't need
+    # a manual edit every time a new auth setting gets added.
+    placeholders = ",".join("?" for _ in _AUTH_SETTING_KEYS)
     rows = conn.execute(
-        "SELECT key, value FROM settings WHERE key IN (?, ?, ?)",
+        f"SELECT key, value FROM settings WHERE key IN ({placeholders})",
         _AUTH_SETTING_KEYS,
     ).fetchall()
-    fresh = {key: _AUTH_ENV_DEFAULTS[key] for key in _AUTH_SETTING_KEYS}
+    fresh = {key: _AUTH_DEFAULTS[key] for key in _AUTH_SETTING_KEYS}
     for r in rows:
         key = r["key"]
         raw = r["value"] or ""
-        if key == "authentik_enabled":
+        if key in _BOOL_AUTH_KEYS:
             fresh[key] = raw.lower() == "true"
         else:
             fresh[key] = raw
@@ -120,8 +155,8 @@ def _refresh_auth_settings_cache(conn: sqlite3.Connection) -> None:
 
 
 def get_auth_settings(conn: sqlite3.Connection) -> dict:
-    """Return the current {authentik_enabled, npm_auth_secret,
-    authentik_admin_group} triple. Cached; invalidated by UI writes.
+    """Return the current auth settings dict (OIDC + admin group).
+    Cached in-process; invalidated by UI writes.
     """
     if not _auth_settings_cache_valid:
         _refresh_auth_settings_cache(conn)
@@ -455,14 +490,17 @@ def auto_provision_authentik(
     username: Optional[str],
     groups: list[str],
 ) -> User:
-    """Find or create the Authentik user, refreshing role from group claim.
+    """Find or create an SSO user, refreshing role from the group claim.
 
     Group membership is authoritative every time: if the user is in the
-    configured admin group they become admin; otherwise readonly. This
-    means removing someone from the group in Authentik demotes them on
-    the next request. Local users aren't touched by this path.
+    configured admin group they become admin; otherwise readonly. Removing
+    someone from the group in Authentik demotes them on the next OIDC
+    login. Local users aren't touched by this path.
+
+    Name retained for historical reasons — any OIDC IdP fits the same
+    shape (email + username + list-of-groups claim).
     """
-    admin_group = get_auth_settings(conn).get("authentik_admin_group", "")
+    admin_group = get_auth_settings(conn).get("oidc_admin_group", "")
     target_role = "admin" if admin_group and admin_group in (groups or []) else "readonly"
     u = get_user_by_email(conn, email)
     if u is None:
@@ -664,6 +702,15 @@ AUTH_OPTIONAL_API_PREFIXES = (
     "/api/local-auth/",      # login / logout / bootstrap
     "/api/me",               # identity introspection — must return
                              # {authenticated: false} rather than 401
+    "/api/oidc/",            # OIDC login/callback — the whole point is that
+                             # the caller isn't authenticated yet when they
+                             # start the flow. Callback must also be
+                             # reachable anonymously (the browser follows
+                             # Authentik's 302 back to us without any
+                             # PortaUpdate cookie).
+    "/api/auth/providers",   # advertises which SSO paths are enabled — the
+                             # login page queries this before rendering the
+                             # SSO button.
 )
 
 
@@ -689,47 +736,17 @@ def _client_ip(request: Request) -> str:
     return request.client.host if request.client else "?"
 
 
-def _authentik_trusted(request: Request, settings: dict) -> bool:
-    """Only trust X-Authentik-* headers when NPM forwarded them with our secret.
-
-    Takes pre-loaded auth settings (from the DB-backed cache) so we don't
-    open a DB connection just to check on every request.
-    """
-    if not settings.get("authentik_enabled"):
-        return False
-    npm_secret = settings.get("npm_auth_secret") or ""
-    if not npm_secret:
-        return False
-    return hmac.compare_digest(
-        request.headers.get("x-forward-auth-verify", ""),
-        npm_secret,
-    )
-
-
 def _resolve_user(request: Request, db_conn_factory) -> tuple[Optional[User], Optional[tuple[str, int]]]:
     """Try each identity source in priority order.
 
     Returns (user, session_reissue). session_reissue is (cookie_value, expires_at)
     when a sliding-window reissue happened, so the caller can set the cookie.
+
+    OIDC SSO users arrive here via the standard ``pu_session`` cookie —
+    the OIDC callback mints one after validating the id_token, so the
+    middleware doesn't need a dedicated branch for them.
     """
-    # Load auth settings once for this request — middleware's hottest path.
-    with db_conn_factory() as c:
-        settings = get_auth_settings(c)
-
-    # 1. Authentik Forward Auth header (highest trust when NPM verifies it)
-    if _authentik_trusted(request, settings):
-        email = request.headers.get("x-authentik-email")
-        if email:
-            username = request.headers.get("x-authentik-username")
-            groups_raw = request.headers.get("x-authentik-groups", "")
-            groups = [g.strip() for g in groups_raw.split("|") if g.strip()]
-            with db_conn_factory() as c:
-                u = auto_provision_authentik(c, email, username, groups)
-                touch_last_login(c, u.id)
-            if not u.disabled:
-                return u, None
-
-    # 2. API bearer token
+    # 1. API bearer token (highest precedence — machine clients)
     auth_h = request.headers.get("authorization", "")
     if auth_h.startswith("Bearer "):
         raw = auth_h[7:].strip()
@@ -748,7 +765,7 @@ def _resolve_user(request: Request, db_conn_factory) -> tuple[Optional[User], Op
                 None,
             )
 
-    # 3. Local session cookie
+    # 2. Local session cookie (covers local logins AND OIDC SSO users)
     cookie = request.cookies.get(COOKIE_NAME)
     if cookie:
         token_id = parse_session_cookie(cookie)
@@ -810,10 +827,10 @@ def make_auth_middleware(db_conn_factory):
             cookie_value, expires_at = reissue
             set_session_cookie(response, cookie_value, expires_at, request)
         # Issue a pu_csrf cookie when an authed caller doesn't already have
-        # one — covers Authentik SSO users (who skip the local login flow
-        # that would otherwise set it) and any edge case where the cookie
-        # got cleared. Stable-per-browser: we just need it to match what
-        # the client sends back as X-CSRF-Token (double-submit defense).
+        # one — covers any edge case where the cookie got cleared (local
+        # login and the OIDC callback both mint one themselves). Stable-
+        # per-browser: we just need it to match what the client sends
+        # back as X-CSRF-Token (double-submit defense).
         if (
             user is not None
             and not _is_bearer_request(request)
