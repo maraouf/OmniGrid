@@ -201,6 +201,13 @@ button {
 input[type="text"],
 input[type="url"],
 input[type="search"],
+input[type="email"],
+input[type="tel"],
+input[type="password"],
+input[type="number"],
+input[type="date"],
+input[type="time"],
+input[type="datetime-local"],
 select {
   background: var(--surface-2);
   border: 1px solid var(--border);
@@ -210,10 +217,43 @@ select {
   outline: none;
   font-size: 13px;
   transition: border-color .15s, background .15s;
+  /* Kill the browser's default light "field" look on dark mode — Safari /
+     Firefox otherwise paint the native chrome (calendar, number steppers)
+     with a white surface that blows out the row. */
+  color-scheme: dark light;
 }
 
 input[type="search"] {
   padding: 8px 12px 8px 36px;
+}
+
+/* Calendar-picker + number-stepper icons: inherit currentColor so they
+   tint to the text colour of whichever theme is active, instead of the
+   hardcoded black that renders as a ghost icon on dark surfaces. */
+input[type="date"]::-webkit-calendar-picker-indicator,
+input[type="time"]::-webkit-calendar-picker-indicator,
+input[type="datetime-local"]::-webkit-calendar-picker-indicator {
+  cursor: pointer;
+  opacity: 0.7;
+  filter: invert(1) brightness(0.85);
+  transition: opacity .15s;
+}
+input[type="date"]:hover::-webkit-calendar-picker-indicator,
+input[type="time"]:hover::-webkit-calendar-picker-indicator,
+input[type="datetime-local"]:hover::-webkit-calendar-picker-indicator {
+  opacity: 1;
+}
+/* Light theme: the icon is already dark, so undo the inversion. */
+:root[data-theme="light"] input[type="date"]::-webkit-calendar-picker-indicator,
+:root[data-theme="light"] input[type="time"]::-webkit-calendar-picker-indicator,
+:root[data-theme="light"] input[type="datetime-local"]::-webkit-calendar-picker-indicator {
+  filter: none;
+}
+/* Empty date fields show "mm/dd/yyyy" placeholder text — match the
+   other placeholder colour so it doesn't glow white against --surface-2. */
+input[type="date"]:not(:focus):invalid,
+input[type="date"]:placeholder-shown {
+  color: var(--text-faint);
 }
 
 input:focus,
