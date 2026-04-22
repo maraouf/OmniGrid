@@ -474,6 +474,47 @@ details summary::-webkit-details-marker { display: none; }
 }
 
 /* ---------------------------------------------------------------------------
+   Sparkline — 24h CPU / memory history rendered as a tiny inline SVG under
+   each stat-bar. Colour follows the CURRENT reading's threshold so the line
+   visually agrees with the bar above it (green < 60% < amber < 85% < red).
+   Shares the `.ok / .warn / .crit` tokens already used by `.stat-bar`.
+   --------------------------------------------------------------------------- */
+.spark {
+  display: block;
+  width: 100%;
+  max-width: 80px;
+  height: 10px;
+  margin-top: var(--s-1);
+  color: var(--success);   /* default (healthy) — matches .stat-bar default fill */
+}
+.spark.warn  { color: var(--warning); }
+.spark.crit  { color: var(--danger); }
+.spark.muted { color: var(--text-faint); }
+.spark polyline { vector-effect: non-scaling-stroke; }
+
+/* ---------------------------------------------------------------------------
+   Footer — persistent version pill at the bottom of every view. Kept in the
+   normal document flow (not fixed) so it doesn't overlap the bulk-action bar.
+   --------------------------------------------------------------------------- */
+.app-footer {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--s-3);
+  padding: var(--s-4) var(--s-5);
+  margin-top: auto;
+  border-top: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text-faint);
+  font-size: 11px;
+  letter-spacing: 0.2px;
+}
+.app-footer .mono {
+  color: var(--text-dim);
+  font-family: var(--font-mono);
+}
+
+/* ---------------------------------------------------------------------------
    App icon — actual colored SVG from selfhst/icons. Render as an <img> so
    brand detail is preserved (AdGuard shield, Apprise logo, etc). When the
    icon 404s the element hides via `.broken`, leaving a clean gap instead of

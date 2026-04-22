@@ -21,7 +21,7 @@ import os
 import sqlite3
 import time
 import uuid
-from contextlib import contextmanager
+from contextlib import asynccontextmanager, contextmanager
 from typing import Optional
 
 import httpx
@@ -34,6 +34,15 @@ from prometheus_client import (
 )
 from prometheus_client.core import GaugeMetricFamily
 from pydantic import BaseModel
+
+# ============================================================================
+# Version
+# ----------------------------------------------------------------------------
+# BUMP THIS on every feature ship. Convention: MAJOR.MINOR.PATCH where
+# MINOR increments for each new user-facing feature and PATCH for pure
+# bug fixes. Rendered in the UI footer and returned by /api/version.
+# ============================================================================
+APP_VERSION = "15.0.0"
 
 # ============================================================================
 # Config
@@ -49,8 +58,26 @@ STATS_CONCURRENCY = int(os.getenv("STATS_CONCURRENCY", "16"))
 DB_PATH = os.getenv("DB_PATH", "/app/data/portaupdate.db")
 DOCKERHUB_USER = os.getenv("DOCKERHUB_USER", "")
 DOCKERHUB_TOKEN = os.getenv("DOCKERHUB_TOKEN", "")
+STATS_HISTORY_DAYS = int(os.getenv("STATS_HISTORY_DAYS", "7"))
+STATS_SAMPLE_INTERVAL = int(os.getenv("STATS_SAMPLE_INTERVAL_SECONDS", "300"))  # 5 min
 
-app = FastAPI(title="PortaUpdate")
+@asynccontextmanager
+async def _lifespan(app: FastAPI):
+    # Lifespan-managed startup — per the single-replica rule in CLAUDE.md,
+    # long-running workers live here so they stay at one-per-process.
+    init_db()
+    sampler = asyncio.create_task(_stats_sampler_loop(), name="stats-sampler")
+    try:
+        yield
+    finally:
+        sampler.cancel()
+        try:
+            await sampler
+        except asyncio.CancelledError:
+            pass
+
+
+app = FastAPI(title="PortaUpdate", lifespan=_lifespan)
 
 # ============================================================================
 # Prometheus metrics
@@ -188,10 +215,20 @@ def init_db():
         CREATE TABLE IF NOT EXISTS settings (
             key TEXT PRIMARY KEY, value TEXT
         );
+
+        -- Per-item CPU/memory time-series for 24h sparklines + drift graphs.
+        -- Written by the lifespan-managed stats sampler every
+        -- STATS_SAMPLE_INTERVAL seconds; pruned to STATS_HISTORY_DAYS.
+        CREATE TABLE IF NOT EXISTS stats_samples (
+            ts REAL NOT NULL,
+            item_id TEXT NOT NULL,
+            cpu REAL, mem_used REAL, mem_limit REAL
+        );
+        CREATE INDEX IF NOT EXISTS idx_stats_samples_item_ts
+            ON stats_samples(item_id, ts DESC);
+        CREATE INDEX IF NOT EXISTS idx_stats_samples_ts
+            ON stats_samples(ts);
         """)
-
-
-init_db()
 
 
 def get_setting(key: str, default: str = "") -> str:
@@ -1010,6 +1047,93 @@ async def _do_restart_service(op: Operation, service_id: str):
 _stats_cache: dict = {"stats": {}, "ts": 0.0}
 
 
+# ---- Time-series sampler for sparklines ----------------------------------
+# Persists a snapshot of `_stats_cache` into `stats_samples` every
+# STATS_SAMPLE_INTERVAL seconds. Drives the per-stack sparklines in the UI.
+# Runs as a lifespan-managed task (see _lifespan) — NOT at import time — so
+# it stays at one-per-process and respects the single-replica invariant.
+
+
+def _snapshot_stats_to_db() -> int:
+    """Write the current _stats_cache into stats_samples. Returns row count."""
+    snap = _stats_cache.get("stats") or {}
+    if not snap:
+        return 0
+    ts = time.time()
+    rows = [
+        (ts, item_id, s.get("cpu_percent") or 0.0,
+         s.get("mem_usage") or 0, s.get("mem_limit") or 0)
+        for item_id, s in snap.items()
+        if s.get("has_stats")
+    ]
+    if not rows:
+        return 0
+    with db_conn() as c:
+        c.executemany(
+            "INSERT INTO stats_samples (ts, item_id, cpu, mem_used, mem_limit) "
+            "VALUES (?, ?, ?, ?, ?)",
+            rows,
+        )
+    return len(rows)
+
+
+def _prune_old_samples() -> int:
+    """Delete rows older than STATS_HISTORY_DAYS. Returns rows removed."""
+    cutoff = time.time() - STATS_HISTORY_DAYS * 86400
+    with db_conn() as c:
+        cur = c.execute("DELETE FROM stats_samples WHERE ts < ?", (cutoff,))
+        return cur.rowcount or 0
+
+
+async def _stats_sampler_loop():
+    # Wait a beat so the first _gather_stats() has a chance to populate
+    # _stats_cache before we write a row of zeros.
+    await asyncio.sleep(min(60, STATS_SAMPLE_INTERVAL))
+    tick = 0
+    while True:
+        try:
+            n = _snapshot_stats_to_db()
+            # Prune hourly rather than every tick — single cheap DELETE,
+            # but no need to churn on every 5-minute cycle.
+            if tick % max(1, 3600 // STATS_SAMPLE_INTERVAL) == 0:
+                pruned = _prune_old_samples()
+                if pruned:
+                    print(f"[sampler] pruned {pruned} rows older than {STATS_HISTORY_DAYS}d")
+            if n:
+                print(f"[sampler] wrote {n} samples")
+        except Exception as e:
+            print(f"[sampler] error: {e}")
+        tick += 1
+        try:
+            await asyncio.sleep(STATS_SAMPLE_INTERVAL)
+        except asyncio.CancelledError:
+            raise
+
+
+def _stats_history(item_ids: list[str], since: float) -> dict[str, list[dict]]:
+    """Return {item_id: [{ts, cpu, mem_used, mem_limit}, ...]} for the given ids
+    back to `since` (epoch seconds), oldest-first. Empty list per missing id."""
+    if not item_ids:
+        return {}
+    placeholders = ",".join("?" * len(item_ids))
+    out: dict[str, list[dict]] = {i: [] for i in item_ids}
+    with db_conn() as c:
+        rows = c.execute(
+            f"SELECT item_id, ts, cpu, mem_used, mem_limit FROM stats_samples "
+            f"WHERE ts >= ? AND item_id IN ({placeholders}) "
+            f"ORDER BY ts ASC",
+            (since, *item_ids),
+        ).fetchall()
+    for r in rows:
+        out[r["item_id"]].append({
+            "ts": r["ts"],
+            "cpu": r["cpu"],
+            "mem_used": r["mem_used"],
+            "mem_limit": r["mem_limit"],
+        })
+    return out
+
+
 async def _one_container_stats(client: httpx.AsyncClient, ep: str, cid: str) -> Optional[dict]:
     """One-shot Docker stats for a running container. Returns None on failure."""
     try:
@@ -1161,6 +1285,23 @@ async def api_stats(force: bool = False):
         "stats": _stats_cache["stats"],
         "ts": _stats_cache["ts"],
         "age": int(now - _stats_cache["ts"]) if _stats_cache["ts"] else None,
+    }
+
+
+@app.get("/api/stats/history")
+async def api_stats_history(item_id: str, hours: int = 24):
+    """Return sparkline samples for one or more item IDs over the last N hours.
+
+    `item_id` may be comma-separated to fetch multiple in one round-trip
+    (the UI batches all visible stacks so it's not N requests per refresh).
+    """
+    hours = max(1, min(hours, STATS_HISTORY_DAYS * 24))
+    ids = [s.strip() for s in item_id.split(",") if s.strip()]
+    since = time.time() - hours * 3600
+    return {
+        "since": since,
+        "hours": hours,
+        "series": _stats_history(ids, since),
     }
 
 
@@ -1337,7 +1478,16 @@ async def api_notify_test():
 
 @app.get("/api/healthz")
 async def healthz():
-    return {"ok": True, "cache_age": int(time.time() - _cache["ts"]) if _cache["ts"] else None}
+    return {
+        "ok": True,
+        "version": APP_VERSION,
+        "cache_age": int(time.time() - _cache["ts"]) if _cache["ts"] else None,
+    }
+
+
+@app.get("/api/version")
+async def api_version():
+    return {"version": APP_VERSION}
 
 
 # Prometheus scrape endpoint.
