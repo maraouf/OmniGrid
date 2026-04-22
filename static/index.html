@@ -534,46 +534,90 @@
     </div>
 
     <!-- ===== HISTORY VIEW ===== -->
-    <div x-show="view==='history'" class="space-y-2">
-      <div class="flex justify-between items-center mb-3">
+    <div x-show="view==='history'" class="space-y-3">
+      <div class="flex justify-between items-center">
         <div>
-          <h2 class="font-semibold text-[15px]">Update History</h2>
+          <h2 class="font-semibold text-[15px]">Audit Log</h2>
           <div class="text-[11px] text-[var(--text-faint)]" x-text="history.length + ' entries'"></div>
         </div>
         <div class="flex gap-2">
+          <a :href="historyExportUrl('csv')" class="btn btn-soft text-[12px]" title="Export current filter as CSV">CSV</a>
+          <a :href="historyExportUrl('json')" class="btn btn-soft text-[12px]" title="Export current filter as JSON">JSON</a>
           <button @click="loadHistory()" class="btn btn-ghost text-[12px]">Reload</button>
           <button @click="clearHistory()" class="btn btn-ghost text-[12px] text-danger">Clear all</button>
         </div>
       </div>
-      <template x-for="h in history" :key="h.id">
-        <div class="bg-[var(--surface)] border border-[var(--border)] rounded-md p-3 flex items-start gap-3">
-          <span class="mt-0.5" x-text="h.status==='success' ? '✅' : '❌'"></span>
-          <div class="flex-1 min-w-0">
-            <div class="flex items-center gap-2 flex-wrap">
-              <span class="chip" x-text="h.op_type.replace('_',' ')"></span>
-              <span class="mono text-[13px] font-medium" x-text="h.target_name"></span>
-            </div>
-            <div class="text-[11px] text-[var(--text-faint)] mt-1">
-              <span x-text="formatTime(h.ts)"></span> ·
-              <span x-text="h.duration.toFixed(1) + 's'"></span>
-              <span x-show="h.error" class="text-[var(--danger)] ml-2 mono" x-text="h.error"></span>
-            </div>
-            <details class="mt-2 text-xs">
-              <summary class="text-[var(--text-dim)] hover:text-[var(--text)] select-none">▸ events</summary>
-              <div class="mt-2 bg-[var(--bg)] rounded p-3 mono text-[11px] space-y-1 max-h-60 overflow-y-auto scrollbar border border-[var(--border)]">
-                <template x-for="(ev,i) in parseEvents(h.events)" :key="i">
-                  <div :class="ev.level==='error' ? 'text-[var(--danger)]' : ev.level==='success' ? 'text-[var(--success)]' : 'text-[var(--text-dim)]'">
-                    <span class="text-[var(--text-faint)]" x-text="formatTimeShort(ev.ts)"></span>
-                    <span class="ml-2" x-text="ev.msg"></span>
-                  </div>
-                </template>
-              </div>
-            </details>
-          </div>
+
+      <!-- HISTORY FILTER BAR -->
+      <div class="flex flex-wrap items-center gap-2">
+        <input type="search" x-model.debounce.300ms="historyFilters.q" @input="loadHistory()"
+               placeholder="Search name, id, error…"
+               class="text-[12px] min-w-[220px] flex-1 max-w-[340px]">
+        <div class="flex items-center gap-1.5 flex-wrap">
+          <button @click="historyFilters.status=''; loadHistory()"
+                  :class="!historyFilters.status ? 'active' : ''" class="filter-chip">All</button>
+          <button @click="historyFilters.status='success'; loadHistory()"
+                  :class="historyFilters.status==='success' ? 'active' : ''" class="filter-chip">Success</button>
+          <button @click="historyFilters.status='error'; loadHistory()"
+                  :class="historyFilters.status==='error' ? 'active' : ''" class="filter-chip">Error</button>
         </div>
-      </template>
-      <div x-show="history.length===0" class="text-center py-16 text-[var(--text-faint)] text-sm">
-        No history yet.
+        <select x-model="historyFilters.op_type" @change="loadHistory()" class="text-[12px] min-w-[150px]">
+          <option value="">All op types</option>
+          <option value="update_stack">update_stack</option>
+          <option value="update_container">update_container</option>
+          <option value="restart_service">restart_service</option>
+          <option value="restart_container">restart_container</option>
+          <option value="remove_container">remove_container</option>
+        </select>
+        <select x-model="historyFilters.stack" @change="loadHistory()" class="text-[12px] min-w-[150px]">
+          <option value="">All stacks</option>
+          <template x-for="s in historyStackOptions" :key="s">
+            <option :value="s" x-text="s"></option>
+          </template>
+        </select>
+        <input type="date" x-model="historyFilters.fromDate" @change="loadHistory()"
+               class="text-[12px]" title="From date">
+        <input type="date" x-model="historyFilters.toDate" @change="loadHistory()"
+               class="text-[12px]" title="To date">
+        <button x-show="hasHistoryFilter()" @click="resetHistoryFilters(); loadHistory()"
+                class="btn btn-ghost text-[11px]">Clear filters</button>
+      </div>
+
+      <!-- HISTORY TABLE -->
+      <div class="bg-[var(--surface)] border border-[var(--border)] rounded-md overflow-hidden">
+        <div class="overflow-x-auto scrollbar">
+          <table class="ptable">
+            <thead>
+              <tr>
+                <th class="col-chev"></th>
+                <th style="width:170px">When</th>
+                <th style="width:140px">Op</th>
+                <th class="col-grow">Target</th>
+                <th style="width:120px" class="hidden md:table-cell">Stack</th>
+                <th style="width:90px">Status</th>
+                <th style="width:80px" class="hidden md:table-cell">Duration</th>
+                <th style="width:100px" class="hidden lg:table-cell">Actor</th>
+              </tr>
+            </thead>
+            <tbody>
+              <template x-for="h in history" :key="h.id">
+                <tr class="item-row" @click="openHistoryDetail(h)" style="cursor:pointer">
+                  <td><span class="dot" :class="h.status==='success' ? 'dot-healthy' : 'dot-offline'"></span></td>
+                  <td class="mono text-[11.5px] text-dim" x-text="formatTime(h.ts)"></td>
+                  <td><span class="chip text-[10.5px]" x-text="(h.op_type||'').replace(/_/g,' ')"></span></td>
+                  <td class="mono text-[12px] truncate" :title="h.target_name || ''" x-text="h.target_name || '—'"></td>
+                  <td class="hidden md:table-cell text-[11.5px] text-dim truncate" x-text="h.target_stack || '—'"></td>
+                  <td><span class="pill" :class="h.status==='success' ? 'pill-healthy' : 'pill-error'" x-text="h.status"></span></td>
+                  <td class="hidden md:table-cell mono text-[11.5px] text-dim" x-text="(h.duration||0).toFixed(1) + 's'"></td>
+                  <td class="hidden lg:table-cell text-[11.5px] text-dim" x-text="h.actor || 'ui'"></td>
+                </tr>
+              </template>
+            </tbody>
+          </table>
+        </div>
+        <div x-show="history.length===0" class="text-center py-16 text-[var(--text-faint)] text-sm">
+          No history entries match the current filter.
+        </div>
       </div>
     </div>
 
@@ -860,6 +904,7 @@ function app() {
     stats: {}, _statsTimer: null, _maxSize: 1,
     sparks: {}, _sparksTimer: null,
     version: '',
+    historyFilters: { q: '', stack: '', op_type: '', status: '', actor: '', fromDate: '', toDate: '' },
     statsInterval: (() => {
       const v = parseInt(localStorage.getItem('statsInterval'), 10);
       return [0, 5, 15, 30, 60].includes(v) ? v : 15;
@@ -1076,11 +1121,75 @@ function app() {
       }
       this.drawerItem = null;
     },
+    _historyQueryParams() {
+      // Build the shared ?stack=&op_type=...&since=... query string used by
+      // loadHistory() and the CSV/JSON export links, so filters stay in sync.
+      const f = this.historyFilters;
+      const p = new URLSearchParams();
+      if (f.q)        p.set('q', f.q);
+      if (f.stack)    p.set('stack', f.stack);
+      if (f.op_type)  p.set('op_type', f.op_type);
+      if (f.status)   p.set('status', f.status);
+      if (f.actor)    p.set('actor', f.actor);
+      if (f.fromDate) p.set('since', String(new Date(f.fromDate).getTime() / 1000));
+      if (f.toDate) {
+        // Date input is midnight-of-day; treat as inclusive END-of-day.
+        const end = new Date(f.toDate); end.setHours(23, 59, 59, 999);
+        p.set('until', String(end.getTime() / 1000));
+      }
+      p.set('limit', '500');
+      return p;
+    },
+    hasHistoryFilter() {
+      const f = this.historyFilters;
+      return !!(f.q || f.stack || f.op_type || f.status || f.actor || f.fromDate || f.toDate);
+    },
+    resetHistoryFilters() {
+      this.historyFilters = { q: '', stack: '', op_type: '', status: '', actor: '', fromDate: '', toDate: '' };
+    },
+    historyExportUrl(fmt) {
+      return `/api/history.${fmt}?` + this._historyQueryParams().toString();
+    },
+    get historyStackOptions() {
+      // Populate the stack dropdown from whatever stacks we currently see
+      // in the live cache (avoids a dedicated /api endpoint). Alphabetical.
+      return [...new Set((this.stacks || []).map(s => s.name).filter(Boolean))].sort();
+    },
     async loadHistory() {
       try {
-        const r = await fetch('/api/history');
+        const r = await fetch('/api/history?' + this._historyQueryParams().toString());
         this.history = (await r.json()).history || [];
       } catch (e) { console.error(e); }
+    },
+    openHistoryDetail(h) {
+      const events = this.parseEvents(h.events) || [];
+      const esc = (s) => String(s ?? '').replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+      const rows = events.map(ev => {
+        const cls = ev.level === 'error' ? 'swal-ev-err'
+                  : ev.level === 'success' ? 'swal-ev-ok'
+                  : 'swal-ev-info';
+        return `<div class="swal-ev ${cls}"><span class="swal-ev-ts">${esc(this.formatTimeShort(ev.ts))}</span><span class="swal-ev-msg">${esc(ev.msg)}</span></div>`;
+      }).join('') || `<div class="swal-ev swal-ev-info">No events recorded.</div>`;
+      const meta = `
+        <div class="swal-meta mono">
+          <div><b>When:</b> ${esc(this.formatTime(h.ts))}</div>
+          <div><b>Op:</b> ${esc(h.op_type)}</div>
+          <div><b>Target:</b> ${esc(h.target_name || '—')}</div>
+          <div><b>Stack:</b> ${esc(h.target_stack || '—')}</div>
+          <div><b>Actor:</b> ${esc(h.actor || 'ui')}</div>
+          <div><b>Duration:</b> ${(h.duration || 0).toFixed(2)}s</div>
+          <div><b>Status:</b> ${esc(h.status)}</div>
+          ${h.error ? `<div class="swal-err"><b>Error:</b> ${esc(h.error)}</div>` : ''}
+        </div>`;
+      Swal.fire({
+        title: h.target_name || h.op_type,
+        html: `${meta}<div class="swal-events">${rows}</div>`,
+        width: 720,
+        showConfirmButton: false,
+        showCloseButton: true,
+        background: this._cssVar('--surface'),
+        color: this._cssVar('--text'),
+      });
     },
     async clearHistory() {
       const ok = await this.confirmDialog({

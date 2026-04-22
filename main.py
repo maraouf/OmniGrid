@@ -25,7 +25,7 @@ from contextlib import asynccontextmanager, contextmanager
 from typing import Optional
 
 import httpx
-from fastapi import BackgroundTasks, FastAPI, HTTPException
+from fastapi import BackgroundTasks, FastAPI, HTTPException, Request
 from fastapi.responses import Response
 from fastapi.staticfiles import StaticFiles
 from prometheus_client import (
@@ -38,11 +38,31 @@ from pydantic import BaseModel
 # ============================================================================
 # Version
 # ----------------------------------------------------------------------------
-# BUMP THIS on every feature ship. Convention: MAJOR.MINOR.PATCH where
-# MINOR increments for each new user-facing feature and PATCH for pure
-# bug fixes. Rendered in the UI footer and returned by /api/version.
+# Source of truth is `version.txt` in the repo root (and in the bind-mount
+# at /app/version.txt in production). The Forgejo Actions deploy pipeline
+# rewrites PATCH to the workflow run_number before rsync, so every deploy
+# gets a unique monotonically-increasing PATCH without manual bumps.
+# Operator controls MAJOR.MINOR by hand-editing version.txt; PATCH is CI-
+# managed and will be overwritten on every successful push to main.
+# Rendered in the UI footer and returned by /api/version.
 # ============================================================================
-APP_VERSION = "1.0.0"
+def _read_version() -> str:
+    candidates = (
+        os.path.join(os.path.dirname(__file__), "VERSION.txt"),
+        "/app/VERSION.txt",
+    )
+    for p in candidates:
+        try:
+            with open(p, "r", encoding="utf-8") as f:
+                v = f.read().strip().splitlines()[0].strip()
+                if v:
+                    return v
+        except (OSError, IndexError):
+            continue
+    return "0.0.0-dev"
+
+
+APP_VERSION = _read_version()
 
 # ============================================================================
 # Config
@@ -206,6 +226,9 @@ def init_db():
             events TEXT, error TEXT
         );
         CREATE INDEX IF NOT EXISTS idx_history_ts ON history(ts DESC);
+        CREATE INDEX IF NOT EXISTS idx_history_op_type ON history(op_type);
+        CREATE INDEX IF NOT EXISTS idx_history_target_name ON history(target_name);
+        CREATE INDEX IF NOT EXISTS idx_history_status ON history(status);
 
         CREATE TABLE IF NOT EXISTS ignores (
             pattern TEXT PRIMARY KEY, kind TEXT NOT NULL,
@@ -229,6 +252,22 @@ def init_db():
         CREATE INDEX IF NOT EXISTS idx_stats_samples_ts
             ON stats_samples(ts);
         """)
+        # Idempotent column additions for existing deployments. SQLite pre-3.35
+        # has no "ADD COLUMN IF NOT EXISTS", so we catch the OperationalError
+        # that gets raised when the column already exists. Safe to re-run on
+        # every boot.
+        for ddl in (
+            "ALTER TABLE history ADD COLUMN actor TEXT DEFAULT 'ui'",
+            "ALTER TABLE history ADD COLUMN target_stack TEXT",
+        ):
+            try:
+                c.execute(ddl)
+            except sqlite3.OperationalError:
+                pass
+        c.execute(
+            "CREATE INDEX IF NOT EXISTS idx_history_target_stack "
+            "ON history(target_stack)"
+        )
 
 
 def get_setting(key: str, default: str = "") -> str:
@@ -788,19 +827,22 @@ async def _gather_impl():
 # Operations
 # ============================================================================
 class Operation:
-    __slots__ = ("id", "op_type", "target_id", "target_name",
-                 "started", "ended", "status", "events", "error")
+    __slots__ = ("id", "op_type", "target_id", "target_name", "target_stack",
+                 "started", "ended", "status", "events", "error", "actor")
 
-    def __init__(self, op_type: str, target_id: str, target_name: str):
+    def __init__(self, op_type: str, target_id: str, target_name: str,
+                 target_stack: Optional[str] = None, actor: str = "ui"):
         self.id = uuid.uuid4().hex[:12]
         self.op_type = op_type
         self.target_id = target_id
         self.target_name = target_name
+        self.target_stack = target_stack
         self.started = time.time()
         self.ended: Optional[float] = None
         self.status = "running"
         self.events: list[dict] = []
         self.error: Optional[str] = None
+        self.actor = actor
 
     def log(self, msg: str, level: str = "info"):
         self.events.append({"ts": time.time(), "level": level, "msg": msg})
@@ -814,9 +856,11 @@ class Operation:
     def to_dict(self):
         return {
             "id": self.id, "op_type": self.op_type, "target_id": self.target_id,
-            "target_name": self.target_name, "started": self.started, "ended": self.ended,
+            "target_name": self.target_name, "target_stack": self.target_stack,
+            "started": self.started, "ended": self.ended,
             "status": self.status, "events": self.events, "error": self.error,
             "duration": (self.ended or time.time()) - self.started,
+            "actor": self.actor,
         }
 
 
@@ -824,8 +868,10 @@ ops: dict[str, Operation] = {}
 ops_order: list[str] = []
 
 
-def new_op(op_type: str, target_id: str, target_name: str) -> Operation:
-    op = Operation(op_type, target_id, target_name)
+def new_op(op_type: str, target_id: str, target_name: str,
+           target_stack: Optional[str] = None, actor: str = "ui") -> Operation:
+    op = Operation(op_type, target_id, target_name,
+                   target_stack=target_stack, actor=actor)
     ops[op.id] = op
     ops_order.insert(0, op.id)
     while len(ops_order) > 50:
@@ -838,10 +884,12 @@ def new_op(op_type: str, target_id: str, target_name: str) -> Operation:
 def persist_history(op: Operation):
     with db_conn() as c:
         c.execute(
-            "INSERT INTO history (ts,op_type,target_name,target_id,status,duration,events,error) "
-            "VALUES (?,?,?,?,?,?,?,?)",
-            (op.started, op.op_type, op.target_name, op.target_id, op.status,
-             (op.ended or time.time()) - op.started, json.dumps(op.events), op.error),
+            "INSERT INTO history "
+            "(ts,op_type,target_name,target_id,target_stack,status,duration,events,error,actor) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?)",
+            (op.started, op.op_type, op.target_name, op.target_id, op.target_stack,
+             op.status, (op.ended or time.time()) - op.started,
+             json.dumps(op.events), op.error, op.actor),
         )
     # Mirror the outcome into Prometheus. Done here (not in every _do_*
     # handler) because every handler funnels through persist_history in its
@@ -1327,62 +1375,68 @@ async def api_item_detail(raw_id: str):
     raise HTTPException(404, "Not found")
 
 
+def _actor_from(request: Request) -> str:
+    # `X-Forwarded-User` is the de-facto header set by most auth proxies
+    # (Authelia, Authentik, oauth2-proxy, Traefik forward-auth). Fall back
+    # to "ui" for direct hits (no proxy or dev mode). Future: scheduled
+    # ops will pass actor="system" explicitly when we add the scheduler.
+    return (request.headers.get("x-forwarded-user") or "ui").strip() or "ui"
+
+
+def _item_context(container_or_service_id: str) -> tuple[str, Optional[str]]:
+    """Resolve (display_name, target_stack) for a cache item by raw or prefix id."""
+    for it in _cache["items"]:
+        rid = it.get("raw_id") or ""
+        if rid.startswith(container_or_service_id) or container_or_service_id.startswith(rid):
+            return (it.get("name") or container_or_service_id[:12], it.get("stack"))
+    return (container_or_service_id[:12], None)
+
+
 @app.post("/api/update/stack/{stack_id}")
-async def api_update_stack(stack_id: int, bg: BackgroundTasks):
+async def api_update_stack(stack_id: int, bg: BackgroundTasks, request: Request):
     name = f"stack-{stack_id}"
     for s in _cache["stacks"]:
         if s.get("stack_id") == stack_id:
             name = s["name"]
             break
-    op = new_op("update_stack", str(stack_id), name)
+    op = new_op("update_stack", str(stack_id), name,
+                target_stack=name, actor=_actor_from(request))
     bg.add_task(_do_update_stack, op, stack_id)
     return {"op_id": op.id}
 
 
 @app.post("/api/update/container/{container_id}")
-async def api_update_container(container_id: str, bg: BackgroundTasks):
-    name = container_id[:12]
-    for it in _cache["items"]:
-        if it["raw_id"].startswith(container_id) or container_id.startswith(it["raw_id"]):
-            name = it["name"]
-            break
-    op = new_op("update_container", container_id, name)
+async def api_update_container(container_id: str, bg: BackgroundTasks, request: Request):
+    name, stack = _item_context(container_id)
+    op = new_op("update_container", container_id, name,
+                target_stack=stack, actor=_actor_from(request))
     bg.add_task(_do_update_container, op, container_id)
     return {"op_id": op.id}
 
 
 @app.post("/api/restart/service/{service_id}")
-async def api_restart_service(service_id: str, bg: BackgroundTasks):
-    name = service_id[:12]
-    for it in _cache["items"]:
-        if it["raw_id"].startswith(service_id):
-            name = it["name"]
-            break
-    op = new_op("restart_service", service_id, name)
+async def api_restart_service(service_id: str, bg: BackgroundTasks, request: Request):
+    name, stack = _item_context(service_id)
+    op = new_op("restart_service", service_id, name,
+                target_stack=stack, actor=_actor_from(request))
     bg.add_task(_do_restart_service, op, service_id)
     return {"op_id": op.id}
 
 
 @app.post("/api/restart/container/{container_id}")
-async def api_restart_container(container_id: str, bg: BackgroundTasks):
-    name = container_id[:12]
-    for it in _cache["items"]:
-        if it["raw_id"].startswith(container_id) or container_id.startswith(it["raw_id"]):
-            name = it["name"]
-            break
-    op = new_op("restart_container", container_id, name)
+async def api_restart_container(container_id: str, bg: BackgroundTasks, request: Request):
+    name, stack = _item_context(container_id)
+    op = new_op("restart_container", container_id, name,
+                target_stack=stack, actor=_actor_from(request))
     bg.add_task(_do_restart_container, op, container_id)
     return {"op_id": op.id}
 
 
 @app.post("/api/remove/container/{container_id}")
-async def api_remove_container(container_id: str, bg: BackgroundTasks):
-    name = container_id[:12]
-    for it in _cache["items"]:
-        if it["raw_id"].startswith(container_id) or container_id.startswith(it["raw_id"]):
-            name = it["name"]
-            break
-    op = new_op("remove_container", container_id, name)
+async def api_remove_container(container_id: str, bg: BackgroundTasks, request: Request):
+    name, stack = _item_context(container_id)
+    op = new_op("remove_container", container_id, name,
+                target_stack=stack, actor=_actor_from(request))
     bg.add_task(_do_remove_container, op, container_id)
     return {"op_id": op.id}
 
@@ -1400,11 +1454,114 @@ async def api_op(op_id: str):
     return op.to_dict()
 
 
-@app.get("/api/history")
-async def api_history(limit: int = 100):
+def _history_query(
+    stack: Optional[str], op_type: Optional[str], status: Optional[str],
+    actor: Optional[str], q: Optional[str],
+    since: Optional[float], until: Optional[float],
+    limit: int,
+):
+    """Shared builder for filterable history queries. All filters are
+    optional; missing ones degrade gracefully to an unfiltered scan."""
+    where, params = [], []
+    if stack:
+        # Match ops whose recorded target_stack is this stack, plus historical
+        # rows (pre-column) where target_name happens to equal it.
+        where.append("(target_stack = ? OR target_name = ?)")
+        params.extend([stack, stack])
+    if op_type:
+        where.append("op_type = ?")
+        params.append(op_type)
+    if status:
+        where.append("status = ?")
+        params.append(status)
+    if actor:
+        where.append("actor = ?")
+        params.append(actor)
+    if q:
+        like = f"%{q}%"
+        where.append("(target_name LIKE ? OR target_id LIKE ? OR error LIKE ?)")
+        params.extend([like, like, like])
+    if since is not None:
+        where.append("ts >= ?")
+        params.append(since)
+    if until is not None:
+        where.append("ts <= ?")
+        params.append(until)
+    sql = "SELECT * FROM history"
+    if where:
+        sql += " WHERE " + " AND ".join(where)
+    sql += " ORDER BY ts DESC LIMIT ?"
+    params.append(max(1, min(limit, 5000)))
     with db_conn() as c:
-        rows = c.execute("SELECT * FROM history ORDER BY ts DESC LIMIT ?", (limit,)).fetchall()
-    return {"history": [dict(r) for r in rows]}
+        rows = c.execute(sql, params).fetchall()
+    return [dict(r) for r in rows]
+
+
+@app.get("/api/history")
+async def api_history(
+    limit: int = 100,
+    stack: Optional[str] = None,
+    op_type: Optional[str] = None,
+    status: Optional[str] = None,
+    actor: Optional[str] = None,
+    q: Optional[str] = None,
+    since: Optional[float] = None,
+    until: Optional[float] = None,
+):
+    return {
+        "history": _history_query(stack, op_type, status, actor, q, since, until, limit),
+    }
+
+
+@app.get("/api/history.json")
+async def api_history_json_export(
+    limit: int = 5000,
+    stack: Optional[str] = None,
+    op_type: Optional[str] = None,
+    status: Optional[str] = None,
+    actor: Optional[str] = None,
+    q: Optional[str] = None,
+    since: Optional[float] = None,
+    until: Optional[float] = None,
+):
+    rows = _history_query(stack, op_type, status, actor, q, since, until, limit)
+    return Response(
+        content=json.dumps(rows, indent=2, default=str),
+        media_type="application/json",
+        headers={"Content-Disposition": 'attachment; filename="portaupdate-history.json"'},
+    )
+
+
+@app.get("/api/history.csv")
+async def api_history_csv_export(
+    limit: int = 5000,
+    stack: Optional[str] = None,
+    op_type: Optional[str] = None,
+    status: Optional[str] = None,
+    actor: Optional[str] = None,
+    q: Optional[str] = None,
+    since: Optional[float] = None,
+    until: Optional[float] = None,
+):
+    import csv
+    import io
+
+    rows = _history_query(stack, op_type, status, actor, q, since, until, limit)
+    # Fixed column order — stable for spreadsheet pivots. `events` is
+    # omitted from CSV (multi-line JSON doesn't round-trip cleanly); users
+    # needing full event logs should export JSON.
+    cols = ["ts", "op_type", "status", "actor", "target_stack",
+            "target_name", "target_id", "duration", "error"]
+    buf = io.StringIO()
+    w = csv.writer(buf, lineterminator="\n")
+    w.writerow(cols)
+    for r in rows:
+        w.writerow([r.get(c, "") for c in cols])
+    return Response(
+        content=buf.getvalue(),
+        media_type="text/csv",
+        headers={"Content-Disposition": 'attachment; filename="portaupdate-history.csv"'},
+    )
 
 
 @app.delete("/api/history")
