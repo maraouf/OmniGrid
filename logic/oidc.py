@@ -390,9 +390,17 @@ async def callback(request: Request):
         raise HTTPException(status_code=502, detail="OIDC token response missing id_token")
 
     # --- Validate id_token -------------------------------------------------
+    # Per RFC 8414 / OIDC Core, the authoritative value for the `iss` claim
+    # is whatever the discovery doc advertises — NOT whatever the admin
+    # typed into the Settings panel. Authentik emits `iss` with or without
+    # a trailing slash depending on the provider config, and the doc's
+    # `issuer` field is the one it guarantees will match. Fall back to the
+    # configured URL only if the doc is non-compliant.
+    expected_iss = (doc.get("issuer") or issuer).rstrip("/")
     try:
         claims = await _validate_id_token(
             id_token, issuer=issuer, jwks_uri=jwks_uri,
+            expected_iss=expected_iss,
             client_id=client_id, expected_nonce=flow["nonce"],
         )
     except jwt.PyJWTError as e:
@@ -433,10 +441,17 @@ async def callback(request: Request):
 
 async def _validate_id_token(
     id_token: str, *, issuer: str, jwks_uri: str,
+    expected_iss: Optional[str] = None,
     client_id: str, expected_nonce: str,
 ) -> dict:
     """Verify signature + standard claims. Returns decoded claims on
     success, raises jwt.PyJWTError otherwise.
+
+    ``issuer`` is the configured URL (used as the JWKS cache key).
+    ``expected_iss`` is what PyJWT checks the `iss` claim against — the
+    discovery doc's `issuer` field, which the provider guarantees will
+    match the id_token's `iss`. Falls back to ``issuer.rstrip("/")`` if
+    the caller didn't resolve it.
 
     JWKS is refreshed on unknown `kid` so mid-rotation tokens are
     accepted without waiting out the cache TTL.
@@ -465,7 +480,7 @@ async def _validate_id_token(
         key=public_key,
         algorithms=[alg],
         audience=client_id,
-        issuer=issuer.rstrip("/"),
+        issuer=(expected_iss or issuer.rstrip("/")),
         options={"require": ["exp", "iat", "iss", "aud"]},
         leeway=30,  # small clock-skew tolerance — tokens usually live 5+ minutes anyway
     )

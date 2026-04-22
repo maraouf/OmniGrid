@@ -1420,5 +1420,13 @@ if os.path.isdir("node_modules"):
     app.mount("/node_modules", StaticFiles(directory="node_modules"), name="node_modules")
 
 
+# Translation bundles. Mounted at /i18n/ (before the "/" catch-all, same
+# ordering rule as /metrics / /node_modules) so the SPA can fetch
+# /i18n/en.json, /i18n/ar.json, /i18n/index.json at boot. Anonymous-
+# readable: language files are UI strings, not secrets.
+if os.path.isdir("static/i18n"):
+    app.mount("/i18n", StaticFiles(directory="static/i18n"), name="i18n")
+
+
 # Keep this line LAST — StaticFiles at "/" is a catch-all.
 app.mount("/", StaticFiles(directory="static", html=True), name="static")

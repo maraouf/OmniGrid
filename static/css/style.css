@@ -1517,6 +1517,30 @@ body.login {
     padding: var(--s-6);
 }
 
+/* Wrapper stacks the app logo on top of the login card and keeps the
+   pair centered on the page. No fixed max-width on the wrapper itself —
+   each child carries its own width constraint. */
+.login-wrap {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: var(--s-5);
+    width: 100%;
+    max-width: 380px;
+}
+
+/* App logo above the login card. Sized for a login page, not a hero —
+   small enough to feel like a sign-in mark, big enough to read the rocket
+   glyph. Rounded-square mask matches the favicon / Homarr tile style. */
+.login-logo {
+    width: 88px;
+    height: 88px;
+    border-radius: var(--r-xl);
+    display: block;
+    box-shadow: 0 6px 24px var(--backdrop-strong);
+    background: var(--surface);
+}
+
 .login-card {
     width: 100%;
     max-width: 380px;
@@ -1639,7 +1663,10 @@ body.login {
 }
 
 .login-card .btn-sso {
-    display: block;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: var(--s-3);
     width: 100%;
     padding: 10px;
     background: var(--surface-2);
@@ -1651,6 +1678,13 @@ body.login {
     text-align: center;
     text-decoration: none;
     box-sizing: border-box;
+    transition: background .15s, border-color .15s;
+}
+.login-card .btn-sso .sso-icon {
+    width: 18px;
+    height: 18px;
+    flex-shrink: 0;
+    display: block;
 }
 
 .login-card .btn-sso:hover {

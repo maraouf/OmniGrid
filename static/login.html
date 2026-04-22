@@ -10,36 +10,48 @@
     let sysLight = window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches;
     let resolved = pref === 'auto' ? (sysLight ? 'light' : 'dark') : pref;
     document.documentElement.setAttribute('data-theme', resolved);
+    // Apply the persisted language + direction ASAP so the login form
+    // doesn't flash in the wrong direction. The full i18n helper below
+    // handles dict loading and string substitution.
+    let lang = localStorage.getItem('lang') || 'en';
+    document.documentElement.setAttribute('lang', lang);
+    document.documentElement.setAttribute('dir', lang === 'ar' ? 'rtl' : 'ltr');
   })();
 </script>
 <link rel="icon" href="/img/logo/icon-512.png" />
 <link rel="stylesheet" href="/css/style.css" />
 </head>
 <body class="login">
+ <div class="login-wrap">
+  <img src="/img/logo/icon-512.png" alt="PortaUpdate" class="login-logo" />
   <form class="login-card" id="login" autocomplete="on">
-    <h1>PortaUpdate</h1>
-    <p class="sub">Sign in to continue.</p>
+    <h1 data-i18n="app.name">PortaUpdate</h1>
+    <p class="sub" data-i18n="login.title">Sign in to continue.</p>
 
-    <label for="u">Username</label>
+    <label for="u" data-i18n="login.username">Username</label>
     <input id="u" name="username" type="text" autofocus required />
 
-    <label for="p">Password</label>
+    <label for="p" data-i18n="login.password">Password</label>
     <input id="p" name="password" type="password" required />
 
-    <button type="submit" id="btn">Sign in</button>
+    <button type="submit" id="btn" data-i18n="login.sign_in">Sign in</button>
 
     <!-- OIDC SSO button. Hidden by default; unhidden once /api/auth/providers
          confirms the provider is configured. href is built from the current
          ?next= so the post-login redirect lands the user where they started. -->
     <div class="sso-wrap" id="ssoWrap" hidden>
-      <div class="sso-divider"><span>or</span></div>
-      <a class="btn-sso" id="ssoBtn" href="#">Sign in with Authentik</a>
+      <div class="sso-divider"><span data-i18n="login.or">or</span></div>
+      <a class="btn-sso" id="ssoBtn" href="#">
+        <img src="/img/icons/authentik.svg" alt="" class="sso-icon" aria-hidden="true" />
+        <span data-i18n="login.sso_button">Sign in with Authentik</span>
+      </a>
     </div>
 
     <div class="err" id="err"></div>
 
     <div class="footer" id="ver"></div>
   </form>
+ </div>
 
 <script>
   (function () {
