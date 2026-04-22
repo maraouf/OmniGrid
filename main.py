@@ -13,6 +13,7 @@ Endpoints:
   GET  /api/settings /  POST
   POST /api/notify-test
   GET  /api/healthz
+  GET  /metrics                       - Prometheus scrape endpoint
 """
 import asyncio
 import json
@@ -26,6 +27,10 @@ from typing import Optional
 import httpx
 from fastapi import BackgroundTasks, FastAPI, HTTPException
 from fastapi.staticfiles import StaticFiles
+from prometheus_client import (
+    CollectorRegistry, Counter, Gauge, Histogram, make_asgi_app,
+)
+from prometheus_client.core import GaugeMetricFamily
 from pydantic import BaseModel
 
 # ============================================================================
@@ -44,6 +49,105 @@ DOCKERHUB_USER = os.getenv("DOCKERHUB_USER", "")
 DOCKERHUB_TOKEN = os.getenv("DOCKERHUB_TOKEN", "")
 
 app = FastAPI(title="PortaUpdate")
+
+# ============================================================================
+# Prometheus metrics
+# ----------------------------------------------------------------------------
+# Exposes PortaUpdate's view of the fleet at GET /metrics (mounted below the
+# routes but ABOVE the StaticFiles catch-all — see the mount block near EOF).
+# Metric names match the Grafana dashboard in notes/grafana_dashboard_portaupdate.json.
+# ============================================================================
+METRICS_REGISTRY = CollectorRegistry()
+
+ITEMS_TOTAL = Gauge(
+    "portaupdate_items_total",
+    "Items by status and type",
+    ["status", "type"],
+    registry=METRICS_REGISTRY,
+)
+STACK_OUTDATED = Gauge(
+    "portaupdate_stack_outdated",
+    "Outdated items per stack",
+    ["stack"],
+    registry=METRICS_REGISTRY,
+)
+STACK_OFFLINE = Gauge(
+    "portaupdate_stack_offline",
+    "Offline items per stack",
+    ["stack"],
+    registry=METRICS_REGISTRY,
+)
+OPS_TOTAL = Counter(
+    "portaupdate_ops_total",
+    "One-click operations performed",
+    ["op_type", "status"],
+    registry=METRICS_REGISTRY,
+)
+REGISTRY_ERRORS = Counter(
+    "portaupdate_registry_errors_total",
+    "Remote-registry probe failures (per registry host)",
+    ["registry"],
+    registry=METRICS_REGISTRY,
+)
+REGISTRY_LATENCY = Histogram(
+    "portaupdate_registry_latency_seconds",
+    "Remote-registry HEAD/GET latency",
+    ["registry"],
+    registry=METRICS_REGISTRY,
+    buckets=(0.05, 0.1, 0.25, 0.5, 1, 2, 5, 10),
+)
+GATHER_DURATION = Histogram(
+    "portaupdate_gather_duration_seconds",
+    "End-to-end _gather() duration",
+    registry=METRICS_REGISTRY,
+    buckets=(0.5, 1, 2, 5, 10, 30, 60, 120),
+)
+
+
+class _CacheAgeCollector:
+    """Reports `portaupdate_cache_age_seconds` at scrape time.
+
+    Uses a custom Collector (not a Gauge) so the value reflects NOW even
+    between _gather() calls — Prometheus gets a fresh reading on every scrape
+    without any event needing to fire.
+    """
+
+    def collect(self):
+        g = GaugeMetricFamily(
+            "portaupdate_cache_age_seconds",
+            "Seconds since items cache was last populated",
+        )
+        age = (time.time() - _cache["ts"]) if _cache.get("ts") else 0.0
+        g.add_metric([], age)
+        yield g
+
+
+METRICS_REGISTRY.register(_CacheAgeCollector())
+
+
+def _populate_metrics_from_cache():
+    """Re-populate label-keyed gauges from the just-built `_cache`.
+
+    Called at the end of `_gather()`. Clears first so stacks that disappeared
+    don't linger as stale label sets — Prometheus gauges never decay on their
+    own and would otherwise report ghost values forever.
+    """
+    from collections import Counter as _C
+
+    ITEMS_TOTAL.clear()
+    STACK_OUTDATED.clear()
+    STACK_OFFLINE.clear()
+
+    counts = _C((i.get("status", "unknown"), i.get("type", "unknown"))
+                for i in _cache.get("items", []))
+    for (status, typ), n in counts.items():
+        ITEMS_TOTAL.labels(status=status, type=typ).set(n)
+
+    for s in _cache.get("stacks", []):
+        name = s.get("name") or "?"
+        STACK_OUTDATED.labels(stack=name).set(s.get("updates", 0))
+        STACK_OFFLINE.labels(stack=name).set(s.get("offline", 0))
+
 
 # ============================================================================
 # SQLite persistence
@@ -187,8 +291,17 @@ async def _get_bearer(client: httpx.AsyncClient, www_auth: str, repo: str) -> Op
 
 
 async def _get_remote_digest(client: httpx.AsyncClient, image: str) -> Optional[str]:
+    # Parse OUTSIDE the timed block — we need the registry host for the
+    # histogram label, and we shouldn't charge parse-only failures to
+    # registry latency.
     try:
         reg, repo, tag = _parse_image_ref(image)
+    except Exception as e:
+        print(f"[digest] parse {image}: {e}")
+        return None
+    _t0 = time.monotonic()
+    digest: Optional[str] = None
+    try:
         accept = ", ".join([
             "application/vnd.docker.distribution.manifest.v2+json",
             "application/vnd.docker.distribution.manifest.list.v2+json",
@@ -204,15 +317,20 @@ async def _get_remote_digest(client: httpx.AsyncClient, image: str) -> Optional[
                 h["Authorization"] = f"Bearer {tok}"
                 r = await client.head(url, headers=h, follow_redirects=True)
         if r.status_code == 200:
-            return r.headers.get("docker-content-digest")
-        if r.status_code in (404, 405):
+            digest = r.headers.get("docker-content-digest")
+        elif r.status_code in (404, 405):
             r = await client.get(url, headers=h, follow_redirects=True)
             if r.status_code == 200:
-                return r.headers.get("docker-content-digest")
-        return None
+                digest = r.headers.get("docker-content-digest")
+        if digest is None:
+            REGISTRY_ERRORS.labels(registry=reg).inc()
+        return digest
     except Exception as e:
+        REGISTRY_ERRORS.labels(registry=reg).inc()
         print(f"[digest] {image}: {e}")
         return None
+    finally:
+        REGISTRY_LATENCY.labels(registry=reg).observe(time.monotonic() - _t0)
 
 
 # ============================================================================
@@ -268,6 +386,15 @@ def _node_matches(node: dict, constraints: list[str]) -> bool:
 
 
 async def _gather():
+    _gather_t0 = time.monotonic()
+    try:
+        await _gather_impl()
+    finally:
+        GATHER_DURATION.observe(time.monotonic() - _gather_t0)
+        _populate_metrics_from_cache()
+
+
+async def _gather_impl():
     async with httpx.AsyncClient(verify=VERIFY_TLS, timeout=60.0) as client:
         ep = f"/api/endpoints/{PORTAINER_ENDPOINT_ID}/docker"
 
@@ -633,6 +760,13 @@ def persist_history(op: Operation):
             (op.started, op.op_type, op.target_name, op.target_id, op.status,
              (op.ended or time.time()) - op.started, json.dumps(op.events), op.error),
         )
+    # Mirror the outcome into Prometheus. Done here (not in every _do_*
+    # handler) because every handler funnels through persist_history in its
+    # finally-block — a single instrumentation point covers all op types.
+    try:
+        OPS_TOTAL.labels(op_type=op.op_type, status=op.status).inc()
+    except Exception as e:
+        print(f"[metrics] OPS_TOTAL inc failed: {e}")
 
 
 # ============================================================================
@@ -1143,4 +1277,11 @@ async def healthz():
     return {"ok": True, "cache_age": int(time.time() - _cache["ts"]) if _cache["ts"] else None}
 
 
+# Prometheus scrape endpoint. MUST stay above the StaticFiles catch-all below,
+# otherwise FastAPI's routing hands every GET /metrics to index.html and
+# Prometheus logs "unsupported Content-Type text/html". See CLAUDE.md →
+# Conventions → "Mount order for non-/api routes".
+app.mount("/metrics", make_asgi_app(registry=METRICS_REGISTRY))
+
+# Keep this line LAST — StaticFiles at "/" is a catch-all.
 app.mount("/", StaticFiles(directory="static", html=True), name="static")

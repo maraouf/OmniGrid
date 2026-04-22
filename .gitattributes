@@ -1,0 +1,6 @@
+# Vendored minified bundles — keep byte-identical across OS checkouts so
+# SHA256 in static/vendor/VERSIONS.txt stays meaningful. Without these
+# rules Git would apply its CRLF-conversion heuristic on Windows, which
+# changes checksums but nothing visible in diffs.
+static/vendor/*.js  -text
+static/vendor/*.css -text
