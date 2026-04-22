@@ -103,6 +103,17 @@ async def gather() -> None:
 
 
 async def _gather_impl() -> None:
+    # Short-circuit on empty Portainer config — brand-new deploys where the
+    # admin hasn't set URL + API key yet. Produces an empty snapshot
+    # instead of a pile of connection errors; the UI renders its "go to
+    # Settings → Portainer" banner off the empty items list.
+    if not portainer.is_configured():
+        _cache["items"] = []
+        _cache["stacks"] = []
+        _cache["nodes"] = {}
+        _cache["task_node_by_id"] = {}
+        _cache["ts"] = time.time()
+        return
     async with httpx.AsyncClient(verify=portainer.VERIFY_TLS, timeout=60.0) as client:
         ep = f"/api/endpoints/{portainer.PORTAINER_ENDPOINT_ID}/docker"
 

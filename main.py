@@ -39,7 +39,7 @@ from fastapi import BackgroundTasks, Depends, FastAPI, Form, HTTPException, Requ
 from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 
-from logic import auth, backups, metrics
+from logic import auth, backups, metrics, oidc
 from pydantic import BaseModel
 
 # ============================================================================
@@ -58,13 +58,12 @@ from logic.version import APP_VERSION
 # ============================================================================
 # Config
 # ============================================================================
-# Portainer-client env config owned by logic.portainer — re-export here
-# so call sites keep reading PORTAINER_URL etc. from main's namespace.
+# Portainer connection config is DB-backed / UI-managed — see
+# logic.portainer.get_portainer_settings(). The module still exposes
+# PORTAINER_URL etc. as read-through module attributes for legacy call
+# sites, so no other file needs to change. Concurrency tunables stay
+# env-only.
 from logic.portainer import (  # noqa: E402
-    PORTAINER_URL,
-    PORTAINER_API_KEY,
-    PORTAINER_ENDPOINT_ID,
-    VERIFY_TLS,
     REGISTRY_CONCURRENCY as CONCURRENCY,
     STATS_CONCURRENCY,
 )
@@ -89,12 +88,15 @@ async def _lifespan(app: FastAPI):
     warn = auth.auto_secret_warning()
     if warn:
         print(warn)
-    # Seed the three auth settings (authentik_enabled, npm_auth_secret,
-    # authentik_admin_group) from env into the DB on first boot. On every
-    # subsequent start, this is a no-op — the UI is authoritative once the
-    # keys exist. Admins edit from Settings → Authentik panel.
+    # Seed DB-backed auth + Portainer settings on first boot. No-op for
+    # keys that already exist in the `settings` table — the UI is
+    # authoritative after first deploy. Portainer seeding also consults
+    # PORTAINER_* env vars as a one-time transitional aid for existing
+    # deploys migrating to the UI-managed model.
+    from logic import portainer as _portainer
     with db_conn() as c:
         auth.bootstrap_auth_settings(c)
+        _portainer.bootstrap_portainer_settings(c)
     _bootstrap_admin_if_needed()
     # Create /app/data/backups/ + /app/data/avatars/ if missing so endpoint
     # handlers don't each have to guard for first-boot state.
@@ -597,33 +599,60 @@ class SettingsIn(BaseModel):
     apprise_url: Optional[str] = None
     apprise_tag: Optional[str] = None
     portainer_public_url: Optional[str] = None
-    # Authentik Forward Auth settings (admin-editable).
-    # `npm_auth_secret`: empty string or None is interpreted as "don't
-    # change" — the browser never receives the current value, so we need
-    # a sentinel for "keep what's there". Pass a non-empty string to
-    # overwrite.
-    authentik_enabled: Optional[bool] = None
-    authentik_admin_group: Optional[str] = None
-    npm_auth_secret: Optional[str] = None
+    # Portainer connection (DB-backed, UI-managed). API key follows the
+    # write-only / "keep current if blank" contract: the browser never
+    # receives the current value, only whether it's set. Pass a non-
+    # empty string to overwrite.
+    portainer_url: Optional[str] = None
+    portainer_api_key: Optional[str] = None
+    portainer_endpoint_id: Optional[int] = None
+    portainer_verify_tls: Optional[bool] = None
+    # OIDC provider settings (DB-backed, UI-managed). Client secret uses
+    # the same keep-current-if-blank contract as portainer_api_key.
+    oidc_enabled: Optional[bool] = None
+    oidc_issuer_url: Optional[str] = None
+    oidc_client_id: Optional[str] = None
+    oidc_client_secret: Optional[str] = None
+    oidc_redirect_uri: Optional[str] = None
+    oidc_scopes: Optional[str] = None
+    oidc_admin_group: Optional[str] = None
 
 
 @app.get("/api/settings")
-async def api_get_settings():
+async def api_get_settings(request: Request):
+    from logic import portainer as _portainer
     with db_conn() as c:
         a = auth.get_auth_settings(c)
+    p = _portainer.get_portainer_settings()
     return {
         "apprise_url": get_setting("apprise_url", ""),
         "apprise_tag": get_setting("apprise_tag", ""),
-        "portainer_public_url": get_setting("portainer_public_url", PORTAINER_URL),
-        "endpoint_id": PORTAINER_ENDPOINT_ID,
-        # Authentik: state is editable from UI. NPM_AUTH_SECRET is never
-        # returned in the clear — we only report whether it's set so the
-        # UI can render "configured" vs "not set" without ever exposing
-        # the value to a browser.
-        "authentik": {
-            "enabled": bool(a.get("authentik_enabled")),
-            "admin_group": a.get("authentik_admin_group") or "",
-            "npm_auth_secret_set": bool(a.get("npm_auth_secret")),
+        "portainer_public_url": get_setting("portainer_public_url", str(p.get("portainer_url") or "")),
+        # Back-compat: older UI bits read this top-level field.
+        "endpoint_id": p.get("portainer_endpoint_id", 1),
+        # Portainer: URL / endpoint / TLS are returned in the clear so
+        # the Settings form can prefill them. API key is write-only —
+        # only the _set flag is reported.
+        "portainer": {
+            "url": p.get("portainer_url") or "",
+            "endpoint_id": p.get("portainer_endpoint_id", 1),
+            "verify_tls": bool(p.get("portainer_verify_tls", True)),
+            "api_key_set": bool(p.get("portainer_api_key")),
+            "configured": _portainer.is_configured(),
+        },
+        # OIDC: issuer / client_id / scopes / admin group / enabled are
+        # returned in the clear; client secret is write-only. Redirect
+        # URI falls back to the computed default so the Settings panel
+        # can show a Copy button populated with what the IdP needs.
+        "oidc": {
+            "enabled": bool(a.get("oidc_enabled")),
+            "issuer_url": a.get("oidc_issuer_url") or "",
+            "client_id": a.get("oidc_client_id") or "",
+            "client_secret_set": bool(a.get("oidc_client_secret")),
+            "redirect_uri": a.get("oidc_redirect_uri") or "",
+            "redirect_uri_default": oidc.public_redirect_uri(request),
+            "scopes": a.get("oidc_scopes") or "openid email profile groups",
+            "admin_group": a.get("oidc_admin_group") or "",
         },
     }
 
@@ -633,29 +662,148 @@ async def api_set_settings(
     s: SettingsIn,
     _admin: auth.User = Depends(auth.require_admin),
 ):
+    from logic import portainer as _portainer
     if s.apprise_url is not None: set_setting("apprise_url", s.apprise_url)
     if s.apprise_tag is not None: set_setting("apprise_tag", s.apprise_tag)
     if s.portainer_public_url is not None: set_setting("portainer_public_url", s.portainer_public_url)
+
     auth_changed = False
+    portainer_changed = False
     with db_conn() as c:
-        if s.authentik_enabled is not None:
-            auth.set_auth_setting(c, "authentik_enabled",
-                                  "true" if s.authentik_enabled else "false")
+        # --- Portainer connection -----------------------------------------
+        if s.portainer_url is not None:
+            set_setting("portainer_url", (s.portainer_url or "").rstrip("/"))
+            portainer_changed = True
+        if s.portainer_endpoint_id is not None:
+            set_setting("portainer_endpoint_id", str(int(s.portainer_endpoint_id)))
+            portainer_changed = True
+        if s.portainer_verify_tls is not None:
+            set_setting("portainer_verify_tls", "true" if s.portainer_verify_tls else "false")
+            portainer_changed = True
+        # Empty / whitespace-only = "keep current" (same pattern as
+        # oidc_client_secret). Admins clear the value by a different
+        # route if ever needed.
+        if s.portainer_api_key is not None and s.portainer_api_key.strip() != "":
+            set_setting("portainer_api_key", s.portainer_api_key)
+            portainer_changed = True
+
+        # --- OIDC ---------------------------------------------------------
+        if s.oidc_enabled is not None:
+            auth.set_auth_setting(c, "oidc_enabled",
+                                  "true" if s.oidc_enabled else "false")
             auth_changed = True
-        if s.authentik_admin_group is not None:
-            auth.set_auth_setting(c, "authentik_admin_group",
-                                  s.authentik_admin_group.strip())
+        if s.oidc_issuer_url is not None:
+            auth.set_auth_setting(c, "oidc_issuer_url", s.oidc_issuer_url.strip())
             auth_changed = True
-        # Empty/None = "keep current" so the UI can send the form without
-        # knowing the existing value. A whitespace-only string also treated
-        # as no-op; to truly clear the secret, admins delete via a future
-        # "clear" button (not implemented — zero current use case).
-        if s.npm_auth_secret is not None and s.npm_auth_secret.strip() != "":
-            auth.set_auth_setting(c, "npm_auth_secret", s.npm_auth_secret)
+        if s.oidc_client_id is not None:
+            auth.set_auth_setting(c, "oidc_client_id", s.oidc_client_id.strip())
             auth_changed = True
+        if s.oidc_redirect_uri is not None:
+            auth.set_auth_setting(c, "oidc_redirect_uri", s.oidc_redirect_uri.strip())
+            auth_changed = True
+        if s.oidc_scopes is not None:
+            auth.set_auth_setting(c, "oidc_scopes", s.oidc_scopes.strip())
+            auth_changed = True
+        if s.oidc_admin_group is not None:
+            auth.set_auth_setting(c, "oidc_admin_group", s.oidc_admin_group.strip())
+            auth_changed = True
+        # Client secret: keep-current-if-blank.
+        if s.oidc_client_secret is not None and s.oidc_client_secret.strip() != "":
+            auth.set_auth_setting(c, "oidc_client_secret", s.oidc_client_secret)
+            auth_changed = True
+
     if auth_changed:
         auth.invalidate_auth_settings_cache()
+        # Discovery / JWKS cache also drops so the next flow picks up the
+        # new issuer URL without waiting out the TTL.
+        oidc.invalidate_cache()
+    if portainer_changed:
+        _portainer.invalidate_portainer_cache()
+        # Force a fresh gather on the next /api/items so the dashboard
+        # reflects the new Portainer target without a manual refresh.
+        _cache["ts"] = 0
     return {"status": "ok"}
+
+
+# ----------------------------------------------------------------------------
+# OIDC auth routes — see logic/oidc.py for the flow spec.
+# ----------------------------------------------------------------------------
+@app.get("/api/oidc/login")
+async def api_oidc_login(request: Request):
+    return await oidc.login(request)
+
+
+@app.get("/api/oidc/callback")
+async def api_oidc_callback(request: Request):
+    return await oidc.callback(request)
+
+
+@app.post("/api/oidc/test")
+async def api_oidc_test(
+    request: Request,
+    _admin: auth.User = Depends(auth.require_admin),
+):
+    """Admin-only: probe the issuer's discovery endpoint. Used by the
+    "Test connection" button in the Settings panel. No state changes.
+    """
+    body = await request.json()
+    issuer = (body.get("issuer_url") or "").strip()
+    return await oidc.test_discovery(issuer)
+
+
+@app.post("/api/portainer/test")
+async def api_portainer_test(
+    request: Request,
+    _admin: auth.User = Depends(auth.require_admin),
+):
+    """Admin-only: probe ``{url}/api/status`` with the given API key.
+    Supports both already-saved creds (empty api_key means "use current")
+    and unsaved form values (api_key populated). No state changes.
+    """
+    from logic import portainer as _portainer
+    body = await request.json()
+    url = (body.get("url") or "").strip().rstrip("/")
+    endpoint_id = int(body.get("endpoint_id") or 1)
+    verify_tls = bool(body.get("verify_tls", True))
+    api_key = body.get("api_key") or ""
+    if not api_key:
+        # Fall back to the stored value so Test can work without
+        # retyping the key every time.
+        api_key = str(_portainer.get_portainer_settings().get("portainer_api_key") or "")
+    if not url or not api_key:
+        return {"ok": False, "status": 0, "detail": "URL and API key are both required"}
+    try:
+        import httpx as _httpx
+        async with _httpx.AsyncClient(verify=verify_tls, timeout=10.0) as client:
+            r = await client.get(
+                f"{url}/api/status",
+                headers={"X-API-Key": api_key},
+            )
+        if r.status_code == 200:
+            detail = "OK"
+            try:
+                data = r.json()
+                version = data.get("Version") or data.get("version")
+                if version:
+                    detail = f"OK — Portainer {version}"
+            except Exception:
+                pass
+            return {"ok": True, "status": 200, "detail": detail, "endpoint_id": endpoint_id}
+        return {"ok": False, "status": r.status_code, "detail": f"HTTP {r.status_code}: {r.text[:200]}"}
+    except Exception as e:
+        return {"ok": False, "status": 0, "detail": f"{type(e).__name__}: {e}"}
+
+
+@app.get("/api/auth/providers")
+async def api_auth_providers():
+    """Public endpoint: advertises which login paths are live. The login
+    page queries this before rendering the SSO button so unconfigured
+    deployments don't show a dead button that 503s.
+    """
+    return {
+        "local": True,
+        "oidc": oidc.is_configured(),
+    }
 
 
 @app.post("/api/notify-test")

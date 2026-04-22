@@ -491,7 +491,11 @@
           </template>
         </table>
       </div>
-      <div x-show="filteredStacks.length===0 && !loading" class="text-center py-16 text-[var(--text-faint)] text-sm">
+      <div x-show="loading && items.length === 0" class="loading-state">
+        <span class="spin-lg" aria-hidden="true"></span>
+        <div>Loading resources from Portainer…</div>
+      </div>
+      <div x-show="filteredStacks.length===0 && !loading && items.length > 0" class="text-center py-16 text-[var(--text-faint)] text-sm">
         No resources match your filters.
         <button @click="search='';statusFilter='';healthFilter=''" class="ml-2 text-[var(--primary)] hover:underline">Clear</button>
       </div>
@@ -624,7 +628,11 @@
           </tbody>
         </table>
       </div>
-      <div x-show="filteredItems.length===0 && !loading" class="text-center py-16 text-[var(--text-faint)] text-sm">
+      <div x-show="loading && items.length === 0" class="loading-state">
+        <span class="spin-lg" aria-hidden="true"></span>
+        <div>Loading resources from Portainer…</div>
+      </div>
+      <div x-show="filteredItems.length===0 && !loading && items.length > 0" class="text-center py-16 text-[var(--text-faint)] text-sm">
         No resources match.
       </div>
     </div>
@@ -737,8 +745,7 @@
         </div>
 
       <!-- ===== PROFILE section ===== -->
-      <!-- Two-column card: avatar + identity on the left, account info on the
-           right. Below: About + Security cards. Matches img_3.png without 2FA. -->
+      <!-- Two-column card: avatar + identity on the left, account info on the right -->
       <div x-show="settingsSection === 'profile'" class="grid grid-cols-1 lg:grid-cols-[260px_1fr] gap-5">
         <!-- Avatar / identity card -->
         <section class="bg-[var(--surface)] border border-[var(--border)] rounded-md p-5 flex flex-col items-center text-center">
@@ -849,8 +856,48 @@
                   <input x-model="passwordForm.confirm" type="password" required minlength="8" autocomplete="new-password" class="w-full text-[12.5px]">
                 </div>
               </div>
+              <!-- Password strength + requirements. Shown the moment the user
+                   starts typing a new password, so they see the bar move as
+                   they add characters. Criteria are purely advisory — the
+                   backend still enforces the 8-char minimum authoritatively. -->
+              <div x-show="passwordForm.next" class="pw-strength">
+                <div class="pw-meter">
+                  <div class="pw-bar" :class="'pw-bar-' + passwordStrength.color">
+                    <div :style="'width:' + (passwordStrength.score * 25) + '%'"></div>
+                  </div>
+                  <div class="pw-label" :class="'pw-label-' + passwordStrength.color"
+                       x-text="passwordStrength.label"></div>
+                </div>
+                <ul class="pw-requirements">
+                  <li :class="passwordStrength.criteria.length8 ? 'met' : ''">
+                    <span aria-hidden="true" x-text="passwordStrength.criteria.length8 ? '✓' : '○'"></span>
+                    At least 8 characters
+                  </li>
+                  <li :class="passwordStrength.criteria.length12 ? 'met' : ''">
+                    <span aria-hidden="true" x-text="passwordStrength.criteria.length12 ? '✓' : '○'"></span>
+                    12+ characters recommended
+                  </li>
+                  <li :class="(passwordStrength.criteria.lower && passwordStrength.criteria.upper) ? 'met' : ''">
+                    <span aria-hidden="true" x-text="(passwordStrength.criteria.lower && passwordStrength.criteria.upper) ? '✓' : '○'"></span>
+                    Upper &amp; lowercase letters
+                  </li>
+                  <li :class="passwordStrength.criteria.digit ? 'met' : ''">
+                    <span aria-hidden="true" x-text="passwordStrength.criteria.digit ? '✓' : '○'"></span>
+                    At least one number
+                  </li>
+                  <li :class="passwordStrength.criteria.symbol ? 'met' : ''">
+                    <span aria-hidden="true" x-text="passwordStrength.criteria.symbol ? '✓' : '○'"></span>
+                    At least one symbol
+                  </li>
+                  <li x-show="passwordForm.confirm"
+                      :class="(passwordForm.next === passwordForm.confirm) ? 'met' : 'mismatch'">
+                    <span aria-hidden="true" x-text="(passwordForm.next === passwordForm.confirm) ? '✓' : '✗'"></span>
+                    New and confirm match
+                  </li>
+                </ul>
+              </div>
               <div>
-                <button type="submit" :disabled="passwordBusy" class="btn btn-primary text-[12px]"
+                <button type="submit" :disabled="passwordBusy || !passwordStrength.criteria.length8" class="btn btn-primary text-[12px]"
                         x-text="passwordBusy ? 'Saving…' : 'Change password'"></button>
               </div>
             </form>
@@ -885,12 +932,88 @@
         </div>
       </section>
 
-      <section x-show="settingsSection === 'portainer'" class="bg-[var(--surface)] border border-[var(--border)] rounded-md p-5">
-        <h3 class="font-semibold text-[13px] mb-2">Portainer public URL</h3>
-        <p class="text-[11.5px] text-[var(--text-faint)] mb-3">Browser-facing URL for "Open in Portainer" deep links.</p>
-        <input x-model="settings.portainer_public_url" type="url" :disabled="isReadonly()" placeholder="https://portainer.home.lan" class="w-full">
-        <button x-show="isAdmin()" @click="saveSettings()" class="btn btn-primary text-[12px] mt-3">Save</button>
-      </section>
+      <!-- Portainer section: connection (DB-backed, UI-managed) plus the
+           browser-facing public URL used for deep links. Empty config is
+           fine — the dashboard renders an empty state until the form is
+           filled in. API key is write-only; server reports only whether
+           it's set. -->
+      <div x-show="settingsSection === 'portainer'" class="space-y-4">
+        <section class="bg-[var(--surface)] border border-[var(--border)] rounded-md p-5">
+          <div class="flex items-start justify-between">
+            <div>
+              <h3 class="font-semibold text-[13px] mb-2">Portainer connection</h3>
+              <p class="text-[11.5px] text-[var(--text-faint)] mb-3">
+                URL + API key + endpoint ID that PortaUpdate talks to. Stored in the database; changes take effect on the next refresh.
+              </p>
+            </div>
+            <span x-show="portainerStatus" class="chip"
+                  :class="portainerStatus && portainerStatus.configured ? 'pill-success' : 'pill-muted'"
+                  x-text="portainerStatus ? (portainerStatus.configured ? 'Configured' : 'Not configured') : ''"></span>
+          </div>
+
+          <div x-show="portainerStatus" class="space-y-3">
+            <div>
+              <label class="block text-[11px] text-[var(--text-dim)] mb-1">Portainer URL</label>
+              <input x-model="portainerForm.url" type="url" :disabled="isReadonly()"
+                     placeholder="https://portainer.home.lan:8443" class="w-full mono text-[12.5px]">
+            </div>
+
+            <div>
+              <label class="block text-[11px] text-[var(--text-dim)] mb-1">
+                API key
+                <span class="text-[var(--text-faint)]"
+                      x-text="portainerStatus && portainerStatus.api_key_set ? '(currently set — leave blank to keep)' : '(not set)'"></span>
+              </label>
+              <input x-model="portainerForm.api_key" type="password" :disabled="isReadonly()"
+                     placeholder="Paste new key or leave blank"
+                     autocomplete="new-password"
+                     class="w-full mono text-[12px]">
+              <p class="text-[11px] text-[var(--text-faint)] mt-1">
+                Create in Portainer → My account → Access tokens. We store only the value itself; nothing is echoed back to the browser.
+              </p>
+            </div>
+
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div>
+                <label class="block text-[11px] text-[var(--text-dim)] mb-1">Endpoint ID</label>
+                <input x-model.number="portainerForm.endpoint_id" type="number" min="1" :disabled="isReadonly()"
+                       class="w-full mono text-[12.5px]">
+              </div>
+              <label class="flex items-center gap-2 text-[12.5px] cursor-pointer mt-5">
+                <input type="checkbox" :checked="portainerForm.verify_tls"
+                       @change="portainerForm.verify_tls = $event.target.checked"
+                       :disabled="isReadonly()">
+                <span>Verify TLS (uncheck for self-signed certs)</span>
+              </label>
+            </div>
+
+            <div x-show="isAdmin()" class="flex gap-2 pt-1 flex-wrap">
+              <button @click="savePortainerSettings()" class="btn btn-primary text-[12px]">Save Portainer settings</button>
+              <button @click="testPortainerConnection()" class="btn btn-soft text-[12px]">Test connection</button>
+            </div>
+
+            <div x-show="portainerTestResult" class="text-[12px] rounded-md px-3 py-2"
+                 :class="portainerTestResult && portainerTestResult.ok ? 'bg-[var(--pill-ok-bg)] text-[var(--pill-ok-fg)] border border-[var(--pill-ok-br)]' : 'bg-[var(--pill-error-bg)] text-[var(--pill-error-fg)] border border-[var(--pill-error-br)]'">
+              <template x-if="portainerTestResult && portainerTestResult.pending">
+                <span>Testing…</span>
+              </template>
+              <template x-if="portainerTestResult && !portainerTestResult.pending">
+                <span>
+                  <span x-text="portainerTestResult.ok ? '✓' : '✗'"></span>
+                  <span class="ml-1" x-text="portainerTestResult.detail"></span>
+                </span>
+              </template>
+            </div>
+          </div>
+        </section>
+
+        <section class="bg-[var(--surface)] border border-[var(--border)] rounded-md p-5">
+          <h3 class="font-semibold text-[13px] mb-2">Portainer public URL</h3>
+          <p class="text-[11.5px] text-[var(--text-faint)] mb-3">Browser-facing URL for "Open in Portainer" deep links. May differ from the API URL when Portainer sits behind a reverse proxy.</p>
+          <input x-model="settings.portainer_public_url" type="url" :disabled="isReadonly()" placeholder="https://portainer.home.lan" class="w-full">
+          <button x-show="isAdmin()" @click="saveSettings()" class="btn btn-primary text-[12px] mt-3">Save</button>
+        </section>
+      </div>
 
       <section x-show="settingsSection === 'ignores'" class="bg-[var(--surface)] border border-[var(--border)] rounded-md p-5">
         <h3 class="font-semibold text-[13px] mb-2">Ignore list</h3>
@@ -919,67 +1042,116 @@
         </div>
       </section>
 
-      <!-- Authentik Forward Auth — editable for admins. NPM_AUTH_SECRET is
-           write-only from the browser: we never return the current value,
-           only whether it's set. Leaving the secret field empty means
-           "keep the existing one". -->
-      <section x-show="settingsSection === 'authentik'" class="bg-[var(--surface)] border border-[var(--border)] rounded-md p-5">
+      <!-- Authentik OIDC — Authorization-code + PKCE SSO. Every value is
+           DB-backed; no env vars. Client secret is write-only — server
+           reports only whether it's set. Leaving the secret field blank
+           on Save means "keep current". See notes/note_authentik.txt for
+           the Authentik-side setup walkthrough. -->
+      <section x-show="settingsSection === 'oidc'" class="bg-[var(--surface)] border border-[var(--border)] rounded-md p-5">
         <div class="flex items-start justify-between">
           <div>
-            <h3 class="font-semibold text-[13px] mb-2">Authentik Forward Auth</h3>
+            <h3 class="font-semibold text-[13px] mb-2">Authentik OIDC (SSO)</h3>
             <p class="text-[11.5px] text-[var(--text-faint)] mb-3">
-              Values are stored in the database and picked up on the next request.
-              Pair with NPM's <code class="mono text-[var(--text-dim)]">auth_request</code> block — see <code class="mono">notes/notes_auth.txt</code>.
+              OpenID Connect provider. Works with any compliant IdP; the label says Authentik because that's our reference setup. See <code class="mono">notes/note_authentik.txt</code> for the provider-side walkthrough.
             </p>
           </div>
-          <span x-show="authStatus"
+          <span x-show="oidcStatus"
                 class="chip"
-                :class="authStatus && authStatus.enabled ? 'pill-success' : 'pill-muted'"
-                x-text="authStatus ? (authStatus.enabled ? 'Enabled' : 'Disabled') : ''"></span>
+                :class="oidcStatus && oidcStatus.enabled ? 'pill-success' : 'pill-muted'"
+                x-text="oidcStatus ? (oidcStatus.enabled ? 'Enabled' : 'Disabled') : ''"></span>
         </div>
 
-        <div x-show="authStatus" class="space-y-3">
+        <div x-show="oidcStatus" class="space-y-3">
           <label class="flex items-center gap-2 text-[12.5px] cursor-pointer">
-            <input type="checkbox" :checked="authForm.enabled"
-                   @change="authForm.enabled = $event.target.checked"
+            <input type="checkbox" :checked="oidcForm.enabled"
+                   @change="oidcForm.enabled = $event.target.checked"
                    :disabled="isReadonly()">
-            <span>Trust <code class="mono text-[var(--text-dim)]">X-Authentik-*</code> headers from NPM</span>
+            <span>Enable OIDC login (shows the "Sign in with Authentik" button on /login)</span>
           </label>
 
           <div>
-            <label class="block text-[11px] text-[var(--text-dim)] mb-1">Admin group</label>
-            <input x-model="authForm.admin_group" type="text"
-                   :disabled="isReadonly()"
-                   placeholder="portaupdate-admins"
-                   class="w-full mono text-[12.5px]">
+            <label class="block text-[11px] text-[var(--text-dim)] mb-1">Issuer URL</label>
+            <input x-model="oidcForm.issuer_url" type="url" :disabled="isReadonly()"
+                   placeholder="https://authentik.www.home.lan/application/o/portaupdate/"
+                   class="w-full mono text-[12px]">
             <p class="text-[11px] text-[var(--text-faint)] mt-1">
-              Authentik group whose members map to the <code class="mono">admin</code> role on login. Group membership is re-checked on every request.
+              Paste the "OpenID Configuration Issuer" URL from your Authentik provider's <b>Metadata</b> tab. We append <code class="mono">/.well-known/openid-configuration</code> to it automatically.
             </p>
+          </div>
+
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <label class="block text-[11px] text-[var(--text-dim)] mb-1">Client ID</label>
+              <input x-model="oidcForm.client_id" type="text" :disabled="isReadonly()"
+                     placeholder="Authentik-generated client ID"
+                     class="w-full mono text-[12px]">
+            </div>
+            <div>
+              <label class="block text-[11px] text-[var(--text-dim)] mb-1">
+                Client secret
+                <span class="text-[var(--text-faint)]"
+                      x-text="oidcStatus && oidcStatus.client_secret_set ? '(currently set — leave blank to keep)' : '(not set)'"></span>
+              </label>
+              <input x-model="oidcForm.client_secret" type="password" :disabled="isReadonly()"
+                     placeholder="Paste new secret or leave blank"
+                     autocomplete="new-password"
+                     class="w-full mono text-[12px]">
+            </div>
           </div>
 
           <div>
             <label class="block text-[11px] text-[var(--text-dim)] mb-1">
-              NPM shared secret
-              <span class="text-[var(--text-faint)]"
-                    x-text="authStatus.npm_auth_secret_set ? '(currently set — leave blank to keep)' : '(not set)'"></span>
+              Redirect URI <span class="text-[var(--text-faint)]">(paste this into Authentik's Redirect URIs allowlist)</span>
             </label>
             <div class="flex items-stretch gap-2">
-              <input x-model="authForm.npm_secret" type="password"
-                     :disabled="isReadonly()"
-                     placeholder="Paste new secret or leave blank"
-                     autocomplete="new-password"
-                     class="mono text-[12px] flex-1">
-              <button x-show="isAdmin()" @click="genNpmSecret()"
-                      type="button" class="btn btn-soft text-[12px] whitespace-nowrap"
-                      title="Fill with a freshly-generated 48-byte URL-safe token">Generate</button>
+              <input :value="oidcStatus && oidcStatus.redirect_uri_default || ''" readonly
+                     class="w-full mono text-[12px] flex-1 bg-[var(--surface-2)]">
+              <button @click="copyRedirectUri()" type="button"
+                      class="btn btn-soft text-[12px] whitespace-nowrap"
+                      title="Copy to clipboard">Copy</button>
             </div>
             <p class="text-[11px] text-[var(--text-faint)] mt-1">
-              NPM must forward this exact value in the <code class="mono">X-Forward-Auth-Verify</code> header on every proxied request. Without a match, PortaUpdate ignores the Authentik headers entirely.
+              Computed from the current request's origin. Authentik must have this exact value in its "Redirect URIs" allowlist, one per line.
             </p>
           </div>
 
-          <div x-show="isAdmin()" class="pt-1">
-            <button @click="saveAuthSettings()" class="btn btn-primary text-[12px]">Save Authentik settings</button>
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <label class="block text-[11px] text-[var(--text-dim)] mb-1">Scopes</label>
+              <input x-model="oidcForm.scopes" type="text" :disabled="isReadonly()"
+                     placeholder="openid email profile groups"
+                     class="w-full mono text-[12px]">
+              <p class="text-[11px] text-[var(--text-faint)] mt-1">
+                Space-separated. <code class="mono">groups</code> is required for role mapping.
+              </p>
+            </div>
+            <div>
+              <label class="block text-[11px] text-[var(--text-dim)] mb-1">Admin group</label>
+              <input x-model="oidcForm.admin_group" type="text" :disabled="isReadonly()"
+                     placeholder="portaupdate-admins"
+                     class="w-full mono text-[12.5px]">
+              <p class="text-[11px] text-[var(--text-faint)] mt-1">
+                Group membership is re-checked on every OIDC login. Users outside this group land as <code class="mono">readonly</code>.
+              </p>
+            </div>
+          </div>
+
+          <div x-show="isAdmin()" class="flex gap-2 pt-1 flex-wrap">
+            <button @click="saveOidcSettings()" class="btn btn-primary text-[12px]">Save OIDC settings</button>
+            <button @click="testOidcConnection()" class="btn btn-soft text-[12px]">Test connection</button>
+          </div>
+
+          <div x-show="oidcTestResult" class="text-[12px] rounded-md px-3 py-2"
+               :class="oidcTestResult && oidcTestResult.ok ? 'bg-[var(--pill-ok-bg)] text-[var(--pill-ok-fg)] border border-[var(--pill-ok-br)]' : 'bg-[var(--pill-error-bg)] text-[var(--pill-error-fg)] border border-[var(--pill-error-br)]'">
+            <template x-if="oidcTestResult && oidcTestResult.pending">
+              <span>Testing…</span>
+            </template>
+            <template x-if="oidcTestResult && !oidcTestResult.pending">
+              <span>
+                <span x-text="oidcTestResult.ok ? '✓' : '✗'"></span>
+                <span class="ml-1" x-text="oidcTestResult.detail"></span>
+              </span>
+            </template>
           </div>
         </div>
       </section>
@@ -1205,7 +1377,7 @@
         <section class="bg-[var(--surface)] border border-[var(--border)] rounded-md p-5">
           <h3 class="font-semibold text-[13px] mb-2">Backup the whole configuration</h3>
           <p class="text-[11.5px] text-[var(--text-faint)] mb-3">
-            A zip containing the full SQLite database (users, API tokens, ignores, settings including Authentik config, history, stats) and every uploaded avatar. Consistent snapshot via SQLite's online <code class="mono text-[var(--text-dim)]">.backup()</code> API — safe to run with active traffic.
+            A zip containing the full SQLite database (users, API tokens, ignores, settings including Portainer + OIDC config, history, stats) and every uploaded avatar. Consistent snapshot via SQLite's online <code class="mono text-[var(--text-dim)]">.backup()</code> API — safe to run with active traffic.
           </p>
           <div class="flex items-center gap-2 flex-wrap">
             <button @click="createBackup()" :disabled="backupBusy"
@@ -1550,12 +1722,25 @@ function app() {
     // Password change form (lives in the Profile settings section now, not a modal)
     passwordForm: { current: '', next: '', confirm: '' },
     passwordBusy: false,
-    // Authentik settings — `authStatus` is the snapshot from /api/settings
-    // (what the server has today), `authForm` is the editable form state
-    // the admin mutates before clicking Save. NPM secret is write-only;
-    // we never populate it from the server.
-    authStatus: null,
-    authForm: { enabled: false, admin_group: '', npm_secret: '' },
+    // OIDC settings — `oidcStatus` is the server snapshot; `oidcForm` is
+    // the editable form state before Save. Client secret is write-only —
+    // we never populate it back from the server, and blank-on-save means
+    // "keep existing". Same pattern as the Portainer API-key field below.
+    oidcStatus: null,
+    oidcForm: {
+      enabled: false, issuer_url: '', client_id: '', client_secret: '',
+      redirect_uri: '', scopes: 'openid email profile groups',
+      admin_group: 'portaupdate-admins',
+    },
+    oidcTestResult: null,
+
+    // Portainer connection — same DB-backed / UI-managed pattern as OIDC.
+    // API key is write-only; blank on save means "keep current".
+    portainerStatus: null,
+    portainerForm: {
+      url: '', endpoint_id: 1, verify_tls: true, api_key: '',
+    },
+    portainerTestResult: null,
     // Settings / Admin sidebar layout. Arrays drive the nav — adding a
     // section is one entry here + one <section> in the markup.
     settingsSections: [
@@ -1563,10 +1748,16 @@ function app() {
       { id: 'notifications', label: 'Notifications' },
       { id: 'portainer',     label: 'Portainer' },
       { id: 'ignores',       label: 'Ignore list' },
-      { id: 'authentik',     label: 'Authentik' },
+      { id: 'oidc',          label: 'Authentik OIDC' },
       { id: 'shortcuts',     label: 'Keyboard shortcuts' },
     ],
-    settingsSection: localStorage.getItem('settingsSection') || 'profile',
+    settingsSection: (function () {
+      // Gracefully migrate users whose localStorage still points at the
+      // removed "authentik" (Forward Auth) section — land them on the
+      // new OIDC panel instead of staring at an empty page.
+      const v = localStorage.getItem('settingsSection') || 'profile';
+      return v === 'authentik' ? 'oidc' : v;
+    })(),
     // Profile form state — mirrors the `me` snapshot but held separately
     // so the user can edit without losing unsaved changes across refetches.
     profileForm: { display_name: '', bio: '', email: '' },
@@ -1647,6 +1838,41 @@ function app() {
         await fetch('/api/local-auth/logout', { method: 'POST' });
       } catch (_) { /* ignore — clearing the cookie is the important bit */ }
       location.href = '/login';
+    },
+
+    // --- Profile: password strength meter -------------------------------
+    // Pure UX affordance; the backend still enforces the 8-char minimum.
+    // Scoring weights length more than character-class diversity — a
+    // 12-char lowercase passphrase is stronger than `Aa1!` and the
+    // meter should reflect that. Under 8 chars is always clamped to Weak
+    // regardless of other criteria because the backend will reject it.
+    get passwordStrength() {
+      const pw = (this.passwordForm && this.passwordForm.next) || '';
+      const criteria = {
+        length8:  pw.length >= 8,
+        length12: pw.length >= 12,
+        lower:    /[a-z]/.test(pw),
+        upper:    /[A-Z]/.test(pw),
+        digit:    /\d/.test(pw),
+        symbol:   /[^A-Za-z0-9]/.test(pw),
+      };
+      if (!pw) return { score: 0, label: '', color: 'faint', criteria };
+      let score = 0;
+      if (criteria.length8)  score += 1;
+      if (criteria.length12) score += 1;
+      if (criteria.lower && criteria.upper) score += 1;
+      if (criteria.digit)  score += 1;
+      if (criteria.symbol) score += 1;
+      if (score > 4) score = 4;
+      if (!criteria.length8) score = Math.min(score, 1);
+      const labels = ['Too short', 'Weak', 'Fair', 'Good', 'Strong'];
+      const colors = ['danger',    'danger', 'warning', 'primary', 'success'];
+      return {
+        score,
+        label: labels[score],
+        color: colors[score],
+        criteria,
+      };
     },
 
     // --- Profile: password change ---------------------------------------
@@ -2203,28 +2429,47 @@ function app() {
           portainer_public_url: d.portainer_public_url || '',
         };
         this.endpointId = d.endpoint_id || 1;
-        this.authStatus = d.authentik || null;
-        // Sync the editable form from the server snapshot. Always reset
-        // the secret field — we never prefill it (it's write-only).
-        if (this.authStatus) {
-          this.authForm = {
-            enabled: !!this.authStatus.enabled,
-            admin_group: this.authStatus.admin_group || '',
-            npm_secret: '',
+
+        // --- OIDC panel state ---
+        this.oidcStatus = d.oidc || null;
+        if (this.oidcStatus) {
+          this.oidcForm = {
+            enabled:       !!this.oidcStatus.enabled,
+            issuer_url:    this.oidcStatus.issuer_url || '',
+            client_id:     this.oidcStatus.client_id || '',
+            client_secret: '',  // write-only — never prefill
+            redirect_uri:  this.oidcStatus.redirect_uri || this.oidcStatus.redirect_uri_default || '',
+            scopes:        this.oidcStatus.scopes || 'openid email profile groups',
+            admin_group:   this.oidcStatus.admin_group || 'portaupdate-admins',
+          };
+        }
+
+        // --- Portainer connection panel state ---
+        this.portainerStatus = d.portainer || null;
+        if (this.portainerStatus) {
+          this.portainerForm = {
+            url:          this.portainerStatus.url || '',
+            endpoint_id:  this.portainerStatus.endpoint_id || 1,
+            verify_tls:   !!this.portainerStatus.verify_tls,
+            api_key:      '',  // write-only — never prefill
           };
         }
       } catch (e) { console.error(e); }
     },
 
-    async saveAuthSettings() {
+    async saveOidcSettings() {
       const body = {
-        authentik_enabled: !!this.authForm.enabled,
-        authentik_admin_group: (this.authForm.admin_group || '').trim(),
+        oidc_enabled:      !!this.oidcForm.enabled,
+        oidc_issuer_url:   (this.oidcForm.issuer_url || '').trim(),
+        oidc_client_id:    (this.oidcForm.client_id || '').trim(),
+        oidc_redirect_uri: (this.oidcForm.redirect_uri || '').trim(),
+        oidc_scopes:       (this.oidcForm.scopes || '').trim(),
+        oidc_admin_group:  (this.oidcForm.admin_group || '').trim(),
       };
-      // Only include the secret when the admin actually typed one; empty
-      // means "keep current" per the backend contract.
-      if (this.authForm.npm_secret && this.authForm.npm_secret.trim()) {
-        body.npm_auth_secret = this.authForm.npm_secret;
+      // Client secret: only send when the admin actually typed one.
+      // Empty / whitespace-only = "keep current" per the backend contract.
+      if (this.oidcForm.client_secret && this.oidcForm.client_secret.trim()) {
+        body.oidc_client_secret = this.oidcForm.client_secret;
       }
       try {
         const r = await fetch('/api/settings', {
@@ -2233,11 +2478,9 @@ function app() {
           body: JSON.stringify(body),
         });
         if (r.ok) {
-          this.showToast('✓ Authentik settings saved');
-          // Refresh so the "currently set" chip flips if we just set the
-          // secret for the first time, and so authForm gets a cleared
-          // secret field again.
+          this.showToast('✓ OIDC settings saved');
           await this.loadSettings();
+          this.oidcTestResult = null;
         } else {
           const j = await r.json().catch(() => ({}));
           this.showToast(j.detail || 'Save failed', 'error');
@@ -2245,16 +2488,78 @@ function app() {
       } catch (_) { this.showToast('Network error', 'error'); }
     },
 
-    genNpmSecret() {
-      // Generate a 48-byte URL-safe token in the browser. Same shape as
-      // Python's `secrets.token_urlsafe(48)`. Operator still has to click
-      // Save, and has to mirror the same value in NPM's proxy config.
-      const bytes = new Uint8Array(48);
-      crypto.getRandomValues(bytes);
-      // base64url without padding
-      let b64 = btoa(String.fromCharCode(...bytes))
-        .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
-      this.authForm.npm_secret = b64;
+    async testOidcConnection() {
+      this.oidcTestResult = { pending: true };
+      try {
+        const r = await fetch('/api/oidc/test', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ issuer_url: (this.oidcForm.issuer_url || '').trim() }),
+        });
+        const j = await r.json().catch(() => ({}));
+        this.oidcTestResult = { ok: !!j.ok, status: j.status || 0, detail: j.detail || '' };
+      } catch (e) {
+        this.oidcTestResult = { ok: false, status: 0, detail: 'Network error' };
+      }
+    },
+
+    async copyRedirectUri() {
+      const uri = (this.oidcStatus && this.oidcStatus.redirect_uri_default)
+        || (this.oidcForm && this.oidcForm.redirect_uri) || '';
+      if (!uri) { this.showToast('No redirect URI to copy', 'error'); return; }
+      try {
+        await navigator.clipboard.writeText(uri);
+        this.showToast('✓ Redirect URI copied');
+      } catch (_) { this.showToast('Copy failed', 'error'); }
+    },
+
+    async savePortainerSettings() {
+      const body = {
+        portainer_url:         (this.portainerForm.url || '').trim(),
+        portainer_endpoint_id: parseInt(this.portainerForm.endpoint_id) || 1,
+        portainer_verify_tls:  !!this.portainerForm.verify_tls,
+      };
+      if (this.portainerForm.api_key && this.portainerForm.api_key.trim()) {
+        body.portainer_api_key = this.portainerForm.api_key;
+      }
+      try {
+        const r = await fetch('/api/settings', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        });
+        if (r.ok) {
+          this.showToast('✓ Portainer settings saved');
+          await this.loadSettings();
+          this.portainerTestResult = null;
+          // Trigger a forced refresh so the dashboard populates with data
+          // from the newly-configured endpoint.
+          this.refresh(true);
+        } else {
+          const j = await r.json().catch(() => ({}));
+          this.showToast(j.detail || 'Save failed', 'error');
+        }
+      } catch (_) { this.showToast('Network error', 'error'); }
+    },
+
+    async testPortainerConnection() {
+      this.portainerTestResult = { pending: true };
+      try {
+        const r = await fetch('/api/portainer/test', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            url:         (this.portainerForm.url || '').trim(),
+            endpoint_id: parseInt(this.portainerForm.endpoint_id) || 1,
+            verify_tls:  !!this.portainerForm.verify_tls,
+            api_key:     this.portainerForm.api_key || '',
+          }),
+        });
+        const j = await r.json().catch(() => ({}));
+        this.portainerTestResult = { ok: !!j.ok, status: j.status || 0, detail: j.detail || '' };
+      } catch (e) {
+        this.portainerTestResult = { ok: false, status: 0, detail: 'Network error' };
+      }
     },
     async saveSettings() {
       try {

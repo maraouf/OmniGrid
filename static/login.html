@@ -28,6 +28,14 @@
 
     <button type="submit" id="btn">Sign in</button>
 
+    <!-- OIDC SSO button. Hidden by default; unhidden once /api/auth/providers
+         confirms the provider is configured. href is built from the current
+         ?next= so the post-login redirect lands the user where they started. -->
+    <div class="sso-wrap" id="ssoWrap" hidden>
+      <div class="sso-divider"><span>or</span></div>
+      <a class="btn-sso" id="ssoBtn" href="#">Sign in with Authentik</a>
+    </div>
+
     <div class="err" id="err"></div>
 
     <div class="footer" id="ver"></div>
@@ -39,6 +47,8 @@
     const btn = document.getElementById('btn');
     const err = document.getElementById('err');
     const ver = document.getElementById('ver');
+    const ssoWrap = document.getElementById('ssoWrap');
+    const ssoBtn = document.getElementById('ssoBtn');
 
     // Show version so operators can sanity-check which build is live.
     fetch('/api/version').then(r => r.ok ? r.json() : null).then(v => {
@@ -61,6 +71,17 @@
       if (!p.startsWith('/') || p.startsWith('//')) return '/';
       return p;
     }
+
+    // Advertise SSO once we know it's configured. Hidden by default so a
+    // misconfigured deployment never shows a dead button; the endpoint is
+    // public (no auth required) so the call completes even for anonymous
+    // visitors.
+    fetch('/api/auth/providers').then(r => r.ok ? r.json() : null).then(p => {
+      if (p && p.oidc) {
+        ssoBtn.href = '/api/oidc/login?next=' + encodeURIComponent(nextPath());
+        ssoWrap.hidden = false;
+      }
+    }).catch(() => {});
 
     form.addEventListener('submit', async (e) => {
       e.preventDefault();

@@ -144,7 +144,7 @@
     --col-tasks: 80px;
     --col-uptime: 90px;
     --col-cpu: 90px;
-    --col-mem: 110px;
+    --col-mem: 140px;
     --col-disk: 90px;
     --col-node: 140px;
     --col-action: 150px;
@@ -429,6 +429,104 @@ select:focus {
     border-top-color: transparent;
     animation: spin .7s linear infinite;
     display: inline-block;
+}
+
+.spin-lg {
+    /* Larger variant used by the full-view loading overlay. Same geometry
+       rule as .spin, just scaled up with a thicker ring so it reads clearly
+       against a near-empty table background. */
+    width: 28px;
+    height: 28px;
+    border-radius: 999px;
+    border: 3px solid var(--border-bright);
+    border-top-color: var(--primary);
+    animation: spin .8s linear infinite;
+    display: inline-block;
+}
+
+.loading-state {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: var(--s-4);
+    padding: var(--s-6) var(--s-5);
+    min-height: 220px;
+    color: var(--text-faint);
+    font-size: 12.5px;
+}
+
+/* ---------------------------------------------------------------------------
+   Password strength meter + requirements checklist.
+   Colour classes (.pw-*-danger / -warning / -primary / -success / -faint)
+   map to the standard accent tokens so dark/light themes get the right
+   contrast automatically.
+   --------------------------------------------------------------------------- */
+.pw-strength {
+    margin-top: var(--s-2);
+    padding: var(--s-3) var(--s-4);
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: var(--r-md);
+}
+.pw-meter {
+    display: flex;
+    align-items: center;
+    gap: var(--s-4);
+}
+.pw-bar {
+    flex: 1;
+    height: 4px;
+    background: var(--surface-3);
+    border-radius: 999px;
+    overflow: hidden;
+}
+.pw-bar > div {
+    height: 100%;
+    transition: width .25s ease, background-color .25s ease;
+    background: var(--text-faint);
+}
+.pw-bar-danger  > div { background: var(--danger); }
+.pw-bar-warning > div { background: var(--warning); }
+.pw-bar-primary > div { background: var(--primary); }
+.pw-bar-success > div { background: var(--success); }
+.pw-bar-faint   > div { background: var(--text-faint); }
+.pw-label {
+    font-size: 10.5px;
+    font-weight: 600;
+    min-width: 62px;
+    text-align: right;
+    letter-spacing: 0.2px;
+}
+.pw-label-danger  { color: var(--danger); }
+.pw-label-warning { color: var(--warning); }
+.pw-label-primary { color: var(--primary); }
+.pw-label-success { color: var(--success); }
+.pw-label-faint   { color: var(--text-faint); }
+
+.pw-requirements {
+    list-style: none;
+    padding: 0;
+    margin: var(--s-3) 0 0 0;
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: var(--s-1) var(--s-5);
+    font-size: 11px;
+}
+.pw-requirements li {
+    display: flex;
+    align-items: center;
+    gap: var(--s-2);
+    color: var(--text-faint);
+    transition: color .2s;
+}
+.pw-requirements li.met      { color: var(--success); }
+.pw-requirements li.mismatch { color: var(--danger); }
+.pw-requirements li > span {
+    font-family: var(--font-mono);
+    width: 14px;
+    text-align: center;
+    flex-shrink: 0;
 }
 
 @keyframes spin {
@@ -1511,4 +1609,52 @@ body.login {
     color: var(--text-faint);
     font-size: 11px;
     text-align: center;
+}
+
+/* --- OIDC SSO button (login page) ----------------------------------- */
+/* Hidden by default via the `hidden` attribute in markup; the login
+   script unhides this wrap once /api/auth/providers confirms OIDC is
+   configured. All colour/spacing tokens — no hex literals. */
+.login-card .sso-wrap {
+    margin-top: var(--s-5);
+}
+
+.login-card .sso-divider {
+    display: flex;
+    align-items: center;
+    gap: var(--s-3);
+    color: var(--text-faint);
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: .08em;
+    margin: var(--s-4) 0;
+}
+
+.login-card .sso-divider::before,
+.login-card .sso-divider::after {
+    content: "";
+    flex: 1 1 auto;
+    height: 1px;
+    background: var(--border);
+}
+
+.login-card .btn-sso {
+    display: block;
+    width: 100%;
+    padding: 10px;
+    background: var(--surface-2);
+    color: var(--text);
+    border: 1px solid var(--border-bright);
+    border-radius: var(--r-md);
+    font-size: 14px;
+    font-weight: 600;
+    text-align: center;
+    text-decoration: none;
+    box-sizing: border-box;
+}
+
+.login-card .btn-sso:hover {
+    background: var(--surface-3);
+    border-color: var(--primary);
+    color: var(--text);
 }

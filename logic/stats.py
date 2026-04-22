@@ -196,6 +196,10 @@ async def gather_stats() -> None:
     items_cache = _gather_mod.get_cache()
     if not items_cache["items"]:
         return
+    if not portainer.is_configured():
+        # Mirror the gather short-circuit. Without this we'd send httpx
+        # requests to an empty URL and log noise on every poll tick.
+        return
     async with httpx.AsyncClient(verify=portainer.VERIFY_TLS, timeout=30.0) as client:
         ep = f"/api/endpoints/{portainer.PORTAINER_ENDPOINT_ID}/docker"
         try:

@@ -113,12 +113,27 @@ def populate_from_cache(cache: dict) -> None:
     Called at the end of ``_gather()``. Clears first so stacks that
     disappeared don't linger as stale label sets — Prometheus gauges never
     decay on their own and would otherwise report ghost values forever.
+
+    Every known (status, type) combo is pre-initialised to zero so the
+    resulting series always exist, even when the fleet has nothing in
+    that bucket. Without this, queries like
+    ``sum(portaupdate_items_total{status="error"})`` return no series
+    (not zero) when all items are healthy, and Grafana stat panels
+    render that as "No data" instead of 0.
     """
     from collections import Counter as _C
 
     ITEMS_TOTAL.clear()
     STACK_OUTDATED.clear()
     STACK_OFFLINE.clear()
+
+    # Pre-seed every known (status, type) at 0 so queries against specific
+    # label combinations always have a series to match. The backend's set of
+    # valid statuses / types is small and stable — see main.py item-building
+    # code. Keep this list in sync if new values are introduced.
+    for status in ("up-to-date", "update", "error", "unknown", "ignored"):
+        for typ in ("service", "container", "orphan"):
+            ITEMS_TOTAL.labels(status=status, type=typ).set(0)
 
     counts = _C(
         (i.get("status", "unknown"), i.get("type", "unknown"))
