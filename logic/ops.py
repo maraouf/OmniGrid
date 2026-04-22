@@ -1,0 +1,300 @@
+"""User-triggered write operations and the in-memory op log.
+
+Five ``_do_*`` handlers (update stack, update container, restart service,
+restart container, remove container) wrap Portainer calls with:
+
+  - structured event logging via :class:`Operation.log`
+  - persistent history row on completion (``persist_history``)
+  - Apprise notification on success/failure
+  - gather-cache invalidation so the UI re-polls after the mutation
+
+The ``ops`` dict + ``ops_order`` list hold the last 50 operations in
+memory for the ``/api/ops`` live-status polling loop — they're NOT the
+source of truth for history (the ``history`` SQLite table is). If ops
+ever need to outlive a process restart, wire a persistence hook in
+:func:`new_op`, but the single-replica invariant (CLAUDE.md) makes
+in-memory fine for now.
+"""
+import json
+import time
+import uuid
+from typing import Optional
+
+import httpx
+
+from logic import gather, metrics, portainer
+from logic.db import db_conn, get_setting
+
+
+MAX_OPS = 50
+
+
+class Operation:
+    __slots__ = ("id", "op_type", "target_id", "target_name", "target_stack",
+                 "started", "ended", "status", "events", "error", "actor")
+
+    def __init__(self, op_type: str, target_id: str, target_name: str,
+                 target_stack: Optional[str] = None, actor: str = "ui"):
+        self.id = uuid.uuid4().hex[:12]
+        self.op_type = op_type
+        self.target_id = target_id
+        self.target_name = target_name
+        self.target_stack = target_stack
+        self.started = time.time()
+        self.ended: Optional[float] = None
+        self.status = "running"
+        self.events: list[dict] = []
+        self.error: Optional[str] = None
+        self.actor = actor
+
+    def log(self, msg: str, level: str = "info"):
+        self.events.append({"ts": time.time(), "level": level, "msg": msg})
+        print(f"[op {self.id}] {level}: {msg}")
+
+    def done(self, status: str, error: Optional[str] = None):
+        self.status = status
+        self.ended = time.time()
+        self.error = error
+
+    def to_dict(self):
+        return {
+            "id": self.id, "op_type": self.op_type, "target_id": self.target_id,
+            "target_name": self.target_name, "target_stack": self.target_stack,
+            "started": self.started, "ended": self.ended,
+            "status": self.status, "events": self.events, "error": self.error,
+            "duration": (self.ended or time.time()) - self.started,
+            "actor": self.actor,
+        }
+
+
+ops: dict[str, Operation] = {}
+ops_order: list[str] = []
+
+
+def new_op(op_type: str, target_id: str, target_name: str,
+           target_stack: Optional[str] = None, actor: str = "ui") -> Operation:
+    op = Operation(op_type, target_id, target_name,
+                   target_stack=target_stack, actor=actor)
+    ops[op.id] = op
+    ops_order.insert(0, op.id)
+    # Cap the in-memory log. Completed ops are GC'd first; running ones
+    # hang around regardless of position so /api/ops always shows them.
+    while len(ops_order) > MAX_OPS:
+        dead = ops_order.pop()
+        if ops.get(dead) and ops[dead].status != "running":
+            ops.pop(dead, None)
+    return op
+
+
+def persist_history(op: Operation) -> None:
+    """Write a finished op to the ``history`` table and bump the
+    Prometheus ops counter. Called from every _do_* handler's
+    finally-block so there's a single instrumentation point."""
+    with db_conn() as c:
+        c.execute(
+            "INSERT INTO history "
+            "(ts,op_type,target_name,target_id,target_stack,status,duration,events,error,actor) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?)",
+            (op.started, op.op_type, op.target_name, op.target_id, op.target_stack,
+             op.status, (op.ended or time.time()) - op.started,
+             json.dumps(op.events), op.error, op.actor),
+        )
+    try:
+        metrics.OPS_TOTAL.labels(op_type=op.op_type, status=op.status).inc()
+    except Exception as e:
+        print(f"[metrics] OPS_TOTAL inc failed: {e}")
+
+
+# ---------------------------------------------------------------------
+# Apprise notifications — fired on success/failure of every _do_* op.
+# Settings come from the DB (get_setting) so operators can change the
+# Apprise URL/tag live without restart.
+# ---------------------------------------------------------------------
+async def notify(title: str, body: str, status: str = "info") -> None:
+    url = get_setting("apprise_url", "")
+    if not url:
+        print("[notify] skipped — no apprise_url configured")
+        return
+    tag = get_setting("apprise_tag", "")
+    # Apprise requires a non-empty body. If our ops didn't produce one, echo
+    # the title so the notification isn't rejected as malformed.
+    body = body or title
+    try:
+        async with httpx.AsyncClient(verify=portainer.VERIFY_TLS, timeout=15.0) as client:
+            payload = {
+                "title": title,
+                "body": body,
+                "type": "success" if status == "success" else "failure" if status == "error" else "info",
+            }
+            if tag:
+                # Apprise-API accepts `tag` (splits on comma/space internally).
+                payload["tag"] = tag
+            r = await client.post(url, json=payload)
+            if r.status_code >= 400:
+                print(f"[notify] FAILED {r.status_code} → {url} body={r.text[:200]}")
+            else:
+                print(f"[notify] ok {r.status_code} → {url} tag={tag!r}")
+    except Exception as e:
+        print(f"[notify] ERROR → {url}: {e}")
+
+
+# ---------------------------------------------------------------------
+# Write ops. Each follows the same pattern: try/except/finally with
+# persist_history + cache invalidation in finally.
+# ---------------------------------------------------------------------
+async def do_update_stack(op: Operation, stack_id: int) -> None:
+    try:
+        op.log(f"Starting stack update (id={stack_id})")
+        async with httpx.AsyncClient(verify=portainer.VERIFY_TLS, timeout=600.0) as client:
+            stack = await portainer.pg(client, f"/api/stacks/{stack_id}")
+            op.log(f"Resolved stack: {stack['Name']}")
+            try:
+                file_data = await portainer.pg(client, f"/api/stacks/{stack_id}/file")
+            except httpx.HTTPError as e:
+                raise RuntimeError(f"Can't fetch compose file (external stack?): {e}")
+            op.log("Fetched compose file from Portainer")
+            body = {
+                "StackFileContent": file_data["StackFileContent"],
+                "Env": stack.get("Env") or [],
+                "Prune": True,
+                "PullImage": True,
+            }
+            op.log("Calling Portainer: Prune=true, PullImage=true")
+            r = await client.put(
+                f"{portainer.PORTAINER_URL}/api/stacks/{stack_id}"
+                f"?endpointId={portainer.PORTAINER_ENDPOINT_ID}",
+                json=body, headers=portainer.headers(),
+            )
+            if r.status_code >= 400:
+                raise RuntimeError(f"HTTP {r.status_code}: {r.text[:300]}")
+            op.log(f"Portainer accepted update (HTTP {r.status_code})", "success")
+        op.done("success")
+        await notify(
+            f"✅ Stack updated: {op.target_name}",
+            f"Duration: {op.to_dict()['duration']:.1f}s", "success",
+        )
+    except Exception as e:
+        op.log(str(e), "error")
+        op.done("error", str(e))
+        await notify(f"❌ Stack update failed: {op.target_name}", str(e)[:500], "error")
+    finally:
+        persist_history(op)
+        gather.invalidate_cache()
+
+
+async def do_update_container(op: Operation, container_id: str) -> None:
+    try:
+        node = portainer.node_for_container(gather.get_cache(), container_id)
+        op.log("Recreating container with PullImage=true"
+               + (f" on node '{node}'" if node else ""))
+        async with httpx.AsyncClient(verify=portainer.VERIFY_TLS, timeout=600.0) as client:
+            r = await client.post(
+                f"{portainer.PORTAINER_URL}/api/docker/{portainer.PORTAINER_ENDPOINT_ID}"
+                f"/containers/{container_id}/recreate?PullImage=true",
+                headers=portainer.headers(agent_target=node),
+            )
+            if r.status_code >= 400:
+                raise RuntimeError(f"HTTP {r.status_code}: {r.text[:300]}")
+            op.log("Container recreated", "success")
+        op.done("success")
+        await notify(f"✅ Container updated: {op.target_name}", "", "success")
+    except Exception as e:
+        op.log(str(e), "error")
+        op.done("error", str(e))
+        await notify(f"❌ Container update failed: {op.target_name}", str(e)[:500], "error")
+    finally:
+        persist_history(op)
+        gather.invalidate_cache()
+
+
+async def do_restart_container(op: Operation, container_id: str) -> None:
+    try:
+        node = portainer.node_for_container(gather.get_cache(), container_id)
+        op.log("Restarting container" + (f" on node '{node}'" if node else ""))
+        async with httpx.AsyncClient(verify=portainer.VERIFY_TLS, timeout=120.0) as client:
+            r = await client.post(
+                f"{portainer.PORTAINER_URL}/api/endpoints/{portainer.PORTAINER_ENDPOINT_ID}"
+                f"/docker/containers/{container_id}/restart",
+                headers=portainer.headers(agent_target=node),
+            )
+            if r.status_code >= 400:
+                raise RuntimeError(f"HTTP {r.status_code}: {r.text[:300]}")
+            op.log("Container restarted", "success")
+        op.done("success")
+        await notify(f"🔄 Container restarted: {op.target_name}", "", "success")
+    except Exception as e:
+        op.log(str(e), "error")
+        op.done("error", str(e))
+        await notify(f"❌ Container restart failed: {op.target_name}", str(e)[:500], "error")
+    finally:
+        persist_history(op)
+        gather.invalidate_cache()
+
+
+async def do_remove_container(op: Operation, container_id: str) -> None:
+    try:
+        node = portainer.node_for_container(gather.get_cache(), container_id)
+        if node:
+            op.log(f"Removing container on node '{node}' (force=true, v=true)")
+        else:
+            op.log("Removing container (force=true, v=true)")
+        async with httpx.AsyncClient(verify=portainer.VERIFY_TLS, timeout=120.0) as client:
+            r = await client.delete(
+                f"{portainer.PORTAINER_URL}/api/endpoints/{portainer.PORTAINER_ENDPOINT_ID}"
+                f"/docker/containers/{container_id}?force=true&v=true",
+                headers=portainer.headers(agent_target=node),
+            )
+            # Idempotent removal: if the container is already gone (Swarm
+            # cleanup, another operator, a previous click that succeeded
+            # after a cache snapshot), 404 is the SAME end-state as a fresh
+            # delete. Treat it as success so the operator doesn't see a
+            # scary red toast for a no-op. The cache is invalidated in the
+            # finally-block regardless, so the row will disappear on the
+            # next refresh.
+            if r.status_code == 404:
+                op.log("Container already gone — treating as success", "success")
+            elif r.status_code >= 400:
+                raise RuntimeError(f"HTTP {r.status_code}: {r.text[:300]}")
+            else:
+                op.log("Container removed", "success")
+        op.done("success")
+        await notify(f"🗑 Container removed: {op.target_name}", "", "success")
+    except Exception as e:
+        op.log(str(e), "error")
+        op.done("error", str(e))
+        await notify(f"❌ Container remove failed: {op.target_name}", str(e)[:500], "error")
+    finally:
+        persist_history(op)
+        gather.invalidate_cache()
+
+
+async def do_restart_service(op: Operation, service_id: str) -> None:
+    try:
+        op.log("Fetching current service spec")
+        async with httpx.AsyncClient(verify=portainer.VERIFY_TLS, timeout=300.0) as client:
+            svc = await portainer.pg(
+                client,
+                f"/api/endpoints/{portainer.PORTAINER_ENDPOINT_ID}/docker/services/{service_id}",
+            )
+            version = svc["Version"]["Index"]
+            spec = svc["Spec"]
+            tt = spec.setdefault("TaskTemplate", {})
+            tt["ForceUpdate"] = int(tt.get("ForceUpdate", 0)) + 1
+            op.log(f"Bumping ForceUpdate to {tt['ForceUpdate']}")
+            r = await client.post(
+                f"{portainer.PORTAINER_URL}/api/endpoints/{portainer.PORTAINER_ENDPOINT_ID}"
+                f"/docker/services/{service_id}/update?version={version}",
+                json=spec, headers=portainer.headers(),
+            )
+            if r.status_code >= 400:
+                raise RuntimeError(f"HTTP {r.status_code}: {r.text[:300]}")
+            op.log("Service restart triggered", "success")
+        op.done("success")
+        await notify(f"🔄 Service restarted: {op.target_name}", "", "success")
+    except Exception as e:
+        op.log(str(e), "error")
+        op.done("error", str(e))
+        await notify(f"❌ Service restart failed: {op.target_name}", str(e)[:500], "error")
+    finally:
+        persist_history(op)
+        gather.invalidate_cache()

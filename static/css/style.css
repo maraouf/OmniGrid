@@ -9,152 +9,158 @@
    --------------------------------------------------------------------------- */
 :root,
 :root[data-theme="dark"] {
-  /* Surfaces */
-  --bg: #070b13;
-  --surface: #0d1420;
-  --surface-2: #131c2b;
-  --surface-3: #1b2538;
-  --border: #1e293b;
-  --border-bright: #283449;
+    /* Surfaces */
+    --bg: #070b13;
+    --surface: #0d1420;
+    --surface-2: #131c2b;
+    --surface-3: #1b2538;
+    --border: #1e293b;
+    --border-bright: #283449;
 
-  /* Text */
-  --text: #e2e8f0;
-  --text-dim: #94a3b8;
-  --text-faint: #64748b;
-  --text-on-primary: #ffffff;
-  --text-on-warning: #1a0e00;
+    /* Text */
+    --text: #e2e8f0;
+    --text-dim: #94a3b8;
+    --text-faint: #64748b;
+    --text-on-primary: #ffffff;
+    --text-on-warning: #1a0e00;
 
-  /* Accents */
-  --primary: #3b82f6;
-  --primary-hov: #2563eb;
-  --primary-soft: rgba(59, 130, 246, .12);
-  --success: #22c55e;
-  --warning: #f59e0b;
-  --danger: #ef4444;
-  --info: #6366f1;
+    /* Accents */
+    --primary: #3b82f6;
+    --primary-hov: #2563eb;
+    --primary-soft: rgba(59, 130, 246, .12);
+    --success: #22c55e;
+    --warning: #f59e0b;
+    --danger: #ef4444;
+    --info: #6366f1;
 
-  /* Status pills */
-  --pill-update-bg: rgba(245, 158, 11, .12);
-  --pill-update-br: rgba(245, 158, 11, .25);
-  --pill-update-fg: #fbbf24;
-  --pill-ok-bg: rgba(34, 197, 94, .10);
-  --pill-ok-br: rgba(34, 197, 94, .22);
-  --pill-ok-fg: #4ade80;
-  --pill-error-bg: rgba(239, 68, 68, .12);
-  --pill-error-br: rgba(239, 68, 68, .25);
-  --pill-error-fg: #f87171;
-  --pill-unknown-bg: rgba(148, 163, 184, .10);
-  --pill-unknown-br: rgba(148, 163, 184, .20);
-  --pill-unknown-fg: #94a3b8;
-  --pill-ignored-bg: rgba(100, 116, 139, .10);
-  --pill-ignored-br: rgba(100, 116, 139, .20);
-  --pill-ignored-fg: #64748b;
-  --pill-offline-bg: rgba(100, 116, 139, .12);
-  --pill-offline-br: rgba(100, 116, 139, .25);
-  --pill-offline-fg: #94a3b8;
-  --pill-degraded-bg: rgba(245, 158, 11, .12);
-  --pill-degraded-br: rgba(245, 158, 11, .25);
-  --pill-degraded-fg: #fbbf24;
-  --pill-healthy-bg: rgba(34, 197, 94, .10);
-  --pill-healthy-br: rgba(34, 197, 94, .22);
-  --pill-healthy-fg: #4ade80;
+    /* Status pills */
+    --pill-update-bg: rgba(245, 158, 11, .12);
+    --pill-update-br: rgba(245, 158, 11, .25);
+    --pill-update-fg: #fbbf24;
+    --pill-ok-bg: rgba(34, 197, 94, .10);
+    --pill-ok-br: rgba(34, 197, 94, .22);
+    --pill-ok-fg: #4ade80;
+    --pill-error-bg: rgba(239, 68, 68, .12);
+    --pill-error-br: rgba(239, 68, 68, .25);
+    --pill-error-fg: #f87171;
+    --pill-unknown-bg: rgba(148, 163, 184, .10);
+    --pill-unknown-br: rgba(148, 163, 184, .20);
+    --pill-unknown-fg: #94a3b8;
+    --pill-ignored-bg: rgba(100, 116, 139, .10);
+    --pill-ignored-br: rgba(100, 116, 139, .20);
+    --pill-ignored-fg: #64748b;
+    --pill-offline-bg: rgba(100, 116, 139, .12);
+    --pill-offline-br: rgba(100, 116, 139, .25);
+    --pill-offline-fg: #94a3b8;
+    --pill-degraded-bg: rgba(245, 158, 11, .12);
+    --pill-degraded-br: rgba(245, 158, 11, .25);
+    --pill-degraded-fg: #fbbf24;
+    --pill-healthy-bg: rgba(34, 197, 94, .10);
+    --pill-healthy-br: rgba(34, 197, 94, .22);
+    --pill-healthy-fg: #4ade80;
 
-  /* Overlays */
-  --backdrop: rgba(0, 0, 0, .55);
-  --backdrop-strong: rgba(0, 0, 0, .75);
-  --row-hover: rgba(255, 255, 255, .03);
-  --label-shadow: rgba(0, 0, 0, .4);
-  --kbd-shadow: rgba(0, 0, 0, .35);
+    /* Overlays */
+    --backdrop: rgba(0, 0, 0, .55);
+    --backdrop-strong: rgba(0, 0, 0, .75);
+    --row-hover: rgba(255, 255, 255, .03);
+    --label-shadow: rgba(0, 0, 0, .4);
+    --kbd-shadow: rgba(0, 0, 0, .35);
 
-  /* Spacing scale */
-  --s-1: 2px;
-  --s-2: 4px;
-  --s-3: 6px;
-  --s-4: 8px;
-  --s-5: 12px;
-  --s-6: 16px;
+    /* Spacing scale */
+    --s-1: 2px;
+    --s-2: 4px;
+    --s-3: 6px;
+    --s-4: 8px;
+    --s-5: 12px;
+    --s-6: 16px;
 
-  /* Radii */
-  --r-sm: 3px;
-  --r-md: 4px;
-  --r-lg: 6px;
-  --r-xl: 10px;
+    /* Radii */
+    --r-sm: 3px;
+    --r-md: 4px;
+    --r-lg: 6px;
+    --r-xl: 10px;
 
-  /* Fonts */
-  --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-  --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    /* Fonts */
+    --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 
-  /* Stat-bar runtime inputs — set inline via :style on each bar. Declared here
-     so tooling (IDEs, linters) recognises them as known custom properties. */
-  --w: 0%;
-  --c: var(--success);
+    /* Runtime-injected custom properties — set inline via :style on the
+       element that needs them. Declared here so tooling (IDEs, linters)
+       recognises them as known custom properties. Keep this list in sync
+       with the CLAUDE.md "Runtime-injected vars" rule when adding new ones.
+         --w         stat-bar fill width (percentage)
+         --c         stat-bar fill colour
+         --avatar-hue  user-menu avatar hue (0-359), keyed per username */
+    --w: 0%;
+    --c: var(--success);
+    --avatar-hue: 210;
 
-  /* Column widths */
-  --col-checkbox: 32px;
-  --col-chev: 24px;
-  --col-health: 90px;
-  --col-status: 100px;
-  --col-tasks: 80px;
-  --col-uptime: 90px;
-  --col-cpu: 90px;
-  --col-mem: 110px;
-  --col-disk: 90px;
-  --col-node: 140px;
-  --col-action: 150px;
+    /* Column widths */
+    --col-checkbox: 32px;
+    --col-chev: 24px;
+    --col-health: 90px;
+    --col-status: 100px;
+    --col-tasks: 80px;
+    --col-uptime: 90px;
+    --col-cpu: 90px;
+    --col-mem: 110px;
+    --col-disk: 90px;
+    --col-node: 140px;
+    --col-action: 150px;
 }
 
 :root[data-theme="light"] {
-  --bg: #f8fafc;
-  --surface: #ffffff;
-  --surface-2: #f1f5f9;
-  --surface-3: #e2e8f0;
-  --border: #e2e8f0;
-  --border-bright: #cbd5e1;
+    --bg: #f8fafc;
+    --surface: #ffffff;
+    --surface-2: #f1f5f9;
+    --surface-3: #e2e8f0;
+    --border: #e2e8f0;
+    --border-bright: #cbd5e1;
 
-  --text: #0f172a;
-  --text-dim: #475569;
-  --text-faint: #64748b;
-  --text-on-primary: #ffffff;
-  --text-on-warning: #1a0e00;
+    --text: #0f172a;
+    --text-dim: #475569;
+    --text-faint: #64748b;
+    --text-on-primary: #ffffff;
+    --text-on-warning: #1a0e00;
 
-  --primary: #2563eb;
-  --primary-hov: #1d4ed8;
-  --primary-soft: rgba(37, 99, 235, .08);
-  --success: #16a34a;
-  --warning: #d97706;
-  --danger: #dc2626;
-  --info: #4f46e5;
+    --primary: #2563eb;
+    --primary-hov: #1d4ed8;
+    --primary-soft: rgba(37, 99, 235, .08);
+    --success: #16a34a;
+    --warning: #d97706;
+    --danger: #dc2626;
+    --info: #4f46e5;
 
-  --pill-update-bg: rgba(217, 119, 6, .10);
-  --pill-update-br: rgba(217, 119, 6, .30);
-  --pill-update-fg: #b45309;
-  --pill-ok-bg: rgba(22, 163, 74, .08);
-  --pill-ok-br: rgba(22, 163, 74, .30);
-  --pill-ok-fg: #15803d;
-  --pill-error-bg: rgba(220, 38, 38, .08);
-  --pill-error-br: rgba(220, 38, 38, .30);
-  --pill-error-fg: #b91c1c;
-  --pill-unknown-bg: rgba(100, 116, 139, .08);
-  --pill-unknown-br: rgba(100, 116, 139, .25);
-  --pill-unknown-fg: #475569;
-  --pill-ignored-bg: rgba(100, 116, 139, .06);
-  --pill-ignored-br: rgba(100, 116, 139, .20);
-  --pill-ignored-fg: #64748b;
-  --pill-offline-bg: rgba(100, 116, 139, .08);
-  --pill-offline-br: rgba(100, 116, 139, .25);
-  --pill-offline-fg: #475569;
-  --pill-degraded-bg: rgba(217, 119, 6, .10);
-  --pill-degraded-br: rgba(217, 119, 6, .30);
-  --pill-degraded-fg: #b45309;
-  --pill-healthy-bg: rgba(22, 163, 74, .08);
-  --pill-healthy-br: rgba(22, 163, 74, .30);
-  --pill-healthy-fg: #15803d;
+    --pill-update-bg: rgba(217, 119, 6, .10);
+    --pill-update-br: rgba(217, 119, 6, .30);
+    --pill-update-fg: #b45309;
+    --pill-ok-bg: rgba(22, 163, 74, .08);
+    --pill-ok-br: rgba(22, 163, 74, .30);
+    --pill-ok-fg: #15803d;
+    --pill-error-bg: rgba(220, 38, 38, .08);
+    --pill-error-br: rgba(220, 38, 38, .30);
+    --pill-error-fg: #b91c1c;
+    --pill-unknown-bg: rgba(100, 116, 139, .08);
+    --pill-unknown-br: rgba(100, 116, 139, .25);
+    --pill-unknown-fg: #475569;
+    --pill-ignored-bg: rgba(100, 116, 139, .06);
+    --pill-ignored-br: rgba(100, 116, 139, .20);
+    --pill-ignored-fg: #64748b;
+    --pill-offline-bg: rgba(100, 116, 139, .08);
+    --pill-offline-br: rgba(100, 116, 139, .25);
+    --pill-offline-fg: #475569;
+    --pill-degraded-bg: rgba(217, 119, 6, .10);
+    --pill-degraded-br: rgba(217, 119, 6, .30);
+    --pill-degraded-fg: #b45309;
+    --pill-healthy-bg: rgba(22, 163, 74, .08);
+    --pill-healthy-br: rgba(22, 163, 74, .30);
+    --pill-healthy-fg: #15803d;
 
-  --backdrop: rgba(15, 23, 42, .40);
-  --backdrop-strong: rgba(15, 23, 42, .60);
-  --row-hover: rgba(15, 23, 42, .03);
-  --label-shadow: rgba(255, 255, 255, .6);
-  --kbd-shadow: rgba(15, 23, 42, .12);
+    --backdrop: rgba(15, 23, 42, .40);
+    --backdrop-strong: rgba(15, 23, 42, .60);
+    --row-hover: rgba(15, 23, 42, .03);
+    --label-shadow: rgba(255, 255, 255, .6);
+    --kbd-shadow: rgba(15, 23, 42, .12);
 }
 
 /* ---------------------------------------------------------------------------
@@ -162,31 +168,33 @@
    --------------------------------------------------------------------------- */
 html,
 body {
-  background: var(--bg);
-  color: var(--text);
-  font-family: var(--font-sans);
-  font-feature-settings: 'cv02', 'cv03', 'cv04', 'cv11';
-  -webkit-font-smoothing: antialiased;
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--font-sans);
+    font-feature-settings: 'cv02', 'cv03', 'cv04', 'cv11';
+    -webkit-font-smoothing: antialiased;
 }
 
 .mono {
-  font-family: var(--font-mono);
-  font-feature-settings: 'zero';
+    font-family: var(--font-mono);
+    font-feature-settings: 'zero';
 }
 
 /* ---------------------------------------------------------------------------
    Scrollbars
    --------------------------------------------------------------------------- */
 .scrollbar::-webkit-scrollbar {
-  width: var(--s-4);
-  height: var(--s-4);
+    width: var(--s-4);
+    height: var(--s-4);
 }
+
 .scrollbar::-webkit-scrollbar-track {
-  background: transparent;
+    background: transparent;
 }
+
 .scrollbar::-webkit-scrollbar-thumb {
-  background: var(--border-bright);
-  border-radius: var(--r-md);
+    background: var(--border-bright);
+    border-radius: var(--r-md);
 }
 
 /* ---------------------------------------------------------------------------
@@ -195,7 +203,7 @@ body {
 input,
 select,
 button {
-  font-family: inherit;
+    font-family: inherit;
 }
 
 input[type="text"],
@@ -209,22 +217,22 @@ input[type="date"],
 input[type="time"],
 input[type="datetime-local"],
 select {
-  background: var(--surface-2);
-  border: 1px solid var(--border);
-  color: var(--text);
-  padding: 7px 11px;
-  border-radius: var(--r-lg);
-  outline: none;
-  font-size: 13px;
-  transition: border-color .15s, background .15s;
-  /* Kill the browser's default light "field" look on dark mode — Safari /
-     Firefox otherwise paint the native chrome (calendar, number steppers)
-     with a white surface that blows out the row. */
-  color-scheme: dark light;
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    color: var(--text);
+    padding: 7px 11px;
+    border-radius: var(--r-lg);
+    outline: none;
+    font-size: 13px;
+    transition: border-color .15s, background .15s;
+    /* Kill the browser's default light "field" look on dark mode — Safari /
+       Firefox otherwise paint the native chrome (calendar, number steppers)
+       with a white surface that blows out the row. */
+    color-scheme: dark light;
 }
 
 input[type="search"] {
-  padding: 8px 12px 8px 36px;
+    padding: 8px 12px 8px 36px;
 }
 
 /* Calendar-picker + number-stepper icons: inherit currentColor so they
@@ -233,239 +241,355 @@ input[type="search"] {
 input[type="date"]::-webkit-calendar-picker-indicator,
 input[type="time"]::-webkit-calendar-picker-indicator,
 input[type="datetime-local"]::-webkit-calendar-picker-indicator {
-  cursor: pointer;
-  opacity: 0.7;
-  filter: invert(1) brightness(0.85);
-  transition: opacity .15s;
+    cursor: pointer;
+    opacity: 0.7;
+    filter: invert(1) brightness(0.85);
+    transition: opacity .15s;
 }
+
 input[type="date"]:hover::-webkit-calendar-picker-indicator,
 input[type="time"]:hover::-webkit-calendar-picker-indicator,
 input[type="datetime-local"]:hover::-webkit-calendar-picker-indicator {
-  opacity: 1;
+    opacity: 1;
 }
+
 /* Light theme: the icon is already dark, so undo the inversion. */
 :root[data-theme="light"] input[type="date"]::-webkit-calendar-picker-indicator,
 :root[data-theme="light"] input[type="time"]::-webkit-calendar-picker-indicator,
 :root[data-theme="light"] input[type="datetime-local"]::-webkit-calendar-picker-indicator {
-  filter: none;
+    filter: none;
 }
+
 /* Empty date fields show "mm/dd/yyyy" placeholder text — match the
    other placeholder colour so it doesn't glow white against --surface-2. */
 input[type="date"]:not(:focus):invalid,
 input[type="date"]:placeholder-shown {
-  color: var(--text-faint);
+    color: var(--text-faint);
 }
 
 input:focus,
 select:focus {
-  border-color: var(--primary);
-  background: var(--surface);
+    border-color: var(--primary);
+    background: var(--surface);
 }
 
 /* ---------------------------------------------------------------------------
    Buttons
    --------------------------------------------------------------------------- */
 .btn {
-  padding: 6px var(--s-5);
-  border-radius: var(--r-lg);
-  font-weight: 500;
-  font-size: 13px;
-  display: inline-flex;
-  align-items: center;
-  gap: var(--s-3);
-  transition: all .15s;
-  white-space: nowrap;
-  border: 1px solid transparent;
+    padding: 6px var(--s-5);
+    border-radius: var(--r-lg);
+    font-weight: 500;
+    font-size: 13px;
+    display: inline-flex;
+    align-items: center;
+    gap: var(--s-3);
+    transition: all .15s;
+    white-space: nowrap;
+    border: 1px solid transparent;
 }
+
 .btn:disabled {
-  opacity: .45;
-  cursor: not-allowed;
+    opacity: .45;
+    cursor: not-allowed;
 }
+
 .btn-primary {
-  background: var(--primary);
-  color: var(--text-on-primary);
+    background: var(--primary);
+    color: var(--text-on-primary);
 }
+
 .btn-primary:hover {
-  background: var(--primary-hov);
+    background: var(--primary-hov);
 }
+
 .btn-warning {
-  background: var(--warning);
-  color: var(--text-on-warning);
+    background: var(--warning);
+    color: var(--text-on-warning);
 }
+
 .btn-warning:hover {
-  filter: brightness(1.08);
+    filter: brightness(1.08);
 }
+
 .btn-ghost {
-  background: transparent;
-  color: var(--text-dim);
-  border-color: var(--border);
+    background: transparent;
+    color: var(--text-dim);
+    border-color: var(--border);
 }
+
 .btn-ghost:hover {
-  background: var(--surface-2);
-  color: var(--text);
+    background: var(--surface-2);
+    color: var(--text);
 }
+
 .btn-soft {
-  background: var(--surface-2);
-  color: var(--text);
-  border-color: var(--border);
+    background: var(--surface-2);
+    color: var(--text);
+    border-color: var(--border);
 }
+
 .btn-soft:hover {
-  background: var(--surface-3);
+    background: var(--surface-3);
 }
+
 .btn-danger {
-  background: var(--danger);
-  color: var(--text-on-primary);
+    background: var(--danger);
+    color: var(--text-on-primary);
 }
+
 .btn-danger:hover {
-  filter: brightness(1.08);
+    filter: brightness(1.08);
 }
+
 .btn-danger-outline {
-  background: transparent;
-  color: var(--danger);
-  border-color: var(--danger);
+    background: transparent;
+    color: var(--danger);
+    border-color: var(--danger);
 }
+
 .btn-danger-outline:hover {
-  background: var(--danger);
-  color: var(--text-on-primary);
+    background: var(--danger);
+    color: var(--text-on-primary);
 }
 
 .btn .spin,
 .spin {
-  width: 11px;
-  height: 11px;
-  border-radius: 999px;
-  border: 2px solid currentColor;
-  border-top-color: transparent;
-  animation: spin .7s linear infinite;
-  display: inline-block;
+    width: 11px;
+    height: 11px;
+    border-radius: 999px;
+    border: 2px solid currentColor;
+    border-top-color: transparent;
+    animation: spin .7s linear infinite;
+    display: inline-block;
 }
 
 @keyframes spin {
-  to { transform: rotate(360deg); }
+    to {
+        transform: rotate(360deg);
+    }
 }
 
 /* ---------------------------------------------------------------------------
    Pills (inline status badges)
    --------------------------------------------------------------------------- */
 .pill {
-  padding: var(--s-1) 7px;
-  border-radius: var(--r-md);
-  font-size: 10.5px;
-  font-weight: 600;
-  letter-spacing: .04em;
-  text-transform: uppercase;
-  display: inline-flex;
-  align-items: center;
-  gap: var(--s-2);
-  line-height: 1.5;
-  border: 1px solid;
-  white-space: nowrap;
+    padding: var(--s-1) 7px;
+    border-radius: var(--r-md);
+    font-size: 10.5px;
+    font-weight: 600;
+    letter-spacing: .04em;
+    text-transform: uppercase;
+    display: inline-flex;
+    align-items: center;
+    gap: var(--s-2);
+    line-height: 1.5;
+    border: 1px solid;
+    white-space: nowrap;
 }
-.pill-update   { background: var(--pill-update-bg);   color: var(--pill-update-fg);   border-color: var(--pill-update-br); }
-.pill-ok       { background: var(--pill-ok-bg);       color: var(--pill-ok-fg);       border-color: var(--pill-ok-br); }
-.pill-error    { background: var(--pill-error-bg);    color: var(--pill-error-fg);    border-color: var(--pill-error-br); }
-.pill-unknown  { background: var(--pill-unknown-bg);  color: var(--pill-unknown-fg);  border-color: var(--pill-unknown-br); }
-.pill-ignored  { background: var(--pill-ignored-bg);  color: var(--pill-ignored-fg);  border-color: var(--pill-ignored-br); }
-.pill-healthy  { background: var(--pill-healthy-bg);  color: var(--pill-healthy-fg);  border-color: var(--pill-healthy-br); }
-.pill-degraded { background: var(--pill-degraded-bg); color: var(--pill-degraded-fg); border-color: var(--pill-degraded-br); }
-.pill-offline  { background: var(--pill-offline-bg);  color: var(--pill-offline-fg);  border-color: var(--pill-offline-br); }
+
+.pill-update {
+    background: var(--pill-update-bg);
+    color: var(--pill-update-fg);
+    border-color: var(--pill-update-br);
+}
+
+.pill-ok {
+    background: var(--pill-ok-bg);
+    color: var(--pill-ok-fg);
+    border-color: var(--pill-ok-br);
+}
+
+.pill-error {
+    background: var(--pill-error-bg);
+    color: var(--pill-error-fg);
+    border-color: var(--pill-error-br);
+}
+
+.pill-unknown {
+    background: var(--pill-unknown-bg);
+    color: var(--pill-unknown-fg);
+    border-color: var(--pill-unknown-br);
+}
+
+.pill-ignored {
+    background: var(--pill-ignored-bg);
+    color: var(--pill-ignored-fg);
+    border-color: var(--pill-ignored-br);
+}
+
+.pill-healthy {
+    background: var(--pill-healthy-bg);
+    color: var(--pill-healthy-fg);
+    border-color: var(--pill-healthy-br);
+}
+
+.pill-degraded {
+    background: var(--pill-degraded-bg);
+    color: var(--pill-degraded-fg);
+    border-color: var(--pill-degraded-br);
+}
+
+.pill-offline {
+    background: var(--pill-offline-bg);
+    color: var(--pill-offline-fg);
+    border-color: var(--pill-offline-br);
+}
 
 /* ---------------------------------------------------------------------------
    Status dots & chips
    --------------------------------------------------------------------------- */
 .dot {
-  width: 7px;
-  height: 7px;
-  border-radius: 999px;
-  display: inline-block;
-  flex-shrink: 0;
+    width: 7px;
+    height: 7px;
+    border-radius: 999px;
+    display: inline-block;
+    flex-shrink: 0;
 }
-.dot-update   { background: var(--warning); }
-.dot-ok       { background: var(--success); }
-.dot-error    { background: var(--danger); }
-.dot-unknown  { background: var(--text-faint); }
-.dot-ignored  { background: var(--text-faint); opacity: .5; }
-.dot-healthy  { background: var(--success); }
-.dot-degraded { background: var(--warning); }
-.dot-offline  { background: var(--text-faint); opacity: .6; }
-.dot-primary  { background: var(--primary); }
-.dot-pulse    { animation: pulse 1.2s infinite; }
+
+.dot-update {
+    background: var(--warning);
+}
+
+.dot-ok {
+    background: var(--success);
+}
+
+.dot-error {
+    background: var(--danger);
+}
+
+.dot-unknown {
+    background: var(--text-faint);
+}
+
+.dot-ignored {
+    background: var(--text-faint);
+    opacity: .5;
+}
+
+.dot-healthy {
+    background: var(--success);
+}
+
+.dot-degraded {
+    background: var(--warning);
+}
+
+.dot-offline {
+    background: var(--text-faint);
+    opacity: .6;
+}
+
+.dot-primary {
+    background: var(--primary);
+}
+
+.dot-pulse {
+    animation: pulse 1.2s infinite;
+}
 
 .chip {
-  background: var(--surface-2);
-  padding: var(--s-1) var(--s-3);
-  border-radius: var(--r-md);
-  font-size: 11px;
-  color: var(--text-dim);
-  border: 1px solid var(--border);
+    background: var(--surface-2);
+    padding: var(--s-1) var(--s-3);
+    border-radius: var(--r-md);
+    font-size: 11px;
+    color: var(--text-dim);
+    border: 1px solid var(--border);
 }
 
 /* ---------------------------------------------------------------------------
    Filter chips (pill-style toggles)
    --------------------------------------------------------------------------- */
 .filter-chip {
-  padding: 5px var(--s-5);
-  border-radius: 999px;
-  font-size: 12px;
-  font-weight: 500;
-  transition: all .15s;
-  cursor: pointer;
-  border: 1px solid var(--border);
-  background: transparent;
-  color: var(--text-dim);
-  white-space: nowrap;
+    padding: 5px var(--s-5);
+    border-radius: 999px;
+    font-size: 12px;
+    font-weight: 500;
+    transition: all .15s;
+    cursor: pointer;
+    border: 1px solid var(--border);
+    background: transparent;
+    color: var(--text-dim);
+    white-space: nowrap;
 }
+
 .filter-chip:hover {
-  color: var(--text);
-  background: var(--surface-2);
+    color: var(--text);
+    background: var(--surface-2);
 }
+
 .filter-chip.active {
-  background: var(--surface-3);
-  color: var(--text);
-  border-color: var(--border-bright);
+    background: var(--surface-3);
+    color: var(--text);
+    border-color: var(--border-bright);
 }
+
 .filter-chip .count {
-  margin-left: var(--s-2);
-  font-size: 10.5px;
-  color: var(--text-faint);
-  font-weight: 600;
+    margin-left: var(--s-2);
+    font-size: 10.5px;
+    color: var(--text-faint);
+    font-weight: 600;
 }
+
 .filter-chip.active .count {
-  color: var(--text-dim);
+    color: var(--text-dim);
 }
 
 /* ---------------------------------------------------------------------------
    Animations & shared effects
    --------------------------------------------------------------------------- */
-[x-cloak] { display: none !important; }
+[x-cloak] {
+    display: none !important;
+}
 
 details summary {
-  list-style: none;
-  cursor: pointer;
+    list-style: none;
+    cursor: pointer;
 }
-details summary::-webkit-details-marker { display: none; }
 
-.slide-in { animation: slideIn .2s ease-out; }
+details summary::-webkit-details-marker {
+    display: none;
+}
+
+.slide-in {
+    animation: slideIn .2s ease-out;
+}
+
 @keyframes slideIn {
-  from { transform: translateX(100%); }
-  to   { transform: translateX(0); }
+    from {
+        transform: translateX(100%);
+    }
+    to {
+        transform: translateX(0);
+    }
 }
 
-.fade-in { animation: fadeIn .2s ease-out; }
+.fade-in {
+    animation: fadeIn .2s ease-out;
+}
+
 @keyframes fadeIn {
-  from { opacity: 0; }
-  to   { opacity: 1; }
+    from {
+        opacity: 0;
+    }
+    to {
+        opacity: 1;
+    }
 }
 
 .glow {
-  box-shadow:
-    0 0 0 1px var(--primary),
+    box-shadow: 0 0 0 1px var(--primary),
     0 0 18px color-mix(in srgb, var(--primary) 20%, transparent);
 }
 
 @keyframes pulse {
-  0%, 100% { opacity: 1; }
-  50%      { opacity: .35; }
+    0%, 100% {
+        opacity: 1;
+    }
+    50% {
+        opacity: .35;
+    }
 }
 
 /* ---------------------------------------------------------------------------
@@ -473,44 +597,56 @@ details summary::-webkit-details-marker { display: none; }
    Drive width and fill colour via --w and --c inline state
    --------------------------------------------------------------------------- */
 .stat-bar {
-  position: relative;
-  height: 16px;
-  min-width: 70px;
-  background: var(--surface-3);
-  border-radius: var(--r-sm);
-  overflow: hidden;
-  border: 1px solid var(--border);
+    position: relative;
+    height: 16px;
+    min-width: 70px;
+    background: var(--surface-3);
+    border-radius: var(--r-sm);
+    overflow: hidden;
+    border: 1px solid var(--border);
 }
+
 .stat-bar > .fill {
-  position: absolute;
-  inset: 0;
-  width: var(--w, 0%);
-  background: var(--success);
-  transition: width .25s ease, background .25s ease;
+    position: absolute;
+    inset: 0;
+    width: var(--w, 0%);
+    background: var(--success);
+    transition: width .25s ease, background .25s ease;
 }
+
 /* Threshold-based fill colour. Classes drive the palette so the markup only
    needs to feed numeric state (--w) through :style. */
-.stat-bar.warn > .fill { background: var(--warning); }
-.stat-bar.crit > .fill { background: var(--danger); }
-.stat-bar.info > .fill { background: var(--info); }
-.stat-bar > .label {
-  position: absolute;
-  inset: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 10.5px;
-  font-weight: 600;
-  color: var(--text);
-  text-shadow: 0 1px 1px var(--label-shadow);
-  white-space: nowrap;
-  padding: 0 var(--s-2);
+.stat-bar.warn > .fill {
+    background: var(--warning);
 }
+
+.stat-bar.crit > .fill {
+    background: var(--danger);
+}
+
+.stat-bar.info > .fill {
+    background: var(--info);
+}
+
+.stat-bar > .label {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 10.5px;
+    font-weight: 600;
+    color: var(--text);
+    text-shadow: 0 1px 1px var(--label-shadow);
+    white-space: nowrap;
+    padding: 0 var(--s-2);
+}
+
 .stat-sub {
-  font-size: 10px;
-  color: var(--text-faint);
-  line-height: 1;
-  margin-top: var(--s-1);
+    font-size: 10px;
+    color: var(--text-faint);
+    line-height: 1;
+    margin-top: var(--s-1);
 }
 
 /* ---------------------------------------------------------------------------
@@ -520,47 +656,60 @@ details summary::-webkit-details-marker { display: none; }
    Shares the `.ok / .warn / .crit` tokens already used by `.stat-bar`.
    --------------------------------------------------------------------------- */
 .spark {
-  display: block;
-  width: 100%;
-  max-width: 80px;
-  height: 10px;
-  margin-top: var(--s-1);
-  color: var(--success);   /* default (healthy) — matches .stat-bar default fill */
+    display: block;
+    width: 100%;
+    max-width: 80px;
+    height: 10px;
+    margin-top: var(--s-1);
+    color: var(--success); /* default (healthy) — matches .stat-bar default fill */
 }
-.spark.warn  { color: var(--warning); }
-.spark.crit  { color: var(--danger); }
-.spark.muted { color: var(--text-faint); }
-.spark polyline { vector-effect: non-scaling-stroke; }
+
+.spark.warn {
+    color: var(--warning);
+}
+
+.spark.crit {
+    color: var(--danger);
+}
+
+.spark.muted {
+    color: var(--text-faint);
+}
+
+.spark polyline {
+    vector-effect: non-scaling-stroke;
+}
 
 /* ---------------------------------------------------------------------------
    Footer — persistent version pill at the bottom of every view. Kept in the
    normal document flow (not fixed) so it doesn't overlap the bulk-action bar.
    --------------------------------------------------------------------------- */
 .app-footer {
-  /* Sticky to the viewport bottom, same sticky behavior as the topbar.
-     `bottom: 0` + `position: sticky` keeps the footer pinned within its
-     flex container while still scrolling away if the user shrinks the
-     parent (unlike `fixed`, which would overlap the bulk-action bar). */
-  position: sticky;
-  bottom: 0;
-  z-index: 30;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: var(--s-3);
-  padding: var(--s-3) var(--s-5);
-  margin-top: auto;
-  border-top: 1px solid var(--border);
-  background: color-mix(in srgb, var(--surface) 95%, transparent);
-  backdrop-filter: blur(6px);
-  -webkit-backdrop-filter: blur(6px);
-  color: var(--text-faint);
-  font-size: 11px;
-  letter-spacing: 0.2px;
+    /* Sticky to the viewport bottom, same sticky behavior as the topbar.
+       `bottom: 0` + `position: sticky` keeps the footer pinned within its
+       flex container while still scrolling away if the user shrinks the
+       parent (unlike `fixed`, which would overlap the bulk-action bar). */
+    position: sticky;
+    bottom: 0;
+    z-index: 30;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: var(--s-3);
+    padding: var(--s-3) var(--s-5);
+    margin-top: auto;
+    border-top: 1px solid var(--border);
+    background: color-mix(in srgb, var(--surface) 95%, transparent);
+    backdrop-filter: blur(6px);
+    -webkit-backdrop-filter: blur(6px);
+    color: var(--text-faint);
+    font-size: 11px;
+    letter-spacing: 0.2px;
 }
+
 .app-footer .mono {
-  color: var(--text-dim);
-  font-family: var(--font-mono);
+    color: var(--text-dim);
+    font-family: var(--font-mono);
 }
 
 /* ---------------------------------------------------------------------------
@@ -568,40 +717,66 @@ details summary::-webkit-details-marker { display: none; }
    Tokens only — colours map to the same palette as the history table.
    --------------------------------------------------------------------------- */
 .swal-meta {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-  gap: var(--s-2) var(--s-5);
-  padding: var(--s-4) var(--s-5);
-  background: var(--surface-2);
-  border: 1px solid var(--border);
-  border-radius: var(--r-md);
-  font-size: 12px;
-  text-align: left;
-  color: var(--text-dim);
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: var(--s-2) var(--s-5);
+    padding: var(--s-4) var(--s-5);
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: var(--r-md);
+    font-size: 12px;
+    text-align: left;
+    color: var(--text-dim);
 }
-.swal-meta b { color: var(--text); font-weight: 600; margin-right: var(--s-2); }
-.swal-err  { color: var(--danger); grid-column: 1 / -1; }
+
+.swal-meta b {
+    color: var(--text);
+    font-weight: 600;
+    margin-right: var(--s-2);
+}
+
+.swal-err {
+    color: var(--danger);
+    grid-column: 1 / -1;
+}
+
 .swal-events {
-  margin-top: var(--s-4);
-  max-height: 50vh;
-  overflow-y: auto;
-  padding: var(--s-3);
-  background: var(--bg);
-  border: 1px solid var(--border);
-  border-radius: var(--r-md);
-  text-align: left;
-  font-family: var(--font-mono);
-  font-size: 11px;
+    margin-top: var(--s-4);
+    max-height: 50vh;
+    overflow-y: auto;
+    padding: var(--s-3);
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: var(--r-md);
+    text-align: left;
+    font-family: var(--font-mono);
+    font-size: 11px;
 }
+
 .swal-ev {
-  display: flex;
-  gap: var(--s-4);
-  padding: 2px 0;
+    display: flex;
+    gap: var(--s-4);
+    padding: 2px 0;
 }
-.swal-ev-ts  { color: var(--text-faint); flex-shrink: 0; min-width: 68px; }
-.swal-ev-msg { color: var(--text-dim); word-break: break-word; }
-.swal-ev-ok  .swal-ev-msg { color: var(--success); }
-.swal-ev-err .swal-ev-msg { color: var(--danger); }
+
+.swal-ev-ts {
+    color: var(--text-faint);
+    flex-shrink: 0;
+    min-width: 68px;
+}
+
+.swal-ev-msg {
+    color: var(--text-dim);
+    word-break: break-word;
+}
+
+.swal-ev-ok .swal-ev-msg {
+    color: var(--success);
+}
+
+.swal-ev-err .swal-ev-msg {
+    color: var(--danger);
+}
 
 /* ---------------------------------------------------------------------------
    App icon — actual colored SVG from selfhst/icons. Render as an <img> so
@@ -610,219 +785,354 @@ details summary::-webkit-details-marker { display: none; }
    a broken-image placeholder.
    --------------------------------------------------------------------------- */
 .app-icon {
-  width: 18px;
-  height: 18px;
-  display: inline-block;
-  flex-shrink: 0;
-  object-fit: contain;
-  border-radius: 3px;
-  /* Slight contrast filter so pure-black icons still read on the dark bg. */
+    width: 18px;
+    height: 18px;
+    display: inline-block;
+    flex-shrink: 0;
+    object-fit: contain;
+    border-radius: 3px;
+    /* Slight contrast filter so pure-black icons still read on the dark bg. */
 }
-.app-icon.sm { width: 14px; height: 14px; }
-.app-icon.broken { display: none; }
+
+.app-icon.sm {
+    width: 14px;
+    height: 14px;
+}
+
+.app-icon.broken {
+    display: none;
+}
+
 /* On the dark theme, pure-black logos vanish — lift them with a white
    glow-like background. Only kicks in for known-dark icons via a class. */
-:root[data-theme="dark"] .app-icon { filter: drop-shadow(0 0 0.5px rgba(255,255,255,.15)); }
+:root[data-theme="dark"] .app-icon {
+    filter: drop-shadow(0 0 0.5px rgba(255, 255, 255, .15));
+}
 
 /* ---------------------------------------------------------------------------
    Dense grouped table (primary layout)
    --------------------------------------------------------------------------- */
 .ptable {
-  width: 100%;
-  border-collapse: separate;
-  border-spacing: 0;
-  font-size: 13px;
+    width: 100%;
+    border-collapse: separate;
+    border-spacing: 0;
+    font-size: 13px;
 }
+
 .ptable thead th {
-  position: sticky;
-  top: 0;
-  z-index: 2;
-  background: var(--surface);
-  text-align: left;
-  font-size: 10.5px;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: .06em;
-  color: var(--text-faint);
-  padding: 10px var(--s-5);
-  border-bottom: 1px solid var(--border);
-  white-space: nowrap;
+    position: sticky;
+    top: 0;
+    z-index: 2;
+    background: var(--surface);
+    text-align: left;
+    font-size: 10.5px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: .06em;
+    color: var(--text-faint);
+    padding: 10px var(--s-5);
+    border-bottom: 1px solid var(--border);
+    white-space: nowrap;
 }
+
 .ptable thead th.sortable {
-  cursor: pointer;
-  user-select: none;
+    cursor: pointer;
+    user-select: none;
 }
-.ptable thead th.sortable:hover { color: var(--text-dim); }
+
+.ptable thead th.sortable:hover {
+    color: var(--text-dim);
+}
 
 .ptable td {
-  padding: 9px var(--s-5);
-  border-bottom: 1px solid var(--border);
-  vertical-align: middle;
+    padding: 9px var(--s-5);
+    border-bottom: 1px solid var(--border);
+    vertical-align: middle;
 }
+
 .ptable td.stat-cell {
-  vertical-align: top;
-  padding-top: 10px;
+    vertical-align: top;
+    padding-top: 10px;
 }
+
 .ptable tr.group-row td {
-  background: var(--surface-2);
-  font-weight: 600;
-  cursor: pointer;
-  border-top: 1px solid var(--border);
+    background: var(--surface-2);
+    font-weight: 600;
+    cursor: pointer;
+    border-top: 1px solid var(--border);
 }
-.ptable tr.group-row:hover td { background: var(--surface-3); }
-.ptable tr.item-row td        { background: var(--surface); }
-.ptable tr.item-row:hover td  { background: var(--row-hover); }
-.ptable tr.item-row.sel td    { background: var(--primary-soft); }
+
+.ptable tr.group-row:hover td {
+    background: var(--surface-3);
+}
+
+.ptable tr.item-row td {
+    background: var(--surface);
+}
+
+.ptable tr.item-row:hover td {
+    background: var(--row-hover);
+}
+
+.ptable tr.item-row.sel td {
+    background: var(--primary-soft);
+}
 
 .ptable .chev {
-  display: inline-block;
-  width: 10px;
-  color: var(--text-faint);
-  transition: transform .15s;
-  font-size: 10px;
+    display: inline-block;
+    width: 10px;
+    color: var(--text-faint);
+    transition: transform .15s;
+    font-size: 10px;
 }
-.ptable .chev.open { transform: rotate(90deg); }
+
+.ptable .chev.open {
+    transform: rotate(90deg);
+}
 
 /* Fixed column widths — keeps the layout predictable across views */
-.col-checkbox { width: var(--col-checkbox); }
-.col-chev     { width: var(--col-chev); }
-.col-health   { width: var(--col-health); }
-.col-status   { width: var(--col-status); }
+.col-checkbox {
+    width: var(--col-checkbox);
+}
+
+.col-chev {
+    width: var(--col-chev);
+}
+
+.col-health {
+    width: var(--col-health);
+}
+
+.col-status {
+    width: var(--col-status);
+}
+
 /* Metric columns — fixed widths + nowrap so units like "10 MB" stay on one line. */
-.col-tasks    { width: var(--col-tasks); white-space: nowrap; }
-.col-uptime   { width: var(--col-uptime); white-space: nowrap; }
-.col-cpu      { width: var(--col-cpu); white-space: nowrap; }
-.col-mem      { width: var(--col-mem); white-space: nowrap; }
-.col-disk     { width: var(--col-disk); white-space: nowrap; }
-.col-node     { width: var(--col-node); }
-.col-action   { width: var(--col-action); text-align: right; }
+.col-tasks {
+    width: var(--col-tasks);
+    white-space: nowrap;
+}
+
+.col-uptime {
+    width: var(--col-uptime);
+    white-space: nowrap;
+}
+
+.col-cpu {
+    width: var(--col-cpu);
+    white-space: nowrap;
+}
+
+.col-mem {
+    width: var(--col-mem);
+    white-space: nowrap;
+}
+
+.col-disk {
+    width: var(--col-disk);
+    white-space: nowrap;
+}
+
+.col-node {
+    width: var(--col-node);
+}
+
+.col-action {
+    width: var(--col-action);
+    text-align: right;
+}
+
 /* Grow column — in HTML table auto-layout, width:100% on a single cell asks
    the browser to absorb whatever's left after content-sized siblings. */
-.col-grow     { width: 100%; }
+.col-grow {
+    width: 100%;
+}
+
 /* Image column — soft cap: short image names stay compact, very long registry
    paths truncate with ellipsis via an inner wrapper (see col-image > span). */
-.col-image    { max-width: 360px; }
+.col-image {
+    max-width: 360px;
+}
 
 /* ---------------------------------------------------------------------------
    Text helpers that bind to theme variables
    --------------------------------------------------------------------------- */
-.text-primary { color: var(--primary); }
-.text-warning { color: var(--warning); }
-.text-danger  { color: var(--danger); }
-.text-success { color: var(--success); }
-.text-dim     { color: var(--text-dim); }
-.text-faint   { color: var(--text-faint); }
+.text-primary {
+    color: var(--primary);
+}
 
-.align-right { text-align: right; }
+.text-warning {
+    color: var(--warning);
+}
+
+.text-danger {
+    color: var(--danger);
+}
+
+.text-success {
+    color: var(--success);
+}
+
+.text-dim {
+    color: var(--text-dim);
+}
+
+.text-faint {
+    color: var(--text-faint);
+}
+
+.align-right {
+    text-align: right;
+}
 
 /* ---------------------------------------------------------------------------
    Logo mark (top-left brand block)
    --------------------------------------------------------------------------- */
 .app-logo {
-  width: 28px;
-  height: 28px;
-  border-radius: var(--r-lg);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: var(--primary);
-  color: var(--text-on-primary);
-  font-weight: 700;
+    width: 28px;
+    height: 28px;
+    border-radius: var(--r-lg);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--primary);
+    color: var(--text-on-primary);
+    font-weight: 700;
 }
 
 /* ---------------------------------------------------------------------------
    Overlays
    --------------------------------------------------------------------------- */
-.backdrop        { background: var(--backdrop); }
-.backdrop-strong { background: var(--backdrop-strong); }
+.backdrop {
+    background: var(--backdrop);
+}
+
+.backdrop-strong {
+    background: var(--backdrop-strong);
+}
 
 /* ---------------------------------------------------------------------------
    Compact hint text used inside SweetAlert HTML snippets
    --------------------------------------------------------------------------- */
 .hint-sub {
-  color: var(--text-faint);
-  font-size: 12px;
+    color: var(--text-faint);
+    font-size: 12px;
 }
-.hint-top { margin-top: var(--s-5); }
+
+.hint-top {
+    margin-top: var(--s-5);
+}
 
 /* ---------------------------------------------------------------------------
    SweetAlert2 theming
    --------------------------------------------------------------------------- */
 .swal2-popup {
-  background: var(--surface) !important;
-  color: var(--text) !important;
-  border: 1px solid var(--border);
-  border-radius: var(--r-xl) !important;
-  font-family: inherit !important;
+    background: var(--surface) !important;
+    color: var(--text) !important;
+    border: 1px solid var(--border);
+    border-radius: var(--r-xl) !important;
+    font-family: inherit !important;
 }
+
 .swal2-title {
-  color: var(--text) !important;
-  font-weight: 600 !important;
+    color: var(--text) !important;
+    font-weight: 600 !important;
 }
+
 .swal2-html-container {
-  color: var(--text-dim) !important;
-  font-size: 13px !important;
+    color: var(--text-dim) !important;
+    font-size: 13px !important;
 }
+
 .swal2-html-container ul {
-  text-align: left;
-  display: inline-block;
-  margin-top: var(--s-4);
-  padding-left: 0;
-  list-style: none;
+    text-align: left;
+    display: inline-block;
+    margin-top: var(--s-4);
+    padding-left: 0;
+    list-style: none;
 }
+
 .swal2-html-container li {
-  padding: 3px 0;
-  color: var(--text);
+    padding: 3px 0;
+    color: var(--text);
 }
+
 .swal2-html-container li::before {
-  content: "• ";
-  color: var(--primary);
-  margin-right: var(--s-3);
-  font-weight: bold;
+    content: "• ";
+    color: var(--primary);
+    margin-right: var(--s-3);
+    font-weight: bold;
 }
+
 .swal2-html-container code {
-  background: var(--surface-2);
-  padding: 1px var(--s-3);
-  border-radius: var(--r-md);
-  color: var(--warning);
-  font-family: var(--font-mono);
-  font-size: 12px;
+    background: var(--surface-2);
+    padding: 1px var(--s-3);
+    border-radius: var(--r-md);
+    color: var(--warning);
+    font-family: var(--font-mono);
+    font-size: 12px;
 }
+
 .swal2-confirm,
 .swal2-cancel {
-  border-radius: var(--r-lg) !important;
-  padding: 8px 18px !important;
-  font-weight: 500 !important;
-  box-shadow: none !important;
-  font-size: 13px !important;
+    border-radius: var(--r-lg) !important;
+    padding: 8px 18px !important;
+    font-weight: 500 !important;
+    box-shadow: none !important;
+    font-size: 13px !important;
 }
-.swal2-icon { border-color: currentColor !important; }
-.swal2-icon.swal2-warning  { color: var(--warning) !important; border-color: var(--warning) !important; }
-.swal2-icon.swal2-question { color: var(--primary) !important; border-color: var(--primary) !important; }
-.swal2-icon.swal2-info     { color: var(--primary) !important; border-color: var(--primary) !important; }
-.swal2-icon.swal2-error    { color: var(--danger) !important;  border-color: var(--danger) !important; }
-.swal2-icon .swal2-icon-content { color: inherit !important; }
-.swal2-backdrop-show { backdrop-filter: blur(3px); }
+
+.swal2-icon {
+    border-color: currentColor !important;
+}
+
+.swal2-icon.swal2-warning {
+    color: var(--warning) !important;
+    border-color: var(--warning) !important;
+}
+
+.swal2-icon.swal2-question {
+    color: var(--primary) !important;
+    border-color: var(--primary) !important;
+}
+
+.swal2-icon.swal2-info {
+    color: var(--primary) !important;
+    border-color: var(--primary) !important;
+}
+
+.swal2-icon.swal2-error {
+    color: var(--danger) !important;
+    border-color: var(--danger) !important;
+}
+
+.swal2-icon .swal2-icon-content {
+    color: inherit !important;
+}
+
+.swal2-backdrop-show {
+    backdrop-filter: blur(3px);
+}
 
 /* ---------------------------------------------------------------------------
    Keyboard shortcut pills (<kbd>) used in the help modal and tooltips.
    --------------------------------------------------------------------------- */
 .kbd {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-width: 22px;
-  padding: var(--s-1) var(--s-3);
-  font-family: var(--font-mono);
-  font-size: 11px;
-  font-weight: 600;
-  color: var(--text);
-  background: var(--surface-2);
-  border: 1px solid var(--border-bright);
-  border-bottom-width: 2px;
-  border-radius: var(--r-md);
-  line-height: 1;
-  box-shadow: 0 1px 0 var(--kbd-shadow);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 22px;
+    padding: var(--s-1) var(--s-3);
+    font-family: var(--font-mono);
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--text);
+    background: var(--surface-2);
+    border: 1px solid var(--border-bright);
+    border-bottom-width: 2px;
+    border-radius: var(--r-md);
+    line-height: 1;
+    box-shadow: 0 1px 0 var(--kbd-shadow);
 }
 
 /* ---------------------------------------------------------------------------
@@ -831,148 +1141,224 @@ details summary::-webkit-details-marker { display: none; }
    to its Swarm task state (running/failed/pending/...).
    --------------------------------------------------------------------------- */
 .topology-map {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px;
-  margin-top: 3px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    margin-top: 3px;
 }
+
 .topology-node {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--s-2);
-  padding: 1px var(--s-3) 1px 5px;
-  background: var(--surface-2);
-  border: 1px solid var(--border);
-  border-radius: var(--r-md);
-  font-size: 10px;
-  color: var(--text-dim);
-  font-family: var(--font-mono);
-  letter-spacing: 0.1px;
-  line-height: 1.4;
+    display: inline-flex;
+    align-items: center;
+    gap: var(--s-2);
+    padding: 1px var(--s-3) 1px 5px;
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: var(--r-md);
+    font-size: 10px;
+    color: var(--text-dim);
+    font-family: var(--font-mono);
+    letter-spacing: 0.1px;
+    line-height: 1.4;
 }
+
 .topology-host {
-  max-width: 140px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+    max-width: 140px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
+
 .topology-chip {
-  display: inline-block;
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: var(--text-faint);
-  flex-shrink: 0;
+    display: inline-block;
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--text-faint);
+    flex-shrink: 0;
 }
-.topology-running                        { background: var(--success); }
+
+.topology-running {
+    background: var(--success);
+}
+
 .topology-failed,
 .topology-rejected,
-.topology-orphaned                       { background: var(--danger); }
+.topology-orphaned {
+    background: var(--danger);
+}
+
 .topology-pending,
 .topology-allocated,
 .topology-assigned,
 .topology-accepted,
 .topology-preparing,
 .topology-starting,
-.topology-ready                          { background: var(--warning); }
+.topology-ready {
+    background: var(--warning);
+}
+
 .topology-shutdown,
 .topology-complete,
-.topology-remove                         { background: var(--text-faint); }
-.topology-new                            { background: var(--primary); }
+.topology-remove {
+    background: var(--text-faint);
+}
+
+.topology-new {
+    background: var(--primary);
+}
+
+/* ==========================================================================
+   Top-right user-menu avatar + dropdown popup. Avatar hue is a runtime
+   variable (--avatar-hue, set inline per user) so each username renders
+   deterministically. hsl() saturation/lightness stay token-ish by using
+   fixed values that work in both themes; if the dual-theme test ever
+   shows issues, split into --avatar-sat-* and --avatar-light-*.
+   ========================================================================== */
+.user-avatar {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 26px;
+    height: 26px;
+    border-radius: 50%;
+    background: hsl(var(--avatar-hue, 210), 55%, 45%);
+    color: var(--text-on-primary);
+    font-size: 11px;
+    font-weight: 600;
+    line-height: 1;
+    flex-shrink: 0;
+    user-select: none;
+}
+
+.user-menu-item {
+    display: flex;
+    align-items: center;
+    gap: var(--s-4);
+    width: 100%;
+    padding: var(--s-4) var(--s-5);
+    background: transparent;
+    color: var(--text);
+    border: 0;
+    font-size: 12.5px;
+    text-align: left;
+    cursor: pointer;
+    transition: background 0.1s;
+}
+
+.user-menu-item:hover {
+    background: var(--surface-2);
+}
+
+.user-menu-item-danger {
+    color: var(--danger);
+}
+
+.user-menu-item-danger:hover {
+    background: var(--pill-error-bg);
+}
 
 /* ==========================================================================
    Login page (static/login.html). All layout tokens come from :root —
    no hardcoded colors or sizes per the token rule in CLAUDE.md.
    ========================================================================== */
 body.login {
-  min-height: 100vh;
-  display: grid;
-  place-items: center;
-  padding: var(--s-6);
+    min-height: 100vh;
+    display: grid;
+    place-items: center;
+    padding: var(--s-6);
 }
 
 .login-card {
-  width: 100%;
-  max-width: 380px;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: var(--r-lg);
-  padding: var(--s-6);
-  box-shadow: 0 10px 40px var(--backdrop-strong);
+    width: 100%;
+    max-width: 380px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--r-lg);
+    padding: var(--s-6);
+    box-shadow: 0 10px 40px var(--backdrop-strong);
 }
 
 .login-card h1 {
-  margin: 0 0 var(--s-2);
-  font-size: 20px;
-  color: var(--text);
+    margin: 0 0 var(--s-2);
+    font-size: 20px;
+    color: var(--text);
 }
 
 .login-card p.sub {
-  margin: 0 0 var(--s-6);
-  color: var(--text-dim);
-  font-size: 13px;
+    margin: 0 0 var(--s-6);
+    color: var(--text-dim);
+    font-size: 13px;
 }
 
 .login-card label {
-  display: block;
-  color: var(--text-dim);
-  font-size: 12px;
-  margin-top: var(--s-5);
-  margin-bottom: var(--s-2);
+    display: block;
+    color: var(--text-dim);
+    font-size: 12px;
+    margin-top: var(--s-5);
+    margin-bottom: var(--s-2);
 }
 
 .login-card input[type="text"],
 .login-card input[type="password"] {
-  width: 100%;
-  padding: 9px 10px;
-  background: var(--surface-2);
-  color: var(--text);
-  border: 1px solid var(--border-bright);
-  border-radius: var(--r-md);
-  font-size: 14px;
-  outline: none;
-  box-sizing: border-box;
+    width: 100%;
+    padding: 9px 10px;
+    background: var(--surface-2);
+    color: var(--text);
+    border: 1px solid var(--border-bright);
+    border-radius: var(--r-md);
+    font-size: 14px;
+    outline: none;
+    box-sizing: border-box;
 }
 
 .login-card input:focus {
-  border-color: var(--primary);
-  box-shadow: 0 0 0 2px var(--primary-soft);
+    border-color: var(--primary);
+    box-shadow: 0 0 0 2px var(--primary-soft);
 }
 
 .login-card button {
-  width: 100%;
-  margin-top: var(--s-6);
-  padding: 10px;
-  background: var(--primary);
-  color: var(--text-on-primary);
-  border: 0;
-  border-radius: var(--r-md);
-  font-size: 14px;
-  font-weight: 600;
-  cursor: pointer;
+    width: 100%;
+    margin-top: var(--s-6);
+    padding: 10px;
+    background: var(--primary);
+    color: var(--text-on-primary);
+    border: 0;
+    border-radius: var(--r-md);
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
 }
 
-.login-card button:hover { background: var(--primary-hov); }
-.login-card button:disabled { opacity: .6; cursor: default; }
+.login-card button:hover {
+    background: var(--primary-hov);
+}
+
+.login-card button:disabled {
+    opacity: .6;
+    cursor: default;
+}
 
 .login-card .err {
-  margin-top: var(--s-5);
-  padding: var(--s-4) var(--s-5);
-  background: var(--pill-error-bg);
-  border: 1px solid var(--pill-error-br);
-  color: var(--pill-error-fg);
-  border-radius: var(--r-md);
-  font-size: 12px;
-  display: none;
+    margin-top: var(--s-5);
+    padding: var(--s-4) var(--s-5);
+    background: var(--pill-error-bg);
+    border: 1px solid var(--pill-error-br);
+    color: var(--pill-error-fg);
+    border-radius: var(--r-md);
+    font-size: 12px;
+    display: none;
 }
 
-.login-card .err.show { display: block; }
+.login-card .err.show {
+    display: block;
+}
 
 .login-card .footer {
-  margin-top: var(--s-5);
-  padding-top: var(--s-5);
-  border-top: 1px solid var(--border);
-  color: var(--text-faint);
-  font-size: 11px;
-  text-align: center;
+    margin-top: var(--s-5);
+    padding-top: var(--s-5);
+    border-top: 1px solid var(--border);
+    color: var(--text-faint);
+    font-size: 11px;
+    text-align: center;
 }

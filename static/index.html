@@ -151,24 +151,51 @@
         </button>
       </div>
 
-      <!-- User badge + logout — pushed to the far right via ml-auto. Clicking
-           the username/role opens the profile modal (change password etc.). -->
-      <div x-show="me" class="flex items-center gap-1.5 ml-auto pl-4 border-l border-[var(--border)]">
-        <button @click="openProfile()"
-                class="flex items-center gap-1 px-2 py-1 rounded-md hover:bg-[var(--surface-2)] transition"
-                :title="me ? 'Profile — signed in via ' + me.source : ''">
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/>
-            <circle cx="12" cy="7" r="4"/>
-          </svg>
-          <span class="text-[11px] hidden md:inline">
-            <span x-text="me && me.username" class="font-medium text-[var(--text)]"></span>
-            <span class="text-[var(--text-faint)]" x-text="me && ' · ' + me.role"></span>
+      <!-- User menu — avatar button in the top-right opens a dropdown with
+           "Signed in as …" header + profile / settings / admin / help /
+           sign out. Click-outside and Esc both close it. -->
+      <div x-show="me" x-data="{ }" class="relative ml-auto pl-4 border-l border-[var(--border)]">
+        <button @click="userMenuOpen = !userMenuOpen"
+                class="flex items-center gap-1 p-1 rounded-full hover:bg-[var(--surface-2)] transition"
+                :title="me ? 'Signed in as ' + me.username : ''"
+                :aria-expanded="userMenuOpen">
+          <span class="user-avatar" :style="'--avatar-hue:' + avatarHue()">
+            <span x-text="initial()"></span>
           </span>
+          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"
+               class="text-[var(--text-dim)]" :class="userMenuOpen && 'rotate-180'"><polyline points="6 9 12 15 18 9"/></svg>
         </button>
-        <button @click="logout()" class="btn btn-soft" title="Sign out">
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
-        </button>
+
+        <!-- Dropdown -->
+        <div x-show="userMenuOpen" @click.outside="userMenuOpen = false"
+             @keydown.escape.window="userMenuOpen = false"
+             x-transition.opacity
+             class="absolute right-0 top-full mt-1 w-[220px] bg-[var(--surface)] border border-[var(--border)] rounded-md shadow-lg z-40 overflow-hidden">
+          <div class="px-3 py-2 border-b border-[var(--border)] text-[10px] uppercase tracking-wider text-[var(--text-faint)]">
+            Signed in as <span class="text-[var(--text-dim)] font-semibold normal-case" x-text="me && me.username"></span>
+          </div>
+          <button @click="userMenuOpen=false; openProfile()" class="user-menu-item">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+            Profile
+          </button>
+          <button @click="userMenuOpen=false; view='settings'" class="user-menu-item">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+            Settings
+          </button>
+          <button x-show="isAdmin()" @click="userMenuOpen=false; view='admin'" class="user-menu-item">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+            Admin
+          </button>
+          <button @click="userMenuOpen=false; showHotkeys=true" class="user-menu-item">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><path d="M12 17h.01"/></svg>
+            Keyboard shortcuts
+          </button>
+          <div class="border-t border-[var(--border)]"></div>
+          <button @click="userMenuOpen=false; logout()" class="user-menu-item user-menu-item-danger">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+            Sign out
+          </button>
+        </div>
       </div>
     </div>
 
@@ -1355,6 +1382,8 @@ function app() {
     autoRefresh: 0, _autoTimer: null, _opsTimer: null,
     cacheLabel: '',
     settings: { apprise_url: '', apprise_tag: '', portainer_public_url: '' },
+    // User-menu dropdown (top-right avatar button)
+    userMenuOpen: false,
     // Profile / password change
     showProfile: false,
     profileForm: { current: '', next: '', confirm: '' },
@@ -1488,6 +1517,22 @@ function app() {
     },
     isReadonly() {
       return !!(this.me && this.me.role === 'readonly');
+    },
+
+    // Avatar helpers — deterministic colour per username so "alice" always
+    // gets the same hue across refreshes. Uses HSL in CSS so the same
+    // hue value produces a pleasant colour in both light and dark themes
+    // (the token `--avatar-hue` feeds into a hsl() in style.css).
+    initial() {
+      if (!this.me || !this.me.username) return '?';
+      const c = this.me.username.trim().charAt(0);
+      return c ? c.toUpperCase() : '?';
+    },
+    avatarHue() {
+      if (!this.me || !this.me.username) return 210;
+      let h = 0;
+      for (const ch of this.me.username) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
+      return h % 360;
     },
 
     async openAdminTab(tab) {
@@ -2438,6 +2483,7 @@ function app() {
       // Escape works everywhere, including from inside an input — it's the
       // universal "get me out of here" key.
       if (e.key === 'Escape') {
+        if (this.userMenuOpen) { this.userMenuOpen = false; e.preventDefault(); return; }
         if (this.showHotkeys) { this.showHotkeys = false; e.preventDefault(); return; }
         if (this.showProfile) { this.showProfile = false; e.preventDefault(); return; }
         if (this.drawerItem) { this.drawerItem = null; e.preventDefault(); return; }
