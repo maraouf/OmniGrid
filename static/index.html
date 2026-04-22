@@ -1180,6 +1180,71 @@
           </div>
         </section>
       </div>
+
+      <!-- BACKUPS TAB -->
+      <div x-show="adminTab==='backups'" class="space-y-4">
+        <section class="bg-[var(--surface)] border border-[var(--border)] rounded-md p-5">
+          <h3 class="font-semibold text-[13px] mb-2">Backup the whole configuration</h3>
+          <p class="text-[11.5px] text-[var(--text-faint)] mb-3">
+            A zip containing the full SQLite database (users, API tokens, ignores, settings including Authentik config, history, stats) and every uploaded avatar. Consistent snapshot via SQLite's online <code class="mono text-[var(--text-dim)]">.backup()</code> API — safe to run with active traffic.
+          </p>
+          <div class="flex items-center gap-2 flex-wrap">
+            <button @click="createBackup()" :disabled="backupBusy"
+                    class="btn btn-primary text-[12px]"
+                    :class="backupBusy && 'opacity-60'"
+                    x-text="backupBusy ? 'Creating…' : 'Backup Now'"></button>
+            <label class="btn btn-soft text-[12px] cursor-pointer">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+              Restore from file…
+              <input type="file" accept=".zip,application/zip"
+                     class="hidden" @change="restoreBackupFromFile($event)">
+            </label>
+          </div>
+        </section>
+
+        <section class="bg-[var(--surface)] border border-[var(--border)] rounded-md overflow-hidden">
+          <div class="p-4 border-b border-[var(--border)] flex justify-between items-center">
+            <h3 class="font-semibold text-[13px]">
+              Backups <span class="text-[var(--text-faint)] font-normal" x-text="'(' + backups.length + ')'"></span>
+            </h3>
+            <button @click="loadBackups()" class="btn btn-ghost text-[11px]">Reload</button>
+          </div>
+          <div class="overflow-x-auto">
+            <table class="w-full text-[12.5px]">
+              <thead class="bg-[var(--surface-2)] text-[10.5px] uppercase tracking-wider text-[var(--text-faint)]">
+                <tr>
+                  <th class="text-left px-4 py-2">Name</th>
+                  <th class="text-left px-4 py-2">Size</th>
+                  <th class="text-left px-4 py-2">Created</th>
+                  <th class="text-left px-4 py-2">Produced by</th>
+                  <th class="text-right px-4 py-2">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                <template x-for="b in backups" :key="b.name">
+                  <tr class="border-t border-[var(--border)]">
+                    <td class="px-4 py-2 mono text-[11.5px]" x-text="b.name"></td>
+                    <td class="px-4 py-2 mono text-[11px] text-[var(--text-dim)]" x-text="fmtBytes(b.size)"></td>
+                    <td class="px-4 py-2 mono text-[11px] text-[var(--text-dim)]" x-text="fmtDate(b.mtime)"></td>
+                    <td class="px-4 py-2 mono text-[11px] text-[var(--text-dim)]" x-text="b.version || '—'"></td>
+                    <td class="px-4 py-2 text-right">
+                      <div class="inline-flex gap-1">
+                        <a :href="'/api/backups/' + encodeURIComponent(b.name)"
+                           class="btn btn-soft text-[11px]" title="Download">Download</a>
+                        <button @click="restoreBackup(b)" class="btn btn-soft text-[11px]" title="Restore">Restore</button>
+                        <button @click="deleteBackup(b)" class="btn btn-ghost text-[11px] text-danger">Delete</button>
+                      </div>
+                    </td>
+                  </tr>
+                </template>
+                <tr x-show="backups.length===0">
+                  <td colspan="5" class="text-center py-8 text-[var(--text-faint)]">No backups yet — click Backup Now above.</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+      </div>
       </div>
     </div>
 
@@ -1492,7 +1557,10 @@ function app() {
       { id: 'users',    label: 'Users' },
       { id: 'sessions', label: 'Sessions' },
       { id: 'tokens',   label: 'API tokens' },
+      { id: 'backups',  label: 'Backups' },
     ],
+    backups: [],
+    backupBusy: false,
     // Admin view state
     adminTab: 'users',
     users: [],
@@ -1716,6 +1784,99 @@ function app() {
       if (tab === 'users') await this.loadUsers();
       else if (tab === 'sessions') await this.loadSessions();
       else if (tab === 'tokens') await this.loadTokens();
+      else if (tab === 'backups') await this.loadBackups();
+    },
+
+    // ----- Backups ------------------------------------------------------
+    async loadBackups() {
+      try {
+        const r = await fetch('/api/backups');
+        if (r.ok) { const d = await r.json(); this.backups = d.backups || []; }
+      } catch (_) {}
+    },
+    async createBackup() {
+      if (this.backupBusy) return;
+      this.backupBusy = true;
+      try {
+        const r = await fetch('/api/backups', { method: 'POST' });
+        if (r.ok) {
+          this.showToast('Backup created');
+          await this.loadBackups();
+        } else {
+          const j = await r.json().catch(() => ({}));
+          this.showToast(j.detail || 'Backup failed', 'error');
+        }
+      } catch (_) { this.showToast('Network error', 'error'); }
+      finally { this.backupBusy = false; }
+    },
+    async deleteBackup(b) {
+      const res = await Swal.fire({
+        title: 'Delete backup?', text: b.name, icon: 'warning',
+        showCancelButton: true, confirmButtonText: 'Delete',
+      });
+      if (!res.isConfirmed) return;
+      try {
+        const r = await fetch('/api/backups/' + encodeURIComponent(b.name), { method: 'DELETE' });
+        if (r.ok) { this.showToast('Backup deleted'); await this.loadBackups(); }
+        else this.showToast('Delete failed', 'error');
+      } catch (_) { this.showToast('Network error', 'error'); }
+    },
+    async restoreBackup(b) {
+      const res = await Swal.fire({
+        title: 'Restore from ' + b.name + '?',
+        html: 'This OVERWRITES the current database and avatars. A safety snapshot of the current state will be taken first — look for <code>auto-before-restore-*</code> in the list afterwards.',
+        icon: 'warning', showCancelButton: true,
+        confirmButtonText: 'Restore', confirmButtonColor: 'var(--danger)',
+      });
+      if (!res.isConfirmed) return;
+      try {
+        const r = await fetch('/api/backups/' + encodeURIComponent(b.name) + '/restore', { method: 'POST' });
+        if (r.ok) {
+          const d = await r.json();
+          await Swal.fire({
+            title: 'Restore complete',
+            html: `Restored from <b>${d.restored_from}</b>. Avatars restored: ${d.avatar_count}.<br><br>` +
+                  (d.safety_snapshot ? `Safety snapshot: <code>${d.safety_snapshot}</code><br><br>` : '') +
+                  'You may need to sign out and back in.',
+            icon: 'success',
+          });
+          await this.loadBackups();
+        } else {
+          const j = await r.json().catch(() => ({}));
+          this.showToast(j.detail || 'Restore failed', 'error');
+        }
+      } catch (_) { this.showToast('Network error', 'error'); }
+    },
+    async restoreBackupFromFile(ev) {
+      const file = ev.target.files && ev.target.files[0];
+      if (!file) return;
+      const res = await Swal.fire({
+        title: 'Restore from uploaded file?',
+        html: `<b>${file.name}</b> (${(file.size/1_000_000).toFixed(1)} MB)<br><br>` +
+              'This OVERWRITES the current database and avatars. A safety snapshot will be taken first.',
+        icon: 'warning', showCancelButton: true,
+        confirmButtonText: 'Restore', confirmButtonColor: 'var(--danger)',
+      });
+      if (!res.isConfirmed) { ev.target.value = ''; return; }
+      try {
+        const fd = new FormData();
+        fd.append('file', file);
+        const r = await fetch('/api/backups/restore', { method: 'POST', body: fd });
+        if (r.ok) {
+          const d = await r.json();
+          await Swal.fire({
+            title: 'Restore complete',
+            html: `Restored from <b>${d.restored_from}</b>. Avatars restored: ${d.avatar_count}.<br><br>` +
+                  (d.safety_snapshot ? `Safety snapshot: <code>${d.safety_snapshot}</code>` : ''),
+            icon: 'success',
+          });
+          await this.loadBackups();
+        } else {
+          const j = await r.json().catch(() => ({}));
+          this.showToast(j.detail || 'Restore failed', 'error');
+        }
+      } catch (_) { this.showToast('Network error', 'error'); }
+      finally { ev.target.value = ''; }
     },
 
     async loadUsers() {

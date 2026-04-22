@@ -19,6 +19,7 @@ import asyncio
 import json
 import os
 import sqlite3
+import tempfile
 import time
 import uuid
 from contextlib import asynccontextmanager
@@ -38,7 +39,7 @@ from fastapi import BackgroundTasks, Depends, FastAPI, Form, HTTPException, Requ
 from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 
-from logic import auth, metrics
+from logic import auth, backups, metrics
 from pydantic import BaseModel
 
 # ============================================================================
@@ -95,6 +96,9 @@ async def _lifespan(app: FastAPI):
     with db_conn() as c:
         auth.bootstrap_auth_settings(c)
     _bootstrap_admin_if_needed()
+    # Create /app/data/backups/ + /app/data/avatars/ if missing so endpoint
+    # handlers don't each have to guard for first-boot state.
+    backups.ensure_dirs()
     sampler = asyncio.create_task(_stats_sampler_loop(), name="stats-sampler")
     try:
         yield
@@ -1138,6 +1142,97 @@ async def api_delete_token(
     with db_conn() as c:
         auth.delete_api_token(c, token_id)
     return {"ok": True}
+
+
+# ============================================================================
+# Backups — zip containing the full SQLite DB + avatars directory.
+# Admin-only; list/create/download/delete/restore. See logic/backups.py for
+# the safety dance (consistent .backup() snapshot, pre-restore auto-snapshot,
+# path-traversal guards).
+# ============================================================================
+@app.get("/api/backups")
+async def api_list_backups(_admin: auth.User = Depends(auth.require_admin)):
+    return {"backups": backups.list_backups()}
+
+
+@app.post("/api/backups")
+async def api_create_backup(_admin: auth.User = Depends(auth.require_admin)):
+    return backups.create_backup()
+
+
+@app.get("/api/backups/{name}")
+async def api_download_backup(
+    name: str, _admin: auth.User = Depends(auth.require_admin),
+):
+    try:
+        path = backups._backup_path(name)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid backup name")
+    if not os.path.exists(path):
+        raise HTTPException(status_code=404, detail="Not found")
+    return FileResponse(path, filename=name, media_type="application/zip")
+
+
+@app.delete("/api/backups/{name}")
+async def api_delete_backup(
+    name: str, _admin: auth.User = Depends(auth.require_admin),
+):
+    try:
+        backups.delete_backup(name)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid backup name")
+    return {"ok": True}
+
+
+@app.post("/api/backups/{name}/restore")
+async def api_restore_backup_named(
+    name: str, _admin: auth.User = Depends(auth.require_admin),
+):
+    try:
+        return backups.restore_by_name(name)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="Backup not found")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Restore failed: {e}")
+
+
+@app.post("/api/backups/restore")
+async def api_restore_backup_upload(
+    request: Request, _admin: auth.User = Depends(auth.require_admin),
+):
+    """Upload a zip file and restore from it. 200 MB cap."""
+    form = await request.form()
+    file = form.get("file")
+    if file is None or not hasattr(file, "read"):
+        raise HTTPException(status_code=400, detail="Field 'file' missing")
+    data = await file.read()
+    if len(data) > backups.MAX_UPLOAD_BYTES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Upload too large (max {backups.MAX_UPLOAD_BYTES // 1_000_000} MB)",
+        )
+    if len(data) == 0:
+        raise HTTPException(status_code=400, detail="Empty upload")
+    # Persist the uploaded zip to a temp file on the data volume so the
+    # restore function (which expects a filesystem path) can work on it.
+    with tempfile.NamedTemporaryFile(
+        delete=False, suffix=".zip",
+        dir=os.path.dirname(DB_PATH) or ".",
+    ) as tmp:
+        tmp.write(data)
+        tmp_path = tmp.name
+    try:
+        result = backups.restore_from_file(tmp_path)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=f"Invalid backup: {e}")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Restore failed: {e}")
+    finally:
+        try: os.remove(tmp_path)
+        except OSError: pass
+    return result
 
 
 # Login HTML page. Served as a discrete route (not via StaticFiles) because

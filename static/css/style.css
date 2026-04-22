@@ -257,19 +257,35 @@ input[type="number"],
 input[type="date"],
 input[type="time"],
 input[type="datetime-local"],
-select {
+select,
+textarea {
     background: var(--surface-2);
     border: 1px solid var(--border);
     color: var(--text);
-    padding: 7px 11px;
+    padding: 6px 10px;
     border-radius: var(--r-lg);
     outline: none;
-    font-size: 13px;
+    font-size: 12.5px;
+    font-family: var(--font-sans);
+    font-weight: 400;
+    line-height: 1.4;
     transition: border-color .15s, background .15s;
     /* Kill the browser's default light "field" look on dark mode — Safari /
        Firefox otherwise paint the native chrome (calendar, number steppers)
        with a white surface that blows out the row. */
     color-scheme: dark light;
+}
+
+textarea {
+    resize: vertical;
+    line-height: 1.4;
+}
+
+input:disabled,
+textarea:disabled,
+select:disabled {
+    opacity: 0.65;
+    cursor: not-allowed;
 }
 
 input[type="search"] {
