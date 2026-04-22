@@ -34,7 +34,7 @@ from dotenv import load_dotenv
 load_dotenv(os.getenv("ENV_FILE_PATH", "/app/.env"), override=False)
 
 import httpx
-from fastapi import BackgroundTasks, FastAPI, Form, HTTPException, Request
+from fastapi import BackgroundTasks, Depends, FastAPI, Form, HTTPException, Request
 from fastapi.responses import JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 
@@ -1452,10 +1452,21 @@ async def api_item_detail(raw_id: str):
 
 
 def _actor_from(request: Request) -> str:
-    # `X-Forwarded-User` is the de-facto header set by most auth proxies
-    # (Authelia, Authentik, oauth2-proxy, Traefik forward-auth). Fall back
-    # to "ui" for direct hits (no proxy or dev mode). Future: scheduled
-    # ops will pass actor="system" explicitly when we add the scheduler.
+    """Attribute an operation to a user.
+
+    Priority:
+      1. request.state.user.username — set by auth middleware from local
+         session cookie, API bearer token, or verified Authentik header.
+      2. X-Forwarded-User — legacy path for reverse proxies that stamp it
+         directly (Authelia, oauth2-proxy, Traefik forward-auth).
+      3. "ui" — dev mode / no-auth path (observe-mode only; step 2 gates
+         write routes, so this should be unreachable on them post-step-2).
+
+    Future: the scheduler will pass actor="system" explicitly.
+    """
+    user = getattr(request.state, "user", None)
+    if user and getattr(user, "username", None):
+        return user.username
     return (request.headers.get("x-forwarded-user") or "ui").strip() or "ui"
 
 
@@ -1469,7 +1480,10 @@ def _item_context(container_or_service_id: str) -> tuple[str, Optional[str]]:
 
 
 @app.post("/api/update/stack/{stack_id}")
-async def api_update_stack(stack_id: int, bg: BackgroundTasks, request: Request):
+async def api_update_stack(
+    stack_id: int, bg: BackgroundTasks, request: Request,
+    _admin: auth.User = Depends(auth.require_admin),
+):
     name = f"stack-{stack_id}"
     for s in _cache["stacks"]:
         if s.get("stack_id") == stack_id:
@@ -1482,7 +1496,10 @@ async def api_update_stack(stack_id: int, bg: BackgroundTasks, request: Request)
 
 
 @app.post("/api/update/container/{container_id}")
-async def api_update_container(container_id: str, bg: BackgroundTasks, request: Request):
+async def api_update_container(
+    container_id: str, bg: BackgroundTasks, request: Request,
+    _admin: auth.User = Depends(auth.require_admin),
+):
     name, stack = _item_context(container_id)
     op = new_op("update_container", container_id, name,
                 target_stack=stack, actor=_actor_from(request))
@@ -1491,7 +1508,10 @@ async def api_update_container(container_id: str, bg: BackgroundTasks, request: 
 
 
 @app.post("/api/restart/service/{service_id}")
-async def api_restart_service(service_id: str, bg: BackgroundTasks, request: Request):
+async def api_restart_service(
+    service_id: str, bg: BackgroundTasks, request: Request,
+    _admin: auth.User = Depends(auth.require_admin),
+):
     name, stack = _item_context(service_id)
     op = new_op("restart_service", service_id, name,
                 target_stack=stack, actor=_actor_from(request))
@@ -1500,7 +1520,10 @@ async def api_restart_service(service_id: str, bg: BackgroundTasks, request: Req
 
 
 @app.post("/api/restart/container/{container_id}")
-async def api_restart_container(container_id: str, bg: BackgroundTasks, request: Request):
+async def api_restart_container(
+    container_id: str, bg: BackgroundTasks, request: Request,
+    _admin: auth.User = Depends(auth.require_admin),
+):
     name, stack = _item_context(container_id)
     op = new_op("restart_container", container_id, name,
                 target_stack=stack, actor=_actor_from(request))
@@ -1509,7 +1532,10 @@ async def api_restart_container(container_id: str, bg: BackgroundTasks, request:
 
 
 @app.post("/api/remove/container/{container_id}")
-async def api_remove_container(container_id: str, bg: BackgroundTasks, request: Request):
+async def api_remove_container(
+    container_id: str, bg: BackgroundTasks, request: Request,
+    _admin: auth.User = Depends(auth.require_admin),
+):
     name, stack = _item_context(container_id)
     op = new_op("remove_container", container_id, name,
                 target_stack=stack, actor=_actor_from(request))
@@ -1641,7 +1667,7 @@ async def api_history_csv_export(
 
 
 @app.delete("/api/history")
-async def api_history_clear():
+async def api_history_clear(_admin: auth.User = Depends(auth.require_admin)):
     with db_conn() as c:
         c.execute("DELETE FROM history")
     return {"status": "cleared"}
@@ -1661,7 +1687,10 @@ async def api_ignores():
 
 
 @app.post("/api/ignores")
-async def api_add_ignore(ig: IgnoreIn):
+async def api_add_ignore(
+    ig: IgnoreIn,
+    _admin: auth.User = Depends(auth.require_admin),
+):
     with db_conn() as c:
         c.execute(
             "INSERT OR REPLACE INTO ignores(pattern,kind,reason,created) VALUES (?,?,?,?)",
@@ -1672,7 +1701,10 @@ async def api_add_ignore(ig: IgnoreIn):
 
 
 @app.delete("/api/ignores/{pattern:path}")
-async def api_del_ignore(pattern: str):
+async def api_del_ignore(
+    pattern: str,
+    _admin: auth.User = Depends(auth.require_admin),
+):
     with db_conn() as c:
         c.execute("DELETE FROM ignores WHERE pattern=?", (pattern,))
     _cache["ts"] = 0
@@ -1696,7 +1728,10 @@ async def api_get_settings():
 
 
 @app.post("/api/settings")
-async def api_set_settings(s: SettingsIn):
+async def api_set_settings(
+    s: SettingsIn,
+    _admin: auth.User = Depends(auth.require_admin),
+):
     if s.apprise_url is not None: set_setting("apprise_url", s.apprise_url)
     if s.apprise_tag is not None: set_setting("apprise_tag", s.apprise_tag)
     if s.portainer_public_url is not None: set_setting("portainer_public_url", s.portainer_public_url)
@@ -1704,7 +1739,7 @@ async def api_set_settings(s: SettingsIn):
 
 
 @app.post("/api/notify-test")
-async def api_notify_test():
+async def api_notify_test(_admin: auth.User = Depends(auth.require_admin)):
     await notify("🔔 PortaUpdate test", "Notifications are wired up correctly!", "success")
     return {"status": "sent"}
 
