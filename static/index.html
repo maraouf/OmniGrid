@@ -61,7 +61,7 @@
       </div>
 
       <nav class="flex items-center gap-0.5">
-        <template x-for="t in [['stacks','Stacks'],['services','Services'],['history','History']]" :key="t[0]">
+        <template x-for="t in [['stacks','Stacks'],['services','Services'],['history','History'],['settings','Settings']]" :key="t[0]">
           <button @click="view=t[0]"
                   :class="view===t[0] ? 'text-[var(--text)] bg-[var(--surface-2)]' : 'text-[var(--text-dim)] hover:text-[var(--text)]'"
                   class="px-3 py-1.5 rounded-md text-[13px] font-medium transition" x-text="t[1]"></button>
@@ -132,24 +132,34 @@
         <button @click="showHotkeys=true" class="btn btn-soft" title="Keyboard shortcuts (?)">
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><path d="M12 17h.01"/></svg>
         </button>
-        <button @click="showSettings=true" class="btn btn-soft" title="Settings">
+        <button @click="view='settings'" class="btn btn-soft" title="Settings">
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2Z"/><circle cx="12" cy="12" r="3"/></svg>
         </button>
-        <!-- User badge + logout — shown once /api/me resolves. -->
-        <div x-show="me" class="flex items-center gap-1 pl-2 ml-1 border-l border-[var(--border)]">
-          <span class="text-[11px] text-[var(--text-dim)] hidden md:inline" :title="'Signed in via ' + (me && me.source)">
+      </div>
+
+      <!-- User badge + logout — pushed to the far right via ml-auto. Clicking
+           the username/role opens the profile modal (change password etc.). -->
+      <div x-show="me" class="flex items-center gap-1.5 ml-auto pl-4 border-l border-[var(--border)]">
+        <button @click="openProfile()"
+                class="flex items-center gap-1 px-2 py-1 rounded-md hover:bg-[var(--surface-2)] transition"
+                :title="me ? 'Profile — signed in via ' + me.source : ''">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/>
+            <circle cx="12" cy="7" r="4"/>
+          </svg>
+          <span class="text-[11px] hidden md:inline">
             <span x-text="me && me.username" class="font-medium text-[var(--text)]"></span>
             <span class="text-[var(--text-faint)]" x-text="me && ' · ' + me.role"></span>
           </span>
-          <button @click="logout()" class="btn btn-soft" title="Sign out">
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
-          </button>
-        </div>
+        </button>
+        <button @click="logout()" class="btn btn-soft" title="Sign out">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+        </button>
       </div>
     </div>
 
     <!-- FILTER BAR -->
-    <div x-show="view!=='history'" class="px-5 pb-3 max-w-full mx-auto w-full flex items-center gap-2 flex-wrap">
+    <div x-show="view==='stacks' || view==='services'" class="px-5 pb-3 max-w-full mx-auto w-full flex items-center gap-2 flex-wrap">
       <div class="flex items-center gap-1.5 flex-wrap">
         <button @click="healthFilter='';statusFilter=''"
                 :class="(!healthFilter && !statusFilter) ? 'active' : ''"
@@ -650,6 +660,106 @@
       </div>
     </div>
 
+    <!-- ===== SETTINGS VIEW ===== -->
+    <div x-show="view==='settings'" class="max-w-3xl space-y-5">
+      <div>
+        <h2 class="font-semibold text-[15px]">Settings</h2>
+        <p class="text-[11px] text-[var(--text-faint)] mt-0.5">App-wide configuration. Role-gated where appropriate.</p>
+      </div>
+
+      <section class="bg-[var(--surface)] border border-[var(--border)] rounded-md p-5">
+        <h3 class="font-semibold text-[13px] mb-2">Apprise notifications</h3>
+        <p class="text-[11.5px] text-[var(--text-faint)] mb-3">
+          URL format: <code class="mono text-[var(--text-dim)]">http://&lt;host&gt;:&lt;port&gt;/notify/&lt;CONFIG-KEY&gt;</code> —
+          <code class="mono text-[var(--text-dim)]">&lt;CONFIG-KEY&gt;</code> is the bundle name you saved in the Apprise web UI (not a tag).
+          A <b>404</b> response means no config with that key exists on the server.
+        </p>
+        <input x-model="settings.apprise_url" type="url" placeholder="http://apprise.home.lan:8005/notify/<config-key>" class="w-full">
+        <input x-model="settings.apprise_tag" type="text" placeholder="Optional: filter URLs by tag within the config" class="w-full mt-2">
+        <div class="flex gap-2 mt-3">
+          <button @click="saveSettings()" class="btn btn-primary text-[12px]">Save</button>
+          <button @click="testNotify()" class="btn btn-soft text-[12px]">Send test</button>
+        </div>
+      </section>
+
+      <section class="bg-[var(--surface)] border border-[var(--border)] rounded-md p-5">
+        <h3 class="font-semibold text-[13px] mb-2">Portainer public URL</h3>
+        <p class="text-[11.5px] text-[var(--text-faint)] mb-3">Browser-facing URL for "Open in Portainer" deep links.</p>
+        <input x-model="settings.portainer_public_url" type="url" placeholder="https://portainer.home.lan" class="w-full">
+        <button @click="saveSettings()" class="btn btn-primary text-[12px] mt-3">Save</button>
+      </section>
+
+      <section class="bg-[var(--surface)] border border-[var(--border)] rounded-md p-5">
+        <h3 class="font-semibold text-[13px] mb-2">Ignore list</h3>
+        <p class="text-[11.5px] text-[var(--text-faint)] mb-3">
+          Items matching these patterns show as <span class="pill pill-ignored">ignored</span> and won't offer updates.
+        </p>
+        <div class="flex gap-2 flex-wrap">
+          <select x-model="newIgnore.kind" class="min-w-[100px]">
+            <option value="image">Image</option>
+            <option value="stack">Stack</option>
+          </select>
+          <input x-model="newIgnore.pattern" type="text" placeholder="e.g. plex or my-stack" class="flex-1 min-w-[200px]">
+          <button @click="addIgnore()" class="btn btn-primary text-[12px]">Add</button>
+        </div>
+        <div class="mt-3 space-y-1">
+          <template x-for="ig in ignores" :key="ig.pattern">
+            <div class="flex items-center justify-between bg-[var(--surface-2)] rounded-md px-3 py-2 text-[12.5px]">
+              <div class="flex items-center gap-2">
+                <span class="chip" x-text="ig.kind"></span>
+                <span class="mono" x-text="ig.pattern"></span>
+              </div>
+              <button @click="delIgnore(ig.pattern)" class="text-[var(--danger)] hover:underline text-[11px]">Remove</button>
+            </div>
+          </template>
+          <div x-show="ignores.length===0" class="text-[11px] text-[var(--text-faint)] italic">No ignores configured.</div>
+        </div>
+      </section>
+
+      <!-- Authentik: read-only snapshot for now. Editing-from-UI requires
+           auth.py to read from the settings DB at runtime — tracked as a
+           follow-up. Until then, values are set in .env (shipped via CI)
+           and this panel shows the effective state. -->
+      <section class="bg-[var(--surface)] border border-[var(--border)] rounded-md p-5">
+        <div class="flex items-start justify-between">
+          <div>
+            <h3 class="font-semibold text-[13px] mb-2">Authentik Forward Auth</h3>
+            <p class="text-[11.5px] text-[var(--text-faint)] mb-3">
+              Current state (read-only). Configure via <code class="mono text-[var(--text-dim)]">.env</code>
+              — editing from this panel is planned for a future release.
+            </p>
+          </div>
+          <span x-show="authStatus"
+                class="chip"
+                :class="authStatus && authStatus.enabled ? 'pill-success' : 'pill-muted'"
+                x-text="authStatus ? (authStatus.enabled ? 'Enabled' : 'Disabled') : ''"></span>
+        </div>
+        <div x-show="authStatus" class="space-y-2 text-[12.5px]">
+          <div class="flex justify-between items-center bg-[var(--surface-2)] rounded-md px-3 py-2">
+            <span class="text-[var(--text-dim)]">AUTHENTIK_ENABLED</span>
+            <span class="mono" x-text="authStatus && String(authStatus.enabled)"></span>
+          </div>
+          <div class="flex justify-between items-center bg-[var(--surface-2)] rounded-md px-3 py-2">
+            <span class="text-[var(--text-dim)]">AUTHENTIK_ADMIN_GROUP</span>
+            <span class="mono" x-text="authStatus && authStatus.admin_group"></span>
+          </div>
+          <div class="flex justify-between items-center bg-[var(--surface-2)] rounded-md px-3 py-2">
+            <span class="text-[var(--text-dim)]">NPM_AUTH_SECRET</span>
+            <span class="mono" x-text="authStatus && (authStatus.npm_auth_secret_set ? '••• configured' : 'not set')"></span>
+          </div>
+        </div>
+        <p class="text-[11px] text-[var(--text-faint)] mt-3">
+          For the full Authentik + NPM wire-up procedure, see <code class="mono">notes/notes_auth.txt</code>.
+        </p>
+      </section>
+
+      <section class="bg-[var(--surface)] border border-[var(--border)] rounded-md p-5">
+        <h3 class="font-semibold text-[13px] mb-2">Keyboard shortcuts</h3>
+        <p class="text-[11.5px] text-[var(--text-faint)] mb-2">Press <kbd class="kbd">?</kbd> anywhere to open the full reference.</p>
+        <button @click="showHotkeys=true" class="btn btn-soft text-[12px]">Open shortcut reference</button>
+      </section>
+    </div>
+
   </main>
 
   <!-- ================== ACTIVE OPS FLOATING PANEL ================== -->
@@ -796,67 +906,59 @@
     </aside>
   </div>
 
-  <!-- ================== SETTINGS MODAL ================== -->
-  <div x-show="showSettings" class="fixed inset-0 z-50 fade-in">
-    <div @click="showSettings=false" class="absolute inset-0 backdrop-strong"></div>
+  <!-- ================== PROFILE MODAL ================== -->
+  <div x-show="showProfile" class="fixed inset-0 z-50 fade-in">
+    <div @click="showProfile=false" class="absolute inset-0 backdrop-strong"></div>
     <div class="relative flex items-center justify-center p-4 h-full overflow-auto">
-      <div class="bg-[var(--surface)] border border-[var(--border)] rounded-md max-w-2xl w-full max-h-[90vh] overflow-y-auto scrollbar">
-        <div class="p-4 border-b border-[var(--border)] flex justify-between items-center sticky top-0 bg-[var(--surface)] z-10">
-          <h2 class="text-[15px] font-semibold">Settings</h2>
-          <button @click="showSettings=false" class="btn btn-ghost">✕</button>
+      <div class="bg-[var(--surface)] border border-[var(--border)] rounded-md max-w-md w-full">
+        <div class="p-4 border-b border-[var(--border)] flex justify-between items-center">
+          <div>
+            <h2 class="text-[15px] font-semibold">Profile</h2>
+            <p class="text-[11px] text-[var(--text-faint)] mt-0.5">
+              Signed in as <span class="font-medium text-[var(--text-dim)]" x-text="me && me.username"></span>
+              <span x-text="me && ' (' + me.role + ')'"></span>
+              · source <span class="font-medium text-[var(--text-dim)]" x-text="me && me.source"></span>
+            </p>
+          </div>
+          <button @click="showProfile=false" class="btn btn-ghost">✕</button>
         </div>
-        <div class="p-5 space-y-6">
-          <section>
-            <h3 class="font-semibold text-[13px] mb-2">Apprise notifications</h3>
-            <p class="text-[11.5px] text-[var(--text-faint)] mb-3">
-              URL format: <code class="mono text-[var(--text-dim)]">http://&lt;host&gt;:&lt;port&gt;/notify/&lt;CONFIG-KEY&gt;</code> —
-              <code class="mono text-[var(--text-dim)]">&lt;CONFIG-KEY&gt;</code> is the bundle name you saved in the Apprise web UI (not a tag).
-              A <b>404</b> response means no config with that key exists on the server.
-            </p>
-            <input x-model="settings.apprise_url" type="url" placeholder="http://apprise.home.lan:8005/notify/<config-key>" class="w-full">
-            <input x-model="settings.apprise_tag" type="text" placeholder="Optional: filter URLs by tag within the config" class="w-full mt-2">
-            <div class="flex gap-2 mt-3">
-              <button @click="saveSettings()" class="btn btn-primary text-[12px]">Save</button>
-              <button @click="testNotify()" class="btn btn-soft text-[12px]">Send test</button>
+        <div class="p-5">
+          <template x-if="me && me.source === 'local'">
+            <form @submit.prevent="changePassword()" class="space-y-3">
+              <h3 class="font-semibold text-[13px]">Change password</h3>
+              <p class="text-[11.5px] text-[var(--text-faint)]">
+                Changing your password signs out every other session for your account. The session you're using right now stays logged in.
+              </p>
+              <div>
+                <label class="block text-[11px] text-[var(--text-dim)] mb-1">Current password</label>
+                <input x-model="profileForm.current" type="password" required autocomplete="current-password" class="w-full">
+              </div>
+              <div>
+                <label class="block text-[11px] text-[var(--text-dim)] mb-1">New password</label>
+                <input x-model="profileForm.next" type="password" required minlength="8" autocomplete="new-password" class="w-full">
+              </div>
+              <div>
+                <label class="block text-[11px] text-[var(--text-dim)] mb-1">Confirm new password</label>
+                <input x-model="profileForm.confirm" type="password" required minlength="8" autocomplete="new-password" class="w-full">
+              </div>
+              <div class="flex gap-2 pt-1">
+                <button type="submit" :disabled="profileBusy" class="btn btn-primary text-[12px]" x-text="profileBusy ? 'Saving…' : 'Change password'"></button>
+                <button type="button" @click="showProfile=false" class="btn btn-soft text-[12px]">Cancel</button>
+              </div>
+            </form>
+          </template>
+          <template x-if="me && me.source === 'authentik'">
+            <div class="text-[12.5px] text-[var(--text-dim)] leading-relaxed">
+              Your account is managed by Authentik. Change your password
+              there — PortaUpdate doesn't store one for SSO users.
             </div>
-          </section>
-          <section>
-            <h3 class="font-semibold text-[13px] mb-2">Portainer public URL</h3>
-            <p class="text-[11.5px] text-[var(--text-faint)] mb-3">Browser-facing URL for "Open in Portainer" deep links.</p>
-            <input x-model="settings.portainer_public_url" type="url" placeholder="https://portainer.home.lan" class="w-full">
-            <button @click="saveSettings()" class="btn btn-primary text-[12px] mt-3">Save</button>
-          </section>
-          <section>
-            <h3 class="font-semibold text-[13px] mb-2">Ignore list</h3>
-            <p class="text-[11.5px] text-[var(--text-faint)] mb-3">
-              Items matching these patterns show as <span class="pill pill-ignored">ignored</span> and won't offer updates.
-            </p>
-            <div class="flex gap-2 flex-wrap">
-              <select x-model="newIgnore.kind" class="min-w-[100px]">
-                <option value="image">Image</option>
-                <option value="stack">Stack</option>
-              </select>
-              <input x-model="newIgnore.pattern" type="text" placeholder="e.g. plex or my-stack" class="flex-1 min-w-[200px]">
-              <button @click="addIgnore()" class="btn btn-primary text-[12px]">Add</button>
+          </template>
+          <template x-if="me && me.source !== 'local' && me.source !== 'authentik'">
+            <div class="text-[12.5px] text-[var(--text-dim)]">
+              API-token sessions can't change a password. Sign in with the
+              underlying user account to manage credentials.
             </div>
-            <div class="mt-3 space-y-1">
-              <template x-for="ig in ignores" :key="ig.pattern">
-                <div class="flex items-center justify-between bg-[var(--surface-2)] rounded-md px-3 py-2 text-[12.5px]">
-                  <div class="flex items-center gap-2">
-                    <span class="chip" x-text="ig.kind"></span>
-                    <span class="mono" x-text="ig.pattern"></span>
-                  </div>
-                  <button @click="delIgnore(ig.pattern)" class="text-[var(--danger)] hover:underline text-[11px]">Remove</button>
-                </div>
-              </template>
-              <div x-show="ignores.length===0" class="text-[11px] text-[var(--text-faint)] italic">No ignores configured.</div>
-            </div>
-          </section>
-          <section>
-            <h3 class="font-semibold text-[13px] mb-2">Keyboard shortcuts</h3>
-            <p class="text-[11.5px] text-[var(--text-faint)] mb-2">Press <kbd class="kbd">?</kbd> anywhere to open the full reference.</p>
-            <button @click="showSettings=false; showHotkeys=true" class="btn btn-soft text-[12px]">Open shortcut reference</button>
-          </section>
+          </template>
         </div>
       </div>
     </div>
@@ -939,20 +1041,27 @@ function app() {
       return [0, 5, 15, 30, 60].includes(v) ? v : 15;
     })(),
     activeOps: [],
-    view: (['stacks','services','history'].includes(localStorage.getItem('view')) ? localStorage.getItem('view') : 'stacks'),
+    view: (['stacks','services','history','settings'].includes(localStorage.getItem('view')) ? localStorage.getItem('view') : 'stacks'),
     search: '', statusFilter: '', healthFilter: '',
     sortField: 'name', sortDir: 'asc',
     selected: [],
     expanded: (() => { try { return JSON.parse(localStorage.getItem('expanded') || '[]'); } catch (e) { return []; } })(),
     loading: false,
     drawerItem: null,
-    showSettings: false,
     showHotkeys: false,
     opsExpanded: true,
     toast: '', toastType: 'success', _tt: null,
     autoRefresh: 0, _autoTimer: null, _opsTimer: null,
     cacheLabel: '',
     settings: { apprise_url: '', apprise_tag: '', portainer_public_url: '' },
+    // Profile / password change
+    showProfile: false,
+    profileForm: { current: '', next: '', confirm: '' },
+    profileBusy: false,
+    // Authentik status (read-only snapshot from /api/settings — editable
+    // from UI is a planned follow-up once auth.py reads from the settings
+    // table at runtime). `null` until loaded.
+    authStatus: null,
     newIgnore: { kind: 'image', pattern: '' },
     endpointId: 1,
     busy: {},
@@ -1005,6 +1114,45 @@ function app() {
         await fetch('/api/local-auth/logout', { method: 'POST' });
       } catch (_) { /* ignore — clearing the cookie is the important bit */ }
       location.href = '/login';
+    },
+
+    openProfile() {
+      this.profileForm = { current: '', next: '', confirm: '' };
+      this.showProfile = true;
+    },
+
+    async changePassword() {
+      if (this.profileBusy) return;
+      const f = this.profileForm;
+      if (f.next !== f.confirm) {
+        this.showToast('New passwords do not match', 'error');
+        return;
+      }
+      if ((f.next || '').length < 8) {
+        this.showToast('New password must be 8+ characters', 'error');
+        return;
+      }
+      this.profileBusy = true;
+      try {
+        const body = new URLSearchParams({
+          current_password: f.current,
+          new_password: f.next,
+          confirm_password: f.confirm,
+        });
+        const r = await fetch('/api/local-auth/change-password', { method: 'POST', body });
+        if (r.ok) {
+          this.showToast('Password changed. Other sessions were signed out.', 'success');
+          this.showProfile = false;
+          this.profileForm = { current: '', next: '', confirm: '' };
+        } else {
+          const j = await r.json().catch(() => ({}));
+          this.showToast(j.detail || ('Change failed (' + r.status + ')'), 'error');
+        }
+      } catch (_) {
+        this.showToast('Network error', 'error');
+      } finally {
+        this.profileBusy = false;
+      }
     },
 
     async loadVersion() {
@@ -1125,6 +1273,7 @@ function app() {
           portainer_public_url: d.portainer_public_url || '',
         };
         this.endpointId = d.endpoint_id || 1;
+        this.authStatus = d.authentik || null;
       } catch (e) { console.error(e); }
     },
     async saveSettings() {
@@ -1711,7 +1860,7 @@ function app() {
       // universal "get me out of here" key.
       if (e.key === 'Escape') {
         if (this.showHotkeys) { this.showHotkeys = false; e.preventDefault(); return; }
-        if (this.showSettings) { this.showSettings = false; e.preventDefault(); return; }
+        if (this.showProfile) { this.showProfile = false; e.preventDefault(); return; }
         if (this.drawerItem) { this.drawerItem = null; e.preventDefault(); return; }
         if (this.selected.length) { this.clearSelection(); e.preventDefault(); return; }
         if (this.search || this.statusFilter || this.healthFilter) {

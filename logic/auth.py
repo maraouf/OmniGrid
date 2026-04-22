@@ -180,6 +180,35 @@ def touch_last_login(conn: sqlite3.Connection, user_id: int) -> None:
     conn.execute("UPDATE users SET last_login_at=? WHERE id=?", (int(time.time()), user_id))
 
 
+def change_password(
+    conn: sqlite3.Connection,
+    user_id: int,
+    new_password: str,
+    keep_session_token: Optional[str] = None,
+) -> None:
+    """Rotate a local user's password hash and invalidate every other session.
+
+    Authentik users have no password_hash — callers must check
+    auth_source before invoking this. Only meaningful for local accounts.
+
+    Session invalidation on change is the standard defense: if an attacker
+    had a session, rotating the password should kick them. The caller's
+    own session is preserved (via keep_session_token) so the user doesn't
+    have to re-login immediately after a password change from the profile UI.
+    """
+    conn.execute(
+        "UPDATE users SET password_hash=? WHERE id=?",
+        (hash_password(new_password), user_id),
+    )
+    if keep_session_token:
+        conn.execute(
+            "DELETE FROM sessions WHERE user_id=? AND token_id<>?",
+            (user_id, keep_session_token),
+        )
+    else:
+        conn.execute("DELETE FROM sessions WHERE user_id=?", (user_id,))
+
+
 def auto_provision_authentik(
     conn: sqlite3.Connection,
     email: str,

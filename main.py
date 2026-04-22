@@ -38,12 +38,7 @@ from fastapi import BackgroundTasks, Depends, FastAPI, Form, HTTPException, Requ
 from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 
-import auth
-from prometheus_client import (
-    CONTENT_TYPE_LATEST, CollectorRegistry, Counter, Gauge, Histogram,
-    generate_latest,
-)
-from prometheus_client.core import GaugeMetricFamily
+from logic import auth, metrics
 from pydantic import BaseModel
 
 # ============================================================================
@@ -146,103 +141,10 @@ app = FastAPI(title="PortaUpdate", lifespan=_lifespan)
 # module (SQLite section) but the middleware body only runs at request time.
 app.middleware("http")(auth.make_auth_middleware(lambda: db_conn()))
 
-# ============================================================================
-# Prometheus metrics
-# ----------------------------------------------------------------------------
-# Exposes PortaUpdate's view of the fleet at GET /metrics (mounted below the
-# routes but ABOVE the StaticFiles catch-all — see the mount block near EOF).
-# Metric names match the Grafana dashboard in notes/grafana_dashboard_portaupdate.json.
-# ============================================================================
-METRICS_REGISTRY = CollectorRegistry()
-
-ITEMS_TOTAL = Gauge(
-    "portaupdate_items_total",
-    "Items by status and type",
-    ["status", "type"],
-    registry=METRICS_REGISTRY,
-)
-STACK_OUTDATED = Gauge(
-    "portaupdate_stack_outdated",
-    "Outdated items per stack",
-    ["stack"],
-    registry=METRICS_REGISTRY,
-)
-STACK_OFFLINE = Gauge(
-    "portaupdate_stack_offline",
-    "Offline items per stack",
-    ["stack"],
-    registry=METRICS_REGISTRY,
-)
-OPS_TOTAL = Counter(
-    "portaupdate_ops_total",
-    "One-click operations performed",
-    ["op_type", "status"],
-    registry=METRICS_REGISTRY,
-)
-REGISTRY_ERRORS = Counter(
-    "portaupdate_registry_errors_total",
-    "Remote-registry probe failures (per registry host)",
-    ["registry"],
-    registry=METRICS_REGISTRY,
-)
-REGISTRY_LATENCY = Histogram(
-    "portaupdate_registry_latency_seconds",
-    "Remote-registry HEAD/GET latency",
-    ["registry"],
-    registry=METRICS_REGISTRY,
-    buckets=(0.05, 0.1, 0.25, 0.5, 1, 2, 5, 10),
-)
-GATHER_DURATION = Histogram(
-    "portaupdate_gather_duration_seconds",
-    "End-to-end _gather() duration",
-    registry=METRICS_REGISTRY,
-    buckets=(0.5, 1, 2, 5, 10, 30, 60, 120),
-)
-
-
-class _CacheAgeCollector:
-    """Reports `portaupdate_cache_age_seconds` at scrape time.
-
-    Uses a custom Collector (not a Gauge) so the value reflects NOW even
-    between _gather() calls — Prometheus gets a fresh reading on every scrape
-    without any event needing to fire.
-    """
-
-    def collect(self):
-        g = GaugeMetricFamily(
-            "portaupdate_cache_age_seconds",
-            "Seconds since items cache was last populated",
-        )
-        age = (time.time() - _cache["ts"]) if _cache.get("ts") else 0.0
-        g.add_metric([], age)
-        yield g
-
-
-METRICS_REGISTRY.register(_CacheAgeCollector())
-
-
-def _populate_metrics_from_cache():
-    """Re-populate label-keyed gauges from the just-built `_cache`.
-
-    Called at the end of `_gather()`. Clears first so stacks that disappeared
-    don't linger as stale label sets — Prometheus gauges never decay on their
-    own and would otherwise report ghost values forever.
-    """
-    from collections import Counter as _C
-
-    ITEMS_TOTAL.clear()
-    STACK_OUTDATED.clear()
-    STACK_OFFLINE.clear()
-
-    counts = _C((i.get("status", "unknown"), i.get("type", "unknown"))
-                for i in _cache.get("items", []))
-    for (status, typ), n in counts.items():
-        ITEMS_TOTAL.labels(status=status, type=typ).set(n)
-
-    for s in _cache.get("stacks", []):
-        name = s.get("name") or "?"
-        STACK_OUTDATED.labels(stack=name).set(s.get("updates", 0))
-        STACK_OFFLINE.labels(stack=name).set(s.get("offline", 0))
+# Prometheus metric definitions moved to logic/metrics.py. The cache-age
+# collector is wired below (once _cache exists), and every remaining
+# metric call site in this file references them via `metrics.NAME`.
+metrics.register_cache_age_collector(lambda: _cache)
 
 
 # ============================================================================
@@ -476,14 +378,14 @@ async def _get_remote_digest(client: httpx.AsyncClient, image: str) -> Optional[
             if r.status_code == 200:
                 digest = r.headers.get("docker-content-digest")
         if digest is None:
-            REGISTRY_ERRORS.labels(registry=reg).inc()
+            metrics.REGISTRY_ERRORS.labels(registry=reg).inc()
         return digest
     except Exception as e:
-        REGISTRY_ERRORS.labels(registry=reg).inc()
+        metrics.REGISTRY_ERRORS.labels(registry=reg).inc()
         print(f"[digest] {image}: {e}")
         return None
     finally:
-        REGISTRY_LATENCY.labels(registry=reg).observe(time.monotonic() - _t0)
+        metrics.REGISTRY_LATENCY.labels(registry=reg).observe(time.monotonic() - _t0)
 
 
 # ============================================================================
@@ -543,8 +445,8 @@ async def _gather():
     try:
         await _gather_impl()
     finally:
-        GATHER_DURATION.observe(time.monotonic() - _gather_t0)
-        _populate_metrics_from_cache()
+        metrics.GATHER_DURATION.observe(time.monotonic() - _gather_t0)
+        metrics.populate_from_cache(_cache)
 
 
 async def _gather_impl():
@@ -946,7 +848,7 @@ def persist_history(op: Operation):
     # handler) because every handler funnels through persist_history in its
     # finally-block — a single instrumentation point covers all op types.
     try:
-        OPS_TOTAL.labels(op_type=op.op_type, status=op.status).inc()
+        metrics.OPS_TOTAL.labels(op_type=op.op_type, status=op.status).inc()
     except Exception as e:
         print(f"[metrics] OPS_TOTAL inc failed: {e}")
 
@@ -1724,6 +1626,16 @@ async def api_get_settings():
         "apprise_tag": get_setting("apprise_tag", ""),
         "portainer_public_url": get_setting("portainer_public_url", PORTAINER_URL),
         "endpoint_id": PORTAINER_ENDPOINT_ID,
+        # Authentik state — read-only snapshot of current env values. Editing
+        # from UI is a planned follow-up that requires auth.py to read from
+        # the settings table at runtime. NPM_AUTH_SECRET is never returned —
+        # only whether it's configured — so it doesn't leak back to the browser.
+        "authentik": {
+            "enabled": auth.AUTHENTIK_ENABLED,
+            "admin_group": auth.AUTHENTIK_ADMIN_GROUP,
+            "npm_auth_secret_set": bool(auth.NPM_AUTH_SECRET),
+            "source": "env",
+        },
     }
 
 
@@ -1791,6 +1703,52 @@ def _get_user_password_hash(conn, user_id: int):
     """Fetch password_hash directly — not exposed via the User dataclass."""
     r = conn.execute("SELECT password_hash FROM users WHERE id=?", (user_id,)).fetchone()
     return r["password_hash"] if r else None
+
+
+@app.post("/api/local-auth/change-password")
+async def api_change_password(
+    request: Request,
+    current_password: str = Form(...),
+    new_password: str = Form(...),
+    confirm_password: str = Form(...),
+    user: auth.User = Depends(auth.current_user),
+):
+    """Let a logged-in local user rotate their own password.
+
+    - Authentik users are directed to Authentik (no password stored here).
+    - Invalidates every other session for this user; keeps the caller's.
+    - Rate-limited via the shared login limiter so brute-forcing the current
+      password from a compromised session is bounded.
+    """
+    if user.auth_source != "local":
+        raise HTTPException(
+            status_code=400,
+            detail="Authentik users must change their password in Authentik.",
+        )
+    if new_password != confirm_password:
+        raise HTTPException(status_code=400, detail="New passwords do not match.")
+    if len(new_password) < 8:
+        raise HTTPException(status_code=400, detail="New password must be 8+ characters.")
+    if new_password == current_password:
+        raise HTTPException(status_code=400, detail="New password must differ from the current one.")
+
+    ip = auth._client_ip(request)
+    auth.rate_limit_check(ip)
+
+    with db_conn() as c:
+        stored = _get_user_password_hash(c, user.id)
+        if not auth.verify_password(current_password, stored):
+            auth.rate_limit_record_failure(ip)
+            raise HTTPException(status_code=401, detail="Current password is incorrect.")
+        auth.rate_limit_clear(ip)
+        # Preserve the caller's own session while invalidating others.
+        current_token_id = None
+        cookie = request.cookies.get(auth.COOKIE_NAME)
+        if cookie:
+            current_token_id = auth.parse_session_cookie(cookie)
+        auth.change_password(c, user.id, new_password, keep_session_token=current_token_id)
+
+    return {"status": "ok"}
 
 
 @app.post("/api/local-auth/logout")
@@ -1876,8 +1834,8 @@ async def login_page():
 @app.get("/metrics")
 async def prometheus_metrics():
     return Response(
-        content=generate_latest(METRICS_REGISTRY),
-        media_type=CONTENT_TYPE_LATEST,
+        content=metrics.generate_latest(metrics.REGISTRY),
+        media_type=metrics.CONTENT_TYPE_LATEST,
     )
 
 
