@@ -25,9 +25,11 @@ from contextlib import asynccontextmanager, contextmanager
 from typing import Optional
 
 import httpx
-from fastapi import BackgroundTasks, FastAPI, HTTPException, Request
-from fastapi.responses import Response
+from fastapi import BackgroundTasks, FastAPI, Form, HTTPException, Request
+from fastapi.responses import JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
+
+import auth
 from prometheus_client import (
     CONTENT_TYPE_LATEST, CollectorRegistry, Counter, Gauge, Histogram,
     generate_latest,
@@ -81,11 +83,20 @@ DOCKERHUB_TOKEN = os.getenv("DOCKERHUB_TOKEN", "")
 STATS_HISTORY_DAYS = int(os.getenv("STATS_HISTORY_DAYS", "7"))
 STATS_SAMPLE_INTERVAL = int(os.getenv("STATS_SAMPLE_INTERVAL_SECONDS", "300"))  # 5 min
 
+# Bootstrap-only env vars for seeding the first admin. Only consulted when
+# the users table is empty at startup — safe to leave set or unset afterward.
+BOOTSTRAP_ADMIN_USER = os.getenv("BOOTSTRAP_ADMIN_USER", "")
+BOOTSTRAP_ADMIN_PASSWORD = os.getenv("BOOTSTRAP_ADMIN_PASSWORD", "")
+
 @asynccontextmanager
 async def _lifespan(app: FastAPI):
     # Lifespan-managed startup — per the single-replica rule in CLAUDE.md,
     # long-running workers live here so they stay at one-per-process.
     init_db()
+    warn = auth.auto_secret_warning()
+    if warn:
+        print(warn)
+    _bootstrap_admin_if_needed()
     sampler = asyncio.create_task(_stats_sampler_loop(), name="stats-sampler")
     try:
         yield
@@ -97,7 +108,34 @@ async def _lifespan(app: FastAPI):
             pass
 
 
+def _bootstrap_admin_if_needed() -> None:
+    """Seed the first admin from env on empty databases.
+
+    Runs once per process. If BOOTSTRAP_ADMIN_USER/PASSWORD are set and no
+    users exist yet, creates that admin. Otherwise leaves the table empty and
+    waits for the one-shot `/api/local-auth/bootstrap` endpoint.
+    """
+    if not (BOOTSTRAP_ADMIN_USER and BOOTSTRAP_ADMIN_PASSWORD):
+        return
+    with db_conn() as c:
+        if auth.count_users(c) > 0:
+            return
+        auth.create_user(
+            c, BOOTSTRAP_ADMIN_USER, None,
+            BOOTSTRAP_ADMIN_PASSWORD, "admin", "local",
+        )
+    print(f"[auth] Seeded bootstrap admin '{BOOTSTRAP_ADMIN_USER}'. "
+          "Change password after first login.")
+
+
 app = FastAPI(title="PortaUpdate", lifespan=_lifespan)
+
+# Observe-mode auth middleware (step 1 of the auth rollout). Populates
+# request.state.user when an identity can be resolved; never rejects. Write
+# routes and global enforcement gate on this in later steps.
+# The lambda defers `db_conn` lookup: the function is defined later in this
+# module (SQLite section) but the middleware body only runs at request time.
+app.middleware("http")(auth.make_auth_middleware(lambda: db_conn()))
 
 # ============================================================================
 # Prometheus metrics
@@ -268,6 +306,9 @@ def init_db():
             "CREATE INDEX IF NOT EXISTS idx_history_target_stack "
             "ON history(target_stack)"
         )
+        # Auth schema — users / sessions / api_tokens. Owned by auth.py but
+        # created here so there's a single init_db() entry point.
+        auth.init_auth_schema(c)
 
 
 def get_setting(key: str, default: str = "") -> str:
@@ -1671,6 +1712,105 @@ async def healthz():
 @app.get("/api/version")
 async def api_version():
     return {"version": APP_VERSION}
+
+
+# ============================================================================
+# Auth routes (step 1: local login, logout, one-shot bootstrap, /api/me).
+# Registered here — above the StaticFiles catch-all — per CLAUDE.md.
+# ============================================================================
+@app.post("/api/local-auth/login")
+async def api_local_login(
+    request: Request,
+    username: str = Form(...),
+    password: str = Form(...),
+):
+    ip = auth._client_ip(request)
+    auth.rate_limit_check(ip)
+    with db_conn() as c:
+        u = auth.get_user_by_username(c, username)
+        if not u or u.auth_source != "local" or u.disabled or not auth.verify_password(password, _get_user_password_hash(c, u.id)):
+            auth.rate_limit_record_failure(ip)
+            raise HTTPException(status_code=401, detail="Invalid credentials")
+        auth.rate_limit_clear(ip)
+        auth.touch_last_login(c, u.id)
+        cookie_value, expires_at = auth.create_session(
+            c, u.id, ip, request.headers.get("user-agent"),
+        )
+    csrf = auth.generate_csrf_token()
+    resp = JSONResponse({"username": u.username, "role": u.role, "source": u.auth_source})
+    auth.set_session_cookie(resp, cookie_value, expires_at, request)
+    auth.set_csrf_cookie(resp, csrf, expires_at, request)
+    return resp
+
+
+def _get_user_password_hash(conn, user_id: int):
+    """Fetch password_hash directly — not exposed via the User dataclass."""
+    r = conn.execute("SELECT password_hash FROM users WHERE id=?", (user_id,)).fetchone()
+    return r["password_hash"] if r else None
+
+
+@app.post("/api/local-auth/logout")
+async def api_local_logout(request: Request):
+    cookie = request.cookies.get(auth.COOKIE_NAME)
+    if cookie:
+        token_id = auth.parse_session_cookie(cookie)
+        if token_id:
+            with db_conn() as c:
+                auth.delete_session(c, token_id)
+    resp = JSONResponse({"ok": True})
+    auth.clear_session_cookies(resp, request)
+    return resp
+
+
+@app.post("/api/local-auth/bootstrap")
+async def api_local_bootstrap(
+    request: Request,
+    username: str = Form(...),
+    password: str = Form(...),
+):
+    """One-shot: only works while the users table is empty.
+
+    Lets operators claim the first admin on a fresh install without having
+    to set BOOTSTRAP_ADMIN_* env vars. Self-disables as soon as any user
+    exists — every subsequent call returns 403.
+    """
+    ip = auth._client_ip(request)
+    auth.rate_limit_check(ip)
+    with db_conn() as c:
+        if auth.count_users(c) > 0:
+            auth.rate_limit_record_failure(ip)
+            raise HTTPException(status_code=403, detail="Bootstrap already consumed")
+        if not username or not password or len(password) < 8:
+            raise HTTPException(status_code=400, detail="Username required; password must be 8+ chars")
+        u = auth.create_user(c, username, None, password, "admin", "local")
+        auth.touch_last_login(c, u.id)
+        cookie_value, expires_at = auth.create_session(
+            c, u.id, ip, request.headers.get("user-agent"),
+        )
+    csrf = auth.generate_csrf_token()
+    resp = JSONResponse(
+        {"ok": True, "username": u.username, "role": u.role},
+        status_code=201,
+    )
+    auth.set_session_cookie(resp, cookie_value, expires_at, request)
+    auth.set_csrf_cookie(resp, csrf, expires_at, request)
+    return resp
+
+
+@app.get("/api/me")
+async def api_me(request: Request):
+    """Return the current identity if any. Never 401 in observe mode — the
+    frontend uses this to decide whether to show login vs authed chrome.
+    """
+    user = getattr(request.state, "user", None)
+    if not user:
+        return {"authenticated": False}
+    return {
+        "authenticated": True,
+        "username": user.username,
+        "role": user.role,
+        "source": user.auth_source,
+    }
 
 
 # Prometheus scrape endpoint.

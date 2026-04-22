@@ -12,25 +12,23 @@ services:
              exec uvicorn main:app --host 0.0.0.0 --port 8088 --workers 1"
     ports:
       - "9500:8088"
+
+    # All secrets and per-host tunables live in `.env` at the repo root and
+    # ship via CI rsync to /opt/portaupdate/app/.env. The repo is private, so
+    # secrets-in-git is acceptable here; the alternative (server-side-only
+    # .env) adds one-off operator steps and gets out-of-sync with the code.
+    # Reference: notes/notes_env_example.txt for every key PortaUpdate reads.
+    env_file:
+      - ./app/.env
+
     environment:
-      # ----- required -----
-      PORTAINER_URL: "https://portainer.home.lan:8443"
-      PORTAINER_API_KEY: "ptr_lilANmU/zu9UiFadqxLgIhlCbgpUwaeWBgcgHLU5s40="    # create in Portainer → My account → Access tokens
-      PORTAINER_ENDPOINT_ID: "19"                            # usually 1 for the local Swarm endpoint
-
-      # ----- optional -----
-      CACHE_TTL_SECONDS: "900"            # re-poll registries every 15m
-      REGISTRY_CONCURRENCY: "8"           # parallel registry digest queries
-      DB_PATH: "/app/data/portaupdate.db" # SQLite location (kept on the bind mount)
-      VERIFY_TLS: "false"                 # self-signed Portainer cert — keep false on this cluster
-
-      # ----- optional: Docker Hub pull auth (to avoid anonymous rate limits) -----
-      # DOCKERHUB_USER: "myuser"
-      # DOCKERHUB_TOKEN: "dckr_pat_xxx"
+      # Fixed path inside the container — kept out of .env because it's not
+      # something the operator would ever need to override per-host.
+      DB_PATH: "/app/data/portaupdate.db"
 
     volumes:
       - /opt/portaupdate/app:/app:ro          # source code (read-only, hot-reload with a container restart)
-      - /opt/portaupdate/data:/app/data       # SQLite for history / ignores / settings
+      - /opt/portaupdate/data:/app/data       # SQLite for history / ignores / settings / users / sessions
       - /opt/portaupdate/pip-cache:/pip-cache # persistent pip cache across restarts
       - /etc/ssl/certs:/etc/ssl/certs:ro      # trust your internal CA so HTTPS calls to portainer.home.lan work
 
