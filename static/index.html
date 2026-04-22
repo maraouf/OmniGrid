@@ -16,9 +16,13 @@
 <!-- Poppins is vendored under /fonts/ and declared in css/style.css. No
      external font fetches — the app stays functional fully offline. -->
 
-<script src="vendor/tailwind.min.js"></script>
-<script defer src="vendor/alpine.min.js"></script>
-<script src="vendor/sweetalert2.all.min.js"></script>
+<!-- All three front-end deps served straight from /node_modules/. Tailwind
+     uses @tailwindcss/browser (v4's in-browser JIT runtime equivalent to
+     the old v3 Play CDN). Bump versions in package.json, `npm install`,
+     commit node_modules. -->
+<script src="/node_modules/@tailwindcss/browser/dist/index.global.js"></script>
+<script defer src="/node_modules/alpinejs/dist/cdn.min.js"></script>
+<script src="/node_modules/sweetalert2/dist/sweetalert2.all.min.js"></script>
 <link rel="stylesheet" href="css/style.css">
 <script>
   // Global fetch wrapper installed before Alpine init. Does two things:

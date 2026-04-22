@@ -1258,5 +1258,14 @@ async def prometheus_metrics():
     )
 
 
+# Serve node_modules directly — HTML references Alpine / SweetAlert2
+# from /node_modules/<pkg>/dist/…, so we expose the whole tree as static.
+# Mounted before the "/" catch-all so the path routes here first. Only
+# paths prefixed with /node_modules/ land here; it's auth.FULLY_PUBLIC
+# by virtue of not starting with /api/.
+if os.path.isdir("node_modules"):
+    app.mount("/node_modules", StaticFiles(directory="node_modules"), name="node_modules")
+
+
 # Keep this line LAST — StaticFiles at "/" is a catch-all.
 app.mount("/", StaticFiles(directory="static", html=True), name="static")

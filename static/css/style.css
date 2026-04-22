@@ -262,10 +262,14 @@ textarea {
     background: var(--surface-2);
     border: 1px solid var(--border);
     color: var(--text);
-    padding: 6px 10px;
+    padding: 5px 10px;
     border-radius: var(--r-lg);
     outline: none;
-    font-size: 12.5px;
+    /* Font size + family restated explicitly — some browsers (notably Safari
+       and older Firefox) don't inherit font-family onto native <select>,
+       and Chrome subtly up-sizes form controls vs. surrounding body text.
+       Keeping this tight at 12px matches the rest of the app's chrome. */
+    font-size: 12px;
     font-family: var(--font-sans);
     font-weight: 400;
     line-height: 1.4;
@@ -274,6 +278,12 @@ textarea {
        Firefox otherwise paint the native chrome (calendar, number steppers)
        with a white surface that blows out the row. */
     color-scheme: dark light;
+}
+
+/* Native <select> collapses the arrow's hitbox on macOS unless we coax
+   it with a slight right-pad so the option text doesn't butt the chevron. */
+select {
+    padding-right: var(--s-6);
 }
 
 textarea {

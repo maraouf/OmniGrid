@@ -1,0 +1,14 @@
+{
+  "name": "portaupdate-vendor",
+  "version": "1.0.17",
+  "private": true,
+  "description": "Dev-only tooling. Manages the front-end dependencies (alpinejs, sweetalert2, @tailwindcss/browser). The server never runs npm — it just serves node_modules/ directly via FastAPI's StaticFiles mount at /node_modules/.",
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "@tailwindcss/browser": "*",
+    "alpinejs": "*",
+    "sweetalert2": "*"
+  }
+}
