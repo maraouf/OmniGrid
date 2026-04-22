@@ -42,7 +42,7 @@ from pydantic import BaseModel
 # MINOR increments for each new user-facing feature and PATCH for pure
 # bug fixes. Rendered in the UI footer and returned by /api/version.
 # ============================================================================
-APP_VERSION = "15.0.0"
+APP_VERSION = "1.0.0"
 
 # ============================================================================
 # Config
