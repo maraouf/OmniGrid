@@ -26,9 +26,11 @@ from typing import Optional
 
 import httpx
 from fastapi import BackgroundTasks, FastAPI, HTTPException
+from fastapi.responses import Response
 from fastapi.staticfiles import StaticFiles
 from prometheus_client import (
-    CollectorRegistry, Counter, Gauge, Histogram, make_asgi_app,
+    CONTENT_TYPE_LATEST, CollectorRegistry, Counter, Gauge, Histogram,
+    generate_latest,
 )
 from prometheus_client.core import GaugeMetricFamily
 from pydantic import BaseModel
@@ -1277,11 +1279,19 @@ async def healthz():
     return {"ok": True, "cache_age": int(time.time() - _cache["ts"]) if _cache["ts"] else None}
 
 
-# Prometheus scrape endpoint. MUST stay above the StaticFiles catch-all below,
-# otherwise FastAPI's routing hands every GET /metrics to index.html and
-# Prometheus logs "unsupported Content-Type text/html". See CLAUDE.md →
-# Conventions → "Mount order for non-/api routes".
-app.mount("/metrics", make_asgi_app(registry=METRICS_REGISTRY))
+# Prometheus scrape endpoint.
+# Implemented as a regular route (not app.mount) because Starlette's
+# Mount only matches the mount path WITH a trailing slash — bare GET
+# /metrics (what every Prometheus scraper sends by default) falls
+# through to the StaticFiles catch-all and returns 404. Using a route
+# sidesteps the trailing-slash foot-gun entirely.
+@app.get("/metrics")
+async def prometheus_metrics():
+    return Response(
+        content=generate_latest(METRICS_REGISTRY),
+        media_type=CONTENT_TYPE_LATEST,
+    )
+
 
 # Keep this line LAST — StaticFiles at "/" is a catch-all.
 app.mount("/", StaticFiles(directory="static", html=True), name="static")
