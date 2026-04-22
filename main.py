@@ -1816,6 +1816,187 @@ async def api_me(request: Request):
     }
 
 
+# ============================================================================
+# Admin: user / session / API-token management (step 5).
+# ============================================================================
+class UserCreate(BaseModel):
+    username: str
+    role: str                      # "admin" | "readonly"
+    auth_source: str = "local"     # "local" | "authentik"
+    password: Optional[str] = None # required when auth_source == "local"
+    email: Optional[str] = None
+
+
+class UserPatch(BaseModel):
+    role: Optional[str] = None
+    disabled: Optional[bool] = None
+
+
+class PasswordResetIn(BaseModel):
+    new_password: str
+
+
+class TokenCreate(BaseModel):
+    name: str
+    role: str                      # "admin" | "readonly"
+
+
+@app.get("/api/users")
+async def api_list_users(_admin: auth.User = Depends(auth.require_admin)):
+    with db_conn() as c:
+        return {"users": auth.list_users(c)}
+
+
+@app.post("/api/users")
+async def api_create_user(
+    u: UserCreate,
+    _admin: auth.User = Depends(auth.require_admin),
+):
+    name = (u.username or "").strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="Username is required.")
+    if u.role not in ("admin", "readonly"):
+        raise HTTPException(status_code=400, detail="Role must be 'admin' or 'readonly'.")
+    if u.auth_source not in ("local", "authentik"):
+        raise HTTPException(status_code=400, detail="auth_source must be 'local' or 'authentik'.")
+    if u.auth_source == "local":
+        if not u.password or len(u.password) < 8:
+            raise HTTPException(status_code=400, detail="Local users need a password with 8+ characters.")
+    with db_conn() as c:
+        if auth.get_user_by_username(c, name):
+            raise HTTPException(status_code=409, detail="That username is already taken.")
+        user = auth.create_user(
+            c, name, u.email or None,
+            u.password if u.auth_source == "local" else None,
+            u.role, u.auth_source,
+        )
+    return {"ok": True, "id": user.id, "username": user.username, "role": user.role}
+
+
+@app.patch("/api/users/{user_id}")
+async def api_update_user(
+    user_id: int,
+    p: UserPatch,
+    admin: auth.User = Depends(auth.require_admin),
+):
+    with db_conn() as c:
+        target = auth.get_user(c, user_id)
+        if not target:
+            raise HTTPException(status_code=404, detail="User not found.")
+        if p.role is not None and p.role not in ("admin", "readonly"):
+            raise HTTPException(status_code=400, detail="Role must be 'admin' or 'readonly'.")
+        # Guard: can't demote or disable the last active admin — that
+        # would lock everyone out of admin functions.
+        new_role = p.role if p.role is not None else target.role
+        new_disabled = p.disabled if p.disabled is not None else target.disabled
+        losing_admin = target.role == "admin" and not target.disabled and (
+            new_role != "admin" or new_disabled
+        )
+        if losing_admin and auth.count_active_admins(c) <= 1:
+            raise HTTPException(
+                status_code=400,
+                detail="Cannot demote or disable the last active admin.",
+            )
+        if p.role is not None:
+            auth.set_user_role(c, user_id, p.role)
+        if p.disabled is not None:
+            auth.set_user_disabled(c, user_id, bool(p.disabled))
+    return {"ok": True}
+
+
+@app.delete("/api/users/{user_id}")
+async def api_delete_user(
+    user_id: int,
+    admin: auth.User = Depends(auth.require_admin),
+):
+    if user_id == admin.id:
+        raise HTTPException(status_code=400, detail="You can't delete yourself.")
+    with db_conn() as c:
+        target = auth.get_user(c, user_id)
+        if not target:
+            raise HTTPException(status_code=404, detail="User not found.")
+        if target.role == "admin" and not target.disabled and auth.count_active_admins(c) <= 1:
+            raise HTTPException(
+                status_code=400,
+                detail="Cannot delete the last active admin.",
+            )
+        auth.delete_user(c, user_id)
+    return {"ok": True}
+
+
+@app.post("/api/users/{user_id}/reset-password")
+async def api_reset_password(
+    user_id: int,
+    r: PasswordResetIn,
+    _admin: auth.User = Depends(auth.require_admin),
+):
+    if not r.new_password or len(r.new_password) < 8:
+        raise HTTPException(status_code=400, detail="Password must be 8+ characters.")
+    with db_conn() as c:
+        target = auth.get_user(c, user_id)
+        if not target:
+            raise HTTPException(status_code=404, detail="User not found.")
+        if target.auth_source != "local":
+            raise HTTPException(
+                status_code=400,
+                detail="Authentik-managed users must change their password in Authentik.",
+            )
+        auth.admin_reset_password(c, user_id, r.new_password)
+    return {"ok": True}
+
+
+@app.get("/api/sessions")
+async def api_list_sessions(_admin: auth.User = Depends(auth.require_admin)):
+    with db_conn() as c:
+        return {"sessions": auth.list_sessions(c)}
+
+
+@app.delete("/api/sessions/{token_id}")
+async def api_revoke_session(
+    token_id: str,
+    _admin: auth.User = Depends(auth.require_admin),
+):
+    with db_conn() as c:
+        auth.delete_session(c, token_id)
+    return {"ok": True}
+
+
+@app.get("/api/tokens")
+async def api_list_tokens(_admin: auth.User = Depends(auth.require_admin)):
+    with db_conn() as c:
+        return {"tokens": auth.list_api_tokens(c)}
+
+
+@app.post("/api/tokens")
+async def api_create_token(
+    t: TokenCreate,
+    admin: auth.User = Depends(auth.require_admin),
+):
+    name = (t.name or "").strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="Name is required.")
+    if t.role not in ("admin", "readonly"):
+        raise HTTPException(status_code=400, detail="Role must be 'admin' or 'readonly'.")
+    try:
+        with db_conn() as c:
+            raw = auth.create_api_token(c, name, t.role, admin.id)
+    except sqlite3.IntegrityError:
+        raise HTTPException(status_code=409, detail="A token with that name already exists.")
+    # Raw token returned ONCE. UI shows a one-time reveal modal; we store
+    # only the SHA-256 hash. If lost, the operator must rotate.
+    return {"ok": True, "name": name, "role": t.role, "token": raw}
+
+
+@app.delete("/api/tokens/{token_id}")
+async def api_delete_token(
+    token_id: int,
+    _admin: auth.User = Depends(auth.require_admin),
+):
+    with db_conn() as c:
+        auth.delete_api_token(c, token_id)
+    return {"ok": True}
+
+
 # Login HTML page. Served as a discrete route (not via StaticFiles) because
 # /login has no trailing slash and we want it to map to static/login.html
 # directly without relying on html=True directory-index behaviour. Also

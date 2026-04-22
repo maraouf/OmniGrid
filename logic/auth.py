@@ -209,6 +209,98 @@ def change_password(
         conn.execute("DELETE FROM sessions WHERE user_id=?", (user_id,))
 
 
+def list_users(conn: sqlite3.Connection) -> list[dict]:
+    """Return every user as a dict (id, username, email, role, auth_source,
+    disabled, created_at, last_login_at) for the admin UI."""
+    rows = conn.execute("""
+        SELECT id, username, email, role, auth_source, disabled,
+               created_at, last_login_at
+        FROM users
+        ORDER BY username COLLATE NOCASE
+    """).fetchall()
+    return [dict(r) for r in rows]
+
+
+def count_active_admins(conn: sqlite3.Connection) -> int:
+    """Used as a guard against demoting or disabling the last active admin."""
+    return conn.execute(
+        "SELECT COUNT(*) FROM users WHERE role='admin' AND disabled=0"
+    ).fetchone()[0]
+
+
+def set_user_role(conn: sqlite3.Connection, user_id: int, role: str) -> None:
+    if role not in ("admin", "readonly"):
+        raise ValueError(f"invalid role: {role}")
+    conn.execute("UPDATE users SET role=? WHERE id=?", (role, user_id))
+
+
+def set_user_disabled(conn: sqlite3.Connection, user_id: int, disabled: bool) -> None:
+    conn.execute(
+        "UPDATE users SET disabled=? WHERE id=?",
+        (1 if disabled else 0, user_id),
+    )
+    # Disabling a user should kick them out of every active session — a
+    # disabled user whose cookie still works isn't really disabled.
+    if disabled:
+        delete_user_sessions(conn, user_id)
+
+
+def delete_user(conn: sqlite3.Connection, user_id: int) -> None:
+    """Remove a user and cascade sessions + null-out api-token ownership.
+
+    SQLite doesn't enforce the REFERENCES clause without PRAGMA
+    foreign_keys=ON, so we do the cascade manually. api_tokens keep
+    working (just lose the "created_by" backpointer) — revoking the
+    token is a separate admin action.
+    """
+    delete_user_sessions(conn, user_id)
+    conn.execute("UPDATE api_tokens SET created_by=NULL WHERE created_by=?", (user_id,))
+    conn.execute("DELETE FROM users WHERE id=?", (user_id,))
+
+
+def admin_reset_password(
+    conn: sqlite3.Connection, user_id: int, new_password: str,
+) -> None:
+    """Overwrite a local user's password from the admin UI. Unlike
+    change_password, no current-password check — the acting admin already
+    has that authority. Invalidates every session for the target user.
+    """
+    conn.execute(
+        "UPDATE users SET password_hash=? WHERE id=?",
+        (hash_password(new_password), user_id),
+    )
+    delete_user_sessions(conn, user_id)
+
+
+def list_sessions(conn: sqlite3.Connection) -> list[dict]:
+    """Active (non-expired) sessions with usernames resolved for display."""
+    rows = conn.execute("""
+        SELECT s.token_id, s.user_id, u.username, s.issued_at, s.last_seen_at,
+               s.expires_at, s.ip, s.user_agent
+        FROM sessions s
+        LEFT JOIN users u ON u.id = s.user_id
+        WHERE s.expires_at > ?
+        ORDER BY s.last_seen_at DESC
+    """, (int(time.time()),)).fetchall()
+    return [dict(r) for r in rows]
+
+
+def list_api_tokens(conn: sqlite3.Connection) -> list[dict]:
+    """Every API token with the creator's username (if still present)."""
+    rows = conn.execute("""
+        SELECT t.id, t.name, t.role, t.created_at, t.last_used_at,
+               u.username AS created_by_username
+        FROM api_tokens t
+        LEFT JOIN users u ON u.id = t.created_by
+        ORDER BY t.name COLLATE NOCASE
+    """).fetchall()
+    return [dict(r) for r in rows]
+
+
+def delete_api_token(conn: sqlite3.Connection, token_id: int) -> None:
+    conn.execute("DELETE FROM api_tokens WHERE id=?", (token_id,))
+
+
 def auto_provision_authentik(
     conn: sqlite3.Connection,
     email: str,
@@ -527,22 +619,59 @@ def make_auth_middleware(db_conn_factory):
             return await call_next(request)
         user, reissue = _resolve_user(request, db_conn_factory)
         request.state.user = user
-        # Step-3 enforcement: unauthenticated requests to /api/* get 401.
-        # /api/me and /api/local-auth/* are auth-optional — they still run.
-        # Non-/api paths outside the public list are redirected to /login.
-        # Enforcement: only /api/* needs gating at the middleware level —
-        # the SPA handles its own redirect-to-/login via /api/me.
+        # Auth enforcement: missing identity on a non-optional /api path → 401.
+        # Auth-optional paths (/api/me, /api/local-auth/*) still run so the
+        # SPA can ask "am I logged in?" and handlers can behave per-caller.
         if user is None and not _is_auth_optional(path):
             return JSONResponse(
                 {"detail": "Authentication required"}, status_code=401,
             )
+        # CSRF enforcement (step 6): double-submit cookie on state-changing
+        # methods for cookie-authed callers. Bearer tokens don't use
+        # cookies, so cross-origin attackers can't forge them → exempt.
+        # Auth-optional endpoints (login/logout/bootstrap) are exempt
+        # because they run before the user has a CSRF cookie in the first
+        # place; CSRF on logout is a non-issue (attacker can log you out
+        # but not do anything as you).
+        if (
+            request.method in ("POST", "PUT", "PATCH", "DELETE")
+            and user is not None
+            and not _is_auth_optional(path)
+            and not _is_bearer_request(request)
+        ):
+            header = request.headers.get("x-csrf-token", "")
+            cookie = request.cookies.get(CSRF_COOKIE, "")
+            if not header or not cookie or not hmac.compare_digest(header, cookie):
+                return JSONResponse(
+                    {"detail": "CSRF token mismatch"}, status_code=403,
+                )
         response = await call_next(request)
         if reissue is not None:
             cookie_value, expires_at = reissue
             set_session_cookie(response, cookie_value, expires_at, request)
+        # Issue a pu_csrf cookie when an authed caller doesn't already have
+        # one — covers Authentik SSO users (who skip the local login flow
+        # that would otherwise set it) and any edge case where the cookie
+        # got cleared. Stable-per-browser: we just need it to match what
+        # the client sends back as X-CSRF-Token (double-submit defense).
+        if (
+            user is not None
+            and not _is_bearer_request(request)
+            and not request.cookies.get(CSRF_COOKIE)
+        ):
+            set_csrf_cookie(
+                response,
+                generate_csrf_token(),
+                int(time.time()) + SESSION_LIFETIME,
+                request,
+            )
         return response
 
     return auth_middleware
+
+
+def _is_bearer_request(request: Request) -> bool:
+    return request.headers.get("authorization", "").startswith("Bearer ")
 
 
 def current_user(request: Request) -> User:
