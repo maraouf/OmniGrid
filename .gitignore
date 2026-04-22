@@ -10,9 +10,6 @@ data/
 *.db
 *.db-journal
 
-# Agent state
-.claude/
-
 # PyCharm
 .idea/
 

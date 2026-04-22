@@ -64,6 +64,7 @@
   --backdrop-strong: rgba(0, 0, 0, .75);
   --row-hover: rgba(255, 255, 255, .03);
   --label-shadow: rgba(0, 0, 0, .4);
+  --kbd-shadow: rgba(0, 0, 0, .35);
 
   /* Spacing scale */
   --s-1: 2px;
@@ -153,6 +154,7 @@
   --backdrop-strong: rgba(15, 23, 42, .60);
   --row-hover: rgba(15, 23, 42, .03);
   --label-shadow: rgba(255, 255, 255, .6);
+  --kbd-shadow: rgba(15, 23, 42, .12);
 }
 
 /* ---------------------------------------------------------------------------
@@ -671,3 +673,79 @@ details summary::-webkit-details-marker { display: none; }
 .swal2-icon.swal2-error    { color: var(--danger) !important;  border-color: var(--danger) !important; }
 .swal2-icon .swal2-icon-content { color: inherit !important; }
 .swal2-backdrop-show { backdrop-filter: blur(3px); }
+
+/* ---------------------------------------------------------------------------
+   Keyboard shortcut pills (<kbd>) used in the help modal and tooltips.
+   --------------------------------------------------------------------------- */
+.kbd {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 22px;
+  padding: var(--s-1) var(--s-3);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text);
+  background: var(--surface-2);
+  border: 1px solid var(--border-bright);
+  border-bottom-width: 2px;
+  border-radius: var(--r-md);
+  line-height: 1;
+  box-shadow: 0 1px 0 var(--kbd-shadow);
+}
+
+/* ---------------------------------------------------------------------------
+   Stack topology map — per-node replica chips beneath service rows.
+   Each node gets a pill; each replica inside it gets a coloured dot keyed
+   to its Swarm task state (running/failed/pending/...).
+   --------------------------------------------------------------------------- */
+.topology-map {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 3px;
+}
+.topology-node {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-2);
+  padding: 1px var(--s-3) 1px 5px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  font-size: 10px;
+  color: var(--text-dim);
+  font-family: var(--font-mono);
+  letter-spacing: 0.1px;
+  line-height: 1.4;
+}
+.topology-host {
+  max-width: 140px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.topology-chip {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--text-faint);
+  flex-shrink: 0;
+}
+.topology-running                        { background: var(--success); }
+.topology-failed,
+.topology-rejected,
+.topology-orphaned                       { background: var(--danger); }
+.topology-pending,
+.topology-allocated,
+.topology-assigned,
+.topology-accepted,
+.topology-preparing,
+.topology-starting,
+.topology-ready                          { background: var(--warning); }
+.topology-shutdown,
+.topology-complete,
+.topology-remove                         { background: var(--text-faint); }
+.topology-new                            { background: var(--primary); }
