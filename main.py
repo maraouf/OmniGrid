@@ -899,9 +899,19 @@ async def _do_remove_container(op: Operation, container_id: str):
                 f"containers/{container_id}?force=true&v=true",
                 headers=_headers(),
             )
-            if r.status_code >= 400:
+            # Idempotent removal: if the container is already gone (Swarm
+            # cleanup, another operator, a previous click that succeeded
+            # after a cache snapshot), 404 is the SAME end-state as a fresh
+            # delete. Treat it as success so the operator doesn't see a
+            # scary red toast for a no-op. The cache is invalidated in the
+            # finally-block regardless, so the row will disappear on the
+            # next refresh.
+            if r.status_code == 404:
+                op.log("Container already gone — treating as success", "success")
+            elif r.status_code >= 400:
                 raise RuntimeError(f"HTTP {r.status_code}: {r.text[:300]}")
-            op.log("Container removed", "success")
+            else:
+                op.log("Container removed", "success")
         op.done("success")
         await notify(f"🗑 Container removed: {op.target_name}", "", "success")
     except Exception as e:
