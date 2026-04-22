@@ -57,14 +57,18 @@ from logic.version import APP_VERSION
 # ============================================================================
 # Config
 # ============================================================================
-PORTAINER_URL = os.getenv("PORTAINER_URL", "").rstrip("/")
-PORTAINER_API_KEY = os.getenv("PORTAINER_API_KEY", "")
-PORTAINER_ENDPOINT_ID = int(os.getenv("PORTAINER_ENDPOINT_ID", "1"))
+# Portainer-client env config owned by logic.portainer — re-export here
+# so call sites keep reading PORTAINER_URL etc. from main's namespace.
+from logic.portainer import (  # noqa: E402
+    PORTAINER_URL,
+    PORTAINER_API_KEY,
+    PORTAINER_ENDPOINT_ID,
+    VERIFY_TLS,
+    REGISTRY_CONCURRENCY as CONCURRENCY,
+    STATS_CONCURRENCY,
+)
 CACHE_TTL = int(os.getenv("CACHE_TTL_SECONDS", "900"))
 STATS_CACHE_TTL = int(os.getenv("STATS_CACHE_TTL_SECONDS", "30"))
-VERIFY_TLS = os.getenv("VERIFY_TLS", "true").lower() == "true"
-CONCURRENCY = int(os.getenv("REGISTRY_CONCURRENCY", "8"))
-STATS_CONCURRENCY = int(os.getenv("STATS_CONCURRENCY", "16"))
 from logic.db import DB_PATH, db_conn, get_setting, set_setting  # noqa: E402,F401
 DOCKERHUB_USER = os.getenv("DOCKERHUB_USER", "")
 DOCKERHUB_TOKEN = os.getenv("DOCKERHUB_TOKEN", "")
@@ -202,158 +206,30 @@ def init_db():
 
 
 # ============================================================================
-# Portainer client
+# Portainer client moved to logic/portainer.py. Local aliases keep the old
+# underscore-prefixed names as call-site shortcuts so the rest of this
+# file reads unchanged. _node_for_container binds _cache through a thin
+# wrapper since portainer.node_for_container takes the cache dict.
 # ============================================================================
-def _headers(agent_target: Optional[str] = None):
-    # `X-PortainerAgent-Target: <hostname>` routes the request through the
-    # Portainer agent to a specific Swarm node's Docker daemon. Required for
-    # container-level actions (delete, restart, recreate) when the container
-    # lives on a worker node — the manager's daemon would otherwise 404.
-    # Skip the header for synthetic fallback values.
-    h = {"X-API-Key": PORTAINER_API_KEY}
-    if agent_target and agent_target not in ("local", "?", ""):
-        h["X-PortainerAgent-Target"] = agent_target
-    return h
+from logic import portainer  # noqa: E402
+_headers = portainer.headers
+_pg = portainer.pg
 
 
 def _node_for_container(container_id: str) -> Optional[str]:
-    """Return the hostname of the Swarm node hosting `container_id`, if known.
-
-    Reads the last gathered `_cache`. Returns None for standalone containers
-    whose node can't be determined from Swarm metadata (those stay routed to
-    the manager, same as before). Accepts either a prefixed id (`ctn:abc...`)
-    or the raw Docker ID.
-    """
-    for it in _cache.get("items", []):
-        if it.get("raw_id") == container_id or it.get("id") == container_id:
-            node = it.get("node")
-            if node and node not in ("local", "?", ""):
-                return node
-            break
-    return None
-
-
-async def _pg(client: httpx.AsyncClient, path: str):
-    r = await client.get(f"{PORTAINER_URL}{path}", headers=_headers())
-    r.raise_for_status()
-    return r.json()
+    return portainer.node_for_container(_cache, container_id)
 
 
 # ============================================================================
-# Registry digest checking
+# Registry digest checking moved to logic/registry.py. Local aliases keep
+# the old underscore-prefixed names as call-site shortcuts so the rest of
+# the file reads unchanged.
 # ============================================================================
-_token_cache: dict[str, tuple[str, float]] = {}
-
-
-def _parse_image_ref(ref: str) -> tuple[str, str, str]:
-    if "@" in ref:
-        ref = ref.split("@", 1)[0]
-    parts = ref.split("/", 1)
-    first = parts[0]
-    is_reg = "." in first or ":" in first or first == "localhost"
-    if is_reg and len(parts) == 2:
-        registry, repo = first, parts[1]
-    else:
-        registry = "registry-1.docker.io"
-        repo = ref if "/" in ref else f"library/{ref}"
-    if ":" in repo.rsplit("/", 1)[-1]:
-        repo, tag = repo.rsplit(":", 1)
-    else:
-        tag = "latest"
-    return registry, repo, tag
-
-
-def _hub_link(image: str) -> Optional[str]:
-    try:
-        reg, repo, _ = _parse_image_ref(image)
-    except Exception:
-        return None
-    if reg == "lscr.io" and repo.startswith("linuxserver/"):
-        return f"https://github.com/linuxserver/docker-{repo.split('/', 1)[1]}"
-    if reg == "ghcr.io":
-        return f"https://github.com/{repo}"
-    if reg == "registry-1.docker.io":
-        if repo.startswith("library/"):
-            return f"https://hub.docker.com/_/{repo.split('/', 1)[1]}/tags"
-        return f"https://hub.docker.com/r/{repo}/tags"
-    return None
-
-
-async def _get_bearer(client: httpx.AsyncClient, www_auth: str, repo: str) -> Optional[str]:
-    if not www_auth.lower().startswith("bearer "):
-        return None
-    params: dict[str, str] = {}
-    for part in www_auth[7:].split(","):
-        if "=" in part:
-            k, v = part.split("=", 1)
-            params[k.strip()] = v.strip().strip('"')
-    realm = params.get("realm")
-    if not realm:
-        return None
-    service = params.get("service", "")
-    scope = params.get("scope", f"repository:{repo}:pull")
-    key = f"{realm}|{service}|{scope}"
-    if key in _token_cache:
-        t, exp = _token_cache[key]
-        if exp > time.time():
-            return t
-    auth = None
-    if "docker.io" in realm and DOCKERHUB_USER and DOCKERHUB_TOKEN:
-        auth = (DOCKERHUB_USER, DOCKERHUB_TOKEN)
-    try:
-        r = await client.get(realm, params={"service": service, "scope": scope}, auth=auth)
-        r.raise_for_status()
-        j = r.json()
-        tok = j.get("token") or j.get("access_token")
-        if tok:
-            _token_cache[key] = (tok, time.time() + int(j.get("expires_in", 300)) - 30)
-        return tok
-    except Exception as e:
-        print(f"[auth] {e}")
-        return None
-
-
-async def _get_remote_digest(client: httpx.AsyncClient, image: str) -> Optional[str]:
-    # Parse OUTSIDE the timed block — we need the registry host for the
-    # histogram label, and we shouldn't charge parse-only failures to
-    # registry latency.
-    try:
-        reg, repo, tag = _parse_image_ref(image)
-    except Exception as e:
-        print(f"[digest] parse {image}: {e}")
-        return None
-    _t0 = time.monotonic()
-    digest: Optional[str] = None
-    try:
-        accept = ", ".join([
-            "application/vnd.docker.distribution.manifest.v2+json",
-            "application/vnd.docker.distribution.manifest.list.v2+json",
-            "application/vnd.oci.image.manifest.v1+json",
-            "application/vnd.oci.image.index.v1+json",
-        ])
-        url = f"https://{reg}/v2/{repo}/manifests/{tag}"
-        h = {"Accept": accept}
-        r = await client.head(url, headers=h, follow_redirects=True)
-        if r.status_code == 401:
-            tok = await _get_bearer(client, r.headers.get("www-authenticate", ""), repo)
-            if tok:
-                h["Authorization"] = f"Bearer {tok}"
-                r = await client.head(url, headers=h, follow_redirects=True)
-        if r.status_code == 200:
-            digest = r.headers.get("docker-content-digest")
-        elif r.status_code in (404, 405):
-            r = await client.get(url, headers=h, follow_redirects=True)
-            if r.status_code == 200:
-                digest = r.headers.get("docker-content-digest")
-        if digest is None:
-            metrics.REGISTRY_ERRORS.labels(registry=reg).inc()
-        return digest
-    except Exception as e:
-        metrics.REGISTRY_ERRORS.labels(registry=reg).inc()
-        print(f"[digest] {image}: {e}")
-        return None
-    finally:
-        metrics.REGISTRY_LATENCY.labels(registry=reg).observe(time.monotonic() - _t0)
+from logic import registry  # noqa: E402
+_parse_image_ref = registry.parse_image_ref
+_hub_link = registry.hub_link
+_tag_of = registry.tag_of
+_get_remote_digest = registry.get_remote_digest
 
 
 # ============================================================================
