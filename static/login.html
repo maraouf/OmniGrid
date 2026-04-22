@@ -54,6 +54,82 @@
  </div>
 
 <script>
+  // Minimal i18n helper — same shape as the one in index.html but tiny,
+  // because the login page only renders a handful of strings. No language
+  // picker here; the choice follows whatever the user last set in the app
+  // (persisted in localStorage under 'lang').
+  const I18N = {
+    dict: {},
+    code: 'en',
+    flatten(obj, prefix) {
+      prefix = prefix || '';
+      const out = {};
+      for (const k in obj) {
+        const v = obj[k];
+        const key = prefix ? prefix + '.' + k : k;
+        if (v && typeof v === 'object' && !Array.isArray(v)) {
+          Object.assign(out, this.flatten(v, key));
+        } else {
+          out[key] = v;
+        }
+      }
+      return out;
+    },
+    async load(code) {
+      try {
+        const r = await fetch('/i18n/' + code + '.json', { cache: 'no-cache' });
+        if (!r.ok) throw new Error('missing');
+        const doc = await r.json();
+        this.dict = this.flatten(doc);
+        this.code = code;
+        const dir = (doc._meta && doc._meta.dir) || 'ltr';
+        document.documentElement.setAttribute('lang', code);
+        document.documentElement.setAttribute('dir', dir);
+      } catch (_) {
+        // Silent — login still works with untranslated English DOM.
+      }
+    },
+    t(key, vars) {
+      let s = this.dict[key];
+      if (s === undefined || s === '') {
+        s = (window.__i18nEn && window.__i18nEn[key]);
+        if (s === undefined || s === '') s = key;
+      }
+      if (vars) {
+        for (const k in vars) {
+          s = String(s).replaceAll('{' + k + '}', String(vars[k]));
+        }
+      }
+      return s;
+    },
+  };
+  window.t = I18N.t.bind(I18N);
+
+  function applyI18nDom() {
+    const els = document.querySelectorAll('[data-i18n]');
+    for (let i = 0; i < els.length; i++) {
+      const el = els[i];
+      const key = el.getAttribute('data-i18n');
+      const v = I18N.t(key);
+      if (v && v !== key) el.textContent = v;
+    }
+  }
+
+  (async function bootI18n() {
+    // Always load English first so the missing-key fallback has a dict.
+    try {
+      const r = await fetch('/i18n/en.json', { cache: 'no-cache' });
+      if (r.ok) {
+        const doc = await r.json();
+        window.__i18nEn = I18N.flatten(doc);
+      }
+    } catch (_) {}
+    const lang = localStorage.getItem('lang') || 'en';
+    if (lang !== 'en') await I18N.load(lang);
+    else I18N.dict = window.__i18nEn || {};
+    applyI18nDom();
+  })();
+
   (function () {
     const form = document.getElementById('login');
     const btn = document.getElementById('btn');
@@ -99,7 +175,7 @@
       e.preventDefault();
       clearErr();
       btn.disabled = true;
-      btn.textContent = 'Signing in…';
+      btn.textContent = window.t ? window.t('login.signing_in') : 'Signing in…';
       try {
         const body = new URLSearchParams({
           username: document.getElementById('u').value,
@@ -116,17 +192,17 @@
         }
         if (r.status === 429) {
           const j = await r.json().catch(() => ({}));
-          showErr(j.detail || 'Too many attempts. Try again shortly.');
+          showErr(j.detail || (window.t ? window.t('login.too_many_attempts') : 'Too many attempts. Try again shortly.'));
         } else if (r.status === 401) {
-          showErr('Invalid username or password.');
+          showErr(window.t ? window.t('login.invalid_credentials') : 'Invalid username or password.');
         } else {
-          showErr('Sign-in failed (' + r.status + '). Try again.');
+          showErr(window.t ? window.t('login.sign_in_failed', { status: r.status }) : ('Sign-in failed (' + r.status + '). Try again.'));
         }
       } catch (_) {
-        showErr('Network error. Try again.');
+        showErr(window.t ? window.t('login.network_error') : 'Network error. Try again.');
       } finally {
         btn.disabled = false;
-        btn.textContent = 'Sign in';
+        btn.textContent = window.t ? window.t('login.sign_in') : 'Sign in';
       }
     });
   })();

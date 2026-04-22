@@ -131,7 +131,8 @@
     "send_test": "Send test",
     "no_stack": "No stack",
     "em_dash": "—",
-    "open_shortcut_reference": "Open shortcut reference"
+    "open_shortcut_reference": "Open shortcut reference",
+    "cleanup": "Cleanup"
   },
   "states": {
     "healthy": "healthy",

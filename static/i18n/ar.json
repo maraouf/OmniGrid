@@ -131,7 +131,8 @@
     "send_test": "",
     "no_stack": "",
     "em_dash": "",
-    "open_shortcut_reference": ""
+    "open_shortcut_reference": "",
+    "cleanup": ""
   },
   "states": {
     "healthy": "",

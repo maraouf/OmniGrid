@@ -390,18 +390,30 @@ async def callback(request: Request):
         raise HTTPException(status_code=502, detail="OIDC token response missing id_token")
 
     # --- Validate id_token -------------------------------------------------
-    # Per RFC 8414 / OIDC Core, the authoritative value for the `iss` claim
-    # is whatever the discovery doc advertises — NOT whatever the admin
-    # typed into the Settings panel. Authentik emits `iss` with or without
-    # a trailing slash depending on the provider config, and the doc's
-    # `issuer` field is the one it guarantees will match. Fall back to the
-    # configured URL only if the doc is non-compliant.
-    expected_iss = (doc.get("issuer") or issuer).rstrip("/")
+    # Per RFC 8414 / OIDC Core, the `iss` claim MUST EXACTLY match the
+    # value the discovery doc advertises — byte-for-byte, trailing slash
+    # included. Do NOT strip anything from it; whatever the IdP publishes
+    # in `openid-configuration.issuer` is what the id_token will carry.
+    # Fall back to the admin-typed URL only if the doc is non-compliant.
+    expected_iss = doc.get("issuer") or issuer
     try:
         claims = await _validate_id_token(
             id_token, issuer=issuer, jwks_uri=jwks_uri,
             expected_iss=expected_iss,
             client_id=client_id, expected_nonce=flow["nonce"],
+        )
+    except jwt.InvalidIssuerError as e:
+        # Dig out the actual iss in the token so the operator can spot
+        # trailing-slash / host mismatches without reaching for jwt.io.
+        try:
+            actual = jwt.decode(id_token, options={"verify_signature": False}).get("iss", "?")
+        except Exception:
+            actual = "?"
+        auth.rate_limit_record_failure(ip)
+        raise HTTPException(
+            status_code=401,
+            detail=(f"id_token validation failed: Invalid issuer. "
+                    f"Expected {expected_iss!r}, got {actual!r}."),
         )
     except jwt.PyJWTError as e:
         auth.rate_limit_record_failure(ip)
@@ -450,8 +462,9 @@ async def _validate_id_token(
     ``issuer`` is the configured URL (used as the JWKS cache key).
     ``expected_iss`` is what PyJWT checks the `iss` claim against — the
     discovery doc's `issuer` field, which the provider guarantees will
-    match the id_token's `iss`. Falls back to ``issuer.rstrip("/")`` if
-    the caller didn't resolve it.
+    match the id_token's `iss` byte-for-byte. Falls back to the raw
+    ``issuer`` string if the caller didn't resolve one; never strip a
+    trailing slash from it — the spec requires exact equality.
 
     JWKS is refreshed on unknown `kid` so mid-rotation tokens are
     accepted without waiting out the cache TTL.
@@ -480,7 +493,7 @@ async def _validate_id_token(
         key=public_key,
         algorithms=[alg],
         audience=client_id,
-        issuer=(expected_iss or issuer.rstrip("/")),
+        issuer=(expected_iss or issuer),
         options={"require": ["exp", "iat", "iss", "aud"]},
         leeway=30,  # small clock-skew tolerance — tokens usually live 5+ minutes anyway
     )

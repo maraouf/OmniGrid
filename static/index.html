@@ -11,6 +11,113 @@
     var sysLight = window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches;
     var resolved = pref === 'auto' ? (sysLight ? 'light' : 'dark') : pref;
     document.documentElement.setAttribute('data-theme', resolved);
+    // Apply persisted language/direction before first paint so RTL layout
+    // doesn't flash LTR on page load. The full i18n helper below handles
+    // JSON fetch + key lookups.
+    var lang = localStorage.getItem('lang') || 'en';
+    document.documentElement.setAttribute('lang', lang);
+    // `ar` is hard-coded as RTL here just so the *shell* flips before the
+    // async JSON fetch completes. Every other language's direction comes
+    // from its own _meta.dir once loaded.
+    document.documentElement.setAttribute('dir', lang === 'ar' ? 'rtl' : 'ltr');
+  })();
+</script>
+<script>
+  // ------------------------------------------------------------------
+  // i18n helper — vanilla JS, no external library. Pulls language files
+  // from /i18n/<code>.json at boot and exposes `window.t(key, vars)` for
+  // use in Alpine templates (`x-text="t('nav.stacks')"`) and JS.
+  // ------------------------------------------------------------------
+  const I18N = {
+    dict: {},
+    code: 'en',
+    dir: 'ltr',
+    languages: [],            // populated from /i18n/index.json
+    _warned: new Set(),       // de-dupe console.warn for missing keys
+    flatten(obj, prefix) {
+      prefix = prefix || '';
+      const out = {};
+      for (const k in obj) {
+        const v = obj[k];
+        const key = prefix ? prefix + '.' + k : k;
+        if (v && typeof v === 'object' && !Array.isArray(v)) {
+          Object.assign(out, this.flatten(v, key));
+        } else {
+          out[key] = v;
+        }
+      }
+      return out;
+    },
+    async loadIndex() {
+      try {
+        const r = await fetch('/i18n/index.json', { cache: 'no-cache' });
+        if (r.ok) this.languages = await r.json();
+      } catch (_) {
+        // Fallback: at least offer English if the index is missing.
+        this.languages = [{ code: 'en', name: 'English', dir: 'ltr' }];
+      }
+    },
+    async load(code) {
+      const r = await fetch('/i18n/' + code + '.json', { cache: 'no-cache' });
+      if (!r.ok) throw new Error('language ' + code + ' not found');
+      const doc = await r.json();
+      this.dict = this.flatten(doc);
+      this.code = code;
+      this.dir = (doc._meta && doc._meta.dir) || 'ltr';
+      document.documentElement.setAttribute('lang', code);
+      document.documentElement.setAttribute('dir', this.dir);
+      localStorage.setItem('lang', code);
+      // Clear the warned-keys set so a language swap re-surfaces the ones
+      // that are still missing in the new dict.
+      this._warned = new Set();
+    },
+    t(key, vars) {
+      let s = this.dict[key];
+      if (s === undefined || s === '') {
+        s = (window.__i18nEn && window.__i18nEn[key]);
+        if ((s === undefined || s === '') && !this._warned.has(key)) {
+          this._warned.add(key);
+          if (typeof console !== 'undefined' && console.warn) {
+            console.warn('[i18n] Missing key:', key);
+          }
+        }
+        if (s === undefined || s === '') s = key;
+      }
+      if (vars) {
+        for (const k in vars) {
+          s = String(s).replaceAll('{' + k + '}', String(vars[k]));
+        }
+      }
+      return s;
+    },
+  };
+  window.I18N = I18N;
+  window.t = I18N.t.bind(I18N);
+
+  // Boot sequence — always preload English (so the missing-key fallback
+  // has a dict) before applying the user's preferred language.
+  window.__i18nReady = (async function () {
+    try {
+      const r = await fetch('/i18n/en.json', { cache: 'no-cache' });
+      if (r.ok) {
+        const doc = await r.json();
+        window.__i18nEn = I18N.flatten(doc);
+      }
+    } catch (_) { window.__i18nEn = {}; }
+    await I18N.loadIndex();
+    const pref = localStorage.getItem('lang') || 'en';
+    if (pref === 'en') {
+      I18N.dict = window.__i18nEn || {};
+      I18N.dir = 'ltr';
+      I18N.code = 'en';
+      document.documentElement.setAttribute('lang', 'en');
+      document.documentElement.setAttribute('dir', 'ltr');
+    } else {
+      try { await I18N.load(pref); }
+      catch (_) {
+        I18N.dict = window.__i18nEn || {};
+      }
+    }
   })();
 </script>
 <!-- Poppins is vendored under /fonts/ and declared in css/style.css. No
@@ -21,6 +128,18 @@
      the old v3 Play CDN). Bump versions in package.json, `npm install`,
      commit node_modules. -->
 <script src="/node_modules/@tailwindcss/browser/dist/index.global.js"></script>
+<!-- Alpine is deferred further — we wait on __i18nReady first so the first
+     render has translations in hand. The shim below replaces Alpine's
+     auto-start with a gated one (see bottom-of-body <script>). -->
+<script>
+  // Tell Alpine NOT to auto-start; we'll start it manually after i18n is ready.
+  window.deferLoadingAlpine = function (callback) {
+    (async function () {
+      try { await window.__i18nReady; } catch (_) {}
+      callback();
+    })();
+  };
+</script>
 <script defer src="/node_modules/alpinejs/dist/cdn.min.js"></script>
 <script src="/node_modules/sweetalert2/dist/sweetalert2.all.min.js"></script>
 <link rel="stylesheet" href="css/style.css">
@@ -73,8 +192,8 @@
           </svg>
         </div>
         <div>
-          <div class="font-semibold text-[14px] leading-tight tracking-tight">PortaUpdate</div>
-          <div class="text-[10.5px] text-[var(--text-faint)] leading-tight">Portainer · Swarm updater</div>
+          <div class="font-semibold text-[14px] leading-tight tracking-tight" x-text="t('app.name')"></div>
+          <div class="text-[10.5px] text-[var(--text-faint)] leading-tight" x-text="t('app.tagline')"></div>
         </div>
       </div>
 
@@ -88,7 +207,7 @@
 
       <div class="flex-1 relative max-w-md">
         <input type="search" x-model="search" x-ref="searchBox"
-               placeholder="Search resources, stacks, images…  (/)"
+               :placeholder="t('topbar.search_placeholder')"
                class="w-full">
         <span class="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--text-faint)]">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.35-4.35"/></svg>
@@ -97,17 +216,17 @@
       </div>
 
       <div class="flex items-center gap-2">
-        <div class="flex items-center gap-0 bg-[var(--surface-2)] rounded-md p-0.5 border border-[var(--border)]" title="Items auto-refresh">
-          <span class="px-1.5 text-[10px] text-faint uppercase tracking-wider">Sync</span>
-          <template x-for="p in [['Off',0],['30s',30],['1m',60],['5m',300]]" :key="p[0]">
+        <div class="flex items-center gap-0 bg-[var(--surface-2)] rounded-md p-0.5 border border-[var(--border)]" :title="t('topbar.sync_title')">
+          <span class="px-1.5 text-[10px] text-faint uppercase tracking-wider" x-text="t('topbar.sync_label')"></span>
+          <template x-for="p in [[t('topbar.off'),0],['30s',30],['1m',60],['5m',300]]" :key="p[1]">
             <button @click="setAutoRefresh(p[1])"
                     :class="autoRefresh===p[1] ? 'bg-[var(--primary)] text-white' : 'text-[var(--text-dim)] hover:text-[var(--text)]'"
                     class="px-2 py-1 rounded text-[11px] font-medium transition" x-text="p[0]"></button>
           </template>
         </div>
-        <div class="flex items-center gap-0 bg-[var(--surface-2)] rounded-md p-0.5 border border-[var(--border)] hidden lg:flex" title="Live stats polling cadence">
-          <span class="px-1.5 text-[10px] text-faint uppercase tracking-wider">Stats</span>
-          <template x-for="p in [['Off',0],['5s',5],['15s',15],['30s',30],['1m',60]]" :key="p[0]">
+        <div class="flex items-center gap-0 bg-[var(--surface-2)] rounded-md p-0.5 border border-[var(--border)] hidden lg:flex" :title="t('topbar.stats_title')">
+          <span class="px-1.5 text-[10px] text-faint uppercase tracking-wider" x-text="t('topbar.stats_label')"></span>
+          <template x-for="p in [[t('topbar.off'),0],['5s',5],['15s',15],['30s',30],['1m',60]]" :key="p[1]">
             <button @click="setStatsInterval(p[1])"
                     :class="statsInterval===p[1] ? 'bg-[var(--primary)] text-white' : 'text-[var(--text-dim)] hover:text-[var(--text)]'"
                     class="px-2 py-1 rounded text-[11px] font-medium transition" x-text="p[0]"></button>
@@ -117,14 +236,14 @@
         <button x-show="isAdmin() && removableAll().length > 0"
                 @click="bulkRemoveAll()"
                 class="btn btn-danger-outline"
-                :title="'Remove all '+removableAll().length+' stopped/failed container(s)'">
+                :title="t('topbar.cleanup_title', { count: removableAll().length })">
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m3 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6h14z"/></svg>
-          <span class="text-[11px]">Cleanup <span x-text="removableAll().length"></span></span>
+          <span class="text-[11px]"><span x-text="t('actions.cleanup')"></span> <span x-text="removableAll().length"></span></span>
         </button>
-        <button @click="refresh(true)" :disabled="loading" class="btn btn-soft" title="Refresh (r)">
+        <button @click="refresh(true)" :disabled="loading" class="btn btn-soft" :title="t('topbar.refresh_title')">
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" :class="loading && 'animate-spin'"><path d="M3 12a9 9 0 0 1 15.5-6.36L22 8"/><path d="M22 3v5h-5"/><path d="M22 12a9 9 0 0 1-15.5 6.36L3 16"/><path d="M2 21v-5h5"/></svg>
         </button>
-        <button @click="cycleTheme()" :title="'Theme: '+themePref+' (click to cycle)'" class="btn btn-soft">
+        <button @click="cycleTheme()" :title="t('topbar.theme_title', { pref: themePref })" class="btn btn-soft">
           <!-- Moon for dark, sun for light, sun+moon split (crescent over sun) for auto. -->
           <template x-if="themePref==='dark'">
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
@@ -147,9 +266,20 @@
             </svg>
           </template>
         </button>
-        <button @click="showHotkeys=true" class="btn btn-soft" title="Keyboard shortcuts (?)">
+        <button @click="showHotkeys=true" class="btn btn-soft" :title="t('topbar.hotkeys_title')">
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><path d="M12 17h.01"/></svg>
         </button>
+
+        <!-- Language picker. Compact <select> — the richer UI lives in
+             Settings → Language. Rendered from I18N.languages which is
+             populated from /i18n/index.json at boot. -->
+        <select :value="lang" @change="setLang($event.target.value)"
+                class="lang-picker text-[11px]"
+                :title="t('settings.language.label')">
+          <template x-for="l in availableLanguages" :key="l.code">
+            <option :value="l.code" x-text="l.name"></option>
+          </template>
+        </select>
       </div>
 
       <!-- User menu — avatar button in the top-right opens a dropdown with
@@ -173,28 +303,28 @@
              x-transition.opacity
              class="absolute right-0 top-full mt-1 w-[220px] bg-[var(--surface)] border border-[var(--border)] rounded-md shadow-lg z-40 overflow-hidden">
           <div class="px-3 py-2 border-b border-[var(--border)] text-[10px] uppercase tracking-wider text-[var(--text-faint)]">
-            Signed in as <span class="text-[var(--text-dim)] font-semibold normal-case" x-text="me && me.username"></span>
+            <span x-text="t('app.signed_in_as')"></span> <span class="text-[var(--text-dim)] font-semibold normal-case" x-text="me && me.username"></span>
           </div>
           <button @click="userMenuOpen=false; view='settings'; settingsSection='profile'" class="user-menu-item">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
-            Profile
+            <span x-text="t('user_menu.profile')"></span>
           </button>
           <button @click="userMenuOpen=false; view='settings'" class="user-menu-item">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
-            Settings
+            <span x-text="t('user_menu.settings')"></span>
           </button>
           <button x-show="isAdmin()" @click="userMenuOpen=false; view='admin'" class="user-menu-item">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
-            Admin
+            <span x-text="t('user_menu.admin')"></span>
           </button>
           <button @click="userMenuOpen=false; showHotkeys=true" class="user-menu-item">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><path d="M12 17h.01"/></svg>
-            Keyboard shortcuts
+            <span x-text="t('user_menu.hotkeys')"></span>
           </button>
           <div class="border-t border-[var(--border)]"></div>
           <button @click="userMenuOpen=false; logout()" class="user-menu-item user-menu-item-danger">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
-            Sign out
+            <span x-text="t('user_menu.sign_out')"></span>
           </button>
         </div>
       </div>
@@ -205,16 +335,16 @@
       <div class="flex items-center gap-1.5 flex-wrap">
         <button @click="healthFilter='';statusFilter=''"
                 :class="(!healthFilter && !statusFilter) ? 'active' : ''"
-                class="filter-chip">All <span class="count" x-text="items.length"></span></button>
+                class="filter-chip"><span x-text="t('filters.all')"></span> <span class="count" x-text="items.length"></span></button>
         <button @click="healthFilter='healthy';statusFilter=''"
                 :class="healthFilter==='healthy' ? 'active' : ''"
-                class="filter-chip"><span class="dot dot-healthy inline-block mr-1.5"></span>Online <span class="count" x-text="counts.healthy"></span></button>
+                class="filter-chip"><span class="dot dot-healthy inline-block me-1.5"></span><span x-text="t('filters.online')"></span> <span class="count" x-text="counts.healthy"></span></button>
         <button @click="healthFilter='degraded';statusFilter=''"
                 :class="healthFilter==='degraded' ? 'active' : ''"
-                class="filter-chip"><span class="dot dot-degraded inline-block mr-1.5"></span>Degraded <span class="count" x-text="counts.degraded"></span></button>
+                class="filter-chip"><span class="dot dot-degraded inline-block me-1.5"></span><span x-text="t('filters.degraded')"></span> <span class="count" x-text="counts.degraded"></span></button>
         <button @click="healthFilter='offline';statusFilter=''"
                 :class="healthFilter==='offline' ? 'active' : ''"
-                class="filter-chip"><span class="dot dot-offline inline-block mr-1.5"></span>Offline <span class="count" x-text="counts.offline"></span></button>
+                class="filter-chip"><span class="dot dot-offline inline-block me-1.5"></span><span x-text="t('filters.offline')"></span> <span class="count" x-text="counts.offline"></span></button>
       </div>
 
       <span class="w-px h-5 bg-[var(--border)] mx-1"></span>
@@ -222,51 +352,51 @@
       <div class="flex items-center gap-1.5 flex-wrap">
         <button @click="statusFilter='update';healthFilter=''"
                 :class="statusFilter==='update' ? 'active' : ''"
-                class="filter-chip"><span class="dot dot-update inline-block mr-1.5"></span>Updates <span class="count" x-text="counts.update"></span></button>
+                class="filter-chip"><span class="dot dot-update inline-block me-1.5"></span><span x-text="t('filters.updates')"></span> <span class="count" x-text="counts.update"></span></button>
         <button @click="statusFilter='up-to-date';healthFilter=''"
                 :class="statusFilter==='up-to-date' ? 'active' : ''"
-                class="filter-chip">Up-to-date <span class="count" x-text="counts.uptodate"></span></button>
+                class="filter-chip"><span x-text="t('filters.uptodate')"></span> <span class="count" x-text="counts.uptodate"></span></button>
         <button @click="statusFilter='error';healthFilter=''"
                 :class="statusFilter==='error' ? 'active' : ''"
-                class="filter-chip"><span class="dot dot-error inline-block mr-1.5"></span>Errors <span class="count" x-text="counts.error"></span></button>
+                class="filter-chip"><span class="dot dot-error inline-block me-1.5"></span><span x-text="t('filters.errors')"></span> <span class="count" x-text="counts.error"></span></button>
         <button @click="statusFilter='unknown';healthFilter=''"
                 :class="statusFilter==='unknown' ? 'active' : ''"
-                class="filter-chip">Unknown <span class="count" x-text="counts.unknown"></span></button>
+                class="filter-chip"><span x-text="t('filters.unknown')"></span> <span class="count" x-text="counts.unknown"></span></button>
         <button @click="statusFilter='ignored';healthFilter=''"
                 :class="statusFilter==='ignored' ? 'active' : ''"
-                class="filter-chip">Ignored <span class="count" x-text="counts.ignored"></span></button>
+                class="filter-chip"><span x-text="t('filters.ignored')"></span> <span class="count" x-text="counts.ignored"></span></button>
       </div>
 
       <div class="flex-1"></div>
 
       <div x-show="view==='stacks'"
            class="flex items-center gap-1 bg-[var(--surface-2)] rounded-md p-0.5 border border-[var(--border)]"
-           title="Expand / collapse every stack (shortcuts: e / c)">
+           :title="t('filters.expand_collapse_title')">
         <button @click="expandAllStacks()"
                 class="px-2.5 py-1 rounded text-[11px] font-medium text-[var(--text-dim)] hover:text-[var(--text)] transition flex items-center gap-1.5">
           <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
-          Expand all
+          <span x-text="t('filters.expand_all')"></span>
         </button>
         <button @click="collapseAllStacks()"
                 class="px-2.5 py-1 rounded text-[11px] font-medium text-[var(--text-dim)] hover:text-[var(--text)] transition flex items-center gap-1.5">
           <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="18 15 12 9 6 15"/></svg>
-          Collapse all
+          <span x-text="t('filters.collapse_all')"></span>
         </button>
       </div>
 
       <div class="flex items-center gap-1 bg-[var(--surface-2)] rounded-md p-0.5 border border-[var(--border)]">
         <button @click="view='stacks'" :class="view==='stacks' ? 'bg-[var(--surface)] text-[var(--text)]' : 'text-[var(--text-dim)]'"
-                class="px-2.5 py-1 rounded text-[11px] font-medium transition">Grouped</button>
+                class="px-2.5 py-1 rounded text-[11px] font-medium transition" x-text="t('filters.grouped')"></button>
         <button @click="view='services'" :class="view==='services' ? 'bg-[var(--surface)] text-[var(--text)]' : 'text-[var(--text-dim)]'"
-                class="px-2.5 py-1 rounded text-[11px] font-medium transition">List</button>
+                class="px-2.5 py-1 rounded text-[11px] font-medium transition" x-text="t('filters.list')"></button>
       </div>
 
       <div class="text-[11px] text-[var(--text-faint)] flex items-center gap-3">
         <span x-show="activeOps.length>0" class="flex items-center gap-1 text-[var(--primary)]">
           <span class="dot dot-primary dot-pulse"></span>
-          <span x-text="activeOps.length+' running'"></span>
+          <span x-text="t('states.running', { count: activeOps.length })"></span>
         </span>
-        <span><span x-text="stacks.length"></span> stacks · <span x-text="Object.keys(nodes).length"></span> nodes</span>
+        <span x-text="t('filters.stacks_nodes', { stacks: stacks.length, nodes: Object.keys(nodes).length })"></span>
       </div>
     </div>
   </header>
@@ -277,23 +407,23 @@
     <!-- BULK BAR — only shown to admins (readonly can select for inspection but not act). -->
     <div x-show="selected.length>0 && isAdmin()"
          class="sticky top-[108px] z-20 bg-[var(--surface)] border border-[var(--border-bright)] rounded-md px-4 py-2 flex items-center gap-3 mb-3 shadow-lg fade-in">
-      <span class="font-semibold text-[13px]" x-text="selected.length + ' selected'"></span>
+      <span class="font-semibold text-[13px]" x-text="t('bulk.selected', { count: selected.length })"></span>
       <span class="text-[11px] text-[var(--text-faint)]"
             x-text="selectionSummary()"></span>
       <span class="flex-1"></span>
       <button x-show="selectionUpdatable().length > 0" @click="bulkUpdate()" class="btn btn-warning text-[12px]">
         <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M13 2 3 14h9l-1 8 10-12h-9l1-8z"/></svg>
-        Update (<span x-text="selectionUpdatable().length"></span>)
+        <span x-text="t('bulk.update')"></span> (<span x-text="selectionUpdatable().length"></span>)
       </button>
       <button x-show="selectionRestartable().length > 0" @click="bulkRestart()" class="btn btn-soft text-[12px]">
         <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M3 12a9 9 0 0 1 15.5-6.36L22 8"/><path d="M22 3v5h-5"/><path d="M22 12a9 9 0 0 1-15.5 6.36L3 16"/><path d="M2 21v-5h5"/></svg>
-        Restart (<span x-text="selectionRestartable().length"></span>)
+        <span x-text="t('bulk.restart')"></span> (<span x-text="selectionRestartable().length"></span>)
       </button>
       <button x-show="selectionRemovable().length > 0" @click="bulkRemove()" class="btn btn-danger-outline text-[12px]">
         <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m3 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6h14z"/></svg>
-        Remove (<span x-text="selectionRemovable().length"></span>)
+        <span x-text="t('bulk.remove')"></span> (<span x-text="selectionRemovable().length"></span>)
       </button>
-      <button @click="selected=[]" class="btn btn-ghost text-[12px]">Clear</button>
+      <button @click="selected=[]" class="btn btn-ghost text-[12px]" x-text="t('bulk.clear')"></button>
     </div>
 
     <!-- ===== STACKS GROUPED VIEW ===== -->
@@ -304,17 +434,17 @@
             <tr>
               <th class="col-checkbox"></th>
               <th class="col-chev"></th>
-              <th class="col-grow">Resource</th>
-              <th class="col-image">Image</th>
-              <th class="col-health">Health</th>
-              <th class="col-status">Status</th>
-              <th class="col-tasks hidden lg:table-cell">Tasks</th>
-              <th class="col-cpu hidden md:table-cell">CPU</th>
-              <th class="col-mem hidden md:table-cell">Memory</th>
-              <th class="col-disk hidden xl:table-cell">Disk</th>
-              <th class="col-uptime hidden lg:table-cell">Uptime</th>
-              <th class="col-node hidden xl:table-cell">Node</th>
-              <th class="col-action">Action</th>
+              <th class="col-grow" x-text="t('columns.resource')"></th>
+              <th class="col-image" x-text="t('columns.image')"></th>
+              <th class="col-health" x-text="t('columns.health')"></th>
+              <th class="col-status" x-text="t('columns.status')"></th>
+              <th class="col-tasks hidden lg:table-cell" x-text="t('columns.tasks')"></th>
+              <th class="col-cpu hidden md:table-cell" x-text="t('columns.cpu')"></th>
+              <th class="col-mem hidden md:table-cell" x-text="t('columns.memory')"></th>
+              <th class="col-disk hidden xl:table-cell" x-text="t('columns.disk')"></th>
+              <th class="col-uptime hidden lg:table-cell" x-text="t('columns.uptime')"></th>
+              <th class="col-node hidden xl:table-cell" x-text="t('columns.node')"></th>
+              <th class="col-action" x-text="t('columns.action')"></th>
             </tr>
           </thead>
           <template x-for="stack in filteredStacks" :key="stack.name">
@@ -328,20 +458,20 @@
                          @error="$el.classList.add('broken')">
                     <span x-text="stack.name"></span>
                     <span class="text-[var(--text-faint)] text-[11px] font-normal" x-text="'(' + stack.total + ')'"></span>
-                    <span x-show="stack.is_standalone" class="chip text-[10px]">standalone</span>
-                    <span x-show="!stack.is_standalone && !stack.stack_id" class="chip text-[10px] text-warning">external</span>
+                    <span x-show="stack.is_standalone" class="chip text-[10px]" x-text="t('chips.standalone')"></span>
+                    <span x-show="!stack.is_standalone && !stack.stack_id" class="chip text-[10px] text-warning" x-text="t('chips.external')"></span>
                   </div>
                 </td>
                 <td>
-                  <span x-show="stack.offline>0" class="pill pill-offline" x-text="stack.offline + ' off'"></span>
-                  <span x-show="stack.degraded>0" class="pill pill-degraded ml-1" x-text="stack.degraded"></span>
+                  <span x-show="stack.offline>0" class="pill pill-offline" x-text="stack.offline + ' ' + t('chips.off_suffix')"></span>
+                  <span x-show="stack.degraded>0" class="pill pill-degraded ms-1" x-text="stack.degraded"></span>
                 </td>
                 <td>
-                  <span x-show="stack.updates>0" class="pill pill-update" x-text="stack.updates + ' upd'"></span>
-                  <span x-show="stack.errors>0" class="pill pill-error ml-1" x-text="stack.errors + ' err'"></span>
-                  <span x-show="stack.unknowns>0" class="pill pill-unknown ml-1" x-text="stack.unknowns + ' ?'"></span>
+                  <span x-show="stack.updates>0" class="pill pill-update" x-text="stack.updates + ' ' + t('chips.upd_suffix')"></span>
+                  <span x-show="stack.errors>0" class="pill pill-error ms-1" x-text="stack.errors + ' ' + t('chips.err_suffix')"></span>
+                  <span x-show="stack.unknowns>0" class="pill pill-unknown ms-1" x-text="stack.unknowns + ' ' + t('chips.unknown_short')"></span>
                 </td>
-                <td class="hidden lg:table-cell text-[var(--text-faint)] text-[12px]" x-text="stack.uptodate + '/' + stack.total + ' ok'"></td>
+                <td class="hidden lg:table-cell text-[var(--text-faint)] text-[12px]" x-text="stack.uptodate + '/' + stack.total + ' ' + t('chips.ok_suffix')"></td>
                 <td class="hidden md:table-cell text-[11.5px] mono text-dim col-cpu"
                     x-text="stackStats(stack).hasStats ? cpuLabel(stackStats(stack).cpu) : '—'"></td>
                 <td class="hidden md:table-cell text-[11.5px] mono text-dim col-mem"
@@ -355,12 +485,12 @@
                           @click="updateStack(stack)"
                           :disabled="isStackBusy(stack)"
                           class="btn btn-warning text-[12px]">
-                    <span x-show="!isStackBusy(stack)">Update Stack</span>
-                    <span x-show="isStackBusy(stack)" class="flex items-center gap-1.5"><span class="spin"></span>Updating…</span>
+                    <span x-show="!isStackBusy(stack)" x-text="t('actions.update_stack')"></span>
+                    <span x-show="isStackBusy(stack)" class="flex items-center gap-1.5"><span class="spin"></span><span x-text="t('actions.updating')"></span></span>
                   </button>
                   <a x-show="stack.stack_id"
                      :href="portainerDeepLink(stack)" target="_blank" @click.stop
-                     class="text-[11px] text-[var(--text-faint)] hover:text-[var(--primary)] ml-2">↗</a>
+                     class="text-[11px] text-[var(--text-faint)] hover:text-[var(--primary)] ms-2">↗</a>
                 </td>
               </tr>
               <template x-for="item in stack.items" :key="item.id">
@@ -470,7 +600,7 @@
                               @click="restartItem(item)"
                               :disabled="isRestartBusy(item)"
                               class="btn btn-soft text-[11px]"
-                              title="Restart (force)">
+                              :title="t('actions.restart_force_title')">
                         <template x-if="isRestartBusy(item)"><span class="spin"></span></template>
                         <template x-if="!isRestartBusy(item)">
                           <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M3 12a9 9 0 0 1 15.5-6.36L22 8"/><path d="M22 3v5h-5"/><path d="M22 12a9 9 0 0 1-15.5 6.36L3 16"/><path d="M2 21v-5h5"/></svg>
@@ -480,7 +610,7 @@
                               @click="removeContainer(item)"
                               :disabled="isItemBusy(item)"
                               class="btn btn-danger-outline text-[11px]"
-                              title="Remove container">
+                              :title="t('actions.remove_container_title')">
                         <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m3 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6h14z"/></svg>
                       </button>
                     </div>
@@ -493,11 +623,11 @@
       </div>
       <div x-show="loading && items.length === 0" class="loading-state">
         <span class="spin-lg" aria-hidden="true"></span>
-        <div>Loading resources from Portainer…</div>
+        <div x-text="t('loading.resources')"></div>
       </div>
       <div x-show="filteredStacks.length===0 && !loading && items.length > 0" class="text-center py-16 text-[var(--text-faint)] text-sm">
-        No resources match your filters.
-        <button @click="search='';statusFilter='';healthFilter=''" class="ml-2 text-[var(--primary)] hover:underline">Clear</button>
+        <span x-text="t('empty.no_match_filters')"></span>
+        <button @click="search='';statusFilter='';healthFilter=''" class="ms-2 text-[var(--primary)] hover:underline" x-text="t('empty.clear')"></button>
       </div>
     </div>
 
@@ -514,18 +644,18 @@
                        class="w-[13px] h-[13px] accent-[var(--primary)]">
               </th>
               <th class="col-chev"></th>
-              <th class="col-grow sortable" @click="sortBy('name')">Name <span x-text="sortIndicator('name')"></span></th>
-              <th class="sortable" @click="sortBy('stack')">Stack</th>
-              <th class="col-image sortable" @click="sortBy('image')">Image</th>
-              <th class="col-health">Health</th>
-              <th class="col-status sortable" @click="sortBy('status')">Status <span x-text="sortIndicator('status')"></span></th>
-              <th class="col-tasks hidden lg:table-cell">Tasks</th>
-              <th class="col-cpu hidden md:table-cell">CPU</th>
-              <th class="col-mem hidden md:table-cell">Memory</th>
-              <th class="col-disk hidden xl:table-cell">Disk</th>
-              <th class="col-uptime sortable hidden lg:table-cell" @click="sortBy('uptime')">Uptime <span x-text="sortIndicator('uptime')"></span></th>
-              <th class="col-node hidden xl:table-cell">Node</th>
-              <th class="col-action">Action</th>
+              <th class="col-grow sortable" @click="sortBy('name')"><span x-text="t('columns.name')"></span> <span x-text="sortIndicator('name')"></span></th>
+              <th class="sortable" @click="sortBy('stack')" x-text="t('columns.stack')"></th>
+              <th class="col-image sortable" @click="sortBy('image')" x-text="t('columns.image')"></th>
+              <th class="col-health" x-text="t('columns.health')"></th>
+              <th class="col-status sortable" @click="sortBy('status')"><span x-text="t('columns.status')"></span> <span x-text="sortIndicator('status')"></span></th>
+              <th class="col-tasks hidden lg:table-cell" x-text="t('columns.tasks')"></th>
+              <th class="col-cpu hidden md:table-cell" x-text="t('columns.cpu')"></th>
+              <th class="col-mem hidden md:table-cell" x-text="t('columns.memory')"></th>
+              <th class="col-disk hidden xl:table-cell" x-text="t('columns.disk')"></th>
+              <th class="col-uptime sortable hidden lg:table-cell" @click="sortBy('uptime')"><span x-text="t('columns.uptime')"></span> <span x-text="sortIndicator('uptime')"></span></th>
+              <th class="col-node hidden xl:table-cell" x-text="t('columns.node')"></th>
+              <th class="col-action" x-text="t('columns.action')"></th>
             </tr>
           </thead>
           <tbody>
@@ -630,10 +760,9 @@
       </div>
       <div x-show="loading && items.length === 0" class="loading-state">
         <span class="spin-lg" aria-hidden="true"></span>
-        <div>Loading resources from Portainer…</div>
+        <div x-text="t('loading.resources')"></div>
       </div>
-      <div x-show="filteredItems.length===0 && !loading && items.length > 0" class="text-center py-16 text-[var(--text-faint)] text-sm">
-        No resources match.
+      <div x-show="filteredItems.length===0 && !loading && items.length > 0" class="text-center py-16 text-[var(--text-faint)] text-sm" x-text="t('empty.no_match')">
       </div>
     </div>
 
@@ -641,32 +770,32 @@
     <div x-show="view==='history'" class="space-y-3">
       <div class="flex justify-between items-center">
         <div>
-          <h2 class="font-semibold text-[15px]">Audit Log</h2>
-          <div class="text-[11px] text-[var(--text-faint)]" x-text="history.length + ' entries'"></div>
+          <h2 class="font-semibold text-[15px]" x-text="t('history.title')"></h2>
+          <div class="text-[11px] text-[var(--text-faint)]" x-text="t('history.entries', { count: history.length })"></div>
         </div>
         <div class="flex gap-2">
-          <a :href="historyExportUrl('csv')" class="btn btn-soft text-[12px]" title="Export current filter as CSV">CSV</a>
-          <a :href="historyExportUrl('json')" class="btn btn-soft text-[12px]" title="Export current filter as JSON">JSON</a>
-          <button @click="loadHistory()" class="btn btn-ghost text-[12px]">Reload</button>
-          <button @click="clearHistory()" class="btn btn-ghost text-[12px] text-danger">Clear all</button>
+          <a :href="historyExportUrl('csv')" class="btn btn-soft text-[12px]" :title="t('history.csv_title')" x-text="t('history.csv')"></a>
+          <a :href="historyExportUrl('json')" class="btn btn-soft text-[12px]" :title="t('history.json_title')" x-text="t('history.json')"></a>
+          <button @click="loadHistory()" class="btn btn-ghost text-[12px]" x-text="t('actions.reload')"></button>
+          <button @click="clearHistory()" class="btn btn-ghost text-[12px] text-danger" x-text="t('history.clear_all')"></button>
         </div>
       </div>
 
       <!-- HISTORY FILTER BAR -->
       <div class="flex flex-wrap items-center gap-2">
         <input type="search" x-model.debounce.300ms="historyFilters.q" @input="loadHistory()"
-               placeholder="Search name, id, error…"
+               :placeholder="t('history.search_placeholder')"
                class="text-[12px] min-w-[220px] flex-1 max-w-[340px]">
         <div class="flex items-center gap-1.5 flex-wrap">
           <button @click="historyFilters.status=''; loadHistory()"
-                  :class="!historyFilters.status ? 'active' : ''" class="filter-chip">All</button>
+                  :class="!historyFilters.status ? 'active' : ''" class="filter-chip" x-text="t('history.status_all')"></button>
           <button @click="historyFilters.status='success'; loadHistory()"
-                  :class="historyFilters.status==='success' ? 'active' : ''" class="filter-chip">Success</button>
+                  :class="historyFilters.status==='success' ? 'active' : ''" class="filter-chip" x-text="t('history.status_success')"></button>
           <button @click="historyFilters.status='error'; loadHistory()"
-                  :class="historyFilters.status==='error' ? 'active' : ''" class="filter-chip">Error</button>
+                  :class="historyFilters.status==='error' ? 'active' : ''" class="filter-chip" x-text="t('history.status_error')"></button>
         </div>
         <select x-model="historyFilters.op_type" @change="loadHistory()" class="text-[12px] min-w-[150px]">
-          <option value="">All op types</option>
+          <option value="" x-text="t('history.all_op_types')"></option>
           <option value="update_stack">update_stack</option>
           <option value="update_container">update_container</option>
           <option value="restart_service">restart_service</option>
@@ -674,17 +803,17 @@
           <option value="remove_container">remove_container</option>
         </select>
         <select x-model="historyFilters.stack" @change="loadHistory()" class="text-[12px] min-w-[150px]">
-          <option value="">All stacks</option>
+          <option value="" x-text="t('history.all_stacks')"></option>
           <template x-for="s in historyStackOptions" :key="s">
             <option :value="s" x-text="s"></option>
           </template>
         </select>
         <input type="date" x-model="historyFilters.fromDate" @change="loadHistory()"
-               class="text-[12px]" title="From date">
+               class="text-[12px]" :title="t('history.from_date_title')">
         <input type="date" x-model="historyFilters.toDate" @change="loadHistory()"
-               class="text-[12px]" title="To date">
+               class="text-[12px]" :title="t('history.to_date_title')">
         <button x-show="hasHistoryFilter()" @click="resetHistoryFilters(); loadHistory()"
-                class="btn btn-ghost text-[11px]">Clear filters</button>
+                class="btn btn-ghost text-[11px]" x-text="t('history.clear_filters')"></button>
       </div>
 
       <!-- HISTORY TABLE -->
@@ -694,13 +823,13 @@
             <thead>
               <tr>
                 <th class="col-chev"></th>
-                <th style="width:170px">When</th>
-                <th style="width:140px">Op</th>
-                <th class="col-grow">Target</th>
-                <th style="width:120px" class="hidden md:table-cell">Stack</th>
-                <th style="width:90px">Status</th>
-                <th style="width:80px" class="hidden md:table-cell">Duration</th>
-                <th style="width:100px" class="hidden lg:table-cell">Actor</th>
+                <th style="width:170px" x-text="t('columns.when')"></th>
+                <th style="width:140px" x-text="t('columns.op')"></th>
+                <th class="col-grow" x-text="t('columns.target')"></th>
+                <th style="width:120px" class="hidden md:table-cell" x-text="t('columns.stack')"></th>
+                <th style="width:90px" x-text="t('columns.status')"></th>
+                <th style="width:80px" class="hidden md:table-cell" x-text="t('columns.duration')"></th>
+                <th style="width:100px" class="hidden lg:table-cell" x-text="t('columns.actor')"></th>
               </tr>
             </thead>
             <tbody>
@@ -719,8 +848,7 @@
             </tbody>
           </table>
         </div>
-        <div x-show="history.length===0" class="text-center py-16 text-[var(--text-faint)] text-sm">
-          No history entries match the current filter.
+        <div x-show="history.length===0" class="text-center py-16 text-[var(--text-faint)] text-sm" x-text="t('empty.no_history')">
         </div>
       </div>
     </div>
@@ -728,11 +856,11 @@
     <!-- ===== SETTINGS VIEW ===== -->
     <div x-show="view==='settings'" class="page-layout">
       <aside class="page-sidebar">
-        <div class="page-sidebar-header">Settings</div>
+        <div class="page-sidebar-header" x-text="t('settings.title')"></div>
         <template x-for="s in settingsSections" :key="s.id">
           <button @click="settingsSection = s.id"
                   :class="settingsSection === s.id ? 'page-sidebar-item active' : 'page-sidebar-item'"
-                  x-text="s.label"></button>
+                  x-text="t('settings.sections.' + s.id)"></button>
         </template>
       </aside>
 
@@ -741,7 +869,7 @@
         <div x-show="isReadonly()"
              class="bg-[var(--surface-2)] border border-[var(--border-bright)] rounded-md px-4 py-2 text-[12px] text-[var(--text-dim)] flex items-center gap-2">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
-          You're signed in as <span class="font-semibold">readonly</span> — settings are viewable but can't be changed. Ask an admin if you need edits.
+          <span x-text="t('settings.readonly_banner')"></span>
         </div>
 
       <!-- ===== PROFILE section ===== -->
@@ -1705,6 +1833,24 @@
 <script>
 function app() {
   return {
+    // i18n reactive state. `lang` is watched to trigger Alpine re-renders
+    // when the user swaps languages. `t()` is forwarded to the global
+    // helper so every template can do `x-text="t('nav.stacks')"`.
+    lang: (window.I18N && window.I18N.code) || 'en',
+    dir: (window.I18N && window.I18N.dir) || 'ltr',
+    availableLanguages: (window.I18N && window.I18N.languages) || [{ code: 'en', name: 'English', dir: 'ltr' }],
+    t(key, vars) { return (window.I18N ? window.I18N.t(key, vars) : key); },
+    async setLang(code) {
+      if (!code || code === this.lang) return;
+      try {
+        await window.I18N.load(code);
+        this.lang = code;
+        this.dir  = window.I18N.dir;
+        this.showToast(this.t('toasts.language_changed') || 'Language changed');
+      } catch (e) {
+        this.showToast('Language load failed', 'error');
+      }
+    },
     items: [], stacks: [], nodes: {},
     history: [], ignores: [],
     stats: {}, _statsTimer: null, _maxSize: 1,
@@ -1755,12 +1901,15 @@ function app() {
     portainerTestResult: null,
     // Settings / Admin sidebar layout. Arrays drive the nav — adding a
     // section is one entry here + one <section> in the markup.
+    // Section `label` is kept as a fallback (in case the translation key
+    // is missing); the sidebar button actually renders via t('settings.sections.<id>').
     settingsSections: [
       { id: 'profile',       label: 'Profile' },
       { id: 'notifications', label: 'Notifications' },
       { id: 'portainer',     label: 'Portainer' },
       { id: 'ignores',       label: 'Ignore list' },
       { id: 'oidc',          label: 'Authentik OIDC' },
+      { id: 'language',      label: 'Language' },
       { id: 'shortcuts',     label: 'Keyboard shortcuts' },
     ],
     settingsSection: (function () {
@@ -2007,7 +2156,11 @@ function app() {
     navItems() {
       // Settings + Admin live in the avatar dropdown, not the top nav —
       // the top nav stays focused on the fleet views.
-      return [['stacks','Stacks'],['services','Services'],['history','History']];
+      return [
+        ['stacks',   this.t('nav.stacks')],
+        ['services', this.t('nav.services')],
+        ['history',  this.t('nav.history')],
+      ];
     },
 
     // Single predicate for "can this user do writes?". Every write button
