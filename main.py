@@ -439,7 +439,7 @@ async def _get_remote_digest(client: httpx.AsyncClient, image: str) -> Optional[
 # ============================================================================
 # Data aggregation
 # ============================================================================
-_cache: dict = {"items": [], "ts": 0.0, "nodes": {}, "stacks": [], "task_node_by_id": {}, "container_node_by_id": {}}
+_cache: dict = {"items": [], "ts": 0.0, "nodes": {}, "stacks": []}
 
 
 def _tag_of(image: str) -> str:
@@ -530,35 +530,6 @@ async def _gather_impl():
             nid = t.get("NodeID")
             if tid and nid and nid in node_map:
                 task_node_by_id[tid] = node_map[nid]
-
-        # Definitive cid → hostname map. The aggregated `/containers/json`
-        # above doesn't tell us which node each container lives on, so
-        # plain standalone (non-Swarm) containers on workers would default
-        # to "local" and lose their agent-target routing. Fire one
-        # per-node list call in parallel; each returns only that node's
-        # containers, so every cid gets authoritative attribution.
-        container_node_by_id: dict[str, str] = {}
-
-        async def _list_on_node(hostname: str):
-            try:
-                r = await client.get(
-                    f"{PORTAINER_URL}{ep}/containers/json?all=1",
-                    headers=_headers(agent_target=hostname), timeout=30.0,
-                )
-                r.raise_for_status()
-                return hostname, r.json()
-            except Exception as e:
-                print(f"[node-list] {hostname}: {e}")
-                return hostname, []
-
-        hostnames = sorted(set(node_map.values()))
-        if hostnames:
-            per_node = await asyncio.gather(*(_list_on_node(h) for h in hostnames))
-            for hostname, clist in per_node:
-                for c in clist:
-                    cid = c.get("Id")
-                    if cid:
-                        container_node_by_id[cid] = hostname
 
         # Build service-id → running containers map. Swarm stamps every task
         # container with `com.docker.swarm.service.id`, so we can go from service
@@ -770,16 +741,11 @@ async def _gather_impl():
                 health = "offline"
 
             # Resolve the real node. Swarm task containers carry their task
-            # ID as a label — look it up in task_node_by_id. Plain standalone
-            # containers fall back to container_node_by_id, which was built
-            # from per-node list calls so workers are covered too. Only when
-            # nothing matches (shouldn't happen in practice) do we call it
-            # "local" — that value disables agent-target routing, same as a
-            # true single-node setup.
+            # ID as a label — look it up in task_node_by_id. Fallback "local"
+            # covers plain compose / standalone containers where the node is
+            # unknowable from the Swarm metadata.
             swarm_task_id = labels.get("com.docker.swarm.task.id")
             node_name = task_node_by_id.get(swarm_task_id) if swarm_task_id else None
-            if not node_name:
-                node_name = container_node_by_id.get(cont["Id"])
             if not node_name:
                 node_name = "local"
 
@@ -850,8 +816,6 @@ async def _gather_impl():
         items.sort(key=lambda i: (i.get("name") or "").lower())
         _cache["items"] = items
         _cache["nodes"] = node_map
-        _cache["task_node_by_id"] = task_node_by_id
-        _cache["container_node_by_id"] = container_node_by_id
         _cache["stacks"] = sorted(
             groups.values(),
             key=lambda s: (s["name"] or "").lower(),
@@ -1218,17 +1182,12 @@ def _stats_history(item_ids: list[str], since: float) -> dict[str, list[dict]]:
     return out
 
 
-async def _one_container_stats(client: httpx.AsyncClient, ep: str, cid: str, node: Optional[str] = None) -> Optional[dict]:
-    """One-shot Docker stats for a running container. Returns None on failure.
-
-    `node` is the Swarm hostname owning the container; passed through as
-    `X-PortainerAgent-Target` so Portainer routes to the right daemon. Without
-    it, containers on worker nodes 404 at the manager and render as `—` in UI.
-    """
+async def _one_container_stats(client: httpx.AsyncClient, ep: str, cid: str) -> Optional[dict]:
+    """One-shot Docker stats for a running container. Returns None on failure."""
     try:
         r = await client.get(
             f"{PORTAINER_URL}{ep}/containers/{cid}/stats?stream=false",
-            headers=_headers(agent_target=node), timeout=10.0,
+            headers=_headers(), timeout=10.0,
         )
         if r.status_code != 200:
             return None
@@ -1288,26 +1247,12 @@ async def _gather_stats():
         size_root_by_cid: dict[str, int] = {}
         size_rw_by_cid: dict[str, int] = {}
         svc_by_cid: dict[str, Optional[str]] = {}
-        # cid → hostname, so /containers/{cid}/stats can be agent-routed to
-        # the correct node. container_node_by_id (built from per-node listing
-        # in _gather()) covers every container — Swarm task or plain
-        # standalone. task_node_by_id is the legacy fallback for the window
-        # after startup where _gather() hasn't filled the map yet.
-        container_node_by_id = _cache.get("container_node_by_id") or {}
-        task_node_by_id = _cache.get("task_node_by_id") or {}
-        node_by_cid: dict[str, Optional[str]] = {}
         running_cids: list[str] = []
         for c in containers:
             cid = c["Id"]
             size_root_by_cid[cid] = c.get("SizeRootFs", 0) or 0
             size_rw_by_cid[cid] = c.get("SizeRw", 0) or 0
-            labels = c.get("Labels") or {}
-            svc_by_cid[cid] = labels.get("com.docker.swarm.service.id")
-            node = container_node_by_id.get(cid)
-            if not node:
-                task_id = labels.get("com.docker.swarm.task.id")
-                node = task_node_by_id.get(task_id) if task_id else None
-            node_by_cid[cid] = node
+            svc_by_cid[cid] = (c.get("Labels") or {}).get("com.docker.swarm.service.id")
             if (c.get("State") or "").lower() == "running":
                 running_cids.append(cid)
 
@@ -1315,7 +1260,7 @@ async def _gather_stats():
 
         async def fetch(cid: str):
             async with sem:
-                return cid, await _one_container_stats(client, ep, cid, node_by_cid.get(cid))
+                return cid, await _one_container_stats(client, ep, cid)
 
         results = await asyncio.gather(*(fetch(cid) for cid in running_cids))
         stats_by_cid = {cid: s for cid, s in results if s}
