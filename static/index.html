@@ -737,17 +737,17 @@
         </div>
       </section>
 
-      <!-- Authentik: read-only snapshot for now. Editing-from-UI requires
-           auth.py to read from the settings DB at runtime — tracked as a
-           follow-up. Until then, values are set in .env (shipped via CI)
-           and this panel shows the effective state. -->
+      <!-- Authentik Forward Auth — editable for admins. NPM_AUTH_SECRET is
+           write-only from the browser: we never return the current value,
+           only whether it's set. Leaving the secret field empty means
+           "keep the existing one". -->
       <section class="bg-[var(--surface)] border border-[var(--border)] rounded-md p-5">
         <div class="flex items-start justify-between">
           <div>
             <h3 class="font-semibold text-[13px] mb-2">Authentik Forward Auth</h3>
             <p class="text-[11.5px] text-[var(--text-faint)] mb-3">
-              Current state (read-only). Configure via <code class="mono text-[var(--text-dim)]">.env</code>
-              — editing from this panel is planned for a future release.
+              Values are stored in the database and picked up on the next request.
+              Pair with NPM's <code class="mono text-[var(--text-dim)]">auth_request</code> block — see <code class="mono">notes/notes_auth.txt</code>.
             </p>
           </div>
           <span x-show="authStatus"
@@ -755,23 +755,51 @@
                 :class="authStatus && authStatus.enabled ? 'pill-success' : 'pill-muted'"
                 x-text="authStatus ? (authStatus.enabled ? 'Enabled' : 'Disabled') : ''"></span>
         </div>
-        <div x-show="authStatus" class="space-y-2 text-[12.5px]">
-          <div class="flex justify-between items-center bg-[var(--surface-2)] rounded-md px-3 py-2">
-            <span class="text-[var(--text-dim)]">AUTHENTIK_ENABLED</span>
-            <span class="mono" x-text="authStatus && String(authStatus.enabled)"></span>
+
+        <div x-show="authStatus" class="space-y-3">
+          <label class="flex items-center gap-2 text-[12.5px] cursor-pointer">
+            <input type="checkbox" :checked="authForm.enabled"
+                   @change="authForm.enabled = $event.target.checked"
+                   :disabled="isReadonly()">
+            <span>Trust <code class="mono text-[var(--text-dim)]">X-Authentik-*</code> headers from NPM</span>
+          </label>
+
+          <div>
+            <label class="block text-[11px] text-[var(--text-dim)] mb-1">Admin group</label>
+            <input x-model="authForm.admin_group" type="text"
+                   :disabled="isReadonly()"
+                   placeholder="portaupdate-admins"
+                   class="w-full mono text-[12.5px]">
+            <p class="text-[11px] text-[var(--text-faint)] mt-1">
+              Authentik group whose members map to the <code class="mono">admin</code> role on login. Group membership is re-checked on every request.
+            </p>
           </div>
-          <div class="flex justify-between items-center bg-[var(--surface-2)] rounded-md px-3 py-2">
-            <span class="text-[var(--text-dim)]">AUTHENTIK_ADMIN_GROUP</span>
-            <span class="mono" x-text="authStatus && authStatus.admin_group"></span>
+
+          <div>
+            <label class="block text-[11px] text-[var(--text-dim)] mb-1">
+              NPM shared secret
+              <span class="text-[var(--text-faint)]"
+                    x-text="authStatus.npm_auth_secret_set ? '(currently set — leave blank to keep)' : '(not set)'"></span>
+            </label>
+            <div class="flex items-stretch gap-2">
+              <input x-model="authForm.npm_secret" type="password"
+                     :disabled="isReadonly()"
+                     placeholder="Paste new secret or leave blank"
+                     autocomplete="new-password"
+                     class="mono text-[12px] flex-1">
+              <button x-show="isAdmin()" @click="genNpmSecret()"
+                      type="button" class="btn btn-soft text-[12px] whitespace-nowrap"
+                      title="Fill with a freshly-generated 48-byte URL-safe token">Generate</button>
+            </div>
+            <p class="text-[11px] text-[var(--text-faint)] mt-1">
+              NPM must forward this exact value in the <code class="mono">X-Forward-Auth-Verify</code> header on every proxied request. Without a match, PortaUpdate ignores the Authentik headers entirely.
+            </p>
           </div>
-          <div class="flex justify-between items-center bg-[var(--surface-2)] rounded-md px-3 py-2">
-            <span class="text-[var(--text-dim)]">NPM_AUTH_SECRET</span>
-            <span class="mono" x-text="authStatus && (authStatus.npm_auth_secret_set ? '••• configured' : 'not set')"></span>
+
+          <div x-show="isAdmin()" class="pt-1">
+            <button @click="saveAuthSettings()" class="btn btn-primary text-[12px]">Save Authentik settings</button>
           </div>
         </div>
-        <p class="text-[11px] text-[var(--text-faint)] mt-3">
-          For the full Authentik + NPM wire-up procedure, see <code class="mono">notes/notes_auth.txt</code>.
-        </p>
       </section>
 
       <section class="bg-[var(--surface)] border border-[var(--border)] rounded-md p-5">
@@ -1331,10 +1359,12 @@ function app() {
     showProfile: false,
     profileForm: { current: '', next: '', confirm: '' },
     profileBusy: false,
-    // Authentik status (read-only snapshot from /api/settings — editable
-    // from UI is a planned follow-up once auth.py reads from the settings
-    // table at runtime). `null` until loaded.
+    // Authentik settings — `authStatus` is the snapshot from /api/settings
+    // (what the server has today), `authForm` is the editable form state
+    // the admin mutates before clicking Save. NPM secret is write-only;
+    // we never populate it from the server.
     authStatus: null,
+    authForm: { enabled: false, admin_group: '', npm_secret: '' },
     // Admin view state
     adminTab: 'users',
     users: [],
@@ -1773,7 +1803,57 @@ function app() {
         };
         this.endpointId = d.endpoint_id || 1;
         this.authStatus = d.authentik || null;
+        // Sync the editable form from the server snapshot. Always reset
+        // the secret field — we never prefill it (it's write-only).
+        if (this.authStatus) {
+          this.authForm = {
+            enabled: !!this.authStatus.enabled,
+            admin_group: this.authStatus.admin_group || '',
+            npm_secret: '',
+          };
+        }
       } catch (e) { console.error(e); }
+    },
+
+    async saveAuthSettings() {
+      const body = {
+        authentik_enabled: !!this.authForm.enabled,
+        authentik_admin_group: (this.authForm.admin_group || '').trim(),
+      };
+      // Only include the secret when the admin actually typed one; empty
+      // means "keep current" per the backend contract.
+      if (this.authForm.npm_secret && this.authForm.npm_secret.trim()) {
+        body.npm_auth_secret = this.authForm.npm_secret;
+      }
+      try {
+        const r = await fetch('/api/settings', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        });
+        if (r.ok) {
+          this.showToast('✓ Authentik settings saved');
+          // Refresh so the "currently set" chip flips if we just set the
+          // secret for the first time, and so authForm gets a cleared
+          // secret field again.
+          await this.loadSettings();
+        } else {
+          const j = await r.json().catch(() => ({}));
+          this.showToast(j.detail || 'Save failed', 'error');
+        }
+      } catch (_) { this.showToast('Network error', 'error'); }
+    },
+
+    genNpmSecret() {
+      // Generate a 48-byte URL-safe token in the browser. Same shape as
+      // Python's `secrets.token_urlsafe(48)`. Operator still has to click
+      // Save, and has to mirror the same value in NPM's proxy config.
+      const bytes = new Uint8Array(48);
+      crypto.getRandomValues(bytes);
+      // base64url without padding
+      let b64 = btoa(String.fromCharCode(...bytes))
+        .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+      this.authForm.npm_secret = b64;
     },
     async saveSettings() {
       try {

@@ -100,6 +100,12 @@ async def _lifespan(app: FastAPI):
     warn = auth.auto_secret_warning()
     if warn:
         print(warn)
+    # Seed the three auth settings (authentik_enabled, npm_auth_secret,
+    # authentik_admin_group) from env into the DB on first boot. On every
+    # subsequent start, this is a no-op — the UI is authoritative once the
+    # keys exist. Admins edit from Settings → Authentik panel.
+    with db_conn() as c:
+        auth.bootstrap_auth_settings(c)
     _bootstrap_admin_if_needed()
     sampler = asyncio.create_task(_stats_sampler_loop(), name="stats-sampler")
     try:
@@ -1617,24 +1623,33 @@ class SettingsIn(BaseModel):
     apprise_url: Optional[str] = None
     apprise_tag: Optional[str] = None
     portainer_public_url: Optional[str] = None
+    # Authentik Forward Auth settings (admin-editable).
+    # `npm_auth_secret`: empty string or None is interpreted as "don't
+    # change" — the browser never receives the current value, so we need
+    # a sentinel for "keep what's there". Pass a non-empty string to
+    # overwrite.
+    authentik_enabled: Optional[bool] = None
+    authentik_admin_group: Optional[str] = None
+    npm_auth_secret: Optional[str] = None
 
 
 @app.get("/api/settings")
 async def api_get_settings():
+    with db_conn() as c:
+        a = auth.get_auth_settings(c)
     return {
         "apprise_url": get_setting("apprise_url", ""),
         "apprise_tag": get_setting("apprise_tag", ""),
         "portainer_public_url": get_setting("portainer_public_url", PORTAINER_URL),
         "endpoint_id": PORTAINER_ENDPOINT_ID,
-        # Authentik state — read-only snapshot of current env values. Editing
-        # from UI is a planned follow-up that requires auth.py to read from
-        # the settings table at runtime. NPM_AUTH_SECRET is never returned —
-        # only whether it's configured — so it doesn't leak back to the browser.
+        # Authentik: state is editable from UI. NPM_AUTH_SECRET is never
+        # returned in the clear — we only report whether it's set so the
+        # UI can render "configured" vs "not set" without ever exposing
+        # the value to a browser.
         "authentik": {
-            "enabled": auth.AUTHENTIK_ENABLED,
-            "admin_group": auth.AUTHENTIK_ADMIN_GROUP,
-            "npm_auth_secret_set": bool(auth.NPM_AUTH_SECRET),
-            "source": "env",
+            "enabled": bool(a.get("authentik_enabled")),
+            "admin_group": a.get("authentik_admin_group") or "",
+            "npm_auth_secret_set": bool(a.get("npm_auth_secret")),
         },
     }
 
@@ -1647,6 +1662,25 @@ async def api_set_settings(
     if s.apprise_url is not None: set_setting("apprise_url", s.apprise_url)
     if s.apprise_tag is not None: set_setting("apprise_tag", s.apprise_tag)
     if s.portainer_public_url is not None: set_setting("portainer_public_url", s.portainer_public_url)
+    auth_changed = False
+    with db_conn() as c:
+        if s.authentik_enabled is not None:
+            auth.set_auth_setting(c, "authentik_enabled",
+                                  "true" if s.authentik_enabled else "false")
+            auth_changed = True
+        if s.authentik_admin_group is not None:
+            auth.set_auth_setting(c, "authentik_admin_group",
+                                  s.authentik_admin_group.strip())
+            auth_changed = True
+        # Empty/None = "keep current" so the UI can send the form without
+        # knowing the existing value. A whitespace-only string also treated
+        # as no-op; to truly clear the secret, admins delete via a future
+        # "clear" button (not implemented — zero current use case).
+        if s.npm_auth_secret is not None and s.npm_auth_secret.strip() != "":
+            auth.set_auth_setting(c, "npm_auth_secret", s.npm_auth_secret)
+            auth_changed = True
+    if auth_changed:
+        auth.invalidate_auth_settings_cache()
     return {"status": "ok"}
 
 

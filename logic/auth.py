@@ -42,9 +42,23 @@ if not SESSION_SECRET_ENV:
     _AUTO_SECRET = True
 SESSION_SECRET = SESSION_SECRET_ENV.encode("utf-8")
 
-NPM_AUTH_SECRET = os.getenv("NPM_AUTH_SECRET", "")
-AUTHENTIK_ENABLED = os.getenv("AUTHENTIK_ENABLED", "false").lower() == "true"
-AUTHENTIK_ADMIN_GROUP = os.getenv("AUTHENTIK_ADMIN_GROUP", "portaupdate-admins")
+# Authentik Forward Auth settings — env values are bootstrap defaults ONLY.
+# Once the settings table has been seeded (bootstrap_auth_settings() in the
+# lifespan handler), the DB is authoritative. The admin UI writes new values
+# via POST /api/settings; invalidate_auth_settings_cache() picks them up on
+# the next request. This keeps "set in .env once, then manage from UI"
+# ergonomic without any operator-facing precedence surprises.
+_AUTH_ENV_DEFAULTS = {
+    "authentik_enabled": os.getenv("AUTHENTIK_ENABLED", "false").lower() == "true",
+    "npm_auth_secret": os.getenv("NPM_AUTH_SECRET", ""),
+    "authentik_admin_group": os.getenv("AUTHENTIK_ADMIN_GROUP", "portaupdate-admins"),
+}
+
+# In-memory cache for the three auth-setting values. First read after an
+# invalidation hits SQLite; subsequent reads are a plain dict lookup. The
+# cache is keyed by the same strings that live in the `settings` table.
+_auth_settings_cache: dict = {}
+_auth_settings_cache_valid = False
 
 # Rate limit: 5 failed local logins per IP within the window → 15-minute lockout.
 RATE_LIMIT_MAX_FAILURES = 5
@@ -58,6 +72,79 @@ def auto_secret_warning() -> Optional[str]:
         return ("[auth] SESSION_SECRET not set — generated an ephemeral one. "
                 "Local sessions will not survive a restart. Set SESSION_SECRET in prod.")
     return None
+
+
+# ----------------------------------------------------------------------------
+# Auth settings (DB-backed, env-seeded)
+# ----------------------------------------------------------------------------
+_AUTH_SETTING_KEYS = ("authentik_enabled", "npm_auth_secret", "authentik_admin_group")
+
+
+def bootstrap_auth_settings(conn: sqlite3.Connection) -> None:
+    """Seed the three auth settings into the `settings` table from env on
+    first boot. No-op for keys that already exist in the DB — the UI is
+    authoritative after first deploy, so we don't overwrite operator
+    edits with env values on every restart.
+
+    Called once from main.py's lifespan handler, after init_db().
+    """
+    for key in _AUTH_SETTING_KEYS:
+        existing = conn.execute(
+            "SELECT value FROM settings WHERE key=?", (key,),
+        ).fetchone()
+        if existing is None:
+            default = _AUTH_ENV_DEFAULTS[key]
+            value = "true" if default is True else ("false" if default is False else str(default))
+            conn.execute(
+                "INSERT INTO settings(key, value) VALUES (?, ?)",
+                (key, value),
+            )
+
+
+def _refresh_auth_settings_cache(conn: sqlite3.Connection) -> None:
+    global _auth_settings_cache, _auth_settings_cache_valid
+    rows = conn.execute(
+        "SELECT key, value FROM settings WHERE key IN (?, ?, ?)",
+        _AUTH_SETTING_KEYS,
+    ).fetchall()
+    fresh = {key: _AUTH_ENV_DEFAULTS[key] for key in _AUTH_SETTING_KEYS}
+    for r in rows:
+        key = r["key"]
+        raw = r["value"] or ""
+        if key == "authentik_enabled":
+            fresh[key] = raw.lower() == "true"
+        else:
+            fresh[key] = raw
+    _auth_settings_cache = fresh
+    _auth_settings_cache_valid = True
+
+
+def get_auth_settings(conn: sqlite3.Connection) -> dict:
+    """Return the current {authentik_enabled, npm_auth_secret,
+    authentik_admin_group} triple. Cached; invalidated by UI writes.
+    """
+    if not _auth_settings_cache_valid:
+        _refresh_auth_settings_cache(conn)
+    return _auth_settings_cache
+
+
+def set_auth_setting(conn: sqlite3.Connection, key: str, value: str) -> None:
+    """Write one auth setting to the DB. Caller is responsible for calling
+    invalidate_auth_settings_cache() after the transaction commits so the
+    middleware picks it up on the next request.
+    """
+    if key not in _AUTH_SETTING_KEYS:
+        raise ValueError(f"unknown auth setting: {key}")
+    conn.execute(
+        "INSERT INTO settings(key, value) VALUES (?, ?) "
+        "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+        (key, value),
+    )
+
+
+def invalidate_auth_settings_cache() -> None:
+    global _auth_settings_cache_valid
+    _auth_settings_cache_valid = False
 
 
 # ----------------------------------------------------------------------------
@@ -309,12 +396,13 @@ def auto_provision_authentik(
 ) -> User:
     """Find or create the Authentik user, refreshing role from group claim.
 
-    Group membership is authoritative every time: if the user is in
-    AUTHENTIK_ADMIN_GROUP they become admin; otherwise readonly. This means
-    removing someone from the group in Authentik demotes them on next request.
-    Local users aren't touched by this path.
+    Group membership is authoritative every time: if the user is in the
+    configured admin group they become admin; otherwise readonly. This
+    means removing someone from the group in Authentik demotes them on
+    the next request. Local users aren't touched by this path.
     """
-    target_role = "admin" if AUTHENTIK_ADMIN_GROUP in (groups or []) else "readonly"
+    admin_group = get_auth_settings(conn).get("authentik_admin_group", "")
+    target_role = "admin" if admin_group and admin_group in (groups or []) else "readonly"
     u = get_user_by_email(conn, email)
     if u is None:
         # Username collisions with a local user get a suffix so we never
@@ -540,13 +628,20 @@ def _client_ip(request: Request) -> str:
     return request.client.host if request.client else "?"
 
 
-def _authentik_trusted(request: Request) -> bool:
-    """Only trust X-Authentik-* headers when NPM forwarded them with our secret."""
-    if not (AUTHENTIK_ENABLED and NPM_AUTH_SECRET):
+def _authentik_trusted(request: Request, settings: dict) -> bool:
+    """Only trust X-Authentik-* headers when NPM forwarded them with our secret.
+
+    Takes pre-loaded auth settings (from the DB-backed cache) so we don't
+    open a DB connection just to check on every request.
+    """
+    if not settings.get("authentik_enabled"):
+        return False
+    npm_secret = settings.get("npm_auth_secret") or ""
+    if not npm_secret:
         return False
     return hmac.compare_digest(
         request.headers.get("x-forward-auth-verify", ""),
-        NPM_AUTH_SECRET,
+        npm_secret,
     )
 
 
@@ -556,8 +651,12 @@ def _resolve_user(request: Request, db_conn_factory) -> tuple[Optional[User], Op
     Returns (user, session_reissue). session_reissue is (cookie_value, expires_at)
     when a sliding-window reissue happened, so the caller can set the cookie.
     """
+    # Load auth settings once for this request — middleware's hottest path.
+    with db_conn_factory() as c:
+        settings = get_auth_settings(c)
+
     # 1. Authentik Forward Auth header (highest trust when NPM verifies it)
-    if _authentik_trusted(request):
+    if _authentik_trusted(request, settings):
         email = request.headers.get("x-authentik-email")
         if email:
             username = request.headers.get("x-authentik-username")
