@@ -879,3 +879,100 @@ details summary::-webkit-details-marker { display: none; }
 .topology-complete,
 .topology-remove                         { background: var(--text-faint); }
 .topology-new                            { background: var(--primary); }
+
+/* ==========================================================================
+   Login page (static/login.html). All layout tokens come from :root —
+   no hardcoded colors or sizes per the token rule in CLAUDE.md.
+   ========================================================================== */
+body.login {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: var(--s-6);
+}
+
+.login-card {
+  width: 100%;
+  max-width: 380px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  padding: var(--s-6);
+  box-shadow: 0 10px 40px var(--backdrop-strong);
+}
+
+.login-card h1 {
+  margin: 0 0 var(--s-2);
+  font-size: 20px;
+  color: var(--text);
+}
+
+.login-card p.sub {
+  margin: 0 0 var(--s-6);
+  color: var(--text-dim);
+  font-size: 13px;
+}
+
+.login-card label {
+  display: block;
+  color: var(--text-dim);
+  font-size: 12px;
+  margin-top: var(--s-5);
+  margin-bottom: var(--s-2);
+}
+
+.login-card input[type="text"],
+.login-card input[type="password"] {
+  width: 100%;
+  padding: 9px 10px;
+  background: var(--surface-2);
+  color: var(--text);
+  border: 1px solid var(--border-bright);
+  border-radius: var(--r-md);
+  font-size: 14px;
+  outline: none;
+  box-sizing: border-box;
+}
+
+.login-card input:focus {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 2px var(--primary-soft);
+}
+
+.login-card button {
+  width: 100%;
+  margin-top: var(--s-6);
+  padding: 10px;
+  background: var(--primary);
+  color: var(--text-on-primary);
+  border: 0;
+  border-radius: var(--r-md);
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.login-card button:hover { background: var(--primary-hov); }
+.login-card button:disabled { opacity: .6; cursor: default; }
+
+.login-card .err {
+  margin-top: var(--s-5);
+  padding: var(--s-4) var(--s-5);
+  background: var(--pill-error-bg);
+  border: 1px solid var(--pill-error-br);
+  color: var(--pill-error-fg);
+  border-radius: var(--r-md);
+  font-size: 12px;
+  display: none;
+}
+
+.login-card .err.show { display: block; }
+
+.login-card .footer {
+  margin-top: var(--s-5);
+  padding-top: var(--s-5);
+  border-top: 1px solid var(--border);
+  color: var(--text-faint);
+  font-size: 11px;
+  text-align: center;
+}

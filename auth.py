@@ -21,6 +21,7 @@ from typing import Optional
 
 import bcrypt
 from fastapi import HTTPException, Request
+from fastapi.responses import JSONResponse
 
 
 # ----------------------------------------------------------------------------
@@ -374,29 +375,40 @@ def rate_limit_clear(ip: str) -> None:
 
 
 # ----------------------------------------------------------------------------
-# Middleware + deps (observe mode for step 1)
+# Middleware + deps (step-3 enforcement)
 # ----------------------------------------------------------------------------
-# Paths that never run through identity resolution. Keep this narrow —
-# everything else goes through the middleware so the identity is available
-# even when a route chooses not to enforce.
-PUBLIC_PATH_PREFIXES = (
-    "/metrics",
-    "/api/healthz",
-    "/api/local-auth/",
-    "/login",
-    "/static/",
-    "/vendor/",
-    "/img/",
-    "/favicon",
-    "/icon-",
+# Classification is deliberately coarse:
+#   - Everything NOT under /api/ is fully public. That covers the SPA shell,
+#     the login page, every static asset, vendor bundles, images, CSS. The
+#     SPA handles its own redirect to /login via /api/me, so there's no
+#     need for the middleware to gate HTML/CSS/JS.
+#   - Paths under /api/ split into two groups:
+#       * public: /api/healthz, /api/version, /metrics (scrape)
+#       * auth-optional: /api/local-auth/*, /api/me — user is resolved so
+#         handlers can behave differently when logged in, but no rejection
+#         if the request is unauthenticated.
+#       * everything else: 401 on missing identity.
+PUBLIC_API_PATHS = frozenset({"/api/healthz", "/api/version", "/metrics"})
+
+AUTH_OPTIONAL_API_PREFIXES = (
+    "/api/local-auth/",      # login / logout / bootstrap
+    "/api/me",               # identity introspection — must return
+                             # {authenticated: false} rather than 401
 )
 
 
-def _is_public(path: str) -> bool:
-    if path in ("/", "/index.html"):
-        # The SPA shell itself stays public in observe mode; step-3 will gate it.
+def _is_fully_public(path: str) -> bool:
+    if not path.startswith("/api/") and path != "/metrics":
+        # Every non-API path is public. Static assets (CSS, JS, images,
+        # vendor bundles), the SPA shell, and the /login HTML page all
+        # reach the StaticFiles mount or their dedicated route without
+        # any identity lookup.
         return True
-    return any(path.startswith(p) for p in PUBLIC_PATH_PREFIXES)
+    return path in PUBLIC_API_PATHS
+
+
+def _is_auth_optional(path: str) -> bool:
+    return any(path.startswith(p) for p in AUTH_OPTIONAL_API_PREFIXES)
 
 
 def _client_ip(request: Request) -> str:
@@ -481,10 +493,20 @@ def make_auth_middleware(db_conn_factory):
     """
 
     async def auth_middleware(request: Request, call_next):
-        if _is_public(request.url.path):
+        path = request.url.path
+        if _is_fully_public(path):
             return await call_next(request)
         user, reissue = _resolve_user(request, db_conn_factory)
         request.state.user = user
+        # Step-3 enforcement: unauthenticated requests to /api/* get 401.
+        # /api/me and /api/local-auth/* are auth-optional — they still run.
+        # Non-/api paths outside the public list are redirected to /login.
+        # Enforcement: only /api/* needs gating at the middleware level —
+        # the SPA handles its own redirect-to-/login via /api/me.
+        if user is None and not _is_auth_optional(path):
+            return JSONResponse(
+                {"detail": "Authentication required"}, status_code=401,
+            )
         response = await call_next(request)
         if reissue is not None:
             cookie_value, expires_at = reissue

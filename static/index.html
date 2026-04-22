@@ -19,7 +19,26 @@
 <script src="vendor/tailwind.min.js"></script>
 <script defer src="vendor/alpine.min.js"></script>
 <script src="vendor/sweetalert2.all.min.js"></script>
-<link rel="stylesheet" href="style.css">
+<link rel="stylesheet" href="css/style.css">
+<script>
+  // Global 401 → /login redirect. Wraps fetch() once, before Alpine init,
+  // so every API call in the app benefits without per-call plumbing. We
+  // only redirect for genuine 401s on API paths — not /api/me (auth-
+  // optional, returns 200 with {authenticated:false}) and not /api/local-
+  // auth/login (the login page handles its own errors, and this script
+  // doesn't run there anyway — login.html is a separate page).
+  (function () {
+    const orig = window.fetch;
+    window.fetch = async function (input, init) {
+      const r = await orig.apply(this, arguments);
+      if (r.status === 401) {
+        const path = location.pathname + location.search;
+        location.href = '/login?next=' + encodeURIComponent(path);
+      }
+      return r;
+    };
+  })();
+</script>
 </head>
 <body class="min-h-screen">
 
@@ -116,6 +135,16 @@
         <button @click="showSettings=true" class="btn btn-soft" title="Settings">
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2Z"/><circle cx="12" cy="12" r="3"/></svg>
         </button>
+        <!-- User badge + logout — shown once /api/me resolves. -->
+        <div x-show="me" class="flex items-center gap-1 pl-2 ml-1 border-l border-[var(--border)]">
+          <span class="text-[11px] text-[var(--text-dim)] hidden md:inline" :title="'Signed in via ' + (me && me.source)">
+            <span x-text="me && me.username" class="font-medium text-[var(--text)]"></span>
+            <span class="text-[var(--text-faint)]" x-text="me && ' · ' + me.role"></span>
+          </span>
+          <button @click="logout()" class="btn btn-soft" title="Sign out">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+          </button>
+        </div>
       </div>
     </div>
 
@@ -928,8 +957,29 @@ function app() {
     endpointId: 1,
     busy: {},
     themePref: localStorage.getItem('theme') || 'auto',
+    // Current user, set from /api/me on init. Null until that call
+    // completes; the SPA defers rendering everything that depends on it.
+    me: null,
 
     async init() {
+      // Resolve identity FIRST. Unauthenticated users get redirected to
+      // /login; everyone else falls through to the normal data loads.
+      // (The global fetch wrapper also handles mid-session 401s, but doing
+      // an explicit check up front avoids flashing an empty UI to someone
+      // who isn't logged in at all.)
+      try {
+        const r = await fetch('/api/me');
+        if (r.ok) {
+          const m = await r.json();
+          if (!m.authenticated) {
+            const path = location.pathname + location.search;
+            location.href = '/login?next=' + encodeURIComponent(path);
+            return;
+          }
+          this.me = m;
+        }
+      } catch (_) { /* network hiccup — next fetch will trip the wrapper */ }
+
       if (window.matchMedia) {
         const mq = window.matchMedia('(prefers-color-scheme: light)');
         const onSys = () => { if (this.themePref === 'auto') this.applyTheme(); };
@@ -948,6 +998,13 @@ function app() {
       this.pollStats();
       this.pollSparks();
       setInterval(() => this.updateCacheLabel(), 1000);
+    },
+
+    async logout() {
+      try {
+        await fetch('/api/local-auth/logout', { method: 'POST' });
+      } catch (_) { /* ignore — clearing the cookie is the important bit */ }
+      location.href = '/login';
     },
 
     async loadVersion() {

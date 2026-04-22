@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>PortaUpdate — Sign in</title>
+<script>
+  (function () {
+    let pref = localStorage.getItem('theme') || 'auto';
+    let sysLight = window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches;
+    let resolved = pref === 'auto' ? (sysLight ? 'light' : 'dark') : pref;
+    document.documentElement.setAttribute('data-theme', resolved);
+  })();
+</script>
+<link rel="icon" href="/img/logo/icon-512.png" />
+<link rel="stylesheet" href="/css/style.css" />
+</head>
+<body class="login">
+  <form class="login-card" id="login" autocomplete="on">
+    <h1>PortaUpdate</h1>
+    <p class="sub">Sign in to continue.</p>
+
+    <label for="u">Username</label>
+    <input id="u" name="username" type="text" autofocus required />
+
+    <label for="p">Password</label>
+    <input id="p" name="password" type="password" required />
+
+    <button type="submit" id="btn">Sign in</button>
+
+    <div class="err" id="err"></div>
+
+    <div class="footer" id="ver"></div>
+  </form>
+
+<script>
+  (function () {
+    const form = document.getElementById('login');
+    const btn = document.getElementById('btn');
+    const err = document.getElementById('err');
+    const ver = document.getElementById('ver');
+
+    // Show version so operators can sanity-check which build is live.
+    fetch('/api/version').then(r => r.ok ? r.json() : null).then(v => {
+      if (v && v.version) ver.textContent = 'v' + v.version;
+    }).catch(() => {});
+
+    function showErr(msg) {
+      err.textContent = msg;
+      err.classList.add('show');
+    }
+    function clearErr() {
+      err.classList.remove('show');
+      err.textContent = '';
+    }
+
+    function nextPath() {
+      // Default to "/" but honor a ?next=<path> if it's a same-origin path.
+      const p = new URLSearchParams(location.search).get('next') || '/';
+      // Reject absolute / protocol-relative URLs — open-redirect defense.
+      if (!p.startsWith('/') || p.startsWith('//')) return '/';
+      return p;
+    }
+
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      clearErr();
+      btn.disabled = true;
+      btn.textContent = 'Signing in…';
+      try {
+        const body = new URLSearchParams({
+          username: document.getElementById('u').value,
+          password: document.getElementById('p').value,
+        });
+        const r = await fetch('/api/local-auth/login', {
+          method: 'POST',
+          body,
+          credentials: 'same-origin',
+        });
+        if (r.ok) {
+          location.href = nextPath();
+          return;
+        }
+        if (r.status === 429) {
+          const j = await r.json().catch(() => ({}));
+          showErr(j.detail || 'Too many attempts. Try again shortly.');
+        } else if (r.status === 401) {
+          showErr('Invalid username or password.');
+        } else {
+          showErr('Sign-in failed (' + r.status + '). Try again.');
+        }
+      } catch (_) {
+        showErr('Network error. Try again.');
+      } finally {
+        btn.disabled = false;
+        btn.textContent = 'Sign in';
+      }
+    });
+  })();
+</script>
+</body>
+</html>

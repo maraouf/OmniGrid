@@ -35,7 +35,7 @@ load_dotenv(os.getenv("ENV_FILE_PATH", "/app/.env"), override=False)
 
 import httpx
 from fastapi import BackgroundTasks, Depends, FastAPI, Form, HTTPException, Request
-from fastapi.responses import JSONResponse, Response
+from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 
 import auth
@@ -1843,8 +1843,9 @@ async def api_local_bootstrap(
 
 @app.get("/api/me")
 async def api_me(request: Request):
-    """Return the current identity if any. Never 401 in observe mode — the
-    frontend uses this to decide whether to show login vs authed chrome.
+    """Return the current identity if any. Auth-optional — returns
+    {authenticated: false} instead of 401 so the SPA can decide whether
+    to redirect to /login.
     """
     user = getattr(request.state, "user", None)
     if not user:
@@ -1855,6 +1856,15 @@ async def api_me(request: Request):
         "role": user.role,
         "source": user.auth_source,
     }
+
+
+# Login HTML page. Served as a discrete route (not via StaticFiles) because
+# /login has no trailing slash and we want it to map to static/login.html
+# directly without relying on html=True directory-index behaviour. Also
+# listed in auth.FULLY_PUBLIC_PREFIXES so the middleware never gates it.
+@app.get("/login")
+async def login_page():
+    return FileResponse("static/login.html")
 
 
 # Prometheus scrape endpoint.
