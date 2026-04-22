@@ -24,6 +24,15 @@ import uuid
 from contextlib import asynccontextmanager, contextmanager
 from typing import Optional
 
+# Load .env BEFORE any os.getenv() calls (including those done at import time
+# in auth.py). The file lives in the /app bind-mount and travels with the
+# rest of the source via CI rsync — nothing in docker-compose.yml depends on
+# env_file, which sidesteps Portainer's web-editor inability to resolve host
+# paths. `override=False` keeps any values set in the compose `environment:`
+# block authoritative (e.g. DB_PATH).
+from dotenv import load_dotenv
+load_dotenv(os.getenv("ENV_FILE_PATH", "/app/.env"), override=False)
+
 import httpx
 from fastapi import BackgroundTasks, FastAPI, Form, HTTPException, Request
 from fastapi.responses import JSONResponse, Response

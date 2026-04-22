@@ -4,3 +4,4 @@ httpx==0.28.1
 prometheus-client==0.25.0
 bcrypt==4.2.1
 python-multipart==0.0.20
+python-dotenv==1.0.1
