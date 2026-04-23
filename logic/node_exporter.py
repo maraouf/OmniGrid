@@ -118,7 +118,9 @@ def parse_exporter_text(text: str) -> dict:
             mem_total = int(value)
         elif name == "node_memory_MemAvailable_bytes":
             mem_avail = int(value)
-        elif name == "node_boot_time_seconds":
+        elif name == "node_boot_time_seconds" or name == "node_boot_time":
+            # Pre-0.16 node-exporter used "node_boot_time" without the
+            # _seconds suffix. Accept both so older deploys work.
             boot_ts = value
         elif name in ("node_filesystem_size_bytes", "node_filesystem_avail_bytes"):
             labels = _parse_labels(m.group("labels") or "")

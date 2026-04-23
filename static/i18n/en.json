@@ -226,7 +226,7 @@
       "desc": "Scrape prom/node-exporter on each node to surface real host disk usage (across all mounts), host RAM, and real host uptime. Deploy node-exporter once per host (Swarm global service works well).",
       "enable": "Enable host-stats scraping",
       "url_label": "Endpoint URL template",
-      "url_hint": "Must contain the {host} placeholder — PortaUpdate substitutes each node's Docker hostname. Change the port here if your exporter listens somewhere other than :9100.",
+      "url_hint": "Placeholders: {host} = Docker hostname (use .home.lan or another suffix for FQDN: http://{host}.home.lan:9100/metrics), {ip} = Swarm-advertised IP (skip DNS entirely: http://{ip}:9100/metrics). Change the port here if your exporter listens somewhere other than :9100.",
       "placeholder_required": "URL template must contain the {host} placeholder.",
       "overrides_label": "Per-node URL overrides (JSON)",
       "overrides_hint": "Use this when a node's Docker hostname doesn't resolve from inside the PortaUpdate container. Keys are hostnames (as Docker reports them); values are full URLs. Overrides take precedence over the template.",

@@ -200,6 +200,13 @@ async def _gather_impl() -> None:
             if not host:
                 continue
             nanocpus = int(res.get("NanoCPUs") or 0)
+            # Swarm's advertised IP for this node — stable in a homelab
+            # and dodges DNS entirely when used as the exporter target.
+            # Managers expose it at ManagerStatus.Addr (with :2377);
+            # workers expose it at Status.Addr. Strip any port suffix.
+            raw_addr = (status.get("Addr")
+                        or ((n.get("ManagerStatus") or {}).get("Addr") or ""))
+            ip_only = str(raw_addr).split(":", 1)[0].strip()
             nodes_info[host] = {
                 "id":           n.get("ID"),
                 "role":         spec.get("Role"),
@@ -214,6 +221,7 @@ async def _gather_impl() -> None:
                 "os":           plat.get("OS"),
                 "arch":         plat.get("Architecture"),
                 "engine":       ((desc.get("Engine") or {}).get("EngineVersion")),
+                "ip":           ip_only or None,
                 "oldest_running_ts": None,  # filled in by the tasks pass below
             }
 
@@ -319,7 +327,16 @@ async def _gather_impl() -> None:
                 overrides = {}
             async with httpx.AsyncClient(verify=False, timeout=10.0) as ne_client:
                 async def _ne_probe(h):
-                    url = overrides.get(h) or tpl.replace("{host}", h)
+                    # Override wins over template. The template supports
+                    # both {host} (Docker hostname) and {ip} (Swarm-
+                    # advertised IP) — pick whichever works in your
+                    # network. Mixed strings like
+                    # "http://{host}.home.lan:9100/metrics" are fine.
+                    info = nodes_info.get(h) or {}
+                    ip = info.get("ip") or ""
+                    url = overrides.get(h) or (
+                        tpl.replace("{host}", h).replace("{ip}", ip)
+                    )
                     return h, await _ne.probe_node(ne_client, url)
                 results = await asyncio.gather(
                     *(_ne_probe(h) for h in df_hosts),
