@@ -6,7 +6,7 @@ registers a cache-age collector once at startup by passing a getter —
 that avoids a circular import where this module would need ``_cache``
 from main.
 
-Metric names match ``notes/grafana_dashboard_portaupdate.json`` — do NOT
+Metric names match ``notes/grafana_dashboard_omnigrid.json`` — do NOT
 rename without updating the dashboard in the same commit.
 """
 import time
