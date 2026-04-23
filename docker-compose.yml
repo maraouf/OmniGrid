@@ -13,20 +13,15 @@ services:
     ports:
       - "9500:8088"
 
-    # Environment secrets / tunables live in `.env` at the repo root and ship
-    # via CI rsync to /opt/omnigrid/app/.env. main.py loads that file via
-    # python-dotenv at startup (already visible inside the container at
-    # /app/.env thanks to the bind mount below). Same pattern as
-    # adguardhome-sync etc. — the app reads its own config file.
-    #
+    # Every tunable — including DB_PATH — lives in `.env` at the repo
+    # root and ships via CI rsync to /opt/omnigrid/app/.env. main.py
+    # loads that file via python-dotenv at startup (already visible
+    # inside the container at /app/.env thanks to the bind mount below).
     # We deliberately don't use Compose's `env_file:` because Portainer's
     # web-editor stacks can't resolve relative paths (they'd look in
-    # /data/compose/<stack-id>/ inside Portainer's container). Letting the
-    # app read its own file sidesteps that entirely.
-    #
-    environment:
-      # Fixed container path — not an operator tunable, kept out of .env.
-      DB_PATH: "/app/data/omnigrid.db"
+    # /data/compose/<stack-id>/ inside Portainer's container). Letting
+    # the app read its own file sidesteps that entirely — and keeps the
+    # compose file free of service-level config.
 
     volumes:
       - /opt/omnigrid/app:/app:ro             # source code (read-only, hot-reload with a container restart)

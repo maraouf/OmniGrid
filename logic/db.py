@@ -6,14 +6,25 @@ as the boot orchestrator — each logic module that owns tables exposes
 its own ``init_schema(conn)`` hook there.
 
 The path is read from ``DB_PATH`` at import time; parent directory is
-created on import so callers don't have to.
+created on import so callers don't have to. ``DB_PATH`` is REQUIRED —
+main.py calls ``load_dotenv`` before importing this module, so a missing
+value means the operator's ``.env`` is broken. Fail loud at boot rather
+than silently fall back to a default path that drifts from the bind
+mount.
 """
 import os
 import sqlite3
 from contextlib import contextmanager
 
 
-DB_PATH = os.getenv("DB_PATH", "/app/data/omnigrid.db")
+_db_path_env = os.getenv("DB_PATH")
+if not _db_path_env:
+    raise RuntimeError(
+        "DB_PATH is not set. Define it in /app/.env (e.g. "
+        "DB_PATH=/app/data/omnigrid.db) — main.py loads that file "
+        "before importing logic.db."
+    )
+DB_PATH: str = _db_path_env
 
 # Create the parent dir at import (once per process). Safe on restart —
 # exist_ok. "" dirname falls back to "." so relative paths work in dev.
