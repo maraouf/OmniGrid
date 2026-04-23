@@ -75,6 +75,7 @@ from logic.portainer import (  # noqa: E402
 )
 CACHE_TTL = int(os.getenv("CACHE_TTL_SECONDS", "900"))
 STATS_CACHE_TTL = int(os.getenv("STATS_CACHE_TTL_SECONDS", "30"))
+from logic import db as _db  # noqa: E402
 from logic.db import DB_PATH, db_conn, get_setting, set_setting  # noqa: E402,F401
 DOCKERHUB_USER = os.getenv("DOCKERHUB_USER", "")
 DOCKERHUB_TOKEN = os.getenv("DOCKERHUB_TOKEN", "")
@@ -90,6 +91,18 @@ BOOTSTRAP_ADMIN_PASSWORD = os.getenv("BOOTSTRAP_ADMIN_PASSWORD", "")
 async def _lifespan(app: FastAPI):
     # Lifespan-managed startup — per the single-replica rule in CLAUDE.md,
     # long-running workers live here so they stay at one-per-process.
+    from logic import db as _db_mod
+    if _db_mod.DB_PATH_ERROR:
+        # Keep the app alive so the config-error middleware can serve a
+        # readable diagnostic page. Skip every DB-dependent boot step and
+        # every background worker — they'd all fail on the same missing
+        # value. Operators see the error in the browser instead of a
+        # crash-loop in `docker service ps`.
+        print(f"[boot] CONFIG ERROR: {_db_mod.DB_PATH_ERROR}")
+        print("[boot] Skipping DB init, schedulers, and samplers until "
+              "DB_PATH is set. The app is serving the config-error page.")
+        yield
+        return
     init_db()
     warn = auth.auto_secret_warning()
     if warn:
@@ -162,6 +175,55 @@ app = FastAPI(title="OmniGrid", lifespan=_lifespan)
 # The lambda defers `db_conn` lookup: the function is defined later in this
 # module (SQLite section) but the middleware body only runs at request time.
 app.middleware("http")(auth.make_auth_middleware(lambda: db_conn()))
+
+
+# Config-error guard. Registered AFTER auth so Starlette runs it FIRST on
+# each request (middleware is a LIFO stack). When a required config value
+# like DB_PATH is missing, we keep uvicorn up (no crash-loop) and return a
+# readable diagnostic instead of a raw sqlite error on every route.
+# /api/healthz is let through so the container healthcheck keeps passing;
+# static assets pass too, so the HTML error page can render with styles.
+_CONFIG_PASSTHROUGH_PREFIXES = (
+    "/api/healthz", "/api/version", "/css/", "/js/", "/img/",
+    "/i18n/", "/node_modules/", "/fonts/", "/icon-", "/favicon",
+)
+
+_CONFIG_ERROR_HTML = """<!doctype html>
+<html><head><meta charset="utf-8"><title>OmniGrid — configuration error</title>
+<link rel="stylesheet" href="/css/style.css">
+</head><body class="login">
+<div class="login-wrap">
+  <div class="login-card" style="max-width:520px">
+    <h1>OmniGrid is not configured</h1>
+    <p style="color:var(--text-dim);margin-top:var(--s-2)">{detail}</p>
+    <p style="color:var(--text-faint);margin-top:var(--s-3);font-size:0.9em">
+      Container is up and healthy; fix the config and redeploy (or force a
+      service update). This page is served by a fail-safe middleware so the
+      error is visible instead of hidden behind a crash-loop.
+    </p>
+  </div>
+</div></body></html>
+"""
+
+
+@app.middleware("http")
+async def _config_error_guard(request: Request, call_next):
+    err = _db.DB_PATH_ERROR
+    if not err:
+        return await call_next(request)
+    path = request.url.path
+    if any(path == p or path.startswith(p) for p in _CONFIG_PASSTHROUGH_PREFIXES):
+        return await call_next(request)
+    if path.startswith("/api/"):
+        return JSONResponse(
+            {"error": "config_missing", "detail": err},
+            status_code=503,
+        )
+    return Response(
+        content=_CONFIG_ERROR_HTML.format(detail=err),
+        media_type="text/html",
+        status_code=503,
+    )
 
 # Prometheus metric definitions moved to logic/metrics.py. The cache-age
 # collector is wired below (once _cache exists), and every remaining
@@ -1012,10 +1074,18 @@ async def healthz():
     # Re-read VERSION.txt per request so operator edits on the server
     # (e.g. hand-bumping MAJOR/MINOR) show up without restarting the
     # container. File is tiny — a couple-microsecond stat+read each call.
+    #
+    # The container healthcheck only cares about HTTP 200 vs non-200, so
+    # we intentionally keep returning 200 when config is broken — that
+    # way Swarm doesn't crash-loop the task and the config-error page
+    # stays reachable for the operator. The `ok` and `config_error`
+    # fields let any JSON caller (Grafana, Uptime Kuma) distinguish
+    # healthy from degraded.
     return {
-        "ok": True,
+        "ok": _db.DB_PATH_ERROR is None,
         "version": read_version(),
         "cache_age": int(time.time() - _cache["ts"]) if _cache["ts"] else None,
+        "config_error": _db.DB_PATH_ERROR,
     }
 
 
