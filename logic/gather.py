@@ -12,6 +12,7 @@ correctness matters most, and splitting it across modules would just
 add import gymnastics without reducing real complexity.
 """
 import asyncio
+import json
 import time
 from typing import Optional
 
@@ -305,9 +306,20 @@ async def _gather_impl() -> None:
         if ne_enabled and df_hosts:
             tpl = get_setting("node_exporter_url_template", "http://{host}:9100/metrics") \
                   or "http://{host}:9100/metrics"
+            # Per-host URL overrides for nodes where the template's {host}
+            # substitution can't reach the exporter (DNS, alternate IP,
+            # different port, etc.). Operator edits this JSON via the
+            # Host stats settings panel.
+            overrides_raw = get_setting("node_exporter_overrides", "{}") or "{}"
+            try:
+                overrides = json.loads(overrides_raw)
+                if not isinstance(overrides, dict):
+                    overrides = {}
+            except Exception:
+                overrides = {}
             async with httpx.AsyncClient(verify=False, timeout=10.0) as ne_client:
                 async def _ne_probe(h):
-                    url = tpl.replace("{host}", h)
+                    url = overrides.get(h) or tpl.replace("{host}", h)
                     return h, await _ne.probe_node(ne_client, url)
                 results = await asyncio.gather(
                     *(_ne_probe(h) for h in df_hosts),

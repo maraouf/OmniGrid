@@ -684,6 +684,11 @@ class SettingsIn(BaseModel):
     # node-exporter deploy.
     node_exporter_enabled: Optional[bool] = None
     node_exporter_url_template: Optional[str] = None
+    # Per-hostname URL overrides for nodes where the default template's
+    # {host} substitution doesn't resolve (e.g. a node whose Docker
+    # hostname isn't reachable via DNS from the PortaUpdate container).
+    # Stored as a JSON object: {"hostname": "http://explicit:9100/metrics"}.
+    node_exporter_overrides: Optional[dict] = None
 
 
 @app.get("/api/settings")
@@ -700,6 +705,7 @@ async def api_get_settings(request: Request):
         "node_exporter": {
             "enabled": (get_setting("node_exporter_enabled", "false") or "false").lower() == "true",
             "url_template": get_setting("node_exporter_url_template", "http://{host}:9100/metrics"),
+            "overrides": json.loads(get_setting("node_exporter_overrides", "{}") or "{}"),
         },
         # Back-compat: older UI bits read this top-level field.
         "endpoint_id": p.get("portainer_endpoint_id", 1),
@@ -755,6 +761,20 @@ async def api_set_settings(
                 detail="node_exporter_url_template must contain the '{host}' placeholder.",
             )
         set_setting("node_exporter_url_template", tpl)
+    if s.node_exporter_overrides is not None:
+        # Normalise: reject non-dict, drop blank keys/values. The DB
+        # stores the JSON verbatim; gather.py reads + applies it.
+        if not isinstance(s.node_exporter_overrides, dict):
+            raise HTTPException(
+                status_code=400,
+                detail="node_exporter_overrides must be a JSON object.",
+            )
+        clean = {
+            str(k).strip(): str(v).strip()
+            for k, v in s.node_exporter_overrides.items()
+            if str(k).strip() and str(v).strip()
+        }
+        set_setting("node_exporter_overrides", json.dumps(clean))
 
     auth_changed = False
     portainer_changed = False

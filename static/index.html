@@ -681,6 +681,15 @@
                     class="pill pill-update text-[10.5px]">
                 <span x-text="node.degraded"></span> degraded
               </span>
+              <!-- Exporter error chip — shown only when node-exporter
+                   scrape failed for THIS node. Hovering reveals the
+                   raw error (connection refused, DNS, HTTP status)
+                   so the operator can diagnose without server logs. -->
+              <span x-show="nodeStats(node.name).exporterError"
+                    class="pill pill-error text-[10.5px] cursor-help"
+                    :title="nodeStats(node.name).exporterError">
+                exporter ✗
+              </span>
               <span class="text-[11px] text-[var(--text-dim)] mx-1">
                 <span x-text="node.total"></span> total
               </span>
@@ -1262,6 +1271,16 @@
                placeholder="http://{host}:9100/metrics">
         <p class="text-[10.5px] text-[var(--text-faint)] mt-1"
            x-text="t('settings.host_stats.url_hint')"></p>
+
+        <label class="block text-[11px] text-[var(--text-faint)] mt-4 mb-1"
+               x-text="t('settings.host_stats.overrides_label')"></label>
+        <textarea x-model="settings.node_exporter_overrides_json"
+                  :disabled="isReadonly()" rows="5"
+                  class="w-full mono text-[11.5px]"
+                  :placeholder='`{\n  "dockerpve": "http://192.168.1.30:9100/metrics"\n}`'></textarea>
+        <p class="text-[10.5px] text-[var(--text-faint)] mt-1"
+           x-text="t('settings.host_stats.overrides_hint')"></p>
+
         <button x-show="isAdmin()" @click="saveHostStats()"
                 class="btn btn-primary text-[12px] mt-3"
                 x-text="t('actions.save')"></button>

@@ -1009,6 +1009,19 @@ function app() {
         this.showToast(this.t('settings.host_stats.placeholder_required'), 'error');
         return;
       }
+      let overrides = {};
+      const raw = (this.settings.node_exporter_overrides_json || '').trim() || '{}';
+      try {
+        const parsed = JSON.parse(raw);
+        if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+          overrides = parsed;
+        } else {
+          throw new Error('object expected');
+        }
+      } catch (_) {
+        this.showToast(this.t('settings.host_stats.overrides_invalid'), 'error');
+        return;
+      }
       try {
         const r = await fetch('/api/settings', {
           method: 'POST',
@@ -1016,6 +1029,7 @@ function app() {
           body: JSON.stringify({
             node_exporter_enabled: !!this.settings.node_exporter_enabled,
             node_exporter_url_template: tpl,
+            node_exporter_overrides: overrides,
           }),
         });
         if (r.ok) {
@@ -1526,6 +1540,8 @@ function app() {
           node_exporter_enabled: !!(d.node_exporter && d.node_exporter.enabled),
           node_exporter_url_template: (d.node_exporter && d.node_exporter.url_template)
             || 'http://{host}:9100/metrics',
+          node_exporter_overrides_json: JSON.stringify(
+            (d.node_exporter && d.node_exporter.overrides) || {}, null, 2),
         };
         this.endpointId = d.endpoint_id || 1;
 
@@ -1802,9 +1818,11 @@ function app() {
       if (this._opsTimer) clearTimeout(this._opsTimer);
       if (!this._opLingerUntil) this._opLingerUntil = {};
       // Linger window — keep finished ops visible in the floating panel
-      // for this many seconds so operators can read the outcome (prune
-      // summary, restart result, etc.) instead of the panel vanishing
-      // the moment an op flips to status != running.
+      // for this many seconds AFTER they transitioned running → done.
+      // We only apply it to ops that were RUNNING in the previous poll,
+      // NOT to every completed op the backend returns (the ring buffer
+      // holds the last ~50 finished ops; showing those would flood the
+      // panel with historical ops every page load / reconnect).
       const LINGER_MS = 8000;
       const tick = async () => {
         try {
@@ -1814,15 +1832,15 @@ function app() {
             .filter(o => o.status === 'running')
             .map(o => o.id);
           const nowTs = Date.now();
-          // Track the deadline for each op that has finished (running
-          // → done). Existing entries keep their original deadline.
+          // Only the just-transitioned set gets a linger deadline.
           for (const o of all) {
-            if (o.status !== 'running' && !this._opLingerUntil[o.id]) {
+            if (o.status !== 'running' &&
+                prevRunning.includes(o.id) &&
+                !this._opLingerUntil[o.id]) {
               this._opLingerUntil[o.id] = nowTs + LINGER_MS;
             }
           }
-          // activeOps = running ops + finished ops still within linger
-          // window. Drop entries whose ops are gone (ring-buffer eviction).
+          // Sweep expired / evicted linger entries.
           const aliveIds = new Set(all.map(o => o.id));
           for (const id of Object.keys(this._opLingerUntil)) {
             if (!aliveIds.has(id) || this._opLingerUntil[id] <= nowTs) {

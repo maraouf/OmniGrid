@@ -228,6 +228,9 @@
       "url_label": "Endpoint URL template",
       "url_hint": "Must contain the {host} placeholder — PortaUpdate substitutes each node's Docker hostname. Change the port here if your exporter listens somewhere other than :9100.",
       "placeholder_required": "URL template must contain the {host} placeholder.",
+      "overrides_label": "Per-node URL overrides (JSON)",
+      "overrides_hint": "Use this when a node's Docker hostname doesn't resolve from inside the PortaUpdate container. Keys are hostnames (as Docker reports them); values are full URLs. Overrides take precedence over the template.",
+      "overrides_invalid": "Per-node overrides must be a JSON object like {\"host\": \"http://…\"}.",
       "saved": "Host-stats settings saved"
     },
     "language": {
