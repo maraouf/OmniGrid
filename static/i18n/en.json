@@ -13,6 +13,7 @@
   "nav": {
     "stacks": "Stacks",
     "services": "Services",
+    "nodes": "Nodes",
     "history": "History",
     "settings": "Settings",
     "admin": "Admin"

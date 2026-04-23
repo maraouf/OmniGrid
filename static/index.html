@@ -199,7 +199,7 @@
     </div>
 
     <!-- FILTER BAR -->
-    <div x-show="view==='stacks' || view==='services'" class="px-5 pb-3 max-w-full mx-auto w-full flex items-center gap-2 flex-wrap">
+    <div x-show="view==='stacks' || view==='services' || view==='nodes'" class="px-5 pb-3 max-w-full mx-auto w-full flex items-center gap-2 flex-wrap">
       <div class="flex items-center gap-1.5 flex-wrap">
         <button @click="healthFilter='';statusFilter=''"
                 :class="(!healthFilter && !statusFilter) ? 'active' : ''"
@@ -631,6 +631,95 @@
         <div x-text="t('loading.resources')"></div>
       </div>
       <div x-show="filteredItems.length===0 && !loading && items.length > 0" class="text-center py-16 text-[var(--text-faint)] text-sm" x-text="t('empty.no_match')">
+      </div>
+    </div>
+
+    <!-- ===== NODES VIEW ===== -->
+    <!-- One collapsible card per Swarm node. Inside: items grouped by
+         their stack, matching the stacks-view layout so operators can
+         navigate vertically by node ("what's on web02?") instead of by
+         stack. Reuses the same filter pipeline (health / status / search). -->
+    <div x-show="view==='nodes'" class="space-y-3">
+      <template x-for="node in nodeGroups()" :key="node.key">
+        <div class="bg-[var(--surface)] border border-[var(--border)] rounded-md overflow-hidden">
+          <!-- Node header — click to collapse/expand. -->
+          <button @click="toggleNode(node.name)"
+                  class="w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-[var(--surface-2)] transition">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
+                 :class="isNodeExpanded(node.name) ? 'rotate-90' : ''"
+                 class="text-[var(--text-dim)] transition-transform">
+              <polyline points="9 18 15 12 9 6"/>
+            </svg>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-[var(--text-dim)]">
+              <rect x="2" y="2" width="20" height="8" rx="2"/>
+              <rect x="2" y="14" width="20" height="8" rx="2"/>
+              <line x1="6" y1="6" x2="6.01" y2="6"/>
+              <line x1="6" y1="18" x2="6.01" y2="18"/>
+            </svg>
+            <span class="font-semibold text-[13px] mono" x-text="node.name"></span>
+            <span class="text-[11px] text-[var(--text-faint)]">
+              <span x-text="node.services"></span> svc ·
+              <span x-text="node.containers"></span> ctn ·
+              <span x-text="node.stacks"></span> stacks
+            </span>
+            <span class="flex-1"></span>
+            <!-- Inline counts for quick-scan. Hide when zero so the header
+                 stays clean for healthy nodes. -->
+            <span x-show="node.updates > 0"
+                  class="pill pill-update text-[10.5px]">
+              <span x-text="node.updates"></span> updates
+            </span>
+            <span x-show="node.offline > 0"
+                  class="pill pill-error text-[10.5px]">
+              <span x-text="node.offline"></span> offline
+            </span>
+            <span x-show="node.degraded > 0"
+                  class="pill pill-update text-[10.5px]">
+              <span x-text="node.degraded"></span> degraded
+            </span>
+            <span class="text-[11px] text-[var(--text-dim)]">
+              <span x-text="node.total"></span> total
+            </span>
+          </button>
+
+          <!-- Node body — stack-grouped items. Same row renderer as
+               the stacks view's individual item rows, but we tee it
+               up with a lightweight custom list here to avoid a full
+               table re-layout per node (simpler to scan visually). -->
+          <div x-show="isNodeExpanded(node.name)" class="border-t border-[var(--border)]">
+            <template x-for="stack in node.stackList" :key="node.name + '|' + stack.name">
+              <div class="border-b border-[var(--border)] last:border-b-0">
+                <div class="px-4 py-2 bg-[var(--surface-2)]/40 flex items-center gap-2">
+                  <span class="text-[10.5px] uppercase tracking-wider text-[var(--text-faint)]" x-text="stack.is_standalone ? 'Standalone' : 'Stack'"></span>
+                  <span class="font-semibold text-[12px]" x-text="stack.name"></span>
+                  <span class="text-[10.5px] text-[var(--text-faint)]"
+                        x-text="'(' + stack.items.length + ')'"></span>
+                </div>
+                <template x-for="item in stack.items" :key="node.name + '|' + item.id">
+                  <div class="flex items-center gap-3 px-5 py-2 border-t border-[var(--border)] hover:bg-[var(--row-hover)] cursor-pointer"
+                       @click="openDrawer(item)">
+                    <img :src="itemIconUrl(item)" width="18" height="18" class="opacity-90 flex-shrink-0">
+                    <div class="flex-1 min-w-0">
+                      <div class="text-[12.5px] font-medium truncate" x-text="item.name"></div>
+                      <div class="text-[10.5px] text-[var(--text-faint)] mono truncate" x-text="item.image"></div>
+                    </div>
+                    <span class="pill" :class="'pill-' + (item.health || 'unknown')" x-text="item.health || '—'"></span>
+                    <span class="pill" :class="'pill-' + (item.status || 'unknown')" x-text="item.status || '—'"></span>
+                    <span class="text-[10.5px] text-[var(--text-faint)] mono hidden md:inline"
+                          x-text="item.type"></span>
+                  </div>
+                </template>
+              </div>
+            </template>
+            <div x-show="node.stackList.length === 0"
+                 class="px-5 py-6 text-center text-[11px] text-[var(--text-faint)] italic">
+              No resources on this node match the current filter.
+            </div>
+          </div>
+        </div>
+      </template>
+      <div x-show="nodeGroups().length === 0 && !loading" class="text-center py-16 text-[var(--text-faint)] text-sm">
+        No nodes visible — check the Portainer connection in Settings, or your filter.
       </div>
     </div>
 

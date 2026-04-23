@@ -37,7 +37,7 @@ function app() {
       return [0, 5, 15, 30, 60].includes(v) ? v : 15;
     })(),
     activeOps: [],
-    view: (['stacks','services','history','settings','admin'].includes(localStorage.getItem('view')) ? localStorage.getItem('view') : 'stacks'),
+    view: (['stacks','services','nodes','history','settings','admin'].includes(localStorage.getItem('view')) ? localStorage.getItem('view') : 'stacks'),
     search: '', statusFilter: '', healthFilter: '',
     sortField: 'name', sortDir: 'asc',
     selected: [],
@@ -356,8 +356,106 @@ function app() {
       return [
         ['stacks',   this.t('nav.stacks')],
         ['services', this.t('nav.services')],
+        ['nodes',    this.t('nav.nodes')],
         ['history',  this.t('nav.history')],
       ];
+    },
+
+    // -----------------------------------------------------------------
+    // Nodes view — groups the fleet by which Swarm node each task /
+    // container lives on. Services appear under EVERY node their tasks
+    // run on (so a 3-replica global service shows under all 3 nodes);
+    // plain containers / orphans appear under their single node.
+    // -----------------------------------------------------------------
+    nodeGroups() {
+      // Seed with every known node so a node with zero items still
+      // renders (helps spot "this worker is empty" at a glance).
+      const byNode = new Map();
+      for (const id in (this.nodes || {})) {
+        const host = this.nodes[id];
+        if (host) byNode.set(host, { name: host, items: [], stacks: {} });
+      }
+
+      // Pick which items we're filtering over. Reuse the same filter
+      // pipeline as the stacks/services views (search + status + health).
+      const items = this.filteredItems;
+
+      for (const it of items) {
+        // Services carry `placements: [{node, state}, ...]`; standalones
+        // carry a single `node` field. Derive the set of nodes either way.
+        const nodes = new Set();
+        if (Array.isArray(it.placements) && it.placements.length) {
+          for (const p of it.placements) {
+            if (p && p.node && p.node !== '?' && p.node !== 'local') nodes.add(p.node);
+          }
+        }
+        if (nodes.size === 0 && it.node && it.node !== '?' && it.node !== 'local') {
+          nodes.add(it.node);
+        }
+        // No identifiable node → park under a synthetic "Unpinned" group.
+        if (nodes.size === 0) nodes.add('__unpinned__');
+
+        for (const n of nodes) {
+          if (!byNode.has(n)) {
+            byNode.set(n, {
+              name: n === '__unpinned__' ? 'Unpinned / local' : n,
+              items: [], stacks: {},
+              is_unpinned: n === '__unpinned__',
+            });
+          }
+          const g = byNode.get(n);
+          g.items.push(it);
+          const stackKey = it.stack || '__standalone__';
+          if (!g.stacks[stackKey]) {
+            g.stacks[stackKey] = {
+              name: it.stack || 'Standalone',
+              items: [],
+              is_standalone: !it.stack,
+            };
+          }
+          g.stacks[stackKey].items.push(it);
+        }
+      }
+
+      // Finalise each group: counts + sorted stack list + sorted items.
+      const out = [];
+      for (const [key, g] of byNode) {
+        const its = g.items;
+        const stackList = Object.values(g.stacks)
+          .map(s => ({
+            ...s,
+            items: s.items.slice().sort((a, b) => (a.name || '').localeCompare(b.name || '')),
+          }))
+          .sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+        out.push({
+          key,
+          name: g.name,
+          is_unpinned: !!g.is_unpinned,
+          total:    its.length,
+          services: its.filter(i => i.type === 'service').length,
+          containers: its.filter(i => i.type === 'container' || i.type === 'orphan').length,
+          stacks:   stackList.filter(s => !s.is_standalone).length,
+          updates:  its.filter(i => i.status === 'update').length,
+          offline:  its.filter(i => i.health === 'offline').length,
+          degraded: its.filter(i => i.health === 'degraded').length,
+          errors:   its.filter(i => i.status === 'error').length,
+          stackList,
+        });
+      }
+      // Sort: real nodes alphabetically, "Unpinned" last.
+      return out.sort((a, b) => {
+        if (a.is_unpinned !== b.is_unpinned) return a.is_unpinned ? 1 : -1;
+        return (a.name || '').localeCompare(b.name || '');
+      });
+    },
+
+    toggleNode(name) {
+      const i = this.expanded.indexOf('node:' + name);
+      if (i >= 0) this.expanded.splice(i, 1);
+      else this.expanded.push('node:' + name);
+    },
+    isNodeExpanded(name) {
+      return this.expanded.includes('node:' + name);
     },
 
     // Single predicate for "can this user do writes?". Every write button
