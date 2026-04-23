@@ -53,7 +53,7 @@ from pydantic import BaseModel
 # managed and will be overwritten on every successful push to main.
 # Rendered in the UI footer and returned by /api/version.
 # ============================================================================
-from logic.version import APP_VERSION
+from logic.version import APP_VERSION, read_version
 
 # ============================================================================
 # Config
@@ -1394,7 +1394,51 @@ async def api_restore_backup_upload(
 # listed in auth.FULLY_PUBLIC_PREFIXES so the middleware never gates it.
 @app.get("/login")
 async def login_page():
-    return FileResponse("static/login.html")
+    return _render_shell("static/login.html")
+
+
+# Shell-HTML cache — tiny map keyed by file path. Each entry stores the
+# raw file bytes and the mtime we last saw; a disk change invalidates the
+# entry lazily on the next request. `str.replace` runs on every hit
+# (cheap — the two HTMLs together are <200 KB) so `__APP_VERSION__` marker
+# references pick up a new PATCH as soon as VERSION.txt changes, without
+# any restart.
+_SHELL_CACHE: dict = {}
+
+
+def _render_shell(path: str) -> Response:
+    """Serve an HTML shell with `__APP_VERSION__` → current version.
+
+    Used for `/` and `/login` — both reference external JS/CSS as
+    `src="/js/app.js?v=__APP_VERSION__"`, and this is the substitution
+    point that turns that literal into an actual cache-bustable URL.
+    Any other entry-point HTML that references versioned assets should
+    be served through this too; the bare StaticFiles mount at "/" won't
+    run the substitution.
+    """
+    try:
+        st = os.stat(path)
+        mtime_ns = st.st_mtime_ns
+    except OSError:
+        raise HTTPException(status_code=404, detail=f"{path} not found")
+    cached = _SHELL_CACHE.get(path)
+    if cached is None or cached[1] != mtime_ns:
+        with open(path, "r", encoding="utf-8") as f:
+            body = f.read()
+        _SHELL_CACHE[path] = (body, mtime_ns)
+    else:
+        body = cached[0]
+    body = body.replace("__APP_VERSION__", APP_VERSION)
+    return Response(content=body, media_type="text/html; charset=utf-8")
+
+
+# SPA shell. Served through _render_shell so the version substitution
+# applies — StaticFiles at "/" would hand back the raw file with the
+# literal "__APP_VERSION__" marker still in the script srcs. Registered
+# BEFORE the StaticFiles mount below (mount-order rule applies).
+@app.get("/")
+async def spa_shell():
+    return _render_shell("static/index.html")
 
 
 # Prometheus scrape endpoint.
