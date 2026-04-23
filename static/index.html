@@ -730,18 +730,26 @@
               </svg>
             </div>
 
-            <!-- Memory -->
+            <!-- Memory — host RAM via node-exporter when available, else
+                 the container-sum vs. node capacity we had before. -->
             <div>
               <div class="flex items-baseline justify-between mb-1.5">
-                <span class="text-[10.5px] uppercase tracking-wider text-[var(--text-faint)]">Memory</span>
-                <span class="text-[12px] mono"
-                      x-text="nodeStats(node.name).hasStats
-                              ? fmtBytes(nodeStats(node.name).memUsage) + ' / ' + fmtBytes(nodeStats(node.name).memLimit)
-                              : '—'"></span>
+                <span class="text-[10.5px] uppercase tracking-wider text-[var(--text-faint)]"
+                      x-text="nodeStats(node.name).hasHostStats ? 'Host memory' : 'Memory'"></span>
+                <template x-if="nodeStats(node.name).hasHostStats && nodeStats(node.name).hostMemTotal">
+                  <span class="text-[12px] mono"
+                        x-text="fmtBytes(nodeStats(node.name).hostMemUsed) + ' / ' + fmtBytes(nodeStats(node.name).hostMemTotal)"></span>
+                </template>
+                <template x-if="!(nodeStats(node.name).hasHostStats && nodeStats(node.name).hostMemTotal)">
+                  <span class="text-[12px] mono"
+                        x-text="nodeStats(node.name).hasStats
+                                ? fmtBytes(nodeStats(node.name).memUsage) + ' / ' + fmtBytes(nodeStats(node.name).memLimit)
+                                : '—'"></span>
+                </template>
               </div>
               <div class="stat-bar"
-                   :class="barLevel(nodeMemPercent(node.name))"
-                   :style="'--w: ' + nodeMemPercent(node.name) + '%'">
+                   :class="barLevel(nodeStats(node.name).hasHostStats ? hostMemPercent(node.name) : nodeMemPercent(node.name))"
+                   :style="'--w: ' + (nodeStats(node.name).hasHostStats ? hostMemPercent(node.name) : nodeMemPercent(node.name)) + '%'">
                 <div class="fill"></div>
               </div>
               <svg viewBox="0 0 60 10" preserveAspectRatio="none"
@@ -752,37 +760,59 @@
               </svg>
             </div>
 
-            <!-- Docker disk (per daemon): LayersSize + containers' SizeRw
-                 + volumes' UsageData.Size + BuildCache. Host mounts
-                 outside Docker (/root, /mnt, etc) aren't accessible via
-                 Portainer — surfacing those would need a node-agent. -->
+            <!-- Disk — when node-exporter is available, show REAL host
+                 disk (all non-pseudo mounts, from node_filesystem_*
+                 metrics). Docker daemon footprint (from /system/df)
+                 stays as a second line so operators can see both. -->
+            <div>
+              <template x-if="nodeStats(node.name).hasHostStats && nodeStats(node.name).hostDiskTotal">
+                <div>
+                  <div class="flex items-baseline justify-between mb-1.5">
+                    <span class="text-[10.5px] uppercase tracking-wider text-[var(--text-faint)]"
+                          :title="t('nodes.host_disk_tooltip')">Host disk</span>
+                    <span class="text-[12px] mono"
+                          x-text="fmtBytes(nodeStats(node.name).hostDiskUsed) + ' / ' + fmtBytes(nodeStats(node.name).hostDiskTotal)"></span>
+                  </div>
+                  <div class="stat-bar"
+                       :class="barLevel(hostDiskPercent(node.name))"
+                       :style="'--w: ' + hostDiskPercent(node.name) + '%'">
+                    <div class="fill"></div>
+                  </div>
+                  <div class="text-[10px] text-[var(--text-faint)] mt-1"
+                       x-text="'Docker: ' + (nodeStats(node.name).hasSize ? fmtBytes(nodeStats(node.name).dockerDisk) : '—')"></div>
+                </div>
+              </template>
+              <template x-if="!(nodeStats(node.name).hasHostStats && nodeStats(node.name).hostDiskTotal)">
+                <div>
+                  <div class="flex items-baseline justify-between mb-1.5">
+                    <span class="text-[10.5px] uppercase tracking-wider text-[var(--text-faint)]"
+                          :title="t('nodes.docker_disk_tooltip')">Docker disk</span>
+                    <span class="text-[12px] mono"
+                          x-text="nodeStats(node.name).hasSize ? fmtBytes(nodeStats(node.name).dockerDisk) : '—'"></span>
+                  </div>
+                  <div class="stat-bar"
+                       :class="barLevel(nodeDiskPercent(node.name))"
+                       :style="'--w: ' + nodeDiskPercent(node.name) + '%'">
+                    <div class="fill"></div>
+                  </div>
+                  <div class="text-[10px] text-[var(--text-faint)] mt-1"
+                       x-text="t('nodes.docker_disk_caption')"></div>
+                </div>
+              </template>
+            </div>
+
+            <!-- Uptime — host boot time from node-exporter when
+                 available, else the oldest-running-task proxy. -->
             <div>
               <div class="flex items-baseline justify-between mb-1.5">
                 <span class="text-[10.5px] uppercase tracking-wider text-[var(--text-faint)]"
-                      :title="t('nodes.docker_disk_tooltip')">Docker disk</span>
-                <span class="text-[12px] mono"
-                      x-text="nodeStats(node.name).hasSize ? fmtBytes(nodeStats(node.name).dockerDisk) : '—'"></span>
-              </div>
-              <div class="stat-bar"
-                   :class="barLevel(nodeDiskPercent(node.name))"
-                   :style="'--w: ' + nodeDiskPercent(node.name) + '%'">
-                <div class="fill"></div>
-              </div>
-              <div class="text-[10px] text-[var(--text-faint)] mt-1"
-                   x-text="t('nodes.docker_disk_caption')"></div>
-            </div>
-
-            <!-- Uptime — oldest still-running task on this node, sourced
-                 from Swarm's per-task Status.Timestamp. Proxy for host
-                 uptime; Docker's API doesn't surface the daemon's start. -->
-            <div>
-              <div class="flex items-baseline justify-between mb-1.5">
-                <span class="text-[10.5px] uppercase tracking-wider text-[var(--text-faint)]">Uptime</span>
+                      x-text="nodeUptimeKind(node.name) === 'host' ? 'Host uptime' : 'Uptime'"></span>
                 <span class="text-[12px] mono" x-text="fmtDuration(nodeUptime(node.name))"></span>
               </div>
-              <div class="text-[10.5px] text-[var(--text-faint)] leading-tight">
-                Oldest still-running task on this node.
-              </div>
+              <div class="text-[10.5px] text-[var(--text-faint)] leading-tight"
+                   x-text="nodeUptimeKind(node.name) === 'host'
+                           ? 'Real host uptime via node-exporter.'
+                           : 'Oldest still-running task on this node.'"></div>
             </div>
           </div>
 
@@ -1212,6 +1242,30 @@
           <button x-show="isAdmin()" @click="saveSettings()" class="btn btn-primary text-[12px] mt-3" x-text="t('actions.save')"></button>
         </section>
       </div>
+
+      <!-- Host stats (node-exporter) — surfaces real host disk / RAM /
+           uptime in the Nodes view. Operator deploys prom/node-exporter
+           once per host (compose or Swarm global service); PortaUpdate
+           scrapes each endpoint during gather. -->
+      <section x-show="settingsSection === 'host_stats'" class="bg-[var(--surface)] border border-[var(--border)] rounded-md p-5">
+        <h3 class="font-semibold text-[13px] mb-2" x-text="t('settings.host_stats.title')"></h3>
+        <p class="text-[11.5px] text-[var(--text-faint)] mb-3" x-text="t('settings.host_stats.desc')"></p>
+        <label class="inline-flex items-center gap-2 text-[12px] text-[var(--text-dim)] mb-3">
+          <input type="checkbox" x-model="settings.node_exporter_enabled" :disabled="isReadonly()">
+          <span x-text="t('settings.host_stats.enable')"></span>
+        </label>
+        <label class="block text-[11px] text-[var(--text-faint)] mb-1"
+               x-text="t('settings.host_stats.url_label')"></label>
+        <input x-model="settings.node_exporter_url_template" type="text"
+               :disabled="isReadonly()"
+               class="w-full mono text-[11.5px]"
+               placeholder="http://{host}:9100/metrics">
+        <p class="text-[10.5px] text-[var(--text-faint)] mt-1"
+           x-text="t('settings.host_stats.url_hint')"></p>
+        <button x-show="isAdmin()" @click="saveHostStats()"
+                class="btn btn-primary text-[12px] mt-3"
+                x-text="t('actions.save')"></button>
+      </section>
 
       <section x-show="settingsSection === 'ignores'" class="bg-[var(--surface)] border border-[var(--border)] rounded-md p-5">
         <h3 class="font-semibold text-[13px] mb-2" x-text="t('settings.ignores.title')"></h3>
@@ -2002,10 +2056,15 @@
     </div>
     <div x-show="opsExpanded" class="max-h-80 overflow-y-auto scrollbar">
       <template x-for="op in activeOps" :key="op.id">
-        <div class="p-2.5 border-b border-[var(--border)] last:border-0">
+        <div class="p-2.5 border-b border-[var(--border)] last:border-0"
+             :class="op.status === 'success' ? 'bg-[var(--success)]/10' : op.status === 'error' ? 'bg-[var(--danger)]/10' : ''">
           <div class="flex items-center gap-2">
             <span class="chip text-[10px]" x-text="op.op_type.replace('_',' ')"></span>
             <span class="font-medium text-[12px] mono flex-1 truncate" x-text="op.target_name"></span>
+            <span x-show="op.status !== 'running'"
+                  class="text-[10px] font-semibold"
+                  :class="op.status === 'success' ? 'text-[var(--success)]' : 'text-[var(--danger)]'"
+                  x-text="op.status"></span>
             <span class="text-[10px] text-[var(--text-faint)]" x-text="(op.duration || 0).toFixed(1) + 's'"></span>
           </div>
           <div class="mt-1.5 bg-[var(--bg)] rounded p-2 mono text-[10.5px] space-y-0.5 max-h-24 overflow-y-auto scrollbar border border-[var(--border)]">

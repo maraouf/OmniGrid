@@ -160,7 +160,8 @@
   },
   "nodes": {
     "docker_disk_tooltip": "Docker daemon footprint: image layers + container writable layers + volumes + build cache",
-    "docker_disk_caption": "Docker-only. Host mounts (e.g. /root, /mnt) aren't exposed via Portainer."
+    "docker_disk_caption": "Docker-only. Enable Host stats (node-exporter) in Settings for real host disk usage.",
+    "host_disk_tooltip": "Real host disk usage across all non-pseudo mounts (node-exporter)."
   },
   "empty": {
     "no_match_filters": "No resources match your filters.",
@@ -214,10 +215,20 @@
       "profile": "Profile",
       "notifications": "Notifications",
       "portainer": "Portainer",
+      "host_stats": "Host stats",
       "ignores": "Ignore list",
       "oidc": "Authentik OIDC",
       "shortcuts": "Keyboard shortcuts",
       "language": "Language"
+    },
+    "host_stats": {
+      "title": "Host stats (node-exporter)",
+      "desc": "Scrape prom/node-exporter on each node to surface real host disk usage (across all mounts), host RAM, and real host uptime. Deploy node-exporter once per host (Swarm global service works well).",
+      "enable": "Enable host-stats scraping",
+      "url_label": "Endpoint URL template",
+      "url_hint": "Must contain the {host} placeholder — PortaUpdate substitutes each node's Docker hostname. Change the port here if your exporter listens somewhere other than :9100.",
+      "placeholder_required": "URL template must contain the {host} placeholder.",
+      "saved": "Host-stats settings saved"
     },
     "language": {
       "title": "Language & region",

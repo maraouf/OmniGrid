@@ -160,7 +160,8 @@
   },
   "nodes": {
     "docker_disk_tooltip": "استهلاك Docker: طبقات الصور + الطبقات القابلة للكتابة للحاويات + الأقراص + كاش البناء",
-    "docker_disk_caption": "Docker فقط. نقاط التحميل على المضيف (مثل /root و /mnt) غير متاحة عبر Portainer."
+    "docker_disk_caption": "Docker فقط. فعّل إحصاءات المضيف (node-exporter) من الإعدادات لعرض استخدام قرص المضيف الحقيقي.",
+    "host_disk_tooltip": "الاستخدام الفعلي لقرص المضيف عبر جميع نقاط التحميل الحقيقية (node-exporter)."
   },
   "empty": {
     "no_match_filters": "لا توجد موارد تطابق عوامل التصفية.",
@@ -214,10 +215,20 @@
       "profile": "الملف الشخصي",
       "notifications": "الإشعارات",
       "portainer": "Portainer",
+      "host_stats": "إحصاءات المضيف",
       "ignores": "قائمة التجاهل",
       "oidc": "Authentik OIDC",
       "shortcuts": "اختصارات لوحة المفاتيح",
       "language": "اللغة"
+    },
+    "host_stats": {
+      "title": "إحصاءات المضيف (node-exporter)",
+      "desc": "يتم قراءة prom/node-exporter على كل عقدة لعرض استخدام قرص المضيف الحقيقي (عبر جميع نقاط التحميل)، وذاكرة المضيف، ووقت تشغيل المضيف الحقيقي. انشر node-exporter مرة واحدة لكل مضيف (خدمة Swarm global تعمل بشكل جيد).",
+      "enable": "تفعيل قراءة إحصاءات المضيف",
+      "url_label": "قالب عنوان URL",
+      "url_hint": "يجب أن يحتوي على العنصر النائب {host} — يستبدله PortaUpdate باسم مضيف Docker لكل عقدة. غيّر المنفذ هنا إذا كان المُصدّر يستمع على منفذ آخر غير :9100.",
+      "placeholder_required": "يجب أن يحتوي قالب URL على {host}.",
+      "saved": "تم حفظ إعدادات إحصاءات المضيف"
     },
     "language": {
       "title": "اللغة والمنطقة",

@@ -676,6 +676,14 @@ class SettingsIn(BaseModel):
     # 0 disables retention (keep everything). Applied after every successful
     # create, whether user-triggered or scheduled.
     backup_retention_count: Optional[int] = None
+    # Host-stats integration via node-exporter. When enabled, PortaUpdate
+    # scrapes each node's /metrics endpoint during gather to surface real
+    # host disk / memory / uptime (vs. the Docker-only numbers Portainer
+    # exposes). URL template uses {host} → Docker hostname; default
+    # http://{host}:9100/metrics works for a typical Swarm global-mode
+    # node-exporter deploy.
+    node_exporter_enabled: Optional[bool] = None
+    node_exporter_url_template: Optional[str] = None
 
 
 @app.get("/api/settings")
@@ -689,6 +697,10 @@ async def api_get_settings(request: Request):
         "apprise_tag": get_setting("apprise_tag", ""),
         "portainer_public_url": get_setting("portainer_public_url", str(p.get("portainer_url") or "")),
         "backup_retention_count": int(get_setting("backup_retention_count", "0") or "0"),
+        "node_exporter": {
+            "enabled": (get_setting("node_exporter_enabled", "false") or "false").lower() == "true",
+            "url_template": get_setting("node_exporter_url_template", "http://{host}:9100/metrics"),
+        },
         # Back-compat: older UI bits read this top-level field.
         "endpoint_id": p.get("portainer_endpoint_id", 1),
         # Portainer: URL / endpoint / TLS are returned in the clear so
@@ -731,6 +743,18 @@ async def api_set_settings(
     if s.backup_retention_count is not None:
         n = max(0, int(s.backup_retention_count))
         set_setting("backup_retention_count", str(n))
+    if s.node_exporter_enabled is not None:
+        set_setting("node_exporter_enabled", "true" if s.node_exporter_enabled else "false")
+    if s.node_exporter_url_template is not None:
+        # Validate the template minimally — must contain {host}. Empty
+        # template resets to the default on the read side.
+        tpl = s.node_exporter_url_template.strip()
+        if tpl and "{host}" not in tpl:
+            raise HTTPException(
+                status_code=400,
+                detail="node_exporter_url_template must contain the '{host}' placeholder.",
+            )
+        set_setting("node_exporter_url_template", tpl)
 
     auth_changed = False
     portainer_changed = False

@@ -82,6 +82,7 @@ function app() {
       { id: 'profile',       label: 'Profile' },
       { id: 'notifications', label: 'Notifications' },
       { id: 'portainer',     label: 'Portainer' },
+      { id: 'host_stats',    label: 'Host stats' },
       { id: 'ignores',       label: 'Ignore list' },
       { id: 'oidc',          label: 'Authentik OIDC' },
       { id: 'language',      label: 'Language' },
@@ -1002,6 +1003,32 @@ function app() {
       finally { this.backupBusy = false; }
     },
 
+    async saveHostStats() {
+      const tpl = (this.settings.node_exporter_url_template || '').trim();
+      if (tpl && !tpl.includes('{host}')) {
+        this.showToast(this.t('settings.host_stats.placeholder_required'), 'error');
+        return;
+      }
+      try {
+        const r = await fetch('/api/settings', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            node_exporter_enabled: !!this.settings.node_exporter_enabled,
+            node_exporter_url_template: tpl,
+          }),
+        });
+        if (r.ok) {
+          this.showToast(this.t('settings.host_stats.saved'));
+          // Refresh items so the new nodes_info fields land immediately.
+          this.refresh(true);
+        } else {
+          const j = await r.json().catch(() => ({}));
+          this.showToast(j.detail || this.t('toasts.save_failed'), 'error');
+        }
+      } catch (_) { this.showToast(this.t('toasts.network_error'), 'error'); }
+    },
+
     async saveRetention() {
       // Separate save endpoint from the general settings form so the
       // Backups tab doesn't require pushing the full SettingsIn bundle.
@@ -1496,6 +1523,9 @@ function app() {
           apprise_tag: d.apprise_tag || '',
           portainer_public_url: d.portainer_public_url || '',
           backup_retention_count: Number.isFinite(d.backup_retention_count) ? d.backup_retention_count : 0,
+          node_exporter_enabled: !!(d.node_exporter && d.node_exporter.enabled),
+          node_exporter_url_template: (d.node_exporter && d.node_exporter.url_template)
+            || 'http://{host}:9100/metrics',
         };
         this.endpointId = d.endpoint_id || 1;
 
@@ -1770,12 +1800,38 @@ function app() {
     },
     pollOps() {
       if (this._opsTimer) clearTimeout(this._opsTimer);
+      if (!this._opLingerUntil) this._opLingerUntil = {};
+      // Linger window — keep finished ops visible in the floating panel
+      // for this many seconds so operators can read the outcome (prune
+      // summary, restart result, etc.) instead of the panel vanishing
+      // the moment an op flips to status != running.
+      const LINGER_MS = 8000;
       const tick = async () => {
         try {
           const r = await fetch('/api/ops');
           const all = (await r.json()).ops || [];
-          const prevRunning = this.activeOps.map(o => o.id);
-          this.activeOps = all.filter(o => o.status === 'running');
+          const prevRunning = this.activeOps
+            .filter(o => o.status === 'running')
+            .map(o => o.id);
+          const nowTs = Date.now();
+          // Track the deadline for each op that has finished (running
+          // → done). Existing entries keep their original deadline.
+          for (const o of all) {
+            if (o.status !== 'running' && !this._opLingerUntil[o.id]) {
+              this._opLingerUntil[o.id] = nowTs + LINGER_MS;
+            }
+          }
+          // activeOps = running ops + finished ops still within linger
+          // window. Drop entries whose ops are gone (ring-buffer eviction).
+          const aliveIds = new Set(all.map(o => o.id));
+          for (const id of Object.keys(this._opLingerUntil)) {
+            if (!aliveIds.has(id) || this._opLingerUntil[id] <= nowTs) {
+              delete this._opLingerUntil[id];
+            }
+          }
+          this.activeOps = all.filter(
+            o => o.status === 'running' || this._opLingerUntil[o.id]
+          );
           const justDone = all.filter(o => o.status !== 'running' && prevRunning.includes(o.id));
           if (justDone.length > 0) {
             const holdKeys = [...new Set(justDone.map(o => this._opBusyKey(o)).filter(Boolean))];
@@ -2016,11 +2072,11 @@ function app() {
     },
 
     nodeStats(host) {
-      // Aggregate CPU (sum across containers; normalised by node cores)
-      // and memory used (sum). Disk uses the server-side /system/df
-      // total shipped via nodes_info — accounts for layers + container
-      // writable layers + volumes + build cache across the whole
-      // daemon, not just max-image size.
+      // Mixed-source stats:
+      //   - CPU + container-memory: summed from per-item Docker stats.
+      //   - Host disk / host memory / host uptime: node-exporter when
+      //     enabled, else falls back to Docker-only or task-based signal.
+      //   - Docker disk: /system/df totals via Portainer (always available).
       let cpuRaw = 0, memUsage = 0;
       let hasStats = false;
       for (const it of this.itemsForNode(host)) {
@@ -2035,15 +2091,37 @@ function app() {
       const cores = info.cpu_cores || 0;
       const memBytes = info.mem_bytes || 0;
       const dockerDisk = Number.isFinite(info.docker_disk_bytes) ? info.docker_disk_bytes : 0;
+      const hostDiskTotal = Number.isFinite(info.host_disk_total) ? info.host_disk_total : 0;
+      const hostDiskUsed = Number.isFinite(info.host_disk_used) ? info.host_disk_used : 0;
+      const hostMemTotal = Number.isFinite(info.host_mem_total) ? info.host_mem_total : 0;
+      const hostMemUsed = Number.isFinite(info.host_mem_used) ? info.host_mem_used : 0;
       return {
         cpuRaw,                        // 0..cores*100 (can exceed 100)
-        memUsage,                      // bytes
-        memLimit: memBytes,            // NODE capacity, not sum of container limits
+        memUsage,                      // bytes — sum of container usages
+        memLimit: memBytes,            // NODE RAM capacity
         cores,
-        dockerDisk,                    // total Docker disk usage across the daemon
+        dockerDisk,
+        hostDiskTotal, hostDiskUsed,
+        hostMemTotal, hostMemUsed,
         hasStats,
         hasSize: dockerDisk > 0,
+        hasHostStats: hostDiskTotal > 0 || hostMemTotal > 0,
+        exporterError: info.exporter_error || null,
       };
+    },
+
+    // Host disk percent — real number when the exporter is available.
+    // Returns 0 if not yet scraped so the bar collapses instead of
+    // showing a misleading proportional-to-busiest-node number.
+    hostDiskPercent(host) {
+      const { hostDiskTotal, hostDiskUsed } = this.nodeStats(host);
+      if (!hostDiskTotal) return 0;
+      return Math.min(100, (hostDiskUsed / hostDiskTotal) * 100);
+    },
+    hostMemPercent(host) {
+      const { hostMemTotal, hostMemUsed } = this.nodeStats(host);
+      if (!hostMemTotal) return 0;
+      return Math.min(100, (hostMemUsed / hostMemTotal) * 100);
     },
 
     nodeCpuPercent(host) {
@@ -2079,15 +2157,21 @@ function app() {
     },
 
     nodeUptime(host) {
-      // Server-provided oldest-running-task timestamp is the real signal
-      // — it's per-node (so a global service doesn't make every node
-      // show the same uptime) and it's "when the oldest still-running
-      // task last transitioned to running" which approximates "when
-      // Docker / the host last came up and these workloads started".
+      // Prefer real host boot time (node-exporter). Fall back to the
+      // "oldest still-running task" proxy when the exporter isn't
+      // available — still per-node, still meaningful, just measuring
+      // workload uptime instead of host uptime.
       const info = this.nodeInfoFor(host);
-      const ts = info.oldest_running_ts;
+      const bootTs = info.host_boot_ts;
+      const ts = (Number.isFinite(bootTs) && bootTs > 0) ? bootTs : info.oldest_running_ts;
       if (!ts) return null;
       return Math.max(0, Math.floor(Date.now() / 1000) - Math.floor(ts));
+    },
+    nodeUptimeKind(host) {
+      // 'host' when sourced from node-exporter, 'docker' otherwise —
+      // drives the caption on the Uptime tile.
+      const info = this.nodeInfoFor(host);
+      return (Number.isFinite(info.host_boot_ts) && info.host_boot_ts > 0) ? 'host' : 'docker';
     },
 
     // Time-series aggregation for node-level sparklines. Bins samples by

@@ -295,6 +295,28 @@ async def _gather_impl() -> None:
                 if host in nodes_info:
                     nodes_info[host]["docker_disk_bytes"] = total
 
+        # Optional node-exporter scrape — per-host stats that Portainer
+        # doesn't expose (real host disk / memory / uptime). Gated by a
+        # setting so fresh installs without exporter deployed don't pay
+        # the per-gather overhead or log repeated timeouts.
+        from logic.db import get_setting
+        from logic import node_exporter as _ne
+        ne_enabled = (get_setting("node_exporter_enabled", "false") or "false").lower() == "true"
+        if ne_enabled and df_hosts:
+            tpl = get_setting("node_exporter_url_template", "http://{host}:9100/metrics") \
+                  or "http://{host}:9100/metrics"
+            async with httpx.AsyncClient(verify=False, timeout=10.0) as ne_client:
+                async def _ne_probe(h):
+                    url = tpl.replace("{host}", h)
+                    return h, await _ne.probe_node(ne_client, url)
+                results = await asyncio.gather(
+                    *(_ne_probe(h) for h in df_hosts),
+                    return_exceptions=False,
+                )
+                for host, stats in results:
+                    if host in nodes_info:
+                        nodes_info[host].update(stats)
+
         # Per-node container sweep — gives us a containerID → hostname map
         # that covers PLAIN compose containers on worker nodes too. The
         # Swarm-task-ID approach above only works for Swarm-managed
