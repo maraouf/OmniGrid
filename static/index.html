@@ -378,7 +378,7 @@
                       <div class="min-w-0">
                         <div class="mono text-[12.5px] text-[var(--text)]" x-text="item.name"></div>
                         <div class="text-[10.5px] text-[var(--text-faint)]" x-text="itemSubline(item)"></div>
-                        <div x-show="item.type==='service' && topologyGroups(item).length" class="topology-map">
+                        <div x-show="topologyGroups(item).length" class="topology-map">
                           <template x-for="group in topologyGroups(item)" :key="group.node">
                             <span class="topology-node"
                                   :title="group.node + ' — ' + group.chips.length + ' replica' + (group.chips.length===1 ? '' : 's')">

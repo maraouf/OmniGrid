@@ -1398,18 +1398,11 @@ function app() {
       return h > 0 ? `${d}d ${h}h` : `${d}d`;
     },
     itemSubline(item) {
+      // Node hostname is rendered by the topology chip strip below,
+      // not here — avoids duplicating the information in two places.
       const bits = [];
       if (item.type) bits.push(item.type);
       if (item.stack) bits.push(item.stack);
-      // Surface the node hostname on container / orphan rows so a
-      // multi-node fleet is readable at a glance (matches how the
-      // Placement column renders for services). Skip "local" — that's
-      // the fallback for single-node setups where a node label would
-      // just be noise.
-      if ((item.type === 'container' || item.type === 'orphan')
-          && item.node && item.node !== 'local' && item.node !== '?') {
-        bits.push(item.node);
-      }
       if (item.state && item.state !== 'running') bits.push(item.state);
       return bits.join(' · ');
     },
@@ -1479,10 +1472,16 @@ function app() {
     clearSelection() { this.selected = []; },
     clearFilters() { this.search = ''; this.statusFilter = ''; this.healthFilter = ''; },
     topologyGroups(item) {
+      // Returns [{node, chips: [{state, err}, …]}, …] for rendering the
+      // node + coloured-dot strip. Placements with a synthetic fallback
+      // node ("local" / "?") are dropped — the strip would just show
+      // noise for single-node setups where no real hostname was
+      // resolved. Empty result => caller hides the strip.
       if (!item || !Array.isArray(item.placements) || !item.placements.length) return [];
       const by = new Map();
       for (const p of item.placements) {
         const node = p.node || '?';
+        if (node === 'local' || node === '?') continue;
         if (!by.has(node)) by.set(node, []);
         by.get(node).push(p);
       }
