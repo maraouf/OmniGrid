@@ -215,11 +215,17 @@ async def gather_stats() -> None:
         size_root_by_cid: dict[str, int] = {}
         size_rw_by_cid: dict[str, int] = {}
         svc_by_cid: dict[str, Optional[str]] = {}
-        # cid → hostname for Swarm task containers. Resolved via the task-ID
-        # label against task_node_by_id (populated by _gather). Used only as
-        # a hint to _one_container_stats; it falls back to no-target on any
-        # failure, so plain standalone containers (None here) stay unchanged.
+        # cid → hostname. Two sources, tried in order:
+        #   1. container_node_by_id (populated by gather's per-node sweep
+        #      — covers PLAIN compose containers on worker nodes).
+        #   2. task_node_by_id lookup via the Swarm task-ID label (covers
+        #      Swarm task containers that aren't in the per-node map,
+        #      e.g. single-node setups where the sweep didn't fire).
+        # Both fall back gracefully in _one_container_stats to the
+        # untargeted request if the header ends up ignored, so a wrong
+        # hint doesn't regress containers that worked before.
         task_node_by_id = items_cache.get("task_node_by_id") or {}
+        container_node_by_id = items_cache.get("container_node_by_id") or {}
         node_by_cid: dict[str, Optional[str]] = {}
         running_cids: list[str] = []
         for c in containers:
@@ -228,8 +234,13 @@ async def gather_stats() -> None:
             size_rw_by_cid[cid] = c.get("SizeRw", 0) or 0
             labels = c.get("Labels") or {}
             svc_by_cid[cid] = labels.get("com.docker.swarm.service.id")
-            task_id = labels.get("com.docker.swarm.task.id")
-            node_by_cid[cid] = task_node_by_id.get(task_id) if task_id else None
+            # Prefer the direct container→node map when we have it (covers
+            # plain compose containers); fall back to the Swarm-task lookup.
+            node = container_node_by_id.get(cid)
+            if not node:
+                task_id = labels.get("com.docker.swarm.task.id")
+                node = task_node_by_id.get(task_id) if task_id else None
+            node_by_cid[cid] = node
             if (c.get("State") or "").lower() == "running":
                 running_cids.append(cid)
 

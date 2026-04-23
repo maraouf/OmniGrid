@@ -216,14 +216,20 @@ def headers(agent_target: Optional[str] = None) -> dict[str, str]:
     return h
 
 
-async def pg(client: httpx.AsyncClient, path: str):
+async def pg(client: httpx.AsyncClient, path: str, agent_target: Optional[str] = None):
     """GET ``PORTAINER_URL + path`` with API-key auth; return parsed JSON.
 
     Raises ``httpx.HTTPStatusError`` on 4xx/5xx via ``raise_for_status()``.
     Callers typically wrap this with a ``safe()`` helper to swallow one
     sub-API error without failing the whole gather.
+
+    When ``agent_target`` is set, the request is forwarded to that
+    specific Swarm node's Docker daemon via ``X-PortainerAgent-Target``.
+    In agent-mode endpoints this makes per-node listings (``/containers/json``)
+    disjoint instead of aggregated, which is how we discover which node a
+    plain compose container lives on (no Swarm task metadata to key off).
     """
-    r = await client.get(f"{_url()}{path}", headers=headers())
+    r = await client.get(f"{_url()}{path}", headers=headers(agent_target=agent_target))
     r.raise_for_status()
     return r.json()
 

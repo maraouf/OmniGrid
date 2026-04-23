@@ -27,6 +27,10 @@ from logic.db import db_conn
 #   nodes             — {NodeID: hostname}
 #   task_node_by_id   — {TaskID: hostname}, used by ops handlers to target
 #                       the right Swarm node's daemon via X-PortainerAgent-Target
+#   container_node_by_id — {ContainerID: hostname} for PLAIN compose
+#                          containers discovered via the per-node sweep;
+#                          stats polling consults this to target the right
+#                          worker for its /containers/{id}/stats call.
 #   ts                — epoch seconds of last successful gather (0 when stale)
 _cache: dict = {
     "items": [],
@@ -34,6 +38,7 @@ _cache: dict = {
     "nodes": {},
     "stacks": [],
     "task_node_by_id": {},
+    "container_node_by_id": {},
 }
 
 
@@ -146,6 +151,40 @@ async def _gather_impl() -> None:
             nid = t.get("NodeID")
             if tid and nid and nid in node_map:
                 task_node_by_id[tid] = node_map[nid]
+
+        # Per-node container sweep — gives us a containerID → hostname map
+        # that covers PLAIN compose containers on worker nodes too. The
+        # Swarm-task-ID approach above only works for Swarm-managed
+        # containers; anything deployed with `docker compose up` on a
+        # worker has no task ID and shows up as "local" without this.
+        #
+        # When the Portainer endpoint is in AGENT mode, targeting each node
+        # returns only that node's containers — disjoint sets, so we can
+        # build a definitive ID → node map. When the endpoint is NOT in
+        # agent mode (plain standalone Docker), every per-node call is
+        # routed to the same daemon and the lists are identical; we detect
+        # that and skip the map so we don't mislabel everything.
+        hostnames = [h for h in node_map.values() if h]
+        container_node_by_id: dict[str, str] = {}
+        if len(hostnames) >= 2:
+            per_node = await asyncio.gather(*(
+                safe(portainer.pg(client, f"{ep}/containers/json?all=1", agent_target=h), [])
+                for h in hostnames
+            ))
+            id_sets = [{c["Id"] for c in lst} for lst in per_node]
+            # Agent mode is confirmed when any two per-node lists are disjoint.
+            # If they all overlap (same aggregated response), we're in a
+            # non-agent endpoint and the per-node header is being ignored.
+            agent_mode = any(
+                id_sets[i].isdisjoint(id_sets[j])
+                for i in range(len(id_sets))
+                for j in range(i + 1, len(id_sets))
+                if id_sets[i] and id_sets[j]
+            )
+            if agent_mode:
+                for h, lst in zip(hostnames, per_node):
+                    for c in lst:
+                        container_node_by_id[c["Id"]] = h
 
         # Build service-id → running containers map. Swarm stamps every task
         # container with `com.docker.swarm.service.id`, so we can go from service
@@ -356,12 +395,16 @@ async def _gather_impl() -> None:
             else:
                 health = "offline"
 
-            # Resolve the real node. Swarm task containers carry their task
-            # ID as a label — look it up in task_node_by_id. Fallback "local"
-            # covers plain compose / standalone containers where the node is
-            # unknowable from the Swarm metadata.
-            swarm_task_id = labels.get("com.docker.swarm.task.id")
-            node_name = task_node_by_id.get(swarm_task_id) if swarm_task_id else None
+            # Resolve the real node. Priority order:
+            #   1. Per-node agent-targeted container sweep (works for plain
+            #      compose containers — no Swarm task label needed).
+            #   2. Swarm task-ID lookup (task containers with the label).
+            #   3. Fallback "local" — only for single-node / non-agent setups
+            #      where we genuinely can't tell.
+            node_name = container_node_by_id.get(cont["Id"])
+            if not node_name:
+                swarm_task_id = labels.get("com.docker.swarm.task.id")
+                node_name = task_node_by_id.get(swarm_task_id) if swarm_task_id else None
             if not node_name:
                 node_name = "local"
 
@@ -433,6 +476,7 @@ async def _gather_impl() -> None:
         _cache["items"] = items
         _cache["nodes"] = node_map
         _cache["task_node_by_id"] = task_node_by_id
+        _cache["container_node_by_id"] = container_node_by_id
         _cache["stacks"] = sorted(
             groups.values(),
             key=lambda s: (s["name"] or "").lower(),
