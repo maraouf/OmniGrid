@@ -223,19 +223,45 @@ body {
 
 /* ---------------------------------------------------------------------------
    Scrollbars
+   Subtle by default: the thumb is hidden at rest and reveals only while
+   the user hovers over the scrollable container, mirroring the native
+   macOS / iOS feel. Keeps dense admin tables clean when the content
+   doesn't actually need scrolling, without removing the affordance when
+   it does. Firefox: uses thin/auto via `scrollbar-width` / `scrollbar-color`.
    --------------------------------------------------------------------------- */
-.scrollbar::-webkit-scrollbar {
-    width: var(--s-4);
-    height: var(--s-4);
+.scrollbar {
+    scrollbar-width: thin;
+    scrollbar-color: transparent transparent;
+    transition: scrollbar-color .2s ease;
 }
-
+.scrollbar:hover {
+    scrollbar-color: var(--border-bright) transparent;
+}
+.scrollbar::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+}
 .scrollbar::-webkit-scrollbar-track {
     background: transparent;
 }
-
 .scrollbar::-webkit-scrollbar-thumb {
-    background: var(--border-bright);
+    background: transparent;
     border-radius: var(--r-md);
+    transition: background .2s ease;
+}
+.scrollbar:hover::-webkit-scrollbar-thumb {
+    background: var(--border-bright);
+}
+
+/* Opt-in: completely hide the scrollbar chrome, e.g. for short tables
+   where even the hover-thumb reads as noise. Content stays scrollable
+   via wheel / touch / keyboard. Use sparingly — users lose the "there
+   is more content in this direction" affordance. */
+.no-scrollbar {
+    scrollbar-width: none;
+}
+.no-scrollbar::-webkit-scrollbar {
+    display: none;
 }
 
 /* ---------------------------------------------------------------------------
