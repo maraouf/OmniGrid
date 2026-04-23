@@ -681,19 +681,19 @@
                     class="pill pill-update text-[10.5px]">
                 <span x-text="node.degraded"></span> degraded
               </span>
-              <!-- Exporter chip — green when node-exporter scrape
-                   succeeded (so host disk/mem/uptime come from the
-                   exporter), red when it failed with hoverable error,
-                   hidden when host-stats is globally disabled. -->
+              <!-- Host-stats chip — green when the configured source
+                   (node-exporter OR Beszel) returned data for this
+                   node, red when the probe failed with hoverable
+                   error, hidden when host-stats is globally off. -->
               <span x-show="nodeStats(node.name).exporterStatus === 'ok'"
                     class="pill pill-ok text-[10.5px]"
-                    :title="'Stats sourced from node-exporter for ' + node.name">
-                exporter ✓
+                    :title="'Stats sourced from ' + (nodeStats(node.name).hostStatsSource === 'beszel' ? 'Beszel' : 'node-exporter') + ' for ' + node.name">
+                <span x-text="nodeStats(node.name).hostStatsSource === 'beszel' ? 'beszel' : 'exporter'"></span> ✓
               </span>
               <span x-show="nodeStats(node.name).exporterStatus === 'error'"
                     class="pill pill-error text-[10.5px] cursor-help"
-                    :title="nodeStats(node.name).exporterError || 'Scrape failed — falling back to Docker-only signals.'">
-                exporter ✗
+                    :title="nodeStats(node.name).exporterError || 'Probe failed — falling back to Docker-only signals.'">
+                <span x-text="nodeStats(node.name).hostStatsSource === 'beszel' ? 'beszel' : 'exporter'"></span> ✗
               </span>
               <span class="text-[11px] text-[var(--text-dim)] mx-1">
                 <span x-text="node.total"></span> total
