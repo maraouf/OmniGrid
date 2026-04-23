@@ -804,24 +804,19 @@
                        :style="'--w: ' + nodeDiskPercent(node.name) + '%'">
                     <div class="fill"></div>
                   </div>
-                  <div class="text-[10px] text-[var(--text-faint)] mt-1"
-                       x-text="t('nodes.docker_disk_caption')"></div>
                 </div>
               </template>
             </div>
 
             <!-- Uptime — host boot time from node-exporter when
-                 available, else the oldest-running-task proxy. -->
+                 available, else the oldest-running-task proxy. The
+                 label itself says which source; no caption needed. -->
             <div>
               <div class="flex items-baseline justify-between mb-1.5">
                 <span class="text-[10.5px] uppercase tracking-wider text-[var(--text-faint)]"
-                      x-text="nodeUptimeKind(node.name) === 'host' ? 'Host uptime' : 'Uptime'"></span>
+                      x-text="nodeUptimeKind(node.name) === 'host' ? 'Host uptime' : 'Uptime (oldest task)'"></span>
                 <span class="text-[12px] mono" x-text="fmtDuration(nodeUptime(node.name))"></span>
               </div>
-              <div class="text-[10.5px] text-[var(--text-faint)] leading-tight"
-                   x-text="nodeUptimeKind(node.name) === 'host'
-                           ? 'Real host uptime via node-exporter.'
-                           : 'Oldest still-running task on this node.'"></div>
             </div>
           </div>
 
