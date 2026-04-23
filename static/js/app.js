@@ -1401,6 +1401,15 @@ function app() {
       const bits = [];
       if (item.type) bits.push(item.type);
       if (item.stack) bits.push(item.stack);
+      // Surface the node hostname on container / orphan rows so a
+      // multi-node fleet is readable at a glance (matches how the
+      // Placement column renders for services). Skip "local" — that's
+      // the fallback for single-node setups where a node label would
+      // just be noise.
+      if ((item.type === 'container' || item.type === 'orphan')
+          && item.node && item.node !== 'local' && item.node !== '?') {
+        bits.push(item.node);
+      }
       if (item.state && item.state !== 'running') bits.push(item.state);
       return bits.join(' · ');
     },
