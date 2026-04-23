@@ -128,19 +128,20 @@
      the old v3 Play CDN). Bump versions in package.json, `npm install`,
      commit node_modules. -->
 <script src="/node_modules/@tailwindcss/browser/dist/index.global.js"></script>
-<!-- Alpine is deferred further — we wait on __i18nReady first so the first
-     render has translations in hand. The shim below replaces Alpine's
-     auto-start with a gated one (see bottom-of-body <script>). -->
+<!-- Alpine 3 dropped v2's `deferLoadingAlpine` hook, so we dynamically
+     inject the Alpine <script> AFTER __i18nReady resolves. That keeps the
+     first render free of untranslated strings without needing a build
+     step. Alpine registers its own MutationObserver so adding an Alpine
+     directive to the DOM after its script finishes still wires up. -->
 <script>
-  // Tell Alpine NOT to auto-start; we'll start it manually after i18n is ready.
-  window.deferLoadingAlpine = function (callback) {
-    (async function () {
-      try { await window.__i18nReady; } catch (_) {}
-      callback();
-    })();
-  };
+  (async function () {
+    try { await window.__i18nReady; } catch (_) {}
+    const s = document.createElement('script');
+    s.src = '/node_modules/alpinejs/dist/cdn.min.js';
+    s.defer = true;
+    document.head.appendChild(s);
+  })();
 </script>
-<script defer src="/node_modules/alpinejs/dist/cdn.min.js"></script>
 <script src="/node_modules/sweetalert2/dist/sweetalert2.all.min.js"></script>
 <link rel="stylesheet" href="css/style.css">
 <script>
@@ -291,7 +292,16 @@
                 :title="me ? 'Signed in as ' + me.username : ''"
                 :aria-expanded="userMenuOpen">
           <span class="user-avatar" :style="'--avatar-hue:' + avatarHue()">
-            <span x-text="initial()"></span>
+            <!-- User-uploaded image takes priority. Falls back to the
+                 hue+initial generated avatar when no upload exists or
+                 when the upload 404s (e.g. file deleted out-of-band). -->
+            <template x-if="me && me.avatar_url">
+              <img :src="me.avatar_url" alt="" class="user-avatar-img"
+                   @error="me.avatar_url = null">
+            </template>
+            <template x-if="!(me && me.avatar_url)">
+              <span x-text="initial()"></span>
+            </template>
           </span>
           <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"
                class="text-[var(--text-dim)]" :class="userMenuOpen && 'rotate-180'"><polyline points="6 9 12 15 18 9"/></svg>
@@ -1928,6 +1938,15 @@ function app() {
     me: null,
 
     async init() {
+      // i18n is already loaded (Alpine is gated on __i18nReady), but pull
+      // the authoritative language list + current code/dir into the
+      // reactive Alpine state so pickers and v-bindings track it.
+      try { await window.__i18nReady; } catch (_) {}
+      if (window.I18N) {
+        this.lang = window.I18N.code;
+        this.dir  = window.I18N.dir;
+        this.availableLanguages = window.I18N.languages || this.availableLanguages;
+      }
       // Resolve identity FIRST. Unauthenticated users get redirected to
       // /login; everyone else falls through to the normal data loads.
       // (The global fetch wrapper also handles mid-session 401s, but doing
@@ -2583,6 +2602,7 @@ function app() {
         this.items = d.items || [];
         this.stacks = d.stacks || [];
         this.nodes = d.nodes || {};
+        // Non-UI label; stays English since it's diagnostic-adjacent.
         this.cacheLabel = d.cached ? `cached ${d.age}s ago` : 'fresh';
         if (force) this.loadStats(true);  // fire-and-forget, don't block UI
       } catch (e) { this.showToast(this.t('toasts.load_failed', { error: e.message }), 'error'); }
@@ -2657,7 +2677,7 @@ function app() {
           this.oidcTestResult = null;
         } else {
           const j = await r.json().catch(() => ({}));
-          this.showToast(j.detail || 'Save failed', 'error');
+          this.showToast(j.detail || this.t('toasts.save_failed'), 'error');
         }
       } catch (_) { this.showToast(this.t('toasts.network_error'), 'error'); }
     },
@@ -2680,11 +2700,11 @@ function app() {
     async copyRedirectUri() {
       const uri = (this.oidcStatus && this.oidcStatus.redirect_uri_default)
         || (this.oidcForm && this.oidcForm.redirect_uri) || '';
-      if (!uri) { this.showToast('No redirect URI to copy', 'error'); return; }
+      if (!uri) { this.showToast(this.t('toasts.no_redirect_uri'), 'error'); return; }
       try {
         await navigator.clipboard.writeText(uri);
-        this.showToast('✓ Redirect URI copied');
-      } catch (_) { this.showToast('Copy failed', 'error'); }
+        this.showToast(this.t('toasts.redirect_uri_copied'));
+      } catch (_) { this.showToast(this.t('toasts.copy_failed'), 'error'); }
     },
 
     async savePortainerSettings() {
@@ -2711,7 +2731,7 @@ function app() {
           this.refresh(true);
         } else {
           const j = await r.json().catch(() => ({}));
-          this.showToast(j.detail || 'Save failed', 'error');
+          this.showToast(j.detail || this.t('toasts.save_failed'), 'error');
         }
       } catch (_) { this.showToast(this.t('toasts.network_error'), 'error'); }
     },
@@ -2742,15 +2762,15 @@ function app() {
           body: JSON.stringify(this.settings),
         });
         if (!r.ok) throw new Error(await r.text());
-        this.showToast('✓ Settings saved');
-      } catch (e) { this.showToast('Save failed: ' + e.message, 'error'); }
+        this.showToast(this.t('toasts.settings_saved'));
+      } catch (e) { this.showToast(this.t('toasts.load_failed', { error: e.message }), 'error'); }
     },
     async testNotify() {
       try {
         const r = await fetch('/api/notify-test', { method: 'POST' });
         if (!r.ok) throw new Error();
-        this.showToast('✓ Test notification sent');
-      } catch (e) { this.showToast('Test failed — check Apprise URL', 'error'); }
+        this.showToast(this.t('toasts.test_notification_sent'));
+      } catch (e) { this.showToast(this.t('toasts.test_notification_failed'), 'error'); }
     },
     async loadIgnores() {
       try {
@@ -2834,17 +2854,17 @@ function app() {
                   : ev.level === 'success' ? 'swal-ev-ok'
                   : 'swal-ev-info';
         return `<div class="swal-ev ${cls}"><span class="swal-ev-ts">${esc(this.formatTimeShort(ev.ts))}</span><span class="swal-ev-msg">${esc(ev.msg)}</span></div>`;
-      }).join('') || `<div class="swal-ev swal-ev-info">No events recorded.</div>`;
+      }).join('') || `<div class="swal-ev swal-ev-info">${esc(this.t('empty.no_events'))}</div>`;
       const meta = `
         <div class="swal-meta mono">
-          <div><b>When:</b> ${esc(this.formatTime(h.ts))}</div>
-          <div><b>Op:</b> ${esc(h.op_type)}</div>
-          <div><b>Target:</b> ${esc(h.target_name || '—')}</div>
-          <div><b>Stack:</b> ${esc(h.target_stack || '—')}</div>
-          <div><b>Actor:</b> ${esc(h.actor || 'ui')}</div>
-          <div><b>Duration:</b> ${(h.duration || 0).toFixed(2)}s</div>
-          <div><b>Status:</b> ${esc(h.status)}</div>
-          ${h.error ? `<div class="swal-err"><b>Error:</b> ${esc(h.error)}</div>` : ''}
+          <div><b>${esc(this.t('history.detail.when'))}</b> ${esc(this.formatTime(h.ts))}</div>
+          <div><b>${esc(this.t('history.detail.op'))}</b> ${esc(h.op_type)}</div>
+          <div><b>${esc(this.t('history.detail.target'))}</b> ${esc(h.target_name || '—')}</div>
+          <div><b>${esc(this.t('history.detail.stack'))}</b> ${esc(h.target_stack || '—')}</div>
+          <div><b>${esc(this.t('history.detail.actor'))}</b> ${esc(h.actor || 'ui')}</div>
+          <div><b>${esc(this.t('history.detail.duration'))}</b> ${(h.duration || 0).toFixed(2)}s</div>
+          <div><b>${esc(this.t('history.detail.status'))}</b> ${esc(h.status)}</div>
+          ${h.error ? `<div class="swal-err"><b>${esc(this.t('history.detail.error'))}</b> ${esc(h.error)}</div>` : ''}
         </div>`;
       Swal.fire({
         title: h.target_name || h.op_type,
@@ -2858,14 +2878,16 @@ function app() {
     },
     async clearHistory() {
       const ok = await this.confirmDialog({
-        title: 'Clear all history?',
-        html: '<div>This will permanently delete all past update records.</div>',
-        icon: 'warning', confirmText: 'Clear', confirmColor: this._cssVar('--danger'),
+        title: this.t('history.clear_confirm_title'),
+        html: this.t('history.clear_confirm_html'),
+        icon: 'warning',
+        confirmText: this.t('history.clear_confirm_button'),
+        confirmColor: this._cssVar('--danger'),
       });
       if (!ok) return;
       await fetch('/api/history', { method: 'DELETE' });
       await this.loadHistory();
-      this.showToast('History cleared');
+      this.showToast(this.t('toasts.history_cleared'));
     },
     pollOps() {
       if (this._opsTimer) clearTimeout(this._opsTimer);
@@ -2880,7 +2902,11 @@ function app() {
             const holdKeys = [...new Set(justDone.map(o => this._opBusyKey(o)).filter(Boolean))];
             holdKeys.forEach(k => this._holdBusy(k));
             justDone.forEach(o => this.showToast(
-              `${o.status === 'success' ? '✓' : '✗'} ${o.op_type.replace('_',' ')}: ${o.target_name}`,
+              this.t('toasts.op_result', {
+                icon: o.status === 'success' ? '✓' : '✗',
+                op: this.t('op_types.' + o.op_type) || o.op_type.replace('_', ' '),
+                name: o.target_name,
+              }),
               o.status === 'success' ? 'success' : 'error'
             ));
             Promise.all([this.refresh(true), this.loadHistory()])
@@ -3398,16 +3424,16 @@ function app() {
     },
     copy(text) {
       navigator.clipboard?.writeText(text);
-      this.showToast('Copied to clipboard');
+      this.showToast(this.t('toasts.copied'));
     },
-    async confirmDialog({ title, html, icon = 'warning', confirmText = 'Confirm', confirmColor }) {
+    async confirmDialog({ title, html, icon = 'warning', confirmText, confirmColor }) {
       const isLight = document.documentElement.getAttribute('data-theme') === 'light';
       const warn = this._cssVar('--warning') || '#f59e0b';
       const r = await Swal.fire({
         title, html, icon,
         showCancelButton: true,
-        confirmButtonText: confirmText,
-        cancelButtonText: 'Cancel',
+        confirmButtonText: confirmText || this.t('actions.confirm'),
+        cancelButtonText: this.t('actions.cancel'),
         reverseButtons: true,
         focusCancel: true,
         background: this._cssVar('--surface'),

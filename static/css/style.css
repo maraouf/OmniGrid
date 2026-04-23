@@ -281,9 +281,10 @@ textarea {
 }
 
 /* Native <select> collapses the arrow's hitbox on macOS unless we coax
-   it with a slight right-pad so the option text doesn't butt the chevron. */
+   it with a slight end-pad so the option text doesn't butt the chevron.
+   `padding-inline-end` flips automatically under dir="rtl". */
 select {
-    padding-right: var(--s-6);
+    padding-inline-end: var(--s-6);
 }
 
 textarea {
@@ -495,7 +496,7 @@ select:focus {
     font-size: 10.5px;
     font-weight: 600;
     min-width: 62px;
-    text-align: right;
+    text-align: end;
     letter-spacing: 0.2px;
 }
 .pw-label-danger  { color: var(--danger); }
@@ -691,7 +692,7 @@ select:focus {
 }
 
 .filter-chip .count {
-    margin-left: var(--s-2);
+    margin-inline-start: var(--s-2);
     font-size: 10.5px;
     color: var(--text-faint);
     font-weight: 600;
@@ -890,14 +891,14 @@ details summary::-webkit-details-marker {
     border: 1px solid var(--border);
     border-radius: var(--r-md);
     font-size: 12px;
-    text-align: left;
+    text-align: start;
     color: var(--text-dim);
 }
 
 .swal-meta b {
     color: var(--text);
     font-weight: 600;
-    margin-right: var(--s-2);
+    margin-inline-end: var(--s-2);
 }
 
 .swal-err {
@@ -913,7 +914,7 @@ details summary::-webkit-details-marker {
     background: var(--bg);
     border: 1px solid var(--border);
     border-radius: var(--r-md);
-    text-align: left;
+    text-align: start;
     font-family: var(--font-mono);
     font-size: 11px;
 }
@@ -989,7 +990,7 @@ details summary::-webkit-details-marker {
     top: 0;
     z-index: 2;
     background: var(--surface);
-    text-align: left;
+    text-align: start;
     font-size: 10.5px;
     font-weight: 600;
     text-transform: uppercase;
@@ -1104,7 +1105,7 @@ details summary::-webkit-details-marker {
 
 .col-action {
     width: var(--col-action);
-    text-align: right;
+    text-align: end;
 }
 
 /* Grow column — in HTML table auto-layout, width:100% on a single cell asks
@@ -1146,8 +1147,10 @@ details summary::-webkit-details-marker {
     color: var(--text-faint);
 }
 
+/* Kept under the historical name for backwards-compat; resolves to
+   `text-align: end` so it flips in RTL. Markup still writes class="align-right". */
 .align-right {
-    text-align: right;
+    text-align: end;
 }
 
 /* ---------------------------------------------------------------------------
@@ -1210,10 +1213,10 @@ details summary::-webkit-details-marker {
 }
 
 .swal2-html-container ul {
-    text-align: left;
+    text-align: start;
     display: inline-block;
     margin-top: var(--s-4);
-    padding-left: 0;
+    padding-inline-start: 0;
     list-style: none;
 }
 
@@ -1225,7 +1228,7 @@ details summary::-webkit-details-marker {
 .swal2-html-container li::before {
     content: "• ";
     color: var(--primary);
-    margin-right: var(--s-3);
+    margin-inline-end: var(--s-3);
     font-weight: bold;
 }
 
@@ -1383,8 +1386,7 @@ details summary::-webkit-details-marker {
   display: flex;
   gap: var(--s-6);
   max-width: 1100px;
-  margin-left: auto;
-  margin-right: auto;
+  margin-inline: auto;
   width: 100%;
 }
 
@@ -1424,7 +1426,7 @@ details summary::-webkit-details-marker {
   font-family: inherit;
   font-size: 12px;
   font-weight: 500;
-  text-align: left;
+  text-align: start;
   cursor: pointer;
   transition: background 0.1s, color 0.1s;
 }
@@ -1475,6 +1477,13 @@ details summary::-webkit-details-marker {
     line-height: 1;
     flex-shrink: 0;
     user-select: none;
+    overflow: hidden;  /* keep uploaded image inside the circular clip */
+}
+.user-avatar .user-avatar-img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
 }
 
 .user-menu-item {
@@ -1489,7 +1498,7 @@ details summary::-webkit-details-marker {
     font-family: inherit;
     font-size: 12px;
     font-weight: 500;
-    text-align: left;
+    text-align: start;
     cursor: pointer;
     transition: background 0.1s;
 }
@@ -1691,4 +1700,35 @@ body.login {
     background: var(--surface-3);
     border-color: var(--primary);
     color: var(--text);
+}
+
+/* ==========================================================================
+   i18n: RTL support
+   - Direction-sensitive icons opt in by adding `.flip-rtl`; the rule below
+     mirrors them horizontally under dir="rtl" so chevrons / back-arrows
+     read the right way.
+   - Lang picker + topbar select styling.
+   ========================================================================== */
+[dir="rtl"] .flip-rtl {
+    transform: scaleX(-1);
+}
+
+/* Compact language picker in the topbar. Matches the other small controls
+   (theme / hotkeys) — tiny, token-driven, hides the native chevron inset
+   where browsers put it. */
+.lang-picker {
+    background: var(--surface-2);
+    color: var(--text-dim);
+    border: 1px solid var(--border);
+    border-radius: var(--r-md);
+    padding: 4px var(--s-3);
+    padding-inline-end: var(--s-6);
+    font-weight: 500;
+    cursor: pointer;
+    transition: background 0.1s, color 0.1s, border-color 0.1s;
+}
+
+.lang-picker:hover {
+    color: var(--text);
+    background: var(--surface-3);
 }
