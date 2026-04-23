@@ -920,7 +920,8 @@
             <div>
               <label class="block text-[11px] text-[var(--text-dim)] mb-1" x-text="t('settings.profile.username')"></label>
               <input :value="me && me.username" disabled class="w-full text-[12.5px]">
-              <p class="text-[10px] text-[var(--text-faint)] mt-1" x-text="t('settings.profile.username_hint')"></p>
+              <p class="text-[10px] text-[var(--text-faint)] mt-1"
+                 x-text="t(me && me.source === 'authentik' ? 'settings.profile.username_hint_authentik' : 'settings.profile.username_hint')"></p>
             </div>
             <div>
               <label class="block text-[11px] text-[var(--text-dim)] mb-1" x-text="t('settings.profile.source')"></label>
@@ -952,7 +953,13 @@
             </div>
             <div>
               <label class="block text-[11px] text-[var(--text-dim)] mb-1" x-text="t('settings.profile.email')"></label>
-              <input x-model="profileForm.email" type="email" maxlength="200" :placeholder="t('settings.profile.email_placeholder')" class="w-full text-[12.5px]">
+              <input x-model="profileForm.email" type="email" maxlength="200"
+                     :placeholder="t('settings.profile.email_placeholder')"
+                     :disabled="me && me.source === 'authentik'"
+                     class="w-full text-[12.5px]">
+              <p x-show="me && me.source === 'authentik'"
+                 class="text-[10px] text-[var(--text-faint)] mt-1"
+                 x-text="t('settings.profile.email_hint_authentik')"></p>
             </div>
             <div>
               <label class="block text-[11px] text-[var(--text-dim)] mb-1" x-text="t('settings.profile.bio')"></label>
@@ -1800,12 +1807,12 @@
   <!--suppress XmlUnboundNsPrefix, HtmlUnknownAttribute -->
   <div x-show="toast"
        x-transition:enter="transition ease-out duration-200"
-       x-transition:enter-start="opacity-0 translate-x-4"
-       x-transition:enter-end="opacity-100 translate-x-0"
+       x-transition:enter-start="opacity-0 translate-y-4"
+       x-transition:enter-end="opacity-100 translate-y-0"
        x-transition:leave="transition ease-in duration-150"
        x-transition:leave-start="opacity-100"
        x-transition:leave-end="opacity-0"
-       class="fixed top-4 right-4 bg-[var(--surface)] border-l-4 px-4 py-2.5 rounded-md shadow-2xl z-[60] max-w-[90vw]"
+       class="fixed bottom-4 right-4 bg-[var(--surface)] border-l-4 px-4 py-2.5 rounded-md shadow-2xl z-[60] max-w-[90vw]"
        :class="toastType==='error' ? 'border-[var(--danger)]' : 'border-[var(--success)]'">
     <div class="text-[12.5px]" x-text="toast"></div>
   </div>

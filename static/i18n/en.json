@@ -222,6 +222,8 @@
       "account": "Account",
       "username": "Username",
       "username_hint": "Set by admin — can't be changed here.",
+      "username_hint_authentik": "Set by Authentik — can't be changed here.",
+      "email_hint_authentik": "Managed by Authentik — can't be changed here.",
       "source": "Source",
       "role": "Role",
       "last_login": "Last login",
