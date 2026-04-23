@@ -271,8 +271,23 @@ async def login(request: Request):
     s = _settings()
     issuer = s["oidc_issuer_url"]
     client_id = s["oidc_client_id"]
-    redirect_uri = s.get("oidc_redirect_uri") or _default_redirect_uri(request)
+    configured_redirect = (s.get("oidc_redirect_uri") or "").strip()
+    redirect_uri = configured_redirect or _default_redirect_uri(request)
     scopes = s.get("oidc_scopes") or "openid email profile groups"
+
+    # Diagnostic log — prints to docker service logs so we can see
+    # EXACTLY what redirect_uri we're sending to the IdP and whether it
+    # came from the DB override or the request-origin auto-compute.
+    # Paste this into Authentik's Redirect URIs allowlist byte-for-byte
+    # if they don't match.
+    source = "DB override" if configured_redirect else "auto-computed from request origin"
+    host_hdr = request.headers.get("host") or "(no host)"
+    fwd_host = request.headers.get("x-forwarded-host") or "(none)"
+    fwd_proto = request.headers.get("x-forwarded-proto") or "(none)"
+    print(
+        f"[oidc] /login redirect_uri={redirect_uri!r} source={source} "
+        f"host={host_hdr!r} x-forwarded-host={fwd_host!r} x-forwarded-proto={fwd_proto!r}"
+    )
 
     try:
         doc = await _fetch_discovery(issuer)
