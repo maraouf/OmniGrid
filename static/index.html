@@ -1562,6 +1562,212 @@
       </div>
 
       <!-- BACKUPS TAB -->
+      <!-- SCHEDULES TAB -->
+      <div x-show="adminTab==='schedules'" class="space-y-4">
+        <!-- Create schedule card -->
+        <section class="bg-[var(--surface)] border border-[var(--border)] rounded-md p-5">
+          <h3 class="font-semibold text-[13px] mb-2" x-text="t('admin.schedules.create_title')"></h3>
+          <p class="text-[11.5px] text-[var(--text-faint)] mb-3" x-text="t('admin.schedules.create_hint')"></p>
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-2">
+            <input x-model="newSchedule.name" type="text"
+                   :placeholder="t('admin.schedules.name_placeholder')" class="w-full">
+            <select x-model="newSchedule.kind" class="w-full">
+              <template x-for="k in scheduleKinds" :key="k">
+                <option :value="k" x-text="t('admin.schedules.kinds.' + k) || k"></option>
+              </template>
+            </select>
+            <input x-model.number="newSchedule.interval_seconds" type="number"
+                   :min="scheduleMinInterval" step="60"
+                   :placeholder="t('admin.schedules.interval_placeholder')" class="w-full">
+            <label class="inline-flex items-center gap-2 text-[12px] text-[var(--text-dim)]">
+              <input type="checkbox" x-model="newSchedule.enabled">
+              <span x-text="t('admin.schedules.enabled')"></span>
+            </label>
+          </div>
+          <div class="mt-2">
+            <label class="block text-[11px] text-[var(--text-faint)] mb-1"
+                   x-text="t('admin.schedules.params_label')"></label>
+            <textarea x-model="newSchedule.params_text" rows="3"
+                      class="w-full mono text-[11.5px]"
+                      :placeholder="t('admin.schedules.params_placeholder')"></textarea>
+          </div>
+          <div class="mt-3 flex items-center gap-2">
+            <button @click="createSchedule()" :disabled="scheduleBusy"
+                    class="btn btn-primary text-[12px]"
+                    :class="scheduleBusy && 'opacity-60'"
+                    x-text="scheduleBusy ? t('loading.creating') : t('admin.schedules.create_button')"></button>
+            <span class="text-[11px] text-[var(--text-faint)]"
+                  x-text="t('admin.schedules.min_interval_hint', { min: scheduleMinInterval })"></span>
+          </div>
+        </section>
+
+        <!-- Scheduled table -->
+        <section class="bg-[var(--surface)] border border-[var(--border)] rounded-md overflow-hidden">
+          <div class="p-4 border-b border-[var(--border)] flex justify-between items-center">
+            <h3 class="font-semibold text-[13px]">
+              <span x-text="t('admin.schedules.scheduled_title')"></span>
+              <span class="text-[var(--text-faint)] font-normal" x-text="'(' + schedules.length + ')'"></span>
+            </h3>
+            <button @click="loadSchedules()" class="btn btn-ghost text-[11px]" x-text="t('actions.reload')"></button>
+          </div>
+          <div class="overflow-x-auto scrollbar">
+            <table class="w-full text-[12.5px]">
+              <thead class="bg-[var(--surface-2)] text-[10.5px] uppercase tracking-wider text-[var(--text-faint)]">
+                <tr>
+                  <th class="text-start px-4 py-2" x-text="t('columns.name')"></th>
+                  <th class="text-start px-4 py-2" x-text="t('admin.schedules.cols.kind')"></th>
+                  <th class="text-start px-4 py-2" x-text="t('admin.schedules.cols.interval')"></th>
+                  <th class="text-start px-4 py-2" x-text="t('admin.schedules.cols.enabled')"></th>
+                  <th class="text-start px-4 py-2" x-text="t('admin.schedules.cols.last_execution')"></th>
+                  <th class="text-start px-4 py-2" x-text="t('admin.schedules.cols.last_duration')"></th>
+                  <th class="text-start px-4 py-2" x-text="t('admin.schedules.cols.last_status')"></th>
+                  <th class="text-start px-4 py-2" x-text="t('admin.schedules.cols.next_execution')"></th>
+                  <th class="text-end px-4 py-2" x-text="t('columns.actions')"></th>
+                </tr>
+              </thead>
+              <tbody>
+                <template x-for="s in schedules" :key="s.id">
+                  <tr class="border-t border-[var(--border)]">
+                    <td class="px-4 py-2 font-medium" x-text="s.name"></td>
+                    <td class="px-4 py-2 mono text-[11px] text-[var(--text-dim)]"
+                        x-text="t('admin.schedules.kinds.' + s.kind) || s.kind"></td>
+                    <td class="px-4 py-2 mono text-[11px] text-[var(--text-dim)]"
+                        x-text="humanInterval(s.interval_seconds)"></td>
+                    <td class="px-4 py-2">
+                      <button @click="toggleScheduleEnabled(s)"
+                              class="btn btn-soft text-[11px]"
+                              :title="s.enabled ? t('admin.schedules.disable_title') : t('admin.schedules.enable_title')"
+                              x-text="s.enabled ? t('admin.schedules.on') : t('admin.schedules.off')"></button>
+                    </td>
+                    <td class="px-4 py-2 mono text-[11px] text-[var(--text-dim)]"
+                        x-text="s.last_run_at ? humanRelTime(s.last_run_at) : '—'"
+                        :title="s.last_run_at ? fmtDate(s.last_run_at) : ''"></td>
+                    <td class="px-4 py-2 mono text-[11px] text-[var(--text-dim)]"
+                        x-text="s.last_duration != null ? fmtDuration(s.last_duration) : '—'"></td>
+                    <td class="px-4 py-2">
+                      <span x-show="s.last_status"
+                            :class="scheduleStatusClass(s.last_status)"
+                            x-text="s.last_status || '—'"></span>
+                      <span x-show="!s.last_status" class="text-[var(--text-faint)] text-[11px]">—</span>
+                    </td>
+                    <td class="px-4 py-2 mono text-[11px] text-[var(--text-dim)]"
+                        x-text="s.enabled ? humanRelTime(s.next_run_at) : t('admin.schedules.paused')"
+                        :title="s.enabled ? fmtDate(s.next_run_at) : ''"></td>
+                    <td class="px-4 py-2 text-end">
+                      <div class="inline-flex gap-1">
+                        <button @click="runSchedule(s)" class="btn btn-soft text-[11px]"
+                                :title="t('admin.schedules.run_now_title')"
+                                x-text="t('admin.schedules.run_now')"></button>
+                        <button @click="editSchedule(s)" class="btn btn-soft text-[11px]"
+                                :title="t('admin.schedules.edit_title')"
+                                x-text="t('actions.edit')"></button>
+                        <button @click="deleteSchedule(s)" class="btn btn-ghost text-[11px] text-danger"
+                                :title="t('admin.schedules.delete_title')"
+                                x-text="t('actions.delete')"></button>
+                      </div>
+                    </td>
+                  </tr>
+                </template>
+                <tr x-show="schedules.length===0">
+                  <td colspan="9" class="text-center py-8 text-[var(--text-faint)]"
+                      x-text="t('admin.schedules.empty')"></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <!-- Queue table -->
+        <section class="bg-[var(--surface)] border border-[var(--border)] rounded-md overflow-hidden">
+          <div class="p-4 border-b border-[var(--border)] flex justify-between items-center">
+            <h3 class="font-semibold text-[13px]">
+              <span x-text="t('admin.schedules.queue_title')"></span>
+              <span class="text-[var(--text-faint)] font-normal" x-text="'(' + scheduleQueue.length + ')'"></span>
+            </h3>
+            <button @click="loadScheduleQueue()" class="btn btn-ghost text-[11px]" x-text="t('actions.reload')"></button>
+          </div>
+          <div class="overflow-x-auto scrollbar">
+            <table class="w-full text-[12.5px]">
+              <thead class="bg-[var(--surface-2)] text-[10.5px] uppercase tracking-wider text-[var(--text-faint)]">
+                <tr>
+                  <th class="text-start px-4 py-2" x-text="t('admin.schedules.cols.queue_name')"></th>
+                  <th class="text-start px-4 py-2" x-text="t('admin.schedules.cols.queue_kind')"></th>
+                  <th class="text-start px-4 py-2" x-text="t('admin.schedules.cols.started')"></th>
+                  <th class="text-start px-4 py-2" x-text="t('admin.schedules.cols.duration')"></th>
+                  <th class="text-start px-4 py-2" x-text="t('admin.schedules.cols.status')"></th>
+                </tr>
+              </thead>
+              <tbody>
+                <template x-for="q in scheduleQueue" :key="q.id">
+                  <tr class="border-t border-[var(--border)]">
+                    <td class="px-4 py-2 mono text-[11.5px]" x-text="q.target_name || '—'"></td>
+                    <td class="px-4 py-2 mono text-[11px] text-[var(--text-dim)]"
+                        x-text="t('admin.schedules.kinds.' + q.op_type) || q.op_type"></td>
+                    <td class="px-4 py-2 mono text-[11px] text-[var(--text-dim)]"
+                        x-text="humanRelTime(q.ts)" :title="fmtDate(q.ts)"></td>
+                    <td class="px-4 py-2 mono text-[11px] text-[var(--text-dim)]"
+                        x-text="fmtDuration(q.duration)"></td>
+                    <td class="px-4 py-2">
+                      <span :class="scheduleStatusClass(q.status)" x-text="q.status"></span>
+                    </td>
+                  </tr>
+                </template>
+                <tr x-show="scheduleQueue.length===0">
+                  <td colspan="5" class="text-center py-8 text-[var(--text-faint)]"
+                      x-text="t('admin.schedules.queue_empty')"></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <!-- Edit modal -->
+        <div x-show="editingSchedule" x-cloak class="fixed inset-0 z-50 fade-in">
+          <div class="absolute inset-0 backdrop" @click="cancelEditSchedule()"></div>
+          <div class="absolute inset-0 flex items-center justify-center p-4">
+            <div class="bg-[var(--surface)] border border-[var(--border)] rounded-md w-full max-w-lg slide-in p-5"
+                 @click.stop>
+              <div class="flex items-center justify-between mb-3">
+                <h3 class="font-semibold text-[13px]" x-text="t('admin.schedules.edit_title_modal')"></h3>
+                <button @click="cancelEditSchedule()" class="btn btn-ghost text-[12px]"
+                        x-text="t('actions.cancel')"></button>
+              </div>
+              <template x-if="editingSchedule">
+                <div class="space-y-2">
+                  <input x-model="editingSchedule.name" type="text"
+                         :placeholder="t('admin.schedules.name_placeholder')" class="w-full">
+                  <select x-model="editingSchedule.kind" class="w-full">
+                    <template x-for="k in scheduleKinds" :key="k">
+                      <option :value="k" x-text="t('admin.schedules.kinds.' + k) || k"></option>
+                    </template>
+                  </select>
+                  <input x-model.number="editingSchedule.interval_seconds" type="number"
+                         :min="scheduleMinInterval" step="60"
+                         :placeholder="t('admin.schedules.interval_placeholder')" class="w-full">
+                  <label class="inline-flex items-center gap-2 text-[12px] text-[var(--text-dim)]">
+                    <input type="checkbox" x-model="editingSchedule.enabled">
+                    <span x-text="t('admin.schedules.enabled')"></span>
+                  </label>
+                  <div>
+                    <label class="block text-[11px] text-[var(--text-faint)] mb-1"
+                           x-text="t('admin.schedules.params_label')"></label>
+                    <textarea x-model="editingSchedule.params_text" rows="4"
+                              class="w-full mono text-[11.5px]"
+                              :placeholder="t('admin.schedules.params_placeholder')"></textarea>
+                  </div>
+                </div>
+              </template>
+              <div class="mt-4 flex justify-end gap-2">
+                <button @click="cancelEditSchedule()" class="btn btn-ghost text-[12px]"
+                        x-text="t('actions.cancel')"></button>
+                <button @click="saveSchedule()" class="btn btn-primary text-[12px]"
+                        x-text="t('actions.save')"></button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
       <div x-show="adminTab==='backups'" class="space-y-4">
         <section class="bg-[var(--surface)] border border-[var(--border)] rounded-md p-5">
           <h3 class="font-semibold text-[13px] mb-2" x-text="t('admin.backups.create_title')"></h3>

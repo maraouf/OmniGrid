@@ -39,7 +39,7 @@ from fastapi import BackgroundTasks, Depends, FastAPI, Form, HTTPException, Requ
 from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 
-from logic import auth, backups, metrics, oidc
+from logic import auth, backups, metrics, oidc, schedules
 from pydantic import BaseModel
 
 # ============================================================================
@@ -101,15 +101,31 @@ async def _lifespan(app: FastAPI):
     # Create /app/data/backups/ + /app/data/avatars/ if missing so endpoint
     # handlers don't each have to guard for first-boot state.
     backups.ensure_dirs()
+    # Seed the schedules table with reasonable defaults on first boot.
+    # Fleet-cache refresh is enabled; prune-node is disabled-by-default.
+    # Pull the current node list (may be empty on a brand-new install —
+    # seed_default_schedules handles the empty case).
+    try:
+        with db_conn() as c:
+            node_names = sorted(set((_cache.get("nodes") or {}).values()))
+            schedules.seed_default_schedules(c, node_names)
+    except Exception as e:
+        print(f"[scheduler] seed_default_schedules failed: {e}")
     sampler = asyncio.create_task(_stats_sampler_loop(), name="stats-sampler")
+    scheduler = asyncio.create_task(schedules.scheduler_loop(), name="scheduler")
     try:
         yield
     finally:
-        sampler.cancel()
-        try:
-            await sampler
-        except asyncio.CancelledError:
-            pass
+        # Cancel in reverse-start order. Each cancel + await is wrapped so
+        # one failing shutdown step can't starve the next one.
+        for task in (scheduler, sampler):
+            task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
+            except Exception as e:
+                print(f"[lifespan] shutdown error: {e}")
 
 
 def _bootstrap_admin_if_needed() -> None:
@@ -209,6 +225,9 @@ def init_db():
         # Auth schema — users / sessions / api_tokens. Owned by auth.py but
         # created here so there's a single init_db() entry point.
         auth.init_auth_schema(c)
+        # Scheduler schema — admin-defined recurring jobs. Same pattern:
+        # owned by logic/schedules.py, created here.
+        schedules.init_schedules_schema(c)
 
 
 # ============================================================================
@@ -1416,6 +1435,161 @@ async def api_restore_backup_upload(
         try: os.remove(tmp_path)
         except OSError: pass
     return result
+
+
+# ============================================================================
+# Scheduler — admin-defined recurring jobs. See logic/schedules.py for the
+# tick loop + kind registry. Admin-only CRUD; POST .../run fires manually.
+# ============================================================================
+class ScheduleIn(BaseModel):
+    name: str
+    kind: str
+    params: Optional[dict] = None
+    interval_seconds: int
+    enabled: bool = True
+
+
+class SchedulePatch(BaseModel):
+    name: Optional[str] = None
+    kind: Optional[str] = None
+    params: Optional[dict] = None
+    interval_seconds: Optional[int] = None
+    enabled: Optional[bool] = None
+
+
+@app.get("/api/schedules")
+async def api_list_schedules(_admin: auth.User = Depends(auth.require_admin)):
+    with db_conn() as c:
+        return {
+            "schedules": schedules.list_schedules(c),
+            "kinds": sorted(schedules.SCHEDULE_KINDS.keys()),
+            "min_interval_seconds": schedules.MIN_INTERVAL_SECONDS,
+        }
+
+
+@app.post("/api/schedules")
+async def api_create_schedule(
+    s: ScheduleIn,
+    _admin: auth.User = Depends(auth.require_admin),
+):
+    name = (s.name or "").strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="Name is required.")
+    if s.kind not in schedules.SCHEDULE_KINDS:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"Unknown schedule kind '{s.kind}'. "
+                f"Known: {', '.join(sorted(schedules.SCHEDULE_KINDS.keys()))}"
+            ),
+        )
+    if s.interval_seconds < schedules.MIN_INTERVAL_SECONDS:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"interval_seconds must be >= {schedules.MIN_INTERVAL_SECONDS}"
+            ),
+        )
+    params = s.params or {}
+    if not isinstance(params, dict):
+        raise HTTPException(status_code=400, detail="params must be a JSON object.")
+    try:
+        with db_conn() as c:
+            row = schedules.create_schedule(
+                c, name, s.kind, params, int(s.interval_seconds),
+                bool(s.enabled),
+            )
+    except sqlite3.IntegrityError:
+        raise HTTPException(
+            status_code=409,
+            detail="A schedule with that name already exists.",
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return {"ok": True, "schedule": row}
+
+
+@app.patch("/api/schedules/{schedule_id}")
+async def api_update_schedule(
+    schedule_id: int,
+    p: SchedulePatch,
+    _admin: auth.User = Depends(auth.require_admin),
+):
+    patch_fields = p.model_dump(exclude_none=True)
+    if "name" in patch_fields:
+        patch_fields["name"] = patch_fields["name"].strip()
+        if not patch_fields["name"]:
+            raise HTTPException(status_code=400, detail="Name cannot be blank.")
+    try:
+        with db_conn() as c:
+            existing = schedules.get_schedule(c, schedule_id)
+            if not existing:
+                raise HTTPException(status_code=404, detail="Schedule not found.")
+            row = schedules.update_schedule(c, schedule_id, **patch_fields)
+    except sqlite3.IntegrityError:
+        raise HTTPException(
+            status_code=409,
+            detail="A schedule with that name already exists.",
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return {"ok": True, "schedule": row}
+
+
+@app.delete("/api/schedules/{schedule_id}")
+async def api_delete_schedule(
+    schedule_id: int,
+    _admin: auth.User = Depends(auth.require_admin),
+):
+    with db_conn() as c:
+        if not schedules.get_schedule(c, schedule_id):
+            raise HTTPException(status_code=404, detail="Schedule not found.")
+        schedules.delete_schedule(c, schedule_id)
+    return {"ok": True}
+
+
+@app.post("/api/schedules/{schedule_id}/run")
+async def api_run_schedule(
+    schedule_id: int,
+    _admin: auth.User = Depends(auth.require_admin),
+):
+    """Fire a schedule immediately, bypassing its interval.
+
+    Uses the same kind-callable path as the tick loop, so the resulting
+    op flows through ops.py exactly as if the schedule had been due.
+    Returns the op id so the UI can deep-link the ops panel.
+    """
+    with db_conn() as c:
+        s = schedules.get_schedule(c, schedule_id)
+    if not s:
+        raise HTTPException(status_code=404, detail="Schedule not found.")
+    try:
+        op_id = await schedules.fire_schedule(s)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Fire failed: {e}")
+    return {"ok": True, "op_id": op_id}
+
+
+@app.get("/api/schedules/queue")
+async def api_schedule_queue(
+    limit: int = 50,
+    _admin: auth.User = Depends(auth.require_admin),
+):
+    """Recent scheduler-driven ops from the history table.
+
+    Filtered to ``actor='scheduler'`` so user-triggered runs of the
+    same op types don't clutter the view. Newest first, capped at
+    500 rows to keep the response bounded.
+    """
+    limit = max(1, min(int(limit), 500))
+    rows = _history_query(
+        stack=None, op_type=None, status=None,
+        actor=schedules.SCHEDULER_ACTOR, q=None,
+        since=None, until=None, limit=limit,
+    )
+    return {"queue": rows}
 
 
 # Login HTML page. Served as a discrete route (not via StaticFiles) because

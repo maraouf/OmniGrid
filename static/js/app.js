@@ -100,13 +100,34 @@ function app() {
     profileBusy: false,
     avatarBusy: false,
     adminSections: [
-      { id: 'users',    label: 'Users' },
-      { id: 'sessions', label: 'Sessions' },
-      { id: 'tokens',   label: 'API tokens' },
-      { id: 'backups',  label: 'Backups' },
+      { id: 'users',      label: 'Users' },
+      { id: 'sessions',   label: 'Sessions' },
+      { id: 'tokens',     label: 'API tokens' },
+      { id: 'schedules',  label: 'Schedules' },
+      { id: 'backups',    label: 'Backups' },
     ],
     backups: [],
     backupBusy: false,
+    // Scheduler state. `schedules` is the list of rows from /api/schedules,
+    // `scheduleQueue` is recent scheduler-driven ops from /api/schedules/queue.
+    // `scheduleKinds` is populated from the same /api/schedules response so
+    // the <select> for new schedules stays in sync with the backend registry.
+    schedules: [],
+    scheduleQueue: [],
+    scheduleKinds: ['prune_node', 'gather_refresh'],
+    scheduleMinInterval: 60,
+    scheduleBusy: false,
+    // Create form. `params_text` is a raw JSON textarea — we parse on submit
+    // so the operator can express any kind-specific shape without us having
+    // to build a dynamic form per kind. Same approach for the edit dialog.
+    newSchedule: {
+      name: '', kind: 'gather_refresh', params_text: '{}',
+      interval_seconds: 3600, enabled: true,
+    },
+    // When non-null, the edit dialog is open and bound to this copy of the
+    // row being edited. `params_text` on the copy is kept as a string so
+    // Alpine's two-way binding stays simple.
+    editingSchedule: null,
     // Admin view state
     adminTab: 'users',
     users: [],
@@ -533,6 +554,274 @@ function app() {
       else if (tab === 'sessions') await this.loadSessions();
       else if (tab === 'tokens') await this.loadTokens();
       else if (tab === 'backups') await this.loadBackups();
+      else if (tab === 'schedules') {
+        // Fire both loads in parallel — the scheduled table and the queue
+        // table aren't related state-wise, no reason to wait on each other.
+        await Promise.all([this.loadSchedules(), this.loadScheduleQueue()]);
+      }
+    },
+
+    // ----- Scheduler ----------------------------------------------------
+    // Backend at /api/schedules (CRUD) and /api/schedules/queue (recent
+    // scheduler-driven ops from the history table). Every write method
+    // surfaces an error toast; every destructive action confirms first.
+
+    async loadSchedules() {
+      try {
+        const r = await fetch('/api/schedules');
+        if (!r.ok) return;
+        const d = await r.json();
+        this.schedules = d.schedules || [];
+        if (Array.isArray(d.kinds) && d.kinds.length) this.scheduleKinds = d.kinds;
+        if (typeof d.min_interval_seconds === 'number') {
+          this.scheduleMinInterval = d.min_interval_seconds;
+        }
+      } catch (_) {}
+    },
+
+    async loadScheduleQueue() {
+      try {
+        const r = await fetch('/api/schedules/queue?limit=50');
+        if (!r.ok) return;
+        const d = await r.json();
+        this.scheduleQueue = d.queue || [];
+      } catch (_) {}
+    },
+
+    // Local JSON-validate so the operator gets feedback without a round-trip.
+    // Empty string is normalised to {} so the common case (gather_refresh
+    // has no params) doesn't require typing braces.
+    _parseParamsText(raw) {
+      const trimmed = (raw || '').trim();
+      if (!trimmed) return {};
+      let parsed;
+      try { parsed = JSON.parse(trimmed); }
+      catch (e) { throw new Error(this.t('admin.schedules.params_invalid_json')); }
+      if (parsed == null || typeof parsed !== 'object' || Array.isArray(parsed)) {
+        throw new Error(this.t('admin.schedules.params_must_be_object'));
+      }
+      return parsed;
+    },
+
+    async createSchedule() {
+      if (this.scheduleBusy) return;
+      const s = this.newSchedule;
+      if (!s.name || !s.name.trim()) {
+        this.showToast(this.t('admin.schedules.name_required'), 'error');
+        return;
+      }
+      if (!this.scheduleKinds.includes(s.kind)) {
+        this.showToast(this.t('admin.schedules.kind_unknown'), 'error');
+        return;
+      }
+      if (s.interval_seconds < this.scheduleMinInterval) {
+        this.showToast(this.t('admin.schedules.interval_too_small', {
+          min: this.scheduleMinInterval,
+        }), 'error');
+        return;
+      }
+      let params;
+      try { params = this._parseParamsText(s.params_text); }
+      catch (e) { this.showToast(e.message, 'error'); return; }
+      this.scheduleBusy = true;
+      try {
+        const r = await fetch('/api/schedules', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            name: s.name.trim(),
+            kind: s.kind,
+            params,
+            interval_seconds: parseInt(s.interval_seconds, 10),
+            enabled: !!s.enabled,
+          }),
+        });
+        if (r.ok) {
+          this.showToast(this.t('admin.schedules.toasts.created'));
+          this.newSchedule = {
+            name: '', kind: this.scheduleKinds[0] || 'gather_refresh',
+            params_text: '{}', interval_seconds: 3600, enabled: true,
+          };
+          await this.loadSchedules();
+        } else {
+          const j = await r.json().catch(() => ({}));
+          this.showToast(j.detail || this.t('admin.schedules.toasts.create_failed'), 'error');
+        }
+      } catch (_) { this.showToast(this.t('toasts.network_error'), 'error'); }
+      finally { this.scheduleBusy = false; }
+    },
+
+    editSchedule(s) {
+      // Clone so edits don't mutate the list until Save. `params_text` is
+      // a pretty-printed JSON blob for the textarea; we re-parse on save.
+      this.editingSchedule = {
+        ...s,
+        params_text: JSON.stringify(s.params || {}, null, 2),
+      };
+    },
+
+    cancelEditSchedule() {
+      this.editingSchedule = null;
+    },
+
+    async saveSchedule() {
+      if (!this.editingSchedule) return;
+      const e = this.editingSchedule;
+      if (!e.name || !e.name.trim()) {
+        this.showToast(this.t('admin.schedules.name_required'), 'error');
+        return;
+      }
+      if (!this.scheduleKinds.includes(e.kind)) {
+        this.showToast(this.t('admin.schedules.kind_unknown'), 'error');
+        return;
+      }
+      if (e.interval_seconds < this.scheduleMinInterval) {
+        this.showToast(this.t('admin.schedules.interval_too_small', {
+          min: this.scheduleMinInterval,
+        }), 'error');
+        return;
+      }
+      let params;
+      try { params = this._parseParamsText(e.params_text); }
+      catch (err) { this.showToast(err.message, 'error'); return; }
+      try {
+        const r = await fetch('/api/schedules/' + e.id, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            name: e.name.trim(),
+            kind: e.kind,
+            params,
+            interval_seconds: parseInt(e.interval_seconds, 10),
+            enabled: !!e.enabled,
+          }),
+        });
+        if (r.ok) {
+          this.showToast(this.t('admin.schedules.toasts.saved'));
+          this.editingSchedule = null;
+          await this.loadSchedules();
+        } else {
+          const j = await r.json().catch(() => ({}));
+          this.showToast(j.detail || this.t('admin.schedules.toasts.save_failed'), 'error');
+        }
+      } catch (_) { this.showToast(this.t('toasts.network_error'), 'error'); }
+    },
+
+    async toggleScheduleEnabled(s) {
+      // Fire a PATCH with just the flipped flag — no confirm dialog; the
+      // enable/disable toggle is reversible and doesn't kick off anything.
+      try {
+        const r = await fetch('/api/schedules/' + s.id, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ enabled: !s.enabled }),
+        });
+        if (r.ok) {
+          await this.loadSchedules();
+        } else {
+          const j = await r.json().catch(() => ({}));
+          this.showToast(j.detail || this.t('admin.schedules.toasts.save_failed'), 'error');
+        }
+      } catch (_) { this.showToast(this.t('toasts.network_error'), 'error'); }
+    },
+
+    async deleteSchedule(s) {
+      const res = await Swal.fire({
+        title: this.t('admin.schedules.delete_prompt_title'),
+        text: this.t('admin.schedules.delete_prompt_text', { name: s.name }),
+        icon: 'warning', showCancelButton: true,
+        confirmButtonText: this.t('actions.delete'),
+        cancelButtonText: this.t('actions.cancel'),
+        confirmButtonColor: this._cssVar('--danger'),
+      });
+      if (!res.isConfirmed) return;
+      try {
+        const r = await fetch('/api/schedules/' + s.id, { method: 'DELETE' });
+        if (r.ok) {
+          this.showToast(this.t('admin.schedules.toasts.deleted'));
+          await this.loadSchedules();
+        } else {
+          const j = await r.json().catch(() => ({}));
+          this.showToast(j.detail || this.t('toasts.delete_failed'), 'error');
+        }
+      } catch (_) { this.showToast(this.t('toasts.network_error'), 'error'); }
+    },
+
+    async runSchedule(s) {
+      // "Run now" bypasses the interval. Destructive kinds (prune_node)
+      // still get a confirm so a stray click doesn't delete volumes.
+      const destructiveKinds = new Set(['prune_node']);
+      if (destructiveKinds.has(s.kind)) {
+        const ok = await this.confirmDialog({
+          title: this.t('admin.schedules.run_prompt_title', { name: s.name }),
+          html: this.t('admin.schedules.run_prompt_destructive_html', { kind: s.kind }),
+          icon: 'warning',
+          confirmText: this.t('admin.schedules.run_now'),
+          confirmColor: this._cssVar('--danger'),
+        });
+        if (!ok) return;
+      }
+      try {
+        const r = await fetch('/api/schedules/' + s.id + '/run', { method: 'POST' });
+        if (r.ok) {
+          this.showToast(this.t('admin.schedules.toasts.run_started', { name: s.name }));
+          // Immediate ops-panel refresh so the operator sees progress.
+          this.pollOpsNow();
+          // Reload schedule rows so last_run_at flips into the visible past.
+          // Small delay lets the backend finish its record_run() write.
+          setTimeout(() => this.loadSchedules(), 400);
+          setTimeout(() => this.loadScheduleQueue(), 1500);
+        } else {
+          const j = await r.json().catch(() => ({}));
+          this.showToast(j.detail || this.t('admin.schedules.toasts.run_failed'), 'error');
+        }
+      } catch (_) { this.showToast(this.t('toasts.network_error'), 'error'); }
+    },
+
+    // --- Scheduler display helpers --------------------------------------
+    // Reuse fmtDuration for last-duration column (same d/h/m/s bucketing).
+    // humanInterval is similar but operates on the schedule's configured
+    // interval — keep them separate so fmtDuration stays generic.
+    humanInterval(sec) {
+      if (!sec || sec <= 0) return '—';
+      const d = Math.floor(sec / 86400);
+      const h = Math.floor((sec % 86400) / 3600);
+      const m = Math.floor((sec % 3600) / 60);
+      const s = sec % 60;
+      const parts = [];
+      if (d) parts.push(d + 'd');
+      if (h) parts.push(h + 'h');
+      if (m) parts.push(m + 'm');
+      if (!parts.length) parts.push(s + 's');
+      // Keep it tight — two units max for readability ("1d 6h", not "1d 6h 15m 30s").
+      return parts.slice(0, 2).join(' ');
+    },
+
+    // "5 minutes ago" / "in 2 hours" — used for Last execution / Next
+    // execution columns. Pure JS, no dependency. Returns '—' for unset
+    // timestamps so the column renders a visible placeholder.
+    humanRelTime(epoch) {
+      if (!epoch) return '—';
+      const delta = Math.round(epoch - (Date.now() / 1000));
+      const abs = Math.abs(delta);
+      let value, unit;
+      if (abs < 60)          { value = abs; unit = 'second'; }
+      else if (abs < 3600)   { value = Math.round(abs / 60); unit = 'minute'; }
+      else if (abs < 86400)  { value = Math.round(abs / 3600); unit = 'hour'; }
+      else                   { value = Math.round(abs / 86400); unit = 'day'; }
+      const suffix = value === 1 ? '' : 's';
+      return delta >= 0
+        ? this.t('admin.schedules.rel_in', { value, unit: unit + suffix })
+        : this.t('admin.schedules.rel_ago', { value, unit: unit + suffix });
+    },
+
+    scheduleStatusClass(status) {
+      // Consistent pill colour across tables. Matches the existing pill
+      // token families (pill-ok / pill-error / pill-unknown) so new UI
+      // doesn't invent its own palette.
+      if (status === 'success') return 'pill pill-ok';
+      if (status === 'error')   return 'pill pill-error';
+      return 'pill pill-unknown';
     },
 
     // ----- Backups ------------------------------------------------------
