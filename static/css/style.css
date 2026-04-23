@@ -144,7 +144,7 @@
     --col-tasks: 80px;
     --col-uptime: 90px;
     --col-cpu: 90px;
-    --col-mem: 140px;
+    --col-mem: 170px;
     --col-disk: 90px;
     --col-node: 140px;
     --col-action: 150px;
@@ -813,6 +813,14 @@ details summary::-webkit-details-marker {
     color: var(--text-faint);
     line-height: 1;
     margin-top: var(--s-1);
+    /* Formatted-bytes values like "468 MB / 31 GB" must never wrap —
+       a break mid-value ("468 MB / 31" / "GB") reads as two separate
+       numbers and confuses the eye. If the column is genuinely too
+       narrow we truncate with an ellipsis instead (hover shows the
+       full value via the row/cell's native tooltip). */
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 
 /* ---------------------------------------------------------------------------

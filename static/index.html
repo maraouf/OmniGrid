@@ -289,7 +289,7 @@
       <div x-show="me" x-data="{ }" class="relative ml-auto pl-4 border-l border-[var(--border)]">
         <button @click="userMenuOpen = !userMenuOpen"
                 class="flex items-center gap-1 p-1 rounded-full hover:bg-[var(--surface-2)] transition"
-                :title="me ? 'Signed in as ' + me.username : ''"
+                :title="me ? t('app.signed_in_as') + ' ' + me.username : ''"
                 :aria-expanded="userMenuOpen">
           <span class="user-avatar" :style="'--avatar-hue:' + avatarHue()">
             <!-- User-uploaded image takes priority. Falls back to the
@@ -1827,7 +1827,13 @@ function app() {
     lang: (window.I18N && window.I18N.code) || 'en',
     dir: (window.I18N && window.I18N.dir) || 'ltr',
     availableLanguages: (window.I18N && window.I18N.languages) || [{ code: 'en', name: 'English', dir: 'ltr' }],
-    t(key, vars) { return (window.I18N ? window.I18N.t(key, vars) : key); },
+    t(key, vars) {
+      // Touch `this.lang` so Alpine tracks this binding as a dependency
+      // of the reactive `lang` state — when setLang() updates `lang`,
+      // every x-text="t(...)" re-evaluates automatically.
+      void this.lang;
+      return (window.I18N ? window.I18N.t(key, vars) : key);
+    },
     async setLang(code) {
       if (!code || code === this.lang) return;
       try {
@@ -1836,6 +1842,8 @@ function app() {
         this.dir  = window.I18N.dir;
         this.showToast(this.t('toasts.language_changed') || 'Language changed');
       } catch (e) {
+        // Language fetch failed — surface a fallback message that doesn't
+        // require the new dict to have loaded.
         this.showToast('Language load failed', 'error');
       }
     },
@@ -1979,6 +1987,13 @@ function app() {
       });
       this.$watch('settingsSection', v => localStorage.setItem('settingsSection', v));
       this.$watch('expanded', v => localStorage.setItem('expanded', JSON.stringify(v)));
+      // Re-surface the translated labels in Settings/Admin sidebars when
+      // the user swaps language. Alpine re-renders bindings automatically
+      // because `lang` is part of the component state; this watcher just
+      // lets us react to the change (e.g. refresh the document title).
+      this.$watch('lang', () => {
+        document.title = this.t('app.name');
+      });
       window.addEventListener('keydown', (e) => this.handleHotkey(e));
       await this.loadSettings();
       await this.loadIgnores();
