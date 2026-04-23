@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  OmniGrid — master logo. Scales cleanly at any size; serves as the
+  source of truth for the favicon (inline copy in index.html) and the
+  512px PNG (scripts/make_icon.py). If you edit this file, re-run:
+      python scripts/make_icon.py
+  to regenerate the PNG used by the login page and any external
+  references (Homarr tiles, README screenshots, etc.).
+-->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="512" height="512">
+  <rect width="32" height="32" rx="7" fill="#3b82f6"/>
+  <g stroke="white" stroke-opacity="0.45" stroke-width="1.2" stroke-linecap="round">
+    <line x1="8"  y1="16" x2="24" y2="16"/>
+    <line x1="16" y1="8"  x2="16" y2="24"/>
+    <line x1="8"  y1="8"  x2="24" y2="24"/>
+    <line x1="24" y1="8"  x2="8"  y2="24"/>
+  </g>
+  <g fill="white">
+    <circle cx="8"  cy="8"  r="1.8"/>
+    <circle cx="24" cy="8"  r="1.8"/>
+    <circle cx="8"  cy="24" r="1.8"/>
+    <circle cx="24" cy="24" r="1.8"/>
+    <circle cx="16" cy="8"  r="2"/>
+    <circle cx="16" cy="24" r="2"/>
+    <circle cx="8"  cy="16" r="2"/>
+    <circle cx="24" cy="16" r="2"/>
+    <circle cx="16" cy="16" r="3.2"/>
+  </g>
+</svg>

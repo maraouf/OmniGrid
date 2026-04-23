@@ -3,8 +3,8 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>PortaUpdate</title>
-<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='7' fill='%233b82f6'/><rect x='8' y='11' width='16' height='13' rx='2' fill='none' stroke='white' stroke-width='2'/><path d='M16 5 L16 15 M12 11 L16 15 L20 11' fill='none' stroke='white' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/></svg>">
+<title>OmniGrid</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='7' fill='%233b82f6'/><g stroke='white' stroke-opacity='0.45' stroke-width='1.2' stroke-linecap='round'><line x1='8' y1='16' x2='24' y2='16'/><line x1='16' y1='8' x2='16' y2='24'/><line x1='8' y1='8' x2='24' y2='24'/><line x1='24' y1='8' x2='8' y2='24'/></g><g fill='white'><circle cx='8' cy='8' r='1.8'/><circle cx='24' cy='8' r='1.8'/><circle cx='8' cy='24' r='1.8'/><circle cx='24' cy='24' r='1.8'/><circle cx='16' cy='8' r='2'/><circle cx='16' cy='24' r='2'/><circle cx='8' cy='16' r='2'/><circle cx='24' cy='16' r='2'/><circle cx='16' cy='16' r='3.2'/></g></svg>">
 <script>
   (function() {
     var pref = localStorage.getItem('theme') || 'auto';
@@ -45,9 +45,27 @@
     <div class="flex items-center gap-4 px-5 py-2.5 max-w-full mx-auto">
       <div class="flex items-center gap-2 pr-4 mr-1 border-r border-[var(--border)]">
         <div class="app-logo">
-          <svg width="16" height="16" viewBox="0 0 32 32" fill="none">
-            <rect x="7" y="11" width="18" height="14" rx="2" stroke="white" stroke-width="2.2" fill="none"/>
-            <path d="M16 4 L16 15 M11 10 L16 15 L21 10" stroke="white" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+          <!-- OmniGrid hub-and-spokes mark. Mirrors the favicon + icon-512.png
+               (see static/img/logo/omnigrid.svg). Centre node emphasised,
+               8 outer nodes with a low-opacity mesh connecting them. -->
+          <svg width="16" height="16" viewBox="0 0 32 32">
+            <g stroke="white" stroke-opacity="0.45" stroke-width="1.2" stroke-linecap="round">
+              <line x1="8"  y1="16" x2="24" y2="16"/>
+              <line x1="16" y1="8"  x2="16" y2="24"/>
+              <line x1="8"  y1="8"  x2="24" y2="24"/>
+              <line x1="24" y1="8"  x2="8"  y2="24"/>
+            </g>
+            <g fill="white">
+              <circle cx="8"  cy="8"  r="1.8"/>
+              <circle cx="24" cy="8"  r="1.8"/>
+              <circle cx="8"  cy="24" r="1.8"/>
+              <circle cx="24" cy="24" r="1.8"/>
+              <circle cx="16" cy="8"  r="2"/>
+              <circle cx="16" cy="24" r="2"/>
+              <circle cx="8"  cy="16" r="2"/>
+              <circle cx="24" cy="16" r="2"/>
+              <circle cx="16" cy="16" r="3.2"/>
+            </g>
           </svg>
         </div>
         <div>

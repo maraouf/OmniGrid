@@ -5,8 +5,8 @@
     "dir": "rtl"
   },
   "app": {
-    "name": "PortaUpdate",
-    "tagline": "Portainer · محدّث Swarm",
+    "name": "OmniGrid",
+    "tagline": "إدارة موحّدة لأسطول الحاويات",
     "signed_in_as": "مسجّل الدخول باسم",
     "version": "الإصدار:"
   },
@@ -233,7 +233,7 @@
       "url_hint": "العناصر النائبة: {host} = اسم مضيف Docker (استخدم لاحقة مثل .home.lan لاسم FQDN)، {ip} = عنوان IP المُعلَن في Swarm (لتجاوز DNS). غيّر المنفذ هنا إذا كان المُصدّر يستمع على منفذ آخر غير :9100.",
       "placeholder_required": "يجب أن يحتوي قالب URL على {host}.",
       "overrides_label": "استبدالات URL لكل عقدة (JSON)",
-      "overrides_hint": "استخدم هذا عندما لا يمكن لحاوية PortaUpdate حل اسم مضيف Docker للعقدة. المفاتيح هي أسماء المضيفين؛ القيم هي روابط URL كاملة. الاستبدالات تُقدَّم على القالب.",
+      "overrides_hint": "استخدم هذا عندما لا يمكن لحاوية OmniGrid حل اسم مضيف Docker للعقدة. المفاتيح هي أسماء المضيفين؛ القيم هي روابط URL كاملة. الاستبدالات تُقدَّم على القالب.",
       "overrides_invalid": "يجب أن تكون الاستبدالات كائن JSON مثل {\"host\": \"http://…\"}.",
       "beszel_url_label": "رابط Beszel Hub",
       "beszel_url_hint": "مثال: http://monitoring.home.lan:8090 — عنوان واجهة Hub. بدون شرطة نهائية.",
@@ -281,7 +281,7 @@
       "current_password": "كلمة المرور الحالية",
       "new_password": "كلمة المرور الجديدة",
       "confirm_new_password": "تأكيد كلمة المرور الجديدة",
-      "authentik_hint": "حسابك مُدار بواسطة Authentik. غيّر كلمة المرور من هناك — لا يخزّن PortaUpdate كلمة مرور لمستخدمي SSO.",
+      "authentik_hint": "حسابك مُدار بواسطة Authentik. غيّر كلمة المرور من هناك — لا يخزّن OmniGrid كلمة مرور لمستخدمي SSO.",
       "api_token_hint": "جلسات رموز API لا يمكنها تغيير كلمة المرور. سجّل الدخول بحساب المستخدم الفعلي لإدارة بيانات الاعتماد."
     },
     "notifications": {
@@ -293,7 +293,7 @@
     },
     "portainer": {
       "connection_title": "اتصال Portainer",
-      "connection_desc": "رابط Portainer ومفتاح API ومعرّف النقطة النهائية التي يتحدّث معها PortaUpdate. مخزّن في قاعدة البيانات؛ تسري التغييرات عند التحديث التالي.",
+      "connection_desc": "رابط Portainer ومفتاح API ومعرّف النقطة النهائية التي يتحدّث معها OmniGrid. مخزّن في قاعدة البيانات؛ تسري التغييرات عند التحديث التالي.",
       "configured": "مُعدّ",
       "not_configured": "غير مُعدّ",
       "url_label": "رابط Portainer",

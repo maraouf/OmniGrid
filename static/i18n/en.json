@@ -5,8 +5,8 @@
     "dir": "ltr"
   },
   "app": {
-    "name": "PortaUpdate",
-    "tagline": "Portainer · Swarm updater",
+    "name": "OmniGrid",
+    "tagline": "Unified container fleet management",
     "signed_in_as": "Signed in as",
     "version": "Version:"
   },
@@ -233,7 +233,7 @@
       "url_hint": "Placeholders: {host} = Docker hostname (use .home.lan or another suffix for FQDN: http://{host}.home.lan:9100/metrics), {ip} = Swarm-advertised IP (skip DNS entirely: http://{ip}:9100/metrics). Change the port here if your exporter listens somewhere other than :9100.",
       "placeholder_required": "URL template must contain the {host} placeholder.",
       "overrides_label": "Per-node URL overrides (JSON)",
-      "overrides_hint": "Use this when a node's Docker hostname doesn't resolve from inside the PortaUpdate container. Keys are hostnames; values are full URLs. Overrides take precedence over the template.",
+      "overrides_hint": "Use this when a node's Docker hostname doesn't resolve from inside the OmniGrid container. Keys are hostnames; values are full URLs. Overrides take precedence over the template.",
       "overrides_invalid": "Per-node overrides must be a JSON object like {\"host\": \"http://…\"}.",
       "beszel_url_label": "Beszel Hub URL",
       "beszel_url_hint": "e.g. http://monitoring.home.lan:8090 — the Hub's web UI address. No trailing slash.",
@@ -281,7 +281,7 @@
       "current_password": "Current password",
       "new_password": "New password",
       "confirm_new_password": "Confirm new password",
-      "authentik_hint": "Your account is managed by Authentik. Change your password there — PortaUpdate doesn't store one for SSO users.",
+      "authentik_hint": "Your account is managed by Authentik. Change your password there — OmniGrid doesn't store one for SSO users.",
       "api_token_hint": "API-token sessions can't change a password. Sign in with the underlying user account to manage credentials."
     },
     "notifications": {
@@ -293,7 +293,7 @@
     },
     "portainer": {
       "connection_title": "Portainer connection",
-      "connection_desc": "URL + API key + endpoint ID that PortaUpdate talks to. Stored in the database; changes take effect on the next refresh.",
+      "connection_desc": "URL + API key + endpoint ID that OmniGrid talks to. Stored in the database; changes take effect on the next refresh.",
       "configured": "Configured",
       "not_configured": "Not configured",
       "url_label": "Portainer URL",

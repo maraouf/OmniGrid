@@ -4,7 +4,7 @@
 //
 // The main i18n helper (window.I18N + window.t) is already loaded via
 // /js/i18n.js by the time we run; we just layer a data-i18n applier on
-// top so markup like `<h1 data-i18n="app.name">PortaUpdate</h1>` renders
+// top so markup like `<h1 data-i18n="app.name">OmniGrid</h1>` renders
 // translated text without Alpine.
 
 function applyI18nDom() {

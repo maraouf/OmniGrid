@@ -1,4 +1,4 @@
-# PortaUpdate translations
+# OmniGrid translations
 
 Every user-visible string in the UI lives in a JSON file in this directory.
 `en.json` is the source of truth; other languages mirror its key tree.
