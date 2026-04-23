@@ -26,9 +26,6 @@ services:
     #
     environment:
       # Fixed container path — not an operator tunable, kept out of .env.
-      # DB file is named after the app; operators migrating from a pre-rename
-      # /opt/omnigrid/data/omnigrid.db` on the host (plus any .db-wal / .db-shm
-      # siblings if present) before redeploying.
       DB_PATH: "/app/data/omnigrid.db"
 
     volumes:
