@@ -172,38 +172,32 @@ async def _gather_impl() -> None:
                 for h in hostnames
             ))
             id_sets = [{c["Id"] for c in lst} for lst in per_node]
-            # Agent mode is confirmed when any two per-node lists are disjoint.
-            # If they all overlap (same aggregated response), we're in a
-            # non-agent endpoint and the per-node header is being ignored.
-            agent_mode = any(
-                id_sets[i].isdisjoint(id_sets[j])
-                for i in range(len(id_sets))
-                for j in range(i + 1, len(id_sets))
-                if id_sets[i] and id_sets[j]
-            )
-            # Diagnostic line — shows up in `docker service logs
-            # portaupdate_portaupdate` so we can tell whether agent mode is
-            # actually engaged. Remove or downgrade to DEBUG once the
-            # worker-node stats question is put to bed.
             sizes = [len(s) for s in id_sets]
+            # If Portainer is NOT honouring the agent-target header (plain
+            # Docker endpoint), every per-node call returns the same set and
+            # sizes will all be identical. If ANY size differs from another,
+            # the header IS being routed — trust the per-node results as
+            # ground truth, even though some containers (Swarm global
+            # services like the Portainer agent itself) may appear in
+            # multiple per-node responses. Overlapping IDs get the LAST
+            # node's hostname; _one_container_stats falls back to the
+            # untargeted call on failure so the wrong-hint case self-heals.
+            some_differ = len(set(sizes)) > 1
             print(f"[gather] per-node sweep: hostnames={hostnames} "
-                  f"sizes={sizes} agent_mode={agent_mode}")
-            if agent_mode:
+                  f"sizes={sizes} agent_routing={some_differ}")
+            if some_differ:
                 for h, lst in zip(hostnames, per_node):
                     for c in lst:
                         container_node_by_id[c["Id"]] = h
 
-        # Fallback: if the per-node sweep didn't confirm agent mode but the
-        # aggregated /containers/json response carries a Portainer-specific
-        # node hint on each container, scrape that instead. Portainer's
-        # agent aggregation can expose the origin hostname via a custom
-        # label or a nested `Portainer.Agent.Target` field — shapes vary
-        # across Portainer versions, so we probe every known location.
+        # Fallback: if per-node routing didn't fire (all sizes identical or
+        # only one node) but Portainer's aggregated response carries a
+        # node hint on each container, scrape that. Shapes vary across
+        # Portainer versions — probe every known location.
         if not container_node_by_id:
             probed_keys: set[str] = set()
             for c in containers:
                 labels = c.get("Labels") or {}
-                # Known label variants Portainer Agents have used.
                 candidate = (
                     labels.get("com.portainer.agent.node")
                     or labels.get("com.portainer.agent.target")
@@ -215,10 +209,6 @@ async def _gather_impl() -> None:
                     candidate = ag.get("Target") if isinstance(ag, dict) else None
                 if candidate:
                     container_node_by_id[c["Id"]] = candidate
-                # Collect the label keys for a single diagnostic log line,
-                # so the operator can see WHICH fields Portainer is actually
-                # serving — makes adding the correct key trivial if a
-                # future version ships a new name.
                 probed_keys.update(k for k in labels.keys() if "portainer" in k.lower())
             if probed_keys:
                 print(f"[gather] portainer-ish container labels seen: "
