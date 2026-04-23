@@ -31,13 +31,73 @@ Design notes:
 """
 import asyncio
 import json
+import re
 import secrets
 import sqlite3
 import time
 from typing import Any, Awaitable, Callable, Optional
 
-from logic import gather, ops as _ops
+from logic import backups, gather, ops as _ops
 from logic.db import db_conn
+
+
+# Clock-time schedules use "HH:MM" — 24-hour, container local time. Matches
+# what a human types when they say "run at 1 AM". We don't accept seconds;
+# per-second precision is meaningless against a 60-second tick loop.
+_HHMM_RE = re.compile(r"^([01]\d|2[0-3]):[0-5]\d$")
+
+
+def _parse_hhmm(s: Optional[str]) -> Optional[tuple[int, int]]:
+    """Return (hh, mm) for a valid "HH:MM" string, else None.
+
+    Called from both the API validator and the tick loop; keep the
+    format contract in exactly one place.
+    """
+    if not s:
+        return None
+    s = str(s).strip()
+    if not s:
+        return None
+    if not _HHMM_RE.match(s):
+        raise ValueError("run_at_hhmm must be in 'HH:MM' 24-hour format")
+    hh, mm = s.split(":")
+    return int(hh), int(mm)
+
+
+def _today_anchor_ts(hh: int, mm: int, now: Optional[float] = None) -> float:
+    """Epoch seconds for today's HH:MM in local time.
+
+    DST transitions: we set isdst=-1 so mktime picks the right offset
+    for the target day. A schedule whose HH:MM lands inside a spring-
+    forward gap (e.g. 02:30 in the US spring) effectively shifts by an
+    hour that day; we accept that over adding a tz library dependency.
+    """
+    now = now if now is not None else time.time()
+    t = time.localtime(now)
+    return time.mktime((
+        t.tm_year, t.tm_mon, t.tm_mday,
+        hh, mm, 0, 0, 0, -1,
+    ))
+
+
+def _next_fixed_time_run(
+    hh: int, mm: int, last_run_at: Optional[int], now: Optional[float] = None,
+) -> int:
+    """Next epoch-seconds moment at which a daily HH:MM schedule should fire.
+
+    Due-check contract: next <= now → fire. So:
+      - If today's anchor hasn't been fired yet (last < anchor) AND the
+        current clock is past the anchor, next = anchor (already due).
+      - If today's anchor hasn't been fired yet AND now is before the
+        anchor, next = anchor (upcoming today).
+      - Else today already fired, next = anchor + 24h.
+    """
+    now = now if now is not None else time.time()
+    anchor = _today_anchor_ts(hh, mm, now)
+    last = int(last_run_at or 0)
+    if last < anchor:
+        return int(anchor)
+    return int(anchor + 86400)
 
 
 # ----------------------------------------------------------------------------
@@ -92,6 +152,14 @@ def init_schedules_schema(conn: sqlite3.Connection) -> None:
     CREATE INDEX IF NOT EXISTS idx_schedules_enabled
         ON schedules(enabled, last_run_at);
     """)
+    # Idempotent column adds for deployments upgrading from pre-HHMM schema.
+    # When set, the tick loop fires daily at local-time HH:MM and ignores
+    # interval_seconds (which stays in the row so toggling back to interval
+    # mode doesn't require re-entering a value).
+    try:
+        conn.execute("ALTER TABLE schedules ADD COLUMN run_at_hhmm TEXT")
+    except sqlite3.OperationalError:
+        pass
 
 
 # ----------------------------------------------------------------------------
@@ -115,8 +183,26 @@ def _row_to_dict(row: sqlite3.Row) -> dict:
     except (TypeError, ValueError):
         d["params"] = {}
     d["enabled"] = bool(d.get("enabled"))
-    base = d.get("last_run_at") or d.get("created_at") or 0
-    d["next_run_at"] = int(base) + int(d.get("interval_seconds") or 0)
+    # Surface run_at_hhmm even when the legacy row has no column (pre-ALTER
+    # readers); keeps the UI's schema contract stable during upgrade.
+    d["run_at_hhmm"] = d.get("run_at_hhmm") or None
+    # next_run_at — two modes:
+    #   (a) HH:MM set → next daily anchor after last_run_at (clock-time).
+    #   (b) HH:MM unset → last_run_at + interval_seconds (legacy behaviour).
+    # The tick loop treats "next <= now" as due in both modes, so baking
+    # the two formulas into this single field keeps the scheduler logic
+    # mode-agnostic.
+    try:
+        hhmm = _parse_hhmm(d["run_at_hhmm"])
+    except ValueError:
+        # Malformed value in DB (should never happen post-create validation)
+        # — ignore it and fall back to interval mode.
+        hhmm = None
+    if hhmm:
+        d["next_run_at"] = _next_fixed_time_run(hhmm[0], hhmm[1], d.get("last_run_at"))
+    else:
+        base = d.get("last_run_at") or d.get("created_at") or 0
+        d["next_run_at"] = int(base) + int(d.get("interval_seconds") or 0)
     return d
 
 
@@ -151,12 +237,16 @@ def create_schedule(
     params: dict,
     interval_seconds: int,
     enabled: bool = True,
+    run_at_hhmm: Optional[str] = None,
 ) -> dict:
     """Insert one schedule row and return its freshly-read representation.
 
-    Validates kind + interval; callers are expected to have already
-    validated name non-emptiness. ``IntegrityError`` on duplicate name
-    is allowed to bubble — the API route translates it to HTTP 409.
+    Validates kind + interval + HH:MM format. Callers are expected to
+    have already validated name non-emptiness. ``IntegrityError`` on
+    duplicate name is allowed to bubble — the API route translates it
+    to HTTP 409. When ``run_at_hhmm`` is set, ``interval_seconds`` is
+    still persisted but ignored by the tick loop; keeps the row usable
+    if an operator later flips back to interval mode.
     """
     if kind not in SCHEDULE_KINDS:
         raise ValueError(f"unknown schedule kind: {kind!r}")
@@ -167,13 +257,18 @@ def create_schedule(
     params = params or {}
     if not isinstance(params, dict):
         raise ValueError("params must be a dict")
+    # Normalise HH:MM: empty string → NULL, valid string stored verbatim.
+    # _parse_hhmm raises ValueError on malformed input.
+    _parse_hhmm(run_at_hhmm)
+    hhmm_stored = (run_at_hhmm or "").strip() or None
     now = int(time.time())
     cur = conn.execute(
         "INSERT INTO schedules "
-        "(name, kind, params, interval_seconds, enabled, created_at, updated_at) "
-        "VALUES (?,?,?,?,?,?,?)",
+        "(name, kind, params, interval_seconds, enabled, run_at_hhmm, "
+        " created_at, updated_at) "
+        "VALUES (?,?,?,?,?,?,?,?)",
         (name, kind, json.dumps(params), int(interval_seconds),
-         1 if enabled else 0, now, now),
+         1 if enabled else 0, hhmm_stored, now, now),
     )
     return get_schedule(conn, cur.lastrowid)  # type: ignore[return-value]
 
@@ -190,11 +285,24 @@ def update_schedule(
     pass its whole pydantic model through without worrying about extra
     fields. Returns the refreshed row.
     """
-    allowed = {"name", "kind", "params", "interval_seconds", "enabled"}
+    allowed = {"name", "kind", "params", "interval_seconds", "enabled", "run_at_hhmm"}
     sets = []
     values: list[Any] = []
     for key, value in fields.items():
-        if key not in allowed or value is None:
+        if key not in allowed:
+            continue
+        # run_at_hhmm is the only field where explicit None / "" means
+        # "clear the clock-time anchor" — the other fields use None to
+        # mean "don't touch" (the caller strips them via exclude_none).
+        if key == "run_at_hhmm":
+            if value is None or (isinstance(value, str) and not value.strip()):
+                values.append(None)
+            else:
+                _parse_hhmm(value)  # raises on malformed
+                values.append(str(value).strip())
+            sets.append("run_at_hhmm=?")
+            continue
+        if value is None:
             continue
         if key == "kind" and value not in SCHEDULE_KINDS:
             raise ValueError(f"unknown schedule kind: {value!r}")
@@ -414,10 +522,62 @@ async def _run_gather_refresh(params: dict) -> tuple[str, Awaitable[tuple[int, s
     return op_id, task  # type: ignore[return-value]
 
 
+async def _run_backup(params: dict) -> tuple[str, Awaitable[tuple[int, str]]]:
+    """Create a full backup zip via :func:`logic.backups.create_backup`.
+
+    No ops.py Operation — backups don't have a per-target context worth
+    showing in the live ops panel. We synthesize an op_id and write a
+    history row directly when done, mirroring the gather_refresh pattern
+    so the Queue tab picks it up alongside other scheduler-driven work.
+
+    Backup I/O is blocking (sqlite .backup + zip write), so we hand it
+    to the default executor to keep the event loop responsive during
+    the few seconds a backup typically takes.
+    """
+    op_id = "sched-" + secrets.token_hex(4)
+
+    async def runner() -> tuple[int, str]:
+        started = time.time()
+        status = "success"
+        err: Optional[str] = None
+        backup_name: Optional[str] = None
+        try:
+            loop = asyncio.get_running_loop()
+            result = await loop.run_in_executor(None, backups.create_backup)
+            backup_name = result.get("name")
+            print(f"[scheduler] backup created: {backup_name}")
+        except Exception as e:
+            status = "error"
+            err = str(e)
+            print(f"[scheduler] backup failed: {e}")
+        duration = int(time.time() - started)
+        try:
+            with db_conn() as c:
+                c.execute(
+                    "INSERT INTO history "
+                    "(ts, op_type, target_name, target_id, target_stack, "
+                    " status, duration, events, error, actor) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    (
+                        started, "backup",
+                        backup_name or "backup", op_id, None,
+                        status, duration,
+                        "[]", err, SCHEDULER_ACTOR,
+                    ),
+                )
+        except Exception as e:
+            print(f"[scheduler] backup history write failed: {e}")
+        return (duration, status)
+
+    task = asyncio.create_task(runner())
+    return op_id, task  # type: ignore[return-value]
+
+
 SCHEDULE_KINDS: dict[str, KindRunner] = {
     "prune_node":       _run_prune_node,
     "prune_all_nodes":  _run_prune_all_nodes,
     "gather_refresh":   _run_gather_refresh,
+    "backup":           _run_backup,
 }
 
 

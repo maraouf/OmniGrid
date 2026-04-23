@@ -368,8 +368,14 @@
       "kinds": {
         "prune_node": "Prune node",
         "prune_all_nodes": "Prune all nodes",
-        "gather_refresh": "Refresh cache"
+        "gather_refresh": "Refresh cache",
+        "backup": "Backup database"
       },
+      "run_at_label": "Run at (optional)",
+      "run_at_placeholder": "HH:MM — leave empty to use interval",
+      "run_at_hint": "When set, fires once daily at this local clock time and ignores the interval.",
+      "hhmm_invalid": "Run-at time must be HH:MM (24-hour).",
+      "daily_at": "Daily @ {hhmm}",
       "cols": {
         "kind": "Kind",
         "interval": "Interval",

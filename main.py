@@ -1450,6 +1450,10 @@ class ScheduleIn(BaseModel):
     params: Optional[dict] = None
     interval_seconds: int
     enabled: bool = True
+    # Optional "HH:MM" — when set, the schedule fires daily at that local
+    # time and interval_seconds is ignored by the tick loop. Empty string
+    # / None keeps the schedule in interval mode.
+    run_at_hhmm: Optional[str] = None
 
 
 class SchedulePatch(BaseModel):
@@ -1458,6 +1462,11 @@ class SchedulePatch(BaseModel):
     params: Optional[dict] = None
     interval_seconds: Optional[int] = None
     enabled: Optional[bool] = None
+    # Distinct from the other fields: an explicit empty string ("")
+    # clears the HH:MM anchor (flips the schedule back to interval
+    # mode). None means "don't touch". See update_schedule() for the
+    # special-case handling.
+    run_at_hhmm: Optional[str] = None
 
 
 @app.get("/api/schedules")
@@ -1501,6 +1510,7 @@ async def api_create_schedule(
             row = schedules.create_schedule(
                 c, name, s.kind, params, int(s.interval_seconds),
                 bool(s.enabled),
+                run_at_hhmm=s.run_at_hhmm,
             )
     except sqlite3.IntegrityError:
         raise HTTPException(

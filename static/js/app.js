@@ -114,7 +114,7 @@ function app() {
     // the <select> for new schedules stays in sync with the backend registry.
     schedules: [],
     scheduleQueue: [],
-    scheduleKinds: ['prune_node', 'prune_all_nodes', 'gather_refresh'],
+    scheduleKinds: ['prune_node', 'prune_all_nodes', 'gather_refresh', 'backup'],
     scheduleMinInterval: 60,
     scheduleBusy: false,
     // Create form. `params_text` is a raw JSON textarea — we parse on submit
@@ -122,7 +122,7 @@ function app() {
     // to build a dynamic form per kind. Same approach for the edit dialog.
     newSchedule: {
       name: '', kind: 'gather_refresh', params_text: '{}',
-      interval_seconds: 3600, enabled: true,
+      interval_seconds: 3600, enabled: true, run_at_hhmm: '',
     },
     // When non-null, the edit dialog is open and bound to this copy of the
     // row being edited. `params_text` on the copy is kept as a string so
@@ -620,6 +620,15 @@ function app() {
         }), 'error');
         return;
       }
+      // HH:MM sanity-check client-side — matches the backend regex. When
+      // set, the schedule fires daily at that clock time and the
+      // interval field becomes irrelevant (still persisted as a
+      // fallback in case the operator clears the anchor later).
+      const hhmm = (s.run_at_hhmm || '').trim();
+      if (hhmm && !/^([01]\d|2[0-3]):[0-5]\d$/.test(hhmm)) {
+        this.showToast(this.t('admin.schedules.hhmm_invalid'), 'error');
+        return;
+      }
       let params;
       try { params = this._parseParamsText(s.params_text); }
       catch (e) { this.showToast(e.message, 'error'); return; }
@@ -634,6 +643,7 @@ function app() {
             params,
             interval_seconds: parseInt(s.interval_seconds, 10),
             enabled: !!s.enabled,
+            run_at_hhmm: hhmm || null,
           }),
         });
         if (r.ok) {
@@ -641,6 +651,7 @@ function app() {
           this.newSchedule = {
             name: '', kind: this.scheduleKinds[0] || 'gather_refresh',
             params_text: '{}', interval_seconds: 3600, enabled: true,
+            run_at_hhmm: '',
           };
           await this.loadSchedules();
         } else {
@@ -657,6 +668,7 @@ function app() {
       this.editingSchedule = {
         ...s,
         params_text: JSON.stringify(s.params || {}, null, 2),
+        run_at_hhmm: s.run_at_hhmm || '',
       };
     },
 
@@ -681,6 +693,11 @@ function app() {
         }), 'error');
         return;
       }
+      const hhmm = (e.run_at_hhmm || '').trim();
+      if (hhmm && !/^([01]\d|2[0-3]):[0-5]\d$/.test(hhmm)) {
+        this.showToast(this.t('admin.schedules.hhmm_invalid'), 'error');
+        return;
+      }
       let params;
       try { params = this._parseParamsText(e.params_text); }
       catch (err) { this.showToast(err.message, 'error'); return; }
@@ -694,6 +711,9 @@ function app() {
             params,
             interval_seconds: parseInt(e.interval_seconds, 10),
             enabled: !!e.enabled,
+            // Empty string explicitly clears the anchor (flips back to
+            // interval mode); update_schedule() treats "" specially.
+            run_at_hhmm: hhmm,
           }),
         });
         if (r.ok) {

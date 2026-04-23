@@ -1589,11 +1589,23 @@
             </select>
             <input x-model.number="newSchedule.interval_seconds" type="number"
                    :min="scheduleMinInterval" step="60"
+                   :disabled="!!(newSchedule.run_at_hhmm || '').trim()"
                    :placeholder="t('admin.schedules.interval_placeholder')" class="w-full">
             <label class="inline-flex items-center gap-2 text-[12px] text-[var(--text-dim)]">
               <input type="checkbox" x-model="newSchedule.enabled">
               <span x-text="t('admin.schedules.enabled')"></span>
             </label>
+            <!-- Daily clock-time anchor. When set, overrides interval_seconds
+                 and fires once per day at HH:MM (container local time). -->
+            <div class="flex flex-col gap-1">
+              <label class="text-[11px] text-[var(--text-faint)]"
+                     x-text="t('admin.schedules.run_at_label')"></label>
+              <input x-model="newSchedule.run_at_hhmm" type="time"
+                     class="w-full"
+                     :placeholder="t('admin.schedules.run_at_placeholder')">
+              <span class="text-[10.5px] text-[var(--text-faint)]"
+                    x-text="t('admin.schedules.run_at_hint')"></span>
+            </div>
           </div>
           <div class="mt-2">
             <label class="block text-[11px] text-[var(--text-faint)] mb-1"
@@ -1643,7 +1655,9 @@
                     <td class="px-4 py-2 mono text-[11px] text-[var(--text-dim)]"
                         x-text="t('admin.schedules.kinds.' + s.kind) || s.kind"></td>
                     <td class="px-4 py-2 mono text-[11px] text-[var(--text-dim)]"
-                        x-text="humanInterval(s.interval_seconds)"></td>
+                        x-text="s.run_at_hhmm
+                                ? t('admin.schedules.daily_at', { hhmm: s.run_at_hhmm })
+                                : humanInterval(s.interval_seconds)"></td>
                     <td class="px-4 py-2">
                       <button @click="toggleScheduleEnabled(s)"
                               class="btn btn-soft text-[11px]"
@@ -1754,7 +1768,17 @@
                   </select>
                   <input x-model.number="editingSchedule.interval_seconds" type="number"
                          :min="scheduleMinInterval" step="60"
+                         :disabled="!!(editingSchedule.run_at_hhmm || '').trim()"
                          :placeholder="t('admin.schedules.interval_placeholder')" class="w-full">
+                  <div class="flex flex-col gap-1">
+                    <label class="text-[11px] text-[var(--text-faint)]"
+                           x-text="t('admin.schedules.run_at_label')"></label>
+                    <input x-model="editingSchedule.run_at_hhmm" type="time"
+                           class="w-full"
+                           :placeholder="t('admin.schedules.run_at_placeholder')">
+                    <span class="text-[10.5px] text-[var(--text-faint)]"
+                          x-text="t('admin.schedules.run_at_hint')"></span>
+                  </div>
                   <label class="inline-flex items-center gap-2 text-[12px] text-[var(--text-dim)]">
                     <input type="checkbox" x-model="editingSchedule.enabled">
                     <span x-text="t('admin.schedules.enabled')"></span>
