@@ -1215,7 +1215,7 @@
             <h3 class="font-semibold text-[13px]"><span x-text="t('admin.users.list_title')"></span> <span class="text-[var(--text-faint)] font-normal" x-text="'(' + users.length + ')'"></span></h3>
             <button @click="loadUsers()" class="btn btn-ghost text-[11px]" x-text="t('actions.reload')"></button>
           </div>
-          <div class="overflow-x-auto">
+          <div class="overflow-x-auto scrollbar">
             <table class="w-full text-[12.5px]">
               <thead class="bg-[var(--surface-2)] text-[10.5px] uppercase tracking-wider text-[var(--text-faint)]">
                 <tr>
@@ -1281,7 +1281,7 @@
             </div>
             <button @click="loadSessions()" class="btn btn-ghost text-[11px]" x-text="t('actions.reload')"></button>
           </div>
-          <div class="overflow-x-auto">
+          <div class="overflow-x-auto scrollbar">
             <table class="w-full text-[12.5px]">
               <thead class="bg-[var(--surface-2)] text-[10.5px] uppercase tracking-wider text-[var(--text-faint)]">
                 <tr>
@@ -1337,7 +1337,7 @@
             <h3 class="font-semibold text-[13px]"><span x-text="t('admin.tokens.list_title')"></span> <span class="text-[var(--text-faint)] font-normal" x-text="'(' + tokens.length + ')'"></span></h3>
             <button @click="loadTokens()" class="btn btn-ghost text-[11px]" x-text="t('actions.reload')"></button>
           </div>
-          <div class="overflow-x-auto">
+          <div class="overflow-x-auto scrollbar">
             <table class="w-full text-[12.5px]">
               <thead class="bg-[var(--surface-2)] text-[10.5px] uppercase tracking-wider text-[var(--text-faint)]">
                 <tr>
@@ -1398,7 +1398,7 @@
             </h3>
             <button @click="loadBackups()" class="btn btn-ghost text-[11px]" x-text="t('actions.reload')"></button>
           </div>
-          <div class="overflow-x-auto">
+          <div class="overflow-x-auto scrollbar">
             <table class="w-full text-[12.5px]">
               <thead class="bg-[var(--surface-2)] text-[10.5px] uppercase tracking-wider text-[var(--text-faint)]">
                 <tr>
