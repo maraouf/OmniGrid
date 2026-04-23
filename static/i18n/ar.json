@@ -361,6 +361,10 @@
       "users": "المستخدمون",
       "sessions": "الجلسات",
       "tokens": "رموز API",
+      "notifications": "الإشعارات",
+      "portainer": "Portainer",
+      "oidc": "Authentik OIDC",
+      "host_stats": "إحصاءات المضيف",
       "schedules": "الجدولة",
       "backups": "النسخ الاحتياطية",
       "logs": "السجلات"
