@@ -2113,6 +2113,16 @@ function app() {
       const hostDiskUsed = Number.isFinite(info.host_disk_used) ? info.host_disk_used : 0;
       const hostMemTotal = Number.isFinite(info.host_mem_total) ? info.host_mem_total : 0;
       const hostMemUsed = Number.isFinite(info.host_mem_used) ? info.host_mem_used : 0;
+      // Exporter status — three values:
+      //   - 'ok'       scrape succeeded (any host_* fields populated)
+      //   - 'error'    scrape was attempted but failed (exporter_error set)
+      //   - 'disabled' host-stats is not enabled globally or node not probed
+      // Drives the green/red pill on the node header.
+      const hostStatsEnabled = !!(this.settings && this.settings.node_exporter_enabled);
+      let exporterStatus = 'disabled';
+      if (info.exporter_error) exporterStatus = 'error';
+      else if (hostStatsEnabled && (hostMemTotal > 0 || Number.isFinite(info.host_boot_ts) || (info.mounts && info.mounts.length))) exporterStatus = 'ok';
+      else if (hostStatsEnabled) exporterStatus = 'error';  // enabled but no data came back
       return {
         cpuRaw,                        // 0..cores*100 (can exceed 100)
         memUsage,                      // bytes — sum of container usages
@@ -2124,6 +2134,7 @@ function app() {
         hasStats,
         hasSize: dockerDisk > 0,
         hasHostStats: hostDiskTotal > 0 || hostMemTotal > 0,
+        exporterStatus,
         exporterError: info.exporter_error || null,
       };
     },

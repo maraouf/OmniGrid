@@ -681,13 +681,18 @@
                     class="pill pill-update text-[10.5px]">
                 <span x-text="node.degraded"></span> degraded
               </span>
-              <!-- Exporter error chip — shown only when node-exporter
-                   scrape failed for THIS node. Hovering reveals the
-                   raw error (connection refused, DNS, HTTP status)
-                   so the operator can diagnose without server logs. -->
-              <span x-show="nodeStats(node.name).exporterError"
+              <!-- Exporter chip — green when node-exporter scrape
+                   succeeded (so host disk/mem/uptime come from the
+                   exporter), red when it failed with hoverable error,
+                   hidden when host-stats is globally disabled. -->
+              <span x-show="nodeStats(node.name).exporterStatus === 'ok'"
+                    class="pill pill-ok text-[10.5px]"
+                    :title="'Stats sourced from node-exporter for ' + node.name">
+                exporter ✓
+              </span>
+              <span x-show="nodeStats(node.name).exporterStatus === 'error'"
                     class="pill pill-error text-[10.5px] cursor-help"
-                    :title="nodeStats(node.name).exporterError">
+                    :title="nodeStats(node.name).exporterError || 'Scrape failed — falling back to Docker-only signals.'">
                 exporter ✗
               </span>
               <span class="text-[11px] text-[var(--text-dim)] mx-1">
