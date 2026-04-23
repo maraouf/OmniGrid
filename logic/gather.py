@@ -253,6 +253,48 @@ async def _gather_impl() -> None:
             if host in nodes_info:
                 nodes_info[host]["oldest_running_ts"] = ts
 
+        # Per-node Docker disk footprint via /system/df, routed to each
+        # node's daemon with X-PortainerAgent-Target. Totals span images
+        # (deduplicated layers), containers' writable layers, volumes,
+        # and build cache — i.e. ALL the disk Docker is using on that
+        # host. Still Docker-only: reading the VM's /proc/mounts or df
+        # for non-Docker mounts would require a node-agent.
+        #
+        # Errors per-node are swallowed — a 500 on one daemon shouldn't
+        # blank the whole Nodes view. Missing nodes keep docker_disk_bytes=0.
+        async def _one_df(host: str):
+            try:
+                r = await client.get(
+                    f"{portainer.PORTAINER_URL}{ep}/system/df",
+                    headers=portainer.headers(agent_target=host),
+                )
+                if r.status_code >= 400:
+                    return host, 0
+                j = r.json() or {}
+                total = int(j.get("LayersSize") or 0)
+                for c in (j.get("Containers") or []):
+                    total += int(c.get("SizeRw") or 0)
+                for v in (j.get("Volumes") or []):
+                    usage = (v.get("UsageData") or {}).get("Size", 0)
+                    if isinstance(usage, (int, float)) and usage > 0:
+                        total += int(usage)
+                for bc in (j.get("BuildCache") or []):
+                    total += int(bc.get("Size") or 0)
+                return host, total
+            except Exception as e:
+                print(f"[gather] /system/df for {host}: {e}")
+                return host, 0
+
+        df_hosts = [h for h, info in nodes_info.items()
+                    if info.get("state") == "ready"]
+        if df_hosts:
+            df_results = await asyncio.gather(
+                *(_one_df(h) for h in df_hosts), return_exceptions=False,
+            )
+            for host, total in df_results:
+                if host in nodes_info:
+                    nodes_info[host]["docker_disk_bytes"] = total
+
         # Per-node container sweep — gives us a containerID → hostname map
         # that covers PLAIN compose containers on worker nodes too. The
         # Swarm-task-ID approach above only works for Swarm-managed

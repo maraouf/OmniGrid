@@ -105,7 +105,16 @@ function app() {
       { id: 'tokens',     label: 'API tokens' },
       { id: 'schedules',  label: 'Schedules' },
       { id: 'backups',    label: 'Backups' },
+      { id: 'logs',       label: 'Logs' },
     ],
+    // App-logs viewer state. Polled when the Logs tab is visible.
+    // `logLines` is append-only during a session; clear() wipes both
+    // the UI list and the server-side ring.
+    logLines: [],
+    logSinceTs: 0,
+    logAuto: true,
+    logFilter: '',
+    logPollHandle: null,
     backups: [],
     backupBusy: false,
     // Scheduler state. `schedules` is the list of rows from /api/schedules,
@@ -518,7 +527,12 @@ function app() {
       try {
         const r = await fetch('/api/prune/node/' + encodeURIComponent(host), { method: 'POST' });
         if (r.ok) {
-          this.showToast('Prune started on ' + host + ' — watch the ops panel for progress');
+          // Auto-expand the floating ops panel (bottom-right) so a new
+          // user actually SEES where the live progress lives. Without
+          // this, the toast refers to a panel that only appears briefly
+          // and stays collapsed if they've dismissed it before.
+          this.opsExpanded = true;
+          this.showToast('Prune started on ' + host + ' — see the floating panel (bottom-right) for progress. It will also show up in History when done.');
           // Kick an immediate ops poll so the button flips to "Pruning…".
           this.pollOnce && this.pollOnce();
         } else {
@@ -557,6 +571,10 @@ function app() {
     },
 
     async openAdminTab(tab) {
+      // Stop the logs poller when leaving the Logs tab; it restarts
+      // when the tab is opened again. Keeps network traffic silent
+      // while the operator is elsewhere.
+      if (this.adminTab === 'logs' && tab !== 'logs') this._stopLogPoll();
       this.adminTab = tab;
       if (tab === 'users') await this.loadUsers();
       else if (tab === 'sessions') await this.loadSessions();
@@ -566,6 +584,10 @@ function app() {
         // Fire both loads in parallel — the scheduled table and the queue
         // table aren't related state-wise, no reason to wait on each other.
         await Promise.all([this.loadSchedules(), this.loadScheduleQueue()]);
+      }
+      else if (tab === 'logs') {
+        await this.loadLogs(true);
+        this._startLogPoll();
       }
     },
 
@@ -999,6 +1021,82 @@ function app() {
         }
       } catch (_) { this.showToast(this.t('toasts.network_error'), 'error'); }
     },
+
+    // ----- App logs -----------------------------------------------------
+    async loadLogs(replace = false) {
+      try {
+        // `since` makes repeated polls cheap — backend only returns
+        // lines newer than the last one we've already rendered. On
+        // `replace`, we pull the full tail and reset client state.
+        const qs = replace ? '?limit=500' : ('?since=' + this.logSinceTs);
+        const r = await fetch('/api/logs' + qs);
+        if (!r.ok) return;
+        const d = await r.json();
+        const lines = d.logs || [];
+        if (replace) this.logLines = lines;
+        else if (lines.length) this.logLines = [...this.logLines, ...lines];
+        // Cap the client-side buffer at 2× server MAX so the UI doesn't
+        // grow forever even if the session stays on the tab for hours.
+        const cap = (d.max || 2000) * 2;
+        if (this.logLines.length > cap) {
+          this.logLines = this.logLines.slice(-cap);
+        }
+        if (this.logLines.length) {
+          this.logSinceTs = this.logLines[this.logLines.length - 1].ts;
+        }
+        // Autoscroll to bottom when the viewer is open and the user
+        // hasn't scrolled up. $nextTick so the DOM has the new rows.
+        this.$nextTick(() => {
+          const box = document.getElementById('log-viewer');
+          if (!box) return;
+          const atBottom = box.scrollTop + box.clientHeight >= box.scrollHeight - 40;
+          if (replace || atBottom) box.scrollTop = box.scrollHeight;
+        });
+      } catch (_) {}
+    },
+
+    _startLogPoll() {
+      this._stopLogPoll();
+      // 2s poll — fast enough for "watch a deploy" UX, slow enough to
+      // not hammer the admin API when nothing's happening.
+      this.logPollHandle = setInterval(() => {
+        if (this.logAuto) this.loadLogs(false);
+      }, 2000);
+    },
+
+    _stopLogPoll() {
+      if (this.logPollHandle) {
+        clearInterval(this.logPollHandle);
+        this.logPollHandle = null;
+      }
+    },
+
+    async clearLogs() {
+      const res = await Swal.fire({
+        title: this.t('admin.logs.clear_prompt_title'),
+        text: this.t('admin.logs.clear_prompt_text'),
+        icon: 'warning', showCancelButton: true,
+        confirmButtonText: this.t('actions.clear'),
+        cancelButtonText: this.t('actions.cancel'),
+        confirmButtonColor: this._cssVar('--danger'),
+      });
+      if (!res.isConfirmed) return;
+      try {
+        const r = await fetch('/api/logs', { method: 'DELETE' });
+        if (r.ok) {
+          this.logLines = [];
+          this.logSinceTs = 0;
+          this.showToast(this.t('admin.logs.cleared'));
+        }
+      } catch (_) { this.showToast(this.t('toasts.network_error'), 'error'); }
+    },
+
+    filteredLogLines() {
+      const q = (this.logFilter || '').toLowerCase();
+      if (!q) return this.logLines;
+      return this.logLines.filter(l => l.text.toLowerCase().includes(q));
+    },
+
     async deleteBackup(b) {
       const res = await Swal.fire({
         title: this.t('admin.backups.delete_prompt_title'), text: b.name, icon: 'warning',
@@ -1918,11 +2016,13 @@ function app() {
     },
 
     nodeStats(host) {
-      // Aggregate CPU (sum across containers; normalized by node cores),
-      // memory used (sum), and disk image size (max — same dedupe rule as
-      // stackStats because replicas share one on-disk image).
-      let cpuRaw = 0, memUsage = 0, sizeRoot = 0;
-      let hasStats = false, hasSize = false;
+      // Aggregate CPU (sum across containers; normalised by node cores)
+      // and memory used (sum). Disk uses the server-side /system/df
+      // total shipped via nodes_info — accounts for layers + container
+      // writable layers + volumes + build cache across the whole
+      // daemon, not just max-image size.
+      let cpuRaw = 0, memUsage = 0;
+      let hasStats = false;
       for (const it of this.itemsForNode(host)) {
         const s = this.statsFor(it);
         if (s.has_stats) {
@@ -1930,21 +2030,19 @@ function app() {
           memUsage += s.mem_usage;
           hasStats = true;
         }
-        if (s.has_size) {
-          sizeRoot = Math.max(sizeRoot, s.size_root);
-          hasSize = true;
-        }
       }
-      // Real capacity comes from the server-side /nodes/ probe.
       const info = this.nodeInfoFor(host);
       const cores = info.cpu_cores || 0;
       const memBytes = info.mem_bytes || 0;
+      const dockerDisk = Number.isFinite(info.docker_disk_bytes) ? info.docker_disk_bytes : 0;
       return {
-        cpuRaw,                       // 0..cores*100 (can exceed 100)
-        memUsage, sizeRoot,           // bytes
-        memLimit: memBytes,           // NODE capacity, not sum of container limits
+        cpuRaw,                        // 0..cores*100 (can exceed 100)
+        memUsage,                      // bytes
+        memLimit: memBytes,            // NODE capacity, not sum of container limits
         cores,
-        hasStats, hasSize,
+        dockerDisk,                    // total Docker disk usage across the daemon
+        hasStats,
+        hasSize: dockerDisk > 0,
       };
     },
 
@@ -1965,9 +2063,19 @@ function app() {
     },
 
     nodeDiskPercent(host) {
-      const { sizeRoot } = this.nodeStats(host);
-      if (!this._maxSize) return 0;
-      return Math.min(100, (sizeRoot / this._maxSize) * 100);
+      // No "of N" denominator available without a host-agent — render
+      // a proportional bar against the fleet's busiest Docker daemon
+      // so operators see which node is carrying the most Docker disk.
+      const { dockerDisk } = this.nodeStats(host);
+      if (!dockerDisk) return 0;
+      let max = 0;
+      const infos = this.nodesInfo || {};
+      for (const k in infos) {
+        const v = Number(infos[k] && infos[k].docker_disk_bytes) || 0;
+        if (v > max) max = v;
+      }
+      if (!max) return 0;
+      return Math.min(100, (dockerDisk / max) * 100);
     },
 
     nodeUptime(host) {

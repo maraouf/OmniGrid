@@ -34,6 +34,12 @@ from typing import Optional
 from dotenv import load_dotenv
 load_dotenv(os.getenv("ENV_FILE_PATH", "/app/.env"), override=False)
 
+# Install the stdout/stderr tee as early as possible so uvicorn's own
+# startup lines land in the in-memory buffer that powers Admin → Logs.
+# Tee is idempotent + passthrough — Docker logs still see everything.
+from logic import logs as _logs  # noqa: E402
+_logs.install()
+
 import httpx
 from fastapi import BackgroundTasks, Depends, FastAPI, Form, HTTPException, Request
 from fastapi.responses import FileResponse, JSONResponse, Response
@@ -889,6 +895,35 @@ async def healthz():
 @app.get("/api/version")
 async def api_version():
     return {"version": read_version()}
+
+
+# ============================================================================
+# App logs — in-memory ring buffer of recent stdout/stderr lines.
+# Admin-only. Frontend polls /api/logs?since=<ts> to incrementally
+# fetch new lines; DELETE clears the buffer (does not affect Docker logs).
+# Buffer lives in logic/logs.py; the tee is installed at module-import
+# time so uvicorn's own lines are captured too.
+# ============================================================================
+@app.get("/api/logs")
+async def api_logs(
+    limit: int = 500,
+    since: float = 0.0,
+    _admin: auth.User = Depends(auth.require_admin),
+):
+    # Clamp limit to a sane upper bound so a misconfigured client can't
+    # pull the whole buffer repeatedly at poll rate.
+    limit = max(1, min(int(limit), _logs.MAX_LINES))
+    return {
+        "logs": _logs.get_recent(limit=limit, since_ts=float(since)),
+        "size": _logs.size(),
+        "max": _logs.MAX_LINES,
+    }
+
+
+@app.delete("/api/logs")
+async def api_logs_clear(_admin: auth.User = Depends(auth.require_admin)):
+    _logs.clear()
+    return {"ok": True}
 
 
 # ============================================================================

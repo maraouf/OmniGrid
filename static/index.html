@@ -752,19 +752,24 @@
               </svg>
             </div>
 
-            <!-- Disk (images on this node, max across replicas — same
-                 dedupe rule as stackStats). -->
+            <!-- Docker disk (per daemon): LayersSize + containers' SizeRw
+                 + volumes' UsageData.Size + BuildCache. Host mounts
+                 outside Docker (/root, /mnt, etc) aren't accessible via
+                 Portainer — surfacing those would need a node-agent. -->
             <div>
               <div class="flex items-baseline justify-between mb-1.5">
-                <span class="text-[10.5px] uppercase tracking-wider text-[var(--text-faint)]">Disk (images)</span>
+                <span class="text-[10.5px] uppercase tracking-wider text-[var(--text-faint)]"
+                      :title="t('nodes.docker_disk_tooltip')">Docker disk</span>
                 <span class="text-[12px] mono"
-                      x-text="nodeStats(node.name).hasSize ? fmtBytes(nodeStats(node.name).sizeRoot) : '—'"></span>
+                      x-text="nodeStats(node.name).hasSize ? fmtBytes(nodeStats(node.name).dockerDisk) : '—'"></span>
               </div>
               <div class="stat-bar"
                    :class="barLevel(nodeDiskPercent(node.name))"
                    :style="'--w: ' + nodeDiskPercent(node.name) + '%'">
                 <div class="fill"></div>
               </div>
+              <div class="text-[10px] text-[var(--text-faint)] mt-1"
+                   x-text="t('nodes.docker_disk_caption')"></div>
             </div>
 
             <!-- Uptime — oldest still-running task on this node, sourced
@@ -869,6 +874,9 @@
           <option value="restart_service">restart_service</option>
           <option value="restart_container">restart_container</option>
           <option value="remove_container">remove_container</option>
+          <option value="prune_node">prune_node</option>
+          <option value="backup">backup</option>
+          <option value="gather_refresh">gather_refresh</option>
         </select>
         <select x-model="historyFilters.stack" @change="loadHistory()" class="text-[12px] min-w-[150px]">
           <option value="" x-text="t('history.all_stacks')"></option>
@@ -1931,6 +1939,50 @@
               </tbody>
             </table>
           </div>
+        </section>
+      </div>
+
+      <!-- LOGS TAB -->
+      <div x-show="adminTab==='logs'" class="space-y-3">
+        <section class="bg-[var(--surface)] border border-[var(--border)] rounded-md p-4">
+          <div class="flex flex-wrap items-center gap-2 mb-3">
+            <h3 class="font-semibold text-[13px]" x-text="t('admin.logs.title')"></h3>
+            <span class="text-[11px] text-[var(--text-faint)]"
+                  x-text="t('admin.logs.count', { n: filteredLogLines().length, total: logLines.length })"></span>
+            <span class="flex-1"></span>
+            <label class="inline-flex items-center gap-1.5 text-[11px] text-[var(--text-dim)]">
+              <input type="checkbox" x-model="logAuto">
+              <span x-text="t('admin.logs.auto_refresh')"></span>
+            </label>
+            <input type="search" x-model.debounce.200ms="logFilter"
+                   :placeholder="t('admin.logs.filter_placeholder')"
+                   class="text-[12px] min-w-[180px]">
+            <button @click="loadLogs(true)" class="btn btn-ghost text-[11px]"
+                    x-text="t('actions.reload')"></button>
+            <button @click="clearLogs()" class="btn btn-ghost text-[11px] text-danger"
+                    x-text="t('admin.logs.clear')"></button>
+          </div>
+          <!-- Line-buffered viewer. Monospace + fixed height = terminal feel.
+               Each row is ts + stream label + text. Stderr rows get tinted
+               so errors/tracebacks are scan-able. -->
+          <div id="log-viewer"
+               class="mono text-[11px] bg-[var(--bg)] border border-[var(--border)] rounded-md p-2 h-[60vh] overflow-y-auto scrollbar leading-[1.35]">
+            <template x-for="(l, i) in filteredLogLines()" :key="i + '-' + l.ts">
+              <div class="flex gap-2 whitespace-pre-wrap break-all">
+                <span class="text-[var(--text-faint)] shrink-0" x-text="fmtDate(l.ts)"></span>
+                <span class="shrink-0 uppercase text-[9.5px] tracking-wider pt-[2px]"
+                      :class="l.stream === 'stderr' ? 'text-[var(--danger)]' : 'text-[var(--text-faint)]'"
+                      x-text="l.stream"></span>
+                <span :class="l.stream === 'stderr' ? 'text-[var(--danger)]' : 'text-[var(--text)]'"
+                      x-text="l.text"></span>
+              </div>
+            </template>
+            <div x-show="!filteredLogLines().length"
+                 class="text-center py-8 text-[var(--text-faint)]"
+                 x-text="logLines.length ? t('admin.logs.no_match') : t('admin.logs.empty')"></div>
+          </div>
+          <p class="text-[10.5px] text-[var(--text-faint)] mt-2"
+             x-text="t('admin.logs.hint')"></p>
         </section>
       </div>
       </div>

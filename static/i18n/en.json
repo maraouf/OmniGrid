@@ -158,6 +158,10 @@
     "testing": "Testing…",
     "waiting": "Waiting…"
   },
+  "nodes": {
+    "docker_disk_tooltip": "Docker daemon footprint: image layers + container writable layers + volumes + build cache",
+    "docker_disk_caption": "Docker-only. Host mounts (e.g. /root, /mnt) aren't exposed via Portainer."
+  },
   "empty": {
     "no_match_filters": "No resources match your filters.",
     "clear": "Clear",
@@ -328,7 +332,21 @@
       "sessions": "Sessions",
       "tokens": "API tokens",
       "schedules": "Schedules",
-      "backups": "Backups"
+      "backups": "Backups",
+      "logs": "Logs"
+    },
+    "logs": {
+      "title": "Application logs",
+      "count": "{n} visible / {total} buffered",
+      "auto_refresh": "Auto-refresh",
+      "filter_placeholder": "Filter lines…",
+      "clear": "Clear",
+      "cleared": "Log buffer cleared",
+      "clear_prompt_title": "Clear in-memory log buffer?",
+      "clear_prompt_text": "This empties the buffer that powers this viewer. Docker logs on the host are unaffected.",
+      "empty": "No log lines captured yet — activity here mirrors stdout/stderr in real time.",
+      "no_match": "No lines match the filter.",
+      "hint": "In-memory ring buffer of recent stdout/stderr (capped at 2000 lines). Tees from real streams, so Docker logs still see everything."
     },
     "schedules": {
       "create_title": "Create schedule",
