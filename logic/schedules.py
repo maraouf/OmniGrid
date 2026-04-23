@@ -322,20 +322,45 @@ async def _run_gather_refresh(params: dict) -> tuple[str, Awaitable[tuple[int, s
 
     Doesn't go through the ops.py system — :func:`logic.gather.gather`
     has no Operation wrapper, it's just a cache-refresh function. We
-    still synthesize an op_id so the schedule row has something to
-    point at in the history UI (though there's no history entry for
-    this kind — see note on queue filtering).
+    still synthesize an op_id and write a row into the ``history``
+    table on completion so the scheduler Queue UI shows this kind
+    alongside ops.py-backed kinds (prune_node etc).
     """
     op_id = "sched-" + secrets.token_hex(4)
 
     async def runner() -> tuple[int, str]:
         started = time.time()
+        status = "success"
+        err: Optional[str] = None
         try:
             await gather.gather()
-            return (int(time.time() - started), "success")
         except Exception as e:
+            status = "error"
+            err = str(e)
             print(f"[scheduler] gather_refresh failed: {e}")
-            return (int(time.time() - started), "error")
+        duration = int(time.time() - started)
+        # Mirror the op into history so the Queue tab (which filters by
+        # actor='scheduler') picks it up. We don't involve ops.persist_history
+        # because that also bumps a Prometheus counter tied to op_type names
+        # — keep gather_refresh out of that bucket so it doesn't inflate
+        # portaupdate_ops_total with cache-refresh noise.
+        try:
+            with db_conn() as c:
+                c.execute(
+                    "INSERT INTO history "
+                    "(ts, op_type, target_name, target_id, target_stack, "
+                    " status, duration, events, error, actor) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    (
+                        started, "gather_refresh",
+                        "fleet cache", op_id, None,
+                        status, duration,
+                        "[]", err, SCHEDULER_ACTOR,
+                    ),
+                )
+        except Exception as e:
+            print(f"[scheduler] gather_refresh history write failed: {e}")
+        return (duration, status)
 
     task = asyncio.create_task(runner())
     return op_id, task  # type: ignore[return-value]
@@ -440,6 +465,25 @@ def seed_default_schedules(conn: sqlite3.Connection, nodes: list[str]) -> None:
 # ----------------------------------------------------------------------------
 # Tick loop — lifespan task
 # ----------------------------------------------------------------------------
+def _is_previous_run_active(schedule: dict) -> bool:
+    """True when the schedule's previous fire hasn't recorded completion yet.
+
+    Two signals:
+      1. `last_op_id` is set but `last_duration` is NULL — the waiter
+         hasn't stamped the outcome yet. That's the authoritative
+         in-memory signal regardless of kind.
+      2. If the op is still in the ops.py live dict with status='running',
+         belt-and-braces for ops.py-backed kinds.
+    """
+    last_op_id = schedule.get("last_op_id")
+    if not last_op_id:
+        return False
+    if schedule.get("last_duration") is None:
+        return True
+    live = _ops.ops.get(last_op_id)
+    return bool(live and getattr(live, "status", None) == "running")
+
+
 async def scheduler_loop() -> None:
     """Check once per minute for due schedules and fire them.
 
@@ -467,6 +511,15 @@ async def scheduler_loop() -> None:
                     if int(s["next_run_at"]) <= now:
                         due.append(s)
             for s in due:
+                # Skip-if-running: if this schedule's previous fire is
+                # still in-flight (ops.py op exists with status='running',
+                # OR we've stamped a last_op_id without a last_duration yet
+                # so the waiter hasn't recorded completion), don't spawn
+                # a second one. Overlapping prune_nodes in particular
+                # would compete for the same Docker daemon.
+                if _is_previous_run_active(s):
+                    print(f"[scheduler] skipping '{s['name']}' — previous run still in flight")
+                    continue
                 # Per-schedule try/except: one broken kind or bad param
                 # must not stop the rest of the tick from firing.
                 try:

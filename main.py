@@ -342,6 +342,9 @@ async def api_items(force: bool = False):
         "items": _cache["items"],
         "stacks": _cache["stacks"],
         "nodes": _cache["nodes"],
+        # Capacity + uptime proxy per node — drives the Nodes view's
+        # stat tiles. Keyed by hostname, matches _cache["nodes"]'s values.
+        "nodes_info": _cache.get("nodes_info") or {},
         "cached": (now - _cache["ts"] > 1),
         "age": int(now - _cache["ts"]) if _cache["ts"] else None,
     }

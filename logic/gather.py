@@ -36,6 +36,7 @@ _cache: dict = {
     "items": [],
     "ts": 0.0,
     "nodes": {},
+    "nodes_info": {},
     "stacks": [],
     "task_node_by_id": {},
     "container_node_by_id": {},
@@ -53,6 +54,34 @@ def get_cache() -> dict:
 def invalidate_cache() -> None:
     """Mark the cache stale so the next gather request rebuilds it."""
     _cache["ts"] = 0
+
+
+def _parse_docker_ts(ts) -> Optional[float]:
+    """Parse a Docker API timestamp (ISO 8601 with nanos, e.g.
+    '2026-04-22T13:40:16.123456789Z') to epoch seconds.
+
+    Python's fromisoformat chokes on the nanosecond precision before 3.11,
+    and on the trailing 'Z' before 3.11 too, so we trim both defensively.
+    Returns None on anything unparseable.
+    """
+    if not ts:
+        return None
+    if isinstance(ts, (int, float)):
+        return float(ts)
+    if not isinstance(ts, str):
+        return None
+    # Strip trailing Z (UTC), truncate fractional seconds to microseconds.
+    s = ts.rstrip("Z")
+    if "." in s:
+        head, frac = s.split(".", 1)
+        frac = frac[:6]  # microseconds max
+        s = f"{head}.{frac}"
+    try:
+        from datetime import datetime, timezone
+        # Parse as naive then attach UTC — Docker always emits UTC.
+        return datetime.fromisoformat(s).replace(tzinfo=timezone.utc).timestamp()
+    except (ValueError, TypeError):
+        return None
 
 
 def _node_attr(node: dict, key: str):
@@ -116,6 +145,7 @@ async def _gather_impl() -> None:
         _cache["items"] = []
         _cache["stacks"] = []
         _cache["nodes"] = {}
+        _cache["nodes_info"] = {}
         _cache["task_node_by_id"] = {}
         _cache["ts"] = time.time()
         return
@@ -137,12 +167,67 @@ async def _gather_impl() -> None:
 
         node_map = {n["ID"]: n["Description"]["Hostname"] for n in nodes}
         stack_by_name = {s["Name"]: s for s in stacks_list}
+
+        # Per-node capacity + oldest-running-task timestamp. Keyed by
+        # hostname so the frontend doesn't need to join NodeID → host
+        # separately. Structure shipped in _cache["nodes_info"]:
+        #   {
+        #     hostname: {
+        #       id:            node UUID
+        #       role:          "manager" | "worker"
+        #       state:         "ready" | "down" | ... (Swarm Status.State)
+        #       availability:  "active" | "pause" | "drain"
+        #       cpu_cores:     int  (Description.Resources.NanoCPUs / 1e9)
+        #       mem_bytes:     int  (Description.Resources.MemoryBytes)
+        #       os:            e.g. "linux"
+        #       arch:          e.g. "x86_64"
+        #       engine:        docker engine version
+        #       oldest_running_ts: epoch seconds of the oldest task whose
+        #                          Status.State='running' on this node —
+        #                          serves as a per-node uptime proxy
+        #                          (Docker doesn't expose host boot time).
+        #     }
+        #   }
+        nodes_info: dict[str, dict] = {}
+        for n in nodes:
+            desc = n.get("Description") or {}
+            spec = n.get("Spec") or {}
+            status = n.get("Status") or {}
+            res = desc.get("Resources") or {}
+            plat = desc.get("Platform") or {}
+            host = desc.get("Hostname")
+            if not host:
+                continue
+            nanocpus = int(res.get("NanoCPUs") or 0)
+            nodes_info[host] = {
+                "id":           n.get("ID"),
+                "role":         spec.get("Role"),
+                "state":        status.get("State"),
+                "availability": spec.get("Availability"),
+                # NanoCPUs is in billionths of a core. Round to the nearest
+                # whole core — these values are always clean multiples in
+                # practice (Docker reports them straight from the kernel).
+                "cpu_cores":    nanocpus // 1_000_000_000 if nanocpus else 0,
+                "nano_cpus":    nanocpus,
+                "mem_bytes":    int(res.get("MemoryBytes") or 0),
+                "os":           plat.get("OS"),
+                "arch":         plat.get("Architecture"),
+                "engine":       ((desc.get("Engine") or {}).get("EngineVersion")),
+                "oldest_running_ts": None,  # filled in by the tasks pass below
+            }
+
         tasks_by_service: dict[str, list] = {}
         # task.ID → hostname — used later to pin orphan Swarm task containers
         # to their actual worker node. Without this, `/api/containers/{id}`
         # routes to the manager's Docker daemon and 404s for containers that
         # live on a worker. Sending `X-PortainerAgent-Target: <node>` fixes it.
         task_node_by_id: dict[str, str] = {}
+        # Per-node "oldest running task" tracker — for each hostname, keep
+        # the earliest Status.Timestamp of any running task on that node.
+        # Beats the client-side "min of item.created" approach because a
+        # global service's item.created is the same on every node it's on,
+        # which made all nodes show an identical uptime.
+        oldest_running_by_node: dict[str, float] = {}
         for t in tasks:
             sid = t.get("ServiceID")
             if sid:
@@ -151,6 +236,22 @@ async def _gather_impl() -> None:
             nid = t.get("NodeID")
             if tid and nid and nid in node_map:
                 task_node_by_id[tid] = node_map[nid]
+            # Oldest-running-task tracking — only RUNNING tasks count
+            # (pending/failed/shutdown don't say anything about uptime).
+            st = t.get("Status") or {}
+            if nid in node_map and st.get("State") == "running":
+                ts_raw = st.get("Timestamp") or t.get("CreatedAt")
+                ts = _parse_docker_ts(ts_raw)
+                if ts:
+                    host = node_map[nid]
+                    prev = oldest_running_by_node.get(host)
+                    if prev is None or ts < prev:
+                        oldest_running_by_node[host] = ts
+
+        # Back-fill nodes_info with the timestamps we just computed.
+        for host, ts in oldest_running_by_node.items():
+            if host in nodes_info:
+                nodes_info[host]["oldest_running_ts"] = ts
 
         # Per-node container sweep — gives us a containerID → hostname map
         # that covers PLAIN compose containers on worker nodes too. The
@@ -583,6 +684,7 @@ async def _gather_impl() -> None:
         items.sort(key=lambda i: (i.get("name") or "").lower())
         _cache["items"] = items
         _cache["nodes"] = node_map
+        _cache["nodes_info"] = nodes_info
         _cache["task_node_by_id"] = task_node_by_id
         _cache["container_node_by_id"] = container_node_by_id
         _cache["stacks"] = sorted(

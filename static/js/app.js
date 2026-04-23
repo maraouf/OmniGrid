@@ -26,7 +26,7 @@ function app() {
         this.showToast('Language load failed', 'error');
       }
     },
-    items: [], stacks: [], nodes: {},
+    items: [], stacks: [], nodes: {}, nodesInfo: {},
     history: [], ignores: [],
     stats: {}, _statsTimer: null, _maxSize: 1,
     sparks: {}, _sparksTimer: null,
@@ -1226,6 +1226,9 @@ function app() {
         this.items = d.items || [];
         this.stacks = d.stacks || [];
         this.nodes = d.nodes || {};
+        // Per-node capacity + uptime proxy — see logic/gather.py's nodes_info.
+        // Drives the Nodes view's normalized CPU/mem bars.
+        this.nodesInfo = d.nodes_info || {};
         // Non-UI label; stays English since it's diagnostic-adjacent.
         this.cacheLabel = d.cached ? `cached ${d.age}s ago` : 'fresh';
         if (force) this.loadStats(true);  // fire-and-forget, don't block UI
@@ -1756,59 +1759,73 @@ function app() {
       });
     },
 
+    nodeInfoFor(host) {
+      return (this.nodesInfo && this.nodesInfo[host]) || {};
+    },
+
     nodeStats(host) {
-      let cpu = 0, memUsage = 0, memLimit = 0, sizeRoot = 0;
+      // Aggregate CPU (sum across containers; normalized by node cores),
+      // memory used (sum), and disk image size (max — same dedupe rule as
+      // stackStats because replicas share one on-disk image).
+      let cpuRaw = 0, memUsage = 0, sizeRoot = 0;
       let hasStats = false, hasSize = false;
-      // Track the oldest workload running on this node as a proxy for
-      // host uptime — Docker doesn't expose the host's boot time, so
-      // "the longest thing that's been running here" is the best signal
-      // we can get without an on-node agent.
-      let oldestEpoch = null;
       for (const it of this.itemsForNode(host)) {
         const s = this.statsFor(it);
         if (s.has_stats) {
-          cpu += s.cpu_percent;
+          cpuRaw += s.cpu_percent;
           memUsage += s.mem_usage;
-          memLimit += s.mem_limit;
           hasStats = true;
         }
         if (s.has_size) {
-          // Same dedupe rule as stackStats: image size is per-image, not
-          // per-container, so use max() instead of sum() to avoid the
-          // "3 replicas of nginx = 3 × disk" distortion.
           sizeRoot = Math.max(sizeRoot, s.size_root);
           hasSize = true;
         }
-        // item.created is a container epoch or a service ISO string; handle both.
-        const ts = this._itemCreatedEpoch(it);
-        if (ts && (!oldestEpoch || ts < oldestEpoch)) oldestEpoch = ts;
       }
-      return { cpu, memUsage, memLimit, sizeRoot, hasStats, hasSize, oldestEpoch };
+      // Real capacity comes from the server-side /nodes/ probe.
+      const info = this.nodeInfoFor(host);
+      const cores = info.cpu_cores || 0;
+      const memBytes = info.mem_bytes || 0;
+      return {
+        cpuRaw,                       // 0..cores*100 (can exceed 100)
+        memUsage, sizeRoot,           // bytes
+        memLimit: memBytes,           // NODE capacity, not sum of container limits
+        cores,
+        hasStats, hasSize,
+      };
     },
 
-    _itemCreatedEpoch(it) {
-      if (!it || !it.created) return null;
-      if (typeof it.created === 'number') return it.created;
-      const n = Math.floor(new Date(it.created).getTime() / 1000);
-      return isNaN(n) ? null : n;
-    },
-
-    nodeUptime(host) {
-      const st = this.nodeStats(host);
-      if (!st.oldestEpoch) return null;
-      return Math.max(0, Math.floor(Date.now() / 1000) - st.oldestEpoch);
+    nodeCpuPercent(host) {
+      // Raw CPU sum is 0..cores*100. Divide by cores to get 0..100%
+      // normalised against THIS node's actual capacity. Clamp at 100 —
+      // brief spikes over a single tick can exceed cores*100 due to
+      // sub-second bursts, and a bar that pokes past 100% looks broken.
+      const { cpuRaw, cores } = this.nodeStats(host);
+      if (!cores) return 0;
+      return Math.min(100, cpuRaw / cores);
     },
 
     nodeMemPercent(host) {
-      const st = this.nodeStats(host);
-      if (!st.memLimit) return 0;
-      return Math.min(100, (st.memUsage / st.memLimit) * 100);
+      const { memUsage, memLimit } = this.nodeStats(host);
+      if (!memLimit) return 0;
+      return Math.min(100, (memUsage / memLimit) * 100);
     },
 
     nodeDiskPercent(host) {
-      const st = this.nodeStats(host);
+      const { sizeRoot } = this.nodeStats(host);
       if (!this._maxSize) return 0;
-      return Math.min(100, (st.sizeRoot / this._maxSize) * 100);
+      return Math.min(100, (sizeRoot / this._maxSize) * 100);
+    },
+
+    nodeUptime(host) {
+      // Server-provided oldest-running-task timestamp is the real signal
+      // — it's per-node (so a global service doesn't make every node
+      // show the same uptime) and it's "when the oldest still-running
+      // task last transitioned to running" which approximates "when
+      // Docker / the host last came up and these workloads started".
+      const info = this.nodeInfoFor(host);
+      const ts = info.oldest_running_ts;
+      if (!ts) return null;
+      return Math.max(0, Math.floor(Date.now() / 1000) - Math.floor(ts));
     },
 
     // Time-series aggregation for node-level sparklines. Bins samples by
@@ -1853,7 +1870,7 @@ function app() {
     nodeSparkClass(host, key) {
       const st = this.nodeStats(host);
       if (!st.hasStats) return 'muted';
-      const v = key === 'cpu' ? st.cpu : this.nodeMemPercent(host);
+      const v = key === 'cpu' ? this.nodeCpuPercent(host) : this.nodeMemPercent(host);
       return this.barLevel(v);
     },
 

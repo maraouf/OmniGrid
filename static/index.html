@@ -706,16 +706,20 @@
                so operators get at-a-glance node health without clicking. -->
           <div x-show="!node.is_unpinned"
                class="grid grid-cols-2 md:grid-cols-4 gap-3 px-5 py-3 border-t border-[var(--border)] bg-[var(--surface-2)]/40">
-            <!-- CPU -->
+            <!-- CPU (percentage is of node capacity — containers' raw
+                 sum divided by the node's core count, clamped 0-100). -->
             <div>
               <div class="flex items-baseline justify-between mb-1.5">
                 <span class="text-[10.5px] uppercase tracking-wider text-[var(--text-faint)]">CPU</span>
                 <span class="text-[12px] mono"
-                      x-text="nodeStats(node.name).hasStats ? cpuLabel(nodeStats(node.name).cpu) : '—'"></span>
+                      x-text="nodeStats(node.name).hasStats ? cpuLabel(nodeCpuPercent(node.name)) : '—'"></span>
               </div>
               <div class="stat-bar"
-                   :class="barLevel(nodeStats(node.name).cpu)"
-                   :style="'--w: ' + Math.min(100, nodeStats(node.name).cpu) + '%'"></div>
+                   :class="barLevel(nodeCpuPercent(node.name))"
+                   :style="'--w: ' + nodeCpuPercent(node.name) + '%'"></div>
+              <div class="text-[10.5px] text-[var(--text-faint)] mt-1"
+                   x-show="nodeStats(node.name).cores"
+                   x-text="nodeStats(node.name).cores + ' cores'"></div>
               <svg viewBox="0 0 60 10" preserveAspectRatio="none"
                    class="spark mt-1"
                    :class="nodeSparkClass(node.name, 'cpu')"
@@ -757,15 +761,16 @@
                    :style="'--w: ' + nodeDiskPercent(node.name) + '%'"></div>
             </div>
 
-            <!-- Uptime (proxy via oldest running workload). -->
+            <!-- Uptime — oldest still-running task on this node, sourced
+                 from Swarm's per-task Status.Timestamp. Proxy for host
+                 uptime; Docker's API doesn't surface the daemon's start. -->
             <div>
               <div class="flex items-baseline justify-between mb-1.5">
                 <span class="text-[10.5px] uppercase tracking-wider text-[var(--text-faint)]">Uptime</span>
                 <span class="text-[12px] mono" x-text="fmtDuration(nodeUptime(node.name))"></span>
               </div>
               <div class="text-[10.5px] text-[var(--text-faint)] leading-tight">
-                Longest-running workload here. Docker doesn't expose the
-                host's boot time — this is the closest available signal.
+                Oldest still-running task on this node.
               </div>
             </div>
           </div>
