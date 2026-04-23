@@ -1941,6 +1941,30 @@ async def spa_shell():
     return _render_shell("static/index.html")
 
 
+# Deep-link routes for every SPA view. The Alpine front-end calls
+# `history.replaceState('/nodes')` when you switch tabs so reloading
+# a deep link drops you back on the same tab; without a matching
+# server route, `GET /nodes` would fall through to the StaticFiles
+# mount and 404. The shell itself is identical to `/` — Alpine's
+# `_applyRouteFromPath()` picks the view based on `location.pathname`
+# once the page boots. Settings / Admin accept a sub-path segment
+# (`/settings/oidc`, `/admin/users`) so those deep links work too.
+_SPA_ROUTES = ("stacks", "services", "nodes", "history")
+
+for _view in _SPA_ROUTES:
+    app.add_api_route(f"/{_view}", spa_shell, methods=["GET"])
+
+@app.get("/settings")
+@app.get("/settings/{section}")
+async def spa_settings_shell(section: str = ""):
+    return _render_shell("static/index.html")
+
+@app.get("/admin")
+@app.get("/admin/{tab}")
+async def spa_admin_shell(tab: str = ""):
+    return _render_shell("static/index.html")
+
+
 # Prometheus scrape endpoint.
 # Implemented as a regular route (not app.mount) because Starlette's
 # Mount only matches the mount path WITH a trailing slash — bare GET

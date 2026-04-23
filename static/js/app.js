@@ -2177,8 +2177,13 @@ function app() {
       // Resolve an app name to an icon URL. Every icon is local (in
       // static/img/icons/) so the dashboard works offline. Override values
       // can either be:
-      //   - a bare canonical slug (resolved to img/icons/<slug>.svg), or
-      //   - a full URL or relative path ending in .svg/.png/.webp (used verbatim).
+      //   - a bare canonical slug (resolved to /img/icons/<slug>.svg), or
+      //   - a full URL or absolute path ending in .svg/.png/.webp (used verbatim).
+      //
+      // URLs MUST be absolute (leading "/") — the SPA runs under deep-link
+      // routes like /nodes, /settings/oidc, /admin/users, and a relative
+      // "img/icons/..." would resolve against those paths (→ 404). Any
+      // override that looks like "img/..." is auto-prefixed with "/".
       if (!name) return '';
       // Exact / whole-name overrides (checked first).
       const overrides = {
@@ -2190,20 +2195,18 @@ function app() {
         'adguardhome-sync': 'adguard-home',
         'adguard-exporter': 'adguard-home',
         'blackbox-exporter': 'prometheus',
-        'fing-agent': 'img/icons/fing.svg',
-        'fing': 'img/icons/fing.svg',
-        'lubelogger': 'img/icons/lubelogger.png',
-        'myspeed': 'img/icons/myspeed.svg',
-        'squid-proxy': 'img/icons/squid.png',
-        'squid': 'img/icons/squid.png',
-        'tracearr': 'img/icons/tracearr.png',
-        'portainer': 'img/icons/portainer.png',
-        'portainer-agent': 'img/icons/portainer.png',
+        'fing-agent': '/img/icons/fing.svg',
+        'fing': '/img/icons/fing.svg',
+        'lubelogger': '/img/icons/lubelogger.png',
+        'myspeed': '/img/icons/myspeed.svg',
+        'squid-proxy': '/img/icons/squid.png',
+        'squid': '/img/icons/squid.png',
+        'tracearr': '/img/icons/tracearr.png',
+        'portainer': '/img/icons/portainer.png',
+        'portainer-agent': '/img/icons/portainer.png',
       };
       // Prefix patterns — one entry covers all siblings of a product
-      // (authentik outposts: ak-outpost-authentik-ldap-outpost,
-      //  ak-outpost-authentik-radius-outpost, ak-outpost-authentik-proxy-outpost, ...).
-      // Checked after exact overrides, before the selfhst slug fallback.
+      // (authentik outposts: ak-outpost-authentik-ldap-outpost, etc.).
       const prefixes = [
         ['ak-outpost-', 'authentik'],
         ['komodo-',     'komodo'],
@@ -2211,15 +2214,17 @@ function app() {
       const raw = String(name).toLowerCase().trim();
       const natural = raw.replace(/[\s_]+/g, '-').replace(/[^a-z0-9-]/g, '');
       const mapped = overrides[raw] || overrides[natural];
-      // If the override looks like a URL or path (contains a separator or
-      // extension), return it verbatim. Otherwise treat it as a slug.
-      if (mapped && /[/.]/.test(mapped)) return mapped;
-      if (mapped) return `img/icons/${mapped}.svg`;
+      // If the override looks like a URL or path, return it (guaranteeing
+      // a leading "/" so it stays absolute under deep-link routes).
+      if (mapped && /[/.]/.test(mapped)) {
+        return mapped.startsWith('/') || /^https?:/i.test(mapped) ? mapped : '/' + mapped;
+      }
+      if (mapped) return `/img/icons/${mapped}.svg`;
       for (const [prefix, slug] of prefixes) {
-        if (natural.startsWith(prefix)) return `img/icons/${slug}.svg`;
+        if (natural.startsWith(prefix)) return `/img/icons/${slug}.svg`;
       }
       if (!natural) return '';
-      return `img/icons/${natural}.svg`;
+      return `/img/icons/${natural}.svg`;
     },
     stackIconUrl(stack) {
       return stack ? this.iconUrlFor(stack.name) : '';
