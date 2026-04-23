@@ -819,16 +819,19 @@ async def api_notify_test(_admin: auth.User = Depends(auth.require_admin)):
 
 @app.get("/api/healthz")
 async def healthz():
+    # Re-read VERSION.txt per request so operator edits on the server
+    # (e.g. hand-bumping MAJOR/MINOR) show up without restarting the
+    # container. File is tiny — a couple-microsecond stat+read each call.
     return {
         "ok": True,
-        "version": APP_VERSION,
+        "version": read_version(),
         "cache_age": int(time.time() - _cache["ts"]) if _cache["ts"] else None,
     }
 
 
 @app.get("/api/version")
 async def api_version():
-    return {"version": APP_VERSION}
+    return {"version": read_version()}
 
 
 # ============================================================================
@@ -1428,7 +1431,10 @@ def _render_shell(path: str) -> Response:
         _SHELL_CACHE[path] = (body, mtime_ns)
     else:
         body = cached[0]
-    body = body.replace("__APP_VERSION__", APP_VERSION)
+    # Use the LIVE version, not the import-time snapshot. This lets an
+    # operator edit /app/VERSION.txt on the server and have cache-busting
+    # URLs follow without restarting the container.
+    body = body.replace("__APP_VERSION__", read_version())
     return Response(content=body, media_type="text/html; charset=utf-8")
 
 
