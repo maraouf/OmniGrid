@@ -900,32 +900,32 @@
             <span class="chip" x-text="me && me.source"></span>
           </div>
           <button x-show="me && me.avatar_url" @click="clearAvatar()"
-                  class="mt-4 text-[11px] text-[var(--danger)] hover:underline">Remove avatar</button>
+                  class="mt-4 text-[11px] text-[var(--danger)] hover:underline" x-text="t('settings.profile.avatar_remove')"></button>
         </section>
 
         <!-- Identity + account info card -->
         <section class="bg-[var(--surface)] border border-[var(--border)] rounded-md p-5">
-          <h3 class="font-semibold text-[13px] mb-4">Account</h3>
+          <h3 class="font-semibold text-[13px] mb-4" x-text="t('settings.profile.account')"></h3>
           <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
-              <label class="block text-[11px] text-[var(--text-dim)] mb-1">Username</label>
+              <label class="block text-[11px] text-[var(--text-dim)] mb-1" x-text="t('settings.profile.username')"></label>
               <input :value="me && me.username" disabled class="w-full text-[12.5px]">
-              <p class="text-[10px] text-[var(--text-faint)] mt-1">Set by admin — can't be changed here.</p>
+              <p class="text-[10px] text-[var(--text-faint)] mt-1" x-text="t('settings.profile.username_hint')"></p>
             </div>
             <div>
-              <label class="block text-[11px] text-[var(--text-dim)] mb-1">Source</label>
+              <label class="block text-[11px] text-[var(--text-dim)] mb-1" x-text="t('settings.profile.source')"></label>
               <input :value="me && me.source" disabled class="w-full text-[12.5px] mono">
             </div>
             <div>
-              <label class="block text-[11px] text-[var(--text-dim)] mb-1">Role</label>
+              <label class="block text-[11px] text-[var(--text-dim)] mb-1" x-text="t('settings.profile.role')"></label>
               <input :value="me && me.role" disabled class="w-full text-[12.5px] mono">
             </div>
             <div>
-              <label class="block text-[11px] text-[var(--text-dim)] mb-1">Last login</label>
+              <label class="block text-[11px] text-[var(--text-dim)] mb-1" x-text="t('settings.profile.last_login')"></label>
               <input :value="me && me.last_login_at ? fmtDate(me.last_login_at) : '—'" disabled class="w-full text-[12.5px] mono">
             </div>
             <div class="sm:col-span-2">
-              <label class="block text-[11px] text-[var(--text-dim)] mb-1">Member since</label>
+              <label class="block text-[11px] text-[var(--text-dim)] mb-1" x-text="t('settings.profile.member_since')"></label>
               <input :value="me && me.created_at ? fmtDate(me.created_at) : '—'" disabled class="w-full text-[12.5px] mono">
             </div>
           </div>
@@ -933,27 +933,27 @@
 
         <!-- About card — editable display name + bio + email -->
         <section class="bg-[var(--surface)] border border-[var(--border)] rounded-md p-5 lg:col-span-2">
-          <h3 class="font-semibold text-[13px] mb-4">About</h3>
+          <h3 class="font-semibold text-[13px] mb-4" x-text="t('settings.profile.about')"></h3>
           <div class="space-y-3">
             <div>
-              <label class="block text-[11px] text-[var(--text-dim)] mb-1">Display name</label>
+              <label class="block text-[11px] text-[var(--text-dim)] mb-1" x-text="t('settings.profile.display_name')"></label>
               <input x-model="profileForm.display_name" type="text" maxlength="80"
-                     placeholder="How you'd like your name shown (optional)" class="w-full text-[12.5px]">
+                     :placeholder="t('settings.profile.display_name_placeholder')" class="w-full text-[12.5px]">
             </div>
             <div>
-              <label class="block text-[11px] text-[var(--text-dim)] mb-1">Email</label>
-              <input x-model="profileForm.email" type="email" maxlength="200" placeholder="you@example.com" class="w-full text-[12.5px]">
+              <label class="block text-[11px] text-[var(--text-dim)] mb-1" x-text="t('settings.profile.email')"></label>
+              <input x-model="profileForm.email" type="email" maxlength="200" :placeholder="t('settings.profile.email_placeholder')" class="w-full text-[12.5px]">
             </div>
             <div>
-              <label class="block text-[11px] text-[var(--text-dim)] mb-1">Bio</label>
+              <label class="block text-[11px] text-[var(--text-dim)] mb-1" x-text="t('settings.profile.bio')"></label>
               <textarea x-model="profileForm.bio" rows="3" maxlength="500"
-                        placeholder="A short description, role within the team, timezone — whatever helps others recognise you."
+                        :placeholder="t('settings.profile.bio_placeholder')"
                         class="w-full text-[12.5px]"></textarea>
-              <p class="text-[10px] text-[var(--text-faint)] mt-1"><span x-text="(profileForm.bio || '').length"></span> / 500</p>
+              <p class="text-[10px] text-[var(--text-faint)] mt-1" x-text="t('settings.profile.bio_count', { count: (profileForm.bio || '').length })"></p>
             </div>
             <div>
               <button @click="saveProfile()" :disabled="profileBusy" class="btn btn-primary text-[12px]"
-                      x-text="profileBusy ? 'Saving…' : 'Save changes'"></button>
+                      x-text="profileBusy ? t('actions.saving') : t('actions.save_changes')"></button>
             </div>
           </div>
         </section>
@@ -962,25 +962,23 @@
         <section class="bg-[var(--surface)] border border-[var(--border)] rounded-md p-5 lg:col-span-2">
           <div class="flex items-center gap-2 mb-4">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-[var(--text-dim)]"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
-            <h3 class="font-semibold text-[13px]">Security</h3>
+            <h3 class="font-semibold text-[13px]" x-text="t('settings.profile.security')"></h3>
           </div>
           <template x-if="me && me.source === 'local'">
             <form @submit.prevent="changePassword()" class="space-y-3">
-              <h4 class="font-semibold text-[12px]">Change password</h4>
-              <p class="text-[11.5px] text-[var(--text-faint)]">
-                Changing your password signs out every other session for your account. The session you're using right now stays logged in.
-              </p>
+              <h4 class="font-semibold text-[12px]" x-text="t('settings.profile.change_password')"></h4>
+              <p class="text-[11.5px] text-[var(--text-faint)]" x-text="t('settings.profile.password_hint')"></p>
               <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
                 <div>
-                  <label class="block text-[11px] text-[var(--text-dim)] mb-1">Current password</label>
+                  <label class="block text-[11px] text-[var(--text-dim)] mb-1" x-text="t('settings.profile.current_password')"></label>
                   <input x-model="passwordForm.current" type="password" required autocomplete="current-password" class="w-full text-[12.5px]">
                 </div>
                 <div>
-                  <label class="block text-[11px] text-[var(--text-dim)] mb-1">New password</label>
+                  <label class="block text-[11px] text-[var(--text-dim)] mb-1" x-text="t('settings.profile.new_password')"></label>
                   <input x-model="passwordForm.next" type="password" required minlength="8" autocomplete="new-password" class="w-full text-[12.5px]">
                 </div>
                 <div>
-                  <label class="block text-[11px] text-[var(--text-dim)] mb-1">Confirm new password</label>
+                  <label class="block text-[11px] text-[var(--text-dim)] mb-1" x-text="t('settings.profile.confirm_new_password')"></label>
                   <input x-model="passwordForm.confirm" type="password" required minlength="8" autocomplete="new-password" class="w-full text-[12.5px]">
                 </div>
               </div>
@@ -999,64 +997,57 @@
                 <ul class="pw-requirements">
                   <li :class="passwordStrength.criteria.length8 ? 'met' : ''">
                     <span aria-hidden="true" x-text="passwordStrength.criteria.length8 ? '✓' : '○'"></span>
-                    At least 8 characters
+                    <span x-text="t('password.requirements.length8')"></span>
                   </li>
                   <li :class="passwordStrength.criteria.length12 ? 'met' : ''">
                     <span aria-hidden="true" x-text="passwordStrength.criteria.length12 ? '✓' : '○'"></span>
-                    12+ characters recommended
+                    <span x-text="t('password.requirements.length12')"></span>
                   </li>
                   <li :class="(passwordStrength.criteria.lower && passwordStrength.criteria.upper) ? 'met' : ''">
                     <span aria-hidden="true" x-text="(passwordStrength.criteria.lower && passwordStrength.criteria.upper) ? '✓' : '○'"></span>
-                    Upper &amp; lowercase letters
+                    <span x-text="t('password.requirements.mixed_case')"></span>
                   </li>
                   <li :class="passwordStrength.criteria.digit ? 'met' : ''">
                     <span aria-hidden="true" x-text="passwordStrength.criteria.digit ? '✓' : '○'"></span>
-                    At least one number
+                    <span x-text="t('password.requirements.digit')"></span>
                   </li>
                   <li :class="passwordStrength.criteria.symbol ? 'met' : ''">
                     <span aria-hidden="true" x-text="passwordStrength.criteria.symbol ? '✓' : '○'"></span>
-                    At least one symbol
+                    <span x-text="t('password.requirements.symbol')"></span>
                   </li>
                   <li x-show="passwordForm.confirm"
                       :class="(passwordForm.next === passwordForm.confirm) ? 'met' : 'mismatch'">
                     <span aria-hidden="true" x-text="(passwordForm.next === passwordForm.confirm) ? '✓' : '✗'"></span>
-                    New and confirm match
+                    <span x-text="t('password.requirements.match')"></span>
                   </li>
                 </ul>
               </div>
               <div>
                 <button type="submit" :disabled="passwordBusy || !passwordStrength.criteria.length8" class="btn btn-primary text-[12px]"
-                        x-text="passwordBusy ? 'Saving…' : 'Change password'"></button>
+                        x-text="passwordBusy ? t('actions.saving') : t('settings.profile.change_password')"></button>
               </div>
             </form>
           </template>
           <template x-if="me && me.source === 'authentik'">
-            <div class="text-[12.5px] text-[var(--text-dim)] leading-relaxed">
-              Your account is managed by Authentik. Change your password there —
-              PortaUpdate doesn't store one for SSO users.
-            </div>
+            <div class="text-[12.5px] text-[var(--text-dim)] leading-relaxed" x-text="t('settings.profile.authentik_hint')"></div>
           </template>
           <template x-if="me && me.source !== 'local' && me.source !== 'authentik'">
-            <div class="text-[12.5px] text-[var(--text-dim)]">
-              API-token sessions can't change a password. Sign in with the
-              underlying user account to manage credentials.
-            </div>
+            <div class="text-[12.5px] text-[var(--text-dim)]" x-text="t('settings.profile.api_token_hint')"></div>
           </template>
         </section>
       </div>
 
       <section x-show="settingsSection === 'notifications'" class="bg-[var(--surface)] border border-[var(--border)] rounded-md p-5">
-        <h3 class="font-semibold text-[13px] mb-2">Apprise notifications</h3>
+        <h3 class="font-semibold text-[13px] mb-2" x-text="t('settings.notifications.title')"></h3>
         <p class="text-[11.5px] text-[var(--text-faint)] mb-3">
-          URL format: <code class="mono text-[var(--text-dim)]">http://&lt;host&gt;:&lt;port&gt;/notify/&lt;CONFIG-KEY&gt;</code> —
-          <code class="mono text-[var(--text-dim)]">&lt;CONFIG-KEY&gt;</code> is the bundle name you saved in the Apprise web UI (not a tag).
-          A <b>404</b> response means no config with that key exists on the server.
+          <span x-text="t('settings.notifications.url_format_prefix')"></span> <code class="mono text-[var(--text-dim)]">http://&lt;host&gt;:&lt;port&gt;/notify/&lt;CONFIG-KEY&gt;</code> —
+          <code class="mono text-[var(--text-dim)]">&lt;CONFIG-KEY&gt;</code> <span x-html="t('settings.notifications.url_format_suffix')"></span>
         </p>
-        <input x-model="settings.apprise_url" type="url" :disabled="isReadonly()" placeholder="http://apprise.home.lan:8005/notify/<config-key>" class="w-full">
-        <input x-model="settings.apprise_tag" type="text" :disabled="isReadonly()" placeholder="Optional: filter URLs by tag within the config" class="w-full mt-2">
+        <input x-model="settings.apprise_url" type="url" :disabled="isReadonly()" :placeholder="t('settings.notifications.url_placeholder')" class="w-full">
+        <input x-model="settings.apprise_tag" type="text" :disabled="isReadonly()" :placeholder="t('settings.notifications.tag_placeholder')" class="w-full mt-2">
         <div class="flex gap-2 mt-3" x-show="isAdmin()">
-          <button @click="saveSettings()" class="btn btn-primary text-[12px]">Save</button>
-          <button @click="testNotify()" class="btn btn-soft text-[12px]">Send test</button>
+          <button @click="saveSettings()" class="btn btn-primary text-[12px]" x-text="t('actions.save')"></button>
+          <button @click="testNotify()" class="btn btn-soft text-[12px]" x-text="t('actions.send_test')"></button>
         </div>
       </section>
 
@@ -1069,41 +1060,37 @@
         <section class="bg-[var(--surface)] border border-[var(--border)] rounded-md p-5">
           <div class="flex items-start justify-between">
             <div>
-              <h3 class="font-semibold text-[13px] mb-2">Portainer connection</h3>
-              <p class="text-[11.5px] text-[var(--text-faint)] mb-3">
-                URL + API key + endpoint ID that PortaUpdate talks to. Stored in the database; changes take effect on the next refresh.
-              </p>
+              <h3 class="font-semibold text-[13px] mb-2" x-text="t('settings.portainer.connection_title')"></h3>
+              <p class="text-[11.5px] text-[var(--text-faint)] mb-3" x-text="t('settings.portainer.connection_desc')"></p>
             </div>
             <span x-show="portainerStatus" class="chip"
                   :class="portainerStatus && portainerStatus.configured ? 'pill-success' : 'pill-muted'"
-                  x-text="portainerStatus ? (portainerStatus.configured ? 'Configured' : 'Not configured') : ''"></span>
+                  x-text="portainerStatus ? (portainerStatus.configured ? t('settings.portainer.configured') : t('settings.portainer.not_configured')) : ''"></span>
           </div>
 
           <div x-show="portainerStatus" class="space-y-3">
             <div>
-              <label class="block text-[11px] text-[var(--text-dim)] mb-1">Portainer URL</label>
+              <label class="block text-[11px] text-[var(--text-dim)] mb-1" x-text="t('settings.portainer.url_label')"></label>
               <input x-model="portainerForm.url" type="url" :disabled="isReadonly()"
-                     placeholder="https://portainer.home.lan:8443" class="w-full mono text-[12.5px]">
+                     :placeholder="t('settings.portainer.url_placeholder')" class="w-full mono text-[12.5px]">
             </div>
 
             <div>
               <label class="block text-[11px] text-[var(--text-dim)] mb-1">
-                API key
+                <span x-text="t('settings.portainer.api_key_label')"></span>
                 <span class="text-[var(--text-faint)]"
-                      x-text="portainerStatus && portainerStatus.api_key_set ? '(currently set — leave blank to keep)' : '(not set)'"></span>
+                      x-text="portainerStatus && portainerStatus.api_key_set ? t('settings.portainer.api_key_set') : t('settings.portainer.api_key_not_set')"></span>
               </label>
               <input x-model="portainerForm.api_key" type="password" :disabled="isReadonly()"
-                     placeholder="Paste new key or leave blank"
+                     :placeholder="t('settings.portainer.api_key_placeholder')"
                      autocomplete="new-password"
                      class="w-full mono text-[12px]">
-              <p class="text-[11px] text-[var(--text-faint)] mt-1">
-                Create in Portainer → My account → Access tokens. We store only the value itself; nothing is echoed back to the browser.
-              </p>
+              <p class="text-[11px] text-[var(--text-faint)] mt-1" x-text="t('settings.portainer.api_key_hint')"></p>
             </div>
 
             <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div>
-                <label class="block text-[11px] text-[var(--text-dim)] mb-1">Endpoint ID</label>
+                <label class="block text-[11px] text-[var(--text-dim)] mb-1" x-text="t('settings.portainer.endpoint_id')"></label>
                 <input x-model.number="portainerForm.endpoint_id" type="number" min="1" :disabled="isReadonly()"
                        class="w-full mono text-[12.5px]">
               </div>
@@ -1111,19 +1098,19 @@
                 <input type="checkbox" :checked="portainerForm.verify_tls"
                        @change="portainerForm.verify_tls = $event.target.checked"
                        :disabled="isReadonly()">
-                <span>Verify TLS (uncheck for self-signed certs)</span>
+                <span x-text="t('settings.portainer.verify_tls')"></span>
               </label>
             </div>
 
             <div x-show="isAdmin()" class="flex gap-2 pt-1 flex-wrap">
-              <button @click="savePortainerSettings()" class="btn btn-primary text-[12px]">Save Portainer settings</button>
-              <button @click="testPortainerConnection()" class="btn btn-soft text-[12px]">Test connection</button>
+              <button @click="savePortainerSettings()" class="btn btn-primary text-[12px]" x-text="t('settings.portainer.save_button')"></button>
+              <button @click="testPortainerConnection()" class="btn btn-soft text-[12px]" x-text="t('settings.portainer.test_button')"></button>
             </div>
 
             <div x-show="portainerTestResult" class="text-[12px] rounded-md px-3 py-2"
                  :class="portainerTestResult && portainerTestResult.ok ? 'bg-[var(--pill-ok-bg)] text-[var(--pill-ok-fg)] border border-[var(--pill-ok-br)]' : 'bg-[var(--pill-error-bg)] text-[var(--pill-error-fg)] border border-[var(--pill-error-br)]'">
               <template x-if="portainerTestResult && portainerTestResult.pending">
-                <span>Testing…</span>
+                <span x-text="t('loading.testing')"></span>
               </template>
               <template x-if="portainerTestResult && !portainerTestResult.pending">
                 <span>
@@ -1136,25 +1123,25 @@
         </section>
 
         <section class="bg-[var(--surface)] border border-[var(--border)] rounded-md p-5">
-          <h3 class="font-semibold text-[13px] mb-2">Portainer public URL</h3>
-          <p class="text-[11.5px] text-[var(--text-faint)] mb-3">Browser-facing URL for "Open in Portainer" deep links. May differ from the API URL when Portainer sits behind a reverse proxy.</p>
-          <input x-model="settings.portainer_public_url" type="url" :disabled="isReadonly()" placeholder="https://portainer.home.lan" class="w-full">
-          <button x-show="isAdmin()" @click="saveSettings()" class="btn btn-primary text-[12px] mt-3">Save</button>
+          <h3 class="font-semibold text-[13px] mb-2" x-text="t('settings.portainer.public_title')"></h3>
+          <p class="text-[11.5px] text-[var(--text-faint)] mb-3" x-text="t('settings.portainer.public_desc')"></p>
+          <input x-model="settings.portainer_public_url" type="url" :disabled="isReadonly()" :placeholder="t('settings.portainer.public_placeholder')" class="w-full">
+          <button x-show="isAdmin()" @click="saveSettings()" class="btn btn-primary text-[12px] mt-3" x-text="t('actions.save')"></button>
         </section>
       </div>
 
       <section x-show="settingsSection === 'ignores'" class="bg-[var(--surface)] border border-[var(--border)] rounded-md p-5">
-        <h3 class="font-semibold text-[13px] mb-2">Ignore list</h3>
+        <h3 class="font-semibold text-[13px] mb-2" x-text="t('settings.ignores.title')"></h3>
         <p class="text-[11.5px] text-[var(--text-faint)] mb-3">
-          Items matching these patterns show as <span class="pill pill-ignored">ignored</span> and won't offer updates.
+          <span x-text="t('settings.ignores.intro_prefix')"></span> <span class="pill pill-ignored" x-text="t('states.ignored')"></span> <span x-text="t('settings.ignores.intro_suffix')"></span>
         </p>
         <div class="flex gap-2 flex-wrap" x-show="isAdmin()">
           <select x-model="newIgnore.kind" class="min-w-[100px]">
-            <option value="image">Image</option>
-            <option value="stack">Stack</option>
+            <option value="image" x-text="t('settings.ignores.kind_image')"></option>
+            <option value="stack" x-text="t('settings.ignores.kind_stack')"></option>
           </select>
-          <input x-model="newIgnore.pattern" type="text" placeholder="e.g. plex or my-stack" class="flex-1 min-w-[200px]">
-          <button @click="addIgnore()" class="btn btn-primary text-[12px]">Add</button>
+          <input x-model="newIgnore.pattern" type="text" :placeholder="t('settings.ignores.pattern_placeholder')" class="flex-1 min-w-[200px]">
+          <button @click="addIgnore()" class="btn btn-primary text-[12px]" x-text="t('actions.add')"></button>
         </div>
         <div class="mt-3 space-y-1">
           <template x-for="ig in ignores" :key="ig.pattern">
@@ -1163,10 +1150,10 @@
                 <span class="chip" x-text="ig.kind"></span>
                 <span class="mono" x-text="ig.pattern"></span>
               </div>
-              <button x-show="isAdmin()" @click="delIgnore(ig.pattern)" class="text-[var(--danger)] hover:underline text-[11px]">Remove</button>
+              <button x-show="isAdmin()" @click="delIgnore(ig.pattern)" class="text-[var(--danger)] hover:underline text-[11px]" x-text="t('actions.remove_link')"></button>
             </div>
           </template>
-          <div x-show="ignores.length===0" class="text-[11px] text-[var(--text-faint)] italic">No ignores configured.</div>
+          <div x-show="ignores.length===0" class="text-[11px] text-[var(--text-faint)] italic" x-text="t('empty.no_ignores')"></div>
         </div>
       </section>
 
@@ -1178,15 +1165,13 @@
       <section x-show="settingsSection === 'oidc'" class="bg-[var(--surface)] border border-[var(--border)] rounded-md p-5">
         <div class="flex items-start justify-between">
           <div>
-            <h3 class="font-semibold text-[13px] mb-2">Authentik OIDC (SSO)</h3>
-            <p class="text-[11.5px] text-[var(--text-faint)] mb-3">
-              OpenID Connect provider. Works with any compliant IdP; the label says Authentik because that's our reference setup. See <code class="mono">notes/note_authentik.txt</code> for the provider-side walkthrough.
-            </p>
+            <h3 class="font-semibold text-[13px] mb-2" x-text="t('settings.oidc.title')"></h3>
+            <p class="text-[11.5px] text-[var(--text-faint)] mb-3" x-text="t('settings.oidc.description')"></p>
           </div>
           <span x-show="oidcStatus"
                 class="chip"
                 :class="oidcStatus && oidcStatus.enabled ? 'pill-success' : 'pill-muted'"
-                x-text="oidcStatus ? (oidcStatus.enabled ? 'Enabled' : 'Disabled') : ''"></span>
+                x-text="oidcStatus ? (oidcStatus.enabled ? t('settings.oidc.enabled') : t('settings.oidc.disabled')) : ''"></span>
         </div>
 
         <div x-show="oidcStatus" class="space-y-3">
@@ -1194,34 +1179,32 @@
             <input type="checkbox" :checked="oidcForm.enabled"
                    @change="oidcForm.enabled = $event.target.checked"
                    :disabled="isReadonly()">
-            <span>Enable OIDC login (shows the "Sign in with Authentik" button on /login)</span>
+            <span x-text="t('settings.oidc.enable_toggle')"></span>
           </label>
 
           <div>
-            <label class="block text-[11px] text-[var(--text-dim)] mb-1">Issuer URL</label>
+            <label class="block text-[11px] text-[var(--text-dim)] mb-1" x-text="t('settings.oidc.issuer_url')"></label>
             <input x-model="oidcForm.issuer_url" type="url" :disabled="isReadonly()"
-                   placeholder="https://authentik.www.home.lan/application/o/portaupdate/"
+                   :placeholder="t('settings.oidc.issuer_placeholder')"
                    class="w-full mono text-[12px]">
-            <p class="text-[11px] text-[var(--text-faint)] mt-1">
-              Paste the "OpenID Configuration Issuer" URL from your Authentik provider's <b>Metadata</b> tab. We append <code class="mono">/.well-known/openid-configuration</code> to it automatically.
-            </p>
+            <p class="text-[11px] text-[var(--text-faint)] mt-1" x-html="t('settings.oidc.issuer_hint')"></p>
           </div>
 
           <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
-              <label class="block text-[11px] text-[var(--text-dim)] mb-1">Client ID</label>
+              <label class="block text-[11px] text-[var(--text-dim)] mb-1" x-text="t('settings.oidc.client_id')"></label>
               <input x-model="oidcForm.client_id" type="text" :disabled="isReadonly()"
-                     placeholder="Authentik-generated client ID"
+                     :placeholder="t('settings.oidc.client_id_placeholder')"
                      class="w-full mono text-[12px]">
             </div>
             <div>
               <label class="block text-[11px] text-[var(--text-dim)] mb-1">
-                Client secret
+                <span x-text="t('settings.oidc.client_secret')"></span>
                 <span class="text-[var(--text-faint)]"
-                      x-text="oidcStatus && oidcStatus.client_secret_set ? '(currently set — leave blank to keep)' : '(not set)'"></span>
+                      x-text="oidcStatus && oidcStatus.client_secret_set ? t('settings.oidc.client_secret_set') : t('settings.oidc.client_secret_not_set')"></span>
               </label>
               <input x-model="oidcForm.client_secret" type="password" :disabled="isReadonly()"
-                     placeholder="Paste new secret or leave blank"
+                     :placeholder="t('settings.oidc.client_secret_placeholder')"
                      autocomplete="new-password"
                      class="w-full mono text-[12px]">
             </div>
@@ -1229,38 +1212,32 @@
 
           <div>
             <label class="block text-[11px] text-[var(--text-dim)] mb-1">
-              Redirect URI <span class="text-[var(--text-faint)]">(paste this into Authentik's Redirect URIs allowlist)</span>
+              <span x-text="t('settings.oidc.redirect_uri')"></span> <span class="text-[var(--text-faint)]" x-text="t('settings.oidc.redirect_uri_note')"></span>
             </label>
             <div class="flex items-stretch gap-2">
               <input :value="oidcStatus && oidcStatus.redirect_uri_default || ''" readonly
                      class="w-full mono text-[12px] flex-1 bg-[var(--surface-2)]">
               <button @click="copyRedirectUri()" type="button"
                       class="btn btn-soft text-[12px] whitespace-nowrap"
-                      title="Copy to clipboard">Copy</button>
+                      :title="t('settings.oidc.copy_title')" x-text="t('settings.oidc.copy')"></button>
             </div>
-            <p class="text-[11px] text-[var(--text-faint)] mt-1">
-              Computed from the current request's origin. Authentik must have this exact value in its "Redirect URIs" allowlist, one per line.
-            </p>
+            <p class="text-[11px] text-[var(--text-faint)] mt-1" x-text="t('settings.oidc.redirect_uri_hint')"></p>
           </div>
 
           <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
-              <label class="block text-[11px] text-[var(--text-dim)] mb-1">Scopes</label>
+              <label class="block text-[11px] text-[var(--text-dim)] mb-1" x-text="t('settings.oidc.scopes')"></label>
               <input x-model="oidcForm.scopes" type="text" :disabled="isReadonly()"
-                     placeholder="openid email profile groups"
+                     :placeholder="t('settings.oidc.scopes_placeholder')"
                      class="w-full mono text-[12px]">
-              <p class="text-[11px] text-[var(--text-faint)] mt-1">
-                Space-separated. <code class="mono">groups</code> is required for role mapping.
-              </p>
+              <p class="text-[11px] text-[var(--text-faint)] mt-1" x-html="t('settings.oidc.scopes_hint')"></p>
             </div>
             <div>
-              <label class="block text-[11px] text-[var(--text-dim)] mb-1">Admin group</label>
+              <label class="block text-[11px] text-[var(--text-dim)] mb-1" x-text="t('settings.oidc.admin_group')"></label>
               <input x-model="oidcForm.admin_group" type="text" :disabled="isReadonly()"
-                     placeholder="portaupdate-admins"
+                     :placeholder="t('settings.oidc.admin_group_placeholder')"
                      class="w-full mono text-[12.5px]">
-              <p class="text-[11px] text-[var(--text-faint)] mt-1">
-                Group membership is re-checked on every OIDC login. Users outside this group land as <code class="mono">readonly</code>.
-              </p>
+              <p class="text-[11px] text-[var(--text-faint)] mt-1" x-html="t('settings.oidc.admin_group_hint')"></p>
             </div>
           </div>
 
@@ -1269,22 +1246,20 @@
                    @change="oidcForm.verify_tls = $event.target.checked"
                    :disabled="isReadonly()" class="mt-0.5">
             <span>
-              <span class="font-medium">Verify TLS on discovery / token / JWKS calls</span>
-              <span class="block text-[11px] text-[var(--text-faint)] mt-0.5">
-                Leave on when the issuer has a publicly-trusted cert. Turn off for homelab issuers behind an internal CA whose root isn't in the container's trust store (e.g. <code class="mono">*.home.lan</code> with a self-signed PKI). Mirrors the behaviour of Portainer's Verify TLS toggle.
-              </span>
+              <span class="font-medium" x-text="t('settings.oidc.verify_tls_title')"></span>
+              <span class="block text-[11px] text-[var(--text-faint)] mt-0.5" x-html="t('settings.oidc.verify_tls_hint')"></span>
             </span>
           </label>
 
           <div x-show="isAdmin()" class="flex gap-2 pt-1 flex-wrap">
-            <button @click="saveOidcSettings()" class="btn btn-primary text-[12px]">Save OIDC settings</button>
-            <button @click="testOidcConnection()" class="btn btn-soft text-[12px]">Test connection</button>
+            <button @click="saveOidcSettings()" class="btn btn-primary text-[12px]" x-text="t('settings.oidc.save_button')"></button>
+            <button @click="testOidcConnection()" class="btn btn-soft text-[12px]" x-text="t('settings.oidc.test_button')"></button>
           </div>
 
           <div x-show="oidcTestResult" class="text-[12px] rounded-md px-3 py-2"
                :class="oidcTestResult && oidcTestResult.ok ? 'bg-[var(--pill-ok-bg)] text-[var(--pill-ok-fg)] border border-[var(--pill-ok-br)]' : 'bg-[var(--pill-error-bg)] text-[var(--pill-error-fg)] border border-[var(--pill-error-br)]'">
             <template x-if="oidcTestResult && oidcTestResult.pending">
-              <span>Testing…</span>
+              <span x-text="t('loading.testing')"></span>
             </template>
             <template x-if="oidcTestResult && !oidcTestResult.pending">
               <span>
@@ -1296,10 +1271,26 @@
         </div>
       </section>
 
+      <!-- Language section — lets operators pick the UI language. The
+           same picker also lives in the topbar for quick access. Dropping
+           a new file into static/i18n/ + listing it in index.json makes it
+           appear here automatically on next reload. -->
+      <section x-show="settingsSection === 'language'" class="bg-[var(--surface)] border border-[var(--border)] rounded-md p-5">
+        <h3 class="font-semibold text-[13px] mb-2" x-text="t('settings.language.title')"></h3>
+        <p class="text-[11.5px] text-[var(--text-faint)] mb-3" x-text="t('settings.language.description')"></p>
+        <label class="block text-[11px] text-[var(--text-dim)] mb-1" x-text="t('settings.language.label')"></label>
+        <select :value="lang" @change="setLang($event.target.value)"
+                class="text-[12.5px] min-w-[200px]">
+          <template x-for="l in availableLanguages" :key="l.code">
+            <option :value="l.code" x-text="l.name + ' (' + l.code + ')'"></option>
+          </template>
+        </select>
+      </section>
+
       <section x-show="settingsSection === 'shortcuts'" class="bg-[var(--surface)] border border-[var(--border)] rounded-md p-5">
-        <h3 class="font-semibold text-[13px] mb-2">Keyboard shortcuts</h3>
-        <p class="text-[11.5px] text-[var(--text-faint)] mb-2">Press <kbd class="kbd">?</kbd> anywhere to open the full reference.</p>
-        <button @click="showHotkeys=true" class="btn btn-soft text-[12px]">Open shortcut reference</button>
+        <h3 class="font-semibold text-[13px] mb-2" x-text="t('settings.shortcuts.title')"></h3>
+        <p class="text-[11.5px] text-[var(--text-faint)] mb-2" x-html="t('settings.shortcuts.hint')"></p>
+        <button @click="showHotkeys=true" class="btn btn-soft text-[12px]" x-text="t('actions.open_shortcut_reference')"></button>
       </section>
       </div>
     </div>
@@ -1307,62 +1298,58 @@
     <!-- ===== ADMIN VIEW (admin role only) ===== -->
     <div x-show="view==='admin'" class="page-layout">
       <aside class="page-sidebar">
-        <div class="page-sidebar-header">Admin</div>
+        <div class="page-sidebar-header" x-text="t('nav.admin')"></div>
         <template x-for="s in adminSections" :key="s.id">
           <button @click="openAdminTab(s.id)"
                   :class="adminTab === s.id ? 'page-sidebar-item active' : 'page-sidebar-item'"
-                  x-text="s.label"></button>
+                  x-text="t('admin.sections.' + s.id)"></button>
         </template>
       </aside>
       <div class="page-content">
       <div>
-        <p class="text-[11px] text-[var(--text-faint)] mt-0.5">
-          User accounts, active sessions, and API tokens. Destructive actions prompt for confirmation.
-        </p>
+        <p class="text-[11px] text-[var(--text-faint)] mt-0.5" x-text="t('admin.intro')"></p>
       </div>
 
       <!-- USERS TAB -->
       <div x-show="adminTab==='users'" class="space-y-4">
         <section class="bg-[var(--surface)] border border-[var(--border)] rounded-md p-5">
-          <h3 class="font-semibold text-[13px] mb-3">Create user</h3>
+          <h3 class="font-semibold text-[13px] mb-3" x-text="t('admin.users.create_title')"></h3>
           <div class="grid grid-cols-1 md:grid-cols-2 gap-2">
-            <input x-model="newUser.username" type="text" placeholder="Username" class="w-full">
-            <input x-model="newUser.email" type="email" placeholder="Email (optional)" class="w-full">
+            <input x-model="newUser.username" type="text" :placeholder="t('admin.users.username_placeholder')" class="w-full">
+            <input x-model="newUser.email" type="email" :placeholder="t('admin.users.email_placeholder')" class="w-full">
             <select x-model="newUser.auth_source" class="w-full">
-              <option value="local">Local (password)</option>
-              <option value="authentik">Authentik (SSO)</option>
+              <option value="local" x-text="t('admin.users.auth_local')"></option>
+              <option value="authentik" x-text="t('admin.users.auth_authentik')"></option>
             </select>
             <select x-model="newUser.role" class="w-full">
-              <option value="readonly">readonly</option>
-              <option value="admin">admin</option>
+              <option value="readonly" x-text="t('admin.users.role_readonly')"></option>
+              <option value="admin" x-text="t('admin.users.role_admin')"></option>
             </select>
             <input x-show="newUser.auth_source==='local'" x-model="newUser.password"
-                   type="password" placeholder="Initial password (min 8 chars)"
+                   type="password" :placeholder="t('admin.users.password_placeholder')"
                    class="w-full md:col-span-2">
           </div>
           <div class="mt-3 flex items-center gap-3">
-            <button @click="createUser()" class="btn btn-primary text-[12px]">Create</button>
-            <span x-show="newUser.auth_source==='authentik'" class="text-[11.5px] text-[var(--text-faint)]">
-              Authentik users are usually auto-provisioned on first SSO login — create manually only if you want to pre-set their role.
-            </span>
+            <button @click="createUser()" class="btn btn-primary text-[12px]" x-text="t('actions.create')"></button>
+            <span x-show="newUser.auth_source==='authentik'" class="text-[11.5px] text-[var(--text-faint)]" x-text="t('admin.users.authentik_hint')"></span>
           </div>
         </section>
 
         <section class="bg-[var(--surface)] border border-[var(--border)] rounded-md overflow-hidden">
           <div class="p-4 border-b border-[var(--border)] flex justify-between items-center">
-            <h3 class="font-semibold text-[13px]">Users <span class="text-[var(--text-faint)] font-normal" x-text="'(' + users.length + ')'"></span></h3>
-            <button @click="loadUsers()" class="btn btn-ghost text-[11px]">Reload</button>
+            <h3 class="font-semibold text-[13px]"><span x-text="t('admin.users.list_title')"></span> <span class="text-[var(--text-faint)] font-normal" x-text="'(' + users.length + ')'"></span></h3>
+            <button @click="loadUsers()" class="btn btn-ghost text-[11px]" x-text="t('actions.reload')"></button>
           </div>
           <div class="overflow-x-auto">
             <table class="w-full text-[12.5px]">
               <thead class="bg-[var(--surface-2)] text-[10.5px] uppercase tracking-wider text-[var(--text-faint)]">
                 <tr>
-                  <th class="text-left px-4 py-2">User</th>
-                  <th class="text-left px-4 py-2">Source</th>
-                  <th class="text-left px-4 py-2">Role</th>
-                  <th class="text-left px-4 py-2">Status</th>
-                  <th class="text-left px-4 py-2">Last login</th>
-                  <th class="text-right px-4 py-2">Actions</th>
+                  <th class="text-start px-4 py-2" x-text="t('columns.user')"></th>
+                  <th class="text-start px-4 py-2" x-text="t('columns.source')"></th>
+                  <th class="text-start px-4 py-2" x-text="t('columns.role')"></th>
+                  <th class="text-start px-4 py-2" x-text="t('columns.status')"></th>
+                  <th class="text-start px-4 py-2" x-text="t('columns.last_login')"></th>
+                  <th class="text-end px-4 py-2" x-text="t('columns.actions')"></th>
                 </tr>
               </thead>
               <tbody>
@@ -1380,28 +1367,28 @@
                     </td>
                     <td class="px-4 py-2">
                       <span class="pill" :class="u.disabled ? 'pill-error' : 'pill-success'"
-                            x-text="u.disabled ? 'disabled' : 'active'"></span>
+                            x-text="u.disabled ? t('states.disabled') : t('states.active')"></span>
                     </td>
                     <td class="px-4 py-2 mono text-[11px] text-[var(--text-dim)]"
                         x-text="fmtDate(u.last_login_at)"></td>
-                    <td class="px-4 py-2 text-right">
+                    <td class="px-4 py-2 text-end">
                       <div class="inline-flex gap-1">
                         <button @click="toggleUserRole(u)" class="btn btn-soft text-[11px]"
-                                :title="'Make ' + (u.role==='admin' ? 'readonly' : 'admin')"
-                                x-text="u.role==='admin' ? '→ readonly' : '→ admin'"></button>
+                                :title="u.role==='admin' ? t('admin.users.make_readonly') : t('admin.users.make_admin')"
+                                x-text="u.role==='admin' ? t('admin.users.to_readonly') : t('admin.users.to_admin')"></button>
                         <button @click="toggleUserDisabled(u)" class="btn btn-soft text-[11px]"
-                                x-text="u.disabled ? 'Enable' : 'Disable'"></button>
+                                x-text="u.disabled ? t('admin.users.enable') : t('admin.users.disable')"></button>
                         <button x-show="u.auth_source==='local'" @click="resetUserPassword(u)"
-                                class="btn btn-soft text-[11px]" title="Reset password">Reset pw</button>
+                                class="btn btn-soft text-[11px]" :title="t('admin.users.reset_pw_title')" x-text="t('admin.users.reset_pw')"></button>
                         <button @click="deleteUser(u)" class="btn btn-ghost text-[11px] text-danger"
                                 :disabled="me && u.id === me.id ? true : false"
-                                :title="me && u.id === me.id ? \"Can't delete yourself\" : 'Delete user'">Delete</button>
+                                :title="me && u.id === me.id ? t('admin.users.delete_self_title') : t('admin.users.delete_title')" x-text="t('actions.delete')"></button>
                       </div>
                     </td>
                   </tr>
                 </template>
                 <tr x-show="users.length===0">
-                  <td colspan="6" class="text-center py-8 text-[var(--text-faint)]">No users loaded. Click Reload.</td>
+                  <td colspan="6" class="text-center py-8 text-[var(--text-faint)]" x-text="t('empty.no_users')"></td>
                 </tr>
               </tbody>
             </table>
@@ -1414,40 +1401,40 @@
         <section class="bg-[var(--surface)] border border-[var(--border)] rounded-md overflow-hidden">
           <div class="p-4 border-b border-[var(--border)] flex justify-between items-center">
             <div>
-              <h3 class="font-semibold text-[13px]">Active sessions <span class="text-[var(--text-faint)] font-normal" x-text="'(' + sessions.length + ')'"></span></h3>
-              <p class="text-[11px] text-[var(--text-faint)] mt-0.5">Bearer-token calls are not shown here — revoke those from the API tokens tab.</p>
+              <h3 class="font-semibold text-[13px]"><span x-text="t('admin.sessions.active_title')"></span> <span class="text-[var(--text-faint)] font-normal" x-text="'(' + sessions.length + ')'"></span></h3>
+              <p class="text-[11px] text-[var(--text-faint)] mt-0.5" x-text="t('admin.sessions.hint')"></p>
             </div>
-            <button @click="loadSessions()" class="btn btn-ghost text-[11px]">Reload</button>
+            <button @click="loadSessions()" class="btn btn-ghost text-[11px]" x-text="t('actions.reload')"></button>
           </div>
           <div class="overflow-x-auto">
             <table class="w-full text-[12.5px]">
               <thead class="bg-[var(--surface-2)] text-[10.5px] uppercase tracking-wider text-[var(--text-faint)]">
                 <tr>
-                  <th class="text-left px-4 py-2">User</th>
-                  <th class="text-left px-4 py-2">IP</th>
-                  <th class="text-left px-4 py-2">User-agent</th>
-                  <th class="text-left px-4 py-2">Last seen</th>
-                  <th class="text-left px-4 py-2">Expires</th>
-                  <th class="text-right px-4 py-2">Action</th>
+                  <th class="text-start px-4 py-2" x-text="t('columns.user')"></th>
+                  <th class="text-start px-4 py-2" x-text="t('columns.ip')"></th>
+                  <th class="text-start px-4 py-2" x-text="t('columns.user_agent')"></th>
+                  <th class="text-start px-4 py-2" x-text="t('columns.last_seen')"></th>
+                  <th class="text-start px-4 py-2" x-text="t('columns.expires')"></th>
+                  <th class="text-end px-4 py-2" x-text="t('columns.action')"></th>
                 </tr>
               </thead>
               <tbody>
                 <template x-for="s in sessions" :key="s.token_id">
                   <tr class="border-t border-[var(--border)]">
-                    <td class="px-4 py-2 font-medium" x-text="s.username || '(deleted user)'"></td>
+                    <td class="px-4 py-2 font-medium" x-text="s.username || t('admin.sessions.deleted_user')"></td>
                     <td class="px-4 py-2 mono text-[11px]" x-text="s.ip || '—'"></td>
                     <td class="px-4 py-2 text-[11.5px] text-[var(--text-dim)] truncate max-w-[280px]" x-text="s.user_agent || '—'" :title="s.user_agent || ''"></td>
                     <td class="px-4 py-2 mono text-[11px] text-[var(--text-dim)]"
                         x-text="fmtDate(s.last_seen_at)"></td>
                     <td class="px-4 py-2 mono text-[11px] text-[var(--text-dim)]"
                         x-text="fmtDate(s.expires_at)"></td>
-                    <td class="px-4 py-2 text-right">
-                      <button @click="revokeSession(s)" class="btn btn-ghost text-[11px] text-danger">Revoke</button>
+                    <td class="px-4 py-2 text-end">
+                      <button @click="revokeSession(s)" class="btn btn-ghost text-[11px] text-danger" x-text="t('admin.sessions.revoke')"></button>
                     </td>
                   </tr>
                 </template>
                 <tr x-show="sessions.length===0">
-                  <td colspan="6" class="text-center py-8 text-[var(--text-faint)]">No active sessions. Click Reload.</td>
+                  <td colspan="6" class="text-center py-8 text-[var(--text-faint)]" x-text="t('empty.no_sessions')"></td>
                 </tr>
               </tbody>
             </table>
@@ -1458,53 +1445,51 @@
       <!-- API TOKENS TAB -->
       <div x-show="adminTab==='tokens'" class="space-y-4">
         <section class="bg-[var(--surface)] border border-[var(--border)] rounded-md p-5">
-          <h3 class="font-semibold text-[13px] mb-2">Create API token</h3>
-          <p class="text-[11.5px] text-[var(--text-faint)] mb-3">
-            For machine clients (Homarr widgets, scheduled jobs, etc.). The raw token is shown ONCE after creation — copy it then.
-          </p>
+          <h3 class="font-semibold text-[13px] mb-2" x-text="t('admin.tokens.create_title')"></h3>
+          <p class="text-[11.5px] text-[var(--text-faint)] mb-3" x-text="t('admin.tokens.create_hint')"></p>
           <div class="grid grid-cols-1 md:grid-cols-3 gap-2">
-            <input x-model="newToken.name" type="text" placeholder="Name (e.g. homarr)" class="w-full md:col-span-2">
+            <input x-model="newToken.name" type="text" :placeholder="t('admin.tokens.name_placeholder')" class="w-full md:col-span-2">
             <select x-model="newToken.role" class="w-full">
-              <option value="readonly">readonly</option>
-              <option value="admin">admin</option>
+              <option value="readonly" x-text="t('admin.users.role_readonly')"></option>
+              <option value="admin" x-text="t('admin.users.role_admin')"></option>
             </select>
           </div>
-          <button @click="createToken()" class="btn btn-primary text-[12px] mt-3">Create token</button>
+          <button @click="createToken()" class="btn btn-primary text-[12px] mt-3" x-text="t('admin.tokens.create_button')"></button>
         </section>
 
         <section class="bg-[var(--surface)] border border-[var(--border)] rounded-md overflow-hidden">
           <div class="p-4 border-b border-[var(--border)] flex justify-between items-center">
-            <h3 class="font-semibold text-[13px]">API tokens <span class="text-[var(--text-faint)] font-normal" x-text="'(' + tokens.length + ')'"></span></h3>
-            <button @click="loadTokens()" class="btn btn-ghost text-[11px]">Reload</button>
+            <h3 class="font-semibold text-[13px]"><span x-text="t('admin.tokens.list_title')"></span> <span class="text-[var(--text-faint)] font-normal" x-text="'(' + tokens.length + ')'"></span></h3>
+            <button @click="loadTokens()" class="btn btn-ghost text-[11px]" x-text="t('actions.reload')"></button>
           </div>
           <div class="overflow-x-auto">
             <table class="w-full text-[12.5px]">
               <thead class="bg-[var(--surface-2)] text-[10.5px] uppercase tracking-wider text-[var(--text-faint)]">
                 <tr>
-                  <th class="text-left px-4 py-2">Name</th>
-                  <th class="text-left px-4 py-2">Role</th>
-                  <th class="text-left px-4 py-2">Created by</th>
-                  <th class="text-left px-4 py-2">Last used</th>
-                  <th class="text-right px-4 py-2">Action</th>
+                  <th class="text-start px-4 py-2" x-text="t('columns.name')"></th>
+                  <th class="text-start px-4 py-2" x-text="t('columns.role')"></th>
+                  <th class="text-start px-4 py-2" x-text="t('columns.created_by')"></th>
+                  <th class="text-start px-4 py-2" x-text="t('columns.last_used')"></th>
+                  <th class="text-end px-4 py-2" x-text="t('columns.action')"></th>
                 </tr>
               </thead>
               <tbody>
-                <template x-for="t in tokens" :key="t.id">
+                <template x-for="tk in tokens" :key="tk.id">
                   <tr class="border-t border-[var(--border)]">
-                    <td class="px-4 py-2 font-medium" x-text="t.name"></td>
+                    <td class="px-4 py-2 font-medium" x-text="tk.name"></td>
                     <td class="px-4 py-2">
-                      <span class="pill" :class="t.role==='admin' ? 'pill-primary' : 'pill-muted'" x-text="t.role"></span>
+                      <span class="pill" :class="tk.role==='admin' ? 'pill-primary' : 'pill-muted'" x-text="tk.role"></span>
                     </td>
-                    <td class="px-4 py-2 text-[11.5px] text-[var(--text-dim)]" x-text="t.created_by_username || '—'"></td>
+                    <td class="px-4 py-2 text-[11.5px] text-[var(--text-dim)]" x-text="tk.created_by_username || '—'"></td>
                     <td class="px-4 py-2 mono text-[11px] text-[var(--text-dim)]"
-                        x-text="t.last_used_at ? fmtDate(t.last_used_at) : 'never'"></td>
-                    <td class="px-4 py-2 text-right">
-                      <button @click="deleteToken(t)" class="btn btn-ghost text-[11px] text-danger">Revoke</button>
+                        x-text="tk.last_used_at ? fmtDate(tk.last_used_at) : t('states.never')"></td>
+                    <td class="px-4 py-2 text-end">
+                      <button @click="deleteToken(tk)" class="btn btn-ghost text-[11px] text-danger" x-text="t('admin.tokens.revoke')"></button>
                     </td>
                   </tr>
                 </template>
                 <tr x-show="tokens.length===0">
-                  <td colspan="5" class="text-center py-8 text-[var(--text-faint)]">No tokens yet.</td>
+                  <td colspan="5" class="text-center py-8 text-[var(--text-faint)]" x-text="t('empty.no_tokens')"></td>
                 </tr>
               </tbody>
             </table>
@@ -1515,18 +1500,16 @@
       <!-- BACKUPS TAB -->
       <div x-show="adminTab==='backups'" class="space-y-4">
         <section class="bg-[var(--surface)] border border-[var(--border)] rounded-md p-5">
-          <h3 class="font-semibold text-[13px] mb-2">Backup the whole configuration</h3>
-          <p class="text-[11.5px] text-[var(--text-faint)] mb-3">
-            A zip containing the full SQLite database (users, API tokens, ignores, settings including Portainer + OIDC config, history, stats) and every uploaded avatar. Consistent snapshot via SQLite's online <code class="mono text-[var(--text-dim)]">.backup()</code> API — safe to run with active traffic.
-          </p>
+          <h3 class="font-semibold text-[13px] mb-2" x-text="t('admin.backups.create_title')"></h3>
+          <p class="text-[11.5px] text-[var(--text-faint)] mb-3" x-html="t('admin.backups.create_desc')"></p>
           <div class="flex items-center gap-2 flex-wrap">
             <button @click="createBackup()" :disabled="backupBusy"
                     class="btn btn-primary text-[12px]"
                     :class="backupBusy && 'opacity-60'"
-                    x-text="backupBusy ? 'Creating…' : 'Backup Now'"></button>
+                    x-text="backupBusy ? t('loading.creating') : t('admin.backups.backup_now')"></button>
             <label class="btn btn-soft text-[12px] cursor-pointer">
               <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
-              Restore from file…
+              <span x-text="t('admin.backups.restore_from_file')"></span>
               <input type="file" accept=".zip,application/zip"
                      class="hidden" @change="restoreBackupFromFile($event)">
             </label>
@@ -1536,19 +1519,19 @@
         <section class="bg-[var(--surface)] border border-[var(--border)] rounded-md overflow-hidden">
           <div class="p-4 border-b border-[var(--border)] flex justify-between items-center">
             <h3 class="font-semibold text-[13px]">
-              Backups <span class="text-[var(--text-faint)] font-normal" x-text="'(' + backups.length + ')'"></span>
+              <span x-text="t('admin.backups.list_title')"></span> <span class="text-[var(--text-faint)] font-normal" x-text="'(' + backups.length + ')'"></span>
             </h3>
-            <button @click="loadBackups()" class="btn btn-ghost text-[11px]">Reload</button>
+            <button @click="loadBackups()" class="btn btn-ghost text-[11px]" x-text="t('actions.reload')"></button>
           </div>
           <div class="overflow-x-auto">
             <table class="w-full text-[12.5px]">
               <thead class="bg-[var(--surface-2)] text-[10.5px] uppercase tracking-wider text-[var(--text-faint)]">
                 <tr>
-                  <th class="text-left px-4 py-2">Name</th>
-                  <th class="text-left px-4 py-2">Size</th>
-                  <th class="text-left px-4 py-2">Created</th>
-                  <th class="text-left px-4 py-2">Produced by</th>
-                  <th class="text-right px-4 py-2">Actions</th>
+                  <th class="text-start px-4 py-2" x-text="t('columns.name')"></th>
+                  <th class="text-start px-4 py-2" x-text="t('columns.size')"></th>
+                  <th class="text-start px-4 py-2" x-text="t('columns.created')"></th>
+                  <th class="text-start px-4 py-2" x-text="t('columns.produced_by')"></th>
+                  <th class="text-end px-4 py-2" x-text="t('columns.actions')"></th>
                 </tr>
               </thead>
               <tbody>
@@ -1558,18 +1541,18 @@
                     <td class="px-4 py-2 mono text-[11px] text-[var(--text-dim)]" x-text="fmtBytes(b.size)"></td>
                     <td class="px-4 py-2 mono text-[11px] text-[var(--text-dim)]" x-text="fmtDate(b.mtime)"></td>
                     <td class="px-4 py-2 mono text-[11px] text-[var(--text-dim)]" x-text="b.version || '—'"></td>
-                    <td class="px-4 py-2 text-right">
+                    <td class="px-4 py-2 text-end">
                       <div class="inline-flex gap-1">
                         <a :href="'/api/backups/' + encodeURIComponent(b.name)"
-                           class="btn btn-soft text-[11px]" title="Download">Download</a>
-                        <button @click="restoreBackup(b)" class="btn btn-soft text-[11px]" title="Restore">Restore</button>
-                        <button @click="deleteBackup(b)" class="btn btn-ghost text-[11px] text-danger">Delete</button>
+                           class="btn btn-soft text-[11px]" :title="t('admin.backups.download')" x-text="t('admin.backups.download')"></a>
+                        <button @click="restoreBackup(b)" class="btn btn-soft text-[11px]" :title="t('admin.backups.restore')" x-text="t('admin.backups.restore')"></button>
+                        <button @click="deleteBackup(b)" class="btn btn-ghost text-[11px] text-danger" x-text="t('actions.delete')"></button>
                       </div>
                     </td>
                   </tr>
                 </template>
                 <tr x-show="backups.length===0">
-                  <td colspan="5" class="text-center py-8 text-[var(--text-faint)]">No backups yet — click Backup Now above.</td>
+                  <td colspan="5" class="text-center py-8 text-[var(--text-faint)]" x-text="t('empty.no_backups')"></td>
                 </tr>
               </tbody>
             </table>
@@ -1587,7 +1570,7 @@
     <div class="px-3 py-2 bg-[var(--surface-2)] border-b border-[var(--border)] flex items-center gap-2 cursor-pointer rounded-t-md"
          @click="opsExpanded=!opsExpanded">
       <span class="dot dot-primary dot-pulse"></span>
-      <span class="font-semibold text-[12px]"><span x-text="activeOps.length"></span> running</span>
+      <span class="font-semibold text-[12px]" x-text="t('states.running', { count: activeOps.length })"></span>
       <span class="flex-1"></span>
       <span x-text="opsExpanded ? '▼' : '▲'" class="text-[var(--text-dim)] text-[10px]"></span>
     </div>
@@ -1604,7 +1587,7 @@
               <div :class="ev.level==='error' ? 'text-[var(--danger)]' : ev.level==='success' ? 'text-[var(--success)]' : 'text-[var(--text-dim)]'"
                    x-text="ev.msg"></div>
             </template>
-            <div x-show="op.events.length===0" class="text-[var(--text-faint)]">Waiting…</div>
+            <div x-show="op.events.length===0" class="text-[var(--text-faint)]" x-text="t('loading.waiting')"></div>
           </div>
         </div>
       </template>
@@ -1637,57 +1620,55 @@
                     @click="itemAction(drawerItem)"
                     :disabled="isItemBusy(drawerItem)"
                     class="w-full btn btn-warning justify-center py-2.5 text-[13px]">
-              <template x-if="isItemBusy(drawerItem)"><span class="flex items-center gap-2"><span class="spin"></span>Updating…</span></template>
-              <template x-if="!isItemBusy(drawerItem)"><span>⚡ <span x-text="actionLabel(drawerItem)"></span></span></template>
+              <template x-if="isItemBusy(drawerItem)"><span class="flex items-center gap-2"><span class="spin"></span><span x-text="t('actions.updating')"></span></span></template>
+              <template x-if="!isItemBusy(drawerItem)"><span><span x-text="t('drawer.restart_flash')"></span> <span x-text="actionLabel(drawerItem)"></span></span></template>
             </button>
             <div x-show="isAdmin() && drawerItem.status==='update' && !canUpdate(drawerItem)"
-                 class="w-full bg-[var(--surface-2)] border border-[var(--warning)]/30 rounded-md p-3 text-[11.5px] text-warning">
-              ⚠ This service has no associated Portainer stack (external / CLI-deployed).
-            </div>
+                 class="w-full bg-[var(--surface-2)] border border-[var(--warning)]/30 rounded-md p-3 text-[11.5px] text-warning"
+                 x-text="t('drawer.external_warning')"></div>
             <div class="grid grid-cols-2 gap-2">
               <button x-show="isAdmin() && isRestartable(drawerItem)"
                       @click="restartItem(drawerItem)"
                       :disabled="isRestartBusy(drawerItem)"
                       class="btn btn-soft justify-center text-[12px]">
-                <template x-if="isRestartBusy(drawerItem)"><span class="flex items-center gap-1.5"><span class="spin"></span>Restarting…</span></template>
-                <template x-if="!isRestartBusy(drawerItem)"><span>🔄 Restart</span></template>
+                <template x-if="isRestartBusy(drawerItem)"><span class="flex items-center gap-1.5"><span class="spin"></span><span x-text="t('actions.restarting')"></span></span></template>
+                <template x-if="!isRestartBusy(drawerItem)"><span x-text="t('drawer.restart')"></span></template>
               </button>
               <button x-show="isAdmin() && drawerItem.removable"
                       @click="removeContainer(drawerItem)"
                       :disabled="isItemBusy(drawerItem)"
-                      class="btn btn-danger-outline justify-center text-[12px]">
-                🗑 Remove container
-              </button>
+                      class="btn btn-danger-outline justify-center text-[12px]"
+                      x-text="t('drawer.remove_container')"></button>
               <button x-show="isAdmin()" @click="toggleIgnore(drawerItem)"
                       class="btn btn-soft justify-center text-[12px]"
-                      x-text="drawerItem.ignored ? '👁 Unignore' : '🚫 Ignore image'"></button>
+                      x-text="drawerItem.ignored ? t('drawer.unignore') : t('drawer.ignore')"></button>
               <a x-show="drawerItem.stack_id"
                  :href="portainerDeepLink(drawerItem)" target="_blank"
-                 class="btn btn-soft justify-center text-[12px] text-center">↗ Portainer</a>
+                 class="btn btn-soft justify-center text-[12px] text-center" x-text="t('drawer.portainer')"></a>
               <a x-show="drawerItem.hub_link"
                  :href="drawerItem.hub_link" target="_blank"
-                 class="btn btn-soft justify-center text-[12px] text-center">📦 Registry</a>
+                 class="btn btn-soft justify-center text-[12px] text-center" x-text="t('drawer.registry')"></a>
             </div>
           </div>
 
           <div class="mt-6 space-y-4">
             <div x-show="drawerItem.stack">
-              <div class="text-[10px] text-[var(--text-faint)] uppercase tracking-wider">Stack</div>
+              <div class="text-[10px] text-[var(--text-faint)] uppercase tracking-wider" x-text="t('drawer.stack')"></div>
               <div class="mono mt-1 text-[13px]" x-text="drawerItem.stack"></div>
             </div>
             <div>
-              <div class="text-[10px] text-[var(--text-faint)] uppercase tracking-wider">Replicas</div>
+              <div class="text-[10px] text-[var(--text-faint)] uppercase tracking-wider" x-text="t('drawer.replicas')"></div>
               <div class="mt-1">
                 <span class="text-[16px] font-semibold mono"
                       :class="(drawerItem.replicas.running < drawerItem.replicas.desired) ? 'text-[var(--warning)]' : 'text-[var(--success)]'"
                       x-text="drawerItem.replicas.running + ' / ' + drawerItem.replicas.desired"></span>
-                <span x-show="drawerItem.replicas.running < drawerItem.replicas.desired" class="text-[11px] ml-2 text-warning">⚠ degraded</span>
-                <span x-show="drawerItem.replicas.running === drawerItem.replicas.desired && drawerItem.replicas.desired > 0" class="text-[11px] ml-2 text-success">✓ healthy</span>
-                <span x-show="drawerItem.replicas.desired === 0 || drawerItem.replicas.running === 0" class="text-[11px] ml-2 text-faint">○ offline</span>
+                <span x-show="drawerItem.replicas.running < drawerItem.replicas.desired" class="text-[11px] ms-2 text-warning" x-text="t('drawer.degraded_note')"></span>
+                <span x-show="drawerItem.replicas.running === drawerItem.replicas.desired && drawerItem.replicas.desired > 0" class="text-[11px] ms-2 text-success" x-text="t('drawer.healthy_note')"></span>
+                <span x-show="drawerItem.replicas.desired === 0 || drawerItem.replicas.running === 0" class="text-[11px] ms-2 text-faint" x-text="t('drawer.offline_note')"></span>
               </div>
             </div>
             <div x-show="drawerItem.placements && drawerItem.placements.length">
-              <div class="text-[10px] text-[var(--text-faint)] uppercase tracking-wider">Placement</div>
+              <div class="text-[10px] text-[var(--text-faint)] uppercase tracking-wider" x-text="t('drawer.placement')"></div>
               <div class="mt-1 space-y-1">
                 <template x-for="(p,i) in drawerItem.placements" :key="i">
                   <div class="text-[12.5px] mono flex items-center gap-2 flex-wrap">
@@ -1701,22 +1682,22 @@
             </div>
             <div x-show="drawerItem.current_digest">
               <div class="text-[10px] text-[var(--text-faint)] uppercase tracking-wider flex justify-between">
-                <span>Local digest</span>
-                <button @click="copy(drawerItem.current_digest)" class="hover:text-[var(--text)]">copy</button>
+                <span x-text="t('drawer.local_digest')"></span>
+                <button @click="copy(drawerItem.current_digest)" class="hover:text-[var(--text)]" x-text="t('drawer.copy')"></button>
               </div>
               <div class="mono text-[10.5px] break-all mt-1 text-[var(--text-dim)]" x-text="drawerItem.current_digest"></div>
             </div>
             <div x-show="drawerItem.remote_digest">
               <div class="text-[10px] text-[var(--text-faint)] uppercase tracking-wider flex justify-between">
-                <span>Remote digest</span>
-                <button @click="copy(drawerItem.remote_digest)" class="hover:text-[var(--text)]">copy</button>
+                <span x-text="t('drawer.remote_digest')"></span>
+                <button @click="copy(drawerItem.remote_digest)" class="hover:text-[var(--text)]" x-text="t('drawer.copy')"></button>
               </div>
               <div class="mono text-[10.5px] break-all mt-1"
                    :class="drawerItem.status==='update' ? 'text-[var(--warning)]' : 'text-[var(--text-dim)]'"
                    x-text="drawerItem.remote_digest"></div>
             </div>
             <div x-show="drawerItem.updated">
-              <div class="text-[10px] text-[var(--text-faint)] uppercase tracking-wider">Last updated</div>
+              <div class="text-[10px] text-[var(--text-faint)] uppercase tracking-wider" x-text="t('drawer.last_updated')"></div>
               <div class="mt-1 text-[12px] mono" x-text="drawerItem.updated"></div>
             </div>
           </div>
@@ -1731,37 +1712,34 @@
     <div class="relative flex items-center justify-center p-4 h-full overflow-auto">
       <div class="bg-[var(--surface)] border border-[var(--border)] rounded-md max-w-lg w-full">
         <div class="p-4 border-b border-[var(--border)]">
-          <h2 class="text-[15px] font-semibold">New API token — copy it now</h2>
-          <p class="text-[11.5px] text-[var(--text-faint)] mt-0.5">
-            This is the ONLY time we'll show this value. We store a SHA-256 hash and
-            can't recover the raw token later.
-          </p>
+          <h2 class="text-[15px] font-semibold" x-text="t('admin.token_modal.title')"></h2>
+          <p class="text-[11.5px] text-[var(--text-faint)] mt-0.5" x-text="t('admin.token_modal.hint')"></p>
         </div>
         <div class="p-5 space-y-3">
           <div>
-            <label class="block text-[11px] text-[var(--text-dim)] mb-1">Name</label>
+            <label class="block text-[11px] text-[var(--text-dim)] mb-1" x-text="t('admin.token_modal.name')"></label>
             <div class="bg-[var(--surface-2)] rounded-md px-3 py-2 text-[13px]"
                  x-text="lastCreatedToken && lastCreatedToken.name"></div>
           </div>
           <div>
-            <label class="block text-[11px] text-[var(--text-dim)] mb-1">Role</label>
+            <label class="block text-[11px] text-[var(--text-dim)] mb-1" x-text="t('admin.token_modal.role')"></label>
             <div class="bg-[var(--surface-2)] rounded-md px-3 py-2 text-[13px]"
                  x-text="lastCreatedToken && lastCreatedToken.role"></div>
           </div>
           <div>
-            <label class="block text-[11px] text-[var(--text-dim)] mb-1">Token (send as <code class="mono">Authorization: Bearer …</code>)</label>
+            <label class="block text-[11px] text-[var(--text-dim)] mb-1" x-html="t('admin.token_modal.token_label')"></label>
             <div class="flex items-stretch gap-2">
               <input type="text" readonly
                      :value="lastCreatedToken && lastCreatedToken.token"
                      class="mono text-[12px] flex-1"
                      onclick="this.select()">
               <button @click="copyToClipboard(lastCreatedToken.token)"
-                      class="btn btn-soft text-[12px] whitespace-nowrap">Copy</button>
+                      class="btn btn-soft text-[12px] whitespace-nowrap" x-text="t('settings.oidc.copy')"></button>
             </div>
           </div>
         </div>
         <div class="p-4 border-t border-[var(--border)] flex justify-end">
-          <button @click="lastCreatedToken = null" class="btn btn-primary text-[12px]">I saved it</button>
+          <button @click="lastCreatedToken = null" class="btn btn-primary text-[12px]" x-text="t('admin.token_modal.saved')"></button>
         </div>
       </div>
     </div>
@@ -1774,8 +1752,8 @@
       <div class="bg-[var(--surface)] border border-[var(--border)] rounded-md max-w-2xl w-full max-h-[90vh] overflow-y-auto scrollbar">
         <div class="p-4 border-b border-[var(--border)] flex justify-between items-center sticky top-0 bg-[var(--surface)] z-10">
           <div>
-            <h2 class="text-[15px] font-semibold">Keyboard shortcuts</h2>
-            <p class="text-[11px] text-[var(--text-faint)] mt-0.5">Shortcuts are disabled while typing in an input field. Press <kbd class="kbd">Esc</kbd> to exit a field.</p>
+            <h2 class="text-[15px] font-semibold" x-text="t('hotkeys.title')"></h2>
+            <p class="text-[11px] text-[var(--text-faint)] mt-0.5" x-html="t('hotkeys.hint')"></p>
           </div>
           <button @click="showHotkeys=false" class="btn btn-ghost">✕</button>
         </div>
@@ -1824,7 +1802,7 @@
 
   <!-- ================== FOOTER ================== -->
   <footer class="app-footer">
-    <span>Version:</span>
+    <span x-text="t('app.version')"></span>
     <span class="mono" x-text="version || '—'"></span>
   </footer>
 
@@ -2026,11 +2004,17 @@ function app() {
       if (criteria.symbol) score += 1;
       if (score > 4) score = 4;
       if (!criteria.length8) score = Math.min(score, 1);
-      const labels = ['Too short', 'Weak', 'Fair', 'Good', 'Strong'];
+      const labelKeys = [
+        'password.strength.too_short',
+        'password.strength.weak',
+        'password.strength.fair',
+        'password.strength.good',
+        'password.strength.strong',
+      ];
       const colors = ['danger',    'danger', 'warning', 'primary', 'success'];
       return {
         score,
-        label: labels[score],
+        label: this.t(labelKeys[score]),
         color: colors[score],
         criteria,
       };
@@ -3188,9 +3172,9 @@ function app() {
     },
     actionLabel(item) {
       if (item.status !== 'update') return '—';
-      if (item.stack_id) return 'Update Stack';
-      if (item.type === 'container') return 'Recreate';
-      return 'No stack';
+      if (item.stack_id) return this.t('actions.update_stack');
+      if (item.type === 'container') return this.t('actions.recreate');
+      return this.t('actions.no_stack');
     },
     isSelectable(item) {
       // Selectable if updatable, restartable (service/container), or removable.
@@ -3258,47 +3242,51 @@ function app() {
     // Single source of truth — the help modal renders straight from this.
     // Each entry: { keys: ['r'], label: 'Refresh', run: () => {...} }.
     hotkeyGroups() {
+      // Titles + labels resolve through t() so the entire help modal
+      // translates in place. Keys + run handlers stay the same across
+      // languages — shortcut bindings are locale-independent.
+      const _t = (k) => this.t(k);
       return [
         {
-          title: 'Navigate',
+          title: _t('hotkeys.groups.navigate'),
           items: [
-            { keys: ['/'],       label: 'Focus search',   run: () => this.$refs.searchBox?.focus() },
-            { keys: ['1'],       label: 'Stacks view',    run: () => this.view = 'stacks' },
-            { keys: ['2'],       label: 'Services view',  run: () => this.view = 'services' },
-            { keys: ['3'],       label: 'History view',   run: () => this.view = 'history' },
-            { keys: ['?'],       label: 'Show this help', run: () => this.showHotkeys = true },
-            { keys: ['Esc'],     label: 'Close / clear',  run: null, note: 'modal → drawer → selection → filters' },
+            { keys: ['/'],       label: _t('hotkeys.items.focus_search'),   run: () => this.$refs.searchBox?.focus() },
+            { keys: ['1'],       label: _t('hotkeys.items.view_stacks'),    run: () => this.view = 'stacks' },
+            { keys: ['2'],       label: _t('hotkeys.items.view_services'),  run: () => this.view = 'services' },
+            { keys: ['3'],       label: _t('hotkeys.items.view_history'),   run: () => this.view = 'history' },
+            { keys: ['?'],       label: _t('hotkeys.items.show_help'),      run: () => this.showHotkeys = true },
+            { keys: ['Esc'],     label: _t('hotkeys.items.close_clear'),    run: null, note: _t('hotkeys.items.close_clear_note') },
           ],
         },
         {
-          title: 'Refresh & theme',
+          title: _t('hotkeys.groups.refresh_theme'),
           items: [
-            { keys: ['r'],        label: 'Refresh (cached)', run: () => this.refresh(false) },
-            { keys: ['R'],        label: 'Force refresh',    run: () => this.refresh(true) },
-            { keys: ['t'],        label: 'Cycle theme',      run: () => this.cycleTheme() },
+            { keys: ['r'],        label: _t('hotkeys.items.refresh_cached'), run: () => this.refresh(false) },
+            { keys: ['R'],        label: _t('hotkeys.items.refresh_force'),  run: () => this.refresh(true) },
+            { keys: ['t'],        label: _t('hotkeys.items.cycle_theme'),    run: () => this.cycleTheme() },
           ],
         },
         {
-          title: 'Selection',
+          title: _t('hotkeys.groups.selection'),
           items: [
-            { keys: ['a'], label: 'Select all visible',       run: () => this.selectAllVisible() },
-            { keys: ['u'], label: 'Select items with updates', run: () => this.selectUpdatesOnly() },
-            { keys: ['x'], label: 'Clear selection',          run: () => this.clearSelection() },
+            { keys: ['a'], label: _t('hotkeys.items.select_all_visible'), run: () => this.selectAllVisible() },
+            { keys: ['u'], label: _t('hotkeys.items.select_updates'),     run: () => this.selectUpdatesOnly() },
+            { keys: ['x'], label: _t('hotkeys.items.clear_selection'),    run: () => this.clearSelection() },
           ],
         },
         {
-          title: 'Bulk actions (on current selection)',
+          title: _t('hotkeys.groups.bulk'),
           items: [
-            { keys: ['Shift', 'U'], label: 'Bulk update',  run: () => this.selectionUpdatable().length && this.bulkUpdate() },
-            { keys: ['Shift', 'T'], label: 'Bulk restart', run: () => this.selectionRestartable().length && this.bulkRestart() },
-            { keys: ['Shift', 'D'], label: 'Bulk remove',  run: () => this.selectionRemovable().length && this.bulkRemove() },
+            { keys: ['Shift', 'U'], label: _t('hotkeys.items.bulk_update'),  run: () => this.selectionUpdatable().length && this.bulkUpdate() },
+            { keys: ['Shift', 'T'], label: _t('hotkeys.items.bulk_restart'), run: () => this.selectionRestartable().length && this.bulkRestart() },
+            { keys: ['Shift', 'D'], label: _t('hotkeys.items.bulk_remove'),  run: () => this.selectionRemovable().length && this.bulkRemove() },
           ],
         },
         {
-          title: 'Stacks view',
+          title: _t('hotkeys.groups.stacks_view'),
           items: [
-            { keys: ['e'], label: 'Expand all stacks',   run: () => this.expandAllStacks() },
-            { keys: ['c'], label: 'Collapse all stacks', run: () => this.collapseAllStacks() },
+            { keys: ['e'], label: _t('hotkeys.items.expand_all'),    run: () => this.expandAllStacks() },
+            { keys: ['c'], label: _t('hotkeys.items.collapse_all'),  run: () => this.collapseAllStacks() },
           ],
         },
       ];
@@ -3364,9 +3352,9 @@ function app() {
       const rst = this.selectionRestartable().length;
       const rem = this.selectionRemovable().length;
       const parts = [];
-      if (upd) parts.push(`${upd} updatable`);
-      if (rst) parts.push(`${rst} restartable`);
-      if (rem) parts.push(`${rem} removable`);
+      if (upd) parts.push(this.t('bulk.summary_updatable', { count: upd }));
+      if (rst) parts.push(this.t('bulk.summary_restartable', { count: rst }));
+      if (rem) parts.push(this.t('bulk.summary_removable', { count: rem }));
       return parts.length ? parts.join(' · ') : '';
     },
     openDrawer(item) { this.drawerItem = item; },
@@ -3419,14 +3407,14 @@ function app() {
       if (this.isItemBusy(item)) return;
       const ok = item.stack_id
         ? await this.confirmDialog({
-            title: 'Update stack',
-            html: `<code>${item.stack}</code><ul><li>Prune removed services</li><li>Re-pull all images</li><li>Redeploy the stack</li></ul>`,
-            icon: 'warning', confirmText: 'Update Stack',
+            title: this.t('dialogs.update_stack_title'),
+            html: this.t('dialogs.update_stack_html', { name: item.stack }),
+            icon: 'warning', confirmText: this.t('actions.update_stack'),
           })
         : await this.confirmDialog({
-            title: 'Recreate container',
-            html: `<code>${item.name}</code><div class="hint-top">Pull the latest image and recreate the container.</div>`,
-            icon: 'warning', confirmText: 'Recreate',
+            title: this.t('dialogs.recreate_container_title'),
+            html: this.t('dialogs.recreate_container_html', { name: item.name }),
+            icon: 'warning', confirmText: this.t('actions.recreate'),
           });
       if (!ok) return;
       if (this.isItemBusy(item)) return;
@@ -3440,20 +3428,20 @@ function app() {
       try {
         const r = await fetch(url, { method: 'POST' });
         if (!r.ok) throw new Error(await r.text());
-        this.showToast(`Queued: ${item.stack || item.name}`);
+        this.showToast(this.t('toasts.queued', { name: item.stack || item.name }));
         this.drawerItem = null;
         this.pollOpsNow();
       } catch (e) {
         this._clearBusy(key);
-        this.showToast('Failed: ' + e.message, 'error');
+        this.showToast(this.t('toasts.failed_with_error', { error: e.message }), 'error');
       }
     },
     async updateStack(stack) {
       if (this.isStackBusy(stack)) return;
       const ok = await this.confirmDialog({
-        title: 'Update stack',
-        html: `<code>${stack.name}</code><ul><li>Prune removed services</li><li>Re-pull all images</li><li>Redeploy the stack</li></ul>`,
-        icon: 'warning', confirmText: 'Update Stack',
+        title: this.t('dialogs.update_stack_title'),
+        html: this.t('dialogs.update_stack_html', { name: stack.name }),
+        icon: 'warning', confirmText: this.t('actions.update_stack'),
       });
       if (!ok) return;
       if (this.isStackBusy(stack)) return;
@@ -3462,11 +3450,11 @@ function app() {
       try {
         const r = await fetch(`/api/update/stack/${stack.stack_id}`, { method: 'POST' });
         if (!r.ok) throw new Error(await r.text());
-        this.showToast(`Queued: ${stack.name}`);
+        this.showToast(this.t('toasts.queued', { name: stack.name }));
         this.pollOpsNow();
       } catch (e) {
         this._clearBusy(key);
-        this.showToast('Failed: ' + e.message, 'error');
+        this.showToast(this.t('toasts.failed_with_error', { error: e.message }), 'error');
       }
     },
     async restartService(item) { return this.restartItem(item); },
@@ -3475,12 +3463,12 @@ function app() {
       if (this.isRestartBusy(item)) return;
       const isService = item.type === 'service';
       const body = isService
-        ? `<code>${item.name}</code><div class="hint-top">Force an update with the same image — running tasks will be replaced. No image pull.</div>`
-        : `<code>${item.name}</code><div class="hint-top">Restart this container (stop + start).</div>`;
+        ? this.t('dialogs.restart_service_html', { name: item.name })
+        : this.t('dialogs.restart_container_html', { name: item.name });
       const ok = await this.confirmDialog({
-        title: isService ? 'Restart service' : 'Restart container',
+        title: isService ? this.t('dialogs.restart_service_title') : this.t('dialogs.restart_container_title'),
         html: body,
-        icon: 'question', confirmText: 'Restart', confirmColor: this._cssVar('--primary'),
+        icon: 'question', confirmText: this.t('actions.restart'), confirmColor: this._cssVar('--primary'),
       });
       if (!ok) return;
       if (this.isRestartBusy(item)) return;
@@ -3492,21 +3480,26 @@ function app() {
       try {
         const r = await fetch(url, { method: 'POST' });
         if (!r.ok) throw new Error(await r.text());
-        this.showToast(`Restart queued: ${item.name}`);
+        this.showToast(this.t('toasts.restart_queued', { name: item.name }));
         this.drawerItem = null;
         this.pollOpsNow();
       } catch (e) {
         this._clearBusy(key);
-        this.showToast('Failed: ' + e.message, 'error');
+        this.showToast(this.t('toasts.failed_with_error', { error: e.message }), 'error');
       }
     },
     async bulkRestart() {
       const picked = this.selectionRestartable().filter(i => !this.isRestartBusy(i));
-      if (picked.length === 0) { this.showToast('Nothing restartable', 'error'); return; }
+      if (picked.length === 0) { this.showToast(this.t('toasts.nothing_restartable'), 'error'); return; }
+      const items = picked.slice(0, 8)
+        .map(i => `<li><code>${i.name}</code> <span class="hint-sub">· ${i.type}</span></li>`)
+        .join('');
+      const more = picked.length > 8 ? this.t('dialogs.bulk_update_more', { count: picked.length - 8 }) : '';
+      const titleKey = picked.length === 1 ? 'dialogs.bulk_restart_title' : 'dialogs.bulk_restart_title_plural';
       const ok = await this.confirmDialog({
-        title: `Restart ${picked.length} target${picked.length>1?'s':''}?`,
-        html: `<div>Force-restart the following:</div><ul>${picked.slice(0,8).map(i => `<li><code>${i.name}</code> <span class="hint-sub">· ${i.type}</span></li>`).join('')}${picked.length>8 ? `<li class="text-faint">…and ${picked.length-8} more</li>`:''}</ul>`,
-        icon: 'question', confirmText: 'Restart all', confirmColor: this._cssVar('--primary'),
+        title: this.t(titleKey, { count: picked.length }),
+        html: this.t('dialogs.bulk_restart_html', { items, more }),
+        icon: 'question', confirmText: this.t('actions.restart'), confirmColor: this._cssVar('--primary'),
       });
       if (!ok) return;
       let okCount = 0, fail = 0;
@@ -3524,14 +3517,14 @@ function app() {
       }
       this.selected = [];
       this.pollOpsNow();
-      this.showToast(`Restart: ${okCount} queued, ${fail} failed`, fail ? 'error' : 'success');
+      this.showToast(this.t('toasts.restart_result', { ok: okCount, fail }), fail ? 'error' : 'success');
     },
     async removeContainer(item) {
       if (this.isItemBusy(item)) return;
       const ok = await this.confirmDialog({
-        title: 'Remove container',
-        html: `<code>${item.name}</code><div class="hint-top">Stops and deletes this container (force + volumes). Cannot be undone.</div>`,
-        icon: 'warning', confirmText: 'Remove', confirmColor: this._cssVar('--danger'),
+        title: this.t('dialogs.remove_container_title'),
+        html: this.t('dialogs.remove_container_html', { name: item.name }),
+        icon: 'warning', confirmText: this.t('actions.remove'), confirmColor: this._cssVar('--danger'),
       });
       if (!ok) return;
       if (this.isItemBusy(item)) return;
@@ -3540,12 +3533,12 @@ function app() {
       try {
         const r = await fetch(`/api/remove/container/${item.raw_id}`, { method: 'POST' });
         if (!r.ok) throw new Error(await r.text());
-        this.showToast(`Remove queued: ${item.name}`);
+        this.showToast(this.t('toasts.remove_queued', { name: item.name }));
         this.drawerItem = null;
         this.pollOpsNow();
       } catch (e) {
         this._clearBusy(key);
-        this.showToast('Failed: ' + e.message, 'error');
+        this.showToast(this.t('toasts.failed_with_error', { error: e.message }), 'error');
       }
     },
     async bulkUpdate() {
@@ -3562,13 +3555,19 @@ function app() {
       const runnable = queue.filter(i => !this.isItemBusy(i));
       const skipped = queue.length - runnable.length;
       if (runnable.length === 0) {
-        this.showToast(skipped ? `All ${skipped} already running` : 'Nothing to update', 'error');
+        this.showToast(skipped ? this.t('toasts.already_running', { count: skipped }) : this.t('toasts.nothing_to_update'), 'error');
         return;
       }
+      const items = runnable.slice(0, 8).map(i => `<li><code>${i.stack || i.name}</code></li>`).join('');
+      const more = runnable.length > 8 ? this.t('dialogs.bulk_update_more', { count: runnable.length - 8 }) : '';
+      const skippedNote = skipped ? this.t('dialogs.bulk_update_skipped', { count: skipped }) : '';
       const ok = await this.confirmDialog({
-        title: 'Bulk update',
-        html: `<div>Update <b>${runnable.length}</b> target(s) across <b>${stackIds.size}</b> stack(s)?${skipped ? `<br><span class="hint-sub">Skipping ${skipped} already running.</span>` : ''}</div><ul>${runnable.slice(0,8).map(i => `<li><code>${i.stack || i.name}</code></li>`).join('')}${runnable.length>8 ? `<li class="text-faint">…and ${runnable.length-8} more</li>`:''}</ul>`,
-        icon: 'warning', confirmText: 'Update all',
+        title: this.t('dialogs.bulk_update_title'),
+        html: this.t('dialogs.bulk_update_html', {
+          runnable: runnable.length, stacks: stackIds.size,
+          skipped_note: skippedNote, items, more,
+        }),
+        icon: 'warning', confirmText: this.t('actions.update'),
       });
       if (!ok) return;
       let okCount = 0, fail = 0;
@@ -3585,7 +3584,7 @@ function app() {
       }
       this.selected = [];
       this.pollOpsNow();
-      this.showToast(`Bulk: ${okCount} queued, ${fail} failed`, fail ? 'error' : 'success');
+      this.showToast(this.t('toasts.bulk_result', { ok: okCount, fail }), fail ? 'error' : 'success');
     },
     async bulkRemove() {
       return this._bulkRemoveItems(this.selectionRemovable(), { clearSelection: true });
@@ -3598,13 +3597,16 @@ function app() {
     async _bulkRemoveItems(source, { clearSelection }) {
       const picked = source.filter(i => !this.isItemBusy(i));
       if (picked.length === 0) {
-        this.showToast('Nothing removable', 'error');
+        this.showToast(this.t('toasts.nothing_removable'), 'error');
         return;
       }
+      const items = picked.slice(0, 8).map(i => `<li><code>${i.name}</code></li>`).join('');
+      const more = picked.length > 8 ? this.t('dialogs.bulk_update_more', { count: picked.length - 8 }) : '';
+      const titleKey = picked.length === 1 ? 'dialogs.bulk_remove_title' : 'dialogs.bulk_remove_title_plural';
       const ok = await this.confirmDialog({
-        title: `Remove ${picked.length} container${picked.length>1?'s':''}?`,
-        html: `<div>Stops and deletes the following stopped container(s) (force + volumes). Cannot be undone.</div><ul>${picked.slice(0,8).map(i => `<li><code>${i.name}</code></li>`).join('')}${picked.length>8 ? `<li class="text-faint">…and ${picked.length-8} more</li>`:''}</ul>`,
-        icon: 'warning', confirmText: 'Remove all', confirmColor: this._cssVar('--danger'),
+        title: this.t(titleKey, { count: picked.length }),
+        html: this.t('dialogs.bulk_remove_html', { items, more }),
+        icon: 'warning', confirmText: this.t('actions.remove'), confirmColor: this._cssVar('--danger'),
       });
       if (!ok) return;
       let okCount = 0, fail = 0;
@@ -3620,7 +3622,7 @@ function app() {
       }
       if (clearSelection) this.selected = [];
       this.pollOpsNow();
-      this.showToast(`Remove: ${okCount} queued, ${fail} failed`, fail ? 'error' : 'success');
+      this.showToast(this.t('toasts.remove_result', { ok: okCount, fail }), fail ? 'error' : 'success');
     },
   };
 }
