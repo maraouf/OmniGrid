@@ -375,7 +375,30 @@
       "run_at_placeholder": "HH:MM — leave empty to use interval",
       "run_at_hint": "When set, fires once daily at this local clock time and ignores the interval.",
       "hhmm_invalid": "Run-at time must be HH:MM (24-hour).",
+      "cadence_invalid": "Cadence mode must be interval, daily, weekly, or monthly.",
+      "weekly_needs_days": "Weekly schedule needs at least one selected day.",
+      "monthly_dom_invalid": "Day of month must be 1-31.",
+      "dom_placeholder": "Day of month (1-31)",
+      "dow_label": "Days of week",
+      "cadence_label": "Cadence",
+      "due_soon": "due soon",
+      "cadence": {
+        "interval": "Every N seconds (interval)",
+        "daily": "Daily at a fixed time",
+        "weekly": "Weekly on chosen days",
+        "monthly": "Monthly on a specific day"
+      },
+      "weekdays": {
+        "0": "Monday", "1": "Tuesday", "2": "Wednesday",
+        "3": "Thursday", "4": "Friday", "5": "Saturday", "6": "Sunday"
+      },
+      "weekdays_short": {
+        "0": "Mon", "1": "Tue", "2": "Wed",
+        "3": "Thu", "4": "Fri", "5": "Sat", "6": "Sun"
+      },
       "daily_at": "Daily @ {hhmm}",
+      "weekly_at": "Weekly ({days}) @ {hhmm}",
+      "monthly_at": "Monthly day {dom} @ {hhmm}",
       "cols": {
         "kind": "Kind",
         "interval": "Interval",
@@ -468,7 +491,9 @@
       "revoke_session_text": "Signs out {name} from this session immediately.",
       "revoke_session_default": "that user",
       "revoke_token_title": "Revoke token?",
-      "revoke_token_text": "Any client using \"{name}\" will start failing immediately."
+      "revoke_token_text": "Any client using \"{name}\" will start failing immediately.",
+      "retention_label": "Keep last N backups",
+      "retention_hint": "0 = keep all. Applies after each create (manual or scheduled); older .zip files are deleted oldest-first."
     }
   },
   "drawer": {
@@ -549,6 +574,8 @@
     "avatar_removed": "Avatar removed",
     "upload_failed": "Upload failed",
     "backup_created": "Backup created",
+    "backup_created_pruned": "Backup created — {count} older file(s) pruned",
+    "retention_saved": "Retention saved",
     "backup_failed": "Backup failed",
     "backup_deleted": "Backup deleted",
     "delete_failed": "Delete failed",

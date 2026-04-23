@@ -122,8 +122,16 @@ function app() {
     // to build a dynamic form per kind. Same approach for the edit dialog.
     newSchedule: {
       name: '', kind: 'gather_refresh', params_text: '{}',
-      interval_seconds: 3600, enabled: true, run_at_hhmm: '',
+      interval_seconds: 3600, enabled: true,
+      // Cadence bundle — cadence_mode drives which of the other fields
+      // the backend honours. Default to 'interval' for back-compat with
+      // the simple "every N seconds" flow.
+      cadence_mode: 'interval', run_at_hhmm: '',
+      days_of_week: [], day_of_month: 1,
     },
+    // Display order for the weekday picker. Mon=0..Sun=6 matches the
+    // backend's Python tm_wday convention; labels are i18n keys.
+    weekdayOrder: [0, 1, 2, 3, 4, 5, 6],
     // When non-null, the edit dialog is open and bound to this copy of the
     // row being edited. `params_text` on the copy is kept as a string so
     // Alpine's two-way binding stays simple.
@@ -620,15 +628,10 @@ function app() {
         }), 'error');
         return;
       }
-      // HH:MM sanity-check client-side — matches the backend regex. When
-      // set, the schedule fires daily at that clock time and the
-      // interval field becomes irrelevant (still persisted as a
-      // fallback in case the operator clears the anchor later).
-      const hhmm = (s.run_at_hhmm || '').trim();
-      if (hhmm && !/^([01]\d|2[0-3]):[0-5]\d$/.test(hhmm)) {
-        this.showToast(this.t('admin.schedules.hhmm_invalid'), 'error');
-        return;
-      }
+      // Cadence bundle — HH:MM is required for non-interval modes;
+      // weekly needs at least one day; monthly needs a 1..31 day.
+      const cadencePayload = this._buildCadencePayload(s);
+      if (cadencePayload === null) return;  // helper already toasted
       let params;
       try { params = this._parseParamsText(s.params_text); }
       catch (e) { this.showToast(e.message, 'error'); return; }
@@ -643,7 +646,7 @@ function app() {
             params,
             interval_seconds: parseInt(s.interval_seconds, 10),
             enabled: !!s.enabled,
-            run_at_hhmm: hhmm || null,
+            ...cadencePayload,
           }),
         });
         if (r.ok) {
@@ -651,7 +654,8 @@ function app() {
           this.newSchedule = {
             name: '', kind: this.scheduleKinds[0] || 'gather_refresh',
             params_text: '{}', interval_seconds: 3600, enabled: true,
-            run_at_hhmm: '',
+            cadence_mode: 'interval', run_at_hhmm: '',
+            days_of_week: [], day_of_month: 1,
           };
           await this.loadSchedules();
         } else {
@@ -668,8 +672,82 @@ function app() {
       this.editingSchedule = {
         ...s,
         params_text: JSON.stringify(s.params || {}, null, 2),
+        cadence_mode: s.cadence_mode || (s.run_at_hhmm ? 'daily' : 'interval'),
         run_at_hhmm: s.run_at_hhmm || '',
+        days_of_week: Array.isArray(s.days_of_week) ? [...s.days_of_week] : [],
+        day_of_month: s.day_of_month || 1,
       };
+    },
+
+    // Build + validate the payload fields that correspond to the cadence
+    // bundle. Returns null after toasting an error, so the caller can
+    // early-return without wrapping in try/catch.
+    _buildCadencePayload(s) {
+      const mode = s.cadence_mode || 'interval';
+      if (!['interval', 'daily', 'weekly', 'monthly'].includes(mode)) {
+        this.showToast(this.t('admin.schedules.cadence_invalid'), 'error');
+        return null;
+      }
+      if (mode === 'interval') {
+        // Clear anchors when flipping back to interval mode so the
+        // backend stops consulting stale values.
+        return {
+          cadence_mode: 'interval',
+          run_at_hhmm: null,
+          days_of_week: null,
+          day_of_month: null,
+        };
+      }
+      const hhmm = (s.run_at_hhmm || '').trim();
+      if (!hhmm || !/^([01]\d|2[0-3]):[0-5]\d$/.test(hhmm)) {
+        this.showToast(this.t('admin.schedules.hhmm_invalid'), 'error');
+        return null;
+      }
+      if (mode === 'daily') {
+        return {
+          cadence_mode: 'daily',
+          run_at_hhmm: hhmm,
+          days_of_week: null,
+          day_of_month: null,
+        };
+      }
+      if (mode === 'weekly') {
+        const dow = (s.days_of_week || []).map(d => parseInt(d, 10))
+          .filter(n => Number.isInteger(n) && n >= 0 && n <= 6);
+        if (!dow.length) {
+          this.showToast(this.t('admin.schedules.weekly_needs_days'), 'error');
+          return null;
+        }
+        return {
+          cadence_mode: 'weekly',
+          run_at_hhmm: hhmm,
+          days_of_week: dow,
+          day_of_month: null,
+        };
+      }
+      // monthly
+      const dom = parseInt(s.day_of_month, 10);
+      if (!Number.isInteger(dom) || dom < 1 || dom > 31) {
+        this.showToast(this.t('admin.schedules.monthly_dom_invalid'), 'error');
+        return null;
+      }
+      return {
+        cadence_mode: 'monthly',
+        run_at_hhmm: hhmm,
+        days_of_week: null,
+        day_of_month: dom,
+      };
+    },
+
+    toggleWeekday(s, day) {
+      // Stable-order toggle so the stored array matches what the user
+      // clicked; backend re-sorts anyway but this keeps re-open state
+      // predictable.
+      const arr = Array.isArray(s.days_of_week) ? [...s.days_of_week] : [];
+      const i = arr.indexOf(day);
+      if (i >= 0) arr.splice(i, 1);
+      else arr.push(day);
+      s.days_of_week = arr;
     },
 
     cancelEditSchedule() {
@@ -693,11 +771,8 @@ function app() {
         }), 'error');
         return;
       }
-      const hhmm = (e.run_at_hhmm || '').trim();
-      if (hhmm && !/^([01]\d|2[0-3]):[0-5]\d$/.test(hhmm)) {
-        this.showToast(this.t('admin.schedules.hhmm_invalid'), 'error');
-        return;
-      }
+      const cadencePayload = this._buildCadencePayload(e);
+      if (cadencePayload === null) return;
       let params;
       try { params = this._parseParamsText(e.params_text); }
       catch (err) { this.showToast(err.message, 'error'); return; }
@@ -711,9 +786,7 @@ function app() {
             params,
             interval_seconds: parseInt(e.interval_seconds, 10),
             enabled: !!e.enabled,
-            // Empty string explicitly clears the anchor (flips back to
-            // interval mode); update_schedule() treats "" specially.
-            run_at_hhmm: hhmm,
+            ...cadencePayload,
           }),
         });
         if (r.ok) {
@@ -835,6 +908,39 @@ function app() {
         : this.t('admin.schedules.rel_ago', { value, unit: unit + suffix });
     },
 
+    // Used only for the "Next execution" column — a past epoch there is
+    // noise (the backend now always returns a future timestamp for
+    // clock-anchored cadences, so this only fires for schedules the
+    // tick loop is about to fire on its next pass).
+    humanNextRun(epoch) {
+      if (!epoch) return '—';
+      const delta = Math.round(epoch - (Date.now() / 1000));
+      if (delta <= 60) return this.t('admin.schedules.due_soon');
+      return this.humanRelTime(epoch);
+    },
+
+    // One-line summary of how the schedule fires, for the table row.
+    // Falls back to interval display if cadence_mode is missing (legacy rows).
+    cadenceLabel(s) {
+      const mode = s.cadence_mode || (s.run_at_hhmm ? 'daily' : 'interval');
+      if (mode === 'daily' && s.run_at_hhmm) {
+        return this.t('admin.schedules.daily_at', { hhmm: s.run_at_hhmm });
+      }
+      if (mode === 'weekly' && s.run_at_hhmm) {
+        const days = (s.days_of_week || [])
+          .map(d => this.t('admin.schedules.weekdays_short.' + d))
+          .filter(Boolean)
+          .join(', ');
+        return this.t('admin.schedules.weekly_at', { days, hhmm: s.run_at_hhmm });
+      }
+      if (mode === 'monthly' && s.run_at_hhmm && s.day_of_month) {
+        return this.t('admin.schedules.monthly_at', {
+          dom: s.day_of_month, hhmm: s.run_at_hhmm,
+        });
+      }
+      return this.humanInterval(s.interval_seconds);
+    },
+
     scheduleStatusClass(status) {
       // Consistent pill colour across tables. Matches the existing pill
       // token families (pill-ok / pill-error / pill-unknown) so new UI
@@ -857,7 +963,14 @@ function app() {
       try {
         const r = await fetch('/api/backups', { method: 'POST' });
         if (r.ok) {
-          this.showToast(this.t('toasts.backup_created'));
+          const d = await r.json().catch(() => ({}));
+          if (Array.isArray(d.pruned) && d.pruned.length) {
+            // Distinct toast when retention actually trimmed something;
+            // operators care about being told what disappeared.
+            this.showToast(this.t('toasts.backup_created_pruned', { count: d.pruned.length }));
+          } else {
+            this.showToast(this.t('toasts.backup_created'));
+          }
           await this.loadBackups();
         } else {
           const j = await r.json().catch(() => ({}));
@@ -865,6 +978,26 @@ function app() {
         }
       } catch (_) { this.showToast(this.t('toasts.network_error'), 'error'); }
       finally { this.backupBusy = false; }
+    },
+
+    async saveRetention() {
+      // Separate save endpoint from the general settings form so the
+      // Backups tab doesn't require pushing the full SettingsIn bundle.
+      const n = Math.max(0, parseInt(this.settings.backup_retention_count, 10) || 0);
+      try {
+        const r = await fetch('/api/settings', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ backup_retention_count: n }),
+        });
+        if (r.ok) {
+          this.settings.backup_retention_count = n;
+          this.showToast(this.t('toasts.retention_saved'));
+        } else {
+          const j = await r.json().catch(() => ({}));
+          this.showToast(j.detail || this.t('toasts.save_failed'), 'error');
+        }
+      } catch (_) { this.showToast(this.t('toasts.network_error'), 'error'); }
     },
     async deleteBackup(b) {
       const res = await Swal.fire({
@@ -1264,6 +1397,7 @@ function app() {
           apprise_url: d.apprise_url || '',
           apprise_tag: d.apprise_tag || '',
           portainer_public_url: d.portainer_public_url || '',
+          backup_retention_count: Number.isFinite(d.backup_retention_count) ? d.backup_retention_count : 0,
         };
         this.endpointId = d.endpoint_id || 1;
 

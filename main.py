@@ -666,6 +666,10 @@ class SettingsIn(BaseModel):
     oidc_scopes: Optional[str] = None
     oidc_admin_group: Optional[str] = None
     oidc_verify_tls: Optional[bool] = None
+    # Backup retention: keep the N newest .zip files in /app/data/backups;
+    # 0 disables retention (keep everything). Applied after every successful
+    # create, whether user-triggered or scheduled.
+    backup_retention_count: Optional[int] = None
 
 
 @app.get("/api/settings")
@@ -678,6 +682,7 @@ async def api_get_settings(request: Request):
         "apprise_url": get_setting("apprise_url", ""),
         "apprise_tag": get_setting("apprise_tag", ""),
         "portainer_public_url": get_setting("portainer_public_url", str(p.get("portainer_url") or "")),
+        "backup_retention_count": int(get_setting("backup_retention_count", "0") or "0"),
         # Back-compat: older UI bits read this top-level field.
         "endpoint_id": p.get("portainer_endpoint_id", 1),
         # Portainer: URL / endpoint / TLS are returned in the clear so
@@ -717,6 +722,9 @@ async def api_set_settings(
     if s.apprise_url is not None: set_setting("apprise_url", s.apprise_url)
     if s.apprise_tag is not None: set_setting("apprise_tag", s.apprise_tag)
     if s.portainer_public_url is not None: set_setting("portainer_public_url", s.portainer_public_url)
+    if s.backup_retention_count is not None:
+        n = max(0, int(s.backup_retention_count))
+        set_setting("backup_retention_count", str(n))
 
     auth_changed = False
     portainer_changed = False
@@ -1362,7 +1370,18 @@ async def api_list_backups(_admin: auth.User = Depends(auth.require_admin)):
 
 @app.post("/api/backups")
 async def api_create_backup(_admin: auth.User = Depends(auth.require_admin)):
-    return backups.create_backup()
+    result = backups.create_backup()
+    # Retention — surfaced to the operator in the response so they can
+    # see what got pruned without re-listing. Zero/empty setting means
+    # "keep all", which is the safe default for a fresh install.
+    try:
+        keep = int(get_setting("backup_retention_count", "0") or "0")
+    except (TypeError, ValueError):
+        keep = 0
+    pruned = backups.prune_backups(keep) if keep > 0 else []
+    if pruned:
+        result = {**result, "pruned": pruned}
+    return result
 
 
 @app.get("/api/backups/{name}")
@@ -1450,10 +1469,12 @@ class ScheduleIn(BaseModel):
     params: Optional[dict] = None
     interval_seconds: int
     enabled: bool = True
-    # Optional "HH:MM" — when set, the schedule fires daily at that local
-    # time and interval_seconds is ignored by the tick loop. Empty string
-    # / None keeps the schedule in interval mode.
-    run_at_hhmm: Optional[str] = None
+    # Cadence bundle — cadence_mode picks which of the fields below the
+    # tick loop consults. See logic.schedules.CADENCE_MODES.
+    cadence_mode: str = "interval"
+    run_at_hhmm: Optional[str] = None   # daily/weekly/monthly anchor
+    days_of_week: Optional[list[int]] = None  # weekly, Mon=0..Sun=6
+    day_of_month: Optional[int] = None  # monthly, 1..31 clamped to EOM
 
 
 class SchedulePatch(BaseModel):
@@ -1462,11 +1483,13 @@ class SchedulePatch(BaseModel):
     params: Optional[dict] = None
     interval_seconds: Optional[int] = None
     enabled: Optional[bool] = None
-    # Distinct from the other fields: an explicit empty string ("")
-    # clears the HH:MM anchor (flips the schedule back to interval
-    # mode). None means "don't touch". See update_schedule() for the
-    # special-case handling.
+    cadence_mode: Optional[str] = None
+    # For these three, None in the wire payload means "don't touch";
+    # explicit empty ("" / []) means "clear" — handled by
+    # schedules.update_schedule().
     run_at_hhmm: Optional[str] = None
+    days_of_week: Optional[list[int]] = None
+    day_of_month: Optional[int] = None
 
 
 @app.get("/api/schedules")
@@ -1511,6 +1534,9 @@ async def api_create_schedule(
                 c, name, s.kind, params, int(s.interval_seconds),
                 bool(s.enabled),
                 run_at_hhmm=s.run_at_hhmm,
+                cadence_mode=s.cadence_mode or "interval",
+                days_of_week=s.days_of_week,
+                day_of_month=s.day_of_month,
             )
     except sqlite3.IntegrityError:
         raise HTTPException(
@@ -1528,8 +1554,13 @@ async def api_update_schedule(
     p: SchedulePatch,
     _admin: auth.User = Depends(auth.require_admin),
 ):
-    patch_fields = p.model_dump(exclude_none=True)
-    if "name" in patch_fields:
+    # exclude_unset keeps explicit None values so "clear this field" works
+    # via wire-level null (e.g. flipping back to interval mode by sending
+    # {cadence_mode:"interval", run_at_hhmm:null, days_of_week:null,
+    # day_of_month:null}). update_schedule() knows which fields are
+    # clearable-on-None; the rest still ignore None as before.
+    patch_fields = p.model_dump(exclude_unset=True)
+    if "name" in patch_fields and patch_fields["name"] is not None:
         patch_fields["name"] = patch_fields["name"].strip()
         if not patch_fields["name"]:
             raise HTTPException(status_code=400, detail="Name cannot be blank.")

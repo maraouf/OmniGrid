@@ -175,6 +175,35 @@ def delete_backup(name: str) -> None:
         os.remove(p)
 
 
+def prune_backups(keep: int) -> list[str]:
+    """Delete the oldest backups so only ``keep`` newest remain.
+
+    ``keep`` values:
+      - 0 or negative → no-op (unlimited retention). Matches the
+        default 'retention disabled' setting so an operator who hasn't
+        set a value never loses backups unexpectedly.
+      - 1+ → keep the N newest by mtime; delete the rest.
+
+    Returns the list of deleted filenames (for logging / history trails).
+    File-remove errors for individual entries are caught and logged; we
+    don't want one stuck file to block the retention of the others.
+    """
+    if keep is None or keep <= 0:
+        return []
+    entries = list_backups()  # already sorted mtime DESC
+    if len(entries) <= keep:
+        return []
+    to_delete = entries[keep:]
+    removed: list[str] = []
+    for e in to_delete:
+        try:
+            delete_backup(e["name"])
+            removed.append(e["name"])
+        except Exception as exc:
+            print(f"[backups] prune: failed to delete {e['name']}: {exc}")
+    return removed
+
+
 def _validate_zip_entries(path: str) -> None:
     """Check every archive entry resolves safely under the extraction dir
     and matches the known layout (portaupdate.db + optional avatars/ +

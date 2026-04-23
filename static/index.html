@@ -1587,24 +1587,55 @@
                 <option :value="k" x-text="t('admin.schedules.kinds.' + k) || k"></option>
               </template>
             </select>
-            <input x-model.number="newSchedule.interval_seconds" type="number"
-                   :min="scheduleMinInterval" step="60"
-                   :disabled="!!(newSchedule.run_at_hhmm || '').trim()"
-                   :placeholder="t('admin.schedules.interval_placeholder')" class="w-full">
+            <!-- Cadence mode — picks which of the rows below are active.
+                 'interval' uses interval_seconds; the other three use
+                 run_at_hhmm plus an optional day filter. -->
+            <div class="flex flex-col gap-1">
+              <label class="text-[11px] text-[var(--text-faint)]"
+                     x-text="t('admin.schedules.cadence_label')"></label>
+              <select x-model="newSchedule.cadence_mode" class="w-full">
+                <template x-for="m in ['interval','daily','weekly','monthly']" :key="m">
+                  <option :value="m" x-text="t('admin.schedules.cadence.' + m)"></option>
+                </template>
+              </select>
+            </div>
             <label class="inline-flex items-center gap-2 text-[12px] text-[var(--text-dim)]">
               <input type="checkbox" x-model="newSchedule.enabled">
               <span x-text="t('admin.schedules.enabled')"></span>
             </label>
-            <!-- Daily clock-time anchor. When set, overrides interval_seconds
-                 and fires once per day at HH:MM (container local time). -->
-            <div class="flex flex-col gap-1">
-              <label class="text-[11px] text-[var(--text-faint)]"
-                     x-text="t('admin.schedules.run_at_label')"></label>
+          </div>
+          <!-- Mode-specific fields. Only the active mode's field is rendered
+               so the form shrinks to the minimum the operator needs. -->
+          <div class="mt-2 grid grid-cols-1 md:grid-cols-2 gap-2">
+            <template x-if="newSchedule.cadence_mode === 'interval'">
+              <input x-model.number="newSchedule.interval_seconds" type="number"
+                     :min="scheduleMinInterval" step="60"
+                     :placeholder="t('admin.schedules.interval_placeholder')" class="w-full">
+            </template>
+            <template x-if="newSchedule.cadence_mode !== 'interval'">
               <input x-model="newSchedule.run_at_hhmm" type="time"
                      class="w-full"
                      :placeholder="t('admin.schedules.run_at_placeholder')">
-              <span class="text-[10.5px] text-[var(--text-faint)]"
-                    x-text="t('admin.schedules.run_at_hint')"></span>
+            </template>
+            <template x-if="newSchedule.cadence_mode === 'monthly'">
+              <input x-model.number="newSchedule.day_of_month" type="number"
+                     min="1" max="31" step="1"
+                     :placeholder="t('admin.schedules.dom_placeholder')" class="w-full">
+            </template>
+          </div>
+          <!-- Weekday picker — visible only in weekly mode. Checkboxes
+               rather than a multi-select so it's friendly on mobile. -->
+          <div x-show="newSchedule.cadence_mode === 'weekly'" class="mt-2">
+            <label class="text-[11px] text-[var(--text-faint)] block mb-1"
+                   x-text="t('admin.schedules.dow_label')"></label>
+            <div class="flex flex-wrap gap-1.5">
+              <template x-for="d in weekdayOrder" :key="'new-'+d">
+                <button type="button"
+                        @click="toggleWeekday(newSchedule, d)"
+                        class="btn text-[11px]"
+                        :class="(newSchedule.days_of_week || []).includes(d) ? 'btn-primary' : 'btn-soft'"
+                        x-text="t('admin.schedules.weekdays.' + d)"></button>
+              </template>
             </div>
           </div>
           <div class="mt-2">
@@ -1655,9 +1686,7 @@
                     <td class="px-4 py-2 mono text-[11px] text-[var(--text-dim)]"
                         x-text="t('admin.schedules.kinds.' + s.kind) || s.kind"></td>
                     <td class="px-4 py-2 mono text-[11px] text-[var(--text-dim)]"
-                        x-text="s.run_at_hhmm
-                                ? t('admin.schedules.daily_at', { hhmm: s.run_at_hhmm })
-                                : humanInterval(s.interval_seconds)"></td>
+                        x-text="cadenceLabel(s)"></td>
                     <td class="px-4 py-2">
                       <button @click="toggleScheduleEnabled(s)"
                               class="btn btn-soft text-[11px]"
@@ -1676,7 +1705,7 @@
                       <span x-show="!s.last_status" class="text-[var(--text-faint)] text-[11px]">—</span>
                     </td>
                     <td class="px-4 py-2 mono text-[11px] text-[var(--text-dim)]"
-                        x-text="s.enabled ? humanRelTime(s.next_run_at) : t('admin.schedules.paused')"
+                        x-text="s.enabled ? humanNextRun(s.next_run_at) : t('admin.schedules.paused')"
                         :title="s.enabled ? fmtDate(s.next_run_at) : ''"></td>
                     <td class="px-4 py-2 text-end">
                       <div class="inline-flex gap-1">
@@ -1766,18 +1795,42 @@
                       <option :value="k" x-text="t('admin.schedules.kinds.' + k) || k"></option>
                     </template>
                   </select>
-                  <input x-model.number="editingSchedule.interval_seconds" type="number"
-                         :min="scheduleMinInterval" step="60"
-                         :disabled="!!(editingSchedule.run_at_hhmm || '').trim()"
-                         :placeholder="t('admin.schedules.interval_placeholder')" class="w-full">
                   <div class="flex flex-col gap-1">
                     <label class="text-[11px] text-[var(--text-faint)]"
-                           x-text="t('admin.schedules.run_at_label')"></label>
+                           x-text="t('admin.schedules.cadence_label')"></label>
+                    <select x-model="editingSchedule.cadence_mode" class="w-full">
+                      <template x-for="m in ['interval','daily','weekly','monthly']" :key="m">
+                        <option :value="m" x-text="t('admin.schedules.cadence.' + m)"></option>
+                      </template>
+                    </select>
+                  </div>
+                  <template x-if="editingSchedule.cadence_mode === 'interval'">
+                    <input x-model.number="editingSchedule.interval_seconds" type="number"
+                           :min="scheduleMinInterval" step="60"
+                           :placeholder="t('admin.schedules.interval_placeholder')" class="w-full">
+                  </template>
+                  <template x-if="editingSchedule.cadence_mode !== 'interval'">
                     <input x-model="editingSchedule.run_at_hhmm" type="time"
                            class="w-full"
                            :placeholder="t('admin.schedules.run_at_placeholder')">
-                    <span class="text-[10.5px] text-[var(--text-faint)]"
-                          x-text="t('admin.schedules.run_at_hint')"></span>
+                  </template>
+                  <template x-if="editingSchedule.cadence_mode === 'monthly'">
+                    <input x-model.number="editingSchedule.day_of_month" type="number"
+                           min="1" max="31" step="1"
+                           :placeholder="t('admin.schedules.dom_placeholder')" class="w-full">
+                  </template>
+                  <div x-show="editingSchedule.cadence_mode === 'weekly'">
+                    <label class="text-[11px] text-[var(--text-faint)] block mb-1"
+                           x-text="t('admin.schedules.dow_label')"></label>
+                    <div class="flex flex-wrap gap-1.5">
+                      <template x-for="d in weekdayOrder" :key="'edit-'+d">
+                        <button type="button"
+                                @click="toggleWeekday(editingSchedule, d)"
+                                class="btn text-[11px]"
+                                :class="(editingSchedule.days_of_week || []).includes(d) ? 'btn-primary' : 'btn-soft'"
+                                x-text="t('admin.schedules.weekdays.' + d)"></button>
+                      </template>
+                    </div>
                   </div>
                   <label class="inline-flex items-center gap-2 text-[12px] text-[var(--text-dim)]">
                     <input type="checkbox" x-model="editingSchedule.enabled">
@@ -1818,6 +1871,22 @@
               <input type="file" accept=".zip,application/zip"
                      class="hidden" @change="restoreBackupFromFile($event)">
             </label>
+          </div>
+          <!-- Retention: keep the newest N backups after every create
+               (manual or scheduled). 0 = keep all. Applies to the
+               manual "Backup now" button AND the scheduler 'backup' kind. -->
+          <div class="mt-4 pt-4 border-t border-[var(--border)] flex items-end gap-2 flex-wrap">
+            <div class="flex flex-col gap-1">
+              <label class="text-[11px] text-[var(--text-faint)]"
+                     x-text="t('admin.backups.retention_label')"></label>
+              <input x-model.number="settings.backup_retention_count"
+                     type="number" min="0" step="1"
+                     class="w-28">
+              <span class="text-[10.5px] text-[var(--text-faint)]"
+                    x-text="t('admin.backups.retention_hint')"></span>
+            </div>
+            <button @click="saveRetention()" class="btn btn-soft text-[12px]"
+                    x-text="t('actions.save')"></button>
           </div>
         </section>
 

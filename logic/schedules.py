@@ -30,6 +30,7 @@ Design notes:
     stamped by an async waiter coroutine when the op finishes.
 """
 import asyncio
+import calendar
 import json
 import re
 import secrets
@@ -45,6 +46,13 @@ from logic.db import db_conn
 # what a human types when they say "run at 1 AM". We don't accept seconds;
 # per-second precision is meaningless against a 60-second tick loop.
 _HHMM_RE = re.compile(r"^([01]\d|2[0-3]):[0-5]\d$")
+
+# Cadence modes — mutually exclusive. 'interval' is the legacy path
+# (interval_seconds); the others all pin to a clock-time anchor
+# (run_at_hhmm) plus a calendar filter. Day-of-week uses Python's
+# tm_wday convention: Mon=0 .. Sun=6. The frontend maps the ints to
+# localised labels via i18n.
+CADENCE_MODES = ("interval", "daily", "weekly", "monthly")
 
 
 def _parse_hhmm(s: Optional[str]) -> Optional[tuple[int, int]]:
@@ -85,19 +93,97 @@ def _next_fixed_time_run(
 ) -> int:
     """Next epoch-seconds moment at which a daily HH:MM schedule should fire.
 
-    Due-check contract: next <= now → fire. So:
-      - If today's anchor hasn't been fired yet (last < anchor) AND the
-        current clock is past the anchor, next = anchor (already due).
-      - If today's anchor hasn't been fired yet AND now is before the
-        anchor, next = anchor (upcoming today).
-      - Else today already fired, next = anchor + 24h.
+    Due-check contract: ``next <= now`` → fire. Three cases:
+      1. Today's anchor is still in the future → next = today's anchor.
+      2. Today's anchor already passed WITH a run recorded → next =
+         tomorrow's anchor.
+      3. Today's anchor already passed WITHOUT a run → next = tomorrow's
+         anchor (we DON'T catch up on missed runs). An operator who
+         creates a "nightly 01:00" schedule at noon shouldn't have it
+         fire immediately; they can click Run now to backfill.
+
+    Uses calendar-date arithmetic (not ``+ 86400`` seconds) so DST
+    transitions in the host timezone don't drift the wall-clock anchor.
     """
+    import datetime
     now = now if now is not None else time.time()
     anchor = _today_anchor_ts(hh, mm, now)
     last = int(last_run_at or 0)
-    if last < anchor:
+    if now < anchor and last < anchor:
         return int(anchor)
-    return int(anchor + 86400)
+    t = time.localtime(now)
+    tomorrow = datetime.date(t.tm_year, t.tm_mon, t.tm_mday) + datetime.timedelta(days=1)
+    return int(_day_anchor_ts(hh, mm, tomorrow.year, tomorrow.month, tomorrow.day))
+
+
+def _day_anchor_ts(hh: int, mm: int, y: int, m: int, d: int) -> float:
+    """Epoch seconds for a given Y/M/D at local HH:MM."""
+    return time.mktime((y, m, d, hh, mm, 0, 0, 0, -1))
+
+
+def _next_weekly_run(
+    hh: int, mm: int, days_of_week: list[int],
+    last_run_at: Optional[int], now: Optional[float] = None,
+) -> int:
+    """Next HH:MM anchor on any day in ``days_of_week`` (Python Mon=0..Sun=6).
+
+    Same no-catch-up contract as :func:`_next_fixed_time_run` — an
+    anchor that already passed today without running is NOT returned;
+    we jump ahead to the next qualifying day. Scans up to 8 days so a
+    full week is always covered regardless of where ``last_run_at`` sits.
+    """
+    now = now if now is not None else time.time()
+    last = int(last_run_at or 0)
+    if not days_of_week:
+        # No days selected — fall back to daily so a misconfigured row
+        # doesn't silently never fire.
+        return _next_fixed_time_run(hh, mm, last_run_at, now)
+    dow_set = {int(d) for d in days_of_week if 0 <= int(d) <= 6}
+    today = time.localtime(now)
+    import datetime
+    base_date = datetime.date(today.tm_year, today.tm_mon, today.tm_mday)
+    for offset in range(8):
+        d = base_date + datetime.timedelta(days=offset)
+        # Python weekday(): Mon=0..Sun=6 — matches our storage convention.
+        if d.weekday() not in dow_set:
+            continue
+        anchor = _day_anchor_ts(hh, mm, d.year, d.month, d.day)
+        if anchor <= now:          # today-or-earlier and already passed
+            continue
+        if anchor <= last:         # already fired for this anchor
+            continue
+        return int(anchor)
+    # Defensive fallback — shouldn't happen since at least one day is valid
+    return int(now + 86400)
+
+
+def _next_monthly_run(
+    hh: int, mm: int, day_of_month: int,
+    last_run_at: Optional[int], now: Optional[float] = None,
+) -> int:
+    """Next HH:MM anchor on ``day_of_month`` (clamped to last day of month).
+
+    Day 31 on a 30-day month clamps to 30; Feb 31 clamps to 28/29. Scans
+    up to 13 months. Same no-catch-up contract as the daily/weekly
+    helpers: a passed anchor today with no run skips to next month.
+    """
+    now = now if now is not None else time.time()
+    last = int(last_run_at or 0)
+    dom = max(1, min(int(day_of_month), 31))
+    t = time.localtime(now)
+    y, m = t.tm_year, t.tm_mon
+    for _ in range(14):
+        last_day = calendar.monthrange(y, m)[1]
+        target_day = min(dom, last_day)
+        anchor = _day_anchor_ts(hh, mm, y, m, target_day)
+        if anchor > now and anchor > last:
+            return int(anchor)
+        if m == 12:
+            y += 1
+            m = 1
+        else:
+            m += 1
+    return int(now + 86400)
 
 
 # ----------------------------------------------------------------------------
@@ -152,14 +238,22 @@ def init_schedules_schema(conn: sqlite3.Connection) -> None:
     CREATE INDEX IF NOT EXISTS idx_schedules_enabled
         ON schedules(enabled, last_run_at);
     """)
-    # Idempotent column adds for deployments upgrading from pre-HHMM schema.
-    # When set, the tick loop fires daily at local-time HH:MM and ignores
-    # interval_seconds (which stays in the row so toggling back to interval
-    # mode doesn't require re-entering a value).
-    try:
-        conn.execute("ALTER TABLE schedules ADD COLUMN run_at_hhmm TEXT")
-    except sqlite3.OperationalError:
-        pass
+    # Idempotent column adds for deployments upgrading from earlier schemas.
+    # - run_at_hhmm: time-of-day anchor for daily/weekly/monthly modes.
+    # - cadence_mode: which of the four modes the row is using. Legacy rows
+    #   with NULL are treated as 'daily' if run_at_hhmm is set, else 'interval'.
+    # - days_of_week: JSON int array (Mon=0..Sun=6) — weekly mode only.
+    # - day_of_month: 1..31 (clamped to the month's last day) — monthly only.
+    for ddl in (
+        "ALTER TABLE schedules ADD COLUMN run_at_hhmm TEXT",
+        "ALTER TABLE schedules ADD COLUMN cadence_mode TEXT",
+        "ALTER TABLE schedules ADD COLUMN days_of_week TEXT",
+        "ALTER TABLE schedules ADD COLUMN day_of_month INTEGER",
+    ):
+        try:
+            conn.execute(ddl)
+        except sqlite3.OperationalError:
+            pass
 
 
 # ----------------------------------------------------------------------------
@@ -183,24 +277,47 @@ def _row_to_dict(row: sqlite3.Row) -> dict:
     except (TypeError, ValueError):
         d["params"] = {}
     d["enabled"] = bool(d.get("enabled"))
-    # Surface run_at_hhmm even when the legacy row has no column (pre-ALTER
-    # readers); keeps the UI's schema contract stable during upgrade.
+    # Surface calendar-cadence fields even when legacy rows lack the
+    # columns, so the UI's schema contract stays stable during upgrade.
     d["run_at_hhmm"] = d.get("run_at_hhmm") or None
-    # next_run_at — two modes:
-    #   (a) HH:MM set → next daily anchor after last_run_at (clock-time).
-    #   (b) HH:MM unset → last_run_at + interval_seconds (legacy behaviour).
-    # The tick loop treats "next <= now" as due in both modes, so baking
-    # the two formulas into this single field keeps the scheduler logic
-    # mode-agnostic.
+    d["day_of_month"] = d.get("day_of_month") if d.get("day_of_month") else None
+    # days_of_week is stored as JSON; decode and tolerate bad values.
+    try:
+        dow_raw = d.get("days_of_week")
+        d["days_of_week"] = (
+            [int(x) for x in json.loads(dow_raw) if 0 <= int(x) <= 6]
+            if dow_raw else []
+        )
+    except (TypeError, ValueError, json.JSONDecodeError):
+        d["days_of_week"] = []
+    # Resolve the active cadence mode. Pre-column legacy rows land here
+    # with NULL; infer from run_at_hhmm so upgraded deploys keep working.
+    mode = (d.get("cadence_mode") or "").strip()
+    if mode not in CADENCE_MODES:
+        mode = "daily" if d["run_at_hhmm"] else "interval"
+    d["cadence_mode"] = mode
+    # Compute next_run_at per mode. Tick loop treats ``next <= now`` as
+    # due uniformly, so baking the mode-specific math here keeps the
+    # scheduler loop itself mode-agnostic.
     try:
         hhmm = _parse_hhmm(d["run_at_hhmm"])
     except ValueError:
-        # Malformed value in DB (should never happen post-create validation)
-        # — ignore it and fall back to interval mode.
         hhmm = None
-    if hhmm:
-        d["next_run_at"] = _next_fixed_time_run(hhmm[0], hhmm[1], d.get("last_run_at"))
-    else:
+    last_run = d.get("last_run_at")
+    if mode == "interval" or not hhmm:
+        base = d.get("last_run_at") or d.get("created_at") or 0
+        d["next_run_at"] = int(base) + int(d.get("interval_seconds") or 0)
+    elif mode == "daily":
+        d["next_run_at"] = _next_fixed_time_run(hhmm[0], hhmm[1], last_run)
+    elif mode == "weekly":
+        d["next_run_at"] = _next_weekly_run(
+            hhmm[0], hhmm[1], d["days_of_week"], last_run,
+        )
+    elif mode == "monthly":
+        d["next_run_at"] = _next_monthly_run(
+            hhmm[0], hhmm[1], d["day_of_month"] or 1, last_run,
+        )
+    else:  # defensive: unknown mode → behave like interval
         base = d.get("last_run_at") or d.get("created_at") or 0
         d["next_run_at"] = int(base) + int(d.get("interval_seconds") or 0)
     return d
@@ -230,6 +347,63 @@ def get_schedule_by_name(conn: sqlite3.Connection, name: str) -> Optional[dict]:
     return _row_to_dict(r) if r else None
 
 
+def _validate_cadence(
+    mode: str,
+    run_at_hhmm: Optional[str],
+    days_of_week: Optional[list[int]],
+    day_of_month: Optional[int],
+) -> tuple[Optional[str], Optional[str], Optional[int]]:
+    """Cross-field validation for the cadence bundle.
+
+    Returns the (normalised_hhmm, days_of_week_json, day_of_month) that
+    should be written to the DB. Raises ``ValueError`` on any
+    inconsistency so the API route can return a 400.
+    """
+    if mode not in CADENCE_MODES:
+        raise ValueError(
+            f"cadence_mode must be one of {CADENCE_MODES!r}, got {mode!r}"
+        )
+    # HH:MM normalisation — required for daily/weekly/monthly, ignored
+    # for interval (we still accept and drop).
+    hhmm_stored: Optional[str] = (run_at_hhmm or "").strip() or None
+    if hhmm_stored:
+        _parse_hhmm(hhmm_stored)  # raises on malformed
+    if mode in ("daily", "weekly", "monthly") and not hhmm_stored:
+        raise ValueError(f"{mode} cadence requires run_at_hhmm")
+    # days_of_week — weekly requires at least one day; other modes drop it.
+    dow_json: Optional[str] = None
+    if mode == "weekly":
+        dow = list(days_of_week or [])
+        normalised: list[int] = []
+        for d in dow:
+            try:
+                di = int(d)
+            except (TypeError, ValueError):
+                raise ValueError(f"days_of_week entries must be integers: {d!r}")
+            if not (0 <= di <= 6):
+                raise ValueError(
+                    "days_of_week entries must be 0 (Mon) .. 6 (Sun)"
+                )
+            if di not in normalised:
+                normalised.append(di)
+        if not normalised:
+            raise ValueError("weekly cadence requires at least one day_of_week")
+        dow_json = json.dumps(sorted(normalised))
+    # day_of_month — monthly requires 1..31.
+    dom_stored: Optional[int] = None
+    if mode == "monthly":
+        if day_of_month is None:
+            raise ValueError("monthly cadence requires day_of_month")
+        try:
+            dom = int(day_of_month)
+        except (TypeError, ValueError):
+            raise ValueError("day_of_month must be an integer")
+        if not (1 <= dom <= 31):
+            raise ValueError("day_of_month must be 1..31")
+        dom_stored = dom
+    return hhmm_stored, dow_json, dom_stored
+
+
 def create_schedule(
     conn: sqlite3.Connection,
     name: str,
@@ -238,15 +412,20 @@ def create_schedule(
     interval_seconds: int,
     enabled: bool = True,
     run_at_hhmm: Optional[str] = None,
+    cadence_mode: str = "interval",
+    days_of_week: Optional[list[int]] = None,
+    day_of_month: Optional[int] = None,
 ) -> dict:
     """Insert one schedule row and return its freshly-read representation.
 
-    Validates kind + interval + HH:MM format. Callers are expected to
-    have already validated name non-emptiness. ``IntegrityError`` on
-    duplicate name is allowed to bubble — the API route translates it
-    to HTTP 409. When ``run_at_hhmm`` is set, ``interval_seconds`` is
-    still persisted but ignored by the tick loop; keeps the row usable
-    if an operator later flips back to interval mode.
+    Validates kind + interval + cadence. Callers are expected to have
+    already validated name non-emptiness. ``IntegrityError`` on duplicate
+    name is allowed to bubble — the API route translates it to 409.
+
+    ``interval_seconds`` is always persisted (legal fallback) even when
+    a non-interval mode is active, so an operator can flip back later
+    without re-entering the value. The tick loop consults ``cadence_mode``
+    to decide which set of fields matters.
     """
     if kind not in SCHEDULE_KINDS:
         raise ValueError(f"unknown schedule kind: {kind!r}")
@@ -257,18 +436,20 @@ def create_schedule(
     params = params or {}
     if not isinstance(params, dict):
         raise ValueError("params must be a dict")
-    # Normalise HH:MM: empty string → NULL, valid string stored verbatim.
-    # _parse_hhmm raises ValueError on malformed input.
-    _parse_hhmm(run_at_hhmm)
-    hhmm_stored = (run_at_hhmm or "").strip() or None
+    hhmm_stored, dow_json, dom_stored = _validate_cadence(
+        cadence_mode, run_at_hhmm, days_of_week, day_of_month,
+    )
     now = int(time.time())
     cur = conn.execute(
         "INSERT INTO schedules "
         "(name, kind, params, interval_seconds, enabled, run_at_hhmm, "
+        " cadence_mode, days_of_week, day_of_month, "
         " created_at, updated_at) "
-        "VALUES (?,?,?,?,?,?,?,?)",
+        "VALUES (?,?,?,?,?,?,?,?,?,?,?)",
         (name, kind, json.dumps(params), int(interval_seconds),
-         1 if enabled else 0, hhmm_stored, now, now),
+         1 if enabled else 0, hhmm_stored,
+         cadence_mode, dow_json, dom_stored,
+         now, now),
     )
     return get_schedule(conn, cur.lastrowid)  # type: ignore[return-value]
 
@@ -285,22 +466,56 @@ def update_schedule(
     pass its whole pydantic model through without worrying about extra
     fields. Returns the refreshed row.
     """
-    allowed = {"name", "kind", "params", "interval_seconds", "enabled", "run_at_hhmm"}
+    # Cadence fields are validated as a bundle: if ANY of them are in
+    # the patch we re-validate the target mode against the merged row,
+    # otherwise we leave them alone. This avoids partial-update holes
+    # like "clear HH:MM while still in daily mode".
+    cadence_keys = {"cadence_mode", "run_at_hhmm", "days_of_week", "day_of_month"}
+    if cadence_keys & fields.keys():
+        existing = get_schedule(conn, schedule_id)
+        if existing is None:
+            raise ValueError(f"schedule {schedule_id} not found")
+        merged = {k: fields.get(k, existing.get(k)) for k in cadence_keys}
+        # Interpret None on run_at_hhmm as "clear" only when the caller
+        # sent it explicitly; if it wasn't in the patch at all we'll
+        # fall back to the existing value via dict.get above.
+        hhmm_stored, dow_json, dom_stored = _validate_cadence(
+            str(merged.get("cadence_mode") or existing.get("cadence_mode") or "interval"),
+            merged.get("run_at_hhmm"),
+            merged.get("days_of_week"),
+            merged.get("day_of_month"),
+        )
+        # Overwrite the raw entries so the generic loop below persists
+        # the normalised values rather than the caller's raw input.
+        fields = {
+            **fields,
+            "cadence_mode": str(merged.get("cadence_mode") or "interval"),
+            "run_at_hhmm": hhmm_stored,
+            "days_of_week": dow_json,
+            "day_of_month": dom_stored,
+        }
+
+    allowed = {
+        "name", "kind", "params", "interval_seconds", "enabled",
+        "run_at_hhmm", "cadence_mode", "days_of_week", "day_of_month",
+    }
+    # These are the fields where explicit None means "clear the column"
+    # rather than "don't touch". Everything else follows the
+    # exclude_none-style "None = skip" convention.
+    clearable_on_none = {"run_at_hhmm", "days_of_week", "day_of_month"}
     sets = []
     values: list[Any] = []
     for key, value in fields.items():
         if key not in allowed:
             continue
-        # run_at_hhmm is the only field where explicit None / "" means
-        # "clear the clock-time anchor" — the other fields use None to
-        # mean "don't touch" (the caller strips them via exclude_none).
-        if key == "run_at_hhmm":
-            if value is None or (isinstance(value, str) and not value.strip()):
+        if key in clearable_on_none:
+            if value is None:
                 values.append(None)
+            elif key == "days_of_week" and isinstance(value, list):
+                values.append(json.dumps(value))
             else:
-                _parse_hhmm(value)  # raises on malformed
-                values.append(str(value).strip())
-            sets.append("run_at_hhmm=?")
+                values.append(value)
+            sets.append(f"{key}=?")
             continue
         if value is None:
             continue
@@ -310,6 +525,8 @@ def update_schedule(
             raise ValueError(
                 f"interval_seconds must be >= {MIN_INTERVAL_SECONDS}"
             )
+        if key == "cadence_mode" and value not in CADENCE_MODES:
+            raise ValueError(f"unknown cadence_mode: {value!r}")
         if key == "params":
             if not isinstance(value, dict):
                 raise ValueError("params must be a dict")
@@ -546,6 +763,23 @@ async def _run_backup(params: dict) -> tuple[str, Awaitable[tuple[int, str]]]:
             result = await loop.run_in_executor(None, backups.create_backup)
             backup_name = result.get("name")
             print(f"[scheduler] backup created: {backup_name}")
+            # Apply retention right after a successful create — matches
+            # the behaviour of the manual "Create backup" button so a
+            # scheduled nightly backup doesn't blow past the keep-N.
+            try:
+                from logic.db import get_setting
+                keep = int(get_setting("backup_retention_count", "0") or "0")
+            except (TypeError, ValueError):
+                keep = 0
+            if keep > 0:
+                pruned = await loop.run_in_executor(
+                    None, backups.prune_backups, keep,
+                )
+                if pruned:
+                    print(
+                        f"[scheduler] backup retention: pruned {len(pruned)} older "
+                        f"file(s), kept {keep} newest"
+                    )
         except Exception as e:
             status = "error"
             err = str(e)
