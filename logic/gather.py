@@ -205,9 +205,58 @@ async def _gather_impl() -> None:
                   f"sizes={sizes} agent_routing={some_differ} "
                   f"pinned={pinned} ambiguous_refs={ambiguous}")
             if not some_differ:
-                # Header being ignored — clear any accidental mapping
-                # (shouldn't have populated, but belt-and-braces).
+                # Header being ignored for every call — no signal.
                 container_node_by_id.clear()
+
+        # Resolve-by-probe. For containers the sweep left ambiguous AND
+        # that have NO Swarm node-id label (plain compose containers
+        # are our biggest consumer here), hit /containers/{cid}/json
+        # with each hostname as the agent target. First 200 = true
+        # node, because Portainer's per-container inspect is per-node
+        # even when its list-aggregation is lenient. Happens once per
+        # gather and only for containers not already pinned — bounded.
+        unresolved_ids = []
+        for c in containers:
+            cid = c["Id"]
+            if cid in container_node_by_id:
+                continue
+            if (c.get("Labels") or {}).get("com.docker.swarm.node.id"):
+                # Will be resolved via the Swarm-node-id label downstream
+                # in the item walk — no probe needed.
+                continue
+            unresolved_ids.append(cid)
+
+        if unresolved_ids and len(hostnames) >= 2:
+            async def _probe_one(cid: str) -> tuple[str, Optional[str]]:
+                # Try each hostname in turn. Use a short timeout — a
+                # 404 should come back fast. First 200 wins.
+                for h in hostnames:
+                    try:
+                        r = await client.get(
+                            f"{portainer.PORTAINER_URL}{ep}/containers/{cid}/json",
+                            headers=portainer.headers(agent_target=h),
+                            timeout=3.0,
+                        )
+                        if r.status_code == 200:
+                            return cid, h
+                    except Exception:
+                        continue
+                return cid, None
+
+            sem = asyncio.Semaphore(portainer.STATS_CONCURRENCY)
+
+            async def _probe_bounded(cid: str):
+                async with sem:
+                    return await _probe_one(cid)
+
+            probe_results = await asyncio.gather(*(_probe_bounded(cid) for cid in unresolved_ids))
+            probed_hits = 0
+            for cid, h in probe_results:
+                if h:
+                    container_node_by_id[cid] = h
+                    probed_hits += 1
+            print(f"[gather] resolve-by-probe: tried={len(unresolved_ids)} "
+                  f"resolved={probed_hits}")
 
         # Fallback: if per-node routing didn't fire (all sizes identical or
         # only one node) but Portainer's aggregated response carries a
