@@ -1,7 +1,7 @@
 """Scheduled jobs — admin-defined recurring operations.
 
 A tiny cron-less scheduler that lives in-process alongside the rest of
-PortaUpdate. Admins create named schedules (kind + params + interval)
+OmniGrid. Admins create named schedules (kind + params + interval)
 through the admin UI; a lifespan-managed tick loop checks every minute
 whether any are due, and fires them through the existing
 :mod:`logic.ops` system so their runs appear in the live ops panel and

@@ -4,7 +4,7 @@ Parses image references, talks to Docker-Distribution-v2 registries with
 Bearer-token auth, caches tokens per (realm, service, scope), and reports
 latency / error counters to ``logic.metrics``.
 
-No internal PortaUpdate state beyond the token cache — safe to extract
+No internal OmniGrid state beyond the token cache — safe to extract
 as a leaf module.
 """
 import os

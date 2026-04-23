@@ -1,6 +1,6 @@
 """In-process stdout/stderr ring buffer — backs the Admin → Logs tab.
 
-Design: PortaUpdate's codebase uses plain ``print()`` for diagnostics plus
+Design: OmniGrid's codebase uses plain ``print()`` for diagnostics plus
 uvicorn's access/error logs (which also go to stdout/stderr). Rather
 than force a switch to the stdlib ``logging`` module everywhere, this
 module tees the two standard streams into a bounded ``deque`` so the

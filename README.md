@@ -1,8 +1,8 @@
-# PortaUpdate
+# OmniGrid
 
 A Portainer-native update dashboard for Docker Swarm clusters. Scans every service, cross-checks registry digests, and shows you **which stacks have updates available**. One click runs the same `Prune=true, PullImage=true` update flow the Portainer UI does — except you can do a whole cluster from one screen.
 
-Built as a friendlier replacement for Diun Dash: Diun only **observes**; PortaUpdate **acts**.
+Built as a friendlier replacement for Diun Dash: Diun only **observes**; OmniGrid **acts**.
 
 ![screenshot placeholder — deploy it and see for yourself]
 
@@ -25,7 +25,7 @@ Built as a friendlier replacement for Diun Dash: Diun only **observes**; PortaUp
 
 ```
 ┌───────────────┐       ┌──────────────┐       ┌──────────────┐
-│   Browser     │──────▶│  PortaUpdate │──────▶│  Portainer   │
+│   Browser     │──────▶│  OmniGrid │──────▶│  Portainer   │
 │ (Alpine+Tail) │  REST │   (FastAPI)  │  REST │   (Swarm)    │
 └───────────────┘       └──────┬───────┘       └──────────────┘
                                │
@@ -67,7 +67,7 @@ Portainer → *Stacks* → *Add stack* → paste `docker-compose.yml`, fill in `
 Proxy host: `portaupdate.oufa.co` / `portaupdate.home.lan` → `http://<manager>:8088`. The app has its own local login + optional Authentik OIDC SSO; no reverse-proxy auth gymnastics required. See `notes/note_authentik.txt` to wire up SSO.
 
 **6. Open it up**, hit ⚙️ Settings, configure:
-- Apprise URL: e.g. `http://apprise.home.lan:8005/notify/PortaUpdate` (or with a tag)
+- Apprise URL: e.g. `http://apprise.home.lan:8005/notify/OmniGrid` (or with a tag)
 - Portainer public URL: e.g. `https://portainer.home.lan` (for the "Open in Portainer" deep links)
 
 ## How updates work
@@ -118,7 +118,7 @@ GET  /api/healthz
 - **No live Docker events.** The ops panel polls the in-memory event log from background tasks at 1.5s intervals — good enough for the "kicked off → succeeded / failed" loop, but not a real-time `docker events` stream.
 - **Single-replica only.** Running multiple replicas would split the in-memory ops dict. Placement constraint pins it to one manager node.
 
-## Updating PortaUpdate itself
+## Updating OmniGrid itself
 
 Because the code is bind-mounted from `/opt/portaupdate/app`, you just:
 
@@ -130,4 +130,4 @@ scp main.py static/index.html [email protected]:/opt/portaupdate/app/...
 docker service update --force portaupdate_portaupdate
 ```
 
-Or, of course, use PortaUpdate itself to update… itself. Fun thought.
+Or, of course, use OmniGrid itself to update… itself. Fun thought.

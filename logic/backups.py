@@ -1,4 +1,4 @@
-"""Backup + restore of the whole PortaUpdate configuration surface.
+"""Backup + restore of the whole OmniGrid configuration surface.
 
 What goes INTO a backup zip:
   - A consistent snapshot of the SQLite DB — taken via SQLite's online

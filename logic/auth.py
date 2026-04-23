@@ -1,4 +1,4 @@
-"""Auth module for PortaUpdate.
+"""Auth module for OmniGrid.
 
 Two identity sources, one authorization layer:
   - API bearer token (for machine clients; highest precedence)
@@ -56,12 +56,12 @@ SESSION_SECRET = SESSION_SECRET_ENV.encode("utf-8")
 # invalidate_auth_settings_cache() picks them up on the next request.
 #
 # `oidc_admin_group` is shared with local users — a user is an admin in
-# PortaUpdate iff they belong to this Authentik group on OIDC login.
+# OmniGrid iff they belong to this Authentik group on OIDC login.
 # Local users keep whatever role their admin assigned in the Users UI.
 _AUTH_DEFAULTS = {
     # Group name whose members become admin when they sign in via OIDC.
     # Kept editable for homelabs that rename groups.
-    "oidc_admin_group":   "portaupdate-admins",
+    "oidc_admin_group":   "omnigrid-admins",
     # OIDC provider settings. Everything blank by default — the dashboard
     # works fine without SSO configured; /api/oidc/login just 503s.
     "oidc_enabled":       False,
@@ -70,7 +70,7 @@ _AUTH_DEFAULTS = {
     "oidc_client_secret": "",
     "oidc_redirect_uri":  "",
     "oidc_scopes":        "openid email profile groups",
-    # TLS verification for calls PortaUpdate makes TO the issuer (discovery,
+    # TLS verification for calls OmniGrid makes TO the issuer (discovery,
     # JWKS, token exchange). Leave on when the issuer has a publicly-trusted
     # cert; turn OFF for homelab installs behind an internal CA whose root
     # isn't in certifi's bundle. Mirrors the behaviour of Portainer's
@@ -724,7 +724,7 @@ AUTH_OPTIONAL_API_PREFIXES = (
                              # start the flow. Callback must also be
                              # reachable anonymously (the browser follows
                              # Authentik's 302 back to us without any
-                             # PortaUpdate cookie).
+                             # OmniGrid cookie).
     "/api/auth/providers",   # advertises which SSO paths are enabled — the
                              # login page queries this before rendering the
                              # SSO button.

@@ -1,4 +1,4 @@
-"""Modular business logic for PortaUpdate.
+"""Modular business logic for OmniGrid.
 
 main.py stays the thin shell that owns the FastAPI app, routes, and
 lifespan. Everything else lands here in focused modules:

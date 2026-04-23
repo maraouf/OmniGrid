@@ -1,4 +1,4 @@
-"""Prometheus metrics for PortaUpdate.
+"""Prometheus metrics for OmniGrid.
 
 Owns the registry and all metric objects. main.py imports the names it
 needs at call sites (e.g. ``metrics.OPS_TOTAL.labels(...).inc()``) and

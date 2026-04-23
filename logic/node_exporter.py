@@ -2,10 +2,10 @@
 
 Portainer's API only exposes Docker's view of a node. For anything
 host-wide (real disk usage across /, /mnt, /root; real host memory;
-host uptime vs. oldest-running-task proxy), PortaUpdate queries each
+host uptime vs. oldest-running-task proxy), OmniGrid queries each
 node's ``prom/node-exporter`` on :9100/metrics. The exporter is the
 homelab-standard path for this; operators deploy it once per host
-(usually as a Swarm global service) and PortaUpdate scrapes it
+(usually as a Swarm global service) and OmniGrid scrapes it
 during gather.
 
 What we parse:

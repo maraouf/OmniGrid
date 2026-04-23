@@ -6,7 +6,7 @@ Windows) built on PocketBase. It has two pieces:
   - Beszel Hub — web UI + storage (PocketBase backend).
   - Beszel Agent — tiny Go binary per host; pushes metrics to the Hub.
 
-PortaUpdate treats the Hub as a data source: one GET per gather fetches
+OmniGrid treats the Hub as a data source: one GET per gather fetches
 every system's latest snapshot from the Hub's PocketBase REST API. We
 map each system to a Docker hostname from :mod:`logic.gather`'s node
 list and surface the numbers on the Nodes view alongside everything
@@ -21,12 +21,12 @@ suitable for users who'd rather stay in the exporter-only model.
 
 Auth: PocketBase auth-with-password flow. We cache the token in-process
 and re-auth on 401. Credentials live in the ``settings`` table (admin
-should create a readonly Beszel user for PortaUpdate).
+should create a readonly Beszel user for OmniGrid).
 
 Units: Beszel stores memory / disk as floats in GiB (``info.m``,
 ``info.mt``, ``info.d``, ``info.dt``). Uptime (``info.u``) is seconds.
 We convert GiB → bytes with ``* 1024**3`` so the number shape matches
-the rest of PortaUpdate (which is bytes everywhere).
+the rest of OmniGrid (which is bytes everywhere).
 """
 from __future__ import annotations
 
@@ -176,7 +176,7 @@ def _num(v) -> float:
 
 
 def extract_stats(info: dict) -> dict:
-    """Map one Beszel ``info`` dict → PortaUpdate's nodes_info shape.
+    """Map one Beszel ``info`` dict → OmniGrid's nodes_info shape.
 
     Beszel's short-keyed JSON (``m`` = mem used GiB, ``mt`` = mem total
     GiB, ``d`` = disk used GiB, ``dt`` = disk total GiB, ``u`` = uptime
@@ -229,7 +229,7 @@ async def probe_hub(
 
     The returned dict's keys come from each Beszel record's ``name``
     field (the label the operator gave the system in Beszel's UI). For
-    PortaUpdate's node mapping to work, operators should name each
+    OmniGrid's node mapping to work, operators should name each
     system in Beszel to match the Docker Swarm hostname.
     """
     if not base_url or not identity or not password:

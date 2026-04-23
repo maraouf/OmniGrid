@@ -1,6 +1,6 @@
 """Data aggregation — the fleet snapshot.
 
-Owns ``_cache``, the single source of truth for "what PortaUpdate saw
+Owns ``_cache``, the single source of truth for "what OmniGrid saw
 on its last poll". Other logic modules read via :func:`get_cache` and
 mutate via :func:`invalidate_cache` so nobody else has to import the
 dict directly (easier to change the storage later if needed).

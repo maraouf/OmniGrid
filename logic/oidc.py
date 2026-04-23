@@ -1,4 +1,4 @@
-"""OIDC (OpenID Connect) SSO for PortaUpdate.
+"""OIDC (OpenID Connect) SSO for OmniGrid.
 
 Authorization-code flow + PKCE (S256). Authentik is the reference IdP
 but the implementation is issuer-agnostic — any compliant provider that
@@ -85,7 +85,7 @@ def _settings() -> dict:
 
 
 def _verify_tls() -> bool:
-    # True when PortaUpdate should verify the issuer's TLS cert against its
+    # True when OmniGrid should verify the issuer's TLS cert against its
     # trust store. Homelab installs behind an internal CA flip this off via
     # the Settings → Authentik OIDC panel; the default stays on so
     # public issuers aren't silently downgraded.

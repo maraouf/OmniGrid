@@ -1,5 +1,5 @@
 """
-PortaUpdate — Portainer-native update dashboard.
+OmniGrid — Portainer-native update dashboard.
 
 Endpoints:
   GET  /api/items                     - All services + containers with status
@@ -154,7 +154,7 @@ def _bootstrap_admin_if_needed() -> None:
           "Change password after first login.")
 
 
-app = FastAPI(title="PortaUpdate", lifespan=_lifespan)
+app = FastAPI(title="OmniGrid", lifespan=_lifespan)
 
 # Observe-mode auth middleware (step 1 of the auth rollout). Populates
 # request.state.user when an identity can be resolved; never rejects. Write
@@ -676,7 +676,7 @@ class SettingsIn(BaseModel):
     # 0 disables retention (keep everything). Applied after every successful
     # create, whether user-triggered or scheduled.
     backup_retention_count: Optional[int] = None
-    # Host-stats integration via node-exporter. When enabled, PortaUpdate
+    # Host-stats integration via node-exporter. When enabled, OmniGrid
     # scrapes each node's /metrics endpoint during gather to surface real
     # host disk / memory / uptime (vs. the Docker-only numbers Portainer
     # exposes). URL template uses {host} → Docker hostname; default
@@ -686,7 +686,7 @@ class SettingsIn(BaseModel):
     node_exporter_url_template: Optional[str] = None
     # Per-hostname URL overrides for nodes where the default template's
     # {host} substitution doesn't resolve (e.g. a node whose Docker
-    # hostname isn't reachable via DNS from the PortaUpdate container).
+    # hostname isn't reachable via DNS from the OmniGrid container).
     # Stored as a JSON object: {"hostname": "http://explicit:9100/metrics"}.
     node_exporter_overrides: Optional[dict] = None
     # Host-stats source selector — mutually exclusive. "none" disables
@@ -1003,7 +1003,7 @@ async def api_auth_providers():
 
 @app.post("/api/notify-test")
 async def api_notify_test(_admin: auth.User = Depends(auth.require_admin)):
-    await notify("🔔 PortaUpdate test", "Notifications are wired up correctly!", "success")
+    await notify("🔔 OmniGrid test", "Notifications are wired up correctly!", "success")
     return {"status": "sent"}
 
 
@@ -1231,7 +1231,7 @@ async def api_update_profile(
 ):
     """Update the caller's own display_name / bio / email. Authentik users
     CAN edit these locally — those values don't round-trip to Authentik,
-    they're PortaUpdate's own overlay for display purposes.
+    they're OmniGrid's own overlay for display purposes.
     """
     # Keep the fields bounded so someone can't store a MB of biography.
     if p.display_name is not None and len(p.display_name) > 80:
