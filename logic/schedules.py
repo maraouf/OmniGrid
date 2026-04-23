@@ -317,6 +317,54 @@ async def _run_prune_node(params: dict) -> tuple[str, Awaitable[tuple[int, str]]
     return op.id, _await_op_completion(op.id)
 
 
+async def _run_prune_all_nodes(params: dict) -> tuple[str, Awaitable[tuple[int, str]]]:
+    """Fan out ``docker system prune`` across every known Swarm node.
+
+    params: {} (ignored). Hostnames are read from the latest gather
+    snapshot at fire time — so one schedule row auto-adopts new nodes
+    as they join the swarm and silently drops nodes that leave. Empty
+    cache raises, because stamping 'success' on a no-op fire would
+    hide a broken Portainer connection.
+
+    Each host gets its own ops.do_prune_node — they inherit the live
+    ops panel, Apprise notify, and history-row treatment individually,
+    so the operator sees N rows in the Queue tab per fire (all tagged
+    actor='scheduler'). The schedule row's last_op_id is a synthetic
+    parent id; skip-if-running still works because the waiter only
+    stamps last_duration after every child resolves.
+
+    Aggregate: duration = longest child's wall time (children run in
+    parallel, durations don't add); status = 'success' iff every child
+    succeeded, otherwise 'error'.
+    """
+    nodes_info = (gather._cache.get("nodes_info") or {})
+    hostnames = sorted(nodes_info.keys())
+    if not hostnames:
+        raise ValueError(
+            "prune_all_nodes: no nodes visible in cache — is Portainer reachable?"
+        )
+
+    parent_id = "sched-" + secrets.token_hex(4)
+    child_ops: list[_ops.Operation] = []
+    for host in hostnames:
+        op = _ops.new_op(
+            "prune_node", host, host,
+            target_stack=None, actor=SCHEDULER_ACTOR,
+        )
+        child_ops.append(op)
+        asyncio.create_task(_ops.do_prune_node(op, host))
+
+    async def waiter() -> tuple[int, str]:
+        results = await asyncio.gather(
+            *(_await_op_completion(o.id) for o in child_ops),
+        )
+        longest = max((d for d, _s in results), default=0)
+        all_ok = all(s == "success" for _d, s in results)
+        return (longest, "success" if all_ok else "error")
+
+    return parent_id, waiter()
+
+
 async def _run_gather_refresh(params: dict) -> tuple[str, Awaitable[tuple[int, str]]]:
     """Force-refresh the gather cache.
 
@@ -367,8 +415,9 @@ async def _run_gather_refresh(params: dict) -> tuple[str, Awaitable[tuple[int, s
 
 
 SCHEDULE_KINDS: dict[str, KindRunner] = {
-    "prune_node":     _run_prune_node,
-    "gather_refresh": _run_gather_refresh,
+    "prune_node":       _run_prune_node,
+    "prune_all_nodes":  _run_prune_all_nodes,
+    "gather_refresh":   _run_gather_refresh,
 }
 
 

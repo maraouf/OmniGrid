@@ -114,7 +114,7 @@ function app() {
     // the <select> for new schedules stays in sync with the backend registry.
     schedules: [],
     scheduleQueue: [],
-    scheduleKinds: ['prune_node', 'gather_refresh'],
+    scheduleKinds: ['prune_node', 'prune_all_nodes', 'gather_refresh'],
     scheduleMinInterval: 60,
     scheduleBusy: false,
     // Create form. `params_text` is a raw JSON textarea — we parse on submit
@@ -750,7 +750,7 @@ function app() {
     async runSchedule(s) {
       // "Run now" bypasses the interval. Destructive kinds (prune_node)
       // still get a confirm so a stray click doesn't delete volumes.
-      const destructiveKinds = new Set(['prune_node']);
+      const destructiveKinds = new Set(['prune_node', 'prune_all_nodes']);
       if (destructiveKinds.has(s.kind)) {
         const ok = await this.confirmDialog({
           title: this.t('admin.schedules.run_prompt_title', { name: s.name }),

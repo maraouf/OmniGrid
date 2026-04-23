@@ -367,6 +367,7 @@
       "rel_in": "in {value} {unit}",
       "kinds": {
         "prune_node": "Prune node",
+        "prune_all_nodes": "Prune all nodes",
         "gather_refresh": "Refresh cache"
       },
       "cols": {

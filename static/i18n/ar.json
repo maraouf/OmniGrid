@@ -367,6 +367,7 @@
       "rel_in": "بعد {value} {unit}",
       "kinds": {
         "prune_node": "تنظيف عقدة",
+        "prune_all_nodes": "تنظيف كل العقد",
         "gather_refresh": "تحديث التخزين المؤقت"
       },
       "cols": {
