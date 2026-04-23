@@ -2025,11 +2025,11 @@ function app() {
       if (this.passwordBusy) return;
       const f = this.passwordForm;
       if (f.next !== f.confirm) {
-        this.showToast('New passwords do not match', 'error');
+        this.showToast(this.t('toasts.password_mismatch'), 'error');
         return;
       }
       if ((f.next || '').length < 8) {
-        this.showToast('New password must be 8+ characters', 'error');
+        this.showToast(this.t('toasts.password_too_short'), 'error');
         return;
       }
       this.passwordBusy = true;
@@ -2041,14 +2041,14 @@ function app() {
         });
         const r = await fetch('/api/local-auth/change-password', { method: 'POST', body });
         if (r.ok) {
-          this.showToast('Password changed. Other sessions were signed out.', 'success');
+          this.showToast(this.t('toasts.password_changed'), 'success');
           this.passwordForm = { current: '', next: '', confirm: '' };
         } else {
           const j = await r.json().catch(() => ({}));
-          this.showToast(j.detail || ('Change failed (' + r.status + ')'), 'error');
+          this.showToast(j.detail || this.t('toasts.change_failed', { status: r.status }), 'error');
         }
       } catch (_) {
-        this.showToast('Network error', 'error');
+        this.showToast(this.t('toasts.network_error'), 'error');
       } finally {
         this.passwordBusy = false;
       }
@@ -2075,16 +2075,16 @@ function app() {
           body: JSON.stringify(this.profileForm),
         });
         if (r.ok) {
-          this.showToast('Profile saved');
+          this.showToast(this.t('toasts.profile_saved'));
           // Refresh `me` so the avatar badge / dropdown header use the new name.
           const rm = await fetch('/api/me');
           if (rm.ok) { this.me = await rm.json(); this.syncProfileForm(); }
         } else {
           const j = await r.json().catch(() => ({}));
-          this.showToast(j.detail || 'Save failed', 'error');
+          this.showToast(j.detail || this.t('toasts.save_failed'), 'error');
         }
       } catch (_) {
-        this.showToast('Network error', 'error');
+        this.showToast(this.t('toasts.network_error'), 'error');
       } finally {
         this.profileBusy = false;
       }
@@ -2096,10 +2096,10 @@ function app() {
       if (!file) return;
       // Client-side sanity — server re-validates.
       if (!/^image\//.test(file.type)) {
-        this.showToast('Please pick an image file', 'error'); return;
+        this.showToast(this.t('toasts.pick_image'), 'error'); return;
       }
       if (file.size > 1_000_000) {
-        this.showToast('Image too large (max 1 MB)', 'error'); return;
+        this.showToast(this.t('toasts.image_too_large'), 'error'); return;
       }
       this.avatarBusy = true;
       try {
@@ -2107,15 +2107,15 @@ function app() {
         fd.append('file', file);
         const r = await fetch('/api/me/avatar', { method: 'POST', body: fd });
         if (r.ok) {
-          this.showToast('Avatar updated');
+          this.showToast(this.t('toasts.avatar_updated'));
           const rm = await fetch('/api/me');
           if (rm.ok) this.me = await rm.json();
         } else {
           const j = await r.json().catch(() => ({}));
-          this.showToast(j.detail || 'Upload failed', 'error');
+          this.showToast(j.detail || this.t('toasts.upload_failed'), 'error');
         }
       } catch (_) {
-        this.showToast('Network error', 'error');
+        this.showToast(this.t('toasts.network_error'), 'error');
       } finally {
         this.avatarBusy = false;
         ev.target.value = '';
@@ -2123,15 +2123,15 @@ function app() {
     },
 
     async clearAvatar() {
-      if (!confirm('Remove your avatar image?')) return;
+      if (!confirm(this.t('settings.profile.avatar_prompt_remove'))) return;
       try {
         const r = await fetch('/api/me/avatar', { method: 'DELETE' });
         if (r.ok) {
-          this.showToast('Avatar removed');
+          this.showToast(this.t('toasts.avatar_removed'));
           const rm = await fetch('/api/me');
           if (rm.ok) this.me = await rm.json();
         }
-      } catch (_) { this.showToast('Network error', 'error'); }
+      } catch (_) { this.showToast(this.t('toasts.network_error'), 'error'); }
     },
 
     // -----------------------------------------------------------------
@@ -2194,62 +2194,71 @@ function app() {
       try {
         const r = await fetch('/api/backups', { method: 'POST' });
         if (r.ok) {
-          this.showToast('Backup created');
+          this.showToast(this.t('toasts.backup_created'));
           await this.loadBackups();
         } else {
           const j = await r.json().catch(() => ({}));
-          this.showToast(j.detail || 'Backup failed', 'error');
+          this.showToast(j.detail || this.t('toasts.backup_failed'), 'error');
         }
-      } catch (_) { this.showToast('Network error', 'error'); }
+      } catch (_) { this.showToast(this.t('toasts.network_error'), 'error'); }
       finally { this.backupBusy = false; }
     },
     async deleteBackup(b) {
       const res = await Swal.fire({
-        title: 'Delete backup?', text: b.name, icon: 'warning',
-        showCancelButton: true, confirmButtonText: 'Delete',
+        title: this.t('admin.backups.delete_prompt_title'), text: b.name, icon: 'warning',
+        showCancelButton: true, confirmButtonText: this.t('actions.delete'),
+        cancelButtonText: this.t('actions.cancel'),
       });
       if (!res.isConfirmed) return;
       try {
         const r = await fetch('/api/backups/' + encodeURIComponent(b.name), { method: 'DELETE' });
-        if (r.ok) { this.showToast('Backup deleted'); await this.loadBackups(); }
-        else this.showToast('Delete failed', 'error');
-      } catch (_) { this.showToast('Network error', 'error'); }
+        if (r.ok) { this.showToast(this.t('toasts.backup_deleted')); await this.loadBackups(); }
+        else this.showToast(this.t('toasts.delete_failed'), 'error');
+      } catch (_) { this.showToast(this.t('toasts.network_error'), 'error'); }
     },
     async restoreBackup(b) {
       const res = await Swal.fire({
-        title: 'Restore from ' + b.name + '?',
-        html: 'This OVERWRITES the current database and avatars. A safety snapshot of the current state will be taken first — look for <code>auto-before-restore-*</code> in the list afterwards.',
+        title: this.t('admin.backups.restore_prompt_title', { name: b.name }),
+        html: this.t('admin.backups.restore_prompt_html'),
         icon: 'warning', showCancelButton: true,
-        confirmButtonText: 'Restore', confirmButtonColor: 'var(--danger)',
+        confirmButtonText: this.t('admin.backups.restore_button'),
+        cancelButtonText: this.t('actions.cancel'),
+        confirmButtonColor: 'var(--danger)',
       });
       if (!res.isConfirmed) return;
       try {
         const r = await fetch('/api/backups/' + encodeURIComponent(b.name) + '/restore', { method: 'POST' });
         if (r.ok) {
           const d = await r.json();
+          const safety = d.safety_snapshot
+            ? this.t('admin.backups.restore_complete_safety', { name: d.safety_snapshot })
+            : '';
           await Swal.fire({
-            title: 'Restore complete',
-            html: `Restored from <b>${d.restored_from}</b>. Avatars restored: ${d.avatar_count}.<br><br>` +
-                  (d.safety_snapshot ? `Safety snapshot: <code>${d.safety_snapshot}</code><br><br>` : '') +
-                  'You may need to sign out and back in.',
+            title: this.t('admin.backups.restore_complete_title'),
+            html: this.t('admin.backups.restore_complete_html', {
+              from: d.restored_from, count: d.avatar_count, safety,
+            }) + this.t('admin.backups.restore_complete_signout'),
             icon: 'success',
           });
           await this.loadBackups();
         } else {
           const j = await r.json().catch(() => ({}));
-          this.showToast(j.detail || 'Restore failed', 'error');
+          this.showToast(j.detail || this.t('toasts.restore_failed'), 'error');
         }
-      } catch (_) { this.showToast('Network error', 'error'); }
+      } catch (_) { this.showToast(this.t('toasts.network_error'), 'error'); }
     },
     async restoreBackupFromFile(ev) {
       const file = ev.target.files && ev.target.files[0];
       if (!file) return;
       const res = await Swal.fire({
-        title: 'Restore from uploaded file?',
-        html: `<b>${file.name}</b> (${(file.size/1_000_000).toFixed(1)} MB)<br><br>` +
-              'This OVERWRITES the current database and avatars. A safety snapshot will be taken first.',
+        title: this.t('admin.backups.restore_upload_title'),
+        html: this.t('admin.backups.restore_upload_html', {
+          name: file.name, size: (file.size / 1_000_000).toFixed(1),
+        }),
         icon: 'warning', showCancelButton: true,
-        confirmButtonText: 'Restore', confirmButtonColor: 'var(--danger)',
+        confirmButtonText: this.t('admin.backups.restore_button'),
+        cancelButtonText: this.t('actions.cancel'),
+        confirmButtonColor: 'var(--danger)',
       });
       if (!res.isConfirmed) { ev.target.value = ''; return; }
       try {
@@ -2258,18 +2267,22 @@ function app() {
         const r = await fetch('/api/backups/restore', { method: 'POST', body: fd });
         if (r.ok) {
           const d = await r.json();
+          const safety = d.safety_snapshot
+            ? this.t('admin.backups.restore_complete_safety', { name: d.safety_snapshot })
+            : '';
           await Swal.fire({
-            title: 'Restore complete',
-            html: `Restored from <b>${d.restored_from}</b>. Avatars restored: ${d.avatar_count}.<br><br>` +
-                  (d.safety_snapshot ? `Safety snapshot: <code>${d.safety_snapshot}</code>` : ''),
+            title: this.t('admin.backups.restore_complete_title'),
+            html: this.t('admin.backups.restore_complete_html', {
+              from: d.restored_from, count: d.avatar_count, safety,
+            }),
             icon: 'success',
           });
           await this.loadBackups();
         } else {
           const j = await r.json().catch(() => ({}));
-          this.showToast(j.detail || 'Restore failed', 'error');
+          this.showToast(j.detail || this.t('toasts.restore_failed'), 'error');
         }
-      } catch (_) { this.showToast('Network error', 'error'); }
+      } catch (_) { this.showToast(this.t('toasts.network_error'), 'error'); }
       finally { ev.target.value = ''; }
     },
 
@@ -2285,11 +2298,11 @@ function app() {
     async createUser() {
       const u = this.newUser;
       if (!u.username || !u.username.trim()) {
-        this.showToast('Username is required', 'error');
+        this.showToast(this.t('toasts.username_required'), 'error');
         return;
       }
       if (u.auth_source === 'local' && (u.password || '').length < 8) {
-        this.showToast('Password must be 8+ characters', 'error');
+        this.showToast(this.t('toasts.password_too_short'), 'error');
         return;
       }
       try {
@@ -2305,15 +2318,15 @@ function app() {
           }),
         });
         if (r.ok) {
-          this.showToast('User created');
+          this.showToast(this.t('toasts.user_created'));
           this.newUser = { username: '', role: 'readonly', auth_source: 'local', password: '', email: '' };
           await this.loadUsers();
         } else {
           const j = await r.json().catch(() => ({}));
-          this.showToast(j.detail || 'Create failed', 'error');
+          this.showToast(j.detail || this.t('toasts.create_failed'), 'error');
         }
       } catch (_) {
-        this.showToast('Network error', 'error');
+        this.showToast(this.t('toasts.network_error'), 'error');
       }
     },
 
@@ -2327,9 +2340,9 @@ function app() {
         if (r.ok) { await this.loadUsers(); }
         else {
           const j = await r.json().catch(() => ({}));
-          this.showToast(j.detail || 'Update failed', 'error');
+          this.showToast(j.detail || this.t('toasts.update_failed'), 'error');
         }
-      } catch (_) { this.showToast('Network error', 'error'); }
+      } catch (_) { this.showToast(this.t('toasts.network_error'), 'error'); }
     },
 
     async toggleUserRole(u) {
@@ -2341,32 +2354,36 @@ function app() {
 
     async deleteUser(u) {
       const res = await Swal.fire({
-        title: 'Delete user?',
-        text: 'This permanently removes ' + u.username + ' and all their sessions.',
-        icon: 'warning', showCancelButton: true, confirmButtonText: 'Delete',
+        title: this.t('admin.backups.delete_user_title'),
+        text: this.t('admin.backups.delete_user_confirm', { name: u.username }),
+        icon: 'warning', showCancelButton: true,
+        confirmButtonText: this.t('actions.delete'),
+        cancelButtonText: this.t('actions.cancel'),
         confirmButtonColor: 'var(--danger)',
       });
       if (!res.isConfirmed) return;
       try {
         const r = await fetch('/api/users/' + u.id, { method: 'DELETE' });
-        if (r.ok) { this.showToast('User deleted'); await this.loadUsers(); }
+        if (r.ok) { this.showToast(this.t('toasts.user_deleted')); await this.loadUsers(); }
         else {
           const j = await r.json().catch(() => ({}));
-          this.showToast(j.detail || 'Delete failed', 'error');
+          this.showToast(j.detail || this.t('toasts.delete_failed'), 'error');
         }
-      } catch (_) { this.showToast('Network error', 'error'); }
+      } catch (_) { this.showToast(this.t('toasts.network_error'), 'error'); }
     },
 
     async resetUserPassword(u) {
       if (u.auth_source !== 'local') {
-        this.showToast('Authentik users change their password in Authentik', 'error');
+        this.showToast(this.t('toasts.authentik_change_pw_here'), 'error');
         return;
       }
       const res = await Swal.fire({
-        title: 'Reset password for ' + u.username + '?',
-        input: 'password', inputLabel: 'New password (min 8 characters)',
+        title: this.t('dialogs.reset_password_title', { name: u.username }),
+        input: 'password', inputLabel: this.t('dialogs.reset_password_label'),
         inputAttributes: { minlength: 8, autocapitalize: 'off', autocorrect: 'off' },
-        showCancelButton: true, confirmButtonText: 'Reset',
+        showCancelButton: true,
+        confirmButtonText: this.t('dialogs.reset_button'),
+        cancelButtonText: this.t('actions.cancel'),
       });
       if (!res.isConfirmed || !res.value) return;
       try {
@@ -2375,12 +2392,12 @@ function app() {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ new_password: res.value }),
         });
-        if (r.ok) this.showToast('Password reset. User must re-login.');
+        if (r.ok) this.showToast(this.t('toasts.password_reset'));
         else {
           const j = await r.json().catch(() => ({}));
-          this.showToast(j.detail || 'Reset failed', 'error');
+          this.showToast(j.detail || this.t('toasts.reset_failed'), 'error');
         }
-      } catch (_) { this.showToast('Network error', 'error'); }
+      } catch (_) { this.showToast(this.t('toasts.network_error'), 'error'); }
     },
 
     async loadSessions() {
@@ -2394,16 +2411,18 @@ function app() {
 
     async revokeSession(s) {
       const res = await Swal.fire({
-        title: 'Revoke session?',
-        text: 'Signs out ' + (s.username || 'that user') + ' from this session immediately.',
-        icon: 'warning', showCancelButton: true, confirmButtonText: 'Revoke',
+        title: this.t('admin.backups.revoke_session_title'),
+        text: this.t('admin.backups.revoke_session_text', { name: s.username || this.t('admin.backups.revoke_session_default') }),
+        icon: 'warning', showCancelButton: true,
+        confirmButtonText: this.t('admin.sessions.revoke'),
+        cancelButtonText: this.t('actions.cancel'),
       });
       if (!res.isConfirmed) return;
       try {
         const r = await fetch('/api/sessions/' + encodeURIComponent(s.token_id), { method: 'DELETE' });
-        if (r.ok) { this.showToast('Session revoked'); await this.loadSessions(); }
-        else this.showToast('Revoke failed', 'error');
-      } catch (_) { this.showToast('Network error', 'error'); }
+        if (r.ok) { this.showToast(this.t('toasts.session_revoked')); await this.loadSessions(); }
+        else this.showToast(this.t('toasts.revoke_failed'), 'error');
+      } catch (_) { this.showToast(this.t('toasts.network_error'), 'error'); }
     },
 
     async loadTokens() {
@@ -2417,7 +2436,7 @@ function app() {
 
     async createToken() {
       const t = this.newToken;
-      if (!t.name || !t.name.trim()) { this.showToast('Name is required', 'error'); return; }
+      if (!t.name || !t.name.trim()) { this.showToast(this.t('toasts.name_required'), 'error'); return; }
       try {
         const r = await fetch('/api/tokens', {
           method: 'POST',
@@ -2432,30 +2451,32 @@ function app() {
           await this.loadTokens();
         } else {
           const j = await r.json().catch(() => ({}));
-          this.showToast(j.detail || 'Create failed', 'error');
+          this.showToast(j.detail || this.t('toasts.create_failed'), 'error');
         }
-      } catch (_) { this.showToast('Network error', 'error'); }
+      } catch (_) { this.showToast(this.t('toasts.network_error'), 'error'); }
     },
 
-    async deleteToken(t) {
+    async deleteToken(tk) {
       const res = await Swal.fire({
-        title: 'Revoke token?',
-        text: 'Any client using "' + t.name + '" will start failing immediately.',
-        icon: 'warning', showCancelButton: true, confirmButtonText: 'Revoke',
+        title: this.t('admin.backups.revoke_token_title'),
+        text: this.t('admin.backups.revoke_token_text', { name: tk.name }),
+        icon: 'warning', showCancelButton: true,
+        confirmButtonText: this.t('admin.tokens.revoke'),
+        cancelButtonText: this.t('actions.cancel'),
       });
       if (!res.isConfirmed) return;
       try {
-        const r = await fetch('/api/tokens/' + t.id, { method: 'DELETE' });
-        if (r.ok) { this.showToast('Token revoked'); await this.loadTokens(); }
-        else this.showToast('Revoke failed', 'error');
-      } catch (_) { this.showToast('Network error', 'error'); }
+        const r = await fetch('/api/tokens/' + tk.id, { method: 'DELETE' });
+        if (r.ok) { this.showToast(this.t('toasts.token_revoked')); await this.loadTokens(); }
+        else this.showToast(this.t('toasts.revoke_failed'), 'error');
+      } catch (_) { this.showToast(this.t('toasts.network_error'), 'error'); }
     },
 
     copyToClipboard(text) {
       if (navigator.clipboard && navigator.clipboard.writeText) {
         navigator.clipboard.writeText(text).then(
-          () => this.showToast('Copied to clipboard'),
-          () => this.showToast('Copy failed — select and copy manually', 'error'),
+          () => this.showToast(this.t('toasts.copied')),
+          () => this.showToast(this.t('toasts.copy_failed_manual'), 'error'),
         );
       }
     },
@@ -2564,7 +2585,7 @@ function app() {
         this.nodes = d.nodes || {};
         this.cacheLabel = d.cached ? `cached ${d.age}s ago` : 'fresh';
         if (force) this.loadStats(true);  // fire-and-forget, don't block UI
-      } catch (e) { this.showToast('Load failed: ' + e.message, 'error'); }
+      } catch (e) { this.showToast(this.t('toasts.load_failed', { error: e.message }), 'error'); }
       this.loading = false;
     },
     updateCacheLabel() {},
@@ -2631,14 +2652,14 @@ function app() {
           body: JSON.stringify(body),
         });
         if (r.ok) {
-          this.showToast('✓ OIDC settings saved');
+          this.showToast(this.t('toasts.oidc_saved'));
           await this.loadSettings();
           this.oidcTestResult = null;
         } else {
           const j = await r.json().catch(() => ({}));
           this.showToast(j.detail || 'Save failed', 'error');
         }
-      } catch (_) { this.showToast('Network error', 'error'); }
+      } catch (_) { this.showToast(this.t('toasts.network_error'), 'error'); }
     },
 
     async testOidcConnection() {
@@ -2682,7 +2703,7 @@ function app() {
           body: JSON.stringify(body),
         });
         if (r.ok) {
-          this.showToast('✓ Portainer settings saved');
+          this.showToast(this.t('toasts.portainer_saved'));
           await this.loadSettings();
           this.portainerTestResult = null;
           // Trigger a forced refresh so the dashboard populates with data
@@ -2692,7 +2713,7 @@ function app() {
           const j = await r.json().catch(() => ({}));
           this.showToast(j.detail || 'Save failed', 'error');
         }
-      } catch (_) { this.showToast('Network error', 'error'); }
+      } catch (_) { this.showToast(this.t('toasts.network_error'), 'error'); }
     },
 
     async testPortainerConnection() {

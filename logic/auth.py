@@ -509,7 +509,18 @@ def auto_provision_authentik(
     """
     admin_group = get_auth_settings(conn).get("oidc_admin_group", "")
     target_role = "admin" if admin_group and admin_group in (groups or []) else "readonly"
-    u = get_user_by_email(conn, email)
+    # Only look up an existing AUTHENTIK-sourced user by this email. Local
+    # accounts sharing the same email MUST NOT be matched here — otherwise
+    # we'd silently flip their auth_source to 'authentik' and the local
+    # username/password login path (which gates on auth_source='local')
+    # would start rejecting correct credentials with "Invalid username or
+    # password". Email is not a unique column in the users table; both a
+    # local and an SSO record can coexist cleanly.
+    row = conn.execute(
+        "SELECT * FROM users WHERE email=? AND auth_source='authentik' LIMIT 1",
+        (email,),
+    ).fetchone()
+    u = _row_to_user(row) if row else None
     if u is None:
         # Username collisions with a local user get a suffix so we never
         # conflate identities. Email is the real key for Authentik users.
@@ -521,13 +532,12 @@ def auto_provision_authentik(
             uname = f"{base}#{n}"
         u = create_user(conn, uname, email, None, target_role, "authentik")
         return u
-    if u.auth_source != "authentik" or u.role != target_role:
+    if u.role != target_role:
         conn.execute(
-            "UPDATE users SET auth_source='authentik', role=? WHERE id=?",
+            "UPDATE users SET role=? WHERE id=?",
             (target_role, u.id),
         )
         u.role = target_role
-        u.auth_source = "authentik"
     return u
 
 
