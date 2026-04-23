@@ -181,10 +181,48 @@ async def _gather_impl() -> None:
                 for j in range(i + 1, len(id_sets))
                 if id_sets[i] and id_sets[j]
             )
+            # Diagnostic line — shows up in `docker service logs
+            # portaupdate_portaupdate` so we can tell whether agent mode is
+            # actually engaged. Remove or downgrade to DEBUG once the
+            # worker-node stats question is put to bed.
+            sizes = [len(s) for s in id_sets]
+            print(f"[gather] per-node sweep: hostnames={hostnames} "
+                  f"sizes={sizes} agent_mode={agent_mode}")
             if agent_mode:
                 for h, lst in zip(hostnames, per_node):
                     for c in lst:
                         container_node_by_id[c["Id"]] = h
+
+        # Fallback: if the per-node sweep didn't confirm agent mode but the
+        # aggregated /containers/json response carries a Portainer-specific
+        # node hint on each container, scrape that instead. Portainer's
+        # agent aggregation can expose the origin hostname via a custom
+        # label or a nested `Portainer.Agent.Target` field — shapes vary
+        # across Portainer versions, so we probe every known location.
+        if not container_node_by_id:
+            probed_keys: set[str] = set()
+            for c in containers:
+                labels = c.get("Labels") or {}
+                # Known label variants Portainer Agents have used.
+                candidate = (
+                    labels.get("com.portainer.agent.node")
+                    or labels.get("com.portainer.agent.target")
+                    or labels.get("io.portainer.agent.target")
+                )
+                if not candidate:
+                    pa = c.get("Portainer") or {}
+                    ag = (pa.get("Agent") or {}) if isinstance(pa, dict) else {}
+                    candidate = ag.get("Target") if isinstance(ag, dict) else None
+                if candidate:
+                    container_node_by_id[c["Id"]] = candidate
+                # Collect the label keys for a single diagnostic log line,
+                # so the operator can see WHICH fields Portainer is actually
+                # serving — makes adding the correct key trivial if a
+                # future version ships a new name.
+                probed_keys.update(k for k in labels.keys() if "portainer" in k.lower())
+            if probed_keys:
+                print(f"[gather] portainer-ish container labels seen: "
+                      f"{sorted(probed_keys)[:8]}")
 
         # Build service-id → running containers map. Swarm stamps every task
         # container with `com.docker.swarm.service.id`, so we can go from service
