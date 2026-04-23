@@ -173,22 +173,41 @@ async def _gather_impl() -> None:
             ))
             id_sets = [{c["Id"] for c in lst} for lst in per_node]
             sizes = [len(s) for s in id_sets]
-            # If Portainer is NOT honouring the agent-target header (plain
-            # Docker endpoint), every per-node call returns the same set and
-            # sizes will all be identical. If ANY size differs from another,
-            # the header IS being routed — trust the per-node results as
-            # ground truth, even though some containers (Swarm global
-            # services like the Portainer agent itself) may appear in
-            # multiple per-node responses. Overlapping IDs get the LAST
-            # node's hostname; _one_container_stats falls back to the
-            # untargeted call on failure so the wrong-hint case self-heals.
+            # If Portainer is NOT honouring the agent-target header, every
+            # per-node call returns the same set and sizes are identical.
+            # If sizes differ, the header IS being routed per node.
             some_differ = len(set(sizes)) > 1
+            # Some containers (Swarm global services, Portainer's own
+            # agent) intentionally run on every node with different
+            # container IDs. But some container IDs end up in multiple
+            # per-node responses because of Portainer's routing quirks
+            # — when that happens, we can't say which node owns the ID,
+            # so we leave it out of the map and let the stats fallback
+            # (targeted-then-untargeted) do its job. Only containers
+            # that appear in EXACTLY ONE per-node response get pinned.
+            from collections import Counter as _C
+            appearances = _C()
+            for s in id_sets:
+                appearances.update(s)
+            pinned = 0
+            ambiguous = 0
+            for h, s in zip(hostnames, id_sets):
+                for cid in s:
+                    if appearances[cid] == 1:
+                        container_node_by_id[cid] = h
+                        pinned += 1
+                    else:
+                        ambiguous += 1
+            # `ambiguous` counts duplicated IDs across all their
+            # appearances, so divide by 2+ to get the actual container
+            # count. Printed as-is for easy eyeballing in logs.
             print(f"[gather] per-node sweep: hostnames={hostnames} "
-                  f"sizes={sizes} agent_routing={some_differ}")
-            if some_differ:
-                for h, lst in zip(hostnames, per_node):
-                    for c in lst:
-                        container_node_by_id[c["Id"]] = h
+                  f"sizes={sizes} agent_routing={some_differ} "
+                  f"pinned={pinned} ambiguous_refs={ambiguous}")
+            if not some_differ:
+                # Header being ignored — clear any accidental mapping
+                # (shouldn't have populated, but belt-and-braces).
+                container_node_by_id.clear()
 
         # Fallback: if per-node routing didn't fire (all sizes identical or
         # only one node) but Portainer's aggregated response carries a
@@ -423,16 +442,28 @@ async def _gather_impl() -> None:
             else:
                 health = "offline"
 
-            # Resolve the real node. Priority order:
-            #   1. Per-node agent-targeted container sweep (works for plain
-            #      compose containers — no Swarm task label needed).
-            #   2. Swarm task-ID lookup (task containers with the label).
-            #   3. Fallback "local" — only for single-node / non-agent setups
-            #      where we genuinely can't tell.
-            node_name = container_node_by_id.get(cont["Id"])
+            # Resolve the real node. Priority order (authoritative first):
+            #   1. `com.docker.swarm.node.id` label — Swarm stamps every
+            #      managed container (services, global services, even
+            #      orphan task containers whose tasks were shut down)
+            #      with this. Authoritative; comes from the scheduler.
+            #   2. Swarm task-ID → NodeID via task_node_by_id — covers
+            #      the rare case where the container has the task-id
+            #      label but not the node-id label (older Swarm versions).
+            #   3. Per-node agent-targeted container sweep — only signal
+            #      we have for plain compose containers on worker nodes.
+            #      Not perfect (overlaps between per-node responses can
+            #      mis-attribute a container) but self-heals via stats'
+            #      untargeted fallback on failure.
+            #   4. Fallback "local" — genuine single-node / non-agent
+            #      setups where we can't tell.
+            node_id_label = labels.get("com.docker.swarm.node.id")
+            node_name = node_map.get(node_id_label) if node_id_label else None
             if not node_name:
                 swarm_task_id = labels.get("com.docker.swarm.task.id")
                 node_name = task_node_by_id.get(swarm_task_id) if swarm_task_id else None
+            if not node_name:
+                node_name = container_node_by_id.get(cont["Id"])
             if not node_name:
                 node_name = "local"
 

@@ -215,15 +215,19 @@ async def gather_stats() -> None:
         size_root_by_cid: dict[str, int] = {}
         size_rw_by_cid: dict[str, int] = {}
         svc_by_cid: dict[str, Optional[str]] = {}
-        # cid → hostname. Two sources, tried in order:
-        #   1. container_node_by_id (populated by gather's per-node sweep
-        #      — covers PLAIN compose containers on worker nodes).
-        #   2. task_node_by_id lookup via the Swarm task-ID label (covers
-        #      Swarm task containers that aren't in the per-node map,
-        #      e.g. single-node setups where the sweep didn't fire).
-        # Both fall back gracefully in _one_container_stats to the
-        # untargeted request if the header ends up ignored, so a wrong
-        # hint doesn't regress containers that worked before.
+        # cid → hostname. Priority order (authoritative → heuristic), same
+        # as gather.py's resolver:
+        #   1. `com.docker.swarm.node.id` label — Swarm's own scheduler
+        #      wrote this; the most reliable signal for anything Swarm-
+        #      managed (services, global, orphan task containers).
+        #   2. task_node_by_id via the task-ID label — fallback for
+        #      older Swarm versions that don't stamp node.id on the
+        #      container itself.
+        #   3. container_node_by_id from gather's per-node sweep —
+        #      only signal we have for plain compose containers.
+        # _one_container_stats falls back to the untargeted request on
+        # failure, so a wrong hint only costs one extra call.
+        nodes_by_id = items_cache.get("nodes") or {}
         task_node_by_id = items_cache.get("task_node_by_id") or {}
         container_node_by_id = items_cache.get("container_node_by_id") or {}
         node_by_cid: dict[str, Optional[str]] = {}
@@ -234,12 +238,14 @@ async def gather_stats() -> None:
             size_rw_by_cid[cid] = c.get("SizeRw", 0) or 0
             labels = c.get("Labels") or {}
             svc_by_cid[cid] = labels.get("com.docker.swarm.service.id")
-            # Prefer the direct container→node map when we have it (covers
-            # plain compose containers); fall back to the Swarm-task lookup.
-            node = container_node_by_id.get(cid)
+            # Swarm node.id label (authoritative) first.
+            node_id_label = labels.get("com.docker.swarm.node.id")
+            node = nodes_by_id.get(node_id_label) if node_id_label else None
             if not node:
                 task_id = labels.get("com.docker.swarm.task.id")
                 node = task_node_by_id.get(task_id) if task_id else None
+            if not node:
+                node = container_node_by_id.get(cid)
             node_by_cid[cid] = node
             if (c.get("State") or "").lower() == "running":
                 running_cids.append(cid)
