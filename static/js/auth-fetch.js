@@ -1,6 +1,6 @@
 // Global fetch wrapper installed before Alpine init. Does two things:
 //   1. Auto-attaches X-CSRF-Token on state-changing requests by copying
-//      the pu_csrf cookie (double-submit defense). Server enforces this
+//      the og_csrf cookie (double-submit defense). Server enforces this
 //      for cookie-authed callers on every POST/PUT/PATCH/DELETE.
 //   2. Redirects to /login on a 401 response so session expiry is
 //      self-healing — user lands on the login page, authenticates,
@@ -12,7 +12,7 @@
     init = init || {};
     const method = (init.method || 'GET').toUpperCase();
     if (WRITE_METHODS.has(method)) {
-      const m = document.cookie.match(/(?:^|; )pu_csrf=([^;]+)/);
+      const m = document.cookie.match(/(?:^|; )og_csrf=([^;]+)/);
       if (m) {
         const headers = new Headers(init.headers || {});
         if (!headers.has('X-CSRF-Token')) {

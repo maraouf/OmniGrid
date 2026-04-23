@@ -25,7 +25,7 @@ Flow:
      id_token + access_token.
   4. Server validates the id_token (signature, issuer, audience, exp,
      nonce), extracts email / preferred_username / groups, calls
-     ``auth.auto_provision_authentik()``, mints a normal ``pu_session``
+     ``auth.auto_provision_authentik()``, mints a normal ``og_session``
      cookie, 302s the browser to the validated ``next`` path.
 """
 import base64
@@ -50,7 +50,7 @@ from logic.db import db_conn
 # ----------------------------------------------------------------------------
 # Flow cookie (PKCE verifier + state + nonce + next path)
 # ----------------------------------------------------------------------------
-FLOW_COOKIE = "pu_oidc_flow"
+FLOW_COOKIE = "og_oidc_flow"
 FLOW_COOKIE_TTL = 300  # 5 minutes — enough for the user to click Approve on
                       # Authentik's consent screen, short enough to limit the
                       # blast radius of a stolen in-flight cookie.
@@ -336,7 +336,7 @@ async def login(request: Request):
 
 
 async def callback(request: Request):
-    """Complete the OIDC flow and mint a pu_session cookie."""
+    """Complete the OIDC flow and mint an og_session cookie."""
     if not is_configured():
         raise HTTPException(status_code=503, detail="OIDC is not configured")
 

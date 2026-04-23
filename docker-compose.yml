@@ -1,6 +1,6 @@
 version: "3.8"
 services:
-  portaupdate:
+  omnigrid:
     image: python:3.12-slim
     # Persistent pip cache (see the extra volume below) so restarts don't
     # re-download the dependency tree every time. Upgrading pip first makes
@@ -14,7 +14,7 @@ services:
       - "9500:8088"
 
     # Environment secrets / tunables live in `.env` at the repo root and ship
-    # via CI rsync to /opt/portaupdate/app/.env. main.py loads that file via
+    # via CI rsync to /opt/omnigrid/app/.env. main.py loads that file via
     # python-dotenv at startup (already visible inside the container at
     # /app/.env thanks to the bind mount below). Same pattern as
     # adguardhome-sync etc. — the app reads its own config file.
@@ -26,12 +26,15 @@ services:
     #
     environment:
       # Fixed container path — not an operator tunable, kept out of .env.
-      DB_PATH: "/app/data/portaupdate.db"
+      # DB file is named after the app; operators migrating from a pre-rename
+      # /opt/omnigrid/data/omnigrid.db` on the host (plus any .db-wal / .db-shm
+      # siblings if present) before redeploying.
+      DB_PATH: "/app/data/omnigrid.db"
 
     volumes:
-      - /opt/portaupdate/app:/app:ro          # source code (read-only, hot-reload with a container restart)
-      - /opt/portaupdate/data:/app/data       # SQLite for history / ignores / settings / users / sessions
-      - /opt/portaupdate/pip-cache:/pip-cache # persistent pip cache across restarts
+      - /opt/omnigrid/app:/app:ro             # source code (read-only, hot-reload with a container restart)
+      - /opt/omnigrid/data:/app/data          # SQLite for history / ignores / settings / users / sessions
+      - /opt/omnigrid/pip-cache:/pip-cache    # persistent pip cache across restarts
       - /etc/ssl/certs:/etc/ssl/certs:ro      # trust your internal CA so HTTPS calls to portainer.home.lan work
 
     networks:

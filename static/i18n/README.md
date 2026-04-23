@@ -77,7 +77,7 @@ choice persists in `localStorage` under key `lang`.
 
 ## Contributing
 
-Open a PR to `https://git.www.home.lan/m.a.raouf/PortaUpdate`. For
+Open a PR to `https://git.www.home.lan/m.a.raouf/OmniGrid`. For
 context-sensitive translations, leave a `// comment`-style note in the PR
 description; keeping JSON itself free of non-standard comments means it
 stays machine-loadable in the browser without a preprocessor.

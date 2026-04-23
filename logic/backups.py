@@ -44,7 +44,7 @@ from logic.version import APP_VERSION
 
 
 # Layout of the data volume:
-#   <data_dir>/portaupdate.db          SQLite file
+#   <data_dir>/omnigrid.db             SQLite file
 #   <data_dir>/avatars/                user-uploaded images
 #   <data_dir>/backups/                zip archives (owned by this module)
 _DATA_DIR = os.path.dirname(DB_PATH) or "."
@@ -99,7 +99,7 @@ def _snapshot_db_to(path: str) -> None:
         src.close()
 
 
-def create_backup(prefix: str = "portaupdate-backup") -> dict:
+def create_backup(prefix: str = "omnigrid-backup") -> dict:
     """Write a new backup zip. Returns {name, size, mtime}."""
     ensure_dirs()
     ts = time.strftime("%Y.%m.%d_%H.%M.%S", time.localtime())
@@ -112,18 +112,18 @@ def create_backup(prefix: str = "portaupdate-backup") -> dict:
 
     # Stage the DB snapshot to a temp file first — we don't want a
     # partially-written DB inside the zip if something fails mid-backup.
-    with tempfile.TemporaryDirectory(prefix="pu-bk-") as tmp:
-        db_tmp = os.path.join(tmp, "portaupdate.db")
+    with tempfile.TemporaryDirectory(prefix="og-bk-") as tmp:
+        db_tmp = os.path.join(tmp, "omnigrid.db")
         _snapshot_db_to(db_tmp)
 
         meta = {
             "backup_time": int(time.time()),
             "app_version": APP_VERSION,
-            "schema":      "portaupdate-v1",
+            "schema":      "omnigrid-v1",
         }
 
         with zipfile.ZipFile(out, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=6) as z:
-            z.write(db_tmp, arcname="portaupdate.db")
+            z.write(db_tmp, arcname="omnigrid.db")
             # Whole avatars tree — preserves user-uploaded images.
             n_av = 0
             if os.path.isdir(AVATAR_DIR):
@@ -206,7 +206,7 @@ def prune_backups(keep: int) -> list[str]:
 
 def _validate_zip_entries(path: str) -> None:
     """Check every archive entry resolves safely under the extraction dir
-    and matches the known layout (portaupdate.db + optional avatars/ +
+    and matches the known layout (omnigrid.db + optional avatars/ +
     metadata.json). Reject anything unexpected — refuse to extract a
     backup we don't recognise.
     """
@@ -217,11 +217,11 @@ def _validate_zip_entries(path: str) -> None:
         if n.startswith("/") or ".." in Path(n).parts:
             raise ValueError(f"unsafe entry: {n!r}")
     # Structure guard.
-    has_db = any(n == "portaupdate.db" for n in names)
+    has_db = any(n == "omnigrid.db" for n in names)
     if not has_db:
-        raise ValueError("backup is missing portaupdate.db")
+        raise ValueError("backup is missing omnigrid.db")
     bad = [n for n in names
-           if n not in ("portaupdate.db", "metadata.json")
+           if n not in ("omnigrid.db", "metadata.json")
            and not n.startswith("avatars/")]
     if bad:
         raise ValueError(f"backup contains unexpected entries: {bad[:5]}")
@@ -250,7 +250,7 @@ def restore_from_file(path: str) -> dict:
         print(f"[backups] WARN: couldn't take safety snapshot: {e}")
 
     # 2) Extract to a temp dir.
-    with tempfile.TemporaryDirectory(prefix="pu-rst-") as tmp:
+    with tempfile.TemporaryDirectory(prefix="og-rst-") as tmp:
         with zipfile.ZipFile(path, "r") as z:
             # Explicit extract + per-entry path guard (ZipFile's .extractall
             # respects our earlier validation, but re-check each target path
@@ -261,7 +261,7 @@ def restore_from_file(path: str) -> dict:
                     raise ValueError(f"unsafe extract path: {info.filename}")
                 z.extract(info, tmp)
 
-        new_db = os.path.join(tmp, "portaupdate.db")
+        new_db = os.path.join(tmp, "omnigrid.db")
         new_avatars = os.path.join(tmp, "avatars")
 
         # 3) Replace DB atomically — rename on the same filesystem is atomic.

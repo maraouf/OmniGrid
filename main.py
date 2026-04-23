@@ -569,7 +569,7 @@ async def api_history_json_export(
     return Response(
         content=json.dumps(rows, indent=2, default=str),
         media_type="application/json",
-        headers={"Content-Disposition": 'attachment; filename="portaupdate-history.json"'},
+        headers={"Content-Disposition": 'attachment; filename="omnigrid-history.json"'},
     )
 
 
@@ -601,7 +601,7 @@ async def api_history_csv_export(
     return Response(
         content=buf.getvalue(),
         media_type="text/csv",
-        headers={"Content-Disposition": 'attachment; filename="portaupdate-history.csv"'},
+        headers={"Content-Disposition": 'attachment; filename="omnigrid-history.csv"'},
     )
 
 

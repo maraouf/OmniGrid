@@ -36,44 +36,44 @@ __all__ = [
 REGISTRY = CollectorRegistry()
 
 ITEMS_TOTAL = Gauge(
-    "portaupdate_items_total",
+    "omnigrid_items_total",
     "Items by status and type",
     ["status", "type"],
     registry=REGISTRY,
 )
 STACK_OUTDATED = Gauge(
-    "portaupdate_stack_outdated",
+    "omnigrid_stack_outdated",
     "Outdated items per stack",
     ["stack"],
     registry=REGISTRY,
 )
 STACK_OFFLINE = Gauge(
-    "portaupdate_stack_offline",
+    "omnigrid_stack_offline",
     "Offline items per stack",
     ["stack"],
     registry=REGISTRY,
 )
 OPS_TOTAL = Counter(
-    "portaupdate_ops_total",
+    "omnigrid_ops_total",
     "One-click operations performed",
     ["op_type", "status"],
     registry=REGISTRY,
 )
 REGISTRY_ERRORS = Counter(
-    "portaupdate_registry_errors_total",
+    "omnigrid_registry_errors_total",
     "Remote-registry probe failures (per registry host)",
     ["registry"],
     registry=REGISTRY,
 )
 REGISTRY_LATENCY = Histogram(
-    "portaupdate_registry_latency_seconds",
+    "omnigrid_registry_latency_seconds",
     "Remote-registry HEAD/GET latency",
     ["registry"],
     registry=REGISTRY,
     buckets=(0.05, 0.1, 0.25, 0.5, 1, 2, 5, 10),
 )
 GATHER_DURATION = Histogram(
-    "portaupdate_gather_duration_seconds",
+    "omnigrid_gather_duration_seconds",
     "End-to-end _gather() duration",
     registry=REGISTRY,
     buckets=(0.5, 1, 2, 5, 10, 30, 60, 120),
@@ -81,7 +81,7 @@ GATHER_DURATION = Histogram(
 
 
 class _CacheAgeCollector:
-    """Reports ``portaupdate_cache_age_seconds`` at scrape time.
+    """Reports ``omnigrid_cache_age_seconds`` at scrape time.
 
     Uses a custom Collector (not a Gauge) so the value reflects NOW even
     between ``_gather()`` calls — Prometheus gets a fresh reading on every
@@ -93,7 +93,7 @@ class _CacheAgeCollector:
 
     def collect(self):
         g = GaugeMetricFamily(
-            "portaupdate_cache_age_seconds",
+            "omnigrid_cache_age_seconds",
             "Seconds since items cache was last populated",
         )
         cache = self._get() or {}
@@ -117,7 +117,7 @@ def populate_from_cache(cache: dict) -> None:
     Every known (status, type) combo is pre-initialised to zero so the
     resulting series always exist, even when the fleet has nothing in
     that bucket. Without this, queries like
-    ``sum(portaupdate_items_total{status="error"})`` return no series
+    ``sum(omnigrid_items_total{status="error"})`` return no series
     (not zero) when all items are healthy, and Grafana stat panels
     render that as "No data" instead of 0.
     """

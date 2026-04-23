@@ -63,7 +63,7 @@ function app() {
     oidcForm: {
       enabled: false, issuer_url: '', client_id: '', client_secret: '',
       redirect_uri: '', scopes: 'openid email profile groups',
-      admin_group: 'portaupdate-admins',
+      admin_group: 'omnigrid-admins',
     },
     oidcTestResult: null,
 
@@ -1673,7 +1673,7 @@ function app() {
             client_secret: '',  // write-only — never prefill
             redirect_uri:  this.oidcStatus.redirect_uri || this.oidcStatus.redirect_uri_default || '',
             scopes:        this.oidcStatus.scopes || 'openid email profile groups',
-            admin_group:   this.oidcStatus.admin_group || 'portaupdate-admins',
+            admin_group:   this.oidcStatus.admin_group || 'omnigrid-admins',
             // Default ON when the backend hasn't surfaced it yet (first load
             // after the migration); otherwise reflect whatever's persisted.
             verify_tls:    this.oidcStatus.verify_tls !== false,
@@ -2185,7 +2185,7 @@ function app() {
         'seerr': 'jellyseerr',
         'docker-prune': 'docker',
         'standalone': 'docker',
-        'portaupdate': 'docker',
+        'omnigrid': 'docker',
         'nebula-sync': 'pi-hole',
         'adguardhome-sync': 'adguard-home',
         'adguard-exporter': 'adguard-home',

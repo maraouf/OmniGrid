@@ -716,7 +716,7 @@ async def _run_gather_refresh(params: dict) -> tuple[str, Awaitable[tuple[int, s
         # actor='scheduler') picks it up. We don't involve ops.persist_history
         # because that also bumps a Prometheus counter tied to op_type names
         # — keep gather_refresh out of that bucket so it doesn't inflate
-        # portaupdate_ops_total with cache-refresh noise.
+        # omnigrid_ops_total with cache-refresh noise.
         try:
             with db_conn() as c:
                 c.execute(

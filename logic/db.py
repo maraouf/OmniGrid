@@ -13,7 +13,7 @@ import sqlite3
 from contextlib import contextmanager
 
 
-DB_PATH = os.getenv("DB_PATH", "/app/data/portaupdate.db")
+DB_PATH = os.getenv("DB_PATH", "/app/data/omnigrid.db")
 
 # Create the parent dir at import (once per process). Safe on restart —
 # exist_ok. "" dirname falls back to "." so relative paths work in dev.

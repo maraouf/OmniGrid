@@ -7,7 +7,7 @@ Two identity sources, one authorization layer:
 OIDC SSO users land here as cookie-holders too — the OIDC callback route
 (see :mod:`logic.oidc`) calls ``auto_provision_authentik()`` to map the
 id_token claims onto a local user record, then mints a normal
-``pu_session`` cookie. From the middleware's perspective they look
+``og_session`` cookie. From the middleware's perspective they look
 identical to a local login.
 
 All DB-backed settings (Portainer connection, OIDC provider config, the
@@ -36,8 +36,8 @@ from fastapi.responses import JSONResponse
 # ----------------------------------------------------------------------------
 SESSION_LIFETIME = 8 * 3600          # 8h hard cap
 SESSION_SLIDE_WITHIN = 3600          # re-issue cookie if less than 1h left
-COOKIE_NAME = "pu_session"
-CSRF_COOKIE = "pu_csrf"
+COOKIE_NAME = "og_session"
+CSRF_COOKIE = "og_csrf"
 
 SESSION_SECRET_ENV = os.getenv("SESSION_SECRET", "")
 # Auto-generate an ephemeral secret when one isn't provided so fresh installs
@@ -643,7 +643,7 @@ def create_api_token(
 ) -> str:
     if role not in ("admin", "readonly"):
         raise ValueError(f"invalid role: {role}")
-    raw = "pu_" + secrets.token_urlsafe(32)
+    raw = "og_" + secrets.token_urlsafe(32)
     conn.execute(
         "INSERT INTO api_tokens(name,token_hash,role,created_at,created_by) "
         "VALUES (?,?,?,?,?)",
@@ -759,7 +759,7 @@ def _resolve_user(request: Request, db_conn_factory) -> tuple[Optional[User], Op
     Returns (user, session_reissue). session_reissue is (cookie_value, expires_at)
     when a sliding-window reissue happened, so the caller can set the cookie.
 
-    OIDC SSO users arrive here via the standard ``pu_session`` cookie —
+    OIDC SSO users arrive here via the standard ``og_session`` cookie —
     the OIDC callback mints one after validating the id_token, so the
     middleware doesn't need a dedicated branch for them.
     """
@@ -843,7 +843,7 @@ def make_auth_middleware(db_conn_factory):
         if reissue is not None:
             cookie_value, expires_at = reissue
             set_session_cookie(response, cookie_value, expires_at, request)
-        # Issue a pu_csrf cookie when an authed caller doesn't already have
+        # Issue an og_csrf cookie when an authed caller doesn't already have
         # one — covers any edge case where the cookie got cleared (local
         # login and the OIDC callback both mint one themselves). Stable-
         # per-browser: we just need it to match what the client sends
