@@ -245,6 +245,8 @@
       "beszel_required": "Beszel Hub URL and identity are required.",
       "beszel_password_required": "Password is required the first time you configure Beszel.",
       "beszel_naming_hint": "Match each Beszel system's Name to the Docker hostname shown in the Nodes view. Mismatched names produce a per-node 'no system named …' error.",
+      "beszel_test_button": "Test connection",
+      "beszel_testing": "Testing…",
       "saved": "Host-stats settings saved"
     },
     "language": {

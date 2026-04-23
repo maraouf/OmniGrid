@@ -1337,6 +1337,16 @@
             <input type="checkbox" x-model="settings.beszel_verify_tls" :disabled="isReadonly()">
             <span x-text="t('settings.host_stats.beszel_verify_tls')"></span>
           </label>
+          <div class="flex items-center gap-2 flex-wrap">
+            <button x-show="isAdmin()" @click="testBeszelConnection()"
+                    :disabled="beszelTestResult && beszelTestResult.pending"
+                    class="btn btn-soft text-[12px]"
+                    x-text="(beszelTestResult && beszelTestResult.pending) ? t('settings.host_stats.beszel_testing') : t('settings.host_stats.beszel_test_button')"></button>
+            <span x-show="beszelTestResult && !beszelTestResult.pending"
+                  :class="beszelTestResult && beszelTestResult.ok ? 'text-[var(--success)]' : 'text-[var(--danger)]'"
+                  class="text-[11.5px]"
+                  x-text="(beszelTestResult && beszelTestResult.ok ? '✓ ' : '✗ ') + (beszelTestResult && beszelTestResult.detail || '')"></span>
+          </div>
           <p class="text-[10.5px] text-[var(--text-faint)]"
              x-text="t('settings.host_stats.beszel_naming_hint')"></p>
         </div>

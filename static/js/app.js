@@ -74,6 +74,7 @@ function app() {
       url: '', endpoint_id: 1, verify_tls: true, api_key: '',
     },
     portainerTestResult: null,
+    beszelTestResult: null,
     // Settings / Admin sidebar layout. Arrays drive the nav — adding a
     // section is one entry here + one <section> in the markup.
     // Section `label` is kept as a fallback (in case the translation key
@@ -1722,6 +1723,34 @@ function app() {
         this.portainerTestResult = { ok: !!j.ok, status: j.status || 0, detail: j.detail || '' };
       } catch (e) {
         this.portainerTestResult = { ok: false, status: 0, detail: 'Network error' };
+      }
+    },
+
+    async testBeszelConnection() {
+      // Mirrors testPortainerConnection — probes the hub with the
+      // current form values (or saved password if the field is blank)
+      // without mutating any settings. Result shown inline below the
+      // Test button so the admin sees what went wrong without a toast.
+      this.beszelTestResult = { pending: true };
+      try {
+        const r = await fetch('/api/beszel/test', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            hub_url:    (this.settings.beszel_hub_url || '').trim(),
+            identity:   (this.settings.beszel_identity || '').trim(),
+            password:   this.settings.beszel_password || '',
+            verify_tls: !!this.settings.beszel_verify_tls,
+          }),
+        });
+        const j = await r.json().catch(() => ({}));
+        this.beszelTestResult = {
+          ok: !!j.ok,
+          detail: j.detail || (j.ok ? 'OK' : 'Failed'),
+          systems: j.systems || [],
+        };
+      } catch (e) {
+        this.beszelTestResult = { ok: false, detail: 'Network error' };
       }
     },
     async saveSettings() {

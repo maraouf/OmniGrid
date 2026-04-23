@@ -245,6 +245,8 @@
       "beszel_required": "رابط Beszel Hub والمُعرّف مطلوبان.",
       "beszel_password_required": "كلمة المرور مطلوبة في المرة الأولى لتهيئة Beszel.",
       "beszel_naming_hint": "اجعل اسم كل نظام في Beszel مطابقاً لاسم مضيف Docker الظاهر في عرض العُقد. الأسماء غير المتطابقة تنتج خطأ 'no system named …' لكل عقدة.",
+      "beszel_test_button": "اختبار الاتصال",
+      "beszel_testing": "جاري الاختبار…",
       "saved": "تم حفظ إعدادات إحصاءات المضيف"
     },
     "language": {

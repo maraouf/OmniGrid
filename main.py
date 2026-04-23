@@ -953,6 +953,42 @@ async def api_portainer_test(
         return {"ok": False, "status": 0, "detail": f"{type(e).__name__}: {e}"}
 
 
+@app.post("/api/beszel/test")
+async def api_beszel_test(
+    request: Request,
+    _admin: auth.User = Depends(auth.require_admin),
+):
+    """Admin-only: probe a Beszel Hub with the given (or saved) creds.
+
+    Mirrors :func:`api_portainer_test` — accepts unsaved form values OR
+    falls back to the persisted password so Test works after first save
+    without re-typing it. Returns ``{ok, detail, system_count}``.
+    """
+    from logic import beszel as _beszel
+    body = await request.json()
+    hub_url = (body.get("hub_url") or "").strip().rstrip("/")
+    identity = (body.get("identity") or "").strip()
+    password = body.get("password") or ""
+    verify_tls = bool(body.get("verify_tls", True))
+    if not password:
+        # Same keep-current-if-blank contract as Portainer's API key.
+        password = get_setting("beszel_password", "") or ""
+    if not hub_url or not identity or not password:
+        return {"ok": False, "detail": "Hub URL, identity and password are all required"}
+    result = await _beszel.probe_hub(
+        hub_url, identity, password, verify_tls=verify_tls, timeout=10.0,
+    )
+    if result.get("error"):
+        return {"ok": False, "detail": result["error"]}
+    systems = result.get("systems") or {}
+    detail = (f"OK — reached hub, {len(systems)} system(s) visible: "
+              + (", ".join(sorted(systems.keys())[:5]) or "none"))
+    if len(systems) > 5:
+        detail += f" (+{len(systems) - 5} more)"
+    return {"ok": True, "detail": detail, "system_count": len(systems),
+            "systems": sorted(systems.keys())}
+
+
 @app.get("/api/auth/providers")
 async def api_auth_providers():
     """Public endpoint: advertises which login paths are live. The login
