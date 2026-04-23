@@ -46,39 +46,79 @@ def _cache_key(base_url: str, identity: str) -> tuple[str, str]:
     return (base_url.rstrip("/"), identity)
 
 
+def _pb_err_detail(r: "httpx.Response") -> str:
+    """Extract PocketBase's validation-error detail from a 400 response.
+
+    PB wraps field errors in ``{"message": "...", "data": {field: {...}}}``;
+    we stringify that into a flat hint so the operator sees *why* auth
+    failed (usually "Failed to authenticate" for wrong password or
+    "invalid email" for a malformed identity).
+    """
+    try:
+        j = r.json() or {}
+        msg = j.get("message") or ""
+        data = j.get("data") or {}
+        if data:
+            parts = []
+            for field, info in data.items():
+                if isinstance(info, dict):
+                    parts.append(f"{field}: {info.get('message') or info.get('code') or info}")
+                else:
+                    parts.append(f"{field}: {info}")
+            if parts:
+                return f"{msg} ({'; '.join(parts)})" if msg else "; ".join(parts)
+        return msg or f"HTTP {r.status_code}"
+    except Exception:
+        return f"HTTP {r.status_code}"
+
+
 async def _authenticate(
     client: httpx.AsyncClient,
     base_url: str,
     identity: str,
     password: str,
 ) -> str:
-    """POST PocketBase's auth-with-password and return a bearer token."""
-    url = base_url.rstrip("/") + "/api/collections/users/auth-with-password"
-    r = await client.post(
-        url,
-        json={"identity": identity, "password": password},
-        headers={"Content-Type": "application/json"},
-    )
-    if r.status_code >= 400:
-        # Fallback: some Beszel deployments use the admin collection for
-        # automations — try _superusers before giving up.
-        alt = base_url.rstrip("/") + "/api/collections/_superusers/auth-with-password"
-        r2 = await client.post(
-            alt,
-            json={"identity": identity, "password": password},
-            headers={"Content-Type": "application/json"},
-        )
-        if r2.status_code >= 400:
-            raise RuntimeError(
-                f"beszel auth failed: users HTTP {r.status_code}, "
-                f"superusers HTTP {r2.status_code}"
+    """POST PocketBase's auth-with-password and return a bearer token.
+
+    Tries three endpoints in order — PocketBase renamed things between
+    v0.22 and v0.23, and Beszel versions vary:
+      1. /api/collections/users/auth-with-password (regular user)
+      2. /api/collections/_superusers/auth-with-password (PB v0.23+ admin)
+      3. /api/admins/auth-with-password (PB v0.22 and earlier admin)
+
+    Returns the first successful token. On total failure, raises with
+    the most informative error message across all attempts so the
+    operator can see exactly why (typically "Failed to authenticate"
+    for a wrong password, which is actionable).
+    """
+    endpoints = [
+        "/api/collections/users/auth-with-password",
+        "/api/collections/_superusers/auth-with-password",
+        "/api/admins/auth-with-password",
+    ]
+    errors: list[str] = []
+    for path in endpoints:
+        try:
+            r = await client.post(
+                base_url.rstrip("/") + path,
+                json={"identity": identity, "password": password},
+                headers={"Content-Type": "application/json"},
             )
-        r = r2
-    data = r.json() or {}
-    token = data.get("token")
-    if not token:
-        raise RuntimeError("beszel auth: no token in response")
-    return token
+        except Exception as e:
+            errors.append(f"{path}: {e}")
+            continue
+        if r.status_code < 400:
+            data = r.json() or {}
+            token = data.get("token")
+            if token:
+                return token
+            errors.append(f"{path}: 200 but no token in response")
+            continue
+        errors.append(f"{path}: {_pb_err_detail(r)}")
+    # Deduplicate and collapse — operators mostly want the "real" reason
+    # (typically the last endpoint's detail, which tends to be the
+    # clearest). Include all for completeness.
+    raise RuntimeError("beszel auth failed — " + " | ".join(errors))
 
 
 async def _get_token(

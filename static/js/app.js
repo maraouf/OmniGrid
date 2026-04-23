@@ -1745,12 +1745,13 @@ function app() {
         });
         const j = await r.json().catch(() => ({}));
         this.beszelTestResult = {
+          pending: false,
           ok: !!j.ok,
           detail: j.detail || (j.ok ? 'OK' : 'Failed'),
           systems: j.systems || [],
         };
       } catch (e) {
-        this.beszelTestResult = { ok: false, detail: 'Network error' };
+        this.beszelTestResult = { pending: false, ok: false, detail: 'Network error' };
       }
     },
     async saveSettings() {
@@ -1890,12 +1891,16 @@ function app() {
     pollOps() {
       if (this._opsTimer) clearTimeout(this._opsTimer);
       if (!this._opLingerUntil) this._opLingerUntil = {};
+      if (!this._opsSeen) this._opsSeen = null;  // null sentinel = first poll
       // Linger window — keep finished ops visible in the floating panel
-      // for this many seconds AFTER they transitioned running → done.
-      // We only apply it to ops that were RUNNING in the previous poll,
-      // NOT to every completed op the backend returns (the ring buffer
-      // holds the last ~50 finished ops; showing those would flood the
-      // panel with historical ops every page load / reconnect).
+      // for this many seconds after they complete. Two qualifying paths:
+      //   1. op was running in the previous poll and is now done;
+      //   2. op is brand-new to us (never seen before) AND is already
+      //      done (completed between polls — e.g. bulk cleanup where
+      //      individual removes finish in <1.5s).
+      // The "first poll" case is special: we prime _opsSeen with the
+      // ring buffer's existing state WITHOUT lingering, so a page load
+      // doesn't flood the panel with up-to-50 historical completed ops.
       const LINGER_MS = 8000;
       const tick = async () => {
         try {
@@ -1905,11 +1910,21 @@ function app() {
             .filter(o => o.status === 'running')
             .map(o => o.id);
           const nowTs = Date.now();
-          // Only the just-transitioned set gets a linger deadline.
+          const firstPoll = this._opsSeen === null;
+          if (firstPoll) this._opsSeen = new Set();
           for (const o of all) {
-            if (o.status !== 'running' &&
-                prevRunning.includes(o.id) &&
-                !this._opLingerUntil[o.id]) {
+            const wasUnknown = !this._opsSeen.has(o.id);
+            this._opsSeen.add(o.id);
+            if (o.status === 'running') continue;
+            if (this._opLingerUntil[o.id]) continue;
+            // Path 1: observed running → done.
+            if (prevRunning.includes(o.id)) {
+              this._opLingerUntil[o.id] = nowTs + LINGER_MS;
+              continue;
+            }
+            // Path 2: brand-new op, already done (skip on first poll
+            // so we don't surface historical ring-buffer entries).
+            if (!firstPoll && wasUnknown) {
               this._opLingerUntil[o.id] = nowTs + LINGER_MS;
             }
           }
@@ -2186,12 +2201,18 @@ function app() {
       const hostDiskUsed = Number.isFinite(info.host_disk_used) ? info.host_disk_used : 0;
       const hostMemTotal = Number.isFinite(info.host_mem_total) ? info.host_mem_total : 0;
       const hostMemUsed = Number.isFinite(info.host_mem_used) ? info.host_mem_used : 0;
-      // Exporter status — three values:
+      // Host-stats status — three values:
       //   - 'ok'       scrape succeeded (any host_* fields populated)
-      //   - 'error'    scrape was attempted but failed (exporter_error set)
-      //   - 'disabled' host-stats is not enabled globally or node not probed
-      // Drives the green/red pill on the node header.
-      const hostStatsEnabled = !!(this.settings && this.settings.node_exporter_enabled);
+      //   - 'error'    probe attempted but failed (exporter_error set,
+      //                OR host-stats is enabled globally but this node
+      //                returned nothing)
+      //   - 'disabled' host_stats_source is 'none' / unset
+      // Drives the green/red pill on the node header. The "exporter"
+      // word in the variable name is historical — the same signal
+      // covers both node-exporter and Beszel now.
+      const source = (this.settings && this.settings.host_stats_source)
+        || (this.settings && this.settings.node_exporter_enabled ? 'node_exporter' : 'none');
+      const hostStatsEnabled = source === 'node_exporter' || source === 'beszel';
       let exporterStatus = 'disabled';
       if (info.exporter_error) exporterStatus = 'error';
       else if (hostStatsEnabled && (hostMemTotal > 0 || Number.isFinite(info.host_boot_ts) || (info.mounts && info.mounts.length))) exporterStatus = 'ok';
@@ -2209,6 +2230,7 @@ function app() {
         hasHostStats: hostDiskTotal > 0 || hostMemTotal > 0,
         exporterStatus,
         exporterError: info.exporter_error || null,
+        hostStatsSource: source,        // 'none' | 'node_exporter' | 'beszel'
       };
     },
 
