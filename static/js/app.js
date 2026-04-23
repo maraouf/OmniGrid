@@ -1004,36 +1004,71 @@ function app() {
     },
 
     async saveHostStats() {
-      const tpl = (this.settings.node_exporter_url_template || '').trim();
-      if (tpl && !tpl.includes('{host}')) {
-        this.showToast(this.t('settings.host_stats.placeholder_required'), 'error');
+      const source = this.settings.host_stats_source || 'none';
+      if (!['none','node_exporter','beszel'].includes(source)) {
+        this.showToast(this.t('settings.host_stats.source_invalid'), 'error');
         return;
       }
-      let overrides = {};
-      const raw = (this.settings.node_exporter_overrides_json || '').trim() || '{}';
-      try {
-        const parsed = JSON.parse(raw);
-        if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
-          overrides = parsed;
-        } else {
-          throw new Error('object expected');
+      // Source-specific validation — only the active source's fields
+      // are required to be well-formed; the others are persisted as-is
+      // so switching sources doesn't forget prior config.
+      const payload = {
+        host_stats_source: source,
+        // Keep node_exporter_enabled flag in sync with the selected
+        // source for back-compat with anything reading the legacy flag.
+        node_exporter_enabled: source === 'node_exporter',
+      };
+      if (source === 'node_exporter') {
+        const tpl = (this.settings.node_exporter_url_template || '').trim();
+        if (tpl && !tpl.includes('{host}')) {
+          this.showToast(this.t('settings.host_stats.placeholder_required'), 'error');
+          return;
         }
-      } catch (_) {
-        this.showToast(this.t('settings.host_stats.overrides_invalid'), 'error');
-        return;
+        let overrides = {};
+        const raw = (this.settings.node_exporter_overrides_json || '').trim() || '{}';
+        try {
+          const parsed = JSON.parse(raw);
+          if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+            overrides = parsed;
+          } else { throw new Error('object expected'); }
+        } catch (_) {
+          this.showToast(this.t('settings.host_stats.overrides_invalid'), 'error');
+          return;
+        }
+        payload.node_exporter_url_template = tpl;
+        payload.node_exporter_overrides = overrides;
+      } else if (source === 'beszel') {
+        const hub = (this.settings.beszel_hub_url || '').trim();
+        const ident = (this.settings.beszel_identity || '').trim();
+        if (!hub || !ident) {
+          this.showToast(this.t('settings.host_stats.beszel_required'), 'error');
+          return;
+        }
+        if (!this.settings.beszel_password_set && !this.settings.beszel_password) {
+          this.showToast(this.t('settings.host_stats.beszel_password_required'), 'error');
+          return;
+        }
+        payload.beszel_hub_url = hub;
+        payload.beszel_identity = ident;
+        payload.beszel_verify_tls = !!this.settings.beszel_verify_tls;
+        if (this.settings.beszel_password) {
+          payload.beszel_password = this.settings.beszel_password;
+        }
       }
       try {
         const r = await fetch('/api/settings', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            node_exporter_enabled: !!this.settings.node_exporter_enabled,
-            node_exporter_url_template: tpl,
-            node_exporter_overrides: overrides,
-          }),
+          body: JSON.stringify(payload),
         });
         if (r.ok) {
           this.showToast(this.t('settings.host_stats.saved'));
+          // Flip the "password is stored" indicator once we've persisted
+          // a new password so the UI stops nagging to re-enter it.
+          if (payload.beszel_password) {
+            this.settings.beszel_password_set = true;
+            this.settings.beszel_password = '';
+          }
           // Refresh items so the new nodes_info fields land immediately.
           this.refresh(true);
         } else {
@@ -1537,11 +1572,20 @@ function app() {
           apprise_tag: d.apprise_tag || '',
           portainer_public_url: d.portainer_public_url || '',
           backup_retention_count: Number.isFinite(d.backup_retention_count) ? d.backup_retention_count : 0,
+          // Host-stats source + per-provider config. Mutually exclusive —
+          // the radio in the Settings panel drives which block's fields
+          // actually get persisted when Save is clicked.
+          host_stats_source: d.host_stats_source || 'none',
           node_exporter_enabled: !!(d.node_exporter && d.node_exporter.enabled),
           node_exporter_url_template: (d.node_exporter && d.node_exporter.url_template)
             || 'http://{host}:9100/metrics',
           node_exporter_overrides_json: JSON.stringify(
             (d.node_exporter && d.node_exporter.overrides) || {}, null, 2),
+          beszel_hub_url: (d.beszel && d.beszel.hub_url) || '',
+          beszel_identity: (d.beszel && d.beszel.identity) || '',
+          beszel_password: '',  // write-only — never shown
+          beszel_password_set: !!(d.beszel && d.beszel.password_set),
+          beszel_verify_tls: d.beszel ? d.beszel.verify_tls !== false : true,
         };
         this.endpointId = d.endpoint_id || 1;
 

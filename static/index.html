@@ -1252,37 +1252,97 @@
         </section>
       </div>
 
-      <!-- Host stats (node-exporter) — surfaces real host disk / RAM /
-           uptime in the Nodes view. Operator deploys prom/node-exporter
-           once per host (compose or Swarm global service); PortaUpdate
-           scrapes each endpoint during gather. -->
+      <!-- Host stats — pick ONE source (none / node-exporter / Beszel).
+           Each source's fields render conditionally so the form only
+           asks for what's relevant. -->
       <section x-show="settingsSection === 'host_stats'" class="bg-[var(--surface)] border border-[var(--border)] rounded-md p-5">
         <h3 class="font-semibold text-[13px] mb-2" x-text="t('settings.host_stats.title')"></h3>
         <p class="text-[11.5px] text-[var(--text-faint)] mb-3" x-text="t('settings.host_stats.desc')"></p>
-        <label class="inline-flex items-center gap-2 text-[12px] text-[var(--text-dim)] mb-3">
-          <input type="checkbox" x-model="settings.node_exporter_enabled" :disabled="isReadonly()">
-          <span x-text="t('settings.host_stats.enable')"></span>
-        </label>
-        <label class="block text-[11px] text-[var(--text-faint)] mb-1"
-               x-text="t('settings.host_stats.url_label')"></label>
-        <input x-model="settings.node_exporter_url_template" type="text"
-               :disabled="isReadonly()"
-               class="w-full mono text-[11.5px]"
-               placeholder="http://{host}:9100/metrics">
-        <p class="text-[10.5px] text-[var(--text-faint)] mt-1"
-           x-text="t('settings.host_stats.url_hint')"></p>
 
-        <label class="block text-[11px] text-[var(--text-faint)] mt-4 mb-1"
-               x-text="t('settings.host_stats.overrides_label')"></label>
-        <textarea x-model="settings.node_exporter_overrides_json"
-                  :disabled="isReadonly()" rows="5"
-                  class="w-full mono text-[11.5px]"
-                  :placeholder='`{\n  "dockerpve": "http://192.168.1.30:9100/metrics"\n}`'></textarea>
-        <p class="text-[10.5px] text-[var(--text-faint)] mt-1"
-           x-text="t('settings.host_stats.overrides_hint')"></p>
+        <label class="block text-[11px] text-[var(--text-faint)] mb-1"
+               x-text="t('settings.host_stats.source_label')"></label>
+        <div class="flex flex-wrap gap-4 mb-4 text-[12px] text-[var(--text-dim)]">
+          <label class="inline-flex items-center gap-2">
+            <input type="radio" x-model="settings.host_stats_source" value="none" :disabled="isReadonly()">
+            <span x-text="t('settings.host_stats.source_none')"></span>
+          </label>
+          <label class="inline-flex items-center gap-2">
+            <input type="radio" x-model="settings.host_stats_source" value="node_exporter" :disabled="isReadonly()">
+            <span x-text="t('settings.host_stats.source_node_exporter')"></span>
+          </label>
+          <label class="inline-flex items-center gap-2">
+            <input type="radio" x-model="settings.host_stats_source" value="beszel" :disabled="isReadonly()">
+            <span x-text="t('settings.host_stats.source_beszel')"></span>
+          </label>
+        </div>
+
+        <!-- node-exporter config -->
+        <div x-show="settings.host_stats_source === 'node_exporter'" class="space-y-3">
+          <div>
+            <label class="block text-[11px] text-[var(--text-faint)] mb-1"
+                   x-text="t('settings.host_stats.url_label')"></label>
+            <input x-model="settings.node_exporter_url_template" type="text"
+                   :disabled="isReadonly()"
+                   class="w-full mono text-[11.5px]"
+                   placeholder="http://{host}:9100/metrics">
+            <p class="text-[10.5px] text-[var(--text-faint)] mt-1"
+               x-text="t('settings.host_stats.url_hint')"></p>
+          </div>
+          <div>
+            <label class="block text-[11px] text-[var(--text-faint)] mb-1"
+                   x-text="t('settings.host_stats.overrides_label')"></label>
+            <textarea x-model="settings.node_exporter_overrides_json"
+                      :disabled="isReadonly()" rows="5"
+                      class="w-full mono text-[11.5px]"
+                      :placeholder='`{\n  "dockerpve": "http://192.168.1.30:9100/metrics"\n}`'></textarea>
+            <p class="text-[10.5px] text-[var(--text-faint)] mt-1"
+               x-text="t('settings.host_stats.overrides_hint')"></p>
+          </div>
+        </div>
+
+        <!-- Beszel config -->
+        <div x-show="settings.host_stats_source === 'beszel'" class="space-y-3">
+          <div>
+            <label class="block text-[11px] text-[var(--text-faint)] mb-1"
+                   x-text="t('settings.host_stats.beszel_url_label')"></label>
+            <input x-model="settings.beszel_hub_url" type="url"
+                   :disabled="isReadonly()"
+                   class="w-full mono text-[11.5px]"
+                   placeholder="http://monitoring.home.lan:8090">
+            <p class="text-[10.5px] text-[var(--text-faint)] mt-1"
+               x-text="t('settings.host_stats.beszel_url_hint')"></p>
+          </div>
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-2">
+            <div>
+              <label class="block text-[11px] text-[var(--text-faint)] mb-1"
+                     x-text="t('settings.host_stats.beszel_identity_label')"></label>
+              <input x-model="settings.beszel_identity" type="text"
+                     :disabled="isReadonly()"
+                     class="w-full text-[11.5px]"
+                     placeholder="readonly@example.com">
+            </div>
+            <div>
+              <label class="block text-[11px] text-[var(--text-faint)] mb-1">
+                <span x-text="t('settings.host_stats.beszel_password_label')"></span>
+                <span x-show="settings.beszel_password_set" class="text-[var(--success)]"
+                      x-text="t('settings.host_stats.beszel_password_set')"></span>
+              </label>
+              <input x-model="settings.beszel_password" type="password"
+                     :disabled="isReadonly()"
+                     class="w-full text-[11.5px]"
+                     :placeholder="settings.beszel_password_set ? '••••••••' : t('settings.host_stats.beszel_password_placeholder')">
+            </div>
+          </div>
+          <label class="inline-flex items-center gap-2 text-[12px] text-[var(--text-dim)]">
+            <input type="checkbox" x-model="settings.beszel_verify_tls" :disabled="isReadonly()">
+            <span x-text="t('settings.host_stats.beszel_verify_tls')"></span>
+          </label>
+          <p class="text-[10.5px] text-[var(--text-faint)]"
+             x-text="t('settings.host_stats.beszel_naming_hint')"></p>
+        </div>
 
         <button x-show="isAdmin()" @click="saveHostStats()"
-                class="btn btn-primary text-[12px] mt-3"
+                class="btn btn-primary text-[12px] mt-4"
                 x-text="t('actions.save')"></button>
       </section>
 

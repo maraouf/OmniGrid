@@ -689,6 +689,19 @@ class SettingsIn(BaseModel):
     # hostname isn't reachable via DNS from the PortaUpdate container).
     # Stored as a JSON object: {"hostname": "http://explicit:9100/metrics"}.
     node_exporter_overrides: Optional[dict] = None
+    # Host-stats source selector — mutually exclusive. "none" disables
+    # host-stats entirely, "node_exporter" uses the scrape path, and
+    # "beszel" consumes a Beszel Hub's PocketBase API. Kept alongside
+    # the per-source settings rather than auto-inferred so an operator
+    # can temporarily flip sources without blanking their config.
+    host_stats_source: Optional[str] = None
+    # Beszel Hub — URL, identity (usually email), password. Password
+    # is write-only on the wire like the other secret fields (empty
+    # string "keep current", non-empty "replace").
+    beszel_hub_url: Optional[str] = None
+    beszel_identity: Optional[str] = None
+    beszel_password: Optional[str] = None
+    beszel_verify_tls: Optional[bool] = None
 
 
 @app.get("/api/settings")
@@ -706,6 +719,22 @@ async def api_get_settings(request: Request):
             "enabled": (get_setting("node_exporter_enabled", "false") or "false").lower() == "true",
             "url_template": get_setting("node_exporter_url_template", "http://{host}:9100/metrics"),
             "overrides": json.loads(get_setting("node_exporter_overrides", "{}") or "{}"),
+        },
+        # Host-stats source — legacy rows without the setting map to
+        # "node_exporter" iff it was enabled, else "none", so upgrades
+        # don't silently turn host-stats off.
+        "host_stats_source": (
+            get_setting("host_stats_source", "")
+            or ("node_exporter"
+                if (get_setting("node_exporter_enabled", "false") or "false").lower() == "true"
+                else "none")
+        ),
+        # Beszel Hub — password is write-only. UI only learns "is it set".
+        "beszel": {
+            "hub_url": get_setting("beszel_hub_url", ""),
+            "identity": get_setting("beszel_identity", ""),
+            "password_set": bool(get_setting("beszel_password", "")),
+            "verify_tls": (get_setting("beszel_verify_tls", "true") or "true").lower() == "true",
         },
         # Back-compat: older UI bits read this top-level field.
         "endpoint_id": p.get("portainer_endpoint_id", 1),
@@ -775,6 +804,24 @@ async def api_set_settings(
             if str(k).strip() and str(v).strip()
         }
         set_setting("node_exporter_overrides", json.dumps(clean))
+    if s.host_stats_source is not None:
+        src = (s.host_stats_source or "").strip()
+        if src not in ("none", "node_exporter", "beszel"):
+            raise HTTPException(
+                status_code=400,
+                detail="host_stats_source must be 'none', 'node_exporter', or 'beszel'.",
+            )
+        set_setting("host_stats_source", src)
+    if s.beszel_hub_url is not None:
+        # Trim trailing slash so downstream concatenation stays clean.
+        set_setting("beszel_hub_url", (s.beszel_hub_url or "").strip().rstrip("/"))
+    if s.beszel_identity is not None:
+        set_setting("beszel_identity", (s.beszel_identity or "").strip())
+    # Password: same keep-current-if-blank contract as other secrets.
+    if s.beszel_password is not None and s.beszel_password.strip() != "":
+        set_setting("beszel_password", s.beszel_password)
+    if s.beszel_verify_tls is not None:
+        set_setting("beszel_verify_tls", "true" if s.beszel_verify_tls else "false")
 
     auth_changed = False
     portainer_changed = False

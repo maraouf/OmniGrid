@@ -304,13 +304,47 @@ async def _gather_impl() -> None:
                 if host in nodes_info:
                     nodes_info[host]["docker_disk_bytes"] = total
 
-        # Optional node-exporter scrape — per-host stats that Portainer
-        # doesn't expose (real host disk / memory / uptime). Gated by a
-        # setting so fresh installs without exporter deployed don't pay
-        # the per-gather overhead or log repeated timeouts.
+        # Host-stats integration — surfaces real host disk / memory /
+        # uptime that Portainer doesn't expose. Operator picks ONE
+        # source via settings (host_stats_source); legacy installs
+        # with only node_exporter_enabled set get the exporter path
+        # automatically via the /api/settings read-back shim.
         from logic.db import get_setting
+        from logic import beszel as _beszel
         from logic import node_exporter as _ne
-        ne_enabled = (get_setting("node_exporter_enabled", "false") or "false").lower() == "true"
+        source = (get_setting("host_stats_source", "") or "").strip()
+        if not source:
+            source = ("node_exporter"
+                      if (get_setting("node_exporter_enabled", "false") or "false").lower() == "true"
+                      else "none")
+
+        if source == "beszel" and df_hosts:
+            # One HTTP call to the hub fetches every system's latest
+            # snapshot. Operator names their Beszel systems to match
+            # Docker hostnames; unmatched entries are ignored.
+            hub_url = get_setting("beszel_hub_url", "") or ""
+            ident = get_setting("beszel_identity", "") or ""
+            passw = get_setting("beszel_password", "") or ""
+            verify = (get_setting("beszel_verify_tls", "true") or "true").lower() == "true"
+            result = await _beszel.probe_hub(hub_url, ident, passw, verify_tls=verify)
+            err = result.get("error")
+            systems = result.get("systems") or {}
+            for host in df_hosts:
+                if host in nodes_info:
+                    if err:
+                        nodes_info[host]["exporter_error"] = f"beszel: {err}"
+                        continue
+                    stats = systems.get(host)
+                    if stats is None:
+                        # No matching Beszel system for this Docker host —
+                        # surface the miss so operators can fix naming.
+                        nodes_info[host]["exporter_error"] = (
+                            f"beszel: no system named '{host}' in the hub"
+                        )
+                        continue
+                    nodes_info[host].update(stats)
+
+        ne_enabled = (source == "node_exporter")
         if ne_enabled and df_hosts:
             tpl = get_setting("node_exporter_url_template", "http://{host}:9100/metrics") \
                   or "http://{host}:9100/metrics"
