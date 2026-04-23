@@ -1408,6 +1408,133 @@ function app() {
       if (!item) return '';
       return this.iconUrlFor(item.stack || item.name);
     },
+    // -----------------------------------------------------------------
+    // Per-node aggregates for the Nodes view. Everything is computed
+    // client-side off the same `stats` / `sparks` state the other views
+    // use — no new backend endpoints. Items count toward a node iff
+    // any of their `placements` match (services with multiple replicas
+    // contribute to every node they run on).
+    // -----------------------------------------------------------------
+    itemsForNode(host) {
+      return this.items.filter(it => {
+        if (Array.isArray(it.placements) && it.placements.length) {
+          return it.placements.some(p => p && p.node === host);
+        }
+        return it.node === host;
+      });
+    },
+
+    nodeStats(host) {
+      let cpu = 0, memUsage = 0, memLimit = 0, sizeRoot = 0;
+      let hasStats = false, hasSize = false;
+      // Track the oldest workload running on this node as a proxy for
+      // host uptime — Docker doesn't expose the host's boot time, so
+      // "the longest thing that's been running here" is the best signal
+      // we can get without an on-node agent.
+      let oldestEpoch = null;
+      for (const it of this.itemsForNode(host)) {
+        const s = this.statsFor(it);
+        if (s.has_stats) {
+          cpu += s.cpu_percent;
+          memUsage += s.mem_usage;
+          memLimit += s.mem_limit;
+          hasStats = true;
+        }
+        if (s.has_size) {
+          // Same dedupe rule as stackStats: image size is per-image, not
+          // per-container, so use max() instead of sum() to avoid the
+          // "3 replicas of nginx = 3 × disk" distortion.
+          sizeRoot = Math.max(sizeRoot, s.size_root);
+          hasSize = true;
+        }
+        // item.created is a container epoch or a service ISO string; handle both.
+        const ts = this._itemCreatedEpoch(it);
+        if (ts && (!oldestEpoch || ts < oldestEpoch)) oldestEpoch = ts;
+      }
+      return { cpu, memUsage, memLimit, sizeRoot, hasStats, hasSize, oldestEpoch };
+    },
+
+    _itemCreatedEpoch(it) {
+      if (!it || !it.created) return null;
+      if (typeof it.created === 'number') return it.created;
+      const n = Math.floor(new Date(it.created).getTime() / 1000);
+      return isNaN(n) ? null : n;
+    },
+
+    nodeUptime(host) {
+      const st = this.nodeStats(host);
+      if (!st.oldestEpoch) return null;
+      return Math.max(0, Math.floor(Date.now() / 1000) - st.oldestEpoch);
+    },
+
+    nodeMemPercent(host) {
+      const st = this.nodeStats(host);
+      if (!st.memLimit) return 0;
+      return Math.min(100, (st.memUsage / st.memLimit) * 100);
+    },
+
+    nodeDiskPercent(host) {
+      const st = this.nodeStats(host);
+      if (!this._maxSize) return 0;
+      return Math.min(100, (st.sizeRoot / this._maxSize) * 100);
+    },
+
+    // Time-series aggregation for node-level sparklines. Bins samples by
+    // rounded timestamp (matching the sampler's cadence) so items with
+    // near-identical-but-not-exact timestamps still stack correctly.
+    nodeSparkPoints(host, key) {
+      const items = this.itemsForNode(host);
+      if (!items.length) return '';
+      const BIN = 300; // seconds — matches STATS_SAMPLE_INTERVAL default
+      const byBin = new Map();
+      for (const it of items) {
+        const rows = this.sparks[it.id];
+        if (!rows) continue;
+        for (const r of rows) {
+          const bin = Math.round((r.ts || 0) / BIN) * BIN;
+          const agg = byBin.get(bin) || { ts: bin, cpu: 0, mem_used: 0, mem_limit: 0 };
+          agg.cpu += r.cpu || 0;
+          agg.mem_used += r.mem_used || 0;
+          agg.mem_limit += r.mem_limit || 0;
+          byBin.set(bin, agg);
+        }
+      }
+      const sorted = Array.from(byBin.values()).sort((a, b) => a.ts - b.ts);
+      if (sorted.length < 2) return '';
+      const W = 60, H = 10;
+      const vals = sorted.map(r => {
+        if (key === 'cpu') return r.cpu;
+        if (key === 'mem') return r.mem_limit ? (r.mem_used / r.mem_limit) * 100 : 0;
+        return 0;
+      });
+      let lo = Infinity, hi = -Infinity;
+      for (const v of vals) { if (v < lo) lo = v; if (v > hi) hi = v; }
+      if (hi - lo < 0.5) { lo = Math.max(0, lo - 0.5); hi = lo + 1; }
+      const step = W / (vals.length - 1);
+      return vals.map((v, i) => {
+        const x = (i * step).toFixed(1);
+        const y = (H - ((v - lo) / (hi - lo)) * H).toFixed(1);
+        return `${x},${y}`;
+      }).join(' ');
+    },
+
+    nodeSparkClass(host, key) {
+      const st = this.nodeStats(host);
+      if (!st.hasStats) return 'muted';
+      const v = key === 'cpu' ? st.cpu : this.nodeMemPercent(host);
+      return this.barLevel(v);
+    },
+
+    fmtDuration(seconds) {
+      if (!seconds || seconds <= 0) return '—';
+      const d = Math.floor(seconds / 86400);
+      const h = Math.floor((seconds % 86400) / 3600);
+      const m = Math.floor((seconds % 3600) / 60);
+      if (d > 0) return d + 'd ' + h + 'h';
+      if (h > 0) return h + 'h ' + m + 'm';
+      return m + 'm';
+    },
+
     stackStats(stack) {
       // Aggregate CPU / memory / image-size across every item in the stack so
       // collapsed stacks still display meaningful numbers on the group row.

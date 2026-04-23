@@ -682,6 +682,76 @@
             </span>
           </button>
 
+          <!-- Always-visible stats strip: CPU / Memory / Disk / Uptime
+               for this node, aggregated from its containers' stats plus
+               a sparkline mirroring the stacks-view pattern. Non-collapsed
+               so operators get at-a-glance node health without clicking. -->
+          <div x-show="!node.is_unpinned"
+               class="grid grid-cols-2 md:grid-cols-4 gap-3 px-5 py-3 border-t border-[var(--border)] bg-[var(--surface-2)]/40">
+            <!-- CPU -->
+            <div>
+              <div class="flex items-baseline justify-between mb-1.5">
+                <span class="text-[10.5px] uppercase tracking-wider text-[var(--text-faint)]">CPU</span>
+                <span class="text-[12px] mono"
+                      x-text="nodeStats(node.name).hasStats ? cpuLabel(nodeStats(node.name).cpu) : '—'"></span>
+              </div>
+              <div class="stat-bar"
+                   :class="barLevel(nodeStats(node.name).cpu)"
+                   :style="'--w: ' + Math.min(100, nodeStats(node.name).cpu) + '%'"></div>
+              <svg viewBox="0 0 60 10" preserveAspectRatio="none"
+                   class="spark mt-1"
+                   :class="nodeSparkClass(node.name, 'cpu')"
+                   x-show="nodeSparkPoints(node.name, 'cpu')">
+                <polyline fill="none" stroke="currentColor" stroke-width="1" :points="nodeSparkPoints(node.name, 'cpu')"></polyline>
+              </svg>
+            </div>
+
+            <!-- Memory -->
+            <div>
+              <div class="flex items-baseline justify-between mb-1.5">
+                <span class="text-[10.5px] uppercase tracking-wider text-[var(--text-faint)]">Memory</span>
+                <span class="text-[12px] mono"
+                      x-text="nodeStats(node.name).hasStats
+                              ? fmtBytes(nodeStats(node.name).memUsage) + ' / ' + fmtBytes(nodeStats(node.name).memLimit)
+                              : '—'"></span>
+              </div>
+              <div class="stat-bar"
+                   :class="barLevel(nodeMemPercent(node.name))"
+                   :style="'--w: ' + nodeMemPercent(node.name) + '%'"></div>
+              <svg viewBox="0 0 60 10" preserveAspectRatio="none"
+                   class="spark mt-1"
+                   :class="nodeSparkClass(node.name, 'mem')"
+                   x-show="nodeSparkPoints(node.name, 'mem')">
+                <polyline fill="none" stroke="currentColor" stroke-width="1" :points="nodeSparkPoints(node.name, 'mem')"></polyline>
+              </svg>
+            </div>
+
+            <!-- Disk (images on this node, max across replicas — same
+                 dedupe rule as stackStats). -->
+            <div>
+              <div class="flex items-baseline justify-between mb-1.5">
+                <span class="text-[10.5px] uppercase tracking-wider text-[var(--text-faint)]">Disk (images)</span>
+                <span class="text-[12px] mono"
+                      x-text="nodeStats(node.name).hasSize ? fmtBytes(nodeStats(node.name).sizeRoot) : '—'"></span>
+              </div>
+              <div class="stat-bar"
+                   :class="barLevel(nodeDiskPercent(node.name))"
+                   :style="'--w: ' + nodeDiskPercent(node.name) + '%'"></div>
+            </div>
+
+            <!-- Uptime (proxy via oldest running workload). -->
+            <div>
+              <div class="flex items-baseline justify-between mb-1.5">
+                <span class="text-[10.5px] uppercase tracking-wider text-[var(--text-faint)]">Uptime</span>
+                <span class="text-[12px] mono" x-text="fmtDuration(nodeUptime(node.name))"></span>
+              </div>
+              <div class="text-[10.5px] text-[var(--text-faint)] leading-tight">
+                Longest-running workload here. Docker doesn't expose the
+                host's boot time — this is the closest available signal.
+              </div>
+            </div>
+          </div>
+
           <!-- Node body — stack-grouped items. Same row renderer as
                the stacks view's individual item rows, but we tee it
                up with a lightweight custom list here to avoid a full
