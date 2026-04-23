@@ -79,13 +79,13 @@ function app() {
     // section is one entry here + one <section> in the markup.
     // Section `label` is kept as a fallback (in case the translation key
     // is missing); the sidebar button actually renders via t('settings.sections.<id>').
+    // Personal settings — profile, ignore list, language, hotkeys.
+    // Admin-only concerns (Portainer / OIDC / Notifications / Host
+    // stats) moved under the Admin section since they're global and
+    // only admins can change them.
     settingsSections: [
       { id: 'profile',       label: 'Profile' },
-      { id: 'notifications', label: 'Notifications' },
-      { id: 'portainer',     label: 'Portainer' },
-      { id: 'host_stats',    label: 'Host stats' },
       { id: 'ignores',       label: 'Ignore list' },
-      { id: 'oidc',          label: 'Authentik OIDC' },
       { id: 'language',      label: 'Language' },
       { id: 'shortcuts',     label: 'Keyboard shortcuts' },
     ],
@@ -102,12 +102,16 @@ function app() {
     profileBusy: false,
     avatarBusy: false,
     adminSections: [
-      { id: 'users',      label: 'Users' },
-      { id: 'sessions',   label: 'Sessions' },
-      { id: 'tokens',     label: 'API tokens' },
-      { id: 'schedules',  label: 'Schedules' },
-      { id: 'backups',    label: 'Backups' },
-      { id: 'logs',       label: 'Logs' },
+      { id: 'users',          label: 'Users' },
+      { id: 'sessions',       label: 'Sessions' },
+      { id: 'tokens',         label: 'API tokens' },
+      { id: 'notifications',  label: 'Notifications' },
+      { id: 'portainer',      label: 'Portainer' },
+      { id: 'oidc',           label: 'Authentik OIDC' },
+      { id: 'host_stats',     label: 'Host stats' },
+      { id: 'schedules',      label: 'Schedules' },
+      { id: 'backups',        label: 'Backups' },
+      { id: 'logs',           label: 'Logs' },
     ],
     // App-logs viewer state. Polled when the Logs tab is visible.
     // `logLines` is append-only during a session; clear() wipes both
@@ -199,12 +203,24 @@ function app() {
         mq.addEventListener ? mq.addEventListener('change', onSys) : mq.addListener(onSys);
       }
       this.applyTheme();
+      // URL routing — reflect current view + section in the path so a
+      // refresh keeps the operator where they were (/admin/host_stats,
+      // /settings/profile, etc). Run the one-time parse BEFORE wiring
+      // the watchers so the initial assign doesn't spam pushState.
+      this._applyRouteFromPath();
       this.$watch('view', v => {
         localStorage.setItem('view', v);
+        this._pushRoute();
         // Load admin data lazily — only when the user actually navigates there.
         if (v === 'admin') this.openAdminTab(this.adminTab);
       });
-      this.$watch('settingsSection', v => localStorage.setItem('settingsSection', v));
+      this.$watch('settingsSection', v => {
+        localStorage.setItem('settingsSection', v);
+        this._pushRoute();
+      });
+      this.$watch('adminTab', () => this._pushRoute());
+      // Back/forward buttons — re-read the path into app state.
+      window.addEventListener('popstate', () => this._applyRouteFromPath());
       this.$watch('expanded', v => localStorage.setItem('expanded', JSON.stringify(v)));
       // Re-surface the translated labels in Settings/Admin sidebars when
       // the user swaps language. Alpine re-renders bindings automatically
@@ -572,6 +588,57 @@ function app() {
       return h % 360;
     },
 
+    // URL routing helpers — keep the path in sync with view + section
+    // so a browser refresh or shared link lands on the same screen.
+    //
+    // Path shape:
+    //   /                            → stacks (default)
+    //   /{view}                      → top-level view
+    //   /settings/{section}          → Settings sidebar section
+    //   /admin/{tab}                 → Admin sidebar tab
+    // Unknown paths are left alone (the static file server already
+    // handles login / assets; this only intervenes for known views).
+    _routeViews() {
+      return new Set(['stacks', 'services', 'nodes', 'history', 'settings', 'admin']);
+    },
+    _applyRouteFromPath() {
+      const parts = (location.pathname || '/').split('/').filter(Boolean);
+      if (!parts.length) return;
+      const head = parts[0];
+      if (!this._routeViews().has(head)) return;
+      // Only assign if the current state differs, so this doesn't
+      // thrash re-renders when the pushState we just wrote fires
+      // popstate-like flows (it doesn't — noted for future-proofing).
+      if (this.view !== head) this.view = head;
+      const sub = parts[1];
+      if (head === 'settings' && sub) {
+        if ((this.settingsSections || []).some(s => s.id === sub)) {
+          this.settingsSection = sub;
+        }
+      } else if (head === 'admin' && sub) {
+        if ((this.adminSections || []).some(s => s.id === sub)) {
+          // Use openAdminTab so the tab-specific load fires (users,
+          // sessions, schedules, etc).
+          this.openAdminTab(sub);
+        }
+      }
+    },
+    _pushRoute() {
+      let path = '/' + (this.view || 'stacks');
+      if (this.view === 'settings' && this.settingsSection) {
+        path += '/' + this.settingsSection;
+      } else if (this.view === 'admin' && this.adminTab) {
+        path += '/' + this.adminTab;
+      }
+      // replaceState rather than pushState so refresh lands on the
+      // same page without adding history entries per tab switch.
+      // Back/forward via actual nav (hash changes, manual link) still
+      // work because popstate runs _applyRouteFromPath.
+      if (location.pathname !== path) {
+        try { history.replaceState(null, '', path); } catch (_) {}
+      }
+    },
+
     async openAdminTab(tab) {
       // Stop the logs poller when leaving the Logs tab; it restarts
       // when the tab is opened again. Keeps network traffic silent
@@ -590,6 +657,12 @@ function app() {
       else if (tab === 'logs') {
         await this.loadLogs(true);
         this._startLogPoll();
+      }
+      // The four ex-Settings sections all read from the same /api/settings
+      // payload, so a single load covers all of them. Load on every
+      // open so edits from another tab don't go stale.
+      else if (['notifications', 'portainer', 'oidc', 'host_stats'].includes(tab)) {
+        await this.loadSettings();
       }
     },
 

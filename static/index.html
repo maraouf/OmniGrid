@@ -1159,103 +1159,8 @@
         </section>
       </div>
 
-      <section x-show="settingsSection === 'notifications'" class="bg-[var(--surface)] border border-[var(--border)] rounded-md p-5">
-        <h3 class="font-semibold text-[13px] mb-2" x-text="t('settings.notifications.title')"></h3>
-        <p class="text-[11.5px] text-[var(--text-faint)] mb-3">
-          <span x-text="t('settings.notifications.url_format_prefix')"></span> <code class="mono text-[var(--text-dim)]">http://&lt;host&gt;:&lt;port&gt;/notify/&lt;CONFIG-KEY&gt;</code> —
-          <code class="mono text-[var(--text-dim)]">&lt;CONFIG-KEY&gt;</code> <span x-html="t('settings.notifications.url_format_suffix')"></span>
-        </p>
-        <input x-model="settings.apprise_url" type="url" :disabled="isReadonly()" :placeholder="t('settings.notifications.url_placeholder')" class="w-full">
-        <input x-model="settings.apprise_tag" type="text" :disabled="isReadonly()" :placeholder="t('settings.notifications.tag_placeholder')" class="w-full mt-2">
-        <div class="flex gap-2 mt-3" x-show="isAdmin()">
-          <button @click="saveSettings()" class="btn btn-primary text-[12px]" x-text="t('actions.save')"></button>
-          <button @click="testNotify()" class="btn btn-soft text-[12px]" x-text="t('actions.send_test')"></button>
-        </div>
-      </section>
-
-      <!-- Portainer section: connection (DB-backed, UI-managed) plus the
-           browser-facing public URL used for deep links. Empty config is
-           fine — the dashboard renders an empty state until the form is
-           filled in. API key is write-only; server reports only whether
-           it's set. -->
-      <div x-show="settingsSection === 'portainer'" class="space-y-4">
-        <section class="bg-[var(--surface)] border border-[var(--border)] rounded-md p-5">
-          <div class="flex items-start justify-between">
-            <div>
-              <h3 class="font-semibold text-[13px] mb-2" x-text="t('settings.portainer.connection_title')"></h3>
-              <p class="text-[11.5px] text-[var(--text-faint)] mb-3" x-text="t('settings.portainer.connection_desc')"></p>
-            </div>
-            <span x-show="portainerStatus" class="chip"
-                  :class="portainerStatus && portainerStatus.configured ? 'pill-success' : 'pill-muted'"
-                  x-text="portainerStatus ? (portainerStatus.configured ? t('settings.portainer.configured') : t('settings.portainer.not_configured')) : ''"></span>
-          </div>
-
-          <div x-show="portainerStatus" class="space-y-3">
-            <div>
-              <label class="block text-[11px] text-[var(--text-dim)] mb-1" x-text="t('settings.portainer.url_label')"></label>
-              <input x-model="portainerForm.url" type="url" :disabled="isReadonly()"
-                     :placeholder="t('settings.portainer.url_placeholder')" class="w-full mono text-[12.5px]">
-            </div>
-
-            <div>
-              <label class="block text-[11px] text-[var(--text-dim)] mb-1">
-                <span x-text="t('settings.portainer.api_key_label')"></span>
-                <span class="text-[var(--text-faint)]"
-                      x-text="portainerStatus && portainerStatus.api_key_set ? t('settings.portainer.api_key_set') : t('settings.portainer.api_key_not_set')"></span>
-              </label>
-              <input x-model="portainerForm.api_key" type="password" :disabled="isReadonly()"
-                     :placeholder="t('settings.portainer.api_key_placeholder')"
-                     autocomplete="new-password"
-                     class="w-full mono text-[12px]">
-              <p class="text-[11px] text-[var(--text-faint)] mt-1" x-text="t('settings.portainer.api_key_hint')"></p>
-            </div>
-
-            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <div>
-                <label class="block text-[11px] text-[var(--text-dim)] mb-1" x-text="t('settings.portainer.endpoint_id')"></label>
-                <input x-model.number="portainerForm.endpoint_id" type="number" min="1" :disabled="isReadonly()"
-                       class="w-full mono text-[12.5px]">
-              </div>
-              <label class="flex items-center gap-2 text-[12.5px] cursor-pointer mt-5">
-                <input type="checkbox" :checked="portainerForm.verify_tls"
-                       @change="portainerForm.verify_tls = $event.target.checked"
-                       :disabled="isReadonly()">
-                <span x-text="t('settings.portainer.verify_tls')"></span>
-              </label>
-            </div>
-
-            <div x-show="isAdmin()" class="flex gap-2 pt-1 flex-wrap">
-              <button @click="savePortainerSettings()" class="btn btn-primary text-[12px]" x-text="t('settings.portainer.save_button')"></button>
-              <button @click="testPortainerConnection()" class="btn btn-soft text-[12px]" x-text="t('settings.portainer.test_button')"></button>
-            </div>
-
-            <div x-show="portainerTestResult" class="text-[12px] rounded-md px-3 py-2"
-                 :class="portainerTestResult && portainerTestResult.ok ? 'bg-[var(--pill-ok-bg)] text-[var(--pill-ok-fg)] border border-[var(--pill-ok-br)]' : 'bg-[var(--pill-error-bg)] text-[var(--pill-error-fg)] border border-[var(--pill-error-br)]'">
-              <template x-if="portainerTestResult && portainerTestResult.pending">
-                <span x-text="t('loading.testing')"></span>
-              </template>
-              <template x-if="portainerTestResult && !portainerTestResult.pending">
-                <span>
-                  <span x-text="portainerTestResult.ok ? '✓' : '✗'"></span>
-                  <span class="ml-1" x-text="portainerTestResult.detail"></span>
-                </span>
-              </template>
-            </div>
-          </div>
-        </section>
-
-        <section class="bg-[var(--surface)] border border-[var(--border)] rounded-md p-5">
-          <h3 class="font-semibold text-[13px] mb-2" x-text="t('settings.portainer.public_title')"></h3>
-          <p class="text-[11.5px] text-[var(--text-faint)] mb-3" x-text="t('settings.portainer.public_desc')"></p>
-          <input x-model="settings.portainer_public_url" type="url" :disabled="isReadonly()" :placeholder="t('settings.portainer.public_placeholder')" class="w-full">
-          <button x-show="isAdmin()" @click="saveSettings()" class="btn btn-primary text-[12px] mt-3" x-text="t('actions.save')"></button>
-        </section>
-      </div>
-
-      <!-- Host stats — pick ONE source (none / node-exporter / Beszel).
-           Each source's fields render conditionally so the form only
-           asks for what's relevant. -->
-      <section x-show="settingsSection === 'host_stats'" class="bg-[var(--surface)] border border-[var(--border)] rounded-md p-5">
+      <!-- Portainer / Host stats / OIDC / Notifications moved to Admin. -->
+      <section x-show="false" style="display:none">
         <h3 class="font-semibold text-[13px] mb-2" x-text="t('settings.host_stats.title')"></h3>
         <p class="text-[11.5px] text-[var(--text-faint)] mb-3" x-text="t('settings.host_stats.desc')"></p>
 
@@ -1383,12 +1288,9 @@
         </div>
       </section>
 
-      <!-- Authentik OIDC — Authorization-code + PKCE SSO. Every value is
-           DB-backed; no env vars. Client secret is write-only — server
-           reports only whether it's set. Leaving the secret field blank
-           on Save means "keep current". See notes/note_authentik.txt for
-           the Authentik-side setup walkthrough. -->
-      <section x-show="settingsSection === 'oidc'" class="bg-[var(--surface)] border border-[var(--border)] rounded-md p-5">
+      <!-- Authentik OIDC moved to Admin. Stub stays below so the old
+           markup doesn't diff-explode; x-show="false" keeps it dormant. -->
+      <section x-show="false" style="display:none">
         <div class="flex items-start justify-between">
           <div>
             <h3 class="font-semibold text-[13px] mb-2" x-text="t('settings.oidc.title')"></h3>
@@ -1722,6 +1624,288 @@
           </div>
         </section>
       </div>
+
+      <!-- NOTIFICATIONS TAB (moved from Settings — admin-only global config). -->
+      <section x-show="adminTab==='notifications'" class="bg-[var(--surface)] border border-[var(--border)] rounded-md p-5">
+        <h3 class="font-semibold text-[13px] mb-2" x-text="t('settings.notifications.title')"></h3>
+        <p class="text-[11.5px] text-[var(--text-faint)] mb-3">
+          <span x-text="t('settings.notifications.url_format_prefix')"></span> <code class="mono text-[var(--text-dim)]">http://&lt;host&gt;:&lt;port&gt;/notify/&lt;CONFIG-KEY&gt;</code> —
+          <code class="mono text-[var(--text-dim)]">&lt;CONFIG-KEY&gt;</code> <span x-html="t('settings.notifications.url_format_suffix')"></span>
+        </p>
+        <input x-model="settings.apprise_url" type="url" :disabled="isReadonly()" :placeholder="t('settings.notifications.url_placeholder')" class="w-full">
+        <input x-model="settings.apprise_tag" type="text" :disabled="isReadonly()" :placeholder="t('settings.notifications.tag_placeholder')" class="w-full mt-2">
+        <div class="flex gap-2 mt-3" x-show="isAdmin()">
+          <button @click="saveSettings()" class="btn btn-primary text-[12px]" x-text="t('actions.save')"></button>
+          <button @click="testNotify()" class="btn btn-soft text-[12px]" x-text="t('actions.send_test')"></button>
+        </div>
+      </section>
+
+      <!-- PORTAINER TAB -->
+      <div x-show="adminTab==='portainer'" class="space-y-4">
+        <section class="bg-[var(--surface)] border border-[var(--border)] rounded-md p-5">
+          <div class="flex items-start justify-between">
+            <div>
+              <h3 class="font-semibold text-[13px] mb-2" x-text="t('settings.portainer.connection_title')"></h3>
+              <p class="text-[11.5px] text-[var(--text-faint)] mb-3" x-text="t('settings.portainer.connection_desc')"></p>
+            </div>
+            <span x-show="portainerStatus" class="chip"
+                  :class="portainerStatus && portainerStatus.configured ? 'pill-success' : 'pill-muted'"
+                  x-text="portainerStatus ? (portainerStatus.configured ? t('settings.portainer.configured') : t('settings.portainer.not_configured')) : ''"></span>
+          </div>
+          <div x-show="portainerStatus" class="space-y-3">
+            <div>
+              <label class="block text-[11px] text-[var(--text-dim)] mb-1" x-text="t('settings.portainer.url_label')"></label>
+              <input x-model="portainerForm.url" type="url" :disabled="isReadonly()"
+                     :placeholder="t('settings.portainer.url_placeholder')" class="w-full mono text-[12.5px]">
+            </div>
+            <div>
+              <label class="block text-[11px] text-[var(--text-dim)] mb-1">
+                <span x-text="t('settings.portainer.api_key_label')"></span>
+                <span class="text-[var(--text-faint)]"
+                      x-text="portainerStatus && portainerStatus.api_key_set ? t('settings.portainer.api_key_set') : t('settings.portainer.api_key_not_set')"></span>
+              </label>
+              <input x-model="portainerForm.api_key" type="password" :disabled="isReadonly()"
+                     :placeholder="t('settings.portainer.api_key_placeholder')"
+                     autocomplete="new-password"
+                     class="w-full mono text-[12px]">
+              <p class="text-[11px] text-[var(--text-faint)] mt-1" x-text="t('settings.portainer.api_key_hint')"></p>
+            </div>
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div>
+                <label class="block text-[11px] text-[var(--text-dim)] mb-1" x-text="t('settings.portainer.endpoint_id')"></label>
+                <input x-model.number="portainerForm.endpoint_id" type="number" min="1" :disabled="isReadonly()"
+                       class="w-full mono text-[12.5px]">
+              </div>
+              <label class="flex items-center gap-2 text-[12.5px] cursor-pointer mt-5">
+                <input type="checkbox" :checked="portainerForm.verify_tls"
+                       @change="portainerForm.verify_tls = $event.target.checked"
+                       :disabled="isReadonly()">
+                <span x-text="t('settings.portainer.verify_tls')"></span>
+              </label>
+            </div>
+            <div x-show="isAdmin()" class="flex gap-2 pt-1 flex-wrap">
+              <button @click="savePortainerSettings()" class="btn btn-primary text-[12px]" x-text="t('settings.portainer.save_button')"></button>
+              <button @click="testPortainerConnection()" class="btn btn-soft text-[12px]" x-text="t('settings.portainer.test_button')"></button>
+            </div>
+            <div x-show="portainerTestResult" class="text-[12px] rounded-md px-3 py-2"
+                 :class="portainerTestResult && portainerTestResult.ok ? 'bg-[var(--pill-ok-bg)] text-[var(--pill-ok-fg)] border border-[var(--pill-ok-br)]' : 'bg-[var(--pill-error-bg)] text-[var(--pill-error-fg)] border border-[var(--pill-error-br)]'">
+              <template x-if="portainerTestResult && portainerTestResult.pending">
+                <span x-text="t('loading.testing')"></span>
+              </template>
+              <template x-if="portainerTestResult && !portainerTestResult.pending">
+                <span>
+                  <span x-text="portainerTestResult.ok ? '✓' : '✗'"></span>
+                  <span class="ml-1" x-text="portainerTestResult.detail"></span>
+                </span>
+              </template>
+            </div>
+          </div>
+        </section>
+        <section class="bg-[var(--surface)] border border-[var(--border)] rounded-md p-5">
+          <h3 class="font-semibold text-[13px] mb-2" x-text="t('settings.portainer.public_title')"></h3>
+          <p class="text-[11.5px] text-[var(--text-faint)] mb-3" x-text="t('settings.portainer.public_desc')"></p>
+          <input x-model="settings.portainer_public_url" type="url" :disabled="isReadonly()" :placeholder="t('settings.portainer.public_placeholder')" class="w-full">
+          <button x-show="isAdmin()" @click="saveSettings()" class="btn btn-primary text-[12px] mt-3" x-text="t('actions.save')"></button>
+        </section>
+      </div>
+
+      <!-- OIDC TAB -->
+      <section x-show="adminTab==='oidc'" class="bg-[var(--surface)] border border-[var(--border)] rounded-md p-5">
+        <div class="flex items-start justify-between">
+          <div>
+            <h3 class="font-semibold text-[13px] mb-2" x-text="t('settings.oidc.title')"></h3>
+            <p class="text-[11.5px] text-[var(--text-faint)] mb-3" x-text="t('settings.oidc.description')"></p>
+          </div>
+          <span x-show="oidcStatus"
+                class="chip"
+                :class="oidcStatus && oidcStatus.enabled ? 'pill-success' : 'pill-muted'"
+                x-text="oidcStatus ? (oidcStatus.enabled ? t('settings.oidc.enabled') : t('settings.oidc.disabled')) : ''"></span>
+        </div>
+        <div x-show="oidcStatus" class="space-y-3">
+          <label class="flex items-center gap-2 text-[12.5px] cursor-pointer">
+            <input type="checkbox" :checked="oidcForm.enabled"
+                   @change="oidcForm.enabled = $event.target.checked"
+                   :disabled="isReadonly()">
+            <span x-text="t('settings.oidc.enable_toggle')"></span>
+          </label>
+          <div>
+            <label class="block text-[11px] text-[var(--text-dim)] mb-1" x-text="t('settings.oidc.issuer_url')"></label>
+            <input x-model="oidcForm.issuer_url" type="url" :disabled="isReadonly()"
+                   :placeholder="t('settings.oidc.issuer_placeholder')"
+                   class="w-full mono text-[12px]">
+            <p class="text-[11px] text-[var(--text-faint)] mt-1" x-html="t('settings.oidc.issuer_hint')"></p>
+          </div>
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <label class="block text-[11px] text-[var(--text-dim)] mb-1" x-text="t('settings.oidc.client_id')"></label>
+              <input x-model="oidcForm.client_id" type="text" :disabled="isReadonly()"
+                     :placeholder="t('settings.oidc.client_id_placeholder')"
+                     class="w-full mono text-[12px]">
+            </div>
+            <div>
+              <label class="block text-[11px] text-[var(--text-dim)] mb-1">
+                <span x-text="t('settings.oidc.client_secret')"></span>
+                <span class="text-[var(--text-faint)]"
+                      x-text="oidcStatus && oidcStatus.client_secret_set ? t('settings.oidc.client_secret_set') : t('settings.oidc.client_secret_not_set')"></span>
+              </label>
+              <input x-model="oidcForm.client_secret" type="password" :disabled="isReadonly()"
+                     :placeholder="t('settings.oidc.client_secret_placeholder')"
+                     autocomplete="new-password"
+                     class="w-full mono text-[12px]">
+            </div>
+          </div>
+          <div>
+            <label class="block text-[11px] text-[var(--text-dim)] mb-1">
+              <span x-text="t('settings.oidc.redirect_uri')"></span> <span class="text-[var(--text-faint)]" x-text="t('settings.oidc.redirect_uri_note')"></span>
+            </label>
+            <div class="flex items-stretch gap-2">
+              <input :value="oidcStatus && oidcStatus.redirect_uri_default || ''" readonly
+                     class="w-full mono text-[12px] flex-1 bg-[var(--surface-2)]">
+              <button @click="copyRedirectUri()" type="button"
+                      class="btn btn-soft text-[12px] whitespace-nowrap"
+                      :title="t('settings.oidc.copy_title')" x-text="t('settings.oidc.copy')"></button>
+            </div>
+            <p class="text-[11px] text-[var(--text-faint)] mt-1" x-text="t('settings.oidc.redirect_uri_hint')"></p>
+          </div>
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <label class="block text-[11px] text-[var(--text-dim)] mb-1" x-text="t('settings.oidc.scopes')"></label>
+              <input x-model="oidcForm.scopes" type="text" :disabled="isReadonly()"
+                     :placeholder="t('settings.oidc.scopes_placeholder')"
+                     class="w-full mono text-[12px]">
+              <p class="text-[11px] text-[var(--text-faint)] mt-1" x-html="t('settings.oidc.scopes_hint')"></p>
+            </div>
+            <div>
+              <label class="block text-[11px] text-[var(--text-dim)] mb-1" x-text="t('settings.oidc.admin_group')"></label>
+              <input x-model="oidcForm.admin_group" type="text" :disabled="isReadonly()"
+                     :placeholder="t('settings.oidc.admin_group_placeholder')"
+                     class="w-full mono text-[12.5px]">
+              <p class="text-[11px] text-[var(--text-faint)] mt-1" x-html="t('settings.oidc.admin_group_hint')"></p>
+            </div>
+          </div>
+          <label class="flex items-start gap-2 text-[12.5px] cursor-pointer">
+            <input type="checkbox" :checked="oidcForm.verify_tls"
+                   @change="oidcForm.verify_tls = $event.target.checked"
+                   :disabled="isReadonly()" class="mt-0.5">
+            <span>
+              <span class="font-medium" x-text="t('settings.oidc.verify_tls_title')"></span>
+              <span class="block text-[11px] text-[var(--text-faint)] mt-0.5" x-html="t('settings.oidc.verify_tls_hint')"></span>
+            </span>
+          </label>
+          <div x-show="isAdmin()" class="flex gap-2 pt-1 flex-wrap">
+            <button @click="saveOidcSettings()" class="btn btn-primary text-[12px]" x-text="t('settings.oidc.save_button')"></button>
+            <button @click="testOidcConnection()" class="btn btn-soft text-[12px]" x-text="t('settings.oidc.test_button')"></button>
+          </div>
+          <div x-show="oidcTestResult" class="text-[12px] rounded-md px-3 py-2"
+               :class="oidcTestResult && oidcTestResult.ok ? 'bg-[var(--pill-ok-bg)] text-[var(--pill-ok-fg)] border border-[var(--pill-ok-br)]' : 'bg-[var(--pill-error-bg)] text-[var(--pill-error-fg)] border border-[var(--pill-error-br)]'">
+            <template x-if="oidcTestResult && oidcTestResult.pending">
+              <span x-text="t('loading.testing')"></span>
+            </template>
+            <template x-if="oidcTestResult && !oidcTestResult.pending">
+              <span>
+                <span x-text="oidcTestResult.ok ? '✓' : '✗'"></span>
+                <span class="ml-1" x-text="oidcTestResult.detail"></span>
+              </span>
+            </template>
+          </div>
+        </div>
+      </section>
+
+      <!-- HOST STATS TAB -->
+      <section x-show="adminTab==='host_stats'" class="bg-[var(--surface)] border border-[var(--border)] rounded-md p-5">
+        <h3 class="font-semibold text-[13px] mb-2" x-text="t('settings.host_stats.title')"></h3>
+        <p class="text-[11.5px] text-[var(--text-faint)] mb-3" x-text="t('settings.host_stats.desc')"></p>
+        <label class="block text-[11px] text-[var(--text-faint)] mb-1"
+               x-text="t('settings.host_stats.source_label')"></label>
+        <div class="flex flex-wrap gap-4 mb-4 text-[12px] text-[var(--text-dim)]">
+          <label class="inline-flex items-center gap-2">
+            <input type="radio" x-model="settings.host_stats_source" value="none" :disabled="isReadonly()">
+            <span x-text="t('settings.host_stats.source_none')"></span>
+          </label>
+          <label class="inline-flex items-center gap-2">
+            <input type="radio" x-model="settings.host_stats_source" value="node_exporter" :disabled="isReadonly()">
+            <span x-text="t('settings.host_stats.source_node_exporter')"></span>
+          </label>
+          <label class="inline-flex items-center gap-2">
+            <input type="radio" x-model="settings.host_stats_source" value="beszel" :disabled="isReadonly()">
+            <span x-text="t('settings.host_stats.source_beszel')"></span>
+          </label>
+        </div>
+        <div x-show="settings.host_stats_source === 'node_exporter'" class="space-y-3">
+          <div>
+            <label class="block text-[11px] text-[var(--text-faint)] mb-1"
+                   x-text="t('settings.host_stats.url_label')"></label>
+            <input x-model="settings.node_exporter_url_template" type="text"
+                   :disabled="isReadonly()"
+                   class="w-full mono text-[11.5px]"
+                   placeholder="http://{host}:9100/metrics">
+            <p class="text-[10.5px] text-[var(--text-faint)] mt-1"
+               x-text="t('settings.host_stats.url_hint')"></p>
+          </div>
+          <div>
+            <label class="block text-[11px] text-[var(--text-faint)] mb-1"
+                   x-text="t('settings.host_stats.overrides_label')"></label>
+            <textarea x-model="settings.node_exporter_overrides_json"
+                      :disabled="isReadonly()" rows="5"
+                      class="w-full mono text-[11.5px]"
+                      :placeholder='`{\n  "dockerpve": "http://192.168.1.30:9100/metrics"\n}`'></textarea>
+            <p class="text-[10.5px] text-[var(--text-faint)] mt-1"
+               x-text="t('settings.host_stats.overrides_hint')"></p>
+          </div>
+        </div>
+        <div x-show="settings.host_stats_source === 'beszel'" class="space-y-3">
+          <div>
+            <label class="block text-[11px] text-[var(--text-faint)] mb-1"
+                   x-text="t('settings.host_stats.beszel_url_label')"></label>
+            <input x-model="settings.beszel_hub_url" type="url"
+                   :disabled="isReadonly()"
+                   class="w-full mono text-[11.5px]"
+                   placeholder="http://monitoring.home.lan:8090">
+            <p class="text-[10.5px] text-[var(--text-faint)] mt-1"
+               x-text="t('settings.host_stats.beszel_url_hint')"></p>
+          </div>
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-2">
+            <div>
+              <label class="block text-[11px] text-[var(--text-faint)] mb-1"
+                     x-text="t('settings.host_stats.beszel_identity_label')"></label>
+              <input x-model="settings.beszel_identity" type="text"
+                     :disabled="isReadonly()"
+                     class="w-full text-[11.5px]"
+                     placeholder="readonly@example.com">
+            </div>
+            <div>
+              <label class="block text-[11px] text-[var(--text-faint)] mb-1">
+                <span x-text="t('settings.host_stats.beszel_password_label')"></span>
+                <span x-show="settings.beszel_password_set" class="text-[var(--success)]"
+                      x-text="t('settings.host_stats.beszel_password_set')"></span>
+              </label>
+              <input x-model="settings.beszel_password" type="password"
+                     :disabled="isReadonly()"
+                     class="w-full text-[11.5px]"
+                     :placeholder="settings.beszel_password_set ? '••••••••' : t('settings.host_stats.beszel_password_placeholder')">
+            </div>
+          </div>
+          <label class="inline-flex items-center gap-2 text-[12px] text-[var(--text-dim)]">
+            <input type="checkbox" x-model="settings.beszel_verify_tls" :disabled="isReadonly()">
+            <span x-text="t('settings.host_stats.beszel_verify_tls')"></span>
+          </label>
+          <div class="flex items-center gap-2 flex-wrap">
+            <button x-show="isAdmin()" @click="testBeszelConnection()"
+                    :disabled="beszelTestResult && beszelTestResult.pending"
+                    class="btn btn-soft text-[12px]"
+                    x-text="(beszelTestResult && beszelTestResult.pending) ? t('settings.host_stats.beszel_testing') : t('settings.host_stats.beszel_test_button')"></button>
+            <span x-show="beszelTestResult && !beszelTestResult.pending"
+                  :class="beszelTestResult && beszelTestResult.ok ? 'text-[var(--success)]' : 'text-[var(--danger)]'"
+                  class="text-[11.5px]"
+                  x-text="(beszelTestResult && beszelTestResult.ok ? '✓ ' : '✗ ') + (beszelTestResult && beszelTestResult.detail || '')"></span>
+          </div>
+          <p class="text-[10.5px] text-[var(--text-faint)]"
+             x-text="t('settings.host_stats.beszel_naming_hint')"></p>
+        </div>
+        <button x-show="isAdmin()" @click="saveHostStats()"
+                class="btn btn-primary text-[12px] mt-4"
+                x-text="t('actions.save')"></button>
+      </section>
 
       <!-- BACKUPS TAB -->
       <!-- SCHEDULES TAB -->

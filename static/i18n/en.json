@@ -361,6 +361,10 @@
       "users": "Users",
       "sessions": "Sessions",
       "tokens": "API tokens",
+      "notifications": "Notifications",
+      "portainer": "Portainer",
+      "oidc": "Authentik OIDC",
+      "host_stats": "Host stats",
       "schedules": "Schedules",
       "backups": "Backups",
       "logs": "Logs"
