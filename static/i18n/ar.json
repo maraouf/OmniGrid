@@ -285,7 +285,7 @@
     },
     "oidc": {
       "title": "Authentik OIDC (الدخول الموحّد)",
-      "description": "مزوّد OpenID Connect. يعمل مع أي مزوّد متوافق؛ الاسم يذكر Authentik لأنه إعدادنا المرجعي. راجع notes/note_authentik.txt لشرح الإعداد من جهة المزوّد.",
+      "description": "مزوّد OpenID Connect. يعمل مع أي مزوّد متوافق؛ الاسم يذكر Authentik لأنه إعدادنا المرجعي.",
       "enabled": "مُفعّل",
       "disabled": "معطّل",
       "enable_toggle": "تفعيل تسجيل الدخول عبر OIDC (يُظهر زر «تسجيل الدخول بـ Authentik» في /login)",

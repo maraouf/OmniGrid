@@ -285,7 +285,7 @@
     },
     "oidc": {
       "title": "Authentik OIDC (SSO)",
-      "description": "OpenID Connect provider. Works with any compliant IdP; the label says Authentik because that's our reference setup. See notes/note_authentik.txt for the provider-side walkthrough.",
+      "description": "OpenID Connect provider. Works with any compliant IdP; the label says Authentik because that's our reference setup.",
       "enabled": "Enabled",
       "disabled": "Disabled",
       "enable_toggle": "Enable OIDC login (shows the \"Sign in with Authentik\" button on /login)",

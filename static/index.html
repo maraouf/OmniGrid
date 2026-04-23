@@ -286,7 +286,7 @@
       <!-- User menu — avatar button in the top-right opens a dropdown with
            "Signed in as …" header + profile / settings / admin / help /
            sign out. Click-outside and Esc both close it. -->
-      <div x-show="me" x-data="{ }" class="relative ml-auto pl-4 border-l border-[var(--border)]">
+      <div x-show="me" x-data="{ }" class="relative ms-auto ps-4 border-s border-[var(--border)]">
         <button @click="userMenuOpen = !userMenuOpen"
                 class="flex items-center gap-1 p-1 rounded-full hover:bg-[var(--surface-2)] transition"
                 :title="me ? t('app.signed_in_as') + ' ' + me.username : ''"
