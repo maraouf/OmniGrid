@@ -764,6 +764,12 @@ class SettingsIn(BaseModel):
     beszel_identity: Optional[str] = None
     beszel_password: Optional[str] = None
     beszel_verify_tls: Optional[bool] = None
+    # Per-node name aliases — Docker hostname → Beszel system name. Use
+    # when the name the operator gave a system in Beszel doesn't match
+    # the Docker Swarm hostname. Example:
+    #   {"debian13docker": "docker.home.lan"}
+    # Nodes not listed here fall back to identity mapping.
+    beszel_aliases: Optional[dict] = None
 
 
 @app.get("/api/settings")
@@ -797,6 +803,7 @@ async def api_get_settings(request: Request):
             "identity": get_setting("beszel_identity", ""),
             "password_set": bool(get_setting("beszel_password", "")),
             "verify_tls": (get_setting("beszel_verify_tls", "true") or "true").lower() == "true",
+            "aliases": json.loads(get_setting("beszel_aliases", "{}") or "{}"),
         },
         # Back-compat: older UI bits read this top-level field.
         "endpoint_id": p.get("portainer_endpoint_id", 1),
@@ -884,6 +891,16 @@ async def api_set_settings(
         set_setting("beszel_password", s.beszel_password)
     if s.beszel_verify_tls is not None:
         set_setting("beszel_verify_tls", "true" if s.beszel_verify_tls else "false")
+    if s.beszel_aliases is not None:
+        # Filter to string→string, trim, drop empty entries so a blank
+        # row in the UI doesn't persist as a ghost mapping.
+        clean = {
+            str(k).strip(): str(v).strip()
+            for k, v in (s.beszel_aliases or {}).items()
+            if str(k).strip() and str(v).strip()
+        }
+        set_setting("beszel_aliases", json.dumps(clean))
+    _cache["ts"] = 0  # force the next gather to re-read alias settings
 
     auth_changed = False
     portainer_changed = False

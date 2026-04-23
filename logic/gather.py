@@ -320,12 +320,23 @@ async def _gather_impl() -> None:
 
         if source == "beszel" and df_hosts:
             # One HTTP call to the hub fetches every system's latest
-            # snapshot. Operator names their Beszel systems to match
-            # Docker hostnames; unmatched entries are ignored.
+            # snapshot. Docker hostname → Beszel system name via
+            # ``beszel_aliases`` (JSON map in the settings table) so
+            # operators don't have to rename a host on either side when
+            # the two naturally differ (e.g. Swarm hostname
+            # ``debian13docker`` but Beszel system ``docker.home.lan``).
+            # Nodes absent from the alias map fall back to identity.
+            import json as _json
             hub_url = get_setting("beszel_hub_url", "") or ""
             ident = get_setting("beszel_identity", "") or ""
             passw = get_setting("beszel_password", "") or ""
             verify = (get_setting("beszel_verify_tls", "true") or "true").lower() == "true"
+            try:
+                aliases = _json.loads(get_setting("beszel_aliases", "{}") or "{}")
+                if not isinstance(aliases, dict):
+                    aliases = {}
+            except ValueError:
+                aliases = {}
             result = await _beszel.probe_hub(hub_url, ident, passw, verify_tls=verify)
             err = result.get("error")
             systems = result.get("systems") or {}
@@ -334,12 +345,19 @@ async def _gather_impl() -> None:
                     if err:
                         nodes_info[host]["exporter_error"] = f"beszel: {err}"
                         continue
-                    stats = systems.get(host)
+                    beszel_name = aliases.get(host, host)
+                    stats = systems.get(beszel_name)
                     if stats is None:
-                        # No matching Beszel system for this Docker host —
-                        # surface the miss so operators can fix naming.
+                        # No matching Beszel system — surface the miss
+                        # with both names in the error so the operator
+                        # knows whether to add an alias or rename in
+                        # Beszel.
+                        hint = (
+                            f"'{beszel_name}' (aliased from '{host}')"
+                            if beszel_name != host else f"'{host}'"
+                        )
                         nodes_info[host]["exporter_error"] = (
-                            f"beszel: no system named '{host}' in the hub"
+                            f"beszel: no system named {hint} in the hub"
                         )
                         continue
                     nodes_info[host].update(stats)
