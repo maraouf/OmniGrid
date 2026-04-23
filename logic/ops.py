@@ -298,3 +298,86 @@ async def do_restart_service(op: Operation, service_id: str) -> None:
     finally:
         persist_history(op)
         gather.invalidate_cache()
+
+
+async def do_prune_node(op: Operation, hostname: str) -> dict:
+    """Run a ``docker system prune``-equivalent on a single Swarm node.
+
+    Matches ``docker system prune -f --volumes``: stopped containers,
+    dangling images (not ``-a``), unused networks, unused local volumes,
+    build cache. Targeted via ``X-PortainerAgent-Target`` so calls land
+    on the right worker's daemon.
+
+    Returns the aggregated totals dict so the caller can surface it
+    (response payload, toast, Apprise message).
+    """
+    totals = {
+        "containers": 0, "images": 0, "networks": 0, "volumes": 0,
+        "space_reclaimed": 0,  # bytes
+    }
+    try:
+        op.log(f"Starting docker prune on node '{hostname}' "
+               "(stopped containers, dangling images, unused networks + volumes, build cache)")
+        ep = f"/api/endpoints/{portainer.PORTAINER_ENDPOINT_ID}/docker"
+        h = portainer.headers(agent_target=hostname)
+
+        async with httpx.AsyncClient(verify=portainer.VERIFY_TLS, timeout=300.0) as client:
+            async def _prune(path: str, label: str, counter_key):
+                """POST one of Docker's /prune endpoints. Log per step;
+                one failing sub-call (e.g. volumes/prune with nothing
+                eligible) shouldn't abort the rest of the pass.
+                """
+                try:
+                    r = await client.post(f"{portainer.PORTAINER_URL}{path}", headers=h)
+                    if r.status_code >= 400:
+                        op.log(f"{label}: HTTP {r.status_code} — {r.text[:200]}", "error")
+                        return
+                    j = r.json() if r.content else {}
+                    deleted_list = (
+                        j.get("ContainersDeleted")
+                        or j.get("ImagesDeleted")
+                        or j.get("NetworksDeleted")
+                        or j.get("VolumesDeleted")
+                        or []
+                    )
+                    deleted = len(deleted_list) if isinstance(deleted_list, list) else 0
+                    reclaimed = int(j.get("SpaceReclaimed") or 0)
+                    if counter_key:
+                        totals[counter_key] += deleted
+                    totals["space_reclaimed"] += reclaimed
+                    op.log(f"{label}: removed {deleted}, reclaimed {reclaimed:,} B")
+                except Exception as e:
+                    op.log(f"{label}: {e}", "error")
+
+            # Order matches `docker system prune`: containers first (frees
+            # their images), then images, networks, volumes, build cache.
+            await _prune(f"{ep}/containers/prune", "containers/prune", "containers")
+            # Dangling-only mirrors `docker system prune` (no `-a`). Filter
+            # expressed in Portainer's accepted form (same as Docker CLI).
+            await _prune(
+                f'{ep}/images/prune?filters={{"dangling":["true"]}}',
+                "images/prune (dangling)", "images",
+            )
+            await _prune(f"{ep}/networks/prune", "networks/prune", "networks")
+            await _prune(f"{ep}/volumes/prune", "volumes/prune (unused)", "volumes")
+            await _prune(f"{ep}/build/prune", "builder/prune", None)
+
+        op.done("success")
+        await notify(
+            f"🧹 Prune complete on {hostname}",
+            f"Reclaimed {totals['space_reclaimed']:,} B across "
+            f"{totals['containers']} containers / "
+            f"{totals['images']} images / "
+            f"{totals['networks']} networks / "
+            f"{totals['volumes']} volumes",
+            "success",
+        )
+        return totals
+    except Exception as e:
+        op.log(str(e), "error")
+        op.done("error", str(e))
+        await notify(f"❌ Prune failed on {hostname}", str(e)[:500], "error")
+        return totals
+    finally:
+        persist_history(op)
+        gather.invalidate_cache()

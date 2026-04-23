@@ -458,6 +458,49 @@ function app() {
       return this.expanded.includes('node:' + name);
     },
 
+    // "Is there an in-flight prune_node op targeting this host?". Drives
+    // the button's spinner + disabled state so rapid double-clicks don't
+    // queue a second prune — activeOps is the same list the ops panel reads.
+    isPruneBusy(host) {
+      return (this.activeOps || []).some(o =>
+        o.op_type === 'prune_node' && o.target_id === host
+      );
+    },
+
+    async pruneNode(host) {
+      // Confirm first — `docker system prune --volumes` is destructive:
+      // stopped containers go away, dangling images, unused networks, AND
+      // unused volumes (which can carry data users forgot was orphaned).
+      const res = await Swal.fire({
+        title: 'Prune ' + host + '?',
+        html: `This runs <code class="mono">docker system prune -f --volumes</code> on <b>${host}</b>:<br><br>` +
+              '• Stopped containers<br>' +
+              '• Dangling images (not <code>-a</code>)<br>' +
+              '• Unused networks<br>' +
+              '• Unused local volumes — <b>orphaned data is deleted</b><br>' +
+              '• Build cache<br><br>' +
+              'Running workloads are NOT affected.',
+        icon: 'warning',
+        showCancelButton: true,
+        confirmButtonText: 'Prune now',
+        confirmButtonColor: 'var(--danger)',
+      });
+      if (!res.isConfirmed) return;
+      try {
+        const r = await fetch('/api/prune/node/' + encodeURIComponent(host), { method: 'POST' });
+        if (r.ok) {
+          this.showToast('Prune started on ' + host + ' — watch the ops panel for progress');
+          // Kick an immediate ops poll so the button flips to "Pruning…".
+          this.pollOnce && this.pollOnce();
+        } else {
+          const j = await r.json().catch(() => ({}));
+          this.showToast(j.detail || 'Prune failed to start', 'error');
+        }
+      } catch (_) {
+        this.showToast('Network error', 'error');
+      }
+    },
+
     // Single predicate for "can this user do writes?". Every write button
     // is gated on this so readonly users see a clean read-only UI instead
     // of a button that just returns 403.

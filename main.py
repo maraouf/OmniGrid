@@ -268,6 +268,7 @@ _do_update_container = _ops_mod.do_update_container
 _do_restart_service = _ops_mod.do_restart_service
 _do_restart_container = _ops_mod.do_restart_container
 _do_remove_container = _ops_mod.do_remove_container
+_do_prune_node = _ops_mod.do_prune_node
 
 
 # ============================================================================
@@ -424,6 +425,32 @@ async def api_remove_container(
     op = new_op("remove_container", container_id, name,
                 target_stack=stack, actor=_actor_from(request))
     bg.add_task(_do_remove_container, op, container_id)
+    return {"op_id": op.id}
+
+
+@app.post("/api/prune/node/{hostname}")
+async def api_prune_node(
+    hostname: str, bg: BackgroundTasks, request: Request,
+    _admin: auth.User = Depends(auth.require_admin),
+):
+    """Run a Docker-system-prune equivalent on a specific Swarm node.
+
+    Matches `docker system prune -f --volumes` — stopped containers,
+    dangling images, unused networks + volumes, build cache. Same model
+    as the existing update/restart ops: kicks off a BackgroundTask,
+    returns the op id, UI polls /api/ops for progress. Admin-only.
+    """
+    # Light sanity on the hostname so we don't send garbage through to
+    # Portainer's agent-target header. node_for_container validates against
+    # the cache; do the same for explicit hostnames.
+    known = set(_cache.get("nodes", {}).values())
+    if known and hostname not in known:
+        raise HTTPException(status_code=400, detail=f"Unknown node: {hostname}")
+    op = new_op(
+        "prune_node", hostname, hostname,
+        target_stack=None, actor=_actor_from(request),
+    )
+    bg.add_task(_do_prune_node, op, hostname)
     return {"op_id": op.id}
 
 

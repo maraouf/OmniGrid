@@ -642,45 +642,63 @@
     <div x-show="view==='nodes'" class="space-y-3">
       <template x-for="node in nodeGroups()" :key="node.key">
         <div class="bg-[var(--surface)] border border-[var(--border)] rounded-md overflow-hidden">
-          <!-- Node header — click to collapse/expand. -->
-          <button @click="toggleNode(node.name)"
-                  class="w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-[var(--surface-2)] transition">
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
-                 :class="isNodeExpanded(node.name) ? 'rotate-90' : ''"
-                 class="text-[var(--text-dim)] transition-transform">
-              <polyline points="9 18 15 12 9 6"/>
-            </svg>
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-[var(--text-dim)]">
-              <rect x="2" y="2" width="20" height="8" rx="2"/>
-              <rect x="2" y="14" width="20" height="8" rx="2"/>
-              <line x1="6" y1="6" x2="6.01" y2="6"/>
-              <line x1="6" y1="18" x2="6.01" y2="18"/>
-            </svg>
-            <span class="font-semibold text-[13px] mono" x-text="node.name"></span>
-            <span class="text-[11px] text-[var(--text-faint)]">
-              <span x-text="node.services"></span> svc ·
-              <span x-text="node.containers"></span> ctn ·
-              <span x-text="node.stacks"></span> stacks
-            </span>
-            <span class="flex-1"></span>
-            <!-- Inline counts for quick-scan. Hide when zero so the header
-                 stays clean for healthy nodes. -->
-            <span x-show="node.updates > 0"
-                  class="pill pill-update text-[10.5px]">
-              <span x-text="node.updates"></span> updates
-            </span>
-            <span x-show="node.offline > 0"
-                  class="pill pill-error text-[10.5px]">
-              <span x-text="node.offline"></span> offline
-            </span>
-            <span x-show="node.degraded > 0"
-                  class="pill pill-update text-[10.5px]">
-              <span x-text="node.degraded"></span> degraded
-            </span>
-            <span class="text-[11px] text-[var(--text-dim)]">
-              <span x-text="node.total"></span> total
-            </span>
-          </button>
+          <!-- Node header — left side toggles, right side has actions
+               (Prune etc). Kept as a flex row (not one big <button>) so
+               the Prune click doesn't also collapse/expand the card. -->
+          <div class="flex items-center gap-3 px-4 py-3 hover:bg-[var(--surface-2)]/50 transition">
+            <!-- Toggle area (clickable) -->
+            <div @click="toggleNode(node.name)"
+                 class="flex items-center gap-3 flex-1 min-w-0 cursor-pointer">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
+                   :class="isNodeExpanded(node.name) ? 'rotate-90' : ''"
+                   class="text-[var(--text-dim)] transition-transform flex-shrink-0">
+                <polyline points="9 18 15 12 9 6"/>
+              </svg>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-[var(--text-dim)] flex-shrink-0">
+                <rect x="2" y="2" width="20" height="8" rx="2"/>
+                <rect x="2" y="14" width="20" height="8" rx="2"/>
+                <line x1="6" y1="6" x2="6.01" y2="6"/>
+                <line x1="6" y1="18" x2="6.01" y2="18"/>
+              </svg>
+              <span class="font-semibold text-[13px] mono truncate" x-text="node.name"></span>
+              <span class="text-[11px] text-[var(--text-faint)] whitespace-nowrap">
+                <span x-text="node.services"></span> svc ·
+                <span x-text="node.containers"></span> ctn ·
+                <span x-text="node.stacks"></span> stacks
+              </span>
+            </div>
+            <!-- Right-side pills + action buttons. Doesn't toggle. -->
+            <div class="flex items-center gap-2 flex-shrink-0">
+              <span x-show="node.updates > 0"
+                    class="pill pill-update text-[10.5px]">
+                <span x-text="node.updates"></span> updates
+              </span>
+              <span x-show="node.offline > 0"
+                    class="pill pill-error text-[10.5px]">
+                <span x-text="node.offline"></span> offline
+              </span>
+              <span x-show="node.degraded > 0"
+                    class="pill pill-update text-[10.5px]">
+                <span x-text="node.degraded"></span> degraded
+              </span>
+              <span class="text-[11px] text-[var(--text-dim)] mx-1">
+                <span x-text="node.total"></span> total
+              </span>
+              <!-- Prune — admin-only, hidden on the synthetic Unpinned
+                   bucket because there's no real node to target. -->
+              <button x-show="isAdmin() && !node.is_unpinned"
+                      @click="pruneNode(node.name)"
+                      :disabled="isPruneBusy(node.name)"
+                      class="btn btn-danger-outline text-[11px]"
+                      :title="'Run docker system prune on ' + node.name">
+                <template x-if="isPruneBusy(node.name)"><span class="flex items-center gap-1"><span class="spin"></span>Pruning…</span></template>
+                <template x-if="!isPruneBusy(node.name)"><span class="flex items-center gap-1">
+                  <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m3 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6h14z"/></svg>
+                  Prune
+                </span></template>
+              </button>
+            </div>
+          </div>
 
           <!-- Always-visible stats strip: CPU / Memory / Disk / Uptime
                for this node, aggregated from its containers' stats plus
@@ -788,8 +806,20 @@
           </div>
         </div>
       </template>
-      <div x-show="nodeGroups().length === 0 && !loading" class="text-center py-16 text-[var(--text-faint)] text-sm">
-        No nodes visible — check the Portainer connection in Settings, or your filter.
+      <!-- Empty-state ladder, same pattern as stacks/services views:
+             1. loading + no data yet → spinner
+             2. loading done + empty → point at Portainer settings / filter
+             3. filtered out → "no match" with a clear-filters shortcut -->
+      <div x-show="loading && items.length === 0" class="loading-state">
+        <span class="spin-lg" aria-hidden="true"></span>
+        <div x-text="t('loading.resources')"></div>
+      </div>
+      <div x-show="!loading && items.length === 0" class="text-center py-16 text-[var(--text-faint)] text-sm">
+        No nodes visible — check the Portainer connection in Settings.
+      </div>
+      <div x-show="!loading && items.length > 0 && nodeGroups().length === 0" class="text-center py-16 text-[var(--text-faint)] text-sm">
+        <span x-text="t('empty.no_match_filters')"></span>
+        <button @click="search='';statusFilter='';healthFilter=''" class="ms-2 text-[var(--primary)] hover:underline" x-text="t('empty.clear')"></button>
       </div>
     </div>
 
