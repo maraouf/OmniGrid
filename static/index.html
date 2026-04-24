@@ -1622,7 +1622,7 @@
                           @click="setHostHistoryRange(168)">7d</button>
                 </div>
               </div>
-              <div x-show="!h.beszel_id" class="mt-4 text-[11.5px] text-[var(--text-faint)] italic">
+              <div x-show="!h.beszel_id && (h.providers || []).length > 0" class="mt-4 text-[11.5px] text-[var(--text-faint)] italic">
                 Time-series charts are sourced from Beszel. Link this
                 host to a Beszel system in
                 <a href="/admin/hosts" class="text-[var(--primary)] hover:underline">Admin → Hosts</a>
@@ -1633,8 +1633,12 @@
                    (CPU / Memory / Disk) in a 3-col grid, then Net In /
                    Net Out side by side beneath. Axis labels live
                    outside the SVG so the polyline can stretch edge to
-                   edge and still read at a glance. -->
-              <div class="mt-3 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                   edge and still read at a glance. Whole grid hides
+                   when no provider matched — the "Collecting data…"
+                   placeholders are misleading for hosts that never had
+                   a provider mapping. -->
+              <div class="mt-3 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4"
+                   x-show="(h.providers || []).length > 0">
                 <!-- CPU % -->
                 <div class="metric-card metric-card--cpu">
                   <div class="metric-card-head">

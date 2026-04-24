@@ -1814,6 +1814,10 @@ function app() {
       // Re-fetch with the new settings immediately rather than waiting
       // for the 10-min tick. Also flushes weather to null when disabled.
       this.loadHeaderWeather();
+      // Toast confirmation — per-browser preferences auto-save on
+      // change, but operators coming from the per-user Profile section
+      // expect a visual "saved" signal.
+      if (this.showToast) this.showToast('Topbar preferences saved', 'success');
     },
     // Inline SVG path(s) per WMO-icon slug. Kept tiny — the topbar chip
     // is 16px so detail is wasted. Backend maps WMO codes to slugs in
