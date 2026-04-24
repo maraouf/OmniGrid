@@ -319,6 +319,37 @@ def _flatten_efs(efs) -> list[dict]:
     return out
 
 
+def _flatten_network(ni) -> list[dict]:
+    """Normalize Beszel's ``info.ni`` into [{name, mac, addrs: []}].
+
+    Newer agents (~v0.10+) emit a list of dicts with short keys
+    (``n``/``m``/``a``). Older agents emitted bare interface names.
+    Both shapes are accepted so the UI template doesn't have to branch.
+    """
+    if not isinstance(ni, list):
+        return []
+    out: list[dict] = []
+    for item in ni:
+        if isinstance(item, str):
+            out.append({"name": item, "mac": "", "addrs": []})
+            continue
+        if not isinstance(item, dict):
+            continue
+        name = str(item.get("n") or item.get("name") or "").strip()
+        if not name:
+            continue
+        mac = str(item.get("m") or item.get("mac") or "").strip()
+        addrs = item.get("a") or item.get("addrs") or []
+        if not isinstance(addrs, list):
+            addrs = []
+        out.append({
+            "name":  name,
+            "mac":   mac,
+            "addrs": [str(a) for a in addrs if a],
+        })
+    return out
+
+
 def _derive_arch(kernel: str) -> str:
     """Pull an architecture suffix (``amd64`` / ``arm64`` / ...) out of a
     kernel string. Returns ``""`` on no match. Matches Beszel's own
@@ -423,10 +454,11 @@ def extract_stats(info: dict, stats: Optional[dict] = None) -> dict:
         # a list so the frontend can ``x-for`` over it without caring
         # that the source was a dict.
         "mounts":           _flatten_efs(stats.get("efs")),
-        # Network interfaces (list of names) — Beszel exposes these in
-        # ``info.ni``. MAC / IPs aren't part of the public schema, so
-        # the NETWORK card renders whatever names we got.
-        "network_ifaces":   list(info.get("ni") or []),
+        # Network interfaces — newer Beszel agents emit ``info.ni`` as
+        # a list of {n, m, a} objects (name / mac / addrs). Older
+        # agents emitted bare strings. ``_flatten_network`` handles
+        # both shapes and returns a uniform list the UI can iterate.
+        "network_ifaces":   _flatten_network(info.get("ni")),
         # Current in-flight bandwidth (bytes/s) reported by the agent.
         # Used on the Hosts table for a net-I/O indicator.
         "host_bandwidth":   _num(info.get("b")),
