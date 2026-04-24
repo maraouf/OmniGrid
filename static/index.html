@@ -1440,8 +1440,12 @@
                 <!-- HARDWARE — same honest-fields rule. CPU model /
                      Cores come from the host-daemon agent; container
                      agents omit them. Threads / Memory / Disk / Agent /
-                     Status are always emitted, so they always render. -->
-                <section class="rounded border border-[var(--border)] bg-[var(--surface)] p-4">
+                     Status are always emitted, so they always render.
+                     Hidden when the host isn't reporting stats (no
+                     point showing "Status: PAUSED" on its own — the
+                     status dot at the top of the row already says
+                     that, and an empty card adds visual noise). -->
+                <section x-show="h.status === 'up'" class="rounded border border-[var(--border)] bg-[var(--surface)] p-4">
                   <h4 class="text-[10.5px] uppercase tracking-wider text-[var(--text-faint)] mb-3">Hardware</h4>
                   <dl class="grid grid-cols-[auto_1fr] gap-x-4 gap-y-2 text-[12px]">
                     <template x-if="h.cpu_model">
