@@ -915,34 +915,70 @@
          uptime, agent, cores, arch, kernel). Expanding a row reveals
          SYSTEM + HARDWARE cards. See /api/hosts for the data shape. -->
     <div x-show="view==='hosts'" class="space-y-3">
-      <!-- Toolbar — quick link to Beszel for adding / managing systems,
-           since hosts are registered in Beszel (by installing the
-           agent + pairing the public key), not in OmniGrid. -->
-      <div x-show="hostsConfigured" class="flex items-center justify-between">
-        <div class="text-[12px] text-[var(--text-dim)]">
-          <span x-text="hosts.length + ' host' + (hosts.length === 1 ? '' : 's')"></span>
-          <span class="text-[var(--text-faint)]"> · polled every 15s from the Beszel hub</span>
+      <!-- Toolbar — quick links to each configured provider UI, so
+           adding or managing systems outside OmniGrid is one click
+           away. Each button carries the provider's brand glyph for a
+           quick visual anchor. The status strip in the middle shows
+           which providers are actually feeding this view. -->
+      <div x-show="hostsConfigured" class="flex items-center justify-between gap-3 flex-wrap">
+        <div class="flex items-center gap-3 text-[12px] text-[var(--text-dim)] flex-wrap">
+          <span>
+            <span x-text="hosts.length + ' host' + (hosts.length === 1 ? '' : 's')"></span>
+            <span class="text-[var(--text-faint)]"> · polled every 15s</span>
+          </span>
+          <span class="flex items-center gap-1.5 flex-wrap"
+                x-show="(hosts && hosts.length) || Object.keys(hostsProviderErrors || {}).length">
+            <!-- One chip per provider, coloured by whether anything
+                 came back — green when that provider matched at least
+                 one host, red when it returned an error, muted when
+                 it's enabled but matched nothing. -->
+            <template x-for="p in ['beszel','pulse','node_exporter']" :key="p">
+              <span x-show="hostsProviderState(p).visible"
+                    class="pill text-[10.5px]"
+                    :class="hostsProviderState(p).cls"
+                    :title="hostsProviderState(p).title">
+                <span x-text="p === 'node_exporter' ? 'exporter' : p"></span>
+                <span x-show="hostsProviderState(p).icon" class="ms-1" x-text="hostsProviderState(p).icon"></span>
+              </span>
+            </template>
+          </span>
         </div>
-        <a :href="settings.beszel_hub_url || '#'" target="_blank" rel="noopener"
-           x-show="settings.beszel_hub_url"
-           class="btn btn-ghost text-[12px] flex items-center gap-1.5"
-           title="Open the Beszel hub in a new tab — host registration happens there.">
-          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
-          Open Beszel
-        </a>
+        <div class="flex items-center gap-2 flex-wrap">
+          <a :href="settings.beszel_hub_url || '#'" target="_blank" rel="noopener"
+             x-show="settings.beszel_hub_url"
+             class="btn btn-ghost text-[12px] flex items-center gap-1.5"
+             title="Open the Beszel hub in a new tab — host registration happens there.">
+            <img src="/img/icons/beszel.svg" alt="" width="14" height="14" class="rounded-sm">
+            <span>Open Beszel</span>
+            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="opacity-60"><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+          </a>
+          <a :href="settings.pulse_url || '#'" target="_blank" rel="noopener"
+             x-show="settings.pulse_url"
+             class="btn btn-ghost text-[12px] flex items-center gap-1.5"
+             title="Open Pulse in a new tab to manage the Proxmox-side systems it monitors.">
+            <img src="/img/icons/pulse.svg" alt="" width="14" height="14" class="rounded-sm">
+            <span>Open Pulse</span>
+            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="opacity-60"><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+          </a>
+        </div>
       </div>
 
       <!-- Config banner — Beszel not set up, or hub returning errors. -->
       <div x-show="!hostsConfigured" class="rounded border border-[var(--warning)] bg-[var(--surface-2)] px-4 py-3 text-[12.5px] text-[var(--text-dim)]">
         <span x-text="hostsError || 'Beszel is not configured — set Hub URL / identity / password in Settings → Host stats.'"></span>
       </div>
-      <div x-show="hostsConfigured && hostsError" class="rounded border border-[var(--danger)] bg-[var(--surface-2)] px-4 py-3 text-[12.5px] text-[var(--danger)]">
-        <span x-text="'Beszel hub error: ' + hostsError"></span>
+      <!-- Aggregate error banner — hidden when per-provider chips in
+           the toolbar are carrying the detail (avoids duplicate
+           reporting). Only shows when every provider errored or
+           something outside a provider failed. -->
+      <div x-show="hostsConfigured && hostsError && Object.keys(hostsProviderErrors || {}).length === 0"
+           class="rounded border border-[var(--danger)] bg-[var(--surface-2)] px-4 py-3 text-[12.5px] text-[var(--danger)]">
+        <span x-text="'Host probe error: ' + hostsError"></span>
       </div>
 
       <div x-show="hostsConfigured" class="rounded border border-[var(--border)] overflow-hidden bg-[var(--surface)]">
         <!-- Header row — mirrors Beszel's columns. -->
-        <div class="grid grid-cols-[26px_260px_140px_140px_140px_minmax(160px,1fr)_80px_60px_80px_80px_96px_40px] gap-3 px-4 py-2 border-b border-[var(--border)] bg-[var(--surface-2)] text-[10.5px] uppercase tracking-wider text-[var(--text-faint)]">
+        <div class="grid grid-cols-[26px_minmax(320px,1.8fr)_140px_140px_140px_minmax(160px,1fr)_80px_60px_60px_72px_84px_40px] gap-3 px-4 py-2 border-b border-[var(--border)] bg-[var(--surface-2)] text-[10.5px] uppercase tracking-wider text-[var(--text-faint)]">
           <div></div>
           <div>Host</div>
           <div>Platform</div>
@@ -960,7 +996,7 @@
         <template x-for="h in hosts" :key="h.host">
           <div class="border-b border-[var(--border)] last:border-b-0">
             <!-- Collapsed row -->
-            <div class="grid grid-cols-[26px_260px_140px_140px_140px_minmax(160px,1fr)_80px_60px_80px_80px_96px_40px] gap-3 px-4 py-3 items-center cursor-pointer hover:bg-[var(--row-hover)]"
+            <div class="grid grid-cols-[26px_minmax(320px,1.8fr)_140px_140px_140px_minmax(160px,1fr)_80px_60px_60px_72px_84px_40px] gap-3 px-4 py-3 items-center cursor-pointer hover:bg-[var(--row-hover)]"
                  @click="toggleHost(h.host)">
               <!-- Chevron + status dot -->
               <div class="flex items-center gap-1.5">
@@ -1436,122 +1472,6 @@
                 </div>
               </div>
 
-              <!-- ==== LEGACY CHART BLOCK HIDDEN ==== -->
-              <div x-show="false" class="mt-3 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                <!-- CPU % -->
-                <div class="host-chart-wrap">
-                  <div class="flex items-baseline justify-between mb-2">
-                    <div class="text-[10.5px] uppercase tracking-wider text-[var(--text-faint)]">CPU (%)</div>
-                    <div class="text-[10.5px] mono text-[var(--text-faint)]"
-                         x-show="hostMetricStats(h.beszel_id, 'cpu')"
-                         x-text="hostMetricStats(h.beszel_id, 'cpu') ? ('Min ' + hostMetricStats(h.beszel_id, 'cpu').min + '  Max ' + hostMetricStats(h.beszel_id, 'cpu').max) : ''"></div>
-                  </div>
-                  <template x-if="hostChart(h.beszel_id, 'cpu', { min: 0, max: 100 })">
-                    <svg viewBox="0 0 420 100" preserveAspectRatio="none" class="host-chart host-chart--cpu">
-                      <template x-for="(tk, i) in hostChart(h.beszel_id, 'cpu', { min: 0, max: 100 }).ticks" :key="i">
-                        <line class="host-chart-grid" x1="0" x2="420" :y1="tk.y" :y2="tk.y"/>
-                      </template>
-                      <path class="host-chart-area" :d="hostChart(h.beszel_id, 'cpu', { min: 0, max: 100 }).area"/>
-                      <polyline class="host-chart-line" :points="hostChart(h.beszel_id, 'cpu', { min: 0, max: 100 }).points"/>
-                    </svg>
-                  </template>
-                  <template x-if="!hostChart(h.beszel_id, 'cpu', { min: 0, max: 100 })">
-                    <div class="collecting-block">
-                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
-                      <div>
-                        <div x-text="t('loading.collecting_data')"></div>
-                        <div class="text-[10.5px] text-[var(--text-faint)] not-italic mt-0.5" x-text="t('loading.history_will_appear')"></div>
-                      </div>
-                    </div>
-                  </template>
-                </div>
-
-                <!-- Memory % -->
-                <div class="host-chart-wrap">
-                  <div class="flex items-baseline justify-between mb-2">
-                    <div class="text-[10.5px] uppercase tracking-wider text-[var(--text-faint)]">Memory (%)</div>
-                    <div class="text-[10.5px] mono text-[var(--text-faint)]"
-                         x-show="hostMetricStats(h.beszel_id, 'mp')"
-                         x-text="hostMetricStats(h.beszel_id, 'mp') ? ('Min ' + hostMetricStats(h.beszel_id, 'mp').min + '  Max ' + hostMetricStats(h.beszel_id, 'mp').max) : ''"></div>
-                  </div>
-                  <template x-if="hostChart(h.beszel_id, 'mp', { min: 0, max: 100 })">
-                    <svg viewBox="0 0 420 100" preserveAspectRatio="none" class="host-chart host-chart--mem">
-                      <template x-for="(tk, i) in hostChart(h.beszel_id, 'mp', { min: 0, max: 100 }).ticks" :key="i">
-                        <line class="host-chart-grid" x1="0" x2="420" :y1="tk.y" :y2="tk.y"/>
-                      </template>
-                      <path class="host-chart-area" :d="hostChart(h.beszel_id, 'mp', { min: 0, max: 100 }).area"/>
-                      <polyline class="host-chart-line" :points="hostChart(h.beszel_id, 'mp', { min: 0, max: 100 }).points"/>
-                    </svg>
-                  </template>
-                  <template x-if="!hostChart(h.beszel_id, 'mp', { min: 0, max: 100 })">
-                    <div class="collecting-block">
-                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
-                      <div>
-                        <div x-text="t('loading.collecting_data')"></div>
-                        <div class="text-[10.5px] text-[var(--text-faint)] not-italic mt-0.5" x-text="t('loading.history_will_appear')"></div>
-                      </div>
-                    </div>
-                  </template>
-                </div>
-
-                <!-- Disk % -->
-                <div class="host-chart-wrap">
-                  <div class="flex items-baseline justify-between mb-2">
-                    <div class="text-[10.5px] uppercase tracking-wider text-[var(--text-faint)]">Disk (%)</div>
-                    <div class="text-[10.5px] mono text-[var(--text-faint)]"
-                         x-show="hostMetricStats(h.beszel_id, 'dp')"
-                         x-text="hostMetricStats(h.beszel_id, 'dp') ? ('Min ' + hostMetricStats(h.beszel_id, 'dp').min + '  Max ' + hostMetricStats(h.beszel_id, 'dp').max) : ''"></div>
-                  </div>
-                  <template x-if="hostChart(h.beszel_id, 'dp', { min: 0, max: 100 })">
-                    <svg viewBox="0 0 420 100" preserveAspectRatio="none" class="host-chart host-chart--disk">
-                      <template x-for="(tk, i) in hostChart(h.beszel_id, 'dp', { min: 0, max: 100 }).ticks" :key="i">
-                        <line class="host-chart-grid" x1="0" x2="420" :y1="tk.y" :y2="tk.y"/>
-                      </template>
-                      <path class="host-chart-area" :d="hostChart(h.beszel_id, 'dp', { min: 0, max: 100 }).area"/>
-                      <polyline class="host-chart-line" :points="hostChart(h.beszel_id, 'dp', { min: 0, max: 100 }).points"/>
-                    </svg>
-                  </template>
-                  <template x-if="!hostChart(h.beszel_id, 'dp', { min: 0, max: 100 })">
-                    <div class="collecting-block">
-                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
-                      <div>
-                        <div x-text="t('loading.collecting_data')"></div>
-                        <div class="text-[10.5px] text-[var(--text-faint)] not-italic mt-0.5" x-text="t('loading.history_will_appear')"></div>
-                      </div>
-                    </div>
-                  </template>
-                </div>
-
-                <!-- Net I/O — uses the synthesized ``net`` key
-                     (``nr+ns`` when present, else legacy ``b``). Auto-
-                     range so the line scales to the biggest spike. -->
-                <div class="md:col-span-2 lg:col-span-3 host-chart-wrap">
-                  <div class="flex items-baseline justify-between mb-2">
-                    <div class="text-[10.5px] uppercase tracking-wider text-[var(--text-faint)]">Network (bytes/s)</div>
-                    <div class="text-[10.5px] mono text-[var(--text-faint)]"
-                         x-show="hostMetricStats(h.beszel_id, 'net', false)"
-                         x-text="hostMetricStats(h.beszel_id, 'net', false) ? ('Peak ' + hostMetricStats(h.beszel_id, 'net', false).max) : ''"></div>
-                  </div>
-                  <template x-if="hostChart(h.beszel_id, 'net')">
-                    <svg viewBox="0 0 420 100" preserveAspectRatio="none" class="host-chart host-chart--net">
-                      <template x-for="(tk, i) in hostChart(h.beszel_id, 'net').ticks" :key="i">
-                        <line class="host-chart-grid" x1="0" x2="420" :y1="tk.y" :y2="tk.y"/>
-                      </template>
-                      <path class="host-chart-area" :d="hostChart(h.beszel_id, 'net').area"/>
-                      <polyline class="host-chart-line" :points="hostChart(h.beszel_id, 'net').points"/>
-                    </svg>
-                  </template>
-                  <template x-if="!hostChart(h.beszel_id, 'net')">
-                    <div class="collecting-block">
-                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
-                      <div>
-                        <div x-text="t('loading.collecting_data')"></div>
-                        <div class="text-[10.5px] text-[var(--text-faint)] not-italic mt-0.5" x-text="t('loading.history_will_appear')"></div>
-                      </div>
-                    </div>
-                  </template>
-                </div>
-              </div>
             </div>
           </div>
         </template>
@@ -2773,6 +2693,34 @@
                          class="w-full mono text-[12.5px] py-1.5"
                          placeholder="docker · pve-1 · vm-104">
                 </div>
+              </div>
+              <!-- Row 3 — test button + per-provider result line. The
+                   result lists each probed provider with a tick or
+                   cross and a short reason so the operator knows
+                   what to fix before saving. -->
+              <div class="flex items-start gap-3 flex-wrap">
+                <button x-show="isAdmin()" @click="testHostRow(idx)"
+                        class="btn btn-soft text-[11.5px]"
+                        :disabled="hostsTestResults[idx] && hostsTestResults[idx].pending">
+                  <span x-show="!(hostsTestResults[idx] && hostsTestResults[idx].pending)">Test providers</span>
+                  <span x-show="hostsTestResults[idx] && hostsTestResults[idx].pending" class="flex items-center gap-1"><span class="spin"></span>Testing…</span>
+                </button>
+                <div x-show="hostsTestResults[idx] && !hostsTestResults[idx].pending && !hostsTestResults[idx].error"
+                     class="flex flex-wrap gap-3 text-[11px] flex-1">
+                  <template x-for="name in ['beszel','pulse','node_exporter']" :key="name">
+                    <div x-show="hostsTestResults[idx] && hostsTestResults[idx][name] && !hostsTestResults[idx][name].skipped"
+                         class="flex items-center gap-1.5"
+                         :class="(hostsTestResults[idx] && hostsTestResults[idx][name] && hostsTestResults[idx][name].ok) ? 'text-[var(--success)]' : 'text-[var(--danger)]'">
+                      <span x-text="(hostsTestResults[idx] && hostsTestResults[idx][name] && hostsTestResults[idx][name].ok) ? '✓' : '✗'"></span>
+                      <span class="font-semibold" x-text="name === 'node_exporter' ? 'exporter' : name"></span>
+                      <span class="text-[var(--text-faint)] font-normal"
+                            x-text="hostsTestResults[idx] && hostsTestResults[idx][name] ? hostsTestResults[idx][name].detail : ''"></span>
+                    </div>
+                  </template>
+                </div>
+                <div x-show="hostsTestResults[idx] && hostsTestResults[idx].error"
+                     class="text-[11px] text-[var(--danger)]"
+                     x-text="'Test failed: ' + (hostsTestResults[idx] && hostsTestResults[idx].error)"></div>
               </div>
             </div>
           </template>

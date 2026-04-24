@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" xml:space="preserve">
+  <!-- Rounded-square background — Beszel's dark-teal brand base. -->
+  <rect width="512" height="512" rx="96" fill="#0b1f2a"/>
+  <!-- Heartbeat line across the centre, the mark Beszel uses in its
+       web UI + mobile apps. Stroked in the brand teal. -->
+  <path d="M52 256 h96 l28 -72 l48 168 l44 -112 l32 64 h160"
+        fill="none" stroke="#22d3b6" stroke-width="28"
+        stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

@@ -53,9 +53,12 @@ function app() {
     // the view wants faster feedback than the 15-30s item refresh.
     hosts: [],
     hostsError: '',
+    hostsProviderErrors: {},  // {beszel: "hub 500", pulse: "...", ...}
+    hostsActiveSources: [],   // list of "beszel" / "pulse" / "node_exporter"
     hostsConfigured: true,
     hostsLoading: false,
     hostsExpanded: [],
+    hostsSearch: '',
     _hostsTimer: null,
     // Admin → Hosts editor state. ``hostsConfig`` is the curated list
     // pulled from /api/hosts/config (array of host records with
@@ -3110,6 +3113,8 @@ function app() {
         const d = await r.json();
         this.hostsConfigured = !!d.configured;
         this.hostsError = d.error || '';
+        this.hostsProviderErrors = d.provider_errors || {};
+        this.hostsActiveSources = Array.isArray(d.active) ? d.active : [];
         this.hosts = Array.isArray(d.hosts) ? d.hosts : [];
       } catch (e) {
         this.hostsError = `Network: ${e.message}`;
@@ -3118,7 +3123,49 @@ function app() {
         this.hostsLoading = false;
       }
     },
+    // Status chip for a provider in the Hosts toolbar. Combines
+    // "enabled in settings" with "actually returned data for at least
+    // one host" so operators spot misconfigs fast.
+    hostsProviderState(name) {
+      const active = (this.hostsActiveSources || []).includes(name);
+      const err = (this.hostsProviderErrors || {})[name];
+      const matchCount = (this.hosts || [])
+        .filter(h => (h.providers || []).includes(name)).length;
+      if (!active && !err) {
+        return { visible: false, cls: '', icon: '', title: '' };
+      }
+      if (err) {
+        return {
+          visible: true, cls: 'pill-error', icon: '✗',
+          title: `${name} error: ${err}`,
+        };
+      }
+      if (matchCount === 0) {
+        return {
+          visible: true, cls: 'pill-unknown', icon: '·',
+          title: `${name} is enabled but matched no host`,
+        };
+      }
+      return {
+        visible: true, cls: 'pill-ok', icon: '✓',
+        title: `${name} — ${matchCount} host${matchCount === 1 ? '' : 's'}`,
+      };
+    },
     isHostExpanded(name) { return this.hostsExpanded.includes(name); },
+    // Filtered view for the Hosts table — search matches host id,
+    // label, platform, OS, kernel, and provider names so an operator
+    // can find a host by whatever field they remember.
+    filteredHosts() {
+      const q = (this.hostsSearch || '').trim().toLowerCase();
+      if (!q) return this.hosts;
+      return (this.hosts || []).filter(h => {
+        const hay = [
+          h.host, h.label, h.id, h.platform, h.os, h.kernel,
+          h.beszel_name, h.pulse_name, ...(h.providers || []),
+        ].filter(Boolean).join(' ').toLowerCase();
+        return hay.includes(q);
+      });
+    },
     toggleHost(name) {
       const i = this.hostsExpanded.indexOf(name);
       if (i === -1) {
