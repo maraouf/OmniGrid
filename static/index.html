@@ -908,6 +908,197 @@
       </div>
     </div>
 
+    <!-- ===== HOSTS VIEW ===== -->
+    <!-- Beszel-backed host list. Each row matches the collapsed Beszel
+         layout (status dot, hostname, platform, CPU/Mem/Disk bars,
+         uptime, agent, cores, arch, kernel). Expanding a row reveals
+         SYSTEM + HARDWARE cards. See /api/hosts for the data shape. -->
+    <div x-show="view==='hosts'" class="space-y-3">
+      <!-- Config banner — Beszel not set up, or hub returning errors. -->
+      <div x-show="!hostsConfigured" class="rounded border border-[var(--warning)] bg-[var(--surface-2)] px-4 py-3 text-[12.5px] text-[var(--text-dim)]">
+        <span x-text="hostsError || 'Beszel is not configured — set Hub URL / identity / password in Settings → Host stats.'"></span>
+      </div>
+      <div x-show="hostsConfigured && hostsError" class="rounded border border-[var(--danger)] bg-[var(--surface-2)] px-4 py-3 text-[12.5px] text-[var(--danger)]">
+        <span x-text="'Beszel hub error: ' + hostsError"></span>
+      </div>
+
+      <div x-show="hostsConfigured" class="rounded border border-[var(--border)] overflow-hidden bg-[var(--surface)]">
+        <!-- Header row — mirrors Beszel's columns. -->
+        <div class="grid grid-cols-[26px_260px_140px_140px_140px_minmax(160px,1fr)_80px_60px_80px_80px_96px_40px] gap-3 px-4 py-2 border-b border-[var(--border)] bg-[var(--surface-2)] text-[10.5px] uppercase tracking-wider text-[var(--text-faint)]">
+          <div></div>
+          <div>Host</div>
+          <div>Platform</div>
+          <div>CPU</div>
+          <div>Memory</div>
+          <div>Disk</div>
+          <div class="text-center">Uptime</div>
+          <div class="text-center">Agent</div>
+          <div class="text-center">Cores</div>
+          <div class="text-center">Arch</div>
+          <div class="text-center">Kernel</div>
+          <div></div>
+        </div>
+
+        <template x-for="h in hosts" :key="h.host">
+          <div class="border-b border-[var(--border)] last:border-b-0">
+            <!-- Collapsed row -->
+            <div class="grid grid-cols-[26px_260px_140px_140px_140px_minmax(160px,1fr)_80px_60px_80px_80px_96px_40px] gap-3 px-4 py-3 items-center cursor-pointer hover:bg-[var(--row-hover)]"
+                 @click="toggleHost(h.host)">
+              <!-- Chevron + status dot -->
+              <div class="flex items-center gap-1.5">
+                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
+                     :class="isHostExpanded(h.host) ? 'rotate-90' : ''"
+                     class="text-[var(--text-dim)] transition-transform">
+                  <polyline points="9 18 15 12 9 6"/>
+                </svg>
+                <span class="w-2 h-2 rounded-full flex-shrink-0" :style="'background:' + statusDotColor(h.status)"></span>
+              </div>
+              <!-- Hostname + updated-ago -->
+              <div class="min-w-0">
+                <div class="font-semibold text-[13px] mono truncate" x-text="h.host"></div>
+                <div class="text-[10.5px] text-[var(--text-faint)]" x-text="fmtUpdatedAgo(h.beszel_updated)"></div>
+              </div>
+              <!-- Platform -->
+              <div class="min-w-0">
+                <div class="text-[12px] truncate" x-text="h.platform || '—'"></div>
+                <div class="text-[10.5px] text-[var(--text-faint)] truncate" x-text="h.os || ''"></div>
+              </div>
+              <!-- CPU % -->
+              <div>
+                <div class="stat-bar"
+                     :class="barLevel(h.cpu_percent)"
+                     :style="'--w: ' + Math.min(100, h.cpu_percent) + '%'">
+                  <div class="fill"></div>
+                </div>
+                <div class="text-[10.5px] mono mt-1" x-text="(h.cpu_percent || 0).toFixed(1) + '% (' + (h.cores || 0) + ')'"></div>
+              </div>
+              <!-- Memory % + bytes -->
+              <div>
+                <div class="stat-bar"
+                     :class="barLevel(h.mem_percent || memPercentOf(h))"
+                     :style="'--w: ' + (h.mem_percent || memPercentOf(h)) + '%'">
+                  <div class="fill"></div>
+                </div>
+                <div class="text-[10.5px] mono mt-1">
+                  <span x-text="(h.mem_percent || memPercentOf(h)) + '%'"></span>
+                  <span class="text-[var(--text-faint)]" x-show="h.mem_total"
+                        x-text="' (' + fmtBytes(h.mem_used) + '/' + fmtBytes(h.mem_total) + ')'"></span>
+                </div>
+              </div>
+              <!-- Disk % + bytes -->
+              <div>
+                <div class="stat-bar"
+                     :class="barLevel(h.disk_percent || diskPercentOf(h))"
+                     :style="'--w: ' + (h.disk_percent || diskPercentOf(h)) + '%'">
+                  <div class="fill"></div>
+                </div>
+                <div class="text-[10.5px] mono mt-1">
+                  <span x-text="(h.disk_percent || diskPercentOf(h)) + '%'"></span>
+                  <span class="text-[var(--text-faint)]" x-show="h.disk_total"
+                        x-text="' (' + fmtBytes(h.disk_used) + '/' + fmtBytes(h.disk_total) + ')'"></span>
+                </div>
+              </div>
+              <!-- Uptime -->
+              <div class="text-center text-[12px] mono" x-text="fmtUptimeShort(h.uptime_s)"></div>
+              <!-- Agent version -->
+              <div class="text-center text-[11px] mono" x-text="h.agent || '—'"></div>
+              <!-- Core count -->
+              <div class="text-center text-[11.5px] mono" x-text="h.cores || '—'"></div>
+              <!-- Architecture -->
+              <div class="text-center text-[11px] mono truncate" x-text="h.arch || '—'"></div>
+              <!-- Kernel (truncated) -->
+              <div class="text-center text-[11px] mono truncate" :title="h.kernel" x-text="h.kernel ? h.kernel.slice(0, 8) + (h.kernel.length > 8 ? '…' : '') : '—'"></div>
+              <!-- Dot menu placeholder -->
+              <div class="text-center text-[var(--text-faint)]">⋮</div>
+            </div>
+
+            <!-- Expanded row — SYSTEM + HARDWARE cards. -->
+            <div x-show="isHostExpanded(h.host)" class="bg-[var(--surface-2)]/50 border-t border-[var(--border)] px-5 py-4">
+              <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                <!-- SYSTEM -->
+                <section class="rounded border border-[var(--border)] bg-[var(--surface)] p-4">
+                  <h4 class="text-[10.5px] uppercase tracking-wider text-[var(--text-faint)] mb-3">System</h4>
+                  <dl class="grid grid-cols-[auto_1fr] gap-x-4 gap-y-2 text-[12px]">
+                    <dt class="text-[var(--text-dim)]">Hostname</dt>
+                    <dd class="mono text-end" x-text="h.host"></dd>
+                    <dt class="text-[var(--text-dim)]">Platform</dt>
+                    <dd class="text-end" x-text="h.platform || '—'"></dd>
+                    <dt class="text-[var(--text-dim)]">OS</dt>
+                    <dd class="text-end" x-text="h.os || '—'"></dd>
+                    <dt class="text-[var(--text-dim)]">Kernel</dt>
+                    <dd class="mono text-end break-all" x-text="h.kernel || '—'"></dd>
+                    <dt class="text-[var(--text-dim)]">Architecture</dt>
+                    <dd class="mono text-end" x-text="h.arch || '—'"></dd>
+                    <dt class="text-[var(--text-dim)]">Uptime</dt>
+                    <dd class="mono text-end" x-text="fmtUptimeShort(h.uptime_s)"></dd>
+                    <dt class="text-[var(--text-dim)]" x-show="h.docker_node">Docker node</dt>
+                    <dd class="mono text-end" x-show="h.docker_node" x-text="h.docker_node"></dd>
+                  </dl>
+                </section>
+
+                <!-- HARDWARE -->
+                <section class="rounded border border-[var(--border)] bg-[var(--surface)] p-4">
+                  <h4 class="text-[10.5px] uppercase tracking-wider text-[var(--text-faint)] mb-3">Hardware</h4>
+                  <dl class="grid grid-cols-[auto_1fr] gap-x-4 gap-y-2 text-[12px]">
+                    <dt class="text-[var(--text-dim)]">CPU</dt>
+                    <dd class="text-end mono break-all" x-text="h.cpu_model || '—'"></dd>
+                    <dt class="text-[var(--text-dim)]">Cores</dt>
+                    <dd class="mono text-end" x-text="h.cores || '—'"></dd>
+                    <dt class="text-[var(--text-dim)]" x-show="h.threads">Threads</dt>
+                    <dd class="mono text-end" x-show="h.threads" x-text="h.threads"></dd>
+                    <dt class="text-[var(--text-dim)]">Memory</dt>
+                    <dd class="mono text-end" x-text="h.mem_total ? fmtBytes(h.mem_total) : '—'"></dd>
+                    <dt class="text-[var(--text-dim)]">Disk</dt>
+                    <dd class="mono text-end" x-text="h.disk_total ? fmtBytes(h.disk_total) : '—'"></dd>
+                    <dt class="text-[var(--text-dim)]">Agent</dt>
+                    <dd class="mono text-end" x-text="h.agent || '—'"></dd>
+                    <dt class="text-[var(--text-dim)]">Status</dt>
+                    <dd class="text-end">
+                      <span class="pill text-[10.5px]"
+                            :class="h.status === 'up' ? 'pill-ok' : h.status === 'down' ? 'pill-error' : 'pill-unknown'"
+                            x-text="h.status"></span>
+                    </dd>
+                  </dl>
+                </section>
+
+                <!-- MOUNTS (if stats carries per-mount detail) -->
+                <section x-show="(h.mounts || []).length > 0"
+                         class="rounded border border-[var(--border)] bg-[var(--surface)] p-4">
+                  <h4 class="text-[10.5px] uppercase tracking-wider text-[var(--text-faint)] mb-3">Disks</h4>
+                  <div class="space-y-3">
+                    <template x-for="(m, i) in (h.mounts || [])" :key="i">
+                      <div>
+                        <div class="flex items-baseline justify-between">
+                          <span class="text-[11.5px] mono truncate" x-text="m.n || m.name || '(disk)'"></span>
+                          <span class="text-[10.5px] text-[var(--text-faint)] mono"
+                                x-text="m.d && m.du ? fmtBytes((m.du || 0) * 1024**3) + ' / ' + fmtBytes((m.d || 0) * 1024**3) : ''"></span>
+                        </div>
+                        <div class="stat-bar mt-1"
+                             :class="barLevel(m.dp || 0)"
+                             :style="'--w: ' + (m.dp || 0) + '%'">
+                          <div class="fill"></div>
+                        </div>
+                      </div>
+                    </template>
+                  </div>
+                </section>
+              </div>
+            </div>
+          </div>
+        </template>
+      </div>
+
+      <!-- Empty-state ladder — loading, no systems, hub broken. -->
+      <div x-show="hostsConfigured && hostsLoading && hosts.length === 0" class="loading-state">
+        <span class="spin-lg" aria-hidden="true"></span>
+        <div x-text="t('loading.resources')"></div>
+      </div>
+      <div x-show="hostsConfigured && !hostsLoading && !hostsError && hosts.length === 0"
+           class="text-center py-16 text-[var(--text-faint)] text-sm">
+        No systems registered in Beszel yet.
+      </div>
+    </div>
+
     <!-- ===== HISTORY VIEW ===== -->
     <div x-show="view==='history'" class="space-y-3">
       <div class="flex justify-between items-center">
