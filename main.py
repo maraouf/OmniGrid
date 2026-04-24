@@ -1068,6 +1068,75 @@ async def api_beszel_test(
             "systems": sorted(systems.keys())}
 
 
+@app.get("/api/hosts")
+async def api_hosts():
+    """Hosts view — returns every system Beszel knows about, flat.
+
+    Lightweight wrapper around :func:`logic.beszel.probe_hub`: one GET
+    to the hub, shaped into an array the frontend renders as a table
+    (see the Hosts tab). Also includes the reverse alias map
+    (``beszel name → docker node name``) so the UI can show which
+    Docker node each system is paired with.
+
+    Not cached here — the hub call is cheap (~50ms for a homelab
+    fleet). If it grows we can park the result in ``_cache`` alongside
+    ``nodes_info`` and flush on ``beszel_aliases`` writes.
+    """
+    from logic import beszel as _beszel
+    hub_url = get_setting("beszel_hub_url", "") or ""
+    ident = get_setting("beszel_identity", "") or ""
+    passw = get_setting("beszel_password", "") or ""
+    verify = (get_setting("beszel_verify_tls", "true") or "true").lower() == "true"
+    try:
+        aliases_raw = json.loads(get_setting("beszel_aliases", "{}") or "{}")
+        if not isinstance(aliases_raw, dict):
+            aliases_raw = {}
+    except ValueError:
+        aliases_raw = {}
+    # Reverse direction — every beszel name → the docker node that's
+    # mapped to it. Lets the row show "paired with node X".
+    reverse_aliases = {str(v): str(k) for k, v in aliases_raw.items() if v}
+
+    if not (hub_url and ident and passw):
+        return {
+            "configured": False,
+            "hub_url": hub_url,
+            "error": "Beszel not configured — set Hub URL / identity / password in Settings.",
+            "hosts": [],
+        }
+    result = await _beszel.probe_hub(hub_url, ident, passw, verify_tls=verify)
+    err = result.get("error")
+    systems = result.get("systems") or {}
+    hosts = []
+    for name, s in sorted(systems.items(), key=lambda kv: kv[0].lower()):
+        hosts.append({
+            "name":            name,
+            "status":          s.get("beszel_status") or "unknown",
+            "docker_node":     reverse_aliases.get(name, ""),
+            "platform":        s.get("host_platform") or "",
+            "os":              s.get("host_os") or "",
+            "kernel":          s.get("host_kernel") or "",
+            "arch":            s.get("host_arch") or "",
+            "agent":           s.get("host_agent") or "",
+            "cores":           s.get("host_cores") or 0,
+            "cpu_percent":     s.get("host_cpu_percent") or 0,
+            "mem_used":        s.get("host_mem_used") or 0,
+            "mem_total":       s.get("host_mem_total") or 0,
+            "disk_used":       s.get("host_disk_used") or 0,
+            "disk_total":      s.get("host_disk_total") or 0,
+            "uptime_s":        s.get("host_uptime_s") or 0,
+            "boot_ts":         s.get("host_boot_ts"),
+            "beszel_id":       s.get("beszel_id") or "",
+            "beszel_updated":  s.get("beszel_updated") or "",
+        })
+    return {
+        "configured": True,
+        "hub_url": hub_url,
+        "error": err,
+        "hosts": hosts,
+    }
+
+
 @app.get("/api/auth/providers")
 async def api_auth_providers():
     """Public endpoint: advertises which login paths are live. The login
@@ -1949,7 +2018,7 @@ async def spa_shell():
 # `_applyRouteFromPath()` picks the view based on `location.pathname`
 # once the page boots. Settings / Admin accept a sub-path segment
 # (`/settings/oidc`, `/admin/users`) so those deep links work too.
-_SPA_ROUTES = ("stacks", "services", "nodes", "history")
+_SPA_ROUTES = ("stacks", "services", "nodes", "hosts", "history")
 
 for _view in _SPA_ROUTES:
     app.add_api_route(f"/{_view}", spa_shell, methods=["GET"])

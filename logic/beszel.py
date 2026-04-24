@@ -273,5 +273,9 @@ async def probe_hub(
         # Carry the top-level status so callers can tell a paused /
         # down system from one that's actually fresh.
         stats["beszel_status"] = rec.get("status") or "unknown"
+        # Record id + last-updated ISO string power the Hosts view's
+        # "Updated Xs ago" sub-line and the deep-link back to Beszel.
+        stats["beszel_id"] = rec.get("id") or ""
+        stats["beszel_updated"] = rec.get("updated") or ""
         out[name] = stats
     return {"systems": out, "error": None}

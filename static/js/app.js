@@ -37,7 +37,7 @@ function app() {
       return [0, 5, 15, 30, 60].includes(v) ? v : 15;
     })(),
     activeOps: [],
-    view: (['stacks','services','nodes','history','settings','admin'].includes(localStorage.getItem('view')) ? localStorage.getItem('view') : 'stacks'),
+    view: (['stacks','services','nodes','hosts','history','settings','admin'].includes(localStorage.getItem('view')) ? localStorage.getItem('view') : 'stacks'),
     search: '', statusFilter: '', healthFilter: '',
     sortField: 'name', sortDir: 'asc',
     selected: [],
@@ -417,6 +417,7 @@ function app() {
         ['stacks',   this.t('nav.stacks')],
         ['services', this.t('nav.services')],
         ['nodes',    this.t('nav.nodes')],
+        ['hosts',    this.t('nav.hosts')],
         ['history',  this.t('nav.history')],
       ];
     },
@@ -603,7 +604,7 @@ function app() {
     // Unknown paths are left alone (the static file server already
     // handles login / assets; this only intervenes for known views).
     _routeViews() {
-      return new Set(['stacks', 'services', 'nodes', 'history', 'settings', 'admin']);
+      return new Set(['stacks', 'services', 'nodes', 'hosts', 'history', 'settings', 'admin']);
     },
     _applyRouteFromPath() {
       const parts = (location.pathname || '/').split('/').filter(Boolean);
@@ -2768,12 +2769,19 @@ function app() {
           throw new Error(d.detail || `HTTP ${r.status}`);
         }
         this.settings.beszel_aliases = map;
-        this.flash(this.t('toast.settings_saved') || 'Saved', 'success');
+        this.showToast(
+          val
+            ? `Beszel mapping saved: ${name} → ${val}`
+            : `Beszel mapping cleared for ${name}`,
+          'success',
+        );
         this.drawerNode = null;
-        // Force the next gather to pick up the new mapping immediately.
+        // Force the next gather to re-read the alias map and re-match
+        // Beszel systems. Without force=true the cached items stay
+        // attached to the old alias resolution until CACHE_TTL lapses.
         await this.refresh(true);
       } catch (e) {
-        this.flash(`Save failed: ${e.message}`, 'error');
+        this.showToast(`Save failed: ${e.message}`, 'error');
       } finally {
         this.drawerNodeSaving = false;
       }

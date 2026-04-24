@@ -14,6 +14,7 @@
     "stacks": "Stacks",
     "services": "Services",
     "nodes": "Nodes",
+    "hosts": "Hosts",
     "history": "History",
     "settings": "Settings",
     "admin": "Admin"
