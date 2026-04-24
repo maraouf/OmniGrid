@@ -1282,20 +1282,12 @@ async def api_hosts():
         merged: dict = {}
         providers_hit: list[str] = []
 
-        # Match order: explicit per-provider name → host id. When the
-        # operator leaves a mapping blank but the row's id happens to
-        # match what the provider reports, treat that as a hit — saves
-        # typing the same hostname in two fields.
-        beszel_key = h.get("beszel_name") or h.get("id") or ""
-        if "beszel" in active and beszel_key:
-            # Beszel is case-sensitive on its ``host`` field; the
-            # lookup still requires an exact key. For forgiving
-            # matching, users should populate the field explicitly.
-            bstats = beszel_map.get(beszel_key)
-            if bstats:
-                _merge_best(merged, bstats)
-                providers_hit.append("beszel")
-
+        # Merge order: Pulse (fallback / coarse detail) → Beszel
+        # (cleaner short forms override Pulse) → node-exporter
+        # (richest Linux detail). Each provider's ``_merge_best``
+        # only overwrites when the new value is meaningful, so
+        # Pulse-only hosts keep Pulse's platform/kernel/arch, while
+        # hosts covered by Beszel get Beszel's tidier values.
         pulse_key = h.get("pulse_name") or h.get("id") or ""
         if "pulse" in active and pulse_key:
             print(f"[hosts] host id={h.get('id')!r} label={h.get('label')!r} "
@@ -1311,6 +1303,20 @@ async def api_hosts():
                       f"name={pstats.get('pulse_name')!r})")
             else:
                 print(f"[hosts] host id={h.get('id')!r} pulse NO MATCH")
+
+        # Match order for Beszel: explicit per-provider name → host
+        # id. When the operator leaves a mapping blank but the row's
+        # id happens to match what Beszel reports, treat that as a
+        # hit — saves typing the same hostname in two fields.
+        beszel_key = h.get("beszel_name") or h.get("id") or ""
+        if "beszel" in active and beszel_key:
+            # Beszel is case-sensitive on its ``host`` field; the
+            # lookup still requires an exact key. For forgiving
+            # matching, users should populate the field explicitly.
+            bstats = beszel_map.get(beszel_key)
+            if bstats:
+                _merge_best(merged, bstats)
+                providers_hit.append("beszel")
 
         if "node_exporter" in active and h.get("ne_url"):
             ne_probes.append((h, h["ne_url"]))
