@@ -1090,10 +1090,21 @@
                   </div>
                 </div>
               </div>
-              <!-- Platform -->
+              <!-- Platform — shows the most specific OS-family value.
+                   Main line is the OS string (with version) when we
+                   have one, else the short platform name. Subtext
+                   only appears when platform adds genuinely new info
+                   (e.g. platform="Debian" but os="raspbian 13.4" —
+                   two different distros). For the common "debian" +
+                   "debian 13.4" case the subtext stays hidden. -->
               <div class="min-w-0">
-                <div class="text-[12px] truncate" x-text="h.platform || '—'"></div>
-                <div class="text-[10.5px] text-[var(--text-faint)] truncate" x-text="h.os || ''"></div>
+                <div class="text-[12px] truncate"
+                     x-text="h.os || h.platform || '—'"></div>
+                <div class="text-[10.5px] text-[var(--text-faint)] truncate"
+                     x-show="h.platform && h.os
+                             && h.os.toLowerCase() !== h.platform.toLowerCase()
+                             && !h.os.toLowerCase().startsWith(h.platform.toLowerCase())"
+                     x-text="h.platform"></div>
               </div>
               <!-- CPU % -->
               <div>
@@ -1658,6 +1669,20 @@
         <span class="spin-lg" aria-hidden="true"></span>
         <div>Loading hosts from providers…</div>
       </div>
+      <!-- Filter-only empty state — hosts exist but no match for
+           the current search query. Distinct from the "no hosts at
+           all" ladder below so the operator gets a clearer "nothing
+           matches, clear the filter" action. -->
+      <div x-show="hostsConfigured && !hostsLoading && hosts.length > 0 && filteredHosts().length === 0"
+           class="text-center py-12 text-[var(--text-faint)] text-sm">
+        <div>
+          No hosts match
+          <span class="mono text-[var(--text-dim)]" x-text="'“' + hostsSearch + '”'"></span>.
+        </div>
+        <button @click="hostsSearch = ''"
+                class="mt-2 text-[var(--primary)] hover:underline">Clear filter</button>
+      </div>
+
       <!-- Empty-state ladder — ordered by most-specific cause. The
            ``hostsCuratedCount`` / ``hostsEnabledCount`` fields come
            from the server's /api/hosts response; older server
@@ -1697,8 +1722,15 @@
         </div>
       </div>
 
-      <!-- Case: no configured providers. Catches "I enabled nothing". -->
-      <div x-show="hostsConfigured && !hostsLoading && !hostsError && hosts.length === 0 && hostsCuratedCount === 0 && (hostsActiveSources || []).length === 0"
+      <!-- Case: positively confirmed no provider enabled. Only
+           fires when the backend explicitly says configured=false
+           AND reports no active sources — i.e. we're certain the
+           operator hasn't enabled anything. We never INFER this
+           from older-build responses that omit ``active`` because
+           the assumption "no providers" would be wrong in that
+           case (the old build could have providers enabled, just
+           not reporting the field). -->
+      <div x-show="!hostsConfigured && !hostsLoading && !hostsError && hosts.length === 0 && (hostsActiveSources || []).length === 0"
            class="text-center py-16 text-[var(--text-faint)] text-sm">
         <div>No host-stats provider enabled.</div>
         <div class="mt-2">
@@ -1709,20 +1741,22 @@
         </div>
       </div>
 
-      <!-- Fallback — used when the server is on an older build that
-           doesn't return curated_count / enabled_count. Assumes
-           hosts are configured somewhere but no provider hit. The
-           copy suggests the most common fix (Test providers) rather
+      <!-- Fallback — servers on builds that don't return
+           curated_count / enabled_count, OR any case where the
+           providers are enabled but returned no data. The copy
+           points at the most likely fix (Test providers) rather
            than the misleading "no hosts yet". -->
-      <div x-show="hostsConfigured && !hostsLoading && !hostsError && hosts.length === 0 && hostsCuratedCount === 0 && (hostsActiveSources || []).length > 0"
+      <div x-show="hostsConfigured && !hostsLoading && !hostsError && hosts.length === 0 && hostsCuratedCount === 0"
            class="text-center py-16 text-[var(--text-faint)] text-sm">
         <div>No host data to show.</div>
         <div class="mt-2 text-[13px] leading-relaxed">
           If you've defined hosts in
           <a href="/admin/hosts" class="text-[var(--primary)] hover:underline">Admin → Hosts</a>,
           the configured provider names probably don't match what
-          <span class="mono" x-text="(hostsActiveSources || []).join(' / ')"></span>
-          is reporting — use the per-row <strong>Test providers</strong>
+          <span class="mono" x-show="(hostsActiveSources || []).length"
+                x-text="(hostsActiveSources || []).join(' / ')"></span><span
+                x-show="!(hostsActiveSources || []).length">the enabled providers</span>
+          are reporting — use the per-row <strong>Test providers</strong>
           button to see what each provider knows about, then fix the
           mapping.
         </div>

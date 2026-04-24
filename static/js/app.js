@@ -3477,17 +3477,39 @@ function app() {
     },
     // Filtered view for the Hosts table — search matches host id,
     // label, platform, OS, kernel, and provider names so an operator
-    // can find a host by whatever field they remember.
+    // can find a host by whatever field they remember. Sort order:
+    // alive hosts first (green dot), then paused, then down/unknown,
+    // each group alphabetical by label/id. Dead rows cluster at the
+    // bottom so the top of the view is always the "interesting"
+    // stuff.
     filteredHosts() {
       const q = (this.hostsSearch || '').trim().toLowerCase();
-      if (!q) return this.hosts;
-      return (this.hosts || []).filter(h => {
-        const hay = [
-          h.host, h.label, h.id, h.platform, h.os, h.kernel,
-          h.beszel_name, h.pulse_name, ...(h.providers || []),
-        ].filter(Boolean).join(' ').toLowerCase();
-        return hay.includes(q);
+      const statusWeight = (s) => {
+        switch ((s || '').toLowerCase()) {
+          case 'up':     return 0;
+          case 'paused': return 1;
+          case 'down':   return 2;
+          default:       return 3;
+        }
+      };
+      let list = (this.hosts || []).slice();
+      if (q) {
+        list = list.filter(h => {
+          const hay = [
+            h.host, h.label, h.id, h.platform, h.os, h.kernel,
+            h.beszel_name, h.pulse_name, ...(h.providers || []),
+          ].filter(Boolean).join(' ').toLowerCase();
+          return hay.includes(q);
+        });
+      }
+      list.sort((a, b) => {
+        const sw = statusWeight(a.status) - statusWeight(b.status);
+        if (sw !== 0) return sw;
+        const al = (a.label || a.host || '').toLowerCase();
+        const bl = (b.label || b.host || '').toLowerCase();
+        return al.localeCompare(bl);
       });
+      return list;
     },
     toggleHost(name) {
       const host = (this.hosts || []).find(h => h.host === name);

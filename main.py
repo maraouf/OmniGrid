@@ -1382,7 +1382,14 @@ async def api_hosts():
             "kernel":          s.get("host_kernel") or "",
             "arch":            s.get("host_arch") or "",
             "agent":           s.get("host_agent") or "",
-            "cores":           s.get("host_cores") or 0,
+            # cores falls back to threads — Beszel container-mode
+            # agents skip ``info.c`` (cores) but still emit
+            # ``info.t`` (threads). Pulse's older state endpoint
+            # sometimes omits ``maxcpu`` too. For a host overview,
+            # either number answers the "how much compute does this
+            # machine have" question, so we'd rather show one than
+            # neither.
+            "cores":           s.get("host_cores") or s.get("host_threads") or 0,
             "threads":         s.get("host_threads") or 0,
             "cpu_model":       s.get("host_cpu_model") or "",
             "cpu_percent":     s.get("host_cpu_percent") or 0,
