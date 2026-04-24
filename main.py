@@ -788,15 +788,26 @@ async def api_get_settings(request: Request):
             "url_template": get_setting("node_exporter_url_template", "http://{host}:9100/metrics"),
             "overrides": json.loads(get_setting("node_exporter_overrides", "{}") or "{}"),
         },
-        # Host-stats source — legacy rows without the setting map to
-        # "node_exporter" iff it was enabled, else "none", so upgrades
-        # don't silently turn host-stats off.
+        # Host-stats sources — stored as CSV so multiple providers can
+        # be enabled at once (Beszel for cross-platform real-time stats
+        # + node-exporter for Linux-host detail). The read-back shim
+        # keeps single-value legacy rows ("beszel" / "node_exporter")
+        # working without a migration; upgrades with only
+        # ``node_exporter_enabled`` set default to that one source.
         "host_stats_source": (
             get_setting("host_stats_source", "")
             or ("node_exporter"
                 if (get_setting("node_exporter_enabled", "false") or "false").lower() == "true"
                 else "none")
         ),
+        "host_stats_sources": [
+            s.strip() for s in (
+                get_setting("host_stats_source", "")
+                or ("node_exporter"
+                    if (get_setting("node_exporter_enabled", "false") or "false").lower() == "true"
+                    else "")
+            ).split(",") if s.strip() and s.strip().lower() != "none"
+        ],
         # Beszel Hub — password is write-only. UI only learns "is it set".
         "beszel": {
             "hub_url": get_setting("beszel_hub_url", ""),
@@ -874,13 +885,24 @@ async def api_set_settings(
         }
         set_setting("node_exporter_overrides", json.dumps(clean))
     if s.host_stats_source is not None:
-        src = (s.host_stats_source or "").strip()
-        if src not in ("none", "node_exporter", "beszel"):
+        # Accept a CSV ("beszel,node_exporter") or a single legacy value.
+        # Empty / "none" / unknown tokens collapse to "none" so the
+        # gather skips the whole block.
+        raw = (s.host_stats_source or "").strip()
+        parts = {t.strip().lower() for t in raw.split(",") if t.strip()}
+        parts.discard("none")
+        valid = {"beszel", "node_exporter"}
+        unknown = parts - valid
+        if unknown:
             raise HTTPException(
                 status_code=400,
-                detail="host_stats_source must be 'none', 'node_exporter', or 'beszel'.",
+                detail=(
+                    "host_stats_source must be a CSV of 'beszel' / "
+                    f"'node_exporter' (or 'none'). Unknown: {sorted(unknown)}"
+                ),
             )
-        set_setting("host_stats_source", src)
+        normalized = ",".join(sorted(parts)) if parts else "none"
+        set_setting("host_stats_source", normalized)
     if s.beszel_hub_url is not None:
         # Trim trailing slash so downstream concatenation stays clean.
         set_setting("beszel_hub_url", (s.beszel_hub_url or "").strip().rstrip("/"))

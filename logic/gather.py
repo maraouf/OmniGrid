@@ -305,20 +305,31 @@ async def _gather_impl() -> None:
                     nodes_info[host]["docker_disk_bytes"] = total
 
         # Host-stats integration — surfaces real host disk / memory /
-        # uptime that Portainer doesn't expose. Operator picks ONE
-        # source via settings (host_stats_source); legacy installs
-        # with only node_exporter_enabled set get the exporter path
-        # automatically via the /api/settings read-back shim.
+        # uptime that Portainer doesn't expose. ``host_stats_source`` is
+        # now a CSV so operators can enable multiple providers that
+        # merge into one picture per host:
+        #   ""                           → none
+        #   "beszel"                     → Beszel only (back-compat)
+        #   "node_exporter"              → node-exporter only (back-compat)
+        #   "beszel,node_exporter"       → both; node-exporter wins when
+        #                                  a field is populated by both
+        # Legacy single-value strings stay valid.
         from logic.db import get_setting
         from logic import beszel as _beszel
         from logic import node_exporter as _ne
-        source = (get_setting("host_stats_source", "") or "").strip()
-        if not source:
-            source = ("node_exporter"
-                      if (get_setting("node_exporter_enabled", "false") or "false").lower() == "true"
-                      else "none")
+        raw_source = (get_setting("host_stats_source", "") or "").strip()
+        if not raw_source:
+            # Legacy bootstrap: only the node_exporter_enabled bool existed.
+            raw_source = ("node_exporter"
+                          if (get_setting("node_exporter_enabled", "false") or "false").lower() == "true"
+                          else "none")
+        active_sources = {
+            s.strip().lower()
+            for s in raw_source.split(",")
+            if s.strip() and s.strip().lower() != "none"
+        }
 
-        if source == "beszel" and df_hosts:
+        if "beszel" in active_sources and df_hosts:
             # One HTTP call to the hub fetches every system's latest
             # snapshot. Docker hostname → Beszel ``host`` field via
             # ``beszel_aliases`` (JSON map in the settings table) so
@@ -365,8 +376,13 @@ async def _gather_impl() -> None:
                         continue
                     nodes_info[host].update(stats)
 
-        ne_enabled = (source == "node_exporter")
-        if ne_enabled and df_hosts:
+        # node-exporter runs AFTER beszel when both are enabled, so its
+        # richer Linux-native fields (per-mount disks via node_filesystem_*,
+        # NIC list via node_network_info, detailed kernel / arch from
+        # node_uname_info) overwrite Beszel's coarser values where they
+        # overlap. Fields Beszel reports that exporter doesn't (e.g.
+        # Beszel-specific status string) are preserved by the dict.update.
+        if "node_exporter" in active_sources and df_hosts:
             tpl = get_setting("node_exporter_url_template", "http://{host}:9100/metrics") \
                   or "http://{host}:9100/metrics"
             # Per-host URL overrides for nodes where the template's {host}

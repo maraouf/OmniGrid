@@ -1113,22 +1113,50 @@ function app() {
       finally { this.backupBusy = false; }
     },
 
+    // Multi-source selector helpers. ``host_stats_source`` is now a
+    // CSV ("beszel,node_exporter") — these helpers let the Settings
+    // checkboxes treat it as a set.
+    hasHostStatsSource(name) {
+      const raw = this.settings.host_stats_source || '';
+      return raw.split(',').map(s => s.trim()).includes(name);
+    },
+    toggleHostStatsSource(name, on) {
+      const current = new Set(
+        (this.settings.host_stats_source || '')
+          .split(',').map(s => s.trim()).filter(s => s && s !== 'none'),
+      );
+      if (on) current.add(name);
+      else current.delete(name);
+      this.settings.host_stats_source = current.size
+        ? Array.from(current).sort().join(',')
+        : 'none';
+    },
+
     async saveHostStats() {
-      const source = this.settings.host_stats_source || 'none';
-      if (!['none','node_exporter','beszel'].includes(source)) {
-        this.showToast(this.t('settings.host_stats.source_invalid'), 'error');
-        return;
+      const raw = this.settings.host_stats_source || 'none';
+      const active = new Set(
+        raw.split(',').map(s => s.trim()).filter(s => s && s !== 'none'),
+      );
+      const valid = new Set(['beszel', 'node_exporter']);
+      for (const s of active) {
+        if (!valid.has(s)) {
+          this.showToast(this.t('settings.host_stats.source_invalid'), 'error');
+          return;
+        }
       }
-      // Source-specific validation — only the active source's fields
+      // Source-specific validation — only the active sources' fields
       // are required to be well-formed; the others are persisted as-is
-      // so switching sources doesn't forget prior config.
+      // so toggling sources doesn't forget prior config.
+      const normalized = active.size
+        ? Array.from(active).sort().join(',')
+        : 'none';
       const payload = {
-        host_stats_source: source,
+        host_stats_source: normalized,
         // Keep node_exporter_enabled flag in sync with the selected
         // source for back-compat with anything reading the legacy flag.
-        node_exporter_enabled: source === 'node_exporter',
+        node_exporter_enabled: active.has('node_exporter'),
       };
-      if (source === 'node_exporter') {
+      if (active.has('node_exporter')) {
         const tpl = (this.settings.node_exporter_url_template || '').trim();
         if (tpl && !tpl.includes('{host}')) {
           this.showToast(this.t('settings.host_stats.placeholder_required'), 'error');
@@ -1147,7 +1175,8 @@ function app() {
         }
         payload.node_exporter_url_template = tpl;
         payload.node_exporter_overrides = overrides;
-      } else if (source === 'beszel') {
+      }
+      if (active.has('beszel')) {
         const hub = (this.settings.beszel_hub_url || '').trim();
         const ident = (this.settings.beszel_identity || '').trim();
         if (!hub || !ident) {
