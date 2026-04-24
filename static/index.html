@@ -914,6 +914,23 @@
          uptime, agent, cores, arch, kernel). Expanding a row reveals
          SYSTEM + HARDWARE cards. See /api/hosts for the data shape. -->
     <div x-show="view==='hosts'" class="space-y-3">
+      <!-- Toolbar — quick link to Beszel for adding / managing systems,
+           since hosts are registered in Beszel (by installing the
+           agent + pairing the public key), not in OmniGrid. -->
+      <div x-show="hostsConfigured" class="flex items-center justify-between">
+        <div class="text-[12px] text-[var(--text-dim)]">
+          <span x-text="hosts.length + ' host' + (hosts.length === 1 ? '' : 's')"></span>
+          <span class="text-[var(--text-faint)]"> · polled every 15s from the Beszel hub</span>
+        </div>
+        <a :href="settings.beszel_hub_url || '#'" target="_blank" rel="noopener"
+           x-show="settings.beszel_hub_url"
+           class="btn btn-ghost text-[12px] flex items-center gap-1.5"
+           title="Open the Beszel hub in a new tab — host registration happens there.">
+          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+          Open Beszel
+        </a>
+      </div>
+
       <!-- Config banner — Beszel not set up, or hub returning errors. -->
       <div x-show="!hostsConfigured" class="rounded border border-[var(--warning)] bg-[var(--surface-2)] px-4 py-3 text-[12.5px] text-[var(--text-dim)]">
         <span x-text="hostsError || 'Beszel is not configured — set Hub URL / identity / password in Settings → Host stats.'"></span>
