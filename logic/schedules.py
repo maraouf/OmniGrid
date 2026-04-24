@@ -910,6 +910,8 @@ async def _run_asset_inventory_refresh(
         try:
             if auth_mode == "lifetime_token":
                 lifetime_token = get_setting("asset_inventory_lifetime_token", "") or ""
+                service = (get_setting("asset_inventory_service", "") or "").strip()
+                action = (get_setting("asset_inventory_action", "") or "").strip()
                 if not base_url or not lifetime_token:
                     raise RuntimeError(
                         "asset_inventory base_url and lifetime_token are required "
@@ -920,6 +922,8 @@ async def _run_asset_inventory_refresh(
                     verify_tls=True,
                     auth_mode=_ai.AUTH_MODE_LIFETIME_TOKEN,
                     lifetime_token=lifetime_token,
+                    service=service,
+                    action=action,
                 )
             else:
                 token_url = (get_setting("asset_inventory_token_url", "") or "").strip()

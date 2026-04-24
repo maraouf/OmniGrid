@@ -856,6 +856,13 @@ class SettingsIn(BaseModel):
     asset_inventory_auth_mode: Optional[str] = None
     asset_inventory_lifetime_token: Optional[str] = None
     clear_asset_inventory_lifetime_token: Optional[bool] = None
+    # Mandatory `service` and `action` form parameters for the
+    # lifetime-token flavour. oufa.co's services.php routes by these
+    # ("service=scheduler&action=run_schedule" is the documented pair
+    # for asset fetch). Plain text — these are routing keys, not
+    # credentials.
+    asset_inventory_service: Optional[str] = None
+    asset_inventory_action: Optional[str] = None
     # -----------------------------------------------------------------
     # SSH console — admin-only remote command runner wired into the
     # host drawer. Global defaults; per-host overrides live in
@@ -925,6 +932,8 @@ async def api_get_settings(request: Request):
             "client_secret_set":  bool(get_setting("asset_inventory_client_secret", "")),
             "scope":              get_setting("asset_inventory_scope", "") or "",
             "lifetime_token_set": bool(get_setting("asset_inventory_lifetime_token", "")),
+            "service":            get_setting("asset_inventory_service", "") or "",
+            "action":             get_setting("asset_inventory_action", "") or "",
         },
         "portainer_public_url": get_setting("portainer_public_url", str(p.get("portainer_url") or "")),
         "backup_retention_count": int(get_setting("backup_retention_count", "0") or "0"),
@@ -1338,6 +1347,12 @@ async def api_set_settings(
                     s.asset_inventory_lifetime_token.strip())
     if s.clear_asset_inventory_lifetime_token:
         set_setting("asset_inventory_lifetime_token", "")
+    if s.asset_inventory_service is not None:
+        set_setting("asset_inventory_service",
+                    (s.asset_inventory_service or "").strip())
+    if s.asset_inventory_action is not None:
+        set_setting("asset_inventory_action",
+                    (s.asset_inventory_action or "").strip())
 
     _cache["ts"] = 0  # force the next gather to re-read alias settings
 
@@ -1640,12 +1655,17 @@ async def api_asset_inventory_test(
         lifetime_token = body.get("lifetime_token") or ""
         if not lifetime_token:
             lifetime_token = get_setting("asset_inventory_lifetime_token", "") or ""
+        service = (body.get("service") or "").strip() \
+            or (get_setting("asset_inventory_service", "") or "").strip()
+        action = (body.get("action") or "").strip() \
+            or (get_setting("asset_inventory_action", "") or "").strip()
         if not base_url or not lifetime_token:
             return {"ok": False,
                     "detail": "base_url and lifetime_token are both required"}
         endpoint = base_url.rstrip("/") + _ai.DEFAULT_LIFETIME_LIST_PATH
         result = await _ai.fetch_assets_lifetime_token(
-            endpoint, lifetime_token, verify_tls=True,
+            endpoint, lifetime_token,
+            service=service, action=action, verify_tls=True,
         )
         if result.get("ok"):
             count = len(result.get("assets") or [])
@@ -1694,6 +1714,8 @@ async def api_asset_inventory_refresh(
         auth_mode = "oauth2"
     if auth_mode == "lifetime_token":
         lifetime_token = get_setting("asset_inventory_lifetime_token", "") or ""
+        service = (get_setting("asset_inventory_service", "") or "").strip()
+        action = (get_setting("asset_inventory_action", "") or "").strip()
         if not base_url or not lifetime_token:
             return {"ok": False, "count": 0, "ts": 0,
                     "error": "asset_inventory base_url and lifetime_token are required "
@@ -1703,6 +1725,8 @@ async def api_asset_inventory_refresh(
             verify_tls=True,
             auth_mode=_ai.AUTH_MODE_LIFETIME_TOKEN,
             lifetime_token=lifetime_token,
+            service=service,
+            action=action,
         )
     token_url = (get_setting("asset_inventory_token_url", "") or "").strip()
     client_id = (get_setting("asset_inventory_client_id", "") or "").strip()

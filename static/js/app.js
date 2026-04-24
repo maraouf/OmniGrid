@@ -155,6 +155,7 @@ function app() {
       base_url: '', token_url: '', client_id: '',
       client_secret: '', scope: '',
       lifetime_token: '',
+      service: '', action: '',
     },
     assetStatus: null,
     assetTestResult: null,
@@ -2454,6 +2455,8 @@ function app() {
             client_secret:  '',  // write-only — never prefill
             scope:          this.assetStatus.scope || '',
             lifetime_token: '',  // write-only — never prefill
+            service:        this.assetStatus.service || '',
+            action:         this.assetStatus.action  || '',
           };
         }
       } catch (e) { console.error(e); }
@@ -4946,6 +4949,8 @@ function app() {
         asset_inventory_token_url: (this.assetForm.token_url || '').trim(),
         asset_inventory_client_id: (this.assetForm.client_id || '').trim(),
         asset_inventory_scope:     (this.assetForm.scope || '').trim(),
+        asset_inventory_service:   (this.assetForm.service || '').trim(),
+        asset_inventory_action:    (this.assetForm.action || '').trim(),
       };
       if (this.assetForm.client_secret && this.assetForm.client_secret.trim()) {
         body.asset_inventory_client_secret = this.assetForm.client_secret;
@@ -5027,6 +5032,8 @@ function app() {
       if (mode === 'lifetime_token') {
         body.base_url       = (this.assetForm.base_url || '').trim();
         body.lifetime_token = this.assetForm.lifetime_token || '';
+        body.service        = (this.assetForm.service || '').trim();
+        body.action         = (this.assetForm.action  || '').trim();
       } else {
         body.token_url     = (this.assetForm.token_url || '').trim();
         body.client_id     = (this.assetForm.client_id || '').trim();

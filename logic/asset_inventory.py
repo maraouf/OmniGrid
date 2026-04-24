@@ -225,16 +225,23 @@ async def fetch_assets(
 async def fetch_assets_lifetime_token(
     endpoint_url: str,
     token: str,
+    service: str = "",
+    action: str = "",
     verify_tls: bool = True,
     timeout: float = 15.0,
 ) -> dict:
     """Fetch the asset list via the lifetime-token auth flavour.
 
     POST form-encoded to ``endpoint_url`` (full URL — already includes
-    the list path) with ``X-Authorization: Bearer <token>``. Returns
-    the same ``{"ok", "assets", "error"}`` shape as
-    :func:`fetch_assets` so callers can treat both flavours uniformly.
+    the list path) with ``X-Authorization: Bearer <token>``. oufa.co's
+    services.php routes by two mandatory form params: ``service`` and
+    ``action`` (e.g. ``service=scheduler&action=run_schedule``) — the
+    endpoint returns ``Ex3537`` without ``service`` and will similarly
+    reject requests lacking ``action``. Operator configures the pair
+    in Admin → Asset inventory.
 
+    Returns the same ``{"ok", "assets", "error"}`` shape as
+    :func:`fetch_assets` so callers can treat both flavours uniformly.
     Accepts the same set of response shapes as :func:`fetch_assets`:
     top-level list, or object with ``assets`` / ``data`` / ``items``
     / ``results`` / ``services`` keys. The extra ``services`` alias is
@@ -250,12 +257,18 @@ async def fetch_assets_lifetime_token(
         "Content-Type": "application/x-www-form-urlencoded",
         "Accept": "application/json",
     }
+    # Both routing params are forwarded when set; blank values fall
+    # through so upstream's specific error code (Ex3537 for missing
+    # service, etc.) reaches the operator instead of being masked
+    # by a client-side reject.
+    body: dict[str, str] = {}
+    if service:
+        body["service"] = service
+    if action:
+        body["action"] = action
     try:
         async with httpx.AsyncClient(verify=verify_tls, timeout=timeout) as client:
-            # Empty form body — the endpoint's auth carries the
-            # identity; no further parameters documented. If the
-            # upstream grows a required param later, extend here.
-            r = await client.post(endpoint_url, data={}, headers=headers)
+            r = await client.post(endpoint_url, data=body, headers=headers)
         if r.status_code == 401:
             return {"ok": False, "assets": [],
                     "error": "lifetime token rejected (401)"}
@@ -367,6 +380,8 @@ async def refresh_cache(
     cache_path: str = DEFAULT_CACHE_PATH,
     auth_mode: str = AUTH_MODE_OAUTH2,
     lifetime_token: str = "",
+    service: str = "",
+    action: str = "",
 ) -> dict:
     """Compose auth + fetch + save_cache into a single refresh call.
 
@@ -398,7 +413,8 @@ async def refresh_cache(
             else "/" + effective_list_path
         )
         fetch_result = await fetch_assets_lifetime_token(
-            endpoint, lifetime_token, verify_tls=verify_tls,
+            endpoint, lifetime_token,
+            service=service, action=action, verify_tls=verify_tls,
         )
         if not fetch_result.get("ok"):
             return {

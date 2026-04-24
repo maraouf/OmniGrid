@@ -4468,25 +4468,43 @@
             </div>
           </template>
 
-          <!-- Lifetime-token-only field. -->
+          <!-- Lifetime-token-only fields. -->
           <template x-if="assetForm.auth_mode === 'lifetime_token'">
-            <div class="md:col-span-2">
-              <label class="block text-[11px] text-[var(--text-faint)] mb-1">
-                <span x-text="t('admin_assets.lifetime_token_label')"></span>
-                <span x-show="assetStatus && assetStatus.lifetime_token_set"
-                      class="text-[var(--success)]"
-                      x-text="t('admin_assets.lifetime_token_set')"></span>
-              </label>
-              <div class="flex items-center gap-2">
-                <input type="password" x-model="assetForm.lifetime_token" :disabled="isReadonly()"
-                       class="flex-1 mono text-[12.5px] py-1.5"
-                       :placeholder="t('admin_assets.lifetime_token_placeholder')"
-                       autocomplete="new-password">
-                <button x-show="isAdmin() && assetStatus && assetStatus.lifetime_token_set"
-                        @click="clearAssetLifetimeToken()"
-                        class="btn btn-ghost text-[11.5px]"
-                        x-text="t('admin_assets.clear_lifetime_token')"></button>
+            <div class="md:col-span-2 grid grid-cols-1 md:grid-cols-2 gap-3">
+              <div class="md:col-span-2">
+                <label class="block text-[11px] text-[var(--text-faint)] mb-1">
+                  <span x-text="t('admin_assets.lifetime_token_label')"></span>
+                  <span x-show="assetStatus && assetStatus.lifetime_token_set"
+                        class="text-[var(--success)]"
+                        x-text="t('admin_assets.lifetime_token_set')"></span>
+                </label>
+                <div class="flex items-center gap-2">
+                  <input type="password" x-model="assetForm.lifetime_token" :disabled="isReadonly()"
+                         class="flex-1 mono text-[12.5px] py-1.5"
+                         :placeholder="t('admin_assets.lifetime_token_placeholder')"
+                         autocomplete="new-password">
+                  <button x-show="isAdmin() && assetStatus && assetStatus.lifetime_token_set"
+                          @click="clearAssetLifetimeToken()"
+                          class="btn btn-ghost text-[11.5px]"
+                          x-text="t('admin_assets.clear_lifetime_token')"></button>
+                </div>
               </div>
+              <div>
+                <label class="block text-[11px] text-[var(--text-faint)] mb-1"
+                       x-text="t('admin_assets.service_label')"></label>
+                <input type="text" x-model="assetForm.service" :disabled="isReadonly()"
+                       class="w-full mono text-[12.5px] py-1.5"
+                       :placeholder="t('admin_assets.service_placeholder')">
+              </div>
+              <div>
+                <label class="block text-[11px] text-[var(--text-faint)] mb-1"
+                       x-text="t('admin_assets.action_label')"></label>
+                <input type="text" x-model="assetForm.action" :disabled="isReadonly()"
+                       class="w-full mono text-[12.5px] py-1.5"
+                       :placeholder="t('admin_assets.action_placeholder')">
+              </div>
+              <p class="md:col-span-2 text-[11px] text-[var(--text-faint)]"
+                 x-text="t('admin_assets.service_action_help')"></p>
             </div>
           </template>
         </div>
