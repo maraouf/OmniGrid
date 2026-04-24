@@ -4141,7 +4141,7 @@ function app() {
         this.hostsExpanded.splice(i, 1);
       }
     },
-    async loadHostHistory(systemId) {
+    async loadHostHistory(systemId, hostId) {
       // Preserve whatever series we already have so the chart doesn't
       // flicker back to "Collecting data…" between range-picker
       // clicks. Only the ``loading`` flag flips; the visible line
@@ -4152,11 +4152,22 @@ function app() {
         error: prev.error || '',
         series: Array.isArray(prev.series) ? prev.series : [],
       };
+      // Fall back to looking up the curated hosts_config id from the
+      // live hosts list when the caller didn't pass one — keeps legacy
+      // call sites working without rewriting every invocation. The
+      // server uses host_id as the key to layer in NE-sampled rx/tx
+      // rates (host_net_samples) when Beszel's nr/ns are all zero.
+      if (!hostId) {
+        const host = (this.hosts || []).find(h => h.beszel_id === systemId);
+        hostId = host ? host.id : '';
+      }
       try {
-        const params = new URLSearchParams({
+        const qs = {
           system_id: systemId,
           hours: String(this.hostHistoryRange),
-        });
+        };
+        if (hostId) qs.host_id = hostId;
+        const params = new URLSearchParams(qs);
         const r = await fetch('/api/hosts/history?' + params.toString());
         if (!r.ok) {
           this.hostHistory[systemId] = {

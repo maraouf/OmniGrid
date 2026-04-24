@@ -2522,17 +2522,21 @@ body.login {
    buttons inset from the card's rounded corners.
    --------------------------------------------------------------------------- */
 .hosts-config-actionbar {
+    /* Lift the sticky offset above the app-footer (z-index 30,
+       ~42px tall). Setting `bottom: 48px` keeps the save bar visible
+       without overlapping the footer. Matching z-index so if the two
+       ever coincide, the action bar wins (it's the primary CTA). */
     position: sticky;
-    bottom: 0;
-    z-index: 20;
+    bottom: 48px;
+    z-index: 31;
     margin-top: var(--s-4);
     margin-inline: calc(-1 * var(--s-5));
-    margin-bottom: calc(-1 * var(--s-5));
     padding: var(--s-3) var(--s-5);
-    background: var(--surface);
+    background: color-mix(in srgb, var(--surface) 97%, transparent);
+    backdrop-filter: blur(4px);
+    -webkit-backdrop-filter: blur(4px);
     border-top: 1px solid var(--border);
-    border-bottom-left-radius: var(--r-md);
-    border-bottom-right-radius: var(--r-md);
+    border-bottom: 1px solid var(--border);
 }
 
 /* ---------------------------------------------------------------------------
