@@ -203,21 +203,38 @@ def parse_exporter_text(text: str) -> dict:
     mounts: list[dict] = []
     total_size = 0
     total_free = 0
+    gib = 1024 ** 3
     for entry in fs.values():
         size = entry.get("size", 0)
         avail = entry.get("avail", 0)
         if size <= 0:
             continue
         used = max(0, size - avail)
+        # Emit the SAME shape Beszel's _flatten_efs produces so the
+        # frontend's mount-rendering code can read either provider
+        # without branching: ``n`` (name / mountpoint), ``fs`` (fstype),
+        # ``d``/``du`` (total / used, in GiB to match Beszel), and the
+        # absolute ``size``/``used`` in bytes for callers that want the
+        # precise number. Keeping ``mountpoint`` + ``fstype`` as aliases
+        # preserves any existing callers reading the old shape.
+        size_gib = size / gib
+        used_gib = used / gib
+        dp = (used / size * 100) if size > 0 else 0.0
         mounts.append({
+            "n":  entry["mountpoint"],
+            "fs": entry.get("fstype") or "",
+            "d":  size_gib,
+            "du": used_gib,
+            "dp": dp,
+            # Legacy keys — don't break older consumers.
             "mountpoint": entry["mountpoint"],
-            "fstype": entry.get("fstype") or "",
-            "size": size,
-            "used": used,
+            "fstype":     entry.get("fstype") or "",
+            "size":       size,
+            "used":       used,
         })
         total_size += size
         total_free += avail
-    mounts.sort(key=lambda m: m["mountpoint"])
+    mounts.sort(key=lambda m: m["n"])
     total_used = max(0, total_size - total_free)
     # Normalise machine label → common arch name so the UI's
     # "Architecture" row reads the same whether the host runs FreeBSD
@@ -227,6 +244,11 @@ def parse_exporter_text(text: str) -> dict:
     arch = uname_machine
     if arch == "amd64":
         arch = "x86_64"  # harmonise with how Beszel + most Linux tools label it
+    # Derive uptime from boot_ts — callers (and the frontend) expect
+    # ``host_uptime_s`` alongside ``host_boot_ts`` because Beszel emits
+    # uptime directly; NE only emits boot time.
+    import time as _time
+    uptime_s = int(_time.time() - boot_ts) if boot_ts else 0
     return {
         "host_disk_total": total_size,
         "host_disk_used": total_used,
@@ -235,6 +257,7 @@ def parse_exporter_text(text: str) -> dict:
         "host_mem_used": max(0, mem_total - mem_avail) if mem_total else 0,
         "host_mem_avail": mem_avail,
         "host_boot_ts": boot_ts or None,
+        "host_uptime_s": uptime_s,
         "mounts": mounts,
         # Identity / hardware — all optional. node-exporter runs LAST
         # in the merge so these values are authoritative for Linux /

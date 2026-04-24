@@ -3483,7 +3483,7 @@
           <template x-for="{ row, idx } in filteredHostsConfig()" :key="idx">
             <div class="border border-[var(--border)] rounded-md bg-[var(--surface-2)] p-3 space-y-3">
               <!-- Row 1 — identity + toggles -->
-              <div class="grid grid-cols-1 md:grid-cols-[90px_1fr_1fr_auto_auto] gap-3 items-end">
+              <div class="grid grid-cols-1 md:grid-cols-[80px_minmax(180px,1fr)_minmax(320px,2fr)_auto_auto] gap-3 items-end">
                 <div>
                   <label class="block text-[10.5px] uppercase tracking-wider text-[var(--text-faint)] mb-1" title="Operator-assigned catalogue number — used for sort/group in Hosts view and as the key for Asset-inventory lookups at oufa.co">Custom #</label>
                   <input type="number" x-model.number="row.custom_number" :disabled="isReadonly()"

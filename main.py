@@ -1560,7 +1560,16 @@ async def api_hosts():
             "url":             h.get("url") or "",
             "icon":            h.get("icon") or "",
             "providers":       entry["_providers"],
-            "status":          s.get("beszel_status") or s.get("pulse_status") or "unknown",
+            # Status priority: explicit Beszel → Pulse → fallback to
+            # "up" when any provider returned non-zero data at all
+            # (node-exporter and Webmin don't emit a status field; if
+            # they answered, the host is clearly alive). Last resort
+            # "unknown" only for hosts with NO provider response.
+            "status":          (
+                s.get("beszel_status")
+                or s.get("pulse_status")
+                or ("up" if entry["_providers"] else "unknown")
+            ),
             "docker_node":     h["id"],  # curated list IS the docker-node-like mapping
             "platform":        s.get("host_platform") or "",
             "os":              s.get("host_os") or "",
