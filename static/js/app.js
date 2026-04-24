@@ -673,7 +673,7 @@ function app() {
       // Warm history for every expanded host on bulk-open.
       for (const h of alive) {
         if (h.beszel_id && !this.hostHistory[h.beszel_id]) {
-          this.loadHostHistory(h.beszel_id);
+          this.loadHostHistory(h.beszel_id, h.id);
         }
       }
     },
@@ -3890,7 +3890,7 @@ function app() {
         for (const name of this.hostsExpanded || []) {
           const host = this.hosts.find(h => h.host === name);
           if (host && host.beszel_id && !this.hostHistory[host.beszel_id]) {
-            this.loadHostHistory(host.beszel_id);
+            this.loadHostHistory(host.beszel_id, host.id);
           }
         }
       } catch (e) {
@@ -4135,7 +4135,7 @@ function app() {
         // expand/collapse cycles use the cached data until the range
         // changes.
         if (host && host.beszel_id && !this.hostHistory[host.beszel_id]) {
-          this.loadHostHistory(host.beszel_id);
+          this.loadHostHistory(host.beszel_id, host.id);
         }
       } else {
         this.hostsExpanded.splice(i, 1);
@@ -4200,7 +4200,7 @@ function app() {
       // Reload every currently-expanded host's history under the new window.
       for (const name of this.hostsExpanded) {
         const host = (this.hosts || []).find(h => h.host === name);
-        if (host && host.beszel_id) this.loadHostHistory(host.beszel_id);
+        if (host && host.beszel_id) this.loadHostHistory(host.beszel_id, host.id);
       }
     },
     // --- Axis-label helpers used by the metric-card template ---

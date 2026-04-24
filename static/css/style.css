@@ -2522,21 +2522,38 @@ body.login {
    buttons inset from the card's rounded corners.
    --------------------------------------------------------------------------- */
 .hosts-config-actionbar {
-    /* Lift the sticky offset above the app-footer (z-index 30,
-       ~42px tall). Setting `bottom: 48px` keeps the save bar visible
-       without overlapping the footer. Matching z-index so if the two
-       ever coincide, the action bar wins (it's the primary CTA). */
-    position: sticky;
-    bottom: 48px;
-    z-index: 31;
-    margin-top: var(--s-4);
-    margin-inline: calc(-1 * var(--s-5));
-    padding: var(--s-3) var(--s-5);
-    background: color-mix(in srgb, var(--surface) 97%, transparent);
-    backdrop-filter: blur(4px);
-    -webkit-backdrop-filter: blur(4px);
-    border-top: 1px solid var(--border);
-    border-bottom: 1px solid var(--border);
+    /* Fixed to the viewport so parent stacking contexts / overflow
+       rules can't clip us. Positioned to hug the right edge, above
+       the app-footer (z-index 30). Width is capped so the bar
+       doesn't stretch across the whole page — the left side stays
+       clear of the admin sidebar and reads cleanly against whatever
+       content is behind. z-index 40 decisively above the footer. */
+    position: fixed;
+    bottom: var(--s-4);
+    right: var(--s-5);
+    z-index: 40;
+    display: inline-flex;
+    align-items: center;
+    gap: var(--s-2);
+    padding: var(--s-3) var(--s-4);
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--r-lg);
+    box-shadow: 0 8px 24px var(--backdrop);
+    max-width: calc(100vw - 2 * var(--s-5));
+    flex-wrap: wrap;
+}
+
+/* On narrow viewports where the fixed bar could cover table content,
+   bump it up a bit so the footer below has its own breathing room
+   and the bar doesn't clash with the app-footer's blurred background. */
+@media (max-width: 640px) {
+    .hosts-config-actionbar {
+        bottom: 56px;
+        left: var(--s-4);
+        right: var(--s-4);
+        justify-content: flex-start;
+    }
 }
 
 /* ---------------------------------------------------------------------------
