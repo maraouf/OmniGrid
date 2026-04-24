@@ -1115,9 +1115,11 @@
               </div>
             </div>
 
-            <!-- Expanded row — SYSTEM + HARDWARE cards. -->
+            <!-- Expanded row — SYSTEM / HARDWARE / NETWORK / DISKS
+                 info cards side by side on wide screens, mirroring
+                 Beszel's own detail layout. -->
             <div x-show="isHostExpanded(h.host)" class="bg-[var(--surface-2)]/50 border-t border-[var(--border)] px-5 py-4">
-              <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
                 <!-- SYSTEM — only the fields Beszel's agent actually
                      reports for this host are rendered. Container-mode
                      agents tend to skip platform / OS / kernel / arch;
@@ -1543,10 +1545,10 @@
         </template>
       </div>
 
-      <!-- Empty-state ladder — loading, no systems, hub broken. -->
+      <!-- Empty-state ladder — loading, no hosts, providers broken. -->
       <div x-show="hostsConfigured && hostsLoading && hosts.length === 0" class="loading-state">
         <span class="spin-lg" aria-hidden="true"></span>
-        <div x-text="t('loading.resources')"></div>
+        <div>Loading hosts from providers…</div>
       </div>
       <!-- Empty-state — no curated hosts AND no provider returned
            anything. Points the operator at the Admin → Hosts editor

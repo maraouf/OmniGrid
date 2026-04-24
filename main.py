@@ -1282,14 +1282,23 @@ async def api_hosts():
         merged: dict = {}
         providers_hit: list[str] = []
 
-        if "beszel" in active and h.get("beszel_name"):
-            bstats = beszel_map.get(h["beszel_name"])
+        # Match order: explicit per-provider name → host id. When the
+        # operator leaves a mapping blank but the row's id happens to
+        # match what the provider reports, treat that as a hit — saves
+        # typing the same hostname in two fields.
+        beszel_key = h.get("beszel_name") or h.get("id") or ""
+        if "beszel" in active and beszel_key:
+            # Beszel is case-sensitive on its ``host`` field; the
+            # lookup still requires an exact key. For forgiving
+            # matching, users should populate the field explicitly.
+            bstats = beszel_map.get(beszel_key)
             if bstats:
                 _merge_best(merged, bstats)
                 providers_hit.append("beszel")
 
-        if "pulse" in active and h.get("pulse_name"):
-            pstats = _pulse.lookup(pulse_map, h["pulse_name"])
+        pulse_key = h.get("pulse_name") or h.get("id") or ""
+        if "pulse" in active and pulse_key:
+            pstats = _pulse.lookup(pulse_map, pulse_key)
             if pstats:
                 _merge_best(merged, pstats)
                 providers_hit.append("pulse")
