@@ -6233,21 +6233,48 @@ function app() {
       }
     },
     parseEvents(j) { try { return JSON.parse(j || '[]'); } catch (e) { return []; } },
-    formatTime(ts) { return new Date(ts * 1000).toLocaleString(); },
-    formatTimeShort(ts) { return new Date(ts * 1000).toLocaleTimeString(undefined, { hour12: false }); },
+    // formatTime + formatTimeShort are kept for backwards compatibility
+    // with any template bindings — both now delegate to the unified
+    // fmt* helpers so every date in the UI renders in dd/mm/yyyy format.
+    formatTime(ts) { return this.fmtDate(ts); },
+    formatTimeShort(ts) {
+      if (!ts) return '—';
+      const d = new Date(ts * 1000);
+      if (isNaN(d.getTime())) return '—';
+      const pad = n => String(n).padStart(2, '0');
+      return pad(d.getHours()) + ':' + pad(d.getMinutes()) + ':' + pad(d.getSeconds());
+    },
 
-    // Consistent dd/mm/yyyy hh:mm:ss AM/PM regardless of browser locale.
-    // Used in admin tables so session/login timestamps match across users.
+    // Date + time in dd/mm/yyyy, HH:MM:SS (24-hour). Used everywhere
+    // a full timestamp is shown (history, sessions, asset cache,
+    // etc). Uniform across browsers so two operators in different
+    // locales see identical strings in the admin tables.
     fmtDate(ts) {
       if (!ts) return '—';
       const d = new Date(ts * 1000);
       if (isNaN(d.getTime())) return '—';
       const pad = n => String(n).padStart(2, '0');
-      let h = d.getHours();
-      const ap = h >= 12 ? 'PM' : 'AM';
-      h = h % 12 || 12;
       return pad(d.getDate()) + '/' + pad(d.getMonth() + 1) + '/' + d.getFullYear()
-           + ' ' + pad(h) + ':' + pad(d.getMinutes()) + ':' + pad(d.getSeconds()) + ' ' + ap;
+           + ', ' + pad(d.getHours()) + ':' + pad(d.getMinutes()) + ':' + pad(d.getSeconds());
+    },
+    // Date only — dd/mm/yyyy. Use when the time-of-day would be noise
+    // (e.g. "created 25/04/2026" on a config row).
+    fmtDateOnly(ts) {
+      if (!ts) return '—';
+      const d = new Date(ts * 1000);
+      if (isNaN(d.getTime())) return '—';
+      const pad = n => String(n).padStart(2, '0');
+      return pad(d.getDate()) + '/' + pad(d.getMonth() + 1) + '/' + d.getFullYear();
+    },
+    // Date + short time — dd/mm/yyyy, HH:MM (no seconds). Use when
+    // second-precision is noise (scheduled-next-run, audit-log list).
+    fmtDateTimeShort(ts) {
+      if (!ts) return '—';
+      const d = new Date(ts * 1000);
+      if (isNaN(d.getTime())) return '—';
+      const pad = n => String(n).padStart(2, '0');
+      return pad(d.getDate()) + '/' + pad(d.getMonth() + 1) + '/' + d.getFullYear()
+           + ', ' + pad(d.getHours()) + ':' + pad(d.getMinutes());
     },
     copy(text) {
       navigator.clipboard?.writeText(text);

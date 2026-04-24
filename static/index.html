@@ -4731,7 +4731,7 @@
                 </span>
                 <span x-show="assetCache.ts">
                   <span class="text-[var(--text-faint)]" x-text="t('admin_assets.cache_updated') + ':'"></span>
-                  <span class="mono" x-text="new Date(assetCache.ts * 1000).toLocaleString()"></span>
+                  <span class="mono" x-text="fmtDate(assetCache.ts)"></span>
                 </span>
                 <span x-show="assetCache.upstream">
                   <span class="text-[var(--text-faint)]" x-text="t('admin_assets.cache_upstream') + ':'"></span>

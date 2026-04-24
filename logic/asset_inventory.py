@@ -237,19 +237,45 @@ def _extract_assets_from_payload(payload: Any) -> list:
     every shape we've seen plus a few defensive fallbacks so new
     actions the operator may call don't need a code change just to
     surface their result.
+
+    When nothing matches the known-name list, fall back to a
+    shape-based scan: iterate every top-level key and return the
+    first value that's a non-empty list of dicts — catches actions
+    whose response key hasn't been named-added yet. Logs the chosen
+    key so the operator can see what the upstream is using.
     """
     if isinstance(payload, list):
         return payload
-    if isinstance(payload, dict):
-        for k in ("assets", "records", "data", "items", "results", "services"):
-            v = payload.get(k)
-            if isinstance(v, list):
-                return v
-        # Single-row actions (get_asset_by_id / get_asset_by_custom_number)
-        # return a dict under `asset` — wrap it so callers get a 1-item list.
-        single = payload.get("asset")
-        if isinstance(single, dict):
-            return [single]
+    if not isinstance(payload, dict):
+        return []
+    # Pass 1: known list-valued keys.
+    for k in ("assets", "records", "data", "items", "results",
+              "services", "list", "rows", "range"):
+        v = payload.get(k)
+        if isinstance(v, list):
+            return v
+    # Pass 2: single-row actions wrap the dict under `asset`.
+    single = payload.get("asset")
+    if isinstance(single, dict):
+        return [single]
+    # Pass 3: shape-based fallback. Find any top-level value that's a
+    # list of dicts — that's almost certainly the asset list under a
+    # name we haven't seen before. Log it so we can name-add it.
+    envelope_keys = {"return", "message", "reference_id",
+                     "service_name", "details", "code"}
+    for k, v in payload.items():
+        if k in envelope_keys:
+            continue
+        if isinstance(v, list) and v and isinstance(v[0], dict):
+            print(f"[asset_inventory] extracted assets from unknown key "
+                  f"{k!r} ({len(v)} rows) — add to _extract_assets_from_payload "
+                  f"if this becomes common")
+            return v
+    # Pass 4: diagnostic — nothing matched. Log the payload shape so
+    # the operator can report back with the actual key.
+    keys = list(payload.keys())
+    print(f"[asset_inventory] no list-valued payload found. "
+          f"Top-level keys: {keys!r}")
     return []
 
 
