@@ -834,6 +834,19 @@ class SettingsIn(BaseModel):
     # Open-Meteo upstream — blank uses the public endpoint; admins
     # can point at a self-hosted instance without touching .env.
     open_meteo_url: Optional[str] = None
+    # -----------------------------------------------------------------
+    # SSH console — admin-only remote command runner wired into the
+    # host drawer. Global defaults; per-host overrides live in
+    # ``hosts_config[].ssh`` (user / port / disabled). Secret fields
+    # follow the suffix + ``_set`` flag convention — the browser only
+    # learns whether they're set, never the material. See logic/ssh.py.
+    # -----------------------------------------------------------------
+    ssh_default_user: Optional[str] = None
+    ssh_default_port: Optional[int] = None
+    ssh_default_private_key: Optional[str] = None
+    ssh_default_private_key_passphrase: Optional[str] = None
+    ssh_default_known_hosts: Optional[str] = None
+    ssh_destructive_patterns: Optional[str] = None
 
 
 @app.get("/api/settings")
@@ -897,6 +910,22 @@ async def api_get_settings(request: Request):
             "password_set": bool(get_setting("webmin_password", "")),
             "verify_tls": (get_setting("webmin_verify_tls", "false") or "false").lower() == "true",
             "aliases": json.loads(get_setting("webmin_aliases", "{}") or "{}"),
+        },
+        # SSH console — global defaults (Admin → SSH). Secrets
+        # redacted per CLAUDE.md's ``_set`` flag contract: the browser
+        # learns only whether a private key / passphrase has been set.
+        # Known-hosts is non-secret (paste-and-forget public data) so
+        # the full blob round-trips. Destructive patterns are operator-
+        # editable regex — shown verbatim for the textarea.
+        "ssh": {
+            "user":            get_setting("ssh_default_user", "") or "",
+            "port":            int(get_setting("ssh_default_port", "22") or "22"),
+            "private_key_set": bool(get_setting("ssh_default_private_key", "")),
+            "passphrase_set":  bool(get_setting("ssh_default_private_key_passphrase", "")),
+            "known_hosts":     get_setting("ssh_default_known_hosts", "") or "",
+            "destructive_patterns": (
+                get_setting("ssh_destructive_patterns", "") or ""
+            ),
         },
         # Back-compat: older UI bits read this top-level field.
         "endpoint_id": p.get("portainer_endpoint_id", 1),
@@ -1049,6 +1078,71 @@ async def api_set_settings(
             if str(k).strip() and str(v).strip()
         }
         set_setting("webmin_aliases", json.dumps(clean))
+    # SSH console — mirrors the webmin / beszel / pulse suffix contract.
+    # Private key + passphrase use "keep current if blank". Known hosts
+    # and destructive patterns are plain strings (operator clears by
+    # passing an empty string explicitly).
+    if s.ssh_default_user is not None:
+        set_setting("ssh_default_user", (s.ssh_default_user or "").strip())
+    if s.ssh_default_port is not None:
+        try:
+            p = int(s.ssh_default_port)
+        except (TypeError, ValueError):
+            p = 22
+        if not (1 <= p <= 65535):
+            raise HTTPException(
+                status_code=400,
+                detail="ssh_default_port must be 1-65535",
+            )
+        set_setting("ssh_default_port", str(p))
+    if s.ssh_default_private_key is not None and s.ssh_default_private_key.strip() != "":
+        # Minimal validation — parse the key to catch malformed input at
+        # save time rather than at first run. Passphrase is unknown at
+        # this point (it may be saved in the SAME request), so we try
+        # the currently-persisted passphrase and a blank as a fallback.
+        # Any ImportError gets surfaced as HTTP 400.
+        try:
+            import asyncssh as _asyncssh
+            pw_candidate = (
+                s.ssh_default_private_key_passphrase
+                if s.ssh_default_private_key_passphrase is not None
+                else (get_setting("ssh_default_private_key_passphrase", "") or "")
+            ) or None
+            _asyncssh.import_private_key(
+                s.ssh_default_private_key, passphrase=pw_candidate,
+            )
+        except Exception as e:
+            raise HTTPException(
+                status_code=400,
+                detail=f"ssh_default_private_key failed to parse: {type(e).__name__}: {e}",
+            )
+        set_setting("ssh_default_private_key", s.ssh_default_private_key)
+    if s.ssh_default_private_key_passphrase is not None \
+            and s.ssh_default_private_key_passphrase.strip() != "":
+        set_setting(
+            "ssh_default_private_key_passphrase",
+            s.ssh_default_private_key_passphrase,
+        )
+    if s.ssh_default_known_hosts is not None:
+        set_setting("ssh_default_known_hosts", s.ssh_default_known_hosts or "")
+    if s.ssh_destructive_patterns is not None:
+        # Validate each pattern compiles as regex — one bad line would
+        # otherwise silently exempt every destructive command on the
+        # very first eval in logic/ssh.py.
+        import re as _re
+        raw = s.ssh_destructive_patterns or ""
+        for part in _re.split(r"[\n,]+", raw):
+            p = part.strip()
+            if not p:
+                continue
+            try:
+                _re.compile(p)
+            except _re.error as e:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"invalid destructive regex {p!r}: {e}",
+                )
+        set_setting("ssh_destructive_patterns", raw)
     _cache["ts"] = 0  # force the next gather to re-read alias settings
 
     auth_changed = False
@@ -1718,9 +1812,46 @@ def _load_hosts_config() -> list[dict]:
             # hardware / location / NIC metadata can be pulled back in.
             # Empty / invalid values → None so "no number" sorts last.
             "custom_number": _coerce_int(h.get("custom_number")),
+            # Per-host SSH override sub-dict. Optional user / port /
+            # disabled / host override — the key material itself lives
+            # in the GLOBAL ssh_default_private_key setting (V1 scope:
+            # single global key). Missing or non-dict values collapse
+            # to {} so downstream code can always do dict.get(...).
+            "ssh":         _clean_host_ssh(h.get("ssh")),
             "enabled":     bool(h.get("enabled", True)),
         })
     return clean
+
+
+def _clean_host_ssh(raw: Any) -> dict:
+    """Normalise the per-host ``ssh`` sub-dict.
+
+    Accepts only the four keys that make sense at V1 (``user`` / ``port``
+    / ``disabled`` / ``host``) and coerces their types. Unknown keys
+    are dropped so a malformed import can't smuggle arbitrary fields
+    into the persisted JSON. Empty → empty dict, which the SSH module
+    treats as "use global defaults".
+    """
+    if not isinstance(raw, dict):
+        return {}
+    out: dict = {}
+    user = str(raw.get("user") or "").strip()
+    if user:
+        out["user"] = user
+    host = str(raw.get("host") or "").strip()
+    if host:
+        out["host"] = host
+    port = raw.get("port")
+    if port not in (None, "", 0):
+        try:
+            p = int(port)
+            if 1 <= p <= 65535:
+                out["port"] = p
+        except (TypeError, ValueError):
+            pass
+    if bool(raw.get("disabled")):
+        out["disabled"] = True
+    return out
 
 
 def _coerce_int(v) -> Optional[int]:
@@ -1762,6 +1893,9 @@ def _save_hosts_config(hosts: list[dict]) -> list[dict]:
             # lookups find the right row. Blank / non-numeric → None
             # via _coerce_int (same path _load_hosts_config uses).
             "custom_number": _coerce_int(h.get("custom_number")),
+            # Per-host SSH override block — see _clean_host_ssh for
+            # the shape contract. {} when no override is set.
+            "ssh":           _clean_host_ssh(h.get("ssh")),
             "enabled":       bool(h.get("enabled", True)),
         }
     ordered = list(seen.values())

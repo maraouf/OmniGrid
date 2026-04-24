@@ -11,3 +11,9 @@ python-dotenv==1.2.2
 # The [crypto] extra pulls in the cryptography package needed for RS256 /
 # ES256 verification of id_tokens. See logic/oidc.py.
 PyJWT[crypto]>=2.8.0
+# Admin SSH console — async-native SSH client used by logic/ssh.py for
+# the host-drawer "Run command" feature. asyncssh handles known-hosts,
+# key parsing, and fingerprint exposure natively so we don't shell out
+# to the OpenSSH CLI. Pulls in `cryptography` transitively (already a
+# PyJWT[crypto] dep) so no new heavy dependency is introduced.
+asyncssh==2.22.0

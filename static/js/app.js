@@ -150,6 +150,7 @@ function app() {
     cacheLabel: '',
     settings: { apprise_url: '', apprise_tag: '', portainer_public_url: '' },
     schedulerSaving: false,
+    openMeteoSaving: false,
     // Baseline snapshot of the host-stats settings at the last
     // successful load or save. Compared against the live form to
     // derive a "dirty" boolean for the Save button's visual
@@ -1476,6 +1477,34 @@ function app() {
     // container-local time. Invalid IANA names return 400 from the
     // backend (zoneinfo.ZoneInfo validates), which we surface as a
     // toast so the operator knows to fix the typo.
+    // Persist the Open-Meteo upstream URL (Admin → Notifications).
+    // Blank = clear override, fall back to the baked-in default.
+    async saveOpenMeteoUrl() {
+      if (this.openMeteoSaving) return;
+      this.openMeteoSaving = true;
+      try {
+        const url = (this.settings.open_meteo_url || '').trim().replace(/\/+$/, '');
+        const r = await fetch('/api/settings', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ open_meteo_url: url }),
+        });
+        if (r.ok) {
+          this.settings.open_meteo_url = url;
+          this.showToast(this.t('admin_integrations.open_meteo_saved'), 'success');
+          // Re-fetch weather now so the topbar reflects the new upstream.
+          if (this.loadHeaderWeather) this.loadHeaderWeather();
+        } else {
+          const j = await r.json().catch(() => ({}));
+          this.showToast(j.detail || this.t('toasts_extra.save_failed_generic'), 'error');
+        }
+      } catch (_) {
+        this.showToast(this.t('toasts_extra.network_error_generic'), 'error');
+      } finally {
+        this.openMeteoSaving = false;
+      }
+    },
+
     async saveSchedulerSettings() {
       if (this.schedulerSaving) return;
       this.schedulerSaving = true;
@@ -2117,6 +2146,8 @@ function app() {
           webmin_aliases: (d.webmin && d.webmin.aliases) || {},
           // Scheduler — IANA zone. Blank = container-local (legacy).
           scheduler_timezone: d.scheduler_timezone || '',
+          // Open-Meteo upstream (weather widget). Blank = default.
+          open_meteo_url: d.open_meteo_url || '',
         };
         // Capture baseline for the host-stats dirty indicator.
         // Passwords/tokens are always blank in the live form (write-

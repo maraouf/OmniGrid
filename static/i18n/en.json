@@ -218,7 +218,7 @@
       "profile": "Profile",
       "notifications": "Notifications",
       "portainer": "Portainer",
-      "host_stats": "Host stats",
+      "host_stats": "Host Stats",
       "ignores": "Ignore list",
       "oidc": "Authentik OIDC",
       "scheduler": "Scheduler",
@@ -226,7 +226,7 @@
       "language": "Language"
     },
     "host_stats": {
-      "title": "Host stats",
+      "title": "Host Stats",
       "desc": "Surface real host disk / memory / uptime on the Nodes view. Pick one source: node-exporter (scrape :9100 per host) or Beszel (read a running Beszel Hub's API).",
       "source_label": "Data source",
       "source_none": "None (Docker-only)",
@@ -368,7 +368,7 @@
       "notifications": "Notifications",
       "portainer": "Portainer",
       "oidc": "Authentik OIDC",
-      "host_stats": "Host stats",
+      "host_stats": "Host Stats",
       "hosts": "Hosts",
       "schedules": "Schedules",
       "backups": "Backups",
@@ -858,6 +858,13 @@
     "top": "↑ Top",
     "top_title": "Jump to top of list",
     "host_stats_unsaved_title": "You have unsaved changes in Host stats settings."
+  },
+  "admin_integrations": {
+    "open_meteo_title": "Open-Meteo upstream (weather widget)",
+    "open_meteo_desc": "URL the topbar weather widget fetches from. Leave blank to use the public Open-Meteo endpoint; point at a self-hosted instance if you run one.",
+    "open_meteo_placeholder": "https://api.open-meteo.com/v1/forecast",
+    "open_meteo_hint": "Blank = use the default public endpoint. Changes apply on the next 10-minute cache refresh.",
+    "open_meteo_saved": "Open-Meteo URL saved"
   },
   "toasts_extra": {
     "topbar_saved": "Topbar preferences saved",

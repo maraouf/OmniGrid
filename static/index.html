@@ -1194,6 +1194,16 @@
                      @error="$event.target.style.display='none'">
                 <div class="min-w-0 flex-1">
                   <div class="flex items-center gap-1.5">
+                    <!-- Custom # badge — operator-assigned catalogue
+                         number. Helps operators with many hosts orient
+                         at a glance + ties to the Asset inventory
+                         lookups at oufa.co. Hidden when no number is
+                         set so unnumbered hosts don't show "#—". -->
+                    <span x-show="h.custom_number != null && h.custom_number !== ''"
+                          class="chip text-[10px] px-1.5 py-0 mono"
+                          :class="'pill-muted'"
+                          :title="t('hosts_extra.custom_number_title')"
+                          x-text="'#' + h.custom_number"></span>
                     <span class="font-semibold text-[13px] mono truncate" x-text="h.label || h.host"></span>
                     <template x-for="p in (h.providers || [])" :key="p">
                       <span class="chip text-[9.5px] px-1 py-0"
@@ -3038,6 +3048,29 @@
         <div class="flex gap-2 mt-3" x-show="isAdmin()">
           <button @click="saveSettings()" class="btn btn-primary text-[12px]" x-text="t('actions.save')"></button>
           <button @click="testNotify()" class="btn btn-soft text-[12px]" x-text="t('actions.send_test')"></button>
+        </div>
+
+        <!-- Open-Meteo upstream — where the topbar weather widget
+             fetches its data. Default is the free public endpoint;
+             admins can point at a self-hosted instance (or a
+             compatible mirror) without editing .env. Blank clears
+             the override and falls back to the default. -->
+        <div class="mt-6 pt-4 border-t border-[var(--border)]">
+          <h4 class="font-semibold text-[12.5px] mb-1" x-text="t('admin_integrations.open_meteo_title')"></h4>
+          <p class="text-[11px] text-[var(--text-faint)] mb-2" x-text="t('admin_integrations.open_meteo_desc')"></p>
+          <div class="flex items-end gap-2 flex-wrap">
+            <input x-model="settings.open_meteo_url" type="url"
+                   :disabled="isReadonly()"
+                   :placeholder="t('admin_integrations.open_meteo_placeholder')"
+                   class="flex-1 min-w-[260px] mono text-[12px]">
+            <button x-show="isAdmin()" @click="saveOpenMeteoUrl()"
+                    :disabled="openMeteoSaving"
+                    class="btn btn-primary text-[12px]">
+              <span x-show="!openMeteoSaving" x-text="t('actions.save')"></span>
+              <span x-show="openMeteoSaving" class="flex items-center gap-1"><span class="spin"></span><span x-text="t('actions.saving')"></span></span>
+            </button>
+          </div>
+          <p class="text-[10.5px] text-[var(--text-faint)] mt-2" x-text="t('admin_integrations.open_meteo_hint')"></p>
         </div>
       </section>
 
