@@ -60,7 +60,20 @@ async def probe_token(
     basic = base64.b64encode(f"{client_id}:{client_secret}".encode("utf-8")).decode("ascii")
 
     async def _post(method: str) -> tuple[int, str, Any]:
-        """Returns (status_code, text_preview, parsed_json_or_None)."""
+        """Returns (status_code, text_preview, parsed_json_or_None).
+
+        Three auth methods supported:
+          - "basic"    — RFC 6749 §2.3.1 Basic auth header (default).
+          - "body"     — RFC-allowed body params `client_id` +
+                         `client_secret`.
+          - "userpass" — oufa.co / Oracle APEX flavour: body params
+                         named `username` + `password` (token
+                         selector goes in username, secret in
+                         password). Documented in the upstream's
+                         own curl example:
+                         ``grant_type=client_credentials&
+                         username=...&password=...``.
+        """
         if method == "basic":
             headers = {
                 "Authorization": f"Basic {basic}",
@@ -68,7 +81,7 @@ async def probe_token(
                 "Accept": "application/json",
             }
             body = dict(base_data)
-        else:  # "body"
+        elif method == "body":
             headers = {
                 "Content-Type": "application/x-www-form-urlencoded",
                 "Accept": "application/json",
@@ -76,6 +89,14 @@ async def probe_token(
             body = dict(base_data)
             body["client_id"] = client_id
             body["client_secret"] = client_secret
+        else:  # "userpass" — oufa.co / APEX style
+            headers = {
+                "Content-Type": "application/x-www-form-urlencoded",
+                "Accept": "application/json",
+            }
+            body = dict(base_data)
+            body["username"] = client_id
+            body["password"] = client_secret
         async with httpx.AsyncClient(verify=verify_tls, timeout=timeout) as client:
             resp = await client.post(token_url, data=body, headers=headers)
         # Try to parse JSON eagerly so the retry logic can see a
@@ -86,27 +107,40 @@ async def probe_token(
             parsed = None
         return resp.status_code, (resp.text or "")[:400], parsed
 
+    def _looks_like_apex_user_error(preview: str) -> bool:
+        # APEX returns: {"error":"invalid_request","error_description":
+        # "ERROR occurred due to missing username or password in
+        # client_credentials grant Ex3552"}. Match on the distinctive
+        # phrase so we only try the non-standard userpass fallback
+        # when the server specifically requests those field names.
+        return "missing username or password" in (preview or "").lower()
+
     try:
         status, preview, payload = await _post("basic")
-        # Fallback: APEX-style servers return 400 with
-        # "missing username or password" when Basic is used. Retry
-        # with body-params credentials. Also retry on 401 in case a
-        # server silently rejects Basic.
-        needs_body = False
-        if status in (400, 401):
-            lower = (preview or "").lower()
-            if ("missing username or password" in lower
-                    or "invalid_client" in lower
-                    or status == 401):
-                needs_body = True
-        if needs_body:
+        attempts = [("basic", status, preview)]
+        # Fallback 1: standard body-param credentials (client_id /
+        # client_secret). Triggered by 401 or invalid_client-style
+        # errors under Basic auth.
+        if status == 401 or (status == 400 and "invalid_client" in (preview or "").lower()):
             print(f"[asset_inventory] token endpoint rejected Basic auth ({status}); "
                   f"retrying with body-param credentials. preview={preview[:160]!r}")
             status, preview, payload = await _post("body")
+            attempts.append(("body", status, preview))
+        # Fallback 2: oufa.co / APEX non-standard `username`+`password`
+        # body fields. Only triggered when the server literally says
+        # "missing username or password" — we don't want to leak the
+        # secret into an arbitrary server's form-fields blindly.
+        if status in (400, 401) and _looks_like_apex_user_error(preview):
+            print(f"[asset_inventory] token endpoint wants APEX-style "
+                  f"username/password body params ({status}); retrying. "
+                  f"preview={preview[:160]!r}")
+            status, preview, payload = await _post("userpass")
+            attempts.append(("userpass", status, preview))
         if status == 401:
             return {"ok": False, "token_type": "", "expires_in": 0,
                     "access_token": "",
-                    "error": "OAuth2 auth rejected (401) — check client_id / client_secret"}
+                    "error": f"OAuth2 auth rejected (401) — check credentials. Tried: "
+                             + ", ".join(m for m, _, _ in attempts)}
         if status >= 400:
             return {"ok": False, "token_type": "", "expires_in": 0,
                     "access_token": "",

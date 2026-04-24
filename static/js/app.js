@@ -2675,17 +2675,31 @@ function app() {
     // became editable. Used only as a first-boot seed — once the
     // operator saves anything, the DB row wins.
     defaultSshCustomActions() {
+      // Titles are resolved through t() at SEED TIME (first boot with
+      // an empty ssh_custom_actions row). Once the operator saves,
+      // titles become plain DB strings — switching UI language later
+      // does NOT retranslate persisted actions (they're editable
+      // per-install strings now, not static UI chrome). IDs stay
+      // stable so a "reset to defaults" flow could still match them.
+      const tr = (k, fallback) => {
+        const v = this.t('admin_ssh.default_actions.' + k);
+        return (v && v !== ('admin_ssh.default_actions.' + k)) ? v : fallback;
+      };
       return [
-        { id: 'restart-beszel',   title: 'Restart Beszel agent',
+        { id: 'restart-beszel',
+          title: tr('restart_beszel', 'Restart Beszel agent'),
           command: 'systemctl restart beszel-agent || docker restart beszel-agent' },
-        { id: 'show-beszel-env',  title: 'Show Beszel agent env',
+        { id: 'show-beszel-env',
+          title: tr('show_beszel_env', 'Show Beszel agent env'),
           command: "systemctl show beszel-agent -p Environment || docker inspect beszel-agent --format '{{range .Config.Env}}{{println .}}{{end}}'" },
-        { id: 'set-beszel-nics',  title: 'Set Beszel NICS (edit eth0 first)',
+        { id: 'set-beszel-nics',
+          title: tr('set_beszel_nics', 'Set Beszel NICS (edit eth0 first)'),
           command:
             "mkdir -p /etc/systemd/system/beszel-agent.service.d && " +
             "printf '[Service]\\nEnvironment=NICS=eth0\\n' > /etc/systemd/system/beszel-agent.service.d/nics.conf && " +
             "systemctl daemon-reload && systemctl restart beszel-agent" },
-        { id: 'verify-beszel-nics', title: 'Verify Beszel NICS setup',
+        { id: 'verify-beszel-nics',
+          title: tr('verify_beszel_nics', 'Verify Beszel NICS setup'),
           command:
             "echo '=== override.conf (systemd) ===' && " +
             "ls -la /etc/systemd/system/beszel-agent.service.d/ 2>&1 || true; " +
@@ -2697,11 +2711,14 @@ function app() {
             "echo '=== docker fallback ===' && " +
             "(docker inspect beszel-agent --format '{{range .Config.Env}}{{println .}}{{end}}' 2>&1 || echo 'no docker beszel-agent container'); " +
             "echo '=== sudo sanity ===' && sudo -n whoami 2>&1" },
-        { id: 'journal-beszel',   title: 'Journal: Beszel agent (last 40)',
+        { id: 'journal-beszel',
+          title: tr('journal_beszel', 'Journal: Beszel agent (last 40)'),
           command: 'journalctl -u beszel-agent -n 40 --no-pager' },
-        { id: 'ip-link',          title: 'List NICs (ip link)',
+        { id: 'ip-link',
+          title: tr('ip_link', 'List NICs (ip link)'),
           command: 'ip -o link show' },
-        { id: 'uptime',           title: 'Uptime + load',
+        { id: 'uptime',
+          title: tr('uptime', 'Uptime + load'),
           command: 'uptime' },
       ];
     },
