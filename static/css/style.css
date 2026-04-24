@@ -1108,8 +1108,53 @@ details summary::-webkit-details-marker {
 .metric-card--cpu  { color: var(--metric-cpu,  #a78bfa); }
 .metric-card--mem  { color: var(--metric-mem,  #f59e0b); }
 .metric-card--disk { color: var(--metric-disk, #22c55e); }
+
+/* Net In / Net Out — shorter than the percent charts because the
+   signal is often flat (most homelab hosts sit near-zero bytes/s
+   between bursts) and a full-size panel wastes screen real estate.
+   Still proportionally tall enough to read a spike. */
+.metric-card--net,
+.metric-card--net-out {
+    min-height: 130px;
+}
+
+.metric-card--net .metric-card-body,
+.metric-card--net-out .metric-card-body {
+    min-height: 70px;
+}
+
+.metric-card--net .metric-svg,
+.metric-card--net-out .metric-svg {
+    min-height: 60px;
+    height: 60px;
+}
+
 .metric-card--net  { color: var(--metric-net,  #3b82f6); }
 .metric-card--net-out { color: var(--metric-net-out, #8b5cf6); }
+
+/* Flat-signal modifier — applied when the peak is zero, which
+   collapses the chart to a single-line "nothing happening" state.
+   Triggered from the template via ``:class="... && peak === 0 ? 'metric-card--flat' : ''"``
+   so the card visibly degrades instead of pretending to have data. */
+.metric-card--flat .metric-card-body {
+    min-height: 24px;
+    grid-template-rows: auto;
+}
+
+.metric-card--flat .metric-svg,
+.metric-card--flat .metric-y-axis,
+.metric-card--flat .metric-x-axis {
+    display: none;
+}
+
+.metric-card--flat::after {
+    content: "no activity recorded in this window";
+    display: block;
+    margin-top: var(--s-2);
+    font-size: 11px;
+    color: var(--text-faint);
+    font-style: italic;
+}
 
 /* Network interface chips — distinct shades for MAC (muted), IPv4
    (blue), IPv6 (violet). Mirrors Beszel's colour coding so an

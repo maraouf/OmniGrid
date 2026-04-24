@@ -1499,8 +1499,12 @@
                    stays empty with a "collecting…" placeholder if only
                    ``b`` is present. -->
               <div class="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4">
-                <!-- Net In -->
-                <div class="metric-card metric-card--net">
+                <!-- Net In — collapses to a single-line "no activity"
+                     state when the peak is zero (most homelab hosts
+                     sit near zero between bursts), so the card
+                     doesn't take up a full panel showing nothing. -->
+                <div class="metric-card metric-card--net"
+                     :class="(hostMetricStats(h.beszel_id, 'nr', false) && hostMetricStats(h.beszel_id, 'nr', false).maxRaw === 0) ? 'metric-card--flat' : ''">
                   <div class="metric-card-head">
                     <div class="metric-card-title">Net In<span class="unit">B/s</span></div>
                     <div class="metric-card-stats"
@@ -1537,8 +1541,9 @@
                   </template>
                 </div>
 
-                <!-- Net Out -->
-                <div class="metric-card metric-card--net">
+                <!-- Net Out — same flat-signal collapse as Net In. -->
+                <div class="metric-card metric-card--net-out"
+                     :class="(hostMetricStats(h.beszel_id, 'ns', false) && hostMetricStats(h.beszel_id, 'ns', false).maxRaw === 0) ? 'metric-card--flat' : ''">
                   <div class="metric-card-head">
                     <div class="metric-card-title">Net Out<span class="unit">B/s</span></div>
                     <div class="metric-card-stats"

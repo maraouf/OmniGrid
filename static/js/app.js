@@ -3541,7 +3541,9 @@ function app() {
         current: cur,
       };
     },
-    // Max-value formatter used under each chart ("Min 1.3% Max 10.4%").
+    // Min/Max label helper — returns both pre-formatted strings
+    // (used directly in the chart header) and raw numeric values
+    // (used by templates to decide flat-signal collapsing).
     hostMetricStats(systemId, key, asPct = true) {
       const entry = this.hostHistory[systemId];
       if (!entry || !entry.series || entry.series.length === 0) return null;
@@ -3553,9 +3555,17 @@ function app() {
       }
       if (!isFinite(lo)) return null;
       if (asPct) {
-        return { min: lo.toFixed(1) + '%', max: hi.toFixed(1) + '%' };
+        return {
+          min: lo.toFixed(1) + '%',
+          max: hi.toFixed(1) + '%',
+          minRaw: lo, maxRaw: hi,
+        };
       }
-      return { min: this.fmtBytes(lo) + '/s', max: this.fmtBytes(hi) + '/s' };
+      return {
+        min: this.fmtBytes(lo) + '/s',
+        max: this.fmtBytes(hi) + '/s',
+        minRaw: lo, maxRaw: hi,
+      };
     },
     // Seconds → "6d 3h" / "5h 12m" / "34m 12s" — matches img_10's format.
     fmtUptimeShort(s) {
