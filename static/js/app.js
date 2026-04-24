@@ -4597,36 +4597,45 @@ function app() {
         // row, find the existing client row by id: if it had real
         // data, keep that data and just mark _loading=true (row stays
         // visually stable); if new, start from the skeleton.
-        const existingById = new Map((this.hosts || []).map(h => [h.id, h]));
-        // Fields that come from hosts_config (not probes) — safe to
-        // overlay from the fresh skeleton so operator edits (label,
-        // icon, ssh_disabled toggle) reflect on the next tick.
+        // Mutate in place to avoid wholesale array replacement —
+        // replacing this.hosts causes Alpine to re-evaluate every
+        // row's template, which re-computes chart SVGs and makes
+        // graphs flicker every 15s poll. Instead, we:
+        //   1. Find each existing row by id, UPDATE its fields in
+        //      place (Alpine's proxy picks up each assignment so the
+        //      DOM stays mounted).
+        //   2. Append any new rows that don't exist yet.
+        //   3. Remove any rows whose id disappeared from the response.
         const CURATED_FIELDS = [
           'label', 'icon', 'custom_number', 'url',
           'beszel_name', 'pulse_name', 'ne_url', 'webmin_name',
           'ssh_disabled',
         ];
-        this.hosts = Array.isArray(d.hosts)
-          ? d.hosts.map((h, i) => {
-              const prev = existingById.get(h.id);
-              if (prev && !prev._loading) {
-                // Row already had real stats. Keep them (avoids the
-                // flicker where 15s polling resets every row to the
-                // grey skeleton for a second). Overlay ONLY curated
-                // fields from the fresh skeleton so operator edits
-                // take effect. `_loading: true` marks the re-probe
-                // in flight without hiding the current chart data.
-                const patched = { ...prev };
-                for (const k of CURATED_FIELDS) {
-                  if (k in h) patched[k] = h[k];
-                }
-                patched._seq = i;
-                patched._loading = true;
-                return patched;
-              }
-              return { ...h, _seq: i, _loading: true, status: 'loading' };
-            })
-          : [];
+        const incoming = Array.isArray(d.hosts) ? d.hosts : [];
+        const incomingIds = new Set(incoming.map(h => h.id));
+        // 1+2: reconcile — update existing, append new.
+        for (let i = 0; i < incoming.length; i++) {
+          const h = incoming[i];
+          const existing = (this.hosts || []).find(r => r.id === h.id);
+          if (existing) {
+            // Existing row — overlay curated fields only and flag
+            // loading (refreshHostRow will patch stats in place).
+            for (const k of CURATED_FIELDS) {
+              if (k in h) existing[k] = h[k];
+            }
+            existing._seq = i;
+            existing._loading = true;
+          } else {
+            // Brand-new row — push the full skeleton so it renders.
+            this.hosts.push({ ...h, _seq: i, _loading: true, status: 'loading' });
+          }
+        }
+        // 3: drop rows whose id is no longer present.
+        for (let i = this.hosts.length - 1; i >= 0; i--) {
+          if (!incomingIds.has(this.hosts[i].id)) {
+            this.hosts.splice(i, 1);
+          }
+        }
         this.hostsCuratedCount = Number.isFinite(d.curated_count) ? d.curated_count : 0;
         this.hostsEnabledCount = Number.isFinite(d.enabled_count) ? d.enabled_count : 0;
         // Trim persisted expansion state to hosts that actually exist.
@@ -4679,23 +4688,30 @@ function app() {
         const r = await fetch('/api/hosts/one/' + encodeURIComponent(id));
         if (!r.ok) {
           // Mark the row as probed but errored so the operator can
-          // spot it. Status stays 'unknown' without exploding the UI.
-          const idx = this.hosts.findIndex(h => h.id === id);
-          if (idx >= 0) {
-            const seq = this.hosts[idx]._seq;
-            this.hosts.splice(idx, 1, {
-              ...this.hosts[idx], _seq: seq,
-              _loading: false, status: 'unknown',
-            });
+          // spot it. MUTATE in place (not splice) so Alpine doesn't
+          // tear down + re-mount the row — that's what causes the
+          // chart-flicker across 15s polling cycles.
+          const row = this.hosts.find(h => h.id === id);
+          if (row) {
+            row._loading = false;
+            row.status = 'unknown';
           }
           return;
         }
         const { host } = await r.json();
         if (!host) return;
-        const idx = this.hosts.findIndex(h => h.id === id);
-        if (idx < 0) return;
-        const seq = this.hosts[idx]._seq;
-        this.hosts.splice(idx, 1, { ...host, _seq: seq, _loading: false });
+        const row = this.hosts.find(h => h.id === id);
+        if (!row) return;
+        // In-place update: copy every field from the new host dict
+        // into the existing row. Alpine's proxy picks up each
+        // assignment individually, so the host's :key hasn't
+        // changed — the template DOESN'T re-render from scratch,
+        // which means embedded chart SVGs and provider pill rows
+        // stay mounted. No flicker.
+        for (const k of Object.keys(host)) {
+          row[k] = host[k];
+        }
+        row._loading = false;
       } catch (_) {
         // Network failure — leave the row in skeleton state so the
         // next loadHosts cycle retries. Silent (no toast): on a big

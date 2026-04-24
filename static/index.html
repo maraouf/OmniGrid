@@ -2130,7 +2130,8 @@
                     </svg>
                     <span x-text="t('hosts_extra_ssh.card_title')"></span>
                     <span class="host-debug-hint ms-2"
-                          x-text="sshStatus[h.id] && sshStatus[h.id].configured ? t('hosts_extra_ssh.status_ready')
+                          x-text="!sshStatus[h.id] ? t('hosts_extra_ssh.status_checking')
+                                   : sshStatus[h.id].configured ? t('hosts_extra_ssh.status_ready')
                                    : t('hosts_extra_ssh.status_not_configured')"></span>
                   </button>
                   <div x-show="sshOpen[h.id]" class="host-debug-body">

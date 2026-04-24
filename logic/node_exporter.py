@@ -192,6 +192,19 @@ def parse_exporter_text(text: str) -> dict:
     uname_machine = ""
     uname_release = ""
     cpu_labels: set[str] = set()
+    # Load averages — one gauge each, no labels. FreeBSD + Linux both
+    # emit ``node_load1`` / ``node_load5`` / ``node_load15`` from the
+    # `loadavg` collector; OPNsense ships this by default.
+    load_1m = 0.0
+    load_5m = 0.0
+    load_15m = 0.0
+    # DMI / hardware identity — populated from ``node_dmi_info``'s
+    # label set (all info is in the labels; the metric value is 1).
+    # Not every host / container has DMI; empty strings are fine.
+    dmi_vendor = ""
+    dmi_product = ""
+    dmi_serial = ""
+    dmi_bios_version = ""
     # FreeBSD / OPNsense fallback buckets — the exporter on those
     # systems emits ``node_memory_size_bytes`` for total and splits
     # "available" across free + inactive + laundry. We accumulate
@@ -244,6 +257,39 @@ def parse_exporter_text(text: str) -> dict:
             uname_sysname = labels.get("sysname") or uname_sysname
             uname_machine = labels.get("machine") or uname_machine
             uname_release = labels.get("release") or uname_release
+        elif name == "node_load1":
+            load_1m = value
+        elif name == "node_load5":
+            load_5m = value
+        elif name == "node_load15":
+            load_15m = value
+        elif name == "node_dmi_info":
+            labels = _parse_labels(m.group("labels") or "")
+            # Every vendor labels these slightly differently; accept
+            # both the ``bios_*`` and ``system_*`` prefix families.
+            dmi_vendor = (
+                labels.get("system_vendor")
+                or labels.get("board_vendor")
+                or labels.get("bios_vendor")
+                or dmi_vendor
+            )
+            dmi_product = (
+                labels.get("product_name")
+                or labels.get("system_product_name")
+                or labels.get("product")
+                or dmi_product
+            )
+            dmi_serial = (
+                labels.get("system_serial_number")
+                or labels.get("chassis_serial_number")
+                or labels.get("serial")
+                or dmi_serial
+            )
+            dmi_bios_version = (
+                labels.get("bios_version")
+                or labels.get("firmware_version")
+                or dmi_bios_version
+            )
         elif name == "node_cpu_seconds_total":
             labels = _parse_labels(m.group("labels") or "")
             cpu = labels.get("cpu")
@@ -347,6 +393,20 @@ def parse_exporter_text(text: str) -> dict:
         "host_arch":      arch,
         "host_platform":  uname_sysname,   # "Linux" / "FreeBSD" / ...
         "host_cores":     len(cpu_labels),
+        # Load averages — gauge copies of /proc/loadavg (Linux) or
+        # getloadavg(3) (FreeBSD). Zero-values mean "collector didn't
+        # run" (filter in the UI, not here).
+        "host_load_1m":   load_1m,
+        "host_load_5m":   load_5m,
+        "host_load_15m":  load_15m,
+        # DMI / hardware identity — surfaces what hypervisor / NUC /
+        # OEM box this host actually runs on. Blank values mean "DMI
+        # collector disabled" (containers / some VMs) — UI hides the
+        # row when the field is empty.
+        "host_dmi_vendor":       dmi_vendor,
+        "host_dmi_product":      dmi_product,
+        "host_dmi_serial":       dmi_serial,
+        "host_dmi_bios_version": dmi_bios_version,
     }
 
 

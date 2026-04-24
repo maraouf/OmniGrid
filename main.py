@@ -2079,12 +2079,21 @@ async def _merge_one_host(h: dict, state: dict) -> tuple[dict, list[str]]:
     return merged, providers_hit
 
 
-def _shape_host_api_row(h: dict, merged: dict, providers_hit: list[str]) -> dict:
+def _shape_host_api_row(
+    h: dict,
+    merged: dict,
+    providers_hit: list[str],
+    any_provider_enabled: bool = True,
+) -> dict:
     """Shape a (curated_host, merged_stats) pair into the wire format.
 
-    Extracted from api_hosts so api_hosts_list (skeleton — empty
-    merged) and api_hosts_one (single-host) produce identical rows
-    with no drift.
+    ``any_provider_enabled`` — false when NO provider is enabled
+    globally (``state.active`` is empty). In that case a host with
+    provider fields mapped can't be probed at all, so we report
+    `status: 'unconfigured'` instead of `'unknown'` — grey dot, no
+    "no data" banner, because there's literally nothing OmniGrid
+    could have done. Operators see a clear "configure a provider"
+    path instead of a false red alert.
     """
     s = merged or {}
     return {
@@ -2102,17 +2111,18 @@ def _shape_host_api_row(h: dict, merged: dict, providers_hit: list[str]) -> dict
         #   1. Explicit Beszel / Pulse status when the provider
         #      contributed (canonical "up/down/paused" signal).
         #   2. "up" when any provider returned data at all.
-        #   3. "unconfigured" when the curated row has NO provider
-        #      fields set — nothing to probe, so grey (not red). The
-        #      frontend renders this as a neutral dot.
-        #   4. "unknown" when providers ARE mapped but none answered.
-        #      Frontend escalates this to red (real outage signal).
+        #   3. "unconfigured" when EITHER the curated row has NO
+        #      provider fields set OR no provider is enabled
+        #      globally — nothing to probe, grey (not red).
+        #   4. "unknown" when providers ARE mapped AND globally
+        #      active, but none answered. Frontend escalates this
+        #      to red (real outage signal).
         "status":          (
             s.get("beszel_status")
             or s.get("pulse_status")
             or ("up" if providers_hit else (
                 "unconfigured"
-                if not (
+                if (not any_provider_enabled) or not (
                     (h.get("beszel_name") or "").strip()
                     or (h.get("pulse_name") or "").strip()
                     or (h.get("webmin_name") or "").strip()
@@ -2157,6 +2167,18 @@ def _shape_host_api_row(h: dict, merged: dict, providers_hit: list[str]) -> dict
         # loaded. Reads the hosts_config `ssh.disabled` field — if the
         # operator explicitly opted out, the card never renders.
         "ssh_disabled":     bool((h.get("ssh") or {}).get("disabled", False)),
+        # Load averages (primarily node-exporter; Beszel doesn't emit
+        # these). Frontend only renders the row when any of the three
+        # is > 0.
+        "load_1m":          float(s.get("host_load_1m") or 0),
+        "load_5m":          float(s.get("host_load_5m") or 0),
+        "load_15m":         float(s.get("host_load_15m") or 0),
+        # DMI / hardware identity (node-exporter only — Linux /
+        # FreeBSD with the DMI collector). Empty strings = no DMI.
+        "dmi_vendor":       (s.get("host_dmi_vendor") or ""),
+        "dmi_product":      (s.get("host_dmi_product") or ""),
+        "dmi_serial":       (s.get("host_dmi_serial") or ""),
+        "dmi_bios_version": (s.get("host_dmi_bios_version") or ""),
     }
 
 
@@ -2169,9 +2191,10 @@ async def api_hosts_list():
     """
     curated = _load_hosts_config()
     state = await _get_host_provider_state()
+    any_enabled = bool(state["active"])
 
     hosts = [
-        _shape_host_api_row(h, {}, [])
+        _shape_host_api_row(h, {}, [], any_provider_enabled=any_enabled)
         for h in curated
         if h.get("enabled", True)
     ]
@@ -2202,7 +2225,12 @@ async def api_hosts_one(host_id: str):
         raise HTTPException(404, f"Host not found: {host_id}")
     state = await _get_host_provider_state()
     merged, providers = await _merge_one_host(h, state)
-    return {"host": _shape_host_api_row(h, merged, providers)}
+    any_enabled = bool(state["active"])
+    return {
+        "host": _shape_host_api_row(
+            h, merged, providers, any_provider_enabled=any_enabled,
+        ),
+    }
 
 
 def _load_hosts_config() -> list[dict]:
