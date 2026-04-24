@@ -874,11 +874,110 @@ async def _run_backup(params: dict) -> tuple[str, Awaitable[tuple[int, str]]]:
     return op_id, task  # type: ignore[return-value]
 
 
+async def _run_asset_inventory_refresh(
+    params: dict,
+) -> tuple[str, Awaitable[tuple[int, str]]]:
+    """Refresh the oufa.co asset inventory cache.
+
+    No ops.py Operation — like :func:`_run_gather_refresh` and
+    :func:`_run_backup`, this kind writes a ``history`` row directly
+    when done so the Queue tab picks it up. Reads the persisted
+    settings (``asset_inventory_auth_mode`` + the flavour-specific
+    fields) and defers all the auth / fetch / cache-write work to
+    :func:`logic.asset_inventory.refresh_cache`.
+
+    params: {} (ignored) — everything comes from persisted settings so
+    the operator's schedule row doesn't need a duplicate copy of the
+    credentials. If the settings are incomplete when the schedule
+    fires, we stamp ``status='error'`` with a descriptive message and
+    move on — same shape as a manual refresh button clicked without
+    config.
+    """
+    op_id = "sched-" + secrets.token_hex(4)
+
+    async def runner() -> tuple[int, str]:
+        from logic import asset_inventory as _ai
+        from logic.db import get_setting
+
+        started = time.time()
+        status = "success"
+        err: Optional[str] = None
+        count = 0
+        base_url = (get_setting("asset_inventory_base_url", "") or "").strip().rstrip("/")
+        auth_mode = (get_setting("asset_inventory_auth_mode", "") or "oauth2").strip().lower()
+        if auth_mode not in ("oauth2", "lifetime_token"):
+            auth_mode = "oauth2"
+        try:
+            if auth_mode == "lifetime_token":
+                lifetime_token = get_setting("asset_inventory_lifetime_token", "") or ""
+                if not base_url or not lifetime_token:
+                    raise RuntimeError(
+                        "asset_inventory base_url and lifetime_token are required "
+                        "for the lifetime-token auth mode"
+                    )
+                result = await _ai.refresh_cache(
+                    base_url,
+                    verify_tls=True,
+                    auth_mode=_ai.AUTH_MODE_LIFETIME_TOKEN,
+                    lifetime_token=lifetime_token,
+                )
+            else:
+                token_url = (get_setting("asset_inventory_token_url", "") or "").strip()
+                client_id = (get_setting("asset_inventory_client_id", "") or "").strip()
+                client_secret = get_setting("asset_inventory_client_secret", "") or ""
+                scope = (get_setting("asset_inventory_scope", "") or "").strip()
+                if not base_url or not token_url or not client_id or not client_secret:
+                    raise RuntimeError(
+                        "asset_inventory OAuth2 credentials incomplete — "
+                        "configure base_url / token_url / client_id / client_secret"
+                    )
+                result = await _ai.refresh_cache(
+                    base_url,
+                    token_url=token_url,
+                    client_id=client_id,
+                    client_secret=client_secret,
+                    scope=scope,
+                    verify_tls=True,
+                )
+            if not result.get("ok"):
+                status = "error"
+                err = result.get("error") or "asset refresh failed"
+            count = int(result.get("count") or 0)
+        except Exception as e:
+            status = "error"
+            err = str(e)
+            print(f"[scheduler] asset_inventory_refresh failed: {e}")
+
+        duration = int(time.time() - started)
+        try:
+            with db_conn() as c:
+                c.execute(
+                    "INSERT INTO history "
+                    "(ts, op_type, target_name, target_id, target_stack, "
+                    " status, duration, events, error, actor) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    (
+                        started, "asset_inventory_refresh",
+                        f"{count} asset(s)" if status == "success" else "asset inventory",
+                        op_id, None,
+                        status, duration,
+                        "[]", err, SCHEDULER_ACTOR,
+                    ),
+                )
+        except Exception as e:
+            print(f"[scheduler] asset_inventory_refresh history write failed: {e}")
+        return (duration, status)
+
+    task = asyncio.create_task(runner())
+    return op_id, task  # type: ignore[return-value]
+
+
 SCHEDULE_KINDS: dict[str, KindRunner] = {
-    "prune_node":       _run_prune_node,
-    "prune_all_nodes":  _run_prune_all_nodes,
-    "gather_refresh":   _run_gather_refresh,
-    "backup":           _run_backup,
+    "prune_node":                _run_prune_node,
+    "prune_all_nodes":           _run_prune_all_nodes,
+    "gather_refresh":            _run_gather_refresh,
+    "backup":                    _run_backup,
+    "asset_inventory_refresh":   _run_asset_inventory_refresh,
 }
 
 

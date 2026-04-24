@@ -399,7 +399,12 @@
                   <span x-show="stack.errors>0" class="pill pill-error ms-1" x-text="stack.errors + ' ' + t('chips.err_suffix')"></span>
                   <span x-show="stack.unknowns>0" class="pill pill-unknown ms-1" x-text="stack.unknowns + ' ' + t('chips.unknown_short')"></span>
                 </td>
-                <td class="hidden lg:table-cell text-[var(--text-faint)] text-[12px]" x-text="stack.uptodate + '/' + stack.total + ' ' + t('chips.ok_suffix')"></td>
+                <td class="hidden lg:table-cell">
+                  <span x-show="stack.uptodate > 0" class="pill pill-ok text-[10.5px]">
+                    <span x-text="stack.uptodate + '/' + stack.total"></span>
+                    <span x-text="t('chips.ok_suffix')"></span>
+                  </span>
+                </td>
                 <td class="hidden md:table-cell text-[11.5px] mono text-dim col-cpu"
                     x-text="stackStats(stack).hasStats ? cpuLabel(stackStats(stack).cpu) : '—'"></td>
                 <td class="hidden md:table-cell text-[11.5px] mono text-dim col-mem"
@@ -2569,6 +2574,7 @@
           <option value="prune_node">prune_node</option>
           <option value="backup">backup</option>
           <option value="gather_refresh">gather_refresh</option>
+          <option value="asset_inventory_refresh">asset_inventory_refresh</option>
         </select>
         <select x-model="historyFilters.stack" @change="loadHistory()" class="text-[12px] min-w-[150px]">
           <option value="" x-text="t('history.all_stacks')"></option>
@@ -4369,62 +4375,120 @@
         </div>
       </section>
 
-      <!-- ASSET INVENTORY TAB (ticket #78) — OAuth2 client_credentials
-           against oufa.co's asset API. Manual refresh only — the cache
-           at /app/data/asset_inventory.json is the source of truth that
-           the host drawer reads. -->
+      <!-- ASSET INVENTORY TAB (ticket #78 + #126) — two auth modes:
+           OAuth2 client_credentials (legacy) OR a static lifetime
+           token POSTed to services.php. Manual refresh only — the
+           cache at /app/data/asset_inventory.json is the source of
+           truth that the host drawer reads. -->
       <section x-show="adminTab==='assets'" class="bg-[var(--surface)] border border-[var(--border)] rounded-md p-5">
         <h3 class="font-semibold text-[13px] mb-2" x-text="t('admin_assets.title')"></h3>
         <p class="text-[11.5px] text-[var(--text-faint)] mb-4 leading-snug max-w-[720px]"
            x-text="t('admin_assets.intro')"></p>
 
+        <!-- Auth mode selector — segmented control. -->
+        <div class="mb-3">
+          <label class="block text-[11px] text-[var(--text-faint)] mb-1"
+                 x-text="t('admin_assets.auth_mode_label')"></label>
+          <div class="inline-flex border border-[var(--border)] rounded overflow-hidden">
+            <button type="button"
+                    class="text-[12px] px-3 py-1.5 transition-colors"
+                    :class="assetForm.auth_mode !== 'lifetime_token'
+                      ? 'bg-[var(--primary)] text-[var(--text-on-primary)]'
+                      : 'bg-[var(--surface-2)] text-[var(--text-dim)]'"
+                    :disabled="isReadonly()"
+                    @click="assetForm.auth_mode = 'oauth2'"
+                    x-text="t('admin_assets.auth_mode_oauth2')"></button>
+            <button type="button"
+                    class="text-[12px] px-3 py-1.5 transition-colors"
+                    :class="assetForm.auth_mode === 'lifetime_token'
+                      ? 'bg-[var(--primary)] text-[var(--text-on-primary)]'
+                      : 'bg-[var(--surface-2)] text-[var(--text-dim)]'"
+                    :disabled="isReadonly()"
+                    @click="assetForm.auth_mode = 'lifetime_token'"
+                    x-text="t('admin_assets.auth_mode_lifetime')"></button>
+          </div>
+          <p class="text-[11px] text-[var(--text-faint)] mt-1"
+             x-text="assetForm.auth_mode === 'lifetime_token'
+                       ? t('admin_assets.auth_mode_lifetime_help')
+                       : t('admin_assets.auth_mode_oauth2_help')"></p>
+        </div>
+
+        <!-- Base URL is shared between both modes. -->
         <div class="grid grid-cols-1 md:grid-cols-2 gap-3 mb-3">
-          <div>
+          <div class="md:col-span-2">
             <label class="block text-[11px] text-[var(--text-faint)] mb-1"
                    x-text="t('admin_assets.base_url_label')"></label>
             <input type="url" x-model="assetForm.base_url" :disabled="isReadonly()"
                    class="w-full mono text-[12.5px] py-1.5"
                    :placeholder="t('admin_assets.base_url_placeholder')">
           </div>
-          <div>
-            <label class="block text-[11px] text-[var(--text-faint)] mb-1"
-                   x-text="t('admin_assets.token_url_label')"></label>
-            <input type="url" x-model="assetForm.token_url" :disabled="isReadonly()"
-                   class="w-full mono text-[12.5px] py-1.5"
-                   :placeholder="t('admin_assets.token_url_placeholder')">
-          </div>
-          <div>
-            <label class="block text-[11px] text-[var(--text-faint)] mb-1"
-                   x-text="t('admin_assets.client_id_label')"></label>
-            <input type="text" x-model="assetForm.client_id" :disabled="isReadonly()"
-                   class="w-full mono text-[12.5px] py-1.5"
-                   :placeholder="t('admin_assets.client_id_placeholder')">
-          </div>
-          <div>
-            <label class="block text-[11px] text-[var(--text-faint)] mb-1">
-              <span x-text="t('admin_assets.client_secret_label')"></span>
-              <span x-show="assetStatus && assetStatus.client_secret_set"
-                    class="text-[var(--success)]"
-                    x-text="t('admin_assets.client_secret_set')"></span>
-            </label>
-            <div class="flex items-center gap-2">
-              <input type="password" x-model="assetForm.client_secret" :disabled="isReadonly()"
-                     class="flex-1 mono text-[12.5px] py-1.5"
-                     :placeholder="t('admin_assets.client_secret_placeholder')"
-                     autocomplete="new-password">
-              <button x-show="isAdmin() && assetStatus && assetStatus.client_secret_set"
-                      @click="clearAssetClientSecret()"
-                      class="btn btn-ghost text-[11.5px]"
-                      x-text="t('admin_assets.clear_secret')"></button>
+
+          <!-- OAuth2-only fields. -->
+          <template x-if="assetForm.auth_mode !== 'lifetime_token'">
+            <div class="md:col-span-2 grid grid-cols-1 md:grid-cols-2 gap-3">
+              <div>
+                <label class="block text-[11px] text-[var(--text-faint)] mb-1"
+                       x-text="t('admin_assets.token_url_label')"></label>
+                <input type="url" x-model="assetForm.token_url" :disabled="isReadonly()"
+                       class="w-full mono text-[12.5px] py-1.5"
+                       :placeholder="t('admin_assets.token_url_placeholder')">
+              </div>
+              <div>
+                <label class="block text-[11px] text-[var(--text-faint)] mb-1"
+                       x-text="t('admin_assets.client_id_label')"></label>
+                <input type="text" x-model="assetForm.client_id" :disabled="isReadonly()"
+                       class="w-full mono text-[12.5px] py-1.5"
+                       :placeholder="t('admin_assets.client_id_placeholder')">
+              </div>
+              <div>
+                <label class="block text-[11px] text-[var(--text-faint)] mb-1">
+                  <span x-text="t('admin_assets.client_secret_label')"></span>
+                  <span x-show="assetStatus && assetStatus.client_secret_set"
+                        class="text-[var(--success)]"
+                        x-text="t('admin_assets.client_secret_set')"></span>
+                </label>
+                <div class="flex items-center gap-2">
+                  <input type="password" x-model="assetForm.client_secret" :disabled="isReadonly()"
+                         class="flex-1 mono text-[12.5px] py-1.5"
+                         :placeholder="t('admin_assets.client_secret_placeholder')"
+                         autocomplete="new-password">
+                  <button x-show="isAdmin() && assetStatus && assetStatus.client_secret_set"
+                          @click="clearAssetClientSecret()"
+                          class="btn btn-ghost text-[11.5px]"
+                          x-text="t('admin_assets.clear_secret')"></button>
+                </div>
+              </div>
+              <div>
+                <label class="block text-[11px] text-[var(--text-faint)] mb-1"
+                       x-text="t('admin_assets.scope_label')"></label>
+                <input type="text" x-model="assetForm.scope" :disabled="isReadonly()"
+                       class="w-full mono text-[12.5px] py-1.5"
+                       :placeholder="t('admin_assets.scope_placeholder')">
+              </div>
             </div>
-          </div>
-          <div class="md:col-span-2">
-            <label class="block text-[11px] text-[var(--text-faint)] mb-1"
-                   x-text="t('admin_assets.scope_label')"></label>
-            <input type="text" x-model="assetForm.scope" :disabled="isReadonly()"
-                   class="w-full mono text-[12.5px] py-1.5"
-                   :placeholder="t('admin_assets.scope_placeholder')">
-          </div>
+          </template>
+
+          <!-- Lifetime-token-only field. -->
+          <template x-if="assetForm.auth_mode === 'lifetime_token'">
+            <div class="md:col-span-2">
+              <label class="block text-[11px] text-[var(--text-faint)] mb-1">
+                <span x-text="t('admin_assets.lifetime_token_label')"></span>
+                <span x-show="assetStatus && assetStatus.lifetime_token_set"
+                      class="text-[var(--success)]"
+                      x-text="t('admin_assets.lifetime_token_set')"></span>
+              </label>
+              <div class="flex items-center gap-2">
+                <input type="password" x-model="assetForm.lifetime_token" :disabled="isReadonly()"
+                       class="flex-1 mono text-[12.5px] py-1.5"
+                       :placeholder="t('admin_assets.lifetime_token_placeholder')"
+                       autocomplete="new-password">
+                <button x-show="isAdmin() && assetStatus && assetStatus.lifetime_token_set"
+                        @click="clearAssetLifetimeToken()"
+                        class="btn btn-ghost text-[11.5px]"
+                        x-text="t('admin_assets.clear_lifetime_token')"></button>
+              </div>
+            </div>
+          </template>
         </div>
 
         <div class="flex items-center gap-2 flex-wrap">

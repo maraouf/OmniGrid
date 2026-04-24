@@ -847,6 +847,15 @@ class SettingsIn(BaseModel):
     asset_inventory_client_secret: Optional[str] = None
     asset_inventory_scope: Optional[str] = None
     clear_asset_inventory_client_secret: Optional[bool] = None
+    # Auth mode selector: "oauth2" (existing client_credentials flow)
+    # or "lifetime_token" (static key POSTed to services.php with
+    # X-Authorization header). Lifetime key follows the secret suffix
+    # + `_set` flag + `clear_*` contract like every other write-only
+    # secret (see CLAUDE.md "Secrets in the settings table follow a
+    # naming convention").
+    asset_inventory_auth_mode: Optional[str] = None
+    asset_inventory_lifetime_token: Optional[str] = None
+    clear_asset_inventory_lifetime_token: Optional[bool] = None
     # -----------------------------------------------------------------
     # SSH console — admin-only remote command runner wired into the
     # host drawer. Global defaults; per-host overrides live in
@@ -909,11 +918,13 @@ async def api_get_settings(request: Request):
         # Asset inventory (oufa.co). Secret is write-only — UI sees
         # a `_set` flag only. Other fields round-trip in the clear.
         "asset_inventory": {
+            "auth_mode":          (get_setting("asset_inventory_auth_mode", "") or "oauth2"),
             "base_url":           get_setting("asset_inventory_base_url", "") or "",
             "token_url":          get_setting("asset_inventory_token_url", "") or "",
             "client_id":          get_setting("asset_inventory_client_id", "") or "",
             "client_secret_set":  bool(get_setting("asset_inventory_client_secret", "")),
             "scope":              get_setting("asset_inventory_scope", "") or "",
+            "lifetime_token_set": bool(get_setting("asset_inventory_lifetime_token", "")),
         },
         "portainer_public_url": get_setting("portainer_public_url", str(p.get("portainer_url") or "")),
         "backup_retention_count": int(get_setting("backup_retention_count", "0") or "0"),
@@ -1316,6 +1327,17 @@ async def api_set_settings(
                     s.asset_inventory_client_secret)
     if s.clear_asset_inventory_client_secret:
         set_setting("asset_inventory_client_secret", "")
+    if s.asset_inventory_auth_mode is not None:
+        mode = (s.asset_inventory_auth_mode or "").strip().lower()
+        if mode not in ("oauth2", "lifetime_token"):
+            mode = "oauth2"
+        set_setting("asset_inventory_auth_mode", mode)
+    if s.asset_inventory_lifetime_token is not None \
+            and s.asset_inventory_lifetime_token.strip() != "":
+        set_setting("asset_inventory_lifetime_token",
+                    s.asset_inventory_lifetime_token.strip())
+    if s.clear_asset_inventory_lifetime_token:
+        set_setting("asset_inventory_lifetime_token", "")
 
     _cache["ts"] = 0  # force the next gather to re-read alias settings
 
@@ -1591,18 +1613,46 @@ async def api_asset_inventory_test(
     request: Request,
     _admin: auth.User = Depends(auth.require_admin),
 ):
-    """Admin-only: run the OAuth2 flow once, without saving or caching.
+    """Admin-only: validate asset-inventory credentials end-to-end.
 
-    Accepts unsaved form values (``token_url``, ``client_id``,
-    ``client_secret``, ``scope``) or falls back to the persisted
-    settings when a field is blank — matching the Portainer / Beszel /
-    Pulse test endpoints.
+    Accepts unsaved form values or falls back to the persisted settings
+    when a field is blank. Branches on ``auth_mode``:
+
+      - ``oauth2`` — runs the OAuth2 token exchange (``probe_token``)
+        and reports the resulting token type / expiry.
+      - ``lifetime_token`` — does ONE POST to ``{base_url}/services.php``
+        with ``X-Authorization: Bearer <token>`` and reports the asset
+        count it got back. A successful fetch here means the exact
+        same request the refresh path makes will also work.
     """
     from logic import asset_inventory as _ai
     try:
         body = await request.json()
     except Exception:
         body = {}
+    auth_mode = (body.get("auth_mode") or "").strip().lower() \
+        or (get_setting("asset_inventory_auth_mode", "") or "oauth2")
+    if auth_mode not in ("oauth2", "lifetime_token"):
+        auth_mode = "oauth2"
+    if auth_mode == "lifetime_token":
+        base_url = (body.get("base_url") or "").strip().rstrip("/") \
+            or (get_setting("asset_inventory_base_url", "") or "").strip().rstrip("/")
+        lifetime_token = body.get("lifetime_token") or ""
+        if not lifetime_token:
+            lifetime_token = get_setting("asset_inventory_lifetime_token", "") or ""
+        if not base_url or not lifetime_token:
+            return {"ok": False,
+                    "detail": "base_url and lifetime_token are both required"}
+        endpoint = base_url.rstrip("/") + _ai.DEFAULT_LIFETIME_LIST_PATH
+        result = await _ai.fetch_assets_lifetime_token(
+            endpoint, lifetime_token, verify_tls=True,
+        )
+        if result.get("ok"):
+            count = len(result.get("assets") or [])
+            return {"ok": True,
+                    "detail": f"OK — fetched {count} asset(s) from {endpoint}"}
+        return {"ok": False, "detail": result.get("error") or "auth failed"}
+    # Default: OAuth2 client_credentials.
     token_url = (body.get("token_url") or "").strip() \
         or (get_setting("asset_inventory_token_url", "") or "")
     client_id = (body.get("client_id") or "").strip() \
@@ -1630,14 +1680,30 @@ async def api_asset_inventory_test(
 async def api_asset_inventory_refresh(
     _admin: auth.User = Depends(auth.require_admin),
 ):
-    """Admin-only: probe token + fetch assets + overwrite the cache.
+    """Admin-only: probe auth + fetch assets + overwrite the cache.
 
-    Manual refresh only — there is no lifespan loop. Returns the
+    Manual refresh only — there is no lifespan loop. Branches on the
+    persisted ``asset_inventory_auth_mode`` setting. Returns the
     summary from ``refresh_cache`` so the UI can show a toast with the
     new count and timestamp.
     """
     from logic import asset_inventory as _ai
     base_url = (get_setting("asset_inventory_base_url", "") or "").strip().rstrip("/")
+    auth_mode = (get_setting("asset_inventory_auth_mode", "") or "oauth2").strip().lower()
+    if auth_mode not in ("oauth2", "lifetime_token"):
+        auth_mode = "oauth2"
+    if auth_mode == "lifetime_token":
+        lifetime_token = get_setting("asset_inventory_lifetime_token", "") or ""
+        if not base_url or not lifetime_token:
+            return {"ok": False, "count": 0, "ts": 0,
+                    "error": "asset_inventory base_url and lifetime_token are required "
+                             "for the lifetime-token auth mode"}
+        return await _ai.refresh_cache(
+            base_url,
+            verify_tls=True,
+            auth_mode=_ai.AUTH_MODE_LIFETIME_TOKEN,
+            lifetime_token=lifetime_token,
+        )
     token_url = (get_setting("asset_inventory_token_url", "") or "").strip()
     client_id = (get_setting("asset_inventory_client_id", "") or "").strip()
     client_secret = get_setting("asset_inventory_client_secret", "") or ""
@@ -1647,8 +1713,12 @@ async def api_asset_inventory_refresh(
                 "error": "asset_inventory_* settings are incomplete — "
                          "configure base_url / token_url / client_id / client_secret"}
     return await _ai.refresh_cache(
-        base_url, token_url, client_id, client_secret,
-        scope=scope, verify_tls=True,
+        base_url,
+        token_url=token_url,
+        client_id=client_id,
+        client_secret=client_secret,
+        scope=scope,
+        verify_tls=True,
     )
 
 

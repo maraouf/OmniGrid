@@ -151,8 +151,10 @@ function app() {
     // flag etc.). `assetCache` is the loaded /api/asset-inventory
     // payload — drives the preview block + drawer lookups.
     assetForm: {
+      auth_mode: 'oauth2',
       base_url: '', token_url: '', client_id: '',
       client_secret: '', scope: '',
+      lifetime_token: '',
     },
     assetStatus: null,
     assetTestResult: null,
@@ -337,7 +339,7 @@ function app() {
     scheduleQueuePage: 1,
     scheduleQueueTotal: 0,
     scheduleQueueTotalPages: 1,
-    scheduleKinds: ['prune_node', 'prune_all_nodes', 'gather_refresh', 'backup'],
+    scheduleKinds: ['prune_node', 'prune_all_nodes', 'gather_refresh', 'backup', 'asset_inventory_refresh'],
     scheduleMinInterval: 60,
     scheduleBusy: false,
     // Create form. `params_text` is a raw JSON textarea — we parse on submit
@@ -2444,11 +2446,14 @@ function app() {
         this.assetStatus = d.asset_inventory || null;
         if (this.assetStatus) {
           this.assetForm = {
-            base_url:      this.assetStatus.base_url || '',
-            token_url:     this.assetStatus.token_url || '',
-            client_id:     this.assetStatus.client_id || '',
-            client_secret: '',  // write-only — never prefill
-            scope:         this.assetStatus.scope || '',
+            auth_mode:      (this.assetStatus.auth_mode === 'lifetime_token')
+                              ? 'lifetime_token' : 'oauth2',
+            base_url:       this.assetStatus.base_url || '',
+            token_url:      this.assetStatus.token_url || '',
+            client_id:      this.assetStatus.client_id || '',
+            client_secret:  '',  // write-only — never prefill
+            scope:          this.assetStatus.scope || '',
+            lifetime_token: '',  // write-only — never prefill
           };
         }
       } catch (e) { console.error(e); }
@@ -4935,6 +4940,8 @@ function app() {
     // --- Asset inventory (ticket #78) ---
     async saveAssetSettings() {
       const body = {
+        asset_inventory_auth_mode: (this.assetForm.auth_mode === 'lifetime_token')
+                                     ? 'lifetime_token' : 'oauth2',
         asset_inventory_base_url:  (this.assetForm.base_url || '').trim(),
         asset_inventory_token_url: (this.assetForm.token_url || '').trim(),
         asset_inventory_client_id: (this.assetForm.client_id || '').trim(),
@@ -4942,6 +4949,9 @@ function app() {
       };
       if (this.assetForm.client_secret && this.assetForm.client_secret.trim()) {
         body.asset_inventory_client_secret = this.assetForm.client_secret;
+      }
+      if (this.assetForm.lifetime_token && this.assetForm.lifetime_token.trim()) {
+        body.asset_inventory_lifetime_token = this.assetForm.lifetime_token.trim();
       }
       this.assetSaving = true;
       try {
@@ -4986,18 +4996,48 @@ function app() {
         this.showToast(this.t('admin_assets.save_failed') + ': ' + e.message, 'error');
       }
     },
+    async clearAssetLifetimeToken() {
+      try {
+        const ok = await (window.Swal ? Swal.fire({
+          icon: 'warning',
+          title: this.t('admin_assets.clear_lifetime_token_title'),
+          text:  this.t('admin_assets.clear_lifetime_token_text'),
+          showCancelButton: true,
+          confirmButtonText: this.t('actions.confirm'),
+          cancelButtonText:  this.t('actions.cancel'),
+        }).then(r => !!r.isConfirmed) : confirm('Clear asset inventory lifetime token?'));
+        if (!ok) return;
+        const r = await fetch('/api/settings', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ clear_asset_inventory_lifetime_token: true }),
+        });
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        await this.loadSettings();
+        this.showToast(this.t('admin_assets.lifetime_token_cleared'), 'success');
+      } catch (e) {
+        this.showToast(this.t('admin_assets.save_failed') + ': ' + e.message, 'error');
+      }
+    },
     async testAssetConnection() {
       this.assetTestResult = { pending: true };
+      const mode = (this.assetForm.auth_mode === 'lifetime_token')
+                     ? 'lifetime_token' : 'oauth2';
+      const body = { auth_mode: mode };
+      if (mode === 'lifetime_token') {
+        body.base_url       = (this.assetForm.base_url || '').trim();
+        body.lifetime_token = this.assetForm.lifetime_token || '';
+      } else {
+        body.token_url     = (this.assetForm.token_url || '').trim();
+        body.client_id     = (this.assetForm.client_id || '').trim();
+        body.scope         = (this.assetForm.scope || '').trim();
+        body.client_secret = this.assetForm.client_secret || '';
+      }
       try {
         const r = await fetch('/api/asset-inventory/test', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            token_url:     (this.assetForm.token_url || '').trim(),
-            client_id:     (this.assetForm.client_id || '').trim(),
-            scope:         (this.assetForm.scope || '').trim(),
-            client_secret: this.assetForm.client_secret || '',
-          }),
+          body: JSON.stringify(body),
         });
         const j = await r.json().catch(() => ({}));
         this.assetTestResult = { ok: !!j.ok, detail: j.detail || '' };

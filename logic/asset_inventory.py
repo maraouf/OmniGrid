@@ -27,6 +27,13 @@ import httpx
 
 DEFAULT_CACHE_PATH = "/app/data/asset_inventory.json"
 DEFAULT_LIST_PATH = "/assets"
+# Lifetime-token auth mode (oufa.co's `services.php` endpoint). POST
+# form-encoded with `X-Authorization: Bearer <key>` — no token exchange,
+# one request per refresh. Operator pastes the static key into Admin.
+DEFAULT_LIFETIME_LIST_PATH = "/services.php"
+
+AUTH_MODE_OAUTH2 = "oauth2"
+AUTH_MODE_LIFETIME_TOKEN = "lifetime_token"
 
 
 async def probe_token(
@@ -215,6 +222,63 @@ async def fetch_assets(
     return {"ok": True, "assets": assets, "error": ""}
 
 
+async def fetch_assets_lifetime_token(
+    endpoint_url: str,
+    token: str,
+    verify_tls: bool = True,
+    timeout: float = 15.0,
+) -> dict:
+    """Fetch the asset list via the lifetime-token auth flavour.
+
+    POST form-encoded to ``endpoint_url`` (full URL — already includes
+    the list path) with ``X-Authorization: Bearer <token>``. Returns
+    the same ``{"ok", "assets", "error"}`` shape as
+    :func:`fetch_assets` so callers can treat both flavours uniformly.
+
+    Accepts the same set of response shapes as :func:`fetch_assets`:
+    top-level list, or object with ``assets`` / ``data`` / ``items``
+    / ``results`` / ``services`` keys. The extra ``services`` alias is
+    deliberate — this is the only extractor that hits
+    ``services.php``, so the obvious upstream key name is worth
+    accepting.
+    """
+    if not endpoint_url or not token:
+        return {"ok": False, "assets": [],
+                "error": "missing endpoint_url / token"}
+    headers = {
+        "X-Authorization": f"Bearer {token}",
+        "Content-Type": "application/x-www-form-urlencoded",
+        "Accept": "application/json",
+    }
+    try:
+        async with httpx.AsyncClient(verify=verify_tls, timeout=timeout) as client:
+            # Empty form body — the endpoint's auth carries the
+            # identity; no further parameters documented. If the
+            # upstream grows a required param later, extend here.
+            r = await client.post(endpoint_url, data={}, headers=headers)
+        if r.status_code == 401:
+            return {"ok": False, "assets": [],
+                    "error": "lifetime token rejected (401)"}
+        if r.status_code >= 400:
+            return {"ok": False, "assets": [],
+                    "error": f"asset list HTTP {r.status_code}: {r.text[:200]}"}
+        payload = r.json()
+    except ValueError as e:
+        return {"ok": False, "assets": [],
+                "error": f"asset list returned non-JSON: {e}"}
+    except Exception as e:
+        return {"ok": False, "assets": [], "error": f"{type(e).__name__}: {e}"}
+    assets: list = []
+    if isinstance(payload, list):
+        assets = payload
+    elif isinstance(payload, dict):
+        for k in ("assets", "data", "items", "results", "services"):
+            if isinstance(payload.get(k), list):
+                assets = payload[k]
+                break
+    return {"ok": True, "assets": assets, "error": ""}
+
+
 def load_cache(cache_path: str = DEFAULT_CACHE_PATH) -> dict:
     """Read the persisted cache file.
 
@@ -294,20 +358,69 @@ def save_cache(
 
 async def refresh_cache(
     base_url: str,
-    token_url: str,
-    client_id: str,
-    client_secret: str,
+    token_url: str = "",
+    client_id: str = "",
+    client_secret: str = "",
     scope: str = "",
     verify_tls: bool = True,
     list_path: str = DEFAULT_LIST_PATH,
     cache_path: str = DEFAULT_CACHE_PATH,
+    auth_mode: str = AUTH_MODE_OAUTH2,
+    lifetime_token: str = "",
 ) -> dict:
-    """Compose probe_token → fetch_assets → save_cache.
+    """Compose auth + fetch + save_cache into a single refresh call.
+
+    Two auth flavours:
+      - ``oauth2`` (default): probe_token → fetch_assets.
+      - ``lifetime_token``: single POST to ``{base_url}{list_path}``
+        with ``X-Authorization: Bearer <lifetime_token>`` — no token
+        exchange. ``list_path`` defaults to ``/services.php`` in this
+        mode (operators pointing at oufa.co's flavour) but can be
+        overridden.
 
     Returns a summary dict:
       ``{"ok": bool, "count": int, "ts": int, "error": str,
          "upstream": str}``
     """
+    if auth_mode == AUTH_MODE_LIFETIME_TOKEN:
+        if not base_url or not lifetime_token:
+            return {
+                "ok": False, "count": 0, "ts": 0,
+                "upstream": base_url,
+                "error": "missing base_url / lifetime_token",
+            }
+        effective_list_path = (
+            list_path if list_path and list_path != DEFAULT_LIST_PATH
+            else DEFAULT_LIFETIME_LIST_PATH
+        )
+        endpoint = base_url.rstrip("/") + (
+            effective_list_path if effective_list_path.startswith("/")
+            else "/" + effective_list_path
+        )
+        fetch_result = await fetch_assets_lifetime_token(
+            endpoint, lifetime_token, verify_tls=verify_tls,
+        )
+        if not fetch_result.get("ok"):
+            return {
+                "ok": False, "count": 0, "ts": 0,
+                "upstream": base_url,
+                "error": fetch_result.get("error") or "asset fetch failed",
+            }
+        assets = fetch_result.get("assets") or []
+        try:
+            save_cache(assets, cache_path=cache_path, upstream=base_url)
+        except Exception as e:
+            return {
+                "ok": False, "count": len(assets), "ts": 0,
+                "upstream": base_url,
+                "error": f"cache write failed: {type(e).__name__}: {e}",
+            }
+        return {
+            "ok": True, "count": len(assets), "ts": int(time.time()),
+            "upstream": base_url, "error": "",
+        }
+
+    # OAuth2 client_credentials (default, legacy path).
     token_result = await probe_token(
         token_url, client_id, client_secret,
         scope=scope, verify_tls=verify_tls,
