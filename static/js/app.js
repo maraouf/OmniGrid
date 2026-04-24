@@ -168,6 +168,7 @@ function app() {
       lifetime_token: '',
       service: '', action: '',
       min_value: '', max_value: '',
+      edit_url_template: '',
     },
     assetStatus: null,
     assetTestResult: null,
@@ -2476,6 +2477,7 @@ function app() {
             action:         this.assetStatus.action  || '',
             min_value:      (this.assetStatus.min_value != null) ? String(this.assetStatus.min_value) : '',
             max_value:      (this.assetStatus.max_value != null) ? String(this.assetStatus.max_value) : '',
+            edit_url_template: this.assetStatus.edit_url_template || '',
           };
         }
       } catch (e) { console.error(e); }
@@ -5356,6 +5358,7 @@ function app() {
         asset_inventory_action:    (this.assetForm.action || '').trim(),
         asset_inventory_min_value: String(this.assetForm.min_value ?? '').trim(),
         asset_inventory_max_value: String(this.assetForm.max_value ?? '').trim(),
+        asset_inventory_edit_url_template: String(this.assetForm.edit_url_template ?? '').trim(),
       };
       if (this.assetForm.client_secret && this.assetForm.client_secret.trim()) {
         body.asset_inventory_client_secret = this.assetForm.client_secret;
@@ -5597,13 +5600,31 @@ function app() {
       }
       return null;
     },
-    // Edit-on-upstream URL for the asset. MDI's admin panel lives at
-    // /admin (the API is at /admin/api), so we strip the trailing
-    // `/api` from the cached `upstream` and tack on `?asset=<id>` —
-    // a stable convention for oufa.co. Returns '' when no upstream
-    // is known (cache empty / never refreshed).
+    // Edit-on-upstream URL for the asset. Resolution order:
+    //   1. `asset_inventory.edit_url_template` from settings — the
+    //      operator-configured prefix or template. If it contains
+    //      a `{id}` placeholder we substitute; otherwise we append
+    //      the asset id to the end (so a bare prefix like
+    //      "https://www.oufa.co/admin/pages/assets/asset_management.php?s=edit&si="
+    //      produces "...&si=42" with no extra plumbing).
+    //   2. Fallback: derive from `assetCache.upstream` by stripping
+    //      `/api` and appending `?asset=<id>` — a reasonable guess
+    //      that may not work for every deployment.
+    //   3. Empty string when no upstream / template is known.
     assetEditUrl(asset) {
       if (!asset || asset.id == null) return '';
+      const tpl = ((this.assetStatus && this.assetStatus.edit_url_template) || '').trim();
+      if (tpl) {
+        if (tpl.includes('{id}') || tpl.includes('{custom_number}') || tpl.includes('{base}')) {
+          const upstream = (this.assetCache && this.assetCache.upstream) || '';
+          return tpl
+            .replace('{id}', String(asset.id))
+            .replace('{custom_number}', String(asset._raw && asset._raw.CustomNumber || ''))
+            .replace('{base}', upstream);
+        }
+        // Bare prefix — append the id at the end.
+        return tpl + String(asset.id);
+      }
       const upstream = (this.assetCache && this.assetCache.upstream) || '';
       if (!upstream) return '';
       const adminBase = upstream.replace(/\/api\/?$/, '');

@@ -733,6 +733,32 @@ select:focus {
     border: 1px solid var(--border);
 }
 
+/* When `.chip` is combined with a `.pill-*` colour modifier
+ * (e.g. `<span class="chip pill-ok">`), the pill colours must win.
+ * Without these higher-specificity overrides, `.chip`'s neutral
+ * surface-2 background (declared LATER in the cascade than the
+ * `.pill-*` rules above) would render the chip white-grey instead
+ * of green/amber/red. The Nodes view's "N ok" chip + every
+ * provider chip in the Hosts row title relied on this. */
+.chip.pill-ok      { background: var(--pill-ok-bg);
+                     color: var(--pill-ok-fg);
+                     border-color: var(--pill-ok-br); }
+.chip.pill-update  { background: var(--pill-update-bg);
+                     color: var(--pill-update-fg);
+                     border-color: var(--pill-update-br); }
+.chip.pill-error   { background: var(--pill-error-bg);
+                     color: var(--pill-error-fg);
+                     border-color: var(--pill-error-br); }
+.chip.pill-info    { background: color-mix(in srgb, var(--info) 14%, transparent);
+                     color: var(--info);
+                     border-color: color-mix(in srgb, var(--info) 30%, transparent); }
+.chip.pill-degraded { background: var(--pill-degraded-bg);
+                      color: var(--pill-degraded-fg);
+                      border-color: var(--pill-degraded-br); }
+.chip.pill-offline { background: var(--pill-offline-bg);
+                     color: var(--pill-offline-fg);
+                     border-color: var(--pill-offline-br); }
+
 /* ---------------------------------------------------------------------------
    Filter chips (pill-style toggles)
    --------------------------------------------------------------------------- */

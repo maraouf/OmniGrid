@@ -870,6 +870,12 @@ class SettingsIn(BaseModel):
     # logic.asset_inventory.fetch_assets_lifetime_token.
     asset_inventory_min_value: Optional[str] = None
     asset_inventory_max_value: Optional[str] = None
+    # Edit-on-upstream URL template used by the host drawer's
+    # "Edit on oufa.co" link. Placeholders: {id} (asset DB id),
+    # {custom_number} (asset CustomNumber), {base} (the configured
+    # base_url). Blank → no link rendered. Operator-configured
+    # because oufa.co's URL scheme isn't part of the API guide.
+    asset_inventory_edit_url_template: Optional[str] = None
     # -----------------------------------------------------------------
     # SSH console — admin-only remote command runner wired into the
     # host drawer. Global defaults; per-host overrides live in
@@ -945,6 +951,7 @@ async def api_get_settings(request: Request):
                                      get_setting("asset_inventory_min_value", "")),
             "max_value":          (lambda v: int(v) if (v or "").strip().lstrip("-").isdigit() else None)(
                                      get_setting("asset_inventory_max_value", "")),
+            "edit_url_template":  get_setting("asset_inventory_edit_url_template", "") or "",
         },
         "portainer_public_url": get_setting("portainer_public_url", str(p.get("portainer_url") or "")),
         "backup_retention_count": int(get_setting("backup_retention_count", "0") or "0"),
@@ -1462,6 +1469,9 @@ async def api_set_settings(
             set_setting("asset_inventory_max_value", str(int(v)) if v else "")
         except ValueError:
             set_setting("asset_inventory_max_value", "")
+    if s.asset_inventory_edit_url_template is not None:
+        set_setting("asset_inventory_edit_url_template",
+                    (s.asset_inventory_edit_url_template or "").strip())
 
     _cache["ts"] = 0  # force the next gather to re-read alias settings
 

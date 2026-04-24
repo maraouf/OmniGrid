@@ -251,13 +251,13 @@
       "source_beszel": "Beszel Hub (single API call)",
       "source_invalid": "Data source must be one of: none, node_exporter, beszel, pulse.",
       "url_label": "Endpoint URL template",
-      "url_hint": "Placeholders: {host} = Docker hostname (use .home.lan or another suffix for FQDN: http://{host}.home.lan:9100/metrics), {ip} = Swarm-advertised IP (skip DNS entirely: http://{ip}:9100/metrics). Change the port here if your exporter listens somewhere other than :9100.",
+      "url_hint": "Placeholders: {host} = Docker hostname (append a domain suffix for FQDN: http://{host}.example.com:9100/metrics), {ip} = Swarm-advertised IP (skip DNS entirely: http://{ip}:9100/metrics). Change the port here if your exporter listens somewhere other than :9100.",
       "placeholder_required": "URL template must contain {host} or {ip} placeholder.",
       "overrides_label": "Per-node URL overrides (JSON)",
       "overrides_hint": "Use this when a node's Docker hostname doesn't resolve from inside the OmniGrid container. Keys are hostnames; values are full URLs. Overrides take precedence over the template.",
       "overrides_invalid": "Per-node overrides must be a JSON object like {\"host\": \"http://…\"}.",
       "beszel_url_label": "Beszel Hub URL",
-      "beszel_url_hint": "e.g. http://monitoring.home.lan:8090 — the Hub's web UI address. No trailing slash.",
+      "beszel_url_hint": "e.g. http://beszel.example.com:8090 — the Hub's web UI address. No trailing slash.",
       "beszel_identity_label": "Identity (email)",
       "beszel_password_label": "Password",
       "beszel_password_set": "(saved — leave blank to keep)",
@@ -309,7 +309,7 @@
       "title": "Apprise notifications",
       "url_format_prefix": "URL format:",
       "url_format_suffix": "is the bundle name you saved in the Apprise web UI (not a tag). A <b>404</b> response means no config with that key exists on the server.",
-      "url_placeholder": "http://apprise.home.lan:8005/notify/<config-key>",
+      "url_placeholder": "http://apprise.example.com:8005/notify/<config-key>",
       "tag_placeholder": "Optional: filter URLs by tag within the config"
     },
     "portainer": {
@@ -318,7 +318,7 @@
       "configured": "Configured",
       "not_configured": "Not configured",
       "url_label": "Portainer URL",
-      "url_placeholder": "https://portainer.home.lan:8443",
+      "url_placeholder": "https://portainer.example.com:9443",
       "api_key_label": "API key",
       "api_key_set": "(currently set — leave blank to keep)",
       "api_key_not_set": "(not set)",
@@ -330,7 +330,7 @@
       "test_button": "Test connection",
       "public_title": "Portainer public URL",
       "public_desc": "Browser-facing URL for \"Open in Portainer\" deep links. May differ from the API URL when Portainer sits behind a reverse proxy.",
-      "public_placeholder": "https://portainer.home.lan"
+      "public_placeholder": "https://portainer.example.com"
     },
     "ignores": {
       "title": "Ignore list",
@@ -347,7 +347,7 @@
       "disabled": "Disabled",
       "enable_toggle": "Enable OIDC login (shows the \"Sign in with Authentik\" button on /login)",
       "issuer_url": "Issuer URL",
-      "issuer_placeholder": "https://authentik.www.home.lan/application/o/omnigrid/",
+      "issuer_placeholder": "https://authentik.example.com/application/o/omnigrid/",
       "issuer_hint": "Paste the \"OpenID Configuration Issuer\" URL from your Authentik provider's <b>Metadata</b> tab. We append <code class=\"mono\">/.well-known/openid-configuration</code> to it automatically.",
       "client_id": "Client ID",
       "client_id_placeholder": "Authentik-generated client ID",
@@ -367,7 +367,7 @@
       "admin_group_placeholder": "omnigrid-admins",
       "admin_group_hint": "Group membership is re-checked on every OIDC login. Users outside this group land as <code class=\"mono\">readonly</code>.",
       "verify_tls_title": "Verify TLS on discovery / token / JWKS calls",
-      "verify_tls_hint": "Leave on when the issuer has a publicly-trusted cert. Turn off for homelab issuers behind an internal CA whose root isn't in the container's trust store (e.g. <code class=\"mono\">*.home.lan</code> with a self-signed PKI). Mirrors the behaviour of Portainer's Verify TLS toggle.",
+      "verify_tls_hint": "Leave on when the issuer has a publicly-trusted cert. Turn off for homelab issuers behind an internal CA whose root isn't in the container's trust store (e.g. <code class=\"mono\">*.example.com</code> with a self-signed PKI). Mirrors the behaviour of Portainer's Verify TLS toggle.",
       "save_button": "Save OIDC settings",
       "test_button": "Test connection"
     },
@@ -820,7 +820,7 @@
       "body_out": "Add {code} to the Beszel agent's env (see Net In card for details)."
     },
     "custom_number_label": "Custom #",
-    "custom_number_title": "Operator-assigned catalogue number — used for sort/group in Hosts view and as the key for Asset-inventory lookups at oufa.co"
+    "custom_number_title": "Operator-assigned catalogue number — used for sort/group in Hosts view and as the key for Asset-inventory lookups"
   },
   "host_drawer": {
     "system": {
@@ -855,13 +855,13 @@
       "asset_vendor": "Vendor (asset)",
       "asset_model": "Model (asset)",
       "asset_serial": "Serial (asset)",
-      "asset_title": "Sourced from oufa.co asset inventory (matched by Custom #)"
+      "asset_title": "Sourced from asset inventory (matched by Custom #)"
     },
     "asset": {
-      "location_title": "Location (from oufa.co asset inventory)",
+      "location_title": "Location (from asset inventory)",
       "heading": "Asset inventory",
-      "edit_link": "Edit on oufa.co ↗",
-      "edit_title": "Open this asset's edit page on oufa.co in a new tab",
+      "edit_link": "Edit on upstream ↗",
+      "edit_title": "Open this asset's edit page on the upstream in a new tab",
       "name": "Name",
       "type": "Type",
       "hostnames": "Hostnames",
@@ -1007,7 +1007,7 @@
       "parent_label": "Parent group",
       "parent_none": "— top-level —",
       "ip_range_label": "IP range (optional)",
-      "ip_range_placeholder": "e.g. 192.168.2.0/24",
+      "ip_range_placeholder": "e.g. 10.0.0.0/24",
       "nesting_hint": "Nesting is 2 levels deep. A sub-group's range must fit inside its parent's range, and must not overlap any non-parent group.",
       "range_required": "Range start and end are required.",
       "err_self_parent": "A group cannot be its own parent.",
@@ -1019,18 +1019,18 @@
   },
   "admin_assets": {
     "title": "Asset inventory",
-    "intro": "Pull an asset catalogue (vendor / model / serial / location) from oufa.co. Pick one of two auth modes below. Manually refreshed — the cache at /app/data/asset_inventory.json is the source of truth the host drawer reads from.",
+    "intro": "Pull an asset catalogue (vendor / model / serial / location) from your asset-management upstream. Pick one of two auth modes below. Manually refreshed — the cache at /app/data/asset_inventory.json is the source of truth the host drawer reads from.",
     "auth_mode_label": "Authentication mode",
     "auth_mode_oauth2": "OAuth2 (username / password)",
     "auth_mode_lifetime": "Lifetime token",
     "auth_mode_oauth2_help": "Client_credentials grant against a token endpoint; OmniGrid exchanges your web-service user + password for a short-lived bearer token on every refresh.",
     "auth_mode_lifetime_help": "A single static key minted once (OAuth2 with lifetime=1) and pasted in below. OmniGrid POSTs to {base_url}/services.php with X-Authorization: Bearer <key> — no token exchange at refresh time.",
     "base_url_label": "Base URL",
-    "base_url_placeholder": "https://www.oufa.co/admin/api",
+    "base_url_placeholder": "https://your-host.example.com/admin/api",
     "token_url_label": "Token URL",
-    "token_url_placeholder": "https://www.oufa.co/admin/api/oauth/token.php",
+    "token_url_placeholder": "https://your-host.example.com/admin/api/oauth/token.php",
     "client_id_label": "Username",
-    "client_id_placeholder": "ws_assets_user",
+    "client_id_placeholder": "service_user",
     "client_secret_label": "Password",
     "client_secret_placeholder": "(leave blank to keep current)",
     "client_secret_set": " · set",
@@ -1055,6 +1055,9 @@
     "max_value_label": "Max custom_number",
     "max_value_placeholder": "9999",
     "range_help": "Range bounds for actions like get_assets_custom_number_range. When both are set and action matches, OmniGrid paginates automatically in 50-batches (the server's default cap). Leave blank for actions that don't use a range.",
+    "edit_url_label": "Edit URL prefix",
+    "edit_url_placeholder": "URL",
+    "edit_url_help": "Prefix used by the host drawer's \"Edit on upstream\" link. The asset id is appended at the end (e.g. \"…&si=42\"). Placeholders {id} / {custom_number} / {base} are also supported when the URL needs the id mid-path. Leave blank to hide the edit link.",
     "scope_label": "Scope (optional)",
     "scope_placeholder": "read:assets",
     "test": "Test connection",
