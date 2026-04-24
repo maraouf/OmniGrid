@@ -151,6 +151,23 @@ function app() {
     settings: { apprise_url: '', apprise_tag: '', portainer_public_url: '' },
     schedulerSaving: false,
     openMeteoSaving: false,
+    // Admin → Hosts per-row collapse state. Keyed by host id so
+    // expand/collapse survives reorders. Fresh rows auto-expand on
+    // addHostRow so the operator sees the fields. Saved into
+    // localStorage so a page reload doesn't re-collapse everything.
+    hostsConfigExpanded: (() => {
+      try {
+        const raw = typeof localStorage !== 'undefined'
+          ? localStorage.getItem('hostsConfigExpanded') : null;
+        const parsed = raw ? JSON.parse(raw) : {};
+        return (parsed && typeof parsed === 'object') ? parsed : {};
+      } catch { return {}; }
+    })(),
+    // Per-host DISKS card collapse state for the "Show N empty" toggle.
+    // Keyed by host.host. In-memory only — zero-usage mounts rarely
+    // flip across browser sessions so persistence isn't worth the
+    // localStorage overhead.
+    hostDisksShowEmpty: {},
     // Baseline snapshot of the host-stats settings at the last
     // successful load or save. Compared against the live form to
     // derive a "dirty" boolean for the Save button's visual
@@ -210,8 +227,9 @@ function app() {
     sshLastTested: {},
     sshSettings: {
       user: '', port: 22, private_key: '', passphrase: '',
+      password: '', fqdn_suffix: '',
       known_hosts: '', destructive_patterns: '',
-      private_key_set: false, passphrase_set: false,
+      private_key_set: false, passphrase_set: false, password_set: false,
     },
     sshSettingsDirty: false,
     sshSettingsBusy: false,
@@ -380,6 +398,9 @@ function app() {
       // Webmin scratch-test URL persists so operators don't retype
       // the same host every time they reload Host Stats.
       this.$watch('webminTestUrl', v => { try { localStorage.setItem('webminTestUrl', v || ''); } catch {} });
+      this.$watch('hostsConfigExpanded', v => {
+        try { localStorage.setItem('hostsConfigExpanded', JSON.stringify(v || {})); } catch {}
+      }, { deep: true });
       this.$watch('hostsExpanded', v => {
         try { localStorage.setItem('hostsExpanded', JSON.stringify(v || [])); } catch {}
       });
@@ -2416,10 +2437,13 @@ function app() {
         port:            s.port || 22,
         private_key:     '',               // write-only — never hydrated
         passphrase:      '',               // write-only — never hydrated
+        password:        '',               // write-only — never hydrated
+        fqdn_suffix:     s.fqdn_suffix || '',
         known_hosts:     s.known_hosts || '',
         destructive_patterns: s.destructive_patterns || '',
         private_key_set: !!s.private_key_set,
         passphrase_set:  !!s.passphrase_set,
+        password_set:    !!s.password_set,
       };
       this.sshSettingsDirty = false;
     },
@@ -2430,6 +2454,7 @@ function app() {
         const body = {
           ssh_default_user:              this.sshSettings.user || '',
           ssh_default_port:              parseInt(this.sshSettings.port, 10) || 22,
+          ssh_fqdn_suffix:               this.sshSettings.fqdn_suffix || '',
           ssh_default_known_hosts:       this.sshSettings.known_hosts || '',
           ssh_destructive_patterns:      this.sshSettings.destructive_patterns || '',
         };
@@ -2439,6 +2464,9 @@ function app() {
         }
         if ((this.sshSettings.passphrase || '').trim() !== '') {
           body.ssh_default_private_key_passphrase = this.sshSettings.passphrase;
+        }
+        if ((this.sshSettings.password || '').trim() !== '') {
+          body.ssh_default_password = this.sshSettings.password;
         }
         const r = await fetch('/api/settings', {
           method: 'POST',
@@ -3907,6 +3935,59 @@ function app() {
       } catch (e) {
         this.hostsTestResults[idx] = { pending: false, error: e.message };
       }
+    },
+    // Collapse / expand helpers for the Admin → Hosts editor. With SSH
+    // + provider + icon + URL fields on every row, a 20-host list is
+    // a 2000-line scroll. Collapsed rows show only the summary; the
+    // field grid renders behind x-show when expanded.
+    isHostConfigExpanded(id) {
+      if (!id) return true;  // empty-id rows (fresh adds) always expand
+      return !!this.hostsConfigExpanded[id];
+    },
+    toggleHostConfigRow(id) {
+      if (!id) return;
+      const next = { ...this.hostsConfigExpanded };
+      if (next[id]) delete next[id]; else next[id] = true;
+      this.hostsConfigExpanded = next;
+    },
+    expandAllHostConfigRows() {
+      const next = {};
+      for (const h of (this.hostsConfig || [])) {
+        if (h && h.id) next[h.id] = true;
+      }
+      this.hostsConfigExpanded = next;
+    },
+    collapseAllHostConfigRows() {
+      this.hostsConfigExpanded = {};
+    },
+    // DISKS card — toggle the "show zero-usage mounts" state. Keyed
+    // by host.host so each host's toggle is independent.
+    toggleHostShowEmptyDisks(hostKey) {
+      this.hostDisksShowEmpty = {
+        ...this.hostDisksShowEmpty,
+        [hostKey]: !this.hostDisksShowEmpty[hostKey],
+      };
+    },
+    // Helper returning the mounts that SHOULD render for this host.
+    // Thresholds: a mount is "active" when its usage % is >= 0.5. The
+    // UI shows active mounts by default; zero-usage mounts collapse
+    // behind a toggle so hosts with 20 ZFS datasets (img_14.png) don't
+    // blow out the drawer. When the operator has flipped the toggle
+    // on, every mount is returned.
+    visibleMounts(h) {
+      const all = (h && h.mounts) || [];
+      if (!all.length) return [];
+      if (this.hostDisksShowEmpty[h.host]) return all;
+      const active = all.filter(m => (+m.dp || 0) >= 0.5);
+      // Always keep AT LEAST the root ("/" or "C:\\") so operators
+      // see something even when every partition is near-empty.
+      if (active.length === 0 && all[0]) return [all[0]];
+      return active;
+    },
+    emptyMountCount(h) {
+      const all = (h && h.mounts) || [];
+      const active = all.filter(m => (+m.dp || 0) >= 0.5);
+      return Math.max(0, all.length - active.length);
     },
     addHostRow() {
       // Pre-fill custom_number with the next unused integer so a fresh

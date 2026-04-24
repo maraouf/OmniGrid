@@ -1563,9 +1563,15 @@
                       </div>
                     </div>
                     <!-- Per-mount breakdown (when stats.efs was
-                         populated — full-host Beszel agents only). -->
-                    <template x-for="(m, i) in (h.mounts || [])" :key="i">
-                      <div>
+                         populated — full-host Beszel agents only).
+                         Zero-usage mounts collapse behind a toggle
+                         to keep hosts with many ZFS datasets readable
+                         (see img_14.png: 12 mounts, 10 at 0.0% swamps
+                         the card). visibleMounts(h) returns the
+                         above-threshold set; toggleHostShowEmptyDisks
+                         expands to show the remainder. -->
+                    <template x-for="(m, i) in visibleMounts(h)" :key="i">
+                      <div class="disk-mount-row">
                         <div class="flex items-baseline justify-between">
                           <span class="text-[11.5px] mono truncate" x-text="m.n || m.name || '(disk)'"></span>
                           <span class="text-[10.5px] text-[var(--text-faint)] mono"
@@ -1575,13 +1581,25 @@
                                           + fmtBytes((m.d || 0) * 1024**3)
                                         : ''"></span>
                         </div>
-                        <div class="stat-bar mt-1"
+                        <div class="stat-bar mt-0.5"
                              :class="barLevel(m.dp || 0)"
                              :style="'--w: ' + (m.dp || 0) + '%'">
                           <div class="fill"></div>
                         </div>
                       </div>
                     </template>
+                    <!-- Show-empty toggle when there are zero-usage
+                         mounts hiding. Clicking expands (or collapses)
+                         them for this host only. -->
+                    <button type="button"
+                            x-show="emptyMountCount(h) > 0"
+                            @click="toggleHostShowEmptyDisks(h.host)"
+                            class="text-[10.5px] text-[var(--text-faint)] hover:text-[var(--primary)] hover:underline w-full text-start pt-1 mono">
+                      <span x-show="!hostDisksShowEmpty[h.host]"
+                            x-text="'+ Show ' + emptyMountCount(h) + ' empty mount' + (emptyMountCount(h) === 1 ? '' : 's')"></span>
+                      <span x-show="hostDisksShowEmpty[h.host]"
+                            x-text="'− Hide ' + emptyMountCount(h) + ' empty mount' + (emptyMountCount(h) === 1 ? '' : 's')"></span>
+                    </button>
                   </div>
                 </section>
 
@@ -1617,7 +1635,7 @@
                    note in that case. Whole section hides when no
                    provider matched — the "No data" banner above +
                    Debug panel below do the talking. -->
-              <div class="mt-4 flex items-center gap-2" x-show="h.beszel_id && (h.providers || []).length > 0">
+              <div class="mt-4 flex items-center gap-2" x-show="h.beszel_id && h.status === 'up' && (h.providers || []).length > 0">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-[var(--text-dim)]"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
                 <div class="range-seg">
                   <button type="button" :class="hostHistoryRange === 1 ? 'active' : ''"
@@ -1630,7 +1648,7 @@
                           @click="setHostHistoryRange(168)">7d</button>
                 </div>
               </div>
-              <div x-show="!h.beszel_id && (h.providers || []).length > 0" class="mt-4 text-[11.5px] text-[var(--text-faint)] italic">
+              <div x-show="!h.beszel_id && h.status === 'up' && (h.providers || []).length > 0" class="mt-4 text-[11.5px] text-[var(--text-faint)] italic">
                 Time-series charts are sourced from Beszel. Link this
                 host to a Beszel system in
                 <a href="/admin/hosts" class="text-[var(--primary)] hover:underline">Admin → Hosts</a>
@@ -1650,7 +1668,7 @@
                    (no beszel_id) get the "link to Beszel" hint above
                    instead of an empty "Collecting data…" grid. -->
               <div class="mt-3 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4"
-                   x-show="h.beszel_id && (h.providers || []).length > 0">
+                   x-show="h.beszel_id && h.status === 'up' && (h.providers || []).length > 0">
                 <!-- CPU % -->
                 <div class="metric-card metric-card--cpu">
                   <div class="metric-card-head">
@@ -1780,7 +1798,7 @@
                    grid above — the Beszel-only chart source has
                    nothing to chart for NE-only hosts). -->
               <div class="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4"
-                   x-show="h.beszel_id && (h.providers || []).length > 0">
+                   x-show="h.beszel_id && h.status === 'up' && (h.providers || []).length > 0">
                 <!-- Net In — collapses to a single-line "no activity"
                      state when the peak is zero (most homelab hosts
                      sit near zero between bursts), so the card
@@ -3683,7 +3701,44 @@
 
         <div x-show="!hostsConfigLoading" class="space-y-3">
           <template x-for="{ row, idx } in filteredHostsConfig()" :key="idx">
-            <div class="border border-[var(--border)] rounded-md bg-[var(--surface-2)] p-3 space-y-3">
+            <div class="border border-[var(--border)] rounded-md bg-[var(--surface-2)] p-3">
+              <!-- One-line collapsed summary. Click the header to
+                   toggle the full field grid. Empty-id rows (fresh
+                   +Add) always stay expanded so the operator can
+                   fill them in without hunting for a chevron. -->
+              <div class="flex items-center gap-2 cursor-pointer select-none"
+                   :class="isHostConfigExpanded(row.id) ? 'mb-3' : ''"
+                   @click="toggleHostConfigRow(row.id)">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
+                     class="text-[var(--text-dim)] transition-transform flip-rtl"
+                     :style="isHostConfigExpanded(row.id) ? 'transform: rotate(90deg)' : ''">
+                  <polyline points="9 18 15 12 9 6"/>
+                </svg>
+                <span x-show="row.custom_number != null && row.custom_number !== ''"
+                      class="chip text-[10px] px-1.5 py-0 mono pill-muted"
+                      x-text="'#' + row.custom_number"></span>
+                <span class="font-semibold text-[12.5px] mono truncate" x-text="row.id || '(new host)'"></span>
+                <span class="text-[11px] text-[var(--text-faint)] truncate"
+                      x-show="row.label && row.label !== row.id"
+                      x-text="'· ' + row.label"></span>
+                <template x-for="p in [
+                    row.beszel_name ? 'beszel' : null,
+                    row.pulse_name ? 'pulse' : null,
+                    row.ne_url ? 'exporter' : null,
+                    row.webmin_url ? 'webmin' : null,
+                  ].filter(Boolean)" :key="p">
+                  <span class="chip text-[9.5px] px-1 py-0 pill-muted mono" x-text="p"></span>
+                </template>
+                <span x-show="!row.enabled" class="chip text-[9.5px] px-1 py-0 pill-warning" x-text="t('states.disabled')"></span>
+                <span class="ms-auto text-[10.5px] text-[var(--text-faint)]"
+                      x-show="!isHostConfigExpanded(row.id)">Click to edit</span>
+              </div>
+
+              <!-- Everything below hides when the row is collapsed.
+                   We wrap in a single x-show on the outer div so the
+                   existing grid/spacing rules apply unchanged when
+                   the row is expanded. -->
+              <div x-show="isHostConfigExpanded(row.id)" class="space-y-3">
               <!-- Row 1 — identity + toggles -->
               <div class="grid grid-cols-1 md:grid-cols-[80px_1fr_3fr_auto_auto] gap-3 items-end min-w-0">
                 <div>
@@ -3905,6 +3960,7 @@
                      class="text-[11px] text-[var(--danger)]"
                      x-text="'Test failed: ' + (hostsTestResults[idx] && hostsTestResults[idx].error)"></div>
               </div>
+              </div><!-- /expanded field grid -->
             </div>
           </template>
 
@@ -4022,6 +4078,45 @@
                  :disabled="isReadonly()"
                  class="w-full text-[12.5px]"
                  :placeholder="sshSettings.passphrase_set ? '••••••••' : t('admin_ssh.passphrase_placeholder')">
+        </div>
+        <!-- Password auth (alternative to private key). When both are
+             set, the key wins. Useful for hosts that only accept
+             password auth — NAS boxes, routers, fresh VM images. -->
+        <div class="mb-3">
+          <label class="block text-[11px] text-[var(--text-faint)] mb-1">
+            Default password
+            <span x-show="sshSettings.password_set" class="text-[var(--success)]"> · set</span>
+          </label>
+          <input x-model="sshSettings.password" type="password"
+                 @input="markSshSettingsDirty()"
+                 :disabled="isReadonly()"
+                 class="w-full text-[12.5px]"
+                 :placeholder="sshSettings.password_set ? '••••••••' : 'Alternative to private key'">
+          <p class="text-[10.5px] text-[var(--text-faint)] mt-1">
+            Used when no private key is configured, or when a per-host
+            row overrides with its own password. Key auth wins when
+            both are set.
+          </p>
+        </div>
+        <!-- FQDN suffix — appended to bare host IDs during SSH resolve.
+             Example: ssh_fqdn_suffix=".home.lan", host id="webserver"
+             → SSH target becomes "webserver.home.lan". Host IDs that
+             already contain a dot are used as-is. Per-host ssh.host
+             / ssh.fqdn override wins over the suffix rule. -->
+        <div class="mb-3">
+          <label class="block text-[11px] text-[var(--text-faint)] mb-1">
+            FQDN suffix
+          </label>
+          <input x-model="sshSettings.fqdn_suffix" type="text"
+                 @input="markSshSettingsDirty()"
+                 :disabled="isReadonly()"
+                 placeholder="e.g. .home.lan"
+                 class="w-full mono text-[12.5px] py-1.5">
+          <p class="text-[10.5px] text-[var(--text-faint)] mt-1">
+            Appended to bare host IDs that don't already contain a dot.
+            Normalised on save to include the leading dot (you can paste
+            with or without).
+          </p>
         </div>
         <div class="mb-3">
           <label class="block text-[11px] text-[var(--text-faint)] mb-1"

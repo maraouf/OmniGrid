@@ -2529,24 +2529,47 @@ body.login {
    buttons inset from the card's rounded corners.
    --------------------------------------------------------------------------- */
 .hosts-config-actionbar {
-    /* Inline at the bottom of the Admin → Hosts card — no fixed /
-       sticky positioning to avoid stacking-context conflicts with
-       toast notifications, the app-footer, and SweetAlert dialogs.
-       Operators reach it by scrolling; a duplicate Save button at
-       the TOP of the card (see .hosts-config-top-actions) gives a
-       short-cut when the list is long. The inline bar keeps the
-       "row count + dirty indicator + ↑ Top" affordances in view
-       without competing for z-index against other overlays.
+    /* Sticky to the BOTTOM of the Admin → Hosts card so the Save
+       button stays visible while scrolling through 20+ rows.
+       `bottom: 48px` offsets above the app-footer (which is ~40px
+       tall + 1px border); z-index 10 keeps us above card content
+       but below toast notifications (z-index 50+) and SweetAlert
+       dialogs (100+). Operators on short lists see the bar inline
+       at the card's bottom; on long lists it pins to the viewport.
     */
+    position: sticky;
+    bottom: 48px;
+    z-index: 10;
     display: flex;
     align-items: center;
     gap: var(--s-2);
     flex-wrap: wrap;
     margin-top: var(--s-4);
     padding: var(--s-3) var(--s-4);
-    background: var(--surface-2);
+    background: color-mix(in srgb, var(--surface-2) 96%, transparent);
+    backdrop-filter: blur(4px);
+    -webkit-backdrop-filter: blur(4px);
     border: 1px solid var(--border);
     border-radius: var(--r-md);
+    box-shadow: 0 4px 12px var(--backdrop);
+}
+
+/* ---------------------------------------------------------------------------
+   DISKS card — tighter per-mount spacing
+
+   Hosts with many ZFS datasets (img_14.png: 12 mounts, 10 of them
+   0.0%) turn the expanded card into a wall of rows. .disk-mount-row
+   tightens the vertical rhythm so ~10 visible mounts fit in the
+   footprint the old 3-4 row layout used. Pairs with visibleMounts()
+   in app.js which caps the default render at non-zero mounts; the
+   toggle below reveals the rest.
+   --------------------------------------------------------------------------- */
+.disk-mount-row {
+    margin-top: var(--s-2);
+}
+
+.disk-mount-row:first-of-type {
+    margin-top: var(--s-3);
 }
 
 /* ---------------------------------------------------------------------------
