@@ -884,6 +884,10 @@ async def api_get_settings(request: Request):
     return {
         "apprise_url": get_setting("apprise_url", ""),
         "apprise_tag": get_setting("apprise_tag", ""),
+        # Open-Meteo upstream (Admin → Notifications). Returned in the
+        # clear so the input round-trips and reloads persisted. Blank
+        # disables the topbar weather widget (see _open_meteo_url).
+        "open_meteo_url": get_setting("open_meteo_url", "") or "",
         "portainer_public_url": get_setting("portainer_public_url", str(p.get("portainer_url") or "")),
         "backup_retention_count": int(get_setting("backup_retention_count", "0") or "0"),
         "scheduler_timezone": get_setting("scheduler_timezone", "") or "",
@@ -1017,13 +1021,17 @@ async def api_set_settings(
     if s.node_exporter_enabled is not None:
         set_setting("node_exporter_enabled", "true" if s.node_exporter_enabled else "false")
     if s.node_exporter_url_template is not None:
-        # Validate the template minimally — must contain {host}. Empty
+        # Validate the template minimally — must contain AT LEAST ONE
+        # of the two supported placeholders: {host} (Docker hostname)
+        # or {ip} (Swarm-advertised IP). Operators on flat LAN setups
+        # where DNS doesn't resolve containers-by-name want the {ip}
+        # form; Swarm-managed fleets typically use {host}. Empty
         # template resets to the default on the read side.
         tpl = s.node_exporter_url_template.strip()
-        if tpl and "{host}" not in tpl:
+        if tpl and "{host}" not in tpl and "{ip}" not in tpl:
             raise HTTPException(
                 status_code=400,
-                detail="node_exporter_url_template must contain the '{host}' placeholder.",
+                detail="node_exporter_url_template must contain '{host}' or '{ip}'.",
             )
         set_setting("node_exporter_url_template", tpl)
     if s.node_exporter_overrides is not None:

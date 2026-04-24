@@ -1416,7 +1416,9 @@ function app() {
       };
       if (active.has('node_exporter')) {
         const tpl = (this.settings.node_exporter_url_template || '').trim();
-        if (tpl && !tpl.includes('{host}')) {
+        // Either placeholder is valid — {host} substitutes the Docker
+        // hostname, {ip} substitutes the Swarm-advertised IP.
+        if (tpl && !tpl.includes('{host}') && !tpl.includes('{ip}')) {
           this.showToast(this.t('settings.host_stats.placeholder_required'), 'error');
           return;
         }

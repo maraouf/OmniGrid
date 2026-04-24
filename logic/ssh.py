@@ -528,10 +528,14 @@ def ssh_status(host_id: str, hosts_config: list[dict]) -> dict:
     every drawer open.
     """
     resolved = resolve_ssh_params(host_id, hosts_config)
+    # A host is "configured" when we have the bare minimum to attempt a
+    # connection: host + user + EITHER a key OR a password. Password-
+    # only auth is a valid path (some operators prefer it for ad-hoc
+    # targets that don't yet have an OmniGrid public key pushed).
     configured = bool(
         resolved.get("host")
         and resolved.get("user")
-        and resolved.get("key_set")
+        and (resolved.get("key_set") or resolved.get("password_set"))
         and not resolved.get("disabled")
         and not resolved.get("error")
     )

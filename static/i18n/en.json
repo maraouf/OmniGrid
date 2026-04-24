@@ -235,7 +235,7 @@
       "source_invalid": "Data source must be one of: none, node_exporter, beszel, pulse.",
       "url_label": "Endpoint URL template",
       "url_hint": "Placeholders: {host} = Docker hostname (use .home.lan or another suffix for FQDN: http://{host}.home.lan:9100/metrics), {ip} = Swarm-advertised IP (skip DNS entirely: http://{ip}:9100/metrics). Change the port here if your exporter listens somewhere other than :9100.",
-      "placeholder_required": "URL template must contain the {host} placeholder.",
+      "placeholder_required": "URL template must contain {host} or {ip} placeholder.",
       "overrides_label": "Per-node URL overrides (JSON)",
       "overrides_hint": "Use this when a node's Docker hostname doesn't resolve from inside the OmniGrid container. Keys are hostnames; values are full URLs. Overrides take precedence over the template.",
       "overrides_invalid": "Per-node overrides must be a JSON object like {\"host\": \"http://…\"}.",
