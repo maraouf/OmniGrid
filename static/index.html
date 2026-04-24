@@ -1895,14 +1895,14 @@
                          :style="hostsDebugOpen[h.id] ? 'transform: rotate(90deg)' : ''">
                       <polyline points="9 18 15 12 9 6"/>
                     </svg>
-                    <span x-text="hostsDebugOpen[h.id] ? 'Hide debug data' : 'Show debug data (admin)'"></span>
-                    <span class="host-debug-hint" x-show="!hostsDebugOpen[h.id]">— compare raw providers vs merged vs rendered</span>
+                    <span x-text="hostsDebugOpen[h.id] ? t('debug_panel.hide') : t('debug_panel.show')"></span>
+                    <span class="host-debug-hint" x-show="!hostsDebugOpen[h.id]" x-text="t('debug_panel.hint')"></span>
                   </button>
                   <div x-show="hostsDebugOpen[h.id]" class="host-debug-body">
                     <template x-if="hostsDebugLoading[h.id]">
                       <div class="host-debug-loading">
                         <span class="spin-lg" aria-hidden="true"></span>
-                        <span>Probing providers…</span>
+                        <span x-text="t('debug_panel.probing')"></span>
                       </div>
                     </template>
                     <template x-if="!hostsDebugLoading[h.id] && hostsDebug[h.id] && hostsDebug[h.id]._error">
@@ -1912,20 +1912,19 @@
                       <div class="host-debug-content">
                         <div class="host-debug-toolbar">
                           <div class="host-debug-meta">
-                            <span>Active providers:</span>
+                            <span x-text="t('debug_panel.active_providers')"></span>
                             <template x-for="p in (hostsDebug[h.id].active_providers || [])" :key="p">
                               <span class="host-debug-tag" x-text="p"></span>
                             </template>
                             <template x-if="(hostsDebug[h.id].active_providers || []).length === 0">
-                              <span class="host-debug-tag host-debug-tag--warn">none</span>
+                              <span class="host-debug-tag host-debug-tag--warn" x-text="t('debug_panel.none')"></span>
                             </template>
                           </div>
                           <button type="button" class="btn btn-ghost text-[11px]"
                                   @click="loadHostDebug(h.id)"
                                   :disabled="!!hostsDebugLoading[h.id]"
-                                  title="Re-run probes">
-                            ⟳ Refresh
-                          </button>
+                                  :title="t('debug_panel.refresh_title')"
+                                  x-text="t('debug_panel.refresh')"></button>
                         </div>
                         <!-- Five columns wrap to two rows on narrow
                              viewports. Each block is independently
@@ -2350,9 +2349,17 @@
                         class="w-full text-[12.5px]"></textarea>
               <p class="text-[10px] text-[var(--text-faint)] mt-1" x-text="t('settings.profile.bio_count', { count: (profileForm.bio || '').length })"></p>
             </div>
-            <div>
-              <button @click="saveProfile()" :disabled="profileBusy" class="btn btn-primary text-[12px]"
+            <div class="flex items-center gap-3 flex-wrap">
+              <button @click="saveProfile()" :disabled="profileBusy"
+                      :class="profileDirty() ? 'ring-2 ring-[var(--warning)]' : ''"
+                      class="btn btn-primary text-[12px]"
                       x-text="profileBusy ? t('actions.saving') : t('actions.save_changes')"></button>
+              <span x-show="profileDirty()"
+                    class="text-[11.5px] text-[var(--warning)] flex items-center gap-1.5"
+                    title="You have unsaved profile changes.">
+                <span class="w-1.5 h-1.5 rounded-full bg-[var(--warning)] animate-pulse"></span>
+                <span x-text="t('hosts_actions.unsaved_label')"></span>
+              </span>
             </div>
           </div>
         </section>

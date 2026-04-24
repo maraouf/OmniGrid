@@ -2352,6 +2352,125 @@ async def api_version():
     return {"version": read_version()}
 
 
+# ----------------------------------------------------------------------------
+# Topbar weather widget — proxies Open-Meteo (or any Open-Meteo-
+# compatible instance) so the browser dodges CORS and the same
+# coordinate pair gets cached across tabs / reloads.
+#
+# URL is stored in the DB ``settings`` table under ``open_meteo_url``
+# so admins can point at a self-hosted instance from Admin →
+# Notifications without touching .env. Empty falls back to
+# OPEN_METEO_DEFAULT. Open-Meteo's community instance allows anonymous
+# queries at reasonable rates; we cap ourselves at once per 10
+# minutes per (lat, lon) pair anyway.
+# ----------------------------------------------------------------------------
+OPEN_METEO_DEFAULT = "https://api.open-meteo.com/v1/forecast"
+
+
+def _open_meteo_url() -> str:
+    """Read the weather-upstream URL from settings, falling back to the
+    public Open-Meteo endpoint. Trailing slash stripped so urljoin
+    semantics don't matter to the caller."""
+    raw = (get_setting("open_meteo_url", "") or "").strip()
+    return (raw or OPEN_METEO_DEFAULT).rstrip("/")
+
+_weather_cache: dict[tuple[float, float], tuple[float, dict]] = {}
+_WEATHER_CACHE_TTL = 600.0  # 10 minutes — weather changes slowly
+
+# WMO code → (short description, icon slug). Backend owns the mapping
+# so i18n of condition strings has ONE source of truth.
+_WMO_CODES: dict[int, tuple[str, str]] = {
+    0:  ("Clear",            "sun"),
+    1:  ("Mainly clear",     "sun"),
+    2:  ("Partly cloudy",    "cloud-sun"),
+    3:  ("Cloudy",           "cloud"),
+    45: ("Fog",              "fog"),
+    48: ("Freezing fog",     "fog"),
+    51: ("Light drizzle",    "drizzle"),
+    53: ("Drizzle",          "drizzle"),
+    55: ("Heavy drizzle",    "drizzle"),
+    56: ("Freezing drizzle", "sleet"),
+    57: ("Freezing drizzle", "sleet"),
+    61: ("Light rain",       "rain"),
+    63: ("Rain",             "rain"),
+    65: ("Heavy rain",       "rain"),
+    66: ("Freezing rain",    "sleet"),
+    67: ("Freezing rain",    "sleet"),
+    71: ("Light snow",       "snow"),
+    73: ("Snow",             "snow"),
+    75: ("Heavy snow",       "snow"),
+    77: ("Snow grains",      "snow"),
+    80: ("Rain showers",     "rain"),
+    81: ("Rain showers",     "rain"),
+    82: ("Heavy showers",    "rain"),
+    85: ("Snow showers",     "snow"),
+    86: ("Snow showers",     "snow"),
+    95: ("Thunderstorm",     "thunder"),
+    96: ("Thunder + hail",   "thunder"),
+    99: ("Thunder + hail",   "thunder"),
+}
+
+
+@app.get("/api/weather")
+async def api_weather(
+    lat: Optional[float] = None,
+    lon: Optional[float] = None,
+    label: str = "",
+):
+    """Fetch current conditions from Open-Meteo for one lat/lon.
+
+    Caller persists label + coords in localStorage; this endpoint is
+    stateless apart from an in-memory 10-min cache keyed by (lat, lon).
+    Network errors degrade to ``{configured, error}`` so the topbar
+    never breaks when the upstream is unreachable.
+    """
+    if lat is None or lon is None:
+        return {"configured": False}
+    # Quantise to 2 decimals so minor coord differences for the same
+    # city hit one cache entry.
+    key = (round(float(lat), 2), round(float(lon), 2))
+    now = time.time()
+    cached = _weather_cache.get(key)
+    if cached and (now - cached[0]) < _WEATHER_CACHE_TTL:
+        body = dict(cached[1])
+        body["label"] = label or body.get("label") or ""
+        body["cached"] = True
+        return body
+
+    params = {
+        "latitude":  str(key[0]),
+        "longitude": str(key[1]),
+        "current":   "temperature_2m,weather_code,relative_humidity_2m,wind_speed_10m",
+        "timezone":  "auto",
+    }
+    try:
+        async with httpx.AsyncClient(timeout=8.0) as client:
+            r = await client.get(OPEN_METEO_URL, params=params)
+            r.raise_for_status()
+            j = r.json() or {}
+    except Exception as e:
+        return {"configured": True, "error": str(e), "label": label}
+
+    cur = j.get("current") or {}
+    code = int(cur.get("weather_code") or 0)
+    desc, icon = _WMO_CODES.get(code, ("Unknown", "cloud"))
+    body = {
+        "configured":  True,
+        "label":       label,
+        "temp_c":      cur.get("temperature_2m"),
+        "humidity":    cur.get("relative_humidity_2m"),
+        "wind_kmh":    cur.get("wind_speed_10m"),
+        "code":        code,
+        "condition":   desc,
+        "icon":        icon,
+        "provider":    "open-meteo",
+        "upstream":    OPEN_METEO_URL,
+        "fetched_at":  int(now),
+    }
+    _weather_cache[key] = (now, body)
+    return body
+
+
 # ============================================================================
 # App logs — in-memory ring buffer of recent stdout/stderr lines.
 # Admin-only. Frontend polls /api/logs?since=<ts> to incrementally

@@ -210,9 +210,19 @@ async def _fetch_xml(
     body = r.text or ""
     if not body.strip():
         return None, f"{path}: empty response"
+    # Strip a BOM that some Webmin 2.x builds emit ahead of XML
+    # declarations. ElementTree's parser rejects a leading BOM as
+    # "not well-formed (invalid token): line 2, column 16" — the
+    # BOM sits before ``<?xml ...?>\n<root>`` which trips the parser
+    # at the second line's first real element.
+    if body.startswith("﻿"):
+        body = body[1:]
     # Webmin sometimes returns a login HTML page for unauthenticated
     # probes when Basic isn't whitelisted for the user. Detect the
-    # tell-tale ``<html`` prefix and surface a cleaner error.
+    # tell-tale ``<html`` prefix and surface a cleaner error. The
+    # ``<title>`` tells us which page we actually got (login vs.
+    # the full HTML UI page which Webmin 2.x returns when ``?xml=1``
+    # isn't recognised for a module).
     stripped = body.lstrip().lower()
     if stripped.startswith("<!doctype html") or stripped.startswith("<html"):
         hint = _strip_html(body)
@@ -221,6 +231,11 @@ async def _fetch_xml(
     try:
         root = ET.fromstring(body)
     except ET.ParseError as e:
+        # Dump first 200 chars of the response so Admin → Logs can
+        # show exactly what came back. 2.x sometimes wraps XML in
+        # plain-text headers the parser chokes on.
+        preview = body[:200].replace("\n", "\\n").replace("\r", "\\r")
+        print(f"[webmin] XML parse error for {url}: {e}; body preview: {preview!r}")
         return None, f"{path}: XML parse error — {e}"
     return root, None
 

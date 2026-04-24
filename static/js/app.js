@@ -483,6 +483,23 @@ function app() {
         email:        (this.me && this.me.email)        || '',
       };
     },
+    // Dirty-tracker for the Profile form. Compares the live form
+    // against the baseline pulled from `me`. Any string divergence
+    // in display_name / bio / email flips the Save button to its
+    // "unsaved changes" visual treatment — same as Admin → Hosts
+    // and the host-stats Save button.
+    profileDirty() {
+      if (!this.me) return false;
+      const f = this.profileForm || {};
+      const base = {
+        display_name: this.me.display_name || '',
+        bio:          this.me.bio          || '',
+        email:        this.me.email        || '',
+      };
+      return (f.display_name || '') !== base.display_name
+          || (f.bio          || '') !== base.bio
+          || (f.email        || '') !== base.email;
+    },
 
     async saveProfile() {
       if (this.profileBusy) return;
