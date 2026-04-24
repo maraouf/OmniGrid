@@ -2685,6 +2685,18 @@ function app() {
             "mkdir -p /etc/systemd/system/beszel-agent.service.d && " +
             "printf '[Service]\\nEnvironment=NICS=eth0\\n' > /etc/systemd/system/beszel-agent.service.d/nics.conf && " +
             "systemctl daemon-reload && systemctl restart beszel-agent" },
+        { id: 'verify-beszel-nics', title: 'Verify Beszel NICS setup',
+          command:
+            "echo '=== override.conf (systemd) ===' && " +
+            "ls -la /etc/systemd/system/beszel-agent.service.d/ 2>&1 || true; " +
+            "cat /etc/systemd/system/beszel-agent.service.d/*.conf 2>&1 || true; " +
+            "echo '=== beszel-agent unit Environment ===' && " +
+            "systemctl show beszel-agent -p Environment 2>&1 || true; " +
+            "echo '=== beszel-agent process env (if running) ===' && " +
+            "(ps -eo pid,comm,args 2>/dev/null | grep -E 'beszel.?agent' | grep -v grep || echo 'no beszel process found'); " +
+            "echo '=== docker fallback ===' && " +
+            "(docker inspect beszel-agent --format '{{range .Config.Env}}{{println .}}{{end}}' 2>&1 || echo 'no docker beszel-agent container'); " +
+            "echo '=== sudo sanity ===' && sudo -n whoami 2>&1" },
         { id: 'journal-beszel',   title: 'Journal: Beszel agent (last 40)',
           command: 'journalctl -u beszel-agent -n 40 --no-pager' },
         { id: 'ip-link',          title: 'List NICs (ip link)',
