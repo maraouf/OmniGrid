@@ -222,6 +222,14 @@ async def fetch_system_history(
             ts = int(_dt.datetime.fromisoformat(iso).timestamp())
         except Exception:
             ts = 0
+        nr = _num(stats.get("nr"))
+        ns = _num(stats.get("ns"))
+        b = _num(stats.get("b"))
+        # ``net`` — synthesized so the frontend chart doesn't have to
+        # probe two fields. Newer Beszel versions emit ``nr`` (recv)
+        # and ``ns`` (send); older versions only had the combined
+        # ``b`` (bandwidth). Prefer the sum when available.
+        net = (nr + ns) if (nr or ns) else b
         series.append({
             "t":   ts,
             "cpu": _num(stats.get("cpu")),
@@ -229,9 +237,10 @@ async def fetch_system_history(
             "dp":  _num(stats.get("dp")),
             "mu":  _num(stats.get("mu")),   # mem used GiB
             "du":  _num(stats.get("du")),   # disk used GiB
-            "b":   _num(stats.get("b")),    # network bytes/s
-            "nr":  _num(stats.get("nr")),   # net recv bytes/s (newer)
-            "ns":  _num(stats.get("ns")),   # net send bytes/s (newer)
+            "b":   b,    # network bytes/s (legacy aggregate)
+            "nr":  nr,   # net recv bytes/s (newer)
+            "ns":  ns,   # net send bytes/s (newer)
+            "net": net,  # preferred aggregate for the net chart
         })
     return {"series": series, "error": None}
 
@@ -273,6 +282,42 @@ async def _fetch_latest_stats(
             continue
         latest[sid] = it.get("stats") or {}
     return latest
+
+
+def _flatten_efs(efs) -> list[dict]:
+    """Turn Beszel's ``extra filesystems`` map into a list.
+
+    Input shape from ``system_stats.stats.efs``:
+        {"/mnt/data": {"d": 1000.0, "du": 450.0, "dr": 12.3, "dw": 7.8}}
+
+    Output:
+        [{"n": "/mnt/data", "d": 1000.0, "du": 450.0,
+          "dp": 45.0, "dr": 12.3, "dw": 7.8}, ...]
+
+    ``dp`` is derived (Beszel doesn't store a per-mount percentage)
+    so the bar in the Hosts tab can render without extra work on the
+    frontend. Non-dict input returns an empty list.
+    """
+    if not isinstance(efs, dict):
+        return []
+    out: list[dict] = []
+    for name, stats in efs.items():
+        if not isinstance(stats, dict):
+            continue
+        d = _num(stats.get("d"))
+        du = _num(stats.get("du"))
+        out.append({
+            "n":  str(name),
+            "d":  d,
+            "du": du,
+            "dp": (du / d * 100) if d > 0 else 0.0,
+            "dr": _num(stats.get("dr")),
+            "dw": _num(stats.get("dw")),
+        })
+    # Most-full first — the noisy mount is usually the one an operator
+    # wants to see.
+    out.sort(key=lambda r: r["dp"], reverse=True)
+    return out
 
 
 def _derive_arch(kernel: str) -> str:
@@ -374,9 +419,11 @@ def extract_stats(info: dict, stats: Optional[dict] = None) -> dict:
         "host_arch":        _derive_arch(info.get("k") or info.get("kernel") or "")
                             or str(info.get("a") or info.get("arch") or ""),
         "host_agent":       str(info.get("v") or info.get("agent") or ""),
-        # Per-mount detail is in the stats row under ``efs`` in newer
-        # Beszel versions; surface the raw list for future drill-down UIs.
-        "mounts":           list(stats.get("efs") or []),
+        # Per-mount detail. Beszel stores ``extra filesystems`` as a
+        # map name → {d, du, dr, dw} on the stats row. We flatten into
+        # a list so the frontend can ``x-for`` over it without caring
+        # that the source was a dict.
+        "mounts":           _flatten_efs(stats.get("efs")),
         # Network interfaces (list of names) — Beszel exposes these in
         # ``info.ni``. MAC / IPs aren't part of the public schema, so
         # the NETWORK card renders whatever names we got.

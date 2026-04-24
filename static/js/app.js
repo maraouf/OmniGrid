@@ -2844,13 +2844,17 @@ function app() {
     },
     // Build an SVG path for one metric across the host's history. Native
     // line chart, no Chart.js dependency — the series is small and the
-    // shape is simple enough that a polyline does the job.
+    // shape is simple enough that a polyline does the job. The result
+    // carries extra fields (area path, gridlines, axis labels) so the
+    // template can render a richer chart than just a single polyline.
     hostChart(systemId, key, opts = {}) {
       const entry = this.hostHistory[systemId];
       if (!entry || !entry.series || entry.series.length < 2) return null;
       const W = opts.width || 420;
-      const H = opts.height || 80;
-      const PAD = 4;
+      const H = opts.height || 100;
+      const PAD_X = 4;
+      const PAD_T = 6;   // top pad so the peak doesn't clip against the border
+      const PAD_B = 4;
       const pts = entry.series.map(r => r[key]);
       let lo = Infinity, hi = -Infinity;
       for (const v of pts) {
@@ -2863,16 +2867,34 @@ function app() {
       // Optional forced range — e.g. CPU/Mem/Disk charts clamp to 0..100.
       if (opts.min !== undefined) lo = opts.min;
       if (opts.max !== undefined) hi = opts.max;
-      const step = (W - PAD * 2) / (pts.length - 1);
-      const points = pts.map((v, i) => {
-        const x = (PAD + i * step).toFixed(1);
+      const step = (W - PAD_X * 2) / (pts.length - 1);
+      const usableH = H - PAD_T - PAD_B;
+      const xy = pts.map((v, i) => {
         const n = Number(v) || 0;
-        const y = (H - PAD - ((n - lo) / (hi - lo || 1)) * (H - PAD * 2)).toFixed(1);
-        return `${x},${y}`;
-      }).join(' ');
+        return {
+          x: PAD_X + i * step,
+          y: PAD_T + usableH - ((n - lo) / (hi - lo || 1)) * usableH,
+        };
+      });
+      const points = xy.map(p => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' ');
+      // Area path — polyline + closure back to baseline so we can fill
+      // under the curve. Baseline is the chart's bottom.
+      const baseY = (H - PAD_B).toFixed(1);
+      const area = 'M'
+        + `${xy[0].x.toFixed(1)},${baseY} `
+        + xy.map(p => `L${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' ')
+        + ` L${xy[xy.length - 1].x.toFixed(1)},${baseY} Z`;
+      // Horizontal reference ticks — three evenly-spaced gridlines so
+      // the eye has something to anchor the peaks against.
+      const ticks = [0.25, 0.5, 0.75].map(frac => ({
+        y: (PAD_T + usableH * frac).toFixed(1),
+        value: (hi - (hi - lo) * frac),
+      }));
       const cur = Number(pts[pts.length - 1]) || 0;
       return {
         points,
+        area,
+        ticks,
         width: W,
         height: H,
         min: lo,
