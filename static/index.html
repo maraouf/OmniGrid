@@ -2684,6 +2684,14 @@
               <span x-show="!hostsDiscovering">Discover from providers</span>
               <span x-show="hostsDiscovering" class="flex items-center gap-1"><span class="spin"></span>Fetching…</span>
             </button>
+            <button x-show="isAdmin() && discoveredMissingCount() > 0"
+                    @click="importDiscoveredHosts()"
+                    class="btn btn-primary text-[12px]"
+                    :title="'Create a row for every discovered name that isn\'t already configured. Duplicates are skipped.'">
+              <span>Import</span>
+              <span class="ms-1 text-[10.5px] opacity-80"
+                    x-text="'(' + discoveredMissingCount() + ')'"></span>
+            </button>
             <button x-show="isAdmin()" @click="loadHostsConfig()"
                     class="btn btn-ghost text-[12px]"
                     :disabled="hostsConfigLoading">Reload</button>

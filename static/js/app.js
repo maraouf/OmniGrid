@@ -69,6 +69,11 @@ function app() {
     // operator asks.
     hostsDiscovery: { beszel: [], pulse: [] },
     hostsDiscovering: false,
+    // Per-row test results keyed by row index. Each entry has
+    // ``pending: bool`` and the provider payloads {beszel, pulse,
+    // node_exporter} each with {ok, skipped, detail}. Cleared when
+    // a row's fields change so stale results aren't shown.
+    hostsTestResults: {},
     // Per-system time-series cache keyed by Beszel record id.
     // Shape: { [system_id]: { loading, error, series: [{t,cpu,mp,dp,b,...}] } }
     hostHistory: {},
@@ -2961,6 +2966,84 @@ function app() {
         this.showToast(`Discover failed: ${e.message}`, 'error');
       } finally {
         this.hostsDiscovering = false;
+      }
+    },
+    // Count of discovered names not already present in hostsConfig —
+    // drives the "Import N discovered" button label / visibility so
+    // the operator doesn't import duplicates by accident.
+    discoveredMissingCount() {
+      const seen = new Set((this.hostsConfig || []).map(r =>
+        (r.beszel_name || r.pulse_name || r.id || '').toLowerCase()
+      ));
+      let n = 0;
+      for (const name of (this.hostsDiscovery.beszel || [])) {
+        if (!seen.has(name.toLowerCase())) n++;
+      }
+      for (const name of (this.hostsDiscovery.pulse || [])) {
+        if (!seen.has(name.toLowerCase())) n++;
+      }
+      return n;
+    },
+    // Bulk-create host rows from every discovered name that isn't
+    // already curated. Each new row uses the discovered name as both
+    // the id/label and the matching provider's name field; the
+    // operator tweaks from there. A name in BOTH providers creates
+    // a single row with both fields filled.
+    importDiscoveredHosts() {
+      const existing = new Set((this.hostsConfig || []).map(r =>
+        (r.id || '').toLowerCase()
+      ));
+      const added = {};
+      const addOrMerge = (name, field) => {
+        const key = name.toLowerCase();
+        if (existing.has(key)) return;
+        if (!added[key]) {
+          added[key] = {
+            id:          name,
+            label:       name,
+            ne_url:      '',
+            beszel_name: '',
+            pulse_name:  '',
+            enabled:     true,
+          };
+        }
+        added[key][field] = name;
+      };
+      for (const n of (this.hostsDiscovery.beszel || [])) addOrMerge(n, 'beszel_name');
+      for (const n of (this.hostsDiscovery.pulse  || [])) addOrMerge(n, 'pulse_name');
+      const rows = Object.values(added);
+      if (!rows.length) {
+        this.showToast('Nothing new to import — every discovered name is already configured.', 'success');
+        return;
+      }
+      this.hostsConfig.push(...rows);
+      this.showToast(`Added ${rows.length} host(s) — review and Save to persist.`, 'success');
+    },
+    async testHostRow(idx) {
+      const row = this.hostsConfig[idx];
+      if (!row) return;
+      this.hostsTestResults = {
+        ...this.hostsTestResults,
+        [idx]: { pending: true },
+      };
+      try {
+        const r = await fetch('/api/hosts/test', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            beszel_name: (row.beszel_name || '').trim(),
+            pulse_name:  (row.pulse_name  || '').trim(),
+            ne_url:      (row.ne_url      || '').trim(),
+          }),
+        });
+        if (!r.ok) {
+          this.hostsTestResults[idx] = { pending: false, error: `HTTP ${r.status}` };
+          return;
+        }
+        const d = await r.json();
+        this.hostsTestResults[idx] = { pending: false, ...d };
+      } catch (e) {
+        this.hostsTestResults[idx] = { pending: false, error: e.message };
       }
     },
     addHostRow() {

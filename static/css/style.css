@@ -633,6 +633,15 @@ select:focus {
     border-color: var(--pill-degraded-br);
 }
 
+/* "Info" pill — used by the host-row provider chip for Pulse so its
+   swatch stands apart from the beszel (ok-green) and exporter (update-
+   amber) chips. Borrows the --info token defined on :root. */
+.pill-info {
+    background: rgba(99, 102, 241, .10);
+    color: var(--info);
+    border-color: rgba(99, 102, 241, .30);
+}
+
 .pill-offline {
     background: var(--pill-offline-bg);
     color: var(--pill-offline-fg);

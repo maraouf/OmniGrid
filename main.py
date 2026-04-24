@@ -1458,6 +1458,106 @@ async def api_hosts_config_set(
     return {"hosts": saved, "count": len(saved)}
 
 
+@app.post("/api/hosts/test")
+async def api_hosts_test(
+    body: dict,
+    _u: auth.User = Depends(auth.require_admin),
+):
+    """Admin-only: probe each provider for a single host-config row.
+
+    Body: ``{beszel_name, pulse_name, ne_url}`` — any field blank is
+    skipped. Returns ``{beszel: {ok, detail}, pulse: {...},
+    node_exporter: {...}}`` with per-provider pass/fail + a short
+    description the UI shows beside the row.
+
+    Shares probes with the live Hosts-view code path so a pass here
+    guarantees the main page will render data for this host.
+    """
+    from logic import beszel as _beszel
+    from logic import pulse as _pulse
+    from logic import node_exporter as _ne
+
+    beszel_name = (body.get("beszel_name") or "").strip()
+    pulse_name = (body.get("pulse_name") or "").strip()
+    ne_url = (body.get("ne_url") or "").strip()
+    out = {
+        "beszel": {"ok": False, "skipped": True, "detail": "not set"},
+        "pulse":  {"ok": False, "skipped": True, "detail": "not set"},
+        "node_exporter": {"ok": False, "skipped": True, "detail": "not set"},
+    }
+
+    if beszel_name:
+        hub_url = get_setting("beszel_hub_url", "") or ""
+        ident = get_setting("beszel_identity", "") or ""
+        passw = get_setting("beszel_password", "") or ""
+        verify = (get_setting("beszel_verify_tls", "true") or "true").lower() == "true"
+        if hub_url and ident and passw:
+            r = await _beszel.probe_hub(hub_url, ident, passw, verify_tls=verify)
+            if r.get("error"):
+                out["beszel"] = {"ok": False, "skipped": False,
+                                 "detail": f"hub error: {r['error']}"}
+            elif beszel_name in (r.get("systems") or {}):
+                st = r["systems"][beszel_name]
+                mem = st.get("host_mem_total") or 0
+                disk = st.get("host_disk_total") or 0
+                out["beszel"] = {
+                    "ok": True, "skipped": False,
+                    "detail": (f"matched · mem={mem // (1024**3) if mem else '?'}"
+                               + f" GB · disk={disk // (1024**3) if disk else '?'} GB"),
+                }
+            else:
+                names = sorted((r.get("systems") or {}).keys(), key=str.lower)
+                hint = ", ".join(names[:3])
+                if len(names) > 3: hint += f" (+{len(names)-3} more)"
+                out["beszel"] = {"ok": False, "skipped": False,
+                                 "detail": f"no match in hub. Known: {hint or 'none'}"}
+        else:
+            out["beszel"] = {"ok": False, "skipped": False,
+                             "detail": "Beszel creds not configured"}
+
+    if pulse_name:
+        pulse_url = get_setting("pulse_url", "") or ""
+        pulse_tok = get_setting("pulse_token", "") or ""
+        verify = (get_setting("pulse_verify_tls", "true") or "true").lower() == "true"
+        if pulse_url and pulse_tok:
+            r = await _pulse.probe_pulse(pulse_url, pulse_tok, verify_tls=verify)
+            if r.get("error"):
+                out["pulse"] = {"ok": False, "skipped": False,
+                                "detail": f"pulse error: {r['error']}"}
+            elif pulse_name in (r.get("hosts") or {}):
+                st = r["hosts"][pulse_name]
+                kind = st.get("pulse_kind") or "host"
+                out["pulse"] = {"ok": True, "skipped": False,
+                                "detail": f"matched ({kind})"}
+            else:
+                names = sorted((r.get("hosts") or {}).keys(), key=str.lower)
+                hint = ", ".join(names[:3])
+                if len(names) > 3: hint += f" (+{len(names)-3} more)"
+                out["pulse"] = {"ok": False, "skipped": False,
+                                "detail": f"no match in Pulse. Known: {hint or 'none'}"}
+        else:
+            out["pulse"] = {"ok": False, "skipped": False,
+                            "detail": "Pulse creds not configured"}
+
+    if ne_url:
+        try:
+            async with httpx.AsyncClient(verify=False, timeout=8.0) as client:
+                stats = await _ne.probe_node(client, ne_url)
+        except Exception as e:
+            stats = {"exporter_error": str(e)}
+        if stats.get("exporter_error"):
+            out["node_exporter"] = {"ok": False, "skipped": False,
+                                    "detail": stats["exporter_error"]}
+        else:
+            mem = stats.get("host_mem_total") or 0
+            out["node_exporter"] = {
+                "ok": True, "skipped": False,
+                "detail": f"reachable · mem={mem // (1024**3) if mem else '?'} GB",
+            }
+
+    return out
+
+
 @app.get("/api/hosts/discover")
 async def api_hosts_discover(_u: auth.User = Depends(auth.require_admin)):
     """Admin-only: pull every known host name from each enabled
