@@ -67,6 +67,7 @@ function app() {
     hostsConfig: [],
     hostsConfigLoading: false,
     hostsConfigSaving: false,
+    hostsConfigDirty: false,
     // Datalist-backed autocomplete source for the Hosts editor.
     // Filled by discoverHosts() on demand; stays empty until the
     // operator asks.
@@ -280,6 +281,16 @@ function app() {
         document.title = this.t('app.name');
       });
       window.addEventListener('keydown', (e) => this.handleHotkey(e));
+      // Warn when closing / reloading the tab with unsaved Hosts
+      // edits. Browsers ignore a custom string (Chrome shows their
+      // own generic dialog), but the presence of returnValue still
+      // triggers the prompt.
+      window.addEventListener('beforeunload', (e) => {
+        if (this.hostsConfigDirty) {
+          e.preventDefault();
+          e.returnValue = '';
+        }
+      });
       await this.loadSettings();
       await this.loadIgnores();
       await this.refresh();
@@ -2916,6 +2927,11 @@ function app() {
 
     // --- Admin → Hosts: curated host list editor ---
     async loadHostsConfig() {
+      // Guard against clobbering unsaved edits. The operator can hit
+      // Reload deliberately (confirms) or bypass when clean.
+      if (this.hostsConfigDirty && !confirm(
+        'You have unsaved changes in the Hosts list. Discard them and reload from the server?'
+      )) return;
       this.hostsConfigLoading = true;
       try {
         const r = await fetch('/api/hosts/config');
@@ -2925,6 +2941,7 @@ function app() {
         }
         const d = await r.json();
         this.hostsConfig = Array.isArray(d.hosts) ? d.hosts : [];
+        this.hostsConfigDirty = false;
       } catch (e) {
         this.showToast(`Load hosts failed: ${e.message}`, 'error');
       } finally {
@@ -2992,6 +3009,9 @@ function app() {
     // the id/label and the matching provider's name field; the
     // operator tweaks from there. A name in BOTH providers creates
     // a single row with both fields filled.
+    // Helper used by importDiscoveredHosts + anywhere else that
+    // programmatically mutates hostsConfig.
+    _markHostsDirty() { this.hostsConfigDirty = true; },
     importDiscoveredHosts() {
       const existing = new Set((this.hostsConfig || []).map(r =>
         (r.id || '').toLowerCase()
@@ -3020,6 +3040,7 @@ function app() {
         return;
       }
       this.hostsConfig.push(...rows);
+      this.hostsConfigDirty = true;
       this.showToast(`Added ${rows.length} host(s) — review and Save to persist.`, 'success');
     },
     async testHostRow(idx) {
@@ -3060,11 +3081,15 @@ function app() {
         icon: '',
         enabled: true,
       });
+      this.hostsConfigDirty = true;
     },
-    // Dirty-tracking: clear any stale per-row Test result the moment
-    // an input changes, so green ticks don't linger next to fields
-    // the operator is currently fixing.
+    // Dirty-tracking: any input change flips the unsaved-changes
+    // flag (so the Save button can flash the warning + beforeunload
+    // guards kick in) AND clears any stale per-row Test result so
+    // green ticks don't linger next to fields the operator is
+    // currently fixing.
     markHostRowDirty(idx) {
+      this.hostsConfigDirty = true;
       if (this.hostsTestResults && this.hostsTestResults[idx]) {
         delete this.hostsTestResults[idx];
       }
@@ -3099,6 +3124,7 @@ function app() {
     },
     removeHostRow(idx) {
       this.hostsConfig.splice(idx, 1);
+      this.hostsConfigDirty = true;
     },
     async saveHostsConfig() {
       // Strip empty rows (no ID) so saving doesn't persist placeholder
@@ -3129,6 +3155,7 @@ function app() {
         }
         const d = await r.json();
         this.hostsConfig = d.hosts || [];
+        this.hostsConfigDirty = false;
         this.showToast(`Saved ${d.count} host(s)`, 'success');
         // The Hosts tab consumes this list — refresh it so the new
         // mapping takes effect without a full page reload.
