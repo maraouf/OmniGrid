@@ -246,6 +246,44 @@ def parse_exporter_text(text: str) -> dict:
     }
 
 
+def _normalise_ne_url(url: str) -> str:
+    """Accept a variety of operator-typed URLs and return a canonical
+    ``.../metrics`` form.
+
+    Accepted inputs (all resolve to the same canonical URL):
+      - ``http://host:9100``
+      - ``http://host:9100/``
+      - ``http://host:9100/metrics``
+      - ``http://host:9100/metrics/``
+      - ``host:9100``           (scheme-less; http:// is assumed)
+      - ``host``                (scheme-less, port-less; http:// + :9100)
+
+    Rule: strip trailing slashes; default scheme to http; default port
+    to 9100 when missing; append ``/metrics`` unless already present.
+    """
+    from urllib.parse import urlparse, urlunparse
+    s = (url or "").strip()
+    if not s:
+        return s
+    # Strip trailing slashes up-front — the most common operator typo.
+    s = s.rstrip("/")
+    # Ensure we have a scheme so urlparse doesn't dump the host into path.
+    if "://" not in s:
+        s = "http://" + s
+    p = urlparse(s)
+    netloc = p.netloc
+    # Default port 9100 for bare hostname — the standard node_exporter port.
+    if ":" not in netloc and netloc:
+        netloc = netloc + ":9100"
+    path = p.path or ""
+    # Strip trailing slash from path (already done for whole URL but be
+    # explicit so /metrics/ doesn't become /metrics//metrics on append).
+    path = path.rstrip("/")
+    if not path.endswith("/metrics"):
+        path = (path + "/metrics") if path else "/metrics"
+    return urlunparse((p.scheme or "http", netloc, path, "", "", ""))
+
+
 async def probe_node(
     client: httpx.AsyncClient,
     url: str,
@@ -253,18 +291,50 @@ async def probe_node(
 ) -> dict:
     """Fetch + parse a single node-exporter endpoint.
 
+    Forgiving URL handling via :func:`_normalise_ne_url` — accepts bare
+    hostnames, URLs without ``/metrics``, trailing slashes, and missing
+    scheme. If the normalised URL still returns HTML (operator pointed
+    us at a landing page on a different path), log the 'got HTML'
+    signal clearly so the Admin → Hosts Test button can surface it.
+
     On any failure returns ``{"exporter_error": <str>}`` — callers then
     merge this into nodes_info so the frontend can show "stats
     unavailable" next to that node instead of dropping it.
     """
+    async def _fetch(u: str) -> tuple[Optional[str], Optional[str]]:
+        """(body_text, error_str). One of the pair is always None."""
+        try:
+            r = await client.get(u, timeout=timeout)
+        except Exception as e:
+            return None, str(e)
+        if r.status_code >= 400:
+            return None, f"HTTP {r.status_code}"
+        return r.text, None
+
+    canonical = _normalise_ne_url(url)
+
+    text, err = await _fetch(canonical)
+    # If /metrics returned an error, try the raw user-supplied URL as a
+    # fallback — maybe the exporter lives at a non-standard path.
+    if err and canonical != url and url:
+        text, err2 = await _fetch(url)
+        if err2:
+            return {"exporter_error":
+                    f"{canonical} → {err}; fallback {url} → {err2}"}
+    if err and text is None:
+        return {"exporter_error": err}
+
+    # Detect HTML landing pages. Exporters expose metrics ONLY as
+    # plain text; any HTML response means we hit the wrong endpoint.
+    lead = (text or "").lstrip().lower()
+    if lead.startswith("<!doctype") or lead.startswith("<html"):
+        return {"exporter_error":
+                f"endpoint returned HTML, not Prometheus text — "
+                f"tried {canonical}; check the URL resolves to "
+                f"node_exporter's /metrics output"}
+
     try:
-        r = await client.get(url, timeout=timeout)
-    except Exception as e:
-        return {"exporter_error": str(e)}
-    if r.status_code >= 400:
-        return {"exporter_error": f"HTTP {r.status_code}"}
-    try:
-        stats = parse_exporter_text(r.text)
+        stats = parse_exporter_text(text)
     except Exception as e:
         return {"exporter_error": f"parse: {e}"}
     stats["exporter_error"] = None

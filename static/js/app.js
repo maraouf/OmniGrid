@@ -31,6 +31,19 @@ function app() {
     stats: {}, _statsTimer: null, _maxSize: 1,
     sparks: {}, _sparksTimer: null,
     version: '',
+    // Topbar clock + weather widgets. Per-browser preferences kept in
+    // localStorage so each operator's city survives refresh. Clock is
+    // purely client-side; weather goes through the backend proxy at
+    // /api/weather (Open-Meteo, no API key, 10-min server cache).
+    headerClockEnabled: (typeof localStorage !== 'undefined' && localStorage.getItem('headerClockEnabled') !== 'false'),
+    headerWeatherEnabled: (typeof localStorage !== 'undefined' && localStorage.getItem('headerWeatherEnabled') === 'true'),
+    headerWeatherLat:   (typeof localStorage !== 'undefined' ? (parseFloat(localStorage.getItem('headerWeatherLat') || '') || null) : null),
+    headerWeatherLon:   (typeof localStorage !== 'undefined' ? (parseFloat(localStorage.getItem('headerWeatherLon') || '') || null) : null),
+    headerWeatherLabel: (typeof localStorage !== 'undefined' ? (localStorage.getItem('headerWeatherLabel') || '') : ''),
+    currentClock: '',
+    weather: null,
+    _clockTimer: null,
+    _weatherTimer: null,
     // Version snapshot captured at first load. `watchVersion()` polls
     // /api/version every 60s and compares against this; mismatch means
     // CI just shipped a new build so we flip `newVersionAvailable` and
@@ -342,6 +355,8 @@ function app() {
       await this.loadHistory();
       this.loadVersion();
       this.startVersionWatcher();
+      this.startHeaderClock();
+      this.startHeaderWeather();
       this.pollOps();
       this.pollStats();
       this.pollSparks();
@@ -1731,6 +1746,79 @@ function app() {
       }
     },
 
+    // --- Topbar clock + weather ---
+    tickHeaderClock() {
+      const now = new Date();
+      // Browser locale owns the formatting — gives us 12h/24h + AM/PM
+      // automatically based on the user's OS setting.
+      this.currentClock = now.toLocaleTimeString([], {
+        hour: 'numeric', minute: '2-digit',
+      });
+    },
+    startHeaderClock() {
+      if (this._clockTimer) return;
+      this.tickHeaderClock();
+      // 10s cadence — granular enough to keep minutes synced without
+      // hammering the render loop.
+      this._clockTimer = setInterval(() => this.tickHeaderClock(), 10000);
+    },
+    async loadHeaderWeather() {
+      if (!this.headerWeatherEnabled
+          || this.headerWeatherLat == null
+          || this.headerWeatherLon == null) {
+        this.weather = null;
+        return;
+      }
+      try {
+        const p = new URLSearchParams({
+          lat:   String(this.headerWeatherLat),
+          lon:   String(this.headerWeatherLon),
+          label: this.headerWeatherLabel || '',
+        });
+        const r = await fetch('/api/weather?' + p.toString());
+        if (!r.ok) { this.weather = null; return; }
+        this.weather = await r.json();
+      } catch (_) {
+        this.weather = null;
+      }
+    },
+    startHeaderWeather() {
+      if (this._weatherTimer) return;
+      this.loadHeaderWeather();
+      // 10 min cadence — backend already caches 10 min per coord, so
+      // this matches the server-side TTL. Even if the operator has ten
+      // tabs open they hit the cache after the first.
+      this._weatherTimer = setInterval(() => this.loadHeaderWeather(), 600000);
+    },
+    saveHeaderPrefs() {
+      try {
+        localStorage.setItem('headerClockEnabled',   String(!!this.headerClockEnabled));
+        localStorage.setItem('headerWeatherEnabled', String(!!this.headerWeatherEnabled));
+        localStorage.setItem('headerWeatherLat',     this.headerWeatherLat == null ? '' : String(this.headerWeatherLat));
+        localStorage.setItem('headerWeatherLon',     this.headerWeatherLon == null ? '' : String(this.headerWeatherLon));
+        localStorage.setItem('headerWeatherLabel',   this.headerWeatherLabel || '');
+      } catch (_) {}
+      // Re-fetch with the new settings immediately rather than waiting
+      // for the 10-min tick. Also flushes weather to null when disabled.
+      this.loadHeaderWeather();
+    },
+    // Inline SVG path(s) per WMO-icon slug. Kept tiny — the topbar chip
+    // is 16px so detail is wasted. Backend maps WMO codes to slugs in
+    // main.py:_WMO_CODES so the mapping has ONE source of truth.
+    weatherIconPath(slug) {
+      const icons = {
+        'sun':       '<circle cx="12" cy="12" r="4.5"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>',
+        'cloud-sun': '<circle cx="7" cy="8" r="3"/><path d="M7 2v2M2 8h2M12 8h-.5M4 4l1 1M10 4L9 5"/><path d="M20 17h-10.5a3.5 3.5 0 1 1 .8-6.9"/>',
+        'cloud':     '<path d="M17 18H7a5 5 0 0 1-.6-9.96 7 7 0 0 1 13.5 2.16A4 4 0 0 1 17 18z"/>',
+        'fog':       '<path d="M3 9h18M3 13h18M3 17h12M7 5h14"/>',
+        'drizzle':   '<path d="M17 14H7a5 5 0 0 1-.6-9.96 7 7 0 0 1 13.5 2.16A4 4 0 0 1 17 14z"/><path d="M9 18v2M13 18v2M17 18v2"/>',
+        'rain':      '<path d="M17 14H7a5 5 0 0 1-.6-9.96 7 7 0 0 1 13.5 2.16A4 4 0 0 1 17 14z"/><path d="M8 16v4M12 18v4M16 16v4"/>',
+        'snow':      '<path d="M17 14H7a5 5 0 0 1-.6-9.96 7 7 0 0 1 13.5 2.16A4 4 0 0 1 17 14z"/><path d="M8 17v1M12 19v1M16 17v1M8 20v1M12 22v.01M16 20v1"/>',
+        'sleet':     '<path d="M17 14H7a5 5 0 0 1-.6-9.96 7 7 0 0 1 13.5 2.16A4 4 0 0 1 17 14z"/><path d="M9 17v2M13 19v2M17 17v2M10 20h.01M14 18h.01"/>',
+        'thunder':   '<path d="M19 16a5 5 0 0 0-1-9h-1.3a7 7 0 0 0-13.4 2"/><polyline points="13 11 9 17 14 17 10 22"/>',
+      };
+      return icons[slug] || icons['cloud'];
+    },
     async loadVersion() {
       try {
         const r = await fetch('/api/version');
