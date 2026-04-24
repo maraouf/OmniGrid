@@ -57,6 +57,13 @@ function app() {
     hostsLoading: false,
     hostsExpanded: [],
     _hostsTimer: null,
+    // Admin → Hosts editor state. ``hostsConfig`` is the curated list
+    // pulled from /api/hosts/config (array of host records with
+    // per-provider name mappings). ``hostsConfigSaving`` gates the
+    // Save button's spinner.
+    hostsConfig: [],
+    hostsConfigLoading: false,
+    hostsConfigSaving: false,
     // Per-system time-series cache keyed by Beszel record id.
     // Shape: { [system_id]: { loading, error, series: [{t,cpu,mp,dp,b,...}] } }
     hostHistory: {},
@@ -127,6 +134,7 @@ function app() {
       { id: 'portainer',      label: 'Portainer' },
       { id: 'oidc',           label: 'Authentik OIDC' },
       { id: 'host_stats',     label: 'Host stats' },
+      { id: 'hosts',          label: 'Hosts' },
       { id: 'schedules',      label: 'Schedules' },
       { id: 'backups',        label: 'Backups' },
       { id: 'logs',           label: 'Logs' },
@@ -719,6 +727,9 @@ function app() {
       // open so edits from another tab don't go stale.
       else if (['notifications', 'portainer', 'oidc', 'host_stats'].includes(tab)) {
         await this.loadSettings();
+      }
+      else if (tab === 'hosts') {
+        await this.loadHostsConfig();
       }
     },
 
@@ -2866,6 +2877,74 @@ function app() {
       return parts.length ? parts.join(' · ') : '';
     },
     openDrawer(item) { this.drawerItem = item; },
+
+    // --- Admin → Hosts: curated host list editor ---
+    async loadHostsConfig() {
+      this.hostsConfigLoading = true;
+      try {
+        const r = await fetch('/api/hosts/config');
+        if (!r.ok) {
+          this.showToast(`Load hosts failed: HTTP ${r.status}`, 'error');
+          return;
+        }
+        const d = await r.json();
+        this.hostsConfig = Array.isArray(d.hosts) ? d.hosts : [];
+      } catch (e) {
+        this.showToast(`Load hosts failed: ${e.message}`, 'error');
+      } finally {
+        this.hostsConfigLoading = false;
+      }
+    },
+    addHostRow() {
+      this.hostsConfig.push({
+        id: '',
+        label: '',
+        ne_url: '',
+        beszel_name: '',
+        pulse_name: '',
+        enabled: true,
+      });
+    },
+    removeHostRow(idx) {
+      this.hostsConfig.splice(idx, 1);
+    },
+    async saveHostsConfig() {
+      // Strip empty rows (no ID) so saving doesn't persist placeholder
+      // blanks. The server dedupes by ID in case the same one was
+      // typed twice.
+      const clean = (this.hostsConfig || []).filter(
+        h => (h.id || '').trim() !== '',
+      ).map(h => ({
+        id:          (h.id || '').trim(),
+        label:       (h.label || h.id || '').trim(),
+        ne_url:      (h.ne_url || '').trim(),
+        beszel_name: (h.beszel_name || '').trim(),
+        pulse_name:  (h.pulse_name || '').trim(),
+        enabled:     h.enabled !== false,
+      }));
+      this.hostsConfigSaving = true;
+      try {
+        const r = await fetch('/api/hosts/config', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ hosts: clean }),
+        });
+        if (!r.ok) {
+          const j = await r.json().catch(() => ({}));
+          throw new Error(j.detail || `HTTP ${r.status}`);
+        }
+        const d = await r.json();
+        this.hostsConfig = d.hosts || [];
+        this.showToast(`Saved ${d.count} host(s)`, 'success');
+        // The Hosts tab consumes this list — refresh it so the new
+        // mapping takes effect without a full page reload.
+        if (this.view === 'hosts') this.loadHosts();
+      } catch (e) {
+        this.showToast(`Save failed: ${e.message}`, 'error');
+      } finally {
+        this.hostsConfigSaving = false;
+      }
+    },
 
     // --- Hosts view (Beszel-backed) ---
     async loadHosts() {

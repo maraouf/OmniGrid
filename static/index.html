@@ -2648,6 +2648,111 @@
                 x-text="t('actions.save')"></button>
       </section>
 
+      <!-- HOSTS TAB — curated host list editor. Each row pairs a
+           local host id (the Docker hostname) with per-provider name
+           overrides (node-exporter URL, Beszel host, Pulse node/guest
+           name). /api/hosts merges stats from every enabled provider
+           into one row per host so operators see the best-of every
+           source. -->
+      <section x-show="adminTab==='hosts'" class="bg-[var(--surface)] border border-[var(--border)] rounded-md p-5">
+        <div class="flex items-start justify-between gap-3 mb-3">
+          <div>
+            <h3 class="font-semibold text-[13px]">Hosts</h3>
+            <p class="text-[11.5px] text-[var(--text-faint)] mt-1 leading-snug">
+              Define the machines you want to monitor and map each to the
+              names used by every enabled provider. OmniGrid fetches all
+              providers on every refresh and merges the best values
+              per host — missing fields degrade to what the other
+              providers returned.
+            </p>
+          </div>
+          <button x-show="isAdmin()" @click="loadHostsConfig()"
+                  class="btn btn-ghost text-[12px]"
+                  :disabled="hostsConfigLoading">Reload</button>
+        </div>
+
+        <div x-show="hostsConfigLoading" class="loading-state py-8">
+          <span class="spin" aria-hidden="true"></span>
+          <span class="ms-2">Loading hosts…</span>
+        </div>
+
+        <div x-show="!hostsConfigLoading" class="overflow-x-auto scrollbar">
+          <table class="w-full text-[12px] ptable">
+            <thead>
+              <tr class="text-[10.5px] uppercase tracking-wider text-[var(--text-faint)]">
+                <th class="text-start py-2 pe-3">ID</th>
+                <th class="text-start py-2 pe-3">Label</th>
+                <th class="text-start py-2 pe-3">node-exporter URL</th>
+                <th class="text-start py-2 pe-3">Beszel host</th>
+                <th class="text-start py-2 pe-3">Pulse name</th>
+                <th class="text-center py-2 pe-3">Enabled</th>
+                <th class="text-center py-2"></th>
+              </tr>
+            </thead>
+            <tbody>
+              <template x-for="(row, idx) in hostsConfig" :key="idx">
+                <tr class="border-t border-[var(--border)]">
+                  <td class="py-1.5 pe-3">
+                    <input type="text" x-model="row.id" :disabled="isReadonly()"
+                           class="w-full mono text-[11.5px]"
+                           placeholder="docker-1">
+                  </td>
+                  <td class="py-1.5 pe-3">
+                    <input type="text" x-model="row.label" :disabled="isReadonly()"
+                           class="w-full text-[11.5px]"
+                           placeholder="Docker VM">
+                  </td>
+                  <td class="py-1.5 pe-3">
+                    <input type="url" x-model="row.ne_url" :disabled="isReadonly()"
+                           class="w-full mono text-[11.5px]"
+                           placeholder="http://host:9100/metrics">
+                  </td>
+                  <td class="py-1.5 pe-3">
+                    <input type="text" x-model="row.beszel_name" :disabled="isReadonly()"
+                           class="w-full mono text-[11.5px]"
+                           placeholder="docker.home.lan">
+                  </td>
+                  <td class="py-1.5 pe-3">
+                    <input type="text" x-model="row.pulse_name" :disabled="isReadonly()"
+                           class="w-full mono text-[11.5px]"
+                           placeholder="docker / pve-1">
+                  </td>
+                  <td class="py-1.5 pe-3 text-center">
+                    <input type="checkbox" x-model="row.enabled" :disabled="isReadonly()">
+                  </td>
+                  <td class="py-1.5 text-center">
+                    <button x-show="isAdmin()" @click="removeHostRow(idx)"
+                            class="btn btn-ghost text-[11px] text-danger"
+                            title="Remove this row">✕</button>
+                  </td>
+                </tr>
+              </template>
+              <tr x-show="hostsConfig.length === 0">
+                <td colspan="7" class="text-center py-8 text-[var(--text-faint)] text-[12px] italic">
+                  No hosts configured. Click <strong>Add host</strong> below to define one.
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="flex items-center gap-2 mt-3">
+          <button x-show="isAdmin()" @click="addHostRow()"
+                  class="btn btn-soft text-[12px]">+ Add host</button>
+          <button x-show="isAdmin()" @click="saveHostsConfig()"
+                  class="btn btn-primary text-[12px]"
+                  :disabled="hostsConfigSaving">
+            <span x-show="!hostsConfigSaving">Save</span>
+            <span x-show="hostsConfigSaving" class="flex items-center gap-1"><span class="spin"></span>Saving…</span>
+          </button>
+          <span class="text-[11px] text-[var(--text-faint)] ms-2">
+            Tip: leave fields blank when a provider doesn't know this
+            host — the row still works from whatever other providers
+            match.
+          </span>
+        </div>
+      </section>
+
       <!-- BACKUPS TAB -->
       <!-- SCHEDULES TAB -->
       <div x-show="adminTab==='schedules'" class="space-y-4">
