@@ -1096,13 +1096,31 @@
                         x-text="' (' + fmtBytes(h.mem_used) + '/' + fmtBytes(h.mem_total) + ')'"></span>
                 </div>
               </div>
-              <!-- Disk % + bytes -->
+              <!-- Disk % + bytes — segmented bar when multiple
+                   mounts exist, each stripe a distinct colour
+                   proportional to the mount's used portion of the
+                   whole pool. Falls back to a plain single-colour
+                   bar when the host reports only aggregate totals. -->
               <div>
-                <div class="stat-bar"
-                     :class="barLevel(h.disk_percent || diskPercentOf(h))"
-                     :style="'--w: ' + (h.disk_percent || diskPercentOf(h)) + '%'">
-                  <div class="fill"></div>
-                </div>
+                <template x-if="(h.mounts || []).length > 1">
+                  <div class="disk-segmented">
+                    <template x-for="(m, i) in (h.mounts || [])" :key="i">
+                      <div class="disk-segmented-seg"
+                           :class="'disk-seg-' + (i % 7)"
+                           :style="'width: ' + mountSegmentWidth(h, i) + '%'"
+                           :title="(m.n || '') + ' · '
+                                   + fmtBytes((m.du || 0) * 1024**3) + ' / '
+                                   + fmtBytes((m.d || 0) * 1024**3)"></div>
+                    </template>
+                  </div>
+                </template>
+                <template x-if="(h.mounts || []).length <= 1">
+                  <div class="stat-bar"
+                       :class="barLevel(h.disk_percent || diskPercentOf(h))"
+                       :style="'--w: ' + (h.disk_percent || diskPercentOf(h)) + '%'">
+                    <div class="fill"></div>
+                  </div>
+                </template>
                 <div class="text-[10.5px] mono mt-1">
                   <span x-text="(h.disk_percent || diskPercentOf(h)) + '%'"></span>
                   <span class="text-[var(--text-faint)]" x-show="h.disk_total"
@@ -1319,13 +1337,13 @@
                          class="rounded border border-[var(--border)] bg-[var(--surface)] p-4">
                   <h4 class="text-[10.5px] uppercase tracking-wider text-[var(--text-faint)] mb-3">Disks</h4>
                   <div class="space-y-3">
-                    <!-- Total usage row — the bar is SEGMENTED when
-                         we have per-mount data: each mount shows as a
-                         proportional stripe of a distinct colour so
-                         operators can see "the root is full but /data
-                         is mostly empty" at a glance. Falls back to a
-                         single-color aggregate bar when only the
-                         whole-pool totals exist. -->
+                    <!-- Total usage row — single-colour aggregate bar.
+                         Per-mount rows below give the breakdown; the
+                         segmented rendering now lives on the
+                         collapsed host row's small disk column
+                         instead (see the Disk column in the grid
+                         row). Keeps the expanded DISKS card matching
+                         Beszel's reference layout. -->
                     <div x-show="h.disk_total > 0">
                       <div class="flex items-baseline justify-between">
                         <span class="text-[11.5px] text-[var(--text-dim)] font-semibold">Total usage</span>
@@ -1334,45 +1352,11 @@
                                       + fmtBytes(h.disk_used) + ' / '
                                       + fmtBytes(h.disk_total)"></span>
                       </div>
-                      <!-- Segmented bar — rendered only when we have
-                           at least one mount. Uses h.disk_total as the
-                           full-bar width so each segment's percent is
-                           "this mount's used / total pool" — that way
-                           the bar's visual sum across segments equals
-                           the aggregate "used" portion. -->
-                      <template x-if="(h.mounts || []).length > 0">
-                        <div class="mt-1">
-                          <div class="disk-seg-labels"
-                               x-show="(h.mounts || []).length > 1">
-                            <template x-for="(m, i) in (h.mounts || [])" :key="i">
-                              <span class="disk-seg-label"
-                                    :class="'disk-seg-' + (i % 7)"
-                                    :style="'margin-inline-start: '
-                                            + (mountSegmentOffset(h, i) + mountSegmentWidth(h, i) / 2)
-                                            + '%'"
-                                    x-text="m.n || m.name || '(disk)'"></span>
-                            </template>
-                          </div>
-                          <div class="disk-segmented">
-                            <template x-for="(m, i) in (h.mounts || [])" :key="i">
-                              <div class="disk-segmented-seg"
-                                   :class="'disk-seg-' + (i % 7)"
-                                   :style="'width: ' + mountSegmentWidth(h, i) + '%'"
-                                   :title="(m.n || '') + ' · '
-                                           + fmtBytes((m.du || 0) * 1024**3) + ' used'"></div>
-                            </template>
-                          </div>
-                        </div>
-                      </template>
-                      <!-- Single-colour fallback when no per-mount data
-                           is available — still shows total usage %. -->
-                      <template x-if="(h.mounts || []).length === 0">
-                        <div class="stat-bar mt-1"
-                             :class="barLevel(diskPercentOf(h))"
-                             :style="'--w: ' + diskPercentOf(h) + '%'">
-                          <div class="fill"></div>
-                        </div>
-                      </template>
+                      <div class="stat-bar mt-1"
+                           :class="barLevel(diskPercentOf(h))"
+                           :style="'--w: ' + diskPercentOf(h) + '%'">
+                        <div class="fill"></div>
+                      </div>
                     </div>
                     <!-- Per-mount breakdown (when stats.efs was
                          populated — full-host Beszel agents only). -->
@@ -1648,23 +1632,13 @@
         <span class="spin-lg" aria-hidden="true"></span>
         <div>Loading hosts from providers…</div>
       </div>
-      <!-- Empty-state ladder — three distinct cases:
-             1. No curated hosts at all → define them.
-             2. Curated hosts exist but all disabled → enable one.
-             3. Curated + enabled hosts exist but no provider
-                matched any of them → fix name mappings /
-                providers. -->
-      <div x-show="hostsConfigured && !hostsLoading && !hostsError && hosts.length === 0 && hostsCuratedCount === 0"
-           class="text-center py-16 text-[var(--text-faint)] text-sm">
-        <div>No hosts yet.</div>
-        <div class="mt-2">
-          Define them in
-          <a href="/admin/hosts" class="text-[var(--primary)] hover:underline">Admin → Hosts</a>
-          and enable at least one provider in
-          <a href="/admin/host_stats" class="text-[var(--primary)] hover:underline">Admin → Host stats</a>
-          to see data here.
-        </div>
-      </div>
+      <!-- Empty-state ladder — ordered by most-specific cause. The
+           ``hostsCuratedCount`` / ``hostsEnabledCount`` fields come
+           from the server's /api/hosts response; older server
+           builds don't ship those, so the first fallback case
+           works even when they're absent. -->
+
+      <!-- Case: server sent curated_count > 0 but every row disabled. -->
       <div x-show="hostsConfigured && !hostsLoading && !hostsError && hosts.length === 0 && hostsCuratedCount > 0 && hostsEnabledCount === 0"
            class="text-center py-16 text-[var(--text-faint)] text-sm">
         <div>
@@ -1679,6 +1653,9 @@
           see here.
         </div>
       </div>
+
+      <!-- Case: server sent curated_count > 0 with enabled rows but
+           no provider matched any of them. -->
       <div x-show="hostsConfigured && !hostsLoading && !hostsError && hosts.length === 0 && hostsEnabledCount > 0"
            class="text-center py-16 text-[var(--text-faint)] text-sm">
         <div>
@@ -1691,6 +1668,37 @@
           <a href="/admin/hosts" class="text-[var(--primary)] hover:underline">Admin → Hosts</a>
           — the mapped provider names probably don't match what
           Beszel / Pulse / node-exporter actually report.
+        </div>
+      </div>
+
+      <!-- Case: no configured providers. Catches "I enabled nothing". -->
+      <div x-show="hostsConfigured && !hostsLoading && !hostsError && hosts.length === 0 && hostsCuratedCount === 0 && (hostsActiveSources || []).length === 0"
+           class="text-center py-16 text-[var(--text-faint)] text-sm">
+        <div>No host-stats provider enabled.</div>
+        <div class="mt-2">
+          Enable Beszel / Pulse / node-exporter in
+          <a href="/admin/host_stats" class="text-[var(--primary)] hover:underline">Admin → Host stats</a>,
+          then define the hosts you want to monitor in
+          <a href="/admin/hosts" class="text-[var(--primary)] hover:underline">Admin → Hosts</a>.
+        </div>
+      </div>
+
+      <!-- Fallback — used when the server is on an older build that
+           doesn't return curated_count / enabled_count. Assumes
+           hosts are configured somewhere but no provider hit. The
+           copy suggests the most common fix (Test providers) rather
+           than the misleading "no hosts yet". -->
+      <div x-show="hostsConfigured && !hostsLoading && !hostsError && hosts.length === 0 && hostsCuratedCount === 0 && (hostsActiveSources || []).length > 0"
+           class="text-center py-16 text-[var(--text-faint)] text-sm">
+        <div>No host data to show.</div>
+        <div class="mt-2 text-[13px] leading-relaxed">
+          If you've defined hosts in
+          <a href="/admin/hosts" class="text-[var(--primary)] hover:underline">Admin → Hosts</a>,
+          the configured provider names probably don't match what
+          <span class="mono" x-text="(hostsActiveSources || []).join(' / ')"></span>
+          is reporting — use the per-row <strong>Test providers</strong>
+          button to see what each provider knows about, then fix the
+          mapping.
         </div>
       </div>
     </div>

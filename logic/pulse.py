@@ -255,15 +255,25 @@ def extract_guest_stats(guest: dict) -> dict:
     kind = str(
         guest.get("type") or guest.get("kind") or guest.get("vmtype") or ""
     ).lower()
-    # Leave ``host_platform`` AND ``host_os`` blank so Beszel's
-    # cleaner short forms ("debian" + "debian 13.4") win during
-    # _merge_best. Pulse's ``osName`` tends to be the long PRETTY_NAME
-    # (``"Debian GNU/Linux 13 (trixie)"``) which if allowed through
-    # would clobber Beszel's concise value and cause the Platform/OS
-    # columns to show mismatched strings. The Proxmox identity (LXC /
-    # VM / #vmid / on-node) already has its own dedicated row in the
-    # SYSTEM card via pulse_kind/vmid/node, so nothing useful is lost.
-    os_hint = ""  # deliberately blank — see comment above
+    # OS-family hints from Pulse, used as a FALLBACK layer — the
+    # merge order (see main.api_hosts) puts Pulse first so Beszel's
+    # cleaner short forms override these when available. For Pulse-
+    # only hosts (no Beszel agent running inside the guest) these
+    # are all we've got, and empty cells with no Beszel to fill
+    # them would just be dead rows in the SYSTEM card.
+    os_hint       = str(guest.get("osName") or guest.get("os") or "").strip()
+    kernel_hint   = str(guest.get("kernel") or guest.get("k") or "").strip()
+    arch_hint     = str(guest.get("arch") or guest.get("architecture") or "").strip()
+    platform_hint = str(
+        guest.get("platform") or guest.get("p")
+        or guest.get("distro") or ""
+    ).strip()
+    # If we have osName "Debian GNU/Linux 13 ..." but no explicit
+    # platform, pull the first word as a platform guess so the
+    # Platform row isn't blank on a Pulse-only host.
+    if not platform_hint and os_hint:
+        first = os_hint.split()[0] if os_hint.split() else ""
+        platform_hint = first
     # Network interfaces — Pulse emits ``networkInterfaces`` (qemu
     # guest-agent) or ``net`` / ``ip`` fields (LXC config). Normalise
     # into the same {name, mac, addrs:[]} shape Beszel uses so the
@@ -298,12 +308,13 @@ def extract_guest_stats(guest: dict) -> dict:
         "host_mem_percent":  (mem / mem_max * 100) if mem_max > 0 else 0,
         "host_disk_percent": (disk / disk_max * 100) if disk_max > 0 else 0,
         "host_cores":        int(_num(guest.get("maxcpu"))),
-        # Leave platform empty — Beszel's ``info.p`` / node-exporter's
-        # ``node_uname_info`` will fill it with the OS-level platform.
-        "host_platform":     "",
+        # Fallback layer — Beszel / node-exporter override these
+        # when they match the same host. Empty on pre-schema Pulse
+        # guests (host_platform derived from osName first word).
+        "host_platform":     platform_hint,
         "host_agent":        "",
-        "host_kernel":       "",
-        "host_arch":         "",
+        "host_kernel":       kernel_hint,
+        "host_arch":         arch_hint,
         # host_os: only the Pulse guest's osName (when present) as a
         # best-effort hint for Beszel-less hosts; Beszel's real value
         # still wins via _merge_best when both providers match.
