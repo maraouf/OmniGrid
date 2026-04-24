@@ -3181,6 +3181,8 @@ function app() {
           'ovpn':            'openvpn',
           'wg':              'wireguard',
           'wireguard-vpn':   'wireguard',
+          'qbit':            'qbittorrent',
+          'qb':              'qbittorrent',
         };
         const slug = aliases[h.icon.toLowerCase()] || h.icon;
         return '/img/icons/' + slug + '.svg';
@@ -3276,6 +3278,13 @@ function app() {
         ['openvpn',               'openvpn'],
         ['wireguard',             'wireguard'],
         ['wg-easy',               'wireguard'],
+        // download clients
+        ['qbittorrent',           'qbittorrent'],
+        ['qbit',                  'qbittorrent'],
+        ['transmission',          'transmission'],
+        ['deluge',                'deluge'],
+        ['sabnzbd',               'sabnzbd'],
+        ['nzbget',                'nzbget'],
         // notifications / networking
         ['apprise',               'apprise'],
         ['fing',                  'fing'],
