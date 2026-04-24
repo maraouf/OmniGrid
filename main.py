@@ -834,6 +834,19 @@ class SettingsIn(BaseModel):
     # Open-Meteo upstream — blank uses the public endpoint; admins
     # can point at a self-hosted instance without touching .env.
     open_meteo_url: Optional[str] = None
+    # Host grouping — JSON array of {name, range_start, range_end, order}
+    # that buckets curated hosts into collapsible sections in the Hosts
+    # view by their custom_number. Operator-managed under Admin → Hosts.
+    host_groups: Optional[list] = None
+    # Asset inventory V1 — OAuth2 client_credentials against oufa.co.
+    # Secret is write-only (see api_set_settings keep-if-blank rule);
+    # admin clears via clear_asset_inventory_client_secret flag.
+    asset_inventory_base_url: Optional[str] = None
+    asset_inventory_token_url: Optional[str] = None
+    asset_inventory_client_id: Optional[str] = None
+    asset_inventory_client_secret: Optional[str] = None
+    asset_inventory_scope: Optional[str] = None
+    clear_asset_inventory_client_secret: Optional[bool] = None
     # -----------------------------------------------------------------
     # SSH console — admin-only remote command runner wired into the
     # host drawer. Global defaults; per-host overrides live in
@@ -888,6 +901,20 @@ async def api_get_settings(request: Request):
         # clear so the input round-trips and reloads persisted. Blank
         # disables the topbar weather widget (see _open_meteo_url).
         "open_meteo_url": get_setting("open_meteo_url", "") or "",
+        # Host groups — returned as a parsed list of dicts. Admin →
+        # Hosts editor round-trips this to build the group editor UI.
+        "host_groups": (lambda raw: (
+            json.loads(raw) if (raw or "").strip() else []
+        ))(get_setting("host_groups", "") or ""),
+        # Asset inventory (oufa.co). Secret is write-only — UI sees
+        # a `_set` flag only. Other fields round-trip in the clear.
+        "asset_inventory": {
+            "base_url":           get_setting("asset_inventory_base_url", "") or "",
+            "token_url":          get_setting("asset_inventory_token_url", "") or "",
+            "client_id":          get_setting("asset_inventory_client_id", "") or "",
+            "client_secret_set":  bool(get_setting("asset_inventory_client_secret", "")),
+            "scope":              get_setting("asset_inventory_scope", "") or "",
+        },
         "portainer_public_url": get_setting("portainer_public_url", str(p.get("portainer_url") or "")),
         "backup_retention_count": int(get_setting("backup_retention_count", "0") or "0"),
         "scheduler_timezone": get_setting("scheduler_timezone", "") or "",
@@ -1227,6 +1254,64 @@ async def api_set_settings(
                 "command": cmd[:2048],
             })
         set_setting("ssh_custom_actions", json.dumps(clean_actions))
+
+    # --- Host groups (ticket #93) -----------------------------------------
+    # Each entry: {name, range_start, range_end, order?}. Malformed
+    # entries are silently dropped so a stray UI row doesn't fail the
+    # whole save. Name capped at 60 chars (prevents layout breakage in
+    # the collapsible group heading). range_end >= range_start.
+    if s.host_groups is not None:
+        if not isinstance(s.host_groups, list):
+            raise HTTPException(400, "host_groups must be a list")
+        clean_groups: list[dict] = []
+        for i, g in enumerate(s.host_groups):
+            if not isinstance(g, dict):
+                continue
+            name = (g.get("name") or "").strip()[:60]
+            if not name:
+                continue
+            try:
+                rs = int(g.get("range_start"))
+                re_ = int(g.get("range_end"))
+            except (TypeError, ValueError):
+                continue
+            if rs < 0 or re_ < rs:
+                continue
+            try:
+                order = int(g.get("order", i))
+            except (TypeError, ValueError):
+                order = i
+            clean_groups.append({
+                "name":        name,
+                "range_start": rs,
+                "range_end":   re_,
+                "order":       order,
+            })
+        # Persist in order-field order so render iteration doesn't have to re-sort.
+        clean_groups.sort(key=lambda g: (g["order"], g["name"]))
+        set_setting("host_groups", json.dumps(clean_groups))
+
+    # --- Asset inventory (ticket #78) -------------------------------------
+    # Secret follows the keep-current-if-blank + clear-flag contract.
+    if s.asset_inventory_base_url is not None:
+        set_setting("asset_inventory_base_url",
+                    (s.asset_inventory_base_url or "").strip().rstrip("/"))
+    if s.asset_inventory_token_url is not None:
+        set_setting("asset_inventory_token_url",
+                    (s.asset_inventory_token_url or "").strip())
+    if s.asset_inventory_client_id is not None:
+        set_setting("asset_inventory_client_id",
+                    (s.asset_inventory_client_id or "").strip())
+    if s.asset_inventory_scope is not None:
+        set_setting("asset_inventory_scope",
+                    (s.asset_inventory_scope or "").strip())
+    if s.asset_inventory_client_secret is not None \
+            and s.asset_inventory_client_secret.strip() != "":
+        set_setting("asset_inventory_client_secret",
+                    s.asset_inventory_client_secret)
+    if s.clear_asset_inventory_client_secret:
+        set_setting("asset_inventory_client_secret", "")
+
     _cache["ts"] = 0  # force the next gather to re-read alias settings
 
     auth_changed = False
@@ -1478,6 +1563,85 @@ async def api_beszel_test(
         detail += f" (+{len(systems) - 5} more)"
     return {"ok": True, "detail": detail, "system_count": len(systems),
             "systems": sorted(systems.keys())}
+
+
+# ----------------------------------------------------------------------------
+# Asset inventory (ticket #78) — oufa.co OAuth2 client_credentials. Manual
+# refresh only; reads go through the file cache at /app/data/asset_inventory.json.
+# ----------------------------------------------------------------------------
+@app.get("/api/asset-inventory")
+async def api_asset_inventory(_admin: auth.User = Depends(auth.require_admin)):
+    """Admin-only: return the cached asset inventory snapshot.
+
+    Returns the shape ``{ok, ts, count, assets, upstream, error}``. An
+    empty / missing cache is reported via ``ok=false`` + ``error`` so the
+    UI can render an empty state without special-casing HTTP 404.
+    """
+    from logic import asset_inventory as _ai
+    return _ai.load_cache()
+
+
+@app.post("/api/asset-inventory/test")
+async def api_asset_inventory_test(
+    request: Request,
+    _admin: auth.User = Depends(auth.require_admin),
+):
+    """Admin-only: run the OAuth2 flow once, without saving or caching.
+
+    Accepts unsaved form values (``token_url``, ``client_id``,
+    ``client_secret``, ``scope``) or falls back to the persisted
+    settings when a field is blank — matching the Portainer / Beszel /
+    Pulse test endpoints.
+    """
+    from logic import asset_inventory as _ai
+    body = await request.json() if await request.body() else {}
+    token_url = (body.get("token_url") or "").strip() \
+        or (get_setting("asset_inventory_token_url", "") or "")
+    client_id = (body.get("client_id") or "").strip() \
+        or (get_setting("asset_inventory_client_id", "") or "")
+    scope = (body.get("scope") or "").strip() \
+        or (get_setting("asset_inventory_scope", "") or "")
+    client_secret = body.get("client_secret") or ""
+    if not client_secret:
+        client_secret = get_setting("asset_inventory_client_secret", "") or ""
+    if not token_url or not client_id or not client_secret:
+        return {"ok": False,
+                "detail": "token_url, client_id and client_secret are all required"}
+    result = await _ai.probe_token(
+        token_url, client_id, client_secret, scope=scope, verify_tls=True,
+    )
+    if result.get("ok"):
+        expires_in = result.get("expires_in") or 0
+        return {"ok": True,
+                "detail": (f"OK — got {result.get('token_type') or 'Bearer'} token"
+                           + (f", expires in {expires_in}s" if expires_in else ""))}
+    return {"ok": False, "detail": result.get("error") or "auth failed"}
+
+
+@app.post("/api/asset-inventory/refresh")
+async def api_asset_inventory_refresh(
+    _admin: auth.User = Depends(auth.require_admin),
+):
+    """Admin-only: probe token + fetch assets + overwrite the cache.
+
+    Manual refresh only — there is no lifespan loop. Returns the
+    summary from ``refresh_cache`` so the UI can show a toast with the
+    new count and timestamp.
+    """
+    from logic import asset_inventory as _ai
+    base_url = (get_setting("asset_inventory_base_url", "") or "").strip().rstrip("/")
+    token_url = (get_setting("asset_inventory_token_url", "") or "").strip()
+    client_id = (get_setting("asset_inventory_client_id", "") or "").strip()
+    client_secret = get_setting("asset_inventory_client_secret", "") or ""
+    scope = (get_setting("asset_inventory_scope", "") or "").strip()
+    if not base_url or not token_url or not client_id or not client_secret:
+        return {"ok": False, "count": 0, "ts": 0,
+                "error": "asset_inventory_* settings are incomplete — "
+                         "configure base_url / token_url / client_id / client_secret"}
+    return await _ai.refresh_cache(
+        base_url, token_url, client_id, client_secret,
+        scope=scope, verify_tls=True,
+    )
 
 
 def _meaningful(v) -> bool:

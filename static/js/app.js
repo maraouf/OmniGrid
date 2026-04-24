@@ -130,6 +130,35 @@ function app() {
     // a row's fields change so stale results aren't shown.
     hostsTestResults: {},
     hostsTestingAll: false,
+    // Host grouping (ticket #93). Operator-defined ranges over the
+    // custom_number field. Loaded in loadSettings; edited inline in
+    // Admin → Hosts (below the row editor); persisted via POST
+    // /api/settings {host_groups: [...]}. Collapse state is keyed
+    // by group name, persisted to localStorage.
+    hostGroups: [],
+    hostGroupsDirty: false,
+    hostGroupsSaving: false,
+    hostGroupsCollapsed: (() => {
+      try {
+        const raw = typeof localStorage !== 'undefined'
+          ? localStorage.getItem('hostGroupsCollapsed') : null;
+        const parsed = raw ? JSON.parse(raw) : [];
+        return Array.isArray(parsed) ? parsed.filter(x => typeof x === 'string') : [];
+      } catch { return []; }
+    })(),
+    // Asset inventory (ticket #78). `assetForm` is the editable form
+    // state; `assetStatus` mirrors the server snapshot (secret `_set`
+    // flag etc.). `assetCache` is the loaded /api/asset-inventory
+    // payload — drives the preview block + drawer lookups.
+    assetForm: {
+      base_url: '', token_url: '', client_id: '',
+      client_secret: '', scope: '',
+    },
+    assetStatus: null,
+    assetTestResult: null,
+    assetCache: null,
+    assetRefreshing: false,
+    assetSaving: false,
     // Per-system time-series cache keyed by Beszel record id.
     // Shape: { [system_id]: { loading, error, series: [{t,cpu,mp,dp,b,...}] } }
     hostHistory: {},
@@ -274,6 +303,7 @@ function app() {
       { id: 'host_stats',     label: 'Host stats' },
       { id: 'hosts',          label: 'Hosts' },
       { id: 'ssh',            label: 'SSH' },
+      { id: 'assets',         label: 'Asset inventory' },
       { id: 'schedules',      label: 'Schedules' },
       { id: 'backups',        label: 'Backups' },
       { id: 'logs',           label: 'Logs' },
@@ -943,6 +973,13 @@ function app() {
       }
       else if (tab === 'hosts') {
         await this.loadHostsConfig();
+        // Host groups live in /api/settings; load it alongside so the
+        // groups editor at the bottom of this tab has current data.
+        await this.loadSettings();
+      }
+      else if (tab === 'assets') {
+        await this.loadSettings();
+        await this.loadAssetCache();
       }
     },
 
@@ -2360,6 +2397,31 @@ function app() {
 
         // --- Admin → SSH panel state ---
         this.hydrateSshSettings(d);
+
+        // --- Host groups (ticket #93) ---
+        // Server returns a clean list of {name, range_start, range_end,
+        // order}. We keep the order-field for round-trip but also sort
+        // here so the editor renders in the same order as the Hosts
+        // view will. Fresh load resets dirty flag.
+        this.hostGroups = Array.isArray(d.host_groups) ? d.host_groups.map(g => ({
+          name: String(g.name || ''),
+          range_start: Number.isFinite(+g.range_start) ? +g.range_start : 0,
+          range_end:   Number.isFinite(+g.range_end) ? +g.range_end : 0,
+          order:       Number.isFinite(+g.order) ? +g.order : 0,
+        })) : [];
+        this.hostGroupsDirty = false;
+
+        // --- Asset inventory (ticket #78) ---
+        this.assetStatus = d.asset_inventory || null;
+        if (this.assetStatus) {
+          this.assetForm = {
+            base_url:      this.assetStatus.base_url || '',
+            token_url:     this.assetStatus.token_url || '',
+            client_id:     this.assetStatus.client_id || '',
+            client_secret: '',  // write-only — never prefill
+            scope:         this.assetStatus.scope || '',
+          };
+        }
       } catch (e) { console.error(e); }
     },
 
@@ -4670,6 +4732,248 @@ function app() {
         this.showToast(`Save failed: ${e.message}`, 'error');
       } finally {
         this.hostsConfigSaving = false;
+      }
+    },
+
+    // --- Host groups (ticket #93) ---
+    // Operator-defined custom_number ranges that bucket hosts into
+    // collapsible sections in the Hosts view.
+    addHostGroup() {
+      const next = {
+        name: '',
+        range_start: 1,
+        range_end: 10,
+        order: (this.hostGroups || []).length,
+      };
+      this.hostGroups = [...(this.hostGroups || []), next];
+      this.hostGroupsDirty = true;
+    },
+    removeHostGroup(idx) {
+      this.hostGroups = (this.hostGroups || []).filter((_, i) => i !== idx);
+      this.hostGroupsDirty = true;
+    },
+    moveHostGroup(idx, dir) {
+      const arr = [...(this.hostGroups || [])];
+      const j = idx + dir;
+      if (j < 0 || j >= arr.length) return;
+      [arr[idx], arr[j]] = [arr[j], arr[idx]];
+      // Renumber `order` to match new array positions so the server
+      // round-trips the change on next load.
+      arr.forEach((g, i) => { g.order = i; });
+      this.hostGroups = arr;
+      this.hostGroupsDirty = true;
+    },
+    markHostGroupDirty() { this.hostGroupsDirty = true; },
+    async saveHostGroups() {
+      // Sanity validation matching the backend (name / range_start /
+      // range_end / order?). Let the server drop malformed entries —
+      // we just block saves that would clearly fail.
+      const clean = [];
+      for (const g of (this.hostGroups || [])) {
+        const name = String(g.name || '').trim();
+        if (!name) continue;
+        const rs = parseInt(g.range_start, 10);
+        const re_ = parseInt(g.range_end, 10);
+        if (!Number.isFinite(rs) || !Number.isFinite(re_)) continue;
+        if (rs < 0 || re_ < rs) {
+          this.showToast(
+            this.t('admin_hosts.groups.invalid_range', { name }),
+            'error',
+          );
+          return;
+        }
+        clean.push({
+          name, range_start: rs, range_end: re_,
+          order: Number.isFinite(+g.order) ? +g.order : clean.length,
+        });
+      }
+      this.hostGroupsSaving = true;
+      try {
+        const r = await fetch('/api/settings', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ host_groups: clean }),
+        });
+        if (!r.ok) {
+          const j = await r.json().catch(() => ({}));
+          throw new Error(j.detail || `HTTP ${r.status}`);
+        }
+        // Reload so the server's cleaned / sorted view replaces ours.
+        await this.loadSettings();
+        this.showToast(this.t('admin_hosts.groups.saved'), 'success');
+      } catch (e) {
+        this.showToast(this.t('admin_hosts.groups.save_failed') + ': ' + e.message, 'error');
+      } finally {
+        this.hostGroupsSaving = false;
+      }
+    },
+
+    // Hosts view — group-related helpers.
+    isGroupCollapsed(name) {
+      return (this.hostGroupsCollapsed || []).includes(name);
+    },
+    toggleGroup(name) {
+      const set = new Set(this.hostGroupsCollapsed || []);
+      if (set.has(name)) set.delete(name); else set.add(name);
+      this.hostGroupsCollapsed = Array.from(set);
+      try {
+        localStorage.setItem(
+          'hostGroupsCollapsed',
+          JSON.stringify(this.hostGroupsCollapsed),
+        );
+      } catch {}
+    },
+    expandAllGroups() {
+      this.hostGroupsCollapsed = [];
+      try { localStorage.setItem('hostGroupsCollapsed', '[]'); } catch {}
+    },
+    collapseAllGroups() {
+      const names = (this.hostGroups || []).map(g => g.name).filter(Boolean);
+      // Also collapse the "ungrouped" bucket so the operator can fully
+      // minimise the whole view. "" is the stable key for that bucket.
+      names.push('');
+      this.hostGroupsCollapsed = names;
+      try {
+        localStorage.setItem(
+          'hostGroupsCollapsed',
+          JSON.stringify(this.hostGroupsCollapsed),
+        );
+      } catch {}
+    },
+    // Build the grouped view: iterate the (already filtered+sorted)
+    // host list, bucket each into the first group whose range covers
+    // its custom_number. Anything unmatched lands in the trailing
+    // ungrouped bucket. Groups are rendered in `order` order; the
+    // ungrouped bucket always comes last.
+    groupedHosts() {
+      const hosts = this.filteredHosts();
+      const groups = (this.hostGroups || []).slice().sort(
+        (a, b) => (a.order || 0) - (b.order || 0) || a.name.localeCompare(b.name),
+      );
+      const buckets = groups.map(g => ({ group: g, hosts: [] }));
+      const ungrouped = { group: null, hosts: [] };
+      for (const h of hosts) {
+        const cn = h.custom_number;
+        const ci = (cn === null || cn === undefined || cn === '') ? null
+          : (Number.isFinite(+cn) ? +cn : null);
+        let placed = false;
+        if (ci !== null) {
+          for (const b of buckets) {
+            const g = b.group;
+            if (ci >= g.range_start && ci <= g.range_end) {
+              b.hosts.push(h);
+              placed = true;
+              break;
+            }
+          }
+        }
+        if (!placed) ungrouped.hosts.push(h);
+      }
+      const out = buckets.filter(b => b.hosts.length > 0 || groups.length);
+      if (ungrouped.hosts.length > 0) out.push(ungrouped);
+      return out;
+    },
+
+    // --- Asset inventory (ticket #78) ---
+    async saveAssetSettings() {
+      const body = {
+        asset_inventory_base_url:  (this.assetForm.base_url || '').trim(),
+        asset_inventory_token_url: (this.assetForm.token_url || '').trim(),
+        asset_inventory_client_id: (this.assetForm.client_id || '').trim(),
+        asset_inventory_scope:     (this.assetForm.scope || '').trim(),
+      };
+      if (this.assetForm.client_secret && this.assetForm.client_secret.trim()) {
+        body.asset_inventory_client_secret = this.assetForm.client_secret;
+      }
+      this.assetSaving = true;
+      try {
+        const r = await fetch('/api/settings', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        });
+        if (!r.ok) {
+          const j = await r.json().catch(() => ({}));
+          throw new Error(j.detail || `HTTP ${r.status}`);
+        }
+        this.showToast(this.t('admin_assets.saved'), 'success');
+        await this.loadSettings();
+        this.assetTestResult = null;
+      } catch (e) {
+        this.showToast(this.t('admin_assets.save_failed') + ': ' + e.message, 'error');
+      } finally {
+        this.assetSaving = false;
+      }
+    },
+    async clearAssetClientSecret() {
+      try {
+        const ok = await (window.Swal ? Swal.fire({
+          icon: 'warning',
+          title: this.t('admin_assets.clear_secret_title'),
+          text: this.t('admin_assets.clear_secret_text'),
+          showCancelButton: true,
+          confirmButtonText: this.t('actions.confirm'),
+          cancelButtonText:  this.t('actions.cancel'),
+        }).then(r => !!r.isConfirmed) : confirm('Clear asset inventory client secret?'));
+        if (!ok) return;
+        const r = await fetch('/api/settings', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ clear_asset_inventory_client_secret: true }),
+        });
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        await this.loadSettings();
+        this.showToast(this.t('admin_assets.secret_cleared'), 'success');
+      } catch (e) {
+        this.showToast(this.t('admin_assets.save_failed') + ': ' + e.message, 'error');
+      }
+    },
+    async testAssetConnection() {
+      this.assetTestResult = { pending: true };
+      try {
+        const r = await fetch('/api/asset-inventory/test', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            token_url:     (this.assetForm.token_url || '').trim(),
+            client_id:     (this.assetForm.client_id || '').trim(),
+            scope:         (this.assetForm.scope || '').trim(),
+            client_secret: this.assetForm.client_secret || '',
+          }),
+        });
+        const j = await r.json().catch(() => ({}));
+        this.assetTestResult = { ok: !!j.ok, detail: j.detail || '' };
+      } catch (e) {
+        this.assetTestResult = { ok: false, detail: 'Network error' };
+      }
+    },
+    async loadAssetCache() {
+      try {
+        const r = await fetch('/api/asset-inventory');
+        if (r.ok) {
+          this.assetCache = await r.json();
+        } else {
+          this.assetCache = { ok: false, error: `HTTP ${r.status}`, assets: [] };
+        }
+      } catch (e) {
+        this.assetCache = { ok: false, error: String(e), assets: [] };
+      }
+    },
+    async refreshAssetCache() {
+      this.assetRefreshing = true;
+      try {
+        const r = await fetch('/api/asset-inventory/refresh', { method: 'POST' });
+        const j = await r.json().catch(() => ({}));
+        if (j && j.ok) {
+          this.showToast(this.t('admin_assets.refresh_ok', { count: j.count || 0 }), 'success');
+        } else {
+          this.showToast(this.t('admin_assets.refresh_failed') + ': ' + (j.error || 'unknown'), 'error');
+        }
+        await this.loadAssetCache();
+      } catch (e) {
+        this.showToast(this.t('admin_assets.refresh_failed') + ': ' + e.message, 'error');
+      } finally {
+        this.assetRefreshing = false;
       }
     },
 

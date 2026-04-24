@@ -466,11 +466,36 @@ async def run_command(
                     resolved["server_key_fingerprint"] = fp[:16]
                 except Exception:
                     resolved["server_key_fingerprint"] = ""
-                proc = await conn.run(command, check=False)
+                # `request_pty='force'` allocates a pseudo-TTY on the
+                # remote so interactive-ish tools like sudo can prompt
+                # / detect a terminal and behave the way they do over
+                # an interactive login. Without a PTY, sudo on some
+                # configs silently fails with exit=0 — `tee` in a
+                # piped chain echoes its stdin to stdout but writes
+                # nothing to disk, which looks like "command ran but
+                # didn't apply". With a PTY sudo either runs (NOPASSWD
+                # or via cached creds) or fails loudly with "a
+                # password is required" on stderr.
+                proc = await conn.run(command, check=False, request_pty="force")
                 base_result["ok"] = True
                 base_result["exit_code"] = proc.exit_status
                 base_result["stdout"] = (proc.stdout or "")[: 256 * 1024]
                 base_result["stderr"] = (proc.stderr or "")[: 256 * 1024]
+                # Verbose diagnostic so the Admin → Logs view shows
+                # exactly what was asked and what came back. Truncated
+                # stdout/stderr previews make it easy to spot cases
+                # where the UI saw "ok" but the remote exit code was
+                # non-zero or stderr carried the real failure.
+                print(
+                    f"[ssh] run host={resolved.get('host')!r} "
+                    f"user={resolved.get('user')!r} "
+                    f"exit={proc.exit_status} "
+                    f"len_out={len(proc.stdout or '')} "
+                    f"len_err={len(proc.stderr or '')}"
+                )
+                if proc.stderr:
+                    stderr_preview = (proc.stderr or "")[:400].replace("\n", " | ")
+                    print(f"[ssh] run stderr: {stderr_preview}")
     except asyncssh.PermissionDenied as e:
         _arm_cooldown(host_id, resolved["user"])
         base_result["error"] = f"permission denied: {e} — cool-down armed"
