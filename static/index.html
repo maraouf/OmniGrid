@@ -126,11 +126,33 @@
              HTML + asset cache-bust tokens take effect. -->
         <button x-show="newVersionAvailable"
                 @click="reloadForNewVersion()"
-                class="btn btn-update text-[11px] flex items-center gap-1.5 animate-pulse"
+                class="btn btn-primary text-[11px] flex items-center gap-1.5 animate-pulse"
                 :title="'New version ' + newVersionString + ' deployed — click to reload and use the updated UI'">
           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
           <span>New version — reload</span>
         </button>
+        <!-- Topbar clock + weather — per-browser prefs from localStorage
+             (configured under Profile). Clock ticks every 10s; weather
+             via /api/weather proxy (Open-Meteo, 10-min server cache).
+             Widget is single row: clock mono font · cloud icon · label,
+             temp · condition subtext. Absent / disabled = nothing renders. -->
+        <div x-show="headerClockEnabled || (headerWeatherEnabled && weather && !weather.error && weather.temp_c != null)"
+             class="flex items-center gap-2 ps-2 ms-1 border-s border-[var(--border)] text-[11.5px] text-[var(--text-dim)]">
+          <span x-show="headerClockEnabled" class="mono font-semibold tracking-wide"
+                x-text="currentClock"></span>
+          <template x-if="headerWeatherEnabled && weather && !weather.error && weather.temp_c != null">
+            <div class="flex items-center gap-1.5">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" x-html="weatherIconPath(weather.icon)"></svg>
+              <div class="flex flex-col leading-tight">
+                <span>
+                  <span x-show="weather.label" x-text="weather.label + ', '"></span>
+                  <span x-text="(Math.round((weather.temp_c || 0) * 10) / 10) + '°C'"></span>
+                </span>
+                <span class="text-[10.5px] text-[var(--text-faint)]" x-text="weather.condition"></span>
+              </div>
+            </div>
+          </template>
+        </div>
         <button @click="cycleTheme()" :title="t('topbar.theme_title', { pref: themePref })" class="btn btn-soft">
           <!-- Moon for dark, sun for light, sun+moon split (crescent over sun) for auto. -->
           <template x-if="themePref==='dark'">

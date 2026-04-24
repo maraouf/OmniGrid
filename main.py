@@ -2123,21 +2123,26 @@ async def api_hosts_debug(
 
     # ---- node-exporter -------------------------------------------
     if "node_exporter" in active and record.get("ne_url"):
-        url = record["ne_url"]
+        url_input = record["ne_url"]
+        # Normalise the operator-supplied URL the same way probe_node()
+        # does so the "Raw" debug dump shows real metric text, not the
+        # HTML landing page that bare host:port returns.
+        url_canonical = _ne._normalise_ne_url(url_input)
         try:
             async with httpx.AsyncClient(verify=False, timeout=10.0) as client:
-                r = await client.get(url)
+                r = await client.get(url_canonical)
                 r.raise_for_status()
                 text = r.text
-                stats = await _ne.probe_node(client, url)
+                stats = await _ne.probe_node(client, url_input)
             lines = text.splitlines()
             # Cap the sample — a loaded node-exporter can emit thousands
             # of metric lines; operators want a taste, not a dump.
             providers_raw["node_exporter"] = {
-                "url":         url,
-                "size_bytes":  len(text),
-                "line_count":  len(lines),
-                "sample_lines": lines[:80],
+                "url_input":     url_input,
+                "url_canonical": url_canonical,
+                "size_bytes":    len(text),
+                "line_count":    len(lines),
+                "sample_lines":  lines[:80],
             }
             providers_normalized["node_exporter"] = stats
         except Exception as e:
