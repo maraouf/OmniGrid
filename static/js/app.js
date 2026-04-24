@@ -1724,6 +1724,63 @@ function app() {
       if (!q) return this.logLines;
       return this.logLines.filter(l => l.text.toLowerCase().includes(q));
     },
+    // Severity derived from the line body — stderr alone is coarse
+    // (backend error prints go to stdout too via print()). We look
+    // for textual markers anywhere in the line: ERROR / FAIL[ED|URE]
+    // → 'error'; WARN / WARNING → 'warn'; otherwise 'info'.
+    // Lowercase compare so "Error:", "error:", "ERROR:" all match.
+    logSeverity(l) {
+      if (!l) return 'info';
+      const text = (l.text || '').toLowerCase();
+      // stderr AND a tell-tale tag beats "happy-looking" body — but
+      // a stderr line with no negative keywords stays at 'info' (our
+      // own noisy prints go to stderr all the time).
+      if (/\berror\b|\bfail(?:ed|ure)?\b|\btraceback\b|\bcritical\b|\bfatal\b/.test(text)) {
+        return 'error';
+      }
+      if (/\bwarn(?:ing)?\b|deprecat/.test(text)) return 'warn';
+      // Explicit success/OK lines get their own class so
+      // "[xxx] probe SUCCESS" / "OK —" read as green.
+      if (/\bsuccess\b|\bok —|→ ok\b/i.test(l.text || '')) return 'ok';
+      return 'info';
+    },
+    // Escape HTML-unsafe characters before wrapping known prefixes in
+    // coloured spans. Without this, a log line that happened to
+    // contain `<img onerror=...>` would execute on render (Alpine's
+    // x-html is unsandboxed — we have to be strict here).
+    _logEscape(s) {
+      return String(s == null ? '' : s)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
+    },
+    // Wrap recognised tags like [webmin] / [beszel] in coloured
+    // spans. Returns safe HTML (already escaped) for x-html. Tag
+    // map below keeps the list explicit — new backend prefixes need
+    // to be added here to get a distinct colour (otherwise they
+    // fall through to the default tag colour).
+    colorizeLogText(l) {
+      const raw = (l && l.text) || '';
+      const esc = this._logEscape(raw);
+      // Tags known to carry a distinct colour class. Falls through
+      // to `log-tag` (neutral accent) for unknown tag names so ALL
+      // bracketed prefixes get highlighted even if uncategorised.
+      const tagColors = new Set([
+        'webmin', 'beszel', 'pulse', 'hosts', 'host_net_sampler',
+        'ssh', 'portainer', 'i18n', 'ops', 'schedules', 'gather',
+        'node_exporter', 'ne', 'oidc', 'auth', 'backup', 'stats',
+        'deploy', 'version',
+      ]);
+      // Replace [xxx] at the start of (or inside) the line. Allow
+      // underscores / hyphens for tag names like [host_net_sampler].
+      const withTags = esc.replace(/\[([a-z][a-z0-9_.\-]*?)\]/gi, (_m, tag) => {
+        const key = tag.toLowerCase();
+        const cls = tagColors.has(key) ? ('log-tag log-tag--' + key) : 'log-tag';
+        return '<span class="' + cls + '">[' + tag + ']</span>';
+      });
+      return withTags;
+    },
 
     async deleteBackup(b) {
       const res = await Swal.fire({

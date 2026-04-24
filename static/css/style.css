@@ -1212,6 +1212,72 @@ details summary::-webkit-details-marker {
 }
 
 
+/* ---- Admin → Logs colouring ------------------------------------
+   Three levels of colour layering: (a) a left accent border on each
+   line based on `log-line--{info,ok,warn,error}`; (b) the stream
+   tag (STDOUT / STDERR) gets its own class; (c) known [tag] prefixes
+   (webmin / beszel / pulse / hosts / ssh / etc.) are wrapped in
+   `log-tag log-tag--<name>` spans so they stand out independently
+   of the severity colour. The wrapping is done by colorizeLogText()
+   in app.js — tags NOT in the known set fall back to bare log-tag.
+   See #94. */
+.log-line {
+    padding: 1px 0 1px 6px;
+    border-inline-start: 2px solid transparent;
+}
+.log-line--info  { border-inline-start-color: transparent; }
+.log-line--ok    { border-inline-start-color: var(--success); }
+.log-line--warn  {
+    border-inline-start-color: var(--warning);
+    background: color-mix(in srgb, var(--warning) 6%, transparent);
+}
+.log-line--error {
+    border-inline-start-color: var(--danger);
+    background: color-mix(in srgb, var(--danger) 8%, transparent);
+}
+
+.log-stream { color: var(--text-faint); }
+.log-line--error .log-stream { color: var(--danger); }
+.log-line--warn  .log-stream { color: var(--warning); }
+
+.log-body { color: var(--text); }
+.log-line--warn  .log-body { color: var(--text); }
+.log-line--error .log-body { color: var(--danger); }
+.log-line--ok    .log-body { color: var(--text); }
+
+/* Tag chip — inline in the log body. Distinct colour per known
+   backend prefix so operators can visually filter (e.g. "I only
+   care about [webmin] lines"). Bold for readability; monospace
+   inherited from the log viewer. */
+.log-tag {
+    display: inline;
+    padding: 0 2px;
+    border-radius: var(--r-sm);
+    font-weight: 700;
+    color: var(--text-dim);
+    background: color-mix(in srgb, var(--text-dim) 12%, transparent);
+}
+.log-tag--webmin       { color: #d97706; background: color-mix(in srgb, #d97706 14%, transparent); }
+.log-tag--beszel       { color: #22c55e; background: color-mix(in srgb, #22c55e 14%, transparent); }
+.log-tag--pulse        { color: #a78bfa; background: color-mix(in srgb, #a78bfa 14%, transparent); }
+.log-tag--hosts        { color: #3b82f6; background: color-mix(in srgb, #3b82f6 14%, transparent); }
+.log-tag--host_net_sampler { color: #14b8a6; background: color-mix(in srgb, #14b8a6 14%, transparent); }
+.log-tag--ssh          { color: #ec4899; background: color-mix(in srgb, #ec4899 14%, transparent); }
+.log-tag--portainer    { color: #0ea5e9; background: color-mix(in srgb, #0ea5e9 14%, transparent); }
+.log-tag--i18n         { color: #94a3b8; background: color-mix(in srgb, #94a3b8 14%, transparent); }
+.log-tag--ops          { color: #f59e0b; background: color-mix(in srgb, #f59e0b 14%, transparent); }
+.log-tag--schedules    { color: #8b5cf6; background: color-mix(in srgb, #8b5cf6 14%, transparent); }
+.log-tag--gather       { color: #06b6d4; background: color-mix(in srgb, #06b6d4 14%, transparent); }
+.log-tag--node_exporter,
+.log-tag--ne           { color: #f97316; background: color-mix(in srgb, #f97316 14%, transparent); }
+.log-tag--oidc,
+.log-tag--auth         { color: #e11d48; background: color-mix(in srgb, #e11d48 14%, transparent); }
+.log-tag--backup       { color: #84cc16; background: color-mix(in srgb, #84cc16 14%, transparent); }
+.log-tag--stats        { color: #60a5fa; background: color-mix(in srgb, #60a5fa 14%, transparent); }
+.log-tag--deploy,
+.log-tag--version      { color: #fbbf24; background: color-mix(in srgb, #fbbf24 14%, transparent); }
+
+
 /* Loading spinner for host rows whose /api/hosts/one/{id} probe is
    still in flight. Sits where the status dot would be so the row
    layout doesn't jump when data arrives and the spinner is swapped
