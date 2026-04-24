@@ -82,60 +82,79 @@ async def _session_login(
     user: str,
     password: str,
 ) -> bool:
-    """POST Webmin's ``/session_login.cgi`` to establish a session cookie.
+    """Establish a Miniserv session via ``/session_login.cgi``.
 
-    Out of the box, Miniserv requires a cookie-based session and
-    redirects Authorization-header callers to an HTML login page. This
-    helper logs in via the session endpoint and — on success — leaves
-    a ``sid=`` cookie on the httpx client that subsequent XML fetches
-    will carry automatically. Avoids requiring operators to set
-    ``no_session=1`` in ``/etc/webmin/miniserv.conf`` on every host.
+    Miniserv's cookie-based auth requires a two-step round-trip:
 
-    Returns True when a non-placeholder ``sid`` cookie is present
-    after the POST. False on any failure; caller can fall back to
-    Basic auth which works for installs with ``no_session=1``.
+      1. **GET** the login page. Miniserv sets a ``testing=1`` cookie
+         to verify the client accepts cookies at all. Without this
+         cookie on the POST, Miniserv rejects the login "to stop
+         brute-force attacks".
+      2. **POST** credentials. httpx auto-replays the testing cookie
+         from step 1; Miniserv validates and sets a fresh ``sid=<hex>``
+         cookie on success (or leaves a ``sid=x`` placeholder on
+         failure).
 
-    Webmin's sid cookie defaults to ~1 hour of validity; we're using
-    the client-scoped cookie jar so the session lives only for the
-    duration of this probe (four parallel XML fetches). A future
-    optimisation could cache the cookie across probes — skipping it
-    here keeps the state model trivial.
+    Returns True when a real, non-placeholder session cookie is
+    present after step 2. Verbose ``[webmin] session_login`` logs on
+    every outcome so operators can diagnose via Admin → Logs when
+    Basic-auth fallback doesn't rescue the probe either.
     """
-    url = base_url.rstrip("/") + "/session_login.cgi"
+    login_url = base_url.rstrip("/") + "/session_login.cgi"
+    # Step 1 — GET to arm the testing cookie. Miniserv may send this
+    # cookie on the login page body; we don't care about the body
+    # itself, only that httpx captures the Set-Cookie.
     try:
-        r = await client.post(
-            url,
-            data={"user": user, "pass": password, "save": "1"},
+        r1 = await client.get(
+            login_url,
+            headers={"Referer": base_url.rstrip("/") + "/"},
+        )
+        print(f"[webmin] session_login GET {login_url} -> {r1.status_code}, "
+              f"cookies after GET: {dict(client.cookies)}")
+    except Exception as e:
+        print(f"[webmin] session_login GET {login_url} failed: {e}")
+        return False
+
+    # Step 2 — POST credentials. Include ``page=/`` so Miniserv knows
+    # where to redirect on success; without it some versions return a
+    # bare "login successful" page and skip setting the cookie on
+    # subsequent redirects.
+    try:
+        r2 = await client.post(
+            login_url,
+            data={"user": user, "pass": password, "save": "1", "page": "/"},
             headers={
                 "Content-Type": "application/x-www-form-urlencoded",
-                # Some Webmin versions enforce a Referer check on login
-                # POSTs; setting it to the host's own URL satisfies the
-                # check without leaking our own hostname.
-                "Referer": base_url.rstrip("/") + "/",
+                "Referer": login_url,
             },
         )
+        print(f"[webmin] session_login POST {login_url} -> {r2.status_code}, "
+              f"cookies after POST: {dict(client.cookies)}")
     except Exception as e:
-        print(f"[webmin] session_login failed: {e}")
+        print(f"[webmin] session_login POST {login_url} failed: {e}")
         return False
 
-    # Webmin sets cookies under various names across versions (``sid``,
-    # ``sessid``, sometimes ``webmin``); accept any that isn't the "x"
-    # logout placeholder. Case-insensitive because some proxies lowercase
-    # cookie names en route.
+    # Miniserv sets various cookie names across versions — ``sid`` is
+    # canonical, ``sessid`` / ``webmin`` appear on older builds and
+    # some reverse-proxied setups (NPM strips some headers). Accept
+    # any of them unless they hold the ``x`` logout placeholder.
     for name, value in (client.cookies or {}).items():
         lname = (name or "").lower()
-        if lname in ("sid", "sessid", "webmin") and value and value.lower() not in ("", "x"):
-            return True
+        if lname in ("sid", "sessid", "webmin"):
+            if value and value.lower() not in ("", "x"):
+                print(f"[webmin] session_login SUCCESS — cookie {name}={value[:8]}…")
+                return True
+            print(f"[webmin] session_login received placeholder cookie {name}={value!r}")
 
-    # Some builds redirect on success and set the cookie on the landing
-    # response; httpx follow_redirects=True aggregates cookies, but the
-    # server may also return 200 with a fresh login page on failure.
-    # Detect the login form body to give the caller a clean False.
-    body = (r.text or "").lstrip().lower()
-    if body.startswith("<!doctype") or body.startswith("<html"):
-        # Still on the login page — credentials rejected OR login form
-        # wasn't found at this path (some reverse-proxied setups).
-        return False
+    # Diagnostic: if the response body looks like a login form again,
+    # the credentials were likely rejected. Log the page title so the
+    # operator can spot "Access denied" / "Too many failed logins".
+    body = (r2.text or "").lstrip()
+    if body.lower().startswith(("<!doctype", "<html")):
+        hint = _strip_html(body)
+        print(f"[webmin] session_login REJECTED — body looks like HTML: {hint!r}")
+    else:
+        print(f"[webmin] session_login returned non-HTML body ({len(body)} bytes) but no session cookie")
     return False
 
 

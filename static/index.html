@@ -127,9 +127,9 @@
         <button x-show="newVersionAvailable"
                 @click="reloadForNewVersion()"
                 class="btn btn-primary text-[11px] flex items-center gap-1.5 animate-pulse"
-                :title="'New version ' + newVersionString + ' deployed — click to reload and use the updated UI'">
+                :title="t('topbar_extra.new_version_title', { version: newVersionString })">
           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
-          <span>New version — reload</span>
+          <span x-text="t('topbar_extra.new_version')"></span>
         </button>
         <!-- Topbar clock + weather — per-browser prefs from localStorage
              (configured under Profile). Clock ticks every 10s; weather
@@ -1064,18 +1064,18 @@
         <button x-show="hostsSearch" @click="hostsSearch=''"
                 class="btn btn-ghost text-[11px]" title="Clear filter">✕</button>
         <label class="flex items-center gap-1.5 text-[11px] text-[var(--text-faint)]">
-          <span>Sort</span>
+          <span x-text="t('hosts_extra.sort_label')"></span>
           <select x-model="hostsSort" class="text-[12px] py-1 px-1.5"
-                  title="Sort hosts — persisted in this browser">
-            <option value="status">Status (default)</option>
-            <option value="custom_number">Custom # (catalogue order)</option>
-            <option value="seq">Addition order</option>
-            <option value="name">Name (A→Z)</option>
-            <option value="type">Type (platform/OS)</option>
-            <option value="cpu">CPU (high→low)</option>
-            <option value="mem">Memory (high→low)</option>
-            <option value="disk">Disk (high→low)</option>
-            <option value="uptime">Uptime (long→short)</option>
+                  :title="t('hosts_extra.sort_title')">
+            <option value="status"        x-text="t('hosts_extra.sort.status')"></option>
+            <option value="custom_number" x-text="t('hosts_extra.sort.custom_number')"></option>
+            <option value="seq"           x-text="t('hosts_extra.sort.seq')"></option>
+            <option value="name"          x-text="t('hosts_extra.sort.name')"></option>
+            <option value="type"          x-text="t('hosts_extra.sort.type')"></option>
+            <option value="cpu"           x-text="t('hosts_extra.sort.cpu')"></option>
+            <option value="mem"           x-text="t('hosts_extra.sort.mem')"></option>
+            <option value="disk"          x-text="t('hosts_extra.sort.disk')"></option>
+            <option value="uptime"        x-text="t('hosts_extra.sort.uptime')"></option>
           </select>
         </label>
       </div>
@@ -1341,11 +1341,9 @@
                 <div class="flex items-start gap-3 bg-[var(--surface-3)] border border-[var(--border)] rounded-md p-4 text-[12.5px] mb-4">
                   <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-[var(--text-dim)] flex-shrink-0 mt-0.5"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
                   <div>
-                    <div class="font-semibold text-[var(--text)]">No data from any enabled provider</div>
-                    <div class="text-[var(--text-dim)] mt-1">
-                      OmniGrid could not match this host to Pulse, Beszel, node-exporter, or Webmin.
-                      Open the <span class="mono text-[var(--text)]">Show debug data</span> panel below to see what each provider returned and where the match failed.
-                    </div>
+                    <div class="font-semibold text-[var(--text)]" x-text="t('hosts_extra.no_data.title')"></div>
+                    <div class="text-[var(--text-dim)] mt-1"
+                         x-text="t('hosts_extra.no_data.body', { debug_label: t('debug_panel.show') })"></div>
                   </div>
                 </div>
               </template>
@@ -1637,8 +1635,12 @@
                    when no provider matched — the "Collecting data…"
                    placeholders are misleading for hosts that never had
                    a provider mapping. -->
+              <!-- Chart grid: only renders when Beszel matched AND
+                   returned history. Hosts that have ONLY node-exporter
+                   (no beszel_id) get the "link to Beszel" hint above
+                   instead of an empty "Collecting data…" grid. -->
               <div class="mt-3 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4"
-                   x-show="(h.providers || []).length > 0">
+                   x-show="h.beszel_id && (h.providers || []).length > 0">
                 <!-- CPU % -->
                 <div class="metric-card metric-card--cpu">
                   <div class="metric-card-head">
@@ -2361,38 +2363,37 @@
         <section class="bg-[var(--surface)] border border-[var(--border)] rounded-md p-5 lg:col-span-2">
           <div class="flex items-center gap-2 mb-4">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-[var(--text-dim)]"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
-            <h3 class="font-semibold text-[13px]">Topbar widgets</h3>
+            <h3 class="font-semibold text-[13px]" x-text="t('topbar_widgets.title')"></h3>
           </div>
           <p class="text-[11.5px] text-[var(--text-faint)] mb-4">
-            Clock and weather appear in the top-right of the app bar.
-            Weather uses <a href="https://open-meteo.com" target="_blank" rel="noopener" class="text-[var(--primary)] hover:underline">Open-Meteo</a> (free, no API key, refreshed every 10 min).
+            <span x-text="t('topbar_widgets.intro_prefix')"></span><a href="https://open-meteo.com" target="_blank" rel="noopener" class="text-[var(--primary)] hover:underline" x-text="t('topbar_widgets.intro_link')"></a><span x-text="t('topbar_widgets.intro_suffix')"></span>
           </p>
           <div class="space-y-3">
             <label class="flex items-center gap-2 text-[12.5px]">
               <input type="checkbox" x-model="headerClockEnabled" @change="saveHeaderPrefs()">
-              <span>Show clock</span>
+              <span x-text="t('topbar_widgets.show_clock')"></span>
             </label>
             <label class="flex items-center gap-2 text-[12.5px]">
               <input type="checkbox" x-model="headerWeatherEnabled" @change="saveHeaderPrefs()">
-              <span>Show weather</span>
+              <span x-text="t('topbar_widgets.show_weather')"></span>
             </label>
             <div class="grid grid-cols-1 sm:grid-cols-3 gap-3" x-show="headerWeatherEnabled">
               <div>
-                <label class="block text-[11px] text-[var(--text-dim)] mb-1">City / label</label>
+                <label class="block text-[11px] text-[var(--text-dim)] mb-1" x-text="t('topbar_widgets.city_label')"></label>
                 <input type="text" x-model="headerWeatherLabel"
                        @change="saveHeaderPrefs()"
-                       placeholder="e.g. Cairo"
+                       :placeholder="t('topbar_widgets.city_placeholder')"
                        class="w-full text-[12.5px]">
               </div>
               <div>
-                <label class="block text-[11px] text-[var(--text-dim)] mb-1">Latitude</label>
+                <label class="block text-[11px] text-[var(--text-dim)] mb-1" x-text="t('topbar_widgets.lat_label')"></label>
                 <input type="number" step="any" x-model.number="headerWeatherLat"
                        @change="saveHeaderPrefs()"
                        placeholder="30.0444"
                        class="w-full text-[12.5px] mono">
               </div>
               <div>
-                <label class="block text-[11px] text-[var(--text-dim)] mb-1">Longitude</label>
+                <label class="block text-[11px] text-[var(--text-dim)] mb-1" x-text="t('topbar_widgets.lon_label')"></label>
                 <input type="number" step="any" x-model.number="headerWeatherLon"
                        @change="saveHeaderPrefs()"
                        placeholder="31.2357"
@@ -2400,12 +2401,11 @@
               </div>
             </div>
             <p class="text-[10.5px] text-[var(--text-faint)]" x-show="headerWeatherEnabled">
-              Tip: open <a href="https://www.google.com/maps" target="_blank" rel="noopener" class="text-[var(--primary)] hover:underline">Google Maps</a>,
-              right-click your city, copy the lat/lon pair shown at the top of the menu.
+              <span x-text="t('topbar_widgets.tip_prefix')"></span><a href="https://www.google.com/maps" target="_blank" rel="noopener" class="text-[var(--primary)] hover:underline" x-text="t('topbar_widgets.tip_maps')"></a><span x-text="t('topbar_widgets.tip_suffix')"></span>
             </p>
             <div x-show="headerWeatherEnabled && weather && weather.error"
                  class="text-[11px] text-[var(--danger)]"
-                 x-text="'Weather fetch failed: ' + weather.error"></div>
+                 x-text="t('topbar_widgets.fetch_failed', { error: (weather && weather.error) || '' })"></div>
             <!-- Explicit Save button — preferences auto-persist to
                  localStorage on every input change (no backend call),
                  but operators expect a "Save" affordance. Click
@@ -2414,12 +2414,10 @@
             <div class="pt-2 border-t border-[var(--border)] mt-3">
               <button type="button"
                       @click="saveHeaderPrefs()"
-                      class="btn btn-primary text-[12px]">
-                Save preferences
-              </button>
-              <span class="ms-3 text-[10.5px] text-[var(--text-faint)]">
-                Changes also auto-save when you toggle or edit a field above.
-              </span>
+                      class="btn btn-primary text-[12px]"
+                      x-text="t('topbar_widgets.save')"></button>
+              <span class="ms-3 text-[10.5px] text-[var(--text-faint)]"
+                    x-text="t('topbar_widgets.auto_save_hint')"></span>
             </div>
           </div>
         </section>
@@ -2612,19 +2610,15 @@
            Backend already reads this via logic.schedules._scheduler_tz;
            zoneinfo.ZoneInfo validates the string on save. -->
       <section x-show="settingsSection === 'scheduler'" class="bg-[var(--surface)] border border-[var(--border)] rounded-md p-5">
-        <h3 class="font-semibold text-[13px] mb-2">Scheduler</h3>
-        <p class="text-[11.5px] text-[var(--text-faint)] mb-4">
-          When a schedule says "Daily @ 01:00", which clock does "01:00" refer to?
-          Leave blank to use the container's clock (typically UTC).
-          Fill in to pin to your local wall time so "01:00" means 01:00 at your location.
-        </p>
+        <h3 class="font-semibold text-[13px] mb-2" x-text="t('scheduler_settings.title')"></h3>
+        <p class="text-[11.5px] text-[var(--text-faint)] mb-4" x-text="t('scheduler_settings.intro')"></p>
         <div class="flex items-end gap-3 flex-wrap">
           <div class="flex flex-col gap-1">
-            <label class="text-[11px] text-[var(--text-faint)]">Timezone (IANA name)</label>
+            <label class="text-[11px] text-[var(--text-faint)]" x-text="t('scheduler_settings.tz_label')"></label>
             <input type="text" x-model="settings.scheduler_timezone"
                    :disabled="!isAdmin()"
                    list="tz-common"
-                   placeholder="e.g. Africa/Cairo"
+                   :placeholder="t('scheduler_settings.tz_placeholder')"
                    class="w-64 mono text-[12.5px]">
             <datalist id="tz-common">
               <option value="Africa/Cairo">Africa/Cairo</option>
@@ -2642,17 +2636,17 @@
               <option value="UTC">UTC</option>
             </datalist>
             <span class="text-[10.5px] text-[var(--text-faint)]">
-              Full list: <a href="https://en.wikipedia.org/wiki/List_of_tz_database_time_zones"
+              <span x-text="t('scheduler_settings.tz_hint_prefix')"></span><a href="https://en.wikipedia.org/wiki/List_of_tz_database_time_zones"
                             target="_blank" rel="noopener"
-                            class="text-[var(--primary)] hover:underline">IANA tz database</a>.
-              Invalid names fail the save with a 400.
+                            class="text-[var(--primary)] hover:underline"
+                            x-text="t('scheduler_settings.tz_hint_link')"></a><span x-text="t('scheduler_settings.tz_hint_suffix')"></span>
             </span>
           </div>
           <button x-show="isAdmin()" @click="saveSchedulerSettings()"
                   :disabled="schedulerSaving"
                   class="btn btn-primary text-[12px]">
-            <span x-show="!schedulerSaving">Save</span>
-            <span x-show="schedulerSaving" class="flex items-center gap-1"><span class="spin"></span>Saving…</span>
+            <span x-show="!schedulerSaving" x-text="t('actions.save')"></span>
+            <span x-show="schedulerSaving" class="flex items-center gap-1"><span class="spin"></span><span x-text="t('actions.saving')"></span></span>
           </button>
         </div>
       </section>

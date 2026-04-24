@@ -759,5 +759,110 @@
   "placeholders": {
     "search_history": "Search name, id, error…",
     "search_resources": "Search resources, stacks, images…  (/)"
+  },
+  "topbar_extra": {
+    "new_version": "New version — reload",
+    "new_version_title": "New version {version} deployed — click to reload and use the updated UI"
+  },
+  "hosts_extra": {
+    "sort_label": "Sort",
+    "sort_title": "Sort hosts — persisted in this browser",
+    "sort": {
+      "status": "Status (default)",
+      "custom_number": "Custom # (catalogue order)",
+      "seq": "Addition order",
+      "name": "Name (A→Z)",
+      "type": "Type (platform/OS)",
+      "cpu": "CPU (high→low)",
+      "mem": "Memory (high→low)",
+      "disk": "Disk (high→low)",
+      "uptime": "Uptime (long→short)"
+    },
+    "no_data": {
+      "title": "No data from any enabled provider",
+      "body": "OmniGrid could not match this host to Pulse, Beszel, node-exporter, or Webmin. Open the {debug_label} panel below to see what each provider returned and where the match failed."
+    },
+    "net_inactive": {
+      "title": "No NIC activity reported",
+      "body_in": "The Beszel agent on this host isn't tracking any NIC. Add {code} (or your NIC name from {ipcmd}) to the agent's env, then restart it.",
+      "body_out": "Add {code} to the Beszel agent's env (see Net In card for details)."
+    },
+    "custom_number_label": "Custom #",
+    "custom_number_title": "Operator-assigned catalogue number — used for sort/group in Hosts view and as the key for Asset-inventory lookups at oufa.co"
+  },
+  "debug_panel": {
+    "show": "Show debug data (admin)",
+    "hide": "Hide debug data",
+    "hint": "— compare raw providers vs merged vs rendered",
+    "probing": "Probing providers…",
+    "active_providers": "Active providers:",
+    "none": "none",
+    "refresh": "⟳ Refresh",
+    "refresh_title": "Re-run probes",
+    "copy_title": "Copy to clipboard",
+    "labels": {
+      "raw_pulse": "Raw · Pulse",
+      "raw_beszel": "Raw · Beszel",
+      "raw_ne": "Raw · node-exporter",
+      "raw_webmin": "Raw · Webmin",
+      "normalized_pulse": "Normalized · Pulse",
+      "normalized_beszel": "Normalized · Beszel",
+      "normalized_ne": "Normalized · node-exporter",
+      "normalized_webmin": "Normalized · Webmin",
+      "merged": "Merged (best-of)",
+      "rendered": "Rendered (/api/hosts)"
+    },
+    "hints": {
+      "merged": "after _merge_best",
+      "rendered": "what the UI sees"
+    }
+  },
+  "topbar_widgets": {
+    "title": "Topbar widgets",
+    "intro_prefix": "Clock and weather appear in the top-right of the app bar. Weather uses ",
+    "intro_link": "Open-Meteo",
+    "intro_suffix": " (free, no API key, refreshed every 10 min).",
+    "show_clock": "Show clock",
+    "show_weather": "Show weather",
+    "city_label": "City / label",
+    "city_placeholder": "e.g. Cairo",
+    "lat_label": "Latitude",
+    "lon_label": "Longitude",
+    "tip_prefix": "Tip: open ",
+    "tip_maps": "Google Maps",
+    "tip_suffix": ", right-click your city, copy the lat/lon pair shown at the top of the menu.",
+    "save": "Save preferences",
+    "auto_save_hint": "Changes also auto-save when you toggle or edit a field above.",
+    "fetch_failed": "Weather fetch failed: {error}"
+  },
+  "scheduler_settings": {
+    "title": "Scheduler",
+    "intro": "When a schedule says \"Daily @ 01:00\", which clock does \"01:00\" refer to? Leave blank to use the container's clock (typically UTC). Fill in to pin to your local wall time so \"01:00\" means 01:00 at your location.",
+    "tz_label": "Timezone (IANA name)",
+    "tz_placeholder": "e.g. Africa/Cairo",
+    "tz_hint_prefix": "Full list: ",
+    "tz_hint_link": "IANA tz database",
+    "tz_hint_suffix": ". Invalid names fail the save with a 400.",
+    "saved_set": "Scheduler timezone set to {tz}",
+    "saved_cleared": "Scheduler timezone cleared (using container local time)"
+  },
+  "hosts_actions": {
+    "add": "+ Add host",
+    "save_changes": "Save changes",
+    "unsaved_title": "You have unsaved changes in the Hosts list.",
+    "unsaved_label": "Unsaved changes",
+    "provider_blank_hint": "Leave any provider field blank when that provider doesn't know this host — the row still populates from whatever else matches.",
+    "count_host": "host",
+    "count_hosts": "hosts",
+    "top": "↑ Top",
+    "top_title": "Jump to top of list",
+    "host_stats_unsaved_title": "You have unsaved changes in Host stats settings."
+  },
+  "toasts_extra": {
+    "topbar_saved": "Topbar preferences saved",
+    "copied": "Copied {label} to clipboard",
+    "nothing_to_copy": "Nothing to copy",
+    "save_failed_generic": "Save failed",
+    "network_error_generic": "Network error"
   }
 }

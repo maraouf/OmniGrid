@@ -1462,15 +1462,15 @@ function app() {
         if (r.ok) {
           this.settings.scheduler_timezone = tz;
           this.showToast(tz
-            ? ('Scheduler timezone set to ' + tz)
-            : 'Scheduler timezone cleared (using container local time)',
+            ? this.t('scheduler_settings.saved_set', { tz })
+            : this.t('scheduler_settings.saved_cleared'),
             'success');
         } else {
           const j = await r.json().catch(() => ({}));
-          this.showToast(j.detail || 'Save failed', 'error');
+          this.showToast(j.detail || this.t('toasts_extra.save_failed_generic'), 'error');
         }
       } catch (_) {
-        this.showToast('Network error', 'error');
+        this.showToast(this.t('toasts_extra.network_error_generic'), 'error');
       } finally {
         this.schedulerSaving = false;
       }
@@ -1887,7 +1887,7 @@ function app() {
       // Toast confirmation — per-browser preferences auto-save on
       // change, but operators coming from the per-user Profile section
       // expect a visual "saved" signal.
-      if (this.showToast) this.showToast('Topbar preferences saved', 'success');
+      if (this.showToast) this.showToast(this.t('toasts_extra.topbar_saved'), 'success');
     },
     // Inline SVG path(s) per WMO-icon slug. Kept tiny — the topbar chip
     // is 16px so detail is wasted. Backend maps WMO codes to slugs in
@@ -4083,12 +4083,12 @@ function app() {
     async copyDebugJson(v, label) {
       const text = this.fmtDebugJson(v);
       if (!text) {
-        this.showToast('Nothing to copy', 'warning');
+        this.showToast(this.t('toasts_extra.nothing_to_copy'), 'warning');
         return;
       }
       try {
         await navigator.clipboard.writeText(text);
-        this.showToast('Copied ' + (label || 'debug data') + ' to clipboard', 'success');
+        this.showToast(this.t('toasts_extra.copied', { label: label || 'debug data' }), 'success');
       } catch (_) {
         // Fallback — let the user copy manually.
         window.prompt('Copy ' + (label || 'debug data') + ' (Cmd/Ctrl+C):', text);

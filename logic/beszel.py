@@ -298,12 +298,15 @@ async def fetch_system_history(
             ne_samples = []
             print(f"[beszel] net-fallback lookup failed for host_id={host_id!r}: {e}")
         if ne_samples:
-            # Nearest-neighbour merge within ±150s. Each Beszel point picks
-            # the closest-by-timestamp NE sample; if none is within the
-            # window, the point stays at zero (consistent with "no NE
-            # data covers this minute" — the UI's flat-line hint will
-            # still fire for that point, which is the correct signal).
-            max_skew = 150
+            # Nearest-neighbour merge. NE samples land every
+            # STATS_SAMPLE_INTERVAL_SECONDS (default 300s) while Beszel's
+            # 1m series has ~60s spacing, so we need a window >= half
+            # the NE interval so every Beszel point can find a
+            # neighbour. 300s matches the default interval — if the
+            # operator tightens STATS_SAMPLE_INTERVAL_SECONDS below
+            # that, the merge still works; if they widen it, bump this
+            # constant to match.
+            max_skew = 300
             # ne_samples is oldest-first; convert to a sorted list of ts
             # once so each binary-search-adjacent scan is cheap.
             ne_ts = [s["ts"] for s in ne_samples]
