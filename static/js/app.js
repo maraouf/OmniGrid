@@ -120,6 +120,12 @@ function app() {
     // every keystroke. Keeps rows from re-sorting mid-typing. See
     // filteredHostsConfig() + rebuildHostsConfigOrder() for the rule.
     hostsConfigSortedOrder: [],
+    // Per-field validation errors for inline rendering (#136). Keys
+    // follow the pattern "<scope>_<idx>_<field>" (e.g.
+    // "host_3_webmin_url", "group_0_range"). `setFieldError` /
+    // `clearFieldError` / `hasFieldError` / `fieldError` wrap the map
+    // so callers don't have to know the exact storage shape.
+    fieldErrors: {},
     hostsConfigLoading: false,
     hostsConfigSaving: false,
     hostsConfigDirty: false,
@@ -313,6 +319,7 @@ function app() {
       { id: 'oidc',           label: 'Authentik OIDC' },
       { id: 'host_stats',     label: 'Host stats' },
       { id: 'hosts',          label: 'Hosts' },
+      { id: 'host_groups',    label: 'Host Groups' },
       { id: 'ssh',            label: 'SSH' },
       { id: 'assets',         label: 'Asset inventory' },
       { id: 'schedules',      label: 'Schedules' },
@@ -2447,6 +2454,8 @@ function app() {
           name: String(g.name || ''),
           range_start: Number.isFinite(+g.range_start) ? +g.range_start : 0,
           range_end:   Number.isFinite(+g.range_end) ? +g.range_end : 0,
+          parent_name: String(g.parent_name || ''),
+          ip_range:    String(g.ip_range || ''),
           order:       Number.isFinite(+g.order) ? +g.order : 0,
         })) : [];
         this.hostGroupsDirty = false;
@@ -4389,6 +4398,13 @@ function app() {
       this.hostsConfigExpanded = next;
     },
     collapseAllHostConfigRows() {
+      // Wipe the whole map — every row that had an id drops back to
+      // its summary line. Empty-id rows (fresh adds) stay visible
+      // because isHostConfigExpanded(id) returns true for them by
+      // design.
+      this.hostsConfigExpanded = {};
+    },
+    collapseAllHostConfigRows() {
       this.hostsConfigExpanded = {};
     },
     // DISKS card — toggle the "show zero-usage mounts" state. Keyed
@@ -4748,29 +4764,37 @@ function app() {
       this.hostsConfigDirty = true;
     },
     async saveHostsConfig() {
+      // Clear any inline errors from a prior save attempt before
+      // re-validating. #136 makes these per-field (red border +
+      // error text beneath the bad input) instead of a toast.
+      this.clearFieldErrorsByPrefix('host_');
+
+      let hadError = false;
+      const ensureExpanded = (id) => {
+        // Expanding the offending row first so the error-decorated
+        // field is actually visible. Collapsed rows only render the
+        // summary line, hiding the red border.
+        if (id && !this.hostsConfigExpanded[id]) {
+          this.hostsConfigExpanded = { ...this.hostsConfigExpanded, [id]: true };
+        }
+      };
+
       // Pre-save validation: if a Webmin URL is set, the webmin_name
       // must also be set. Otherwise the probe has a target but no key
       // to look the returned host up against — would silently produce
-      // empty drawer cards. Reverse (name without URL) is allowed so
-      // an operator can stage a name while rolling out Miniserv.
+      // empty drawer cards.
       for (let i = 0; i < (this.hostsConfig || []).length; i++) {
         const h = this.hostsConfig[i] || {};
         const wurl = (h.webmin_url || '').trim();
         const wname = (h.webmin_name || '').trim();
         if (wurl && !wname) {
-          const id = (h.id || '').trim() || '(row ' + (i + 1) + ')';
-          this.showToast(
-            this.t('toasts_extra.webmin_url_without_name', { id }),
-            'error',
-          );
-          return;
+          this.setFieldError('host_' + i + '_webmin_name',
+            this.t('toasts_extra.webmin_url_without_name_inline'));
+          ensureExpanded(h.id);
+          hadError = true;
         }
       }
-      // Block the save if ANY row has data in other fields but an
-      // empty id — previously these rows were silently filtered out,
-      // leaving the operator wondering why "+ Add host" + typing in
-      // the label / provider fields didn't persist. Surface a clear
-      // toast that points at the offending row number.
+      // Empty id + other data — surface on the id input itself.
       for (let i = 0; i < (this.hostsConfig || []).length; i++) {
         const h = this.hostsConfig[i] || {};
         if ((h.id || '').trim() !== '') continue;
@@ -4785,34 +4809,32 @@ function app() {
           (h.icon || '').trim()
         );
         if (hasOtherData) {
-          this.showToast(
-            'Row ' + (i + 1) + ' needs an ID before saving — add one or remove the row.',
-            'error',
-          );
-          return;
+          this.setFieldError('host_' + i + '_id',
+            this.t('toasts_extra.id_required_inline'));
+          hadError = true;
         }
       }
-      // Duplicate custom_number check — mirrors the backend rule
-      // (_save_hosts_config raises 400 on duplicates). Surface which
-      // hosts collide so the operator knows what to change. Numbers
-      // that parse as NaN (blank / non-numeric) are skipped — only
-      // assigned values need to be unique.
+      // Duplicate custom_number — tag every offending row, not just
+      // one. Operator can see the whole collision group at a glance.
       const byCn = new Map();
-      for (const h of (this.hostsConfig || [])) {
+      (this.hostsConfig || []).forEach((h, i) => {
         const cn = parseInt(h.custom_number, 10);
-        if (!Number.isFinite(cn)) continue;
+        if (!Number.isFinite(cn)) return;
         if (!byCn.has(cn)) byCn.set(cn, []);
-        byCn.get(cn).push((h.id || '').trim() || '(unnamed)');
+        byCn.get(cn).push(i);
+      });
+      for (const [cn, idxs] of byCn.entries()) {
+        if (idxs.length < 2) continue;
+        for (const i of idxs) {
+          this.setFieldError('host_' + i + '_cn',
+            this.t('toasts_extra.custom_number_duplicate_inline', { cn }));
+          ensureExpanded((this.hostsConfig[i] || {}).id);
+        }
+        hadError = true;
       }
-      const dupes = [...byCn.entries()].filter(([_, ids]) => ids.length > 1);
-      if (dupes.length) {
-        const parts = dupes
-          .sort((a, b) => a[0] - b[0])
-          .map(([cn, ids]) => '#' + cn + ': ' + ids.join(', '));
-        this.showToast(
-          this.t('toasts_extra.custom_number_duplicate', { detail: parts.join('; ') }),
-          'error',
-        );
+
+      if (hadError) {
+        this.focusFirstFieldError();
         return;
       }
       // Strip empty rows (no ID) so saving doesn't persist placeholder
@@ -4912,18 +4934,33 @@ function app() {
       }
     },
 
-    // --- Host groups (ticket #93) ---
+    // --- Host groups (#93 + #134) ---
     // Operator-defined custom_number ranges that bucket hosts into
-    // collapsible sections in the Hosts view.
+    // collapsible sections in the Hosts view. Supports 2-level
+    // nesting via `parent_name` + a free-text `ip_range`.
     addHostGroup() {
       const next = {
         name: '',
         range_start: 1,
         range_end: 10,
         order: (this.hostGroups || []).length,
+        parent_name: '',
+        ip_range: '',
       };
       this.hostGroups = [...(this.hostGroups || []), next];
       this.hostGroupsDirty = true;
+    },
+    // Top-level group names (for the parent <select> options). The
+    // current row is excluded — a group cannot be its own parent. A
+    // group that's already a sub-group is also excluded since
+    // nesting is capped at 2 levels.
+    topLevelGroupNames(excludeIdx) {
+      return (this.hostGroups || [])
+        .map((g, i) => ({ g, i }))
+        .filter(({ g, i }) => i !== excludeIdx
+          && !g.parent_name
+          && (g.name || '').trim())
+        .map(({ g }) => g.name);
     },
     removeHostGroup(idx) {
       this.hostGroups = (this.hostGroups || []).filter((_, i) => i !== idx);
@@ -4941,47 +4978,153 @@ function app() {
       this.hostGroupsDirty = true;
     },
     markHostGroupDirty() { this.hostGroupsDirty = true; },
+
+    // ---- Inline-field-error helpers (#136) ----
+    // Keyed storage lives on `fieldErrors`. Callers set a specific
+    // error text for a specific input (keyed by a stable "scope_idx_field"
+    // id) and the templates render red-bordered inputs + an error
+    // hint beneath. Clearing on @input means the red cue goes away
+    // as soon as the operator starts fixing it — classic
+    // jQuery-validate feel without the dependency.
+    setFieldError(key, msg) {
+      this.fieldErrors = { ...this.fieldErrors, [key]: msg };
+    },
+    clearFieldError(key) {
+      if (key in this.fieldErrors) {
+        const next = { ...this.fieldErrors };
+        delete next[key];
+        this.fieldErrors = next;
+      }
+    },
+    clearFieldErrorsByPrefix(prefix) {
+      const next = {};
+      for (const k of Object.keys(this.fieldErrors || {})) {
+        if (!k.startsWith(prefix)) next[k] = this.fieldErrors[k];
+      }
+      this.fieldErrors = next;
+    },
+    hasFieldError(key) { return !!(this.fieldErrors && this.fieldErrors[key]); },
+    fieldError(key)    { return (this.fieldErrors || {})[key] || ''; },
+    // Focus the DOM input whose x-model ends in the given field name
+    // on the given row. Used after validation sets an error so the
+    // operator's cursor lands on the first failing field.
+    focusFirstFieldError() {
+      const first = Object.keys(this.fieldErrors || {})[0];
+      if (!first) return;
+      // Best-effort DOM lookup — errors are keyed by a stable id and
+      // the templates bind `:class="hasFieldError('...')"` on the
+      // input. A short delay lets Alpine finish rendering the error
+      // state before we try to scroll into view.
+      setTimeout(() => {
+        const el = document.querySelector('.field-invalid');
+        if (el && typeof el.focus === 'function') {
+          el.focus();
+          if (typeof el.scrollIntoView === 'function') {
+            el.scrollIntoView({ block: 'center', behavior: 'smooth' });
+          }
+        }
+      }, 30);
+    },
+
     async saveHostGroups() {
-      // Sanity validation matching the backend (name / range_start /
-      // range_end / order?). Let the server drop malformed entries —
-      // we just block saves that would clearly fail.
+      // Clear any inline errors from a previous attempt before
+      // re-validating.
+      this.clearFieldErrorsByPrefix('group_');
+
       const clean = [];
-      for (const g of (this.hostGroups || [])) {
+      const indexMap = []; // clean[j] came from hostGroups[indexMap[j]]
+      let hadError = false;
+      (this.hostGroups || []).forEach((g, gi) => {
         const name = String(g.name || '').trim();
-        if (!name) continue;
-        const rs = parseInt(g.range_start, 10);
-        const re_ = parseInt(g.range_end, 10);
-        if (!Number.isFinite(rs) || !Number.isFinite(re_)) continue;
-        if (rs < 0 || re_ < rs) {
-          this.showToast(
-            this.t('admin_hosts.groups.invalid_range', { name }),
-            'error',
-          );
+        if (!name) {
+          // Silently skip empty-name rows — matches legacy behaviour.
           return;
         }
+        const rs = parseInt(g.range_start, 10);
+        const re_ = parseInt(g.range_end, 10);
+        if (!Number.isFinite(rs) || !Number.isFinite(re_)) {
+          this.setFieldError('group_' + gi + '_range',
+            this.t('admin_hosts.groups.range_required'));
+          hadError = true;
+          return;
+        }
+        if (rs < 0 || re_ < rs) {
+          this.setFieldError('group_' + gi + '_range',
+            this.t('admin_hosts.groups.invalid_range', { name }));
+          hadError = true;
+          return;
+        }
+        const parent_name = String(g.parent_name || '').trim();
+        const ip_range = String(g.ip_range || '').trim();
         clean.push({
           name, range_start: rs, range_end: re_,
           order: Number.isFinite(+g.order) ? +g.order : clean.length,
+          parent_name: parent_name || null,
+          ip_range,
         });
+        indexMap.push(gi);
+      });
+      if (hadError) {
+        this.focusFirstFieldError();
+        return;
       }
-      // Reject overlapping ranges before roundtrip — mirrors backend
-      // validation in api_set_settings. O(n log n) sort + adjacent
-      // pair check since groups are tens at most.
-      const byStart = [...clean].sort((a, b) =>
-        a.range_start - b.range_start || a.range_end - b.range_end);
-      for (let i = 0; i + 1 < byStart.length; i++) {
-        const a = byStart[i], b = byStart[i + 1];
-        if (a.range_end >= b.range_start) {
-          this.showToast(
-            this.t('admin_hosts.groups.overlap', {
-              a_name: a.name, a_start: a.range_start, a_end: a.range_end,
-              b_name: b.name, b_start: b.range_start, b_end: b.range_end,
-            }),
-            'error',
-          );
-          return;
+
+      // Parent existence + self-parent + depth-1 checks.
+      const byName = new Map();
+      clean.forEach(g => byName.set(g.name, g));
+      for (let j = 0; j < clean.length; j++) {
+        const g = clean[j];
+        const gi = indexMap[j];
+        if (!g.parent_name) continue;
+        if (g.parent_name === g.name) {
+          this.setFieldError('group_' + gi + '_parent',
+            this.t('admin_hosts.groups.err_self_parent'));
+          hadError = true;
+          continue;
+        }
+        const p = byName.get(g.parent_name);
+        if (!p) {
+          this.setFieldError('group_' + gi + '_parent',
+            this.t('admin_hosts.groups.err_parent_missing', { name: g.parent_name }));
+          hadError = true;
+          continue;
+        }
+        if (p.parent_name) {
+          this.setFieldError('group_' + gi + '_parent',
+            this.t('admin_hosts.groups.err_parent_is_sub', { name: g.parent_name }));
+          hadError = true;
+          continue;
+        }
+        // Containment: sub-group range must be inside parent range.
+        if (!(p.range_start <= g.range_start && g.range_end <= p.range_end)) {
+          this.setFieldError('group_' + gi + '_range',
+            this.t('admin_hosts.groups.err_not_contained', {
+              parent: p.name,
+              ps: p.range_start, pe: p.range_end,
+            }));
+          hadError = true;
         }
       }
+      if (hadError) { this.focusFirstFieldError(); return; }
+
+      // Overlap: every pair that is NOT parent-child must be disjoint.
+      for (let i = 0; i < clean.length; i++) {
+        for (let j = i + 1; j < clean.length; j++) {
+          const a = clean[i], b = clean[j];
+          const pc = (a.parent_name === b.name) || (b.parent_name === a.name);
+          if (pc) continue;
+          if (a.range_start <= b.range_end && b.range_start <= a.range_end) {
+            const firstIdx = indexMap[i];
+            this.setFieldError('group_' + firstIdx + '_range',
+              this.t('admin_hosts.groups.err_overlap', {
+                other: b.name, os: b.range_start, oe: b.range_end,
+              }));
+            hadError = true;
+          }
+        }
+      }
+      if (hadError) { this.focusFirstFieldError(); return; }
+
       this.hostGroupsSaving = true;
       try {
         const r = await fetch('/api/settings', {

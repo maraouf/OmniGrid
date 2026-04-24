@@ -1143,9 +1143,47 @@
                     x-text="bucket.group ? bucket.group.name : t('hosts_extra_groups.ungrouped_label')"></span>
               <span x-show="bucket.group" class="text-[10.5px] text-[var(--text-faint)] mono"
                     x-text="'[' + bucket.group.range_start + '–' + bucket.group.range_end + ']'"></span>
+              <span x-show="bucket.group && bucket.group.ip_range" class="text-[10.5px] text-[var(--text-faint)] mono"
+                    x-text="'· ' + (bucket.group && bucket.group.ip_range)"></span>
               <span class="text-[10.5px] text-[var(--text-faint)] ms-auto"
                     x-text="bucket.hosts.length === 1 ? t('hosts_extra_groups.count_one', {count: bucket.hosts.length}) : t('hosts_extra_groups.count_many', {count: bucket.hosts.length})"></span>
             </div>
+            <!-- Sub-group headings with their hosts (2-level, #134). -->
+            <template x-for="(sub, si) in (bucket.children || [])" :key="'sub-m:' + (bucket.group ? bucket.group.name : '_') + '>' + sub.group.name + ':' + si">
+              <div x-show="!isGroupCollapsed(bucket.group ? bucket.group.name : '')">
+                <div @click="toggleGroup(sub.group.name)"
+                     class="host-group-heading flex items-center gap-2 mt-2 mb-1 ms-4 px-2 py-1.5 rounded cursor-pointer select-none bg-[var(--surface)] border border-[var(--border)]">
+                  <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
+                       class="text-[var(--text-dim)] transition-transform flip-rtl"
+                       :style="isGroupCollapsed(sub.group.name) ? '' : 'transform: rotate(90deg)'">
+                    <polyline points="9 18 15 12 9 6"/>
+                  </svg>
+                  <span class="font-semibold text-[11.5px]" x-text="sub.group.name"></span>
+                  <span class="text-[10.5px] text-[var(--text-faint)] mono"
+                        x-text="'[' + sub.group.range_start + '–' + sub.group.range_end + ']'"></span>
+                  <span x-show="sub.group.ip_range" class="text-[10.5px] text-[var(--text-faint)] mono"
+                        x-text="'· ' + sub.group.ip_range"></span>
+                  <span class="text-[10.5px] text-[var(--text-faint)] ms-auto"
+                        x-text="sub.hosts.length === 1 ? t('hosts_extra_groups.count_one', {count: sub.hosts.length}) : t('hosts_extra_groups.count_many', {count: sub.hosts.length})"></span>
+                </div>
+                <template x-for="h in sub.hosts" :key="'sub-m:' + h.host">
+                  <div class="host-mobile-card ms-4"
+                       x-show="!isGroupCollapsed(sub.group.name)"
+                       :data-expandable="isHostExpandable(h) ? 'true' : 'false'"
+                       @click="toggleHost(h.host)">
+                    <div class="host-mobile-card-head">
+                      <template x-if="h._loading"><span class="host-loading-spinner" aria-hidden="true"></span></template>
+                      <template x-if="!h._loading"><span class="host-mobile-card-status" :style="'background:' + statusDotColor(h.status)"></span></template>
+                      <img class="host-mobile-card-icon" :src="hostIconUrl(h)" x-show="hostIconUrl(h)" alt="" loading="lazy" @error="$event.target.style.display='none'">
+                      <div class="host-mobile-card-title">
+                        <span class="label" x-text="h.label || h.host"></span>
+                        <span class="sub" x-text="h.host + ' · ' + (h.os || h.platform || '—')"></span>
+                      </div>
+                    </div>
+                  </div>
+                </template>
+              </div>
+            </template>
             <template x-for="h in bucket.hosts" :key="h.host">
           <div class="host-mobile-card"
                x-show="!isGroupCollapsed(bucket.group ? bucket.group.name : '')"
@@ -1256,6 +1294,58 @@
               <span class="text-[10.5px] text-[var(--text-faint)] ms-auto"
                     x-text="bucket.hosts.length === 1 ? t('hosts_extra_groups.count_one', {count: bucket.hosts.length}) : t('hosts_extra_groups.count_many', {count: bucket.hosts.length})"></span>
             </div>
+            <!-- Sub-group headings + their hosts (2-level nesting, #134).
+                 Each sub-group has its own collapse state. A host that
+                 lands under a sub-group renders ONLY here — not in
+                 bucket.hosts (see groupedHosts() for the
+                 most-specific-match rule). -->
+            <template x-for="(sub, si) in (bucket.children || [])" :key="'sub-d:' + (bucket.group ? bucket.group.name : '_') + '>' + sub.group.name + ':' + si">
+              <div x-show="!isGroupCollapsed(bucket.group ? bucket.group.name : '')">
+                <div @click="toggleGroup(sub.group.name)"
+                     class="host-group-heading flex items-center gap-2 px-4 py-2 ps-10 border-b border-[var(--border)] bg-[var(--surface)] cursor-pointer select-none">
+                  <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
+                       class="text-[var(--text-dim)] transition-transform flip-rtl"
+                       :style="isGroupCollapsed(sub.group.name) ? '' : 'transform: rotate(90deg)'">
+                    <polyline points="9 18 15 12 9 6"/>
+                  </svg>
+                  <span class="font-semibold text-[12px]" x-text="sub.group.name"></span>
+                  <span class="text-[10.5px] text-[var(--text-faint)] mono"
+                        x-text="'[' + sub.group.range_start + '–' + sub.group.range_end + ']'"></span>
+                  <span x-show="sub.group.ip_range" class="text-[10.5px] text-[var(--text-faint)] mono"
+                        x-text="'· ' + sub.group.ip_range"></span>
+                  <span class="text-[10.5px] text-[var(--text-faint)] ms-auto"
+                        x-text="sub.hosts.length === 1 ? t('hosts_extra_groups.count_one', {count: sub.hosts.length}) : t('hosts_extra_groups.count_many', {count: sub.hosts.length})"></span>
+                </div>
+                <template x-for="h in sub.hosts" :key="'sub-d:' + h.host">
+                  <div class="border-b border-[var(--border)] last:border-b-0"
+                       x-show="!isGroupCollapsed(sub.group.name)">
+                    <div class="grid grid-cols-[26px_minmax(320px,1.8fr)_140px_140px_140px_minmax(160px,1fr)_80px_60px_72px_84px_40px] gap-3 px-4 py-3 items-center ps-10"
+                         :class="isHostExpandable(h) ? 'cursor-pointer hover:bg-[var(--row-hover)]' : 'cursor-default opacity-75'"
+                         @click="toggleHost(h.host)">
+                      <template x-if="h._loading"><div class="host-loading-spinner" aria-hidden="true"></div></template>
+                      <template x-if="!h._loading"><div class="w-[10px] h-[10px] rounded-full" :style="'background:' + statusDotColor(h.status)"></div></template>
+                      <div class="flex items-center gap-2 min-w-0">
+                        <img class="w-4 h-4 flex-shrink-0" :src="hostIconUrl(h)" x-show="hostIconUrl(h)" alt="" loading="lazy" @error="$event.target.style.display='none'">
+                        <div class="min-w-0">
+                          <div class="text-[12.5px] truncate" x-text="h.label || h.host"></div>
+                          <div class="text-[10.5px] text-[var(--text-faint)] truncate mono" x-text="h.host"></div>
+                        </div>
+                      </div>
+                      <div class="text-[11.5px] text-[var(--text-dim)] truncate" x-text="h.platform || h.os || '—'"></div>
+                      <div class="text-[11.5px] mono text-[var(--text-dim)]" x-text="h.status==='up' ? (h.cpu_percent || 0).toFixed(1) + '%' : '—'"></div>
+                      <div class="text-[11.5px] mono text-[var(--text-dim)]" x-text="h.status==='up' ? ((h.mem_percent || memPercentOf(h)) + '%') : '—'"></div>
+                      <div class="text-[11.5px] mono text-[var(--text-dim)]" x-text="h.status==='up' ? ((h.disk_percent || diskPercentOf(h)) + '%') : '—'"></div>
+                      <div class="text-[11.5px] mono text-[var(--text-dim)] text-center" x-text="h.uptime_label || '—'"></div>
+                      <div class="text-[11.5px] mono text-[var(--text-dim)] text-center" x-text="h.cores || '—'"></div>
+                      <div class="text-[11.5px] mono text-[var(--text-dim)] text-center truncate" x-text="h.arch || '—'"></div>
+                      <div class="text-[11.5px] mono text-[var(--text-dim)] text-center truncate" x-text="h.kernel || '—'"></div>
+                      <div></div>
+                    </div>
+                  </div>
+                </template>
+              </div>
+            </template>
+
             <template x-for="h in bucket.hosts" :key="h.host">
           <div class="border-b border-[var(--border)] last:border-b-0"
                x-show="!isGroupCollapsed(bucket.group ? bucket.group.name : '') && (!bucket.is_subgroup || !isGroupCollapsed(bucket.parent_name || ''))">
@@ -3978,17 +4068,25 @@
                          :title="t('hosts_extra.custom_number_title')"
                          x-text="t('hosts_extra.custom_number_label')"></label>
                   <input type="number" x-model.number="row.custom_number" :disabled="isReadonly()"
-                         @input="markHostRowDirty(idx)"
+                         @input="markHostRowDirty(idx); clearFieldError('host_' + idx + '_cn')"
                          @blur="rebuildHostsConfigOrder()"
                          class="w-full mono text-[13px] py-1.5"
+                         :class="hasFieldError('host_' + idx + '_cn') ? 'field-invalid' : ''"
                          min="1" step="1" placeholder="—">
+                  <div x-show="hasFieldError('host_' + idx + '_cn')"
+                       class="field-error-msg"
+                       x-text="fieldError('host_' + idx + '_cn')"></div>
                 </div>
                 <div>
                   <label class="block text-[10.5px] uppercase tracking-wider text-[var(--text-faint)] mb-1">ID · Docker hostname</label>
                   <input type="text" x-model="row.id" :disabled="isReadonly()"
-                         @input="onHostRowEdit(idx, 'id', $event.target.value)"
+                         @input="onHostRowEdit(idx, 'id', $event.target.value); clearFieldError('host_' + idx + '_id')"
                          class="w-full mono text-[13px] py-1.5"
+                         :class="hasFieldError('host_' + idx + '_id') ? 'field-invalid' : ''"
                          placeholder="e.g. debian13docker">
+                  <div x-show="hasFieldError('host_' + idx + '_id')"
+                       class="field-error-msg"
+                       x-text="fieldError('host_' + idx + '_id')"></div>
                 </div>
                 <div>
                   <label class="block text-[10.5px] uppercase tracking-wider text-[var(--text-faint)] mb-1">Display label</label>
@@ -4032,8 +4130,8 @@
                           title="Remove this host">Remove</button>
                 </div>
               </div>
-              <!-- Row 1a — optional external URL + icon override. -->
-              <div class="grid grid-cols-1 md:grid-cols-[2fr_1fr] gap-3">
+              <!-- Row 1a — optional external URL + IP + icon override. -->
+              <div class="grid grid-cols-1 md:grid-cols-[2fr_140px_1fr] gap-3">
                 <div>
                   <label class="block text-[10.5px] uppercase tracking-wider text-[var(--text-faint)] mb-1">
                     External URL
@@ -4043,6 +4141,16 @@
                          @input="markHostRowDirty(idx)"
                          class="w-full mono text-[12.5px] py-1.5"
                          placeholder="https://adguard.home.lan">
+                </div>
+                <div>
+                  <label class="block text-[10.5px] uppercase tracking-wider text-[var(--text-faint)] mb-1">
+                    IP
+                    <span class="text-[10px] normal-case text-[var(--text-faint)] ms-1">(free text)</span>
+                  </label>
+                  <input type="text" x-model="row.ip" :disabled="isReadonly()"
+                         @input="markHostRowDirty(idx)"
+                         class="w-full mono text-[12.5px] py-1.5"
+                         placeholder="192.168.2.1">
                 </div>
                 <div>
                   <label class="block text-[10.5px] uppercase tracking-wider text-[var(--text-faint)] mb-1">
@@ -4124,9 +4232,13 @@
                   </label>
                   <input type="text" x-model="row.webmin_name" :disabled="isReadonly()"
                          list="webmin-names"
-                         @input="markHostRowDirty(idx)"
+                         @input="markHostRowDirty(idx); clearFieldError('host_' + idx + '_webmin_name')"
                          class="w-full mono text-[12.5px] py-1.5"
+                         :class="hasFieldError('host_' + idx + '_webmin_name') ? 'field-invalid' : ''"
                          placeholder="host reported by Webmin">
+                  <div x-show="hasFieldError('host_' + idx + '_webmin_name')"
+                       class="field-error-msg"
+                       x-text="fieldError('host_' + idx + '_webmin_name')"></div>
                 </div>
               </div>
               <!-- Row 2b — SSH per-host overrides. Key material stays
@@ -4259,6 +4371,11 @@
           <button x-show="isAdmin()" @click="addHostRow()"
                   class="btn btn-soft text-[12.5px]"
                   x-text="t('hosts_actions.add')"></button>
+          <button x-show="isAdmin() && hostsConfig.length > 0"
+                  @click="collapseAllHostConfigRows()"
+                  class="btn btn-ghost text-[12px]"
+                  :title="t('hosts_actions.collapse_all_title')"
+                  x-text="t('hosts_actions.collapse_all')"></button>
           <button x-show="isAdmin()" @click="saveHostsConfig()"
                   class="btn btn-primary text-[12.5px]"
                   :disabled="hostsConfigSaving"
@@ -4292,93 +4409,130 @@
                   x-text="t('hosts_actions.top')"></button>
         </div>
 
-        <!-- HOST GROUPS (ticket #93) — operator-defined Custom # ranges
-             that bucket hosts into collapsible sections in the Hosts
-             view. Kept here (under the row editor) rather than in its
-             own tab so editing groups + hosts is one context. -->
-        <div class="mt-8 pt-5 border-t border-[var(--border)]">
-          <div class="mb-3">
-            <h4 class="font-semibold text-[13px]" x-text="t('admin_hosts.groups.heading')"></h4>
-            <p class="text-[11.5px] text-[var(--text-faint)] mt-1 leading-snug max-w-[720px]"
-               x-text="t('admin_hosts.groups.intro')"></p>
-          </div>
+      </section>
 
-          <div x-show="(hostGroups || []).length === 0"
-               class="text-[12px] text-[var(--text-faint)] italic mb-3"
-               x-text="t('admin_hosts.groups.empty')"></div>
+      <!-- HOST GROUPS TAB (#135) — extracted from the Hosts tab for
+           clarity. Same `hostGroups` state; now includes parent
+           dropdown + IP range text field for 2-level nesting. -->
+      <section x-show="adminTab==='host_groups'" class="bg-[var(--surface)] border border-[var(--border)] rounded-md p-5">
+        <div class="mb-4">
+          <h3 class="font-semibold text-[13px]" x-text="t('admin_hosts.groups.heading')"></h3>
+          <p class="text-[11.5px] text-[var(--text-faint)] mt-1 leading-snug max-w-[720px]"
+             x-text="t('admin_hosts.groups.intro')"></p>
+          <p class="text-[11px] text-[var(--text-faint)] mt-2 leading-snug max-w-[720px]"
+             x-text="t('admin_hosts.groups.nesting_hint')"></p>
+        </div>
 
-          <div class="space-y-2">
-            <template x-for="(g, gi) in hostGroups" :key="gi">
-              <div class="border border-[var(--border)] rounded-md bg-[var(--surface-2)] p-3">
-                <div class="grid grid-cols-1 md:grid-cols-[2fr_120px_120px_auto] gap-3 items-end">
-                  <div>
-                    <label class="block text-[10.5px] uppercase tracking-wider text-[var(--text-faint)] mb-1"
-                           x-text="t('admin_hosts.groups.name_label')"></label>
-                    <input type="text" x-model="g.name"
-                           :disabled="isReadonly()"
-                           @input="markHostGroupDirty()"
-                           class="w-full text-[13px] py-1.5"
-                           :placeholder="t('admin_hosts.groups.name_placeholder')">
-                  </div>
-                  <div>
-                    <label class="block text-[10.5px] uppercase tracking-wider text-[var(--text-faint)] mb-1"
-                           x-text="t('admin_hosts.groups.range_start_label')"></label>
-                    <input type="number" x-model.number="g.range_start"
-                           :disabled="isReadonly()"
-                           @input="markHostGroupDirty()"
-                           class="w-full mono text-[13px] py-1.5"
-                           min="0" step="1">
-                  </div>
-                  <div>
-                    <label class="block text-[10.5px] uppercase tracking-wider text-[var(--text-faint)] mb-1"
-                           x-text="t('admin_hosts.groups.range_end_label')"></label>
-                    <input type="number" x-model.number="g.range_end"
-                           :disabled="isReadonly()"
-                           @input="markHostGroupDirty()"
-                           class="w-full mono text-[13px] py-1.5"
-                           min="0" step="1">
-                  </div>
-                  <div class="flex items-center gap-1 pb-1.5">
-                    <button x-show="isAdmin()" @click="moveHostGroup(gi, -1)"
-                            :disabled="gi === 0"
-                            class="btn btn-ghost text-[12px] px-2"
-                            :class="gi === 0 ? 'opacity-40 cursor-not-allowed' : ''"
-                            :title="t('admin_hosts.groups.move_up_title')">
-                      <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="18 15 12 9 6 15"/></svg>
-                    </button>
-                    <button x-show="isAdmin()" @click="moveHostGroup(gi, +1)"
-                            :disabled="gi === hostGroups.length - 1"
-                            class="btn btn-ghost text-[12px] px-2"
-                            :class="gi === hostGroups.length - 1 ? 'opacity-40 cursor-not-allowed' : ''"
-                            :title="t('admin_hosts.groups.move_down_title')">
-                      <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
-                    </button>
-                    <button x-show="isAdmin()" @click="removeHostGroup(gi)"
-                            class="btn btn-ghost text-[12px] text-danger px-2"
-                            :title="t('admin_hosts.groups.remove_title')">✕</button>
-                  </div>
+        <div x-show="(hostGroups || []).length === 0"
+             class="text-[12px] text-[var(--text-faint)] italic mb-3"
+             x-text="t('admin_hosts.groups.empty')"></div>
+
+        <div class="space-y-2">
+          <template x-for="(g, gi) in hostGroups" :key="gi">
+            <div class="border border-[var(--border)] rounded-md p-3"
+                 :class="g.parent_name ? 'bg-[var(--surface)] ms-6' : 'bg-[var(--surface-2)]'">
+              <!-- Row 1: name, parent picker, range, controls. -->
+              <div class="grid grid-cols-1 md:grid-cols-[2fr_1.3fr_110px_110px_auto] gap-3 items-end">
+                <div>
+                  <label class="block text-[10.5px] uppercase tracking-wider text-[var(--text-faint)] mb-1"
+                         x-text="t('admin_hosts.groups.name_label')"></label>
+                  <input type="text" x-model="g.name"
+                         :disabled="isReadonly()"
+                         @input="markHostGroupDirty(); clearFieldError('group_' + gi + '_name')"
+                         class="w-full text-[13px] py-1.5"
+                         :class="hasFieldError('group_' + gi + '_name') ? 'field-invalid' : ''"
+                         :placeholder="t('admin_hosts.groups.name_placeholder')">
+                  <div x-show="hasFieldError('group_' + gi + '_name')"
+                       class="field-error-msg"
+                       x-text="fieldError('group_' + gi + '_name')"></div>
+                </div>
+                <div>
+                  <label class="block text-[10.5px] uppercase tracking-wider text-[var(--text-faint)] mb-1"
+                         x-text="t('admin_hosts.groups.parent_label')"></label>
+                  <select x-model="g.parent_name"
+                          :disabled="isReadonly()"
+                          @change="markHostGroupDirty(); clearFieldError('group_' + gi + '_parent')"
+                          class="w-full text-[12.5px] py-1.5"
+                          :class="hasFieldError('group_' + gi + '_parent') ? 'field-invalid' : ''">
+                    <option value="" x-text="t('admin_hosts.groups.parent_none')"></option>
+                    <template x-for="p in topLevelGroupNames(gi)" :key="p">
+                      <option :value="p" x-text="p"></option>
+                    </template>
+                  </select>
+                  <div x-show="hasFieldError('group_' + gi + '_parent')"
+                       class="field-error-msg"
+                       x-text="fieldError('group_' + gi + '_parent')"></div>
+                </div>
+                <div>
+                  <label class="block text-[10.5px] uppercase tracking-wider text-[var(--text-faint)] mb-1"
+                         x-text="t('admin_hosts.groups.range_start_label')"></label>
+                  <input type="number" x-model.number="g.range_start"
+                         :disabled="isReadonly()"
+                         @input="markHostGroupDirty(); clearFieldError('group_' + gi + '_range')"
+                         class="w-full mono text-[13px] py-1.5"
+                         :class="hasFieldError('group_' + gi + '_range') ? 'field-invalid' : ''"
+                         min="0" step="1">
+                </div>
+                <div>
+                  <label class="block text-[10.5px] uppercase tracking-wider text-[var(--text-faint)] mb-1"
+                         x-text="t('admin_hosts.groups.range_end_label')"></label>
+                  <input type="number" x-model.number="g.range_end"
+                         :disabled="isReadonly()"
+                         @input="markHostGroupDirty(); clearFieldError('group_' + gi + '_range')"
+                         class="w-full mono text-[13px] py-1.5"
+                         :class="hasFieldError('group_' + gi + '_range') ? 'field-invalid' : ''"
+                         min="0" step="1">
+                </div>
+                <div class="flex items-center gap-1 pb-1.5">
+                  <button x-show="isAdmin()" @click="moveHostGroup(gi, -1)"
+                          :disabled="gi === 0"
+                          class="btn btn-ghost text-[12px] px-2"
+                          :class="gi === 0 ? 'opacity-40 cursor-not-allowed' : ''"
+                          :title="t('admin_hosts.groups.move_up_title')">
+                    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="18 15 12 9 6 15"/></svg>
+                  </button>
+                  <button x-show="isAdmin()" @click="moveHostGroup(gi, +1)"
+                          :disabled="gi === hostGroups.length - 1"
+                          class="btn btn-ghost text-[12px] px-2"
+                          :class="gi === hostGroups.length - 1 ? 'opacity-40 cursor-not-allowed' : ''"
+                          :title="t('admin_hosts.groups.move_down_title')">
+                    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+                  </button>
+                  <button x-show="isAdmin()" @click="removeHostGroup(gi)"
+                          class="btn btn-ghost text-[12px] text-danger px-2"
+                          :title="t('admin_hosts.groups.remove_title')">✕</button>
                 </div>
               </div>
-            </template>
-          </div>
+              <!-- Row 2: IP range (free text, display only today). -->
+              <div class="mt-2">
+                <label class="block text-[10.5px] uppercase tracking-wider text-[var(--text-faint)] mb-1"
+                       x-text="t('admin_hosts.groups.ip_range_label')"></label>
+                <input type="text" x-model="g.ip_range"
+                       :disabled="isReadonly()"
+                       @input="markHostGroupDirty()"
+                       class="w-full mono text-[12.5px] py-1.5"
+                       :placeholder="t('admin_hosts.groups.ip_range_placeholder')">
+              </div>
+            </div>
+          </template>
+        </div>
 
-          <div class="flex items-center gap-2 mt-3 flex-wrap">
-            <button x-show="isAdmin()" @click="addHostGroup()"
-                    class="btn btn-soft text-[12px]"
-                    x-text="t('admin_hosts.groups.add')"></button>
-            <button x-show="isAdmin()" @click="saveHostGroups()"
-                    class="btn btn-primary text-[12px]"
-                    :disabled="hostGroupsSaving"
-                    :class="hostGroupsDirty ? 'ring-2 ring-[var(--warning)]' : ''">
-              <span x-show="!hostGroupsSaving" x-text="t('admin_hosts.groups.save')"></span>
-              <span x-show="hostGroupsSaving" class="flex items-center gap-1"><span class="spin"></span><span x-text="t('actions.saving')"></span></span>
-            </button>
-            <span x-show="hostGroupsDirty"
-                  class="text-[11.5px] text-[var(--warning)] flex items-center gap-1.5">
-              <span class="w-1.5 h-1.5 rounded-full bg-[var(--warning)] animate-pulse"></span>
-              <span x-text="t('admin_hosts.groups.unsaved')"></span>
-            </span>
-          </div>
+        <div class="flex items-center gap-2 mt-3 flex-wrap">
+          <button x-show="isAdmin()" @click="addHostGroup()"
+                  class="btn btn-soft text-[12px]"
+                  x-text="t('admin_hosts.groups.add')"></button>
+          <button x-show="isAdmin()" @click="saveHostGroups()"
+                  class="btn btn-primary text-[12px]"
+                  :disabled="hostGroupsSaving"
+                  :class="hostGroupsDirty ? 'ring-2 ring-[var(--warning)]' : ''">
+            <span x-show="!hostGroupsSaving" x-text="t('admin_hosts.groups.save')"></span>
+            <span x-show="hostGroupsSaving" class="flex items-center gap-1"><span class="spin"></span><span x-text="t('actions.saving')"></span></span>
+          </button>
+          <span x-show="hostGroupsDirty"
+                class="text-[11.5px] text-[var(--warning)] flex items-center gap-1.5">
+            <span class="w-1.5 h-1.5 rounded-full bg-[var(--warning)] animate-pulse"></span>
+            <span x-text="t('admin_hosts.groups.unsaved')"></span>
+          </span>
         </div>
       </section>
 

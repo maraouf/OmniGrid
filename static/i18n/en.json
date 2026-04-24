@@ -387,6 +387,7 @@
       "oidc": "Authentik OIDC",
       "host_stats": "Host Stats",
       "hosts": "Hosts",
+      "host_groups": "Host Groups",
       "ssh": "SSH",
       "assets": "Asset inventory",
       "schedules": "Schedules",
@@ -957,7 +958,9 @@
     "count_hosts": "hosts",
     "top": "↑ Top",
     "top_title": "Jump to top of list",
-    "host_stats_unsaved_title": "You have unsaved changes in Host stats settings."
+    "host_stats_unsaved_title": "You have unsaved changes in Host stats settings.",
+    "collapse_all": "Collapse all",
+    "collapse_all_title": "Collapse every host row to its summary line"
   },
   "admin_integrations": {
     "open_meteo_title": "Open-Meteo upstream (weather widget)",
@@ -984,7 +987,18 @@
       "invalid_range": "Invalid range for group \"{name}\" — end must be ≥ start.",
       "overlap": "Groups \"{a_name}\" ({a_start}–{a_end}) and \"{b_name}\" ({b_start}–{b_end}) overlap. Ranges must be disjoint.",
       "empty": "No groups yet. Add one below to start bucketing hosts by Custom #.",
-      "unsaved": "Unsaved group changes"
+      "unsaved": "Unsaved group changes",
+      "parent_label": "Parent group",
+      "parent_none": "— top-level —",
+      "ip_range_label": "IP range (optional)",
+      "ip_range_placeholder": "e.g. 192.168.2.0/24",
+      "nesting_hint": "Nesting is 2 levels deep. A sub-group's range must fit inside its parent's range, and must not overlap any non-parent group.",
+      "range_required": "Range start and end are required.",
+      "err_self_parent": "A group cannot be its own parent.",
+      "err_parent_missing": "Parent \"{name}\" doesn't exist — type the exact name of a top-level group.",
+      "err_parent_is_sub": "Parent \"{name}\" is itself a sub-group. Nesting is limited to 2 levels.",
+      "err_not_contained": "Sub-group range must fit inside parent \"{parent}\" ({ps}–{pe}).",
+      "err_overlap": "Range overlaps \"{other}\" ({os}–{oe}). Ranges must be disjoint except for parent↔sub-group pairs."
     }
   },
   "admin_assets": {
@@ -1061,6 +1075,9 @@
     "network_error_generic": "Network error",
     "webmin_url_without_name": "Row {id}: Webmin URL is set but Webmin hostname is blank. Enter the hostname the Miniserv reports (or clear the URL).",
     "custom_number_duplicate": "Duplicate custom numbers — {detail}. Each host must have a unique custom number.",
+    "webmin_url_without_name_inline": "Webmin URL is set — hostname is required too.",
+    "custom_number_duplicate_inline": "Duplicate custom number (#{cn}). Each host must be unique.",
+    "id_required_inline": "ID is required when other fields are filled.",
     "ssh": {
       "command_required": "Enter a command to run.",
       "dry_run_ok": "Dry-run OK — click Run for real to execute.",

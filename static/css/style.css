@@ -2697,3 +2697,28 @@ input[type="checkbox"],
 input[type="radio"] {
     accent-color: var(--primary);
 }
+
+/* Inline field validation (#136) ------------------------------------
+ * `.field-invalid` sits on form inputs to signal a validation
+ * failure: red border + soft red glow so the error is obvious in
+ * the form grid. The companion `.field-error-msg` renders the
+ * specific error text directly beneath the input so the operator
+ * doesn't have to scan a toast + match it to a row.
+ *
+ * Used by Admin → Host Groups (and extendable to every admin form).
+ * Clearing happens on `@input` / `@change` in the bound templates
+ * so the red cue goes away as soon as the operator edits the field.
+ * --------------------------------------------------------------------------- */
+.field-invalid {
+    border-color: var(--danger) !important;
+    box-shadow: 0 0 0 2px color-mix(in srgb, var(--danger) 20%, transparent);
+}
+select.field-invalid {
+    border-color: var(--danger) !important;
+}
+.field-error-msg {
+    color: var(--danger);
+    font-size: 10.5px;
+    margin-top: 3px;
+    line-height: 1.35;
+}
