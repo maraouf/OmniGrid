@@ -537,8 +537,18 @@ async def run_command(
         base_result["error"] = f"timeout after {timeout:.1f}s"
         print(f"[ssh] run ERROR timeout host={resolved.get('host')!r} after {timeout:.1f}s")
     except (OSError, asyncssh.DisconnectError, asyncssh.Error) as e:
-        base_result["error"] = f"{type(e).__name__}: {e}"
-        print(f"[ssh] run ERROR {type(e).__name__} host={resolved.get('host')!r}: {e}")
+        # Classify into the shared error catalog so the frontend can
+        # localise it + recognise unreachable hosts distinctly from
+        # generic network errors. OSError 113 (EHOSTUNREACH), 101
+        # (ENETUNREACH), 111 (ECONNREFUSED) etc. all route through
+        # logic.errors.classify_exception → specific OG#### code.
+        from logic import errors as _err
+        og = _err.classify_exception(e)
+        base_result["error"] = og.message
+        base_result["error_code"] = og.code
+        base_result["error_params"] = og.params
+        print(f"[ssh] run ERROR {type(e).__name__} ({og.code}) "
+              f"host={resolved.get('host')!r}: {e}")
     except Exception as e:
         base_result["error"] = f"unexpected: {type(e).__name__}: {e}"
         print(f"[ssh] run ERROR unexpected {type(e).__name__} host={resolved.get('host')!r}: {e}")

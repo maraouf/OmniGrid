@@ -115,6 +115,11 @@ function app() {
     // per-provider name mappings). ``hostsConfigSaving`` gates the
     // Save button's spinner.
     hostsConfig: [],
+    // Stable display-order snapshot for the hostsConfig editor.
+    // Rebuilt on load / add / remove / blur of custom_number — NOT on
+    // every keystroke. Keeps rows from re-sorting mid-typing. See
+    // filteredHostsConfig() + rebuildHostsConfigOrder() for the rule.
+    hostsConfigSortedOrder: [],
     hostsConfigLoading: false,
     hostsConfigSaving: false,
     hostsConfigDirty: false,
@@ -244,7 +249,9 @@ function app() {
     // sshOpen[host.id]         = drawer card expanded?
     // sshResult[host.id]       = { ok, exit_code, stdout, stderr, duration_ms, dry_run, resolved, destructive }
     // sshCommand[host.id]      = textarea contents (in-memory only)
-    // sshDryRun[host.id]       = "preview only" checkbox (defaults to true)
+    // sshDryRun[host.id]       = "preview only" checkbox (defaults to false —
+    //                             operator explicitly opts INTO dry-run; destructive
+    //                             commands still gate on typed-hostname confirm)
     // sshBusy[host.id]         = bool — a run is in flight
     // sshTestBusy[host.id]     = bool — Test connection in flight
     // sshLastTested[host.id]   = epoch ms of last successful status probe
@@ -2874,10 +2881,12 @@ function app() {
       const open = !this.sshOpen[hostId];
       this.sshOpen = { ...this.sshOpen, [hostId]: open };
       if (open) {
-        // Default to dry-run-checked so the UI can't accidentally
-        // launch the first command on open.
+        // Default to dry-run OFF — operator explicitly opts in. The
+        // destructive-command gate (typed-hostname confirm) still
+        // fires for `rm`/`dd`/`reboot`/etc. regardless of this
+        // checkbox, so accidental nukes remain blocked.
         if (!(hostId in this.sshDryRun)) {
-          this.sshDryRun = { ...this.sshDryRun, [hostId]: true };
+          this.sshDryRun = { ...this.sshDryRun, [hostId]: false };
         }
         await this.loadSshStatus(hostId);
       }
@@ -2924,6 +2933,29 @@ function app() {
     // the row id when the status probe hasn't populated yet). We
     // DELIBERATELY don't auto-execute — destructive commands go
     // through the Run button's confirmation gate.
+    // True when SSH actions are safe to run against this host. Gated
+    // on live provider status: if the host isn't `up` (or we haven't
+    // heard from a provider yet — `loading` / `unconfigured` /
+    // `unknown` / `down` / `paused`), trying to SSH in will just
+    // produce an OSError 113 ("No route to host") after a long
+    // timeout. The drawer's UI binds Run + custom-action buttons +
+    // the command textarea to this so operators can't fire dead
+    // commands. Backend still enforces via classify_exception →
+    // HOST_UNREACHABLE for defense in depth.
+    isSshAllowed(h) {
+      return !!(h && h.status === 'up');
+    },
+    sshDisabledReason(h) {
+      if (!h) return '';
+      if (h.status === 'up') return '';
+      // Human-readable hint for the disabled tooltip — reason varies
+      // by status so the operator knows whether to wait (loading),
+      // configure a provider (unconfigured), or investigate (down /
+      // unknown / paused).
+      return this.t('hosts_extra_ssh.disabled_not_up', {
+        status: String(h.status || '—'),
+      });
+    },
     runSshCustomAction(hostId, action) {
       if (!hostId || !action || !action.command) return;
       const resolved = (this.sshStatus[hostId] && this.sshStatus[hostId].resolved) || {};
@@ -2932,12 +2964,17 @@ function app() {
       this.sshCommand = { ...this.sshCommand, [hostId]: cmd };
     },
     async runSshCommand(hostId) {
+      const h = (this.hosts || []).find(x => x && x.id === hostId);
+      if (!this.isSshAllowed(h)) {
+        this.showToast(this.sshDisabledReason(h), 'error');
+        return;
+      }
       const command = (this.sshCommand[hostId] || '').trim();
       if (!command) {
         this.showToast(this.t('toasts_extra.ssh.command_required'), 'error');
         return;
       }
-      const dryRun = this.sshDryRun[hostId] !== false;
+      const dryRun = this.sshDryRun[hostId] === true;
       // Destructive-command gate. The backend flags + returns
       // `destructive: [patterns]` but we check up-front too so we can
       // raise the bar BEFORE sending the payload.
@@ -4015,6 +4052,7 @@ function app() {
           if (!row.ssh || typeof row.ssh !== 'object') row.ssh = {};
         }
         this.hostsConfigDirty = false;
+        this.rebuildHostsConfigOrder();
       } catch (e) {
         this.showToast(`Load hosts failed: ${e.message}`, 'error');
       } finally {
@@ -4069,31 +4107,57 @@ function app() {
     // still having the original index for move/remove/test actions.
     filteredHostsConfig() {
       const q = (this.hostsConfigFilter || '').trim().toLowerCase();
-      // Keep the ORIGINAL index stable so edits write back to the
-      // correct slot in hostsConfig regardless of display order. Then
-      // sort by custom_number ascending (unassigned rows sink to the
-      // bottom), with id as tiebreaker so the view is deterministic.
-      const all = (this.hostsConfig || []).map((row, idx) => ({ row, idx }));
-      const sortKey = ({ row }) => {
-        const raw = row.custom_number;
-        const n = parseInt(raw, 10);
-        return Number.isFinite(n) ? n : Number.MAX_SAFE_INTEGER;
-      };
-      all.sort((a, b) => {
-        const sa = sortKey(a), sb = sortKey(b);
-        if (sa !== sb) return sa - sb;
-        return String(a.row.id || '').localeCompare(String(b.row.id || ''));
-      });
+      // Display order is a SNAPSHOT rebuilt only by
+      // `rebuildHostsConfigOrder()` (called on load / add / remove /
+      // blur of custom_number). Sorting reactively on every keystroke
+      // was breaking input focus: typing "2" into a custom_number
+      // field before finishing "24" would move the row mid-typing,
+      // tearing down the DOM node and killing focus. Using a stable
+      // snapshot means the sort applies on commit (blur), not on
+      // keystroke — the operator can type "24" uninterrupted and the
+      // row re-sorts when they tab away.
+      const order = (this.hostsConfigSortedOrder || []);
+      const cfg = this.hostsConfig || [];
+      const all = [];
+      if (order.length === cfg.length && order.every(i => i < cfg.length)) {
+        for (const idx of order) all.push({ row: cfg[idx], idx });
+      } else {
+        // Fallback: snapshot is stale (hostsConfig grew/shrank since
+        // last rebuild). Show in original order so nothing is lost —
+        // next rebuild will re-sort.
+        for (let idx = 0; idx < cfg.length; idx++) {
+          all.push({ row: cfg[idx], idx });
+        }
+      }
       if (!q) return all;
       return all.filter(({ row }) => {
         const hay = [
           row.id, row.label, row.ne_url,
           row.beszel_name, row.pulse_name,
           row.webmin_name, row.webmin_url,
-          row.url, row.icon,
+          row.url, row.icon, row.ip,
         ].filter(Boolean).join(' ').toLowerCase();
         return hay.includes(q);
       });
+    },
+
+    // Recompute the hostsConfig display-order snapshot. Called on
+    // load / add / remove and on blur of the custom_number input
+    // (see `@change` handler in the editor). Orders by custom_number
+    // ascending; rows without a number sink to the bottom; id is
+    // tiebreaker for determinism.
+    rebuildHostsConfigOrder() {
+      const cfg = this.hostsConfig || [];
+      const idxs = cfg.map((_, idx) => idx);
+      idxs.sort((a, b) => {
+        const ca = parseInt(cfg[a].custom_number, 10);
+        const cb = parseInt(cfg[b].custom_number, 10);
+        const sa = Number.isFinite(ca) ? ca : Number.MAX_SAFE_INTEGER;
+        const sb = Number.isFinite(cb) ? cb : Number.MAX_SAFE_INTEGER;
+        if (sa !== sb) return sa - sb;
+        return String(cfg[a].id || '').localeCompare(String(cfg[b].id || ''));
+      });
+      this.hostsConfigSortedOrder = idxs;
     },
 
     // Count of discovered names not already present in hostsConfig —
@@ -4375,11 +4439,14 @@ function app() {
         webmin_url: '',
         url: '',
         icon: '',
+        // Free-text IP field — operator-maintained, not derived.
+        ip: '',
         // Per-host SSH overrides — empty object = use global defaults.
         ssh: {},
         enabled: true,
       });
       this.hostsConfigDirty = true;
+      this.rebuildHostsConfigOrder();
     },
     // Dirty-tracking: any input change flips the unsaved-changes
     // flag (so the Save button can flash the warning + beforeunload
@@ -4645,6 +4712,7 @@ function app() {
     },
     removeHostRow(idx) {
       this.hostsConfig.splice(idx, 1);
+      this.rebuildHostsConfigOrder();
       this.hostsConfigDirty = true;
     },
     // Manual reorder — simpler than drag-and-drop and works on
@@ -4723,6 +4791,29 @@ function app() {
           );
           return;
         }
+      }
+      // Duplicate custom_number check — mirrors the backend rule
+      // (_save_hosts_config raises 400 on duplicates). Surface which
+      // hosts collide so the operator knows what to change. Numbers
+      // that parse as NaN (blank / non-numeric) are skipped — only
+      // assigned values need to be unique.
+      const byCn = new Map();
+      for (const h of (this.hostsConfig || [])) {
+        const cn = parseInt(h.custom_number, 10);
+        if (!Number.isFinite(cn)) continue;
+        if (!byCn.has(cn)) byCn.set(cn, []);
+        byCn.get(cn).push((h.id || '').trim() || '(unnamed)');
+      }
+      const dupes = [...byCn.entries()].filter(([_, ids]) => ids.length > 1);
+      if (dupes.length) {
+        const parts = dupes
+          .sort((a, b) => a[0] - b[0])
+          .map(([cn, ids]) => '#' + cn + ': ' + ids.join(', '));
+        this.showToast(
+          this.t('toasts_extra.custom_number_duplicate', { detail: parts.join('; ') }),
+          'error',
+        );
+        return;
       }
       // Strip empty rows (no ID) so saving doesn't persist placeholder
       // blanks. The server dedupes by ID in case the same one was
@@ -4949,13 +5040,45 @@ function app() {
     // its custom_number. Anything unmatched lands in the trailing
     // ungrouped bucket. Groups are rendered in `order` order; the
     // ungrouped bucket always comes last.
+    // Build the nested {parent → children → hosts} structure the
+    // Hosts view renders. 2-level nesting only: a group with
+    // `parent_name` set is a SUB-GROUP of that named top-level
+    // group. Most-specific-match-wins: a host whose custom_number
+    // falls inside a sub-group's range lands under that sub-group,
+    // NOT under the parent (even though the parent's range also
+    // contains it). Hosts that match a top-level group directly
+    // but no sub-group appear in the parent's own host list.
+    //
+    // Shape:
+    //   [
+    //     { group: {...top-level...}, hosts: [h, h],
+    //       children: [
+    //         { group: {...sub-group...}, hosts: [h, h] },
+    //       ],
+    //     },
+    //     { group: null, hosts: [h, h] }   // Ungrouped, trailing
+    //   ]
     groupedHosts() {
       const hosts = this.filteredHosts();
-      const groups = (this.hostGroups || []).slice().sort(
+      const all = (this.hostGroups || []).slice().sort(
         (a, b) => (a.order || 0) - (b.order || 0) || a.name.localeCompare(b.name),
       );
-      const buckets = groups.map(g => ({ group: g, hosts: [] }));
-      const ungrouped = { group: null, hosts: [] };
+      const topLevel = all.filter(g => !g.parent_name);
+      const subByParent = new Map();
+      for (const g of all) {
+        if (!g.parent_name) continue;
+        if (!subByParent.has(g.parent_name)) subByParent.set(g.parent_name, []);
+        subByParent.get(g.parent_name).push(g);
+      }
+      const buckets = topLevel.map(g => ({
+        group: g,
+        hosts: [],
+        children: (subByParent.get(g.name) || []).map(sg => ({
+          group: sg, hosts: [],
+        })),
+      }));
+      const ungrouped = { group: null, hosts: [], children: [] };
+
       for (const h of hosts) {
         const cn = h.custom_number;
         const ci = (cn === null || cn === undefined || cn === '') ? null
@@ -4964,16 +5087,31 @@ function app() {
         if (ci !== null) {
           for (const b of buckets) {
             const g = b.group;
-            if (ci >= g.range_start && ci <= g.range_end) {
-              b.hosts.push(h);
-              placed = true;
-              break;
+            if (ci < g.range_start || ci > g.range_end) continue;
+            // Parent matched — now try the sub-groups first
+            // (most-specific wins). Break on the first sub-group
+            // hit and DON'T also push to the parent's list.
+            let placedInChild = false;
+            for (const c of b.children) {
+              const cg = c.group;
+              if (ci >= cg.range_start && ci <= cg.range_end) {
+                c.hosts.push(h);
+                placedInChild = true;
+                break;
+              }
             }
+            if (!placedInChild) b.hosts.push(h);
+            placed = true;
+            break;
           }
         }
         if (!placed) ungrouped.hosts.push(h);
       }
-      const out = buckets.filter(b => b.hosts.length > 0 || groups.length);
+      const out = buckets.filter(b =>
+        b.hosts.length > 0
+        || b.children.some(c => c.hosts.length > 0)
+        || topLevel.length,
+      );
       if (ungrouped.hosts.length > 0) out.push(ungrouped);
       return out;
     },

@@ -99,6 +99,13 @@ TLS_HANDSHAKE_FAILED = _define(
     "or disable VERIFY_TLS for self-signed endpoints.",
 )
 
+HOST_UNREACHABLE = _define(
+    "OG0005",
+    "Host unreachable — no route from OmniGrid to the target. "
+    "The host may be powered off, disconnected, or behind a "
+    "firewall that blocks the source IP.",
+)
+
 NETWORK_ERROR = _define(
     "OG0099",
     "Network error reaching the upstream.",
@@ -234,9 +241,11 @@ def classify_exception(exc: Exception) -> OGError:
     via type name) so callers in modules that don't use httpx can
     still benefit from the socket-level classifications.
     """
+    import errno as _errno
     text = str(exc)
     text_lower = text.lower()
     type_name = type(exc).__name__
+    exc_errno = getattr(exc, "errno", None)
 
     # socket.gaierror is the authoritative DNS-failure signal on every
     # platform — errno -2 on Linux, -3 on macOS, varying on Windows.
@@ -246,6 +255,34 @@ def classify_exception(exc: Exception) -> OGError:
             DNS_RESOLVE_FAILED,
             params={"detail": text},
             override_message=f"DNS resolution failed: {text}",
+        )
+
+    # OSError with a specific errno — covers raw socket failures that
+    # slip past httpx (e.g. asyncssh / paramiko / direct socket users).
+    # Match by errno constant name, not numeric literal, so cross-
+    # platform differences don't drift (Linux EHOSTUNREACH=113,
+    # FreeBSD=65; EHOSTUNREACH as a name is stable everywhere).
+    if exc_errno is not None:
+        if exc_errno in (_errno.EHOSTUNREACH, _errno.ENETUNREACH):
+            return make_error(
+                HOST_UNREACHABLE,
+                params={"errno": exc_errno, "detail": text},
+                override_message=text,
+            )
+        if exc_errno == _errno.ECONNREFUSED:
+            return make_error(CONNECTION_REFUSED, override_message=text)
+        if exc_errno in (_errno.ETIMEDOUT, _errno.EAGAIN):
+            return make_error(CONNECTION_TIMEOUT, override_message=text)
+
+    # String-level fallbacks for OSError descendants and asyncio
+    # wrappers that stringify the underlying errno message without
+    # preserving the original exception type.
+    if ("no route to host" in text_lower
+            or "network is unreachable" in text_lower):
+        return make_error(
+            HOST_UNREACHABLE,
+            params={"detail": text},
+            override_message=text,
         )
 
     # String-level fallbacks for exceptions that WRAP gaierror

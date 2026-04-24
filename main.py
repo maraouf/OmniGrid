@@ -1291,11 +1291,13 @@ async def api_set_settings(
             })
         set_setting("ssh_custom_actions", json.dumps(clean_actions))
 
-    # --- Host groups (ticket #93) -----------------------------------------
-    # Each entry: {name, range_start, range_end, order?}. Malformed
-    # entries are silently dropped so a stray UI row doesn't fail the
-    # whole save. Name capped at 60 chars (prevents layout breakage in
-    # the collapsible group heading). range_end >= range_start.
+    # --- Host groups (#93 + #134) -----------------------------------------
+    # Each entry: {name, range_start, range_end, order?, parent_name?,
+    # ip_range?}. `parent_name` (optional, string) references another
+    # group's name to nest under; nesting is fixed at 2 levels so a
+    # parent cannot itself have a parent_name. `ip_range` is free-text
+    # metadata captured alongside — no filter impact yet, surfaced to
+    # the UI for display only. Name capped at 60 chars.
     if s.host_groups is not None:
         if not isinstance(s.host_groups, list):
             raise HTTPException(400, "host_groups must be a list")
@@ -1317,29 +1319,94 @@ async def api_set_settings(
                 order = int(g.get("order", i))
             except (TypeError, ValueError):
                 order = i
+            parent_name = (g.get("parent_name") or "").strip()[:60] or None
+            ip_range = (g.get("ip_range") or "").strip()[:120]
             clean_groups.append({
                 "name":        name,
                 "range_start": rs,
                 "range_end":   re_,
                 "order":       order,
+                "parent_name": parent_name,
+                "ip_range":    ip_range,
             })
-        # Reject overlapping ranges — two groups whose [range_start,
-        # range_end] intervals intersect cause first-match-wins
-        # ordering in `groupedHosts()`, which is undefined from the
-        # operator's perspective (invisible until they open the
-        # "wrong" group and wonder why a host landed there). Pair-wise
-        # scan on a range-start-sorted copy keeps the check O(n log n)
-        # and surfaces the specific conflicting pair so the error is
-        # actionable.
-        by_start = sorted(clean_groups, key=lambda g: (g["range_start"], g["range_end"]))
-        for a, b in zip(by_start, by_start[1:]):
-            if a["range_end"] >= b["range_start"]:
+
+        # Parent validation — 2-level nesting means the referenced
+        # parent must (a) exist in the same payload, (b) be named
+        # differently from the child (no self-parent), (c) be a
+        # TOP-LEVEL group (no parent_name of its own) — this is how
+        # we keep the depth at 2 without adding a cycle detector.
+        by_name = {g["name"]: g for g in clean_groups}
+        for g in clean_groups:
+            pn = g["parent_name"]
+            if not pn:
+                continue
+            if pn == g["name"]:
                 raise HTTPException(
                     400,
-                    f"host_groups: '{a['name']}' ({a['range_start']}–{a['range_end']}) "
-                    f"overlaps '{b['name']}' ({b['range_start']}–{b['range_end']}). "
-                    f"Ranges must be disjoint.",
+                    f"host_groups: '{g['name']}' cannot be its own parent.",
                 )
+            parent = by_name.get(pn)
+            if parent is None:
+                raise HTTPException(
+                    400,
+                    f"host_groups: '{g['name']}' references unknown parent '{pn}'.",
+                )
+            if parent.get("parent_name"):
+                raise HTTPException(
+                    400,
+                    f"host_groups: '{g['name']}' parent '{pn}' is itself a "
+                    f"sub-group. Nesting is limited to two levels.",
+                )
+
+        # Containment: every sub-group's range must fit inside its
+        # parent's range. A sub-group 5-10 under a parent 1-4 would
+        # never match any host and is always a config mistake.
+        for g in clean_groups:
+            pn = g["parent_name"]
+            if not pn:
+                continue
+            parent = by_name[pn]  # existence already validated above
+            if not (parent["range_start"] <= g["range_start"]
+                    and g["range_end"] <= parent["range_end"]):
+                raise HTTPException(
+                    400,
+                    f"host_groups: sub-group '{g['name']}' "
+                    f"({g['range_start']}–{g['range_end']}) must be contained "
+                    f"in parent '{pn}' range "
+                    f"({parent['range_start']}–{parent['range_end']}).",
+                )
+
+        # Overlap: every pair of groups that is NOT parent-child must
+        # be disjoint. Covers three cases in one rule:
+        #   - Two top-level groups overlapping (bad).
+        #   - A sub-group overlapping a top-level group that is NOT
+        #     its parent (bad — would double-assign hosts).
+        #   - Two sub-groups overlapping (bad — whether they share a
+        #     parent or not; cross-parent overlap is structurally
+        #     impossible when parents are disjoint, but we check
+        #     anyway as a belt-and-braces).
+        # Parent-child pairs are expected to overlap (sub is contained
+        # in parent by construction) and are skipped.
+        def _is_parent_child(a: dict, b: dict) -> bool:
+            return (a["parent_name"] == b["name"]
+                    or b["parent_name"] == a["name"])
+        n = len(clean_groups)
+        for i in range(n):
+            for j in range(i + 1, n):
+                a, b = clean_groups[i], clean_groups[j]
+                if _is_parent_child(a, b):
+                    continue
+                # Standard interval-overlap test.
+                if a["range_start"] <= b["range_end"] \
+                        and b["range_start"] <= a["range_end"]:
+                    raise HTTPException(
+                        400,
+                        f"host_groups: '{a['name']}' "
+                        f"({a['range_start']}–{a['range_end']}) overlaps "
+                        f"'{b['name']}' ({b['range_start']}–{b['range_end']}). "
+                        f"Ranges must be disjoint except for parent↔sub-group pairs.",
+                    )
+
         # Persist in order-field order so render iteration doesn't have to re-sort.
         clean_groups.sort(key=lambda g: (g["order"], g["name"]))
         set_setting("host_groups", json.dumps(clean_groups))
@@ -2622,6 +2689,13 @@ def _load_hosts_config() -> list[dict]:
             # hardware / location / NIC metadata can be pulled back in.
             # Empty / invalid values → None so "no number" sorts last.
             "custom_number": _coerce_int(h.get("custom_number")),
+            # Free-text IP field — operator-maintained, not auto-derived
+            # from `ne_url` / DNS / asset inventory. Stored as-typed so
+            # the operator can put "192.168.2.1", "10.0.0.5/24", or
+            # "fe80::1" and we don't second-guess. No filter impact
+            # today; captured so the Hosts drawer can display it and
+            # a future group-filter iteration can parse it.
+            "ip":          (h.get("ip") or "").strip()[:64],
             # Per-host SSH override sub-dict. Optional user / port /
             # disabled / host override — the key material itself lives
             # in the GLOBAL ssh_default_private_key setting (V1 scope:
@@ -2712,6 +2786,32 @@ def _save_hosts_config(hosts: list[dict]) -> list[dict]:
     """
     if not isinstance(hosts, list):
         raise HTTPException(400, "hosts must be a list")
+
+    # Duplicate-custom_number check — must run BEFORE id-dedup,
+    # because the UI may send two entries with the same cn but
+    # different ids and we want to point the operator at both of
+    # them (the id-dedup loop below would collapse same-id rows
+    # but leave different-id / same-cn rows in, which is what
+    # this check catches).
+    by_cn: dict[int, list[str]] = {}
+    for h in hosts:
+        if not isinstance(h, dict):
+            continue
+        cn = _coerce_int(h.get("custom_number"))
+        if cn is None:
+            continue
+        hid = (h.get("id") or h.get("name") or "").strip() or "(unnamed)"
+        by_cn.setdefault(cn, []).append(hid)
+    dupes = {cn: ids for cn, ids in by_cn.items() if len(ids) > 1}
+    if dupes:
+        parts = [f"#{cn}: {', '.join(ids)}" for cn, ids in sorted(dupes.items())]
+        raise HTTPException(
+            400,
+            "hosts_config: duplicate custom_number — "
+            + "; ".join(parts)
+            + ". Each host must have a unique custom_number.",
+        )
+
     seen: dict[str, dict] = {}
     for h in hosts:
         if not isinstance(h, dict):
@@ -2733,6 +2833,8 @@ def _save_hosts_config(hosts: list[dict]) -> list[dict]:
             # lookups find the right row. Blank / non-numeric → None
             # via _coerce_int (same path _load_hosts_config uses).
             "custom_number": _coerce_int(h.get("custom_number")),
+            # Free-text IP — see _load_hosts_config for rationale.
+            "ip":            (h.get("ip") or "").strip()[:64],
             # Per-host SSH override block — see _clean_host_ssh for
             # the shape contract. {} when no override is set.
             "ssh":           _clean_host_ssh(h.get("ssh")),
@@ -2806,6 +2908,34 @@ async def api_hosts_test(
         "node_exporter": {"ok": False, "skipped": True, "detail": "not set"},
         "webmin": {"ok": False, "skipped": True, "detail": "not set"},
     }
+
+    # Respect the global host_stats_source CSV — a provider disabled
+    # in Settings → Host stats MUST NOT be probed here, even if the
+    # operator filled in its per-row field. The live Hosts-view code
+    # path already honours this; the per-row test needs to match so
+    # "passes here" = "works in production".
+    active_sources = {
+        s.strip().lower() for s in
+        (get_setting("host_stats_source", "") or "").split(",")
+        if s.strip() and s.strip().lower() != "none"
+    }
+
+    if beszel_name and "beszel" not in active_sources:
+        out["beszel"] = {"ok": False, "skipped": True,
+                         "detail": "disabled in host_stats_source"}
+        beszel_name = ""  # skip the probe block below
+    if pulse_name and "pulse" not in active_sources:
+        out["pulse"] = {"ok": False, "skipped": True,
+                        "detail": "disabled in host_stats_source"}
+        pulse_name = ""
+    if ne_url and "node_exporter" not in active_sources:
+        out["node_exporter"] = {"ok": False, "skipped": True,
+                                "detail": "disabled in host_stats_source"}
+        ne_url = ""
+    if webmin_url and "webmin" not in active_sources:
+        out["webmin"] = {"ok": False, "skipped": True,
+                         "detail": "disabled in host_stats_source"}
+        webmin_url = ""
 
     if beszel_name:
         hub_url = get_setting("beszel_hub_url", "") or ""

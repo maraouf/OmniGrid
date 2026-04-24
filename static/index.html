@@ -1256,9 +1256,9 @@
               <span class="text-[10.5px] text-[var(--text-faint)] ms-auto"
                     x-text="bucket.hosts.length === 1 ? t('hosts_extra_groups.count_one', {count: bucket.hosts.length}) : t('hosts_extra_groups.count_many', {count: bucket.hosts.length})"></span>
             </div>
-            <template x-for="h in bucket.hosts" :key="h.host"
-                      x-if="!isGroupCollapsed(bucket.group ? bucket.group.name : '')">
-          <div class="border-b border-[var(--border)] last:border-b-0">
+            <template x-for="h in bucket.hosts" :key="h.host">
+          <div class="border-b border-[var(--border)] last:border-b-0"
+               x-show="!isGroupCollapsed(bucket.group ? bucket.group.name : '') && (!bucket.is_subgroup || !isGroupCollapsed(bucket.parent_name || ''))">
             <!-- Collapsed row — click-to-expand only when the host
                  is "up" AND at least one provider returned data.
                  Dead / unmatched rows get a muted cursor and no
@@ -2365,7 +2365,8 @@
                                   :key="action.id || ('a' + idx)">
                           <button type="button" class="btn btn-soft text-[11.5px]"
                                   @click="runSshCustomAction(h.id, action)"
-                                  :title="action.command"
+                                  :disabled="!isSshAllowed(h)"
+                                  :title="isSshAllowed(h) ? action.command : sshDisabledReason(h)"
                                   x-text="action.title"></button>
                         </template>
                       </div>
@@ -2377,7 +2378,8 @@
                              x-text="t('hosts_extra_ssh.custom_label')"></label>
                       <textarea :value="sshCommand[h.id] || ''"
                                 @input="sshCommand = Object.assign({}, sshCommand, { [h.id]: $event.target.value })"
-                                :disabled="!(sshStatus[h.id] && sshStatus[h.id].configured)"
+                                :disabled="!(sshStatus[h.id] && sshStatus[h.id].configured) || !isSshAllowed(h)"
+                                :title="!isSshAllowed(h) ? sshDisabledReason(h) : ''"
                                 rows="6" maxlength="4096"
                                 class="w-full mono text-[11.5px] py-2 scrollbar"
                                 style="min-height: 7rem; resize: vertical;"
@@ -2385,17 +2387,21 @@
                       <div class="flex items-center gap-3 flex-wrap mt-2">
                         <label class="inline-flex items-center gap-2 text-[11.5px] text-[var(--text-dim)]">
                           <input type="checkbox"
-                                 :checked="sshDryRun[h.id] !== false"
+                                 :checked="sshDryRun[h.id] === true"
                                  @change="sshDryRun = Object.assign({}, sshDryRun, { [h.id]: $event.target.checked })">
                           <span x-text="t('hosts_extra_ssh.dry_run_label')"></span>
                         </label>
                         <button type="button"
                                 class="btn btn-primary text-[12px]"
                                 @click="runSshCommand(h.id)"
-                                :disabled="!!sshBusy[h.id] || !(sshStatus[h.id] && sshStatus[h.id].configured) || !((sshCommand[h.id] || '').trim())">
+                                :disabled="!!sshBusy[h.id] || !(sshStatus[h.id] && sshStatus[h.id].configured) || !((sshCommand[h.id] || '').trim()) || !isSshAllowed(h)"
+                                :title="!isSshAllowed(h) ? sshDisabledReason(h) : ''">
                           <span x-show="!sshBusy[h.id]" x-text="t('hosts_extra_ssh.run_button')"></span>
                           <span x-show="!!sshBusy[h.id]" class="flex items-center gap-1"><span class="spin"></span><span x-text="t('hosts_extra_ssh.running')"></span></span>
                         </button>
+                        <span x-show="!isSshAllowed(h)"
+                              class="text-[11px] text-[var(--warning)]"
+                              x-text="sshDisabledReason(h)"></span>
                       </div>
                     </div>
 
@@ -3973,6 +3979,7 @@
                          x-text="t('hosts_extra.custom_number_label')"></label>
                   <input type="number" x-model.number="row.custom_number" :disabled="isReadonly()"
                          @input="markHostRowDirty(idx)"
+                         @blur="rebuildHostsConfigOrder()"
                          class="w-full mono text-[13px] py-1.5"
                          min="1" step="1" placeholder="—">
                 </div>

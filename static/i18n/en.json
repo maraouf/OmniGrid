@@ -9,6 +9,7 @@
     "OG0002": "Connection refused by the upstream host — check the port and that the upstream service is running.",
     "OG0003": "Upstream request timed out.",
     "OG0004": "TLS handshake with the upstream failed — check the certificate or disable VERIFY_TLS for self-signed endpoints.",
+    "OG0005": "Host unreachable — no route from OmniGrid to the target. The host may be powered off, disconnected, or behind a firewall that blocks the source IP.",
     "OG0099": "Network error reaching the upstream.",
     "OG0100": "Upstream rejected the credentials (401). Token may be expired, revoked, or minted under a different tenant.",
     "OG0101": "Token lacks the required scope (403).",
@@ -1059,6 +1060,7 @@
     "save_failed_generic": "Save failed",
     "network_error_generic": "Network error",
     "webmin_url_without_name": "Row {id}: Webmin URL is set but Webmin hostname is blank. Enter the hostname the Miniserv reports (or clear the URL).",
+    "custom_number_duplicate": "Duplicate custom numbers — {detail}. Each host must have a unique custom number.",
     "ssh": {
       "command_required": "Enter a command to run.",
       "dry_run_ok": "Dry-run OK — click Run for real to execute.",
@@ -1137,6 +1139,7 @@
     "dry_run_label": "Dry-run (preview only)",
     "run_button": "Run",
     "running": "Running…",
+    "disabled_not_up": "SSH disabled — host is {status}. Bring the host online before running commands.",
     "result_exit": "Exit code",
     "result_stdout": "stdout",
     "result_stderr": "stderr",
