@@ -988,6 +988,7 @@
     "card_title": "SSH",
     "status_not_configured": "Not configured",
     "status_ready": "Ready",
+    "status_checking": "Checking…",
     "status_connecting": "Connecting…",
     "status_error": "Error",
     "status_disabled": "Disabled for this host",

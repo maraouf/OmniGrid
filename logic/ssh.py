@@ -539,6 +539,22 @@ def ssh_status(host_id: str, hosts_config: list[dict]) -> dict:
         and not resolved.get("disabled")
         and not resolved.get("error")
     )
+    # Diagnostic print so Admin → Logs shows exactly WHY a host reads
+    # as "Not configured" — the status pill doesn't distinguish
+    # between "host id unknown", "user blank", "no auth material",
+    # and "ssh.disabled=true". Operators have reported false negatives
+    # here; redacted dump of the resolved dict makes the root cause
+    # visible without exposing secrets.
+    print(
+        f"[ssh] status host_id={host_id!r} configured={configured} "
+        f"resolved_host={resolved.get('host')!r} "
+        f"user={resolved.get('user')!r} "
+        f"key_set={resolved.get('key_set')} "
+        f"password_set={resolved.get('password_set')} "
+        f"per_host_password={bool(resolved.get('_per_host_password'))} "
+        f"disabled={resolved.get('disabled')} "
+        f"error={resolved.get('error')!r}"
+    )
     return {
         "enabled":      not resolved.get("disabled"),
         "configured":   configured,

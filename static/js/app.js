@@ -4939,6 +4939,14 @@ function app() {
         if (host && host.beszel_id && !this.hostHistory[host.beszel_id]) {
           this.loadHostHistory(host.beszel_id, host.id);
         }
+        // Preload SSH status on drawer open (admin only, and only
+        // when the host didn't opt out of SSH). Without this, the
+        // SSH card header shows "Not configured" until the operator
+        // clicks to expand the card — reads as a false negative
+        // even for fully-configured fleets.
+        if (host && this.isAdmin && this.isAdmin() && !host.ssh_disabled) {
+          this.loadSshStatus(host.id);
+        }
       } else {
         this.hostsExpanded.splice(i, 1);
       }
