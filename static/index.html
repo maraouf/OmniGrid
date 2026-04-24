@@ -1027,22 +1027,29 @@
                 </svg>
                 <span class="w-2 h-2 rounded-full flex-shrink-0" :style="'background:' + statusDotColor(h.status)"></span>
               </div>
-              <!-- Hostname + updated-ago + provider chips. The chips
-                   make it obvious which providers actually returned
-                   data for this host, matching the merge that happens
-                   on the backend. Empty chips = no provider hit. -->
-              <div class="min-w-0">
-                <div class="flex items-center gap-1.5">
-                  <span class="font-semibold text-[13px] mono truncate" x-text="h.label || h.host"></span>
-                  <template x-for="p in (h.providers || [])" :key="p">
-                    <span class="chip text-[9.5px] px-1 py-0"
-                          :class="p === 'beszel' ? 'pill-ok' : p === 'pulse' ? 'pill-info' : 'pill-update'"
-                          x-text="p === 'node_exporter' ? 'exporter' : p"></span>
-                  </template>
-                </div>
-                <div class="text-[10.5px] text-[var(--text-faint)]">
-                  <span x-show="h.label && h.label !== h.host" class="mono me-1" x-text="h.host"></span>
-                  <span x-text="fmtUpdatedAgo(h.beszel_updated) || ((h.providers || []).length ? ((h.providers || []).length + ' provider' + ((h.providers || []).length === 1 ? '' : 's')) : 'no data')"></span>
+              <!-- Brand icon + hostname block + provider chips. The
+                   icon comes from hostIconUrl(h) (explicit override
+                   first, then iconUrlFor() resolver over id / label /
+                   provider names). Chips show which providers
+                   actually contributed data to this row. -->
+              <div class="min-w-0 flex items-center gap-2.5">
+                <img :src="hostIconUrl(h)" x-show="hostIconUrl(h)"
+                     width="22" height="22" class="flex-shrink-0 rounded-sm"
+                     alt="" loading="lazy"
+                     @error="$event.target.style.display='none'">
+                <div class="min-w-0 flex-1">
+                  <div class="flex items-center gap-1.5">
+                    <span class="font-semibold text-[13px] mono truncate" x-text="h.label || h.host"></span>
+                    <template x-for="p in (h.providers || [])" :key="p">
+                      <span class="chip text-[9.5px] px-1 py-0"
+                            :class="p === 'beszel' ? 'pill-ok' : p === 'pulse' ? 'pill-info' : 'pill-update'"
+                            x-text="p === 'node_exporter' ? 'exporter' : p"></span>
+                    </template>
+                  </div>
+                  <div class="text-[10.5px] text-[var(--text-faint)]">
+                    <span x-show="h.label && h.label !== h.host" class="mono me-1" x-text="h.host"></span>
+                    <span x-text="fmtUpdatedAgo(h.beszel_updated) || ((h.providers || []).length ? ((h.providers || []).length + ' provider' + ((h.providers || []).length === 1 ? '' : 's')) : 'no data')"></span>
+                  </div>
                 </div>
               </div>
               <!-- Platform -->
@@ -1161,6 +1168,22 @@
                     </template>
                     <template x-if="h.docker_node">
                       <dd class="mono text-end" x-text="h.docker_node"></dd>
+                    </template>
+                    <!-- Proxmox metadata from Pulse — shows VM/LXC
+                         identity and the PVE host it runs on so the
+                         operator can tell apart two guests with
+                         similar names (e.g. docker, docker-dev). -->
+                    <template x-if="h.pulse_kind">
+                      <dt class="text-[var(--text-dim)]">Proxmox</dt>
+                    </template>
+                    <template x-if="h.pulse_kind">
+                      <dd class="mono text-end">
+                        <span x-text="h.pulse_kind === 'lxc' ? 'LXC' : h.pulse_kind === 'qemu' ? 'VM' : (h.pulse_kind || '').toUpperCase()"></span>
+                        <span x-show="h.pulse_vmid" class="text-[var(--text-faint)]"
+                              x-text="' #' + h.pulse_vmid"></span>
+                        <span x-show="h.pulse_node" class="text-[var(--text-faint)]"
+                              x-text="' · on ' + h.pulse_node"></span>
+                      </dd>
                     </template>
                     <!-- URL row — always visible. Clickable link when
                          populated, "+ Add" deep-link to Admin → Hosts
@@ -2734,12 +2757,14 @@
                 <div>
                   <label class="block text-[10.5px] uppercase tracking-wider text-[var(--text-faint)] mb-1">ID · Docker hostname</label>
                   <input type="text" x-model="row.id" :disabled="isReadonly()"
+                         @input="onHostRowEdit(idx, 'id', $event.target.value)"
                          class="w-full mono text-[13px] py-1.5"
                          placeholder="e.g. debian13docker">
                 </div>
                 <div>
                   <label class="block text-[10.5px] uppercase tracking-wider text-[var(--text-faint)] mb-1">Display label</label>
                   <input type="text" x-model="row.label" :disabled="isReadonly()"
+                         @input="markHostRowDirty(idx)"
                          class="w-full text-[13px] py-1.5"
                          placeholder="e.g. Docker VM">
                 </div>
@@ -2751,18 +2776,35 @@
                         class="btn btn-ghost text-[12px] text-danger pb-1.5"
                         title="Remove this host">Remove</button>
               </div>
-              <!-- Row 1a — optional external URL. Rendered as a
-                   clickable link in the Hosts-view SYSTEM card and
-                   as the right-side "open" icon on the collapsed
-                   row. Leave blank to hide both. -->
-              <div>
-                <label class="block text-[10.5px] uppercase tracking-wider text-[var(--text-faint)] mb-1">
-                  External URL
-                  <span class="text-[10px] normal-case text-[var(--text-faint)] ms-1">(optional — host's web UI or dashboard)</span>
-                </label>
-                <input type="url" x-model="row.url" :disabled="isReadonly()"
-                       class="w-full mono text-[12.5px] py-1.5"
-                       placeholder="https://adguard.home.lan">
+              <!-- Row 1a — optional external URL + icon override. -->
+              <div class="grid grid-cols-1 md:grid-cols-[2fr_1fr] gap-3">
+                <div>
+                  <label class="block text-[10.5px] uppercase tracking-wider text-[var(--text-faint)] mb-1">
+                    External URL
+                    <span class="text-[10px] normal-case text-[var(--text-faint)] ms-1">(optional — host's web UI or dashboard)</span>
+                  </label>
+                  <input type="url" x-model="row.url" :disabled="isReadonly()"
+                         @input="markHostRowDirty(idx)"
+                         class="w-full mono text-[12.5px] py-1.5"
+                         placeholder="https://adguard.home.lan">
+                </div>
+                <div>
+                  <label class="block text-[10.5px] uppercase tracking-wider text-[var(--text-faint)] mb-1">
+                    Icon
+                    <span class="text-[10px] normal-case text-[var(--text-faint)] ms-1">(optional — auto-matched from ID if blank)</span>
+                  </label>
+                  <div class="flex items-center gap-2">
+                    <img :src="row.icon ? (row.icon.startsWith('http') || row.icon.startsWith('/') ? row.icon : '/img/icons/' + row.icon + '.svg') : (row.id ? iconUrlFor(row.id) : '')"
+                         x-show="row.icon || row.id"
+                         width="22" height="22" class="flex-shrink-0 rounded-sm"
+                         alt="" loading="lazy"
+                         @error="$event.target.style.display='none'">
+                    <input type="text" x-model="row.icon" :disabled="isReadonly()"
+                           @input="markHostRowDirty(idx)"
+                           class="flex-1 mono text-[12.5px] py-1.5"
+                           placeholder="opnsense · pfsense · ghcr.io/…">
+                  </div>
+                </div>
               </div>
               <!-- Row 2 — per-provider name mappings -->
               <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
@@ -2772,6 +2814,7 @@
                     <span class="text-[10px] normal-case text-[var(--text-faint)] ms-1">(blank = skip)</span>
                   </label>
                   <input type="url" x-model="row.ne_url" :disabled="isReadonly()"
+                         @input="markHostRowDirty(idx)"
                          class="w-full mono text-[12.5px] py-1.5"
                          placeholder="http://192.168.1.30:9100/metrics">
                 </div>
@@ -2782,6 +2825,7 @@
                   </label>
                   <input type="text" x-model="row.beszel_name" :disabled="isReadonly()"
                          list="beszel-names"
+                         @input="markHostRowDirty(idx)"
                          class="w-full mono text-[12.5px] py-1.5"
                          placeholder="docker.home.lan">
                 </div>
@@ -2792,6 +2836,7 @@
                   </label>
                   <input type="text" x-model="row.pulse_name" :disabled="isReadonly()"
                          list="pulse-names"
+                         @input="markHostRowDirty(idx)"
                          class="w-full mono text-[12.5px] py-1.5"
                          placeholder="docker · pve-1 · vm-104">
                 </div>

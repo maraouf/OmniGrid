@@ -1351,6 +1351,7 @@ async def api_hosts():
             "pulse_name":      h.get("pulse_name") or "",
             "ne_url":          h.get("ne_url") or "",
             "url":             h.get("url") or "",
+            "icon":            h.get("icon") or "",
             "providers":       entry["_providers"],
             "status":          s.get("beszel_status") or s.get("pulse_status") or "unknown",
             "docker_node":     h["id"],  # curated list IS the docker-node-like mapping
@@ -1377,6 +1378,12 @@ async def api_hosts():
             "boot_ts":         s.get("host_boot_ts"),
             "beszel_id":       s.get("beszel_id") or "",
             "beszel_updated":  s.get("beszel_updated") or "",
+            # Pulse-specific metadata for rendering a "Proxmox" facet
+            # in the SYSTEM / HARDWARE card when Pulse contributed.
+            "pulse_kind":      s.get("pulse_kind") or "",        # "node" / "lxc" / "qemu"
+            "pulse_vmid":      s.get("pulse_vmid") or 0,
+            "pulse_node":      s.get("pulse_node") or "",        # PVE host the guest lives on
+            "pulse_status":    s.get("pulse_status") or "",
         })
 
     # Aggregate error — non-fatal; UI shows the first one per provider.
@@ -1425,6 +1432,11 @@ def _load_hosts_config() -> list[dict]:
             # web UI). Rendered as a clickable link in the Hosts view's
             # SYSTEM card, matches Beszel's "+ Add URL" affordance.
             "url":         (h.get("url") or "").strip(),
+            # Optional icon override — a slug like "opnsense" (resolved
+            # to /img/icons/opnsense.svg) or a full URL. Empty = let
+            # the frontend's iconUrlFor() auto-resolve from the host's
+            # id / label.
+            "icon":        (h.get("icon") or "").strip(),
             "enabled":     bool(h.get("enabled", True)),
         })
     return clean
@@ -1452,6 +1464,7 @@ def _save_hosts_config(hosts: list[dict]) -> list[dict]:
             "beszel_name": (h.get("beszel_name") or "").strip(),
             "pulse_name":  (h.get("pulse_name") or "").strip(),
             "url":         (h.get("url") or "").strip(),
+            "icon":        (h.get("icon") or "").strip(),
             "enabled":     bool(h.get("enabled", True)),
         }
     ordered = list(seen.values())

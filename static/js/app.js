@@ -3057,8 +3057,45 @@ function app() {
         beszel_name: '',
         pulse_name: '',
         url: '',
+        icon: '',
         enabled: true,
       });
+    },
+    // Dirty-tracking: clear any stale per-row Test result the moment
+    // an input changes, so green ticks don't linger next to fields
+    // the operator is currently fixing.
+    markHostRowDirty(idx) {
+      if (this.hostsTestResults && this.hostsTestResults[idx]) {
+        delete this.hostsTestResults[idx];
+      }
+    },
+    // Convenience auto-fill: when the operator first types the ID
+    // and the Label is still blank, mirror the ID into Label so they
+    // don't have to type it twice. Respects any Label they later
+    // type — once it's populated, it stays.
+    onHostRowEdit(idx, field, value) {
+      this.markHostRowDirty(idx);
+      if (field === 'id') {
+        const row = this.hostsConfig[idx];
+        if (row && !row.label) row.label = value;
+      }
+    },
+    // Resolve a curated host to an icon URL. Tries the explicit
+    // ``icon`` override first (so the admin can force a specific
+    // glyph), then falls back to the shared ``iconUrlFor`` resolver
+    // fed from the host id / label / beszel name / pulse name —
+    // first hit wins.
+    hostIconUrl(h) {
+      if (!h) return '';
+      if (h.icon) return h.icon;
+      const candidates = [
+        h.id, h.label, h.host, h.beszel_name, h.pulse_name,
+      ].filter(Boolean);
+      for (const c of candidates) {
+        const url = this.iconUrlFor(c);
+        if (url) return url;
+      }
+      return '';
     },
     removeHostRow(idx) {
       this.hostsConfig.splice(idx, 1);
@@ -3076,6 +3113,7 @@ function app() {
         beszel_name: (h.beszel_name || '').trim(),
         pulse_name:  (h.pulse_name || '').trim(),
         url:         (h.url || '').trim(),
+        icon:        (h.icon || '').trim(),
         enabled:     h.enabled !== false,
       }));
       this.hostsConfigSaving = true;

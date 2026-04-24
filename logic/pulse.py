@@ -213,17 +213,46 @@ async def probe_pulse(
             state = await _fetch_state(client, base_url, token)
     except Exception as e:
         return {"hosts": {}, "error": str(e)}
+    # Nodes live at ``state.nodes`` in every Pulse version we've seen.
     nodes = state.get("nodes") or []
-    # Pulse v3+ returns ``guests``; older builds use ``vms``. Take both
-    # and merge so we handle the schema either way. If both are present
-    # and somehow overlap, latest wins — unlikely in practice.
-    guests: list = list(state.get("guests") or [])
-    guests.extend(state.get("vms") or [])
+
+    # Guests (VMs + LXCs) have drifted across versions. Collect them
+    # from every top-level key we know about — ``guests`` (old v3),
+    # ``vms`` (general), ``containers`` / ``lxc`` / ``qemu`` (split-
+    # by-kind in some builds), and the nested ``pve.*`` envelope the
+    # newer Pulse release wraps everything in.
+    guests: list = []
+    for top_key in ("guests", "vms", "containers", "lxc", "qemu"):
+        v = state.get(top_key)
+        if isinstance(v, list):
+            guests.extend(v)
+    # Some Pulse versions wrap the whole payload in a ``pve`` object.
+    pve = state.get("pve")
+    if isinstance(pve, dict):
+        for sub in ("guests", "vms", "containers", "lxc", "qemu"):
+            v = pve.get(sub)
+            if isinstance(v, list):
+                guests.extend(v)
+    # Newer builds may attach ``vms`` / ``containers`` per node.
+    for n in nodes:
+        if not isinstance(n, dict):
+            continue
+        for sub in ("vms", "containers", "guests", "lxc", "qemu"):
+            v = n.get(sub)
+            if isinstance(v, list):
+                # Stamp the node reference so extract_guest_stats can
+                # report "on pve-1" even when the guest record itself
+                # doesn't carry a ``node`` field.
+                inherited = (n.get("node") or n.get("name") or "")
+                for item in v:
+                    if isinstance(item, dict) and not item.get("node"):
+                        item = {**item, "node": inherited}
+                    guests.append(item)
+
     print(f"[pulse] probe: state top-level keys={sorted(state.keys())} "
           f"nodes={len(nodes)} guests={len(guests)}")
     # Dump the raw shape of the first node + guest so operators can
-    # see what fields Pulse actually emits. Truncated to avoid
-    # log-flood on big clusters.
+    # see what fields Pulse actually emits.
     if nodes:
         print(f"[pulse] probe: sample node fields={sorted((nodes[0] or {}).keys())}")
     if guests:
@@ -259,17 +288,29 @@ async def probe_pulse(
     for g in guests:
         if not isinstance(g, dict):
             continue
-        gname = (g.get("name") or "").strip()
+        # Display name: Pulse versions use ``name`` (general),
+        # ``hostname`` (LXCs in some releases), or ``description``
+        # (fallback when neither is set). First non-empty wins.
+        gname = ((g.get("name") or g.get("hostname")
+                  or g.get("description") or "")).strip()
         if not gname:
             continue
         stats = extract_guest_stats(g)
         stats["pulse_name"] = gname
         _add(gname, stats)
-        # Also index under the vmid (as a string) so operators can
-        # paste "100" instead of hunting down the display name.
-        vmid = g.get("vmid")
-        if vmid not in (None, "", 0):
-            _add(str(vmid), stats)
+        # Alternate display-name aliases — if ``name`` and ``hostname``
+        # differ (LXC friendly-name vs unix hostname), make both
+        # resolvable so the operator can type whichever they see.
+        for alt in ("name", "hostname"):
+            v = (g.get(alt) or "").strip()
+            if v and v != gname:
+                _add(v, stats)
+        # VM/LXC id — ``vmid`` classic, ``id`` sometimes, both may
+        # be numbers or strings.
+        for id_key in ("vmid", "id"):
+            vid = g.get(id_key)
+            if vid not in (None, "", 0):
+                _add(str(vid), stats)
     print(f"[pulse] probe: indexed keys={sorted(out.keys())}")
     return {"hosts": out, "error": None}
 
