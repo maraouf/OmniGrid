@@ -1331,7 +1331,26 @@
                  info cards side by side on wide screens, mirroring
                  Beszel's own detail layout. -->
             <div x-show="isHostExpanded(h.host)" class="bg-[var(--surface-2)]/50 border-t border-[var(--border)] px-5 py-4">
-              <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
+              <!-- "No data yet" banner — admins can open the drawer for
+                   any host (including down / unmatched) to reach the
+                   debug panel. When no provider returned data, the
+                   SYSTEM / HARDWARE / metric cards below are empty-
+                   stated, so we hide them entirely and let the Debug
+                   panel at the bottom of the drawer do the talking. -->
+              <template x-if="!((h.providers || []).length > 0)">
+                <div class="flex items-start gap-3 bg-[var(--surface-3)] border border-[var(--border)] rounded-md p-4 text-[12.5px] mb-4">
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-[var(--text-dim)] flex-shrink-0 mt-0.5"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+                  <div>
+                    <div class="font-semibold text-[var(--text)]">No data from any enabled provider</div>
+                    <div class="text-[var(--text-dim)] mt-1">
+                      OmniGrid could not match this host to Pulse, Beszel, node-exporter, or Webmin.
+                      Open the <span class="mono text-[var(--text)]">Show debug data</span> panel below to see what each provider returned and where the match failed.
+                    </div>
+                  </div>
+                </div>
+              </template>
+              <div x-show="(h.providers || []).length > 0"
+                   class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
                 <!-- SYSTEM — only the fields Beszel's agent actually
                      reports for this host are rendered. Container-mode
                      agents tend to skip platform / OS / kernel / arch;
@@ -2247,6 +2266,60 @@
               <button @click="saveProfile()" :disabled="profileBusy" class="btn btn-primary text-[12px]"
                       x-text="profileBusy ? t('actions.saving') : t('actions.save_changes')"></button>
             </div>
+          </div>
+        </section>
+
+        <!-- Topbar widgets — per-browser preferences stored in
+             localStorage (no backend persistence; each device is
+             independent). Changes take effect immediately on blur. -->
+        <section class="bg-[var(--surface)] border border-[var(--border)] rounded-md p-5 lg:col-span-2">
+          <div class="flex items-center gap-2 mb-4">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-[var(--text-dim)]"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+            <h3 class="font-semibold text-[13px]">Topbar widgets</h3>
+          </div>
+          <p class="text-[11.5px] text-[var(--text-faint)] mb-4">
+            Clock and weather appear in the top-right of the app bar.
+            Weather uses <a href="https://open-meteo.com" target="_blank" rel="noopener" class="text-[var(--primary)] hover:underline">Open-Meteo</a> (free, no API key, refreshed every 10 min).
+          </p>
+          <div class="space-y-3">
+            <label class="flex items-center gap-2 text-[12.5px]">
+              <input type="checkbox" x-model="headerClockEnabled" @change="saveHeaderPrefs()">
+              <span>Show clock</span>
+            </label>
+            <label class="flex items-center gap-2 text-[12.5px]">
+              <input type="checkbox" x-model="headerWeatherEnabled" @change="saveHeaderPrefs()">
+              <span>Show weather</span>
+            </label>
+            <div class="grid grid-cols-1 sm:grid-cols-3 gap-3" x-show="headerWeatherEnabled">
+              <div>
+                <label class="block text-[11px] text-[var(--text-dim)] mb-1">City / label</label>
+                <input type="text" x-model="headerWeatherLabel"
+                       @change="saveHeaderPrefs()"
+                       placeholder="e.g. Cairo"
+                       class="w-full text-[12.5px]">
+              </div>
+              <div>
+                <label class="block text-[11px] text-[var(--text-dim)] mb-1">Latitude</label>
+                <input type="number" step="any" x-model.number="headerWeatherLat"
+                       @change="saveHeaderPrefs()"
+                       placeholder="30.0444"
+                       class="w-full text-[12.5px] mono">
+              </div>
+              <div>
+                <label class="block text-[11px] text-[var(--text-dim)] mb-1">Longitude</label>
+                <input type="number" step="any" x-model.number="headerWeatherLon"
+                       @change="saveHeaderPrefs()"
+                       placeholder="31.2357"
+                       class="w-full text-[12.5px] mono">
+              </div>
+            </div>
+            <p class="text-[10.5px] text-[var(--text-faint)]" x-show="headerWeatherEnabled">
+              Tip: open <a href="https://www.google.com/maps" target="_blank" rel="noopener" class="text-[var(--primary)] hover:underline">Google Maps</a>,
+              right-click your city, copy the lat/lon pair shown at the top of the menu.
+            </p>
+            <div x-show="headerWeatherEnabled && weather && weather.error"
+                 class="text-[11px] text-[var(--danger)]"
+                 x-text="'Weather fetch failed: ' + weather.error"></div>
           </div>
         </section>
 
