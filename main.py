@@ -1893,6 +1893,16 @@ async def api_hosts():
 _HOST_PROVIDER_CACHE_TTL = 10.0
 _host_provider_cache: dict = {"ts": 0.0, "state": None}
 
+# Per-host Webmin result cache. Webmin probes are the slowest link in
+# the /api/hosts/one/{id} path (up to 20s each on slow Miniserv); a
+# 30s TTL means repeated drawer opens / refresh ticks within half a
+# minute skip the probe entirely and reuse the last known-good stats.
+# Cache key is the host_id (one Webmin per host — unlike Beszel/Pulse
+# which are multi-tenant). Value is the raw dict returned by
+# probe_webmin so _merge_one_host can fold it the same way.
+_WEBMIN_HOST_CACHE_TTL = 30.0
+_webmin_host_cache: dict[str, tuple[float, dict]] = {}
+
 
 async def _get_host_provider_state(force: bool = False) -> dict:
     """Fetch + cache the provider state needed to merge any host.
@@ -2031,22 +2041,35 @@ async def _merge_one_host(h: dict, state: dict) -> tuple[dict, list[str]]:
             print(f"[hosts] NE probe failed for {h.get('id')!r}: {e}")
 
     # Webmin (per-host probe, 20s outer budget matching api_hosts).
+    # Consults a 30s per-host result cache — Webmin is the slowest
+    # provider, so burst-refreshes (e.g. the SPA fanning out
+    # /api/hosts/one/{id} twice in a minute) skip the repeat probe.
     if "webmin" in active and state["webmin_creds_ok"]:
         wm_url = state["webmin_aliases"].get(h["id"]) or h.get("webmin_url") or ""
         if wm_url:
-            try:
-                result = await asyncio.wait_for(
-                    _webmin.probe_webmin(
-                        wm_url, state["webmin_user"], state["webmin_password"],
-                        verify_tls=state["webmin_verify"],
-                        active_sources=active,
-                    ),
-                    timeout=20.0,
-                )
-            except asyncio.TimeoutError:
-                result = {"hosts": {}, "error": "webmin probe timeout after 20s"}
-            except Exception as e:  # noqa: BLE001
-                result = {"hosts": {}, "error": f"webmin probe failed: {e}"}
+            now = time.time()
+            cached = _webmin_host_cache.get(h["id"])
+            if cached and (now - cached[0]) < _WEBMIN_HOST_CACHE_TTL:
+                result = cached[1]
+            else:
+                try:
+                    result = await asyncio.wait_for(
+                        _webmin.probe_webmin(
+                            wm_url, state["webmin_user"], state["webmin_password"],
+                            verify_tls=state["webmin_verify"],
+                            active_sources=active,
+                        ),
+                        timeout=20.0,
+                    )
+                except asyncio.TimeoutError:
+                    result = {"hosts": {}, "error": "webmin probe timeout after 20s"}
+                except Exception as e:  # noqa: BLE001
+                    result = {"hosts": {}, "error": f"webmin probe failed: {e}"}
+                # Only cache successful probes (non-empty hosts map).
+                # Caching a timeout/auth-fail would mask recovery for
+                # a full TTL window — we'd rather retry quickly.
+                if (result.get("hosts") or {}):
+                    _webmin_host_cache[h["id"]] = (now, result)
             hosts_map = result.get("hosts") or {}
             if hosts_map:
                 stats = next(iter(hosts_map.values()))

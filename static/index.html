@@ -976,7 +976,7 @@
                  came back — green when that provider matched at least
                  one host, red when it returned an error, muted when
                  it's enabled but matched nothing. -->
-            <template x-for="p in ['beszel','pulse','node_exporter']" :key="p">
+            <template x-for="p in ['beszel','pulse','node_exporter','webmin']" :key="p">
               <span x-show="hostsProviderState(p).visible"
                     class="pill text-[10.5px]"
                     :class="hostsProviderState(p).cls"
@@ -1096,8 +1096,16 @@
                :data-expandable="isHostExpandable(h) ? 'true' : 'false'"
                @click="toggleHost(h.host)">
             <div class="host-mobile-card-head">
-              <span class="host-mobile-card-status"
-                    :style="'background:' + statusDotColor(h.status)"></span>
+              <!-- Loading spinner replaces the status dot while
+                   refreshHostRow is in flight for this row. Clear
+                   visual signal that data is arriving. -->
+              <template x-if="h._loading">
+                <span class="host-loading-spinner" aria-hidden="true"></span>
+              </template>
+              <template x-if="!h._loading">
+                <span class="host-mobile-card-status"
+                      :style="'background:' + statusDotColor(h.status)"></span>
+              </template>
               <img class="host-mobile-card-icon" :src="hostIconUrl(h)"
                    x-show="hostIconUrl(h)" alt="" loading="lazy"
                    @error="$event.target.style.display='none'">
@@ -1185,7 +1193,12 @@
                      class="text-[var(--text-dim)] transition-transform">
                   <polyline points="9 18 15 12 9 6"/>
                 </svg>
-                <span class="w-2 h-2 rounded-full flex-shrink-0" :style="'background:' + statusDotColor(h.status)"></span>
+                <template x-if="h._loading">
+                  <span class="host-loading-spinner" aria-hidden="true"></span>
+                </template>
+                <template x-if="!h._loading">
+                  <span class="w-2 h-2 rounded-full flex-shrink-0" :style="'background:' + statusDotColor(h.status)"></span>
+                </template>
               </div>
               <!-- Brand icon + hostname block + provider chips. The
                    icon comes from hostIconUrl(h) (explicit override
@@ -1374,42 +1387,42 @@
                      hiding those empty rows makes the card honest instead
                      of full of em-dashes. -->
                 <section class="rounded border border-[var(--border)] bg-[var(--surface)] p-4">
-                  <h4 class="text-[10.5px] uppercase tracking-wider text-[var(--text-faint)] mb-3">System</h4>
+                  <h4 class="text-[10.5px] uppercase tracking-wider text-[var(--text-faint)] mb-3" x-text="t('host_drawer.system.heading')"></h4>
                   <dl class="grid grid-cols-[auto_1fr] gap-x-4 gap-y-2 text-[12px]">
-                    <dt class="text-[var(--text-dim)]">Hostname</dt>
+                    <dt class="text-[var(--text-dim)]" x-text="t('host_drawer.system.hostname')"></dt>
                     <dd class="mono text-end" x-text="h.host"></dd>
                     <!-- Hide Platform when it duplicates the OS's
                          first word (common when Pulse derived the
                          platform hint from its ``osName``). "debian"
                          + "debian 13.4" reads as a single row now. -->
                     <template x-if="h.platform && !(h.os && h.os.toLowerCase().startsWith(h.platform.toLowerCase()))">
-                      <dt class="text-[var(--text-dim)]">Platform</dt>
+                      <dt class="text-[var(--text-dim)]" x-text="t('host_drawer.system.platform')"></dt>
                     </template>
                     <template x-if="h.platform && !(h.os && h.os.toLowerCase().startsWith(h.platform.toLowerCase()))">
                       <dd class="text-end" x-text="h.platform"></dd>
                     </template>
                     <template x-if="h.os">
-                      <dt class="text-[var(--text-dim)]">OS</dt>
+                      <dt class="text-[var(--text-dim)]" x-text="t('host_drawer.system.os')"></dt>
                     </template>
                     <template x-if="h.os">
                       <dd class="text-end" x-text="h.os"></dd>
                     </template>
                     <template x-if="h.kernel">
-                      <dt class="text-[var(--text-dim)]">Kernel</dt>
+                      <dt class="text-[var(--text-dim)]" x-text="t('host_drawer.system.kernel')"></dt>
                     </template>
                     <template x-if="h.kernel">
                       <dd class="mono text-end break-all" x-text="h.kernel"></dd>
                     </template>
                     <template x-if="h.arch">
-                      <dt class="text-[var(--text-dim)]">Architecture</dt>
+                      <dt class="text-[var(--text-dim)]" x-text="t('host_drawer.system.arch')"></dt>
                     </template>
                     <template x-if="h.arch">
                       <dd class="mono text-end" x-text="h.arch"></dd>
                     </template>
-                    <dt class="text-[var(--text-dim)]">Uptime</dt>
+                    <dt class="text-[var(--text-dim)]" x-text="t('host_drawer.system.uptime')"></dt>
                     <dd class="mono text-end" x-text="fmtUptimeShort(h.uptime_s)"></dd>
                     <template x-if="h.docker_node">
-                      <dt class="text-[var(--text-dim)]">Docker node</dt>
+                      <dt class="text-[var(--text-dim)]" x-text="t('host_drawer.system.docker_node')"></dt>
                     </template>
                     <template x-if="h.docker_node">
                       <dd class="mono text-end" x-text="h.docker_node"></dd>
@@ -1419,13 +1432,13 @@
                          operator can tell apart two guests with
                          similar names (e.g. docker, docker-dev). -->
                     <template x-if="h.pulse_kind">
-                      <dt class="text-[var(--text-dim)]">Proxmox</dt>
+                      <dt class="text-[var(--text-dim)]" x-text="t('host_drawer.system.proxmox')"></dt>
                     </template>
                     <template x-if="h.pulse_kind">
                       <dd class="mono text-end">
-                        <span x-text="h.pulse_kind === 'lxc' ? 'LXC'
-                                     : h.pulse_kind === 'qemu' ? 'VM'
-                                     : h.pulse_kind === 'node' ? 'Hypervisor'
+                        <span x-text="h.pulse_kind === 'lxc' ? t('host_drawer.proxmox_kind.lxc')
+                                     : h.pulse_kind === 'qemu' ? t('host_drawer.proxmox_kind.qemu')
+                                     : h.pulse_kind === 'node' ? t('host_drawer.proxmox_kind.node')
                                      : (h.pulse_kind || '').toUpperCase()"></span>
                         <span x-show="h.pulse_vmid" class="text-[var(--text-faint)]"
                               x-text="' #' + h.pulse_vmid"></span>
@@ -1436,12 +1449,12 @@
                     <!-- URL row — always visible. Clickable link when
                          populated, "+ Add" deep-link to Admin → Hosts
                          when empty, matching Beszel's affordance. -->
-                    <dt class="text-[var(--text-dim)]">URL</dt>
+                    <dt class="text-[var(--text-dim)]" x-text="t('host_drawer.system.url')"></dt>
                     <dd class="text-end">
                       <a x-show="h.url" :href="h.url" target="_blank" rel="noopener"
                          class="text-[var(--primary)] hover:underline mono" x-text="h.url"></a>
                       <a x-show="!h.url" href="/admin/hosts"
-                         class="text-[var(--primary)] hover:underline">+ Add</a>
+                         class="text-[var(--primary)] hover:underline" x-text="t('host_drawer.system.add_url')"></a>
                     </dd>
                   </dl>
                 </section>
@@ -1455,46 +1468,47 @@
                      status dot at the top of the row already says
                      that, and an empty card adds visual noise). -->
                 <section x-show="h.status === 'up'" class="rounded border border-[var(--border)] bg-[var(--surface)] p-4">
-                  <h4 class="text-[10.5px] uppercase tracking-wider text-[var(--text-faint)] mb-3">Hardware</h4>
+                  <h4 class="text-[10.5px] uppercase tracking-wider text-[var(--text-faint)] mb-3" x-text="t('host_drawer.hardware.heading')"></h4>
                   <dl class="grid grid-cols-[auto_1fr] gap-x-4 gap-y-2 text-[12px]">
                     <template x-if="h.cpu_model">
-                      <dt class="text-[var(--text-dim)]">CPU</dt>
+                      <dt class="text-[var(--text-dim)]" x-text="t('host_drawer.hardware.cpu')"></dt>
                     </template>
                     <template x-if="h.cpu_model">
                       <dd class="text-end mono break-all" x-text="h.cpu_model"></dd>
                     </template>
                     <template x-if="h.cores">
-                      <dt class="text-[var(--text-dim)]">Cores</dt>
+                      <dt class="text-[var(--text-dim)]" x-text="t('host_drawer.hardware.cores')"></dt>
                     </template>
                     <template x-if="h.cores">
                       <dd class="mono text-end" x-text="h.cores"></dd>
                     </template>
                     <template x-if="h.threads">
-                      <dt class="text-[var(--text-dim)]">Threads</dt>
+                      <dt class="text-[var(--text-dim)]" x-text="t('host_drawer.hardware.threads')"></dt>
                     </template>
                     <template x-if="h.threads">
                       <dd class="mono text-end" x-text="h.threads"></dd>
                     </template>
                     <template x-if="h.mem_total">
-                      <dt class="text-[var(--text-dim)]">Memory</dt>
+                      <dt class="text-[var(--text-dim)]" x-text="t('host_drawer.hardware.memory')"></dt>
                     </template>
                     <template x-if="h.mem_total">
                       <dd class="mono text-end" x-text="fmtBytes(h.mem_total)"></dd>
                     </template>
                     <template x-if="h.disk_total">
-                      <dt class="text-[var(--text-dim)]">Disk</dt>
+                      <dt class="text-[var(--text-dim)]" x-text="t('host_drawer.hardware.disk')"></dt>
                     </template>
                     <template x-if="h.disk_total">
                       <dd class="mono text-end" x-text="fmtBytes(h.disk_total)"></dd>
                     </template>
                     <template x-if="h.agent">
                       <dt class="text-[var(--text-dim)]"
-                          title="Version reported by the Beszel agent on this host">Beszel agent</dt>
+                          :title="t('host_drawer.hardware.beszel_agent_title')"
+                          x-text="t('host_drawer.hardware.beszel_agent')"></dt>
                     </template>
                     <template x-if="h.agent">
                       <dd class="mono text-end" x-text="h.agent"></dd>
                     </template>
-                    <dt class="text-[var(--text-dim)]">Status</dt>
+                    <dt class="text-[var(--text-dim)]" x-text="t('host_drawer.hardware.status')"></dt>
                     <dd class="text-end">
                       <span class="pill text-[10.5px]"
                             :class="h.status === 'up' ? 'pill-ok' : h.status === 'down' ? 'pill-error' : 'pill-unknown'"
@@ -1509,10 +1523,10 @@
                      the operator's eye reads the two UIs the same way. -->
                 <section x-show="(h.network_ifaces || []).length > 0 || h.bandwidth"
                          class="rounded border border-[var(--border)] bg-[var(--surface)] p-4">
-                  <h4 class="text-[10.5px] uppercase tracking-wider text-[var(--text-faint)] mb-3">Network</h4>
+                  <h4 class="text-[10.5px] uppercase tracking-wider text-[var(--text-faint)] mb-3" x-text="t('host_drawer.network.heading')"></h4>
                   <div class="space-y-3">
                     <div x-show="h.bandwidth" class="flex items-center justify-between text-[12px]">
-                      <span class="text-[var(--text-dim)]">Bandwidth</span>
+                      <span class="text-[var(--text-dim)]" x-text="t('host_drawer.network.bandwidth')"></span>
                       <span class="mono" x-text="fmtBytes(h.bandwidth) + '/s'"></span>
                     </div>
                     <template x-for="(iface, i) in (h.network_ifaces || [])" :key="i">
@@ -1552,7 +1566,7 @@
                      agents. -->
                 <section x-show="h.disk_total > 0 || (h.mounts || []).length > 0"
                          class="rounded border border-[var(--border)] bg-[var(--surface)] p-4">
-                  <h4 class="text-[10.5px] uppercase tracking-wider text-[var(--text-faint)] mb-3">Disks</h4>
+                  <h4 class="text-[10.5px] uppercase tracking-wider text-[var(--text-faint)] mb-3" x-text="t('host_drawer.disks.heading')"></h4>
                   <div class="space-y-3">
                     <!-- Total usage row — single-colour aggregate bar.
                          Per-mount rows below give the breakdown; the
@@ -1563,7 +1577,7 @@
                          Beszel's reference layout. -->
                     <div x-show="h.disk_total > 0">
                       <div class="flex items-baseline justify-between">
-                        <span class="text-[11.5px] text-[var(--text-dim)] font-semibold">Total usage</span>
+                        <span class="text-[11.5px] text-[var(--text-dim)] font-semibold" x-text="t('host_drawer.disks.total_usage')"></span>
                         <span class="text-[10.5px] text-[var(--text-faint)] mono"
                               x-text="diskPercentOf(h).toFixed(1) + '% · '
                                       + fmtBytes(h.disk_used) + ' / '
@@ -1609,9 +1623,9 @@
                             @click="toggleHostShowEmptyDisks(h.host)"
                             class="text-[10.5px] text-[var(--text-faint)] hover:text-[var(--primary)] hover:underline w-full text-start pt-1 mono">
                       <span x-show="!hostDisksShowEmpty[h.host]"
-                            x-text="'+ Show ' + emptyMountCount(h) + ' empty mount' + (emptyMountCount(h) === 1 ? '' : 's')"></span>
+                            x-text="emptyMountCount(h) === 1 ? t('host_drawer.disks.show_empty_one') : t('host_drawer.disks.show_empty_many', { count: emptyMountCount(h) })"></span>
                       <span x-show="hostDisksShowEmpty[h.host]"
-                            x-text="'− Hide ' + emptyMountCount(h) + ' empty mount' + (emptyMountCount(h) === 1 ? '' : 's')"></span>
+                            x-text="emptyMountCount(h) === 1 ? t('host_drawer.disks.hide_empty_one') : t('host_drawer.disks.hide_empty_many', { count: emptyMountCount(h) })"></span>
                     </button>
                   </div>
                 </section>
@@ -1621,20 +1635,20 @@
                      later phase may link to a full package list. -->
                 <section x-show="(h.updates_pending || 0) > 0"
                          class="rounded border border-[var(--border)] bg-[var(--surface)] p-4">
-                  <h4 class="text-[10.5px] uppercase tracking-wider text-[var(--text-faint)] mb-3">Updates</h4>
+                  <h4 class="text-[10.5px] uppercase tracking-wider text-[var(--text-faint)] mb-3" x-text="t('host_drawer.updates.heading')"></h4>
                   <dl class="grid grid-cols-[auto_1fr] gap-x-4 gap-y-2 text-[12px]">
-                    <dt class="text-[var(--text-dim)]">Pending</dt>
+                    <dt class="text-[var(--text-dim)]" x-text="t('host_drawer.updates.pending')"></dt>
                     <dd class="mono text-end" x-text="h.updates_pending"></dd>
                     <template x-if="(h.updates_security || 0) > 0">
-                      <dt class="text-[var(--text-dim)]">Security</dt>
+                      <dt class="text-[var(--text-dim)]" x-text="t('host_drawer.updates.security')"></dt>
                     </template>
                     <template x-if="(h.updates_security || 0) > 0">
                       <dd class="text-end">
                         <span class="pill pill-degraded text-[10.5px]"
-                              x-text="h.updates_security + ' security'"></span>
+                              x-text="t('host_drawer.updates.security_count', { count: h.updates_security })"></span>
                       </dd>
                     </template>
-                    <dt class="text-[var(--text-dim)]">Source</dt>
+                    <dt class="text-[var(--text-dim)]" x-text="t('host_drawer.updates.source')"></dt>
                     <dd class="mono text-end text-[var(--text-faint)]">Webmin</dd>
                   </dl>
                 </section>

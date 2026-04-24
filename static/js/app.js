@@ -4590,13 +4590,42 @@ function app() {
         this.hostsError = d.error || '';
         this.hostsProviderErrors = d.provider_errors || {};
         this.hostsActiveSources = Array.isArray(d.active) ? d.active : [];
-        // Skeleton rows — each gets _loading:true + status:'loading'
-        // so the status dot renders neutral until the per-host probe
-        // lands. _seq keeps the "Custom #" / seq sort stable.
+        // Merge with EXISTING rows to prevent the flicker that
+        // happens when the 15s poll re-runs and resets every row to
+        // the grey skeleton (hiding graphs / provider chips for a
+        // second while refreshHostRow re-fetches). For each server
+        // row, find the existing client row by id: if it had real
+        // data, keep that data and just mark _loading=true (row stays
+        // visually stable); if new, start from the skeleton.
+        const existingById = new Map((this.hosts || []).map(h => [h.id, h]));
+        // Fields that come from hosts_config (not probes) — safe to
+        // overlay from the fresh skeleton so operator edits (label,
+        // icon, ssh_disabled toggle) reflect on the next tick.
+        const CURATED_FIELDS = [
+          'label', 'icon', 'custom_number', 'url',
+          'beszel_name', 'pulse_name', 'ne_url', 'webmin_name',
+          'ssh_disabled',
+        ];
         this.hosts = Array.isArray(d.hosts)
-          ? d.hosts.map((h, i) => ({
-              ...h, _seq: i, _loading: true, status: 'loading',
-            }))
+          ? d.hosts.map((h, i) => {
+              const prev = existingById.get(h.id);
+              if (prev && !prev._loading) {
+                // Row already had real stats. Keep them (avoids the
+                // flicker where 15s polling resets every row to the
+                // grey skeleton for a second). Overlay ONLY curated
+                // fields from the fresh skeleton so operator edits
+                // take effect. `_loading: true` marks the re-probe
+                // in flight without hiding the current chart data.
+                const patched = { ...prev };
+                for (const k of CURATED_FIELDS) {
+                  if (k in h) patched[k] = h[k];
+                }
+                patched._seq = i;
+                patched._loading = true;
+                return patched;
+              }
+              return { ...h, _seq: i, _loading: true, status: 'loading' };
+            })
           : [];
         this.hostsCuratedCount = Number.isFinite(d.curated_count) ? d.curated_count : 0;
         this.hostsEnabledCount = Number.isFinite(d.enabled_count) ? d.enabled_count : 0;

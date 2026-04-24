@@ -1212,6 +1212,25 @@ details summary::-webkit-details-marker {
 }
 
 
+/* Loading spinner for host rows whose /api/hosts/one/{id} probe is
+   still in flight. Sits where the status dot would be so the row
+   layout doesn't jump when data arrives and the spinner is swapped
+   back for a coloured dot. 10px diameter matches the dot size. */
+.host-loading-spinner {
+    display: inline-block;
+    width: 10px;
+    height: 10px;
+    border: 1.5px solid var(--border-bright);
+    border-top-color: var(--primary);
+    border-radius: 50%;
+    animation: host-spin 0.7s linear infinite;
+    flex-shrink: 0;
+}
+@keyframes host-spin {
+    to { transform: rotate(360deg); }
+}
+
+
 /* Segmented disk-usage bar — one slot per mount, every slot an
    equal share of the bar's width. Within each slot the fill
    reflects THAT mount's own percent-full (not its share of the
