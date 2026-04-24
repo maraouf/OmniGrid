@@ -57,6 +57,10 @@ function app() {
     hostsLoading: false,
     hostsExpanded: [],
     _hostsTimer: null,
+    // Per-system time-series cache keyed by Beszel record id.
+    // Shape: { [system_id]: { loading, error, series: [{t,cpu,mp,dp,b,...}] } }
+    hostHistory: {},
+    hostHistoryRange: 1,  // hours — matches img_8's "Last 1 hour" default
     showHotkeys: false,
     opsExpanded: true,
     toast: '', toastType: 'success', _tt: null,
@@ -2791,8 +2795,106 @@ function app() {
     isHostExpanded(name) { return this.hostsExpanded.includes(name); },
     toggleHost(name) {
       const i = this.hostsExpanded.indexOf(name);
-      if (i === -1) this.hostsExpanded.push(name);
-      else this.hostsExpanded.splice(i, 1);
+      if (i === -1) {
+        this.hostsExpanded.push(name);
+        // Load history when a row expands for the first time. Further
+        // expand/collapse cycles use the cached data until the range
+        // changes.
+        const host = (this.hosts || []).find(h => h.host === name);
+        if (host && host.beszel_id && !this.hostHistory[host.beszel_id]) {
+          this.loadHostHistory(host.beszel_id);
+        }
+      } else {
+        this.hostsExpanded.splice(i, 1);
+      }
+    },
+    async loadHostHistory(systemId) {
+      this.hostHistory[systemId] = { loading: true, error: '', series: [] };
+      try {
+        const params = new URLSearchParams({
+          system_id: systemId,
+          hours: String(this.hostHistoryRange),
+        });
+        const r = await fetch('/api/hosts/history?' + params.toString());
+        if (!r.ok) {
+          this.hostHistory[systemId] = {
+            loading: false, error: `HTTP ${r.status}`, series: [],
+          };
+          return;
+        }
+        const d = await r.json();
+        this.hostHistory[systemId] = {
+          loading: false,
+          error: d.error || '',
+          series: Array.isArray(d.series) ? d.series : [],
+        };
+      } catch (e) {
+        this.hostHistory[systemId] = {
+          loading: false, error: e.message, series: [],
+        };
+      }
+    },
+    setHostHistoryRange(hours) {
+      this.hostHistoryRange = hours;
+      // Reload every currently-expanded host's history under the new window.
+      for (const name of this.hostsExpanded) {
+        const host = (this.hosts || []).find(h => h.host === name);
+        if (host && host.beszel_id) this.loadHostHistory(host.beszel_id);
+      }
+    },
+    // Build an SVG path for one metric across the host's history. Native
+    // line chart, no Chart.js dependency — the series is small and the
+    // shape is simple enough that a polyline does the job.
+    hostChart(systemId, key, opts = {}) {
+      const entry = this.hostHistory[systemId];
+      if (!entry || !entry.series || entry.series.length < 2) return null;
+      const W = opts.width || 420;
+      const H = opts.height || 80;
+      const PAD = 4;
+      const pts = entry.series.map(r => r[key]);
+      let lo = Infinity, hi = -Infinity;
+      for (const v of pts) {
+        const n = Number(v) || 0;
+        if (n < lo) lo = n;
+        if (n > hi) hi = n;
+      }
+      if (!isFinite(lo)) { lo = 0; hi = 1; }
+      if (hi - lo < 0.5) { lo = Math.max(0, lo - 0.5); hi = lo + 1; }
+      // Optional forced range — e.g. CPU/Mem/Disk charts clamp to 0..100.
+      if (opts.min !== undefined) lo = opts.min;
+      if (opts.max !== undefined) hi = opts.max;
+      const step = (W - PAD * 2) / (pts.length - 1);
+      const points = pts.map((v, i) => {
+        const x = (PAD + i * step).toFixed(1);
+        const n = Number(v) || 0;
+        const y = (H - PAD - ((n - lo) / (hi - lo || 1)) * (H - PAD * 2)).toFixed(1);
+        return `${x},${y}`;
+      }).join(' ');
+      const cur = Number(pts[pts.length - 1]) || 0;
+      return {
+        points,
+        width: W,
+        height: H,
+        min: lo,
+        max: hi,
+        current: cur,
+      };
+    },
+    // Max-value formatter used under each chart ("Min 1.3% Max 10.4%").
+    hostMetricStats(systemId, key, asPct = true) {
+      const entry = this.hostHistory[systemId];
+      if (!entry || !entry.series || entry.series.length === 0) return null;
+      let lo = Infinity, hi = -Infinity;
+      for (const r of entry.series) {
+        const n = Number(r[key]) || 0;
+        if (n < lo) lo = n;
+        if (n > hi) hi = n;
+      }
+      if (!isFinite(lo)) return null;
+      if (asPct) {
+        return { min: lo.toFixed(1) + '%', max: hi.toFixed(1) + '%' };
+      }
+      return { min: this.fmtBytes(lo) + '/s', max: this.fmtBytes(hi) + '/s' };
     },
     // Seconds → "6d 3h" / "5h 12m" / "34m 12s" — matches img_10's format.
     fmtUptimeShort(s) {

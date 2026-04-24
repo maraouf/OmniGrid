@@ -190,24 +190,18 @@ async def fetch_system_history(
         return {"series": [], "error": "missing hub credentials or system id"}
     # Limit to a sane number — 1h * 60 = 60 rows for type=1m, etc.
     per_page = max(10, min(500, hours * 60))
-    # Use urlencode-style concat; PocketBase expects filter as a raw
-    # string, not JSON. Percent-encode reserved chars inline.
     filt = f"(system='{system_id}'&&type='{stat_type}')"
-    url = (
-        base_url.rstrip("/")
-        + "/api/collections/system_stats/records"
-        + f"?filter={httpx.QueryParams({'f': filt}).get('f') or filt}"
-        + f"&sort=created&perPage={per_page}"
-    )
+    url = base_url.rstrip("/") + "/api/collections/system_stats/records"
+    params = {"filter": filt, "sort": "created", "perPage": str(per_page)}
     try:
         async with httpx.AsyncClient(verify=verify_tls, timeout=timeout) as client:
             token = await _get_token(client, base_url, identity, password)
-            r = await client.get(url, headers={"Authorization": token})
+            r = await client.get(url, params=params, headers={"Authorization": token})
             if r.status_code == 401:
                 token = await _get_token(
                     client, base_url, identity, password, force_refresh=True,
                 )
-                r = await client.get(url, headers={"Authorization": token})
+                r = await client.get(url, params=params, headers={"Authorization": token})
             if r.status_code >= 400:
                 return {"series": [], "error": f"HTTP {r.status_code}"}
     except Exception as e:

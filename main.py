@@ -1149,6 +1149,27 @@ async def api_hosts():
     }
 
 
+@app.get("/api/hosts/history")
+async def api_hosts_history(system_id: str, hours: int = 1):
+    """Return time-series stats for one Beszel system.
+
+    Powers the Hosts tab's per-row charts (CPU / Memory / Disk / Net).
+    The system_id is Beszel's PocketBase record id — the frontend pulls
+    it off the host row returned by :func:`api_hosts`.
+    """
+    from logic import beszel as _beszel
+    hub_url = get_setting("beszel_hub_url", "") or ""
+    ident = get_setting("beszel_identity", "") or ""
+    passw = get_setting("beszel_password", "") or ""
+    verify = (get_setting("beszel_verify_tls", "true") or "true").lower() == "true"
+    if not (hub_url and ident and passw):
+        return {"series": [], "error": "Beszel not configured"}
+    h = max(1, min(168, int(hours)))
+    return await _beszel.fetch_system_history(
+        hub_url, ident, passw, system_id, hours=h, verify_tls=verify,
+    )
+
+
 @app.get("/api/auth/providers")
 async def api_auth_providers():
     """Public endpoint: advertises which login paths are live. The login
