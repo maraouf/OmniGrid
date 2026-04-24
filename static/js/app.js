@@ -57,7 +57,18 @@ function app() {
     hostsActiveSources: [],   // list of "beszel" / "pulse" / "node_exporter"
     hostsConfigured: true,
     hostsLoading: false,
-    hostsExpanded: [],
+    // Persisted across browser refresh — mirrors the 'expanded' state
+    // that the Stacks view already stores. Parsing tolerates stale /
+    // invalid JSON so a corrupt entry doesn't break the whole view.
+    hostsExpanded: (() => {
+      try {
+        const raw = typeof localStorage !== 'undefined' && localStorage.getItem('hostsExpanded');
+        const parsed = raw ? JSON.parse(raw) : [];
+        return Array.isArray(parsed) ? parsed.filter(x => typeof x === 'string') : [];
+      } catch {
+        return [];
+      }
+    })(),
     hostsSearch: '',
     // Sort key for the Hosts view. Persisted to localStorage so the
     // operator's preferred order sticks across reloads. Supported keys:
@@ -68,6 +79,12 @@ function app() {
     //   'cpu' / 'mem' / 'disk' (descending — hottest first)
     //   'uptime' (descending — longest running first)
     hostsSort: (typeof localStorage !== 'undefined' && localStorage.getItem('hostsSort')) || 'status',
+    // Per-host debug payloads (admin-only). Keyed by host.id. Lazily
+    // populated when the operator opens the drawer's Debug panel so
+    // the normal hosts-view cadence stays cheap.
+    hostsDebug: {},
+    hostsDebugLoading: {},   // {host_id: true} while the fetch is in flight
+    hostsDebugOpen: {},      // {host_id: true} = panel is expanded
     hostsCuratedCount: 0,
     hostsEnabledCount: 0,
     _hostsTimer: null,
@@ -287,6 +304,9 @@ function app() {
       window.addEventListener('popstate', () => this._applyRouteFromPath());
       this.$watch('expanded', v => localStorage.setItem('expanded', JSON.stringify(v)));
       this.$watch('hostsSort', v => { try { localStorage.setItem('hostsSort', v); } catch {} });
+      this.$watch('hostsExpanded', v => {
+        try { localStorage.setItem('hostsExpanded', JSON.stringify(v || [])); } catch {}
+      });
       // Re-surface the translated labels in Settings/Admin sidebars when
       // the user swaps language. Alpine re-renders bindings automatically
       // because `lang` is part of the component state; this watcher just
@@ -3576,6 +3596,24 @@ function app() {
           : [];
         this.hostsCuratedCount = Number.isFinite(d.curated_count) ? d.curated_count : 0;
         this.hostsEnabledCount = Number.isFinite(d.enabled_count) ? d.enabled_count : 0;
+        // Trim persisted expansion state to hosts that actually exist
+        // in the current response — otherwise a host removed from the
+        // curated list stays in hostsExpanded forever.
+        const valid = new Set(this.hosts.map(h => h.host));
+        const cleaned = (this.hostsExpanded || []).filter(n => valid.has(n));
+        if (cleaned.length !== (this.hostsExpanded || []).length) {
+          this.hostsExpanded = cleaned;
+        }
+        // Kick off history fetches for pre-expanded hosts so the charts
+        // populate without the operator having to re-click the drawer.
+        // Only runs for hosts with a beszel_id (the history source) and
+        // only when no cached series exists yet.
+        for (const name of this.hostsExpanded || []) {
+          const host = this.hosts.find(h => h.host === name);
+          if (host && host.beszel_id && !this.hostHistory[host.beszel_id]) {
+            this.loadHostHistory(host.beszel_id);
+          }
+        }
       } catch (e) {
         this.hostsError = `Network: ${e.message}`;
         this.hosts = [];
@@ -3623,6 +3661,50 @@ function app() {
       if (h.status && h.status !== 'up') return false;
       if (!(h.providers || []).length) return false;
       return true;
+    },
+    // --- Debug panel for a single host (admin-only) ---
+    // Lazily fetches /api/hosts/debug and caches per host.id. Toggling
+    // the panel open triggers the fetch on first use; later opens reuse
+    // the cached snapshot (explicit Refresh clears it).
+    async toggleHostDebug(hostId) {
+      if (!hostId) return;
+      const open = !this.hostsDebugOpen[hostId];
+      this.hostsDebugOpen = { ...this.hostsDebugOpen, [hostId]: open };
+      if (open && !this.hostsDebug[hostId] && !this.hostsDebugLoading[hostId]) {
+        await this.loadHostDebug(hostId);
+      }
+    },
+    async loadHostDebug(hostId) {
+      if (!hostId) return;
+      this.hostsDebugLoading = { ...this.hostsDebugLoading, [hostId]: true };
+      try {
+        const r = await fetch('/api/hosts/debug?id=' + encodeURIComponent(hostId));
+        if (!r.ok) {
+          const j = await r.json().catch(() => ({}));
+          this.hostsDebug = {
+            ...this.hostsDebug,
+            [hostId]: { _error: j.detail || `HTTP ${r.status}` },
+          };
+          return;
+        }
+        const d = await r.json();
+        this.hostsDebug = { ...this.hostsDebug, [hostId]: d };
+      } catch (e) {
+        this.hostsDebug = {
+          ...this.hostsDebug,
+          [hostId]: { _error: `Network: ${e.message}` },
+        };
+      } finally {
+        this.hostsDebugLoading = { ...this.hostsDebugLoading, [hostId]: false };
+      }
+    },
+    // Pretty-print JSON for the Debug panel's <pre> blocks. Returns a
+    // placeholder when the value is null/undefined so the block never
+    // renders as empty whitespace.
+    fmtDebugJson(v) {
+      if (v === null || v === undefined) return '(not collected — provider disabled or no mapping)';
+      try { return JSON.stringify(v, null, 2); }
+      catch { return String(v); }
     },
     // Filtered view for the Hosts table — search matches host id,
     // label, platform, OS, kernel, and provider names so an operator

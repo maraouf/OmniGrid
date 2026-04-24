@@ -23,7 +23,7 @@ import tempfile
 import time
 import uuid
 from contextlib import asynccontextmanager
-from typing import Optional
+from typing import Any, Optional
 
 # Load .env BEFORE any os.getenv() calls (including those done at import time
 # in auth.py). The file lives in the /app bind-mount and travels with the
@@ -1669,6 +1669,225 @@ async def api_hosts_discover(_u: auth.User = Depends(auth.require_admin)):
             pulse_names = sorted((r.get("hosts") or {}).keys(), key=str.lower)
 
     return {"beszel": beszel_names, "pulse": pulse_names, "errors": errors}
+
+
+@app.get("/api/hosts/debug")
+async def api_hosts_debug(
+    id: str = "",
+    _u: auth.User = Depends(auth.require_admin),
+):
+    """Admin-only diagnostic: raw provider responses + normalized
+    per-provider + merged + rendered for ONE curated host.
+
+    Purpose: spot-check what each provider is actually emitting vs
+    what OmniGrid keeps after the best-of merge vs what the UI
+    ultimately sees. The four sections line up so dropped fields,
+    shape mismatches, or coverage gaps are visible side-by-side.
+
+    Heavyweight by design — runs fresh probes against each enabled
+    provider. Intended for interactive debugging, not polled. The UI
+    fetches it lazily when the "Debug" panel in the host drawer is
+    opened.
+    """
+    if not id:
+        raise HTTPException(400, "id query param required")
+
+    from logic import beszel as _beszel
+    from logic import pulse as _pulse
+    from logic import node_exporter as _ne
+
+    curated = _load_hosts_config()
+    record = next((h for h in curated if h["id"] == id), None)
+    if record is None:
+        raise HTTPException(404, f"no curated host with id={id!r}")
+
+    # Which providers are live? Same derivation as api_hosts.
+    raw_source = (get_setting("host_stats_source", "") or "").strip()
+    if not raw_source:
+        raw_source = ("node_exporter"
+                      if (get_setting("node_exporter_enabled", "false") or "false").lower() == "true"
+                      else "")
+    active = {
+        s.strip().lower()
+        for s in raw_source.split(",")
+        if s.strip() and s.strip().lower() != "none"
+    }
+
+    providers_raw: dict[str, Any] = {
+        "pulse": None, "beszel": None, "node_exporter": None,
+    }
+    providers_normalized: dict[str, Any] = {
+        "pulse": None, "beszel": None, "node_exporter": None,
+    }
+
+    # ---- Beszel --------------------------------------------------
+    if "beszel" in active and record.get("beszel_name"):
+        hub_url = get_setting("beszel_hub_url", "") or ""
+        ident = get_setting("beszel_identity", "") or ""
+        passw = get_setting("beszel_password", "") or ""
+        verify = (get_setting("beszel_verify_tls", "true") or "true").lower() == "true"
+        if hub_url and ident and passw:
+            try:
+                async with httpx.AsyncClient(verify=verify, timeout=15.0) as client:
+                    token = await _beszel._get_token(client, hub_url, ident, passw)
+                    try:
+                        records = await _beszel._fetch_systems(client, hub_url, token)
+                    except PermissionError:
+                        token = await _beszel._get_token(
+                            client, hub_url, ident, passw, force_refresh=True,
+                        )
+                        records = await _beszel._fetch_systems(client, hub_url, token)
+                    latest_stats: dict = {}
+                    try:
+                        latest_stats = await _beszel._fetch_latest_stats(
+                            client, hub_url, token,
+                        )
+                    except Exception as e:
+                        latest_stats = {"_fetch_error": str(e)}
+                target = (record["beszel_name"] or "").strip()
+                match = None
+                for rec in records:
+                    info = rec.get("info") or {}
+                    host_key = (
+                        (rec.get("host") or "").strip()
+                        or (info.get("h") or "").strip()
+                        or (rec.get("name") or "").strip()
+                    )
+                    if host_key == target:
+                        match = rec
+                        break
+                if match:
+                    rec_id = match.get("id") or ""
+                    stats_row = latest_stats.get(rec_id) if isinstance(latest_stats, dict) else None
+                    providers_raw["beszel"] = {
+                        "match_key": target,
+                        "record": match,
+                        "stats_row": stats_row,
+                    }
+                    providers_normalized["beszel"] = _beszel.extract_stats(
+                        match.get("info") or {}, stats_row,
+                    )
+                else:
+                    known = sorted((
+                        (r.get("host") or (r.get("info") or {}).get("h") or r.get("name") or "")
+                        for r in records
+                    ), key=str.lower)
+                    providers_raw["beszel"] = {
+                        "_error": f"no record matched beszel_name={target!r}",
+                        "known_host_keys": known[:25],
+                    }
+            except Exception as e:
+                providers_raw["beszel"] = {"_error": str(e)}
+        else:
+            providers_raw["beszel"] = {"_error": "Beszel creds not configured"}
+
+    # ---- Pulse ---------------------------------------------------
+    if "pulse" in active and record.get("pulse_name"):
+        pulse_url = get_setting("pulse_url", "") or ""
+        pulse_tok = get_setting("pulse_token", "") or ""
+        verify = (get_setting("pulse_verify_tls", "true") or "true").lower() == "true"
+        if pulse_url and pulse_tok:
+            try:
+                async with httpx.AsyncClient(verify=verify, timeout=15.0) as client:
+                    state = await _pulse._fetch_state(client, pulse_url, pulse_tok)
+                probe = await _pulse.probe_pulse(
+                    pulse_url, pulse_tok, verify_tls=verify,
+                )
+                normalized_match = _pulse.lookup(
+                    probe.get("hosts") or {}, record["pulse_name"],
+                )
+                target_lc = (record["pulse_name"] or "").strip().lower()
+                # Node-shaped match first (exact hostname). Then fall
+                # through to any guest whose name / vmid matches.
+                raw_match = None
+                for n in (state.get("nodes") or []):
+                    if not isinstance(n, dict):
+                        continue
+                    name = (n.get("node") or n.get("name") or "").strip().lower()
+                    if name == target_lc:
+                        raw_match = {"kind": "node", "data": n}
+                        break
+                if raw_match is None:
+                    # Shallow walk of common guest containers — enough
+                    # for a debug dump without reproducing probe_pulse's
+                    # full recursive harvest.
+                    candidates: list = []
+                    for key in ("vms", "containers", "guests", "lxc", "qemu"):
+                        v = state.get(key)
+                        if isinstance(v, list):
+                            candidates.extend(v)
+                    pve = state.get("pve") if isinstance(state.get("pve"), dict) else {}
+                    for key in ("vms", "containers", "guests", "lxc", "qemu"):
+                        v = pve.get(key) if isinstance(pve, dict) else None
+                        if isinstance(v, list):
+                            candidates.extend(v)
+                    for g in candidates:
+                        if not isinstance(g, dict):
+                            continue
+                        name = (g.get("name") or g.get("hostname") or g.get("id") or "").strip().lower()
+                        vmid = str(g.get("vmid") or "").strip().lower()
+                        if name == target_lc or vmid == target_lc:
+                            raw_match = {"kind": g.get("type") or "guest", "data": g}
+                            break
+                providers_raw["pulse"] = {
+                    "match_key": record["pulse_name"],
+                    "state_top_keys": sorted(state.keys()) if isinstance(state, dict) else [],
+                    "nodes_count": len(state.get("nodes") or []),
+                    "matched_raw": raw_match,
+                }
+                providers_normalized["pulse"] = normalized_match
+            except Exception as e:
+                providers_raw["pulse"] = {"_error": str(e)}
+        else:
+            providers_raw["pulse"] = {"_error": "Pulse creds not configured"}
+
+    # ---- node-exporter -------------------------------------------
+    if "node_exporter" in active and record.get("ne_url"):
+        url = record["ne_url"]
+        try:
+            async with httpx.AsyncClient(verify=False, timeout=10.0) as client:
+                r = await client.get(url)
+                r.raise_for_status()
+                text = r.text
+                stats = await _ne.probe_node(client, url)
+            lines = text.splitlines()
+            # Cap the sample — a loaded node-exporter can emit thousands
+            # of metric lines; operators want a taste, not a dump.
+            providers_raw["node_exporter"] = {
+                "url":         url,
+                "size_bytes":  len(text),
+                "line_count":  len(lines),
+                "sample_lines": lines[:80],
+            }
+            providers_normalized["node_exporter"] = stats
+        except Exception as e:
+            providers_raw["node_exporter"] = {"_error": str(e)}
+
+    # ---- Merged (best-of) ----------------------------------------
+    merged: dict = {}
+    for src in ("pulse", "beszel", "node_exporter"):
+        stats = providers_normalized.get(src)
+        if stats:
+            _merge_best(merged, stats)
+
+    # ---- Rendered — what /api/hosts would return for this host ---
+    try:
+        live = await api_hosts()
+        rendered = next(
+            (h for h in (live.get("hosts") or []) if h.get("id") == id),
+            None,
+        )
+    except Exception as e:
+        rendered = {"_error": str(e)}
+
+    return {
+        "host_record":          record,
+        "active_providers":     sorted(active),
+        "providers_raw":        providers_raw,
+        "providers_normalized": providers_normalized,
+        "merged":               merged,
+        "rendered":             rendered,
+    }
 
 
 @app.get("/api/hosts/history")

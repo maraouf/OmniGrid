@@ -1074,7 +1074,11 @@
                 </template>
               </div>
             </div>
-            <div class="host-mobile-card-metrics">
+            <!-- Metric strip — only rendered for hosts that are
+                 actually online. Offline / unknown hosts collapse
+                 the whole row to just header + status dot so "0%"
+                 bars don't imply "loading" on a host that's down. -->
+            <div class="host-mobile-card-metrics" x-show="h.status === 'up'">
               <div class="host-mobile-card-metric">
                 <span class="name">CPU</span>
                 <span class="value" x-text="(h.cpu_percent || 0).toFixed(1) + '%'"></span>
@@ -1178,35 +1182,50 @@
                    "debian 13.4" case the subtext stays hidden. -->
               <div class="min-w-0">
                 <div class="text-[12px] truncate"
-                     x-text="h.os || h.platform || '—'"></div>
+                     x-text="h.status === 'up' ? (h.os || h.platform || '—') : ''"></div>
                 <div class="text-[10.5px] text-[var(--text-faint)] truncate"
-                     x-show="h.platform && h.os
+                     x-show="h.status === 'up' && h.platform && h.os
                              && h.os.toLowerCase() !== h.platform.toLowerCase()
                              && !h.os.toLowerCase().startsWith(h.platform.toLowerCase())"
                      x-text="h.platform"></div>
               </div>
+              <!-- CPU % / Memory / Disk / Uptime / Cores / Arch / Kernel
+                   — only rendered when the host is actually online.
+                   Offline / unknown rows leave these cells blank so
+                   the table doesn't show a row full of "0%" bars and
+                   "—" dashes that imply "data is loading" when in
+                   reality the host is just down. Status dot + name
+                   column alone communicate the state. -->
               <!-- CPU % -->
               <div>
-                <div class="stat-bar"
-                     :class="barLevel(h.cpu_percent)"
-                     :style="'--w: ' + Math.min(100, h.cpu_percent) + '%'">
-                  <div class="fill"></div>
-                </div>
-                <div class="text-[10.5px] mono mt-1"
-                     x-text="(h.cpu_percent || 0).toFixed(1) + '%' + (h.cores ? ' (' + h.cores + ')' : '')"></div>
+                <template x-if="h.status === 'up'">
+                  <div>
+                    <div class="stat-bar"
+                         :class="barLevel(h.cpu_percent)"
+                         :style="'--w: ' + Math.min(100, h.cpu_percent) + '%'">
+                      <div class="fill"></div>
+                    </div>
+                    <div class="text-[10.5px] mono mt-1"
+                         x-text="(h.cpu_percent || 0).toFixed(1) + '%' + (h.cores ? ' (' + h.cores + ')' : '')"></div>
+                  </div>
+                </template>
               </div>
               <!-- Memory % + bytes -->
               <div>
-                <div class="stat-bar"
-                     :class="barLevel(h.mem_percent || memPercentOf(h))"
-                     :style="'--w: ' + (h.mem_percent || memPercentOf(h)) + '%'">
-                  <div class="fill"></div>
-                </div>
-                <div class="text-[10.5px] mono mt-1">
-                  <span x-text="(h.mem_percent || memPercentOf(h)) + '%'"></span>
-                  <span class="text-[var(--text-faint)]" x-show="h.mem_total"
-                        x-text="' (' + fmtBytes(h.mem_used) + '/' + fmtBytes(h.mem_total) + ')'"></span>
-                </div>
+                <template x-if="h.status === 'up'">
+                  <div>
+                    <div class="stat-bar"
+                         :class="barLevel(h.mem_percent || memPercentOf(h))"
+                         :style="'--w: ' + (h.mem_percent || memPercentOf(h)) + '%'">
+                      <div class="fill"></div>
+                    </div>
+                    <div class="text-[10.5px] mono mt-1">
+                      <span x-text="(h.mem_percent || memPercentOf(h)) + '%'"></span>
+                      <span class="text-[var(--text-faint)]" x-show="h.mem_total"
+                            x-text="' (' + fmtBytes(h.mem_used) + '/' + fmtBytes(h.mem_total) + ')'"></span>
+                    </div>
+                  </div>
+                </template>
               </div>
               <!-- Disk % + bytes — segmented bar when multiple
                    mounts exist, each stripe a distinct colour
@@ -1214,39 +1233,47 @@
                    whole pool. Falls back to a plain single-colour
                    bar when the host reports only aggregate totals. -->
               <div>
-                <template x-if="(h.mounts || []).length > 1">
-                  <div class="disk-segmented">
-                    <template x-for="(m, i) in (h.mounts || [])" :key="i">
-                      <div class="disk-segmented-seg"
-                           :class="'disk-seg-' + (i % 7)"
-                           :style="'width: ' + mountSegmentWidth(h, i) + '%'"
-                           :title="(m.n || '') + ' · '
-                                   + fmtBytes((m.du || 0) * 1024**3) + ' / '
-                                   + fmtBytes((m.d || 0) * 1024**3)"></div>
+                <template x-if="h.status === 'up'">
+                  <div>
+                    <template x-if="(h.mounts || []).length > 1">
+                      <div class="disk-segmented">
+                        <template x-for="(m, i) in (h.mounts || [])" :key="i">
+                          <div class="disk-segmented-seg"
+                               :class="'disk-seg-' + (i % 7)"
+                               :style="'width: ' + mountSegmentWidth(h, i) + '%'"
+                               :title="(m.n || '') + ' · '
+                                       + fmtBytes((m.du || 0) * 1024**3) + ' / '
+                                       + fmtBytes((m.d || 0) * 1024**3)"></div>
+                        </template>
+                      </div>
                     </template>
+                    <template x-if="(h.mounts || []).length <= 1">
+                      <div class="stat-bar"
+                           :class="barLevel(h.disk_percent || diskPercentOf(h))"
+                           :style="'--w: ' + (h.disk_percent || diskPercentOf(h)) + '%'">
+                        <div class="fill"></div>
+                      </div>
+                    </template>
+                    <div class="text-[10.5px] mono mt-1">
+                      <span x-text="(h.disk_percent || diskPercentOf(h)) + '%'"></span>
+                      <span class="text-[var(--text-faint)]" x-show="h.disk_total"
+                            x-text="' (' + fmtBytes(h.disk_used) + '/' + fmtBytes(h.disk_total) + ')'"></span>
+                    </div>
                   </div>
                 </template>
-                <template x-if="(h.mounts || []).length <= 1">
-                  <div class="stat-bar"
-                       :class="barLevel(h.disk_percent || diskPercentOf(h))"
-                       :style="'--w: ' + (h.disk_percent || diskPercentOf(h)) + '%'">
-                    <div class="fill"></div>
-                  </div>
-                </template>
-                <div class="text-[10.5px] mono mt-1">
-                  <span x-text="(h.disk_percent || diskPercentOf(h)) + '%'"></span>
-                  <span class="text-[var(--text-faint)]" x-show="h.disk_total"
-                        x-text="' (' + fmtBytes(h.disk_used) + '/' + fmtBytes(h.disk_total) + ')'"></span>
-                </div>
               </div>
               <!-- Uptime -->
-              <div class="text-center text-[12px] mono" x-text="fmtUptimeShort(h.uptime_s)"></div>
+              <div class="text-center text-[12px] mono"
+                   x-text="h.status === 'up' ? fmtUptimeShort(h.uptime_s) : ''"></div>
               <!-- Core count -->
-              <div class="text-center text-[11.5px] mono" x-text="h.cores || '—'"></div>
+              <div class="text-center text-[11.5px] mono"
+                   x-text="h.status === 'up' ? (h.cores || '—') : ''"></div>
               <!-- Architecture -->
-              <div class="text-center text-[11px] mono truncate" x-text="h.arch || '—'"></div>
+              <div class="text-center text-[11px] mono truncate"
+                   x-text="h.status === 'up' ? (h.arch || '—') : ''"></div>
               <!-- Kernel (truncated) -->
-              <div class="text-center text-[11px] mono truncate" :title="h.kernel" x-text="h.kernel ? h.kernel.slice(0, 8) + (h.kernel.length > 8 ? '…' : '') : '—'"></div>
+              <div class="text-center text-[11px] mono truncate" :title="h.kernel"
+                   x-text="h.status === 'up' ? (h.kernel ? h.kernel.slice(0, 8) + (h.kernel.length > 8 ? '…' : '') : '—') : ''"></div>
               <!-- Per-host external URL (optional — configured in
                    Admin → Hosts). When set, opens whatever the
                    operator stored (the host's web UI, a dashboard,
@@ -1737,6 +1764,116 @@
                   </template>
                 </div>
               </div>
+
+              <!-- Admin-only debug panel — side-by-side JSON blobs for
+                   each provider's raw response, the normalized extract,
+                   the merged best-of dict, and the rendered API payload
+                   the UI consumes. Collapsed by default; first open
+                   triggers a lazy fetch. Useful for spotting dropped
+                   fields / shape mismatches without grepping logs. -->
+              <template x-if="me && me.role === 'admin'">
+                <div class="host-debug-panel">
+                  <button type="button"
+                          class="host-debug-toggle"
+                          @click="toggleHostDebug(h.id)"
+                          :aria-expanded="hostsDebugOpen[h.id] ? 'true' : 'false'">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="flip-rtl"
+                         :style="hostsDebugOpen[h.id] ? 'transform: rotate(90deg)' : ''">
+                      <polyline points="9 18 15 12 9 6"/>
+                    </svg>
+                    <span x-text="hostsDebugOpen[h.id] ? 'Hide debug data' : 'Show debug data (admin)'"></span>
+                    <span class="host-debug-hint" x-show="!hostsDebugOpen[h.id]">— compare raw providers vs merged vs rendered</span>
+                  </button>
+                  <div x-show="hostsDebugOpen[h.id]" class="host-debug-body">
+                    <template x-if="hostsDebugLoading[h.id]">
+                      <div class="host-debug-loading">
+                        <span class="spin-lg" aria-hidden="true"></span>
+                        <span>Probing providers…</span>
+                      </div>
+                    </template>
+                    <template x-if="!hostsDebugLoading[h.id] && hostsDebug[h.id] && hostsDebug[h.id]._error">
+                      <div class="host-debug-error" x-text="'Error: ' + hostsDebug[h.id]._error"></div>
+                    </template>
+                    <template x-if="!hostsDebugLoading[h.id] && hostsDebug[h.id] && !hostsDebug[h.id]._error">
+                      <div class="host-debug-content">
+                        <div class="host-debug-toolbar">
+                          <div class="host-debug-meta">
+                            <span>Active providers:</span>
+                            <template x-for="p in (hostsDebug[h.id].active_providers || [])" :key="p">
+                              <span class="host-debug-tag" x-text="p"></span>
+                            </template>
+                            <template x-if="(hostsDebug[h.id].active_providers || []).length === 0">
+                              <span class="host-debug-tag host-debug-tag--warn">none</span>
+                            </template>
+                          </div>
+                          <button type="button" class="btn btn-ghost text-[11px]"
+                                  @click="loadHostDebug(h.id)"
+                                  :disabled="!!hostsDebugLoading[h.id]"
+                                  title="Re-run probes">
+                            ⟳ Refresh
+                          </button>
+                        </div>
+                        <!-- Five columns wrap to two rows on narrow
+                             viewports. Each block is independently
+                             scrollable so a huge raw dump doesn't push
+                             the others off-screen. -->
+                        <div class="host-debug-grid">
+                          <section class="host-debug-box">
+                            <header class="host-debug-box-head">
+                              <span class="host-debug-label host-debug-label--pulse">Raw · Pulse</span>
+                            </header>
+                            <pre class="host-debug-json scrollbar" x-text="fmtDebugJson(hostsDebug[h.id].providers_raw?.pulse)"></pre>
+                          </section>
+                          <section class="host-debug-box">
+                            <header class="host-debug-box-head">
+                              <span class="host-debug-label host-debug-label--beszel">Raw · Beszel</span>
+                            </header>
+                            <pre class="host-debug-json scrollbar" x-text="fmtDebugJson(hostsDebug[h.id].providers_raw?.beszel)"></pre>
+                          </section>
+                          <section class="host-debug-box">
+                            <header class="host-debug-box-head">
+                              <span class="host-debug-label host-debug-label--ne">Raw · node-exporter</span>
+                            </header>
+                            <pre class="host-debug-json scrollbar" x-text="fmtDebugJson(hostsDebug[h.id].providers_raw?.node_exporter)"></pre>
+                          </section>
+                          <section class="host-debug-box">
+                            <header class="host-debug-box-head">
+                              <span class="host-debug-label host-debug-label--merged">Merged (best-of)</span>
+                              <span class="host-debug-hint">after _merge_best</span>
+                            </header>
+                            <pre class="host-debug-json scrollbar" x-text="fmtDebugJson(hostsDebug[h.id].merged)"></pre>
+                          </section>
+                          <section class="host-debug-box host-debug-box--wide">
+                            <header class="host-debug-box-head">
+                              <span class="host-debug-label host-debug-label--rendered">Rendered (/api/hosts)</span>
+                              <span class="host-debug-hint">what the UI sees</span>
+                            </header>
+                            <pre class="host-debug-json scrollbar" x-text="fmtDebugJson(hostsDebug[h.id].rendered)"></pre>
+                          </section>
+                          <section class="host-debug-box">
+                            <header class="host-debug-box-head">
+                              <span class="host-debug-label host-debug-label--pulse">Normalized · Pulse</span>
+                            </header>
+                            <pre class="host-debug-json scrollbar" x-text="fmtDebugJson(hostsDebug[h.id].providers_normalized?.pulse)"></pre>
+                          </section>
+                          <section class="host-debug-box">
+                            <header class="host-debug-box-head">
+                              <span class="host-debug-label host-debug-label--beszel">Normalized · Beszel</span>
+                            </header>
+                            <pre class="host-debug-json scrollbar" x-text="fmtDebugJson(hostsDebug[h.id].providers_normalized?.beszel)"></pre>
+                          </section>
+                          <section class="host-debug-box">
+                            <header class="host-debug-box-head">
+                              <span class="host-debug-label host-debug-label--ne">Normalized · node-exporter</span>
+                            </header>
+                            <pre class="host-debug-json scrollbar" x-text="fmtDebugJson(hostsDebug[h.id].providers_normalized?.node_exporter)"></pre>
+                          </section>
+                        </div>
+                      </div>
+                    </template>
+                  </div>
+                </div>
+              </template>
 
             </div>
           </div>
