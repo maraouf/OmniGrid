@@ -48,6 +48,15 @@ function app() {
     // when the operator clicks a node row. Shape: {name, aliasInput}.
     drawerNode: null,
     drawerNodeSaving: false,
+    // Hosts view state (Beszel-backed). Refreshed via /api/hosts on a
+    // separate cadence from the item cache — hub calls are cheap and
+    // the view wants faster feedback than the 15-30s item refresh.
+    hosts: [],
+    hostsError: '',
+    hostsConfigured: true,
+    hostsLoading: false,
+    hostsExpanded: [],
+    _hostsTimer: null,
     showHotkeys: false,
     opsExpanded: true,
     toast: '', toastType: 'success', _tt: null,
@@ -217,6 +226,17 @@ function app() {
         this._pushRoute();
         // Load admin data lazily — only when the user actually navigates there.
         if (v === 'admin') this.openAdminTab(this.adminTab);
+        // Lazy-load hosts on first entry and (re)start its refresh timer.
+        // Leaving the tab clears the timer so we're not hammering the hub
+        // when the view isn't visible.
+        if (v === 'hosts') {
+          this.loadHosts();
+          if (this._hostsTimer) clearInterval(this._hostsTimer);
+          this._hostsTimer = setInterval(() => this.loadHosts(), 15000);
+        } else if (this._hostsTimer) {
+          clearInterval(this._hostsTimer);
+          this._hostsTimer = null;
+        }
       });
       this.$watch('settingsSection', v => {
         localStorage.setItem('settingsSection', v);
@@ -242,6 +262,13 @@ function app() {
       this.pollOps();
       this.pollStats();
       this.pollSparks();
+      // If the SPA restored to the Hosts view (saved in localStorage or
+      // arrived via /hosts deep-link), trigger the same load+poll the
+      // view-watcher does on manual switch.
+      if (this.view === 'hosts') {
+        this.loadHosts();
+        this._hostsTimer = setInterval(() => this.loadHosts(), 15000);
+      }
       setInterval(() => this.updateCacheLabel(), 1000);
     },
 
@@ -2739,6 +2766,75 @@ function app() {
       return parts.length ? parts.join(' · ') : '';
     },
     openDrawer(item) { this.drawerItem = item; },
+
+    // --- Hosts view (Beszel-backed) ---
+    async loadHosts() {
+      this.hostsLoading = true;
+      try {
+        const r = await fetch('/api/hosts');
+        if (!r.ok) {
+          this.hostsError = `HTTP ${r.status}`;
+          this.hosts = [];
+          return;
+        }
+        const d = await r.json();
+        this.hostsConfigured = !!d.configured;
+        this.hostsError = d.error || '';
+        this.hosts = Array.isArray(d.hosts) ? d.hosts : [];
+      } catch (e) {
+        this.hostsError = `Network: ${e.message}`;
+        this.hosts = [];
+      } finally {
+        this.hostsLoading = false;
+      }
+    },
+    isHostExpanded(name) { return this.hostsExpanded.includes(name); },
+    toggleHost(name) {
+      const i = this.hostsExpanded.indexOf(name);
+      if (i === -1) this.hostsExpanded.push(name);
+      else this.hostsExpanded.splice(i, 1);
+    },
+    // Seconds → "6d 3h" / "5h 12m" / "34m 12s" — matches img_10's format.
+    fmtUptimeShort(s) {
+      if (!s || s <= 0) return '—';
+      const d = Math.floor(s / 86400);
+      const h = Math.floor((s % 86400) / 3600);
+      const m = Math.floor((s % 3600) / 60);
+      if (d > 0) return `${d}d ${h}h`;
+      if (h > 0) return `${h}h ${m}m`;
+      return `${m}m`;
+    },
+    // ISO string → "Updated 2s ago" / "2d ago"
+    fmtUpdatedAgo(iso) {
+      if (!iso) return '';
+      const t = Date.parse(iso);
+      if (isNaN(t)) return '';
+      const s = Math.max(0, Math.floor((Date.now() - t) / 1000));
+      if (s < 60) return `Updated ${s}s ago`;
+      if (s < 3600) return `Updated ${Math.floor(s / 60)}m ago`;
+      if (s < 86400) return `Updated ${Math.floor(s / 3600)}h ago`;
+      return `Updated ${Math.floor(s / 86400)}d ago`;
+    },
+    memPercentOf(h) {
+      if (!h || !h.mem_total) return 0;
+      return Math.round((h.mem_used / h.mem_total) * 100);
+    },
+    diskPercentOf(h) {
+      if (!h || !h.disk_total) return 0;
+      return Math.round((h.disk_used / h.disk_total) * 100);
+    },
+    // Green → amber → red by threshold, matching how nodeStats renders.
+    pctColor(pct) {
+      if (pct >= 85) return 'var(--danger)';
+      if (pct >= 60) return 'var(--warning)';
+      return 'var(--success)';
+    },
+    statusDotColor(status) {
+      if (status === 'up') return 'var(--success)';
+      if (status === 'down') return 'var(--danger)';
+      if (status === 'paused') return 'var(--warning)';
+      return 'var(--text-faint)';
+    },
 
     // --- Node drawer (Nodes view → click a node) ---
     openNodeDrawer(node) {

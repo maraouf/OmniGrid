@@ -162,6 +162,45 @@ async def _fetch_systems(
     return list(data.get("items") or [])
 
 
+async def _fetch_latest_stats(
+    client: httpx.AsyncClient,
+    base_url: str,
+    token: str,
+) -> dict[str, dict]:
+    """Return the newest ``system_stats`` record per system id.
+
+    Beszel keeps absolute values (mem_total, disk_total, mem_used,
+    disk_used in GiB) in the ``system_stats`` collection — ``system.info``
+    only has percentages (mp, dp) and metadata. To populate our
+    ``host_*`` byte fields we need to look at the stats table.
+
+    Strategy: pull the most recent 500 ``1m``-type rows (each system
+    gets one per minute), then group by system id and keep the newest.
+    That's a single HTTP call regardless of fleet size, and for a
+    homelab with <=20 systems gives us ~25 minutes of headroom before
+    any system's newest row rolls off the buffer.
+    """
+    url = (base_url.rstrip("/")
+           + "/api/collections/system_stats/records"
+           + "?filter=(type%3D%271m%27)&sort=-created&perPage=500")
+    r = await client.get(url, headers={"Authorization": token})
+    if r.status_code == 401:
+        raise PermissionError("401")
+    if r.status_code >= 400:
+        # Stats table failure is non-fatal — we still have percentages
+        # from info. Returning {} means the caller degrades gracefully.
+        return {}
+    items = (r.json() or {}).get("items") or []
+    # Items are sorted newest-first; first sighting of a system id wins.
+    latest: dict[str, dict] = {}
+    for it in items:
+        sid = it.get("system")
+        if not sid or sid in latest:
+            continue
+        latest[sid] = it.get("stats") or {}
+    return latest
+
+
 def _num(v) -> float:
     """Coerce anything number-ish to a float, falling back to 0.
 
@@ -175,30 +214,39 @@ def _num(v) -> float:
         return 0.0
 
 
-def extract_stats(info: dict) -> dict:
-    """Map one Beszel ``info`` dict → OmniGrid's nodes_info shape.
+def extract_stats(info: dict, stats: Optional[dict] = None) -> dict:
+    """Map one Beszel ``info`` (+ latest ``stats``) dict → nodes_info shape.
 
-    Beszel's short-keyed JSON (``m`` = mem used GiB, ``mt`` = mem total
-    GiB, ``d`` = disk used GiB, ``dt`` = disk total GiB, ``u`` = uptime
-    seconds) is expanded into the same host_* fields that node-exporter
-    populates, so the frontend doesn't care which data source is active.
+    Beszel splits data across two places:
 
-    Missing fields degrade to 0 / None. A Beszel system that's paused
-    or offline typically has stale values — the caller should watch
-    the record's top-level ``status`` field for 'up' vs. 'down'.
+    - ``system.info`` holds metadata (hostname, kernel, cores, agent
+      version, platform) and PERCENTAGES (``mp``/``dp``/``cpu``). No
+      absolute memory or disk totals live here — ``info.m`` is the CPU
+      model *string*, not memory used, and ``info.d`` is the dashboard
+      version, not disk used. Reading those as numbers silently
+      produced zeros, which is why Beszel-mapped nodes used to fall
+      back to Docker-only disk / mem in the UI.
+    - ``system_stats`` rows hold absolute values in GiB:
+      ``m``=mem_total, ``mu``=mem_used, ``d``=disk_total, ``du``=disk_used.
+      Fetched separately by :func:`_fetch_latest_stats`.
 
-    Also surfaces the extra metadata the Hosts tab renders in its
-    SYSTEM + HARDWARE cards (platform, os, kernel, architecture, core
-    count, agent version, current cpu %) — all pulled from the same
-    ``info`` object so a single /systems call gives us everything.
+    This function combines both sources so downstream code gets one
+    dict with every ``host_*`` field populated. Either argument may be
+    missing or partial — empty fields degrade to 0 / "".
     """
     if not isinstance(info, dict):
         info = {}
+    if not isinstance(stats, dict):
+        stats = {}
     gib = 1024 ** 3
-    mem_total = _num(info.get("mt")) * gib
-    mem_used = _num(info.get("m")) * gib
-    disk_total = _num(info.get("dt")) * gib
-    disk_used = _num(info.get("d")) * gib
+    # Absolute totals come from the system_stats row's GiB fields.
+    mem_total  = _num(stats.get("m"))  * gib
+    mem_used   = _num(stats.get("mu")) * gib
+    disk_total = _num(stats.get("d"))  * gib
+    disk_used  = _num(stats.get("du")) * gib
+    # Percentages fallback: if the stats row is absent but info has
+    # mp/dp percentages, we still cannot derive absolute bytes — leave
+    # them at 0 and let the UI show "—" for those cells.
     uptime = _num(info.get("u"))
     # host_boot_ts = now - uptime so the frontend's uptime display
     # matches what node-exporter produces (boot-time in epoch seconds).
@@ -213,19 +261,23 @@ def extract_stats(info: dict) -> dict:
         "host_boot_ts":    host_boot_ts,
         "host_uptime_s":   int(uptime),
         # Extended metadata — consumed by the Hosts tab's header row
-        # and the SYSTEM / HARDWARE cards when expanded.
-        "host_cpu_percent": _num(info.get("cpu")),
+        # and the SYSTEM / HARDWARE cards when expanded. All come from
+        # ``info``; ``stats`` is only for absolute numbers above.
+        "host_cpu_percent": _num(stats.get("cpu")) or _num(info.get("cpu")),
+        "host_mem_percent": _num(info.get("mp")),
+        "host_disk_percent": _num(info.get("dp")),
         "host_cores":       int(_num(info.get("c"))),
+        "host_threads":     int(_num(info.get("t"))),
+        "host_cpu_model":   str(info.get("m") or ""),
         "host_platform":    str(info.get("p") or info.get("platform") or ""),
         "host_os":          str(info.get("os") or ""),
         "host_kernel":      str(info.get("k") or info.get("kernel") or ""),
         "host_arch":        str(info.get("a") or info.get("arch") or ""),
         "host_agent":       str(info.get("v") or info.get("agent") or ""),
-        # Beszel exposes per-mount detail in a separate collection
-        # (system_stats); we skip it for the fleet overview and can
-        # add a drill-down later if operators want it.
-        "mounts":          [],
-        "exporter_error":  None,
+        # Per-mount detail is in the stats row under ``efs`` in newer
+        # Beszel versions; surface the raw list for future drill-down UIs.
+        "mounts":           list(stats.get("efs") or []),
+        "exporter_error":   None,
     }
 
 
@@ -261,6 +313,14 @@ async def probe_hub(
                     client, base_url, identity, password, force_refresh=True,
                 )
                 records = await _fetch_systems(client, base_url, token)
+            # Absolute mem/disk totals live in a separate collection.
+            # Non-fatal — a failure here just means no host_*_total
+            # values (UI falls back to percentages / Docker numbers).
+            try:
+                latest_stats = await _fetch_latest_stats(client, base_url, token)
+            except Exception as e:
+                print(f"[beszel] warn: fetch stats failed: {e}")
+                latest_stats = {}
     except Exception as e:
         return {"systems": {}, "error": str(e)}
 
@@ -280,7 +340,11 @@ async def probe_hub(
         )
         if not host_key:
             continue
-        stats = extract_stats(info)
+        # Merge the latest stats row (if any) into the extract — gives
+        # us absolute mem_total / disk_total in bytes, which ``info``
+        # alone doesn't carry.
+        rec_id = rec.get("id") or ""
+        stats = extract_stats(info, latest_stats.get(rec_id))
         # Carry the top-level status so callers can tell a paused /
         # down system from one that's actually fresh.
         stats["beszel_status"] = rec.get("status") or "unknown"
