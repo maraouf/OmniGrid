@@ -438,6 +438,20 @@ async def run_command(
         base_result["error"] = "No SSH credentials available at connect time"
         return base_result
 
+    # Entry log — one line at the start of every run so operators can
+    # correlate "clicked Run" with "saw output" even when exceptions
+    # happen BEFORE the result diagnostic lands. Command is truncated
+    # via `sanitize_command_for_audit` so secrets in flags don't land
+    # in the log; host/user/port/auth-methods plus dry_run flag are
+    # always in the clear.
+    sanitized = sanitize_command_for_audit(command)
+    print(
+        f"[ssh] run START host_id={host_id!r} "
+        f"target={resolved.get('user')}@{resolved.get('host')}:{resolved.get('port')} "
+        f"preferred_auth={preferred!r} key_set={resolved.get('key_set')} "
+        f"password_set={resolved.get('password_set')} dry_run={bool(dry_run)} "
+        f"cmd={sanitized[:200]!r}"
+    )
     try:
         conn_ctx = asyncssh.connect(
             host=resolved["host"],
@@ -481,36 +495,53 @@ async def run_command(
                 base_result["exit_code"] = proc.exit_status
                 base_result["stdout"] = (proc.stdout or "")[: 256 * 1024]
                 base_result["stderr"] = (proc.stderr or "")[: 256 * 1024]
-                # Verbose diagnostic so the Admin → Logs view shows
-                # exactly what was asked and what came back. Truncated
-                # stdout/stderr previews make it easy to spot cases
-                # where the UI saw "ok" but the remote exit code was
-                # non-zero or stderr carried the real failure.
+                # Verbose diagnostic so Admin → Logs shows exactly
+                # what came back for every run. Includes stdout AND
+                # stderr previews up to 400 chars each so the usual
+                # "sudo: a password is required" / "command not found"
+                # / "permission denied" lines are visible inline.
+                stdout_preview = (proc.stdout or "")[:400].replace("\n", " | ")
+                stderr_preview = (proc.stderr or "")[:400].replace("\n", " | ")
                 print(
-                    f"[ssh] run host={resolved.get('host')!r} "
+                    f"[ssh] run DONE host={resolved.get('host')!r} "
                     f"user={resolved.get('user')!r} "
                     f"exit={proc.exit_status} "
+                    f"duration_ms={int((time.time() - started) * 1000)} "
                     f"len_out={len(proc.stdout or '')} "
                     f"len_err={len(proc.stderr or '')}"
                 )
-                if proc.stderr:
-                    stderr_preview = (proc.stderr or "")[:400].replace("\n", " | ")
+                if stdout_preview:
+                    print(f"[ssh] run stdout: {stdout_preview}")
+                if stderr_preview:
                     print(f"[ssh] run stderr: {stderr_preview}")
+                # Non-zero exit with empty stderr is a classic silent-
+                # sudo signature; flag it so the operator notices even
+                # when the UI shows "ok" (exit_code surfaced separately).
+                if proc.exit_status and proc.exit_status != 0 and not proc.stderr:
+                    print(
+                        f"[ssh] run WARN exit={proc.exit_status} but stderr was empty — "
+                        f"possible silent-sudo / permission failure"
+                    )
     except asyncssh.PermissionDenied as e:
         _arm_cooldown(host_id, resolved["user"])
         base_result["error"] = f"permission denied: {e} — cool-down armed"
+        print(f"[ssh] run ERROR PermissionDenied host={resolved.get('host')!r}: {e} — cool-down armed")
     except asyncssh.HostKeyNotVerifiable as e:
         base_result["error"] = (
             f"host key not trusted: {e}. Paste the expected line into "
             f"Admin → SSH → Known hosts, or clear that field to accept "
             f"on first use (TOFU)."
         )
+        print(f"[ssh] run ERROR HostKeyNotVerifiable host={resolved.get('host')!r}: {e}")
     except (asyncio.TimeoutError, TimeoutError):
         base_result["error"] = f"timeout after {timeout:.1f}s"
+        print(f"[ssh] run ERROR timeout host={resolved.get('host')!r} after {timeout:.1f}s")
     except (OSError, asyncssh.DisconnectError, asyncssh.Error) as e:
         base_result["error"] = f"{type(e).__name__}: {e}"
+        print(f"[ssh] run ERROR {type(e).__name__} host={resolved.get('host')!r}: {e}")
     except Exception as e:
         base_result["error"] = f"unexpected: {type(e).__name__}: {e}"
+        print(f"[ssh] run ERROR unexpected {type(e).__name__} host={resolved.get('host')!r}: {e}")
 
     base_result["duration_ms"] = int((time.time() - started) * 1000)
     return base_result

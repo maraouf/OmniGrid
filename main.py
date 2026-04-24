@@ -1027,6 +1027,11 @@ async def api_set_settings(
     from logic import portainer as _portainer
     if s.apprise_url is not None: set_setting("apprise_url", s.apprise_url)
     if s.apprise_tag is not None: set_setting("apprise_tag", s.apprise_tag)
+    # Open-Meteo upstream — strips trailing slashes so `<base>/v1/...`
+    # composition in api_weather stays stable whether the operator
+    # typed a trailing slash or not.
+    if s.open_meteo_url is not None:
+        set_setting("open_meteo_url", (s.open_meteo_url or "").strip().rstrip("/"))
     if s.portainer_public_url is not None: set_setting("portainer_public_url", s.portainer_public_url)
     if s.backup_retention_count is not None:
         n = max(0, int(s.backup_retention_count))

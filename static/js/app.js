@@ -474,6 +474,11 @@ function app() {
       await this.refresh();
       await this.loadHistory();
       this.loadVersion();
+      // Asset inventory — load the cached asset list once on boot so
+      // the drawer can surface matched rows (vendor / model / serial /
+      // location) without an extra round-trip per row-expand. Silent
+      // failure is fine (asset inventory is optional).
+      this.loadAssetCache();
       this.startVersionWatcher();
       this.startHeaderClock();
       this.startHeaderWeather();
@@ -778,6 +783,12 @@ function app() {
           containers: its.filter(i => i.type === 'container' || i.type === 'orphan').length,
           stacks:   stackList.filter(s => !s.is_standalone).length,
           updates:  its.filter(i => i.status === 'update').length,
+          // Up-to-date count so the Nodes header can show a green
+          // pill matching the Stacks view's `uptodate / total ok`
+          // convention. Without this, Nodes shows only the bad
+          // counts (updates / offline / degraded) and operators saw
+          // the absence of a green affordance as inconsistent UX.
+          uptodate: its.filter(i => i.status === 'up-to-date').length,
           offline:  its.filter(i => i.health === 'offline').length,
           degraded: its.filter(i => i.health === 'degraded').length,
           errors:   its.filter(i => i.status === 'error').length,
@@ -2227,11 +2238,22 @@ function app() {
       } catch (e) {}
     },
     pollStats() {
-      if (this._statsTimer) clearTimeout(this._statsTimer);
+      if (this._statsTimer) {
+        clearTimeout(this._statsTimer);
+        this._statsTimer = null;
+      }
+      // Interval of 0 → operator explicitly turned stats polling off.
+      // Skip the initial tick entirely (used to fire one extra
+      // /api/stats after "Off" was selected) AND don't schedule
+      // further ticks. Other call sites like refresh() can still
+      // fetch stats on demand; we just stop the periodic timer.
+      if (!(this.statsInterval > 0)) return;
       const tick = async () => {
         await this.loadStats();
         if (this.statsInterval > 0) {
           this._statsTimer = setTimeout(tick, this.statsInterval * 1000);
+        } else {
+          this._statsTimer = null;
         }
       };
       tick();
@@ -2239,6 +2261,13 @@ function app() {
     setStatsInterval(seconds) {
       this.statsInterval = seconds;
       localStorage.setItem('statsInterval', String(seconds));
+      // Clear any scheduled tick explicitly when going to 0 —
+      // pollStats() returns early but we need to kill an in-flight
+      // setTimeout that was scheduled before the switch.
+      if (this._statsTimer) {
+        clearTimeout(this._statsTimer);
+        this._statsTimer = null;
+      }
       this.pollStats();
     },
 
@@ -4958,6 +4987,36 @@ function app() {
       } catch (e) {
         this.assetCache = { ok: false, error: String(e), assets: [] };
       }
+    },
+    // Look up an asset by the host's custom_number. Walks the cached
+    // asset list each call — N is small (tens of hosts) so a linear
+    // scan avoids the staleness risk of a memoised index when the
+    // cache reloads. Returns `null` when no match or no cache.
+    // Reads common field aliases (vendor/manufacturer, model/product,
+    // location/site, serial/serial_number) so the drawer doesn't care
+    // which naming convention the upstream uses.
+    assetForHost(h) {
+      if (!h || h.custom_number == null || h.custom_number === '') return null;
+      const assets = (this.assetCache && Array.isArray(this.assetCache.assets))
+        ? this.assetCache.assets : null;
+      if (!assets || !assets.length) return null;
+      const n = parseInt(h.custom_number, 10);
+      if (!Number.isFinite(n)) return null;
+      for (const a of assets) {
+        if (!a) continue;
+        const candidate = a.custom_number ?? a.number ?? a.id;
+        if (parseInt(candidate, 10) === n) {
+          return {
+            vendor:   a.vendor   || a.manufacturer || '',
+            model:    a.model    || a.product      || a.product_name || '',
+            serial:   a.serial   || a.serial_number || '',
+            location: a.location || a.site          || a.room || '',
+            // Raw original for the debug panel to stringify.
+            _raw:     a,
+          };
+        }
+      }
+      return null;
     },
     async refreshAssetCache() {
       this.assetRefreshing = true;

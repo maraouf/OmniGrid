@@ -743,6 +743,17 @@
                     class="pill pill-update text-[10.5px]">
                 <span x-text="node.degraded"></span> degraded
               </span>
+              <!-- Up-to-date green pill — matches the Stacks view's
+                   "uptodate / total ok" convention so all three views
+                   (stacks / services / nodes) share the same colour
+                   language. Only shows when there are matches AND no
+                   updates are pending (don't want a green chip next
+                   to an amber "updates" chip — confusing). -->
+              <span x-show="node.uptodate > 0 && node.updates === 0"
+                    class="pill pill-ok text-[10.5px]">
+                <span x-text="node.uptodate"></span>
+                <span x-text="t('chips.ok_suffix')"></span>
+              </span>
               <!-- Host-stats chip — green when at least one configured
                    source (node-exporter / Beszel / Pulse) returned
                    data for this node. The label shows whichever
@@ -1288,6 +1299,15 @@
                           :title="t('hosts_extra.custom_number_title')"
                           x-text="'#' + h.custom_number"></span>
                     <span class="font-semibold text-[13px] mono truncate" x-text="h.label || h.host"></span>
+                    <!-- LOCATION pill (ticket #78 follow-up) —
+                         matched from the oufa.co asset cache by
+                         custom_number. Only shows when the matched
+                         asset has a location/site/room field. -->
+                    <template x-if="assetForHost(h) && assetForHost(h).location">
+                      <span class="chip text-[10px] px-1.5 py-0 pill-info"
+                            :title="t('asset.location_title')"
+                            x-text="assetForHost(h).location"></span>
+                    </template>
                     <template x-for="p in (h.providers || [])" :key="p">
                       <span class="chip text-[9.5px] px-1 py-0"
                             :class="p === 'beszel' ? 'pill-ok' : p === 'pulse' ? 'pill-info' : 'pill-update'"
@@ -1642,6 +1662,40 @@
                           x-text="(h.load_1m || 0).toFixed(2) + ' · '
                                   + (h.load_5m || 0).toFixed(2) + ' · '
                                   + (h.load_15m || 0).toFixed(2)"></dd>
+                    </template>
+                    <!-- Asset inventory rows (ticket #78 follow-up).
+                         Matched by h.custom_number against the cached
+                         oufa.co asset list. Each row gated on its own
+                         field so hosts without that data stay tidy.
+                         Distinct from DMI so operators can spot when
+                         the DB record ≠ what node-exporter reports
+                         on the box (manufacturer mismatch / swap
+                         wasn't recorded upstream). Title tooltip
+                         explains the source. -->
+                    <template x-if="assetForHost(h) && assetForHost(h).vendor">
+                      <dt class="text-[var(--text-dim)]"
+                          :title="t('host_drawer.hardware.asset_title')"
+                          x-text="t('host_drawer.hardware.asset_vendor')"></dt>
+                    </template>
+                    <template x-if="assetForHost(h) && assetForHost(h).vendor">
+                      <dd class="text-end break-all" x-text="assetForHost(h).vendor"></dd>
+                    </template>
+                    <template x-if="assetForHost(h) && assetForHost(h).model">
+                      <dt class="text-[var(--text-dim)]"
+                          :title="t('host_drawer.hardware.asset_title')"
+                          x-text="t('host_drawer.hardware.asset_model')"></dt>
+                    </template>
+                    <template x-if="assetForHost(h) && assetForHost(h).model">
+                      <dd class="text-end break-all" x-text="assetForHost(h).model"></dd>
+                    </template>
+                    <template x-if="assetForHost(h) && assetForHost(h).serial">
+                      <dt class="text-[var(--text-dim)]"
+                          :title="t('host_drawer.hardware.asset_title')"
+                          x-text="t('host_drawer.hardware.asset_serial')"></dt>
+                    </template>
+                    <template x-if="assetForHost(h) && assetForHost(h).serial">
+                      <dd class="mono text-end break-all text-[var(--text-faint)]"
+                          x-text="assetForHost(h).serial"></dd>
                     </template>
                     <dt class="text-[var(--text-dim)]" x-text="t('host_drawer.hardware.status')"></dt>
                     <dd class="text-end">
@@ -4583,9 +4637,9 @@
                   <textarea :value="action.command"
                             @input="action.command = $event.target.value; markSshSettingsDirty()"
                             :disabled="isReadonly()"
-                            rows="5"
+                            rows="9"
                             class="w-full mono text-[11.5px] py-2 scrollbar"
-                            style="min-height: 6rem; resize: vertical;"
+                            style="min-height: 11rem; resize: vertical;"
                             :placeholder="t('admin_ssh.custom_action_command_placeholder')"></textarea>
                 </div>
                 <div class="md:col-span-1 flex md:flex-col items-center justify-end gap-1">

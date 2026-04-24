@@ -832,7 +832,14 @@
       "beszel_agent_title": "Version reported by the Beszel agent on this host",
       "status": "Status",
       "load": "Load",
-      "load_title": "1-, 5-, and 15-minute load averages (from node-exporter)"
+      "load_title": "1-, 5-, and 15-minute load averages (from node-exporter)",
+      "asset_vendor": "Vendor (asset)",
+      "asset_model": "Model (asset)",
+      "asset_serial": "Serial (asset)",
+      "asset_title": "Sourced from oufa.co asset inventory (matched by Custom #)"
+    },
+    "asset": {
+      "location_title": "Location (from oufa.co asset inventory)"
     },
     "network": {
       "heading": "Network",
