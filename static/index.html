@@ -1016,8 +1016,10 @@
         <span x-text="'Host probe error: ' + hostsError"></span>
       </div>
 
-      <!-- Search box — filters the table by host id / label / OS /
-           platform / kernel / provider names. Empty = show all. -->
+      <!-- Search + sort row — filters the table by host id / label / OS /
+           platform / kernel / provider names. Sort dropdown picks the
+           ordering axis; default is status (alive first). Empty search
+           = show all. -->
       <div x-show="hostsConfigured && hosts.length > 0" class="flex items-center gap-2">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-[var(--text-faint)]"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
         <input type="search" x-model="hostsSearch"
@@ -1028,6 +1030,20 @@
               x-text="filteredHosts().length + ' of ' + hosts.length"></span>
         <button x-show="hostsSearch" @click="hostsSearch=''"
                 class="btn btn-ghost text-[11px]" title="Clear filter">✕</button>
+        <label class="flex items-center gap-1.5 text-[11px] text-[var(--text-faint)]">
+          <span>Sort</span>
+          <select x-model="hostsSort" class="text-[12px] py-1 px-1.5"
+                  title="Sort hosts — persisted in this browser">
+            <option value="status">Status (default)</option>
+            <option value="seq">Addition order</option>
+            <option value="name">Name (A→Z)</option>
+            <option value="type">Type (platform/OS)</option>
+            <option value="cpu">CPU (high→low)</option>
+            <option value="mem">Memory (high→low)</option>
+            <option value="disk">Disk (high→low)</option>
+            <option value="uptime">Uptime (long→short)</option>
+          </select>
+        </label>
       </div>
 
       <!-- Mobile-first card layout — shown below 768px via CSS. Each

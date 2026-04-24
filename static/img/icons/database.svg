@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <!-- Generic database — stacked-disc silhouette. Used as a fallback
+       when a label says "db", "database", or a specific brand icon
+       isn't resolvable. Indigo chassis to distinguish from brand
+       icons (mongodb green, postgres blue). -->
+  <rect width="512" height="512" rx="96" fill="#6366f1"/>
+  <g fill="#ffffff">
+    <!-- Top ellipse (the disc's rim) -->
+    <ellipse cx="256" cy="132" rx="136" ry="36"/>
+  </g>
+  <g fill="none" stroke="#ffffff" stroke-width="24"
+     stroke-linecap="round" stroke-linejoin="round">
+    <!-- Body silhouette: two side lines + two bottom curves for the
+         middle and lower discs. -->
+    <path d="M120 132 V380 A136 36 0 0 0 392 380 V132"/>
+    <!-- Middle disc rim (dashed look via a lighter stroke would need
+         a colour token; a plain thinner line reads well at small
+         sizes). -->
+    <path d="M120 222 A136 36 0 0 0 392 222"/>
+    <path d="M120 306 A136 36 0 0 0 392 306"/>
+  </g>
+</svg>

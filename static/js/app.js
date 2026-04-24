@@ -59,6 +59,15 @@ function app() {
     hostsLoading: false,
     hostsExpanded: [],
     hostsSearch: '',
+    // Sort key for the Hosts view. Persisted to localStorage so the
+    // operator's preferred order sticks across reloads. Supported keys:
+    //   'status' (default — alive first, then paused, down, unknown)
+    //   'seq'    (curated-list addition order; 'insertion' alias)
+    //   'name'   (alphabetical on label or host)
+    //   'type'   (platform / OS group — same-kind hosts cluster)
+    //   'cpu' / 'mem' / 'disk' (descending — hottest first)
+    //   'uptime' (descending — longest running first)
+    hostsSort: (typeof localStorage !== 'undefined' && localStorage.getItem('hostsSort')) || 'status',
     hostsCuratedCount: 0,
     hostsEnabledCount: 0,
     _hostsTimer: null,
@@ -277,6 +286,7 @@ function app() {
       // Back/forward buttons — re-read the path into app state.
       window.addEventListener('popstate', () => this._applyRouteFromPath());
       this.$watch('expanded', v => localStorage.setItem('expanded', JSON.stringify(v)));
+      this.$watch('hostsSort', v => { try { localStorage.setItem('hostsSort', v); } catch {} });
       // Re-surface the translated labels in Settings/Admin sidebars when
       // the user swaps language. Alpine re-renders bindings automatically
       // because `lang` is part of the component state; this watcher just
@@ -3403,6 +3413,22 @@ function app() {
         // git forges
         ['forgejo',               'forgejo'],
         ['gitea',                 'forgejo'],
+        // databases — brand-specific first, generic last.
+        ['mongodb',               'mongodb'],
+        ['mongo',                 'mongodb'],
+        ['postgresql',            'postgresql'],
+        ['postgres',              'postgresql'],
+        ['influxdb',              'influxdb'],
+        ['influx',                'influxdb'],
+        ['mariadb',               'database'],
+        ['mysql',                 'database'],
+        ['redis',                 'database'],
+        ['sqlite',                'database'],
+        ['database',              'database'],
+        [' db ',                  'database'],
+        // systems management / monitoring
+        ['webmin',                'webmin'],
+        ['zabbix',                'zabbix'],
         // mail — brand-specific first, generic last.
         ['mailcow',               'mailcow'],
         ['stalwart',              'stalwart'],
@@ -3542,7 +3568,12 @@ function app() {
         this.hostsError = d.error || '';
         this.hostsProviderErrors = d.provider_errors || {};
         this.hostsActiveSources = Array.isArray(d.active) ? d.active : [];
-        this.hosts = Array.isArray(d.hosts) ? d.hosts : [];
+        // Stamp insertion order (_seq) so the 'seq' sort can restore the
+        // curated-list order regardless of how later sorts reshuffle the
+        // array. Backend already returns hosts in curated order.
+        this.hosts = Array.isArray(d.hosts)
+          ? d.hosts.map((h, i) => ({ ...h, _seq: i }))
+          : [];
         this.hostsCuratedCount = Number.isFinite(d.curated_count) ? d.curated_count : 0;
         this.hostsEnabledCount = Number.isFinite(d.enabled_count) ? d.enabled_count : 0;
       } catch (e) {
@@ -3610,6 +3641,16 @@ function app() {
           default:       return 3;
         }
       };
+      const nameOf = (h) => (h.label || h.host || '').toLowerCase();
+      // Group key for 'type' sort — prefer platform over os so
+      // Proxmox/LXC rows cluster distinctly from plain Debian, etc.
+      // Empty values sort LAST ('~' > any printable letter).
+      const typeOf = (h) => {
+        const t = ((h.platform || h.os || '') + '').toLowerCase().trim();
+        return t || '~';
+      };
+      const num = (v) => (Number.isFinite(+v) ? +v : 0);
+
       let list = (this.hosts || []).slice();
       if (q) {
         list = list.filter(h => {
@@ -3620,13 +3661,56 @@ function app() {
           return hay.includes(q);
         });
       }
-      list.sort((a, b) => {
+
+      const sortKey = (this.hostsSort || 'status');
+      // Every branch breaks ties via (status → name) so the result is
+      // deterministic regardless of the array's incoming order.
+      const tieBreak = (a, b) => {
         const sw = statusWeight(a.status) - statusWeight(b.status);
         if (sw !== 0) return sw;
-        const al = (a.label || a.host || '').toLowerCase();
-        const bl = (b.label || b.host || '').toLowerCase();
-        return al.localeCompare(bl);
-      });
+        return nameOf(a).localeCompare(nameOf(b));
+      };
+
+      let cmp;
+      switch (sortKey) {
+        case 'seq':
+        case 'insertion':
+          // Addition order — falls back to name when _seq is missing
+          // (older server response without the stamp).
+          cmp = (a, b) => {
+            const d = num(a._seq) - num(b._seq);
+            if (d !== 0) return d;
+            return nameOf(a).localeCompare(nameOf(b));
+          };
+          break;
+        case 'name':
+          cmp = (a, b) => nameOf(a).localeCompare(nameOf(b));
+          break;
+        case 'type':
+          cmp = (a, b) => {
+            const d = typeOf(a).localeCompare(typeOf(b));
+            if (d !== 0) return d;
+            return tieBreak(a, b);
+          };
+          break;
+        case 'cpu':
+          cmp = (a, b) => num(b.cpu_percent) - num(a.cpu_percent) || tieBreak(a, b);
+          break;
+        case 'mem':
+          cmp = (a, b) => num(b.mem_percent) - num(a.mem_percent) || tieBreak(a, b);
+          break;
+        case 'disk':
+          cmp = (a, b) => num(b.disk_percent) - num(a.disk_percent) || tieBreak(a, b);
+          break;
+        case 'uptime':
+          cmp = (a, b) => num(b.uptime_s) - num(a.uptime_s) || tieBreak(a, b);
+          break;
+        case 'status':
+        default:
+          cmp = tieBreak;
+          break;
+      }
+      list.sort(cmp);
       return list;
     },
     toggleHost(name) {
