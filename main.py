@@ -857,6 +857,22 @@ class SettingsIn(BaseModel):
     ssh_fqdn_suffix: Optional[str] = None
     ssh_default_known_hosts: Optional[str] = None
     ssh_destructive_patterns: Optional[str] = None
+    # Explicit CLEAR flags for SSH secrets. The keep-current-if-blank
+    # contract (used by all other secrets) makes it impossible to
+    # ERASE a stored secret — blank means "don't change". These bool
+    # flags are the escape hatch: when true, the corresponding secret
+    # is deleted from the settings table regardless of the paired
+    # string field. Admin UI surfaces them as "Clear" buttons.
+    clear_ssh_private_key: Optional[bool] = None
+    clear_ssh_passphrase: Optional[bool] = None
+    clear_ssh_password: Optional[bool] = None
+    # JSON array of SSH custom actions. Each element:
+    #   {"id": "restart-beszel", "title": "Restart Beszel agent",
+    #    "command": "systemctl restart beszel-agent"}
+    # Empty array or missing = fall back to the hardcoded default
+    # action list in the drawer (same 5 presets). {host} placeholder
+    # in the command template is substituted at run time.
+    ssh_custom_actions: Optional[list] = None
 
 
 @app.get("/api/settings")
@@ -935,6 +951,9 @@ async def api_get_settings(request: Request):
             "password_set":    bool(get_setting("ssh_default_password", "")),
             "fqdn_suffix":     get_setting("ssh_fqdn_suffix", "") or "",
             "known_hosts":     get_setting("ssh_default_known_hosts", "") or "",
+            "custom_actions":  (lambda raw:
+                (json.loads(raw) if (raw or "").strip() else [])
+            )(get_setting("ssh_custom_actions", "")),
             "destructive_patterns": (
                 get_setting("ssh_destructive_patterns", "") or ""
             ),
@@ -1168,6 +1187,38 @@ async def api_set_settings(
                     detail=f"invalid destructive regex {p!r}: {e}",
                 )
         set_setting("ssh_destructive_patterns", raw)
+    # Clear flags — operator clicked "Clear" on an SSH secret. Delete
+    # the underlying setting outright (not just set to ""); downstream
+    # code treats missing / empty identically, but the flag-driven path
+    # is the only way to erase a value that the keep-current-if-blank
+    # contract otherwise preserves forever.
+    if s.clear_ssh_private_key:
+        set_setting("ssh_default_private_key", "")
+        set_setting("ssh_default_private_key_passphrase", "")  # orphaned passphrase is noise
+    if s.clear_ssh_passphrase:
+        set_setting("ssh_default_private_key_passphrase", "")
+    if s.clear_ssh_password:
+        set_setting("ssh_default_password", "")
+    # Custom SSH actions — JSON array replaces the whole list wholesale.
+    # Full-replace semantics match how Admin → Hosts saves hosts_config.
+    # Shape validation lives here so the runner can trust what it reads.
+    if s.ssh_custom_actions is not None:
+        if not isinstance(s.ssh_custom_actions, list):
+            raise HTTPException(400, "ssh_custom_actions must be a list")
+        clean_actions: list[dict] = []
+        for a in s.ssh_custom_actions:
+            if not isinstance(a, dict):
+                continue
+            title = (a.get("title") or "").strip()
+            cmd = (a.get("command") or "").strip()
+            if not title or not cmd:
+                continue
+            clean_actions.append({
+                "id":      (a.get("id") or "").strip() or _slugify_action(title),
+                "title":   title[:80],
+                "command": cmd[:2048],
+            })
+        set_setting("ssh_custom_actions", json.dumps(clean_actions))
     _cache["ts"] = 0  # force the next gather to re-read alias settings
 
     auth_changed = False
@@ -1866,6 +1917,13 @@ def _clean_host_ssh(raw: Any) -> dict:
     host = str(raw.get("host") or "").strip()
     if host:
         out["host"] = host
+    # `fqdn` is an alias for `host` (operator-facing naming). The
+    # resolve function reads both, preferring whichever is set;
+    # persist as-typed so the editor round-trips the operator's
+    # choice.
+    fqdn = str(raw.get("fqdn") or "").strip()
+    if fqdn:
+        out["fqdn"] = fqdn
     port = raw.get("port")
     if port not in (None, "", 0):
         try:
@@ -1874,9 +1932,32 @@ def _clean_host_ssh(raw: Any) -> dict:
                 out["port"] = p
         except (TypeError, ValueError):
             pass
+    # Per-host password override. Stored in the hosts_config JSON
+    # (which already contains other secrets implicitly, e.g. webmin
+    # URLs with credentials). The admin-only /api/hosts/config
+    # endpoint gates access; /api/hosts/debug masks the ssh sub-dict
+    # so per-host passwords don't leak to the debug panel.
+    password = str(raw.get("password") or "")
+    if password:
+        out["password"] = password
     if bool(raw.get("disabled")):
         out["disabled"] = True
     return out
+
+
+def _slugify_action(title: str) -> str:
+    """Derive a stable slug from a user-typed action title.
+
+    Used as the `id` for SSH custom actions when the operator didn't
+    supply one explicitly. Kept permissive — lowercase letters /
+    numbers / hyphens only, truncated to 40 chars. Collisions aren't
+    checked (two actions titled identically will produce the same
+    slug — same behaviour as schedule names, operator's problem).
+    """
+    import re as _re
+    s = (title or "").strip().lower()
+    s = _re.sub(r"[^a-z0-9]+", "-", s).strip("-")
+    return s[:40] or "action"
 
 
 def _coerce_int(v) -> Optional[int]:

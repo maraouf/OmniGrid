@@ -230,6 +230,10 @@ function app() {
       password: '', fqdn_suffix: '',
       known_hosts: '', destructive_patterns: '',
       private_key_set: false, passphrase_set: false, password_set: false,
+      // custom_actions: [{id, title, command}] — rendered as preset
+      // buttons in the host drawer SSH card. Seeded from the legacy
+      // hardcoded 5 when the DB row is empty (see seedDefaultSshActions).
+      custom_actions: [],
     },
     sshSettingsDirty: false,
     sshSettingsBusy: false,
@@ -639,6 +643,21 @@ function app() {
         ['hosts',    this.t('nav.hosts')],
         ['history',  this.t('nav.history')],
       ];
+    },
+    // Inner-SVG markup for each top-nav icon. Returned as an HTML
+    // string rendered via `x-html` on a shared <svg> wrapper so the
+    // stroke / viewBox / size stay consistent. Lucide-derived shapes —
+    // layered-squares for Stacks, cube for Services, server-rack for
+    // Nodes, monitor for Hosts, clock-with-arrow for History.
+    navIcon(key) {
+      const icons = {
+        stacks:   '<path d="M12 2 2 7l10 5 10-5-10-5z"/><path d="m2 17 10 5 10-5"/><path d="m2 12 10 5 10-5"/>',
+        services: '<path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/>',
+        nodes:    '<rect x="2" y="2" width="20" height="8" rx="2" ry="2"/><rect x="2" y="14" width="20" height="8" rx="2" ry="2"/><line x1="6" y1="6" x2="6.01" y2="6"/><line x1="6" y1="18" x2="6.01" y2="18"/>',
+        hosts:    '<rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/>',
+        history:  '<path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/><path d="M12 7v5l4 2"/>',
+      };
+      return icons[key] || '';
     },
 
     // -----------------------------------------------------------------
@@ -2432,6 +2451,7 @@ function app() {
     // form has values ready when the admin opens the section.
     hydrateSshSettings(apiSettings) {
       const s = (apiSettings && apiSettings.ssh) || {};
+      const actions = Array.isArray(s.custom_actions) ? s.custom_actions : [];
       this.sshSettings = {
         user:            s.user || '',
         port:            s.port || 22,
@@ -2444,10 +2464,98 @@ function app() {
         private_key_set: !!s.private_key_set,
         passphrase_set:  !!s.passphrase_set,
         password_set:    !!s.password_set,
+        // Seed with the historical 5 presets when the DB row is empty
+        // so fresh installs don't start with a bare SSH card. Operators
+        // can edit / remove any of them from Admin → SSH.
+        custom_actions:  actions.length ? actions : this.defaultSshCustomActions(),
       };
       this.sshSettingsDirty = false;
     },
     markSshSettingsDirty() { this.sshSettingsDirty = true; },
+    // The 5 baked-in commands OmniGrid used before custom actions
+    // became editable. Used only as a first-boot seed — once the
+    // operator saves anything, the DB row wins.
+    defaultSshCustomActions() {
+      return [
+        { id: 'restart-beszel',   title: 'Restart Beszel agent',
+          command: 'systemctl restart beszel-agent || docker restart beszel-agent' },
+        { id: 'show-beszel-env',  title: 'Show Beszel agent env',
+          command: "systemctl show beszel-agent -p Environment || docker inspect beszel-agent --format '{{range .Config.Env}}{{println .}}{{end}}'" },
+        { id: 'journal-beszel',   title: 'Journal: Beszel agent (last 40)',
+          command: 'journalctl -u beszel-agent -n 40 --no-pager' },
+        { id: 'ip-link',          title: 'List NICs (ip link)',
+          command: 'ip -o link show' },
+        { id: 'uptime',           title: 'Uptime + load',
+          command: 'uptime' },
+      ];
+    },
+    addSshCustomAction() {
+      this.sshSettings.custom_actions = [
+        ...(this.sshSettings.custom_actions || []),
+        { id: '', title: '', command: '' },
+      ];
+      this.markSshSettingsDirty();
+    },
+    removeSshCustomAction(idx) {
+      const arr = (this.sshSettings.custom_actions || []).slice();
+      arr.splice(idx, 1);
+      this.sshSettings.custom_actions = arr;
+      this.markSshSettingsDirty();
+    },
+    moveSshCustomAction(idx, delta) {
+      const arr = (this.sshSettings.custom_actions || []).slice();
+      const target = idx + delta;
+      if (target < 0 || target >= arr.length) return;
+      const [row] = arr.splice(idx, 1);
+      arr.splice(target, 0, row);
+      this.sshSettings.custom_actions = arr;
+      this.markSshSettingsDirty();
+    },
+    // Erase a stored SSH secret (key / passphrase / password). The
+    // normal save path preserves secrets on blank input (so ops don't
+    // accidentally wipe a stored key by saving unrelated changes),
+    // which means there's no other way to clear them. Confirm first
+    // so a misclick doesn't lock the operator out of every host.
+    async clearSshSecret(kind) {
+      const label = kind === 'private_key' ? 'SSH private key'
+                  : kind === 'passphrase' ? 'passphrase'
+                  : 'default password';
+      const ok = typeof Swal !== 'undefined'
+        ? (await Swal.fire({
+            title: 'Clear the stored ' + label + '?',
+            text: kind === 'private_key'
+              ? 'This also clears the passphrase. You will need to paste a new key before any SSH action will work.'
+              : kind === 'passphrase'
+              ? 'The private key stays, but will be tried unprotected. If it needs a passphrase, SSH auth will fail.'
+              : 'Hosts with a per-host password override will still work; everything else will need a new default.',
+            icon: 'warning',
+            showCancelButton: true,
+            confirmButtonText: 'Clear',
+            cancelButtonText: 'Cancel',
+          })).isConfirmed
+        : window.confirm('Clear the stored ' + label + '?');
+      if (!ok) return;
+      try {
+        const body = {};
+        if (kind === 'private_key') body.clear_ssh_private_key = true;
+        if (kind === 'passphrase')  body.clear_ssh_passphrase  = true;
+        if (kind === 'password')    body.clear_ssh_password    = true;
+        const r = await fetch('/api/settings', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        });
+        if (!r.ok) {
+          const j = await r.json().catch(() => ({}));
+          this.showToast(j.detail || 'Clear failed', 'error');
+          return;
+        }
+        await this.loadSettings();
+        this.showToast(label[0].toUpperCase() + label.slice(1) + ' cleared', 'success');
+      } catch (e) {
+        this.showToast('Network error: ' + e.message, 'error');
+      }
+    },
     async saveSshSettings() {
       this.sshSettingsBusy = true;
       try {
@@ -2457,6 +2565,14 @@ function app() {
           ssh_fqdn_suffix:               this.sshSettings.fqdn_suffix || '',
           ssh_default_known_hosts:       this.sshSettings.known_hosts || '',
           ssh_destructive_patterns:      this.sshSettings.destructive_patterns || '',
+          // Backend drops rows with empty title or command, so clean
+          // slots the operator left blank simply vanish on save.
+          ssh_custom_actions: (this.sshSettings.custom_actions || [])
+            .map(a => ({
+              id:      (a.id || '').trim(),
+              title:   (a.title || '').trim(),
+              command: (a.command || '').trim(),
+            })),
         };
         // Write-only: only send when the operator typed a new value.
         if ((this.sshSettings.private_key || '').trim() !== '') {
@@ -2557,6 +2673,19 @@ function app() {
       } finally {
         this.sshTestBusy = { ...this.sshTestBusy, [hostId]: false };
       }
+    },
+    // DB-backed custom action → drop the rendered command into the
+    // textarea so the operator can review before hitting Run. `{host}`
+    // is substituted with the resolved target hostname (falls back to
+    // the row id when the status probe hasn't populated yet). We
+    // DELIBERATELY don't auto-execute — destructive commands go
+    // through the Run button's confirmation gate.
+    runSshCustomAction(hostId, action) {
+      if (!hostId || !action || !action.command) return;
+      const resolved = (this.sshStatus[hostId] && this.sshStatus[hostId].resolved) || {};
+      const host = resolved.host || hostId;
+      const cmd = String(action.command).replace(/\{host\}/g, host);
+      this.sshCommand = { ...this.sshCommand, [hostId]: cmd };
     },
     // Prebuilt action → command map. Kept as a function so a future
     // sub-step (e.g. NIC name prompt) can inline its own logic.
@@ -4332,13 +4461,22 @@ function app() {
         }
         // Per-host SSH — strip falsy / blank keys so the DB doesn't
         // persist empty strings that would shadow the global default.
+        // `fqdn` is the new preferred key; `host` stays for back-compat
+        // (the backend's _clean_host_ssh accepts both and the resolver
+        // reads `fqdn` first, then `host`).
         const sshIn = h.ssh || {};
         const sshOut = {};
         if ((sshIn.user || '').trim()) sshOut.user = sshIn.user.trim();
+        if ((sshIn.fqdn || '').trim()) sshOut.fqdn = sshIn.fqdn.trim();
         if ((sshIn.host || '').trim()) sshOut.host = sshIn.host.trim();
         if (sshIn.port) {
           const p = parseInt(sshIn.port, 10);
           if (Number.isFinite(p) && p >= 1 && p <= 65535) sshOut.port = p;
+        }
+        // Passwords are write-only — any non-empty string overwrites.
+        // Empty = "no override" (fall back to global default password).
+        if (typeof sshIn.password === 'string' && sshIn.password !== '') {
+          sshOut.password = sshIn.password;
         }
         if (sshIn.disabled) sshOut.disabled = true;
         return {

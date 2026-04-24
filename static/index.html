@@ -78,7 +78,12 @@
         <template x-for="t in navItems()" :key="t[0]">
           <button @click="view=t[0]"
                   :class="view===t[0] ? 'text-[var(--text)] bg-[var(--surface-2)]' : 'text-[var(--text-dim)] hover:text-[var(--text)]'"
-                  class="px-3 py-1.5 rounded-md text-[13px] font-medium transition" x-text="t[1]"></button>
+                  class="px-3 py-1.5 rounded-md text-[13px] font-medium transition flex items-center gap-1.5">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                 stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
+                 x-html="navIcon(t[0])"></svg>
+            <span x-text="t[1]"></span>
+          </button>
         </template>
       </nav>
 
@@ -2129,28 +2134,31 @@
                               x-text="sshTestBusy[h.id] ? t('hosts_extra_ssh.running') : t('hosts_extra_ssh.test_button')"></button>
                     </div>
 
-                    <!-- Common actions — prebuilt commands that drop
-                         into the textarea below so the operator can
-                         preview them before executing. -->
-                    <div class="mb-3">
+                    <!-- Common actions — DB-backed presets managed in
+                         Admin → SSH. Each button drops its rendered
+                         command (with `{host}` substituted) into the
+                         textarea below so the operator previews before
+                         hitting Run. Falls back to `runSshPreset` for
+                         the historical `set_nics` entry only (it needs
+                         an interactive NIC-name prompt). -->
+                    <div class="mb-3"
+                         x-show="(sshSettings.custom_actions || []).length > 0">
                       <div class="text-[11px] text-[var(--text-faint)] mb-1.5"
                            x-text="t('hosts_extra_ssh.common_actions_label')"></div>
                       <div class="flex flex-wrap gap-2">
-                        <button type="button" class="btn btn-soft text-[11.5px]"
-                                @click="runSshPreset(h.id, 'restart_beszel')"
-                                x-text="t('hosts_extra_ssh.action_restart_beszel')"></button>
-                        <button type="button" class="btn btn-soft text-[11.5px]"
-                                @click="runSshPreset(h.id, 'show_beszel_env')"
-                                x-text="t('hosts_extra_ssh.action_show_beszel_env')"></button>
+                        <template x-for="(action, idx) in (sshSettings.custom_actions || [])"
+                                  :key="action.id || ('a' + idx)">
+                          <button type="button" class="btn btn-soft text-[11.5px]"
+                                  @click="runSshCustomAction(h.id, action)"
+                                  :title="action.command"
+                                  x-text="action.title"></button>
+                        </template>
+                        <!-- The one legacy preset that still needs a
+                             live prompt (NIC name); not worth making
+                             this DB-editable. -->
                         <button type="button" class="btn btn-soft text-[11.5px]"
                                 @click="runSshPreset(h.id, 'set_nics')"
                                 x-text="t('hosts_extra_ssh.action_set_nics')"></button>
-                        <button type="button" class="btn btn-soft text-[11.5px]"
-                                @click="runSshPreset(h.id, 'journal')"
-                                x-text="t('hosts_extra_ssh.action_journal')"></button>
-                        <button type="button" class="btn btn-soft text-[11.5px]"
-                                @click="runSshPreset(h.id, 'ip_link')"
-                                x-text="t('hosts_extra_ssh.action_ip_link')"></button>
                       </div>
                     </div>
 
@@ -3901,8 +3909,11 @@
                 </div>
               </div>
               <!-- Row 2b — SSH per-host overrides. Key material stays
-                   GLOBAL (Admin → SSH); per-host can override the user,
-                   port, or disable the feature for this one host. -->
+                   GLOBAL (Admin → SSH); per-host can override the
+                   target FQDN, user, port, password, or disable the
+                   feature entirely for this one host. Password
+                   override is useful when one box has a different
+                   account from the fleet's shared user. -->
               <div class="grid grid-cols-1 md:grid-cols-[2fr_1fr_auto] gap-3 items-end">
                 <div>
                   <label class="block text-[10.5px] uppercase tracking-wider text-[var(--text-faint)] mb-1"
@@ -3931,6 +3942,37 @@
                          :disabled="isReadonly()">
                   <span x-text="t('hosts_extra_ssh.per_host_disabled')"></span>
                 </label>
+              </div>
+              <!-- Row 2c — FQDN override + per-host password. FQDN wins
+                   over the global ssh_fqdn_suffix logic (explicit
+                   target wins over suffix-math). Password wins over
+                   global when BOTH are set. -->
+              <div class="grid grid-cols-1 md:grid-cols-2 gap-3 items-end">
+                <div>
+                  <label class="block text-[10.5px] uppercase tracking-wider text-[var(--text-faint)] mb-1">
+                    SSH FQDN / host
+                    <span class="text-[10px] normal-case text-[var(--text-faint)] ms-1">(blank = id + global suffix)</span>
+                  </label>
+                  <input type="text"
+                         :value="row.ssh && (row.ssh.fqdn || row.ssh.host) || ''"
+                         @input="row.ssh = Object.assign({}, row.ssh || {}, { fqdn: $event.target.value }); markHostRowDirty(idx)"
+                         :disabled="isReadonly()"
+                         class="w-full mono text-[12.5px] py-1.5"
+                         placeholder="e.g. webserver.home.lan">
+                </div>
+                <div>
+                  <label class="block text-[10.5px] uppercase tracking-wider text-[var(--text-faint)] mb-1">
+                    SSH password
+                    <span class="text-[10px] normal-case text-[var(--text-faint)] ms-1">(blank = use global)</span>
+                  </label>
+                  <input type="password"
+                         :value="row.ssh && row.ssh.password || ''"
+                         @input="row.ssh = Object.assign({}, row.ssh || {}, { password: $event.target.value }); markHostRowDirty(idx)"
+                         :disabled="isReadonly()"
+                         class="w-full text-[12.5px] py-1.5"
+                         placeholder="override for this host only"
+                         autocomplete="new-password">
+                </div>
               </div>
               <!-- Row 3 — test button + per-provider result line. The
                    result lists each probed provider with a tick or
@@ -4057,10 +4099,17 @@
           </div>
         </div>
         <div class="mb-3">
-          <label class="block text-[11px] text-[var(--text-faint)] mb-1">
+          <label class="block text-[11px] text-[var(--text-faint)] mb-1 flex items-center gap-2">
             <span x-text="t('admin_ssh.key_label')"></span>
             <span x-show="sshSettings.private_key_set" class="text-[var(--success)]"
                   x-text="t('admin_ssh.key_set')"></span>
+            <button type="button"
+                    x-show="sshSettings.private_key_set && isAdmin()"
+                    @click="clearSshSecret('private_key')"
+                    class="ms-auto text-[10.5px] text-[var(--danger)] hover:underline"
+                    title="Erase the stored SSH private key (and its passphrase). Cannot be undone — paste a new key after to restore access.">
+              Clear
+            </button>
           </label>
           <textarea x-model="sshSettings.private_key"
                     @input="markSshSettingsDirty()"
@@ -4072,10 +4121,17 @@
              x-text="t('admin_ssh.key_hint')"></p>
         </div>
         <div class="mb-3">
-          <label class="block text-[11px] text-[var(--text-faint)] mb-1">
+          <label class="block text-[11px] text-[var(--text-faint)] mb-1 flex items-center gap-2">
             <span x-text="t('admin_ssh.passphrase_label')"></span>
             <span x-show="sshSettings.passphrase_set" class="text-[var(--success)]"
                   x-text="t('admin_ssh.passphrase_set')"></span>
+            <button type="button"
+                    x-show="sshSettings.passphrase_set && isAdmin()"
+                    @click="clearSshSecret('passphrase')"
+                    class="ms-auto text-[10.5px] text-[var(--danger)] hover:underline"
+                    title="Erase the stored passphrase. The private key stays; the runner will try to parse it unprotected.">
+              Clear
+            </button>
           </label>
           <input x-model="sshSettings.passphrase" type="password"
                  @input="markSshSettingsDirty()"
@@ -4087,9 +4143,16 @@
              set, the key wins. Useful for hosts that only accept
              password auth — NAS boxes, routers, fresh VM images. -->
         <div class="mb-3">
-          <label class="block text-[11px] text-[var(--text-faint)] mb-1">
-            Default password
+          <label class="block text-[11px] text-[var(--text-faint)] mb-1 flex items-center gap-2">
+            <span>Default password</span>
             <span x-show="sshSettings.password_set" class="text-[var(--success)]"> · set</span>
+            <button type="button"
+                    x-show="sshSettings.password_set && isAdmin()"
+                    @click="clearSshSecret('password')"
+                    class="ms-auto text-[10.5px] text-[var(--danger)] hover:underline"
+                    title="Erase the stored default password. Per-host password overrides still apply.">
+              Clear
+            </button>
           </label>
           <input x-model="sshSettings.password" type="password"
                  @input="markSshSettingsDirty()"
@@ -4133,6 +4196,64 @@
                     :placeholder="t('admin_ssh.known_hosts_placeholder')"></textarea>
           <p class="text-[10.5px] text-[var(--text-faint)] mt-1"
              x-text="t('admin_ssh.known_hosts_hint')"></p>
+        </div>
+        <div class="mb-3">
+          <label class="block text-[11px] text-[var(--text-faint)] mb-1"
+                 x-text="t('admin_ssh.custom_actions_label')"></label>
+          <p class="text-[10.5px] text-[var(--text-faint)] mb-2"
+             x-text="t('admin_ssh.custom_actions_hint')"></p>
+          <div class="flex flex-col gap-2">
+            <template x-for="(action, idx) in (sshSettings.custom_actions || [])"
+                      :key="'sa-' + idx">
+              <div class="grid grid-cols-1 md:grid-cols-12 gap-2 items-start p-2 rounded border border-[var(--border)]">
+                <div class="md:col-span-4">
+                  <label class="block text-[10.5px] text-[var(--text-faint)] mb-0.5"
+                         x-text="t('admin_ssh.custom_action_title_label')"></label>
+                  <input type="text"
+                         :value="action.title"
+                         @input="action.title = $event.target.value; markSshSettingsDirty()"
+                         :disabled="isReadonly()"
+                         :placeholder="t('admin_ssh.custom_action_title_placeholder')"
+                         class="w-full text-[12px] py-1">
+                </div>
+                <div class="md:col-span-7">
+                  <label class="block text-[10.5px] text-[var(--text-faint)] mb-0.5"
+                         x-text="t('admin_ssh.custom_action_command_label')"></label>
+                  <textarea :value="action.command"
+                            @input="action.command = $event.target.value; markSshSettingsDirty()"
+                            :disabled="isReadonly()"
+                            rows="2"
+                            class="w-full mono text-[11.5px] py-1 scrollbar"
+                            :placeholder="t('admin_ssh.custom_action_command_placeholder')"></textarea>
+                </div>
+                <div class="md:col-span-1 flex md:flex-col items-center justify-end gap-1">
+                  <button type="button" class="btn btn-ghost text-[11px] px-1.5"
+                          x-show="isAdmin()"
+                          @click="moveSshCustomAction(idx, -1)"
+                          :disabled="idx === 0"
+                          :title="t('admin_ssh.custom_action_move_up')">↑</button>
+                  <button type="button" class="btn btn-ghost text-[11px] px-1.5"
+                          x-show="isAdmin()"
+                          @click="moveSshCustomAction(idx, 1)"
+                          :disabled="idx === (sshSettings.custom_actions || []).length - 1"
+                          :title="t('admin_ssh.custom_action_move_down')">↓</button>
+                  <button type="button"
+                          class="btn btn-ghost text-[11px] text-[var(--danger)] px-1.5"
+                          x-show="isAdmin()"
+                          @click="removeSshCustomAction(idx)"
+                          :title="t('admin_ssh.custom_action_remove')">✕</button>
+                </div>
+              </div>
+            </template>
+            <div x-show="(sshSettings.custom_actions || []).length === 0"
+                 class="text-[11px] text-[var(--text-faint)] italic"
+                 x-text="t('admin_ssh.custom_actions_empty')"></div>
+          </div>
+          <button type="button"
+                  x-show="isAdmin()"
+                  @click="addSshCustomAction()"
+                  class="btn btn-soft text-[11.5px] mt-2"
+                  x-text="t('admin_ssh.custom_action_add')"></button>
         </div>
         <div class="mb-3">
           <label class="block text-[11px] text-[var(--text-faint)] mb-1"

@@ -18,6 +18,17 @@ Phase 1 covers four modules:
   - ``mount`` — per-mount filesystem totals + used
   - ``net`` — interface list with addresses
 
+Output-format fallback (per module): XML → JSON → HTML scrape. Webmin
+2.x silently dropped ``?xml=1`` on package-updates / mount / net, then
+2.630 went further and dropped ``?json=1`` on the same modules. The
+three-tier dispatch in ``_fetch_first_working`` keeps the host card
+populated even on the worst builds. The JSON branch converts dicts to
+``ET.Element`` trees so downstream extractors don't care about format;
+the HTML branch uses BeautifulSoup to parse tables when neither query
+param works. ``system-status`` always honours ``?xml=1`` in practice,
+but the fallbacks are wired there too so a future regression doesn't
+need a new code path.
+
 Auth: HTTP Basic with a dedicated read-only Webmin user. This sidesteps
 the session-cookie + CSRF dance; the operator enables Basic for the
 API user via ``no_session=<user>=<name>`` in ``/etc/webmin/miniserv.conf``.
@@ -40,6 +51,7 @@ deployments where Webmin isn't the norm.
 from __future__ import annotations
 
 import asyncio
+import json as _json
 import time
 import re
 from typing import Optional
@@ -47,9 +59,35 @@ from xml.etree import ElementTree as ET
 
 import httpx
 
+# BeautifulSoup powers the LAST-RESORT HTML scrape path. Import is
+# lazy-optional so a dev machine without bs4 still boots — the scrape
+# branch simply returns an error when bs4 is missing and callers fall
+# back to "primary XML/JSON errors" reporting.
+try:
+    from bs4 import BeautifulSoup  # type: ignore
+    _HAS_BS4 = True
+except ImportError:
+    BeautifulSoup = None  # type: ignore
+    _HAS_BS4 = False
+
 
 _AUTH_COOLDOWN_SECONDS = 300
 _auth_cooldown: dict[tuple[str, str], float] = {}
+
+# Plural → singular for _json_to_element's list wrapping. Webmin JSON
+# responses use plural keys for arrays ("mounts", "updates") but the
+# XML-based extractors iterate looking for singular tags ("mount",
+# "update"). Centralising the mapping avoids 3× duplicate logic.
+_SINGULAR_TAG = {
+    "interfaces": "interface",
+    "ifaces":     "iface",
+    "mounts":     "mount",
+    "filesystems": "filesystem",
+    "disks":      "disk",
+    "updates":    "update",
+    "packages":   "package",
+    "pkgs":       "pkg",
+}
 
 
 def _cooldown_key(base_url: str, user: str) -> tuple[str, str]:
@@ -240,39 +278,434 @@ async def _fetch_xml(
     return root, None
 
 
+def _json_to_element(data, tag: str = "root") -> ET.Element:
+    """Convert a parsed JSON value to an ``ET.Element`` tree.
+
+    Scalar dict values become attributes of the parent element; dict /
+    list values become child elements. Lists are wrapped so each item
+    gets a singular tag (e.g. a JSON ``"mounts": [...]`` array ends up
+    as ``<mounts><mount .../><mount .../></mounts>``). Makes JSON
+    responses feed directly into the existing XML-based extractors
+    without a parallel code path.
+    """
+    el = ET.Element(tag)
+    if isinstance(data, dict):
+        for k, v in data.items():
+            key = str(k)
+            if isinstance(v, (dict, list)):
+                el.append(_json_to_element(v, key))
+            elif v is None:
+                continue
+            else:
+                # ET.Element.set() requires a string — coerce scalars.
+                el.set(key, str(v))
+    elif isinstance(data, list):
+        singular = _SINGULAR_TAG.get(tag.lower())
+        if not singular:
+            if tag.endswith("ies") and len(tag) > 3:
+                singular = tag[:-3] + "y"
+            elif tag.endswith("es") and len(tag) > 2 and not tag.endswith("ses"):
+                singular = tag[:-2]
+            elif tag.endswith("s") and len(tag) > 1:
+                singular = tag[:-1]
+            else:
+                singular = tag + "_item"
+        for item in data:
+            el.append(_json_to_element(item, singular))
+    else:
+        el.text = "" if data is None else str(data)
+    return el
+
+
+async def _fetch_json(
+    client: httpx.AsyncClient,
+    base_url: str,
+    path: str,
+    user: str,
+) -> tuple[Optional[ET.Element], Optional[str]]:
+    """GET ``base_url + path`` and parse the response as JSON.
+
+    Returns ``(element_tree, None)`` on success — the JSON payload is
+    converted to an ``ET.Element`` so downstream extractors (which were
+    written against XML) can walk it without branching on format.
+    ``(None, error)`` on any failure. Arms the auth cool-down on 401.
+    """
+    url = base_url.rstrip("/") + path
+    try:
+        r = await client.get(url)
+    except Exception as e:
+        return None, f"{path}: {e}"
+    if r.status_code == 401:
+        _arm_cooldown(base_url, user)
+        return None, f"{path}: HTTP 401 — cool-down armed"
+    if r.status_code == 403:
+        hint = _strip_html(r.text)
+        return None, (f"{path}: HTTP 403"
+                      + (f" — {hint}" if hint else ""))
+    if r.status_code >= 400:
+        return None, f"{path}: HTTP {r.status_code}"
+    body = r.text or ""
+    if not body.strip():
+        return None, f"{path}: empty response"
+    stripped = body.lstrip().lower()
+    if stripped.startswith("<!doctype html") or stripped.startswith("<html"):
+        hint = _strip_html(body)
+        return None, (f"{path}: expected JSON, got HTML"
+                      + (f" — {hint}" if hint else ""))
+    try:
+        data = _json.loads(body)
+    except _json.JSONDecodeError as e:
+        preview = body[:200].replace("\n", "\\n").replace("\r", "\\r")
+        print(f"[webmin] JSON parse error for {url}: {e}; body preview: {preview!r}")
+        return None, f"{path}: JSON parse error — {e}"
+    return _json_to_element(data, "root"), None
+
+
+def _parse_bytes(text: str) -> int:
+    """Convert a human-readable byte string (e.g. ``"10.5 GB"``) to bytes.
+
+    Handles SI (``KB``/``MB``/``GB``) and IEC (``KiB``/``MiB``/``GiB``)
+    suffixes identically — Webmin is inconsistent and the small precision
+    difference (1000 vs 1024) is dwarfed by the normal read-out noise.
+    Returns 0 on anything unparseable.
+    """
+    if not text:
+        return 0
+    s = text.strip().upper()
+    # Handle comma thousand-separators AND european comma-decimals by
+    # stripping only when there's a matching dot.
+    if "," in s and "." in s:
+        s = s.replace(",", "")
+    m = re.match(r"([\d.,]+)\s*([KMGTPE])?I?B?", s)
+    if not m:
+        return 0
+    try:
+        val = float(m.group(1).replace(",", "."))
+    except ValueError:
+        return 0
+    unit = m.group(2) or ""
+    scale = {"": 1, "K": 1024, "M": 1024**2, "G": 1024**3,
+             "T": 1024**4, "P": 1024**5, "E": 1024**6}.get(unit, 1)
+    return int(val * scale)
+
+
+def _scrape_package_updates(soup) -> Optional[ET.Element]:
+    """Extract pending-update counters from Webmin's package-updates HTML.
+
+    Webmin's summary line above the updates table usually reads
+    ``"19 packages can be updated"`` / ``"12 are security updates"``.
+    Primary strategy matches those patterns; secondary falls back to
+    counting rows in the updates table (one <tr> per package, with a
+    "security" hint in the severity column).
+    """
+    root = ET.Element("root")
+    pending = 0
+    security = 0
+    text = soup.get_text(" ", strip=True)
+    for pat in (
+        r"(\d+)\s+packages?\s+(?:need|require|can be|to be)\s+updat",
+        r"(\d+)\s+update[s]?\s+(?:available|pending)",
+        r"(?:total|pending)[:\s]+(\d+)",
+    ):
+        m = re.search(pat, text, re.IGNORECASE)
+        if m:
+            try:
+                pending = int(m.group(1))
+                break
+            except ValueError:
+                pass
+    m = re.search(r"(\d+)\s+(?:are\s+)?security\s+update", text, re.IGNORECASE)
+    if m:
+        try:
+            security = int(m.group(1))
+        except ValueError:
+            pass
+    if pending == 0:
+        best_count = 0
+        best_security = 0
+        for table in soup.find_all("table"):
+            rows = table.find_all("tr")
+            data_rows = [r for r in rows if r.find("td") and not r.find("th")]
+            if not data_rows:
+                continue
+            count = 0
+            sec = 0
+            for r in data_rows:
+                cells = r.find_all("td")
+                if len(cells) < 3:
+                    continue
+                count += 1
+                row_text = r.get_text(" ", strip=True).lower()
+                if "security" in row_text:
+                    sec += 1
+            if count > best_count:
+                best_count = count
+                best_security = sec
+        if best_count > 0:
+            pending = best_count
+            if security == 0:
+                security = best_security
+    root.set("total", str(pending))
+    root.set("security", str(security))
+    return root
+
+
+def _scrape_mounts(soup) -> Optional[ET.Element]:
+    """Extract the mount list from Webmin's mount/disk HTML UI.
+
+    Walks every ``<table>`` looking for a header row that names both
+    "Mount" / "Directory" / "Path" AND "Size" / "Total" / "Space",
+    then parses each subsequent row. Column indices are derived from
+    the header; unknown columns are ignored. Skips pseudo-filesystems
+    the same way the XML extractor does so a scrape-driven host has
+    an identical output shape.
+    """
+    root = ET.Element("root")
+    for table in soup.find_all("table"):
+        header = table.find("tr")
+        if not header:
+            continue
+        hcells = [c.get_text(" ", strip=True).lower()
+                  for c in header.find_all(["th", "td"])]
+        if not hcells:
+            continue
+        has_mount = any("mount" in h or "direct" in h or "path" in h for h in hcells)
+        has_size = any("size" in h or "total" in h or "space" in h for h in hcells)
+        if not (has_mount and has_size):
+            continue
+        mount_ix = next((i for i, h in enumerate(hcells)
+                         if "mount" in h or "direct" in h or "path" in h), None)
+        size_ix = next((i for i, h in enumerate(hcells)
+                        if "size" in h or "total" in h or "space" in h), None)
+        used_ix = next((i for i, h in enumerate(hcells) if "used" in h), None)
+        avail_ix = next((i for i, h in enumerate(hcells)
+                         if "avail" in h or "free" in h), None)
+        fstype_ix = next((i for i, h in enumerate(hcells)
+                          if h.startswith("type") or "fstype" in h or "fs " in h), None)
+        for tr in table.find_all("tr")[1:]:
+            cells = tr.find_all("td")
+            if not cells or mount_ix is None or size_ix is None:
+                continue
+            if mount_ix >= len(cells) or size_ix >= len(cells):
+                continue
+            mount = cells[mount_ix].get_text(" ", strip=True)
+            size_txt = cells[size_ix].get_text(" ", strip=True)
+            if not mount or not size_txt:
+                continue
+            size = _parse_bytes(size_txt)
+            if size <= 0:
+                continue
+            used = (_parse_bytes(cells[used_ix].get_text(" ", strip=True))
+                    if used_ix is not None and used_ix < len(cells) else 0)
+            avail = (_parse_bytes(cells[avail_ix].get_text(" ", strip=True))
+                     if avail_ix is not None and avail_ix < len(cells) else 0)
+            fstype = (cells[fstype_ix].get_text(" ", strip=True)
+                      if fstype_ix is not None and fstype_ix < len(cells) else "")
+            m = ET.SubElement(root, "mount")
+            m.set("dir", mount)
+            m.set("size_bytes", str(size))
+            if used:
+                m.set("used_bytes", str(used))
+            if avail:
+                m.set("avail_bytes", str(avail))
+            if fstype:
+                m.set("fstype", fstype)
+    return root
+
+
+def _scrape_net(soup) -> Optional[ET.Element]:
+    """Extract the NIC list from Webmin's net/ifconfig HTML UI.
+
+    Same heuristic shape as ``_scrape_mounts`` — find a table whose
+    header names "Name"/"Interface"/"Device", then pull the address
+    and MAC columns by header match. The output is a sequence of
+    ``<interface name="..." address="..." mac="..."/>`` elements that
+    the XML extractor can walk unchanged.
+    """
+    root = ET.Element("root")
+    for table in soup.find_all("table"):
+        header = table.find("tr")
+        if not header:
+            continue
+        hcells = [c.get_text(" ", strip=True).lower()
+                  for c in header.find_all(["th", "td"])]
+        if not hcells:
+            continue
+        has_iface = any("name" in h or "interface" in h or "device" in h
+                        for h in hcells)
+        if not has_iface:
+            continue
+        name_ix = next((i for i, h in enumerate(hcells)
+                        if "name" in h or "interface" in h or "device" in h), None)
+        ip_ix = next((i for i, h in enumerate(hcells)
+                      if "address" in h or "ip" in h), None)
+        mac_ix = next((i for i, h in enumerate(hcells)
+                       if "mac" in h or "hardware" in h or "hwaddr" in h), None)
+        found = 0
+        for tr in table.find_all("tr")[1:]:
+            cells = tr.find_all("td")
+            if name_ix is None or name_ix >= len(cells):
+                continue
+            name = cells[name_ix].get_text(" ", strip=True)
+            if not name:
+                continue
+            ip = (cells[ip_ix].get_text(" ", strip=True)
+                  if ip_ix is not None and ip_ix < len(cells) else "")
+            mac = (cells[mac_ix].get_text(" ", strip=True)
+                   if mac_ix is not None and mac_ix < len(cells) else "")
+            iface = ET.SubElement(root, "interface")
+            iface.set("name", name)
+            if ip:
+                iface.set("address", ip)
+            if mac:
+                iface.set("mac", mac)
+            found += 1
+        if found > 0:
+            # One interfaces-table is enough — extra tables on the same
+            # page (e.g. boot-time NICs) duplicate the same list.
+            break
+    return root
+
+
+def _scrape_system_status(soup) -> Optional[ET.Element]:
+    """Best-effort extraction of system-status HTML.
+
+    Rarely needed — ``system-status`` honours ``?xml=1`` on every
+    Webmin release we've seen. Included for completeness so a future
+    2.7 regression on that module doesn't force a new code path.
+    """
+    root = ET.Element("root")
+    text = soup.get_text(" ", strip=True)
+    m = re.search(r"(?:Hostname|System hostname)[:\s]+([\w.\-]+)", text, re.IGNORECASE)
+    if m:
+        root.set("hostname", m.group(1).strip())
+    m = re.search(r"Kernel(?:\s+version)?[:\s]+(\S+\s+\S+)", text, re.IGNORECASE)
+    if m:
+        root.set("kernel", m.group(1).strip())
+    m = re.search(r"(?:Operating system|Distribution)[:\s]+([^\n]{2,80})", text, re.IGNORECASE)
+    if m:
+        root.set("os", m.group(1).strip())
+    return root
+
+
+async def _fetch_html_scrape(
+    client: httpx.AsyncClient,
+    base_url: str,
+    path: str,
+    user: str,
+    module: str,
+) -> tuple[Optional[ET.Element], Optional[str]]:
+    """Fetch the HTML UI at ``path`` and run the module's scraper.
+
+    Only invoked by ``_fetch_first_working`` when every XML AND JSON
+    variant has failed. Silently no-ops when bs4 isn't importable so
+    a dev install without the scrape dep still probes cleanly (errors
+    get reported via the usual attempt-list).
+    """
+    if not _HAS_BS4:
+        return None, f"{path}: bs4 unavailable — pip install beautifulsoup4"
+    url = base_url.rstrip("/") + path
+    try:
+        r = await client.get(url)
+    except Exception as e:
+        return None, f"{path}: {e}"
+    if r.status_code == 401:
+        _arm_cooldown(base_url, user)
+        return None, f"{path}: HTTP 401 — cool-down armed"
+    if r.status_code >= 400:
+        return None, f"{path}: HTTP {r.status_code}"
+    body = r.text or ""
+    if not body.strip():
+        return None, f"{path}: empty response"
+    stripped_head = body.lstrip().lower()[:600]
+    if "login.cgi" in stripped_head and "password" in stripped_head:
+        return None, f"{path}: HTML scrape got a login page"
+    try:
+        soup = BeautifulSoup(body, "html.parser")
+    except Exception as e:
+        return None, f"{path}: bs4 parse error — {e}"
+    scrapers = {
+        "system_status":   _scrape_system_status,
+        "package_updates": _scrape_package_updates,
+        "mount":           _scrape_mounts,
+        "net":             _scrape_net,
+    }
+    fn = scrapers.get(module)
+    if fn is None:
+        return None, f"{path}: no scraper for module {module!r}"
+    el = fn(soup)
+    if el is None or len(list(el.iter())) <= 1:
+        # Only the root element means the scraper didn't match anything
+        # on the page. Treat as a miss so the error surfaces.
+        return None, f"{path}: HTML scrape produced no data (patterns didn't match)"
+    print(f"[webmin] HTML-scraped {module!r} at {url} — "
+          f"{len(list(el.iter())) - 1} element(s) extracted")
+    return el, None
+
+
 async def _fetch_first_working(
     client: httpx.AsyncClient,
     base_url: str,
     paths: list[str],
     user: str,
+    module: Optional[str] = None,
 ) -> tuple[Optional[ET.Element], Optional[str]]:
-    """Try each path in order; return the first parseable XML result.
+    """Try each path in order; return the first parseable result.
+
+    Three-tier fallback:
+
+      1. Walk ``paths`` in order. Each path is dispatched to
+         ``_fetch_json`` when it carries ``json=1`` and ``_fetch_xml``
+         otherwise. First successful parse wins.
+      2. If every structured attempt fails AND ``module`` is set AND
+         bs4 is importable, re-walk only the paths that actually
+         returned HTML (auth errors etc. are skipped) and run the
+         module's HTML scraper against them. First successful scrape
+         wins.
 
     Exists because Webmin 2.x dropped ``?xml=1`` on several modules
-    without warning — ``system-status`` still honours it but
-    ``package-updates`` / ``mount`` / ``net`` return the full HTML UI
-    instead. Rather than hard-failing, walk a list of candidate paths
-    (including module-specific ``list.cgi`` variants) and pick the
-    first one that parses as XML. If every path returns HTML / errors,
-    collapse the attempt list into one readable error so operators
-    can see which versions were tried.
+    silently, then 2.630 went further and also dropped ``?json=1`` on
+    the same three modules — ``system-status`` is the only one that
+    reliably honours either query param. The three-tier fallback lets
+    us keep serving a readable host card even on the worst versions.
+
+    When every tier fails, the attempt list is collapsed into one
+    readable error so Admin → Logs shows exactly what was tried.
     """
     attempts: list[str] = []
+    html_path_candidates: list[str] = []
     for path in paths:
-        root, err = await _fetch_xml(client, base_url, path, user)
+        if "json=1" in path:
+            root, err = await _fetch_json(client, base_url, path, user)
+        else:
+            root, err = await _fetch_xml(client, base_url, path, user)
         if root is not None:
             if len(attempts) > 0:
-                # Useful diagnostic — we had to fall back past the
-                # primary path. Log but don't treat as an error.
                 print(f"[webmin] {base_url}{paths[0]} failed; succeeded via {path}")
             return root, None
         attempts.append(f"{path}: {err}")
         # Short-circuit on auth errors — no point trying alternate
-        # module paths if credentials themselves are rejected.
+        # module paths (or HTML scrapes) if credentials are rejected.
         if err and ("HTTP 401" in err or "HTTP 403" in err):
-            break
-    # All paths failed. Surface the first attempt's error as the
-    # primary signal; append the count of alternates we tried.
+            primary = attempts[0] if attempts else f"{paths[0]}: no response"
+            if len(attempts) > 1:
+                primary += f" (also tried {len(attempts) - 1} fallback path(s))"
+            return None, primary
+        # Track paths that returned HTML so we can re-fetch for scraping.
+        if err and "got HTML" in err:
+            html_path_candidates.append(path)
+
+    # Last resort — HTML scrape against any path that returned HTML
+    # earlier. We can't scrape a path that 404'd or timed out.
+    if module and html_path_candidates:
+        for path in html_path_candidates:
+            root, err = await _fetch_html_scrape(
+                client, base_url, path, user, module,
+            )
+            if root is not None:
+                return root, None
+            attempts.append(f"scrape {path}: {err}")
+
     primary = attempts[0] if attempts else f"{paths[0]}: no response"
     if len(attempts) > 1:
         primary += f" (also tried {len(attempts) - 1} fallback path(s))"
@@ -674,26 +1107,49 @@ async def probe_webmin(
     # new hosts that still accept it) and fall through to module-
     # specific ``list.cgi`` variants and the legacy ``acl.cgi`` / JSON
     # probes. First successful XML-parse wins.
+    # Per-module alternate paths. Ranked cheapest-first: XML (native
+    # OmniGrid format) before JSON (needs dict-to-Element conversion)
+    # before bare HTML paths the scraper can hit. Webmin 2.630 is the
+    # worst offender — honours neither ?xml=1 nor ?json=1 on these
+    # three modules, so the trailing "bare" paths exist purely to give
+    # _fetch_html_scrape something to walk once every structured
+    # variant has failed. system-status doesn't need that treatment,
+    # but keeping the shape uniform avoids a special-case dispatch.
     path_alternatives = {
         "system_status": [
             "/system-status/?xml=1",
             "/system-status/index.cgi?xml=1",
+            "/system-status/?json=1",
+            "/system-status/index.cgi?json=1",
+            "/system-status/",
         ],
         "package_updates": [
             "/package-updates/?xml=1&mode=count",
             "/package-updates/?xml=1",
             "/package-updates/index.cgi?xml=1",
             "/package-updates/update.cgi?xml=1&search=1",
+            "/package-updates/?json=1&mode=count",
+            "/package-updates/?json=1",
+            "/package-updates/index.cgi?json=1",
+            "/package-updates/",
         ],
         "mount": [
             "/mount/?xml=1",
             "/mount/index.cgi?xml=1",
             "/mount/list_mounts.cgi?xml=1",
+            "/mount/?json=1",
+            "/mount/index.cgi?json=1",
+            "/mount/list_mounts.cgi?json=1",
+            "/mount/",
         ],
         "net": [
             "/net/?xml=1",
             "/net/index.cgi?xml=1",
             "/net/list_ifcs.cgi?xml=1",
+            "/net/?json=1",
+            "/net/index.cgi?json=1",
+            "/net/list_ifcs.cgi?json=1",
+            "/net/",
         ],
     }
     try:
@@ -714,8 +1170,8 @@ async def probe_webmin(
                 # reports the "got HTML" signal cleanly if that fails too.
                 client.auth = httpx.BasicAuth(user, password)
             results = await asyncio.gather(*(
-                _fetch_first_working(client, base, alts, user)
-                for alts in path_alternatives.values()
+                _fetch_first_working(client, base, alts, user, module=mod)
+                for mod, alts in path_alternatives.items()
             ), return_exceptions=False)
     except Exception as e:
         return {"hosts": {}, "error": f"webmin: {e}"}

@@ -17,3 +17,10 @@ PyJWT[crypto]>=2.8.0
 # to the OpenSSH CLI. Pulls in `cryptography` transitively (already a
 # PyJWT[crypto] dep) so no new heavy dependency is introduced.
 asyncssh==2.22.0
+# Webmin 2.x HTML-scrape fallback. Webmin's ``?xml=1`` and ``?json=1``
+# query params are honoured on different modules by different builds —
+# on 2.630 in particular package-updates / mount / net return the
+# full HTML UI for both. When that happens ``logic/webmin.py`` parses
+# the HTML to extract the table data rather than failing hard. Pulled
+# in only for the scrape path; the XML and JSON branches don't touch it.
+beautifulsoup4==4.12.3
