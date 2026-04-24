@@ -189,6 +189,33 @@ function app() {
     // every time they reload Host Stats to re-test after a config
     // change. Per-browser (each device keeps its own last-tested URL).
     webminTestUrl: (typeof localStorage !== 'undefined' && localStorage.getItem('webminTestUrl')) || '',
+    // ---- SSH console state ----
+    // sshStatus[host.id]       = { configured, enabled, resolved }
+    // sshOpen[host.id]         = drawer card expanded?
+    // sshResult[host.id]       = { ok, exit_code, stdout, stderr, duration_ms, dry_run, resolved, destructive }
+    // sshCommand[host.id]      = textarea contents (in-memory only)
+    // sshDryRun[host.id]       = "preview only" checkbox (defaults to true)
+    // sshBusy[host.id]         = bool — a run is in flight
+    // sshTestBusy[host.id]     = bool — Test connection in flight
+    // sshLastTested[host.id]   = epoch ms of last successful status probe
+    // sshSettings / sshSettingsDirty / sshSettingsBusy — Admin → SSH form state.
+    // sshTestOnHost            = { host_id, result, pending } for the Admin widget.
+    sshStatus: {},
+    sshOpen: {},
+    sshResult: {},
+    sshCommand: {},
+    sshDryRun: {},
+    sshBusy: {},
+    sshTestBusy: {},
+    sshLastTested: {},
+    sshSettings: {
+      user: '', port: 22, private_key: '', passphrase: '',
+      known_hosts: '', destructive_patterns: '',
+      private_key_set: false, passphrase_set: false,
+    },
+    sshSettingsDirty: false,
+    sshSettingsBusy: false,
+    sshTestOnHost: { host_id: '', result: null, pending: false },
     // Settings / Admin sidebar layout. Arrays drive the nav — adding a
     // section is one entry here + one <section> in the markup.
     // Section `label` is kept as a fallback (in case the translation key
@@ -225,6 +252,7 @@ function app() {
       { id: 'oidc',           label: 'Authentik OIDC' },
       { id: 'host_stats',     label: 'Host stats' },
       { id: 'hosts',          label: 'Hosts' },
+      { id: 'ssh',            label: 'SSH' },
       { id: 'schedules',      label: 'Schedules' },
       { id: 'backups',        label: 'Backups' },
       { id: 'logs',           label: 'Logs' },
@@ -2182,6 +2210,9 @@ function app() {
             api_key:      '',  // write-only — never prefill
           };
         }
+
+        // --- Admin → SSH panel state ---
+        this.hydrateSshSettings(d);
       } catch (e) { console.error(e); }
     },
 
@@ -2373,6 +2404,277 @@ function app() {
         };
       } catch (e) {
         this.webminTestResult = { pending: false, ok: false, detail: 'Network error' };
+      }
+    },
+    // -------- SSH console ----------------------------------------------
+    // Hydrate the Admin → SSH form from /api/settings. Called from
+    // loadSettings() alongside the other provider-specific pulls so the
+    // form has values ready when the admin opens the section.
+    hydrateSshSettings(apiSettings) {
+      const s = (apiSettings && apiSettings.ssh) || {};
+      this.sshSettings = {
+        user:            s.user || '',
+        port:            s.port || 22,
+        private_key:     '',               // write-only — never hydrated
+        passphrase:      '',               // write-only — never hydrated
+        known_hosts:     s.known_hosts || '',
+        destructive_patterns: s.destructive_patterns || '',
+        private_key_set: !!s.private_key_set,
+        passphrase_set:  !!s.passphrase_set,
+      };
+      this.sshSettingsDirty = false;
+    },
+    markSshSettingsDirty() { this.sshSettingsDirty = true; },
+    async saveSshSettings() {
+      this.sshSettingsBusy = true;
+      try {
+        const body = {
+          ssh_default_user:              this.sshSettings.user || '',
+          ssh_default_port:              parseInt(this.sshSettings.port, 10) || 22,
+          ssh_default_known_hosts:       this.sshSettings.known_hosts || '',
+          ssh_destructive_patterns:      this.sshSettings.destructive_patterns || '',
+        };
+        // Write-only: only send when the operator typed a new value.
+        if ((this.sshSettings.private_key || '').trim() !== '') {
+          body.ssh_default_private_key = this.sshSettings.private_key;
+        }
+        if ((this.sshSettings.passphrase || '').trim() !== '') {
+          body.ssh_default_private_key_passphrase = this.sshSettings.passphrase;
+        }
+        const r = await fetch('/api/settings', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        });
+        if (!r.ok) {
+          const j = await r.json().catch(() => ({}));
+          throw new Error(j.detail || `HTTP ${r.status}`);
+        }
+        // Re-pull settings so the _set flags update without a full reload.
+        await this.loadSettings();
+        this.showToast(this.t('toasts_extra.ssh.settings_saved'), 'success');
+      } catch (e) {
+        this.showToast(
+          this.t('toasts_extra.save_failed_generic') + ': ' + e.message,
+          'error',
+        );
+      } finally {
+        this.sshSettingsBusy = false;
+      }
+    },
+    // Per-host drawer card — lazy fetch ssh/status when the card opens
+    // so the drawer still paints instantly for hosts where the admin
+    // never touches SSH. `refresh: true` bypasses the short-circuit so
+    // "Test connection" can force a fresh status read.
+    async loadSshStatus(hostId, { refresh = false } = {}) {
+      if (!hostId) return;
+      if (!refresh && this.sshStatus[hostId]) return this.sshStatus[hostId];
+      try {
+        const r = await fetch('/api/hosts/' + encodeURIComponent(hostId) + '/ssh/status');
+        if (!r.ok) {
+          this.sshStatus = { ...this.sshStatus, [hostId]: { error: `HTTP ${r.status}` } };
+          return;
+        }
+        const d = await r.json();
+        this.sshStatus = { ...this.sshStatus, [hostId]: d };
+        return d;
+      } catch (e) {
+        this.sshStatus = { ...this.sshStatus, [hostId]: { error: e.message } };
+      }
+    },
+    async toggleSshCard(hostId) {
+      if (!hostId) return;
+      const open = !this.sshOpen[hostId];
+      this.sshOpen = { ...this.sshOpen, [hostId]: open };
+      if (open) {
+        // Default to dry-run-checked so the UI can't accidentally
+        // launch the first command on open.
+        if (!(hostId in this.sshDryRun)) {
+          this.sshDryRun = { ...this.sshDryRun, [hostId]: true };
+        }
+        await this.loadSshStatus(hostId);
+      }
+    },
+    async testSshConnection(hostId) {
+      if (!hostId) return;
+      this.sshTestBusy = { ...this.sshTestBusy, [hostId]: true };
+      try {
+        const r = await fetch('/api/hosts/' + encodeURIComponent(hostId) + '/ssh/test', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: '{}',
+        });
+        const j = await r.json().catch(() => ({}));
+        this.sshResult = { ...this.sshResult, [hostId]: j };
+        this.sshLastTested = { ...this.sshLastTested, [hostId]: Date.now() };
+        if (j.ok) {
+          const resolved = j.resolved || {};
+          this.showToast(
+            this.t('toasts_extra.ssh.test_ok', {
+              user: resolved.user || '?',
+              host: resolved.host || hostId,
+            }),
+            'success',
+          );
+        } else {
+          this.showToast(
+            this.t('toasts_extra.ssh.test_failed', { detail: j.error || 'unknown' }),
+            'error',
+          );
+        }
+        // Re-hydrate the status card so the fingerprint / last-tested
+        // fields reflect whatever this probe learned.
+        await this.loadSshStatus(hostId, { refresh: true });
+      } catch (e) {
+        this.showToast(this.t('toasts_extra.ssh.test_failed', { detail: e.message }), 'error');
+      } finally {
+        this.sshTestBusy = { ...this.sshTestBusy, [hostId]: false };
+      }
+    },
+    // Prebuilt action → command map. Kept as a function so a future
+    // sub-step (e.g. NIC name prompt) can inline its own logic.
+    async runSshPreset(hostId, preset) {
+      if (!hostId || !preset) return;
+      let cmd = '';
+      switch (preset) {
+        case 'restart_beszel':
+          cmd = 'systemctl restart beszel-agent || docker restart beszel-agent';
+          break;
+        case 'show_beszel_env':
+          cmd = "systemctl show beszel-agent -p Environment || docker inspect beszel-agent --format '{{range .Config.Env}}{{println .}}{{end}}'";
+          break;
+        case 'set_nics': {
+          const nic = window.prompt(this.t('hosts_extra_ssh.action_set_nics_prompt'), 'eth0');
+          if (!nic) return;
+          const safe = nic.replace(/[^A-Za-z0-9_.:-]/g, '');
+          if (!safe) {
+            // Validation-only toast — piggybacks on the generic "network"
+            // key rather than adding a one-off for an edge case a typed
+            // prompt already enforces client-side.
+            this.showToast(this.t('toasts_extra.ssh.command_required'), 'error');
+            return;
+          }
+          // Try the systemd drop-in first (native install); fall back
+          // to a docker-env rewrite + restart for containerised agents.
+          cmd =
+            "if command -v systemctl >/dev/null && systemctl list-unit-files 2>/dev/null | grep -q beszel-agent; then " +
+            "mkdir -p /etc/systemd/system/beszel-agent.service.d && " +
+            "printf '[Service]\\nEnvironment=NICS=" + safe + "\\n' > /etc/systemd/system/beszel-agent.service.d/nics.conf && " +
+            "systemctl daemon-reload && systemctl restart beszel-agent; " +
+            "else docker inspect beszel-agent >/dev/null 2>&1 && " +
+            "docker run --rm -v /var/run/docker.sock:/var/run/docker.sock alpine/socat TCP:localhost:1 - >/dev/null 2>&1; " +
+            "echo 'Configure NICS in your compose / env file and redeploy: NICS=" + safe + "'; fi";
+          this.sshCommand = { ...this.sshCommand, [hostId]: cmd };
+          return;  // let the operator preview + run
+        }
+        case 'journal':
+          cmd = 'journalctl -u beszel-agent -n 40 --no-pager';
+          break;
+        case 'ip_link':
+          cmd = 'ip -o link show';
+          break;
+        default:
+          return;
+      }
+      this.sshCommand = { ...this.sshCommand, [hostId]: cmd };
+    },
+    async runSshCommand(hostId) {
+      const command = (this.sshCommand[hostId] || '').trim();
+      if (!command) {
+        this.showToast(this.t('toasts_extra.ssh.command_required'), 'error');
+        return;
+      }
+      const dryRun = this.sshDryRun[hostId] !== false;
+      // Destructive-command gate. The backend flags + returns
+      // `destructive: [patterns]` but we check up-front too so we can
+      // raise the bar BEFORE sending the payload.
+      const destructiveRegex = [
+        /\brm\s/i, /\bmkfs\b/i, /\bdd\s/i, />\s*\//, /\bsystemctl\s+stop\b/i,
+        /\breboot\b/i, /\bpoweroff\b/i, /\bshutdown\b/i,
+      ];
+      const looksDestructive = !dryRun && destructiveRegex.some(r => r.test(command));
+      if (looksDestructive) {
+        const host = (this.sshStatus[hostId] && this.sshStatus[hostId].resolved && this.sshStatus[hostId].resolved.host) || hostId;
+        const typed = window.prompt(
+          this.t('hosts_extra_ssh.confirm_prompt', { host }),
+          '',
+        );
+        if ((typed || '').trim() !== host) {
+          this.showToast(this.t('toasts_extra.ssh.confirm_wrong_host'), 'error');
+          return;
+        }
+      }
+      this.sshBusy = { ...this.sshBusy, [hostId]: true };
+      try {
+        const r = await fetch('/api/hosts/' + encodeURIComponent(hostId) + '/ssh/run', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ command, dry_run: dryRun }),
+        });
+        const j = await r.json().catch(() => ({}));
+        this.sshResult = { ...this.sshResult, [hostId]: j };
+        if (j.ok) {
+          this.showToast(
+            dryRun
+              ? this.t('toasts_extra.ssh.dry_run_ok')
+              : this.t('toasts_extra.ssh.run_ok', { code: j.exit_code }),
+            'success',
+          );
+        } else {
+          this.showToast(
+            (dryRun
+              ? this.t('toasts_extra.ssh.dry_run_failed', { detail: j.error || 'unknown' })
+              : this.t('toasts_extra.ssh.run_failed', { detail: j.error || 'unknown' })),
+            'error',
+          );
+        }
+      } catch (e) {
+        this.showToast(this.t('toasts_extra.ssh.run_failed', { detail: e.message }), 'error');
+      } finally {
+        this.sshBusy = { ...this.sshBusy, [hostId]: false };
+      }
+    },
+    async copySshOutput(hostId) {
+      const r = this.sshResult[hostId];
+      if (!r) return;
+      const blob = [
+        '$ ' + (this.sshCommand[hostId] || ''),
+        '--- exit ---',
+        String(r.exit_code),
+        '--- stdout ---',
+        r.stdout || '',
+        '--- stderr ---',
+        r.stderr || '',
+      ].join('\n');
+      try {
+        await navigator.clipboard.writeText(blob);
+        this.showToast(this.t('toasts_extra.ssh.copied_output'), 'success');
+      } catch (_) {
+        window.prompt('Copy output', blob);
+      }
+    },
+    // Admin → SSH "Test on a host" widget — picks a curated host,
+    // runs /ssh/test (whoami), surfaces the result inline.
+    async runSshAdminTest() {
+      const hostId = (this.sshTestOnHost.host_id || '').trim();
+      if (!hostId) {
+        this.showToast(this.t('toasts_extra.ssh.command_required'), 'error');
+        return;
+      }
+      this.sshTestOnHost = { ...this.sshTestOnHost, pending: true, result: null };
+      try {
+        const r = await fetch('/api/hosts/' + encodeURIComponent(hostId) + '/ssh/test', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: '{}',
+        });
+        const j = await r.json().catch(() => ({}));
+        this.sshTestOnHost = { ...this.sshTestOnHost, pending: false, result: j };
+      } catch (e) {
+        this.sshTestOnHost = {
+          ...this.sshTestOnHost, pending: false,
+          result: { ok: false, error: e.message },
+        };
       }
     },
     async saveSettings() {
@@ -3327,6 +3629,10 @@ function app() {
           if (row && row.id && !row.webmin_url) {
             row.webmin_url = aliases[row.id] || '';
           }
+          // Ensure every row has an ssh sub-object so Alpine's x-model
+          // doesn't reactively create it piecemeal (which would break
+          // the dirty tracker).
+          if (!row.ssh || typeof row.ssh !== 'object') row.ssh = {};
         }
         this.hostsConfigDirty = false;
       } catch (e) {
@@ -3622,6 +3928,8 @@ function app() {
         webmin_url: '',
         url: '',
         icon: '',
+        // Per-host SSH overrides — empty object = use global defaults.
+        ssh: {},
         enabled: true,
       });
       this.hostsConfigDirty = true;
@@ -3942,6 +4250,17 @@ function app() {
           const parsed = parseInt(rawNum, 10);
           if (Number.isFinite(parsed)) num = parsed;
         }
+        // Per-host SSH — strip falsy / blank keys so the DB doesn't
+        // persist empty strings that would shadow the global default.
+        const sshIn = h.ssh || {};
+        const sshOut = {};
+        if ((sshIn.user || '').trim()) sshOut.user = sshIn.user.trim();
+        if ((sshIn.host || '').trim()) sshOut.host = sshIn.host.trim();
+        if (sshIn.port) {
+          const p = parseInt(sshIn.port, 10);
+          if (Number.isFinite(p) && p >= 1 && p <= 65535) sshOut.port = p;
+        }
+        if (sshIn.disabled) sshOut.disabled = true;
         return {
           id:            (h.id || '').trim(),
           label:         (h.label || h.id || '').trim(),
@@ -3952,6 +4271,7 @@ function app() {
           webmin_name:   (h.webmin_name || '').trim(),
           url:           (h.url || '').trim(),
           icon:          (h.icon || '').trim(),
+          ssh:           sshOut,
           enabled:       h.enabled !== false,
         };
       });

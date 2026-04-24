@@ -1821,13 +1821,12 @@
                     <div class="collecting-block">
                       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
                       <div>
-                        <div>No NIC activity reported</div>
-                        <div class="text-[10.5px] text-[var(--text-faint)] mt-1">
-                          The Beszel agent on this host isn't tracking any NIC. Add
-                          <code class="mono text-[var(--text-dim)]">NICS=eth0</code>
-                          (or your NIC name from <code class="mono text-[var(--text-dim)]">ip a</code>)
-                          to the agent's env, then restart it.
-                        </div>
+                        <div x-text="t('hosts_extra.net_inactive.title')"></div>
+                        <div class="text-[10.5px] text-[var(--text-faint)] mt-1"
+                             x-html="t('hosts_extra.net_inactive.body_in', {
+                               code: '<code class=\'mono text-[var(--text-dim)]\'>NICS=eth0</code>',
+                               ipcmd: '<code class=\'mono text-[var(--text-dim)]\'>ip a</code>'
+                             })"></div>
                       </div>
                     </div>
                   </template>
@@ -1874,11 +1873,11 @@
                     <div class="collecting-block">
                       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
                       <div>
-                        <div>No NIC activity reported</div>
-                        <div class="text-[10.5px] text-[var(--text-faint)] mt-1">
-                          Add <code class="mono text-[var(--text-dim)]">NICS=eth0</code>
-                          to the Beszel agent's env (see Net In card for details).
-                        </div>
+                        <div x-text="t('hosts_extra.net_inactive.title')"></div>
+                        <div class="text-[10.5px] text-[var(--text-faint)] mt-1"
+                             x-html="t('hosts_extra.net_inactive.body_out', {
+                               code: '<code class=\'mono text-[var(--text-dim)]\'>NICS=eth0</code>'
+                             })"></div>
                       </div>
                     </div>
                   </template>
@@ -1947,10 +1946,10 @@
                         <div class="host-debug-grid">
                           <section class="host-debug-box" x-show="hasDebugData(hostsDebug[h.id].providers_raw?.pulse)">
                             <header class="host-debug-box-head">
-                              <span class="host-debug-label host-debug-label--pulse">Raw · Pulse</span>
+                              <span class="host-debug-label host-debug-label--pulse" x-text="t('debug_panel.labels.raw_pulse')"></span>
                               <button type="button" class="host-debug-copy"
                                       @click="copyDebugJson(hostsDebug[h.id].providers_raw?.pulse, 'Raw · Pulse')"
-                                      title="Copy to clipboard">
+                                      :title="t('debug_panel.copy_title')">
                                 <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
                               </button>
                             </header>
@@ -1958,10 +1957,10 @@
                           </section>
                           <section class="host-debug-box" x-show="hasDebugData(hostsDebug[h.id].providers_raw?.beszel)">
                             <header class="host-debug-box-head">
-                              <span class="host-debug-label host-debug-label--beszel">Raw · Beszel</span>
+                              <span class="host-debug-label host-debug-label--beszel" x-text="t('debug_panel.labels.raw_beszel')"></span>
                               <button type="button" class="host-debug-copy"
                                       @click="copyDebugJson(hostsDebug[h.id].providers_raw?.beszel, 'Raw · Beszel')"
-                                      title="Copy to clipboard">
+                                      :title="t('debug_panel.copy_title')">
                                 <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
                               </button>
                             </header>
@@ -1969,10 +1968,10 @@
                           </section>
                           <section class="host-debug-box" x-show="hasDebugData(hostsDebug[h.id].providers_raw?.node_exporter)">
                             <header class="host-debug-box-head">
-                              <span class="host-debug-label host-debug-label--ne">Raw · node-exporter</span>
+                              <span class="host-debug-label host-debug-label--ne" x-text="t('debug_panel.labels.raw_ne')"></span>
                               <button type="button" class="host-debug-copy"
                                       @click="copyDebugJson(hostsDebug[h.id].providers_raw?.node_exporter, 'Raw · node-exporter')"
-                                      title="Copy to clipboard">
+                                      :title="t('debug_panel.copy_title')">
                                 <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
                               </button>
                             </header>
@@ -1980,10 +1979,10 @@
                           </section>
                           <section class="host-debug-box" x-show="hasDebugData(hostsDebug[h.id].providers_raw?.webmin)">
                             <header class="host-debug-box-head">
-                              <span class="host-debug-label host-debug-label--webmin">Raw · Webmin</span>
+                              <span class="host-debug-label host-debug-label--webmin" x-text="t('debug_panel.labels.raw_webmin')"></span>
                               <button type="button" class="host-debug-copy"
                                       @click="copyDebugJson(hostsDebug[h.id].providers_raw?.webmin, 'Raw · Webmin')"
-                                      title="Copy to clipboard">
+                                      :title="t('debug_panel.copy_title')">
                                 <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
                               </button>
                             </header>
@@ -1991,11 +1990,11 @@
                           </section>
                           <section class="host-debug-box" x-show="hasDebugData(hostsDebug[h.id].merged)">
                             <header class="host-debug-box-head">
-                              <span class="host-debug-label host-debug-label--merged">Merged (best-of)</span>
-                              <span class="host-debug-hint">after _merge_best</span>
+                              <span class="host-debug-label host-debug-label--merged" x-text="t('debug_panel.labels.merged')"></span>
+                              <span class="host-debug-hint" x-text="t('debug_panel.hints.merged')"></span>
                               <button type="button" class="host-debug-copy"
                                       @click="copyDebugJson(hostsDebug[h.id].merged, 'Merged')"
-                                      title="Copy to clipboard">
+                                      :title="t('debug_panel.copy_title')">
                                 <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
                               </button>
                             </header>
@@ -2003,11 +2002,11 @@
                           </section>
                           <section class="host-debug-box host-debug-box--wide" x-show="hasDebugData(hostsDebug[h.id].rendered)">
                             <header class="host-debug-box-head">
-                              <span class="host-debug-label host-debug-label--rendered">Rendered (/api/hosts)</span>
-                              <span class="host-debug-hint">what the UI sees</span>
+                              <span class="host-debug-label host-debug-label--rendered" x-text="t('debug_panel.labels.rendered')"></span>
+                              <span class="host-debug-hint" x-text="t('debug_panel.hints.rendered')"></span>
                               <button type="button" class="host-debug-copy"
                                       @click="copyDebugJson(hostsDebug[h.id].rendered, 'Rendered')"
-                                      title="Copy to clipboard">
+                                      :title="t('debug_panel.copy_title')">
                                 <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
                               </button>
                             </header>
@@ -2015,10 +2014,10 @@
                           </section>
                           <section class="host-debug-box" x-show="hasDebugData(hostsDebug[h.id].providers_normalized?.pulse)">
                             <header class="host-debug-box-head">
-                              <span class="host-debug-label host-debug-label--pulse">Normalized · Pulse</span>
+                              <span class="host-debug-label host-debug-label--pulse" x-text="t('debug_panel.labels.normalized_pulse')"></span>
                               <button type="button" class="host-debug-copy"
                                       @click="copyDebugJson(hostsDebug[h.id].providers_normalized?.pulse, 'Normalized · Pulse')"
-                                      title="Copy to clipboard">
+                                      :title="t('debug_panel.copy_title')">
                                 <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
                               </button>
                             </header>
@@ -2026,10 +2025,10 @@
                           </section>
                           <section class="host-debug-box" x-show="hasDebugData(hostsDebug[h.id].providers_normalized?.beszel)">
                             <header class="host-debug-box-head">
-                              <span class="host-debug-label host-debug-label--beszel">Normalized · Beszel</span>
+                              <span class="host-debug-label host-debug-label--beszel" x-text="t('debug_panel.labels.normalized_beszel')"></span>
                               <button type="button" class="host-debug-copy"
                                       @click="copyDebugJson(hostsDebug[h.id].providers_normalized?.beszel, 'Normalized · Beszel')"
-                                      title="Copy to clipboard">
+                                      :title="t('debug_panel.copy_title')">
                                 <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
                               </button>
                             </header>
@@ -2037,10 +2036,10 @@
                           </section>
                           <section class="host-debug-box" x-show="hasDebugData(hostsDebug[h.id].providers_normalized?.node_exporter)">
                             <header class="host-debug-box-head">
-                              <span class="host-debug-label host-debug-label--ne">Normalized · node-exporter</span>
+                              <span class="host-debug-label host-debug-label--ne" x-text="t('debug_panel.labels.normalized_ne')"></span>
                               <button type="button" class="host-debug-copy"
                                       @click="copyDebugJson(hostsDebug[h.id].providers_normalized?.node_exporter, 'Normalized · node-exporter')"
-                                      title="Copy to clipboard">
+                                      :title="t('debug_panel.copy_title')">
                                 <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
                               </button>
                             </header>
@@ -2048,16 +2047,143 @@
                           </section>
                           <section class="host-debug-box" x-show="hasDebugData(hostsDebug[h.id].providers_normalized?.webmin)">
                             <header class="host-debug-box-head">
-                              <span class="host-debug-label host-debug-label--webmin">Normalized · Webmin</span>
+                              <span class="host-debug-label host-debug-label--webmin" x-text="t('debug_panel.labels.normalized_webmin')"></span>
                               <button type="button" class="host-debug-copy"
                                       @click="copyDebugJson(hostsDebug[h.id].providers_normalized?.webmin, 'Normalized · Webmin')"
-                                      title="Copy to clipboard">
+                                      :title="t('debug_panel.copy_title')">
                                 <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
                               </button>
                             </header>
                             <pre class="host-debug-json scrollbar" x-text="fmtDebugJson(hostsDebug[h.id].providers_normalized?.webmin)"></pre>
                           </section>
                         </div>
+                      </div>
+                    </template>
+                  </div>
+                </div>
+              </template>
+
+              <!-- Admin-only SSH card — one-shot command runner against
+                   the host resolved from its hosts_config id. Dry-run-
+                   first by default; destructive commands raise a typed-
+                   hostname confirm before the real run (also enforced
+                   backend-side via logic/ssh.command_is_destructive). -->
+              <template x-if="me && me.role === 'admin'">
+                <div class="host-debug-panel">
+                  <button type="button"
+                          class="host-debug-toggle"
+                          @click="toggleSshCard(h.id)"
+                          :aria-expanded="sshOpen[h.id] ? 'true' : 'false'">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="flip-rtl"
+                         :style="sshOpen[h.id] ? 'transform: rotate(90deg)' : ''">
+                      <polyline points="9 18 15 12 9 6"/>
+                    </svg>
+                    <span x-text="t('hosts_extra_ssh.card_title')"></span>
+                    <span class="host-debug-hint ms-2"
+                          x-text="sshStatus[h.id] && sshStatus[h.id].configured ? t('hosts_extra_ssh.status_ready')
+                                   : sshStatus[h.id] && !sshStatus[h.id].enabled ? t('hosts_extra_ssh.status_disabled')
+                                   : t('hosts_extra_ssh.status_not_configured')"></span>
+                  </button>
+                  <div x-show="sshOpen[h.id]" class="host-debug-body">
+                    <!-- Resolved target summary -->
+                    <div class="host-debug-toolbar">
+                      <div class="host-debug-meta">
+                        <span x-text="t('hosts_extra_ssh.resolved_label') + ':'"></span>
+                        <span class="host-debug-tag mono"
+                              x-text="sshStatus[h.id] && sshStatus[h.id].resolved
+                                       ? (sshStatus[h.id].resolved.user || '?') + '@' + (sshStatus[h.id].resolved.host || h.id) + ':' + (sshStatus[h.id].resolved.port || 22)
+                                       : h.id"></span>
+                        <span x-show="sshStatus[h.id] && sshStatus[h.id].resolved && sshStatus[h.id].resolved.key_fingerprint"
+                              class="host-debug-tag mono"
+                              :title="t('hosts_extra_ssh.fingerprint_label')"
+                              x-text="'SHA256:' + (sshStatus[h.id] && sshStatus[h.id].resolved && sshStatus[h.id].resolved.key_fingerprint || '')"></span>
+                        <span x-show="sshStatus[h.id] && !sshStatus[h.id].configured"
+                              class="host-debug-tag host-debug-tag--warn"
+                              x-text="t('hosts_extra_ssh.fingerprint_empty')"></span>
+                      </div>
+                      <button type="button" class="btn btn-ghost text-[11px]"
+                              @click="testSshConnection(h.id)"
+                              :disabled="!!sshTestBusy[h.id]"
+                              x-text="sshTestBusy[h.id] ? t('hosts_extra_ssh.running') : t('hosts_extra_ssh.test_button')"></button>
+                    </div>
+
+                    <!-- Common actions — prebuilt commands that drop
+                         into the textarea below so the operator can
+                         preview them before executing. -->
+                    <div class="mb-3">
+                      <div class="text-[11px] text-[var(--text-faint)] mb-1.5"
+                           x-text="t('hosts_extra_ssh.common_actions_label')"></div>
+                      <div class="flex flex-wrap gap-2">
+                        <button type="button" class="btn btn-soft text-[11.5px]"
+                                @click="runSshPreset(h.id, 'restart_beszel')"
+                                x-text="t('hosts_extra_ssh.action_restart_beszel')"></button>
+                        <button type="button" class="btn btn-soft text-[11.5px]"
+                                @click="runSshPreset(h.id, 'show_beszel_env')"
+                                x-text="t('hosts_extra_ssh.action_show_beszel_env')"></button>
+                        <button type="button" class="btn btn-soft text-[11.5px]"
+                                @click="runSshPreset(h.id, 'set_nics')"
+                                x-text="t('hosts_extra_ssh.action_set_nics')"></button>
+                        <button type="button" class="btn btn-soft text-[11.5px]"
+                                @click="runSshPreset(h.id, 'journal')"
+                                x-text="t('hosts_extra_ssh.action_journal')"></button>
+                        <button type="button" class="btn btn-soft text-[11.5px]"
+                                @click="runSshPreset(h.id, 'ip_link')"
+                                x-text="t('hosts_extra_ssh.action_ip_link')"></button>
+                      </div>
+                    </div>
+
+                    <!-- Custom command + dry-run + Run button. -->
+                    <div class="mb-3">
+                      <label class="block text-[11px] text-[var(--text-faint)] mb-1"
+                             x-text="t('hosts_extra_ssh.custom_label')"></label>
+                      <textarea :value="sshCommand[h.id] || ''"
+                                @input="sshCommand = Object.assign({}, sshCommand, { [h.id]: $event.target.value })"
+                                :disabled="!(sshStatus[h.id] && sshStatus[h.id].configured)"
+                                rows="3" maxlength="4096"
+                                class="w-full mono text-[11.5px] py-1.5 scrollbar"
+                                :placeholder="t('hosts_extra_ssh.custom_placeholder')"></textarea>
+                      <div class="flex items-center gap-3 flex-wrap mt-2">
+                        <label class="inline-flex items-center gap-2 text-[11.5px] text-[var(--text-dim)]">
+                          <input type="checkbox"
+                                 :checked="sshDryRun[h.id] !== false"
+                                 @change="sshDryRun = Object.assign({}, sshDryRun, { [h.id]: $event.target.checked })">
+                          <span x-text="t('hosts_extra_ssh.dry_run_label')"></span>
+                        </label>
+                        <button type="button"
+                                class="btn btn-primary text-[12px]"
+                                @click="runSshCommand(h.id)"
+                                :disabled="!!sshBusy[h.id] || !(sshStatus[h.id] && sshStatus[h.id].configured) || !((sshCommand[h.id] || '').trim())">
+                          <span x-show="!sshBusy[h.id]" x-text="t('hosts_extra_ssh.run_button')"></span>
+                          <span x-show="!!sshBusy[h.id]" class="flex items-center gap-1"><span class="spin"></span><span x-text="t('hosts_extra_ssh.running')"></span></span>
+                        </button>
+                      </div>
+                    </div>
+
+                    <!-- Result pane — exit, stdout, stderr, duration,
+                         copy. Shown only after at least one run. -->
+                    <template x-if="sshResult[h.id]">
+                      <div class="host-debug-box">
+                        <header class="host-debug-box-head">
+                          <span class="host-debug-label"
+                                x-text="t('hosts_extra_ssh.result_exit') + ': ' + (sshResult[h.id].exit_code == null ? '—' : sshResult[h.id].exit_code)"></span>
+                          <span class="host-debug-hint"
+                                x-text="t('hosts_extra_ssh.result_duration') + ': ' + (sshResult[h.id].duration_ms || 0) + 'ms' + (sshResult[h.id].dry_run ? ' · dry-run' : '')"></span>
+                          <button type="button" class="host-debug-copy"
+                                  @click="copySshOutput(h.id)"
+                                  :title="t('hosts_extra_ssh.result_copy')">
+                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+                          </button>
+                        </header>
+                        <div x-show="sshResult[h.id].error" class="host-debug-error"
+                             x-text="sshResult[h.id].error"></div>
+                        <div x-show="sshResult[h.id].stdout" class="px-3 pt-2 text-[10.5px] text-[var(--text-faint)]"
+                             x-text="t('hosts_extra_ssh.result_stdout')"></div>
+                        <pre x-show="sshResult[h.id].stdout" class="host-debug-json scrollbar"
+                             x-text="sshResult[h.id].stdout"></pre>
+                        <div x-show="sshResult[h.id].stderr" class="px-3 pt-2 text-[10.5px] text-[var(--danger)]"
+                             x-text="t('hosts_extra_ssh.result_stderr')"></div>
+                        <pre x-show="sshResult[h.id].stderr" class="host-debug-json scrollbar ssh-result-stderr"
+                             x-text="sshResult[h.id].stderr"></pre>
                       </div>
                     </template>
                   </div>
@@ -3471,9 +3597,9 @@
                   x-text="t('actions.save')"></button>
           <span x-show="hostStatsDirty()"
                 class="text-[11.5px] text-[var(--warning)] flex items-center gap-1.5"
-                title="You have unsaved changes in Host stats settings.">
+                :title="t('hosts_actions.host_stats_unsaved_title')">
             <span class="w-1.5 h-1.5 rounded-full bg-[var(--warning)] animate-pulse"></span>
-            Unsaved changes
+            <span x-text="t('hosts_actions.unsaved_label')"></span>
           </span>
         </div>
       </section>
@@ -3600,7 +3726,9 @@
               <!-- Row 1 — identity + toggles -->
               <div class="grid grid-cols-1 md:grid-cols-[80px_1fr_3fr_auto_auto] gap-3 items-end min-w-0">
                 <div>
-                  <label class="block text-[10.5px] uppercase tracking-wider text-[var(--text-faint)] mb-1" title="Operator-assigned catalogue number — used for sort/group in Hosts view and as the key for Asset-inventory lookups at oufa.co">Custom #</label>
+                  <label class="block text-[10.5px] uppercase tracking-wider text-[var(--text-faint)] mb-1"
+                         :title="t('hosts_extra.custom_number_title')"
+                         x-text="t('hosts_extra.custom_number_label')"></label>
                   <input type="number" x-model.number="row.custom_number" :disabled="isReadonly()"
                          @input="markHostRowDirty(idx)"
                          class="w-full mono text-[13px] py-1.5"
@@ -3752,6 +3880,38 @@
                          placeholder="host reported by Webmin">
                 </div>
               </div>
+              <!-- Row 2b — SSH per-host overrides. Key material stays
+                   GLOBAL (Admin → SSH); per-host can override the user,
+                   port, or disable the feature for this one host. -->
+              <div class="grid grid-cols-1 md:grid-cols-[2fr_1fr_auto] gap-3 items-end">
+                <div>
+                  <label class="block text-[10.5px] uppercase tracking-wider text-[var(--text-faint)] mb-1"
+                         x-text="t('hosts_extra_ssh.per_host_user')"></label>
+                  <input type="text"
+                         :value="row.ssh && row.ssh.user || ''"
+                         @input="row.ssh = Object.assign({}, row.ssh || {}, { user: $event.target.value }); markHostRowDirty(idx)"
+                         :disabled="isReadonly()"
+                         class="w-full mono text-[12.5px] py-1.5"
+                         placeholder="(blank = use global default)">
+                </div>
+                <div>
+                  <label class="block text-[10.5px] uppercase tracking-wider text-[var(--text-faint)] mb-1"
+                         x-text="t('hosts_extra_ssh.per_host_port')"></label>
+                  <input type="number" min="1" max="65535"
+                         :value="row.ssh && row.ssh.port || ''"
+                         @input="row.ssh = Object.assign({}, row.ssh || {}, { port: $event.target.value ? parseInt($event.target.value, 10) : null }); markHostRowDirty(idx)"
+                         :disabled="isReadonly()"
+                         class="w-full mono text-[12.5px] py-1.5"
+                         placeholder="22">
+                </div>
+                <label class="inline-flex items-center gap-2 text-[12px] text-[var(--text-dim)] pb-1.5">
+                  <input type="checkbox"
+                         :checked="!!(row.ssh && row.ssh.disabled)"
+                         @change="row.ssh = Object.assign({}, row.ssh || {}, { disabled: $event.target.checked }); markHostRowDirty(idx)"
+                         :disabled="isReadonly()">
+                  <span x-text="t('hosts_extra_ssh.per_host_disabled')"></span>
+                </label>
+              </div>
               <!-- Row 3 — test button + per-provider result line. The
                    result lists each probed provider with a tick or
                    cross and a short reason so the operator knows
@@ -3813,41 +3973,156 @@
              -->
         <div class="hosts-config-actionbar flex items-center gap-2 flex-wrap">
           <button x-show="isAdmin()" @click="addHostRow()"
-                  class="btn btn-soft text-[12.5px]">+ Add host</button>
+                  class="btn btn-soft text-[12.5px]"
+                  x-text="t('hosts_actions.add')"></button>
           <button x-show="isAdmin()" @click="saveHostsConfig()"
                   class="btn btn-primary text-[12.5px]"
                   :disabled="hostsConfigSaving"
                   :class="hostsConfigDirty ? 'ring-2 ring-[var(--warning)]' : ''">
-            <span x-show="!hostsConfigSaving">Save changes</span>
-            <span x-show="hostsConfigSaving" class="flex items-center gap-1"><span class="spin"></span>Saving…</span>
+            <span x-show="!hostsConfigSaving" x-text="t('hosts_actions.save_changes')"></span>
+            <span x-show="hostsConfigSaving" class="flex items-center gap-1"><span class="spin"></span><span x-text="t('actions.saving')"></span></span>
           </button>
           <!-- Row count — helps operators know where they are in long lists. -->
           <span class="text-[11px] text-[var(--text-faint)] mono" x-show="hostsConfig.length > 0">
-            <span x-text="hostsConfig.length"></span> host<span x-show="hostsConfig.length !== 1">s</span>
+            <span x-text="hostsConfig.length"></span>
+            <span x-text="hostsConfig.length === 1 ? t('hosts_actions.count_host') : t('hosts_actions.count_hosts')"></span>
           </span>
           <!-- Dirty indicator — amber dot + text when the list has
                been modified since the last load/save. Pairs with the
                beforeunload guard so operators don't lose work. -->
           <span x-show="hostsConfigDirty"
                 class="text-[11.5px] text-[var(--warning)] flex items-center gap-1.5"
-                title="You have unsaved changes in the Hosts list.">
+                :title="t('hosts_actions.unsaved_title')">
             <span class="w-1.5 h-1.5 rounded-full bg-[var(--warning)] animate-pulse"></span>
-            Unsaved changes
+            <span x-text="t('hosts_actions.unsaved_label')"></span>
           </span>
-          <span x-show="!hostsConfigDirty && hostsConfig.length < 8" class="text-[11.5px] text-[var(--text-faint)] ms-2">
-            Leave any provider field blank when that provider doesn't
-            know this host — the row still populates from whatever else
-            matches.
-          </span>
+          <span x-show="!hostsConfigDirty && hostsConfig.length < 8" class="text-[11.5px] text-[var(--text-faint)] ms-2"
+                x-text="t('hosts_actions.provider_blank_hint')"></span>
           <!-- Scroll-to-top — useful when the list is deep and the
                operator wants to return to the top filter box. Only
                visible when there's enough rows to have scrolled. -->
           <button type="button" x-show="hostsConfig.length > 6"
                   @click="window.scrollTo({top: 0, behavior: 'smooth'})"
                   class="btn btn-ghost text-[11px] ms-auto"
-                  title="Jump to top of list">
-            ↑ Top
+                  :title="t('hosts_actions.top_title')"
+                  x-text="t('hosts_actions.top')"></button>
+        </div>
+      </section>
+
+      <!-- SSH TAB — global defaults + a "test on a host" widget. Per-host
+           overrides live on each row in Admin → Hosts. -->
+      <section x-show="adminTab==='ssh'" class="bg-[var(--surface)] border border-[var(--border)] rounded-md p-5">
+        <h3 class="font-semibold text-[13px] mb-2" x-text="t('admin_ssh.title')"></h3>
+        <p class="text-[11.5px] text-[var(--text-faint)] mb-4 leading-snug max-w-[720px]"
+           x-text="t('admin_ssh.intro')"></p>
+        <div class="grid grid-cols-1 md:grid-cols-[1fr_120px] gap-3 mb-3">
+          <div>
+            <label class="block text-[11px] text-[var(--text-faint)] mb-1"
+                   x-text="t('admin_ssh.user_label')"></label>
+            <input x-model="sshSettings.user" type="text"
+                   @input="markSshSettingsDirty()"
+                   :disabled="isReadonly()"
+                   class="w-full mono text-[12.5px] py-1.5"
+                   :placeholder="t('admin_ssh.user_placeholder')">
+          </div>
+          <div>
+            <label class="block text-[11px] text-[var(--text-faint)] mb-1"
+                   x-text="t('admin_ssh.port_label')"></label>
+            <input x-model.number="sshSettings.port" type="number"
+                   @input="markSshSettingsDirty()"
+                   :disabled="isReadonly()"
+                   min="1" max="65535"
+                   class="w-full mono text-[12.5px] py-1.5">
+          </div>
+        </div>
+        <div class="mb-3">
+          <label class="block text-[11px] text-[var(--text-faint)] mb-1">
+            <span x-text="t('admin_ssh.key_label')"></span>
+            <span x-show="sshSettings.private_key_set" class="text-[var(--success)]"
+                  x-text="t('admin_ssh.key_set')"></span>
+          </label>
+          <textarea x-model="sshSettings.private_key"
+                    @input="markSshSettingsDirty()"
+                    :disabled="isReadonly()"
+                    rows="6"
+                    class="w-full mono text-[11px] py-1.5 scrollbar"
+                    :placeholder="sshSettings.private_key_set ? '••••••••' : t('admin_ssh.key_placeholder')"></textarea>
+          <p class="text-[10.5px] text-[var(--text-faint)] mt-1"
+             x-text="t('admin_ssh.key_hint')"></p>
+        </div>
+        <div class="mb-3">
+          <label class="block text-[11px] text-[var(--text-faint)] mb-1">
+            <span x-text="t('admin_ssh.passphrase_label')"></span>
+            <span x-show="sshSettings.passphrase_set" class="text-[var(--success)]"
+                  x-text="t('admin_ssh.passphrase_set')"></span>
+          </label>
+          <input x-model="sshSettings.passphrase" type="password"
+                 @input="markSshSettingsDirty()"
+                 :disabled="isReadonly()"
+                 class="w-full text-[12.5px]"
+                 :placeholder="sshSettings.passphrase_set ? '••••••••' : t('admin_ssh.passphrase_placeholder')">
+        </div>
+        <div class="mb-3">
+          <label class="block text-[11px] text-[var(--text-faint)] mb-1"
+                 x-text="t('admin_ssh.known_hosts_label')"></label>
+          <textarea x-model="sshSettings.known_hosts"
+                    @input="markSshSettingsDirty()"
+                    :disabled="isReadonly()"
+                    rows="3"
+                    class="w-full mono text-[11px] py-1.5 scrollbar"
+                    :placeholder="t('admin_ssh.known_hosts_placeholder')"></textarea>
+          <p class="text-[10.5px] text-[var(--text-faint)] mt-1"
+             x-text="t('admin_ssh.known_hosts_hint')"></p>
+        </div>
+        <div class="mb-3">
+          <label class="block text-[11px] text-[var(--text-faint)] mb-1"
+                 x-text="t('admin_ssh.destructive_label')"></label>
+          <textarea x-model="sshSettings.destructive_patterns"
+                    @input="markSshSettingsDirty()"
+                    :disabled="isReadonly()"
+                    rows="4"
+                    class="w-full mono text-[11px] py-1.5 scrollbar"
+                    :placeholder="t('admin_ssh.destructive_placeholder')"></textarea>
+          <p class="text-[10.5px] text-[var(--text-faint)] mt-1"
+             x-text="t('admin_ssh.destructive_hint')"></p>
+        </div>
+        <div class="flex items-center gap-3 flex-wrap">
+          <button x-show="isAdmin()" @click="saveSshSettings()"
+                  :disabled="sshSettingsBusy"
+                  :class="sshSettingsDirty ? 'ring-2 ring-[var(--warning)]' : ''"
+                  class="btn btn-primary text-[12px]">
+            <span x-show="!sshSettingsBusy" x-text="t('admin_ssh.save')"></span>
+            <span x-show="sshSettingsBusy" class="flex items-center gap-1"><span class="spin"></span>…</span>
           </button>
+          <span x-show="sshSettingsDirty"
+                class="text-[11.5px] text-[var(--warning)] flex items-center gap-1.5">
+            <span class="w-1.5 h-1.5 rounded-full bg-[var(--warning)] animate-pulse"></span>
+            <span x-text="t('hosts_actions.unsaved_label')"></span>
+          </span>
+        </div>
+        <div class="mt-5 pt-4 border-t border-dashed border-[var(--border)]">
+          <h4 class="font-semibold text-[12.5px] mb-1" x-text="t('admin_ssh.test_widget_title')"></h4>
+          <p class="text-[11px] text-[var(--text-faint)] mb-2" x-text="t('admin_ssh.test_widget_hint')"></p>
+          <div class="flex items-center gap-2 flex-wrap">
+            <label class="text-[11px] text-[var(--text-faint)]" x-text="t('admin_ssh.test_host_label')"></label>
+            <select x-model="sshTestOnHost.host_id"
+                    class="text-[12px] py-1 min-w-[240px]">
+              <option value="">—</option>
+              <template x-for="h in hostsConfig" :key="h.id">
+                <option :value="h.id" x-text="(h.label || h.id) + ' (' + h.id + ')'"></option>
+              </template>
+            </select>
+            <button x-show="isAdmin()" @click="runSshAdminTest()"
+                    :disabled="sshTestOnHost.pending || !sshTestOnHost.host_id"
+                    class="btn btn-soft text-[12px]">
+              <span x-show="!sshTestOnHost.pending" x-text="t('admin_ssh.test_button')"></span>
+              <span x-show="sshTestOnHost.pending" class="flex items-center gap-1"><span class="spin"></span><span x-text="t('admin_ssh.testing')"></span></span>
+            </button>
+            <span x-show="sshTestOnHost.result && !sshTestOnHost.pending"
+                  :class="sshTestOnHost.result && sshTestOnHost.result.ok ? 'text-[var(--success)]' : 'text-[var(--danger)]'"
+                  class="text-[11.5px]"
+                  x-text="(sshTestOnHost.result && sshTestOnHost.result.ok ? t('admin_ssh.test_ok_prefix') : t('admin_ssh.test_fail_prefix')) + (sshTestOnHost.result && (sshTestOnHost.result.error || (sshTestOnHost.result.resolved && (sshTestOnHost.result.resolved.user + '@' + sshTestOnHost.result.resolved.host + ':' + sshTestOnHost.result.resolved.port))) || '')"></span>
+          </div>
         </div>
       </section>
 

@@ -240,6 +240,45 @@ async def _fetch_xml(
     return root, None
 
 
+async def _fetch_first_working(
+    client: httpx.AsyncClient,
+    base_url: str,
+    paths: list[str],
+    user: str,
+) -> tuple[Optional[ET.Element], Optional[str]]:
+    """Try each path in order; return the first parseable XML result.
+
+    Exists because Webmin 2.x dropped ``?xml=1`` on several modules
+    without warning — ``system-status`` still honours it but
+    ``package-updates`` / ``mount`` / ``net`` return the full HTML UI
+    instead. Rather than hard-failing, walk a list of candidate paths
+    (including module-specific ``list.cgi`` variants) and pick the
+    first one that parses as XML. If every path returns HTML / errors,
+    collapse the attempt list into one readable error so operators
+    can see which versions were tried.
+    """
+    attempts: list[str] = []
+    for path in paths:
+        root, err = await _fetch_xml(client, base_url, path, user)
+        if root is not None:
+            if len(attempts) > 0:
+                # Useful diagnostic — we had to fall back past the
+                # primary path. Log but don't treat as an error.
+                print(f"[webmin] {base_url}{paths[0]} failed; succeeded via {path}")
+            return root, None
+        attempts.append(f"{path}: {err}")
+        # Short-circuit on auth errors — no point trying alternate
+        # module paths if credentials themselves are rejected.
+        if err and ("HTTP 401" in err or "HTTP 403" in err):
+            break
+    # All paths failed. Surface the first attempt's error as the
+    # primary signal; append the count of alternates we tried.
+    primary = attempts[0] if attempts else f"{paths[0]}: no response"
+    if len(attempts) > 1:
+        primary += f" (also tried {len(attempts) - 1} fallback path(s))"
+    return None, primary
+
+
 def _findtext(root: ET.Element, *names: str) -> str:
     """Return the first non-empty text among attributes / child elements
     named in ``names`` (case-insensitive)."""
@@ -628,11 +667,34 @@ async def probe_webmin(
                      f"check credentials and wait before retrying",
         }
     base = base_url.rstrip("/")
-    paths = {
-        "system_status":   "/system-status/?xml=1",
-        "package_updates": "/package-updates/?xml=1&mode=count",
-        "mount":           "/mount/?xml=1",
-        "net":             "/net/?xml=1",
+    # Per-module alternate paths. Webmin 2.x (>= 2.000) silently
+    # dropped ``?xml=1`` support on several modules — ``system-status``
+    # still works, the others return the full HTML UI instead. Try a
+    # ranked list so we catch the Webmin 1.x path first (cheap no-op on
+    # new hosts that still accept it) and fall through to module-
+    # specific ``list.cgi`` variants and the legacy ``acl.cgi`` / JSON
+    # probes. First successful XML-parse wins.
+    path_alternatives = {
+        "system_status": [
+            "/system-status/?xml=1",
+            "/system-status/index.cgi?xml=1",
+        ],
+        "package_updates": [
+            "/package-updates/?xml=1&mode=count",
+            "/package-updates/?xml=1",
+            "/package-updates/index.cgi?xml=1",
+            "/package-updates/update.cgi?xml=1&search=1",
+        ],
+        "mount": [
+            "/mount/?xml=1",
+            "/mount/index.cgi?xml=1",
+            "/mount/list_mounts.cgi?xml=1",
+        ],
+        "net": [
+            "/net/?xml=1",
+            "/net/index.cgi?xml=1",
+            "/net/list_ifcs.cgi?xml=1",
+        ],
     }
     try:
         # Two-stage auth: session-login first (default Miniserv behaviour),
@@ -652,13 +714,14 @@ async def probe_webmin(
                 # reports the "got HTML" signal cleanly if that fails too.
                 client.auth = httpx.BasicAuth(user, password)
             results = await asyncio.gather(*(
-                _fetch_xml(client, base, p, user) for p in paths.values()
+                _fetch_first_working(client, base, alts, user)
+                for alts in path_alternatives.values()
             ), return_exceptions=False)
     except Exception as e:
         return {"hosts": {}, "error": f"webmin: {e}"}
 
     # Name-align results with their module keys.
-    by_mod = dict(zip(paths.keys(), results))
+    by_mod = dict(zip(path_alternatives.keys(), results))
     errors: list[str] = []
     roots: dict[str, Optional[ET.Element]] = {}
     for mod, (root, err) in by_mod.items():

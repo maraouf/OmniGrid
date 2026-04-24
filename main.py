@@ -2420,6 +2420,187 @@ async def api_hosts_debug(
     }
 
 
+# ============================================================================
+# SSH console — admin-only remote-command runner for the host drawer.
+#
+# Surface:
+#   GET  /api/hosts/{host_id}/ssh/status  — resolved connection params
+#   POST /api/hosts/{host_id}/ssh/test    — runs `whoami` with a short timeout
+#   POST /api/hosts/{host_id}/ssh/run     — body {command, dry_run}
+#
+# Every runner call lands in the history table as op_type='ssh_run' so
+# Admin → History carries a complete audit trail. Destructive-command
+# typed-confirm (hostname echo) is enforced on the UI — the backend
+# merely returns a ``destructive`` flag + matched patterns so the UI
+# knows to raise the bar. Backend still always runs dry-run safely.
+# ============================================================================
+def _ssh_write_audit_row(
+    *,
+    op_id: str,
+    actor: str,
+    host_id: str,
+    command: str,
+    result: dict,
+) -> None:
+    """Persist one SSH run into the ``history`` table.
+
+    Uses ``op_type='ssh_run'`` so the History view (which filters by
+    op_type) naturally surfaces the audit trail alongside updates /
+    restarts. The command is sanitised via
+    :func:`logic.ssh.sanitize_command_for_audit` before landing — not a
+    security boundary (sshd on the target still sees the raw line) but
+    keeps long one-liners readable in the UI and masks obvious secret
+    flags so a History export isn't a liability on its own.
+
+    Mirrors the direct-insert pattern used by the scheduler's
+    gather_refresh / backup runners (see ``logic/schedules.py``) — we
+    don't route through ops.persist_history because that bumps a
+    Prometheus counter whose label set is keyed to the fixed op_type
+    enum. Keep ssh_run out of that counter until we decide the
+    dashboards want it.
+    """
+    from logic import ssh as _ssh
+    started = time.time()
+    status = "success" if result.get("ok") and not result.get("error") else "error"
+    if result.get("dry_run"):
+        status = "dry_run"
+    error = result.get("error")
+    duration = (result.get("duration_ms") or 0) / 1000.0
+    events = [
+        {
+            "ts": time.time(),
+            "level": "info" if status in ("success", "dry_run") else "error",
+            "msg": (
+                f"ssh_run dry_run={bool(result.get('dry_run'))} "
+                f"exit={result.get('exit_code')} "
+                f"stdout_bytes={len(result.get('stdout') or '')} "
+                f"stderr_bytes={len(result.get('stderr') or '')}"
+            ),
+        }
+    ]
+    try:
+        with db_conn() as c:
+            c.execute(
+                "INSERT INTO history "
+                "(ts, op_type, target_name, target_id, target_stack, "
+                " status, duration, events, error, actor) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (
+                    started, "ssh_run",
+                    _ssh.sanitize_command_for_audit(command) or "(empty)",
+                    f"{host_id}:{op_id}",
+                    None,
+                    status, duration,
+                    json.dumps(events),
+                    error, actor,
+                ),
+            )
+    except Exception as e:
+        # Never let audit-log failure break the response — an operator
+        # needs to see the result even if the history write blew up.
+        print(f"[ssh] audit-log insert failed: {e}")
+
+
+@app.get("/api/hosts/{host_id}/ssh/status")
+async def api_ssh_status(
+    host_id: str,
+    _admin: auth.User = Depends(auth.require_admin),
+):
+    """Return the resolved SSH connection params for one host.
+
+    Does NOT initiate a TCP connection — safe to poll on drawer open.
+    Surfaces ``configured`` + ``enabled`` flags the UI uses to gate
+    the Run button.
+    """
+    from logic import ssh as _ssh
+    return _ssh.ssh_status(host_id, _load_hosts_config())
+
+
+@app.post("/api/hosts/{host_id}/ssh/test")
+async def api_ssh_test(
+    host_id: str,
+    request: Request,
+    _admin: auth.User = Depends(auth.require_admin),
+):
+    """Admin-only: run `whoami` on the host to verify connectivity.
+
+    Persists a history row (``op_type='ssh_run'``) so repeated failed
+    tests are visible in the audit trail. Body is ignored — everything
+    is keyed off the persisted settings + curated hosts_config row.
+    """
+    from logic import ssh as _ssh
+    result = await _ssh.test_connection(host_id, _load_hosts_config())
+    actor = getattr(request.state, "user", None)
+    actor_name = actor.username if actor else "unknown"
+    _ssh_write_audit_row(
+        op_id=uuid.uuid4().hex[:8],
+        actor=actor_name,
+        host_id=host_id,
+        command="whoami  # ssh test",
+        result=result,
+    )
+    return result
+
+
+@app.post("/api/hosts/{host_id}/ssh/run")
+async def api_ssh_run(
+    host_id: str,
+    body: dict,
+    request: Request,
+    _admin: auth.User = Depends(auth.require_admin),
+):
+    """Admin-only: run one command over SSH.
+
+    Body:
+        command (str, required)
+        dry_run (bool, default true) — false to actually execute
+
+    Always dry-run-safe: the frontend is expected to preflight with
+    ``dry_run: true`` and surface the resolved connection before
+    offering a "Run for real" button. Backend enforcement is a
+    length-cap + destructive-pattern detection; typed-hostname confirm
+    is a UI concern. Every call lands in the history table as
+    ``op_type='ssh_run'``.
+    """
+    from logic import ssh as _ssh
+    command = (body or {}).get("command")
+    if not isinstance(command, str) or not command.strip():
+        raise HTTPException(400, "command is required")
+    if len(command) > _ssh.MAX_COMMAND_LEN:
+        raise HTTPException(
+            400,
+            f"command exceeds {_ssh.MAX_COMMAND_LEN}-byte cap "
+            f"({len(command)} bytes)",
+        )
+    dry_run = bool((body or {}).get("dry_run", True))
+    timeout = (body or {}).get("timeout")
+    try:
+        timeout_f = float(timeout) if timeout is not None else 30.0
+    except (TypeError, ValueError):
+        timeout_f = 30.0
+    timeout_f = max(1.0, min(timeout_f, 120.0))
+
+    destructive_hits = _ssh.command_is_destructive(command)
+    result = await _ssh.run_command(
+        host_id=host_id,
+        command=command,
+        hosts_config=_load_hosts_config(),
+        timeout=timeout_f,
+        dry_run=dry_run,
+    )
+    result["destructive"] = destructive_hits
+    actor = getattr(request.state, "user", None)
+    actor_name = actor.username if actor else "unknown"
+    _ssh_write_audit_row(
+        op_id=uuid.uuid4().hex[:8],
+        actor=actor_name,
+        host_id=host_id,
+        command=command,
+        result=result,
+    )
+    return result
+
+
 @app.get("/api/hosts/history")
 async def api_hosts_history(system_id: str, hours: int = 1, host_id: str = ""):
     """Return time-series stats for one Beszel system.

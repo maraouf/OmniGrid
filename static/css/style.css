@@ -2510,6 +2510,13 @@ body.login {
     word-break: normal;
 }
 
+/* SSH runner — stderr pane tinted with the danger token so bad output
+   is visually distinct from stdout without shouting. Stays tokenised
+   per CLAUDE.md's "no hardcoded colours outside :root" rule. */
+.ssh-result-stderr {
+    color: var(--danger);
+}
+
 /* ---------------------------------------------------------------------------
    Admin → Hosts — sticky action bar
 
