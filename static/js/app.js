@@ -3762,17 +3762,29 @@ function app() {
       // typed twice.
       const clean = (this.hostsConfig || []).filter(
         h => (h.id || '').trim() !== '',
-      ).map(h => ({
-        id:          (h.id || '').trim(),
-        label:       (h.label || h.id || '').trim(),
-        ne_url:      (h.ne_url || '').trim(),
-        beszel_name: (h.beszel_name || '').trim(),
-        pulse_name:  (h.pulse_name || '').trim(),
-        webmin_name: (h.webmin_name || '').trim(),
-        url:         (h.url || '').trim(),
-        icon:        (h.icon || '').trim(),
-        enabled:     h.enabled !== false,
-      }));
+      ).map(h => {
+        // custom_number: accept integer, numeric string, or blank.
+        // Blank / non-numeric → null so the backend stores no value
+        // (rows without a number sort last in the "Custom #" view).
+        const rawNum = h.custom_number;
+        let num = null;
+        if (rawNum !== '' && rawNum !== null && rawNum !== undefined) {
+          const parsed = parseInt(rawNum, 10);
+          if (Number.isFinite(parsed)) num = parsed;
+        }
+        return {
+          id:            (h.id || '').trim(),
+          label:         (h.label || h.id || '').trim(),
+          custom_number: num,
+          ne_url:        (h.ne_url || '').trim(),
+          beszel_name:   (h.beszel_name || '').trim(),
+          pulse_name:    (h.pulse_name || '').trim(),
+          webmin_name:   (h.webmin_name || '').trim(),
+          url:           (h.url || '').trim(),
+          icon:          (h.icon || '').trim(),
+          enabled:       h.enabled !== false,
+        };
+      });
       // Derive webmin_aliases from each row's webmin_url. Single
       // source of truth in the editor — operator types the URL on
       // the row, we sync it into settings.webmin_aliases on save.
