@@ -31,6 +31,15 @@ function app() {
     stats: {}, _statsTimer: null, _maxSize: 1,
     sparks: {}, _sparksTimer: null,
     version: '',
+    // Version snapshot captured at first load. `watchVersion()` polls
+    // /api/version every 60s and compares against this; mismatch means
+    // CI just shipped a new build so we flip `newVersionAvailable` and
+    // the topbar banner prompts the user to hard-reload. Prevents
+    // operators from staring at stale UI after a deploy.
+    bootVersion: '',
+    newVersionAvailable: false,
+    newVersionString: '',
+    _versionTimer: null,
     historyFilters: { q: '', stack: '', op_type: '', status: '', actor: '', fromDate: '', toDate: '' },
     statsInterval: (() => {
       const v = parseInt(localStorage.getItem('statsInterval'), 10);
@@ -332,6 +341,7 @@ function app() {
       await this.refresh();
       await this.loadHistory();
       this.loadVersion();
+      this.startVersionWatcher();
       this.pollOps();
       this.pollStats();
       this.pollSparks();
@@ -1727,7 +1737,35 @@ function app() {
         if (!r.ok) return;
         const d = await r.json();
         this.version = d.version || '';
+        // First successful fetch — lock in the boot version so the
+        // watcher has something to compare against. Later fetches
+        // don't overwrite bootVersion; we want the original forever.
+        if (!this.bootVersion && this.version) {
+          this.bootVersion = this.version;
+        } else if (this.bootVersion && this.version && this.version !== this.bootVersion) {
+          // New build is live. Flag once; further ticks are no-ops.
+          if (!this.newVersionAvailable) {
+            this.newVersionAvailable = true;
+            this.newVersionString = this.version;
+          }
+        }
       } catch (e) {}
+    },
+    // Start a 60s poll of /api/version so a deploy that lands while
+    // the operator has the tab open triggers a hard-refresh banner.
+    // Idempotent — safe to call from init() even on hot-reload.
+    startVersionWatcher() {
+      if (this._versionTimer) return;
+      this._versionTimer = setInterval(() => this.loadVersion(), 60000);
+    },
+    // Force a cache-busting reload when the operator clicks the
+    // "New version — reload" banner. `location.reload()` alone
+    // sometimes serves the cached HTML; adding a query param forces
+    // the server to re-send (and the JS/CSS assets use
+    // ?v=<version> bust-tokens so they'll re-fetch too).
+    reloadForNewVersion() {
+      const sep = location.search ? '&' : '?';
+      location.href = location.pathname + location.search + sep + '_v=' + encodeURIComponent(this.newVersionString || Date.now());
     },
 
     async loadStats(force=false) {

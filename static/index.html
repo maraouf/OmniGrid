@@ -120,6 +120,17 @@
         <button @click="refresh(true)" :disabled="loading" class="btn btn-soft" :title="t('topbar.refresh_title')">
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" :class="loading && 'animate-spin'"><path d="M3 12a9 9 0 0 1 15.5-6.36L22 8"/><path d="M22 3v5h-5"/><path d="M22 12a9 9 0 0 1-15.5 6.36L3 16"/><path d="M2 21v-5h5"/></svg>
         </button>
+        <!-- Deploy watcher — only visible when /api/version returns a
+             string different from the one captured at page boot.
+             Hard-reloads with a cache-busting query param so the new
+             HTML + asset cache-bust tokens take effect. -->
+        <button x-show="newVersionAvailable"
+                @click="reloadForNewVersion()"
+                class="btn btn-update text-[11px] flex items-center gap-1.5 animate-pulse"
+                :title="'New version ' + newVersionString + ' deployed — click to reload and use the updated UI'">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+          <span>New version — reload</span>
+        </button>
         <button @click="cycleTheme()" :title="t('topbar.theme_title', { pref: themePref })" class="btn btn-soft">
           <!-- Moon for dark, sun for light, sun+moon split (crescent over sun) for auto. -->
           <template x-if="themePref==='dark'">
