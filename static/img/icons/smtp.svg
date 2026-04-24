@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <!-- Generic SMTP / relay — envelope with an outgoing arrow to
+       signal "transport" rather than "inbox". Purple chassis to
+       distinguish from the plain mail.svg at a glance. -->
+  <rect width="512" height="512" rx="96" fill="#8b5cf6"/>
+  <g>
+    <!-- Envelope body -->
+    <rect x="72" y="152" width="296" height="208" rx="12" fill="#ffffff"/>
+    <!-- Flap outline -->
+    <path d="M72 168 L220 272 L368 168" fill="none" stroke="#8b5cf6"
+          stroke-width="26" stroke-linecap="round" stroke-linejoin="round"/>
+    <!-- Outgoing arrow on the right — "relay" motion -->
+    <path d="M320 256 L448 256 M402 212 L448 256 L402 300"
+          fill="none" stroke="#ffffff" stroke-width="26"
+          stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
+</svg>

@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <!-- Generic mail envelope — gradient panel + stylised envelope
+       flap. Used as a fallback when no brand-specific mail icon
+       matches (labels like "Mail Server", "SMTP Relay"). -->
+  <rect width="512" height="512" rx="96" fill="#0ea5e9"/>
+  <g fill="none" stroke="#ffffff" stroke-width="28"
+     stroke-linecap="round" stroke-linejoin="round">
+    <!-- Envelope body -->
+    <rect x="88" y="144" width="336" height="232" rx="12" fill="#ffffff" stroke="none"/>
+    <!-- Flap outline -->
+    <path d="M88 160 L256 296 L424 160" stroke="#0ea5e9"/>
+    <!-- Bottom edge detail -->
+    <path d="M88 360 L212 252 M424 360 L300 252" stroke="#0ea5e9"/>
+  </g>
+</svg>

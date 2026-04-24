@@ -3192,6 +3192,12 @@ function app() {
           'win10':           'windows-10',
           'win-server':      'windows-server',
           'windowsserver':   'windows-server',
+          'mailserver':      'mail',
+          'smtprelay':       'smtp',
+          'smtp-relay':      'smtp',
+          'postfix':         'mail',
+          'mailu':           'mail',
+          'maddy':           'mail',
         };
         const slug = aliases[h.icon.toLowerCase()] || h.icon;
         return '/img/icons/' + slug + '.svg';
@@ -3302,6 +3308,23 @@ function app() {
         ['rundeck',               'rundeck'],
         ['n8n',                   'n8n'],
         ['ansible',               'ansible'],
+        // mail — brand-specific first, generic last.
+        ['mailcow',               'mailcow'],
+        ['stalwart',              'stalwart'],
+        ['roundcube',             'roundcube'],
+        ['dovecot',               'dovecot'],
+        ['smtp relay',            'smtp'],
+        ['smtp gateway',          'smtp'],
+        ['smtp',                  'smtp'],
+        ['mail server',           'mail'],
+        ['mailserver',            'mail'],
+        ['mail relay',            'mail'],
+        ['webmail',               'roundcube'],
+        ['imap',                  'mail'],
+        [' mail',                 'mail'],
+        ['postfix',               'mail'],
+        ['mailu',                 'mail'],
+        ['maddy',                 'mail'],
         // VPN / tunnelling — checked BEFORE "openvpn" alone so
         // "pivpn" isn't shadowed by the openvpn token.
         ['pivpn',                 'pivpn'],
