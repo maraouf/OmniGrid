@@ -2886,16 +2886,20 @@
                    cross and a short reason so the operator knows
                    what to fix before saving. -->
               <div class="flex items-start gap-3 flex-wrap">
+                <!-- Explicit boolean coercion on every binding — Alpine
+                     was passing short-circuited ``undefined`` through
+                     :disabled which some browsers treat as truthy and
+                     stuck the button in a permanently-disabled state. -->
                 <button x-show="isAdmin()" @click="testHostRow(idx)"
                         class="btn btn-soft text-[11.5px]"
-                        :disabled="hostsTestResults[idx] && hostsTestResults[idx].pending">
+                        :disabled="!!(hostsTestResults[idx] && hostsTestResults[idx].pending)">
                   <span x-show="!(hostsTestResults[idx] && hostsTestResults[idx].pending)">Test providers</span>
-                  <span x-show="hostsTestResults[idx] && hostsTestResults[idx].pending" class="flex items-center gap-1"><span class="spin"></span>Testing…</span>
+                  <span x-show="!!(hostsTestResults[idx] && hostsTestResults[idx].pending)" class="flex items-center gap-1"><span class="spin"></span>Testing…</span>
                 </button>
-                <div x-show="hostsTestResults[idx] && !hostsTestResults[idx].pending && !hostsTestResults[idx].error"
+                <div x-show="!!(hostsTestResults[idx] && !hostsTestResults[idx].pending && !hostsTestResults[idx].error)"
                      class="flex flex-wrap gap-3 text-[11px] flex-1">
                   <template x-for="name in ['beszel','pulse','node_exporter']" :key="name">
-                    <div x-show="hostsTestResults[idx] && hostsTestResults[idx][name] && !hostsTestResults[idx][name].skipped"
+                    <div x-show="!!(hostsTestResults[idx] && hostsTestResults[idx][name] && !hostsTestResults[idx][name].skipped)"
                          class="flex items-center gap-1.5"
                          :class="(hostsTestResults[idx] && hostsTestResults[idx][name] && hostsTestResults[idx][name].ok) ? 'text-[var(--success)]' : 'text-[var(--danger)]'">
                       <span x-text="(hostsTestResults[idx] && hostsTestResults[idx][name] && hostsTestResults[idx][name].ok) ? '✓' : '✗'"></span>

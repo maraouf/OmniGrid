@@ -1338,10 +1338,22 @@ async def api_hosts():
                 entry["_providers"].append("node_exporter")
 
     # ---- Shape the response ---------------------------------------
+    # Short debug spew for core/arch/kernel only — helps diagnose the
+    # common "all three columns are empty" complaint by showing each
+    # curated host's merged values + which providers contributed.
     hosts = []
     for entry in out:
         h = entry["_host_record"]
         s = entry["_merged"]
+        print(
+            f"[hosts] merged id={h.get('id')!r} "
+            f"providers={entry['_providers']} "
+            f"cores={s.get('host_cores')!r} "
+            f"arch={s.get('host_arch')!r} "
+            f"kernel={(s.get('host_kernel') or '')[:40]!r} "
+            f"platform={s.get('host_platform')!r} "
+            f"os={s.get('host_os')!r}"
+        )
         hosts.append({
             "id":              h["id"],
             "name":            h["id"],

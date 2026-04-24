@@ -42,6 +42,83 @@ def _num(v) -> float:
         return 0.0
 
 
+def _pulse_net_ifaces(guest: dict) -> list[dict]:
+    """Turn Pulse's network-interface payload into the shape the
+    Hosts-view NETWORK card expects: ``[{name, mac, addrs: []}]``.
+
+    Covers three variants seen across Pulse versions / guest types:
+      - ``networkInterfaces`` (qemu guest-agent list; each entry has
+        ``name`` + ``mac-address`` / ``mac`` + ``ip-addresses`` /
+        ``addresses`` / ``ips``).
+      - ``net`` (LXC config — dict keyed ``net0`` / ``net1`` / ... or
+        a list; each entry's ``ip`` is a comma-separated string, MAC
+        under ``hwaddr`` / ``mac``).
+      - ``ips`` (flat list of strings — no MAC / NIC name, rendered
+        under a single blank-named interface so nothing's hidden).
+    """
+    out: list[dict] = []
+    nis = guest.get("networkInterfaces")
+    if isinstance(nis, list):
+        for ni in nis:
+            if not isinstance(ni, dict):
+                continue
+            name = str(ni.get("name") or ni.get("n") or "").strip()
+            if not name:
+                continue
+            mac = str(
+                ni.get("mac-address") or ni.get("mac")
+                or ni.get("hwaddr") or ni.get("m") or ""
+            ).strip()
+            raw_addrs = (
+                ni.get("ip-addresses")
+                or ni.get("addresses")
+                or ni.get("ips")
+                or ni.get("a")
+                or []
+            )
+            addrs: list = []
+            if isinstance(raw_addrs, list):
+                for a in raw_addrs:
+                    if isinstance(a, str):
+                        addrs.append(a.strip())
+                    elif isinstance(a, dict):
+                        ip = a.get("ip-address") or a.get("ip") or a.get("addr")
+                        prefix = a.get("prefix") or a.get("prefix-len")
+                        if ip:
+                            addrs.append(f"{ip}/{prefix}" if prefix else str(ip))
+            out.append({
+                "name":  name,
+                "mac":   mac,
+                "addrs": [a for a in addrs if a],
+            })
+
+    # LXC ``net`` dict variant — {"net0": {"name":"eth0","ip":"...","hwaddr":"..."}}
+    nets = guest.get("net")
+    if isinstance(nets, dict):
+        nets = list(nets.values())
+    if isinstance(nets, list):
+        for ni in nets:
+            if not isinstance(ni, dict):
+                continue
+            name = str(ni.get("name") or "eth0").strip()
+            mac = str(ni.get("hwaddr") or ni.get("mac") or "").strip()
+            raw_ip = ni.get("ip") or ni.get("ip6") or ""
+            addrs = [p.strip() for p in str(raw_ip).split(",") if p.strip()]
+            if name or addrs:
+                out.append({"name": name, "mac": mac, "addrs": addrs})
+
+    # Bare ``ips`` flat list — last-resort fallback.
+    if not out:
+        ips = guest.get("ips")
+        if isinstance(ips, list) and ips:
+            out.append({
+                "name":  "",
+                "mac":   "",
+                "addrs": [str(a) for a in ips if a],
+            })
+    return out
+
+
 async def _fetch_state(
     client: httpx.AsyncClient,
     base_url: str,
@@ -125,6 +202,26 @@ def extract_guest_stats(guest: dict) -> dict:
     # ``pulse_*`` fields and renders as its own row in the SYSTEM
     # card, so nothing is lost.
     os_hint = str(guest.get("osName") or guest.get("os") or "").strip()
+    # Network interfaces — Pulse emits ``networkInterfaces`` (qemu
+    # guest-agent) or ``net`` / ``ip`` fields (LXC config). Normalise
+    # into the same {name, mac, addrs:[]} shape Beszel uses so the
+    # frontend's NETWORK card renders identically regardless of
+    # which provider supplied the data.
+    net_ifaces = _pulse_net_ifaces(guest)
+    # Synthesise a single-mount entry from the aggregate ``disk`` /
+    # ``maxdisk`` Pulse reports — LXCs/VMs get one "/" row in the
+    # DISKS card the same way Beszel's container-mode agent shows
+    # them. Only emitted when we actually have totals so it doesn't
+    # render a meaningless 0% bar.
+    synth_mounts: list = []
+    if disk_max > 0:
+        synth_mounts.append({
+            "n":  "/",
+            "d":  disk_max / gib,     # extract_stats-shape: GiB float
+            "du": disk / gib,
+            "dp": (disk / disk_max * 100) if disk_max > 0 else 0,
+            "dr": 0, "dw": 0,
+        })
     return {
         "host_mem_total":    int(mem_max),
         "host_mem_used":     int(mem),
@@ -148,7 +245,14 @@ def extract_guest_stats(guest: dict) -> dict:
         # best-effort hint for Beszel-less hosts; Beszel's real value
         # still wins via _merge_best when both providers match.
         "host_os":           os_hint,
-        "mounts":            [],
+        # Single synthesised "/" entry from Pulse's aggregate disk —
+        # superseded by Beszel's real per-mount list when both
+        # providers match the same host.
+        "mounts":            synth_mounts,
+        # Network interfaces extracted from Pulse guest config — same
+        # shape as Beszel's network_ifaces so the frontend doesn't
+        # care which provider filled the array.
+        "network_ifaces":    net_ifaces,
         "exporter_error":    None,
         "pulse_status":      str(guest.get("status") or "unknown"),
         # Empty when we can't determine kind — template's ``x-if``
