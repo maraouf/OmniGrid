@@ -42,6 +42,67 @@ def _num(v) -> float:
         return 0.0
 
 
+def _pulse_mounts(guest: dict, gib: float) -> list[dict]:
+    """Extract per-mount disk entries from a Pulse guest record.
+
+    Pulse exposes multi-mount data under several keys depending on
+    version + guest type:
+      - ``disks`` / ``filesystems`` — arrays of ``{name/mountpoint,
+        used, total}``.
+      - ``storage`` / ``mountpoints`` — similar arrays from LXC
+        config.
+      - ``mountpoints`` inside ``config`` — newer PVE output.
+
+    We walk all the known paths and return a list in the same
+    GiB-float shape Beszel's ``extra filesystems`` produce, so the
+    frontend's DISKS card iterates one consistent schema.
+    """
+    out: list[dict] = []
+    containers = []
+    for k in ("disks", "filesystems", "mountpoints", "storage"):
+        v = guest.get(k)
+        if isinstance(v, list):
+            containers.append(v)
+        elif isinstance(v, dict):
+            containers.append(list(v.values()))
+    cfg = guest.get("config")
+    if isinstance(cfg, dict):
+        mp = cfg.get("mountpoints")
+        if isinstance(mp, list):
+            containers.append(mp)
+        elif isinstance(mp, dict):
+            containers.append(list(mp.values()))
+    for arr in containers:
+        for m in arr:
+            if not isinstance(m, dict):
+                continue
+            name = str(
+                m.get("mountpoint") or m.get("mp")
+                or m.get("name") or m.get("path") or ""
+            ).strip()
+            if not name:
+                continue
+            total = _num(m.get("total") or m.get("max") or m.get("maxdisk") or m.get("size"))
+            used = _num(m.get("used") or m.get("disk") or m.get("diskUsed"))
+            # Heuristic: bytes vs GiB — values under 10M are GiB.
+            if 0 < total < 10_000_000:
+                total_gib = total
+                used_gib  = used
+            else:
+                total_gib = total / gib if total else 0
+                used_gib  = used  / gib if used  else 0
+            out.append({
+                "n":  name,
+                "d":  total_gib,
+                "du": used_gib,
+                "dp": (used_gib / total_gib * 100) if total_gib > 0 else 0,
+                "dr": 0, "dw": 0,
+            })
+    # Most-full first, matching Beszel's sort order.
+    out.sort(key=lambda r: r.get("dp", 0), reverse=True)
+    return out
+
+
 def _pulse_net_ifaces(guest: dict) -> list[dict]:
     """Turn Pulse's network-interface payload into the shape the
     Hosts-view NETWORK card expects: ``[{name, mac, addrs: []}]``.
@@ -208,13 +269,14 @@ def extract_guest_stats(guest: dict) -> dict:
     # frontend's NETWORK card renders identically regardless of
     # which provider supplied the data.
     net_ifaces = _pulse_net_ifaces(guest)
-    # Synthesise a single-mount entry from the aggregate ``disk`` /
-    # ``maxdisk`` Pulse reports — LXCs/VMs get one "/" row in the
-    # DISKS card the same way Beszel's container-mode agent shows
-    # them. Only emitted when we actually have totals so it doesn't
-    # render a meaningless 0% bar.
-    synth_mounts: list = []
-    if disk_max > 0:
+    # Mounts — Pulse sometimes exposes per-filesystem breakdown via
+    # ``disks`` / ``filesystems`` / ``mountpoints`` (exact key varies
+    # between versions and between qemu vs lxc). We harvest from
+    # every known shape, then fall back to a synthesised ``/`` entry
+    # built from the aggregate ``disk`` / ``maxdisk`` numbers so the
+    # DISKS card always has something to render when Pulse matched.
+    synth_mounts: list = _pulse_mounts(guest, gib)
+    if not synth_mounts and disk_max > 0:
         synth_mounts.append({
             "n":  "/",
             "d":  disk_max / gib,     # extract_stats-shape: GiB float
@@ -438,6 +500,23 @@ async def probe_pulse(
     # Guests come second so their keys don't collide with node keys —
     # if a guest happens to share a name with a node (rare), the guest
     # wins because it has more specific stats.
+    # Dump per-mount detection on the first guest so operators can
+    # see whether Pulse is even emitting multi-mount data. The
+    # ``_pulse_mounts`` helper walks disks / filesystems /
+    # mountpoints / storage / config.mountpoints — empty output
+    # means Pulse isn't reporting those keys for this guest type,
+    # and we fall back to the synthesised single "/" entry.
+    if guests:
+        g0 = guests[0] or {}
+        mp_keys = [k for k in ("disks", "filesystems", "mountpoints",
+                               "storage") if k in g0]
+        if isinstance(g0.get("config"), dict) and "mountpoints" in g0["config"]:
+            mp_keys.append("config.mountpoints")
+        parsed = _pulse_mounts(g0, 1024 ** 3)
+        print(f"[pulse] sample guest mount keys present={mp_keys} "
+              f"parsed_count={len(parsed)} "
+              f"names={[m.get('n') for m in parsed[:5]]}")
+
     for g in guests:
         if not isinstance(g, dict):
             continue

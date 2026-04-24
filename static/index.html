@@ -950,6 +950,23 @@
           </span>
         </div>
         <div class="flex items-center gap-2 flex-wrap">
+          <!-- Manual refresh — waits on the same /api/hosts endpoint
+               the 15s poller uses but doesn't reset the timer; next
+               auto-refresh still fires on schedule. Spin icon when
+               a fetch is in-flight. -->
+          <button @click="loadHosts()"
+                  :disabled="hostsLoading"
+                  class="btn btn-ghost text-[12px] flex items-center gap-1.5"
+                  title="Force refresh now — normally polls every 15s.">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
+                 :class="hostsLoading ? 'animate-spin' : ''">
+              <polyline points="23 4 23 10 17 10"/>
+              <polyline points="1 20 1 14 7 14"/>
+              <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>
+            </svg>
+            <span x-show="!hostsLoading">Refresh</span>
+            <span x-show="hostsLoading">Refreshing…</span>
+          </button>
           <a :href="settings.beszel_hub_url || '#'" target="_blank" rel="noopener"
              x-show="settings.beszel_hub_url"
              class="btn btn-ghost text-[12px] flex items-center gap-1.5"
@@ -2757,8 +2774,24 @@
           </template>
         </datalist>
 
+        <!-- Search filter — same pattern as the Hosts-view filter.
+             Only appears when there are enough rows to make scanning
+             visually tedious. Empty input = show all. -->
+        <div x-show="!hostsConfigLoading && hostsConfig.length > 3"
+             class="flex items-center gap-2 mb-3">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-[var(--text-faint)]"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+          <input type="search" x-model="hostsConfigFilter"
+                 class="flex-1 text-[12.5px] py-1.5"
+                 placeholder="Filter hosts by id, label, provider name, URL…">
+          <span class="text-[10.5px] text-[var(--text-faint)]"
+                x-show="hostsConfigFilter"
+                x-text="filteredHostsConfig().length + ' of ' + hostsConfig.length"></span>
+          <button x-show="hostsConfigFilter" @click="hostsConfigFilter=''"
+                  class="btn btn-ghost text-[11px]" title="Clear filter">✕</button>
+        </div>
+
         <div x-show="!hostsConfigLoading" class="space-y-3">
-          <template x-for="(row, idx) in hostsConfig" :key="idx">
+          <template x-for="{ row, idx } in filteredHostsConfig()" :key="idx">
             <div class="border border-[var(--border)] rounded-md bg-[var(--surface-2)] p-3 space-y-3">
               <!-- Row 1 — identity + toggles -->
               <div class="grid grid-cols-1 md:grid-cols-[1fr_1fr_auto_auto] gap-3 items-end">
@@ -2922,6 +2955,15 @@
             Click <strong>+ Add host</strong> below to define one, or
             <strong>Discover from providers</strong> to pull every name
             the enabled providers know about.
+          </div>
+          <!-- Filter-out-everything state — distinct from the
+               no-hosts state so the operator knows the rows exist,
+               they're just filtered. -->
+          <div x-show="hostsConfig.length > 0 && filteredHostsConfig().length === 0"
+               class="text-center py-8 text-[var(--text-faint)] text-[12.5px] italic">
+            No hosts match your filter.
+            <button @click="hostsConfigFilter=''"
+                    class="text-[var(--primary)] hover:underline not-italic ms-2">Clear</button>
           </div>
         </div>
 

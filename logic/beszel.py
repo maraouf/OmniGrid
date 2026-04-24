@@ -511,6 +511,23 @@ async def probe_hub(
     except Exception as e:
         return {"systems": {}, "error": str(e)}
 
+    # Log the first system_stats row's ``efs`` contents so an
+    # operator can confirm what Beszel is actually sending for each
+    # host. An empty ``efs`` on a machine with multiple mounts means
+    # the Beszel agent wasn't started with ``EXTRA_FILESYSTEMS=...``.
+    if latest_stats:
+        sample_sid = next(iter(latest_stats))
+        sample = latest_stats[sample_sid] or {}
+        efs = sample.get("efs")
+        if efs:
+            shape = "dict" if isinstance(efs, dict) else type(efs).__name__
+            keys = list(efs.keys()) if isinstance(efs, dict) else (efs if isinstance(efs, list) else [])
+            print(f"[beszel] sample efs for system_id={sample_sid!r}: "
+                  f"type={shape} count={len(keys)} keys={keys[:8]}")
+        else:
+            print(f"[beszel] sample system_id={sample_sid!r} has no 'efs' key — "
+                  f"agent probably not configured with EXTRA_FILESYSTEMS")
+
     out: dict[str, dict] = {}
     for rec in records:
         # Match against ``host`` first (the hostname the Beszel agent
@@ -532,6 +549,14 @@ async def probe_hub(
         # alone doesn't carry.
         rec_id = rec.get("id") or ""
         stats = extract_stats(info, latest_stats.get(rec_id))
+        mounts = stats.get("mounts") or []
+        if mounts:
+            print(f"[beszel] host={host_key!r} mounts={len(mounts)}: "
+                  + ", ".join(f"{m.get('n')}={m.get('du'):.1f}/{m.get('d'):.1f} GiB"
+                              for m in mounts[:5]))
+        else:
+            print(f"[beszel] host={host_key!r} mounts=0 — agent not reporting efs "
+                  f"(use EXTRA_FILESYSTEMS env on the Beszel agent to enable multi-mount)")
         # Carry the top-level status so callers can tell a paused /
         # down system from one that's actually fresh.
         stats["beszel_status"] = rec.get("status") or "unknown"

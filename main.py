@@ -1345,6 +1345,8 @@ async def api_hosts():
     for entry in out:
         h = entry["_host_record"]
         s = entry["_merged"]
+        mounts = s.get("mounts") or []
+        nics = s.get("network_ifaces") or []
         print(
             f"[hosts] merged id={h.get('id')!r} "
             f"providers={entry['_providers']} "
@@ -1352,7 +1354,9 @@ async def api_hosts():
             f"arch={s.get('host_arch')!r} "
             f"kernel={(s.get('host_kernel') or '')[:40]!r} "
             f"platform={s.get('host_platform')!r} "
-            f"os={s.get('host_os')!r}"
+            f"os={s.get('host_os')!r} "
+            f"mounts={len(mounts)} ({[m.get('n') or m.get('name') for m in mounts]}) "
+            f"nics={len(nics)}"
         )
         hosts.append({
             "id":              h["id"],

@@ -68,6 +68,7 @@ function app() {
     hostsConfigLoading: false,
     hostsConfigSaving: false,
     hostsConfigDirty: false,
+    hostsConfigFilter: '',
     // Datalist-backed autocomplete source for the Hosts editor.
     // Filled by discoverHosts() on demand; stays empty until the
     // operator asks.
@@ -2988,6 +2989,22 @@ function app() {
         this.hostsDiscovering = false;
       }
     },
+    // Admin-editor view filter. We return a list of ``{row, idx}``
+    // tuples so the template can render only matching rows while
+    // still having the original index for move/remove/test actions.
+    filteredHostsConfig() {
+      const q = (this.hostsConfigFilter || '').trim().toLowerCase();
+      const all = (this.hostsConfig || []).map((row, idx) => ({ row, idx }));
+      if (!q) return all;
+      return all.filter(({ row }) => {
+        const hay = [
+          row.id, row.label, row.ne_url,
+          row.beszel_name, row.pulse_name, row.url, row.icon,
+        ].filter(Boolean).join(' ').toLowerCase();
+        return hay.includes(q);
+      });
+    },
+
     // Count of discovered names not already present in hostsConfig —
     // drives the "Import N discovered" button label / visibility so
     // the operator doesn't import duplicates by accident.
