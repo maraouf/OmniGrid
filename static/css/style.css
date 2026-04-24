@@ -2671,7 +2671,7 @@ body.login {
 /* ---------------------------------------------------------------------------
    DISKS card — tighter per-mount spacing
 
-   Hosts with many ZFS datasets (img_14.png: 12 mounts, 10 of them
+   Hosts with many ZFS datasets
    0.0%) turn the expanded card into a wall of rows. .disk-mount-row
    tightens the vertical rhythm so ~10 visible mounts fit in the
    footprint the old 3-4 row layout used. Pairs with visibleMounts()

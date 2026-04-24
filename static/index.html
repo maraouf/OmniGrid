@@ -1141,12 +1141,17 @@
               </svg>
               <span class="font-semibold text-[12px]"
                     x-text="bucket.group ? bucket.group.name : t('hosts_extra_groups.ungrouped_label')"></span>
-              <span x-show="bucket.group" class="pill pill-info text-[10px] mono"
-                    x-text="'#' + bucket.group.range_start + '–' + bucket.group.range_end"></span>
-              <span x-show="bucket.group && bucket.group.ip_range" class="pill pill-info text-[10px] mono"
-                    x-text="bucket.group && bucket.group.ip_range"></span>
-              <span class="text-[10.5px] text-[var(--text-faint)] ms-auto"
-                    x-text="bucket.hosts.length === 1 ? t('hosts_extra_groups.count_one', {count: bucket.hosts.length}) : t('hosts_extra_groups.count_many', {count: bucket.hosts.length})"></span>
+              <!-- Right-aligned cluster: range + IP chips immediately
+                   before the host count so they read as a single
+                   metadata strip on the right. -->
+              <div class="flex items-center gap-2 ms-auto">
+                <span x-show="bucket.group" class="pill pill-info text-[10px] mono"
+                      x-text="'#' + bucket.group.range_start + '–' + bucket.group.range_end"></span>
+                <span x-show="bucket.group && bucket.group.ip_range" class="pill pill-info text-[10px] mono"
+                      x-text="bucket.group && bucket.group.ip_range"></span>
+                <span class="text-[10.5px] text-[var(--text-faint)]"
+                      x-text="bucketTotalHosts(bucket) === 1 ? t('hosts_extra_groups.count_one', {count: bucketTotalHosts(bucket)}) : t('hosts_extra_groups.count_many', {count: bucketTotalHosts(bucket)})"></span>
+              </div>
             </div>
             <!-- Sub-group headings with their hosts (2-level, #134). -->
             <template x-for="(sub, si) in (bucket.children || [])" :key="'sub-m:' + (bucket.group ? bucket.group.name : '_') + '>' + sub.group.name + ':' + si">
@@ -1159,12 +1164,14 @@
                     <polyline points="9 18 15 12 9 6"/>
                   </svg>
                   <span class="font-semibold text-[11.5px]" x-text="sub.group.name"></span>
-                  <span class="pill pill-info text-[10px] mono"
-                        x-text="'#' + sub.group.range_start + '–' + sub.group.range_end"></span>
-                  <span x-show="sub.group.ip_range" class="pill pill-info text-[10px] mono"
-                        x-text="sub.group.ip_range"></span>
-                  <span class="text-[10.5px] text-[var(--text-faint)] ms-auto"
-                        x-text="sub.hosts.length === 1 ? t('hosts_extra_groups.count_one', {count: sub.hosts.length}) : t('hosts_extra_groups.count_many', {count: sub.hosts.length})"></span>
+                  <div class="flex items-center gap-2 ms-auto">
+                    <span class="pill pill-info text-[10px] mono"
+                          x-text="'#' + sub.group.range_start + '–' + sub.group.range_end"></span>
+                    <span x-show="sub.group.ip_range" class="pill pill-info text-[10px] mono"
+                          x-text="sub.group.ip_range"></span>
+                    <span class="text-[10.5px] text-[var(--text-faint)]"
+                          x-text="sub.hosts.length === 1 ? t('hosts_extra_groups.count_one', {count: sub.hosts.length}) : t('hosts_extra_groups.count_many', {count: sub.hosts.length})"></span>
+                  </div>
                 </div>
                 <template x-for="h in sub.hosts" :key="'sub-m:' + h.host">
                   <div class="host-mobile-card ms-4"
@@ -1289,12 +1296,14 @@
               </svg>
               <span class="font-semibold text-[12px]"
                     x-text="bucket.group ? bucket.group.name : t('hosts_extra_groups.ungrouped_label')"></span>
-              <span x-show="bucket.group" class="pill pill-info text-[10px] mono"
-                    x-text="'#' + bucket.group.range_start + '–' + bucket.group.range_end"></span>
-              <span x-show="bucket.group && bucket.group.ip_range" class="pill pill-info text-[10px] mono"
-                    x-text="bucket.group && bucket.group.ip_range"></span>
-              <span class="text-[10.5px] text-[var(--text-faint)] ms-auto"
-                    x-text="bucket.hosts.length === 1 ? t('hosts_extra_groups.count_one', {count: bucket.hosts.length}) : t('hosts_extra_groups.count_many', {count: bucket.hosts.length})"></span>
+              <div class="flex items-center gap-2 ms-auto">
+                <span x-show="bucket.group" class="pill pill-info text-[10px] mono"
+                      x-text="'#' + bucket.group.range_start + '–' + bucket.group.range_end"></span>
+                <span x-show="bucket.group && bucket.group.ip_range" class="pill pill-info text-[10px] mono"
+                      x-text="bucket.group && bucket.group.ip_range"></span>
+                <span class="text-[10.5px] text-[var(--text-faint)]"
+                      x-text="bucketTotalHosts(bucket) === 1 ? t('hosts_extra_groups.count_one', {count: bucketTotalHosts(bucket)}) : t('hosts_extra_groups.count_many', {count: bucketTotalHosts(bucket)})"></span>
+              </div>
             </div>
             <!-- Sub-group headings + their hosts (2-level nesting, #134).
                  Each sub-group has its own collapse state. A host that
@@ -1311,12 +1320,14 @@
                     <polyline points="9 18 15 12 9 6"/>
                   </svg>
                   <span class="font-semibold text-[12px]" x-text="sub.group.name"></span>
-                  <span class="pill pill-info text-[10px] mono"
-                        x-text="'#' + sub.group.range_start + '–' + sub.group.range_end"></span>
-                  <span x-show="sub.group.ip_range" class="pill pill-info text-[10px] mono"
-                        x-text="sub.group.ip_range"></span>
-                  <span class="text-[10.5px] text-[var(--text-faint)] ms-auto"
-                        x-text="sub.hosts.length === 1 ? t('hosts_extra_groups.count_one', {count: sub.hosts.length}) : t('hosts_extra_groups.count_many', {count: sub.hosts.length})"></span>
+                  <div class="flex items-center gap-2 ms-auto">
+                    <span class="pill pill-info text-[10px] mono"
+                          x-text="'#' + sub.group.range_start + '–' + sub.group.range_end"></span>
+                    <span x-show="sub.group.ip_range" class="pill pill-info text-[10px] mono"
+                          x-text="sub.group.ip_range"></span>
+                    <span class="text-[10.5px] text-[var(--text-faint)]"
+                          x-text="sub.hosts.length === 1 ? t('hosts_extra_groups.count_one', {count: sub.hosts.length}) : t('hosts_extra_groups.count_many', {count: sub.hosts.length})"></span>
+                  </div>
                 </div>
                 <template x-for="h in sub.hosts" :key="'sub-d:' + h.host">
                   <div class="border-b border-[var(--border)] last:border-b-0"
@@ -1701,11 +1712,14 @@
                      Cores come from the host-daemon agent; container
                      agents omit them. Threads / Memory / Disk / Agent /
                      Status are always emitted, so they always render.
-                     Hidden when the host isn't reporting stats (no
-                     point showing "Status: PAUSED" on its own — the
-                     status dot at the top of the row already says
-                     that, and an empty card adds visual noise). -->
-                <section x-show="h.status === 'up'" class="rounded border border-[var(--border)] bg-[var(--surface)] p-4">
+                     Card visible when EITHER the host is up (live
+                     metrics) OR an asset-inventory match exists
+                     (vendor / model / serial from oufa.co — useful
+                     even for hosts with no live providers like FTTH
+                     routers / 5G modems). Each row inside is gated
+                     on its own field so cards stay tidy when only
+                     one source contributes data. -->
+                <section x-show="h.status === 'up' || assetForHost(h)" class="rounded border border-[var(--border)] bg-[var(--surface)] p-4">
                   <h4 class="text-[10.5px] uppercase tracking-wider text-[var(--text-faint)] mb-3" x-text="t('host_drawer.hardware.heading')"></h4>
                   <dl class="grid grid-cols-[auto_1fr] gap-x-4 gap-y-2 text-[12px]">
                     <template x-if="h.cpu_model">
@@ -1803,6 +1817,165 @@
                   </dl>
                 </section>
 
+                <!-- ASSET INVENTORY (rich) — sourced from the cached
+                     oufa.co snapshot. Surfaces the metadata that NO
+                     live provider can: hostnames, ordered interfaces
+                     (with MAC + comment + IP), ports + service URLs,
+                     SKU, firmware, RAM as DB record, location, free-
+                     text comment, and a "Edit on oufa.co" link for
+                     in-place updates. Visible whenever assetForHost
+                     returns a row — works even on hosts with no
+                     beszel/pulse/exporter/webmin (FTTH routers / 5G
+                     modems / etc). -->
+                <template x-if="assetForHost(h)">
+                  <section class="rounded border border-[var(--border)] bg-[var(--surface)] p-4">
+                    <div class="flex items-center justify-between mb-3">
+                      <h4 class="text-[10.5px] uppercase tracking-wider text-[var(--text-faint)]"
+                          x-text="t('host_drawer.asset.heading')"></h4>
+                      <a x-show="assetEditUrl(assetForHost(h))"
+                         :href="assetEditUrl(assetForHost(h))" target="_blank" rel="noopener"
+                         class="text-[11px] text-[var(--primary)] hover:underline"
+                         :title="t('host_drawer.asset.edit_title')"
+                         x-text="t('host_drawer.asset.edit_link')"></a>
+                    </div>
+                    <dl class="grid grid-cols-[auto_1fr] gap-x-4 gap-y-2 text-[12px]">
+                      <template x-if="assetForHost(h).name">
+                        <dt class="text-[var(--text-dim)]" x-text="t('host_drawer.asset.name')"></dt>
+                      </template>
+                      <template x-if="assetForHost(h).name">
+                        <dd class="text-end break-all" x-text="assetForHost(h).name"></dd>
+                      </template>
+                      <template x-if="assetForHost(h).type">
+                        <dt class="text-[var(--text-dim)]" x-text="t('host_drawer.asset.type')"></dt>
+                      </template>
+                      <template x-if="assetForHost(h).type">
+                        <dd class="text-end break-all" x-text="assetForHost(h).type"></dd>
+                      </template>
+                      <template x-if="(assetForHost(h).hostnames || []).length">
+                        <dt class="text-[var(--text-dim)]" x-text="t('host_drawer.asset.hostnames')"></dt>
+                      </template>
+                      <template x-if="(assetForHost(h).hostnames || []).length">
+                        <dd class="text-end mono break-all">
+                          <template x-for="hn in assetForHost(h).hostnames" :key="hn">
+                            <div x-text="hn"></div>
+                          </template>
+                        </dd>
+                      </template>
+                      <template x-if="assetForHost(h).location">
+                        <dt class="text-[var(--text-dim)]" x-text="t('host_drawer.asset.location')"></dt>
+                      </template>
+                      <template x-if="assetForHost(h).location">
+                        <dd class="text-end" x-text="assetForHost(h).location"></dd>
+                      </template>
+                      <template x-if="assetForHost(h).serial">
+                        <dt class="text-[var(--text-dim)]" x-text="t('host_drawer.asset.serial')"></dt>
+                      </template>
+                      <template x-if="assetForHost(h).serial">
+                        <dd class="mono text-end break-all text-[var(--text-faint)]"
+                            x-text="assetForHost(h).serial"></dd>
+                      </template>
+                      <template x-if="assetForHost(h).sku">
+                        <dt class="text-[var(--text-dim)]" x-text="t('host_drawer.asset.sku')"></dt>
+                      </template>
+                      <template x-if="assetForHost(h).sku">
+                        <dd class="mono text-end break-all" x-text="assetForHost(h).sku"></dd>
+                      </template>
+                      <template x-if="assetForHost(h).ram">
+                        <dt class="text-[var(--text-dim)]" x-text="t('host_drawer.asset.ram')"></dt>
+                      </template>
+                      <template x-if="assetForHost(h).ram">
+                        <dd class="mono text-end" x-text="assetForHost(h).ram"></dd>
+                      </template>
+                      <template x-if="assetForHost(h).firmware">
+                        <dt class="text-[var(--text-dim)]" x-text="t('host_drawer.asset.firmware')"></dt>
+                      </template>
+                      <template x-if="assetForHost(h).firmware">
+                        <dd class="mono text-end break-all" x-text="assetForHost(h).firmware"></dd>
+                      </template>
+                      <template x-if="assetForHost(h).hardware_version">
+                        <dt class="text-[var(--text-dim)]" x-text="t('host_drawer.asset.hardware_version')"></dt>
+                      </template>
+                      <template x-if="assetForHost(h).hardware_version">
+                        <dd class="mono text-end" x-text="assetForHost(h).hardware_version"></dd>
+                      </template>
+                      <template x-if="assetForHost(h).status_name">
+                        <dt class="text-[var(--text-dim)]" x-text="t('host_drawer.asset.status')"></dt>
+                      </template>
+                      <template x-if="assetForHost(h).status_name">
+                        <dd class="text-end" x-text="assetForHost(h).status_name"></dd>
+                      </template>
+                    </dl>
+
+                    <!-- Interfaces — ordered by Number then Name in the
+                         resolver. Each row: name + IP + MAC + optional
+                         comment. Disabled interfaces dim. -->
+                    <template x-if="(assetForHost(h).interfaces || []).length">
+                      <div class="mt-4 pt-3 border-t border-[var(--border)]">
+                        <div class="text-[10.5px] uppercase tracking-wider text-[var(--text-faint)] mb-2"
+                             x-text="t('host_drawer.asset.interfaces_heading')"></div>
+                        <div class="space-y-1.5">
+                          <template x-for="iface in assetForHost(h).interfaces" :key="iface.number + ':' + iface.name + ':' + iface.ip">
+                            <div class="grid grid-cols-[1fr_auto] gap-x-3 text-[12px]"
+                                 :class="iface.enabled ? '' : 'opacity-50'">
+                              <div class="flex items-center gap-2 min-w-0">
+                                <span x-show="iface.number != null"
+                                      class="pill pill-info text-[10px] mono"
+                                      x-text="'#' + iface.number"></span>
+                                <span class="font-semibold mono" x-text="iface.name || '—'"></span>
+                                <span x-show="iface.comment"
+                                      class="text-[10.5px] text-[var(--text-faint)] truncate"
+                                      :title="iface.comment"
+                                      x-text="'· ' + iface.comment"></span>
+                              </div>
+                              <div class="text-end mono">
+                                <span x-show="iface.ip" x-text="iface.ip"></span>
+                                <span x-show="iface.mac"
+                                      class="ms-2 text-[10.5px] text-[var(--text-faint)]"
+                                      x-text="iface.mac"></span>
+                              </div>
+                            </div>
+                          </template>
+                        </div>
+                      </div>
+                    </template>
+
+                    <!-- Ports / services — each row a name + port,
+                         optional clickable service URL when the
+                         field starts with http(s). -->
+                    <template x-if="(assetForHost(h).ports || []).length">
+                      <div class="mt-4 pt-3 border-t border-[var(--border)]">
+                        <div class="text-[10.5px] uppercase tracking-wider text-[var(--text-faint)] mb-2"
+                             x-text="t('host_drawer.asset.ports_heading')"></div>
+                        <div class="flex flex-wrap gap-1.5">
+                          <template x-for="port in assetForHost(h).ports" :key="port.id || (port.name + ':' + port.number)">
+                            <a x-show="assetPortServiceUrl(port)"
+                               :href="assetPortServiceUrl(port)" target="_blank" rel="noopener"
+                               class="pill pill-info text-[10.5px] mono hover:underline"
+                               :title="port.protocol || ''"
+                               x-text="port.name + (port.number != null ? ' :' + port.number : '')"></a>
+                            <span x-show="!assetPortServiceUrl(port)"
+                                  class="pill text-[10.5px] mono"
+                                  :title="port.protocol || ''"
+                                  x-text="port.name + (port.number != null ? ' :' + port.number : '')"></span>
+                          </template>
+                        </div>
+                      </div>
+                    </template>
+
+                    <!-- Free-text comment — preserves multi-line so
+                         install notes / WiFi creds / IMEI logs read
+                         the way they were entered upstream. -->
+                    <template x-if="assetForHost(h).comment">
+                      <div class="mt-4 pt-3 border-t border-[var(--border)]">
+                        <div class="text-[10.5px] uppercase tracking-wider text-[var(--text-faint)] mb-2"
+                             x-text="t('host_drawer.asset.comment')"></div>
+                        <pre class="text-[11.5px] whitespace-pre-wrap break-words text-[var(--text-dim)]"
+                             x-text="assetForHost(h).comment"></pre>
+                      </div>
+                    </template>
+                  </section>
+                </template>
+
                 <!-- NETWORK — each interface rendered as a block with
                      its MAC (muted) and IPv4 / IPv6 addresses colour-
                      coded by family. Matches Beszel's own layout so
@@ -1879,7 +2052,6 @@
                          populated — full-host Beszel agents only).
                          Zero-usage mounts collapse behind a toggle
                          to keep hosts with many ZFS datasets readable
-                         (see img_14.png: 12 mounts, 10 at 0.0% swamps
                          the card). visibleMounts(h) returns the
                          above-threshold set; toggleHostShowEmptyDisks
                          expands to show the remainder. -->
@@ -3914,7 +4086,7 @@
       <section x-show="adminTab==='hosts'" class="bg-[var(--surface)] border border-[var(--border)] rounded-md p-5">
         <!-- Heading + intro take full width; actions wrap to a new
              row below so the intro doesn't squeeze into a 6-line
-             sliver on typical desktops (tmp/img_20.png). -->
+             sliver on typical desktops -->
         <div class="mb-3">
           <h3 class="font-semibold text-[14px]">Hosts</h3>
           <p class="text-[12px] text-[var(--text-faint)] mt-1 leading-snug max-w-[720px]">

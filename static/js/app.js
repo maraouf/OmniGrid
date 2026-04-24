@@ -4429,7 +4429,7 @@ function app() {
     // Helper returning the mounts that SHOULD render for this host.
     // Thresholds: a mount is "active" when its usage % is >= 0.5. The
     // UI shows active mounts by default; zero-usage mounts collapse
-    // behind a toggle so hosts with 20 ZFS datasets (img_14.png) don't
+    // behind a toggle so hosts with 20 ZFS datasetsdon't
     // blow out the drawer. When the operator has flipped the toggle
     // on, every mount is returned.
     visibleMounts(h) {
@@ -4974,6 +4974,17 @@ function app() {
         .map(({ g }) => g.name);
     },
 
+    // Total hosts in a top-level bucket = its own direct hosts +
+    // every host in its sub-groups. Used for the heading count so
+    // operators see the parent group's "true" reach (otherwise a
+    // parent that has only sub-groups looks like 0 hosts).
+    bucketTotalHosts(bucket) {
+      const own = (bucket && bucket.hosts && bucket.hosts.length) || 0;
+      const sub = ((bucket && bucket.children) || [])
+        .reduce((acc, c) => acc + ((c && c.hosts && c.hosts.length) || 0), 0);
+      return own + sub;
+    },
+
     // Visual order for the groups editor — each top-level group
     // immediately followed by its sub-groups. Operator's `order`
     // field still drives top-level ordering; sub-group order within
@@ -5470,9 +5481,13 @@ function app() {
     // asset list each call — N is small (tens of hosts) so a linear
     // scan avoids the staleness risk of a memoised index when the
     // cache reloads. Returns `null` when no match or no cache.
-    // Reads common field aliases (vendor/manufacturer, model/product,
-    // location/site, serial/serial_number) so the drawer doesn't care
-    // which naming convention the upstream uses.
+    //
+    // Field-name strategy: oufa.co's MDI ships CamelCase + nested
+    // (`Brand: {Name}`, `Location: {CalculatedName}`, `Type: {Name}`,
+    // `SerialNumber`, `Model`, `CustomNumber`, `Hostname` (CSV string),
+    // `Interfaces[].IP`). We also accept the snake_case aliases
+    // (`vendor`/`manufacturer`/`model`/`serial`/`location`/`custom_number`)
+    // so a generic non-MDI upstream still works without a schema map.
     assetForHost(h) {
       if (!h || h.custom_number == null || h.custom_number === '') return null;
       const assets = (this.assetCache && Array.isArray(this.assetCache.assets))
@@ -5480,21 +5495,112 @@ function app() {
       if (!assets || !assets.length) return null;
       const n = parseInt(h.custom_number, 10);
       if (!Number.isFinite(n)) return null;
+      // Walk-helper: accepts a string OR a {Name}/{CalculatedName}
+      // dict and returns the best display string. Catches both flat
+      // and nested upstream shapes in one call.
+      const pick = (...candidates) => {
+        for (const v of candidates) {
+          if (v == null) continue;
+          if (typeof v === 'string' && v.trim()) return v.trim();
+          if (typeof v === 'object') {
+            const s = v.CalculatedName || v.Name || v.name || '';
+            if (typeof s === 'string' && s.trim()) return s.trim();
+          }
+        }
+        return '';
+      };
       for (const a of assets) {
         if (!a) continue;
-        const candidate = a.custom_number ?? a.number ?? a.id;
-        if (parseInt(candidate, 10) === n) {
-          return {
-            vendor:   a.vendor   || a.manufacturer || '',
-            model:    a.model    || a.product      || a.product_name || '',
-            serial:   a.serial   || a.serial_number || '',
-            location: a.location || a.site          || a.room || '',
-            // Raw original for the debug panel to stringify.
-            _raw:     a,
-          };
+        const candidate = a.CustomNumber ?? a.custom_number ?? a.number ?? a.id;
+        if (parseInt(candidate, 10) !== n) continue;
+        // Hostname CSV → array of FQDNs.
+        const hostnameStr = String(a.Hostname || a.hostname || '').trim();
+        const hostnames = hostnameStr ? hostnameStr.split(',').map(s => s.trim()).filter(Boolean) : [];
+        // Interfaces — ordered by `Number` (then `Name`) so the
+        // drawer renders them in the operator's intended order
+        // rather than insertion order.
+        const ifacesRaw = Array.isArray(a.Interfaces) ? a.Interfaces : (a.interfaces || []);
+        const ifaces = ifacesRaw.slice().sort((x, y) => {
+          const xn = (x && x.Number != null) ? x.Number : Infinity;
+          const yn = (y && y.Number != null) ? y.Number : Infinity;
+          if (xn !== yn) return xn - yn;
+          return String((x && x.Name) || '').localeCompare(String((y && y.Name) || ''));
+        }).map(i => ({
+          name:    String((i && (i.Name || i.name)) || '').trim(),
+          ip:      String((i && (i.IP   || i.ip))   || '').trim(),
+          mac:     String((i && (i.MacAddress || i.mac_address)) || '').trim(),
+          number:  (i && i.Number != null) ? i.Number : null,
+          comment: String((i && i.Comment) || '').trim(),
+          enabled: !i || i.IsEnabled !== false,
+          ip_version: String((i && (i.IPVersion || i.ip_version)) || '').trim(),
+        }));
+        // Primary IP — first enabled iface, then any iface, then a
+        // flat `ip` alias on the asset row.
+        let primaryIp = '';
+        if (ifaces.length) {
+          const enabled = ifaces.find(i => i.enabled && i.ip);
+          const any = enabled || ifaces.find(i => i.ip);
+          if (any) primaryIp = any.ip;
         }
+        if (!primaryIp) primaryIp = String(a.ip || '').trim();
+        // Ports — flatten the {Port: {...}} nesting MDI uses so the
+        // template can read port.name / port.number / port.service_name
+        // directly. ServiceName in MDI doubles as a clickable URL
+        // when it starts with http(s); we pass it through unchanged.
+        const portsRaw = Array.isArray(a.Ports) ? a.Ports : (a.ports || []);
+        const ports = portsRaw.map(p => {
+          const inner = (p && (p.Port || p.port)) || {};
+          return {
+            id:           p && (p.ID || p.id),
+            name:         String(inner.Name || inner.name || '').trim(),
+            number:       (inner.Port != null) ? inner.Port : (inner.port != null ? inner.port : null),
+            service_name: String(inner.ServiceName || inner.service_name || '').trim(),
+            protocol:     String(inner.Protocol || inner.protocol || '').trim(),
+          };
+        }).filter(p => p.name || p.number != null);
+        return {
+          id:        a.ID ?? a.id ?? null,
+          vendor:    pick(a.Brand, a.brand, a.vendor, a.manufacturer),
+          model:     pick(a.Model, a.model, a.product, a.product_name),
+          serial:    pick(a.SerialNumber, a.serial, a.serial_number),
+          location:  pick(a.Location, a.location, a.site, a.room),
+          type:      pick(a.Type, a.type),
+          name:      pick(a.Name, a.name),
+          hostnames,
+          primary_ip: primaryIp,
+          ram:       pick(a.RAM, a.ram, a.memory),
+          sku:       pick(a.SKU, a.sku),
+          firmware:  pick(a.Firmware, a.firmware),
+          hardware_version: pick(a.HardwareVersion, a.hardware_version),
+          barcode:   pick(a.Barcode, a.barcode),
+          comment:   pick(a.Comment, a.comment),
+          status_name: pick(a.Status, a.status),
+          interfaces: ifaces,
+          ports,
+          _raw:      a,
+        };
       }
       return null;
+    },
+    // Edit-on-upstream URL for the asset. MDI's admin panel lives at
+    // /admin (the API is at /admin/api), so we strip the trailing
+    // `/api` from the cached `upstream` and tack on `?asset=<id>` —
+    // a stable convention for oufa.co. Returns '' when no upstream
+    // is known (cache empty / never refreshed).
+    assetEditUrl(asset) {
+      if (!asset || asset.id == null) return '';
+      const upstream = (this.assetCache && this.assetCache.upstream) || '';
+      if (!upstream) return '';
+      const adminBase = upstream.replace(/\/api\/?$/, '');
+      return `${adminBase}?asset=${asset.id}`;
+    },
+    // Treat a port's `service_name` as a clickable URL when it starts
+    // with http:// or https://. Otherwise the field is just a label
+    // (or empty). Used by the drawer to render either an <a> or a
+    // plain <span> per port.
+    assetPortServiceUrl(port) {
+      const s = String((port && port.service_name) || '').trim();
+      return /^https?:\/\//i.test(s) ? s : '';
     },
     async refreshAssetCache() {
       this.assetRefreshing = true;
@@ -5705,12 +5811,20 @@ function app() {
       // Admins can always expand — the drawer's debug panel is the
       // canonical tool for diagnosing "host not reporting any data"
       // and must be reachable even when the host is down or unmatched.
-      // Non-admin viewers keep the old gating so dead rows stay non-
-      // interactive (nothing useful to show them anyway).
       if (this.me && this.me.role === 'admin') return true;
-      if (h.status && h.status !== 'up') return false;
-      if (!(h.providers || []).length) return false;
-      return true;
+      // Asset-inventory match → expandable even without live data.
+      // The drawer surfaces vendor / model / serial / interfaces /
+      // ports from the cached oufa.co row, so a host with NO live
+      // providers (FTTH routers / 5G modems / etc. that nothing
+      // scrapes) still has something worth opening.
+      if (this.assetForHost(h)) return true;
+      // Otherwise: any "up" host is expandable. The previous gate
+      // ALSO required `h.providers.length > 0`, which rejected
+      // node-exporter-only hosts where the providers field arrived
+      // a tick later than the status. Status alone is the right
+      // signal — a host whose provider replied with `ok` already
+      // means there's data behind it.
+      return h.status === 'up';
     },
     // --- Debug panel for a single host (admin-only) ---
     // Lazily fetches /api/hosts/debug and caches per host.id. Toggling
