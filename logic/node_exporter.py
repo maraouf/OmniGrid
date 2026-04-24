@@ -441,5 +441,22 @@ async def probe_node(
         stats = parse_exporter_text(text)
     except Exception as e:
         return {"exporter_error": f"parse: {e}"}
+    # Separate pass for network counters. Two fields are added to the
+    # returned dict — both ABSOLUTE counter values, not rates. The
+    # host_net_sampler computes rates across consecutive samples; a
+    # single probe cannot. Per-interface detail lives in ``ne_net_ifaces``
+    # for the debug endpoint. Kept separate from ``network_ifaces`` (the
+    # Beszel/Pulse NIC-list shape) because the counter payload is a
+    # different shape and the merge pipeline MUST NOT pass these
+    # bytes-counters through ``_merge_best`` as NIC lists.
+    try:
+        net = parse_network_counters(text)
+        stats["host_net_rx_total"] = int(net.get("total_rx") or 0)
+        stats["host_net_tx_total"] = int(net.get("total_tx") or 0)
+        stats["ne_net_ifaces"] = net.get("interfaces") or []
+    except Exception as e:
+        # Non-fatal — a malformed exporter line shouldn't blank the rest
+        # of the dict. Log once so operators can find it in Admin → Logs.
+        print(f"[node_exporter] network counter parse failed: {e}")
     stats["exporter_error"] = None
     return stats

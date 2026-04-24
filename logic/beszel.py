@@ -171,6 +171,7 @@ async def fetch_system_history(
     stat_type: str = "1m",
     verify_tls: bool = True,
     timeout: float = 15.0,
+    host_id: Optional[str] = None,
 ) -> dict:
     """Return the last ``hours`` of ``system_stats`` rows for one system.
 
@@ -277,6 +278,64 @@ async def fetch_system_history(
             "ns":  ns,   # net send bytes/s (newer)
             "net": net,  # preferred aggregate for the net chart
         })
+
+    # ---- Net I/O fallback from node-exporter samples --------------------
+    # If the Beszel agent on this host isn't tracking any NIC (the common
+    # ``NICS= unset`` case), every point's ``nr`` / ``ns`` / ``net`` is
+    # zero and the Net In/Out chart renders as a flat line. When the
+    # operator also has node-exporter configured for this host we have
+    # pre-computed rx/tx rates in ``host_net_samples``; swap them in so
+    # the chart lights up. Skipped entirely when ``host_id`` isn't
+    # supplied (non-hosts callers pass it as None) or when the Beszel
+    # series already has real numbers.
+    if series and host_id and all((p.get("nr") or 0) == 0 and (p.get("ns") or 0) == 0
+                                  for p in series):
+        try:
+            from logic import host_net_sampler as _hns
+            since = min(p["t"] for p in series if p.get("t"))
+            ne_samples = _hns.recent_samples(host_id, since - 300)
+        except Exception as e:
+            ne_samples = []
+            print(f"[beszel] net-fallback lookup failed for host_id={host_id!r}: {e}")
+        if ne_samples:
+            # Nearest-neighbour merge within ±150s. Each Beszel point picks
+            # the closest-by-timestamp NE sample; if none is within the
+            # window, the point stays at zero (consistent with "no NE
+            # data covers this minute" — the UI's flat-line hint will
+            # still fire for that point, which is the correct signal).
+            max_skew = 150
+            # ne_samples is oldest-first; convert to a sorted list of ts
+            # once so each binary-search-adjacent scan is cheap.
+            ne_ts = [s["ts"] for s in ne_samples]
+            patched = 0
+            for p in series:
+                t = p.get("t") or 0
+                if not t:
+                    continue
+                # Linear scan — series is <= hours*60 points, ne_samples
+                # similarly bounded. At most a few hundred comparisons.
+                best = None
+                best_d = max_skew + 1
+                for s in ne_samples:
+                    d = abs(s["ts"] - t)
+                    if d < best_d:
+                        best_d = d
+                        best = s
+                if best is not None and best_d <= max_skew:
+                    nr_v = float(best["rx_bytes_per_s"])
+                    ns_v = float(best["tx_bytes_per_s"])
+                    p["nr"] = nr_v
+                    p["ns"] = ns_v
+                    p["net"] = nr_v + ns_v
+                    patched += 1
+            print(f"[beszel] net-fallback host_id={host_id!r} system_id={system_id!r} "
+                  f"patched {patched}/{len(series)} points from "
+                  f"{len(ne_samples)} NE samples "
+                  f"(earliest ne_ts={ne_ts[0] if ne_ts else None})")
+        else:
+            print(f"[beszel] net-fallback host_id={host_id!r} system_id={system_id!r} "
+                  f"— no NE samples in window; chart stays flat")
+
     return {"series": series, "error": None}
 
 

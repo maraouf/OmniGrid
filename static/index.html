@@ -2605,6 +2605,58 @@
                 x-text="t('actions.save')"></button>
       </section>
 
+      <!-- Scheduler settings — currently just the operator's IANA
+           timezone (Africa/Cairo, America/New_York, ...). Controls
+           how "Daily @ 01:00" is interpreted: in the operator's zone
+           (set here) vs. the container's localtime (blank = legacy).
+           Backend already reads this via logic.schedules._scheduler_tz;
+           zoneinfo.ZoneInfo validates the string on save. -->
+      <section x-show="settingsSection === 'scheduler'" class="bg-[var(--surface)] border border-[var(--border)] rounded-md p-5">
+        <h3 class="font-semibold text-[13px] mb-2">Scheduler</h3>
+        <p class="text-[11.5px] text-[var(--text-faint)] mb-4">
+          When a schedule says "Daily @ 01:00", which clock does "01:00" refer to?
+          Leave blank to use the container's clock (typically UTC).
+          Fill in to pin to your local wall time so "01:00" means 01:00 at your location.
+        </p>
+        <div class="flex items-end gap-3 flex-wrap">
+          <div class="flex flex-col gap-1">
+            <label class="text-[11px] text-[var(--text-faint)]">Timezone (IANA name)</label>
+            <input type="text" x-model="settings.scheduler_timezone"
+                   :disabled="!isAdmin()"
+                   list="tz-common"
+                   placeholder="e.g. Africa/Cairo"
+                   class="w-64 mono text-[12.5px]">
+            <datalist id="tz-common">
+              <option value="Africa/Cairo">Africa/Cairo</option>
+              <option value="America/Los_Angeles">America/Los_Angeles</option>
+              <option value="America/New_York">America/New_York</option>
+              <option value="America/Chicago">America/Chicago</option>
+              <option value="Europe/London">Europe/London</option>
+              <option value="Europe/Berlin">Europe/Berlin</option>
+              <option value="Europe/Istanbul">Europe/Istanbul</option>
+              <option value="Asia/Dubai">Asia/Dubai</option>
+              <option value="Asia/Kolkata">Asia/Kolkata</option>
+              <option value="Asia/Singapore">Asia/Singapore</option>
+              <option value="Asia/Tokyo">Asia/Tokyo</option>
+              <option value="Australia/Sydney">Australia/Sydney</option>
+              <option value="UTC">UTC</option>
+            </datalist>
+            <span class="text-[10.5px] text-[var(--text-faint)]">
+              Full list: <a href="https://en.wikipedia.org/wiki/List_of_tz_database_time_zones"
+                            target="_blank" rel="noopener"
+                            class="text-[var(--primary)] hover:underline">IANA tz database</a>.
+              Invalid names fail the save with a 400.
+            </span>
+          </div>
+          <button x-show="isAdmin()" @click="saveSchedulerSettings()"
+                  :disabled="schedulerSaving"
+                  class="btn btn-primary text-[12px]">
+            <span x-show="!schedulerSaving">Save</span>
+            <span x-show="schedulerSaving" class="flex items-center gap-1"><span class="spin"></span>Saving…</span>
+          </button>
+        </div>
+      </section>
+
       <section x-show="settingsSection === 'ignores'" class="bg-[var(--surface)] border border-[var(--border)] rounded-md p-5">
         <h3 class="font-semibold text-[13px] mb-2" x-text="t('settings.ignores.title')"></h3>
         <p class="text-[11.5px] text-[var(--text-faint)] mb-3">
@@ -3483,7 +3535,7 @@
           <template x-for="{ row, idx } in filteredHostsConfig()" :key="idx">
             <div class="border border-[var(--border)] rounded-md bg-[var(--surface-2)] p-3 space-y-3">
               <!-- Row 1 — identity + toggles -->
-              <div class="grid grid-cols-1 md:grid-cols-[80px_1fr_2fr_auto_auto] gap-3 items-end min-w-0">
+              <div class="grid grid-cols-1 md:grid-cols-[80px_1fr_3fr_auto_auto] gap-3 items-end min-w-0">
                 <div>
                   <label class="block text-[10.5px] uppercase tracking-wider text-[var(--text-faint)] mb-1" title="Operator-assigned catalogue number — used for sort/group in Hosts view and as the key for Asset-inventory lookups at oufa.co">Custom #</label>
                   <input type="number" x-model.number="row.custom_number" :disabled="isReadonly()"

@@ -132,12 +132,20 @@ async def _lifespan(app: FastAPI):
         print(f"[scheduler] seed_default_schedules failed: {e}")
     sampler = asyncio.create_task(_stats_sampler_loop(), name="stats-sampler")
     scheduler = asyncio.create_task(schedules.scheduler_loop(), name="scheduler")
+    # Net-I/O fallback sampler — scrapes node-exporter directly for any
+    # curated host with a ne_url and writes derived rx/tx rates into
+    # host_net_samples. Lets the Hosts chart show real numbers when the
+    # Beszel agent isn't configured with NICS=<iface>.
+    from logic import host_net_sampler as _host_net_sampler
+    host_net_sampler = asyncio.create_task(
+        _host_net_sampler.host_net_sampler_loop(), name="host-net-sampler",
+    )
     try:
         yield
     finally:
         # Cancel in reverse-start order. Each cancel + await is wrapped so
         # one failing shutdown step can't starve the next one.
-        for task in (scheduler, sampler):
+        for task in (host_net_sampler, scheduler, sampler):
             task.cancel()
             try:
                 await task
@@ -273,6 +281,24 @@ def init_db():
             ON stats_samples(item_id, ts DESC);
         CREATE INDEX IF NOT EXISTS idx_stats_samples_ts
             ON stats_samples(ts);
+
+        -- Net-I/O fallback series per curated host. Populated by
+        -- logic/host_net_sampler.py when node-exporter is the only
+        -- network-counter source (Beszel agents with NICS= unset emit
+        -- all-zero nr/ns, which is what `isNetSeriesFlat` detects on
+        -- the frontend). Rates are pre-computed across consecutive NE
+        -- probes; counter jumps / rollovers are SKIPPED rather than
+        -- recorded as synthesized zeros — see
+        -- logic.host_net_sampler._sanity_bounds().
+        CREATE TABLE IF NOT EXISTS host_net_samples (
+            ts INTEGER NOT NULL,
+            host_id TEXT NOT NULL,
+            rx_bytes_per_s REAL NOT NULL,
+            tx_bytes_per_s REAL NOT NULL,
+            PRIMARY KEY (host_id, ts)
+        );
+        CREATE INDEX IF NOT EXISTS idx_host_net_samples_host_ts
+            ON host_net_samples(host_id, ts DESC);
         """)
         # Idempotent column additions for existing deployments. SQLite pre-3.35
         # has no "ADD COLUMN IF NOT EXISTS", so we catch the OperationalError
@@ -2010,6 +2036,7 @@ async def api_hosts_debug(
     from logic import beszel as _beszel
     from logic import pulse as _pulse
     from logic import node_exporter as _ne
+    from logic import host_net_sampler as _host_net_sampler
 
     curated = _load_hosts_config()
     record = next((h for h in curated if h["id"] == id), None)
@@ -2178,6 +2205,13 @@ async def api_hosts_debug(
                 "size_bytes":    len(text),
                 "line_count":    len(lines),
                 "sample_lines":  lines[:80],
+                # Last 5 host_net_samples rows for this host. Lets an
+                # operator confirm the NE-net fallback sampler is
+                # filling the series at the expected cadence; if this
+                # is empty but the exporter returns non-zero rx/tx
+                # totals, the sampler hasn't run yet (first 5-min tick)
+                # or every delta has been rejected by sanity bounds.
+                "recent_net_samples": _host_net_sampler.last_samples(record["id"], limit=5),
             }
             providers_normalized["node_exporter"] = stats
         except Exception as e:
@@ -2247,12 +2281,19 @@ async def api_hosts_debug(
 
 
 @app.get("/api/hosts/history")
-async def api_hosts_history(system_id: str, hours: int = 1):
+async def api_hosts_history(system_id: str, hours: int = 1, host_id: str = ""):
     """Return time-series stats for one Beszel system.
 
     Powers the Hosts tab's per-row charts (CPU / Memory / Disk / Net).
     The system_id is Beszel's PocketBase record id — the frontend pulls
     it off the host row returned by :func:`api_hosts`.
+
+    ``host_id`` is the OmniGrid curated hosts_config id for the same
+    machine. When supplied, the Beszel history layer uses it as a
+    fallback key to fill in ``nr`` / ``ns`` from ``host_net_samples``
+    (populated by ``logic.host_net_sampler``) when the Beszel agent's
+    NIC tracking is disabled and every point's nr/ns is zero. Optional;
+    omitting it keeps the legacy Beszel-only behaviour.
     """
     from logic import beszel as _beszel
     hub_url = get_setting("beszel_hub_url", "") or ""
@@ -2264,6 +2305,7 @@ async def api_hosts_history(system_id: str, hours: int = 1):
     h = max(1, min(168, int(hours)))
     return await _beszel.fetch_system_history(
         hub_url, ident, passw, system_id, hours=h, verify_tls=verify,
+        host_id=(host_id.strip() or None),
     )
 
 

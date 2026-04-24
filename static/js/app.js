@@ -188,6 +188,7 @@ function app() {
     settingsSections: [
       { id: 'profile',       label: 'Profile' },
       { id: 'ignores',       label: 'Ignore list' },
+      { id: 'scheduler',     label: 'Scheduler' },
       { id: 'language',      label: 'Language' },
       { id: 'shortcuts',     label: 'Keyboard shortcuts' },
     ],
