@@ -3400,6 +3400,9 @@ function app() {
         ['rundeck',               'rundeck'],
         ['n8n',                   'n8n'],
         ['ansible',               'ansible'],
+        // git forges
+        ['forgejo',               'forgejo'],
+        ['gitea',                 'forgejo'],
         // mail — brand-specific first, generic last.
         ['mailcow',               'mailcow'],
         ['stalwart',              'stalwart'],
