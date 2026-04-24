@@ -993,7 +993,7 @@ details summary::-webkit-details-marker {
     display: flex;
     flex-direction: column;
     gap: var(--s-2);
-    min-height: 180px;
+    min-height: 220px;
 }
 
 .metric-card-head {
@@ -1040,12 +1040,12 @@ details summary::-webkit-details-marker {
 
 .metric-card-body {
     display: grid;
-    grid-template-columns: 46px 1fr;
+    grid-template-columns: 40px 1fr;
     grid-template-rows: 1fr 18px;
     column-gap: var(--s-2);
     row-gap: 2px;
     flex: 1;
-    min-height: 130px;
+    min-height: 160px;
 }
 
 .metric-y-axis {
@@ -1078,9 +1078,12 @@ details summary::-webkit-details-marker {
     display: block;
     width: 100%;
     height: 100%;
-    min-height: 120px;
-    background: var(--surface-2);
-    border-radius: var(--r-sm);
+    min-height: 150px;
+    /* Chart blends with the card body — no distinct background
+       block. Matches Beszel's detail view where the plot area is
+       just the curve + gridlines, no inset panel. */
+    background: transparent;
+    border-radius: 0;
 }
 
 .metric-line {

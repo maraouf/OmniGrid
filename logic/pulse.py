@@ -255,14 +255,15 @@ def extract_guest_stats(guest: dict) -> dict:
     kind = str(
         guest.get("type") or guest.get("kind") or guest.get("vmtype") or ""
     ).lower()
-    # OS hint from Pulse when available — newer guest records carry
-    # ``osName``. Leave ``host_platform`` BLANK so Beszel / node-
-    # exporter's richer, OS-level value wins during _merge_best
-    # ("debian" instead of "Proxmox guest"). The Proxmox-specific
-    # type (LXC / VM / #vmid / on-node) lives in the separate
-    # ``pulse_*`` fields and renders as its own row in the SYSTEM
-    # card, so nothing is lost.
-    os_hint = str(guest.get("osName") or guest.get("os") or "").strip()
+    # Leave ``host_platform`` AND ``host_os`` blank so Beszel's
+    # cleaner short forms ("debian" + "debian 13.4") win during
+    # _merge_best. Pulse's ``osName`` tends to be the long PRETTY_NAME
+    # (``"Debian GNU/Linux 13 (trixie)"``) which if allowed through
+    # would clobber Beszel's concise value and cause the Platform/OS
+    # columns to show mismatched strings. The Proxmox identity (LXC /
+    # VM / #vmid / on-node) already has its own dedicated row in the
+    # SYSTEM card via pulse_kind/vmid/node, so nothing useful is lost.
+    os_hint = ""  # deliberately blank — see comment above
     # Network interfaces — Pulse emits ``networkInterfaces`` (qemu
     # guest-agent) or ``net`` / ``ip`` fields (LXC config). Normalise
     # into the same {name, mac, addrs:[]} shape Beszel uses so the

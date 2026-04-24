@@ -1015,7 +1015,7 @@
 
       <div x-show="hostsConfigured" class="rounded border border-[var(--border)] overflow-hidden bg-[var(--surface)]">
         <!-- Header row — mirrors Beszel's columns. -->
-        <div class="grid grid-cols-[26px_minmax(320px,1.8fr)_140px_140px_140px_minmax(160px,1fr)_80px_60px_60px_72px_84px_40px] gap-3 px-4 py-2 border-b border-[var(--border)] bg-[var(--surface-2)] text-[10.5px] uppercase tracking-wider text-[var(--text-faint)]">
+        <div class="grid grid-cols-[26px_minmax(320px,1.8fr)_140px_140px_140px_minmax(160px,1fr)_80px_60px_72px_84px_40px] gap-3 px-4 py-2 border-b border-[var(--border)] bg-[var(--surface-2)] text-[10.5px] uppercase tracking-wider text-[var(--text-faint)]">
           <div></div>
           <div>Host</div>
           <div>Platform</div>
@@ -1023,7 +1023,6 @@
           <div>Memory</div>
           <div>Disk</div>
           <div class="text-center">Uptime</div>
-          <div class="text-center" title="Beszel agent version reported by the hub">Beszel</div>
           <div class="text-center">Cores</div>
           <div class="text-center">Arch</div>
           <div class="text-center">Kernel</div>
@@ -1033,7 +1032,7 @@
         <template x-for="h in filteredHosts()" :key="h.host">
           <div class="border-b border-[var(--border)] last:border-b-0">
             <!-- Collapsed row -->
-            <div class="grid grid-cols-[26px_minmax(320px,1.8fr)_140px_140px_140px_minmax(160px,1fr)_80px_60px_60px_72px_84px_40px] gap-3 px-4 py-3 items-center cursor-pointer hover:bg-[var(--row-hover)]"
+            <div class="grid grid-cols-[26px_minmax(320px,1.8fr)_140px_140px_140px_minmax(160px,1fr)_80px_60px_72px_84px_40px] gap-3 px-4 py-3 items-center cursor-pointer hover:bg-[var(--row-hover)]"
                  @click="toggleHost(h.host)">
               <!-- Chevron + status dot -->
               <div class="flex items-center gap-1.5">
@@ -1112,8 +1111,6 @@
               </div>
               <!-- Uptime -->
               <div class="text-center text-[12px] mono" x-text="fmtUptimeShort(h.uptime_s)"></div>
-              <!-- Agent version -->
-              <div class="text-center text-[11px] mono" x-text="h.agent || '—'"></div>
               <!-- Core count -->
               <div class="text-center text-[11.5px] mono" x-text="h.cores || '—'"></div>
               <!-- Architecture -->
@@ -1325,12 +1322,15 @@
                     <!-- Total usage row — uses the merged host_disk_*
                          bytes, not the per-mount values, so it keeps
                          working when the agent is container-mode and
-                         only reports aggregates. -->
+                         only reports aggregates. Percentage leads so
+                         it's scannable at a glance. -->
                     <div x-show="h.disk_total > 0">
                       <div class="flex items-baseline justify-between">
                         <span class="text-[11.5px] text-[var(--text-dim)] font-semibold">Total usage</span>
                         <span class="text-[10.5px] text-[var(--text-faint)] mono"
-                              x-text="fmtBytes(h.disk_used) + ' / ' + fmtBytes(h.disk_total)"></span>
+                              x-text="diskPercentOf(h).toFixed(1) + '% · '
+                                      + fmtBytes(h.disk_used) + ' / '
+                                      + fmtBytes(h.disk_total)"></span>
                       </div>
                       <div class="stat-bar mt-1"
                            :class="barLevel(diskPercentOf(h))"
@@ -1345,7 +1345,11 @@
                         <div class="flex items-baseline justify-between">
                           <span class="text-[11.5px] mono truncate" x-text="m.n || m.name || '(disk)'"></span>
                           <span class="text-[10.5px] text-[var(--text-faint)] mono"
-                                x-text="m.d && m.du ? fmtBytes((m.du || 0) * 1024**3) + ' / ' + fmtBytes((m.d || 0) * 1024**3) : ''"></span>
+                                x-text="m.d && m.du
+                                        ? (m.dp || 0).toFixed(1) + '% · '
+                                          + fmtBytes((m.du || 0) * 1024**3) + ' / '
+                                          + fmtBytes((m.d || 0) * 1024**3)
+                                        : ''"></span>
                         </div>
                         <div class="stat-bar mt-1"
                              :class="barLevel(m.dp || 0)"
