@@ -1096,20 +1096,20 @@
               <div class="text-center text-[11px] mono truncate" x-text="h.arch || '—'"></div>
               <!-- Kernel (truncated) -->
               <div class="text-center text-[11px] mono truncate" :title="h.kernel" x-text="h.kernel ? h.kernel.slice(0, 8) + (h.kernel.length > 8 ? '…' : '') : '—'"></div>
-              <!-- Deep-link to the Beszel record. Uses ``h.beszel_name``
-                   — the per-host mapping configured in Admin → Hosts —
-                   so the URL resolves to the actual Beszel system, not
-                   the Docker hostname or the user's display label
-                   (which may not exist in Beszel at all). Link hides
-                   when no Beszel mapping is set. @click.stop so the
-                   row-toggle doesn't fire. -->
+              <!-- Per-host external URL (optional — configured in
+                   Admin → Hosts). When set, opens whatever the
+                   operator stored (the host's web UI, a dashboard,
+                   etc.). Unlike the old "Open in Beszel" link this
+                   doesn't guess a URL shape — removing that because
+                   Beszel's system route changed and our guess was
+                   hitting 404s. -->
               <div class="text-center">
-                <a x-show="settings.beszel_hub_url && h.beszel_name"
-                   :href="(settings.beszel_hub_url || '').replace(/\/$/, '') + '/system/' + encodeURIComponent(h.beszel_name || '')"
+                <a x-show="h.url"
+                   :href="h.url"
                    target="_blank" rel="noopener"
                    @click.stop
                    class="inline-flex items-center justify-center text-[var(--text-dim)] hover:text-[var(--primary)]"
-                   :title="'Open ' + (h.beszel_name || '') + ' in Beszel'">
+                   :title="'Open ' + (h.label || h.host)">
                   <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
                 </a>
               </div>
@@ -1162,6 +1162,16 @@
                     <template x-if="h.docker_node">
                       <dd class="mono text-end" x-text="h.docker_node"></dd>
                     </template>
+                    <!-- URL row — always visible. Clickable link when
+                         populated, "+ Add" deep-link to Admin → Hosts
+                         when empty, matching Beszel's affordance. -->
+                    <dt class="text-[var(--text-dim)]">URL</dt>
+                    <dd class="text-end">
+                      <a x-show="h.url" :href="h.url" target="_blank" rel="noopener"
+                         class="text-[var(--primary)] hover:underline mono" x-text="h.url"></a>
+                      <a x-show="!h.url" href="/admin/hosts"
+                         class="text-[var(--primary)] hover:underline">+ Add</a>
+                    </dd>
                   </dl>
                 </section>
 
@@ -2740,6 +2750,19 @@
                 <button x-show="isAdmin()" @click="removeHostRow(idx)"
                         class="btn btn-ghost text-[12px] text-danger pb-1.5"
                         title="Remove this host">Remove</button>
+              </div>
+              <!-- Row 1a — optional external URL. Rendered as a
+                   clickable link in the Hosts-view SYSTEM card and
+                   as the right-side "open" icon on the collapsed
+                   row. Leave blank to hide both. -->
+              <div>
+                <label class="block text-[10.5px] uppercase tracking-wider text-[var(--text-faint)] mb-1">
+                  External URL
+                  <span class="text-[10px] normal-case text-[var(--text-faint)] ms-1">(optional — host's web UI or dashboard)</span>
+                </label>
+                <input type="url" x-model="row.url" :disabled="isReadonly()"
+                       class="w-full mono text-[12.5px] py-1.5"
+                       placeholder="https://adguard.home.lan">
               </div>
               <!-- Row 2 — per-provider name mappings -->
               <div class="grid grid-cols-1 md:grid-cols-3 gap-3">

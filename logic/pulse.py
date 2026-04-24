@@ -219,6 +219,18 @@ async def probe_pulse(
     # and somehow overlap, latest wins — unlikely in practice.
     guests: list = list(state.get("guests") or [])
     guests.extend(state.get("vms") or [])
+    print(f"[pulse] probe: state top-level keys={sorted(state.keys())} "
+          f"nodes={len(nodes)} guests={len(guests)}")
+    # Dump the raw shape of the first node + guest so operators can
+    # see what fields Pulse actually emits. Truncated to avoid
+    # log-flood on big clusters.
+    if nodes:
+        print(f"[pulse] probe: sample node fields={sorted((nodes[0] or {}).keys())}")
+    if guests:
+        g0 = guests[0] or {}
+        print(f"[pulse] probe: sample guest fields={sorted(g0.keys())} "
+              f"name={g0.get('name')!r} vmid={g0.get('vmid')!r} "
+              f"type={g0.get('type')!r} node={g0.get('node')!r}")
     # Keyed by display name (preserves case). We also maintain a parallel
     # lowercased-trimmed index so the caller's ``_lookup`` helper can
     # match ``Docker`` / ``  docker `` / the guest's vmid without the
@@ -258,6 +270,7 @@ async def probe_pulse(
         vmid = g.get("vmid")
         if vmid not in (None, "", 0):
             _add(str(vmid), stats)
+    print(f"[pulse] probe: indexed keys={sorted(out.keys())}")
     return {"hosts": out, "error": None}
 
 
@@ -270,13 +283,21 @@ def lookup(pulse_hosts: dict, needle: str) -> Optional[dict]:
     an exact-key hit misses; returns ``None`` on no match.
     """
     if not pulse_hosts or not needle:
+        print(f"[pulse] lookup: short-circuit "
+              f"(hosts={len(pulse_hosts) if pulse_hosts else 0} "
+              f"needle={needle!r})")
         return None
     if needle in pulse_hosts:
+        print(f"[pulse] lookup: exact hit {needle!r}")
         return pulse_hosts[needle]
     key = needle.strip().lower()
     if not key:
+        print(f"[pulse] lookup: needle normalised to empty {needle!r}")
         return None
     for k, v in pulse_hosts.items():
         if k.strip().lower() == key:
+            print(f"[pulse] lookup: fuzzy hit {needle!r} → {k!r}")
             return v
+    print(f"[pulse] lookup: MISS needle={needle!r} normalised={key!r} "
+          f"known_keys={sorted(pulse_hosts.keys())}")
     return None

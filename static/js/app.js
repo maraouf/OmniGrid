@@ -3056,6 +3056,7 @@ function app() {
         ne_url: '',
         beszel_name: '',
         pulse_name: '',
+        url: '',
         enabled: true,
       });
     },
@@ -3074,6 +3075,7 @@ function app() {
         ne_url:      (h.ne_url || '').trim(),
         beszel_name: (h.beszel_name || '').trim(),
         pulse_name:  (h.pulse_name || '').trim(),
+        url:         (h.url || '').trim(),
         enabled:     h.enabled !== false,
       }));
       this.hostsConfigSaving = true;

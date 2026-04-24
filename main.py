@@ -1298,10 +1298,19 @@ async def api_hosts():
 
         pulse_key = h.get("pulse_name") or h.get("id") or ""
         if "pulse" in active and pulse_key:
+            print(f"[hosts] host id={h.get('id')!r} label={h.get('label')!r} "
+                  f"pulse_name={h.get('pulse_name')!r} "
+                  f"→ lookup key={pulse_key!r} "
+                  f"(pulse map has {len(pulse_map)} entries)")
             pstats = _pulse.lookup(pulse_map, pulse_key)
             if pstats:
                 _merge_best(merged, pstats)
                 providers_hit.append("pulse")
+                print(f"[hosts] host id={h.get('id')!r} pulse MATCH "
+                      f"(kind={pstats.get('pulse_kind')!r} "
+                      f"name={pstats.get('pulse_name')!r})")
+            else:
+                print(f"[hosts] host id={h.get('id')!r} pulse NO MATCH")
 
         if "node_exporter" in active and h.get("ne_url"):
             ne_probes.append((h, h["ne_url"]))
@@ -1341,6 +1350,7 @@ async def api_hosts():
             "beszel_name":     h.get("beszel_name") or "",
             "pulse_name":      h.get("pulse_name") or "",
             "ne_url":          h.get("ne_url") or "",
+            "url":             h.get("url") or "",
             "providers":       entry["_providers"],
             "status":          s.get("beszel_status") or s.get("pulse_status") or "unknown",
             "docker_node":     h["id"],  # curated list IS the docker-node-like mapping
@@ -1411,6 +1421,10 @@ def _load_hosts_config() -> list[dict]:
             "ne_url":      (h.get("ne_url") or "").strip(),
             "beszel_name": (h.get("beszel_name") or "").strip(),
             "pulse_name":  (h.get("pulse_name") or "").strip(),
+            # Optional external URL the operator picks (e.g. the host's
+            # web UI). Rendered as a clickable link in the Hosts view's
+            # SYSTEM card, matches Beszel's "+ Add URL" affordance.
+            "url":         (h.get("url") or "").strip(),
             "enabled":     bool(h.get("enabled", True)),
         })
     return clean
@@ -1437,6 +1451,7 @@ def _save_hosts_config(hosts: list[dict]) -> list[dict]:
             "ne_url":      (h.get("ne_url") or "").strip(),
             "beszel_name": (h.get("beszel_name") or "").strip(),
             "pulse_name":  (h.get("pulse_name") or "").strip(),
+            "url":         (h.get("url") or "").strip(),
             "enabled":     bool(h.get("enabled", True)),
         }
     ordered = list(seen.values())
