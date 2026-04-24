@@ -3234,6 +3234,16 @@ function app() {
           const nowTs = Date.now();
           const firstPoll = this._opsSeen === null;
           if (firstPoll) this._opsSeen = new Set();
+          // Two paths qualify as "just done" for both the linger
+          // panel AND the downstream refresh/toast trigger:
+          //   (1) observed running → done
+          //   (2) brand-new to us AND already terminal (completed
+          //       between polls — e.g. force-remove finishes in
+          //       <1.5s so the op is never seen as `running`)
+          // Merging both into the same justDone set fixes #143 where
+          // fast ops bypassed the post-op items refresh and the
+          // Cleanup button kept showing the removed container.
+          const justDone = [];
           for (const o of all) {
             const wasUnknown = !this._opsSeen.has(o.id);
             this._opsSeen.add(o.id);
@@ -3242,12 +3252,14 @@ function app() {
             // Path 1: observed running → done.
             if (prevRunning.includes(o.id)) {
               this._opLingerUntil[o.id] = nowTs + LINGER_MS;
+              justDone.push(o);
               continue;
             }
             // Path 2: brand-new op, already done (skip on first poll
             // so we don't surface historical ring-buffer entries).
             if (!firstPoll && wasUnknown) {
               this._opLingerUntil[o.id] = nowTs + LINGER_MS;
+              justDone.push(o);
             }
           }
           // Sweep expired / evicted linger entries.
@@ -3260,7 +3272,6 @@ function app() {
           this.activeOps = all.filter(
             o => o.status === 'running' || this._opLingerUntil[o.id]
           );
-          const justDone = all.filter(o => o.status !== 'running' && prevRunning.includes(o.id));
           if (justDone.length > 0) {
             const holdKeys = [...new Set(justDone.map(o => this._opBusyKey(o)).filter(Boolean))];
             holdKeys.forEach(k => this._holdBusy(k));
@@ -4961,6 +4972,68 @@ function app() {
           && !g.parent_name
           && (g.name || '').trim())
         .map(({ g }) => g.name);
+    },
+
+    // Visual order for the groups editor — each top-level group
+    // immediately followed by its sub-groups. Operator's `order`
+    // field still drives top-level ordering; sub-group order within
+    // a parent cluster is preserved by raw-array insertion order.
+    // Keeps `origIdx` (the position in the raw `hostGroups` array)
+    // so save-validation + per-row button handlers can reach back
+    // to the storage without rebuilding the list.
+    sortedGroupsForEditor() {
+      const arr = (this.hostGroups || []).map((g, i) => ({ g, origIdx: i }));
+      // Pass 1: top-level rows in original order (preserving the
+      // operator's move-up/move-down choices).
+      const tops = arr.filter(e => !e.g.parent_name);
+      // Pass 2: group sub-rows by their parent_name.
+      const subs = new Map();
+      for (const e of arr) {
+        if (!e.g.parent_name) continue;
+        const key = e.g.parent_name;
+        if (!subs.has(key)) subs.set(key, []);
+        subs.get(key).push(e);
+      }
+      // Weave: each top-level row followed by its children.
+      const out = [];
+      for (const t of tops) {
+        out.push(t);
+        const kids = subs.get(t.g.name);
+        if (kids) out.push(...kids);
+      }
+      // Orphaned sub-groups (parent_name set but not found) sink to
+      // the bottom so they stay visible for repair rather than
+      // disappearing. `saveHostGroups` rejects them with inline
+      // errors, but the operator has to SEE them first.
+      const seen = new Set(out.map(e => e.origIdx));
+      for (const e of arr) {
+        if (!seen.has(e.origIdx)) out.push(e);
+      }
+      return out;
+    },
+    // Move a row up/down in the VISIBLE order. Translates to a raw-
+    // array swap so sub-groups stick next to their parent after the
+    // sort re-runs. Clamped to same bucket: we don't allow moving a
+    // sub-group above its parent or past a sibling's range boundary
+    // via move buttons alone — that'd break the containment rule
+    // silently. Move across buckets via re-parenting (the dropdown).
+    moveHostGroupByListIdx(listIdx, dir) {
+      const sorted = this.sortedGroupsForEditor();
+      const j = listIdx + dir;
+      if (j < 0 || j >= sorted.length) return;
+      const src = sorted[listIdx];
+      const dst = sorted[j];
+      // Refuse cross-bucket moves: a top-level row can't swap with a
+      // sub-group and vice-versa, because the sort would immediately
+      // undo it. Silent no-op keeps the button harmless.
+      const srcParent = src.g.parent_name || src.g.name;
+      const dstParent = dst.g.parent_name || dst.g.name;
+      if (srcParent !== dstParent) return;
+      const arr = [...this.hostGroups];
+      [arr[src.origIdx], arr[dst.origIdx]] = [arr[dst.origIdx], arr[src.origIdx]];
+      arr.forEach((g, i) => { g.order = i; });
+      this.hostGroups = arr;
+      this.hostGroupsDirty = true;
     },
     removeHostGroup(idx) {
       this.hostGroups = (this.hostGroups || []).filter((_, i) => i !== idx);

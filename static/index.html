@@ -4428,7 +4428,7 @@
              x-text="t('admin_hosts.groups.empty')"></div>
 
         <div class="space-y-2">
-          <template x-for="(g, gi) in hostGroups" :key="gi">
+          <template x-for="({g, origIdx}, listIdx) in sortedGroupsForEditor()" :key="'g' + origIdx">
             <div class="border border-[var(--border)] rounded-md p-3"
                  :class="g.parent_name ? 'bg-[var(--surface)] ms-6' : 'bg-[var(--surface-2)]'">
               <!-- Row 1: name, parent picker, range, controls. -->
@@ -4438,39 +4438,39 @@
                          x-text="t('admin_hosts.groups.name_label')"></label>
                   <input type="text" x-model="g.name"
                          :disabled="isReadonly()"
-                         @input="markHostGroupDirty(); clearFieldError('group_' + gi + '_name')"
+                         @input="markHostGroupDirty(); clearFieldError('group_' + origIdx + '_name')"
                          class="w-full text-[13px] py-1.5"
-                         :class="hasFieldError('group_' + gi + '_name') ? 'field-invalid' : ''"
+                         :class="hasFieldError('group_' + origIdx + '_name') ? 'field-invalid' : ''"
                          :placeholder="t('admin_hosts.groups.name_placeholder')">
-                  <div x-show="hasFieldError('group_' + gi + '_name')"
+                  <div x-show="hasFieldError('group_' + origIdx + '_name')"
                        class="field-error-msg"
-                       x-text="fieldError('group_' + gi + '_name')"></div>
+                       x-text="fieldError('group_' + origIdx + '_name')"></div>
                 </div>
                 <div>
                   <label class="block text-[10.5px] uppercase tracking-wider text-[var(--text-faint)] mb-1"
                          x-text="t('admin_hosts.groups.parent_label')"></label>
                   <select x-model="g.parent_name"
                           :disabled="isReadonly()"
-                          @change="markHostGroupDirty(); clearFieldError('group_' + gi + '_parent')"
+                          @change="markHostGroupDirty(); clearFieldError('group_' + origIdx + '_parent')"
                           class="w-full text-[12.5px] py-1.5"
-                          :class="hasFieldError('group_' + gi + '_parent') ? 'field-invalid' : ''">
+                          :class="hasFieldError('group_' + origIdx + '_parent') ? 'field-invalid' : ''">
                     <option value="" x-text="t('admin_hosts.groups.parent_none')"></option>
-                    <template x-for="p in topLevelGroupNames(gi)" :key="p">
+                    <template x-for="p in topLevelGroupNames(origIdx)" :key="p">
                       <option :value="p" x-text="p"></option>
                     </template>
                   </select>
-                  <div x-show="hasFieldError('group_' + gi + '_parent')"
+                  <div x-show="hasFieldError('group_' + origIdx + '_parent')"
                        class="field-error-msg"
-                       x-text="fieldError('group_' + gi + '_parent')"></div>
+                       x-text="fieldError('group_' + origIdx + '_parent')"></div>
                 </div>
                 <div>
                   <label class="block text-[10.5px] uppercase tracking-wider text-[var(--text-faint)] mb-1"
                          x-text="t('admin_hosts.groups.range_start_label')"></label>
                   <input type="number" x-model.number="g.range_start"
                          :disabled="isReadonly()"
-                         @input="markHostGroupDirty(); clearFieldError('group_' + gi + '_range')"
+                         @input="markHostGroupDirty(); clearFieldError('group_' + origIdx + '_range')"
                          class="w-full mono text-[13px] py-1.5"
-                         :class="hasFieldError('group_' + gi + '_range') ? 'field-invalid' : ''"
+                         :class="hasFieldError('group_' + origIdx + '_range') ? 'field-invalid' : ''"
                          min="0" step="1">
                 </div>
                 <div>
@@ -4478,27 +4478,27 @@
                          x-text="t('admin_hosts.groups.range_end_label')"></label>
                   <input type="number" x-model.number="g.range_end"
                          :disabled="isReadonly()"
-                         @input="markHostGroupDirty(); clearFieldError('group_' + gi + '_range')"
+                         @input="markHostGroupDirty(); clearFieldError('group_' + origIdx + '_range')"
                          class="w-full mono text-[13px] py-1.5"
-                         :class="hasFieldError('group_' + gi + '_range') ? 'field-invalid' : ''"
+                         :class="hasFieldError('group_' + origIdx + '_range') ? 'field-invalid' : ''"
                          min="0" step="1">
                 </div>
                 <div class="flex items-center gap-1 pb-1.5">
-                  <button x-show="isAdmin()" @click="moveHostGroup(gi, -1)"
-                          :disabled="gi === 0"
+                  <button x-show="isAdmin()" @click="moveHostGroupByListIdx(listIdx, -1)"
+                          :disabled="listIdx === 0"
                           class="btn btn-ghost text-[12px] px-2"
-                          :class="gi === 0 ? 'opacity-40 cursor-not-allowed' : ''"
+                          :class="listIdx === 0 ? 'opacity-40 cursor-not-allowed' : ''"
                           :title="t('admin_hosts.groups.move_up_title')">
                     <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="18 15 12 9 6 15"/></svg>
                   </button>
-                  <button x-show="isAdmin()" @click="moveHostGroup(gi, +1)"
-                          :disabled="gi === hostGroups.length - 1"
+                  <button x-show="isAdmin()" @click="moveHostGroupByListIdx(listIdx, +1)"
+                          :disabled="listIdx === sortedGroupsForEditor().length - 1"
                           class="btn btn-ghost text-[12px] px-2"
-                          :class="gi === hostGroups.length - 1 ? 'opacity-40 cursor-not-allowed' : ''"
+                          :class="listIdx === sortedGroupsForEditor().length - 1 ? 'opacity-40 cursor-not-allowed' : ''"
                           :title="t('admin_hosts.groups.move_down_title')">
                     <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
                   </button>
-                  <button x-show="isAdmin()" @click="removeHostGroup(gi)"
+                  <button x-show="isAdmin()" @click="removeHostGroup(origIdx)"
                           class="btn btn-ghost text-[12px] text-danger px-2"
                           :title="t('admin_hosts.groups.remove_title')">✕</button>
                 </div>

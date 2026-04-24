@@ -52,6 +52,73 @@ def get_cache() -> dict:
     return _cache
 
 
+def _load_hosts_config_for_gather() -> list[dict]:
+    """Read the curated ``hosts_config`` setting as a list of dicts.
+
+    Kept local to gather.py — the canonical loader lives in
+    ``main._load_hosts_config`` but we deliberately don't import it
+    (would create a main → logic → main cycle). Tolerant: blank /
+    malformed settings return ``[]`` and node-level probes fall back
+    to their existing host-string behaviour.
+    """
+    from logic.db import get_setting
+    raw = get_setting("hosts_config", "") or ""
+    if not raw.strip():
+        return []
+    try:
+        parsed = json.loads(raw)
+    except ValueError:
+        return []
+    return parsed if isinstance(parsed, list) else []
+
+
+def _match_hosts_row(host: str, hosts_cfg: list[dict]) -> Optional[dict]:
+    """Resolve a Swarm/Docker node name to a ``hosts_config`` row.
+
+    Strategies in order of preference (first match wins):
+
+        1. Exact match on ``id``.
+        2. Short-hostname match: `host.split('.')[0] == id.split('.')[0]`
+           — catches the "Docker reports bare hostname, operator
+           configured FQDN" and vice-versa cases that produce #144's
+           "3 sources error" symptom.
+        3. Provider-name match: any of the row's provider fields
+           (``beszel_name`` / ``pulse_name`` / ``webmin_name``) equals
+           the Docker hostname short form. Useful when the Docker
+           hostname differs from the operator's chosen `id` (e.g.
+           `id="docker"`, `beszel_name="docker.home.lan"`).
+
+    Returns the matched row, or ``None`` when nothing matches.
+    Callers decide whether to use the row's provider fields.
+    """
+    if not host or not isinstance(hosts_cfg, list):
+        return None
+    host_short = str(host).split(".", 1)[0].lower()
+    host_low = str(host).lower()
+    # Pass 1: exact id match.
+    for h in hosts_cfg:
+        if not isinstance(h, dict):
+            continue
+        if str(h.get("id") or "").lower() == host_low:
+            return h
+    # Pass 2: short-hostname match against id.
+    for h in hosts_cfg:
+        if not isinstance(h, dict):
+            continue
+        hid = str(h.get("id") or "").lower()
+        if hid and hid.split(".", 1)[0] == host_short:
+            return h
+    # Pass 3: provider-name match (short form).
+    for h in hosts_cfg:
+        if not isinstance(h, dict):
+            continue
+        for key in ("beszel_name", "pulse_name", "webmin_name"):
+            v = str(h.get(key) or "").lower()
+            if v and v.split(".", 1)[0] == host_short:
+                return h
+    return None
+
+
 def invalidate_cache() -> None:
     """Mark the cache stale so the next gather request rebuilds it."""
     _cache["ts"] = 0
@@ -384,12 +451,22 @@ async def _gather_impl() -> None:
             result = await _beszel.probe_hub(hub_url, ident, passw, verify_tls=verify)
             err = result.get("error")
             systems = result.get("systems") or {}
+            hosts_cfg = _load_hosts_config_for_gather()
             for host in df_hosts:
                 if host in nodes_info:
                     if err:
                         nodes_info[host]["exporter_error"] = f"beszel: {err}"
                         continue
-                    beszel_name = aliases.get(host, host)
+                    # Resolution order: explicit alias → hosts_config
+                    # row's beszel_name (for #144's short-vs-FQDN case) →
+                    # bare Docker hostname. First meaningful value wins.
+                    beszel_name = aliases.get(host, "")
+                    if not beszel_name:
+                        row = _match_hosts_row(host, hosts_cfg)
+                        if row and (row.get("beszel_name") or "").strip():
+                            beszel_name = row["beszel_name"].strip()
+                    if not beszel_name:
+                        beszel_name = host
                     stats = systems.get(beszel_name)
                     if stats is None:
                         # No matching Beszel system — surface the miss
@@ -440,7 +517,13 @@ async def _gather_impl() -> None:
                     if not nodes_info[host].get("host_mem_total"):
                         nodes_info[host]["exporter_error"] = f"pulse: {p_err}"
                     continue
-                pulse_name = pulse_aliases_raw.get(host, host)
+                pulse_name = pulse_aliases_raw.get(host, "")
+                if not pulse_name:
+                    row = _match_hosts_row(host, _load_hosts_config_for_gather())
+                    if row and (row.get("pulse_name") or "").strip():
+                        pulse_name = row["pulse_name"].strip()
+                if not pulse_name:
+                    pulse_name = host
                 stats = _pulse.lookup(p_hosts, pulse_name)
                 if stats is None:
                     continue  # not a PVE node — legit miss, no error
@@ -466,18 +549,27 @@ async def _gather_impl() -> None:
                     overrides = {}
             except Exception:
                 overrides = {}
+            ne_hosts_cfg = _load_hosts_config_for_gather()
             async with httpx.AsyncClient(verify=False, timeout=10.0) as ne_client:
                 async def _ne_probe(h):
-                    # Override wins over template. The template supports
-                    # both {host} (Docker hostname) and {ip} (Swarm-
-                    # advertised IP) — pick whichever works in your
-                    # network. Mixed strings like
-                    # "http://{host}.home.lan:9100/metrics" are fine.
+                    # Resolution order for the target URL:
+                    #   1. explicit per-host override from the overrides map
+                    #   2. hosts_config row's `ne_url` (#144 — lets
+                    #      operators curate the exporter URL per host
+                    #      without touching the global template)
+                    #   3. template with {host} + {ip} substitution
+                    # The template supports both placeholders so mixed
+                    # strings like "http://{host}.home.lan:9100/metrics"
+                    # still work when we fall through.
                     info = nodes_info.get(h) or {}
                     ip = info.get("ip") or ""
-                    url = overrides.get(h) or (
-                        tpl.replace("{host}", h).replace("{ip}", ip)
-                    )
+                    url = overrides.get(h) or ""
+                    if not url:
+                        row = _match_hosts_row(h, ne_hosts_cfg)
+                        if row and (row.get("ne_url") or "").strip():
+                            url = row["ne_url"].strip()
+                    if not url:
+                        url = tpl.replace("{host}", h).replace("{ip}", ip)
                     return h, await _ne.probe_node(ne_client, url)
                 results = await asyncio.gather(
                     *(_ne_probe(h) for h in df_hosts),
@@ -507,8 +599,17 @@ async def _gather_impl() -> None:
             except ValueError:
                 webmin_aliases = {}
 
+            webmin_hosts_cfg = _load_hosts_config_for_gather()
+
             async def _one_webmin(h: str):
                 url = webmin_aliases.get(h) or ""
+                if not url:
+                    # #144 fallback — check hosts_config for a webmin_url.
+                    # Not every hosts_config row carries one; when blank
+                    # the existing "skip this host" behaviour wins.
+                    row = _match_hosts_row(h, webmin_hosts_cfg)
+                    if row:
+                        url = (row.get("webmin_url") or "").strip()
                 if not url:
                     return h, None
                 result = await _webmin.probe_webmin(
