@@ -845,6 +845,16 @@ class SettingsIn(BaseModel):
     ssh_default_port: Optional[int] = None
     ssh_default_private_key: Optional[str] = None
     ssh_default_private_key_passphrase: Optional[str] = None
+    # Password auth as an alternative to private key. When both are
+    # set, the key wins. Allows operators on hosts that only accept
+    # password auth (routers / NAS boxes / vanilla VM images) to still
+    # use the SSH console. Write-only on the wire via `_set` flag.
+    ssh_default_password: Optional[str] = None
+    # FQDN suffix appended to bare hostnames (hosts_config[].id) when
+    # SSH resolves the target. Example: id="webserver" +
+    # ssh_fqdn_suffix=".home.lan" → "webserver.home.lan". Host IDs that
+    # already contain a dot are used as-is. Blank = no suffix.
+    ssh_fqdn_suffix: Optional[str] = None
     ssh_default_known_hosts: Optional[str] = None
     ssh_destructive_patterns: Optional[str] = None
 
@@ -922,6 +932,8 @@ async def api_get_settings(request: Request):
             "port":            int(get_setting("ssh_default_port", "22") or "22"),
             "private_key_set": bool(get_setting("ssh_default_private_key", "")),
             "passphrase_set":  bool(get_setting("ssh_default_private_key_passphrase", "")),
+            "password_set":    bool(get_setting("ssh_default_password", "")),
+            "fqdn_suffix":     get_setting("ssh_fqdn_suffix", "") or "",
             "known_hosts":     get_setting("ssh_default_known_hosts", "") or "",
             "destructive_patterns": (
                 get_setting("ssh_destructive_patterns", "") or ""
@@ -1123,6 +1135,19 @@ async def api_set_settings(
             "ssh_default_private_key_passphrase",
             s.ssh_default_private_key_passphrase,
         )
+    # SSH password auth. Blank = keep-current (matches the _set flag
+    # convention). Non-empty replaces. No validation needed at save
+    # time — asyncssh raises on connect if the password is wrong.
+    if s.ssh_default_password is not None \
+            and s.ssh_default_password.strip() != "":
+        set_setting("ssh_default_password", s.ssh_default_password)
+    if s.ssh_fqdn_suffix is not None:
+        # Normalise — operator might paste with or without leading dot.
+        # Store canonical form: leading dot, no trailing dot, trimmed.
+        raw = (s.ssh_fqdn_suffix or "").strip().rstrip(".")
+        if raw and not raw.startswith("."):
+            raw = "." + raw
+        set_setting("ssh_fqdn_suffix", raw)
     if s.ssh_default_known_hosts is not None:
         set_setting("ssh_default_known_hosts", s.ssh_default_known_hosts or "")
     if s.ssh_destructive_patterns is not None:

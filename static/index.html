@@ -2756,47 +2756,8 @@
            (set here) vs. the container's localtime (blank = legacy).
            Backend already reads this via logic.schedules._scheduler_tz;
            zoneinfo.ZoneInfo validates the string on save. -->
-      <section x-show="settingsSection === 'scheduler'" class="bg-[var(--surface)] border border-[var(--border)] rounded-md p-5">
-        <h3 class="font-semibold text-[13px] mb-2" x-text="t('scheduler_settings.title')"></h3>
-        <p class="text-[11.5px] text-[var(--text-faint)] mb-4" x-text="t('scheduler_settings.intro')"></p>
-        <div class="flex items-end gap-3 flex-wrap">
-          <div class="flex flex-col gap-1">
-            <label class="text-[11px] text-[var(--text-faint)]" x-text="t('scheduler_settings.tz_label')"></label>
-            <input type="text" x-model="settings.scheduler_timezone"
-                   :disabled="!isAdmin()"
-                   list="tz-common"
-                   :placeholder="t('scheduler_settings.tz_placeholder')"
-                   class="w-64 mono text-[12.5px]">
-            <datalist id="tz-common">
-              <option value="Africa/Cairo">Africa/Cairo</option>
-              <option value="America/Los_Angeles">America/Los_Angeles</option>
-              <option value="America/New_York">America/New_York</option>
-              <option value="America/Chicago">America/Chicago</option>
-              <option value="Europe/London">Europe/London</option>
-              <option value="Europe/Berlin">Europe/Berlin</option>
-              <option value="Europe/Istanbul">Europe/Istanbul</option>
-              <option value="Asia/Dubai">Asia/Dubai</option>
-              <option value="Asia/Kolkata">Asia/Kolkata</option>
-              <option value="Asia/Singapore">Asia/Singapore</option>
-              <option value="Asia/Tokyo">Asia/Tokyo</option>
-              <option value="Australia/Sydney">Australia/Sydney</option>
-              <option value="UTC">UTC</option>
-            </datalist>
-            <span class="text-[10.5px] text-[var(--text-faint)]">
-              <span x-text="t('scheduler_settings.tz_hint_prefix')"></span><a href="https://en.wikipedia.org/wiki/List_of_tz_database_time_zones"
-                            target="_blank" rel="noopener"
-                            class="text-[var(--primary)] hover:underline"
-                            x-text="t('scheduler_settings.tz_hint_link')"></a><span x-text="t('scheduler_settings.tz_hint_suffix')"></span>
-            </span>
-          </div>
-          <button x-show="isAdmin()" @click="saveSchedulerSettings()"
-                  :disabled="schedulerSaving"
-                  class="btn btn-primary text-[12px]">
-            <span x-show="!schedulerSaving" x-text="t('actions.save')"></span>
-            <span x-show="schedulerSaving" class="flex items-center gap-1"><span class="spin"></span><span x-text="t('actions.saving')"></span></span>
-          </button>
-        </div>
-      </section>
+      <!-- Scheduler settings moved to Admin → Schedules (the TZ knob
+           lives next to the schedules it governs). -->
 
       <section x-show="settingsSection === 'ignores'" class="bg-[var(--surface)] border border-[var(--border)] rounded-md p-5">
         <h3 class="font-semibold text-[13px] mb-2" x-text="t('settings.ignores.title')"></h3>
@@ -4129,6 +4090,53 @@
       <!-- BACKUPS TAB -->
       <!-- SCHEDULES TAB -->
       <div x-show="adminTab==='schedules'" class="space-y-4">
+        <!-- Timezone setting — lives here rather than Settings because
+             the Scheduler UI itself is in Admin, and it makes sense
+             for the TZ knob to sit next to the schedules it governs.
+             Blank = container-local (legacy); any IANA name routes
+             cadence anchors through zoneinfo instead. -->
+        <section class="bg-[var(--surface)] border border-[var(--border)] rounded-md p-5">
+          <h3 class="font-semibold text-[13px] mb-2" x-text="t('scheduler_settings.title')"></h3>
+          <p class="text-[11.5px] text-[var(--text-faint)] mb-4" x-text="t('scheduler_settings.intro')"></p>
+          <div class="flex items-end gap-3 flex-wrap">
+            <div class="flex flex-col gap-1">
+              <label class="text-[11px] text-[var(--text-faint)]" x-text="t('scheduler_settings.tz_label')"></label>
+              <input type="text" x-model="settings.scheduler_timezone"
+                     :disabled="!isAdmin()"
+                     list="tz-common-admin"
+                     :placeholder="t('scheduler_settings.tz_placeholder')"
+                     class="w-64 mono text-[12.5px]">
+              <datalist id="tz-common-admin">
+                <option value="Africa/Cairo">Africa/Cairo</option>
+                <option value="America/Los_Angeles">America/Los_Angeles</option>
+                <option value="America/New_York">America/New_York</option>
+                <option value="America/Chicago">America/Chicago</option>
+                <option value="Europe/London">Europe/London</option>
+                <option value="Europe/Berlin">Europe/Berlin</option>
+                <option value="Europe/Istanbul">Europe/Istanbul</option>
+                <option value="Asia/Dubai">Asia/Dubai</option>
+                <option value="Asia/Kolkata">Asia/Kolkata</option>
+                <option value="Asia/Singapore">Asia/Singapore</option>
+                <option value="Asia/Tokyo">Asia/Tokyo</option>
+                <option value="Australia/Sydney">Australia/Sydney</option>
+                <option value="UTC">UTC</option>
+              </datalist>
+              <span class="text-[10.5px] text-[var(--text-faint)]">
+                <span x-text="t('scheduler_settings.tz_hint_prefix')"></span><a href="https://en.wikipedia.org/wiki/List_of_tz_database_time_zones"
+                              target="_blank" rel="noopener"
+                              class="text-[var(--primary)] hover:underline"
+                              x-text="t('scheduler_settings.tz_hint_link')"></a><span x-text="t('scheduler_settings.tz_hint_suffix')"></span>
+              </span>
+            </div>
+            <button x-show="isAdmin()" @click="saveSchedulerSettings()"
+                    :disabled="schedulerSaving"
+                    class="btn btn-primary text-[12px]">
+              <span x-show="!schedulerSaving" x-text="t('actions.save')"></span>
+              <span x-show="schedulerSaving" class="flex items-center gap-1"><span class="spin"></span><span x-text="t('actions.saving')"></span></span>
+            </button>
+          </div>
+        </section>
+
         <!-- Create schedule card -->
         <section class="bg-[var(--surface)] border border-[var(--border)] rounded-md p-5">
           <h3 class="font-semibold text-[13px] mb-2" x-text="t('admin.schedules.create_title')"></h3>

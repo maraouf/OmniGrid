@@ -148,6 +148,14 @@ def get_global_ssh_settings() -> dict:
         "port":         int(get_setting("ssh_default_port", "22") or "22"),
         "private_key":  get_setting("ssh_default_private_key", "") or "",
         "passphrase":   get_setting("ssh_default_private_key_passphrase", "") or "",
+        # Password auth fallback — used when private_key is blank, or
+        # when the per-host override specifies a password. Returned in
+        # the clear here (consumed by run_command); the /api/settings
+        # shaper redacts via the ``password_set`` flag pattern.
+        "password":     get_setting("ssh_default_password", "") or "",
+        # FQDN suffix appended to bare hostnames during resolve.
+        # Normalised on save to include the leading dot.
+        "fqdn_suffix":  get_setting("ssh_fqdn_suffix", "") or "",
         "known_hosts":  get_setting("ssh_default_known_hosts", "") or "",
         "destructive_patterns": (
             get_setting("ssh_destructive_patterns", "") or ""
@@ -221,6 +229,7 @@ def resolve_ssh_params(host_id: str, hosts_config: list[dict]) -> dict:
         "port":              g["port"],
         "disabled":          False,
         "key_set":           bool(g["private_key"]),
+        "password_set":      bool(g["password"]),
         "known_hosts_set":   bool(g["known_hosts"]),
         "key_fingerprint":   _key_fingerprint(g["private_key"], g["passphrase"]),
         "error":             None,
@@ -229,11 +238,33 @@ def resolve_ssh_params(host_id: str, hosts_config: list[dict]) -> dict:
         resolved["error"] = f"unknown host_id: {host_id!r}"
         return resolved
     per_host = (record.get("ssh") or {}) if isinstance(record.get("ssh"), dict) else {}
-    ssh_host_override = (per_host.get("host") or "").strip()
-    resolved["host"] = ssh_host_override or record.get("id") or ""
+    # Target hostname resolution priority:
+    #   1. per-host ssh.host override (operator pasted the full FQDN)
+    #   2. per-host ssh.fqdn (alias for 1)
+    #   3. record.id + ssh_fqdn_suffix (global suffix; ".home.lan" →
+    #      "webserver" becomes "webserver.home.lan")
+    #   4. record.id as-is
+    # We only append the suffix when the id has no dot — ids that
+    # already contain a dot are treated as already-fully-qualified.
+    ssh_host_override = (per_host.get("host") or per_host.get("fqdn") or "").strip()
+    base_id = record.get("id") or ""
+    if ssh_host_override:
+        resolved["host"] = ssh_host_override
+    else:
+        suffix = (g.get("fqdn_suffix") or "").strip()
+        if base_id and "." not in base_id and suffix:
+            resolved["host"] = base_id + (suffix if suffix.startswith(".") else "." + suffix)
+        else:
+            resolved["host"] = base_id
     u_override = (per_host.get("user") or "").strip()
     if u_override:
         resolved["user"] = u_override
+    # Per-host password override trumps the global password — useful
+    # when one box has a special account that differs from the fleet's
+    # shared read-only user.
+    if (per_host.get("password") or "").strip():
+        resolved["password_set"] = True
+        resolved["_per_host_password"] = True  # flag for run_command
     try:
         if per_host.get("port") not in (None, "", 0):
             resolved["port"] = int(per_host["port"])
@@ -324,9 +355,14 @@ async def run_command(
     if not resolved.get("host") or not resolved.get("user"):
         base_result["error"] = "SSH not configured (host + global user both required)"
         return base_result
-    if not resolved.get("key_set"):
+    # Either a private key OR a password must be available — auth
+    # proceeds via whichever is set. Per-host password overrides win
+    # over the global one; global key wins over global password.
+    if not resolved.get("key_set") and not resolved.get("password_set"):
         base_result["error"] = (
-            "No SSH private key configured — set one in Admin → SSH."
+            "No SSH credentials configured — set a private key OR a "
+            "password in Admin → SSH (or set ssh.password on this host "
+            "row in Admin → Hosts)."
         )
         return base_result
 
@@ -348,13 +384,33 @@ async def run_command(
         return base_result
 
     g = get_global_ssh_settings()
-    try:
-        client_key = asyncssh.import_private_key(
-            g["private_key"], passphrase=g["passphrase"] or None,
-        )
-    except Exception as e:
-        base_result["error"] = f"bad SSH key: {type(e).__name__}: {e}"
-        return base_result
+    # Parse the private key ONLY if one is configured. With password-
+    # only auth we skip this entirely so a bare-install operator who
+    # never pasted a key isn't blocked from running commands.
+    client_keys_arg: Any = None
+    if g["private_key"]:
+        try:
+            client_keys_arg = [asyncssh.import_private_key(
+                g["private_key"], passphrase=g["passphrase"] or None,
+            )]
+        except Exception as e:
+            # If the key is bad but we also have a password, fall
+            # through silently to password auth. Otherwise fail.
+            if not (g["password"] or resolved.get("_per_host_password")):
+                base_result["error"] = f"bad SSH key: {type(e).__name__}: {e}"
+                return base_result
+            client_keys_arg = None
+
+    # Resolve password — per-host override first, then global.
+    ssh_password: Optional[str] = None
+    if resolved.get("_per_host_password"):
+        # Re-read from hosts_config because we don't return the actual
+        # value through resolved[] (keeps it out of audit logs).
+        record = _find_host_record(host_id, hosts_config)
+        if record and isinstance(record.get("ssh"), dict):
+            ssh_password = (record["ssh"].get("password") or "").strip() or None
+    if ssh_password is None and g["password"]:
+        ssh_password = g["password"]
 
     # Known-hosts handling — see module docstring's "Host-key handling"
     # section. asyncssh accepts:
@@ -371,20 +427,29 @@ async def run_command(
             )
             return base_result
 
+    # Auth preference: key first when both are set; else whichever is
+    # available. asyncssh picks the first viable method from the list.
+    preferred: list[str] = []
+    if client_keys_arg:
+        preferred.append("publickey")
+    if ssh_password:
+        preferred.append("password")
+    if not preferred:
+        base_result["error"] = "No SSH credentials available at connect time"
+        return base_result
+
     try:
         conn_ctx = asyncssh.connect(
             host=resolved["host"],
             port=resolved["port"],
             username=resolved["user"],
-            client_keys=[client_key],
+            client_keys=client_keys_arg,
             known_hosts=known_hosts_arg,
             # Don't let agent forwarding surprise the operator — explicit
             # "only the key we just loaded" is the least-surprising model.
             agent_path=None,
-            # Keep the interactive prompts off; we expect the configured
-            # key to be the only valid auth path.
-            password=None,
-            preferred_auth="publickey",
+            password=ssh_password,
+            preferred_auth=",".join(preferred),
             connect_timeout=max(5.0, min(timeout, 30.0)),
             login_timeout=max(5.0, min(timeout, 30.0)),
         )
