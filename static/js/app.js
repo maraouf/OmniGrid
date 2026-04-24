@@ -3069,6 +3069,98 @@ function app() {
     // row in parallel. Skips rows without any provider mapping
     // (nothing to probe). Progress state (`hostsTestingAll`) drives
     // the toolbar button's spinner.
+    // Export the curated Hosts list as a JSON file download. The
+    // shape matches exactly what the importer consumes, so
+    // round-tripping keeps every field (id / label / provider
+    // mappings / url / icon / enabled) intact. Secrets aren't part
+    // of this payload — Beszel/Pulse tokens are in Settings, not
+    // per-host.
+    exportHostsConfig() {
+      const body = {
+        version:     1,
+        exported_at: new Date().toISOString(),
+        hosts:       this.hostsConfig || [],
+      };
+      const blob = new Blob([JSON.stringify(body, null, 2)],
+                            { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+      a.href = url;
+      a.download = `omnigrid-hosts-${stamp}.json`;
+      document.body.appendChild(a);
+      a.click();
+      setTimeout(() => {
+        URL.revokeObjectURL(url);
+        a.remove();
+      }, 500);
+      this.showToast(
+        `Exported ${(this.hostsConfig || []).length} host(s) to file.`,
+        'success'
+      );
+    },
+
+    // Import a hosts JSON file. Two strategies — ``merge`` keeps
+    // existing rows and adds/updates by id; ``replace`` wipes the
+    // current list. The operator picks via confirm() so neither
+    // flow is a surprise. Files saved by exportHostsConfig round-
+    // trip cleanly; hand-edited JSON that matches the same schema
+    // also works.
+    async importHostsConfig(evt) {
+      const file = evt && evt.target && evt.target.files && evt.target.files[0];
+      if (!file) return;
+      evt.target.value = '';  // reset so the same file can re-trigger
+      let payload;
+      try {
+        const text = await file.text();
+        payload = JSON.parse(text);
+      } catch (e) {
+        this.showToast(`Invalid JSON: ${e.message}`, 'error');
+        return;
+      }
+      const incoming = Array.isArray(payload.hosts) ? payload.hosts
+                     : (Array.isArray(payload) ? payload : []);
+      if (!incoming.length) {
+        this.showToast('No hosts found in file.', 'error');
+        return;
+      }
+      const existing = this.hostsConfig || [];
+      let mode = 'merge';
+      if (existing.length) {
+        // Let the user pick — ``confirm()`` only offers OK / Cancel,
+        // so we use it as merge-vs-replace via "OK to replace?".
+        mode = confirm(
+          `Replace all ${existing.length} current hosts with ${incoming.length} from the file?\n\n` +
+          `OK   → replace\n` +
+          `Cancel → merge (update existing IDs, add new ones)`
+        ) ? 'replace' : 'merge';
+      }
+      const norm = (h) => ({
+        id:          String(h.id || h.name || '').trim(),
+        label:       String(h.label || '').trim() || String(h.id || h.name || ''),
+        ne_url:      String(h.ne_url || '').trim(),
+        beszel_name: String(h.beszel_name || '').trim(),
+        pulse_name:  String(h.pulse_name || '').trim(),
+        url:         String(h.url || '').trim(),
+        icon:        String(h.icon || '').trim(),
+        enabled:     h.enabled !== false,
+      });
+      const cleanIncoming = incoming.map(norm).filter(h => h.id);
+      if (mode === 'replace') {
+        this.hostsConfig = cleanIncoming;
+      } else {
+        const byId = {};
+        for (const row of existing) byId[row.id] = row;
+        for (const row of cleanIncoming) byId[row.id] = row;  // overwrite on id collision
+        this.hostsConfig = Object.values(byId);
+      }
+      this.hostsConfigDirty = true;
+      this.showToast(
+        `Imported ${cleanIncoming.length} host(s) — review and Save to persist.`,
+        'success'
+      );
+    },
+
     async testAllHostRows() {
       const rows = (this.hostsConfig || [])
         .map((row, idx) => ({ row, idx }))

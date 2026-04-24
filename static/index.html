@@ -2899,6 +2899,20 @@
               <span x-show="!hostsTestingAll">Test all</span>
               <span x-show="hostsTestingAll" class="flex items-center gap-1"><span class="spin"></span>Testing…</span>
             </button>
+            <!-- Export / Import — back up the curated list as JSON
+                 or restore from a saved file. Round-trips cleanly
+                 across OmniGrid instances. -->
+            <button x-show="isAdmin() && hostsConfig.length > 0"
+                    @click="exportHostsConfig()"
+                    class="btn btn-ghost text-[12px]"
+                    title="Download the curated hosts list as a JSON file.">Export</button>
+            <button x-show="isAdmin()"
+                    @click="$refs.hostsImportFile.click()"
+                    class="btn btn-ghost text-[12px]"
+                    title="Load a hosts JSON file — merge or replace the current list.">Import</button>
+            <input type="file" x-ref="hostsImportFile" accept="application/json,.json"
+                   class="hidden"
+                   @change="importHostsConfig($event)">
             <button x-show="isAdmin()" @click="loadHostsConfig()"
                     class="btn btn-ghost text-[12px]"
                     :disabled="hostsConfigLoading">Reload</button>
