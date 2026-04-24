@@ -162,6 +162,86 @@ async def _fetch_systems(
     return list(data.get("items") or [])
 
 
+async def fetch_system_history(
+    base_url: str,
+    identity: str,
+    password: str,
+    system_id: str,
+    hours: int = 1,
+    stat_type: str = "1m",
+    verify_tls: bool = True,
+    timeout: float = 15.0,
+) -> dict:
+    """Return the last ``hours`` of ``system_stats`` rows for one system.
+
+    Powers the Hosts tab's expanded time-series charts (CPU / Mem /
+    Disk / Net). Filter uses PocketBase's ``(system='ID' && type='1m')``
+    syntax and sorts oldest-first so the frontend can render left→right
+    without reversing. Result shape:
+
+        {"series": [{"t": epoch_s, "cpu": float, "mp": float,
+                      "dp": float, "b": bytes_per_sec, ...}, ...],
+         "error": None}
+
+    Non-fatal failures (401, 5xx, network) return an empty series and
+    the error string so the UI can show "Collecting data…" instead.
+    """
+    if not (base_url and identity and password and system_id):
+        return {"series": [], "error": "missing hub credentials or system id"}
+    # Limit to a sane number — 1h * 60 = 60 rows for type=1m, etc.
+    per_page = max(10, min(500, hours * 60))
+    # Use urlencode-style concat; PocketBase expects filter as a raw
+    # string, not JSON. Percent-encode reserved chars inline.
+    filt = f"(system='{system_id}'&&type='{stat_type}')"
+    url = (
+        base_url.rstrip("/")
+        + "/api/collections/system_stats/records"
+        + f"?filter={httpx.QueryParams({'f': filt}).get('f') or filt}"
+        + f"&sort=created&perPage={per_page}"
+    )
+    try:
+        async with httpx.AsyncClient(verify=verify_tls, timeout=timeout) as client:
+            token = await _get_token(client, base_url, identity, password)
+            r = await client.get(url, headers={"Authorization": token})
+            if r.status_code == 401:
+                token = await _get_token(
+                    client, base_url, identity, password, force_refresh=True,
+                )
+                r = await client.get(url, headers={"Authorization": token})
+            if r.status_code >= 400:
+                return {"series": [], "error": f"HTTP {r.status_code}"}
+    except Exception as e:
+        return {"series": [], "error": str(e)}
+
+    items = (r.json() or {}).get("items") or []
+    series: list[dict] = []
+    for it in items:
+        stats = it.get("stats") or {}
+        # Created timestamp → epoch seconds for the frontend.
+        created = it.get("created") or ""
+        try:
+            import datetime as _dt
+            # PocketBase emits "2026-04-22 12:34:56.789Z" — normalize.
+            iso = created.replace(" ", "T")
+            if iso.endswith("Z"):
+                iso = iso[:-1] + "+00:00"
+            ts = int(_dt.datetime.fromisoformat(iso).timestamp())
+        except Exception:
+            ts = 0
+        series.append({
+            "t":   ts,
+            "cpu": _num(stats.get("cpu")),
+            "mp":  _num(stats.get("mp")),
+            "dp":  _num(stats.get("dp")),
+            "mu":  _num(stats.get("mu")),   # mem used GiB
+            "du":  _num(stats.get("du")),   # disk used GiB
+            "b":   _num(stats.get("b")),    # network bytes/s
+            "nr":  _num(stats.get("nr")),   # net recv bytes/s (newer)
+            "ns":  _num(stats.get("ns")),   # net send bytes/s (newer)
+        })
+    return {"series": series, "error": None}
+
+
 async def _fetch_latest_stats(
     client: httpx.AsyncClient,
     base_url: str,
@@ -277,6 +357,15 @@ def extract_stats(info: dict, stats: Optional[dict] = None) -> dict:
         # Per-mount detail is in the stats row under ``efs`` in newer
         # Beszel versions; surface the raw list for future drill-down UIs.
         "mounts":           list(stats.get("efs") or []),
+        # Network interfaces (list of names) — Beszel exposes these in
+        # ``info.ni``. MAC / IPs aren't part of the public schema, so
+        # the NETWORK card renders whatever names we got.
+        "network_ifaces":   list(info.get("ni") or []),
+        # Current in-flight bandwidth (bytes/s) reported by the agent.
+        # Used on the Hosts table for a net-I/O indicator.
+        "host_bandwidth":   _num(info.get("b")),
+        # Container count — homelab-relevant when a host runs Docker.
+        "host_containers":  int(_num(info.get("ct"))),
         "exporter_error":   None,
     }
 

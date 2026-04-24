@@ -6,7 +6,7 @@
   },
   "app": {
     "name": "OmniGrid",
-    "tagline": "Unified container fleet management",
+    "tagline": "One dashboard. Every node.",
     "signed_in_as": "Signed in as",
     "version": "Version:"
   },

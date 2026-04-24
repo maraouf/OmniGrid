@@ -1078,6 +1078,28 @@
                   </dl>
                 </section>
 
+                <!-- NETWORK — interfaces reported by the Beszel agent
+                     (info.ni). MAC / IP detail isn't in Beszel's public
+                     schema, so we just list interface names + show the
+                     current bandwidth if reported. -->
+                <section x-show="(h.network_ifaces || []).length > 0 || h.bandwidth"
+                         class="rounded border border-[var(--border)] bg-[var(--surface)] p-4">
+                  <h4 class="text-[10.5px] uppercase tracking-wider text-[var(--text-faint)] mb-3">Network</h4>
+                  <dl class="grid grid-cols-[auto_1fr] gap-x-4 gap-y-2 text-[12px]">
+                    <dt class="text-[var(--text-dim)]" x-show="h.bandwidth">Bandwidth</dt>
+                    <dd class="mono text-end" x-show="h.bandwidth"
+                        x-text="fmtBytes(h.bandwidth) + '/s'"></dd>
+                    <dt class="text-[var(--text-dim)]" x-show="(h.network_ifaces || []).length">Interfaces</dt>
+                    <dd class="text-end" x-show="(h.network_ifaces || []).length">
+                      <div class="flex flex-wrap gap-1 justify-end">
+                        <template x-for="(iface, i) in (h.network_ifaces || [])" :key="i">
+                          <span class="chip mono text-[10.5px]" x-text="iface"></span>
+                        </template>
+                      </div>
+                    </dd>
+                  </dl>
+                </section>
+
                 <!-- MOUNTS (if stats carries per-mount detail) -->
                 <section x-show="(h.mounts || []).length > 0"
                          class="rounded border border-[var(--border)] bg-[var(--surface)] p-4">
@@ -1099,6 +1121,43 @@
                     </template>
                   </div>
                 </section>
+              </div>
+
+              <!-- Time-series chart slots. Actual Chart.js rendering
+                   lands in Stage 3; for now we render the Dozzle-style
+                   "collecting data…" placeholder so the layout matches
+                   img_8 and the operator knows charts are pending. -->
+              <div class="mt-4 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                <div>
+                  <div class="text-[10.5px] uppercase tracking-wider text-[var(--text-faint)] mb-2">CPU (%)</div>
+                  <div class="collecting-block">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+                    <div>
+                      <div x-text="t('loading.collecting_data')"></div>
+                      <div class="text-[10.5px] text-[var(--text-faint)] not-italic mt-0.5" x-text="t('loading.history_will_appear')"></div>
+                    </div>
+                  </div>
+                </div>
+                <div>
+                  <div class="text-[10.5px] uppercase tracking-wider text-[var(--text-faint)] mb-2">Memory (%)</div>
+                  <div class="collecting-block">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+                    <div>
+                      <div x-text="t('loading.collecting_data')"></div>
+                      <div class="text-[10.5px] text-[var(--text-faint)] not-italic mt-0.5" x-text="t('loading.history_will_appear')"></div>
+                    </div>
+                  </div>
+                </div>
+                <div>
+                  <div class="text-[10.5px] uppercase tracking-wider text-[var(--text-faint)] mb-2">Disk (%)</div>
+                  <div class="collecting-block">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+                    <div>
+                      <div x-text="t('loading.collecting_data')"></div>
+                      <div class="text-[10.5px] text-[var(--text-faint)] not-italic mt-0.5" x-text="t('loading.history_will_appear')"></div>
+                    </div>
+                  </div>
+                </div>
               </div>
             </div>
           </div>
