@@ -263,10 +263,9 @@ async def _fetch_latest_stats(
     homelab with <=20 systems gives us ~25 minutes of headroom before
     any system's newest row rolls off the buffer.
     """
-    url = (base_url.rstrip("/")
-           + "/api/collections/system_stats/records"
-           + "?filter=(type%3D%271m%27)&sort=-created&perPage=500")
-    r = await client.get(url, headers={"Authorization": token})
+    url = base_url.rstrip("/") + "/api/collections/system_stats/records"
+    params = {"filter": "(type='1m')", "sort": "-created", "perPage": "500"}
+    r = await client.get(url, params=params, headers={"Authorization": token})
     if r.status_code == 401:
         raise PermissionError("401")
     if r.status_code >= 400:

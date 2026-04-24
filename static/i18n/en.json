@@ -368,6 +368,7 @@
       "portainer": "Portainer",
       "oidc": "Authentik OIDC",
       "host_stats": "Host stats",
+      "hosts": "Hosts",
       "schedules": "Schedules",
       "backups": "Backups",
       "logs": "Logs"

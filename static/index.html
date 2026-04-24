@@ -722,18 +722,6 @@
               <span class="text-[11px] text-[var(--text-dim)] mx-1">
                 <span x-text="node.total"></span> total
               </span>
-              <!-- Node details / settings — admin-only, opens a side
-                   drawer with per-node config (e.g. Beszel alias). Hidden
-                   on the synthetic Unpinned bucket. -->
-              <button x-show="isAdmin() && !node.is_unpinned"
-                      @click.stop="openNodeDrawer(node)"
-                      class="btn btn-ghost text-[11px]"
-                      title="Node settings (Beszel alias, etc.)">
-                <span class="flex items-center gap-1">
-                  <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33h0a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51h0a1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82v0a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
-                  Settings
-                </span>
-              </button>
               <!-- Prune — admin-only, hidden on the synthetic Unpinned
                    bucket because there's no real node to target. -->
               <button x-show="isAdmin() && !node.is_unpinned"
@@ -982,10 +970,23 @@
                 </svg>
                 <span class="w-2 h-2 rounded-full flex-shrink-0" :style="'background:' + statusDotColor(h.status)"></span>
               </div>
-              <!-- Hostname + updated-ago -->
+              <!-- Hostname + updated-ago + provider chips. The chips
+                   make it obvious which providers actually returned
+                   data for this host, matching the merge that happens
+                   on the backend. Empty chips = no provider hit. -->
               <div class="min-w-0">
-                <div class="font-semibold text-[13px] mono truncate" x-text="h.host"></div>
-                <div class="text-[10.5px] text-[var(--text-faint)]" x-text="fmtUpdatedAgo(h.beszel_updated)"></div>
+                <div class="flex items-center gap-1.5">
+                  <span class="font-semibold text-[13px] mono truncate" x-text="h.label || h.host"></span>
+                  <template x-for="p in (h.providers || [])" :key="p">
+                    <span class="chip text-[9.5px] px-1 py-0"
+                          :class="p === 'beszel' ? 'pill-ok' : p === 'pulse' ? 'pill-info' : 'pill-update'"
+                          x-text="p === 'node_exporter' ? 'exporter' : p"></span>
+                  </template>
+                </div>
+                <div class="text-[10.5px] text-[var(--text-faint)]">
+                  <span x-show="h.label && h.label !== h.host" class="mono me-1" x-text="h.host"></span>
+                  <span x-text="fmtUpdatedAgo(h.beszel_updated) || ((h.providers || []).length ? ((h.providers || []).length + ' provider' + ((h.providers || []).length === 1 ? '' : 's')) : 'no data')"></span>
+                </div>
               </div>
               <!-- Platform -->
               <div class="min-w-0">
@@ -1201,8 +1202,11 @@
 
               <!-- Time-range picker — segmented buttons, mirrors img_8's
                    Beszel look. Each button rewrites the range + reloads
-                   every expanded host's history. -->
-              <div class="mt-4 flex items-center gap-2">
+                   every expanded host's history. Hidden when Beszel
+                   didn't match this host; the charts section below
+                   falls back to a "history only available via Beszel"
+                   note in that case. -->
+              <div class="mt-4 flex items-center gap-2" x-show="h.beszel_id">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-[var(--text-dim)]"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
                 <div class="range-seg">
                   <button type="button" :class="hostHistoryRange === 1 ? 'active' : ''"
@@ -1214,6 +1218,12 @@
                   <button type="button" :class="hostHistoryRange === 168 ? 'active' : ''"
                           @click="setHostHistoryRange(168)">7d</button>
                 </div>
+              </div>
+              <div x-show="!h.beszel_id" class="mt-4 text-[11.5px] text-[var(--text-faint)] italic">
+                Time-series charts are sourced from Beszel. Link this
+                host to a Beszel system in
+                <a href="/admin/hosts" class="text-[var(--primary)] hover:underline">Admin → Hosts</a>
+                to see CPU / Memory / Disk / Net history here.
               </div>
 
               <!-- Metric cards — Beszel-style. Three percentage charts
