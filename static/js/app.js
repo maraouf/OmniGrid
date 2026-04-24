@@ -3134,33 +3134,68 @@ function app() {
       // tokens win first so "nginx-proxy-manager" beats "nginx".
       const hay = [h.label, h.id, h.host]
         .filter(Boolean).join(' ').toLowerCase();
+      // Longest / most specific phrases first so "nginx proxy
+      // manager" wins over "nginx" and "home assistant" wins over
+      // "home". Every target slug must correspond to a file that
+      // actually exists in static/img/icons/ — otherwise the @error
+      // handler on the <img> hides the broken image.
       const tokens = [
+        // reverse-proxy family
         ['nginx proxy manager',   'nginx-proxy-manager'],
         ['nginxproxymanager',     'nginx-proxy-manager'],
         ['proxy manager',         'nginx-proxy-manager'],
-        ['npm',                   'nginx-proxy-manager'],
-        ['nginx',                 'nginx'],
-        ['apache',                'apache'],
-        ['opnsense',              'opnsense'],
-        ['pfsense',               'pfsense'],
+        [' npm',                  'nginx-proxy-manager'],
+        ['(npm)',                 'nginx-proxy-manager'],
         ['traefik',               'traefik'],
         ['caddy',                 'caddy'],
+        // webservers
+        ['nginx',                 'nginx'],
+        ['apache',                'apache'],
+        // firewalls / routers / gateways
+        ['opnsense',              'opnsense'],
+        ['pfsense',               'pfsense'],
+        ['mikrotik',              'mikrotik'],
+        ['unifi',                 'unifi'],
         ['gateway',               'opnsense'],
         ['firewall',              'opnsense'],
+        ['router',                'opnsense'],
+        // media / entertainment
         ['plex',                  'plex'],
         ['jellyfin',              'jellyfin'],
+        ['jellyseerr',            'jellyseerr'],
+        ['overseerr',             'jellyseerr'],
+        ['tautulli',              'tautulli'],
+        ['bazarr',                'bazarr'],
+        ['sonarr',                'sonarr'],
+        ['radarr',                'radarr'],
+        ['prowlarr',              'prowlarr'],
+        // smart home
         ['home assistant',        'home-assistant'],
         ['homeassistant',         'home-assistant'],
+        ['homebridge',            'homebridge'],
+        // ad-blocking / DNS
         ['pi-hole',               'pi-hole'],
         ['pihole',                'pi-hole'],
+        ['adguard home',          'adguard-home'],
+        ['adguardhome',           'adguard-home'],
         ['adguard',               'adguard-home'],
+        ['nebula',                'pi-hole'],
+        // identity
         ['authentik',             'authentik'],
+        ['keycloak',              'authentik'],
+        // orchestration / container tooling
         ['portainer',             'portainer'],
+        ['komodo',                'komodo'],
+        ['dozzle',                'dozzle'],
+        ['homarr',                'homarr'],
+        ['homepage',              'homepage'],
+        // hypervisors / platforms
         ['proxmox',               'proxmox'],
         ['pve',                   'proxmox'],
         ['docker',                'docker'],
         ['kubernetes',            'kubernetes'],
         ['k8s',                   'kubernetes'],
+        // observability
         ['grafana',               'grafana'],
         ['prometheus',            'prometheus'],
         ['uptime kuma',           'uptime-kuma'],
@@ -3168,6 +3203,14 @@ function app() {
         ['netdata',               'netdata'],
         ['beszel',                'beszel'],
         ['pulse',                 'pulse'],
+        // notifications / networking
+        ['apprise',               'apprise'],
+        ['fing',                  'fing'],
+        ['myspeed',               'myspeed'],
+        ['speedtest',             'speedtest-tracker'],
+        ['kavita',                'kavita'],
+        ['squid',                 'squid'],
+        ['lubelogger',            'lubelogger'],
       ];
       for (const [needle, slug] of tokens) {
         if (hay.includes(needle)) return '/img/icons/' + slug + '.svg';

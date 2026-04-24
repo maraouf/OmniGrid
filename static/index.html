@@ -2821,8 +2821,13 @@
                     <span class="text-[10px] normal-case text-[var(--text-faint)] ms-1">(optional — auto-matched from ID if blank)</span>
                   </label>
                   <div class="flex items-center gap-2">
-                    <img :src="row.icon ? (row.icon.startsWith('http') || row.icon.startsWith('/') ? row.icon : '/img/icons/' + row.icon + '.svg') : (row.id ? iconUrlFor(row.id) : '')"
-                         x-show="row.icon || row.id"
+                    <!-- Preview — runs through the same hostIconUrl()
+                         the Hosts view uses, so the admin sees
+                         exactly what the operator will see (including
+                         auto-matched brand icons from labels like
+                         "(Apache)" or "(NGINX)"). -->
+                    <img :src="hostIconUrl(row)"
+                         x-show="hostIconUrl(row)"
                          width="22" height="22" class="flex-shrink-0 rounded-sm"
                          alt="" loading="lazy"
                          @error="$event.target.style.display='none'">
