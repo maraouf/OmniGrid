@@ -3503,6 +3503,17 @@
             <button x-show="isAdmin()" @click="loadHostsConfig()"
                     class="btn btn-ghost text-[12px]"
                     :disabled="hostsConfigLoading">Reload</button>
+            <!-- Top-of-card Save shortcut — saves operators from
+                 scrolling past 20-50 rows to reach the bottom bar
+                 when they just tweaked one field near the top. Same
+                 handler + dirty ring as the bottom bar's Save. -->
+            <button x-show="isAdmin()" @click="saveHostsConfig()"
+                    :class="hostsConfigDirty ? 'ring-2 ring-[var(--warning)]' : ''"
+                    class="btn btn-primary text-[12px]"
+                    :disabled="hostsConfigSaving">
+              <span x-show="!hostsConfigSaving">Save</span>
+              <span x-show="hostsConfigSaving" class="flex items-center gap-1"><span class="spin"></span>Saving…</span>
+            </button>
           </div>
         </div>
 

@@ -831,6 +831,9 @@ class SettingsIn(BaseModel):
     weather_lon: Optional[float] = None
     show_header_clock: Optional[bool] = None
     show_header_weather: Optional[bool] = None
+    # Open-Meteo upstream — blank uses the public endpoint; admins
+    # can point at a self-hosted instance without touching .env.
+    open_meteo_url: Optional[str] = None
 
 
 @app.get("/api/settings")
@@ -2443,9 +2446,10 @@ async def api_weather(
         "current":   "temperature_2m,weather_code,relative_humidity_2m,wind_speed_10m",
         "timezone":  "auto",
     }
+    upstream = _open_meteo_url()
     try:
         async with httpx.AsyncClient(timeout=8.0) as client:
-            r = await client.get(OPEN_METEO_URL, params=params)
+            r = await client.get(upstream, params=params)
             r.raise_for_status()
             j = r.json() or {}
     except Exception as e:
@@ -2464,7 +2468,7 @@ async def api_weather(
         "condition":   desc,
         "icon":        icon,
         "provider":    "open-meteo",
-        "upstream":    OPEN_METEO_URL,
+        "upstream":    upstream,
         "fetched_at":  int(now),
     }
     _weather_cache[key] = (now, body)

@@ -221,6 +221,7 @@
       "host_stats": "Host stats",
       "ignores": "Ignore list",
       "oidc": "Authentik OIDC",
+      "scheduler": "Scheduler",
       "shortcuts": "Keyboard shortcuts",
       "language": "Language"
     },

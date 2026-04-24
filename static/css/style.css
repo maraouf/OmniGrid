@@ -2522,38 +2522,24 @@ body.login {
    buttons inset from the card's rounded corners.
    --------------------------------------------------------------------------- */
 .hosts-config-actionbar {
-    /* Fixed to the viewport so parent stacking contexts / overflow
-       rules can't clip us. Positioned to hug the right edge, above
-       the app-footer (z-index 30). Width is capped so the bar
-       doesn't stretch across the whole page — the left side stays
-       clear of the admin sidebar and reads cleanly against whatever
-       content is behind. z-index 40 decisively above the footer. */
-    position: fixed;
-    bottom: var(--s-4);
-    right: var(--s-5);
-    z-index: 40;
-    display: inline-flex;
+    /* Inline at the bottom of the Admin → Hosts card — no fixed /
+       sticky positioning to avoid stacking-context conflicts with
+       toast notifications, the app-footer, and SweetAlert dialogs.
+       Operators reach it by scrolling; a duplicate Save button at
+       the TOP of the card (see .hosts-config-top-actions) gives a
+       short-cut when the list is long. The inline bar keeps the
+       "row count + dirty indicator + ↑ Top" affordances in view
+       without competing for z-index against other overlays.
+    */
+    display: flex;
     align-items: center;
     gap: var(--s-2);
-    padding: var(--s-3) var(--s-4);
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: var(--r-lg);
-    box-shadow: 0 8px 24px var(--backdrop);
-    max-width: calc(100vw - 2 * var(--s-5));
     flex-wrap: wrap;
-}
-
-/* On narrow viewports where the fixed bar could cover table content,
-   bump it up a bit so the footer below has its own breathing room
-   and the bar doesn't clash with the app-footer's blurred background. */
-@media (max-width: 640px) {
-    .hosts-config-actionbar {
-        bottom: 56px;
-        left: var(--s-4);
-        right: var(--s-4);
-        justify-content: flex-start;
-    }
+    margin-top: var(--s-4);
+    padding: var(--s-3) var(--s-4);
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: var(--r-md);
 }
 
 /* ---------------------------------------------------------------------------
