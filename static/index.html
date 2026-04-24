@@ -1606,8 +1606,10 @@
                    every expanded host's history. Hidden when Beszel
                    didn't match this host; the charts section below
                    falls back to a "history only available via Beszel"
-                   note in that case. -->
-              <div class="mt-4 flex items-center gap-2" x-show="h.beszel_id">
+                   note in that case. Whole section hides when no
+                   provider matched — the "No data" banner above +
+                   Debug panel below do the talking. -->
+              <div class="mt-4 flex items-center gap-2" x-show="h.beszel_id && (h.providers || []).length > 0">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-[var(--text-dim)]"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
                 <div class="range-seg">
                   <button type="button" :class="hostHistoryRange === 1 ? 'active' : ''"

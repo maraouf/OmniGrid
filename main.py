@@ -911,6 +911,20 @@ async def api_set_settings(
     if s.backup_retention_count is not None:
         n = max(0, int(s.backup_retention_count))
         set_setting("backup_retention_count", str(n))
+    if s.scheduler_timezone is not None:
+        # Validate the IANA name up-front so a typo doesn't silently
+        # fall back to UTC on every tick. Blank is accepted = reset.
+        tz_name = (s.scheduler_timezone or "").strip()
+        if tz_name:
+            try:
+                from zoneinfo import ZoneInfo
+                ZoneInfo(tz_name)  # raises on invalid
+            except Exception as e:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"scheduler_timezone {tz_name!r} is not a valid IANA name: {e}",
+                )
+        set_setting("scheduler_timezone", tz_name)
     if s.node_exporter_enabled is not None:
         set_setting("node_exporter_enabled", "true" if s.node_exporter_enabled else "false")
     if s.node_exporter_url_template is not None:

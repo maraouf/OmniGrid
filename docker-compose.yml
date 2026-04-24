@@ -23,11 +23,21 @@ services:
     # the app read its own file sidesteps that entirely — and keeps the
     # compose file free of service-level config.
 
+    # Container timezone. Python's zoneinfo module reads /etc/localtime,
+    # but the python:3.12-slim base image ships with UTC and tzdata
+    # isn't guaranteed to be present. Setting TZ here makes
+    # `time.localtime()` + the scheduler's `scheduler_timezone` default
+    # align with the operator's wall clock instead of UTC. Change this
+    # to match wherever the operator physically runs OmniGrid from.
+    environment:
+      - TZ=Africa/Cairo
+
     volumes:
       - /opt/omnigrid/app:/app:ro             # source code (read-only, hot-reload with a container restart)
       - /opt/omnigrid/data:/app/data          # SQLite for history / ignores / settings / users / sessions
       - /opt/omnigrid/pip-cache:/pip-cache    # persistent pip cache across restarts
       - /etc/ssl/certs:/etc/ssl/certs:ro      # trust your internal CA so HTTPS calls to portainer.home.lan work
+      - /etc/localtime:/etc/localtime:ro      # belt-and-braces for TZ — libc functions that bypass $TZ still see the right zone
 
     networks:
       - nginx-proxy-manager_default
