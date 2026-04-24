@@ -1319,11 +1319,13 @@
                          class="rounded border border-[var(--border)] bg-[var(--surface)] p-4">
                   <h4 class="text-[10.5px] uppercase tracking-wider text-[var(--text-faint)] mb-3">Disks</h4>
                   <div class="space-y-3">
-                    <!-- Total usage row — uses the merged host_disk_*
-                         bytes, not the per-mount values, so it keeps
-                         working when the agent is container-mode and
-                         only reports aggregates. Percentage leads so
-                         it's scannable at a glance. -->
+                    <!-- Total usage row — the bar is SEGMENTED when
+                         we have per-mount data: each mount shows as a
+                         proportional stripe of a distinct colour so
+                         operators can see "the root is full but /data
+                         is mostly empty" at a glance. Falls back to a
+                         single-color aggregate bar when only the
+                         whole-pool totals exist. -->
                     <div x-show="h.disk_total > 0">
                       <div class="flex items-baseline justify-between">
                         <span class="text-[11.5px] text-[var(--text-dim)] font-semibold">Total usage</span>
@@ -1332,11 +1334,45 @@
                                       + fmtBytes(h.disk_used) + ' / '
                                       + fmtBytes(h.disk_total)"></span>
                       </div>
-                      <div class="stat-bar mt-1"
-                           :class="barLevel(diskPercentOf(h))"
-                           :style="'--w: ' + diskPercentOf(h) + '%'">
-                        <div class="fill"></div>
-                      </div>
+                      <!-- Segmented bar — rendered only when we have
+                           at least one mount. Uses h.disk_total as the
+                           full-bar width so each segment's percent is
+                           "this mount's used / total pool" — that way
+                           the bar's visual sum across segments equals
+                           the aggregate "used" portion. -->
+                      <template x-if="(h.mounts || []).length > 0">
+                        <div class="mt-1">
+                          <div class="disk-seg-labels"
+                               x-show="(h.mounts || []).length > 1">
+                            <template x-for="(m, i) in (h.mounts || [])" :key="i">
+                              <span class="disk-seg-label"
+                                    :class="'disk-seg-' + (i % 7)"
+                                    :style="'margin-inline-start: '
+                                            + (mountSegmentOffset(h, i) + mountSegmentWidth(h, i) / 2)
+                                            + '%'"
+                                    x-text="m.n || m.name || '(disk)'"></span>
+                            </template>
+                          </div>
+                          <div class="disk-segmented">
+                            <template x-for="(m, i) in (h.mounts || [])" :key="i">
+                              <div class="disk-segmented-seg"
+                                   :class="'disk-seg-' + (i % 7)"
+                                   :style="'width: ' + mountSegmentWidth(h, i) + '%'"
+                                   :title="(m.n || '') + ' · '
+                                           + fmtBytes((m.du || 0) * 1024**3) + ' used'"></div>
+                            </template>
+                          </div>
+                        </div>
+                      </template>
+                      <!-- Single-colour fallback when no per-mount data
+                           is available — still shows total usage %. -->
+                      <template x-if="(h.mounts || []).length === 0">
+                        <div class="stat-bar mt-1"
+                             :class="barLevel(diskPercentOf(h))"
+                             :style="'--w: ' + diskPercentOf(h) + '%'">
+                          <div class="fill"></div>
+                        </div>
+                      </template>
                     </div>
                     <!-- Per-mount breakdown (when stats.efs was
                          populated — full-host Beszel agents only). -->
@@ -2782,6 +2818,18 @@
               <span>Import</span>
               <span class="ms-1 text-[10.5px] opacity-80"
                     x-text="'(' + discoveredMissingCount() + ')'"></span>
+            </button>
+            <!-- Test all — fires the per-row test endpoint for every
+                 enabled host with at least one provider mapping.
+                 Useful after bulk edits, before relying on the
+                 merged data in the Hosts view. -->
+            <button x-show="isAdmin() && hostsConfig.length > 0"
+                    @click="testAllHostRows()"
+                    :disabled="hostsTestingAll"
+                    class="btn btn-ghost text-[12px]"
+                    :title="'Probe every enabled host against all its configured providers and show the results per row.'">
+              <span x-show="!hostsTestingAll">Test all</span>
+              <span x-show="hostsTestingAll" class="flex items-center gap-1"><span class="spin"></span>Testing…</span>
             </button>
             <button x-show="isAdmin()" @click="loadHostsConfig()"
                     class="btn btn-ghost text-[12px]"

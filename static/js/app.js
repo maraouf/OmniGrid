@@ -81,6 +81,7 @@ function app() {
     // node_exporter} each with {ok, skipped, detail}. Cleared when
     // a row's fields change so stale results aren't shown.
     hostsTestResults: {},
+    hostsTestingAll: false,
     // Per-system time-series cache keyed by Beszel record id.
     // Shape: { [system_id]: { loading, error, series: [{t,cpu,mp,dp,b,...}] } }
     hostHistory: {},
@@ -3062,6 +3063,31 @@ function app() {
       this.hostsConfigDirty = true;
       this.showToast(`Added ${rows.length} host(s) — review and Save to persist.`, 'success');
     },
+    // Bulk "test every host" — fires testHostRow for each enabled
+    // row in parallel. Skips rows without any provider mapping
+    // (nothing to probe). Progress state (`hostsTestingAll`) drives
+    // the toolbar button's spinner.
+    async testAllHostRows() {
+      const rows = (this.hostsConfig || [])
+        .map((row, idx) => ({ row, idx }))
+        .filter(({ row }) =>
+          row.enabled !== false &&
+          ((row.beszel_name || '').trim() ||
+           (row.pulse_name || '').trim() ||
+           (row.ne_url || '').trim())
+        );
+      if (!rows.length) {
+        this.showToast('No enabled hosts with provider mappings to test.', 'error');
+        return;
+      }
+      this.hostsTestingAll = true;
+      try {
+        await Promise.all(rows.map(({ idx }) => this.testHostRow(idx)));
+        this.showToast(`Tested ${rows.length} host(s) — see per-row results.`, 'success');
+      } finally {
+        this.hostsTestingAll = false;
+      }
+    },
     async testHostRow(idx) {
       const row = this.hostsConfig[idx];
       if (!row) return;
@@ -3630,6 +3656,30 @@ function app() {
     diskPercentOf(h) {
       if (!h || !h.disk_total) return 0;
       return Math.round((h.disk_used / h.disk_total) * 100);
+    },
+    // Segmented-bar helpers — width and offset of a single mount's
+    // USED portion, expressed as percent of the host's total pool
+    // capacity (h.disk_total). A 939 GB pool with a 15 GB / 75 MB
+    // split between ``/`` and ``/boot/firmware`` renders a ~1.6%
+    // emerald stripe + a ~0.008% blue stripe on an otherwise-grey
+    // bar — visually matching img_1 / Beszel's Total Usage.
+    //
+    // Mount sizes come from extract_stats' GiB floats (.du / .d),
+    // so we multiply by 1024**3 to get bytes before dividing by
+    // h.disk_total (bytes). Defensive defaults keep NaN out of the
+    // style string when a mount lacks numbers.
+    mountSegmentWidth(h, idx) {
+      if (!h || !h.disk_total || !(h.mounts || [])[idx]) return 0;
+      const m = h.mounts[idx];
+      const used = (Number(m.du) || 0) * 1024 ** 3;
+      return Math.min(100, Math.max(0, (used / h.disk_total) * 100));
+    },
+    mountSegmentOffset(h, idx) {
+      let offset = 0;
+      for (let i = 0; i < idx; i++) {
+        offset += this.mountSegmentWidth(h, i);
+      }
+      return offset;
     },
     // Green → amber → red by threshold, matching how nodeStats renders.
     pctColor(pct) {

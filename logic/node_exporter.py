@@ -101,6 +101,21 @@ def parse_exporter_text(text: str) -> dict:
     fs: dict[str, dict] = {}
     mem_total = 0
     mem_avail = 0
+    # FreeBSD / OPNsense fallback buckets — the exporter on those
+    # systems emits ``node_memory_size_bytes`` for total and splits
+    # "available" across free + inactive + laundry. We accumulate
+    # whichever buckets appear and derive the Linux-shaped values
+    # after the scan if the direct metrics were absent.
+    bsd_mem_total = 0
+    bsd_mem_free = 0
+    bsd_mem_inactive = 0
+    bsd_mem_laundry = 0
+    bsd_mem_cache = 0
+    # Device labels seen so we can dedup ZFS subdatasets that share
+    # the same underlying pool (every ``zroot/...`` dataset reports
+    # the pool's size/avail, so naive summing multiplies the real
+    # total by the number of datasets).
+    fs_labels: dict[str, dict] = {}
     boot_ts = 0.0
     for raw_line in text.splitlines():
         line = raw_line.strip()
@@ -118,6 +133,17 @@ def parse_exporter_text(text: str) -> dict:
             mem_total = int(value)
         elif name == "node_memory_MemAvailable_bytes":
             mem_avail = int(value)
+        # --- FreeBSD memory buckets ---
+        elif name == "node_memory_size_bytes":
+            bsd_mem_total = int(value)
+        elif name == "node_memory_free_bytes":
+            bsd_mem_free = int(value)
+        elif name == "node_memory_inactive_bytes":
+            bsd_mem_inactive = int(value)
+        elif name == "node_memory_laundry_bytes":
+            bsd_mem_laundry = int(value)
+        elif name == "node_memory_cache_bytes":
+            bsd_mem_cache = int(value)
         elif name == "node_boot_time_seconds" or name == "node_boot_time":
             # Pre-0.16 node-exporter used "node_boot_time" without the
             # _seconds suffix. Accept both so older deploys work.
@@ -126,6 +152,7 @@ def parse_exporter_text(text: str) -> dict:
             labels = _parse_labels(m.group("labels") or "")
             mount = labels.get("mountpoint") or ""
             fstype = labels.get("fstype") or ""
+            device = labels.get("device") or ""
             if not mount:
                 continue
             if fstype in _EXCLUDED_FSTYPES:
@@ -133,12 +160,23 @@ def parse_exporter_text(text: str) -> dict:
             if any(mount.startswith(p) for p in _EXCLUDED_MOUNT_PREFIXES):
                 continue
             entry = fs.setdefault(mount, {"mountpoint": mount, "fstype": fstype,
-                                         "size": 0, "avail": 0})
+                                         "device": device, "size": 0, "avail": 0})
             entry["fstype"] = fstype or entry.get("fstype") or ""
+            entry["device"] = device or entry.get("device") or ""
             if name == "node_filesystem_size_bytes":
                 entry["size"] = int(value)
             else:
                 entry["avail"] = int(value)
+
+    # FreeBSD fallbacks — if the Linux-shaped metrics never appeared,
+    # derive the same shape from the BSD buckets so downstream code
+    # doesn't care which OS the agent ran on.
+    if mem_total == 0 and bsd_mem_total > 0:
+        mem_total = bsd_mem_total
+    if mem_avail == 0 and (bsd_mem_free or bsd_mem_inactive or bsd_mem_laundry or bsd_mem_cache):
+        # "Reclaimable memory" ≈ free + inactive + laundry + cache, the
+        # FreeBSD analogue of Linux's MemAvailable.
+        mem_avail = bsd_mem_free + bsd_mem_inactive + bsd_mem_laundry + bsd_mem_cache
 
     # Finalise mount list — compute used, drop any rows where size is 0
     # (kernel readahead race / unreadable mount).
