@@ -770,6 +770,15 @@ class SettingsIn(BaseModel):
     #   {"debian13docker": "docker.home.lan"}
     # Nodes not listed here fall back to identity mapping.
     beszel_aliases: Optional[dict] = None
+    # Pulse (rcourtman/Pulse) — third host-stats provider. PVE-only.
+    # Token is write-only on the wire like beszel_password.
+    pulse_url: Optional[str] = None
+    pulse_token: Optional[str] = None
+    pulse_verify_tls: Optional[bool] = None
+    # Docker hostname → Pulse node name. Separate from beszel_aliases
+    # because Pulse uses PVE node names (``pve-1``, ``dockerpve``) which
+    # tend to differ from Beszel hostnames.
+    pulse_aliases: Optional[dict] = None
 
 
 @app.get("/api/settings")
@@ -815,6 +824,13 @@ async def api_get_settings(request: Request):
             "password_set": bool(get_setting("beszel_password", "")),
             "verify_tls": (get_setting("beszel_verify_tls", "true") or "true").lower() == "true",
             "aliases": json.loads(get_setting("beszel_aliases", "{}") or "{}"),
+        },
+        # Pulse — token is write-only like Beszel's password.
+        "pulse": {
+            "url": get_setting("pulse_url", ""),
+            "token_set": bool(get_setting("pulse_token", "")),
+            "verify_tls": (get_setting("pulse_verify_tls", "true") or "true").lower() == "true",
+            "aliases": json.loads(get_setting("pulse_aliases", "{}") or "{}"),
         },
         # Back-compat: older UI bits read this top-level field.
         "endpoint_id": p.get("portainer_endpoint_id", 1),
@@ -891,14 +907,15 @@ async def api_set_settings(
         raw = (s.host_stats_source or "").strip()
         parts = {t.strip().lower() for t in raw.split(",") if t.strip()}
         parts.discard("none")
-        valid = {"beszel", "node_exporter"}
+        valid = {"beszel", "node_exporter", "pulse"}
         unknown = parts - valid
         if unknown:
             raise HTTPException(
                 status_code=400,
                 detail=(
                     "host_stats_source must be a CSV of 'beszel' / "
-                    f"'node_exporter' (or 'none'). Unknown: {sorted(unknown)}"
+                    "'node_exporter' / 'pulse' (or 'none'). "
+                    f"Unknown: {sorted(unknown)}"
                 ),
             )
         normalized = ",".join(sorted(parts)) if parts else "none"
@@ -913,6 +930,19 @@ async def api_set_settings(
         set_setting("beszel_password", s.beszel_password)
     if s.beszel_verify_tls is not None:
         set_setting("beszel_verify_tls", "true" if s.beszel_verify_tls else "false")
+    if s.pulse_url is not None:
+        set_setting("pulse_url", (s.pulse_url or "").strip().rstrip("/"))
+    if s.pulse_token is not None and s.pulse_token.strip() != "":
+        set_setting("pulse_token", s.pulse_token)
+    if s.pulse_verify_tls is not None:
+        set_setting("pulse_verify_tls", "true" if s.pulse_verify_tls else "false")
+    if s.pulse_aliases is not None:
+        clean = {
+            str(k).strip(): str(v).strip()
+            for k, v in (s.pulse_aliases or {}).items()
+            if str(k).strip() and str(v).strip()
+        }
+        set_setting("pulse_aliases", json.dumps(clean))
     if s.beszel_aliases is not None:
         # Filter to string→string, trim, drop empty entries so a blank
         # row in the UI doesn't persist as a ghost mapping.

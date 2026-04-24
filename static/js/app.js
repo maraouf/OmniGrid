@@ -1194,6 +1194,22 @@ function app() {
           payload.beszel_password = this.settings.beszel_password;
         }
       }
+      if (active.has('pulse')) {
+        const url = (this.settings.pulse_url || '').trim();
+        if (!url) {
+          this.showToast('Pulse URL is required', 'error');
+          return;
+        }
+        if (!this.settings.pulse_token_set && !this.settings.pulse_token) {
+          this.showToast('Pulse API token is required', 'error');
+          return;
+        }
+        payload.pulse_url = url;
+        payload.pulse_verify_tls = !!this.settings.pulse_verify_tls;
+        if (this.settings.pulse_token) {
+          payload.pulse_token = this.settings.pulse_token;
+        }
+      }
       try {
         const r = await fetch('/api/settings', {
           method: 'POST',
@@ -1730,6 +1746,12 @@ function app() {
           // object on this.settings so a save for one node preserves the
           // rest of the map.
           beszel_aliases: (d.beszel && d.beszel.aliases) || {},
+          // Pulse provider settings — token is write-only on the wire.
+          pulse_url: (d.pulse && d.pulse.url) || '',
+          pulse_token: '',
+          pulse_token_set: !!(d.pulse && d.pulse.token_set),
+          pulse_verify_tls: d.pulse ? d.pulse.verify_tls !== false : true,
+          pulse_aliases: (d.pulse && d.pulse.aliases) || {},
         };
         this.endpointId = d.endpoint_id || 1;
 

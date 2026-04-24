@@ -1189,18 +1189,21 @@
                 </section>
               </div>
 
-              <!-- Time-range picker — mirrors Beszel's "Last 1 hour" chip
-                   and scopes every chart in the expanded row. -->
+              <!-- Time-range picker — segmented buttons, mirrors img_8's
+                   Beszel look. Each button rewrites the range + reloads
+                   every expanded host's history. -->
               <div class="mt-4 flex items-center gap-2">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-[var(--text-dim)]"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
-                <select class="input input-sm text-[11.5px]"
-                        :value="hostHistoryRange"
-                        @change="setHostHistoryRange(parseInt($event.target.value, 10))">
-                  <option value="1">Last 1 hour</option>
-                  <option value="6">Last 6 hours</option>
-                  <option value="24">Last 24 hours</option>
-                  <option value="168">Last 7 days</option>
-                </select>
+                <div class="range-seg">
+                  <button type="button" :class="hostHistoryRange === 1 ? 'active' : ''"
+                          @click="setHostHistoryRange(1)">1h</button>
+                  <button type="button" :class="hostHistoryRange === 6 ? 'active' : ''"
+                          @click="setHostHistoryRange(6)">6h</button>
+                  <button type="button" :class="hostHistoryRange === 24 ? 'active' : ''"
+                          @click="setHostHistoryRange(24)">24h</button>
+                  <button type="button" :class="hostHistoryRange === 168 ? 'active' : ''"
+                          @click="setHostHistoryRange(168)">7d</button>
+                </div>
               </div>
 
               <!-- Time-series charts — native SVG polylines populated from
@@ -2296,8 +2299,14 @@
                    @change="toggleHostStatsSource('beszel', $event.target.checked)">
             <span x-text="t('settings.host_stats.source_beszel')"></span>
           </label>
+          <label class="inline-flex items-center gap-2">
+            <input type="checkbox" :disabled="isReadonly()"
+                   :checked="hasHostStatsSource('pulse')"
+                   @change="toggleHostStatsSource('pulse', $event.target.checked)">
+            <span>Pulse (Proxmox VE)</span>
+          </label>
           <span class="text-[11px] text-[var(--text-faint)] italic"
-                x-show="!hasHostStatsSource('node_exporter') && !hasHostStatsSource('beszel')"
+                x-show="!hasHostStatsSource('node_exporter') && !hasHostStatsSource('beszel') && !hasHostStatsSource('pulse')"
                 x-text="t('settings.host_stats.source_none') + ' — host stats disabled'"></span>
         </div>
         <div x-show="hasHostStatsSource('node_exporter')" class="space-y-3">
@@ -2371,6 +2380,43 @@
           <p class="text-[10.5px] text-[var(--text-faint)]"
              x-text="t('settings.host_stats.beszel_naming_hint')"></p>
         </div>
+
+        <!-- Pulse config — third provider. PVE-only, so it pairs well
+             with Beszel (cross-platform) + node-exporter (Linux detail).
+             Token is write-only like Beszel's password. -->
+        <div x-show="hasHostStatsSource('pulse')" class="space-y-3 mt-4">
+          <div>
+            <label class="block text-[11px] text-[var(--text-faint)] mb-1">Pulse URL</label>
+            <input x-model="settings.pulse_url" type="url"
+                   :disabled="isReadonly()"
+                   class="w-full mono text-[11.5px]"
+                   placeholder="http://pulse.home.lan:7655">
+            <p class="text-[10.5px] text-[var(--text-faint)] mt-1">
+              Base URL of your Pulse instance. OmniGrid will call
+              <code class="mono">{URL}/api/state</code> with the token below.
+            </p>
+          </div>
+          <div>
+            <label class="block text-[11px] text-[var(--text-faint)] mb-1">
+              <span>API token</span>
+              <span x-show="settings.pulse_token_set" class="text-[var(--success)]"> · set</span>
+            </label>
+            <input x-model="settings.pulse_token" type="password"
+                   :disabled="isReadonly()"
+                   class="w-full text-[11.5px]"
+                   :placeholder="settings.pulse_token_set ? '••••••••' : 'Create a read-only token in Pulse → Settings'">
+          </div>
+          <label class="inline-flex items-center gap-2 text-[12px] text-[var(--text-dim)]">
+            <input type="checkbox" x-model="settings.pulse_verify_tls" :disabled="isReadonly()">
+            <span>Verify TLS certificate</span>
+          </label>
+          <p class="text-[10.5px] text-[var(--text-faint)]">
+            Per-node aliases (Docker hostname → PVE node name) are edited
+            from the Nodes view; Pulse and Beszel keep independent maps
+            since their naming conventions diverge.
+          </p>
+        </div>
+
         <button x-show="isAdmin()" @click="saveHostStats()"
                 class="btn btn-primary text-[12px] mt-4"
                 x-text="t('actions.save')"></button>

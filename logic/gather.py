@@ -306,14 +306,42 @@ async def _gather_impl() -> None:
 
         # Host-stats integration — surfaces real host disk / memory /
         # uptime that Portainer doesn't expose. ``host_stats_source`` is
-        # now a CSV so operators can enable multiple providers that
-        # merge into one picture per host:
-        #   ""                           → none
-        #   "beszel"                     → Beszel only (back-compat)
-        #   "node_exporter"              → node-exporter only (back-compat)
-        #   "beszel,node_exporter"       → both; node-exporter wins when
-        #                                  a field is populated by both
-        # Legacy single-value strings stay valid.
+        # a CSV so operators can enable multiple providers that merge
+        # into one picture per host:
+        #   ""                                → none
+        #   "beszel" / "node_exporter" / "pulse" → single source
+        #   "beszel,pulse,node_exporter"      → merged, best-of
+        # Merge order runs providers in increasing "authority" for
+        # their specialty:
+        #   1. Beszel          (broad coverage, cross-platform)
+        #   2. Pulse           (deep on PVE, silent on non-PVE)
+        #   3. node-exporter   (deep on Linux — per-mount disks, NICs)
+        # The ``_merge_best`` helper (below) only overwrites when the
+        # new source has a meaningful value, so enabling Pulse on a
+        # mixed fleet doesn't wipe Beszel's cpu/mem reading on hosts
+        # Pulse doesn't know about. Legacy single-value strings stay
+        # valid.
+        def _meaningful(v) -> bool:
+            if v is None:
+                return False
+            if isinstance(v, (int, float)):
+                return v != 0
+            if isinstance(v, str):
+                return v.strip() != ""
+            if isinstance(v, (list, dict)):
+                return len(v) > 0
+            return True
+
+        def _merge_best(dst: dict, src: dict) -> None:
+            """Copy meaningful values from src into dst, leaving dst's
+            existing non-zero fields intact when src is empty/zero."""
+            if not src:
+                return
+            for k, v in src.items():
+                if _meaningful(v):
+                    dst[k] = v
+                elif k not in dst:
+                    dst[k] = v  # seed zero only if nothing there yet
         from logic.db import get_setting
         from logic import beszel as _beszel
         from logic import node_exporter as _ne
@@ -374,14 +402,54 @@ async def _gather_impl() -> None:
                             f"beszel: no system named {hint} in the hub"
                         )
                         continue
-                    nodes_info[host].update(stats)
+                    _merge_best(nodes_info[host], stats)
 
-        # node-exporter runs AFTER beszel when both are enabled, so its
+        # Pulse (rcourtman/Pulse) — Proxmox VE monitoring. Runs BETWEEN
+        # Beszel and node-exporter: overwrites Beszel for PVE hosts
+        # where Pulse has the authoritative view (cpu / mem / disk /
+        # uptime from the hypervisor itself), but node-exporter still
+        # wins if both are enabled.
+        if "pulse" in active_sources and df_hosts:
+            import json as _json
+            from logic import pulse as _pulse
+            pulse_url = get_setting("pulse_url", "") or ""
+            pulse_token = get_setting("pulse_token", "") or ""
+            pulse_verify = (get_setting("pulse_verify_tls", "true")
+                            or "true").lower() == "true"
+            try:
+                pulse_aliases_raw = _json.loads(
+                    get_setting("pulse_aliases", "{}") or "{}")
+                if not isinstance(pulse_aliases_raw, dict):
+                    pulse_aliases_raw = {}
+            except ValueError:
+                pulse_aliases_raw = {}
+            pulse_res = await _pulse.probe_pulse(
+                pulse_url, pulse_token, verify_tls=pulse_verify,
+            )
+            p_err = pulse_res.get("error")
+            p_hosts = pulse_res.get("hosts") or {}
+            for host in df_hosts:
+                if host not in nodes_info:
+                    continue
+                if p_err:
+                    # Only surface the pulse error if nothing else
+                    # populated host_* fields — keeps the pill honest
+                    # when one provider is flaky but another succeeded.
+                    if not nodes_info[host].get("host_mem_total"):
+                        nodes_info[host]["exporter_error"] = f"pulse: {p_err}"
+                    continue
+                pulse_name = pulse_aliases_raw.get(host, host)
+                stats = p_hosts.get(pulse_name)
+                if stats is None:
+                    continue  # not a PVE node — legit miss, no error
+                _merge_best(nodes_info[host], stats)
+
+        # node-exporter runs AFTER beszel + pulse when enabled, so its
         # richer Linux-native fields (per-mount disks via node_filesystem_*,
         # NIC list via node_network_info, detailed kernel / arch from
-        # node_uname_info) overwrite Beszel's coarser values where they
-        # overlap. Fields Beszel reports that exporter doesn't (e.g.
-        # Beszel-specific status string) are preserved by the dict.update.
+        # node_uname_info) overwrite the earlier providers where they
+        # overlap. Fields only provided by Beszel/Pulse (e.g. their
+        # status strings) are preserved by the dict.update.
         if "node_exporter" in active_sources and df_hosts:
             tpl = get_setting("node_exporter_url_template", "http://{host}:9100/metrics") \
                   or "http://{host}:9100/metrics"
@@ -415,7 +483,7 @@ async def _gather_impl() -> None:
                 )
                 for host, stats in results:
                     if host in nodes_info:
-                        nodes_info[host].update(stats)
+                        _merge_best(nodes_info[host], stats)
 
         # Per-node container sweep — gives us a containerID → hostname map
         # that covers PLAIN compose containers on worker nodes too. The
