@@ -791,6 +791,10 @@
       "title": "No data from any enabled provider",
       "body": "OmniGrid could not match this host to Pulse, Beszel, node-exporter, or Webmin. Open the {debug_label} panel below to see what each provider returned and where the match failed."
     },
+    "provider_count_one": "1 provider",
+    "provider_count_many": "{count} providers",
+    "no_agents_configured": "No agents configured",
+    "agents_not_responding": "No data from agents",
     "net_inactive": {
       "title": "No NIC activity reported",
       "body_in": "The Beszel agent on this host isn't tracking any NIC. Add {code} (or your NIC name from {ipcmd}) to the agent's env, then restart it.",

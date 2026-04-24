@@ -1594,7 +1594,10 @@ async def api_asset_inventory_test(
     Pulse test endpoints.
     """
     from logic import asset_inventory as _ai
-    body = await request.json() if await request.body() else {}
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
     token_url = (body.get("token_url") or "").strip() \
         or (get_setting("asset_inventory_token_url", "") or "")
     client_id = (body.get("client_id") or "").strip() \
