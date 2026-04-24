@@ -2137,13 +2137,11 @@
                               x-text="sshTestBusy[h.id] ? t('hosts_extra_ssh.running') : t('hosts_extra_ssh.test_button')"></button>
                     </div>
 
-                    <!-- Common actions — DB-backed presets managed in
-                         Admin → SSH. Each button drops its rendered
-                         command (with `{host}` substituted) into the
-                         textarea below so the operator previews before
-                         hitting Run. Falls back to `runSshPreset` for
-                         the historical `set_nics` entry only (it needs
-                         an interactive NIC-name prompt). -->
+                    <!-- Common actions — ALL driven by Admin → SSH
+                         custom actions. Clicking a preset drops the
+                         rendered command (with `{host}` substituted)
+                         into the textarea below so the operator can
+                         review and edit before hitting Run. -->
                     <div class="mb-3"
                          x-show="(sshSettings.custom_actions || []).length > 0">
                       <div class="text-[11px] text-[var(--text-faint)] mb-1.5"
@@ -2156,12 +2154,6 @@
                                   :title="action.command"
                                   x-text="action.title"></button>
                         </template>
-                        <!-- The one legacy preset that still needs a
-                             live prompt (NIC name); not worth making
-                             this DB-editable. -->
-                        <button type="button" class="btn btn-soft text-[11.5px]"
-                                @click="runSshPreset(h.id, 'set_nics')"
-                                x-text="t('hosts_extra_ssh.action_set_nics')"></button>
                       </div>
                     </div>
 

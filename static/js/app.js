@@ -2483,6 +2483,11 @@ function app() {
           command: 'systemctl restart beszel-agent || docker restart beszel-agent' },
         { id: 'show-beszel-env',  title: 'Show Beszel agent env',
           command: "systemctl show beszel-agent -p Environment || docker inspect beszel-agent --format '{{range .Config.Env}}{{println .}}{{end}}'" },
+        { id: 'set-beszel-nics',  title: 'Set Beszel NICS (edit eth0 first)',
+          command:
+            "mkdir -p /etc/systemd/system/beszel-agent.service.d && " +
+            "printf '[Service]\\nEnvironment=NICS=eth0\\n' > /etc/systemd/system/beszel-agent.service.d/nics.conf && " +
+            "systemctl daemon-reload && systemctl restart beszel-agent" },
         { id: 'journal-beszel',   title: 'Journal: Beszel agent (last 40)',
           command: 'journalctl -u beszel-agent -n 40 --no-pager' },
         { id: 'ip-link',          title: 'List NICs (ip link)',
@@ -2687,53 +2692,6 @@ function app() {
       const resolved = (this.sshStatus[hostId] && this.sshStatus[hostId].resolved) || {};
       const host = resolved.host || hostId;
       const cmd = String(action.command).replace(/\{host\}/g, host);
-      this.sshCommand = { ...this.sshCommand, [hostId]: cmd };
-    },
-    // Prebuilt action → command map. Kept as a function so a future
-    // sub-step (e.g. NIC name prompt) can inline its own logic.
-    async runSshPreset(hostId, preset) {
-      if (!hostId || !preset) return;
-      let cmd = '';
-      switch (preset) {
-        case 'restart_beszel':
-          cmd = 'systemctl restart beszel-agent || docker restart beszel-agent';
-          break;
-        case 'show_beszel_env':
-          cmd = "systemctl show beszel-agent -p Environment || docker inspect beszel-agent --format '{{range .Config.Env}}{{println .}}{{end}}'";
-          break;
-        case 'set_nics': {
-          const nic = window.prompt(this.t('hosts_extra_ssh.action_set_nics_prompt'), 'eth0');
-          if (!nic) return;
-          const safe = nic.replace(/[^A-Za-z0-9_.:-]/g, '');
-          if (!safe) {
-            // Validation-only toast — piggybacks on the generic "network"
-            // key rather than adding a one-off for an edge case a typed
-            // prompt already enforces client-side.
-            this.showToast(this.t('toasts_extra.ssh.command_required'), 'error');
-            return;
-          }
-          // Try the systemd drop-in first (native install); fall back
-          // to a docker-env rewrite + restart for containerised agents.
-          cmd =
-            "if command -v systemctl >/dev/null && systemctl list-unit-files 2>/dev/null | grep -q beszel-agent; then " +
-            "mkdir -p /etc/systemd/system/beszel-agent.service.d && " +
-            "printf '[Service]\\nEnvironment=NICS=" + safe + "\\n' > /etc/systemd/system/beszel-agent.service.d/nics.conf && " +
-            "systemctl daemon-reload && systemctl restart beszel-agent; " +
-            "else docker inspect beszel-agent >/dev/null 2>&1 && " +
-            "docker run --rm -v /var/run/docker.sock:/var/run/docker.sock alpine/socat TCP:localhost:1 - >/dev/null 2>&1; " +
-            "echo 'Configure NICS in your compose / env file and redeploy: NICS=" + safe + "'; fi";
-          this.sshCommand = { ...this.sshCommand, [hostId]: cmd };
-          return;  // let the operator preview + run
-        }
-        case 'journal':
-          cmd = 'journalctl -u beszel-agent -n 40 --no-pager';
-          break;
-        case 'ip_link':
-          cmd = 'ip -o link show';
-          break;
-        default:
-          return;
-      }
       this.sshCommand = { ...this.sshCommand, [hostId]: cmd };
     },
     async runSshCommand(hostId) {

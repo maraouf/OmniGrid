@@ -650,55 +650,87 @@ async def _fetch_first_working(
     user: str,
     module: Optional[str] = None,
 ) -> tuple[Optional[ET.Element], Optional[str]]:
-    """Try each path in order; return the first parseable result.
+    """Try paths in parallel; return the first parseable result.
 
     Three-tier fallback:
 
-      1. Walk ``paths`` in order. Each path is dispatched to
-         ``_fetch_json`` when it carries ``json=1`` and ``_fetch_xml``
-         otherwise. First successful parse wins.
+      1. Fire every XML/JSON alternate in ``paths`` CONCURRENTLY and
+         return the first one that parses. Remaining tasks are
+         cancelled as soon as one succeeds. 401/403 on ANY task also
+         short-circuits (no point retrying bad creds).
       2. If every structured attempt fails AND ``module`` is set AND
-         bs4 is importable, re-walk only the paths that actually
-         returned HTML (auth errors etc. are skipped) and run the
-         module's HTML scraper against them. First successful scrape
-         wins.
+         bs4 is importable, re-walk only the paths that returned HTML
+         (auth errors / 404s are skipped) and run the module's HTML
+         scraper. First successful scrape wins. This phase stays
+         sequential — it's a last-resort and usually only has 1-2
+         viable paths.
 
-    Exists because Webmin 2.x dropped ``?xml=1`` on several modules
-    silently, then 2.630 went further and also dropped ``?json=1`` on
-    the same three modules — ``system-status`` is the only one that
-    reliably honours either query param. The three-tier fallback lets
-    us keep serving a readable host card even on the worst versions.
+    The parallelism matters: Webmin 2.630 ignores both ``?xml=1`` and
+    ``?json=1`` on some modules so every structured alternate fails
+    with "got HTML". Sequential cycling through 6-8 paths × 3-6s each
+    = 20-40s per module; parallel = one slow response + cancel-rest.
 
     When every tier fails, the attempt list is collapsed into one
     readable error so Admin → Logs shows exactly what was tried.
     """
+    # Split paths into structured (machine-readable query params) and
+    # bare (HTML UI — only useful for the scrape phase below).
+    structured_paths = [p for p in paths if ("xml=1" in p) or ("json=1" in p)]
+    bare_paths = [p for p in paths if p not in structured_paths]
+
     attempts: list[str] = []
     html_path_candidates: list[str] = []
-    for path in paths:
+    auth_failure = False
+
+    async def _dispatch(path: str):
         if "json=1" in path:
             root, err = await _fetch_json(client, base_url, path, user)
         else:
             root, err = await _fetch_xml(client, base_url, path, user)
-        if root is not None:
-            if len(attempts) > 0:
-                print(f"[webmin] {base_url}{paths[0]} failed; succeeded via {path}")
-            return root, None
-        attempts.append(f"{path}: {err}")
-        # Short-circuit on auth errors — no point trying alternate
-        # module paths (or HTML scrapes) if credentials are rejected.
-        if err and ("HTTP 401" in err or "HTTP 403" in err):
-            primary = attempts[0] if attempts else f"{paths[0]}: no response"
-            if len(attempts) > 1:
-                primary += f" (also tried {len(attempts) - 1} fallback path(s))"
-            return None, primary
-        # Track paths that returned HTML so we can re-fetch for scraping.
-        if err and "got HTML" in err:
-            html_path_candidates.append(path)
+        return path, root, err
 
-    # Last resort — HTML scrape against any path that returned HTML
-    # earlier. We can't scrape a path that 404'd or timed out.
-    if module and html_path_candidates:
-        for path in html_path_candidates:
+    if structured_paths:
+        tasks = [asyncio.create_task(_dispatch(p)) for p in structured_paths]
+        try:
+            for coro in asyncio.as_completed(tasks):
+                path, root, err = await coro
+                if root is not None:
+                    if path != structured_paths[0]:
+                        print(f"[webmin] {base_url}{structured_paths[0]} failed; "
+                              f"succeeded via {path}")
+                    # Cancel stragglers so we don't waste sockets on
+                    # paths we no longer need.
+                    for t in tasks:
+                        if not t.done():
+                            t.cancel()
+                    return root, None
+                attempts.append(f"{path}: {err}")
+                if err and ("HTTP 401" in err or "HTTP 403" in err):
+                    auth_failure = True
+                    break  # short-circuit — skip scrape attempts too
+                if err and "got HTML" in err:
+                    html_path_candidates.append(path)
+        finally:
+            for t in tasks:
+                if not t.done():
+                    t.cancel()
+            # Let cancellations settle — otherwise pending Tasks can
+            # log "Task was destroyed but it is pending" on shutdown.
+            await asyncio.gather(*tasks, return_exceptions=True)
+
+    if auth_failure:
+        primary = attempts[0] if attempts else f"{paths[0]}: no response"
+        if len(attempts) > 1:
+            primary += f" (also tried {len(attempts) - 1} fallback path(s))"
+        return None, primary
+
+    # Last resort — HTML scrape. Bare paths come first (cheapest — no
+    # query string side-effects), then paths that returned HTML during
+    # the structured round (already confirmed 200-ok). Dedupe in case
+    # a bare path was also tried structured.
+    if module:
+        scrape_candidates = list(dict.fromkeys(bare_paths + html_path_candidates))
+        for path in scrape_candidates:
             root, err = await _fetch_html_scrape(
                 client, base_url, path, user, module,
             )
