@@ -149,6 +149,7 @@ function app() {
     _autoTimer: null, _opsTimer: null,
     cacheLabel: '',
     settings: { apprise_url: '', apprise_tag: '', portainer_public_url: '' },
+    schedulerSaving: false,
     // User-menu dropdown (top-right avatar button)
     userMenuOpen: false,
     // Password change form (lives in the Profile settings section now, not a modal)
@@ -1407,6 +1408,38 @@ function app() {
       } catch (_) { this.showToast(this.t('toasts.network_error'), 'error'); }
     },
 
+    // Scheduler settings — currently just the IANA timezone. Blank
+    // value clears the override and the scheduler falls back to
+    // container-local time. Invalid IANA names return 400 from the
+    // backend (zoneinfo.ZoneInfo validates), which we surface as a
+    // toast so the operator knows to fix the typo.
+    async saveSchedulerSettings() {
+      if (this.schedulerSaving) return;
+      this.schedulerSaving = true;
+      try {
+        const tz = (this.settings.scheduler_timezone || '').trim();
+        const r = await fetch('/api/settings', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ scheduler_timezone: tz }),
+        });
+        if (r.ok) {
+          this.settings.scheduler_timezone = tz;
+          this.showToast(tz
+            ? ('Scheduler timezone set to ' + tz)
+            : 'Scheduler timezone cleared (using container local time)',
+            'success');
+        } else {
+          const j = await r.json().catch(() => ({}));
+          this.showToast(j.detail || 'Save failed', 'error');
+        }
+      } catch (_) {
+        this.showToast('Network error', 'error');
+      } finally {
+        this.schedulerSaving = false;
+      }
+    },
+
     // ----- App logs -----------------------------------------------------
     async loadLogs(replace = false) {
       try {
@@ -2019,6 +2052,8 @@ function app() {
           webmin_password_set: !!(d.webmin && d.webmin.password_set),
           webmin_verify_tls: d.webmin ? !!d.webmin.verify_tls : false,
           webmin_aliases: (d.webmin && d.webmin.aliases) || {},
+          // Scheduler — IANA zone. Blank = container-local (legacy).
+          scheduler_timezone: d.scheduler_timezone || '',
         };
         this.endpointId = d.endpoint_id || 1;
 
