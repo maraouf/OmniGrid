@@ -1583,6 +1583,10 @@ async def api_hosts():
             # needing to check provider membership.
             "updates_pending":  int(s.get("host_updates_pending") or 0),
             "updates_security": int(s.get("host_updates_security") or 0),
+            # Operator-assigned catalogue number from hosts_config — feeds
+            # the "Custom #" sort option in the Hosts view and is the
+            # eventual key for Asset-inventory lookups at oufa.co.
+            "custom_number":    h.get("custom_number"),
         })
 
     # Aggregate error — non-fatal; UI shows the first one per provider.

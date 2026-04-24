@@ -1046,6 +1046,7 @@
           <select x-model="hostsSort" class="text-[12px] py-1 px-1.5"
                   title="Sort hosts — persisted in this browser">
             <option value="status">Status (default)</option>
+            <option value="custom_number">Custom # (catalogue order)</option>
             <option value="seq">Addition order</option>
             <option value="name">Name (A→Z)</option>
             <option value="type">Type (platform/OS)</option>
@@ -3286,7 +3287,14 @@
           <template x-for="{ row, idx } in filteredHostsConfig()" :key="idx">
             <div class="border border-[var(--border)] rounded-md bg-[var(--surface-2)] p-3 space-y-3">
               <!-- Row 1 — identity + toggles -->
-              <div class="grid grid-cols-1 md:grid-cols-[1fr_1fr_auto_auto] gap-3 items-end">
+              <div class="grid grid-cols-1 md:grid-cols-[90px_1fr_1fr_auto_auto] gap-3 items-end">
+                <div>
+                  <label class="block text-[10.5px] uppercase tracking-wider text-[var(--text-faint)] mb-1" title="Operator-assigned catalogue number — used for sort/group in Hosts view and as the key for Asset-inventory lookups at oufa.co">Custom #</label>
+                  <input type="number" x-model.number="row.custom_number" :disabled="isReadonly()"
+                         @input="markHostRowDirty(idx)"
+                         class="w-full mono text-[13px] py-1.5"
+                         min="1" step="1" placeholder="—">
+                </div>
                 <div>
                   <label class="block text-[10.5px] uppercase tracking-wider text-[var(--text-faint)] mb-1">ID · Docker hostname</label>
                   <input type="text" x-model="row.id" :disabled="isReadonly()"

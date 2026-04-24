@@ -3452,9 +3452,17 @@ function app() {
       }
     },
     addHostRow() {
+      // Pre-fill custom_number with the next unused integer so a fresh
+      // row slots into the catalogue sequence without manual thought.
+      // Operator can still overwrite / clear it.
+      const existing = (this.hostsConfig || [])
+        .map(r => parseInt(r.custom_number, 10))
+        .filter(n => Number.isFinite(n) && n > 0);
+      const nextNum = existing.length ? Math.max(...existing) + 1 : 1;
       this.hostsConfig.push({
         id: '',
         label: '',
+        custom_number: nextNum,
         ne_url: '',
         beszel_name: '',
         pulse_name: '',
@@ -4008,6 +4016,17 @@ function app() {
           cmp = (a, b) => {
             const d = num(a._seq) - num(b._seq);
             if (d !== 0) return d;
+            return nameOf(a).localeCompare(nameOf(b));
+          };
+          break;
+        case 'custom_number':
+          // Operator-assigned catalogue number. Hosts without a number
+          // (null / blank) sort LAST so unnumbered machines cluster at
+          // the bottom and don't compete with ordered entries.
+          cmp = (a, b) => {
+            const ax = (a.custom_number == null || a.custom_number === '') ? Number.POSITIVE_INFINITY : num(a.custom_number);
+            const bx = (b.custom_number == null || b.custom_number === '') ? Number.POSITIVE_INFINITY : num(b.custom_number);
+            if (ax !== bx) return ax - bx;
             return nameOf(a).localeCompare(nameOf(b));
           };
           break;
