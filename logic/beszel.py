@@ -186,6 +186,11 @@ def extract_stats(info: dict) -> dict:
     Missing fields degrade to 0 / None. A Beszel system that's paused
     or offline typically has stale values — the caller should watch
     the record's top-level ``status`` field for 'up' vs. 'down'.
+
+    Also surfaces the extra metadata the Hosts tab renders in its
+    SYSTEM + HARDWARE cards (platform, os, kernel, architecture, core
+    count, agent version, current cpu %) — all pulled from the same
+    ``info`` object so a single /systems call gives us everything.
     """
     if not isinstance(info, dict):
         info = {}
@@ -206,6 +211,16 @@ def extract_stats(info: dict) -> dict:
         "host_mem_used":   int(mem_used),
         "host_mem_avail":  max(0, int(mem_total - mem_used)),
         "host_boot_ts":    host_boot_ts,
+        "host_uptime_s":   int(uptime),
+        # Extended metadata — consumed by the Hosts tab's header row
+        # and the SYSTEM / HARDWARE cards when expanded.
+        "host_cpu_percent": _num(info.get("cpu")),
+        "host_cores":       int(_num(info.get("c"))),
+        "host_platform":    str(info.get("p") or info.get("platform") or ""),
+        "host_os":          str(info.get("os") or ""),
+        "host_kernel":      str(info.get("k") or info.get("kernel") or ""),
+        "host_arch":        str(info.get("a") or info.get("arch") or ""),
+        "host_agent":       str(info.get("v") or info.get("agent") or ""),
         # Beszel exposes per-mount detail in a separate collection
         # (system_stats); we skip it for the fleet overview and can
         # add a drill-down later if operators want it.

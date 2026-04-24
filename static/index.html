@@ -716,6 +716,18 @@
               <span class="text-[11px] text-[var(--text-dim)] mx-1">
                 <span x-text="node.total"></span> total
               </span>
+              <!-- Node details / settings — admin-only, opens a side
+                   drawer with per-node config (e.g. Beszel alias). Hidden
+                   on the synthetic Unpinned bucket. -->
+              <button x-show="isAdmin() && !node.is_unpinned"
+                      @click.stop="openNodeDrawer(node)"
+                      class="btn btn-ghost text-[11px]"
+                      title="Node settings (Beszel alias, etc.)">
+                <span class="flex items-center gap-1">
+                  <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33h0a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51h0a1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82v0a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+                  Settings
+                </span>
+              </button>
               <!-- Prune — admin-only, hidden on the synthetic Unpinned
                    bucket because there's no real node to target. -->
               <button x-show="isAdmin() && !node.is_unpinned"
@@ -2368,6 +2380,58 @@
         </div>
       </template>
     </div>
+  </div>
+
+  <!-- ================== NODE DRAWER ================== -->
+  <!-- Per-node config: Beszel system-name alias, etc. Opens from the
+       Nodes view's "Settings" button. Same slide-in pattern as the
+       item drawer. Settings save calls POST /api/settings with a
+       merged beszel_aliases object so other nodes' entries are kept. -->
+  <div x-show="drawerNode" class="fixed inset-0 z-40 fade-in">
+    <div @click="drawerNode=null" class="absolute inset-0 backdrop"></div>
+    <aside x-show="drawerNode"
+           class="absolute inset-y-0 right-0 w-full md:w-[460px] bg-[var(--surface)] border-l border-[var(--border)] overflow-y-auto scrollbar slide-in">
+      <template x-if="drawerNode">
+        <div class="p-5">
+          <div class="flex items-start justify-between gap-3">
+            <div class="min-w-0">
+              <div class="text-[10.5px] uppercase tracking-wider text-[var(--text-faint)]">Node</div>
+              <h2 class="text-[17px] font-semibold mt-1 mono break-all" x-text="drawerNode.name"></h2>
+            </div>
+            <button @click="drawerNode=null" class="btn btn-ghost text-base leading-none">✕</button>
+          </div>
+
+          <div class="mt-5 space-y-5">
+            <!-- Beszel alias editor -->
+            <section>
+              <h3 class="text-[12px] uppercase tracking-wider text-[var(--text-dim)] mb-2">Beszel system name</h3>
+              <p class="text-[12px] text-[var(--text-faint)] mb-3 leading-snug">
+                When this Docker node is registered in Beszel under a
+                different name, enter the Beszel name here so host
+                stats can be matched. Leave blank to use the Docker
+                node name as-is.
+              </p>
+              <label class="block text-[11px] text-[var(--text-dim)] mb-1" for="node-beszel-alias">Beszel name</label>
+              <input id="node-beszel-alias"
+                     type="text"
+                     class="input w-full"
+                     :placeholder="drawerNode.name"
+                     x-model="drawerNode.aliasInput"
+                     @keydown.enter="saveNodeBeszelMapping()">
+              <div class="flex items-center gap-2 mt-3">
+                <button class="btn btn-primary text-[12px]"
+                        :disabled="drawerNodeSaving"
+                        @click="saveNodeBeszelMapping()">
+                  <span x-show="!drawerNodeSaving">Save</span>
+                  <span x-show="drawerNodeSaving" class="flex items-center gap-1"><span class="spin"></span>Saving…</span>
+                </button>
+                <button class="btn btn-ghost text-[12px]" @click="drawerNode=null">Cancel</button>
+              </div>
+            </section>
+          </div>
+        </div>
+      </template>
+    </aside>
   </div>
 
   <!-- ================== DETAIL DRAWER ================== -->

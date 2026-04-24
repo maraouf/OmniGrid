@@ -44,6 +44,10 @@ function app() {
     expanded: (() => { try { return JSON.parse(localStorage.getItem('expanded') || '[]'); } catch (e) { return []; } })(),
     loading: false,
     drawerItem: null,
+    // Node drawer — separate from drawerItem. Opens from the Nodes view
+    // when the operator clicks a node row. Shape: {name, aliasInput}.
+    drawerNode: null,
+    drawerNodeSaving: false,
     showHotkeys: false,
     opsExpanded: true,
     toast: '', toastType: 'success', _tt: null,
@@ -1660,6 +1664,11 @@ function app() {
           beszel_password: '',  // write-only — never shown
           beszel_password_set: !!(d.beszel && d.beszel.password_set),
           beszel_verify_tls: d.beszel ? d.beszel.verify_tls !== false : true,
+          // Per-node aliases: Docker hostname → Beszel system name. Edited
+          // from the Nodes view (click a node → drawer). We keep the full
+          // object on this.settings so a save for one node preserves the
+          // rest of the map.
+          beszel_aliases: (d.beszel && d.beszel.aliases) || {},
         };
         this.endpointId = d.endpoint_id || 1;
 
@@ -2729,6 +2738,46 @@ function app() {
       return parts.length ? parts.join(' · ') : '';
     },
     openDrawer(item) { this.drawerItem = item; },
+
+    // --- Node drawer (Nodes view → click a node) ---
+    openNodeDrawer(node) {
+      // Seed the drawer with the currently stored alias (if any) so the
+      // input is pre-populated with whatever's in the DB. The identity
+      // default (node.name) is shown as a placeholder, not a value, so
+      // saving an empty string clears the mapping.
+      const current = (this.settings.beszel_aliases || {})[node.name] || '';
+      this.drawerNode = { name: node.name, aliasInput: current };
+    },
+    async saveNodeBeszelMapping() {
+      if (!this.drawerNode) return;
+      const name = this.drawerNode.name;
+      const val = (this.drawerNode.aliasInput || '').trim();
+      // Merge into the existing map: blank = delete entry, otherwise set.
+      const map = { ...(this.settings.beszel_aliases || {}) };
+      if (val) map[name] = val;
+      else delete map[name];
+      this.drawerNodeSaving = true;
+      try {
+        const r = await fetch('/api/settings', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ beszel_aliases: map }),
+        });
+        if (!r.ok) {
+          const d = await r.json().catch(() => ({}));
+          throw new Error(d.detail || `HTTP ${r.status}`);
+        }
+        this.settings.beszel_aliases = map;
+        this.flash(this.t('toast.settings_saved') || 'Saved', 'success');
+        this.drawerNode = null;
+        // Force the next gather to pick up the new mapping immediately.
+        await this.refresh(true);
+      } catch (e) {
+        this.flash(`Save failed: ${e.message}`, 'error');
+      } finally {
+        this.drawerNodeSaving = false;
+      }
+    },
     parseEvents(j) { try { return JSON.parse(j || '[]'); } catch (e) { return []; } },
     formatTime(ts) { return new Date(ts * 1000).toLocaleString(); },
     formatTimeShort(ts) { return new Date(ts * 1000).toLocaleTimeString(undefined, { hour12: false }); },
