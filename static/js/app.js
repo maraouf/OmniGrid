@@ -3183,6 +3183,8 @@ function app() {
           'wireguard-vpn':   'wireguard',
           'qbit':            'qbittorrent',
           'qb':              'qbittorrent',
+          'freenas-mini':    'freenas',
+          'nas':             'truenas',
         };
         const slug = aliases[h.icon.toLowerCase()] || h.icon;
         return '/img/icons/' + slug + '.svg';
@@ -3255,9 +3257,15 @@ function app() {
         ['dozzle',                'dozzle'],
         ['homarr',                'homarr'],
         ['homepage',              'homepage'],
-        // hypervisors / platforms
+        // hypervisors / storage / platforms
         ['proxmox',               'proxmox'],
         ['pve',                   'proxmox'],
+        ['truenas scale',         'truenas-scale'],
+        ['truenas-scale',         'truenas-scale'],
+        ['truenas core',          'truenas-core'],
+        ['truenas-core',          'truenas-core'],
+        ['truenas',               'truenas'],
+        ['freenas',               'freenas'],
         ['docker',                'docker'],
         ['kubernetes',            'kubernetes'],
         ['k8s',                   'kubernetes'],

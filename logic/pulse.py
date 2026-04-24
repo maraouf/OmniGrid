@@ -255,25 +255,51 @@ def extract_guest_stats(guest: dict) -> dict:
     kind = str(
         guest.get("type") or guest.get("kind") or guest.get("vmtype") or ""
     ).lower()
-    # OS-family hints from Pulse, used as a FALLBACK layer — the
-    # merge order (see main.api_hosts) puts Pulse first so Beszel's
-    # cleaner short forms override these when available. For Pulse-
-    # only hosts (no Beszel agent running inside the guest) these
-    # are all we've got, and empty cells with no Beszel to fill
-    # them would just be dead rows in the SYSTEM card.
-    os_hint       = str(guest.get("osName") or guest.get("os") or "").strip()
-    kernel_hint   = str(guest.get("kernel") or guest.get("k") or "").strip()
-    arch_hint     = str(guest.get("arch") or guest.get("architecture") or "").strip()
-    platform_hint = str(
-        guest.get("platform") or guest.get("p")
-        or guest.get("distro") or ""
-    ).strip()
-    # If we have osName "Debian GNU/Linux 13 ..." but no explicit
-    # platform, pull the first word as a platform guess so the
-    # Platform row isn't blank on a Pulse-only host.
+    # OS-family hints from Pulse, used as a FALLBACK layer — merged
+    # BEFORE Beszel so the cleaner short forms override these when
+    # Beszel matches too. Pulse's exact field layout varies between
+    # versions: older v3 puts everything at the top of the guest
+    # record; v4+ often nests the OS/agent info under sub-objects
+    # like ``info`` / ``agent`` / ``config``. We look in all of
+    # those so a VM with a QEMU guest-agent reporting via the
+    # nested envelope still populates the SYSTEM card.
+    def _g(*keys):
+        """Look up ``keys`` across the guest record and its common
+        sub-objects, returning the first non-empty string match."""
+        sources = [guest]
+        for nest in ("info", "agent", "config", "details", "stats", "osinfo"):
+            nested = guest.get(nest)
+            if isinstance(nested, dict):
+                sources.append(nested)
+        for src in sources:
+            for k in keys:
+                v = src.get(k)
+                if v not in (None, "", 0):
+                    return str(v).strip()
+        return ""
+
+    os_hint       = _g("osName", "os", "os_version", "distro", "pretty_name",
+                       "prettyName", "osVersion", "version_id")
+    kernel_hint   = _g("kernel", "kernelVersion", "kernel_version", "k",
+                       "kernel-release", "uname")
+    arch_hint     = _g("arch", "architecture", "machine", "cpuArch",
+                       "cpu_arch", "platform_arch")
+    platform_hint = _g("platform", "p", "distro", "distroId",
+                       "distro_id", "id", "osId", "os_id")
+    # osName is often the long PRETTY_NAME ("Debian GNU/Linux 13 (trixie)").
+    # If we have that but no platform, derive "debian" from the first
+    # word so the Platform row isn't blank. The SYSTEM card hides
+    # redundant platform-prefix-of-os anyway.
     if not platform_hint and os_hint:
         first = os_hint.split()[0] if os_hint.split() else ""
         platform_hint = first
+    # Some Pulse versions emit ``osName`` like "debian 13.4"; others
+    # like "Debian GNU/Linux 13 (trixie)". Prefer the shorter form
+    # when both platform-ish and os-ish values are available.
+    if platform_hint and os_hint and os_hint.lower().startswith(
+            platform_hint.lower()):
+        # The UI hides the duplicate row via startsWith comparison.
+        pass
     # Network interfaces — Pulse emits ``networkInterfaces`` (qemu
     # guest-agent) or ``net`` / ``ip`` fields (LXC config). Normalise
     # into the same {name, mac, addrs:[]} shape Beszel uses so the
@@ -487,6 +513,23 @@ async def probe_pulse(
         print(f"[pulse] probe: sample guest fields={sorted(g0.keys())} "
               f"name={g0.get('name')!r} vmid={g0.get('vmid')!r} "
               f"type={g0.get('type')!r} node={g0.get('node')!r}")
+        # Dump the full raw record (truncated to 1200 chars per line
+        # to keep the log navigable) so we can see WHICH fields carry
+        # osName / kernel / arch / platform on this Pulse version.
+        # Only fires on the first guest so the log isn't flooded.
+        import json as _dbg_json
+        try:
+            raw = _dbg_json.dumps(g0, default=str)[:1200]
+        except Exception:
+            raw = repr(g0)[:1200]
+        print(f"[pulse] probe: sample guest RAW={raw}")
+        # Also dump sub-object keys since Pulse sometimes nests the
+        # OS-family data under ``info`` / ``agent`` / ``config``.
+        for nest_key in ("info", "agent", "config", "stats", "details"):
+            nested = g0.get(nest_key)
+            if isinstance(nested, dict):
+                print(f"[pulse] probe: sample guest.{nest_key} keys="
+                      f"{sorted(nested.keys())}")
     # Keyed by display name (preserves case). We also maintain a parallel
     # lowercased-trimmed index so the caller's ``_lookup`` helper can
     # match ``Docker`` / ``  docker `` / the guest's vmid without the

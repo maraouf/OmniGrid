@@ -101,6 +101,16 @@ def parse_exporter_text(text: str) -> dict:
     fs: dict[str, dict] = {}
     mem_total = 0
     mem_avail = 0
+    # host_* identity fields, populated from ``node_uname_info``
+    # (``sysname`` / ``machine`` / ``release``) and the distinct
+    # ``cpu=`` labels on ``node_cpu_seconds_total``. These make it so
+    # Linux / FreeBSD hosts monitored only by node-exporter still
+    # fill in the SYSTEM + HARDWARE cards rather than leaving every
+    # row empty on the Hosts tab.
+    uname_sysname = ""
+    uname_machine = ""
+    uname_release = ""
+    cpu_labels: set[str] = set()
     # FreeBSD / OPNsense fallback buckets — the exporter on those
     # systems emits ``node_memory_size_bytes`` for total and splits
     # "available" across free + inactive + laundry. We accumulate
@@ -148,6 +158,16 @@ def parse_exporter_text(text: str) -> dict:
             # Pre-0.16 node-exporter used "node_boot_time" without the
             # _seconds suffix. Accept both so older deploys work.
             boot_ts = value
+        elif name == "node_uname_info":
+            labels = _parse_labels(m.group("labels") or "")
+            uname_sysname = labels.get("sysname") or uname_sysname
+            uname_machine = labels.get("machine") or uname_machine
+            uname_release = labels.get("release") or uname_release
+        elif name == "node_cpu_seconds_total":
+            labels = _parse_labels(m.group("labels") or "")
+            cpu = labels.get("cpu")
+            if cpu:
+                cpu_labels.add(cpu)
         elif name in ("node_filesystem_size_bytes", "node_filesystem_avail_bytes"):
             labels = _parse_labels(m.group("labels") or "")
             mount = labels.get("mountpoint") or ""
@@ -199,6 +219,14 @@ def parse_exporter_text(text: str) -> dict:
         total_free += avail
     mounts.sort(key=lambda m: m["mountpoint"])
     total_used = max(0, total_size - total_free)
+    # Normalise machine label → common arch name so the UI's
+    # "Architecture" row reads the same whether the host runs FreeBSD
+    # (``amd64``), Linux (``x86_64``), or ARM (``aarch64`` /
+    # ``armv7l``). We keep the source-agreeing labels verbatim; only
+    # map obvious aliases.
+    arch = uname_machine
+    if arch == "amd64":
+        arch = "x86_64"  # harmonise with how Beszel + most Linux tools label it
     return {
         "host_disk_total": total_size,
         "host_disk_used": total_used,
@@ -208,6 +236,13 @@ def parse_exporter_text(text: str) -> dict:
         "host_mem_avail": mem_avail,
         "host_boot_ts": boot_ts or None,
         "mounts": mounts,
+        # Identity / hardware — all optional. node-exporter runs LAST
+        # in the merge so these values are authoritative for Linux /
+        # FreeBSD hosts.
+        "host_kernel":    uname_release,
+        "host_arch":      arch,
+        "host_platform":  uname_sysname,   # "Linux" / "FreeBSD" / ...
+        "host_cores":     len(cpu_labels),
     }
 
 
