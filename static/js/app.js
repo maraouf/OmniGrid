@@ -3105,14 +3105,23 @@ function app() {
         if (row && !row.label) row.label = value;
       }
     },
-    // Resolve a curated host to an icon URL. Tries the explicit
-    // ``icon`` override first (so the admin can force a specific
-    // glyph), then falls back to the shared ``iconUrlFor`` resolver
-    // fed from the host id / label / beszel name / pulse name —
-    // first hit wins.
+    // Resolve a curated host to an icon URL. Priority:
+    //   1. explicit ``h.icon`` override (admin-supplied).
+    //   2. ``iconUrlFor()`` on the raw id / label / provider names
+    //      — finds a hit when one of those matches an icon slug
+    //      verbatim (e.g. id "opnsense" → opnsense.svg).
+    //   3. KEYWORD scan of the label + id for known brand tokens
+    //      (e.g. "(Apache)" → apache.svg, "(NGINX)" → nginx.svg).
+    //      Lets labels like "[VM] Debian OS 13 (WebServer 01) (Apache)"
+    //      auto-match without the operator setting an icon manually.
     hostIconUrl(h) {
       if (!h) return '';
-      if (h.icon) return h.icon;
+      if (h.icon) {
+        // Normalise: bare slug → absolute /img/icons/<slug>.svg
+        if (/^https?:/i.test(h.icon) || h.icon.startsWith('/')) return h.icon;
+        return '/img/icons/' + h.icon + '.svg';
+      }
+      // Step 2 — exact-slug match on any field.
       const candidates = [
         h.id, h.label, h.host, h.beszel_name, h.pulse_name,
       ].filter(Boolean);
@@ -3120,10 +3129,85 @@ function app() {
         const url = this.iconUrlFor(c);
         if (url) return url;
       }
+      // Step 3 — keyword scan. Lowercase hay from label + id, then
+      // test each known token. Order matters: longer / more specific
+      // tokens win first so "nginx-proxy-manager" beats "nginx".
+      const hay = [h.label, h.id, h.host]
+        .filter(Boolean).join(' ').toLowerCase();
+      const tokens = [
+        ['nginx proxy manager',   'nginx-proxy-manager'],
+        ['nginxproxymanager',     'nginx-proxy-manager'],
+        ['proxy manager',         'nginx-proxy-manager'],
+        ['npm',                   'nginx-proxy-manager'],
+        ['nginx',                 'nginx'],
+        ['apache',                'apache'],
+        ['opnsense',              'opnsense'],
+        ['pfsense',               'pfsense'],
+        ['traefik',               'traefik'],
+        ['caddy',                 'caddy'],
+        ['gateway',               'opnsense'],
+        ['firewall',              'opnsense'],
+        ['plex',                  'plex'],
+        ['jellyfin',              'jellyfin'],
+        ['home assistant',        'home-assistant'],
+        ['homeassistant',         'home-assistant'],
+        ['pi-hole',               'pi-hole'],
+        ['pihole',                'pi-hole'],
+        ['adguard',               'adguard-home'],
+        ['authentik',             'authentik'],
+        ['portainer',             'portainer'],
+        ['proxmox',               'proxmox'],
+        ['pve',                   'proxmox'],
+        ['docker',                'docker'],
+        ['kubernetes',            'kubernetes'],
+        ['k8s',                   'kubernetes'],
+        ['grafana',               'grafana'],
+        ['prometheus',            'prometheus'],
+        ['uptime kuma',           'uptime-kuma'],
+        ['uptimekuma',            'uptime-kuma'],
+        ['netdata',               'netdata'],
+        ['beszel',                'beszel'],
+        ['pulse',                 'pulse'],
+      ];
+      for (const [needle, slug] of tokens) {
+        if (hay.includes(needle)) return '/img/icons/' + slug + '.svg';
+      }
       return '';
     },
     removeHostRow(idx) {
       this.hostsConfig.splice(idx, 1);
+      this.hostsConfigDirty = true;
+    },
+    // Manual reorder — simpler than drag-and-drop and works on
+    // touch. Wraps around at the ends so the buttons stay useful
+    // when a row is already top/bottom (no-op there, so we guard
+    // instead of wrapping to avoid surprise). Clears any per-index
+    // test result since the row's idx just moved.
+    moveHostRow(idx, delta) {
+      const dest = idx + delta;
+      if (dest < 0 || dest >= this.hostsConfig.length) return;
+      const [row] = this.hostsConfig.splice(idx, 1);
+      this.hostsConfig.splice(dest, 0, row);
+      this.hostsTestResults = {};
+      this.hostsConfigDirty = true;
+    },
+    // Clone an existing host row — preserves every field except the
+    // ID (prefixed with "copy-of-" to satisfy the "unique id"
+    // constraint server-side) and the enabled flag (off by default
+    // so the clone doesn't silently start pulling data before the
+    // operator renames it). Inserted right below the source row so
+    // the visual relationship is obvious.
+    duplicateHostRow(idx) {
+      const src = this.hostsConfig[idx];
+      if (!src) return;
+      const copy = {
+        ...src,
+        id:    (src.id ? 'copy-of-' + src.id : ''),
+        label: (src.label ? src.label + ' (copy)' : ''),
+        enabled: false,
+      };
+      this.hostsConfig.splice(idx + 1, 0, copy);
+      this.hostsTestResults = {};
       this.hostsConfigDirty = true;
     },
     async saveHostsConfig() {

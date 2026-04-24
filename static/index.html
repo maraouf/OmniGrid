@@ -2769,12 +2769,39 @@
                          placeholder="e.g. Docker VM">
                 </div>
                 <label class="inline-flex items-center gap-2 text-[12px] text-[var(--text-dim)] pb-1.5">
-                  <input type="checkbox" x-model="row.enabled" :disabled="isReadonly()">
+                  <input type="checkbox" x-model="row.enabled"
+                         @change="markHostRowDirty(idx)"
+                         :disabled="isReadonly()">
                   <span>Enabled</span>
                 </label>
-                <button x-show="isAdmin()" @click="removeHostRow(idx)"
-                        class="btn btn-ghost text-[12px] text-danger pb-1.5"
-                        title="Remove this host">Remove</button>
+                <!-- Row-level actions. Reorder pairs wrap when the
+                     card is narrow on mobile. Duplicate and Remove
+                     are distinct buttons so a clone/prune workflow
+                     stays in one card's action area. -->
+                <div class="flex items-center gap-1 pb-1.5">
+                  <button x-show="isAdmin()" @click="moveHostRow(idx, -1)"
+                          :disabled="idx === 0"
+                          class="btn btn-ghost text-[12px] px-2"
+                          :class="idx === 0 ? 'opacity-40 cursor-not-allowed' : ''"
+                          title="Move up">
+                    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="18 15 12 9 6 15"/></svg>
+                  </button>
+                  <button x-show="isAdmin()" @click="moveHostRow(idx, +1)"
+                          :disabled="idx === hostsConfig.length - 1"
+                          class="btn btn-ghost text-[12px] px-2"
+                          :class="idx === hostsConfig.length - 1 ? 'opacity-40 cursor-not-allowed' : ''"
+                          title="Move down">
+                    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+                  </button>
+                  <button x-show="isAdmin()" @click="duplicateHostRow(idx)"
+                          class="btn btn-ghost text-[12px] px-2"
+                          title="Duplicate this host (inserts a disabled clone below)">
+                    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+                  </button>
+                  <button x-show="isAdmin()" @click="removeHostRow(idx)"
+                          class="btn btn-ghost text-[12px] text-danger px-2"
+                          title="Remove this host">Remove</button>
+                </div>
               </div>
               <!-- Row 1a — optional external URL + icon override. -->
               <div class="grid grid-cols-1 md:grid-cols-[2fr_1fr] gap-3">
@@ -2886,11 +2913,21 @@
                   class="btn btn-soft text-[12.5px]">+ Add host</button>
           <button x-show="isAdmin()" @click="saveHostsConfig()"
                   class="btn btn-primary text-[12.5px]"
-                  :disabled="hostsConfigSaving">
+                  :disabled="hostsConfigSaving"
+                  :class="hostsConfigDirty ? 'ring-2 ring-[var(--warning)]' : ''">
             <span x-show="!hostsConfigSaving">Save changes</span>
             <span x-show="hostsConfigSaving" class="flex items-center gap-1"><span class="spin"></span>Saving…</span>
           </button>
-          <span class="text-[11.5px] text-[var(--text-faint)] ms-2">
+          <!-- Dirty indicator — amber dot + text when the list has
+               been modified since the last load/save. Pairs with the
+               beforeunload guard so operators don't lose work. -->
+          <span x-show="hostsConfigDirty"
+                class="text-[11.5px] text-[var(--warning)] flex items-center gap-1.5"
+                title="You have unsaved changes in the Hosts list.">
+            <span class="w-1.5 h-1.5 rounded-full bg-[var(--warning)] animate-pulse"></span>
+            Unsaved changes
+          </span>
+          <span x-show="!hostsConfigDirty" class="text-[11.5px] text-[var(--text-faint)] ms-2">
             Leave any provider field blank when that provider doesn't
             know this host — the row still populates from whatever else
             matches.

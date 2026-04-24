@@ -216,38 +216,68 @@ async def probe_pulse(
     # Nodes live at ``state.nodes`` in every Pulse version we've seen.
     nodes = state.get("nodes") or []
 
-    # Guests (VMs + LXCs) have drifted across versions. Collect them
-    # from every top-level key we know about — ``guests`` (old v3),
-    # ``vms`` (general), ``containers`` / ``lxc`` / ``qemu`` (split-
-    # by-kind in some builds), and the nested ``pve.*`` envelope the
-    # newer Pulse release wraps everything in.
-    guests: list = []
-    for top_key in ("guests", "vms", "containers", "lxc", "qemu"):
-        v = state.get(top_key)
-        if isinstance(v, list):
-            guests.extend(v)
-    # Some Pulse versions wrap the whole payload in a ``pve`` object.
-    pve = state.get("pve")
-    if isinstance(pve, dict):
-        for sub in ("guests", "vms", "containers", "lxc", "qemu"):
-            v = pve.get(sub)
-            if isinstance(v, list):
-                guests.extend(v)
-    # Newer builds may attach ``vms`` / ``containers`` per node.
+    def _looks_like_guest(item) -> bool:
+        """Heuristic — a dict with a ``vmid`` or ``id`` and one of the
+        PVE-style status keys looks like a guest record regardless of
+        which array we found it in."""
+        if not isinstance(item, dict):
+            return False
+        if item.get("vmid") in (None, "", 0) and not item.get("id"):
+            return False
+        # A few marker fields PVE guest records always carry.
+        marks = ("type", "status", "maxmem", "maxdisk", "cpu", "uptime", "node")
+        return any(m in item for m in marks)
+
+    def _harvest(container, inherited_node: str = "") -> list:
+        """Walk any object/dict/list and collect anything that looks
+        like a guest record. Handles the diverging Pulse schemas
+        (``guests``/``vms``/``lxc``/``qemu`` at top level, nested under
+        ``pve``, or hanging off each node) without hard-coding key
+        names."""
+        out: list = []
+        if isinstance(container, list):
+            for item in container:
+                if _looks_like_guest(item):
+                    if inherited_node and not item.get("node"):
+                        item = {**item, "node": inherited_node}
+                    out.append(item)
+                elif isinstance(item, (list, dict)):
+                    out.extend(_harvest(item, inherited_node))
+        elif isinstance(container, dict):
+            # When walking the state root, don't recurse into
+            # ``nodes`` again (we handle those separately) so a guest
+            # that somehow contains a node-shaped sub-object doesn't
+            # double-count.
+            for k, v in container.items():
+                if k == "nodes":
+                    continue
+                out.extend(_harvest(v, inherited_node))
+        return out
+
+    guests: list = _harvest(state)
+    # Also walk each node's sub-dicts — some builds attach guests
+    # there. Stamp the parent node name so ``extract_guest_stats``
+    # can report "on pve-1" even when the guest lacks ``node``.
     for n in nodes:
         if not isinstance(n, dict):
             continue
-        for sub in ("vms", "containers", "guests", "lxc", "qemu"):
-            v = n.get(sub)
-            if isinstance(v, list):
-                # Stamp the node reference so extract_guest_stats can
-                # report "on pve-1" even when the guest record itself
-                # doesn't carry a ``node`` field.
-                inherited = (n.get("node") or n.get("name") or "")
-                for item in v:
-                    if isinstance(item, dict) and not item.get("node"):
-                        item = {**item, "node": inherited}
-                    guests.append(item)
+        inherited = (n.get("node") or n.get("name") or "")
+        guests.extend(_harvest(
+            {k: v for k, v in n.items() if k not in ("cpu", "mem", "uptime")},
+            inherited,
+        ))
+
+    # De-dup — the recursive scan can pick the same guest up via
+    # multiple paths (e.g. state.vms AND state.pve.vms).
+    seen_ids: set = set()
+    unique_guests: list = []
+    for g in guests:
+        gid = str(g.get("vmid") or g.get("id") or "") + "|" + str(g.get("node") or "")
+        if gid in seen_ids:
+            continue
+        seen_ids.add(gid)
+        unique_guests.append(g)
+    guests = unique_guests
 
     print(f"[pulse] probe: state top-level keys={sorted(state.keys())} "
           f"nodes={len(nodes)} guests={len(guests)}")
