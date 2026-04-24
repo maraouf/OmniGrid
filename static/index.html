@@ -1047,43 +1047,94 @@
             <!-- Expanded row — SYSTEM + HARDWARE cards. -->
             <div x-show="isHostExpanded(h.host)" class="bg-[var(--surface-2)]/50 border-t border-[var(--border)] px-5 py-4">
               <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                <!-- SYSTEM -->
+                <!-- SYSTEM — only the fields Beszel's agent actually
+                     reports for this host are rendered. Container-mode
+                     agents tend to skip platform / OS / kernel / arch;
+                     hiding those empty rows makes the card honest instead
+                     of full of em-dashes. -->
                 <section class="rounded border border-[var(--border)] bg-[var(--surface)] p-4">
                   <h4 class="text-[10.5px] uppercase tracking-wider text-[var(--text-faint)] mb-3">System</h4>
                   <dl class="grid grid-cols-[auto_1fr] gap-x-4 gap-y-2 text-[12px]">
                     <dt class="text-[var(--text-dim)]">Hostname</dt>
                     <dd class="mono text-end" x-text="h.host"></dd>
-                    <dt class="text-[var(--text-dim)]">Platform</dt>
-                    <dd class="text-end" x-text="h.platform || '—'"></dd>
-                    <dt class="text-[var(--text-dim)]">OS</dt>
-                    <dd class="text-end" x-text="h.os || '—'"></dd>
-                    <dt class="text-[var(--text-dim)]">Kernel</dt>
-                    <dd class="mono text-end break-all" x-text="h.kernel || '—'"></dd>
-                    <dt class="text-[var(--text-dim)]">Architecture</dt>
-                    <dd class="mono text-end" x-text="h.arch || '—'"></dd>
+                    <template x-if="h.platform">
+                      <dt class="text-[var(--text-dim)]">Platform</dt>
+                    </template>
+                    <template x-if="h.platform">
+                      <dd class="text-end" x-text="h.platform"></dd>
+                    </template>
+                    <template x-if="h.os">
+                      <dt class="text-[var(--text-dim)]">OS</dt>
+                    </template>
+                    <template x-if="h.os">
+                      <dd class="text-end" x-text="h.os"></dd>
+                    </template>
+                    <template x-if="h.kernel">
+                      <dt class="text-[var(--text-dim)]">Kernel</dt>
+                    </template>
+                    <template x-if="h.kernel">
+                      <dd class="mono text-end break-all" x-text="h.kernel"></dd>
+                    </template>
+                    <template x-if="h.arch">
+                      <dt class="text-[var(--text-dim)]">Architecture</dt>
+                    </template>
+                    <template x-if="h.arch">
+                      <dd class="mono text-end" x-text="h.arch"></dd>
+                    </template>
                     <dt class="text-[var(--text-dim)]">Uptime</dt>
                     <dd class="mono text-end" x-text="fmtUptimeShort(h.uptime_s)"></dd>
-                    <dt class="text-[var(--text-dim)]" x-show="h.docker_node">Docker node</dt>
-                    <dd class="mono text-end" x-show="h.docker_node" x-text="h.docker_node"></dd>
+                    <template x-if="h.docker_node">
+                      <dt class="text-[var(--text-dim)]">Docker node</dt>
+                    </template>
+                    <template x-if="h.docker_node">
+                      <dd class="mono text-end" x-text="h.docker_node"></dd>
+                    </template>
                   </dl>
                 </section>
 
-                <!-- HARDWARE -->
+                <!-- HARDWARE — same honest-fields rule. CPU model /
+                     Cores come from the host-daemon agent; container
+                     agents omit them. Threads / Memory / Disk / Agent /
+                     Status are always emitted, so they always render. -->
                 <section class="rounded border border-[var(--border)] bg-[var(--surface)] p-4">
                   <h4 class="text-[10.5px] uppercase tracking-wider text-[var(--text-faint)] mb-3">Hardware</h4>
                   <dl class="grid grid-cols-[auto_1fr] gap-x-4 gap-y-2 text-[12px]">
-                    <dt class="text-[var(--text-dim)]">CPU</dt>
-                    <dd class="text-end mono break-all" x-text="h.cpu_model || '—'"></dd>
-                    <dt class="text-[var(--text-dim)]">Cores</dt>
-                    <dd class="mono text-end" x-text="h.cores || '—'"></dd>
-                    <dt class="text-[var(--text-dim)]" x-show="h.threads">Threads</dt>
-                    <dd class="mono text-end" x-show="h.threads" x-text="h.threads"></dd>
-                    <dt class="text-[var(--text-dim)]">Memory</dt>
-                    <dd class="mono text-end" x-text="h.mem_total ? fmtBytes(h.mem_total) : '—'"></dd>
-                    <dt class="text-[var(--text-dim)]">Disk</dt>
-                    <dd class="mono text-end" x-text="h.disk_total ? fmtBytes(h.disk_total) : '—'"></dd>
-                    <dt class="text-[var(--text-dim)]">Agent</dt>
-                    <dd class="mono text-end" x-text="h.agent || '—'"></dd>
+                    <template x-if="h.cpu_model">
+                      <dt class="text-[var(--text-dim)]">CPU</dt>
+                    </template>
+                    <template x-if="h.cpu_model">
+                      <dd class="text-end mono break-all" x-text="h.cpu_model"></dd>
+                    </template>
+                    <template x-if="h.cores">
+                      <dt class="text-[var(--text-dim)]">Cores</dt>
+                    </template>
+                    <template x-if="h.cores">
+                      <dd class="mono text-end" x-text="h.cores"></dd>
+                    </template>
+                    <template x-if="h.threads">
+                      <dt class="text-[var(--text-dim)]">Threads</dt>
+                    </template>
+                    <template x-if="h.threads">
+                      <dd class="mono text-end" x-text="h.threads"></dd>
+                    </template>
+                    <template x-if="h.mem_total">
+                      <dt class="text-[var(--text-dim)]">Memory</dt>
+                    </template>
+                    <template x-if="h.mem_total">
+                      <dd class="mono text-end" x-text="fmtBytes(h.mem_total)"></dd>
+                    </template>
+                    <template x-if="h.disk_total">
+                      <dt class="text-[var(--text-dim)]">Disk</dt>
+                    </template>
+                    <template x-if="h.disk_total">
+                      <dd class="mono text-end" x-text="fmtBytes(h.disk_total)"></dd>
+                    </template>
+                    <template x-if="h.agent">
+                      <dt class="text-[var(--text-dim)]">Agent</dt>
+                    </template>
+                    <template x-if="h.agent">
+                      <dd class="mono text-end" x-text="h.agent"></dd>
+                    </template>
                     <dt class="text-[var(--text-dim)]">Status</dt>
                     <dd class="text-end">
                       <span class="pill text-[10.5px]"
