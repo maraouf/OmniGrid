@@ -5558,12 +5558,21 @@ function app() {
             protocol:     String(inner.Protocol || inner.protocol || '').trim(),
           };
         }).filter(p => p.name || p.number != null);
+        // Optional sub-fields from the guide's nested objects:
+        //   - Brand.Link     — vendor URL, clickable from the drawer
+        //   - Status.Color   — #RRGGBB used to tint the status pill
+        //   - Location.Details — extra free-text address / detail
+        const brandObj = (a.Brand && typeof a.Brand === 'object') ? a.Brand : null;
+        const statusObj = (a.Status && typeof a.Status === 'object') ? a.Status : null;
+        const locObj = (a.Location && typeof a.Location === 'object') ? a.Location : null;
         return {
           id:        a.ID ?? a.id ?? null,
           vendor:    pick(a.Brand, a.brand, a.vendor, a.manufacturer),
+          brand_link: brandObj ? String(brandObj.Link || brandObj.link || '').trim() : '',
           model:     pick(a.Model, a.model, a.product, a.product_name),
           serial:    pick(a.SerialNumber, a.serial, a.serial_number),
           location:  pick(a.Location, a.location, a.site, a.room),
+          location_details: locObj ? String(locObj.Details || locObj.details || '').trim() : '',
           type:      pick(a.Type, a.type),
           name:      pick(a.Name, a.name),
           hostnames,
@@ -5575,6 +5584,12 @@ function app() {
           barcode:   pick(a.Barcode, a.barcode),
           comment:   pick(a.Comment, a.comment),
           status_name: pick(a.Status, a.status),
+          status_color: statusObj ? String(statusObj.Color || statusObj.color || '').trim() : '',
+          // Server emits "Y-m-d H:i:s" strings in its local timezone.
+          // The drawer renders them with `fmtAssetDateString` (separate
+          // helper since the value is a string, not an epoch).
+          last_modified: String(a.LastModifiedOn || a.last_modified_on || '').trim(),
+          created_on:    String(a.CreatedOn || a.created_on || '').trim(),
           interfaces: ifaces,
           ports,
           _raw:      a,

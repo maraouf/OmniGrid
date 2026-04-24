@@ -1407,21 +1407,20 @@
                           :title="t('hosts_extra.custom_number_title')"
                           x-text="'#' + h.custom_number"></span>
                     <span class="font-semibold text-[13px] mono truncate" x-text="h.label || h.host"></span>
-                    <!-- LOCATION pill (ticket #78 follow-up) —
-                         matched from the oufa.co asset cache by
-                         custom_number. Only shows when the matched
-                         asset has a location/site/room field. -->
-                    <template x-if="assetForHost(h) && assetForHost(h).location">
-                      <span class="chip text-[10px] px-1.5 py-0 pill-info"
-                            :title="t('asset.location_title')"
-                            x-text="assetForHost(h).location"></span>
-                    </template>
                     <template x-for="p in (h.providers || [])" :key="p">
                       <span class="chip text-[9.5px] px-1 py-0"
                             :class="p === 'beszel' ? 'pill-ok' : p === 'pulse' ? 'pill-info' : 'pill-update'"
                             x-text="p === 'node_exporter' ? 'exporter' : p"></span>
                     </template>
                   </div>
+                  <!-- Asset location — its OWN line under the title
+                       so the asset name above isn't cropped. Only
+                       rendered when an asset matched. -->
+                  <template x-if="assetForHost(h) && assetForHost(h).location">
+                    <div class="text-[10.5px] text-[var(--text-faint)] truncate"
+                         :title="t('asset.location_title')"
+                         x-text="assetForHost(h).location"></div>
+                  </template>
                   <div class="text-[10.5px] text-[var(--text-faint)]">
                     <span x-show="h.label && h.label !== h.host" class="mono me-1" x-text="h.host"></span>
                     <!-- Subline text priority:
@@ -1598,6 +1597,154 @@
               </template>
               <div x-show="(h.providers || []).length > 0"
                    class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
+                <!-- ASSET INVENTORY (rich) — rendered FIRST so the
+                     operator sees the curated metadata (name, type,
+                     hostnames, location, serial, SKU, RAM, firmware,
+                     interfaces, ports, comment) before the live
+                     telemetry sections. Sourced from the cached
+                     oufa.co snapshot; visible whenever assetForHost
+                     returns a row, so hosts with no live providers
+                     still get an expandable detail card. -->
+                <template x-if="assetForHost(h)">
+                  <section class="rounded border border-[var(--border)] bg-[var(--surface)] p-4 md:col-span-2 xl:col-span-4">
+                    <div class="flex items-center justify-between mb-3">
+                      <h4 class="text-[10.5px] uppercase tracking-wider text-[var(--text-faint)]"
+                          x-text="t('host_drawer.asset.heading')"></h4>
+                      <a x-show="assetEditUrl(assetForHost(h))"
+                         :href="assetEditUrl(assetForHost(h))" target="_blank" rel="noopener"
+                         class="text-[11px] text-[var(--primary)] hover:underline"
+                         :title="t('host_drawer.asset.edit_title')"
+                         x-text="t('host_drawer.asset.edit_link')"></a>
+                    </div>
+                    <dl class="grid grid-cols-[auto_1fr] gap-x-4 gap-y-2 text-[12px]">
+                      <template x-if="assetForHost(h).name">
+                        <dt class="text-[var(--text-dim)]" x-text="t('host_drawer.asset.name')"></dt>
+                      </template>
+                      <template x-if="assetForHost(h).name">
+                        <dd class="text-end break-words" x-text="assetForHost(h).name"></dd>
+                      </template>
+                      <template x-if="assetForHost(h).type">
+                        <dt class="text-[var(--text-dim)]" x-text="t('host_drawer.asset.type')"></dt>
+                      </template>
+                      <template x-if="assetForHost(h).type">
+                        <dd class="text-end break-all" x-text="assetForHost(h).type"></dd>
+                      </template>
+                      <template x-if="(assetForHost(h).hostnames || []).length">
+                        <dt class="text-[var(--text-dim)]" x-text="t('host_drawer.asset.hostnames')"></dt>
+                      </template>
+                      <template x-if="(assetForHost(h).hostnames || []).length">
+                        <dd class="text-end mono break-all">
+                          <template x-for="hn in assetForHost(h).hostnames" :key="hn">
+                            <div x-text="hn"></div>
+                          </template>
+                        </dd>
+                      </template>
+                      <template x-if="assetForHost(h).location">
+                        <dt class="text-[var(--text-dim)]" x-text="t('host_drawer.asset.location')"></dt>
+                      </template>
+                      <template x-if="assetForHost(h).location">
+                        <dd class="text-end" x-text="assetForHost(h).location"></dd>
+                      </template>
+                      <template x-if="assetForHost(h).serial">
+                        <dt class="text-[var(--text-dim)]" x-text="t('host_drawer.asset.serial')"></dt>
+                      </template>
+                      <template x-if="assetForHost(h).serial">
+                        <dd class="mono text-end break-all text-[var(--text-faint)]"
+                            x-text="assetForHost(h).serial"></dd>
+                      </template>
+                      <template x-if="assetForHost(h).sku">
+                        <dt class="text-[var(--text-dim)]" x-text="t('host_drawer.asset.sku')"></dt>
+                      </template>
+                      <template x-if="assetForHost(h).sku">
+                        <dd class="mono text-end break-all" x-text="assetForHost(h).sku"></dd>
+                      </template>
+                      <template x-if="assetForHost(h).ram">
+                        <dt class="text-[var(--text-dim)]" x-text="t('host_drawer.asset.ram')"></dt>
+                      </template>
+                      <template x-if="assetForHost(h).ram">
+                        <dd class="mono text-end" x-text="assetForHost(h).ram"></dd>
+                      </template>
+                      <template x-if="assetForHost(h).firmware">
+                        <dt class="text-[var(--text-dim)]" x-text="t('host_drawer.asset.firmware')"></dt>
+                      </template>
+                      <template x-if="assetForHost(h).firmware">
+                        <dd class="mono text-end break-all" x-text="assetForHost(h).firmware"></dd>
+                      </template>
+                      <template x-if="assetForHost(h).hardware_version">
+                        <dt class="text-[var(--text-dim)]" x-text="t('host_drawer.asset.hardware_version')"></dt>
+                      </template>
+                      <template x-if="assetForHost(h).hardware_version">
+                        <dd class="mono text-end" x-text="assetForHost(h).hardware_version"></dd>
+                      </template>
+                      <template x-if="assetForHost(h).status_name">
+                        <dt class="text-[var(--text-dim)]" x-text="t('host_drawer.asset.status')"></dt>
+                      </template>
+                      <template x-if="assetForHost(h).status_name">
+                        <dd class="text-end" x-text="assetForHost(h).status_name"></dd>
+                      </template>
+                    </dl>
+
+                    <template x-if="(assetForHost(h).interfaces || []).length">
+                      <div class="mt-4 pt-3 border-t border-[var(--border)]">
+                        <div class="text-[10.5px] uppercase tracking-wider text-[var(--text-faint)] mb-2"
+                             x-text="t('host_drawer.asset.interfaces_heading')"></div>
+                        <div class="space-y-1.5">
+                          <template x-for="iface in assetForHost(h).interfaces" :key="iface.number + ':' + iface.name + ':' + iface.ip">
+                            <div class="grid grid-cols-[1fr_auto] gap-x-3 text-[12px]"
+                                 :class="iface.enabled ? '' : 'opacity-50'">
+                              <div class="flex items-center gap-2 min-w-0">
+                                <span x-show="iface.number != null"
+                                      class="pill pill-info text-[10px] mono"
+                                      x-text="'#' + iface.number"></span>
+                                <span class="font-semibold mono" x-text="iface.name || '—'"></span>
+                                <span x-show="iface.comment"
+                                      class="text-[10.5px] text-[var(--text-faint)] truncate"
+                                      :title="iface.comment"
+                                      x-text="'· ' + iface.comment"></span>
+                              </div>
+                              <div class="text-end mono">
+                                <span x-show="iface.ip" x-text="iface.ip"></span>
+                                <span x-show="iface.mac"
+                                      class="ms-2 text-[10.5px] text-[var(--text-faint)]"
+                                      x-text="iface.mac"></span>
+                              </div>
+                            </div>
+                          </template>
+                        </div>
+                      </div>
+                    </template>
+
+                    <template x-if="(assetForHost(h).ports || []).length">
+                      <div class="mt-4 pt-3 border-t border-[var(--border)]">
+                        <div class="text-[10.5px] uppercase tracking-wider text-[var(--text-faint)] mb-2"
+                             x-text="t('host_drawer.asset.ports_heading')"></div>
+                        <div class="flex flex-wrap gap-1.5">
+                          <template x-for="port in assetForHost(h).ports" :key="port.id || (port.name + ':' + port.number)">
+                            <a x-show="assetPortServiceUrl(port)"
+                               :href="assetPortServiceUrl(port)" target="_blank" rel="noopener"
+                               class="pill pill-info text-[10.5px] mono hover:underline"
+                               :title="port.protocol || ''"
+                               x-text="port.name + (port.number != null ? ' :' + port.number : '')"></a>
+                            <span x-show="!assetPortServiceUrl(port)"
+                                  class="pill text-[10.5px] mono"
+                                  :title="port.protocol || ''"
+                                  x-text="port.name + (port.number != null ? ' :' + port.number : '')"></span>
+                          </template>
+                        </div>
+                      </div>
+                    </template>
+
+                    <template x-if="assetForHost(h).comment">
+                      <div class="mt-4 pt-3 border-t border-[var(--border)]">
+                        <div class="text-[10.5px] uppercase tracking-wider text-[var(--text-faint)] mb-2"
+                             x-text="t('host_drawer.asset.comment')"></div>
+                        <pre class="text-[11.5px] whitespace-pre-wrap break-words text-[var(--text-dim)]"
+                             x-text="assetForHost(h).comment"></pre>
+                      </div>
+                    </template>
+                  </section>
+                </template>
+
                 <!-- SYSTEM — only the fields Beszel's agent actually
                      reports for this host are rendered. Container-mode
                      agents tend to skip platform / OS / kernel / arch;
@@ -1816,165 +1963,6 @@
                     </dd>
                   </dl>
                 </section>
-
-                <!-- ASSET INVENTORY (rich) — sourced from the cached
-                     oufa.co snapshot. Surfaces the metadata that NO
-                     live provider can: hostnames, ordered interfaces
-                     (with MAC + comment + IP), ports + service URLs,
-                     SKU, firmware, RAM as DB record, location, free-
-                     text comment, and a "Edit on oufa.co" link for
-                     in-place updates. Visible whenever assetForHost
-                     returns a row — works even on hosts with no
-                     beszel/pulse/exporter/webmin (FTTH routers / 5G
-                     modems / etc). -->
-                <template x-if="assetForHost(h)">
-                  <section class="rounded border border-[var(--border)] bg-[var(--surface)] p-4">
-                    <div class="flex items-center justify-between mb-3">
-                      <h4 class="text-[10.5px] uppercase tracking-wider text-[var(--text-faint)]"
-                          x-text="t('host_drawer.asset.heading')"></h4>
-                      <a x-show="assetEditUrl(assetForHost(h))"
-                         :href="assetEditUrl(assetForHost(h))" target="_blank" rel="noopener"
-                         class="text-[11px] text-[var(--primary)] hover:underline"
-                         :title="t('host_drawer.asset.edit_title')"
-                         x-text="t('host_drawer.asset.edit_link')"></a>
-                    </div>
-                    <dl class="grid grid-cols-[auto_1fr] gap-x-4 gap-y-2 text-[12px]">
-                      <template x-if="assetForHost(h).name">
-                        <dt class="text-[var(--text-dim)]" x-text="t('host_drawer.asset.name')"></dt>
-                      </template>
-                      <template x-if="assetForHost(h).name">
-                        <dd class="text-end break-all" x-text="assetForHost(h).name"></dd>
-                      </template>
-                      <template x-if="assetForHost(h).type">
-                        <dt class="text-[var(--text-dim)]" x-text="t('host_drawer.asset.type')"></dt>
-                      </template>
-                      <template x-if="assetForHost(h).type">
-                        <dd class="text-end break-all" x-text="assetForHost(h).type"></dd>
-                      </template>
-                      <template x-if="(assetForHost(h).hostnames || []).length">
-                        <dt class="text-[var(--text-dim)]" x-text="t('host_drawer.asset.hostnames')"></dt>
-                      </template>
-                      <template x-if="(assetForHost(h).hostnames || []).length">
-                        <dd class="text-end mono break-all">
-                          <template x-for="hn in assetForHost(h).hostnames" :key="hn">
-                            <div x-text="hn"></div>
-                          </template>
-                        </dd>
-                      </template>
-                      <template x-if="assetForHost(h).location">
-                        <dt class="text-[var(--text-dim)]" x-text="t('host_drawer.asset.location')"></dt>
-                      </template>
-                      <template x-if="assetForHost(h).location">
-                        <dd class="text-end" x-text="assetForHost(h).location"></dd>
-                      </template>
-                      <template x-if="assetForHost(h).serial">
-                        <dt class="text-[var(--text-dim)]" x-text="t('host_drawer.asset.serial')"></dt>
-                      </template>
-                      <template x-if="assetForHost(h).serial">
-                        <dd class="mono text-end break-all text-[var(--text-faint)]"
-                            x-text="assetForHost(h).serial"></dd>
-                      </template>
-                      <template x-if="assetForHost(h).sku">
-                        <dt class="text-[var(--text-dim)]" x-text="t('host_drawer.asset.sku')"></dt>
-                      </template>
-                      <template x-if="assetForHost(h).sku">
-                        <dd class="mono text-end break-all" x-text="assetForHost(h).sku"></dd>
-                      </template>
-                      <template x-if="assetForHost(h).ram">
-                        <dt class="text-[var(--text-dim)]" x-text="t('host_drawer.asset.ram')"></dt>
-                      </template>
-                      <template x-if="assetForHost(h).ram">
-                        <dd class="mono text-end" x-text="assetForHost(h).ram"></dd>
-                      </template>
-                      <template x-if="assetForHost(h).firmware">
-                        <dt class="text-[var(--text-dim)]" x-text="t('host_drawer.asset.firmware')"></dt>
-                      </template>
-                      <template x-if="assetForHost(h).firmware">
-                        <dd class="mono text-end break-all" x-text="assetForHost(h).firmware"></dd>
-                      </template>
-                      <template x-if="assetForHost(h).hardware_version">
-                        <dt class="text-[var(--text-dim)]" x-text="t('host_drawer.asset.hardware_version')"></dt>
-                      </template>
-                      <template x-if="assetForHost(h).hardware_version">
-                        <dd class="mono text-end" x-text="assetForHost(h).hardware_version"></dd>
-                      </template>
-                      <template x-if="assetForHost(h).status_name">
-                        <dt class="text-[var(--text-dim)]" x-text="t('host_drawer.asset.status')"></dt>
-                      </template>
-                      <template x-if="assetForHost(h).status_name">
-                        <dd class="text-end" x-text="assetForHost(h).status_name"></dd>
-                      </template>
-                    </dl>
-
-                    <!-- Interfaces — ordered by Number then Name in the
-                         resolver. Each row: name + IP + MAC + optional
-                         comment. Disabled interfaces dim. -->
-                    <template x-if="(assetForHost(h).interfaces || []).length">
-                      <div class="mt-4 pt-3 border-t border-[var(--border)]">
-                        <div class="text-[10.5px] uppercase tracking-wider text-[var(--text-faint)] mb-2"
-                             x-text="t('host_drawer.asset.interfaces_heading')"></div>
-                        <div class="space-y-1.5">
-                          <template x-for="iface in assetForHost(h).interfaces" :key="iface.number + ':' + iface.name + ':' + iface.ip">
-                            <div class="grid grid-cols-[1fr_auto] gap-x-3 text-[12px]"
-                                 :class="iface.enabled ? '' : 'opacity-50'">
-                              <div class="flex items-center gap-2 min-w-0">
-                                <span x-show="iface.number != null"
-                                      class="pill pill-info text-[10px] mono"
-                                      x-text="'#' + iface.number"></span>
-                                <span class="font-semibold mono" x-text="iface.name || '—'"></span>
-                                <span x-show="iface.comment"
-                                      class="text-[10.5px] text-[var(--text-faint)] truncate"
-                                      :title="iface.comment"
-                                      x-text="'· ' + iface.comment"></span>
-                              </div>
-                              <div class="text-end mono">
-                                <span x-show="iface.ip" x-text="iface.ip"></span>
-                                <span x-show="iface.mac"
-                                      class="ms-2 text-[10.5px] text-[var(--text-faint)]"
-                                      x-text="iface.mac"></span>
-                              </div>
-                            </div>
-                          </template>
-                        </div>
-                      </div>
-                    </template>
-
-                    <!-- Ports / services — each row a name + port,
-                         optional clickable service URL when the
-                         field starts with http(s). -->
-                    <template x-if="(assetForHost(h).ports || []).length">
-                      <div class="mt-4 pt-3 border-t border-[var(--border)]">
-                        <div class="text-[10.5px] uppercase tracking-wider text-[var(--text-faint)] mb-2"
-                             x-text="t('host_drawer.asset.ports_heading')"></div>
-                        <div class="flex flex-wrap gap-1.5">
-                          <template x-for="port in assetForHost(h).ports" :key="port.id || (port.name + ':' + port.number)">
-                            <a x-show="assetPortServiceUrl(port)"
-                               :href="assetPortServiceUrl(port)" target="_blank" rel="noopener"
-                               class="pill pill-info text-[10.5px] mono hover:underline"
-                               :title="port.protocol || ''"
-                               x-text="port.name + (port.number != null ? ' :' + port.number : '')"></a>
-                            <span x-show="!assetPortServiceUrl(port)"
-                                  class="pill text-[10.5px] mono"
-                                  :title="port.protocol || ''"
-                                  x-text="port.name + (port.number != null ? ' :' + port.number : '')"></span>
-                          </template>
-                        </div>
-                      </div>
-                    </template>
-
-                    <!-- Free-text comment — preserves multi-line so
-                         install notes / WiFi creds / IMEI logs read
-                         the way they were entered upstream. -->
-                    <template x-if="assetForHost(h).comment">
-                      <div class="mt-4 pt-3 border-t border-[var(--border)]">
-                        <div class="text-[10.5px] uppercase tracking-wider text-[var(--text-faint)] mb-2"
-                             x-text="t('host_drawer.asset.comment')"></div>
-                        <pre class="text-[11.5px] whitespace-pre-wrap break-words text-[var(--text-dim)]"
-                             x-text="assetForHost(h).comment"></pre>
-                      </div>
-                    </template>
-                  </section>
-                </template>
 
                 <!-- NETWORK — each interface rendered as a block with
                      its MAC (muted) and IPv4 / IPv6 addresses colour-

@@ -858,7 +858,23 @@
       "asset_title": "Sourced from oufa.co asset inventory (matched by Custom #)"
     },
     "asset": {
-      "location_title": "Location (from oufa.co asset inventory)"
+      "location_title": "Location (from oufa.co asset inventory)",
+      "heading": "Asset inventory",
+      "edit_link": "Edit on oufa.co ↗",
+      "edit_title": "Open this asset's edit page on oufa.co in a new tab",
+      "name": "Name",
+      "type": "Type",
+      "hostnames": "Hostnames",
+      "location": "Location",
+      "serial": "Serial",
+      "sku": "SKU",
+      "ram": "RAM",
+      "firmware": "Firmware",
+      "hardware_version": "Hardware version",
+      "status": "Status",
+      "interfaces_heading": "Interfaces",
+      "ports_heading": "Services / ports",
+      "comment": "Notes"
     },
     "network": {
       "heading": "Network",
