@@ -106,6 +106,7 @@
     --debug-pulse:    #f59e0b;   /* amber — Pulse's orange brand */
     --debug-beszel:   #06b6d4;   /* cyan — Beszel teal */
     --debug-ne:       #a3e635;   /* lime — Prometheus-ish */
+    --debug-webmin:   #ec4899;   /* pink — Webmin's own accent */
     --debug-merged:   #a78bfa;   /* violet — merged best-of */
     --debug-rendered: #22c55e;   /* emerald — what ships to UI */
     --pill-degraded-bg: rgba(245, 158, 11, .12);
@@ -232,6 +233,7 @@
     --debug-pulse:    #d97706;
     --debug-beszel:   #0891b2;
     --debug-ne:       #65a30d;
+    --debug-webmin:   #be185d;
     --debug-merged:   #7c3aed;
     --debug-rendered: #16a34a;
 }
@@ -2466,6 +2468,7 @@ body.login {
 .host-debug-label--pulse    { color: var(--debug-pulse); }
 .host-debug-label--beszel   { color: var(--debug-beszel); }
 .host-debug-label--ne       { color: var(--debug-ne); }
+.host-debug-label--webmin   { color: var(--debug-webmin); }
 .host-debug-label--merged   { color: var(--debug-merged); }
 .host-debug-label--rendered { color: var(--debug-rendered); }
 

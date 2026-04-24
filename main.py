@@ -937,14 +937,14 @@ async def api_set_settings(
         raw = (s.host_stats_source or "").strip()
         parts = {t.strip().lower() for t in raw.split(",") if t.strip()}
         parts.discard("none")
-        valid = {"beszel", "node_exporter", "pulse"}
+        valid = {"beszel", "node_exporter", "pulse", "webmin"}
         unknown = parts - valid
         if unknown:
             raise HTTPException(
                 status_code=400,
                 detail=(
                     "host_stats_source must be a CSV of 'beszel' / "
-                    "'node_exporter' / 'pulse' (or 'none'). "
+                    "'node_exporter' / 'pulse' / 'webmin' (or 'none'). "
                     f"Unknown: {sorted(unknown)}"
                 ),
             )
@@ -982,6 +982,23 @@ async def api_set_settings(
             if str(k).strip() and str(v).strip()
         }
         set_setting("beszel_aliases", json.dumps(clean))
+    # Webmin — same suffix / _set conventions as every other provider's
+    # secret. ``webmin_aliases`` is Docker hostname → Miniserv base URL.
+    if s.webmin_url is not None:
+        set_setting("webmin_url", (s.webmin_url or "").strip().rstrip("/"))
+    if s.webmin_user is not None:
+        set_setting("webmin_user", (s.webmin_user or "").strip())
+    if s.webmin_password is not None and s.webmin_password.strip() != "":
+        set_setting("webmin_password", s.webmin_password)
+    if s.webmin_verify_tls is not None:
+        set_setting("webmin_verify_tls", "true" if s.webmin_verify_tls else "false")
+    if s.webmin_aliases is not None:
+        clean = {
+            str(k).strip(): str(v).strip().rstrip("/")
+            for k, v in (s.webmin_aliases or {}).items()
+            if str(k).strip() and str(v).strip()
+        }
+        set_setting("webmin_aliases", json.dumps(clean))
     _cache["ts"] = 0  # force the next gather to re-read alias settings
 
     auth_changed = False
@@ -1147,6 +1164,58 @@ async def api_pulse_test(
             "nodes": names}
 
 
+@app.post("/api/webmin/test")
+async def api_webmin_test(
+    request: Request,
+    _admin: auth.User = Depends(auth.require_admin),
+):
+    """Admin-only: probe a Webmin Miniserv instance.
+
+    Accepts ``{url, user, password, verify_tls}``. Password is keep-
+    current-if-blank (same contract as Portainer / Beszel / Pulse
+    test endpoints). Returns ``{ok, detail}`` with a short summary.
+    """
+    from logic import webmin as _webmin
+    body = await request.json()
+    url = (body.get("url") or "").strip().rstrip("/")
+    user = (body.get("user") or "").strip()
+    password = body.get("password") or ""
+    verify_tls = bool(body.get("verify_tls", False))
+    if not password:
+        password = get_setting("webmin_password", "") or ""
+    if not user:
+        user = get_setting("webmin_user", "") or ""
+    if not url or not user or not password:
+        return {"ok": False,
+                "detail": "URL, user and password are all required"}
+    result = await _webmin.probe_webmin(
+        url, user, password, verify_tls=verify_tls, timeout=10.0,
+    )
+    if result.get("error") and not result.get("hosts"):
+        return {"ok": False, "detail": result["error"]}
+    hosts = result.get("hosts") or {}
+    if not hosts:
+        return {"ok": False,
+                "detail": "No host_key resolved — Webmin responded "
+                          "but couldn't extract a hostname"}
+    host_key = next(iter(hosts))
+    stats = hosts[host_key]
+    pending = stats.get("host_updates_pending") or 0
+    security = stats.get("host_updates_security") or 0
+    mem = stats.get("host_mem_total") or 0
+    mounts = len(stats.get("mounts") or [])
+    nics = len(stats.get("network_ifaces") or [])
+    detail = (f"OK — {host_key} · "
+              f"{pending} updates ({security} sec) · "
+              f"mem={mem // (1024**3) if mem else '?'} GB · "
+              f"mounts={mounts} · nics={nics}")
+    partial = result.get("partial_errors") or []
+    if partial:
+        detail += f" · partial: {len(partial)} module(s) failed"
+    return {"ok": True, "detail": detail, "host_key": host_key,
+            "partial_errors": partial}
+
+
 @app.post("/api/beszel/test")
 async def api_beszel_test(
     request: Request,
@@ -1275,6 +1344,34 @@ async def api_hosts():
         else:
             errors["pulse"] = "missing url / token"
 
+    webmin_creds_ok = False
+    webmin_user = ""
+    webmin_password = ""
+    webmin_verify = False
+    webmin_aliases: dict[str, str] = {}
+    if "webmin" in active:
+        from logic import webmin as _webmin  # noqa: F401 — used below
+        webmin_user = get_setting("webmin_user", "") or ""
+        webmin_password = get_setting("webmin_password", "") or ""
+        webmin_verify = (get_setting("webmin_verify_tls", "false")
+                         or "false").lower() == "true"
+        try:
+            wm_aliases_raw = json.loads(
+                get_setting("webmin_aliases", "{}") or "{}"
+            )
+            if isinstance(wm_aliases_raw, dict):
+                webmin_aliases = {
+                    str(k).strip(): str(v).strip()
+                    for k, v in wm_aliases_raw.items()
+                    if str(k).strip() and str(v).strip()
+                }
+        except ValueError:
+            webmin_aliases = {}
+        if webmin_user and webmin_password:
+            webmin_creds_ok = True
+        else:
+            errors["webmin"] = "missing user / password"
+
     # ---- Fallback: auto-discover from Beszel when no curated list ----
     if not curated:
         if beszel_map:
@@ -1373,6 +1470,43 @@ async def api_hosts():
             if stats and not (stats.get("exporter_error")):
                 entry["_providers"].append("node_exporter")
 
+    # Webmin — per-host probes, runs LAST in the merge chain. Each
+    # curated row that has a ``webmin_aliases`` URL (or explicit
+    # ``webmin_url``) fires one probe in parallel. Hosts without a
+    # mapping are silently skipped so the existing Pulse/Beszel/NE
+    # pipeline keeps working unchanged.
+    if "webmin" in active and webmin_creds_ok:
+        from logic import webmin as _webmin
+        probe_targets: list[tuple[dict, str]] = []
+        for entry in out:
+            hid = entry["_host_record"]["id"]
+            wm_url = webmin_aliases.get(hid) or entry["_host_record"].get("webmin_url") or ""
+            if wm_url:
+                probe_targets.append((entry, wm_url))
+        if probe_targets:
+            async def _one_probe(wm_url: str):
+                return await _webmin.probe_webmin(
+                    wm_url, webmin_user, webmin_password,
+                    verify_tls=webmin_verify,
+                    active_sources=active,
+                )
+            webmin_results = await asyncio.gather(*(
+                _one_probe(u) for _, u in probe_targets
+            ), return_exceptions=False)
+            for (entry, _url), result in zip(probe_targets, webmin_results):
+                if result.get("error") and not result.get("hosts"):
+                    errors.setdefault(
+                        "webmin",
+                        f"{entry['_host_record']['id']}: {result['error']}",
+                    )
+                    continue
+                hosts_map = result.get("hosts") or {}
+                if not hosts_map:
+                    continue
+                stats = next(iter(hosts_map.values()))
+                _merge_best(entry["_merged"], stats)
+                entry["_providers"].append("webmin")
+
     # ---- Shape the response ---------------------------------------
     # Short debug spew for core/arch/kernel only — helps diagnose the
     # common "all three columns are empty" complaint by showing each
@@ -1443,6 +1577,12 @@ async def api_hosts():
             "pulse_vmid":      s.get("pulse_vmid") or 0,
             "pulse_node":      s.get("pulse_node") or "",        # PVE host the guest lives on
             "pulse_status":    s.get("pulse_status") or "",
+            # Webmin — pending + security update counts. Both default
+            # to 0 when Webmin didn't match this host so the UI's
+            # ``x-show="h.updates_pending > 0"`` gate works without
+            # needing to check provider membership.
+            "updates_pending":  int(s.get("host_updates_pending") or 0),
+            "updates_security": int(s.get("host_updates_security") or 0),
         })
 
     # Aggregate error — non-fatal; UI shows the first one per provider.
@@ -1494,6 +1634,12 @@ def _load_hosts_config() -> list[dict]:
             "ne_url":      (h.get("ne_url") or "").strip(),
             "beszel_name": (h.get("beszel_name") or "").strip(),
             "pulse_name":  (h.get("pulse_name") or "").strip(),
+            # Webmin per-host name — currently unused for lookup (every
+            # Webmin install has its own Miniserv URL), but retained so
+            # the admin editor has a slot to tag which row a discovered
+            # Webmin host maps to. The actual probe URL lives in the
+            # webmin_aliases map.
+            "webmin_name": (h.get("webmin_name") or "").strip(),
             # Optional external URL the operator picks (e.g. the host's
             # web UI). Rendered as a clickable link in the Hosts view's
             # SYSTEM card, matches Beszel's "+ Add URL" affordance.
@@ -1503,9 +1649,25 @@ def _load_hosts_config() -> list[dict]:
             # the frontend's iconUrlFor() auto-resolve from the host's
             # id / label.
             "icon":        (h.get("icon") or "").strip(),
+            # Operator-assigned catalogue number. Used today for sort
+            # ordering + grouping in the Hosts view; future scope is
+            # the primary key for PersonalSite inventory lookups so
+            # hardware / location / NIC metadata can be pulled back in.
+            # Empty / invalid values → None so "no number" sorts last.
+            "custom_number": _coerce_int(h.get("custom_number")),
             "enabled":     bool(h.get("enabled", True)),
         })
     return clean
+
+
+def _coerce_int(v) -> Optional[int]:
+    """Accept an int, a numeric string, or empty/garbage — return int or None."""
+    if v is None or v == "":
+        return None
+    try:
+        return int(v)
+    except (TypeError, ValueError):
+        return None
 
 
 def _save_hosts_config(hosts: list[dict]) -> list[dict]:
@@ -1529,6 +1691,7 @@ def _save_hosts_config(hosts: list[dict]) -> list[dict]:
             "ne_url":      (h.get("ne_url") or "").strip(),
             "beszel_name": (h.get("beszel_name") or "").strip(),
             "pulse_name":  (h.get("pulse_name") or "").strip(),
+            "webmin_name": (h.get("webmin_name") or "").strip(),
             "url":         (h.get("url") or "").strip(),
             "icon":        (h.get("icon") or "").strip(),
             "enabled":     bool(h.get("enabled", True)),
@@ -1579,14 +1742,27 @@ async def api_hosts_test(
     from logic import beszel as _beszel
     from logic import pulse as _pulse
     from logic import node_exporter as _ne
+    from logic import webmin as _webmin
 
     beszel_name = (body.get("beszel_name") or "").strip()
     pulse_name = (body.get("pulse_name") or "").strip()
     ne_url = (body.get("ne_url") or "").strip()
+    # webmin_url takes precedence over the row's webmin_aliases entry —
+    # per-row test fields beat global settings, same pattern as ne_url.
+    webmin_url = (body.get("webmin_url") or "").strip().rstrip("/")
+    row_id = (body.get("host_id") or "").strip()
+    if not webmin_url and row_id:
+        try:
+            aliases = json.loads(get_setting("webmin_aliases", "{}") or "{}")
+            if isinstance(aliases, dict):
+                webmin_url = str(aliases.get(row_id, "") or "").strip().rstrip("/")
+        except ValueError:
+            webmin_url = ""
     out = {
         "beszel": {"ok": False, "skipped": True, "detail": "not set"},
         "pulse":  {"ok": False, "skipped": True, "detail": "not set"},
         "node_exporter": {"ok": False, "skipped": True, "detail": "not set"},
+        "webmin": {"ok": False, "skipped": True, "detail": "not set"},
     }
 
     if beszel_name:
@@ -1658,6 +1834,33 @@ async def api_hosts_test(
                 "detail": f"reachable · mem={mem // (1024**3) if mem else '?'} GB",
             }
 
+    if webmin_url:
+        user = get_setting("webmin_user", "") or ""
+        passw = get_setting("webmin_password", "") or ""
+        verify = (get_setting("webmin_verify_tls", "false") or "false").lower() == "true"
+        if not user or not passw:
+            out["webmin"] = {"ok": False, "skipped": False,
+                             "detail": "Webmin creds not configured"}
+        else:
+            r = await _webmin.probe_webmin(
+                webmin_url, user, passw, verify_tls=verify, timeout=8.0,
+            )
+            if r.get("error") and not r.get("hosts"):
+                out["webmin"] = {"ok": False, "skipped": False,
+                                 "detail": f"webmin error: {r['error']}"}
+            elif r.get("hosts"):
+                host_key, stats = next(iter(r["hosts"].items()))
+                pending = stats.get("host_updates_pending") or 0
+                security = stats.get("host_updates_security") or 0
+                detail = (f"matched · {host_key} · "
+                          f"{pending} updates ({security} sec)")
+                if r.get("partial_errors"):
+                    detail += f" · {len(r['partial_errors'])} module(s) failed"
+                out["webmin"] = {"ok": True, "skipped": False, "detail": detail}
+            else:
+                out["webmin"] = {"ok": False, "skipped": False,
+                                 "detail": "webmin responded with no parseable host"}
+
     return out
 
 
@@ -1698,7 +1901,50 @@ async def api_hosts_discover(_u: auth.User = Depends(auth.require_admin)):
         else:
             pulse_names = sorted((r.get("hosts") or {}).keys(), key=str.lower)
 
-    return {"beszel": beszel_names, "pulse": pulse_names, "errors": errors}
+    # Webmin discovery — one Miniserv per host, so instead of a flat
+    # list of names we surface the URL → extracted-hostname map from
+    # ``webmin_aliases``. Each alias URL gets probed once so the
+    # hostname returned by the target's system-status module can be
+    # offered as the ``webmin_name`` autocomplete value.
+    webmin_names: list[str] = []
+    try:
+        wm_aliases_raw = json.loads(get_setting("webmin_aliases", "{}") or "{}")
+    except ValueError:
+        wm_aliases_raw = {}
+    wm_urls = (
+        sorted({str(v).strip().rstrip("/")
+                for v in wm_aliases_raw.values() if str(v).strip()})
+        if isinstance(wm_aliases_raw, dict) else []
+    )
+    wm_user = get_setting("webmin_user", "") or ""
+    wm_pass = get_setting("webmin_password", "") or ""
+    if wm_urls and wm_user and wm_pass:
+        from logic import webmin as _webmin
+        verify = (get_setting("webmin_verify_tls", "false") or "false").lower() == "true"
+        wm_results = await asyncio.gather(*(
+            _webmin.probe_webmin(u, wm_user, wm_pass, verify_tls=verify,
+                                 timeout=8.0)
+            for u in wm_urls
+        ), return_exceptions=False)
+        seen: set[str] = set()
+        failed = 0
+        for r in wm_results:
+            if r.get("hosts"):
+                for k in r["hosts"]:
+                    if k:
+                        seen.add(k)
+            elif r.get("error"):
+                failed += 1
+        webmin_names = sorted(seen, key=str.lower)
+        if failed and not webmin_names:
+            errors["webmin"] = f"{failed} Webmin URL(s) failed to probe"
+
+    return {
+        "beszel": beszel_names,
+        "pulse":  pulse_names,
+        "webmin": webmin_names,
+        "errors": errors,
+    }
 
 
 @app.get("/api/hosts/debug")
@@ -1744,10 +1990,10 @@ async def api_hosts_debug(
     }
 
     providers_raw: dict[str, Any] = {
-        "pulse": None, "beszel": None, "node_exporter": None,
+        "pulse": None, "beszel": None, "node_exporter": None, "webmin": None,
     }
     providers_normalized: dict[str, Any] = {
-        "pulse": None, "beszel": None, "node_exporter": None,
+        "pulse": None, "beszel": None, "node_exporter": None, "webmin": None,
     }
 
     # ---- Beszel --------------------------------------------------
@@ -1893,9 +2139,45 @@ async def api_hosts_debug(
         except Exception as e:
             providers_raw["node_exporter"] = {"_error": str(e)}
 
+    # ---- Webmin --------------------------------------------------
+    if "webmin" in active:
+        try:
+            wm_aliases = json.loads(get_setting("webmin_aliases", "{}") or "{}")
+            if not isinstance(wm_aliases, dict):
+                wm_aliases = {}
+        except ValueError:
+            wm_aliases = {}
+        wm_url = (wm_aliases.get(record["id"]) or "").strip().rstrip("/")
+        user = get_setting("webmin_user", "") or ""
+        passw = get_setting("webmin_password", "") or ""
+        verify = (get_setting("webmin_verify_tls", "false") or "false").lower() == "true"
+        if not wm_url:
+            providers_raw["webmin"] = {
+                "_error": f"no webmin_aliases entry for id={record['id']!r}"
+            }
+        elif not (user and passw):
+            providers_raw["webmin"] = {"_error": "Webmin creds not configured"}
+        else:
+            from logic import webmin as _webmin
+            try:
+                r = await _webmin.probe_webmin(
+                    wm_url, user, passw, verify_tls=verify, timeout=10.0,
+                    active_sources=active,
+                )
+                providers_raw["webmin"] = {
+                    "url":            wm_url,
+                    "hosts_keys":     sorted((r.get("hosts") or {}).keys()),
+                    "partial_errors": r.get("partial_errors") or [],
+                    "error":          r.get("error"),
+                }
+                if r.get("hosts"):
+                    providers_normalized["webmin"] = next(iter(r["hosts"].values()))
+            except Exception as e:
+                providers_raw["webmin"] = {"_error": str(e)}
+
     # ---- Merged (best-of) ----------------------------------------
     merged: dict = {}
-    for src in ("pulse", "beszel", "node_exporter"):
+    for src in ("pulse", "beszel", "node_exporter", "webmin"):
         stats = providers_normalized.get(src)
         if stats:
             _merge_best(merged, stats)

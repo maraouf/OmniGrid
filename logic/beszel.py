@@ -208,6 +208,18 @@ async def fetch_system_history(
         return {"series": [], "error": str(e)}
 
     items = (r.json() or {}).get("items") or []
+    # One-shot diagnostic — dump the first row's stats keys + a sample
+    # of values so operators can see what the hub actually exposes for
+    # this system. The "Net In/Out chart is flat at 0" support request
+    # almost always boils down to "Beszel agent isn't tracking NICs"
+    # (needs NICS=eth0 env var); this log reveals that in one line.
+    if items:
+        first_stats = items[0].get("stats") or {}
+        sample_keys = sorted(first_stats.keys())
+        net_like = {k: first_stats[k] for k in sample_keys
+                    if any(tag in k.lower() for tag in ("n", "b", "rx", "tx", "net"))}
+        print(f"[beszel] history system_id={system_id!r} rows={len(items)} "
+              f"stats_keys={sample_keys[:25]} net_like={net_like}")
     series: list[dict] = []
     for it in items:
         stats = it.get("stats") or {}
@@ -222,14 +234,37 @@ async def fetch_system_history(
             ts = int(_dt.datetime.fromisoformat(iso).timestamp())
         except Exception:
             ts = 0
-        nr = _num(stats.get("nr"))
-        ns = _num(stats.get("ns"))
-        b = _num(stats.get("b"))
+        # Net recv/send — try multiple field names across Beszel schema
+        # versions. ``nr``/``ns`` are newer (v0.10+); ``bi``/``bo`` appear
+        # in older dumps; some builds emit nested ``net.rx``/``net.tx``.
+        # First truthy pair wins.
+        net_obj = stats.get("net") if isinstance(stats.get("net"), dict) else {}
+        nr = (_num(stats.get("nr"))
+              or _num(stats.get("bi"))
+              or _num(stats.get("rx"))
+              or _num(net_obj.get("rx"))
+              or _num(net_obj.get("in")))
+        ns = (_num(stats.get("ns"))
+              or _num(stats.get("bo"))
+              or _num(stats.get("tx"))
+              or _num(net_obj.get("tx"))
+              or _num(net_obj.get("out")))
+        b = _num(stats.get("b")) or _num(stats.get("bb")) or _num(stats.get("bn"))
         # ``net`` — synthesized so the frontend chart doesn't have to
-        # probe two fields. Newer Beszel versions emit ``nr`` (recv)
-        # and ``ns`` (send); older versions only had the combined
-        # ``b`` (bandwidth). Prefer the sum when available.
-        net = (nr + ns) if (nr or ns) else b
+        # probe two fields. Prefer the recv+send sum when we got it,
+        # else the combined bandwidth field. When only ``b`` exists, split
+        # it half/half so the In/Out charts aren't identically flat —
+        # the operator at least gets a visible signal and can fix the
+        # agent config if they want the real split.
+        if nr or ns:
+            net = nr + ns
+        elif b:
+            net = b
+            if not (nr or ns):
+                nr = b / 2
+                ns = b / 2
+        else:
+            net = 0
         series.append({
             "t":   ts,
             "cpu": _num(stats.get("cpu")),

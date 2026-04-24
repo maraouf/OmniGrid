@@ -100,7 +100,7 @@ function app() {
     // Datalist-backed autocomplete source for the Hosts editor.
     // Filled by discoverHosts() on demand; stays empty until the
     // operator asks.
-    hostsDiscovery: { beszel: [], pulse: [] },
+    hostsDiscovery: { beszel: [], pulse: [], webmin: [] },
     hostsDiscovering: false,
     // Per-row test results keyed by row index. Each entry has
     // ``pending: bool`` and the provider payloads {beszel, pulse,
@@ -144,6 +144,8 @@ function app() {
     portainerTestResult: null,
     beszelTestResult: null,
     pulseTestResult: null,
+    webminTestResult: null,
+    webminTestUrl: '',
     // Settings / Admin sidebar layout. Arrays drive the nav — adding a
     // section is one entry here + one <section> in the markup.
     // Section `label` is kept as a fallback (in case the translation key
@@ -3449,6 +3451,8 @@ function app() {
         // systems management / monitoring
         ['webmin',                'webmin'],
         ['zabbix',                'zabbix'],
+        // remote access / desktop
+        ['rustdesk',              'rustdesk'],
         // mail — brand-specific first, generic last.
         ['mailcow',               'mailcow'],
         ['stalwart',              'stalwart'],

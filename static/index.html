@@ -1523,6 +1523,29 @@
                     </template>
                   </div>
                 </section>
+
+                <!-- UPDATES — only rendered when Webmin reported
+                     pending packages. Informational in Phase 1; a
+                     later phase may link to a full package list. -->
+                <section x-show="(h.updates_pending || 0) > 0"
+                         class="rounded border border-[var(--border)] bg-[var(--surface)] p-4">
+                  <h4 class="text-[10.5px] uppercase tracking-wider text-[var(--text-faint)] mb-3">Updates</h4>
+                  <dl class="grid grid-cols-[auto_1fr] gap-x-4 gap-y-2 text-[12px]">
+                    <dt class="text-[var(--text-dim)]">Pending</dt>
+                    <dd class="mono text-end" x-text="h.updates_pending"></dd>
+                    <template x-if="(h.updates_security || 0) > 0">
+                      <dt class="text-[var(--text-dim)]">Security</dt>
+                    </template>
+                    <template x-if="(h.updates_security || 0) > 0">
+                      <dd class="text-end">
+                        <span class="pill pill-degraded text-[10.5px]"
+                              x-text="h.updates_security + ' security'"></span>
+                      </dd>
+                    </template>
+                    <dt class="text-[var(--text-dim)]">Source</dt>
+                    <dd class="mono text-end text-[var(--text-faint)]">Webmin</dd>
+                  </dl>
+                </section>
               </div>
 
               <!-- Time-range picker — segmented buttons, mirrors img_8's
@@ -1838,6 +1861,12 @@
                           </section>
                           <section class="host-debug-box">
                             <header class="host-debug-box-head">
+                              <span class="host-debug-label host-debug-label--webmin">Raw · Webmin</span>
+                            </header>
+                            <pre class="host-debug-json scrollbar" x-text="fmtDebugJson(hostsDebug[h.id].providers_raw?.webmin)"></pre>
+                          </section>
+                          <section class="host-debug-box">
+                            <header class="host-debug-box-head">
                               <span class="host-debug-label host-debug-label--merged">Merged (best-of)</span>
                               <span class="host-debug-hint">after _merge_best</span>
                             </header>
@@ -1867,6 +1896,12 @@
                               <span class="host-debug-label host-debug-label--ne">Normalized · node-exporter</span>
                             </header>
                             <pre class="host-debug-json scrollbar" x-text="fmtDebugJson(hostsDebug[h.id].providers_normalized?.node_exporter)"></pre>
+                          </section>
+                          <section class="host-debug-box">
+                            <header class="host-debug-box-head">
+                              <span class="host-debug-label host-debug-label--webmin">Normalized · Webmin</span>
+                            </header>
+                            <pre class="host-debug-json scrollbar" x-text="fmtDebugJson(hostsDebug[h.id].providers_normalized?.webmin)"></pre>
                           </section>
                         </div>
                       </div>
@@ -2943,8 +2978,14 @@
                    @change="toggleHostStatsSource('pulse', $event.target.checked)">
             <span>Pulse (Proxmox VE)</span>
           </label>
+          <label class="inline-flex items-center gap-2">
+            <input type="checkbox" :disabled="isReadonly()"
+                   :checked="hasHostStatsSource('webmin')"
+                   @change="toggleHostStatsSource('webmin', $event.target.checked)">
+            <span>Webmin (pkg updates, per-host mounts)</span>
+          </label>
           <span class="text-[11px] text-[var(--text-faint)] italic"
-                x-show="!hasHostStatsSource('node_exporter') && !hasHostStatsSource('beszel') && !hasHostStatsSource('pulse')"
+                x-show="!hasHostStatsSource('node_exporter') && !hasHostStatsSource('beszel') && !hasHostStatsSource('pulse') && !hasHostStatsSource('webmin')"
                 x-text="t('settings.host_stats.source_none') + ' — host stats disabled'"></span>
         </div>
         <div x-show="hasHostStatsSource('node_exporter')" class="space-y-3">
@@ -3065,6 +3106,61 @@
           </p>
         </div>
 
+        <!-- Webmin config — fourth provider. Each target host runs its
+             own Miniserv instance, so unlike Pulse / Beszel the URL is
+             per-host (edited in the Hosts tab's webmin_aliases map).
+             These fields carry the SHARED credentials that probe every
+             Webmin endpoint. Password is write-only like the others. -->
+        <div x-show="hasHostStatsSource('webmin')" class="space-y-3 mt-4">
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-2">
+            <div>
+              <label class="block text-[11px] text-[var(--text-faint)] mb-1">Webmin user</label>
+              <input x-model="settings.webmin_user" type="text"
+                     :disabled="isReadonly()"
+                     class="w-full text-[11.5px]"
+                     placeholder="omnigrid-ro">
+              <p class="text-[10.5px] text-[var(--text-faint)] mt-1">
+                A dedicated read-only Webmin user. See
+                <code class="mono">notes/notes_agent_research.txt</code> for the
+                recommended ACL + <code class="mono">no_session</code> directive.
+              </p>
+            </div>
+            <div>
+              <label class="block text-[11px] text-[var(--text-faint)] mb-1">
+                <span>Password</span>
+                <span x-show="settings.webmin_password_set" class="text-[var(--success)]"> · set</span>
+              </label>
+              <input x-model="settings.webmin_password" type="password"
+                     :disabled="isReadonly()"
+                     class="w-full text-[11.5px]"
+                     :placeholder="settings.webmin_password_set ? '••••••••' : 'read-only user password'">
+            </div>
+          </div>
+          <label class="inline-flex items-center gap-2 text-[12px] text-[var(--text-dim)]">
+            <input type="checkbox" x-model="settings.webmin_verify_tls" :disabled="isReadonly()">
+            <span>Verify TLS certificate (Webmin's default cert is self-signed — leave off for homelab)</span>
+          </label>
+          <div class="flex items-center gap-2 flex-wrap">
+            <button x-show="isAdmin()" @click="testWebminConnection()"
+                    :disabled="webminTestResult && webminTestResult.pending"
+                    class="btn btn-soft text-[12px]"
+                    x-text="(webminTestResult && webminTestResult.pending) ? 'Testing…' : 'Test one Webmin URL'"></button>
+            <input x-model="webminTestUrl" type="url" class="flex-1 text-[11.5px] mono"
+                   placeholder="https://host.home.lan:10000">
+            <span x-show="webminTestResult && !webminTestResult.pending"
+                  :class="webminTestResult && webminTestResult.ok ? 'text-[var(--success)]' : 'text-[var(--danger)]'"
+                  class="text-[11.5px]"
+                  x-text="(webminTestResult && webminTestResult.ok ? '✓ ' : '✗ ') + (webminTestResult && webminTestResult.detail || '')"></span>
+          </div>
+          <p class="text-[10.5px] text-[var(--text-faint)]">
+            Per-host Webmin URLs are configured in
+            <a href="/admin/hosts" class="text-[var(--primary)] hover:underline">Admin → Hosts</a>
+            — add a <code class="mono">webmin_name</code> + <code class="mono">webmin_url</code>
+            on any row whose box runs Webmin. Hosts without a mapping are silently
+            skipped by the Webmin probe.
+          </p>
+        </div>
+
         <button x-show="isAdmin()" @click="saveHostStats()"
                 class="btn btn-primary text-[12px] mt-4"
                 x-text="t('actions.save')"></button>
@@ -3150,6 +3246,11 @@
         </datalist>
         <datalist id="pulse-names">
           <template x-for="name in hostsDiscovery.pulse" :key="name">
+            <option :value="name"></option>
+          </template>
+        </datalist>
+        <datalist id="webmin-names">
+          <template x-for="name in (hostsDiscovery.webmin || [])" :key="name">
             <option :value="name"></option>
           </template>
         </datalist>
@@ -3294,6 +3395,33 @@
                          placeholder="docker · pve-1 · vm-104">
                 </div>
               </div>
+              <!-- Row 2a — Webmin mapping. URL is per-host (every box
+                   has its own Miniserv), so it's stored in the
+                   webmin_aliases map using this row's ID as the key.
+                   Blank URL = silently skip this host for Webmin. -->
+              <div class="grid grid-cols-1 md:grid-cols-[2fr_1fr] gap-3">
+                <div>
+                  <label class="block text-[10.5px] uppercase tracking-wider text-[var(--text-faint)] mb-1">
+                    Webmin URL
+                    <span class="text-[10px] normal-case text-[var(--text-faint)] ms-1">(blank = skip — hosts without Webmin keep working)</span>
+                  </label>
+                  <input type="url" x-model="row.webmin_url" :disabled="isReadonly()"
+                         @input="markHostRowDirty(idx)"
+                         class="w-full mono text-[12.5px] py-1.5"
+                         placeholder="https://host.home.lan:10000">
+                </div>
+                <div>
+                  <label class="block text-[10.5px] uppercase tracking-wider text-[var(--text-faint)] mb-1">
+                    Webmin hostname
+                    <span class="text-[10px] normal-case text-[var(--text-faint)] ms-1" x-show="hostsDiscovery.webmin && hostsDiscovery.webmin.length">(autocomplete)</span>
+                  </label>
+                  <input type="text" x-model="row.webmin_name" :disabled="isReadonly()"
+                         list="webmin-names"
+                         @input="markHostRowDirty(idx)"
+                         class="w-full mono text-[12.5px] py-1.5"
+                         placeholder="host reported by Webmin">
+                </div>
+              </div>
               <!-- Row 3 — test button + per-provider result line. The
                    result lists each probed provider with a tick or
                    cross and a short reason so the operator knows
@@ -3311,7 +3439,7 @@
                 </button>
                 <div x-show="!!(hostsTestResults[idx] && !hostsTestResults[idx].pending && !hostsTestResults[idx].error)"
                      class="flex flex-wrap gap-3 text-[11px] flex-1">
-                  <template x-for="name in ['beszel','pulse','node_exporter']" :key="name">
+                  <template x-for="name in ['beszel','pulse','node_exporter','webmin']" :key="name">
                     <div x-show="!!(hostsTestResults[idx] && hostsTestResults[idx][name] && !hostsTestResults[idx][name].skipped)"
                          class="flex items-center gap-1.5"
                          :class="(hostsTestResults[idx] && hostsTestResults[idx][name] && hostsTestResults[idx][name].ok) ? 'text-[var(--success)]' : 'text-[var(--danger)]'">
