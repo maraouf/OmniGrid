@@ -72,6 +72,87 @@ _LINE_RE = re.compile(
 _LABEL_RE = re.compile(r'([a-zA-Z_][a-zA-Z0-9_]*)\s*=\s*"((?:[^"\\]|\\.)*)"')
 
 
+# Network interfaces we exclude from host-total RX/TX counters. These are
+# either loopback, Docker's NAT bridges / veth pairs, Calico / Flannel /
+# CNI plumbing, or VMware vmnet synthetic adapters — none of them
+# represent "real" traffic leaving the host. Prefix match when the glob
+# ends with ``*``; exact match otherwise.
+_EXCLUDED_NIC_PREFIXES = (
+    "docker",   # docker0, docker_gwbridge, ...
+    "br-",      # docker-compose user-defined bridges
+    "veth",     # docker / k8s veth pairs
+    "cali",     # Calico (calixxxx, cali-vxlan, ...)
+    "flannel",  # flannel.1, flannel.vxlan
+    "cni",      # cni0 / cnixxxx
+    "vmnet",    # VMware synthetic (vmnet1 / vmnet8)
+)
+_EXCLUDED_NIC_EXACT = {"lo"}
+
+
+def _is_excluded_nic(name: str) -> bool:
+    if name in _EXCLUDED_NIC_EXACT:
+        return True
+    return any(name.startswith(p) for p in _EXCLUDED_NIC_PREFIXES)
+
+
+def parse_network_counters(text: str) -> dict:
+    """Extract ``node_network_{receive,transmit}_bytes_total`` counters.
+
+    Parses the pairs:
+
+        node_network_receive_bytes_total{device="eth0"}  1234567
+        node_network_transmit_bytes_total{device="eth0"} 2345678
+
+    Excludes loopback, Docker bridges (``docker*`` / ``br-*`` / ``veth*``),
+    Calico / Flannel / CNI plumbing, and VMware synthetic adapters so the
+    ``total_rx`` / ``total_tx`` match the "real" interfaces an operator
+    thinks of (physical NICs + bonds + VLANs on top of them).
+
+    Returns:
+        {"interfaces": [{"name": "eth0", "rx_bytes": int, "tx_bytes": int}],
+         "total_rx": int, "total_tx": int}
+
+    Absolute counter bytes — callers (e.g. the host_net_sampler) derive
+    rates across consecutive samples. Single-sample callers cannot turn
+    these into bytes/s on their own.
+    """
+    per_iface: dict[str, dict] = {}
+    for raw_line in text.splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#"):
+            continue
+        # Cheap name prefilter so we don't run the regex on every metric.
+        if not (line.startswith("node_network_receive_bytes_total")
+                or line.startswith("node_network_transmit_bytes_total")):
+            continue
+        m = _LINE_RE.match(line)
+        if not m:
+            continue
+        name = m.group("name")
+        try:
+            value = float(m.group("value"))
+        except ValueError:
+            continue
+        labels = _parse_labels(m.group("labels") or "")
+        device = (labels.get("device") or "").strip()
+        if not device or _is_excluded_nic(device):
+            continue
+        entry = per_iface.setdefault(device, {"name": device, "rx_bytes": 0, "tx_bytes": 0})
+        if name.endswith("receive_bytes_total"):
+            entry["rx_bytes"] = int(value)
+        else:
+            entry["tx_bytes"] = int(value)
+
+    interfaces = sorted(per_iface.values(), key=lambda r: r["name"])
+    total_rx = sum(r["rx_bytes"] for r in interfaces)
+    total_tx = sum(r["tx_bytes"] for r in interfaces)
+    return {
+        "interfaces": interfaces,
+        "total_rx": total_rx,
+        "total_tx": total_tx,
+    }
+
+
 def _parse_labels(raw: str) -> dict[str, str]:
     """Parse a ``k="v",k2="v2"`` label blob into a dict."""
     out: dict[str, str] = {}

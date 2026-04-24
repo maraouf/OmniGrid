@@ -2511,6 +2511,31 @@ body.login {
 }
 
 /* ---------------------------------------------------------------------------
+   Admin → Hosts — sticky action bar
+
+   At 20-50 hosts the Save button sits several screens down. Making the
+   action bar `position: sticky; bottom: 0` glues it to the viewport
+   bottom so scrolling through rows keeps Save + dirty-indicator + row
+   count in view. Opaque background so rows scrolling underneath don't
+   bleed through. Negative inline margin + positive padding makes the
+   bar stretch edge-to-edge of the parent card while keeping the
+   buttons inset from the card's rounded corners.
+   --------------------------------------------------------------------------- */
+.hosts-config-actionbar {
+    position: sticky;
+    bottom: 0;
+    z-index: 20;
+    margin-top: var(--s-4);
+    margin-inline: calc(-1 * var(--s-5));
+    margin-bottom: calc(-1 * var(--s-5));
+    padding: var(--s-3) var(--s-5);
+    background: var(--surface);
+    border-top: 1px solid var(--border);
+    border-bottom-left-radius: var(--r-md);
+    border-bottom-right-radius: var(--r-md);
+}
+
+/* ---------------------------------------------------------------------------
    Form controls — checkboxes + radios accept the theme's primary colour
    so the fill matches the "New version — reload" banner, the active
    sort chip, etc. accent-color is a CSS property browsers honour for

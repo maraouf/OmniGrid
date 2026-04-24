@@ -3483,7 +3483,7 @@
           <template x-for="{ row, idx } in filteredHostsConfig()" :key="idx">
             <div class="border border-[var(--border)] rounded-md bg-[var(--surface-2)] p-3 space-y-3">
               <!-- Row 1 — identity + toggles -->
-              <div class="grid grid-cols-1 md:grid-cols-[80px_minmax(180px,1fr)_minmax(320px,2fr)_auto_auto] gap-3 items-end">
+              <div class="grid grid-cols-1 md:grid-cols-[80px_1fr_2fr_auto_auto] gap-3 items-end min-w-0">
                 <div>
                   <label class="block text-[10.5px] uppercase tracking-wider text-[var(--text-faint)] mb-1" title="Operator-assigned catalogue number — used for sort/group in Hosts view and as the key for Asset-inventory lookups at oufa.co">Custom #</label>
                   <input type="number" x-model.number="row.custom_number" :disabled="isReadonly()"
@@ -3690,7 +3690,13 @@
           </div>
         </div>
 
-        <div class="flex items-center gap-2 mt-4 flex-wrap">
+        <!-- Sticky action bar — stays glued to the viewport bottom
+             while the operator scrolls through a long list. At ~20-50
+             hosts the Save button would otherwise be three screens down.
+             `sticky + bottom:0 + z-20 + opaque bg` keeps it readable
+             even when rows scroll underneath.
+             -->
+        <div class="hosts-config-actionbar flex items-center gap-2 flex-wrap">
           <button x-show="isAdmin()" @click="addHostRow()"
                   class="btn btn-soft text-[12.5px]">+ Add host</button>
           <button x-show="isAdmin()" @click="saveHostsConfig()"
@@ -3700,6 +3706,10 @@
             <span x-show="!hostsConfigSaving">Save changes</span>
             <span x-show="hostsConfigSaving" class="flex items-center gap-1"><span class="spin"></span>Saving…</span>
           </button>
+          <!-- Row count — helps operators know where they are in long lists. -->
+          <span class="text-[11px] text-[var(--text-faint)] mono" x-show="hostsConfig.length > 0">
+            <span x-text="hostsConfig.length"></span> host<span x-show="hostsConfig.length !== 1">s</span>
+          </span>
           <!-- Dirty indicator — amber dot + text when the list has
                been modified since the last load/save. Pairs with the
                beforeunload guard so operators don't lose work. -->
@@ -3709,11 +3719,20 @@
             <span class="w-1.5 h-1.5 rounded-full bg-[var(--warning)] animate-pulse"></span>
             Unsaved changes
           </span>
-          <span x-show="!hostsConfigDirty" class="text-[11.5px] text-[var(--text-faint)] ms-2">
+          <span x-show="!hostsConfigDirty && hostsConfig.length < 8" class="text-[11.5px] text-[var(--text-faint)] ms-2">
             Leave any provider field blank when that provider doesn't
             know this host — the row still populates from whatever else
             matches.
           </span>
+          <!-- Scroll-to-top — useful when the list is deep and the
+               operator wants to return to the top filter box. Only
+               visible when there's enough rows to have scrolled. -->
+          <button type="button" x-show="hostsConfig.length > 6"
+                  @click="window.scrollTo({top: 0, behavior: 'smooth'})"
+                  class="btn btn-ghost text-[11px] ms-auto"
+                  title="Jump to top of list">
+            ↑ Top
+          </button>
         </div>
       </section>
 

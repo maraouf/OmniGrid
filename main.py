@@ -1720,15 +1720,20 @@ def _save_hosts_config(hosts: list[dict]) -> list[dict]:
         if not hid:
             raise HTTPException(400, "host entry is missing 'id'")
         seen[hid] = {
-            "id":          hid,
-            "label":       (h.get("label") or hid).strip() or hid,
-            "ne_url":      (h.get("ne_url") or "").strip(),
-            "beszel_name": (h.get("beszel_name") or "").strip(),
-            "pulse_name":  (h.get("pulse_name") or "").strip(),
-            "webmin_name": (h.get("webmin_name") or "").strip(),
-            "url":         (h.get("url") or "").strip(),
-            "icon":        (h.get("icon") or "").strip(),
-            "enabled":     bool(h.get("enabled", True)),
+            "id":            hid,
+            "label":         (h.get("label") or hid).strip() or hid,
+            "ne_url":        (h.get("ne_url") or "").strip(),
+            "beszel_name":   (h.get("beszel_name") or "").strip(),
+            "pulse_name":    (h.get("pulse_name") or "").strip(),
+            "webmin_name":   (h.get("webmin_name") or "").strip(),
+            "url":           (h.get("url") or "").strip(),
+            "icon":          (h.get("icon") or "").strip(),
+            # Operator-assigned catalogue number. Persisted so the
+            # Hosts-view "Custom #" sort + future asset-inventory
+            # lookups find the right row. Blank / non-numeric → None
+            # via _coerce_int (same path _load_hosts_config uses).
+            "custom_number": _coerce_int(h.get("custom_number")),
+            "enabled":       bool(h.get("enabled", True)),
         }
     ordered = list(seen.values())
     set_setting("hosts_config", json.dumps(ordered))
