@@ -228,54 +228,111 @@ _PAGE_SIZE = 50   # ASSET_SERVICES_DATABASE_RECORDS_LIMITS default (see oufa.co 
 _ERR_NO_RECORDS = "1686"  # ERROR_1686 "no matching records" — tolerated as empty batch
 
 
+def _normalize_code(raw: Any) -> str:
+    """Strip oufa.co's ``Ex`` prefix from a response ``code`` field.
+
+    Upstream returns codes either as ``"Ex1686"`` or as bare ``"1686"``
+    depending on the action / version. Normalising to the bare numeric
+    string here means downstream equality checks (`_ERR_NO_RECORDS`,
+    pagination tolerance) and error formatters (``[Ex{code}]``) work
+    uniformly without double-prefixing into ``[ExEx1686]``.
+    """
+    s = str(raw or "").strip()
+    if s.startswith("Ex") and s[2:].lstrip("-").isdigit():
+        return s[2:]
+    return s
+
+
+_ASSET_LIST_KEYS = (
+    "assets", "result", "records", "data", "items", "results",
+    "services", "list", "rows", "range",
+)
+_ASSET_ENVELOPE_KEYS = {
+    "return", "message", "reference_id", "service_name",
+    "service", "details", "code",
+}
+
+
 def _extract_assets_from_payload(payload: Any) -> list:
     """Pull a list of assets out of the upstream JSON response.
 
     oufa.co's response envelope puts the data under an action-specific
-    key (``asset`` for single-row, ``assets`` for list; see §5 of the
-    API guide — "<payload-key>: { … } varies per action"). We accept
-    every shape we've seen plus a few defensive fallbacks so new
-    actions the operator may call don't need a code change just to
-    surface their result.
+    key. The asset-range action uses ``result``; the single-row
+    actions use ``asset`` (see §5 of the API guide — "<payload-key>:
+    { … } varies per action"). The extractor handles three shapes
+    under any of the known names:
 
-    When nothing matches the known-name list, fall back to a
-    shape-based scan: iterate every top-level key and return the
-    first value that's a non-empty list of dicts — catches actions
-    whose response key hasn't been named-added yet. Logs the chosen
-    key so the operator can see what the upstream is using.
+      - direct list of asset dicts
+      - dict-wrapper (``{"result": {"assets": [...]}}``) — recurse
+      - single asset dict — wrap into a 1-item list
+
+    On total miss, falls back to a shape-based scan and logs the
+    payload's keys so the operator can see what the upstream is
+    using.
     """
     if isinstance(payload, list):
         return payload
     if not isinstance(payload, dict):
         return []
-    # Pass 1: known list-valued keys.
-    for k in ("assets", "records", "data", "items", "results",
-              "services", "list", "rows", "range"):
+
+    # Pass 1: known names → direct list / dict-wrapper / dict.
+    for k in _ASSET_LIST_KEYS:
         v = payload.get(k)
         if isinstance(v, list):
             return v
+        if isinstance(v, dict):
+            # Dict-wrapper — recurse one level. Common when the
+            # upstream wraps records under `result.assets` or
+            # `result.records` for pagination metadata siblings.
+            inner = _extract_assets_from_payload(v)
+            if inner:
+                print(f"[asset_inventory] extracted assets from "
+                      f"{k}.<inner> ({len(inner)} rows)")
+                return inner
+            # `result` might also be a single asset dict for
+            # by-id-style responses returned under `result` instead
+            # of `asset`. Wrap it.
+            if v and not all(isinstance(val, (dict, list)) for val in v.values()):
+                # Looks like a flat asset dict (most values scalar).
+                return [v]
+
     # Pass 2: single-row actions wrap the dict under `asset`.
     single = payload.get("asset")
     if isinstance(single, dict):
         return [single]
+
     # Pass 3: shape-based fallback. Find any top-level value that's a
     # list of dicts — that's almost certainly the asset list under a
     # name we haven't seen before. Log it so we can name-add it.
-    envelope_keys = {"return", "message", "reference_id",
-                     "service_name", "details", "code"}
     for k, v in payload.items():
-        if k in envelope_keys:
+        if k in _ASSET_ENVELOPE_KEYS:
             continue
         if isinstance(v, list) and v and isinstance(v[0], dict):
             print(f"[asset_inventory] extracted assets from unknown key "
-                  f"{k!r} ({len(v)} rows) — add to _extract_assets_from_payload "
+                  f"{k!r} ({len(v)} rows) — add to _ASSET_LIST_KEYS "
                   f"if this becomes common")
             return v
+
     # Pass 4: diagnostic — nothing matched. Log the payload shape so
-    # the operator can report back with the actual key.
-    keys = list(payload.keys())
+    # the operator can report back with the actual key. Include a
+    # value-type sketch so dict-wrappers are visible. If `result`
+    # exists, also dump the first 400 chars of its JSON so we can
+    # see the actual shape (string? null? object? nested?).
+    sketch = {k: type(v).__name__ for k, v in payload.items()}
     print(f"[asset_inventory] no list-valued payload found. "
-          f"Top-level keys: {keys!r}")
+          f"Top-level keys: {sketch!r}")
+    if "result" in payload:
+        try:
+            preview = json.dumps(payload["result"], default=str)[:400]
+        except Exception:
+            preview = repr(payload["result"])[:400]
+        print(f"[asset_inventory] result sample: {preview}")
+    if (str(payload.get("return")) not in ("1", "True")
+            and (payload.get("details") or payload.get("message"))):
+        print(f"[asset_inventory] envelope says NOT success — "
+              f"return={payload.get('return')!r} "
+              f"code={payload.get('code')!r} "
+              f"details={(payload.get('details') or payload.get('message'))!r}")
     return []
 
 
@@ -324,13 +381,13 @@ async def _post_oufa(
     if r.status_code == 401:
         og_err = _err.make_error(_err.AUTH_TOKEN_REJECTED,
                                  params={"reference_id": ref_id})
+        code = _normalize_code((parsed or {}).get("code")) if isinstance(parsed, dict) else ""
         return {"ok": False, "assets": [], "error": og_err.message,
                 "error_code": og_err.code, "error_params": og_err.params,
-                "code": str((parsed or {}).get("code") or "") if isinstance(parsed, dict) else "",
-                "reference_id": ref_id}
+                "code": code, "reference_id": ref_id}
     if r.status_code == 403:
         details = str((parsed or {}).get("details") or "").strip() if isinstance(parsed, dict) else ""
-        code = str((parsed or {}).get("code") or "").strip() if isinstance(parsed, dict) else ""
+        code = _normalize_code((parsed or {}).get("code")) if isinstance(parsed, dict) else ""
         combined = (f"{details or ''}" + (f" [Ex{code}]" if code else "")).strip()
         og_err = _err.make_error(
             _err.AUTH_SCOPE_DENIED,
@@ -342,7 +399,7 @@ async def _post_oufa(
                 "code": code, "reference_id": ref_id}
     if r.status_code >= 400:
         details = str((parsed or {}).get("details") or "").strip() if isinstance(parsed, dict) else ""
-        code = str((parsed or {}).get("code") or "").strip() if isinstance(parsed, dict) else ""
+        code = _normalize_code((parsed or {}).get("code")) if isinstance(parsed, dict) else ""
         body_preview = (details or r.text[:200])
         og_err = _err.make_error(
             _err.UPSTREAM_HTTP_ERROR,
@@ -372,7 +429,7 @@ async def _post_oufa(
         ret_code = parsed.get("return")
         if ret_code == 0 or ret_code == "0":
             details = str(parsed.get("details") or parsed.get("message") or "").strip()
-            code = str(parsed.get("code") or "").strip()
+            code = _normalize_code(parsed.get("code"))
             og_err = _err.make_error(
                 _err.UPSTREAM_FAILURE,
                 params={"upstream_code": code, "reference_id": ref_id},
@@ -392,7 +449,8 @@ async def _post_oufa(
             )
             return {"ok": False, "assets": [], "error": og_err.message,
                     "error_code": og_err.code, "error_params": og_err.params,
-                    "code": str(parsed.get("code") or ""), "reference_id": ref_id}
+                    "code": _normalize_code(parsed.get("code")),
+                    "reference_id": ref_id}
 
     return {"ok": True, "assets": _extract_assets_from_payload(parsed),
             "error": "", "code": "", "reference_id": ref_id}
