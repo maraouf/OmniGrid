@@ -864,6 +864,7 @@
     "copied": "Copied {label} to clipboard",
     "nothing_to_copy": "Nothing to copy",
     "save_failed_generic": "Save failed",
-    "network_error_generic": "Network error"
+    "network_error_generic": "Network error",
+    "webmin_url_without_name": "Row {id}: Webmin URL is set but Webmin hostname is blank. Enter the hostname the Miniserv reports (or clear the URL)."
   }
 }

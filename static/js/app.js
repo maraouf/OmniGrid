@@ -183,7 +183,11 @@ function app() {
     beszelTestResult: null,
     pulseTestResult: null,
     webminTestResult: null,
-    webminTestUrl: '',
+    // The URL typed into the "Test one Webmin URL" scratch field.
+    // Persisted to localStorage so operators don't have to retype it
+    // every time they reload Host Stats to re-test after a config
+    // change. Per-browser (each device keeps its own last-tested URL).
+    webminTestUrl: (typeof localStorage !== 'undefined' && localStorage.getItem('webminTestUrl')) || '',
     // Settings / Admin sidebar layout. Arrays drive the nav — adding a
     // section is one entry here + one <section> in the markup.
     // Section `label` is kept as a fallback (in case the translation key
@@ -345,6 +349,9 @@ function app() {
       window.addEventListener('popstate', () => this._applyRouteFromPath());
       this.$watch('expanded', v => localStorage.setItem('expanded', JSON.stringify(v)));
       this.$watch('hostsSort', v => { try { localStorage.setItem('hostsSort', v); } catch {} });
+      // Webmin scratch-test URL persists so operators don't retype
+      // the same host every time they reload Host Stats.
+      this.$watch('webminTestUrl', v => { try { localStorage.setItem('webminTestUrl', v || ''); } catch {} });
       this.$watch('hostsExpanded', v => {
         try { localStorage.setItem('hostsExpanded', JSON.stringify(v || [])); } catch {}
       });
@@ -1403,7 +1410,10 @@ function app() {
           this.showToast('Webmin password is required', 'error');
           return;
         }
-        payload.webmin_url = (this.settings.webmin_url || '').trim();
+        // Strip trailing slash(es) — operators paste URLs with or
+        // without a trailing slash; normalise here so the backend
+        // and the per-host aliases map store one canonical form.
+        payload.webmin_url = (this.settings.webmin_url || '').trim().replace(/\/+$/, '');
         payload.webmin_user = user;
         payload.webmin_verify_tls = !!this.settings.webmin_verify_tls;
         if (this.settings.webmin_password) {
@@ -3868,6 +3878,24 @@ function app() {
       this.hostsConfigDirty = true;
     },
     async saveHostsConfig() {
+      // Pre-save validation: if a Webmin URL is set, the webmin_name
+      // must also be set. Otherwise the probe has a target but no key
+      // to look the returned host up against — would silently produce
+      // empty drawer cards. Reverse (name without URL) is allowed so
+      // an operator can stage a name while rolling out Miniserv.
+      for (let i = 0; i < (this.hostsConfig || []).length; i++) {
+        const h = this.hostsConfig[i] || {};
+        const wurl = (h.webmin_url || '').trim();
+        const wname = (h.webmin_name || '').trim();
+        if (wurl && !wname) {
+          const id = (h.id || '').trim() || '(row ' + (i + 1) + ')';
+          this.showToast(
+            this.t('toasts_extra.webmin_url_without_name', { id }),
+            'error',
+          );
+          return;
+        }
+      }
       // Strip empty rows (no ID) so saving doesn't persist placeholder
       // blanks. The server dedupes by ID in case the same one was
       // typed twice.

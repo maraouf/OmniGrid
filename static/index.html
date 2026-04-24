@@ -1765,8 +1765,12 @@
                    ``nr`` (recv) / ``ns`` (send) separately; older
                    versions fold both into ``b`` so the second card
                    stays empty with a "collecting…" placeholder if only
-                   ``b`` is present. -->
-              <div class="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4">
+                   ``b`` is present. Whole grid hidden for hosts
+                   without Beszel (same gate as the main CPU/Mem/Disk
+                   grid above — the Beszel-only chart source has
+                   nothing to chart for NE-only hosts). -->
+              <div class="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4"
+                   x-show="h.beszel_id && (h.providers || []).length > 0">
                 <!-- Net In — collapses to a single-line "no activity"
                      state when the peak is zero (most homelab hosts
                      sit near zero between bursts), so the card

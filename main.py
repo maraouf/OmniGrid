@@ -2233,9 +2233,12 @@ async def api_hosts_debug(
         passw = get_setting("webmin_password", "") or ""
         verify = (get_setting("webmin_verify_tls", "false") or "false").lower() == "true"
         if not wm_url:
-            providers_raw["webmin"] = {
-                "_error": f"no webmin_aliases entry for id={record['id']!r}"
-            }
+            # No Webmin URL mapped for this host — that's an
+            # intentional "this host doesn't use Webmin" state, not an
+            # error. Leave providers_raw["webmin"] as None so the
+            # debug panel's hasDebugData() wrapper hides the block
+            # entirely instead of surfacing a misleading error chip.
+            pass
         elif not (user and passw):
             providers_raw["webmin"] = {"_error": "Webmin creds not configured"}
         else:
