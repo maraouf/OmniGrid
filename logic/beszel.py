@@ -275,6 +275,27 @@ async def _fetch_latest_stats(
     return latest
 
 
+def _derive_arch(kernel: str) -> str:
+    """Pull an architecture suffix (``amd64`` / ``arm64`` / ...) out of a
+    kernel string. Returns ``""`` on no match. Matches Beszel's own
+    frontend which parses the kernel token for arch because the agent
+    doesn't emit arch as a separate field.
+    """
+    if not kernel:
+        return ""
+    tail = kernel.rsplit("-", 1)[-1].lower()
+    known = ("amd64", "x86_64", "arm64", "aarch64", "armv7l", "armv6l",
+             "armhf", "i686", "i386", "riscv64", "ppc64le", "s390x")
+    if tail in known:
+        return tail
+    # Common substring fallback — some distros decorate the kernel with
+    # extra tags after the arch (``-pve``, ``-generic``).
+    for a in known:
+        if a in kernel.lower():
+            return a
+    return ""
+
+
 def _num(v) -> float:
     """Coerce anything number-ish to a float, falling back to 0.
 
@@ -346,7 +367,12 @@ def extract_stats(info: dict, stats: Optional[dict] = None) -> dict:
         "host_platform":    str(info.get("p") or info.get("platform") or ""),
         "host_os":          str(info.get("os") or ""),
         "host_kernel":      str(info.get("k") or info.get("kernel") or ""),
-        "host_arch":        str(info.get("a") or info.get("arch") or ""),
+        # Beszel doesn't emit architecture as its own field — derive it
+        # from the kernel suffix the same way Beszel's own UI does
+        # (e.g. "6.12.7+deb13+1-amd64" → "amd64"). Empty when the
+        # kernel isn't present either.
+        "host_arch":        _derive_arch(info.get("k") or info.get("kernel") or "")
+                            or str(info.get("a") or info.get("arch") or ""),
         "host_agent":       str(info.get("v") or info.get("agent") or ""),
         # Per-mount detail is in the stats row under ``efs`` in newer
         # Beszel versions; surface the raw list for future drill-down UIs.

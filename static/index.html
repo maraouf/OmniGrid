@@ -433,6 +433,7 @@
                              aria-hidden="true" title="CPU — last 24h">
                           <polyline fill="none" stroke="currentColor" stroke-width="1" :points="sparkPoints(item, 'cpu')"></polyline>
                         </svg>
+                        <div x-show="!sparkPoints(item, 'cpu')" class="collecting-inline" x-text="t('loading.collecting_data')"></div>
                       </div>
                     </template>
                     <template x-if="!statsFor(item).has_stats">
@@ -452,6 +453,7 @@
                              aria-hidden="true" title="Memory — last 24h">
                           <polyline fill="none" stroke="currentColor" stroke-width="1" :points="sparkPoints(item, 'mem')"></polyline>
                         </svg>
+                        <div x-show="!sparkPoints(item, 'mem')" class="collecting-inline" x-text="t('loading.collecting_data')"></div>
                       </div>
                     </template>
                     <template x-if="!statsFor(item).has_stats">
@@ -987,7 +989,8 @@
                      :style="'--w: ' + Math.min(100, h.cpu_percent) + '%'">
                   <div class="fill"></div>
                 </div>
-                <div class="text-[10.5px] mono mt-1" x-text="(h.cpu_percent || 0).toFixed(1) + '% (' + (h.cores || 0) + ')'"></div>
+                <div class="text-[10.5px] mono mt-1"
+                     x-text="(h.cpu_percent || 0).toFixed(1) + '%' + (h.cores ? ' (' + h.cores + ')' : '')"></div>
               </div>
               <!-- Memory % + bytes -->
               <div>
@@ -1025,8 +1028,20 @@
               <div class="text-center text-[11px] mono truncate" x-text="h.arch || '—'"></div>
               <!-- Kernel (truncated) -->
               <div class="text-center text-[11px] mono truncate" :title="h.kernel" x-text="h.kernel ? h.kernel.slice(0, 8) + (h.kernel.length > 8 ? '…' : '') : '—'"></div>
-              <!-- Dot menu placeholder -->
-              <div class="text-center text-[var(--text-faint)]">⋮</div>
+              <!-- Deep-link to the Beszel record. Uses h.label (the
+                   operator-editable "name" in Beszel) because that's
+                   what appears in Beszel's /system/:name route.
+                   @click.stop so the row-toggle doesn't fire. -->
+              <div class="text-center">
+                <a x-show="settings.beszel_hub_url && h.label"
+                   :href="(settings.beszel_hub_url || '').replace(/\/$/, '') + '/system/' + encodeURIComponent(h.label)"
+                   target="_blank" rel="noopener"
+                   @click.stop
+                   class="inline-flex items-center justify-center text-[var(--text-dim)] hover:text-[var(--primary)]"
+                   title="Open in Beszel">
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+                </a>
+              </div>
             </div>
 
             <!-- Expanded row — SYSTEM + HARDWARE cards. -->
