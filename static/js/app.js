@@ -59,6 +59,8 @@ function app() {
     hostsLoading: false,
     hostsExpanded: [],
     hostsSearch: '',
+    hostsCuratedCount: 0,
+    hostsEnabledCount: 0,
     _hostsTimer: null,
     // Admin → Hosts editor state. ``hostsConfig`` is the curated list
     // pulled from /api/hosts/config (array of host records with
@@ -3355,6 +3357,8 @@ function app() {
         this.hostsProviderErrors = d.provider_errors || {};
         this.hostsActiveSources = Array.isArray(d.active) ? d.active : [];
         this.hosts = Array.isArray(d.hosts) ? d.hosts : [];
+        this.hostsCuratedCount = Number.isFinite(d.curated_count) ? d.curated_count : 0;
+        this.hostsEnabledCount = Number.isFinite(d.enabled_count) ? d.enabled_count : 0;
       } catch (e) {
         this.hostsError = `Network: ${e.message}`;
         this.hosts = [];

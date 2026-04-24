@@ -1412,6 +1412,13 @@ async def api_hosts():
         "provider_errors": errors,
         "hub_url":     get_setting("beszel_hub_url", "") or "",
         "hosts":       hosts,
+        # Counts that let the frontend pick the right empty-state
+        # copy — "no curated hosts yet" vs "all curated hosts are
+        # disabled" vs "curated hosts exist but no provider matched
+        # any of them". Without these the view used to blanket-say
+        # "no hosts yet" even when the operator had rows configured.
+        "curated_count": len(curated),
+        "enabled_count": sum(1 for h in curated if h.get("enabled", True)),
     }
 
 

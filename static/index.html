@@ -1612,11 +1612,13 @@
         <span class="spin-lg" aria-hidden="true"></span>
         <div>Loading hosts from providers…</div>
       </div>
-      <!-- Empty-state — no curated hosts AND no provider returned
-           anything. Points the operator at the Admin → Hosts editor
-           (source of truth) and reminds them to enable at least one
-           provider under Admin → Host stats. -->
-      <div x-show="hostsConfigured && !hostsLoading && !hostsError && hosts.length === 0"
+      <!-- Empty-state ladder — three distinct cases:
+             1. No curated hosts at all → define them.
+             2. Curated hosts exist but all disabled → enable one.
+             3. Curated + enabled hosts exist but no provider
+                matched any of them → fix name mappings /
+                providers. -->
+      <div x-show="hostsConfigured && !hostsLoading && !hostsError && hosts.length === 0 && hostsCuratedCount === 0"
            class="text-center py-16 text-[var(--text-faint)] text-sm">
         <div>No hosts yet.</div>
         <div class="mt-2">
@@ -1625,6 +1627,34 @@
           and enable at least one provider in
           <a href="/admin/host_stats" class="text-[var(--primary)] hover:underline">Admin → Host stats</a>
           to see data here.
+        </div>
+      </div>
+      <div x-show="hostsConfigured && !hostsLoading && !hostsError && hosts.length === 0 && hostsCuratedCount > 0 && hostsEnabledCount === 0"
+           class="text-center py-16 text-[var(--text-faint)] text-sm">
+        <div>
+          <span x-text="hostsCuratedCount"></span>
+          host<span x-show="hostsCuratedCount !== 1">s</span> defined
+          but all disabled.
+        </div>
+        <div class="mt-2">
+          Open
+          <a href="/admin/hosts" class="text-[var(--primary)] hover:underline">Admin → Hosts</a>
+          and tick <strong>Enabled</strong> on the rows you want to
+          see here.
+        </div>
+      </div>
+      <div x-show="hostsConfigured && !hostsLoading && !hostsError && hosts.length === 0 && hostsEnabledCount > 0"
+           class="text-center py-16 text-[var(--text-faint)] text-sm">
+        <div>
+          <span x-text="hostsEnabledCount"></span>
+          enabled host<span x-show="hostsEnabledCount !== 1">s</span>,
+          but no provider returned data for any of them.
+        </div>
+        <div class="mt-2 text-[13px] leading-relaxed">
+          Check the per-row <strong>Test providers</strong> button in
+          <a href="/admin/hosts" class="text-[var(--primary)] hover:underline">Admin → Hosts</a>
+          — the mapped provider names probably don't match what
+          Beszel / Pulse / node-exporter actually report.
         </div>
       </div>
     </div>
