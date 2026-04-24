@@ -3185,6 +3185,11 @@ function app() {
           'qb':              'qbittorrent',
           'freenas-mini':    'freenas',
           'nas':             'truenas',
+          'win':             'windows',
+          'win11':           'windows',
+          'win10':           'windows-10',
+          'win-server':      'windows-server',
+          'windowsserver':   'windows-server',
         };
         const slug = aliases[h.icon.toLowerCase()] || h.icon;
         return '/img/icons/' + slug + '.svg';
@@ -3257,6 +3262,20 @@ function app() {
         ['dozzle',                'dozzle'],
         ['homarr',                'homarr'],
         ['homepage',              'homepage'],
+        // operating systems — checked BEFORE brand names so
+        // "windows server" beats bare "windows".
+        ['windows server',        'windows-server'],
+        ['windows-server',        'windows-server'],
+        ['win server',            'windows-server'],
+        ['winsrv',                'windows-server'],
+        ['windows 11',            'windows'],
+        ['windows 10',            'windows-10'],
+        ['windows',               'windows'],
+        ['win11',                 'windows'],
+        ['win10',                 'windows-10'],
+        ['win2019',               'windows-server'],
+        ['win2022',               'windows-server'],
+        ['win2025',               'windows-server'],
         // hypervisors / storage / platforms
         ['proxmox',               'proxmox'],
         ['pve',                   'proxmox'],

@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256">
+  <!-- Classic four-panel Windows logo, Microsoft Fluent palette. -->
+  <rect x="18"  y="18"  width="108" height="108" fill="#F35325"/>
+  <rect x="130" y="18"  width="108" height="108" fill="#81BC06"/>
+  <rect x="18"  y="130" width="108" height="108" fill="#05A6F0"/>
+  <rect x="130" y="130" width="108" height="108" fill="#FFBA08"/>
+</svg>
