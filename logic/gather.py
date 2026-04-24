@@ -439,7 +439,7 @@ async def _gather_impl() -> None:
                         nodes_info[host]["exporter_error"] = f"pulse: {p_err}"
                     continue
                 pulse_name = pulse_aliases_raw.get(host, host)
-                stats = p_hosts.get(pulse_name)
+                stats = _pulse.lookup(p_hosts, pulse_name)
                 if stats is None:
                     continue  # not a PVE node — legit miss, no error
                 _merge_best(nodes_info[host], stats)

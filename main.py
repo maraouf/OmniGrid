@@ -1289,7 +1289,7 @@ async def api_hosts():
                 providers_hit.append("beszel")
 
         if "pulse" in active and h.get("pulse_name"):
-            pstats = pulse_map.get(h["pulse_name"])
+            pstats = _pulse.lookup(pulse_map, h["pulse_name"])
             if pstats:
                 _merge_best(merged, pstats)
                 providers_hit.append("pulse")
@@ -1524,8 +1524,8 @@ async def api_hosts_test(
             if r.get("error"):
                 out["pulse"] = {"ok": False, "skipped": False,
                                 "detail": f"pulse error: {r['error']}"}
-            elif pulse_name in (r.get("hosts") or {}):
-                st = r["hosts"][pulse_name]
+            elif _pulse.lookup(r.get("hosts") or {}, pulse_name):
+                st = _pulse.lookup(r.get("hosts") or {}, pulse_name)
                 kind = st.get("pulse_kind") or "host"
                 out["pulse"] = {"ok": True, "skipped": False,
                                 "detail": f"matched ({kind})"}

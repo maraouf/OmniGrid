@@ -219,7 +219,18 @@ async def probe_pulse(
     # and somehow overlap, latest wins — unlikely in practice.
     guests: list = list(state.get("guests") or [])
     guests.extend(state.get("vms") or [])
+    # Keyed by display name (preserves case). We also maintain a parallel
+    # lowercased-trimmed index so the caller's ``_lookup`` helper can
+    # match ``Docker`` / ``  docker `` / the guest's vmid without the
+    # operator having to type it pixel-perfect.
     out: dict[str, dict] = {}
+
+    def _add(key: str, stats: dict):
+        key = (key or "").strip()
+        if not key:
+            return
+        out[key] = stats
+
     for n in nodes:
         if not isinstance(n, dict):
             continue
@@ -229,7 +240,7 @@ async def probe_pulse(
         stats = extract_node_stats(n)
         stats["pulse_name"] = name
         stats["pulse_kind"] = "node"
-        out[name] = stats
+        _add(name, stats)
     # Guests come second so their keys don't collide with node keys —
     # if a guest happens to share a name with a node (rare), the guest
     # wins because it has more specific stats.
@@ -241,5 +252,31 @@ async def probe_pulse(
             continue
         stats = extract_guest_stats(g)
         stats["pulse_name"] = gname
-        out[gname] = stats
+        _add(gname, stats)
+        # Also index under the vmid (as a string) so operators can
+        # paste "100" instead of hunting down the display name.
+        vmid = g.get("vmid")
+        if vmid not in (None, "", 0):
+            _add(str(vmid), stats)
     return {"hosts": out, "error": None}
+
+
+def lookup(pulse_hosts: dict, needle: str) -> Optional[dict]:
+    """Find a Pulse host record by name, tolerating case + whitespace.
+
+    Used by :func:`main.api_hosts` and the per-row test endpoint so
+    operators can type ``Docker`` / ``docker`` / ``  docker ``
+    interchangeably. Falls through to a stripped+lowercased scan when
+    an exact-key hit misses; returns ``None`` on no match.
+    """
+    if not pulse_hosts or not needle:
+        return None
+    if needle in pulse_hosts:
+        return pulse_hosts[needle]
+    key = needle.strip().lower()
+    if not key:
+        return None
+    for k, v in pulse_hosts.items():
+        if k.strip().lower() == key:
+            return v
+    return None
