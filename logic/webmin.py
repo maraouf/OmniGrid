@@ -1077,7 +1077,7 @@ async def probe_webmin(
     user: str,
     password: str,
     verify_tls: bool = True,
-    timeout: float = 15.0,
+    timeout: float = 6.0,
     active_sources: Optional[set[str]] = None,
 ) -> dict:
     """Fetch a single Webmin host's four Phase-1 modules in parallel.

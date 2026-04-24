@@ -1288,11 +1288,14 @@
                       <div class="disk-segmented">
                         <template x-for="(m, i) in (h.mounts || [])" :key="i">
                           <div class="disk-segmented-seg"
-                               :class="'disk-seg-' + (i % 7)"
-                               :style="'width: ' + mountSegmentWidth(h, i) + '%'"
                                :title="(m.n || '') + ' · '
                                        + fmtBytes((m.du || 0) * 1024**3) + ' / '
-                                       + fmtBytes((m.d || 0) * 1024**3)"></div>
+                                       + fmtBytes((m.d || 0) * 1024**3)
+                                       + ' (' + Math.round(mountFillPercent(m)) + '%)'">
+                            <div class="disk-segmented-fill"
+                                 :class="'disk-seg-' + (i % 7)"
+                                 :style="'width: ' + mountFillPercent(m) + '%'"></div>
+                          </div>
                         </template>
                       </div>
                     </template>
@@ -2169,8 +2172,9 @@
                       <textarea :value="sshCommand[h.id] || ''"
                                 @input="sshCommand = Object.assign({}, sshCommand, { [h.id]: $event.target.value })"
                                 :disabled="!(sshStatus[h.id] && sshStatus[h.id].configured)"
-                                rows="3" maxlength="4096"
-                                class="w-full mono text-[11.5px] py-1.5 scrollbar"
+                                rows="6" maxlength="4096"
+                                class="w-full mono text-[11.5px] py-2 scrollbar"
+                                style="min-height: 7rem; resize: vertical;"
                                 :placeholder="t('hosts_extra_ssh.custom_placeholder')"></textarea>
                       <div class="flex items-center gap-3 flex-wrap mt-2">
                         <label class="inline-flex items-center gap-2 text-[11.5px] text-[var(--text-dim)]">
@@ -4222,8 +4226,9 @@
                   <textarea :value="action.command"
                             @input="action.command = $event.target.value; markSshSettingsDirty()"
                             :disabled="isReadonly()"
-                            rows="2"
-                            class="w-full mono text-[11.5px] py-1 scrollbar"
+                            rows="5"
+                            class="w-full mono text-[11.5px] py-2 scrollbar"
+                            style="min-height: 6rem; resize: vertical;"
                             :placeholder="t('admin_ssh.custom_action_command_placeholder')"></textarea>
                 </div>
                 <div class="md:col-span-1 flex md:flex-col items-center justify-end gap-1">

@@ -1704,12 +1704,32 @@ async def api_hosts():
             if wm_url:
                 probe_targets.append((entry, wm_url))
         if probe_targets:
-            async def _one_probe(wm_url: str):
-                return await _webmin.probe_webmin(
-                    wm_url, webmin_user, webmin_password,
-                    verify_tls=webmin_verify,
-                    active_sources=active,
-                )
+            # Per-host overall budget — Webmin does 5 sequential HTTP
+            # calls (session login + 4 module fetches). At the default
+            # 15s per-request timeout, a slow / hung Miniserv can push
+            # one host to 75s, which trips NPM's 60s proxy_read_timeout
+            # and the operator sees a 504. 20s is a soft ceiling that
+            # still allows a healthy Webmin to complete its 5 calls.
+            _WEBMIN_PROBE_BUDGET = 20.0
+
+            async def _one_probe(wm_url: str) -> dict:
+                try:
+                    return await asyncio.wait_for(
+                        _webmin.probe_webmin(
+                            wm_url, webmin_user, webmin_password,
+                            verify_tls=webmin_verify,
+                            active_sources=active,
+                        ),
+                        timeout=_WEBMIN_PROBE_BUDGET,
+                    )
+                except asyncio.TimeoutError:
+                    return {
+                        "hosts": {},
+                        "error": f"webmin probe timeout after {int(_WEBMIN_PROBE_BUDGET)}s",
+                    }
+                except Exception as e:  # noqa: BLE001 — surface to UI
+                    return {"hosts": {}, "error": f"webmin probe failed: {e}"}
+
             webmin_results = await asyncio.gather(*(
                 _one_probe(u) for _, u in probe_targets
             ), return_exceptions=False)
@@ -2780,26 +2800,24 @@ async def api_version():
 
 
 # ----------------------------------------------------------------------------
-# Topbar weather widget — proxies Open-Meteo (or any Open-Meteo-
-# compatible instance) so the browser dodges CORS and the same
-# coordinate pair gets cached across tabs / reloads.
+# Topbar weather widget — proxies an Open-Meteo-compatible instance so
+# the browser dodges CORS and the same coordinate pair gets cached
+# across tabs / reloads.
 #
 # URL is stored in the DB ``settings`` table under ``open_meteo_url``
-# so admins can point at a self-hosted instance from Admin →
-# Notifications without touching .env. Empty falls back to
-# OPEN_METEO_DEFAULT. Open-Meteo's community instance allows anonymous
-# queries at reasonable rates; we cap ourselves at once per 10
-# minutes per (lat, lon) pair anyway.
+# and is admin-authoritative (Admin → Notifications). There is NO
+# hardcoded fallback — leaving the setting blank disables the weather
+# endpoint entirely (returns ``{configured: false}``) so the operator
+# isn't silently forwarded to api.open-meteo.com without opting in.
 # ----------------------------------------------------------------------------
-OPEN_METEO_DEFAULT = "https://api.open-meteo.com/v1/forecast"
-
-
 def _open_meteo_url() -> str:
-    """Read the weather-upstream URL from settings, falling back to the
-    public Open-Meteo endpoint. Trailing slash stripped so urljoin
-    semantics don't matter to the caller."""
-    raw = (get_setting("open_meteo_url", "") or "").strip()
-    return (raw or OPEN_METEO_DEFAULT).rstrip("/")
+    """Read the weather-upstream URL from settings.
+
+    Returns the stored URL (trailing slash stripped) or the empty
+    string when unset. Callers must treat `""` as "not configured"
+    rather than falling back to a default.
+    """
+    return (get_setting("open_meteo_url", "") or "").strip().rstrip("/")
 
 _weather_cache: dict[tuple[float, float], tuple[float, dict]] = {}
 _WEATHER_CACHE_TTL = 600.0  # 10 minutes — weather changes slowly
@@ -2853,6 +2871,16 @@ async def api_weather(
     """
     if lat is None or lon is None:
         return {"configured": False}
+    upstream = _open_meteo_url()
+    if not upstream:
+        # Admin → Notifications stores `open_meteo_url`; blank disables
+        # the widget entirely rather than forwarding to a hardcoded
+        # public endpoint the operator didn't opt into.
+        return {
+            "configured": False,
+            "error": "open_meteo_url not configured",
+            "label": label,
+        }
     # Quantise to 2 decimals so minor coord differences for the same
     # city hit one cache entry.
     key = (round(float(lat), 2), round(float(lon), 2))
@@ -2870,7 +2898,6 @@ async def api_weather(
         "current":   "temperature_2m,weather_code,relative_humidity_2m,wind_speed_10m",
         "timezone":  "auto",
     }
-    upstream = _open_meteo_url()
     try:
         async with httpx.AsyncClient(timeout=8.0) as client:
             r = await client.get(upstream, params=params)

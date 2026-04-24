@@ -5057,29 +5057,27 @@ function app() {
       if (!h || !h.disk_total) return 0;
       return Math.round((h.disk_used / h.disk_total) * 100);
     },
-    // Segmented-bar helpers — width and offset of a single mount's
-    // USED portion, expressed as percent of the host's total pool
-    // capacity (h.disk_total). A 939 GB pool with a 15 GB / 75 MB
-    // split between ``/`` and ``/boot/firmware`` renders a ~1.6%
-    // emerald stripe + a ~0.008% blue stripe on an otherwise-grey
-    // bar — visually matching img_1 / Beszel's Total Usage.
+    // Segmented-bar helper — percent-full of a single mount, used as
+    // the INNER fill width inside an equal-width slot. Each mount
+    // gets its own flex-1 slot in the bar; within that slot, the
+    // fill's width reflects that mount's own percent full. This
+    // makes small-capacity mounts (e.g. /boot at 252 MB on a 939 GB
+    // pool) visible — their slot takes the same share of the bar as
+    // a multi-TB /. Previously the bar used "this mount's share of
+    // the whole pool" for width, which hid any small partition at
+    // sub-pixel widths.
     //
-    // Mount sizes come from extract_stats' GiB floats (.du / .d),
-    // so we multiply by 1024**3 to get bytes before dividing by
-    // h.disk_total (bytes). Defensive defaults keep NaN out of the
-    // style string when a mount lacks numbers.
-    mountSegmentWidth(h, idx) {
-      if (!h || !h.disk_total || !(h.mounts || [])[idx]) return 0;
-      const m = h.mounts[idx];
-      const used = (Number(m.du) || 0) * 1024 ** 3;
-      return Math.min(100, Math.max(0, (used / h.disk_total) * 100));
-    },
-    mountSegmentOffset(h, idx) {
-      let offset = 0;
-      for (let i = 0; i < idx; i++) {
-        offset += this.mountSegmentWidth(h, i);
-      }
-      return offset;
+    // Prefers the provider-supplied `dp` (percent full) when present;
+    // falls back to computing from GiB floats (.du / .d) so mounts
+    // missing a pre-computed percent still render correctly.
+    mountFillPercent(m) {
+      if (!m) return 0;
+      const dp = Number(m.dp);
+      if (Number.isFinite(dp) && dp > 0) return Math.min(100, Math.max(0, dp));
+      const size = Number(m.d) || 0;
+      const used = Number(m.du) || 0;
+      if (size <= 0) return 0;
+      return Math.min(100, Math.max(0, (used / size) * 100));
     },
     // Green → amber → red by threshold, matching how nodeStats renders.
     pctColor(pct) {
