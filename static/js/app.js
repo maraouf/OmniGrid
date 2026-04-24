@@ -3890,24 +3890,11 @@ function app() {
       ];
     },
     handleHotkey(e) {
-      // Ignore while typing in an input / textarea / select / contenteditable.
-      // Check BOTH e.target (what received the event) AND
-      // document.activeElement (what currently has focus) — either one
-      // being a field means we should skip hotkey dispatch. Also walk
-      // up the DOM in case the target is a nested span inside a
-      // contenteditable or a <button> inside a SweetAlert input wrapper.
       const target = e.target || null;
       const active = document.activeElement || null;
-      const looksLikeField = (el) => !!el && (
-        ['INPUT','TEXTAREA','SELECT'].includes(el.tagName) ||
-        el.isContentEditable ||
-        (el.closest && el.closest('input, textarea, select, [contenteditable="true"], [contenteditable=""]'))
-      );
-      const inField = looksLikeField(target) || looksLikeField(active);
-      // Keep `el` around for the Escape handler's blur() fallback.
       const el = active;
       // Escape works everywhere, including from inside an input — it's the
-      // universal "get me out of here" key.
+      // universal "get me out of here" key. Handle it BEFORE any guards.
       if (e.key === 'Escape') {
         if (this.userMenuOpen) { this.userMenuOpen = false; e.preventDefault(); return; }
         if (this.showHotkeys) { this.showHotkeys = false; e.preventDefault(); return; }
@@ -3916,21 +3903,51 @@ function app() {
         if (this.search || this.statusFilter || this.healthFilter) {
           this.clearFilters(); e.preventDefault(); return;
         }
-        // Last resort: blur the focused element so search box releases focus.
         if (el && typeof el.blur === 'function') el.blur();
         return;
       }
-      if (inField) return;
-      // Never intercept browser / OS combos.
+
+      // Browser / OS combos — never intercept.
       if (e.ctrlKey || e.metaKey || e.altKey) return;
+      // Key repeat (holding a key) or IME composition — user is
+      // typing, never a hotkey.
+      if (e.repeat || e.isComposing) return;
+
+      // Hotkeys fire ONLY when focus is on <body> / <html> (i.e.
+      // nothing interactive has focus). This is stricter than the
+      // old "not in an INPUT" check and catches: focused buttons
+      // with number labels, focused custom role=textbox / combobox,
+      // Alpine-managed wrappers that re-target events, and DevTools
+      // focus edge cases. The result: typing digits in any form
+      // field — including the newly-added asset-inventory number
+      // inputs and the Admin → Hosts custom_number editor — never
+      // switches views.
+      const bodyFocused = !active
+        || active === document.body
+        || active === document.documentElement;
+      // Also skip if the EVENT TARGET is a known interactive element,
+      // as a second line of defense against re-targeted events.
+      const interactiveTags = ['INPUT','TEXTAREA','SELECT','BUTTON'];
+      const targetTag = target && target.tagName;
+      const targetIsInteractive = !!target && (
+        interactiveTags.includes(targetTag) ||
+        target.isContentEditable ||
+        target.getAttribute && (
+          target.getAttribute('contenteditable') === 'true' ||
+          target.getAttribute('role') === 'textbox' ||
+          target.getAttribute('role') === 'combobox'
+        ) ||
+        (target.closest && target.closest(
+          'input, textarea, select, [contenteditable="true"], [contenteditable=""], [role="textbox"], [role="combobox"]'
+        ))
+      );
+      if (!bodyFocused || targetIsInteractive) return;
+
       // Walk the catalog once, match on key (case-sensitive to distinguish
       // lowercase vs Shift+letter).
       for (const group of this.hotkeyGroups()) {
         for (const entry of group.items) {
           if (!entry.run) continue;
-          // Entry keys is a sequence — for single-key entries the last item
-          // is the literal character. Modifiers like 'Shift' are embedded
-          // only so the help modal can render them.
           const char = entry.keys[entry.keys.length - 1];
           if (char === 'Esc') continue;
           if (e.key === char) {
@@ -4856,6 +4873,24 @@ function app() {
           order: Number.isFinite(+g.order) ? +g.order : clean.length,
         });
       }
+      // Reject overlapping ranges before roundtrip — mirrors backend
+      // validation in api_set_settings. O(n log n) sort + adjacent
+      // pair check since groups are tens at most.
+      const byStart = [...clean].sort((a, b) =>
+        a.range_start - b.range_start || a.range_end - b.range_end);
+      for (let i = 0; i + 1 < byStart.length; i++) {
+        const a = byStart[i], b = byStart[i + 1];
+        if (a.range_end >= b.range_start) {
+          this.showToast(
+            this.t('admin_hosts.groups.overlap', {
+              a_name: a.name, a_start: a.range_start, a_end: a.range_end,
+              b_name: b.name, b_start: b.range_start, b_end: b.range_end,
+            }),
+            'error',
+          );
+          return;
+        }
+      }
       this.hostGroupsSaving = true;
       try {
         const r = await fetch('/api/settings', {
@@ -5054,7 +5089,13 @@ function app() {
           body: JSON.stringify(body),
         });
         const j = await r.json().catch(() => ({}));
-        this.assetTestResult = { ok: !!j.ok, detail: j.detail || '' };
+        // Prefer the localized catalog message when the backend sent
+        // a code; the raw `detail` still wins when it's a specific
+        // upstream message (e.g. the upstream's own `details` field).
+        const detail = j && j.error_code
+          ? this.formatError({ error: j.detail, error_code: j.error_code, error_params: j.error_params }, j.detail)
+          : (j.detail || '');
+        this.assetTestResult = { ok: !!j.ok, detail };
       } catch (e) {
         this.assetTestResult = { ok: false, detail: 'Network error' };
       }
@@ -5109,7 +5150,7 @@ function app() {
         if (j && j.ok) {
           this.showToast(this.t('admin_assets.refresh_ok', { count: j.count || 0 }), 'success');
         } else {
-          this.showToast(this.t('admin_assets.refresh_failed') + ': ' + (j.error || 'unknown'), 'error');
+          this.showToast(this.t('admin_assets.refresh_failed') + ': ' + this.formatError(j, 'unknown'), 'error');
         }
         await this.loadAssetCache();
       } catch (e) {
@@ -5880,6 +5921,28 @@ function app() {
       this.toastType = type;
       clearTimeout(this._tt);
       this._tt = setTimeout(() => this.toast = '', 4000);
+    },
+
+    // Error formatter — prefers the structured `error_code` + i18n
+    // lookup (`errors.OG####`) over the backend's raw `error` string
+    // when the backend returned a code. Falls back to the English
+    // `error` text when no code is present or translation is missing.
+    // See logic/errors.py for the catalogue.
+    formatError(resp, fallback) {
+      if (resp && resp.error_code) {
+        const key = 'errors.' + String(resp.error_code);
+        const localized = this.t(key, resp.error_params || {});
+        // window.I18N.load falls back to English text when the key is
+        // missing; the English text IS the DEFAULT_MESSAGES entry. If
+        // the backend sent a more specific override_message (e.g.
+        // upstream's `details` field), prefer that so operators see
+        // the concrete failure, not the generic catalog text.
+        if (resp.error && resp.error !== localized && !key.startsWith('errors.undefined')) {
+          return resp.error;
+        }
+        if (localized && localized !== key) return localized;
+      }
+      return (resp && resp.error) || fallback || '';
     },
 
     async itemAction(item) {

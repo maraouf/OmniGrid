@@ -25,6 +25,8 @@ from typing import Any, Optional
 
 import httpx
 
+from logic import errors as _err
+
 DEFAULT_CACHE_PATH = "/app/data/asset_inventory.json"
 DEFAULT_LIST_PATH = "/assets"
 # Lifetime-token auth mode (oufa.co's `services.php` endpoint). POST
@@ -274,7 +276,9 @@ async def _post_oufa(
         async with httpx.AsyncClient(verify=verify_tls, timeout=timeout) as client:
             r = await client.post(endpoint_url, data=body, headers=headers)
     except Exception as e:
-        return {"ok": False, "assets": [], "error": f"{type(e).__name__}: {e}",
+        og_err = _err.classify_exception(e)
+        return {"ok": False, "assets": [], "error": og_err.message,
+                "error_code": og_err.code, "error_params": og_err.params,
                 "code": "", "reference_id": ""}
 
     # Try to parse JSON eagerly so we can pull reference_id / details
@@ -292,33 +296,47 @@ async def _post_oufa(
     # 4xx/5xx = everything else. Surface the envelope's details+code
     # when present since it's more actionable than the raw body preview.
     if r.status_code == 401:
-        return {"ok": False, "assets": [],
-                "error": "lifetime token rejected (401) — mint a new one under the right scope",
+        og_err = _err.make_error(_err.AUTH_TOKEN_REJECTED,
+                                 params={"reference_id": ref_id})
+        return {"ok": False, "assets": [], "error": og_err.message,
+                "error_code": og_err.code, "error_params": og_err.params,
                 "code": str((parsed or {}).get("code") or "") if isinstance(parsed, dict) else "",
                 "reference_id": ref_id}
     if r.status_code == 403:
         details = str((parsed or {}).get("details") or "").strip() if isinstance(parsed, dict) else ""
         code = str((parsed or {}).get("code") or "").strip() if isinstance(parsed, dict) else ""
-        return {"ok": False, "assets": [],
-                "error": (f"scope denied (403) — token lacks the required scope. "
-                          f"{details or ''}"
-                          + (f" [Ex{code}]" if code else "")).strip(),
+        combined = (f"{details or ''}" + (f" [Ex{code}]" if code else "")).strip()
+        og_err = _err.make_error(
+            _err.AUTH_SCOPE_DENIED,
+            params={"upstream_code": code, "reference_id": ref_id},
+            override_message=(combined or None),
+        )
+        return {"ok": False, "assets": [], "error": og_err.message,
+                "error_code": og_err.code, "error_params": og_err.params,
                 "code": code, "reference_id": ref_id}
     if r.status_code >= 400:
         details = str((parsed or {}).get("details") or "").strip() if isinstance(parsed, dict) else ""
         code = str((parsed or {}).get("code") or "").strip() if isinstance(parsed, dict) else ""
-        if details or code:
-            return {"ok": False, "assets": [],
-                    "error": f"HTTP {r.status_code}: {details or '(no details)'} "
-                             + (f"[Ex{code}]" if code else ""),
-                    "code": code, "reference_id": ref_id}
-        return {"ok": False, "assets": [],
-                "error": f"HTTP {r.status_code}: {r.text[:200]}",
-                "code": "", "reference_id": ref_id}
+        body_preview = (details or r.text[:200])
+        og_err = _err.make_error(
+            _err.UPSTREAM_HTTP_ERROR,
+            params={"http_status": r.status_code, "upstream_code": code,
+                    "reference_id": ref_id},
+            override_message=f"HTTP {r.status_code}: {body_preview}"
+                             + (f" [Ex{code}]" if code else ""),
+        )
+        return {"ok": False, "assets": [], "error": og_err.message,
+                "error_code": og_err.code, "error_params": og_err.params,
+                "code": code, "reference_id": ref_id}
 
     if parsed is None:
-        return {"ok": False, "assets": [],
-                "error": f"response not JSON: {r.text[:200]}",
+        og_err = _err.make_error(
+            _err.UPSTREAM_NON_JSON,
+            params={"reference_id": ref_id},
+            override_message=f"response not JSON: {r.text[:200]}",
+        )
+        return {"ok": False, "assets": [], "error": og_err.message,
+                "error_code": og_err.code, "error_params": og_err.params,
                 "code": "", "reference_id": ref_id}
 
     # 200 OK but the envelope may still report failure. `return` codes:
@@ -329,15 +347,25 @@ async def _post_oufa(
         if ret_code == 0 or ret_code == "0":
             details = str(parsed.get("details") or parsed.get("message") or "").strip()
             code = str(parsed.get("code") or "").strip()
-            return {"ok": False, "assets": [],
-                    "error": (details or "upstream reported failure")
-                             + (f" [Ex{code}]" if code else ""),
+            og_err = _err.make_error(
+                _err.UPSTREAM_FAILURE,
+                params={"upstream_code": code, "reference_id": ref_id},
+                override_message=(details or "upstream reported failure")
+                                 + (f" [Ex{code}]" if code else ""),
+            )
+            return {"ok": False, "assets": [], "error": og_err.message,
+                    "error_code": og_err.code, "error_params": og_err.params,
                     "code": code, "reference_id": ref_id}
         if ret_code not in (1, "1"):
             # `return: 2` (Processing) or `return: 3` (Stalled) — no data yet.
-            return {"ok": False, "assets": [],
-                    "error": f"upstream return={ret_code} — "
-                             f"{parsed.get('message') or '(no message)'}",
+            og_err = _err.make_error(
+                _err.UPSTREAM_UNEXPECTED,
+                params={"return": ret_code, "reference_id": ref_id},
+                override_message=f"upstream return={ret_code} — "
+                                 f"{parsed.get('message') or '(no message)'}",
+            )
+            return {"ok": False, "assets": [], "error": og_err.message,
+                    "error_code": og_err.code, "error_params": og_err.params,
                     "code": str(parsed.get("code") or ""), "reference_id": ref_id}
 
     return {"ok": True, "assets": _extract_assets_from_payload(parsed),
@@ -377,8 +405,12 @@ async def fetch_assets_lifetime_token(
     Processing/Stalled states.
     """
     if not endpoint_url or not token:
-        return {"ok": False, "assets": [],
-                "error": "missing endpoint_url / token"}
+        og_err = _err.make_error(
+            _err.AUTH_CREDS_INCOMPLETE,
+            override_message="missing endpoint_url / token",
+        )
+        return {"ok": False, "assets": [], "error": og_err.message,
+                "error_code": og_err.code, "error_params": og_err.params}
 
     # Shared base body — service/action are always forwarded when set so
     # upstream's specific error code (Ex3537 for missing service, etc.)
@@ -400,9 +432,12 @@ async def fetch_assets_lifetime_token(
             body["min_value"] = str(int(min_value))
         if max_value is not None:
             body["max_value"] = str(int(max_value))
-        return {k: v for k, v in (await _post_oufa(
-            endpoint_url, token, body, verify_tls, timeout,
-        )).items() if k in ("ok", "assets", "error")}
+        res = await _post_oufa(endpoint_url, token, body, verify_tls, timeout)
+        out = {"ok": res["ok"], "assets": res["assets"], "error": res["error"]}
+        if not res["ok"]:
+            out["error_code"] = res.get("error_code", _err.NETWORK_ERROR)
+            out["error_params"] = res.get("error_params", {})
+        return out
 
     # Pagination: walk [lo, hi] in _PAGE_SIZE-sized windows. We don't
     # rely on the upstream to advertise its limit — the guide pins it
@@ -411,8 +446,13 @@ async def fetch_assets_lifetime_token(
     lo = int(min_value)
     hi = int(max_value)
     if lo > hi:
-        return {"ok": False, "assets": [],
-                "error": f"min_value ({lo}) > max_value ({hi})"}
+        og_err = _err.make_error(
+            _err.ASSET_RANGE_INVALID,
+            params={"min": lo, "max": hi},
+            override_message=f"min_value ({lo}) > max_value ({hi})",
+        )
+        return {"ok": False, "assets": [], "error": og_err.message,
+                "error_code": og_err.code, "error_params": og_err.params}
     all_assets: list = []
     cursor = lo
     while cursor <= hi:
@@ -427,8 +467,13 @@ async def fetch_assets_lifetime_token(
             if str(res.get("code") or "") == _ERR_NO_RECORDS:
                 cursor = win_hi + 1
                 continue
-            return {"ok": False, "assets": [],
-                    "error": (f"batch {cursor}-{win_hi}: " + res["error"]).strip()}
+            return {
+                "ok": False, "assets": [],
+                "error": (f"batch {cursor}-{win_hi}: " + res["error"]).strip(),
+                "error_code":   res.get("error_code", _err.NETWORK_ERROR),
+                "error_params": {**res.get("error_params", {}),
+                                 "batch_min": cursor, "batch_max": win_hi},
+            }
         all_assets.extend(res["assets"])
         cursor = win_hi + 1
     return {"ok": True, "assets": all_assets, "error": ""}
@@ -543,10 +588,15 @@ async def refresh_cache(
     """
     if auth_mode == AUTH_MODE_LIFETIME_TOKEN:
         if not base_url or not lifetime_token:
+            og_err = _err.make_error(
+                _err.AUTH_CREDS_INCOMPLETE,
+                override_message="missing base_url / lifetime_token",
+            )
             return {
                 "ok": False, "count": 0, "ts": 0,
                 "upstream": base_url,
-                "error": "missing base_url / lifetime_token",
+                "error": og_err.message,
+                "error_code": og_err.code, "error_params": og_err.params,
             }
         effective_list_path = (
             list_path if list_path and list_path != DEFAULT_LIST_PATH
@@ -563,19 +613,28 @@ async def refresh_cache(
             verify_tls=verify_tls,
         )
         if not fetch_result.get("ok"):
-            return {
+            out = {
                 "ok": False, "count": 0, "ts": 0,
                 "upstream": base_url,
                 "error": fetch_result.get("error") or "asset fetch failed",
             }
+            if "error_code" in fetch_result:
+                out["error_code"] = fetch_result["error_code"]
+                out["error_params"] = fetch_result.get("error_params", {})
+            return out
         assets = fetch_result.get("assets") or []
         try:
             save_cache(assets, cache_path=cache_path, upstream=base_url)
         except Exception as e:
+            og_err = _err.make_error(
+                _err.ASSET_CACHE_WRITE_FAILED,
+                override_message=f"cache write failed: {type(e).__name__}: {e}",
+            )
             return {
                 "ok": False, "count": len(assets), "ts": 0,
                 "upstream": base_url,
-                "error": f"cache write failed: {type(e).__name__}: {e}",
+                "error": og_err.message,
+                "error_code": og_err.code, "error_params": og_err.params,
             }
         return {
             "ok": True, "count": len(assets), "ts": int(time.time()),

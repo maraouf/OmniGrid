@@ -1323,6 +1323,23 @@ async def api_set_settings(
                 "range_end":   re_,
                 "order":       order,
             })
+        # Reject overlapping ranges — two groups whose [range_start,
+        # range_end] intervals intersect cause first-match-wins
+        # ordering in `groupedHosts()`, which is undefined from the
+        # operator's perspective (invisible until they open the
+        # "wrong" group and wonder why a host landed there). Pair-wise
+        # scan on a range-start-sorted copy keeps the check O(n log n)
+        # and surfaces the specific conflicting pair so the error is
+        # actionable.
+        by_start = sorted(clean_groups, key=lambda g: (g["range_start"], g["range_end"]))
+        for a, b in zip(by_start, by_start[1:]):
+            if a["range_end"] >= b["range_start"]:
+                raise HTTPException(
+                    400,
+                    f"host_groups: '{a['name']}' ({a['range_start']}–{a['range_end']}) "
+                    f"overlaps '{b['name']}' ({b['range_start']}–{b['range_end']}). "
+                    f"Ranges must be disjoint.",
+                )
         # Persist in order-field order so render iteration doesn't have to re-sort.
         clean_groups.sort(key=lambda g: (g["order"], g["name"]))
         set_setting("host_groups", json.dumps(clean_groups))
@@ -1711,7 +1728,11 @@ async def api_asset_inventory_test(
             count = len(result.get("assets") or [])
             return {"ok": True,
                     "detail": f"OK — fetched {count} asset(s) from {endpoint}"}
-        return {"ok": False, "detail": result.get("error") or "auth failed"}
+        out = {"ok": False, "detail": result.get("error") or "auth failed"}
+        if "error_code" in result:
+            out["error_code"] = result["error_code"]
+            out["error_params"] = result.get("error_params", {})
+        return out
     # Default: OAuth2 client_credentials.
     token_url = (body.get("token_url") or "").strip() \
         or (get_setting("asset_inventory_token_url", "") or "")
