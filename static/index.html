@@ -788,12 +788,16 @@
                       x-text="nodeStats(node.name).hasHostStats ? 'Host memory' : 'Memory'"></span>
                 <template x-if="nodeStats(node.name).hasHostStats && nodeStats(node.name).hostMemTotal">
                   <span class="text-[12px] mono"
-                        x-text="fmtBytes(nodeStats(node.name).hostMemUsed) + ' / ' + fmtBytes(nodeStats(node.name).hostMemTotal)"></span>
+                        x-text="hostMemPercent(node.name).toFixed(1) + '% · '
+                                + fmtBytes(nodeStats(node.name).hostMemUsed) + ' / '
+                                + fmtBytes(nodeStats(node.name).hostMemTotal)"></span>
                 </template>
                 <template x-if="!(nodeStats(node.name).hasHostStats && nodeStats(node.name).hostMemTotal)">
                   <span class="text-[12px] mono"
                         x-text="nodeStats(node.name).hasStats
-                                ? fmtBytes(nodeStats(node.name).memUsage) + ' / ' + fmtBytes(nodeStats(node.name).memLimit)
+                                ? nodeMemPercent(node.name).toFixed(1) + '% · '
+                                  + fmtBytes(nodeStats(node.name).memUsage) + ' / '
+                                  + fmtBytes(nodeStats(node.name).memLimit)
                                 : '—'"></span>
                 </template>
               </div>
@@ -821,7 +825,9 @@
                     <span class="text-[10.5px] uppercase tracking-wider text-[var(--text-faint)]"
                           :title="t('nodes.host_disk_tooltip')">Host disk</span>
                     <span class="text-[12px] mono"
-                          x-text="fmtBytes(nodeStats(node.name).hostDiskUsed) + ' / ' + fmtBytes(nodeStats(node.name).hostDiskTotal)"></span>
+                          x-text="hostDiskPercent(node.name).toFixed(1) + '% · '
+                                  + fmtBytes(nodeStats(node.name).hostDiskUsed) + ' / '
+                                  + fmtBytes(nodeStats(node.name).hostDiskTotal)"></span>
                   </div>
                   <div class="stat-bar"
                        :class="barLevel(hostDiskPercent(node.name))"
@@ -1210,11 +1216,217 @@
                 </div>
               </div>
 
-              <!-- Time-series charts — native SVG polylines populated from
-                   /api/hosts/history. CPU/Mem/Disk clamped 0..100; Net
-                   uses auto range. When the series is empty or loading,
-                   falls back to the Dozzle-style "Collecting data…" block. -->
+              <!-- Metric cards — Beszel-style. Three percentage charts
+                   (CPU / Memory / Disk) in a 3-col grid, then Net In /
+                   Net Out side by side beneath. Axis labels live
+                   outside the SVG so the polyline can stretch edge to
+                   edge and still read at a glance. -->
               <div class="mt-3 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                <!-- CPU % -->
+                <div class="metric-card metric-card--cpu">
+                  <div class="metric-card-head">
+                    <div class="metric-card-title">CPU<span class="unit">%</span></div>
+                    <div class="metric-card-stats"
+                         x-show="hostMetricStats(h.beszel_id, 'cpu')">
+                      Min <strong x-text="hostMetricStats(h.beszel_id, 'cpu') ? hostMetricStats(h.beszel_id, 'cpu').min : ''"></strong>
+                      Max <strong x-text="hostMetricStats(h.beszel_id, 'cpu') ? hostMetricStats(h.beszel_id, 'cpu').max : ''"></strong>
+                    </div>
+                  </div>
+                  <template x-if="hostChart(h.beszel_id, 'cpu', { min: 0, max: 100 })">
+                    <div class="metric-card-body">
+                      <div class="metric-y-axis">
+                        <template x-for="(l, i) in yAxisPercent()" :key="i">
+                          <span x-text="l"></span>
+                        </template>
+                      </div>
+                      <svg class="metric-svg" viewBox="0 0 420 120" preserveAspectRatio="none">
+                        <template x-for="(tk, i) in hostChart(h.beszel_id, 'cpu', { min: 0, max: 100 }).ticks" :key="i">
+                          <line class="metric-grid" x1="0" x2="420" :y1="tk.y * 1.2" :y2="tk.y * 1.2"/>
+                        </template>
+                        <path class="metric-area" :d="hostChart(h.beszel_id, 'cpu', { min: 0, max: 100, height: 120 }).area"/>
+                        <polyline class="metric-line" :points="hostChart(h.beszel_id, 'cpu', { min: 0, max: 100, height: 120 }).points"/>
+                      </svg>
+                      <div class="metric-x-axis">
+                        <template x-for="(l, i) in xAxisFromSeries(h.beszel_id, 5)" :key="i">
+                          <span x-text="l"></span>
+                        </template>
+                      </div>
+                    </div>
+                  </template>
+                  <template x-if="!hostChart(h.beszel_id, 'cpu', { min: 0, max: 100 })">
+                    <div class="collecting-block">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+                      <div>
+                        <div x-text="t('loading.collecting_data')"></div>
+                        <div class="text-[10.5px] text-[var(--text-faint)] not-italic mt-0.5" x-text="t('loading.history_will_appear')"></div>
+                      </div>
+                    </div>
+                  </template>
+                </div>
+
+                <!-- Memory % -->
+                <div class="metric-card metric-card--mem">
+                  <div class="metric-card-head">
+                    <div class="metric-card-title">Memory<span class="unit">%</span></div>
+                    <div class="metric-card-stats"
+                         x-show="hostMetricStats(h.beszel_id, 'mp')">
+                      Min <strong x-text="hostMetricStats(h.beszel_id, 'mp') ? hostMetricStats(h.beszel_id, 'mp').min : ''"></strong>
+                      Max <strong x-text="hostMetricStats(h.beszel_id, 'mp') ? hostMetricStats(h.beszel_id, 'mp').max : ''"></strong>
+                    </div>
+                  </div>
+                  <template x-if="hostChart(h.beszel_id, 'mp', { min: 0, max: 100 })">
+                    <div class="metric-card-body">
+                      <div class="metric-y-axis">
+                        <template x-for="(l, i) in yAxisPercent()" :key="i">
+                          <span x-text="l"></span>
+                        </template>
+                      </div>
+                      <svg class="metric-svg" viewBox="0 0 420 120" preserveAspectRatio="none">
+                        <path class="metric-area" :d="hostChart(h.beszel_id, 'mp', { min: 0, max: 100, height: 120 }).area"/>
+                        <polyline class="metric-line" :points="hostChart(h.beszel_id, 'mp', { min: 0, max: 100, height: 120 }).points"/>
+                      </svg>
+                      <div class="metric-x-axis">
+                        <template x-for="(l, i) in xAxisFromSeries(h.beszel_id, 5)" :key="i">
+                          <span x-text="l"></span>
+                        </template>
+                      </div>
+                    </div>
+                  </template>
+                  <template x-if="!hostChart(h.beszel_id, 'mp', { min: 0, max: 100 })">
+                    <div class="collecting-block">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+                      <div>
+                        <div x-text="t('loading.collecting_data')"></div>
+                      </div>
+                    </div>
+                  </template>
+                </div>
+
+                <!-- Disk % -->
+                <div class="metric-card metric-card--disk">
+                  <div class="metric-card-head">
+                    <div class="metric-card-title">Disk<span class="unit">%</span></div>
+                    <div class="metric-card-stats"
+                         x-show="hostMetricStats(h.beszel_id, 'dp')">
+                      Min <strong x-text="hostMetricStats(h.beszel_id, 'dp') ? hostMetricStats(h.beszel_id, 'dp').min : ''"></strong>
+                      Max <strong x-text="hostMetricStats(h.beszel_id, 'dp') ? hostMetricStats(h.beszel_id, 'dp').max : ''"></strong>
+                    </div>
+                  </div>
+                  <template x-if="hostChart(h.beszel_id, 'dp', { min: 0, max: 100 })">
+                    <div class="metric-card-body">
+                      <div class="metric-y-axis">
+                        <template x-for="(l, i) in yAxisPercent()" :key="i">
+                          <span x-text="l"></span>
+                        </template>
+                      </div>
+                      <svg class="metric-svg" viewBox="0 0 420 120" preserveAspectRatio="none">
+                        <path class="metric-area" :d="hostChart(h.beszel_id, 'dp', { min: 0, max: 100, height: 120 }).area"/>
+                        <polyline class="metric-line" :points="hostChart(h.beszel_id, 'dp', { min: 0, max: 100, height: 120 }).points"/>
+                      </svg>
+                      <div class="metric-x-axis">
+                        <template x-for="(l, i) in xAxisFromSeries(h.beszel_id, 5)" :key="i">
+                          <span x-text="l"></span>
+                        </template>
+                      </div>
+                    </div>
+                  </template>
+                  <template x-if="!hostChart(h.beszel_id, 'dp', { min: 0, max: 100 })">
+                    <div class="collecting-block">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+                      <div>
+                        <div x-text="t('loading.collecting_data')"></div>
+                      </div>
+                    </div>
+                  </template>
+                </div>
+              </div>
+
+              <!-- Net In / Net Out — split into two cards, each auto-
+                   ranged against its own peak. Newer Beszel emits
+                   ``nr`` (recv) / ``ns`` (send) separately; older
+                   versions fold both into ``b`` so the second card
+                   stays empty with a "collecting…" placeholder if only
+                   ``b`` is present. -->
+              <div class="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4">
+                <!-- Net In -->
+                <div class="metric-card metric-card--net">
+                  <div class="metric-card-head">
+                    <div class="metric-card-title">Net In<span class="unit">B/s</span></div>
+                    <div class="metric-card-stats"
+                         x-show="hostMetricStats(h.beszel_id, 'nr', false)">
+                      Min <strong x-text="hostMetricStats(h.beszel_id, 'nr', false) ? hostMetricStats(h.beszel_id, 'nr', false).min : ''"></strong>
+                      Max <strong x-text="hostMetricStats(h.beszel_id, 'nr', false) ? hostMetricStats(h.beszel_id, 'nr', false).max : ''"></strong>
+                    </div>
+                  </div>
+                  <template x-if="hostChart(h.beszel_id, 'nr')">
+                    <div class="metric-card-body">
+                      <div class="metric-y-axis">
+                        <template x-for="(l, i) in yAxisAuto(hostChart(h.beszel_id, 'nr').max, _fmtAxisBytes)" :key="i">
+                          <span x-text="l"></span>
+                        </template>
+                      </div>
+                      <svg class="metric-svg" viewBox="0 0 420 120" preserveAspectRatio="none">
+                        <path class="metric-area" :d="hostChart(h.beszel_id, 'nr', { height: 120 }).area"/>
+                        <polyline class="metric-line" :points="hostChart(h.beszel_id, 'nr', { height: 120 }).points"/>
+                      </svg>
+                      <div class="metric-x-axis">
+                        <template x-for="(l, i) in xAxisFromSeries(h.beszel_id, 5)" :key="i">
+                          <span x-text="l"></span>
+                        </template>
+                      </div>
+                    </div>
+                  </template>
+                  <template x-if="!hostChart(h.beszel_id, 'nr')">
+                    <div class="collecting-block">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+                      <div>
+                        <div x-text="t('loading.collecting_data')"></div>
+                      </div>
+                    </div>
+                  </template>
+                </div>
+
+                <!-- Net Out -->
+                <div class="metric-card metric-card--net">
+                  <div class="metric-card-head">
+                    <div class="metric-card-title">Net Out<span class="unit">B/s</span></div>
+                    <div class="metric-card-stats"
+                         x-show="hostMetricStats(h.beszel_id, 'ns', false)">
+                      Min <strong x-text="hostMetricStats(h.beszel_id, 'ns', false) ? hostMetricStats(h.beszel_id, 'ns', false).min : ''"></strong>
+                      Max <strong x-text="hostMetricStats(h.beszel_id, 'ns', false) ? hostMetricStats(h.beszel_id, 'ns', false).max : ''"></strong>
+                    </div>
+                  </div>
+                  <template x-if="hostChart(h.beszel_id, 'ns')">
+                    <div class="metric-card-body">
+                      <div class="metric-y-axis">
+                        <template x-for="(l, i) in yAxisAuto(hostChart(h.beszel_id, 'ns').max, _fmtAxisBytes)" :key="i">
+                          <span x-text="l"></span>
+                        </template>
+                      </div>
+                      <svg class="metric-svg" viewBox="0 0 420 120" preserveAspectRatio="none">
+                        <path class="metric-area" :d="hostChart(h.beszel_id, 'ns', { height: 120 }).area"/>
+                        <polyline class="metric-line" :points="hostChart(h.beszel_id, 'ns', { height: 120 }).points"/>
+                      </svg>
+                      <div class="metric-x-axis">
+                        <template x-for="(l, i) in xAxisFromSeries(h.beszel_id, 5)" :key="i">
+                          <span x-text="l"></span>
+                        </template>
+                      </div>
+                    </div>
+                  </template>
+                  <template x-if="!hostChart(h.beszel_id, 'ns')">
+                    <div class="collecting-block">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+                      <div>
+                        <div x-text="t('loading.collecting_data')"></div>
+                      </div>
+                    </div>
+                  </template>
+                </div>
+              </div>
+
+              <!-- ==== LEGACY CHART BLOCK HIDDEN ==== -->
+              <div x-show="false" class="mt-3 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                 <!-- CPU % -->
                 <div class="host-chart-wrap">
                   <div class="flex items-baseline justify-between mb-2">
@@ -2414,6 +2626,16 @@
             <input type="checkbox" x-model="settings.pulse_verify_tls" :disabled="isReadonly()">
             <span>Verify TLS certificate</span>
           </label>
+          <div class="flex items-center gap-2 flex-wrap">
+            <button x-show="isAdmin()" @click="testPulseConnection()"
+                    :disabled="pulseTestResult && pulseTestResult.pending"
+                    class="btn btn-soft text-[12px]"
+                    x-text="(pulseTestResult && pulseTestResult.pending) ? 'Testing…' : 'Test connection'"></button>
+            <span x-show="pulseTestResult && !pulseTestResult.pending"
+                  :class="pulseTestResult && pulseTestResult.ok ? 'text-[var(--success)]' : 'text-[var(--danger)]'"
+                  class="text-[11.5px]"
+                  x-text="(pulseTestResult && pulseTestResult.ok ? '✓ ' : '✗ ') + (pulseTestResult && pulseTestResult.detail || '')"></span>
+          </div>
           <p class="text-[10.5px] text-[var(--text-faint)]">
             Per-node aliases (Docker hostname → PVE node name) are edited
             from the Nodes view; Pulse and Beszel keep independent maps

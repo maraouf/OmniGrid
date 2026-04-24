@@ -92,6 +92,7 @@ function app() {
     },
     portainerTestResult: null,
     beszelTestResult: null,
+    pulseTestResult: null,
     // Settings / Admin sidebar layout. Arrays drive the nav — adding a
     // section is one entry here + one <section> in the markup.
     // Section `label` is kept as a fallback (in case the translation key
@@ -1156,7 +1157,7 @@ function app() {
       const active = new Set(
         raw.split(',').map(s => s.trim()).filter(s => s && s !== 'none'),
       );
-      const valid = new Set(['beszel', 'node_exporter']);
+      const valid = new Set(['beszel', 'node_exporter', 'pulse']);
       for (const s of active) {
         if (!valid.has(s)) {
           this.showToast(this.t('settings.host_stats.source_invalid'), 'error');
@@ -1936,6 +1937,31 @@ function app() {
         };
       } catch (e) {
         this.beszelTestResult = { pending: false, ok: false, detail: 'Network error' };
+      }
+    },
+    async testPulseConnection() {
+      // Mirrors testBeszelConnection — probes Pulse with the current
+      // form values (or saved token when the field is blank).
+      this.pulseTestResult = { pending: true };
+      try {
+        const r = await fetch('/api/pulse/test', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            url:        (this.settings.pulse_url || '').trim(),
+            token:      this.settings.pulse_token || '',
+            verify_tls: !!this.settings.pulse_verify_tls,
+          }),
+        });
+        const j = await r.json().catch(() => ({}));
+        this.pulseTestResult = {
+          pending: false,
+          ok: !!j.ok,
+          detail: j.detail || (j.ok ? 'OK' : 'Failed'),
+          nodes: j.nodes || [],
+        };
+      } catch (e) {
+        this.pulseTestResult = { pending: false, ok: false, detail: 'Network error' };
       }
     },
     async saveSettings() {
@@ -2912,6 +2938,47 @@ function app() {
         if (host && host.beszel_id) this.loadHostHistory(host.beszel_id);
       }
     },
+    // --- Axis-label helpers used by the metric-card template ---
+    _fmtAxisPct(v) { return Math.round(v) + '%'; },
+    _fmtAxisBytes(v) {
+      if (v <= 0) return '0 B/s';
+      const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+      let u = 0; let n = v;
+      while (n >= 1024 && u < units.length - 1) { n /= 1024; u++; }
+      const digits = n >= 100 ? 0 : n >= 10 ? 1 : 2;
+      return n.toFixed(digits) + ' ' + units[u] + '/s';
+    },
+    _fmtAxisTime(ts) {
+      if (!ts) return '';
+      const d = new Date(ts * 1000);
+      const hh = String(d.getHours()).padStart(2, '0');
+      const mm = String(d.getMinutes()).padStart(2, '0');
+      return `${hh}:${mm}`;
+    },
+    // Produce 3 Y-axis labels (top/middle/bottom) for a chart with a
+    // fixed max — percent charts use 100/50/0. Range is [0..100] here.
+    yAxisPercent() { return ['100%', '50%', '0%']; },
+    // Produce 4 Y-axis labels for an auto-ranged chart (max at top,
+    // zero at bottom, two interpolated ticks between).
+    yAxisAuto(max, formatter) {
+      const fmt = formatter || this._fmtAxisBytes;
+      if (!max || max <= 0) return [fmt(0), '', '', fmt(0)];
+      return [fmt(max), fmt(max * 0.66), fmt(max * 0.33), fmt(0)];
+    },
+    // Pick up to 5 evenly-spaced timestamps from the series and format
+    // them as HH:MM strings for the X-axis below the chart.
+    xAxisFromSeries(systemId, slots = 5) {
+      const entry = this.hostHistory[systemId];
+      if (!entry || !entry.series || entry.series.length < 2) return [];
+      const s = entry.series;
+      const out = [];
+      for (let i = 0; i < slots; i++) {
+        const idx = Math.round(i * (s.length - 1) / (slots - 1));
+        out.push(this._fmtAxisTime(s[idx]?.t));
+      }
+      return out;
+    },
+
     // Build an SVG path for one metric across the host's history. Native
     // line chart, no Chart.js dependency — the series is small and the
     // shape is simple enough that a polyline does the job. The result

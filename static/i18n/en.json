@@ -231,7 +231,7 @@
       "source_none": "None (Docker-only)",
       "source_node_exporter": "node-exporter (scrape per host)",
       "source_beszel": "Beszel Hub (single API call)",
-      "source_invalid": "Data source must be 'none', 'node_exporter', or 'beszel'.",
+      "source_invalid": "Data source must be one of: none, node_exporter, beszel, pulse.",
       "url_label": "Endpoint URL template",
       "url_hint": "Placeholders: {host} = Docker hostname (use .home.lan or another suffix for FQDN: http://{host}.home.lan:9100/metrics), {ip} = Swarm-advertised IP (skip DNS entirely: http://{ip}:9100/metrics). Change the port here if your exporter listens somewhere other than :9100.",
       "placeholder_required": "URL template must contain the {host} placeholder.",

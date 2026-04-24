@@ -1084,6 +1084,39 @@ async def api_portainer_test(
         return {"ok": False, "status": 0, "detail": f"{type(e).__name__}: {e}"}
 
 
+@app.post("/api/pulse/test")
+async def api_pulse_test(
+    request: Request,
+    _admin: auth.User = Depends(auth.require_admin),
+):
+    """Admin-only: probe a Pulse instance with the given (or saved)
+    credentials. Mirrors :func:`api_beszel_test` — accepts unsaved form
+    values or falls back to the persisted token so Test works after
+    first save without re-typing the secret."""
+    from logic import pulse as _pulse
+    body = await request.json()
+    url = (body.get("url") or "").strip().rstrip("/")
+    token = body.get("token") or ""
+    verify_tls = bool(body.get("verify_tls", True))
+    if not token:
+        token = get_setting("pulse_token", "") or ""
+    if not url or not token:
+        return {"ok": False, "detail": "URL and API token are both required"}
+    result = await _pulse.probe_pulse(
+        url, token, verify_tls=verify_tls, timeout=10.0,
+    )
+    if result.get("error"):
+        return {"ok": False, "detail": result["error"]}
+    hosts = result.get("hosts") or {}
+    names = sorted(hosts.keys())
+    detail = (f"OK — reached Pulse, {len(hosts)} node(s) visible: "
+              + (", ".join(names[:5]) or "none"))
+    if len(names) > 5:
+        detail += f" (+{len(names) - 5} more)"
+    return {"ok": True, "detail": detail, "node_count": len(hosts),
+            "nodes": names}
+
+
 @app.post("/api/beszel/test")
 async def api_beszel_test(
     request: Request,

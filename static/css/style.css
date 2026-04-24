@@ -92,6 +92,12 @@
     --pill-offline-bg: rgba(100, 116, 139, .12);
     --pill-offline-br: rgba(100, 116, 139, .25);
     --pill-offline-fg: #94a3b8;
+    /* Metric chart swatches — matched to Beszel's palette so the
+       Hosts view reads familiar. */
+    --metric-cpu:  #60a5fa;
+    --metric-mem:  #f59e0b;
+    --metric-disk: #22c55e;
+    --metric-net:  #8b5cf6;
     --pill-degraded-bg: rgba(245, 158, 11, .12);
     --pill-degraded-br: rgba(245, 158, 11, .25);
     --pill-degraded-fg: #fbbf24;
@@ -202,6 +208,11 @@
     --row-hover: rgba(15, 23, 42, .03);
     --label-shadow: rgba(255, 255, 255, .6);
     --kbd-shadow: rgba(15, 23, 42, .12);
+
+    --metric-cpu:  #3b82f6;
+    --metric-mem:  #d97706;
+    --metric-disk: #16a34a;
+    --metric-net:  #7c3aed;
 }
 
 /* ---------------------------------------------------------------------------
@@ -909,7 +920,7 @@ details summary::-webkit-details-marker {
     font-size: 11px;
     line-height: 1.4;
     color: var(--text-dim);
-    border-radius: var(--r-xs);
+    border-radius: var(--r-sm);
     background: transparent;
     border: none;
     cursor: pointer;
@@ -952,6 +963,129 @@ details summary::-webkit-details-marker {
 .host-chart--mem  { color: var(--warning); }
 .host-chart--disk { color: var(--info); }
 .host-chart--net  { color: var(--primary); }
+
+
+/* --------------------------------------------------------------------------
+   Hosts tab — Beszel-style metric cards.
+   Each card renders a titled chart with labelled axes. Swatches are hard-
+   coded hex so the colours match Beszel's defaults one-for-one; they also
+   exist in both theme variants via the CSS variables below so a switch
+   stays coherent.
+   -------------------------------------------------------------------------- */
+.metric-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--r-md);
+    padding: var(--s-3) var(--s-4);
+    display: flex;
+    flex-direction: column;
+    gap: var(--s-2);
+    min-height: 180px;
+}
+
+.metric-card-head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: var(--s-2);
+}
+
+.metric-card-title {
+    font-size: 13px;
+    font-weight: 700;
+    letter-spacing: -0.1px;
+    color: var(--text);
+}
+
+.metric-card-title .unit {
+    color: var(--text-faint);
+    font-weight: 500;
+    margin-inline-start: 6px;
+}
+
+.metric-card-stats {
+    font-size: 11px;
+    color: var(--text-faint);
+    font-variant-numeric: tabular-nums;
+}
+
+.metric-card-stats strong {
+    color: var(--text-dim);
+    font-weight: 600;
+    margin: 0 2px;
+}
+
+.metric-card-body {
+    display: grid;
+    grid-template-columns: 46px 1fr;
+    grid-template-rows: 1fr 18px;
+    column-gap: var(--s-2);
+    row-gap: 2px;
+    flex: 1;
+    min-height: 130px;
+}
+
+.metric-y-axis {
+    grid-column: 1;
+    grid-row: 1;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    align-items: end;
+    font-size: 10.5px;
+    color: var(--text-faint);
+    font-variant-numeric: tabular-nums;
+    padding: 2px 0 2px 0;
+    line-height: 1;
+}
+
+.metric-x-axis {
+    grid-column: 2;
+    grid-row: 2;
+    display: flex;
+    justify-content: space-between;
+    font-size: 10.5px;
+    color: var(--text-faint);
+    font-variant-numeric: tabular-nums;
+}
+
+.metric-svg {
+    grid-column: 2;
+    grid-row: 1;
+    display: block;
+    width: 100%;
+    height: 100%;
+    min-height: 120px;
+    background: var(--surface-2);
+    border-radius: var(--r-sm);
+}
+
+.metric-line {
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.6;
+    stroke-linejoin: round;
+    stroke-linecap: round;
+    vector-effect: non-scaling-stroke;
+}
+
+.metric-area {
+    fill: currentColor;
+    fill-opacity: 0.32;
+    stroke: none;
+}
+
+.metric-grid {
+    stroke: var(--border);
+    stroke-width: 0.5;
+    opacity: 0.4;
+    vector-effect: non-scaling-stroke;
+}
+
+.metric-card--cpu  { color: var(--metric-cpu,  #60a5fa); }
+.metric-card--mem  { color: var(--metric-mem,  #f59e0b); }
+.metric-card--disk { color: var(--metric-disk, #22c55e); }
+.metric-card--net  { color: var(--metric-net,  #8b5cf6); }
 
 
 /* "Collecting data…" placeholder shown where a sparkline or chart
