@@ -3140,14 +3140,19 @@ function app() {
         // common name (e.g. "adguard" → adguard-home.svg).
         if (/^https?:/i.test(h.icon) || h.icon.startsWith('/')) return h.icon;
         const aliases = {
-          'adguard':        'adguard-home',
-          'ad-guard':       'adguard-home',
-          'npm':            'nginx-proxy-manager',
+          'adguard':         'adguard-home',
+          'ad-guard':        'adguard-home',
+          'npm':             'nginx-proxy-manager',
           'nginxproxymanager': 'nginx-proxy-manager',
-          'homeassistant':  'home-assistant',
-          'pihole':         'pi-hole',
-          'k8s':            'kubernetes',
-          'pve':            'proxmox',
+          'homeassistant':   'home-assistant',
+          'pihole':          'pi-hole',
+          'k8s':             'kubernetes',
+          'pve':             'proxmox',
+          'pi-vpn':          'pivpn',
+          'ts':              'tailscale',
+          'ovpn':            'openvpn',
+          'wg':              'wireguard',
+          'wireguard-vpn':   'wireguard',
         };
         const slug = aliases[h.icon.toLowerCase()] || h.icon;
         return '/img/icons/' + slug + '.svg';
@@ -3234,6 +3239,15 @@ function app() {
         ['netdata',               'netdata'],
         ['beszel',                'beszel'],
         ['pulse',                 'pulse'],
+        // VPN / tunnelling — checked BEFORE "openvpn" alone so
+        // "pivpn" isn't shadowed by the openvpn token.
+        ['pivpn',                 'pivpn'],
+        ['pi-vpn',                'pivpn'],
+        ['tailscale',             'tailscale'],
+        ['headscale',             'tailscale'],
+        ['openvpn',               'openvpn'],
+        ['wireguard',             'wireguard'],
+        ['wg-easy',               'wireguard'],
         // notifications / networking
         ['apprise',               'apprise'],
         ['fing',                  'fing'],
