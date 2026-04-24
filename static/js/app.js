@@ -1230,7 +1230,7 @@ function app() {
       const active = new Set(
         raw.split(',').map(s => s.trim()).filter(s => s && s !== 'none'),
       );
-      const valid = new Set(['beszel', 'node_exporter', 'pulse']);
+      const valid = new Set(['beszel', 'node_exporter', 'pulse', 'webmin']);
       for (const s of active) {
         if (!valid.has(s)) {
           this.showToast(this.t('settings.host_stats.source_invalid'), 'error');
@@ -1303,6 +1303,24 @@ function app() {
           payload.pulse_token = this.settings.pulse_token;
         }
       }
+      if (active.has('webmin')) {
+        const user = (this.settings.webmin_user || '').trim();
+        if (!user) {
+          this.showToast('Webmin user is required', 'error');
+          return;
+        }
+        if (!this.settings.webmin_password_set && !this.settings.webmin_password) {
+          this.showToast('Webmin password is required', 'error');
+          return;
+        }
+        payload.webmin_url = (this.settings.webmin_url || '').trim();
+        payload.webmin_user = user;
+        payload.webmin_verify_tls = !!this.settings.webmin_verify_tls;
+        if (this.settings.webmin_password) {
+          payload.webmin_password = this.settings.webmin_password;
+        }
+        payload.webmin_aliases = this.settings.webmin_aliases || {};
+      }
       try {
         const r = await fetch('/api/settings', {
           method: 'POST',
@@ -1316,6 +1334,10 @@ function app() {
           if (payload.beszel_password) {
             this.settings.beszel_password_set = true;
             this.settings.beszel_password = '';
+          }
+          if (payload.webmin_password) {
+            this.settings.webmin_password_set = true;
+            this.settings.webmin_password = '';
           }
           // Refresh items so the new nodes_info fields land immediately.
           this.refresh(true);
@@ -1845,6 +1867,14 @@ function app() {
           pulse_token_set: !!(d.pulse && d.pulse.token_set),
           pulse_verify_tls: d.pulse ? d.pulse.verify_tls !== false : true,
           pulse_aliases: (d.pulse && d.pulse.aliases) || {},
+          // Webmin provider settings — password is write-only. Aliases
+          // is Docker hostname → Miniserv base URL per host.
+          webmin_url: (d.webmin && d.webmin.url) || '',
+          webmin_user: (d.webmin && d.webmin.user) || '',
+          webmin_password: '',
+          webmin_password_set: !!(d.webmin && d.webmin.password_set),
+          webmin_verify_tls: d.webmin ? !!d.webmin.verify_tls : false,
+          webmin_aliases: (d.webmin && d.webmin.aliases) || {},
         };
         this.endpointId = d.endpoint_id || 1;
 
@@ -2035,6 +2065,37 @@ function app() {
         };
       } catch (e) {
         this.pulseTestResult = { pending: false, ok: false, detail: 'Network error' };
+      }
+    },
+    async testWebminConnection() {
+      // Probes ONE Webmin URL — user types the URL into webminTestUrl
+      // since every Miniserv instance is per-host. Credentials come
+      // from the settings form (or persisted values when blank).
+      const url = (this.webminTestUrl || this.settings.webmin_url || '').trim();
+      if (!url) {
+        this.showToast('Enter a Webmin URL to test', 'error');
+        return;
+      }
+      this.webminTestResult = { pending: true };
+      try {
+        const r = await fetch('/api/webmin/test', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            url,
+            user:       (this.settings.webmin_user || '').trim(),
+            password:   this.settings.webmin_password || '',
+            verify_tls: !!this.settings.webmin_verify_tls,
+          }),
+        });
+        const j = await r.json().catch(() => ({}));
+        this.webminTestResult = {
+          pending: false,
+          ok: !!j.ok,
+          detail: j.detail || (j.ok ? 'OK' : 'Failed'),
+        };
+      } catch (e) {
+        this.webminTestResult = { pending: false, ok: false, detail: 'Network error' };
       }
     },
     async saveSettings() {
@@ -2979,6 +3040,16 @@ function app() {
         }
         const d = await r.json();
         this.hostsConfig = Array.isArray(d.hosts) ? d.hosts : [];
+        // Hydrate each row's webmin_url from settings.webmin_aliases —
+        // the hosts_config endpoint doesn't carry the URL, the settings
+        // table does. Keeps the editor's per-row field in sync with
+        // what the probe pipeline actually reads.
+        const aliases = (this.settings && this.settings.webmin_aliases) || {};
+        for (const row of this.hostsConfig) {
+          if (row && row.id && !row.webmin_url) {
+            row.webmin_url = aliases[row.id] || '';
+          }
+        }
         this.hostsConfigDirty = false;
       } catch (e) {
         this.showToast(`Load hosts failed: ${e.message}`, 'error');
@@ -3002,17 +3073,20 @@ function app() {
         this.hostsDiscovery = {
           beszel: Array.isArray(d.beszel) ? d.beszel : [],
           pulse:  Array.isArray(d.pulse)  ? d.pulse  : [],
+          webmin: Array.isArray(d.webmin) ? d.webmin : [],
         };
         const errs = d.errors || {};
         const errKeys = Object.keys(errs);
         const bTotal = this.hostsDiscovery.beszel.length;
         const pTotal = this.hostsDiscovery.pulse.length;
-        if (errKeys.length && (bTotal + pTotal) === 0) {
+        const wTotal = this.hostsDiscovery.webmin.length;
+        if (errKeys.length && (bTotal + pTotal + wTotal) === 0) {
           this.showToast(`No provider responded: ${errKeys.map(k => k + '=' + errs[k]).join(' · ')}`, 'error');
         } else {
           const parts = [];
           if (bTotal)  parts.push(`${bTotal} Beszel`);
           if (pTotal)  parts.push(`${pTotal} Pulse`);
+          if (wTotal)  parts.push(`${wTotal} Webmin`);
           this.showToast(
             parts.length
               ? `Discovered ${parts.join(', ')} name(s) — autocomplete is live`
@@ -3036,7 +3110,9 @@ function app() {
       return all.filter(({ row }) => {
         const hay = [
           row.id, row.label, row.ne_url,
-          row.beszel_name, row.pulse_name, row.url, row.icon,
+          row.beszel_name, row.pulse_name,
+          row.webmin_name, row.webmin_url,
+          row.url, row.icon,
         ].filter(Boolean).join(' ').toLowerCase();
         return hay.includes(q);
       });
@@ -3047,13 +3123,16 @@ function app() {
     // the operator doesn't import duplicates by accident.
     discoveredMissingCount() {
       const seen = new Set((this.hostsConfig || []).map(r =>
-        (r.beszel_name || r.pulse_name || r.id || '').toLowerCase()
+        (r.beszel_name || r.pulse_name || r.webmin_name || r.id || '').toLowerCase()
       ));
       let n = 0;
       for (const name of (this.hostsDiscovery.beszel || [])) {
         if (!seen.has(name.toLowerCase())) n++;
       }
       for (const name of (this.hostsDiscovery.pulse || [])) {
+        if (!seen.has(name.toLowerCase())) n++;
+      }
+      for (const name of (this.hostsDiscovery.webmin || [])) {
         if (!seen.has(name.toLowerCase())) n++;
       }
       return n;
@@ -3081,6 +3160,8 @@ function app() {
             ne_url:      '',
             beszel_name: '',
             pulse_name:  '',
+            webmin_name: '',
+            webmin_url:  '',
             enabled:     true,
           };
         }
@@ -3088,6 +3169,7 @@ function app() {
       };
       for (const n of (this.hostsDiscovery.beszel || [])) addOrMerge(n, 'beszel_name');
       for (const n of (this.hostsDiscovery.pulse  || [])) addOrMerge(n, 'pulse_name');
+      for (const n of (this.hostsDiscovery.webmin || [])) addOrMerge(n, 'webmin_name');
       const rows = Object.values(added);
       if (!rows.length) {
         this.showToast('Nothing new to import — every discovered name is already configured.', 'success');
@@ -3229,6 +3311,8 @@ function app() {
             beszel_name: (row.beszel_name || '').trim(),
             pulse_name:  (row.pulse_name  || '').trim(),
             ne_url:      (row.ne_url      || '').trim(),
+            webmin_url:  (row.webmin_url  || '').trim(),
+            host_id:     (row.id          || '').trim(),
           }),
         });
         if (!r.ok) {
@@ -3248,6 +3332,8 @@ function app() {
         ne_url: '',
         beszel_name: '',
         pulse_name: '',
+        webmin_name: '',
+        webmin_url: '',
         url: '',
         icon: '',
         enabled: true,
@@ -3548,10 +3634,20 @@ function app() {
         ne_url:      (h.ne_url || '').trim(),
         beszel_name: (h.beszel_name || '').trim(),
         pulse_name:  (h.pulse_name || '').trim(),
+        webmin_name: (h.webmin_name || '').trim(),
         url:         (h.url || '').trim(),
         icon:        (h.icon || '').trim(),
         enabled:     h.enabled !== false,
       }));
+      // Derive webmin_aliases from each row's webmin_url. Single
+      // source of truth in the editor — operator types the URL on
+      // the row, we sync it into settings.webmin_aliases on save.
+      const webminAliases = {};
+      for (const h of (this.hostsConfig || [])) {
+        const id = (h.id || '').trim();
+        const url = (h.webmin_url || '').trim().replace(/\/$/, '');
+        if (id && url) webminAliases[id] = url;
+      }
       this.hostsConfigSaving = true;
       try {
         const r = await fetch('/api/hosts/config', {
@@ -3565,6 +3661,20 @@ function app() {
         }
         const d = await r.json();
         this.hostsConfig = d.hosts || [];
+        // Re-stamp each row with its webmin_url (the hosts_config
+        // endpoint doesn't know about aliases, so the field is
+        // load-bearing for the editor UI only).
+        for (const row of this.hostsConfig) {
+          row.webmin_url = webminAliases[row.id] || '';
+        }
+        // Persist the derived webmin_aliases in settings so the probe
+        // pipeline can read it next gather.
+        await fetch('/api/settings', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ webmin_aliases: webminAliases }),
+        }).catch(() => {});
+        if (this.settings) this.settings.webmin_aliases = webminAliases;
         this.hostsConfigDirty = false;
         this.showToast(`Saved ${d.count} host(s)`, 'success');
         // The Hosts tab consumes this list — refresh it so the new
@@ -3662,6 +3772,12 @@ function app() {
     // interactive (same visual feedback as a dead row).
     isHostExpandable(h) {
       if (!h) return false;
+      // Admins can always expand — the drawer's debug panel is the
+      // canonical tool for diagnosing "host not reporting any data"
+      // and must be reachable even when the host is down or unmatched.
+      // Non-admin viewers keep the old gating so dead rows stay non-
+      // interactive (nothing useful to show them anyway).
+      if (this.me && this.me.role === 'admin') return true;
       if (h.status && h.status !== 'up') return false;
       if (!(h.providers || []).length) return false;
       return true;
