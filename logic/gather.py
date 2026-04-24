@@ -320,12 +320,15 @@ async def _gather_impl() -> None:
 
         if source == "beszel" and df_hosts:
             # One HTTP call to the hub fetches every system's latest
-            # snapshot. Docker hostname → Beszel system name via
+            # snapshot. Docker hostname → Beszel ``host`` field via
             # ``beszel_aliases`` (JSON map in the settings table) so
             # operators don't have to rename a host on either side when
             # the two naturally differ (e.g. Swarm hostname
-            # ``debian13docker`` but Beszel system ``docker.home.lan``).
+            # ``debian13docker`` but Beszel host ``docker.home.lan``).
             # Nodes absent from the alias map fall back to identity.
+            # NOTE: we match against Beszel's ``host`` (agent hostname),
+            # not ``name`` (user-editable label), because ``host`` is
+            # stable and typically matches what Docker reports.
             import json as _json
             hub_url = get_setting("beszel_hub_url", "") or ""
             ident = get_setting("beszel_identity", "") or ""

@@ -266,10 +266,21 @@ async def probe_hub(
 
     out: dict[str, dict] = {}
     for rec in records:
-        name = (rec.get("name") or "").strip()
-        if not name:
+        # Match against ``host`` first (the hostname the Beszel agent
+        # reports from the machine itself — stable and typically what
+        # Docker sees too). Fall back to the user-editable ``name``
+        # field (just a friendly label in Beszel's UI) and to
+        # ``info.h`` (agent-reported hostname) so we never drop a
+        # record just because of one missing field.
+        info = rec.get("info") or {}
+        host_key = (
+            (rec.get("host") or "").strip()
+            or (info.get("h") or "").strip()
+            or (rec.get("name") or "").strip()
+        )
+        if not host_key:
             continue
-        stats = extract_stats(rec.get("info") or {})
+        stats = extract_stats(info)
         # Carry the top-level status so callers can tell a paused /
         # down system from one that's actually fresh.
         stats["beszel_status"] = rec.get("status") or "unknown"
@@ -277,5 +288,10 @@ async def probe_hub(
         # "Updated Xs ago" sub-line and the deep-link back to Beszel.
         stats["beszel_id"] = rec.get("id") or ""
         stats["beszel_updated"] = rec.get("updated") or ""
-        out[name] = stats
+        # Friendly name from Beszel (operator-editable). Used as the
+        # display label in the Hosts tab while ``host_key`` is the
+        # stable identity for alias lookups.
+        stats["beszel_name"] = (rec.get("name") or "").strip()
+        stats["beszel_host"] = host_key
+        out[host_key] = stats
     return {"systems": out, "error": None}

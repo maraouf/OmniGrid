@@ -2404,14 +2404,17 @@
           <div class="mt-5 space-y-5">
             <!-- Beszel alias editor -->
             <section>
-              <h3 class="text-[12px] uppercase tracking-wider text-[var(--text-dim)] mb-2">Beszel system name</h3>
+              <h3 class="text-[12px] uppercase tracking-wider text-[var(--text-dim)] mb-2">Beszel host</h3>
               <p class="text-[12px] text-[var(--text-faint)] mb-3 leading-snug">
-                When this Docker node is registered in Beszel under a
-                different name, enter the Beszel name here so host
-                stats can be matched. Leave blank to use the Docker
-                node name as-is.
+                Matches on the Beszel record's <code class="mono">host</code>
+                field (the hostname the agent reports), not the
+                user-editable <code class="mono">name</code> label. Set
+                this when the Docker hostname differs from the Beszel
+                host — e.g. Docker sees <code class="mono">debian13docker</code>
+                but Beszel reports <code class="mono">docker.home.lan</code>.
+                Leave blank to match on the Docker name as-is.
               </p>
-              <label class="block text-[11px] text-[var(--text-dim)] mb-1" for="node-beszel-alias">Beszel name</label>
+              <label class="block text-[11px] text-[var(--text-dim)] mb-1" for="node-beszel-alias">Beszel host</label>
               <input id="node-beszel-alias"
                      type="text"
                      class="input w-full"

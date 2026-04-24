@@ -1108,11 +1108,15 @@ async def api_hosts():
     err = result.get("error")
     systems = result.get("systems") or {}
     hosts = []
-    for name, s in sorted(systems.items(), key=lambda kv: kv[0].lower()):
+    for host_key, s in sorted(systems.items(), key=lambda kv: kv[0].lower()):
         hosts.append({
-            "name":            name,
+            # ``host`` is the matching key (Beszel-agent hostname — stable);
+            # ``label`` is the operator's friendly label from Beszel's UI.
+            "name":            host_key,
+            "host":            host_key,
+            "label":           s.get("beszel_name") or host_key,
             "status":          s.get("beszel_status") or "unknown",
-            "docker_node":     reverse_aliases.get(name, ""),
+            "docker_node":     reverse_aliases.get(host_key, ""),
             "platform":        s.get("host_platform") or "",
             "os":              s.get("host_os") or "",
             "kernel":          s.get("host_kernel") or "",
