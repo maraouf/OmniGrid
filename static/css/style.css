@@ -94,10 +94,13 @@
     --pill-offline-fg: #94a3b8;
     /* Metric chart swatches — matched to Beszel's palette so the
        Hosts view reads familiar. */
-    --metric-cpu:  #60a5fa;
-    --metric-mem:  #f59e0b;
-    --metric-disk: #22c55e;
-    --metric-net:  #8b5cf6;
+    /* Matches Beszel's default palette so the two dashboards feel
+       related when used side by side. */
+    --metric-cpu:  #a78bfa;   /* violet */
+    --metric-mem:  #f59e0b;   /* amber */
+    --metric-disk: #22c55e;   /* emerald */
+    --metric-net:  #3b82f6;   /* blue */
+    --metric-net-out: #8b5cf6;/* violet (Net Out accent) */
     --pill-degraded-bg: rgba(245, 158, 11, .12);
     --pill-degraded-br: rgba(245, 158, 11, .25);
     --pill-degraded-fg: #fbbf24;
@@ -209,10 +212,11 @@
     --label-shadow: rgba(255, 255, 255, .6);
     --kbd-shadow: rgba(15, 23, 42, .12);
 
-    --metric-cpu:  #3b82f6;
+    --metric-cpu:  #7c3aed;
     --metric-mem:  #d97706;
     --metric-disk: #16a34a;
-    --metric-net:  #7c3aed;
+    --metric-net:  #2563eb;
+    --metric-net-out: #7c3aed;
 }
 
 /* ---------------------------------------------------------------------------
@@ -1000,9 +1004,9 @@ details summary::-webkit-details-marker {
 }
 
 .metric-card-title {
-    font-size: 13px;
+    font-size: 14px;
     font-weight: 700;
-    letter-spacing: -0.1px;
+    letter-spacing: -0.2px;
     color: var(--text);
 }
 
@@ -1013,15 +1017,25 @@ details summary::-webkit-details-marker {
 }
 
 .metric-card-stats {
-    font-size: 11px;
+    font-size: 11.5px;
     color: var(--text-faint);
     font-variant-numeric: tabular-nums;
+    display: inline-flex;
+    gap: var(--s-2);
+    align-items: baseline;
 }
 
-.metric-card-stats strong {
-    color: var(--text-dim);
+/* Colour-coded Min / Max values — mirrors Beszel's accent on the two
+   stats next to each chart title. The label ("Min"/"Max") stays
+   muted; the number itself picks up the tinted colour below. */
+.metric-card-stats .min-val {
+    color: var(--success);
     font-weight: 600;
-    margin: 0 2px;
+}
+
+.metric-card-stats .max-val {
+    color: var(--danger);
+    font-weight: 600;
 }
 
 .metric-card-body {
@@ -1080,7 +1094,7 @@ details summary::-webkit-details-marker {
 
 .metric-area {
     fill: currentColor;
-    fill-opacity: 0.32;
+    fill-opacity: 0.45;
     stroke: none;
 }
 
@@ -1091,10 +1105,44 @@ details summary::-webkit-details-marker {
     vector-effect: non-scaling-stroke;
 }
 
-.metric-card--cpu  { color: var(--metric-cpu,  #60a5fa); }
+.metric-card--cpu  { color: var(--metric-cpu,  #a78bfa); }
 .metric-card--mem  { color: var(--metric-mem,  #f59e0b); }
 .metric-card--disk { color: var(--metric-disk, #22c55e); }
-.metric-card--net  { color: var(--metric-net,  #8b5cf6); }
+.metric-card--net  { color: var(--metric-net,  #3b82f6); }
+.metric-card--net-out { color: var(--metric-net-out, #8b5cf6); }
+
+/* Network interface chips — distinct shades for MAC (muted), IPv4
+   (blue), IPv6 (violet). Mirrors Beszel's colour coding so an
+   operator's muscle memory carries between the two tools. */
+.ip-chip {
+    display: inline-flex;
+    align-items: center;
+    padding: 2px 7px;
+    border-radius: var(--r-sm);
+    font-family: var(--font-mono);
+    font-size: 10.5px;
+    line-height: 1.4;
+    border: 1px solid;
+    white-space: nowrap;
+}
+
+.ip-chip--mac {
+    background: transparent;
+    border-color: var(--border);
+    color: var(--text-faint);
+}
+
+.ip-chip--v4 {
+    background: rgba(59, 130, 246, .14);
+    border-color: rgba(59, 130, 246, .32);
+    color: #60a5fa;
+}
+
+.ip-chip--v6 {
+    background: rgba(139, 92, 246, .14);
+    border-color: rgba(139, 92, 246, .32);
+    color: #a78bfa;
+}
 
 
 /* "Collecting data…" placeholder shown where a sparkline or chart

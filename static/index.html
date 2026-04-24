@@ -924,7 +924,13 @@
         <div class="flex items-center gap-3 text-[12px] text-[var(--text-dim)] flex-wrap">
           <span>
             <span x-text="hosts.length + ' host' + (hosts.length === 1 ? '' : 's')"></span>
-            <span class="text-[var(--text-faint)]"> · polled every 15s</span>
+            <span class="text-[var(--text-faint)]">
+              <span x-show="(hostsActiveSources || []).length > 0">
+                · merged from
+                <span x-text="(hostsActiveSources || []).map(s => s === 'node_exporter' ? 'node-exporter' : s).join(' + ')"></span>
+              </span>
+              · polled every 15s
+            </span>
           </span>
           <span class="flex items-center gap-1.5 flex-wrap"
                 x-show="(hosts && hosts.length) || Object.keys(hostsProviderErrors || {}).length">
@@ -976,6 +982,20 @@
         <span x-text="'Host probe error: ' + hostsError"></span>
       </div>
 
+      <!-- Search box — filters the table by host id / label / OS /
+           platform / kernel / provider names. Empty = show all. -->
+      <div x-show="hostsConfigured && hosts.length > 0" class="flex items-center gap-2">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-[var(--text-faint)]"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+        <input type="search" x-model="hostsSearch"
+               class="flex-1 text-[12.5px] py-1.5"
+               placeholder="Filter hosts by name, platform, OS, provider…">
+        <span class="text-[10.5px] text-[var(--text-faint)]"
+              x-show="hostsSearch"
+              x-text="filteredHosts().length + ' of ' + hosts.length"></span>
+        <button x-show="hostsSearch" @click="hostsSearch=''"
+                class="btn btn-ghost text-[11px]" title="Clear filter">✕</button>
+      </div>
+
       <div x-show="hostsConfigured" class="rounded border border-[var(--border)] overflow-hidden bg-[var(--surface)]">
         <!-- Header row — mirrors Beszel's columns. -->
         <div class="grid grid-cols-[26px_minmax(320px,1.8fr)_140px_140px_140px_minmax(160px,1fr)_80px_60px_60px_72px_84px_40px] gap-3 px-4 py-2 border-b border-[var(--border)] bg-[var(--surface-2)] text-[10.5px] uppercase tracking-wider text-[var(--text-faint)]">
@@ -986,14 +1006,14 @@
           <div>Memory</div>
           <div>Disk</div>
           <div class="text-center">Uptime</div>
-          <div class="text-center">Agent</div>
+          <div class="text-center" title="Beszel agent version reported by the hub">Beszel</div>
           <div class="text-center">Cores</div>
           <div class="text-center">Arch</div>
           <div class="text-center">Kernel</div>
           <div></div>
         </div>
 
-        <template x-for="h in hosts" :key="h.host">
+        <template x-for="h in filteredHosts()" :key="h.host">
           <div class="border-b border-[var(--border)] last:border-b-0">
             <!-- Collapsed row -->
             <div class="grid grid-cols-[26px_minmax(320px,1.8fr)_140px_140px_140px_minmax(160px,1fr)_80px_60px_60px_72px_84px_40px] gap-3 px-4 py-3 items-center cursor-pointer hover:bg-[var(--row-hover)]"
@@ -1178,7 +1198,8 @@
                       <dd class="mono text-end" x-text="fmtBytes(h.disk_total)"></dd>
                     </template>
                     <template x-if="h.agent">
-                      <dt class="text-[var(--text-dim)]">Agent</dt>
+                      <dt class="text-[var(--text-dim)]"
+                          title="Version reported by the Beszel agent on this host">Beszel agent</dt>
                     </template>
                     <template x-if="h.agent">
                       <dd class="mono text-end" x-text="h.agent"></dd>
@@ -1275,8 +1296,8 @@
                     <div class="metric-card-title">CPU<span class="unit">%</span></div>
                     <div class="metric-card-stats"
                          x-show="hostMetricStats(h.beszel_id, 'cpu')">
-                      Min <strong x-text="hostMetricStats(h.beszel_id, 'cpu') ? hostMetricStats(h.beszel_id, 'cpu').min : ''"></strong>
-                      Max <strong x-text="hostMetricStats(h.beszel_id, 'cpu') ? hostMetricStats(h.beszel_id, 'cpu').max : ''"></strong>
+                      <span>Min <span class="min-val" x-text="hostMetricStats(h.beszel_id, 'cpu') ? hostMetricStats(h.beszel_id, 'cpu').min : ''"></span></span>
+                      <span>Max <span class="max-val" x-text="hostMetricStats(h.beszel_id, 'cpu') ? hostMetricStats(h.beszel_id, 'cpu').max : ''"></span></span>
                     </div>
                   </div>
                   <template x-if="hostChart(h.beszel_id, 'cpu', { min: 0, max: 100 })">
@@ -1317,8 +1338,8 @@
                     <div class="metric-card-title">Memory<span class="unit">%</span></div>
                     <div class="metric-card-stats"
                          x-show="hostMetricStats(h.beszel_id, 'mp')">
-                      Min <strong x-text="hostMetricStats(h.beszel_id, 'mp') ? hostMetricStats(h.beszel_id, 'mp').min : ''"></strong>
-                      Max <strong x-text="hostMetricStats(h.beszel_id, 'mp') ? hostMetricStats(h.beszel_id, 'mp').max : ''"></strong>
+                      <span>Min <span class="min-val" x-text="hostMetricStats(h.beszel_id, 'mp') ? hostMetricStats(h.beszel_id, 'mp').min : ''"></span></span>
+                      <span>Max <span class="max-val" x-text="hostMetricStats(h.beszel_id, 'mp') ? hostMetricStats(h.beszel_id, 'mp').max : ''"></span></span>
                     </div>
                   </div>
                   <template x-if="hostChart(h.beszel_id, 'mp', { min: 0, max: 100 })">
@@ -1355,8 +1376,8 @@
                     <div class="metric-card-title">Disk<span class="unit">%</span></div>
                     <div class="metric-card-stats"
                          x-show="hostMetricStats(h.beszel_id, 'dp')">
-                      Min <strong x-text="hostMetricStats(h.beszel_id, 'dp') ? hostMetricStats(h.beszel_id, 'dp').min : ''"></strong>
-                      Max <strong x-text="hostMetricStats(h.beszel_id, 'dp') ? hostMetricStats(h.beszel_id, 'dp').max : ''"></strong>
+                      <span>Min <span class="min-val" x-text="hostMetricStats(h.beszel_id, 'dp') ? hostMetricStats(h.beszel_id, 'dp').min : ''"></span></span>
+                      <span>Max <span class="max-val" x-text="hostMetricStats(h.beszel_id, 'dp') ? hostMetricStats(h.beszel_id, 'dp').max : ''"></span></span>
                     </div>
                   </div>
                   <template x-if="hostChart(h.beszel_id, 'dp', { min: 0, max: 100 })">
@@ -1401,8 +1422,8 @@
                     <div class="metric-card-title">Net In<span class="unit">B/s</span></div>
                     <div class="metric-card-stats"
                          x-show="hostMetricStats(h.beszel_id, 'nr', false)">
-                      Min <strong x-text="hostMetricStats(h.beszel_id, 'nr', false) ? hostMetricStats(h.beszel_id, 'nr', false).min : ''"></strong>
-                      Max <strong x-text="hostMetricStats(h.beszel_id, 'nr', false) ? hostMetricStats(h.beszel_id, 'nr', false).max : ''"></strong>
+                      <span>Min <span class="min-val" x-text="hostMetricStats(h.beszel_id, 'nr', false) ? hostMetricStats(h.beszel_id, 'nr', false).min : ''"></span></span>
+                      <span>Max <span class="max-val" x-text="hostMetricStats(h.beszel_id, 'nr', false) ? hostMetricStats(h.beszel_id, 'nr', false).max : ''"></span></span>
                     </div>
                   </div>
                   <template x-if="hostChart(h.beszel_id, 'nr')">
@@ -1439,8 +1460,8 @@
                     <div class="metric-card-title">Net Out<span class="unit">B/s</span></div>
                     <div class="metric-card-stats"
                          x-show="hostMetricStats(h.beszel_id, 'ns', false)">
-                      Min <strong x-text="hostMetricStats(h.beszel_id, 'ns', false) ? hostMetricStats(h.beszel_id, 'ns', false).min : ''"></strong>
-                      Max <strong x-text="hostMetricStats(h.beszel_id, 'ns', false) ? hostMetricStats(h.beszel_id, 'ns', false).max : ''"></strong>
+                      <span>Min <span class="min-val" x-text="hostMetricStats(h.beszel_id, 'ns', false) ? hostMetricStats(h.beszel_id, 'ns', false).min : ''"></span></span>
+                      <span>Max <span class="max-val" x-text="hostMetricStats(h.beszel_id, 'ns', false) ? hostMetricStats(h.beszel_id, 'ns', false).max : ''"></span></span>
                     </div>
                   </div>
                   <template x-if="hostChart(h.beszel_id, 'ns')">

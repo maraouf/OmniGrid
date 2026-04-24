@@ -3182,7 +3182,16 @@ function app() {
       }
     },
     async loadHostHistory(systemId) {
-      this.hostHistory[systemId] = { loading: true, error: '', series: [] };
+      // Preserve whatever series we already have so the chart doesn't
+      // flicker back to "Collecting data…" between range-picker
+      // clicks. Only the ``loading`` flag flips; the visible line
+      // stays put until fresh data lands, then swaps in place.
+      const prev = this.hostHistory[systemId] || {};
+      this.hostHistory[systemId] = {
+        loading: true,
+        error: prev.error || '',
+        series: Array.isArray(prev.series) ? prev.series : [],
+      };
       try {
         const params = new URLSearchParams({
           system_id: systemId,
@@ -3191,19 +3200,27 @@ function app() {
         const r = await fetch('/api/hosts/history?' + params.toString());
         if (!r.ok) {
           this.hostHistory[systemId] = {
-            loading: false, error: `HTTP ${r.status}`, series: [],
+            loading: false,
+            error: `HTTP ${r.status}`,
+            series: prev.series || [],  // keep previous on HTTP error
           };
           return;
         }
         const d = await r.json();
+        const next = Array.isArray(d.series) ? d.series : [];
         this.hostHistory[systemId] = {
           loading: false,
           error: d.error || '',
-          series: Array.isArray(d.series) ? d.series : [],
+          // Only overwrite on a non-empty response. A transient empty
+          // reply (hub rebooting, rate-limit) shouldn't blank a chart
+          // that was already populated.
+          series: next.length ? next : (prev.series || []),
         };
       } catch (e) {
         this.hostHistory[systemId] = {
-          loading: false, error: e.message, series: [],
+          loading: false,
+          error: e.message,
+          series: prev.series || [],
         };
       }
     },
