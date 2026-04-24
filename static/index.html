@@ -1779,7 +1779,7 @@
                       <span>Max <span class="max-val" x-text="hostMetricStats(h.beszel_id, 'nr', false) ? hostMetricStats(h.beszel_id, 'nr', false).max : ''"></span></span>
                     </div>
                   </div>
-                  <template x-if="hostChart(h.beszel_id, 'nr')">
+                  <template x-if="hostChart(h.beszel_id, 'nr') && !isNetSeriesFlat(h.beszel_id, 'nr')">
                     <div class="metric-card-body">
                       <div class="metric-y-axis">
                         <template x-for="(l, i) in yAxisAuto(hostChart(h.beszel_id, 'nr').max, _fmtAxisBytes)" :key="i">
@@ -1794,6 +1794,24 @@
                         <template x-for="(l, i) in xAxisFromSeries(h.beszel_id, 5)" :key="i">
                           <span x-text="l"></span>
                         </template>
+                      </div>
+                    </div>
+                  </template>
+                  <!-- Agent-not-tracking-NICs hint. Fires when the series
+                       IS populated but every point is 0 — almost always
+                       means the Beszel agent lacks NICS=<iface> in env.
+                       Actionable copy beats a flat grey card. -->
+                  <template x-if="hostChart(h.beszel_id, 'nr') && isNetSeriesFlat(h.beszel_id, 'nr')">
+                    <div class="collecting-block">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+                      <div>
+                        <div>No NIC activity reported</div>
+                        <div class="text-[10.5px] text-[var(--text-faint)] mt-1">
+                          The Beszel agent on this host isn't tracking any NIC. Add
+                          <code class="mono text-[var(--text-dim)]">NICS=eth0</code>
+                          (or your NIC name from <code class="mono text-[var(--text-dim)]">ip a</code>)
+                          to the agent's env, then restart it.
+                        </div>
                       </div>
                     </div>
                   </template>
@@ -1818,7 +1836,7 @@
                       <span>Max <span class="max-val" x-text="hostMetricStats(h.beszel_id, 'ns', false) ? hostMetricStats(h.beszel_id, 'ns', false).max : ''"></span></span>
                     </div>
                   </div>
-                  <template x-if="hostChart(h.beszel_id, 'ns')">
+                  <template x-if="hostChart(h.beszel_id, 'ns') && !isNetSeriesFlat(h.beszel_id, 'ns')">
                     <div class="metric-card-body">
                       <div class="metric-y-axis">
                         <template x-for="(l, i) in yAxisAuto(hostChart(h.beszel_id, 'ns').max, _fmtAxisBytes)" :key="i">
@@ -1833,6 +1851,18 @@
                         <template x-for="(l, i) in xAxisFromSeries(h.beszel_id, 5)" :key="i">
                           <span x-text="l"></span>
                         </template>
+                      </div>
+                    </div>
+                  </template>
+                  <template x-if="hostChart(h.beszel_id, 'ns') && isNetSeriesFlat(h.beszel_id, 'ns')">
+                    <div class="collecting-block">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+                      <div>
+                        <div>No NIC activity reported</div>
+                        <div class="text-[10.5px] text-[var(--text-faint)] mt-1">
+                          Add <code class="mono text-[var(--text-dim)]">NICS=eth0</code>
+                          to the Beszel agent's env (see Net In card for details).
+                        </div>
                       </div>
                     </div>
                   </template>
@@ -2376,6 +2406,21 @@
             <div x-show="headerWeatherEnabled && weather && weather.error"
                  class="text-[11px] text-[var(--danger)]"
                  x-text="'Weather fetch failed: ' + weather.error"></div>
+            <!-- Explicit Save button — preferences auto-persist to
+                 localStorage on every input change (no backend call),
+                 but operators expect a "Save" affordance. Click
+                 re-runs saveHeaderPrefs which also re-fetches weather
+                 and shows a toast. -->
+            <div class="pt-2 border-t border-[var(--border)] mt-3">
+              <button type="button"
+                      @click="saveHeaderPrefs()"
+                      class="btn btn-primary text-[12px]">
+                Save preferences
+              </button>
+              <span class="ms-3 text-[10.5px] text-[var(--text-faint)]">
+                Changes also auto-save when you toggle or edit a field above.
+              </span>
+            </div>
           </div>
         </section>
 

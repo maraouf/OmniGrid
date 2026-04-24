@@ -4292,6 +4292,15 @@ function app() {
         current: cur,
       };
     },
+    // "Is this net-series flat at zero?" — used by the Net In / Net
+    // Out cards to swap the chart for an actionable hint when Beszel's
+    // agent isn't tracking any NIC (the agent needs NICS=<iface> env
+    // set before it emits nr/ns numbers). Distinct from "no data yet"
+    // because hostHistory[].series IS populated — every point is 0.
+    isNetSeriesFlat(systemId, key) {
+      const stats = this.hostMetricStats(systemId, key, false);
+      return !!(stats && stats.maxRaw === 0);
+    },
     // Min/Max label helper — returns both pre-formatted strings
     // (used directly in the chart header) and raw numeric values
     // (used by templates to decide flat-signal collapsing).

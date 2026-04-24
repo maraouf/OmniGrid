@@ -2509,3 +2509,15 @@ body.login {
     white-space: pre;
     word-break: normal;
 }
+
+/* ---------------------------------------------------------------------------
+   Form controls — checkboxes + radios accept the theme's primary colour
+   so the fill matches the "New version — reload" banner, the active
+   sort chip, etc. accent-color is a CSS property browsers honour for
+   native checkboxes without fiddling with appearance: none. Works on
+   Chromium 93+, Firefox 92+, Safari 15.4+.
+   --------------------------------------------------------------------------- */
+input[type="checkbox"],
+input[type="radio"] {
+    accent-color: var(--primary);
+}
