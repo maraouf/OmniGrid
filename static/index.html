@@ -1141,10 +1141,10 @@
               </svg>
               <span class="font-semibold text-[12px]"
                     x-text="bucket.group ? bucket.group.name : t('hosts_extra_groups.ungrouped_label')"></span>
-              <span x-show="bucket.group" class="text-[10.5px] text-[var(--text-faint)] mono"
-                    x-text="'[' + bucket.group.range_start + '–' + bucket.group.range_end + ']'"></span>
-              <span x-show="bucket.group && bucket.group.ip_range" class="text-[10.5px] text-[var(--text-faint)] mono"
-                    x-text="'· ' + (bucket.group && bucket.group.ip_range)"></span>
+              <span x-show="bucket.group" class="pill pill-info text-[10px] mono"
+                    x-text="'#' + bucket.group.range_start + '–' + bucket.group.range_end"></span>
+              <span x-show="bucket.group && bucket.group.ip_range" class="pill pill-info text-[10px] mono"
+                    x-text="bucket.group && bucket.group.ip_range"></span>
               <span class="text-[10.5px] text-[var(--text-faint)] ms-auto"
                     x-text="bucket.hosts.length === 1 ? t('hosts_extra_groups.count_one', {count: bucket.hosts.length}) : t('hosts_extra_groups.count_many', {count: bucket.hosts.length})"></span>
             </div>
@@ -1159,10 +1159,10 @@
                     <polyline points="9 18 15 12 9 6"/>
                   </svg>
                   <span class="font-semibold text-[11.5px]" x-text="sub.group.name"></span>
-                  <span class="text-[10.5px] text-[var(--text-faint)] mono"
-                        x-text="'[' + sub.group.range_start + '–' + sub.group.range_end + ']'"></span>
-                  <span x-show="sub.group.ip_range" class="text-[10.5px] text-[var(--text-faint)] mono"
-                        x-text="'· ' + sub.group.ip_range"></span>
+                  <span class="pill pill-info text-[10px] mono"
+                        x-text="'#' + sub.group.range_start + '–' + sub.group.range_end"></span>
+                  <span x-show="sub.group.ip_range" class="pill pill-info text-[10px] mono"
+                        x-text="sub.group.ip_range"></span>
                   <span class="text-[10.5px] text-[var(--text-faint)] ms-auto"
                         x-text="sub.hosts.length === 1 ? t('hosts_extra_groups.count_one', {count: sub.hosts.length}) : t('hosts_extra_groups.count_many', {count: sub.hosts.length})"></span>
                 </div>
@@ -1289,8 +1289,10 @@
               </svg>
               <span class="font-semibold text-[12px]"
                     x-text="bucket.group ? bucket.group.name : t('hosts_extra_groups.ungrouped_label')"></span>
-              <span x-show="bucket.group" class="text-[10.5px] text-[var(--text-faint)] mono"
-                    x-text="'[' + bucket.group.range_start + '–' + bucket.group.range_end + ']'"></span>
+              <span x-show="bucket.group" class="pill pill-info text-[10px] mono"
+                    x-text="'#' + bucket.group.range_start + '–' + bucket.group.range_end"></span>
+              <span x-show="bucket.group && bucket.group.ip_range" class="pill pill-info text-[10px] mono"
+                    x-text="bucket.group && bucket.group.ip_range"></span>
               <span class="text-[10.5px] text-[var(--text-faint)] ms-auto"
                     x-text="bucket.hosts.length === 1 ? t('hosts_extra_groups.count_one', {count: bucket.hosts.length}) : t('hosts_extra_groups.count_many', {count: bucket.hosts.length})"></span>
             </div>
@@ -1309,10 +1311,10 @@
                     <polyline points="9 18 15 12 9 6"/>
                   </svg>
                   <span class="font-semibold text-[12px]" x-text="sub.group.name"></span>
-                  <span class="text-[10.5px] text-[var(--text-faint)] mono"
-                        x-text="'[' + sub.group.range_start + '–' + sub.group.range_end + ']'"></span>
-                  <span x-show="sub.group.ip_range" class="text-[10.5px] text-[var(--text-faint)] mono"
-                        x-text="'· ' + sub.group.ip_range"></span>
+                  <span class="pill pill-info text-[10px] mono"
+                        x-text="'#' + sub.group.range_start + '–' + sub.group.range_end"></span>
+                  <span x-show="sub.group.ip_range" class="pill pill-info text-[10px] mono"
+                        x-text="sub.group.ip_range"></span>
                   <span class="text-[10.5px] text-[var(--text-faint)] ms-auto"
                         x-text="sub.hosts.length === 1 ? t('hosts_extra_groups.count_one', {count: sub.hosts.length}) : t('hosts_extra_groups.count_many', {count: sub.hosts.length})"></span>
                 </div>
