@@ -110,11 +110,21 @@ def extract_guest_stats(guest: dict) -> dict:
     uptime = int(_num(guest.get("uptime")))
     host_boot_ts = (time.time() - uptime) if uptime > 0 else None
     cpu_pct = _num(guest.get("cpu")) * 100
-    kind = str(guest.get("type") or "").lower()
-    platform_label = {
-        "lxc":  "Proxmox LXC",
-        "qemu": "Proxmox VM",
-    }.get(kind, "Proxmox guest")
+    # Try every key Pulse versions use for "is this a VM or LXC" —
+    # ``type`` (common), ``kind``, ``vmtype`` (newer). Empty means
+    # unknown and the UI hides the Proxmox row rather than rendering
+    # a placeholder like "GUEST".
+    kind = str(
+        guest.get("type") or guest.get("kind") or guest.get("vmtype") or ""
+    ).lower()
+    # OS hint from Pulse when available — newer guest records carry
+    # ``osName``. Leave ``host_platform`` BLANK so Beszel / node-
+    # exporter's richer, OS-level value wins during _merge_best
+    # ("debian" instead of "Proxmox guest"). The Proxmox-specific
+    # type (LXC / VM / #vmid / on-node) lives in the separate
+    # ``pulse_*`` fields and renders as its own row in the SYSTEM
+    # card, so nothing is lost.
+    os_hint = str(guest.get("osName") or guest.get("os") or "").strip()
     return {
         "host_mem_total":    int(mem_max),
         "host_mem_used":     int(mem),
@@ -128,14 +138,23 @@ def extract_guest_stats(guest: dict) -> dict:
         "host_mem_percent":  (mem / mem_max * 100) if mem_max > 0 else 0,
         "host_disk_percent": (disk / disk_max * 100) if disk_max > 0 else 0,
         "host_cores":        int(_num(guest.get("maxcpu"))),
-        "host_platform":     platform_label,
+        # Leave platform empty — Beszel's ``info.p`` / node-exporter's
+        # ``node_uname_info`` will fill it with the OS-level platform.
+        "host_platform":     "",
         "host_agent":        "",
         "host_kernel":       "",
         "host_arch":         "",
+        # host_os: only the Pulse guest's osName (when present) as a
+        # best-effort hint for Beszel-less hosts; Beszel's real value
+        # still wins via _merge_best when both providers match.
+        "host_os":           os_hint,
         "mounts":            [],
         "exporter_error":    None,
         "pulse_status":      str(guest.get("status") or "unknown"),
-        "pulse_kind":        kind or "guest",
+        # Empty when we can't determine kind — template's ``x-if``
+        # hides the Proxmox row in that case so we never show a
+        # placeholder like "GUEST" next to "Proxmox".
+        "pulse_kind":        kind,
         "pulse_vmid":        int(_num(guest.get("vmid"))),
         "pulse_node":        str(guest.get("node") or ""),
     }

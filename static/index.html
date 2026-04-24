@@ -1178,10 +1178,13 @@
                     </template>
                     <template x-if="h.pulse_kind">
                       <dd class="mono text-end">
-                        <span x-text="h.pulse_kind === 'lxc' ? 'LXC' : h.pulse_kind === 'qemu' ? 'VM' : (h.pulse_kind || '').toUpperCase()"></span>
+                        <span x-text="h.pulse_kind === 'lxc' ? 'LXC'
+                                     : h.pulse_kind === 'qemu' ? 'VM'
+                                     : h.pulse_kind === 'node' ? 'Hypervisor'
+                                     : (h.pulse_kind || '').toUpperCase()"></span>
                         <span x-show="h.pulse_vmid" class="text-[var(--text-faint)]"
                               x-text="' #' + h.pulse_vmid"></span>
-                        <span x-show="h.pulse_node" class="text-[var(--text-faint)]"
+                        <span x-show="h.pulse_node && h.pulse_kind !== 'node'" class="text-[var(--text-faint)]"
                               x-text="' · on ' + h.pulse_node"></span>
                       </dd>
                     </template>
@@ -2848,7 +2851,7 @@
                   <input type="url" x-model="row.ne_url" :disabled="isReadonly()"
                          @input="markHostRowDirty(idx)"
                          class="w-full mono text-[12.5px] py-1.5"
-                         placeholder="http://192.168.1.30:9100/metrics">
+                         placeholder="http://10.0.0.1:9100/metrics">
                 </div>
                 <div>
                   <label class="block text-[10.5px] uppercase tracking-wider text-[var(--text-faint)] mb-1">

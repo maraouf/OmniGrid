@@ -3117,9 +3117,23 @@ function app() {
     hostIconUrl(h) {
       if (!h) return '';
       if (h.icon) {
-        // Normalise: bare slug → absolute /img/icons/<slug>.svg
+        // Normalise: bare slug → absolute /img/icons/<slug>.svg.
+        // Slug aliases cover the common "wrong name" cases where the
+        // icon file is stored under a different slug than the brand's
+        // common name (e.g. "adguard" → adguard-home.svg).
         if (/^https?:/i.test(h.icon) || h.icon.startsWith('/')) return h.icon;
-        return '/img/icons/' + h.icon + '.svg';
+        const aliases = {
+          'adguard':        'adguard-home',
+          'ad-guard':       'adguard-home',
+          'npm':            'nginx-proxy-manager',
+          'nginxproxymanager': 'nginx-proxy-manager',
+          'homeassistant':  'home-assistant',
+          'pihole':         'pi-hole',
+          'k8s':            'kubernetes',
+          'pve':            'proxmox',
+        };
+        const slug = aliases[h.icon.toLowerCase()] || h.icon;
+        return '/img/icons/' + slug + '.svg';
       }
       // Step 2 — exact-slug match on any field.
       const candidates = [
