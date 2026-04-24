@@ -156,6 +156,7 @@ function app() {
       client_secret: '', scope: '',
       lifetime_token: '',
       service: '', action: '',
+      min_value: '', max_value: '',
     },
     assetStatus: null,
     assetTestResult: null,
@@ -2457,6 +2458,8 @@ function app() {
             lifetime_token: '',  // write-only — never prefill
             service:        this.assetStatus.service || '',
             action:         this.assetStatus.action  || '',
+            min_value:      (this.assetStatus.min_value != null) ? String(this.assetStatus.min_value) : '',
+            max_value:      (this.assetStatus.max_value != null) ? String(this.assetStatus.max_value) : '',
           };
         }
       } catch (e) { console.error(e); }
@@ -4951,6 +4954,8 @@ function app() {
         asset_inventory_scope:     (this.assetForm.scope || '').trim(),
         asset_inventory_service:   (this.assetForm.service || '').trim(),
         asset_inventory_action:    (this.assetForm.action || '').trim(),
+        asset_inventory_min_value: String(this.assetForm.min_value ?? '').trim(),
+        asset_inventory_max_value: String(this.assetForm.max_value ?? '').trim(),
       };
       if (this.assetForm.client_secret && this.assetForm.client_secret.trim()) {
         body.asset_inventory_client_secret = this.assetForm.client_secret;
@@ -5034,6 +5039,8 @@ function app() {
         body.lifetime_token = this.assetForm.lifetime_token || '';
         body.service        = (this.assetForm.service || '').trim();
         body.action         = (this.assetForm.action  || '').trim();
+        body.min_value      = String(this.assetForm.min_value ?? '').trim();
+        body.max_value      = String(this.assetForm.max_value ?? '').trim();
       } else {
         body.token_url     = (this.assetForm.token_url || '').trim();
         body.client_id     = (this.assetForm.client_id || '').trim();

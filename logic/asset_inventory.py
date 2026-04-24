@@ -222,74 +222,216 @@ async def fetch_assets(
     return {"ok": True, "assets": assets, "error": ""}
 
 
-async def fetch_assets_lifetime_token(
+_PAGE_SIZE = 50   # ASSET_SERVICES_DATABASE_RECORDS_LIMITS default (see oufa.co API guide §4.1.3)
+_ERR_NO_RECORDS = "1686"  # ERROR_1686 "no matching records" — tolerated as empty batch
+
+
+def _extract_assets_from_payload(payload: Any) -> list:
+    """Pull a list of assets out of the upstream JSON response.
+
+    oufa.co's response envelope puts the data under an action-specific
+    key (``asset`` for single-row, ``assets`` for list; see §5 of the
+    API guide — "<payload-key>: { … } varies per action"). We accept
+    every shape we've seen plus a few defensive fallbacks so new
+    actions the operator may call don't need a code change just to
+    surface their result.
+    """
+    if isinstance(payload, list):
+        return payload
+    if isinstance(payload, dict):
+        for k in ("assets", "records", "data", "items", "results", "services"):
+            v = payload.get(k)
+            if isinstance(v, list):
+                return v
+        # Single-row actions (get_asset_by_id / get_asset_by_custom_number)
+        # return a dict under `asset` — wrap it so callers get a 1-item list.
+        single = payload.get("asset")
+        if isinstance(single, dict):
+            return [single]
+    return []
+
+
+async def _post_oufa(
     endpoint_url: str,
     token: str,
-    service: str = "",
-    action: str = "",
-    verify_tls: bool = True,
-    timeout: float = 15.0,
+    body: dict,
+    verify_tls: bool,
+    timeout: float,
 ) -> dict:
-    """Fetch the asset list via the lifetime-token auth flavour.
+    """Low-level: one POST to services.php, envelope-aware.
 
-    POST form-encoded to ``endpoint_url`` (full URL — already includes
-    the list path) with ``X-Authorization: Bearer <token>``. oufa.co's
-    services.php routes by two mandatory form params: ``service`` and
-    ``action`` (e.g. ``service=scheduler&action=run_schedule``) — the
-    endpoint returns ``Ex3537`` without ``service`` and will similarly
-    reject requests lacking ``action``. Operator configures the pair
-    in Admin → Asset inventory.
-
-    Returns the same ``{"ok", "assets", "error"}`` shape as
-    :func:`fetch_assets` so callers can treat both flavours uniformly.
-    Accepts the same set of response shapes as :func:`fetch_assets`:
-    top-level list, or object with ``assets`` / ``data`` / ``items``
-    / ``results`` / ``services`` keys. The extra ``services`` alias is
-    deliberate — this is the only extractor that hits
-    ``services.php``, so the obvious upstream key name is worth
-    accepting.
+    Returns ``{"ok": bool, "assets": list, "error": str, "code": str,
+    "reference_id": str}``. Callers decide what to do with ``code`` —
+    ``fetch_assets_lifetime_token`` tolerates ``1686`` (no matching
+    records) during pagination, for example.
     """
-    if not endpoint_url or not token:
-        return {"ok": False, "assets": [],
-                "error": "missing endpoint_url / token"}
     headers = {
         "X-Authorization": f"Bearer {token}",
         "Content-Type": "application/x-www-form-urlencoded",
         "Accept": "application/json",
     }
-    # Both routing params are forwarded when set; blank values fall
-    # through so upstream's specific error code (Ex3537 for missing
-    # service, etc.) reaches the operator instead of being masked
-    # by a client-side reject.
-    body: dict[str, str] = {}
-    if service:
-        body["service"] = service
-    if action:
-        body["action"] = action
     try:
         async with httpx.AsyncClient(verify=verify_tls, timeout=timeout) as client:
             r = await client.post(endpoint_url, data=body, headers=headers)
-        if r.status_code == 401:
-            return {"ok": False, "assets": [],
-                    "error": "lifetime token rejected (401)"}
-        if r.status_code >= 400:
-            return {"ok": False, "assets": [],
-                    "error": f"asset list HTTP {r.status_code}: {r.text[:200]}"}
-        payload = r.json()
-    except ValueError as e:
-        return {"ok": False, "assets": [],
-                "error": f"asset list returned non-JSON: {e}"}
     except Exception as e:
-        return {"ok": False, "assets": [], "error": f"{type(e).__name__}: {e}"}
-    assets: list = []
-    if isinstance(payload, list):
-        assets = payload
-    elif isinstance(payload, dict):
-        for k in ("assets", "data", "items", "results", "services"):
-            if isinstance(payload.get(k), list):
-                assets = payload[k]
-                break
-    return {"ok": True, "assets": assets, "error": ""}
+        return {"ok": False, "assets": [], "error": f"{type(e).__name__}: {e}",
+                "code": "", "reference_id": ""}
+
+    # Try to parse JSON eagerly so we can pull reference_id / details
+    # off a failure response too.
+    try:
+        parsed = r.json()
+    except ValueError:
+        parsed = None
+    ref_id = str((parsed or {}).get("reference_id") or "") if isinstance(parsed, dict) else ""
+    if ref_id:
+        print(f"[asset_inventory] reference_id={ref_id} status={r.status_code} "
+              f"body={body!r}")
+
+    # HTTP-level failures first — 401 = token dead, 403 = scope denied,
+    # 4xx/5xx = everything else. Surface the envelope's details+code
+    # when present since it's more actionable than the raw body preview.
+    if r.status_code == 401:
+        return {"ok": False, "assets": [],
+                "error": "lifetime token rejected (401) — mint a new one under the right scope",
+                "code": str((parsed or {}).get("code") or "") if isinstance(parsed, dict) else "",
+                "reference_id": ref_id}
+    if r.status_code == 403:
+        details = str((parsed or {}).get("details") or "").strip() if isinstance(parsed, dict) else ""
+        code = str((parsed or {}).get("code") or "").strip() if isinstance(parsed, dict) else ""
+        return {"ok": False, "assets": [],
+                "error": (f"scope denied (403) — token lacks the required scope. "
+                          f"{details or ''}"
+                          + (f" [Ex{code}]" if code else "")).strip(),
+                "code": code, "reference_id": ref_id}
+    if r.status_code >= 400:
+        details = str((parsed or {}).get("details") or "").strip() if isinstance(parsed, dict) else ""
+        code = str((parsed or {}).get("code") or "").strip() if isinstance(parsed, dict) else ""
+        if details or code:
+            return {"ok": False, "assets": [],
+                    "error": f"HTTP {r.status_code}: {details or '(no details)'} "
+                             + (f"[Ex{code}]" if code else ""),
+                    "code": code, "reference_id": ref_id}
+        return {"ok": False, "assets": [],
+                "error": f"HTTP {r.status_code}: {r.text[:200]}",
+                "code": "", "reference_id": ref_id}
+
+    if parsed is None:
+        return {"ok": False, "assets": [],
+                "error": f"response not JSON: {r.text[:200]}",
+                "code": "", "reference_id": ref_id}
+
+    # 200 OK but the envelope may still report failure. `return` codes:
+    # 0 = Failure, 1 = Success, 2 = Processing, 3 = Stalled. Treat
+    # anything other than 1 as not-yet-useful for a cache refresh.
+    if isinstance(parsed, dict) and "return" in parsed:
+        ret_code = parsed.get("return")
+        if ret_code == 0 or ret_code == "0":
+            details = str(parsed.get("details") or parsed.get("message") or "").strip()
+            code = str(parsed.get("code") or "").strip()
+            return {"ok": False, "assets": [],
+                    "error": (details or "upstream reported failure")
+                             + (f" [Ex{code}]" if code else ""),
+                    "code": code, "reference_id": ref_id}
+        if ret_code not in (1, "1"):
+            # `return: 2` (Processing) or `return: 3` (Stalled) — no data yet.
+            return {"ok": False, "assets": [],
+                    "error": f"upstream return={ret_code} — "
+                             f"{parsed.get('message') or '(no message)'}",
+                    "code": str(parsed.get("code") or ""), "reference_id": ref_id}
+
+    return {"ok": True, "assets": _extract_assets_from_payload(parsed),
+            "error": "", "code": "", "reference_id": ref_id}
+
+
+async def fetch_assets_lifetime_token(
+    endpoint_url: str,
+    token: str,
+    service: str = "",
+    action: str = "",
+    min_value: Optional[int] = None,
+    max_value: Optional[int] = None,
+    verify_tls: bool = True,
+    timeout: float = 15.0,
+) -> dict:
+    """Fetch assets via oufa.co's lifetime-token auth flavour.
+
+    POST form-encoded to ``endpoint_url`` (full URL — already includes
+    the list path) with ``X-Authorization: Bearer <token>`` plus two
+    required routing params (``service`` / ``action``) and, when the
+    action is a range query, ``min_value`` / ``max_value``. Operator
+    configures all four from Admin → Asset inventory — OmniGrid does
+    NOT hardcode any combination.
+
+    Pagination: when ``action == 'get_assets_custom_number_range'``
+    AND both bounds are supplied, the fetch is split into windows of
+    ``_PAGE_SIZE`` (50, matching the server's documented default cap)
+    and the results concatenated. Empty windows — the server returns
+    ``ERROR_1686`` ("no matching records") for a gap in the custom-number
+    range — are tolerated; other errors bail the whole batch.
+
+    Returns ``{"ok", "assets", "error"}``. Envelope parsing is in
+    :func:`_post_oufa` — see §5 of the oufa.co API guide for the full
+    contract: ``return == 1`` is success, 0 is failure (with
+    ``details`` + ``code`` + ``reference_id``), 2/3 are the
+    Processing/Stalled states.
+    """
+    if not endpoint_url or not token:
+        return {"ok": False, "assets": [],
+                "error": "missing endpoint_url / token"}
+
+    # Shared base body — service/action are always forwarded when set so
+    # upstream's specific error code (Ex3537 for missing service, etc.)
+    # reaches the operator unmasked by a client-side reject.
+    base: dict[str, str] = {}
+    if service:
+        base["service"] = service
+    if action:
+        base["action"] = action
+
+    do_paginate = (
+        action == "get_assets_custom_number_range"
+        and min_value is not None
+        and max_value is not None
+    )
+    if not do_paginate:
+        body = dict(base)
+        if min_value is not None:
+            body["min_value"] = str(int(min_value))
+        if max_value is not None:
+            body["max_value"] = str(int(max_value))
+        return {k: v for k, v in (await _post_oufa(
+            endpoint_url, token, body, verify_tls, timeout,
+        )).items() if k in ("ok", "assets", "error")}
+
+    # Pagination: walk [lo, hi] in _PAGE_SIZE-sized windows. We don't
+    # rely on the upstream to advertise its limit — the guide pins it
+    # at 50 by default, tenants can tune it server-side, but batching
+    # with 50 is always safe (smaller pages are never an error).
+    lo = int(min_value)
+    hi = int(max_value)
+    if lo > hi:
+        return {"ok": False, "assets": [],
+                "error": f"min_value ({lo}) > max_value ({hi})"}
+    all_assets: list = []
+    cursor = lo
+    while cursor <= hi:
+        win_hi = min(cursor + _PAGE_SIZE - 1, hi)
+        body = dict(base)
+        body["min_value"] = str(cursor)
+        body["max_value"] = str(win_hi)
+        res = await _post_oufa(endpoint_url, token, body, verify_tls, timeout)
+        if not res["ok"]:
+            # Tolerate "no matching records" in a window — gaps in the
+            # CN range are the norm (deleted assets leave holes).
+            if str(res.get("code") or "") == _ERR_NO_RECORDS:
+                cursor = win_hi + 1
+                continue
+            return {"ok": False, "assets": [],
+                    "error": (f"batch {cursor}-{win_hi}: " + res["error"]).strip()}
+        all_assets.extend(res["assets"])
+        cursor = win_hi + 1
+    return {"ok": True, "assets": all_assets, "error": ""}
 
 
 def load_cache(cache_path: str = DEFAULT_CACHE_PATH) -> dict:
@@ -382,6 +524,8 @@ async def refresh_cache(
     lifetime_token: str = "",
     service: str = "",
     action: str = "",
+    min_value: Optional[int] = None,
+    max_value: Optional[int] = None,
 ) -> dict:
     """Compose auth + fetch + save_cache into a single refresh call.
 
@@ -414,7 +558,9 @@ async def refresh_cache(
         )
         fetch_result = await fetch_assets_lifetime_token(
             endpoint, lifetime_token,
-            service=service, action=action, verify_tls=verify_tls,
+            service=service, action=action,
+            min_value=min_value, max_value=max_value,
+            verify_tls=verify_tls,
         )
         if not fetch_result.get("ok"):
             return {

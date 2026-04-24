@@ -863,6 +863,13 @@ class SettingsIn(BaseModel):
     # credentials.
     asset_inventory_service: Optional[str] = None
     asset_inventory_action: Optional[str] = None
+    # Range bounds for the `get_assets_custom_number_range` action.
+    # String-typed so "" can round-trip as "clear the bound"; field
+    # omitted means "don't touch". Pagination kicks in when both are
+    # supplied AND the action matches — see
+    # logic.asset_inventory.fetch_assets_lifetime_token.
+    asset_inventory_min_value: Optional[str] = None
+    asset_inventory_max_value: Optional[str] = None
     # -----------------------------------------------------------------
     # SSH console — admin-only remote command runner wired into the
     # host drawer. Global defaults; per-host overrides live in
@@ -934,6 +941,10 @@ async def api_get_settings(request: Request):
             "lifetime_token_set": bool(get_setting("asset_inventory_lifetime_token", "")),
             "service":            get_setting("asset_inventory_service", "") or "",
             "action":             get_setting("asset_inventory_action", "") or "",
+            "min_value":          (lambda v: int(v) if (v or "").strip().lstrip("-").isdigit() else None)(
+                                     get_setting("asset_inventory_min_value", "")),
+            "max_value":          (lambda v: int(v) if (v or "").strip().lstrip("-").isdigit() else None)(
+                                     get_setting("asset_inventory_max_value", "")),
         },
         "portainer_public_url": get_setting("portainer_public_url", str(p.get("portainer_url") or "")),
         "backup_retention_count": int(get_setting("backup_retention_count", "0") or "0"),
@@ -1353,6 +1364,20 @@ async def api_set_settings(
     if s.asset_inventory_action is not None:
         set_setting("asset_inventory_action",
                     (s.asset_inventory_action or "").strip())
+    if s.asset_inventory_min_value is not None:
+        # Blank = clear; non-blank = parse as int. Anything malformed
+        # falls back to clear so a typo doesn't poison the setting.
+        v = (s.asset_inventory_min_value or "").strip()
+        try:
+            set_setting("asset_inventory_min_value", str(int(v)) if v else "")
+        except ValueError:
+            set_setting("asset_inventory_min_value", "")
+    if s.asset_inventory_max_value is not None:
+        v = (s.asset_inventory_max_value or "").strip()
+        try:
+            set_setting("asset_inventory_max_value", str(int(v)) if v else "")
+        except ValueError:
+            set_setting("asset_inventory_max_value", "")
 
     _cache["ts"] = 0  # force the next gather to re-read alias settings
 
@@ -1659,13 +1684,28 @@ async def api_asset_inventory_test(
             or (get_setting("asset_inventory_service", "") or "").strip()
         action = (body.get("action") or "").strip() \
             or (get_setting("asset_inventory_action", "") or "").strip()
+
+        def _bound(from_body, setting_key):
+            raw = from_body
+            if raw is None or str(raw).strip() == "":
+                raw = get_setting(setting_key, "") or ""
+            s = str(raw).strip()
+            try:
+                return int(s) if s else None
+            except ValueError:
+                return None
+        min_value = _bound(body.get("min_value"), "asset_inventory_min_value")
+        max_value = _bound(body.get("max_value"), "asset_inventory_max_value")
+
         if not base_url or not lifetime_token:
             return {"ok": False,
                     "detail": "base_url and lifetime_token are both required"}
         endpoint = base_url.rstrip("/") + _ai.DEFAULT_LIFETIME_LIST_PATH
         result = await _ai.fetch_assets_lifetime_token(
             endpoint, lifetime_token,
-            service=service, action=action, verify_tls=True,
+            service=service, action=action,
+            min_value=min_value, max_value=max_value,
+            verify_tls=True,
         )
         if result.get("ok"):
             count = len(result.get("assets") or [])
@@ -1716,6 +1756,16 @@ async def api_asset_inventory_refresh(
         lifetime_token = get_setting("asset_inventory_lifetime_token", "") or ""
         service = (get_setting("asset_inventory_service", "") or "").strip()
         action = (get_setting("asset_inventory_action", "") or "").strip()
+        min_raw = (get_setting("asset_inventory_min_value", "") or "").strip()
+        max_raw = (get_setting("asset_inventory_max_value", "") or "").strip()
+        try:
+            min_value = int(min_raw) if min_raw else None
+        except ValueError:
+            min_value = None
+        try:
+            max_value = int(max_raw) if max_raw else None
+        except ValueError:
+            max_value = None
         if not base_url or not lifetime_token:
             return {"ok": False, "count": 0, "ts": 0,
                     "error": "asset_inventory base_url and lifetime_token are required "
@@ -1727,6 +1777,8 @@ async def api_asset_inventory_refresh(
             lifetime_token=lifetime_token,
             service=service,
             action=action,
+            min_value=min_value,
+            max_value=max_value,
         )
     token_url = (get_setting("asset_inventory_token_url", "") or "").strip()
     client_id = (get_setting("asset_inventory_client_id", "") or "").strip()

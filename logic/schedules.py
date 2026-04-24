@@ -912,6 +912,16 @@ async def _run_asset_inventory_refresh(
                 lifetime_token = get_setting("asset_inventory_lifetime_token", "") or ""
                 service = (get_setting("asset_inventory_service", "") or "").strip()
                 action = (get_setting("asset_inventory_action", "") or "").strip()
+                min_raw = (get_setting("asset_inventory_min_value", "") or "").strip()
+                max_raw = (get_setting("asset_inventory_max_value", "") or "").strip()
+                try:
+                    min_value = int(min_raw) if min_raw else None
+                except ValueError:
+                    min_value = None
+                try:
+                    max_value = int(max_raw) if max_raw else None
+                except ValueError:
+                    max_value = None
                 if not base_url or not lifetime_token:
                     raise RuntimeError(
                         "asset_inventory base_url and lifetime_token are required "
@@ -924,6 +934,8 @@ async def _run_asset_inventory_refresh(
                     lifetime_token=lifetime_token,
                     service=service,
                     action=action,
+                    min_value=min_value,
+                    max_value=max_value,
                 )
             else:
                 token_url = (get_setting("asset_inventory_token_url", "") or "").strip()
