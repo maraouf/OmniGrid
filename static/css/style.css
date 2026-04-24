@@ -872,6 +872,44 @@ details summary::-webkit-details-marker {
     color: var(--danger);
 }
 
+/* "Collecting data…" placeholder shown where a sparkline or chart
+   will appear once enough samples have landed. Inline variant (sits
+   next to stat bars) uses `.collecting-inline`; the block variant
+   (`.collecting-block`) is for bigger chart slots like the Hosts tab
+   expanded panel. Both share the same italic + muted look. */
+.collecting-inline {
+    display: block;
+    width: 100%;
+    max-width: 80px;
+    margin-top: var(--s-1);
+    font-size: 9.5px;
+    line-height: 1;
+    color: var(--text-faint);
+    font-style: italic;
+    letter-spacing: 0.2px;
+}
+
+.collecting-block {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: var(--s-2);
+    min-height: 140px;
+    border: 1px dashed var(--border);
+    border-radius: var(--r-md);
+    background: var(--surface-2);
+    color: var(--text-faint);
+    font-size: 12.5px;
+    font-style: italic;
+}
+
+.collecting-block svg {
+    width: 18px;
+    height: 18px;
+    opacity: 0.7;
+    animation: spin 2.4s linear infinite;
+}
+
 .spark.muted {
     color: var(--text-faint);
 }
