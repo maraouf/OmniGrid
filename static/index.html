@@ -3421,9 +3421,23 @@
           </p>
         </div>
 
-        <button x-show="isAdmin()" @click="saveHostStats()"
-                class="btn btn-primary text-[12px] mt-4"
-                x-text="t('actions.save')"></button>
+        <!-- Save + unsaved-changes indicator. Same visual treatment as
+             the Admin → Hosts editor so the two match: amber ring on
+             the Save button when dirty, animated amber dot + label
+             next to it. `hostStatsDirty()` compares the live settings
+             against a baseline captured on loadSettings / save. -->
+        <div class="mt-4 flex items-center gap-3 flex-wrap">
+          <button x-show="isAdmin()" @click="saveHostStats()"
+                  :class="hostStatsDirty() ? 'ring-2 ring-[var(--warning)]' : ''"
+                  class="btn btn-primary text-[12px]"
+                  x-text="t('actions.save')"></button>
+          <span x-show="hostStatsDirty()"
+                class="text-[11.5px] text-[var(--warning)] flex items-center gap-1.5"
+                title="You have unsaved changes in Host stats settings.">
+            <span class="w-1.5 h-1.5 rounded-full bg-[var(--warning)] animate-pulse"></span>
+            Unsaved changes
+          </span>
+        </div>
       </section>
 
       <!-- HOSTS TAB — curated host list editor. Cards instead of a

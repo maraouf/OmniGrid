@@ -76,6 +76,69 @@ def _arm_cooldown(base_url: str, user: str) -> None:
     )
 
 
+async def _session_login(
+    client: httpx.AsyncClient,
+    base_url: str,
+    user: str,
+    password: str,
+) -> bool:
+    """POST Webmin's ``/session_login.cgi`` to establish a session cookie.
+
+    Out of the box, Miniserv requires a cookie-based session and
+    redirects Authorization-header callers to an HTML login page. This
+    helper logs in via the session endpoint and — on success — leaves
+    a ``sid=`` cookie on the httpx client that subsequent XML fetches
+    will carry automatically. Avoids requiring operators to set
+    ``no_session=1`` in ``/etc/webmin/miniserv.conf`` on every host.
+
+    Returns True when a non-placeholder ``sid`` cookie is present
+    after the POST. False on any failure; caller can fall back to
+    Basic auth which works for installs with ``no_session=1``.
+
+    Webmin's sid cookie defaults to ~1 hour of validity; we're using
+    the client-scoped cookie jar so the session lives only for the
+    duration of this probe (four parallel XML fetches). A future
+    optimisation could cache the cookie across probes — skipping it
+    here keeps the state model trivial.
+    """
+    url = base_url.rstrip("/") + "/session_login.cgi"
+    try:
+        r = await client.post(
+            url,
+            data={"user": user, "pass": password, "save": "1"},
+            headers={
+                "Content-Type": "application/x-www-form-urlencoded",
+                # Some Webmin versions enforce a Referer check on login
+                # POSTs; setting it to the host's own URL satisfies the
+                # check without leaking our own hostname.
+                "Referer": base_url.rstrip("/") + "/",
+            },
+        )
+    except Exception as e:
+        print(f"[webmin] session_login failed: {e}")
+        return False
+
+    # Webmin sets cookies under various names across versions (``sid``,
+    # ``sessid``, sometimes ``webmin``); accept any that isn't the "x"
+    # logout placeholder. Case-insensitive because some proxies lowercase
+    # cookie names en route.
+    for name, value in (client.cookies or {}).items():
+        lname = (name or "").lower()
+        if lname in ("sid", "sessid", "webmin") and value and value.lower() not in ("", "x"):
+            return True
+
+    # Some builds redirect on success and set the cookie on the landing
+    # response; httpx follow_redirects=True aggregates cookies, but the
+    # server may also return 200 with a fresh login page on failure.
+    # Detect the login form body to give the caller a clean False.
+    body = (r.text or "").lstrip().lower()
+    if body.startswith("<!doctype") or body.startswith("<html"):
+        # Still on the login page — credentials rejected OR login form
+        # wasn't found at this path (some reverse-proxied setups).
+        return False
+    return False
+
+
 def _num(v) -> float:
     try:
         return float(v)
@@ -538,12 +601,22 @@ async def probe_webmin(
         "net":             "/net/?xml=1",
     }
     try:
+        # Two-stage auth: session-login first (default Miniserv behaviour),
+        # then Basic auth as fallback for hosts with no_session=1. The
+        # client starts WITHOUT Authorization so the /session_login.cgi
+        # POST isn't short-circuited by a Basic header Miniserv doesn't
+        # accept for the login endpoint itself.
         async with httpx.AsyncClient(
-            auth=(user, password),
             verify=verify_tls,
             timeout=timeout,
             follow_redirects=True,
         ) as client:
+            logged_in = await _session_login(client, base, user, password)
+            if not logged_in:
+                # Fallback — operators with no_session=1 have functional
+                # Basic auth. Attach and proceed; _fetch_xml still
+                # reports the "got HTML" signal cleanly if that fails too.
+                client.auth = httpx.BasicAuth(user, password)
             results = await asyncio.gather(*(
                 _fetch_xml(client, base, p, user) for p in paths.values()
             ), return_exceptions=False)

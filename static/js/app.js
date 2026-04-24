@@ -150,6 +150,12 @@ function app() {
     cacheLabel: '',
     settings: { apprise_url: '', apprise_tag: '', portainer_public_url: '' },
     schedulerSaving: false,
+    // Baseline snapshot of the host-stats settings at the last
+    // successful load or save. Compared against the live form to
+    // derive a "dirty" boolean for the Save button's visual
+    // treatment. Captured in loadSettings + after successful
+    // saveHostStats so the indicator clears correctly.
+    _hostStatsBaseline: '',
     // User-menu dropdown (top-right avatar button)
     userMenuOpen: false,
     // Password change form (lives in the Profile settings section now, not a modal)
@@ -1265,6 +1271,33 @@ function app() {
         : 'none';
     },
 
+    // Serialise just the host-stats-related subset of settings to a
+    // stable string. Used by _hostStatsBaseline and hostStatsDirty()
+    // to detect unsaved edits. Password / token fields are always
+    // "" on the live form (write-only on the wire), so any typed
+    // value naturally marks the form dirty.
+    _hostStatsSnapshot() {
+      const s = this.settings || {};
+      const pick = [
+        'host_stats_source',
+        'node_exporter_enabled', 'node_exporter_url_template',
+        'node_exporter_overrides_json',
+        'beszel_hub_url', 'beszel_identity', 'beszel_password',
+        'beszel_verify_tls',
+        'pulse_url', 'pulse_token', 'pulse_verify_tls',
+        'webmin_url', 'webmin_user', 'webmin_password',
+        'webmin_verify_tls',
+      ];
+      const subset = {};
+      for (const k of pick) subset[k] = s[k];
+      try { return JSON.stringify(subset); } catch { return ''; }
+    },
+    // Cheap dirty check — called from the template every render. String
+    // comparison is O(length) which is trivial for the ~15-key subset.
+    hostStatsDirty() {
+      return this._hostStatsBaseline !== this._hostStatsSnapshot();
+    },
+
     async saveHostStats() {
       const raw = this.settings.host_stats_source || 'none';
       const active = new Set(
@@ -1379,6 +1412,9 @@ function app() {
             this.settings.webmin_password_set = true;
             this.settings.webmin_password = '';
           }
+          // Re-capture baseline so the dirty indicator clears now that
+          // the server has the same values we just sent.
+          this._hostStatsBaseline = this._hostStatsSnapshot();
           // Refresh items so the new nodes_info fields land immediately.
           this.refresh(true);
         } else {
@@ -2055,6 +2091,10 @@ function app() {
           // Scheduler — IANA zone. Blank = container-local (legacy).
           scheduler_timezone: d.scheduler_timezone || '',
         };
+        // Capture baseline for the host-stats dirty indicator.
+        // Passwords/tokens are always blank in the live form (write-
+        // only on the wire) so any typed value flips dirty.
+        this._hostStatsBaseline = this._hostStatsSnapshot();
         this.endpointId = d.endpoint_id || 1;
 
         // --- OIDC panel state ---
