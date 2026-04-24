@@ -705,19 +705,20 @@
                     class="pill pill-update text-[10.5px]">
                 <span x-text="node.degraded"></span> degraded
               </span>
-              <!-- Host-stats chip — green when the configured source
-                   (node-exporter OR Beszel) returned data for this
-                   node, red when the probe failed with hoverable
-                   error, hidden when host-stats is globally off. -->
+              <!-- Host-stats chip — green when at least one configured
+                   source (node-exporter / Beszel / Pulse) returned
+                   data for this node. The label shows whichever
+                   sources are active; hidden when all host-stats
+                   sources are off. -->
               <span x-show="nodeStats(node.name).exporterStatus === 'ok'"
                     class="pill pill-ok text-[10.5px]"
-                    :title="'Stats sourced from ' + (nodeStats(node.name).hostStatsSource === 'beszel' ? 'Beszel' : 'node-exporter') + ' for ' + node.name">
-                <span x-text="nodeStats(node.name).hostStatsSource === 'beszel' ? 'beszel' : 'exporter'"></span> ✓
+                    :title="'Stats merged from: ' + nodeProviderList(node.name)">
+                <span x-text="nodeProviderChip(node.name)"></span> ✓
               </span>
               <span x-show="nodeStats(node.name).exporterStatus === 'error'"
                     class="pill pill-error text-[10.5px] cursor-help"
-                    :title="nodeStats(node.name).exporterError || 'Probe failed — falling back to Docker-only signals.'">
-                <span x-text="nodeStats(node.name).hostStatsSource === 'beszel' ? 'beszel' : 'exporter'"></span> ✗
+                    :title="nodeStats(node.name).exporterError || 'All configured host-stats sources failed — falling back to Docker-only signals.'">
+                <span x-text="nodeProviderChip(node.name)"></span> ✗
               </span>
               <span class="text-[11px] text-[var(--text-dim)] mx-1">
                 <span x-text="node.total"></span> total
@@ -2658,27 +2659,35 @@
                 x-text="t('actions.save')"></button>
       </section>
 
-      <!-- HOSTS TAB — curated host list editor. Each row pairs a
-           local host id (the Docker hostname) with per-provider name
-           overrides (node-exporter URL, Beszel host, Pulse node/guest
-           name). /api/hosts merges stats from every enabled provider
-           into one row per host so operators see the best-of every
-           source. -->
+      <!-- HOSTS TAB — curated host list editor. Cards instead of a
+           table so inputs have room to breathe. Each card edits one
+           host: basic row on top (ID / Label / enabled / delete),
+           provider-specific fields expand below in a 3-col grid so
+           each input gets a sensible minimum width. -->
       <section x-show="adminTab==='hosts'" class="bg-[var(--surface)] border border-[var(--border)] rounded-md p-5">
         <div class="flex items-start justify-between gap-3 mb-3">
           <div>
-            <h3 class="font-semibold text-[13px]">Hosts</h3>
-            <p class="text-[11.5px] text-[var(--text-faint)] mt-1 leading-snug">
+            <h3 class="font-semibold text-[14px]">Hosts</h3>
+            <p class="text-[12px] text-[var(--text-faint)] mt-1 leading-snug max-w-[720px]">
               Define the machines you want to monitor and map each to the
               names used by every enabled provider. OmniGrid fetches all
-              providers on every refresh and merges the best values
-              per host — missing fields degrade to what the other
-              providers returned.
+              providers on every refresh and merges the best values per
+              host — missing fields degrade to what the other providers
+              returned.
             </p>
           </div>
-          <button x-show="isAdmin()" @click="loadHostsConfig()"
-                  class="btn btn-ghost text-[12px]"
-                  :disabled="hostsConfigLoading">Reload</button>
+          <div class="flex items-center gap-2 flex-shrink-0">
+            <button x-show="isAdmin()" @click="discoverHosts()"
+                    class="btn btn-ghost text-[12px]"
+                    :disabled="hostsDiscovering"
+                    :title="'Fetch the list of names known to every enabled provider so you can autocomplete the fields below'">
+              <span x-show="!hostsDiscovering">Discover from providers</span>
+              <span x-show="hostsDiscovering" class="flex items-center gap-1"><span class="spin"></span>Fetching…</span>
+            </button>
+            <button x-show="isAdmin()" @click="loadHostsConfig()"
+                    class="btn btn-ghost text-[12px]"
+                    :disabled="hostsConfigLoading">Reload</button>
+          </div>
         </div>
 
         <div x-show="hostsConfigLoading" class="loading-state py-8">
@@ -2686,79 +2695,102 @@
           <span class="ms-2">Loading hosts…</span>
         </div>
 
-        <div x-show="!hostsConfigLoading" class="overflow-x-auto scrollbar">
-          <table class="w-full text-[12px] ptable">
-            <thead>
-              <tr class="text-[10.5px] uppercase tracking-wider text-[var(--text-faint)]">
-                <th class="text-start py-2 pe-3">ID</th>
-                <th class="text-start py-2 pe-3">Label</th>
-                <th class="text-start py-2 pe-3">node-exporter URL</th>
-                <th class="text-start py-2 pe-3">Beszel host</th>
-                <th class="text-start py-2 pe-3">Pulse name</th>
-                <th class="text-center py-2 pe-3">Enabled</th>
-                <th class="text-center py-2"></th>
-              </tr>
-            </thead>
-            <tbody>
-              <template x-for="(row, idx) in hostsConfig" :key="idx">
-                <tr class="border-t border-[var(--border)]">
-                  <td class="py-1.5 pe-3">
-                    <input type="text" x-model="row.id" :disabled="isReadonly()"
-                           class="w-full mono text-[11.5px]"
-                           placeholder="docker-1">
-                  </td>
-                  <td class="py-1.5 pe-3">
-                    <input type="text" x-model="row.label" :disabled="isReadonly()"
-                           class="w-full text-[11.5px]"
-                           placeholder="Docker VM">
-                  </td>
-                  <td class="py-1.5 pe-3">
-                    <input type="url" x-model="row.ne_url" :disabled="isReadonly()"
-                           class="w-full mono text-[11.5px]"
-                           placeholder="http://host:9100/metrics">
-                  </td>
-                  <td class="py-1.5 pe-3">
-                    <input type="text" x-model="row.beszel_name" :disabled="isReadonly()"
-                           class="w-full mono text-[11.5px]"
-                           placeholder="docker.home.lan">
-                  </td>
-                  <td class="py-1.5 pe-3">
-                    <input type="text" x-model="row.pulse_name" :disabled="isReadonly()"
-                           class="w-full mono text-[11.5px]"
-                           placeholder="docker / pve-1">
-                  </td>
-                  <td class="py-1.5 pe-3 text-center">
-                    <input type="checkbox" x-model="row.enabled" :disabled="isReadonly()">
-                  </td>
-                  <td class="py-1.5 text-center">
-                    <button x-show="isAdmin()" @click="removeHostRow(idx)"
-                            class="btn btn-ghost text-[11px] text-danger"
-                            title="Remove this row">✕</button>
-                  </td>
-                </tr>
-              </template>
-              <tr x-show="hostsConfig.length === 0">
-                <td colspan="7" class="text-center py-8 text-[var(--text-faint)] text-[12px] italic">
-                  No hosts configured. Click <strong>Add host</strong> below to define one.
-                </td>
-              </tr>
-            </tbody>
-          </table>
+        <!-- Datalists populated by the Discover endpoint. Inputs
+             reference them by id so the browser renders native
+             autocomplete dropdowns. -->
+        <datalist id="beszel-names">
+          <template x-for="name in hostsDiscovery.beszel" :key="name">
+            <option :value="name"></option>
+          </template>
+        </datalist>
+        <datalist id="pulse-names">
+          <template x-for="name in hostsDiscovery.pulse" :key="name">
+            <option :value="name"></option>
+          </template>
+        </datalist>
+
+        <div x-show="!hostsConfigLoading" class="space-y-3">
+          <template x-for="(row, idx) in hostsConfig" :key="idx">
+            <div class="border border-[var(--border)] rounded-md bg-[var(--surface-2)] p-3 space-y-3">
+              <!-- Row 1 — identity + toggles -->
+              <div class="grid grid-cols-1 md:grid-cols-[1fr_1fr_auto_auto] gap-3 items-end">
+                <div>
+                  <label class="block text-[10.5px] uppercase tracking-wider text-[var(--text-faint)] mb-1">ID · Docker hostname</label>
+                  <input type="text" x-model="row.id" :disabled="isReadonly()"
+                         class="w-full mono text-[13px] py-1.5"
+                         placeholder="e.g. debian13docker">
+                </div>
+                <div>
+                  <label class="block text-[10.5px] uppercase tracking-wider text-[var(--text-faint)] mb-1">Display label</label>
+                  <input type="text" x-model="row.label" :disabled="isReadonly()"
+                         class="w-full text-[13px] py-1.5"
+                         placeholder="e.g. Docker VM">
+                </div>
+                <label class="inline-flex items-center gap-2 text-[12px] text-[var(--text-dim)] pb-1.5">
+                  <input type="checkbox" x-model="row.enabled" :disabled="isReadonly()">
+                  <span>Enabled</span>
+                </label>
+                <button x-show="isAdmin()" @click="removeHostRow(idx)"
+                        class="btn btn-ghost text-[12px] text-danger pb-1.5"
+                        title="Remove this host">Remove</button>
+              </div>
+              <!-- Row 2 — per-provider name mappings -->
+              <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+                <div>
+                  <label class="block text-[10.5px] uppercase tracking-wider text-[var(--text-faint)] mb-1">
+                    node-exporter URL
+                    <span class="text-[10px] normal-case text-[var(--text-faint)] ms-1">(blank = skip)</span>
+                  </label>
+                  <input type="url" x-model="row.ne_url" :disabled="isReadonly()"
+                         class="w-full mono text-[12.5px] py-1.5"
+                         placeholder="http://192.168.1.30:9100/metrics">
+                </div>
+                <div>
+                  <label class="block text-[10.5px] uppercase tracking-wider text-[var(--text-faint)] mb-1">
+                    Beszel host
+                    <span class="text-[10px] normal-case text-[var(--text-faint)] ms-1" x-show="hostsDiscovery.beszel.length">(autocomplete)</span>
+                  </label>
+                  <input type="text" x-model="row.beszel_name" :disabled="isReadonly()"
+                         list="beszel-names"
+                         class="w-full mono text-[12.5px] py-1.5"
+                         placeholder="docker.home.lan">
+                </div>
+                <div>
+                  <label class="block text-[10.5px] uppercase tracking-wider text-[var(--text-faint)] mb-1">
+                    Pulse name
+                    <span class="text-[10px] normal-case text-[var(--text-faint)] ms-1" x-show="hostsDiscovery.pulse.length">(autocomplete)</span>
+                  </label>
+                  <input type="text" x-model="row.pulse_name" :disabled="isReadonly()"
+                         list="pulse-names"
+                         class="w-full mono text-[12.5px] py-1.5"
+                         placeholder="docker · pve-1 · vm-104">
+                </div>
+              </div>
+            </div>
+          </template>
+
+          <div x-show="hostsConfig.length === 0"
+               class="text-center py-12 text-[var(--text-faint)] text-[12.5px] italic rounded-md border border-dashed border-[var(--border)]">
+            No hosts configured yet.<br>
+            Click <strong>+ Add host</strong> below to define one, or
+            <strong>Discover from providers</strong> to pull every name
+            the enabled providers know about.
+          </div>
         </div>
 
-        <div class="flex items-center gap-2 mt-3">
+        <div class="flex items-center gap-2 mt-4 flex-wrap">
           <button x-show="isAdmin()" @click="addHostRow()"
-                  class="btn btn-soft text-[12px]">+ Add host</button>
+                  class="btn btn-soft text-[12.5px]">+ Add host</button>
           <button x-show="isAdmin()" @click="saveHostsConfig()"
-                  class="btn btn-primary text-[12px]"
+                  class="btn btn-primary text-[12.5px]"
                   :disabled="hostsConfigSaving">
-            <span x-show="!hostsConfigSaving">Save</span>
+            <span x-show="!hostsConfigSaving">Save changes</span>
             <span x-show="hostsConfigSaving" class="flex items-center gap-1"><span class="spin"></span>Saving…</span>
           </button>
-          <span class="text-[11px] text-[var(--text-faint)] ms-2">
-            Tip: leave fields blank when a provider doesn't know this
-            host — the row still works from whatever other providers
-            match.
+          <span class="text-[11.5px] text-[var(--text-faint)] ms-2">
+            Leave any provider field blank when that provider doesn't
+            know this host — the row still populates from whatever else
+            matches.
           </span>
         </div>
       </section>

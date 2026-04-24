@@ -64,6 +64,11 @@ function app() {
     hostsConfig: [],
     hostsConfigLoading: false,
     hostsConfigSaving: false,
+    // Datalist-backed autocomplete source for the Hosts editor.
+    // Filled by discoverHosts() on demand; stays empty until the
+    // operator asks.
+    hostsDiscovery: { beszel: [], pulse: [] },
+    hostsDiscovering: false,
     // Per-system time-series cache keyed by Beszel record id.
     // Shape: { [system_id]: { loading, error, series: [{t,cpu,mp,dp,b,...}] } }
     hostHistory: {},
@@ -2438,7 +2443,11 @@ function app() {
       // covers both node-exporter and Beszel now.
       const source = (this.settings && this.settings.host_stats_source)
         || (this.settings && this.settings.node_exporter_enabled ? 'node_exporter' : 'none');
-      const hostStatsEnabled = source === 'node_exporter' || source === 'beszel';
+      // CSV of active providers — accepts single legacy values too.
+      const sourceSet = new Set(
+        (source || '').split(',').map(s => s.trim()).filter(s => s && s !== 'none'),
+      );
+      const hostStatsEnabled = sourceSet.size > 0;
       let exporterStatus = 'disabled';
       if (info.exporter_error) exporterStatus = 'error';
       else if (hostStatsEnabled && (hostMemTotal > 0 || Number.isFinite(info.host_boot_ts) || (info.mounts && info.mounts.length))) exporterStatus = 'ok';
@@ -2456,8 +2465,27 @@ function app() {
         hasHostStats: hostDiskTotal > 0 || hostMemTotal > 0,
         exporterStatus,
         exporterError: info.exporter_error || null,
-        hostStatsSource: source,        // 'none' | 'node_exporter' | 'beszel'
+        hostStatsSource: source,             // CSV string, legacy callers
+        hostStatsSources: [...sourceSet],     // array form for new callers
       };
+    },
+    // Label for the green/red chip on a node row — "3 sources" when
+    // multiple are active, else the single provider name. Keeps the
+    // header compact when the operator enabled everything.
+    nodeProviderChip(host) {
+      const st = this.nodeStats(host);
+      const arr = st.hostStatsSources || [];
+      if (arr.length === 0) return 'host';
+      if (arr.length === 1) return arr[0] === 'node_exporter' ? 'exporter' : arr[0];
+      return `${arr.length} sources`;
+    },
+    // Hover tooltip for the chip — lists the active provider names.
+    nodeProviderList(host) {
+      const st = this.nodeStats(host);
+      const arr = (st.hostStatsSources || []).map(s =>
+        s === 'node_exporter' ? 'node-exporter' : s
+      );
+      return arr.length ? arr.join(', ') : 'none';
     },
 
     // Host disk percent — real number when the exporter is available.
@@ -2893,6 +2921,46 @@ function app() {
         this.showToast(`Load hosts failed: ${e.message}`, 'error');
       } finally {
         this.hostsConfigLoading = false;
+      }
+    },
+    async discoverHosts() {
+      // Pull every name each enabled provider knows about so the
+      // editor's datalist inputs can offer native autocomplete. We
+      // don't auto-add rows — the operator still decides which names
+      // to curate. Reports per-provider errors inline.
+      this.hostsDiscovering = true;
+      try {
+        const r = await fetch('/api/hosts/discover');
+        if (!r.ok) {
+          this.showToast(`Discover failed: HTTP ${r.status}`, 'error');
+          return;
+        }
+        const d = await r.json();
+        this.hostsDiscovery = {
+          beszel: Array.isArray(d.beszel) ? d.beszel : [],
+          pulse:  Array.isArray(d.pulse)  ? d.pulse  : [],
+        };
+        const errs = d.errors || {};
+        const errKeys = Object.keys(errs);
+        const bTotal = this.hostsDiscovery.beszel.length;
+        const pTotal = this.hostsDiscovery.pulse.length;
+        if (errKeys.length && (bTotal + pTotal) === 0) {
+          this.showToast(`No provider responded: ${errKeys.map(k => k + '=' + errs[k]).join(' · ')}`, 'error');
+        } else {
+          const parts = [];
+          if (bTotal)  parts.push(`${bTotal} Beszel`);
+          if (pTotal)  parts.push(`${pTotal} Pulse`);
+          this.showToast(
+            parts.length
+              ? `Discovered ${parts.join(', ')} name(s) — autocomplete is live`
+              : 'No enabled provider returned any hosts — check connection settings',
+            parts.length ? 'success' : 'error',
+          );
+        }
+      } catch (e) {
+        this.showToast(`Discover failed: ${e.message}`, 'error');
+      } finally {
+        this.hostsDiscovering = false;
       }
     },
     addHostRow() {

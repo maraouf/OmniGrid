@@ -1458,6 +1458,46 @@ async def api_hosts_config_set(
     return {"hosts": saved, "count": len(saved)}
 
 
+@app.get("/api/hosts/discover")
+async def api_hosts_discover(_u: auth.User = Depends(auth.require_admin)):
+    """Admin-only: pull every known host name from each enabled
+    provider. Used by the Admin → Hosts editor as autocomplete source
+    so operators don't have to type provider-side names from memory.
+
+    Returns ``{beszel: [names], pulse: [names], errors: {...}}``. Empty
+    lists mean either the provider is disabled or its credentials
+    aren't set — the UI treats both the same.
+    """
+    from logic import beszel as _beszel
+    from logic import pulse as _pulse
+    errors: dict[str, str] = {}
+
+    beszel_names: list[str] = []
+    hub_url = get_setting("beszel_hub_url", "") or ""
+    b_id = get_setting("beszel_identity", "") or ""
+    b_pw = get_setting("beszel_password", "") or ""
+    if hub_url and b_id and b_pw:
+        verify = (get_setting("beszel_verify_tls", "true") or "true").lower() == "true"
+        r = await _beszel.probe_hub(hub_url, b_id, b_pw, verify_tls=verify)
+        if r.get("error"):
+            errors["beszel"] = r["error"]
+        else:
+            beszel_names = sorted((r.get("systems") or {}).keys(), key=str.lower)
+
+    pulse_names: list[str] = []
+    pulse_url = get_setting("pulse_url", "") or ""
+    pulse_tok = get_setting("pulse_token", "") or ""
+    if pulse_url and pulse_tok:
+        verify = (get_setting("pulse_verify_tls", "true") or "true").lower() == "true"
+        r = await _pulse.probe_pulse(pulse_url, pulse_tok, verify_tls=verify)
+        if r.get("error"):
+            errors["pulse"] = r["error"]
+        else:
+            pulse_names = sorted((r.get("hosts") or {}).keys(), key=str.lower)
+
+    return {"beszel": beszel_names, "pulse": pulse_names, "errors": errors}
+
+
 @app.get("/api/hosts/history")
 async def api_hosts_history(system_id: str, hours: int = 1):
     """Return time-series stats for one Beszel system.
