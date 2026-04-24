@@ -137,7 +137,16 @@ function app() {
     showHotkeys: false,
     opsExpanded: true,
     toast: '', toastType: 'success', _tt: null,
-    autoRefresh: 0, _autoTimer: null, _opsTimer: null,
+    // Auto-refresh cadence (seconds; 0 = off). Persisted to
+    // localStorage so the operator's chosen cadence survives a
+    // browser refresh — previously it reset to 0 on every reload.
+    autoRefresh: (() => {
+      try {
+        const n = parseInt(localStorage.getItem('autoRefresh') || '0', 10);
+        return Number.isFinite(n) && n >= 0 ? n : 0;
+      } catch { return 0; }
+    })(),
+    _autoTimer: null, _opsTimer: null,
     cacheLabel: '',
     settings: { apprise_url: '', apprise_tag: '', portainer_public_url: '' },
     // User-menu dropdown (top-right avatar button)
@@ -357,6 +366,10 @@ function app() {
       this.startVersionWatcher();
       this.startHeaderClock();
       this.startHeaderWeather();
+      // Restart the persisted auto-refresh timer (if any). The initial
+      // value was read from localStorage at component-construction
+      // time; we only need to kick off the interval here.
+      if (this.autoRefresh > 0) this.setAutoRefresh(this.autoRefresh);
       this.pollOps();
       this.pollStats();
       this.pollSparks();
@@ -2431,6 +2444,7 @@ function app() {
     pollOpsNow() { this.pollOps(); },
     setAutoRefresh(seconds) {
       this.autoRefresh = seconds;
+      try { localStorage.setItem('autoRefresh', String(seconds)); } catch {}
       if (this._autoTimer) clearInterval(this._autoTimer);
       if (seconds > 0) this._autoTimer = setInterval(() => this.refresh(true), seconds * 1000);
     },
@@ -3964,13 +3978,41 @@ function app() {
         this.hostsDebugLoading = { ...this.hostsDebugLoading, [hostId]: false };
       }
     },
-    // Pretty-print JSON for the Debug panel's <pre> blocks. Returns a
-    // placeholder when the value is null/undefined so the block never
-    // renders as empty whitespace.
+    // Pretty-print JSON for the Debug panel's <pre> blocks. Empty
+    // payloads return "" — the panel wrapper x-show's on truthy data
+    // so the block doesn't render at all instead of showing a stub
+    // "(not collected)" string that clutters the grid.
     fmtDebugJson(v) {
-      if (v === null || v === undefined) return '(not collected — provider disabled or no mapping)';
+      if (v === null || v === undefined) return '';
       try { return JSON.stringify(v, null, 2); }
       catch { return String(v); }
+    },
+    // "Is this debug payload worth rendering?" — wrapper x-show for
+    // each box in the grid. null / undefined → false (hide); empty
+    // object / empty array → false; anything else → true.
+    hasDebugData(v) {
+      if (v === null || v === undefined) return false;
+      if (typeof v === 'object') {
+        return Array.isArray(v) ? v.length > 0 : Object.keys(v).length > 0;
+      }
+      return true;
+    },
+    // Clipboard copy button — pretty-prints the payload and shows a
+    // quick toast. Falls back to a prompt() if the Clipboard API is
+    // unavailable (old Safari, file:// protocol).
+    async copyDebugJson(v, label) {
+      const text = this.fmtDebugJson(v);
+      if (!text) {
+        this.showToast('Nothing to copy', 'warning');
+        return;
+      }
+      try {
+        await navigator.clipboard.writeText(text);
+        this.showToast('Copied ' + (label || 'debug data') + ' to clipboard', 'success');
+      } catch (_) {
+        // Fallback — let the user copy manually.
+        window.prompt('Copy ' + (label || 'debug data') + ' (Cmd/Ctrl+C):', text);
+      }
     },
     // Filtered view for the Hosts table — search matches host id,
     // label, platform, OS, kernel, and provider names so an operator
