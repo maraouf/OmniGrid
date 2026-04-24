@@ -127,6 +127,11 @@
     --r-sm: 3px;
     --r-md: 4px;
     --r-lg: 6px;
+
+    /* Touch-target minimum — tappable elements on mobile need this
+       much area to be comfortable. Used by the mobile-first Hosts
+       layout; desktop interactions can ignore it. */
+    --touch-target-min: 2.75rem;
     --r-xl: 10px;
 
     /* Fonts — Poppins is vendored under /fonts/. Fallbacks cover the tiny
@@ -1288,6 +1293,133 @@ details summary::-webkit-details-marker {
 
 .spark.muted {
     color: var(--text-faint);
+}
+
+
+/* ---------------------------------------------------------------------------
+   Mobile-first Hosts view (T1 from research round 2026-04-24).
+
+   Below 768px the dense 11-column host grid is unusable on a phone — we
+   collapse it into a stacked card-per-host layout with only the fields an
+   operator needs for the "is anything on fire right now?" glance. Tap a
+   card to open the same host drawer the desktop uses.
+
+   Two scoped classes drive the switch:
+     .hosts-desktop-table — the grid view, hidden on phone.
+     .hosts-mobile-cards  — the stacked-card view, hidden on desktop.
+   --------------------------------------------------------------------------- */
+.hosts-mobile-cards { display: none; }
+
+@media (max-width: 768px) {
+    .hosts-desktop-table { display: none; }
+    .hosts-mobile-cards  { display: block; }
+}
+
+.host-mobile-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--r-lg);
+    padding: var(--s-5);
+    margin-bottom: var(--s-4);
+    min-height: var(--touch-target-min);
+}
+
+.host-mobile-card[data-expandable="true"] {
+    cursor: pointer;
+}
+
+.host-mobile-card[data-expandable="false"] {
+    opacity: 0.7;
+}
+
+.host-mobile-card-head {
+    display: flex;
+    align-items: center;
+    gap: var(--s-4);
+    min-height: var(--touch-target-min);
+}
+
+.host-mobile-card-icon {
+    flex-shrink: 0;
+    width: 28px;
+    height: 28px;
+    border-radius: var(--r-sm);
+}
+
+.host-mobile-card-status {
+    flex-shrink: 0;
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+}
+
+.host-mobile-card-title {
+    flex: 1;
+    min-width: 0;
+}
+
+.host-mobile-card-title .label {
+    display: block;
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.host-mobile-card-title .sub {
+    display: block;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--text-faint);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    margin-top: 1px;
+}
+
+.host-mobile-card-metrics {
+    margin-top: var(--s-4);
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: var(--s-4);
+}
+
+.host-mobile-card-metric {
+    min-width: 0;
+}
+
+.host-mobile-card-metric .name {
+    display: block;
+    font-size: 9.5px;
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+    color: var(--text-faint);
+    margin-bottom: 2px;
+}
+
+.host-mobile-card-metric .value {
+    display: block;
+    font-size: 12px;
+    font-family: var(--font-mono);
+    color: var(--text-dim);
+    margin-bottom: 4px;
+}
+
+.host-mobile-providers {
+    display: flex;
+    gap: 4px;
+    margin-inline-start: auto;
+}
+
+/* Keep the expand/collapse toolbar chips tappable on phone — the
+   `px-2.5 py-1` Tailwind utilities shrink below the touch target. */
+@media (max-width: 768px) {
+    .hosts-mobile-cards .range-seg button,
+    .hosts-mobile-cards .btn {
+        min-height: var(--touch-target-min);
+    }
 }
 
 .spark polyline {

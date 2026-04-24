@@ -1030,7 +1030,70 @@
                 class="btn btn-ghost text-[11px]" title="Clear filter">✕</button>
       </div>
 
-      <div x-show="hostsConfigured" class="rounded border border-[var(--border)] overflow-hidden bg-[var(--surface)]">
+      <!-- Mobile-first card layout — shown below 768px via CSS. Each
+           card has the at-a-glance essentials (status, name, CPU /
+           Mem / Disk %) and taps into the shared host drawer for
+           full detail. Actions and per-row Test live in the drawer,
+           not the card, to keep the tap target large. -->
+      <div x-show="hostsConfigured" class="hosts-mobile-cards">
+        <template x-for="h in filteredHosts()" :key="h.host">
+          <div class="host-mobile-card"
+               :data-expandable="isHostExpandable(h) ? 'true' : 'false'"
+               @click="toggleHost(h.host)">
+            <div class="host-mobile-card-head">
+              <span class="host-mobile-card-status"
+                    :style="'background:' + statusDotColor(h.status)"></span>
+              <img class="host-mobile-card-icon" :src="hostIconUrl(h)"
+                   x-show="hostIconUrl(h)" alt="" loading="lazy"
+                   @error="$event.target.style.display='none'">
+              <div class="host-mobile-card-title">
+                <span class="label" x-text="h.label || h.host"></span>
+                <span class="sub" x-text="h.host + ' · ' + (h.os || h.platform || '—')"></span>
+              </div>
+              <div class="host-mobile-providers">
+                <template x-for="p in (h.providers || [])" :key="p">
+                  <span class="chip text-[9.5px] px-1 py-0"
+                        :class="p === 'beszel' ? 'pill-ok' : p === 'pulse' ? 'pill-info' : 'pill-update'"
+                        x-text="p === 'node_exporter' ? 'exporter' : p"></span>
+                </template>
+              </div>
+            </div>
+            <div class="host-mobile-card-metrics">
+              <div class="host-mobile-card-metric">
+                <span class="name">CPU</span>
+                <span class="value" x-text="(h.cpu_percent || 0).toFixed(1) + '%'"></span>
+                <div class="stat-bar"
+                     :class="barLevel(h.cpu_percent)"
+                     :style="'--w: ' + Math.min(100, h.cpu_percent) + '%'">
+                  <div class="fill"></div>
+                </div>
+              </div>
+              <div class="host-mobile-card-metric">
+                <span class="name">Memory</span>
+                <span class="value"
+                      x-text="(h.mem_percent || memPercentOf(h)) + '%'"></span>
+                <div class="stat-bar"
+                     :class="barLevel(h.mem_percent || memPercentOf(h))"
+                     :style="'--w: ' + (h.mem_percent || memPercentOf(h)) + '%'">
+                  <div class="fill"></div>
+                </div>
+              </div>
+              <div class="host-mobile-card-metric">
+                <span class="name">Disk</span>
+                <span class="value"
+                      x-text="(h.disk_percent || diskPercentOf(h)) + '%'"></span>
+                <div class="stat-bar"
+                     :class="barLevel(h.disk_percent || diskPercentOf(h))"
+                     :style="'--w: ' + (h.disk_percent || diskPercentOf(h)) + '%'">
+                  <div class="fill"></div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </template>
+      </div>
+
+      <div x-show="hostsConfigured" class="hosts-desktop-table rounded border border-[var(--border)] overflow-hidden bg-[var(--surface)]">
         <!-- Header row — mirrors Beszel's columns. -->
         <div class="grid grid-cols-[26px_minmax(320px,1.8fr)_140px_140px_140px_minmax(160px,1fr)_80px_60px_72px_84px_40px] gap-3 px-4 py-2 border-b border-[var(--border)] bg-[var(--surface-2)] text-[10.5px] uppercase tracking-wider text-[var(--text-faint)]">
           <div></div>
