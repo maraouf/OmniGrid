@@ -1894,65 +1894,115 @@
                              scrollable so a huge raw dump doesn't push
                              the others off-screen. -->
                         <div class="host-debug-grid">
-                          <section class="host-debug-box">
+                          <section class="host-debug-box" x-show="hasDebugData(hostsDebug[h.id].providers_raw?.pulse)">
                             <header class="host-debug-box-head">
                               <span class="host-debug-label host-debug-label--pulse">Raw · Pulse</span>
+                              <button type="button" class="host-debug-copy"
+                                      @click="copyDebugJson(hostsDebug[h.id].providers_raw?.pulse, 'Raw · Pulse')"
+                                      title="Copy to clipboard">
+                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+                              </button>
                             </header>
                             <pre class="host-debug-json scrollbar" x-text="fmtDebugJson(hostsDebug[h.id].providers_raw?.pulse)"></pre>
                           </section>
-                          <section class="host-debug-box">
+                          <section class="host-debug-box" x-show="hasDebugData(hostsDebug[h.id].providers_raw?.beszel)">
                             <header class="host-debug-box-head">
                               <span class="host-debug-label host-debug-label--beszel">Raw · Beszel</span>
+                              <button type="button" class="host-debug-copy"
+                                      @click="copyDebugJson(hostsDebug[h.id].providers_raw?.beszel, 'Raw · Beszel')"
+                                      title="Copy to clipboard">
+                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+                              </button>
                             </header>
                             <pre class="host-debug-json scrollbar" x-text="fmtDebugJson(hostsDebug[h.id].providers_raw?.beszel)"></pre>
                           </section>
-                          <section class="host-debug-box">
+                          <section class="host-debug-box" x-show="hasDebugData(hostsDebug[h.id].providers_raw?.node_exporter)">
                             <header class="host-debug-box-head">
                               <span class="host-debug-label host-debug-label--ne">Raw · node-exporter</span>
+                              <button type="button" class="host-debug-copy"
+                                      @click="copyDebugJson(hostsDebug[h.id].providers_raw?.node_exporter, 'Raw · node-exporter')"
+                                      title="Copy to clipboard">
+                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+                              </button>
                             </header>
                             <pre class="host-debug-json scrollbar" x-text="fmtDebugJson(hostsDebug[h.id].providers_raw?.node_exporter)"></pre>
                           </section>
-                          <section class="host-debug-box">
+                          <section class="host-debug-box" x-show="hasDebugData(hostsDebug[h.id].providers_raw?.webmin)">
                             <header class="host-debug-box-head">
                               <span class="host-debug-label host-debug-label--webmin">Raw · Webmin</span>
+                              <button type="button" class="host-debug-copy"
+                                      @click="copyDebugJson(hostsDebug[h.id].providers_raw?.webmin, 'Raw · Webmin')"
+                                      title="Copy to clipboard">
+                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+                              </button>
                             </header>
                             <pre class="host-debug-json scrollbar" x-text="fmtDebugJson(hostsDebug[h.id].providers_raw?.webmin)"></pre>
                           </section>
-                          <section class="host-debug-box">
+                          <section class="host-debug-box" x-show="hasDebugData(hostsDebug[h.id].merged)">
                             <header class="host-debug-box-head">
                               <span class="host-debug-label host-debug-label--merged">Merged (best-of)</span>
                               <span class="host-debug-hint">after _merge_best</span>
+                              <button type="button" class="host-debug-copy"
+                                      @click="copyDebugJson(hostsDebug[h.id].merged, 'Merged')"
+                                      title="Copy to clipboard">
+                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+                              </button>
                             </header>
                             <pre class="host-debug-json scrollbar" x-text="fmtDebugJson(hostsDebug[h.id].merged)"></pre>
                           </section>
-                          <section class="host-debug-box host-debug-box--wide">
+                          <section class="host-debug-box host-debug-box--wide" x-show="hasDebugData(hostsDebug[h.id].rendered)">
                             <header class="host-debug-box-head">
                               <span class="host-debug-label host-debug-label--rendered">Rendered (/api/hosts)</span>
                               <span class="host-debug-hint">what the UI sees</span>
+                              <button type="button" class="host-debug-copy"
+                                      @click="copyDebugJson(hostsDebug[h.id].rendered, 'Rendered')"
+                                      title="Copy to clipboard">
+                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+                              </button>
                             </header>
                             <pre class="host-debug-json scrollbar" x-text="fmtDebugJson(hostsDebug[h.id].rendered)"></pre>
                           </section>
-                          <section class="host-debug-box">
+                          <section class="host-debug-box" x-show="hasDebugData(hostsDebug[h.id].providers_normalized?.pulse)">
                             <header class="host-debug-box-head">
                               <span class="host-debug-label host-debug-label--pulse">Normalized · Pulse</span>
+                              <button type="button" class="host-debug-copy"
+                                      @click="copyDebugJson(hostsDebug[h.id].providers_normalized?.pulse, 'Normalized · Pulse')"
+                                      title="Copy to clipboard">
+                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+                              </button>
                             </header>
                             <pre class="host-debug-json scrollbar" x-text="fmtDebugJson(hostsDebug[h.id].providers_normalized?.pulse)"></pre>
                           </section>
-                          <section class="host-debug-box">
+                          <section class="host-debug-box" x-show="hasDebugData(hostsDebug[h.id].providers_normalized?.beszel)">
                             <header class="host-debug-box-head">
                               <span class="host-debug-label host-debug-label--beszel">Normalized · Beszel</span>
+                              <button type="button" class="host-debug-copy"
+                                      @click="copyDebugJson(hostsDebug[h.id].providers_normalized?.beszel, 'Normalized · Beszel')"
+                                      title="Copy to clipboard">
+                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+                              </button>
                             </header>
                             <pre class="host-debug-json scrollbar" x-text="fmtDebugJson(hostsDebug[h.id].providers_normalized?.beszel)"></pre>
                           </section>
-                          <section class="host-debug-box">
+                          <section class="host-debug-box" x-show="hasDebugData(hostsDebug[h.id].providers_normalized?.node_exporter)">
                             <header class="host-debug-box-head">
                               <span class="host-debug-label host-debug-label--ne">Normalized · node-exporter</span>
+                              <button type="button" class="host-debug-copy"
+                                      @click="copyDebugJson(hostsDebug[h.id].providers_normalized?.node_exporter, 'Normalized · node-exporter')"
+                                      title="Copy to clipboard">
+                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+                              </button>
                             </header>
                             <pre class="host-debug-json scrollbar" x-text="fmtDebugJson(hostsDebug[h.id].providers_normalized?.node_exporter)"></pre>
                           </section>
-                          <section class="host-debug-box">
+                          <section class="host-debug-box" x-show="hasDebugData(hostsDebug[h.id].providers_normalized?.webmin)">
                             <header class="host-debug-box-head">
                               <span class="host-debug-label host-debug-label--webmin">Normalized · Webmin</span>
+                              <button type="button" class="host-debug-copy"
+                                      @click="copyDebugJson(hostsDebug[h.id].providers_normalized?.webmin, 'Normalized · Webmin')"
+                                      title="Copy to clipboard">
+                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+                              </button>
                             </header>
                             <pre class="host-debug-json scrollbar" x-text="fmtDebugJson(hostsDebug[h.id].providers_normalized?.webmin)"></pre>
                           </section>

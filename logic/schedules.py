@@ -72,15 +72,59 @@ def _parse_hhmm(s: Optional[str]) -> Optional[tuple[int, int]]:
     return int(hh), int(mm)
 
 
-def _today_anchor_ts(hh: int, mm: int, now: Optional[float] = None) -> float:
-    """Epoch seconds for today's HH:MM in local time.
+def _scheduler_tz():
+    """Return the timezone the operator set via Settings → scheduler_timezone,
+    or None to fall back to the container's local clock (the legacy
+    behaviour). Looks up lazily on every call so changing the setting
+    takes effect without a restart — schedule rows are infrequent.
 
-    DST transitions: we set isdst=-1 so mktime picks the right offset
-    for the target day. A schedule whose HH:MM lands inside a spring-
-    forward gap (e.g. 02:30 in the US spring) effectively shifts by an
-    hour that day; we accept that over adding a tz library dependency.
+    Accepts any IANA name (``Africa/Cairo``, ``America/New_York``, ...).
+    Invalid names silently fall back to None with a one-time log so a
+    typo doesn't break the scheduler loop.
     """
+    try:
+        from logic.db import get_setting
+        tz_name = (get_setting("scheduler_timezone", "") or "").strip()
+    except Exception:
+        return None
+    if not tz_name:
+        return None
+    try:
+        from zoneinfo import ZoneInfo
+        return ZoneInfo(tz_name)
+    except Exception as e:
+        # Log once per process — otherwise a bad TZ spams the tick loop.
+        global _tz_warn_logged
+        if not globals().get("_tz_warn_logged"):
+            print(f"[scheduler] invalid scheduler_timezone={tz_name!r}: {e} — "
+                  f"falling back to container-local time")
+            _tz_warn_logged = True
+        return None
+
+
+_tz_warn_logged = False
+
+
+def _today_anchor_ts(hh: int, mm: int, now: Optional[float] = None) -> float:
+    """Epoch seconds for today's HH:MM.
+
+    If the operator has set ``scheduler_timezone`` in Settings (an IANA
+    name like ``Africa/Cairo``), the anchor is computed in THAT zone
+    so "01:00" means "01:00 in the operator's wall clock", not "01:00
+    container-local" (containers run UTC by default). If no TZ is set,
+    the legacy behaviour (container localtime via mktime) applies.
+
+    DST-safe either way: zoneinfo + datetime handles transitions
+    natively; the legacy mktime path uses isdst=-1 to let libc decide.
+    """
+    import datetime
     now = now if now is not None else time.time()
+    tz = _scheduler_tz()
+    if tz is not None:
+        now_local = datetime.datetime.fromtimestamp(now, tz=tz)
+        anchor = now_local.replace(hour=hh, minute=mm, second=0, microsecond=0)
+        return anchor.timestamp()
+    # Legacy path — container-local clock via time.mktime.
     t = time.localtime(now)
     return time.mktime((
         t.tm_year, t.tm_mon, t.tm_mday,
@@ -111,13 +155,36 @@ def _next_fixed_time_run(
     last = int(last_run_at or 0)
     if now < anchor and last < anchor:
         return int(anchor)
-    t = time.localtime(now)
-    tomorrow = datetime.date(t.tm_year, t.tm_mon, t.tm_mday) + datetime.timedelta(days=1)
+    # Derive "tomorrow" in the same zone the anchor was computed in —
+    # using container-local here would drift the date boundary by the
+    # TZ-offset difference (e.g. 22:00 Cairo = next day in Los_Angeles
+    # container, so we'd skip a day). _scheduler_tz() returns None on
+    # legacy deploys, falling back to time.localtime.
+    tz = _scheduler_tz()
+    if tz is not None:
+        now_local = datetime.datetime.fromtimestamp(now, tz=tz)
+        tomorrow = now_local.date() + datetime.timedelta(days=1)
+    else:
+        t = time.localtime(now)
+        tomorrow = datetime.date(t.tm_year, t.tm_mon, t.tm_mday) + datetime.timedelta(days=1)
     return int(_day_anchor_ts(hh, mm, tomorrow.year, tomorrow.month, tomorrow.day))
 
 
 def _day_anchor_ts(hh: int, mm: int, y: int, m: int, d: int) -> float:
-    """Epoch seconds for a given Y/M/D at local HH:MM."""
+    """Epoch seconds for a given Y/M/D at HH:MM.
+
+    Honours the same ``scheduler_timezone`` setting as
+    :func:`_today_anchor_ts` — critical for the tomorrow / next-week
+    / next-month anchors used by the weekly and monthly cadence
+    helpers. Without this, tomorrow's 01:00 would be computed in
+    container-local time even when ``today's`` 01:00 was computed in
+    the operator's TZ, producing a drift on the very next fire.
+    """
+    import datetime
+    tz = _scheduler_tz()
+    if tz is not None:
+        anchor = datetime.datetime(y, m, d, hh, mm, 0, tzinfo=tz)
+        return anchor.timestamp()
     return time.mktime((y, m, d, hh, mm, 0, 0, 0, -1))
 
 

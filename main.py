@@ -790,6 +790,12 @@ class SettingsIn(BaseModel):
     webmin_password: Optional[str] = None
     webmin_verify_tls: Optional[bool] = None
     webmin_aliases: Optional[dict] = None
+    # Scheduler timezone — IANA name (e.g. "Africa/Cairo"). When set,
+    # daily/weekly/monthly schedule anchors are computed in THIS zone
+    # instead of the container's localtime. Containers default to UTC;
+    # operators in other zones would otherwise see "Daily @ 01:00" fire
+    # at the wrong wall-clock moment. Blank = container-local (legacy).
+    scheduler_timezone: Optional[str] = None
     # Topbar widgets — lightweight decorative info in the header.
     # ``weather_label`` is what the UI renders alongside the temp
     # ("Cairo"); lat/lon feed Open-Meteo (no API key required). Clock
@@ -812,6 +818,7 @@ async def api_get_settings(request: Request):
         "apprise_tag": get_setting("apprise_tag", ""),
         "portainer_public_url": get_setting("portainer_public_url", str(p.get("portainer_url") or "")),
         "backup_retention_count": int(get_setting("backup_retention_count", "0") or "0"),
+        "scheduler_timezone": get_setting("scheduler_timezone", "") or "",
         "node_exporter": {
             "enabled": (get_setting("node_exporter_enabled", "false") or "false").lower() == "true",
             "url_template": get_setting("node_exporter_url_template", "http://{host}:9100/metrics"),

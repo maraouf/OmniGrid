@@ -2465,6 +2465,30 @@ body.login {
     text-transform: uppercase;
 }
 
+.host-debug-copy {
+    margin-inline-start: auto;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 3px;
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: var(--r-sm);
+    color: var(--text-faint);
+    cursor: pointer;
+    transition: background 0.1s, color 0.1s, border-color 0.1s;
+}
+
+.host-debug-copy:hover {
+    color: var(--text);
+    background: var(--surface-3);
+    border-color: var(--border-bright);
+}
+
+.host-debug-copy:active {
+    color: var(--primary);
+}
+
 .host-debug-label--pulse    { color: var(--debug-pulse); }
 .host-debug-label--beszel   { color: var(--debug-beszel); }
 .host-debug-label--ne       { color: var(--debug-ne); }
