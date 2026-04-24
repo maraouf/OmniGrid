@@ -3298,6 +3298,10 @@ function app() {
         ['netdata',               'netdata'],
         ['beszel',                'beszel'],
         ['pulse',                 'pulse'],
+        // job runners / automation
+        ['rundeck',               'rundeck'],
+        ['n8n',                   'n8n'],
+        ['ansible',               'ansible'],
         // VPN / tunnelling — checked BEFORE "openvpn" alone so
         // "pivpn" isn't shadowed by the openvpn token.
         ['pivpn',                 'pivpn'],
