@@ -409,6 +409,12 @@
       "scheduled_title": "Scheduled",
       "queue_title": "Queue",
       "queue_empty": "No scheduled runs yet. They'll appear here once a schedule fires.",
+      "queue_per_page": "Per page",
+      "queue_page_label": "Page {page} / {total}",
+      "queue_page_first": "First page",
+      "queue_page_prev": "Previous page",
+      "queue_page_next": "Next page",
+      "queue_page_last": "Last page",
       "empty": "No schedules yet. Create one above.",
       "run_now": "Run now",
       "run_now_title": "Fire this schedule immediately",
@@ -804,7 +810,11 @@
       "docker_node": "Docker node",
       "proxmox": "Proxmox",
       "url": "URL",
-      "add_url": "+ Add"
+      "add_url": "+ Add",
+      "vendor": "Vendor",
+      "product": "Product",
+      "bios_version": "BIOS / firmware",
+      "serial": "Serial"
     },
     "hardware": {
       "heading": "Hardware",
@@ -815,7 +825,9 @@
       "disk": "Disk",
       "beszel_agent": "Beszel agent",
       "beszel_agent_title": "Version reported by the Beszel agent on this host",
-      "status": "Status"
+      "status": "Status",
+      "load": "Load",
+      "load_title": "1-, 5-, and 15-minute load averages (from node-exporter)"
     },
     "network": {
       "heading": "Network",

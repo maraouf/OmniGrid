@@ -4058,21 +4058,56 @@ async def api_run_schedule(
 @app.get("/api/schedules/queue")
 async def api_schedule_queue(
     limit: int = 50,
+    page: int = 1,
+    page_size: int = 0,
     _admin: auth.User = Depends(auth.require_admin),
 ):
     """Recent scheduler-driven ops from the history table.
 
     Filtered to ``actor='scheduler'`` so user-triggered runs of the
-    same op types don't clutter the view. Newest first, capped at
-    500 rows to keep the response bounded.
+    same op types don't clutter the view.
+
+    Pagination contract: when ``page_size`` is passed the response
+    returns ONE page of rows plus `total` / `page` / `page_size` so
+    the UI can render "Page N of M" without double-fetching. When
+    ``page_size`` is 0 (or omitted), the endpoint falls back to the
+    legacy flat-list shape (`limit` rows, no `total`) so older
+    clients keep working.
     """
-    limit = max(1, min(int(limit), 500))
-    rows = _history_query(
-        stack=None, op_type=None, status=None,
-        actor=schedules.SCHEDULER_ACTOR, q=None,
-        since=None, until=None, limit=limit,
-    )
-    return {"queue": rows}
+    # Legacy single-query path — keep until every caller is migrated.
+    if page_size <= 0:
+        limit = max(1, min(int(limit), 500))
+        rows = _history_query(
+            stack=None, op_type=None, status=None,
+            actor=schedules.SCHEDULER_ACTOR, q=None,
+            since=None, until=None, limit=limit,
+        )
+        return {"queue": rows}
+    # Paginated path — count + slice via explicit SQL so we don't
+    # have to teach `_history_query` about OFFSET (its other callers
+    # treat the full result as "the N most recent"). Cap page_size
+    # at 100 to guard against accidentally-huge queries.
+    page = max(1, int(page))
+    page_size = max(1, min(int(page_size), 100))
+    actor = schedules.SCHEDULER_ACTOR
+    offset = (page - 1) * page_size
+    with db_conn() as c:
+        total_row = c.execute(
+            "SELECT COUNT(*) FROM history WHERE actor = ?", (actor,),
+        ).fetchone()
+        total = int((total_row[0] if total_row else 0) or 0)
+        rows = c.execute(
+            "SELECT * FROM history WHERE actor = ? "
+            "ORDER BY ts DESC LIMIT ? OFFSET ?",
+            (actor, page_size, offset),
+        ).fetchall()
+    return {
+        "queue":     [dict(r) for r in rows],
+        "total":     total,
+        "page":      page,
+        "page_size": page_size,
+        "pages":     max(1, (total + page_size - 1) // page_size),
+    }
 
 
 # Login HTML page. Served as a discrete route (not via StaticFiles) because

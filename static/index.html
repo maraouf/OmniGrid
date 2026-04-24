@@ -1427,6 +1427,38 @@
                     <template x-if="h.docker_node">
                       <dd class="mono text-end" x-text="h.docker_node"></dd>
                     </template>
+                    <!-- DMI / hardware identity — populated only when
+                         node-exporter scraped `node_dmi_info` on a
+                         physical / VM host (containers usually skip
+                         the DMI collector). Vendor + product identify
+                         the actual box (e.g. "QOTOM Q555G6"); BIOS
+                         version is useful for firmware audit; serial
+                         shown last + muted because most operators
+                         treat it as private. -->
+                    <template x-if="h.dmi_vendor">
+                      <dt class="text-[var(--text-dim)]" x-text="t('host_drawer.system.vendor')"></dt>
+                    </template>
+                    <template x-if="h.dmi_vendor">
+                      <dd class="text-end break-all" x-text="h.dmi_vendor"></dd>
+                    </template>
+                    <template x-if="h.dmi_product">
+                      <dt class="text-[var(--text-dim)]" x-text="t('host_drawer.system.product')"></dt>
+                    </template>
+                    <template x-if="h.dmi_product">
+                      <dd class="text-end break-all" x-text="h.dmi_product"></dd>
+                    </template>
+                    <template x-if="h.dmi_bios_version">
+                      <dt class="text-[var(--text-dim)]" x-text="t('host_drawer.system.bios_version')"></dt>
+                    </template>
+                    <template x-if="h.dmi_bios_version">
+                      <dd class="mono text-end break-all" x-text="h.dmi_bios_version"></dd>
+                    </template>
+                    <template x-if="h.dmi_serial">
+                      <dt class="text-[var(--text-dim)]" x-text="t('host_drawer.system.serial')"></dt>
+                    </template>
+                    <template x-if="h.dmi_serial">
+                      <dd class="mono text-end break-all text-[var(--text-faint)]" x-text="h.dmi_serial"></dd>
+                    </template>
                     <!-- Proxmox metadata from Pulse — shows VM/LXC
                          identity and the PVE host it runs on so the
                          operator can tell apart two guests with
@@ -1507,6 +1539,20 @@
                     </template>
                     <template x-if="h.agent">
                       <dd class="mono text-end" x-text="h.agent"></dd>
+                    </template>
+                    <!-- Load averages — one row showing 1m / 5m / 15m.
+                         Populated only when node-exporter scraped this
+                         host (Beszel / Pulse don't expose loadavg). -->
+                    <template x-if="(h.load_1m || 0) > 0 || (h.load_5m || 0) > 0 || (h.load_15m || 0) > 0">
+                      <dt class="text-[var(--text-dim)]"
+                          :title="t('host_drawer.hardware.load_title')"
+                          x-text="t('host_drawer.hardware.load')"></dt>
+                    </template>
+                    <template x-if="(h.load_1m || 0) > 0 || (h.load_5m || 0) > 0 || (h.load_15m || 0) > 0">
+                      <dd class="mono text-end"
+                          x-text="(h.load_1m || 0).toFixed(2) + ' · '
+                                  + (h.load_5m || 0).toFixed(2) + ' · '
+                                  + (h.load_15m || 0).toFixed(2)"></dd>
                     </template>
                     <dt class="text-[var(--text-dim)]" x-text="t('host_drawer.hardware.status')"></dt>
                     <dd class="text-end">
@@ -4536,7 +4582,7 @@
           <div class="p-4 border-b border-[var(--border)] flex justify-between items-center">
             <h3 class="font-semibold text-[13px]">
               <span x-text="t('admin.schedules.queue_title')"></span>
-              <span class="text-[var(--text-faint)] font-normal" x-text="'(' + scheduleQueue.length + ')'"></span>
+              <span class="text-[var(--text-faint)] font-normal" x-text="'(' + scheduleQueueTotal + ')'"></span>
             </h3>
             <button @click="loadScheduleQueue()" class="btn btn-ghost text-[11px]" x-text="t('actions.reload')"></button>
           </div>
@@ -4552,7 +4598,7 @@
                 </tr>
               </thead>
               <tbody>
-                <template x-for="q in scheduleQueue" :key="q.id">
+                <template x-for="q in scheduleQueuePageItems()" :key="q.id">
                   <tr class="border-t border-[var(--border)]">
                     <td class="px-4 py-2 mono text-[11.5px]" x-text="q.target_name || '—'"></td>
                     <td class="px-4 py-2 mono text-[11px] text-[var(--text-dim)]"
@@ -4572,6 +4618,51 @@
                 </tr>
               </tbody>
             </table>
+          </div>
+          <!-- Pagination bar — server-side. Each page change triggers
+               a /api/schedules/queue fetch with page + page_size. Page
+               size persists to localStorage via setScheduleQueuePageSize(). -->
+          <div x-show="scheduleQueueTotal > 0"
+               class="flex items-center justify-between gap-3 flex-wrap p-3 border-t border-[var(--border)] text-[11.5px]">
+            <div class="flex items-center gap-2 text-[var(--text-dim)]">
+              <span x-text="t('admin.schedules.queue_per_page')"></span>
+              <select :value="scheduleQueuePageSize"
+                      @change="setScheduleQueuePageSize($event.target.value)"
+                      class="text-[11.5px] py-1">
+                <option value="10">10</option>
+                <option value="25">25</option>
+                <option value="50">50</option>
+              </select>
+              <span class="text-[var(--text-faint)]"
+                    x-text="(((scheduleQueuePage - 1) * scheduleQueuePageSize) + 1)
+                            + '–'
+                            + Math.min(scheduleQueueTotal, scheduleQueuePage * scheduleQueuePageSize)
+                            + ' / ' + scheduleQueueTotal"></span>
+            </div>
+            <div class="flex items-center gap-1.5">
+              <button type="button"
+                      class="btn btn-ghost text-[11px] px-2"
+                      :disabled="scheduleQueuePage <= 1"
+                      @click="scheduleQueueGoto(1)"
+                      :title="t('admin.schedules.queue_page_first')">«</button>
+              <button type="button"
+                      class="btn btn-ghost text-[11px] px-2 flip-rtl"
+                      :disabled="scheduleQueuePage <= 1"
+                      @click="scheduleQueueGoto(scheduleQueuePage - 1)"
+                      :title="t('admin.schedules.queue_page_prev')">‹</button>
+              <span class="mono text-[11px] text-[var(--text-dim)] px-2"
+                    x-text="t('admin.schedules.queue_page_label', { page: scheduleQueuePage, total: scheduleQueuePages() })"></span>
+              <button type="button"
+                      class="btn btn-ghost text-[11px] px-2 flip-rtl"
+                      :disabled="scheduleQueuePage >= scheduleQueuePages()"
+                      @click="scheduleQueueGoto(scheduleQueuePage + 1)"
+                      :title="t('admin.schedules.queue_page_next')">›</button>
+              <button type="button"
+                      class="btn btn-ghost text-[11px] px-2"
+                      :disabled="scheduleQueuePage >= scheduleQueuePages()"
+                      @click="scheduleQueueGoto(scheduleQueuePages())"
+                      :title="t('admin.schedules.queue_page_last')">»</button>
+            </div>
           </div>
         </section>
 

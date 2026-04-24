@@ -294,6 +294,19 @@ function app() {
     // the <select> for new schedules stays in sync with the backend registry.
     schedules: [],
     scheduleQueue: [],
+    // Admin → Schedules Queue pagination — SERVER-side.
+    // `scheduleQueue` holds ONLY the current page's rows (not the
+    // whole queue); `scheduleQueueTotal` / `scheduleQueuePages` come
+    // from the response. Page size persisted to localStorage.
+    scheduleQueuePageSize: (() => {
+      try {
+        const v = parseInt(localStorage.getItem('scheduleQueuePageSize'), 10);
+        return [10, 25, 50].includes(v) ? v : 25;
+      } catch { return 25; }
+    })(),
+    scheduleQueuePage: 1,
+    scheduleQueueTotal: 0,
+    scheduleQueueTotalPages: 1,
     scheduleKinds: ['prune_node', 'prune_all_nodes', 'gather_refresh', 'backup'],
     scheduleMinInterval: 60,
     scheduleBusy: false,
@@ -952,12 +965,48 @@ function app() {
     },
 
     async loadScheduleQueue() {
+      // Server-side pagination: /api/schedules/queue accepts
+      // page + page_size and returns one page plus total/pages.
+      // Keeping the request narrow to one page's worth also saves
+      // bandwidth on fleets with thousands of historic runs.
       try {
-        const r = await fetch('/api/schedules/queue?limit=50');
+        const url = '/api/schedules/queue'
+          + '?page=' + encodeURIComponent(this.scheduleQueuePage)
+          + '&page_size=' + encodeURIComponent(this.scheduleQueuePageSize);
+        const r = await fetch(url);
         if (!r.ok) return;
         const d = await r.json();
         this.scheduleQueue = d.queue || [];
+        this.scheduleQueueTotal = Number.isFinite(d.total) ? d.total : this.scheduleQueue.length;
+        this.scheduleQueueTotalPages = Number.isFinite(d.pages) && d.pages > 0 ? d.pages : 1;
+        // Clamp current page if the backend reports fewer pages
+        // than we thought (rows trimmed between requests).
+        if (this.scheduleQueuePage > this.scheduleQueueTotalPages) {
+          this.scheduleQueuePage = this.scheduleQueueTotalPages;
+          // Re-fetch with the corrected page so the UI stays coherent.
+          return this.loadScheduleQueue();
+        }
       } catch (_) {}
+    },
+    scheduleQueuePages() { return this.scheduleQueueTotalPages; },
+    // Wire name kept for template compatibility — now a thin pass-
+    // through since the backend already slices to the current page.
+    scheduleQueuePageItems() { return this.scheduleQueue; },
+    setScheduleQueuePageSize(n) {
+      const v = parseInt(n, 10);
+      if (![10, 25, 50].includes(v)) return;
+      this.scheduleQueuePageSize = v;
+      this.scheduleQueuePage = 1;
+      try { localStorage.setItem('scheduleQueuePageSize', String(v)); } catch {}
+      // Refetch with the new page size.
+      this.loadScheduleQueue();
+    },
+    scheduleQueueGoto(page) {
+      const total = this.scheduleQueueTotalPages;
+      const p = Math.max(1, Math.min(total, parseInt(page, 10) || 1));
+      if (p === this.scheduleQueuePage) return;
+      this.scheduleQueuePage = p;
+      this.loadScheduleQueue();
     },
 
     // Local JSON-validate so the operator gets feedback without a round-trip.
