@@ -263,9 +263,19 @@ def extract_guest_stats(guest: dict) -> dict:
     # like ``info`` / ``agent`` / ``config``. We look in all of
     # those so a VM with a QEMU guest-agent reporting via the
     # nested envelope still populates the SYSTEM card.
+    def _looks_uuid(s: str) -> bool:
+        """True when ``s`` looks like a PVE VM UUID (8-4-4-4-12 hex).
+        Used to reject UUID-shaped values picked up from generic
+        keys like ``id`` that aren't actually OS identity strings."""
+        if len(s) < 32 or s.count("-") < 4:
+            return False
+        return all(c in "0123456789abcdef-" for c in s.lower())
+
     def _g(*keys):
         """Look up ``keys`` across the guest record and its common
-        sub-objects, returning the first non-empty string match."""
+        sub-objects, returning the first string-typed non-empty
+        match. Rejects UUID-shaped values so generic field names
+        don't smuggle VM IDs into identity rows."""
         sources = [guest]
         for nest in ("info", "agent", "config", "details", "stats", "osinfo"):
             nested = guest.get(nest)
@@ -274,18 +284,40 @@ def extract_guest_stats(guest: dict) -> dict:
         for src in sources:
             for k in keys:
                 v = src.get(k)
-                if v not in (None, "", 0):
-                    return str(v).strip()
+                if v in (None, "", 0):
+                    continue
+                s = str(v).strip()
+                if not s or _looks_uuid(s):
+                    continue
+                return s
         return ""
 
-    os_hint       = _g("osName", "os", "os_version", "distro", "pretty_name",
-                       "prettyName", "osVersion", "version_id")
-    kernel_hint   = _g("kernel", "kernelVersion", "kernel_version", "k",
-                       "kernel-release", "uname")
-    arch_hint     = _g("arch", "architecture", "machine", "cpuArch",
+    # Only reach for keys that are actually OS identity strings —
+    # avoid generic ones like ``os`` / ``distro`` / ``machine`` /
+    # ``k`` that could be overloaded by PVE config. The _looks_uuid
+    # guard above catches the remaining misfires.
+    os_hint       = _g("osName", "pretty_name", "prettyName", "osVersion",
+                       "os_version")
+    kernel_hint   = _g("kernel", "kernelVersion", "kernel_version",
+                       "kernel-release")
+    arch_hint     = _g("arch", "architecture", "cpuArch",
                        "cpu_arch", "platform_arch")
-    platform_hint = _g("platform", "p", "distro", "distroId",
-                       "distro_id", "id", "osId", "os_id")
+    # Platform field candidates — purposefully conservative. Pulse's
+    # guest records include an ``id`` field that is often the PVE
+    # VM UUID (e.g. ``"431e7b83-..."``), which is NOT a distro name.
+    # Accepting any "id" key would wrongly surface the UUID as the
+    # Platform value. Restrict to keys that are always string-typed
+    # distro identifiers.
+    platform_hint = _g("platform", "distro", "distroName", "distro_name")
+    # Validate: anything that looks UUID-shaped or longer than 20
+    # characters is almost certainly not a distro short-name. Drop
+    # it so the osName-first-word fallback below kicks in.
+    if platform_hint and (
+        len(platform_hint) > 24 or
+        (platform_hint.count("-") >= 4 and
+         all(c in "0123456789abcdef-" for c in platform_hint.lower()))
+    ):
+        platform_hint = ""
     # osName is often the long PRETTY_NAME ("Debian GNU/Linux 13 (trixie)").
     # If we have that but no platform, derive "debian" from the first
     # word so the Platform row isn't blank. The SYSTEM card hides
