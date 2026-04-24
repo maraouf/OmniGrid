@@ -779,6 +779,26 @@ class SettingsIn(BaseModel):
     # because Pulse uses PVE node names (``pve-1``, ``dockerpve``) which
     # tend to differ from Beszel hostnames.
     pulse_aliases: Optional[dict] = None
+    # Webmin — fourth host-stats provider. Each target host runs its
+    # own Miniserv instance so the probe URL is per-host, not a hub.
+    # ``webmin_aliases`` maps Docker hostname → full Miniserv base URL
+    # (e.g. ``{"debian13docker": "https://docker.home.lan:10000"}``).
+    # ``webmin_url`` is retained as an optional default/template for
+    # future use. Password is write-only like every other secret.
+    webmin_url: Optional[str] = None
+    webmin_user: Optional[str] = None
+    webmin_password: Optional[str] = None
+    webmin_verify_tls: Optional[bool] = None
+    webmin_aliases: Optional[dict] = None
+    # Topbar widgets — lightweight decorative info in the header.
+    # ``weather_label`` is what the UI renders alongside the temp
+    # ("Cairo"); lat/lon feed Open-Meteo (no API key required). Clock
+    # is client-side only — no persistence needed beyond a show/hide.
+    weather_label: Optional[str] = None
+    weather_lat: Optional[float] = None
+    weather_lon: Optional[float] = None
+    show_header_clock: Optional[bool] = None
+    show_header_weather: Optional[bool] = None
 
 
 @app.get("/api/settings")
@@ -831,6 +851,16 @@ async def api_get_settings(request: Request):
             "token_set": bool(get_setting("pulse_token", "")),
             "verify_tls": (get_setting("pulse_verify_tls", "true") or "true").lower() == "true",
             "aliases": json.loads(get_setting("pulse_aliases", "{}") or "{}"),
+        },
+        # Webmin — password is write-only (same _set-flag convention as
+        # beszel_password / pulse_token / portainer_api_key). ``aliases``
+        # is Docker hostname → Miniserv base URL per host.
+        "webmin": {
+            "url": get_setting("webmin_url", ""),
+            "user": get_setting("webmin_user", ""),
+            "password_set": bool(get_setting("webmin_password", "")),
+            "verify_tls": (get_setting("webmin_verify_tls", "false") or "false").lower() == "true",
+            "aliases": json.loads(get_setting("webmin_aliases", "{}") or "{}"),
         },
         # Back-compat: older UI bits read this top-level field.
         "endpoint_id": p.get("portainer_endpoint_id", 1),

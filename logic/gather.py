@@ -309,13 +309,15 @@ async def _gather_impl() -> None:
         # a CSV so operators can enable multiple providers that merge
         # into one picture per host:
         #   ""                                → none
-        #   "beszel" / "node_exporter" / "pulse" → single source
-        #   "beszel,pulse,node_exporter"      → merged, best-of
+        #   "beszel" / "node_exporter" / "pulse" / "webmin" → single
+        #   "beszel,pulse,node_exporter,webmin" → merged, best-of
         # Merge order runs providers in increasing "authority" for
         # their specialty:
         #   1. Beszel          (broad coverage, cross-platform)
         #   2. Pulse           (deep on PVE, silent on non-PVE)
         #   3. node-exporter   (deep on Linux — per-mount disks, NICs)
+        #   4. Webmin          (distro-native — pending updates, mounts
+        #                       per-host API, runs last as tiebreaker)
         # The ``_merge_best`` helper (below) only overwrites when the
         # new source has a meaningful value, so enabling Pulse on a
         # mixed fleet doesn't wipe Beszel's cpu/mem reading on hosts
@@ -484,6 +486,51 @@ async def _gather_impl() -> None:
                 for host, stats in results:
                     if host in nodes_info:
                         _merge_best(nodes_info[host], stats)
+
+        # Webmin runs LAST (most-specific). Supplies distro-native data
+        # the other providers can't see — pending package updates, per-
+        # mount filesystems via Miniserv's `mount` module, NIC list via
+        # `net`. Skipped for hosts with no webmin URL configured so
+        # hosts-without-Webmin keep working unchanged.
+        if "webmin" in active_sources and df_hosts:
+            from logic import webmin as _webmin
+            user = get_setting("webmin_user", "") or ""
+            passw = get_setting("webmin_password", "") or ""
+            webmin_verify = (get_setting("webmin_verify_tls", "false")
+                             or "false").lower() == "true"
+            try:
+                webmin_aliases = json.loads(
+                    get_setting("webmin_aliases", "{}") or "{}"
+                )
+                if not isinstance(webmin_aliases, dict):
+                    webmin_aliases = {}
+            except ValueError:
+                webmin_aliases = {}
+
+            async def _one_webmin(h: str):
+                url = webmin_aliases.get(h) or ""
+                if not url:
+                    return h, None
+                result = await _webmin.probe_webmin(
+                    url, user, passw,
+                    verify_tls=webmin_verify,
+                    active_sources=active_sources,
+                )
+                if result.get("error") and not result.get("hosts"):
+                    return h, {"exporter_error": f"webmin: {result['error']}"}
+                hosts_map = result.get("hosts") or {}
+                if not hosts_map:
+                    return h, None
+                stats = next(iter(hosts_map.values()))
+                return h, stats
+
+            webmin_results = await asyncio.gather(*(
+                _one_webmin(h) for h in df_hosts
+            ), return_exceptions=False)
+            for host, stats in webmin_results:
+                if host not in nodes_info or not stats:
+                    continue
+                _merge_best(nodes_info[host], stats)
 
         # Per-node container sweep — gives us a containerID → hostname map
         # that covers PLAIN compose containers on worker nodes too. The
