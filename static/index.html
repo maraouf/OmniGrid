@@ -1096,17 +1096,20 @@
               <div class="text-center text-[11px] mono truncate" x-text="h.arch || '—'"></div>
               <!-- Kernel (truncated) -->
               <div class="text-center text-[11px] mono truncate" :title="h.kernel" x-text="h.kernel ? h.kernel.slice(0, 8) + (h.kernel.length > 8 ? '…' : '') : '—'"></div>
-              <!-- Deep-link to the Beszel record. Uses h.label (the
-                   operator-editable "name" in Beszel) because that's
-                   what appears in Beszel's /system/:name route.
-                   @click.stop so the row-toggle doesn't fire. -->
+              <!-- Deep-link to the Beszel record. Uses ``h.beszel_name``
+                   — the per-host mapping configured in Admin → Hosts —
+                   so the URL resolves to the actual Beszel system, not
+                   the Docker hostname or the user's display label
+                   (which may not exist in Beszel at all). Link hides
+                   when no Beszel mapping is set. @click.stop so the
+                   row-toggle doesn't fire. -->
               <div class="text-center">
-                <a x-show="settings.beszel_hub_url && h.label"
-                   :href="(settings.beszel_hub_url || '').replace(/\/$/, '') + '/system/' + encodeURIComponent(h.label)"
+                <a x-show="settings.beszel_hub_url && h.beszel_name"
+                   :href="(settings.beszel_hub_url || '').replace(/\/$/, '') + '/system/' + encodeURIComponent(h.beszel_name || '')"
                    target="_blank" rel="noopener"
                    @click.stop
                    class="inline-flex items-center justify-center text-[var(--text-dim)] hover:text-[var(--primary)]"
-                   title="Open in Beszel">
+                   :title="'Open ' + (h.beszel_name || '') + ' in Beszel'">
                   <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
                 </a>
               </div>
@@ -1250,11 +1253,38 @@
                   </div>
                 </section>
 
-                <!-- MOUNTS (if stats carries per-mount detail) -->
-                <section x-show="(h.mounts || []).length > 0"
+                <!-- DISKS — always rendered when we have at least the
+                     aggregate disk total from Beszel / Pulse / node-
+                     exporter. Starts with a "Total Usage" bar (the
+                     merged host_disk_total/used from whichever
+                     provider reported it), then drops in per-mount
+                     bars under ``efs`` when the newer Beszel agent
+                     emits them. This keeps the card informative for
+                     container-mode Beszel agents (which skip ``efs``)
+                     while still showing richer detail for full-host
+                     agents. -->
+                <section x-show="h.disk_total > 0 || (h.mounts || []).length > 0"
                          class="rounded border border-[var(--border)] bg-[var(--surface)] p-4">
                   <h4 class="text-[10.5px] uppercase tracking-wider text-[var(--text-faint)] mb-3">Disks</h4>
                   <div class="space-y-3">
+                    <!-- Total usage row — uses the merged host_disk_*
+                         bytes, not the per-mount values, so it keeps
+                         working when the agent is container-mode and
+                         only reports aggregates. -->
+                    <div x-show="h.disk_total > 0">
+                      <div class="flex items-baseline justify-between">
+                        <span class="text-[11.5px] text-[var(--text-dim)] font-semibold">Total usage</span>
+                        <span class="text-[10.5px] text-[var(--text-faint)] mono"
+                              x-text="fmtBytes(h.disk_used) + ' / ' + fmtBytes(h.disk_total)"></span>
+                      </div>
+                      <div class="stat-bar mt-1"
+                           :class="barLevel(diskPercentOf(h))"
+                           :style="'--w: ' + diskPercentOf(h) + '%'">
+                        <div class="fill"></div>
+                      </div>
+                    </div>
+                    <!-- Per-mount breakdown (when stats.efs was
+                         populated — full-host Beszel agents only). -->
                     <template x-for="(m, i) in (h.mounts || [])" :key="i">
                       <div>
                         <div class="flex items-baseline justify-between">
@@ -1518,9 +1548,20 @@
         <span class="spin-lg" aria-hidden="true"></span>
         <div x-text="t('loading.resources')"></div>
       </div>
+      <!-- Empty-state — no curated hosts AND no provider returned
+           anything. Points the operator at the Admin → Hosts editor
+           (source of truth) and reminds them to enable at least one
+           provider under Admin → Host stats. -->
       <div x-show="hostsConfigured && !hostsLoading && !hostsError && hosts.length === 0"
            class="text-center py-16 text-[var(--text-faint)] text-sm">
-        No systems registered in Beszel yet.
+        <div>No hosts yet.</div>
+        <div class="mt-2">
+          Define them in
+          <a href="/admin/hosts" class="text-[var(--primary)] hover:underline">Admin → Hosts</a>
+          and enable at least one provider in
+          <a href="/admin/host_stats" class="text-[var(--primary)] hover:underline">Admin → Host stats</a>
+          to see data here.
+        </div>
       </div>
     </div>
 
