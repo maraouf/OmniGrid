@@ -549,6 +549,25 @@ function app() {
     isNodeExpanded(name) {
       return this.expanded.includes('node:' + name);
     },
+    expandAllNodes() {
+      const keys = this.nodeGroups().map(n => 'node:' + n.name);
+      // Preserve non-node entries already in expanded (e.g. stacks).
+      const others = this.expanded.filter(k => !k.startsWith('node:'));
+      this.expanded = [...others, ...keys];
+    },
+    collapseAllNodes() {
+      this.expanded = this.expanded.filter(k => !k.startsWith('node:'));
+    },
+    expandAllHosts() {
+      this.hostsExpanded = (this.hosts || []).map(h => h.host);
+      // Warm history for every expanded host on bulk-open.
+      for (const h of (this.hosts || [])) {
+        if (h.beszel_id && !this.hostHistory[h.beszel_id]) {
+          this.loadHostHistory(h.beszel_id);
+        }
+      }
+    },
+    collapseAllHosts() { this.hostsExpanded = []; },
 
     // "Is there an in-flight prune_node op targeting this host?". Drives
     // the button's spinner + disabled state so rapid double-clicks don't

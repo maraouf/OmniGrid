@@ -255,15 +255,19 @@
 
       <div class="flex-1"></div>
 
-      <div x-show="view==='stacks'"
+      <!-- Expand / collapse toolbar — shown for any view that groups
+           into collapsible rows. Click handlers delegate to the
+           per-view method (stacks / nodes / hosts) so each keeps its
+           own state bucket. -->
+      <div x-show="view==='stacks' || view==='nodes' || view==='hosts'"
            class="flex items-center gap-1 bg-[var(--surface-2)] rounded-md p-0.5 border border-[var(--border)]"
            :title="t('filters.expand_collapse_title')">
-        <button @click="expandAllStacks()"
+        <button @click="view==='stacks' ? expandAllStacks() : view==='nodes' ? expandAllNodes() : expandAllHosts()"
                 class="px-2.5 py-1 rounded text-[11px] font-medium text-[var(--text-dim)] hover:text-[var(--text)] transition flex items-center gap-1.5">
           <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
           <span x-text="t('filters.expand_all')"></span>
         </button>
-        <button @click="collapseAllStacks()"
+        <button @click="view==='stacks' ? collapseAllStacks() : view==='nodes' ? collapseAllNodes() : collapseAllHosts()"
                 class="px-2.5 py-1 rounded text-[11px] font-medium text-[var(--text-dim)] hover:text-[var(--text)] transition flex items-center gap-1.5">
           <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="18 15 12 9 6 15"/></svg>
           <span x-text="t('filters.collapse_all')"></span>

@@ -1120,55 +1120,188 @@ async def api_beszel_test(
             "systems": sorted(systems.keys())}
 
 
+def _meaningful(v) -> bool:
+    if v is None:
+        return False
+    if isinstance(v, (int, float)):
+        return v != 0
+    if isinstance(v, str):
+        return v.strip() != ""
+    if isinstance(v, (list, dict)):
+        return len(v) > 0
+    return True
+
+
+def _merge_best(dst: dict, src: dict) -> None:
+    """Copy meaningful values from src into dst; leave dst's existing
+    non-zero fields intact when src is empty/zero. Same helper as
+    :mod:`logic.gather` uses — kept local here so the Hosts endpoint
+    and gather stay in sync without a cross-module dependency on a
+    private helper."""
+    if not src:
+        return
+    for k, v in src.items():
+        if _meaningful(v):
+            dst[k] = v
+        elif k not in dst:
+            dst[k] = v
+
+
 @app.get("/api/hosts")
 async def api_hosts():
-    """Hosts view — returns every system Beszel knows about, flat.
+    """Hosts view — returns the CURATED host list merged with live
+    stats from every enabled provider.
 
-    Lightweight wrapper around :func:`logic.beszel.probe_hub`: one GET
-    to the hub, shaped into an array the frontend renders as a table
-    (see the Hosts tab). Also includes the reverse alias map
-    (``beszel name → docker node name``) so the UI can show which
-    Docker node each system is paired with.
+    Source of truth is ``hosts_config`` (Settings → Hosts). If it's
+    empty, falls back to auto-discovering from Beszel so the view
+    isn't blank for fresh installs.
 
-    Not cached here — the hub call is cheap (~50ms for a homelab
-    fleet). If it grows we can park the result in ``_cache`` alongside
-    ``nodes_info`` and flush on ``beszel_aliases`` writes.
+    Each curated host entry specifies its per-provider name:
+      - ``ne_url``      — node-exporter scrape URL
+      - ``beszel_name`` — Beszel ``host`` field to match
+      - ``pulse_name``  — Pulse PVE node name
+    For each enabled provider, we fetch once (all hosts in one call
+    where possible) and look up this host's stats by its provider-
+    specific name. Fields are merged with the best-of rule — non-zero
+    values win over zeros — so flaky providers never erase good data.
     """
     from logic import beszel as _beszel
-    hub_url = get_setting("beszel_hub_url", "") or ""
-    ident = get_setting("beszel_identity", "") or ""
-    passw = get_setting("beszel_password", "") or ""
-    verify = (get_setting("beszel_verify_tls", "true") or "true").lower() == "true"
-    try:
-        aliases_raw = json.loads(get_setting("beszel_aliases", "{}") or "{}")
-        if not isinstance(aliases_raw, dict):
-            aliases_raw = {}
-    except ValueError:
-        aliases_raw = {}
-    # Reverse direction — every beszel name → the docker node that's
-    # mapped to it. Lets the row show "paired with node X".
-    reverse_aliases = {str(v): str(k) for k, v in aliases_raw.items() if v}
+    from logic import pulse as _pulse
+    from logic import node_exporter as _ne
 
-    if not (hub_url and ident and passw):
-        return {
-            "configured": False,
-            "hub_url": hub_url,
-            "error": "Beszel not configured — set Hub URL / identity / password in Settings.",
-            "hosts": [],
-        }
-    result = await _beszel.probe_hub(hub_url, ident, passw, verify_tls=verify)
-    err = result.get("error")
-    systems = result.get("systems") or {}
+    # Which providers are live?
+    raw_source = (get_setting("host_stats_source", "") or "").strip()
+    if not raw_source:
+        raw_source = ("node_exporter"
+                      if (get_setting("node_exporter_enabled", "false") or "false").lower() == "true"
+                      else "")
+    active = {
+        s.strip().lower()
+        for s in raw_source.split(",")
+        if s.strip() and s.strip().lower() != "none"
+    }
+
+    curated = _load_hosts_config()
+    errors: dict[str, str] = {}
+
+    # ---- Batch-fetch each enabled provider once -------------------
+    beszel_map: dict[str, dict] = {}
+    if "beszel" in active:
+        hub_url = get_setting("beszel_hub_url", "") or ""
+        ident = get_setting("beszel_identity", "") or ""
+        passw = get_setting("beszel_password", "") or ""
+        verify = (get_setting("beszel_verify_tls", "true") or "true").lower() == "true"
+        if hub_url and ident and passw:
+            r = await _beszel.probe_hub(hub_url, ident, passw, verify_tls=verify)
+            if r.get("error"):
+                errors["beszel"] = r["error"]
+            beszel_map = r.get("systems") or {}
+        else:
+            errors["beszel"] = "missing url / identity / password"
+
+    pulse_map: dict[str, dict] = {}
+    if "pulse" in active:
+        pulse_url = get_setting("pulse_url", "") or ""
+        pulse_token = get_setting("pulse_token", "") or ""
+        verify = (get_setting("pulse_verify_tls", "true") or "true").lower() == "true"
+        if pulse_url and pulse_token:
+            r = await _pulse.probe_pulse(pulse_url, pulse_token, verify_tls=verify)
+            if r.get("error"):
+                errors["pulse"] = r["error"]
+            pulse_map = r.get("hosts") or {}
+        else:
+            errors["pulse"] = "missing url / token"
+
+    # ---- Fallback: auto-discover from Beszel when no curated list ----
+    if not curated:
+        if beszel_map:
+            curated = [
+                {
+                    "id":          k,
+                    "label":       v.get("beszel_name") or k,
+                    "ne_url":      "",
+                    "beszel_name": k,
+                    "pulse_name":  "",
+                    "enabled":     True,
+                }
+                for k in sorted(beszel_map.keys(), key=str.lower)
+            ]
+        elif pulse_map:
+            curated = [
+                {
+                    "id":          k,
+                    "label":       v.get("pulse_name") or k,
+                    "ne_url":      "",
+                    "beszel_name": "",
+                    "pulse_name":  k,
+                    "enabled":     True,
+                }
+                for k in sorted(pulse_map.keys(), key=str.lower)
+            ]
+
+    # ---- Per-host merge -------------------------------------------
+    out: list[dict] = []
+    ne_probes: list[tuple[dict, str]] = []  # (host_record, url)
+
+    for h in curated:
+        if not h.get("enabled", True):
+            continue
+        merged: dict = {}
+        providers_hit: list[str] = []
+
+        if "beszel" in active and h.get("beszel_name"):
+            bstats = beszel_map.get(h["beszel_name"])
+            if bstats:
+                _merge_best(merged, bstats)
+                providers_hit.append("beszel")
+
+        if "pulse" in active and h.get("pulse_name"):
+            pstats = pulse_map.get(h["pulse_name"])
+            if pstats:
+                _merge_best(merged, pstats)
+                providers_hit.append("pulse")
+
+        if "node_exporter" in active and h.get("ne_url"):
+            ne_probes.append((h, h["ne_url"]))
+
+        out.append({
+            "_host_record": h,
+            "_merged":      merged,
+            "_providers":   providers_hit,
+        })
+
+    # Parallel node-exporter probes for hosts that had a ne_url.
+    if ne_probes:
+        async with httpx.AsyncClient(verify=False, timeout=10.0) as ne_client:
+            results = await asyncio.gather(*(
+                _ne.probe_node(ne_client, url) for _, url in ne_probes
+            ))
+        # Zip back into the out list by reference.
+        by_id = {o["_host_record"]["id"]: o for o in out}
+        for (host_rec, _), stats in zip(ne_probes, results):
+            entry = by_id.get(host_rec["id"])
+            if entry is None:
+                continue
+            _merge_best(entry["_merged"], stats or {})
+            if stats and not (stats.get("exporter_error")):
+                entry["_providers"].append("node_exporter")
+
+    # ---- Shape the response ---------------------------------------
     hosts = []
-    for host_key, s in sorted(systems.items(), key=lambda kv: kv[0].lower()):
+    for entry in out:
+        h = entry["_host_record"]
+        s = entry["_merged"]
         hosts.append({
-            # ``host`` is the matching key (Beszel-agent hostname — stable);
-            # ``label`` is the operator's friendly label from Beszel's UI.
-            "name":            host_key,
-            "host":            host_key,
-            "label":           s.get("beszel_name") or host_key,
-            "status":          s.get("beszel_status") or "unknown",
-            "docker_node":     reverse_aliases.get(host_key, ""),
+            "id":              h["id"],
+            "name":            h["id"],
+            "host":            h["id"],
+            "label":           h.get("label") or h["id"],
+            "beszel_name":     h.get("beszel_name") or "",
+            "pulse_name":      h.get("pulse_name") or "",
+            "ne_url":          h.get("ne_url") or "",
+            "providers":       entry["_providers"],
+            "status":          s.get("beszel_status") or s.get("pulse_status") or "unknown",
+            "docker_node":     h["id"],  # curated list IS the docker-node-like mapping
             "platform":        s.get("host_platform") or "",
             "os":              s.get("host_os") or "",
             "kernel":          s.get("host_kernel") or "",
@@ -1193,12 +1326,103 @@ async def api_hosts():
             "beszel_id":       s.get("beszel_id") or "",
             "beszel_updated":  s.get("beszel_updated") or "",
         })
+
+    # Aggregate error — non-fatal; UI shows the first one per provider.
+    agg_error = "; ".join(f"{k}: {v}" for k, v in errors.items()) or None
+
     return {
-        "configured": True,
-        "hub_url": hub_url,
-        "error": err,
-        "hosts": hosts,
+        "configured":  bool(active),
+        "active":      sorted(active),
+        "error":       agg_error,
+        "provider_errors": errors,
+        "hub_url":     get_setting("beszel_hub_url", "") or "",
+        "hosts":       hosts,
     }
+
+
+def _load_hosts_config() -> list[dict]:
+    """Parse the ``hosts_config`` JSON setting into a validated list.
+
+    Empty / invalid values return an empty list. Caller treats an empty
+    list as "no curated hosts — fall back to auto-discovery where
+    applicable."
+    """
+    raw = get_setting("hosts_config", "") or ""
+    if not raw.strip():
+        return []
+    try:
+        parsed = json.loads(raw)
+    except ValueError:
+        return []
+    if not isinstance(parsed, list):
+        return []
+    clean: list[dict] = []
+    for i, h in enumerate(parsed):
+        if not isinstance(h, dict):
+            continue
+        hid = (h.get("id") or h.get("name") or "").strip()
+        if not hid:
+            continue
+        clean.append({
+            "id":          hid,
+            "label":       (h.get("label") or hid).strip() or hid,
+            "ne_url":      (h.get("ne_url") or "").strip(),
+            "beszel_name": (h.get("beszel_name") or "").strip(),
+            "pulse_name":  (h.get("pulse_name") or "").strip(),
+            "enabled":     bool(h.get("enabled", True)),
+        })
+    return clean
+
+
+def _save_hosts_config(hosts: list[dict]) -> list[dict]:
+    """Persist the curated hosts list and return what we saved.
+
+    Rejects bad shapes at the boundary so downstream code can trust the
+    result. Duplicates by ``id`` collapse to the last-wins record.
+    """
+    if not isinstance(hosts, list):
+        raise HTTPException(400, "hosts must be a list")
+    seen: dict[str, dict] = {}
+    for h in hosts:
+        if not isinstance(h, dict):
+            raise HTTPException(400, "every host entry must be an object")
+        hid = (h.get("id") or h.get("name") or "").strip()
+        if not hid:
+            raise HTTPException(400, "host entry is missing 'id'")
+        seen[hid] = {
+            "id":          hid,
+            "label":       (h.get("label") or hid).strip() or hid,
+            "ne_url":      (h.get("ne_url") or "").strip(),
+            "beszel_name": (h.get("beszel_name") or "").strip(),
+            "pulse_name":  (h.get("pulse_name") or "").strip(),
+            "enabled":     bool(h.get("enabled", True)),
+        }
+    ordered = list(seen.values())
+    set_setting("hosts_config", json.dumps(ordered))
+    return ordered
+
+
+@app.get("/api/hosts/config")
+async def api_hosts_config_get(_u: auth.User = Depends(auth.require_admin)):
+    """Admin-only: return the curated host list used by the Hosts tab."""
+    return {"hosts": _load_hosts_config()}
+
+
+@app.post("/api/hosts/config")
+async def api_hosts_config_set(
+    body: dict,
+    _u: auth.User = Depends(auth.require_admin),
+):
+    """Admin-only: replace the curated host list.
+
+    Full-replace rather than per-row CRUD — the list is small (one row
+    per physical host) and the UI saves the whole table on each edit.
+    Keeps the backend state machine trivial.
+    """
+    hosts = body.get("hosts")
+    saved = _save_hosts_config(hosts if isinstance(hosts, list) else [])
+    _cache["ts"] = 0  # force next gather to pick up new mappings
+    return {"hosts": saved, "count": len(saved)}
 
 
 @app.get("/api/hosts/history")
