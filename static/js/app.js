@@ -596,9 +596,11 @@ function app() {
       this.expanded = this.expanded.filter(k => !k.startsWith('node:'));
     },
     expandAllHosts() {
-      this.hostsExpanded = (this.hosts || []).map(h => h.host);
+      // Skip dead / no-data rows — same rule as manual toggle.
+      const alive = (this.hosts || []).filter(h => this.isHostExpandable(h));
+      this.hostsExpanded = alive.map(h => h.host);
       // Warm history for every expanded host on bulk-open.
-      for (const h of (this.hosts || [])) {
+      for (const h of alive) {
         if (h.beszel_id && !this.hostHistory[h.beszel_id]) {
           this.loadHostHistory(h.beszel_id);
         }
@@ -3457,6 +3459,18 @@ function app() {
       };
     },
     isHostExpanded(name) { return this.hostsExpanded.includes(name); },
+    // A host is "expandable" only when it's actually alive AND has
+    // enough merged data to justify opening the detail cards. The
+    // green dot (``status === 'up'``) is the primary signal; we
+    // also require at least one provider to have matched so hosts
+    // defined in Admin → Hosts but never hit don't appear
+    // interactive (same visual feedback as a dead row).
+    isHostExpandable(h) {
+      if (!h) return false;
+      if (h.status && h.status !== 'up') return false;
+      if (!(h.providers || []).length) return false;
+      return true;
+    },
     // Filtered view for the Hosts table — search matches host id,
     // label, platform, OS, kernel, and provider names so an operator
     // can find a host by whatever field they remember.
@@ -3472,13 +3486,20 @@ function app() {
       });
     },
     toggleHost(name) {
+      const host = (this.hosts || []).find(h => h.host === name);
+      // Already-expanded rows can always be collapsed, even if they
+      // flipped from "up" to "down" since the last open — otherwise
+      // the operator would be stuck looking at stale detail cards.
+      const already = this.hostsExpanded.includes(name);
+      if (!already && !this.isHostExpandable(host)) {
+        return;  // dead / unmatched host — header click is a no-op
+      }
       const i = this.hostsExpanded.indexOf(name);
       if (i === -1) {
         this.hostsExpanded.push(name);
         // Load history when a row expands for the first time. Further
         // expand/collapse cycles use the cached data until the range
         // changes.
-        const host = (this.hosts || []).find(h => h.host === name);
         if (host && host.beszel_id && !this.hostHistory[host.beszel_id]) {
           this.loadHostHistory(host.beszel_id);
         }
