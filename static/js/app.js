@@ -4210,6 +4210,22 @@ function app() {
         ['pfsense',               'pfsense'],
         ['mikrotik',              'mikrotik'],
         ['unifi',                 'unifi'],
+        // ISP / access-technology routers — longer phrases first so
+        // "ftth router" hits ftth (not the bare "router" fallback).
+        ['ftth',                  'ftth'],
+        ['fiber',                 'ftth'],
+        ['fibre',                 'ftth'],
+        ['gpon',                  'ftth'],
+        ['vdsl',                  'vdsl'],
+        ['adsl',                  'vdsl'],
+        ['dsl modem',             'vdsl'],
+        [' dsl',                  'vdsl'],
+        ['5g router',             '5g'],
+        ['5g modem',              '5g'],
+        ['5g cpe',                '5g'],
+        ['cellular',              '5g'],
+        [' lte',                  '5g'],
+        [' 5g',                   '5g'],
         ['gateway',               'opnsense'],
         ['firewall',              'opnsense'],
         ['router',                'opnsense'],
@@ -4404,6 +4420,32 @@ function app() {
           return;
         }
       }
+      // Block the save if ANY row has data in other fields but an
+      // empty id — previously these rows were silently filtered out,
+      // leaving the operator wondering why "+ Add host" + typing in
+      // the label / provider fields didn't persist. Surface a clear
+      // toast that points at the offending row number.
+      for (let i = 0; i < (this.hostsConfig || []).length; i++) {
+        const h = this.hostsConfig[i] || {};
+        if ((h.id || '').trim() !== '') continue;
+        const hasOtherData = (
+          (h.label || '').trim() ||
+          (h.ne_url || '').trim() ||
+          (h.beszel_name || '').trim() ||
+          (h.pulse_name || '').trim() ||
+          (h.webmin_name || '').trim() ||
+          (h.webmin_url || '').trim() ||
+          (h.url || '').trim() ||
+          (h.icon || '').trim()
+        );
+        if (hasOtherData) {
+          this.showToast(
+            'Row ' + (i + 1) + ' needs an ID before saving — add one or remove the row.',
+            'error',
+          );
+          return;
+        }
+      }
       // Strip empty rows (no ID) so saving doesn't persist placeholder
       // blanks. The server dedupes by ID in case the same one was
       // typed twice.
@@ -4502,10 +4544,18 @@ function app() {
     },
 
     // --- Hosts view (Beszel-backed) ---
+    // Two-phase loader (backend endpoints: /api/hosts/list + /api/hosts/one/{id}):
+    //   1. /api/hosts/list — curated list + global state, no probes.
+    //      Paints the table instantly with grey "…" status dots.
+    //   2. Fan out /api/hosts/one/{id} per row (capped concurrency
+    //      so a 30-host fleet doesn't flood the server with 30
+    //      simultaneous Webmin+NE probes). Each response splices its
+    //      row back into `this.hosts`, flipping _loading false and
+    //      filling in stats. Alpine's proxy picks up the mutation.
     async loadHosts() {
       this.hostsLoading = true;
       try {
-        const r = await fetch('/api/hosts');
+        const r = await fetch('/api/hosts/list');
         if (!r.ok) {
           this.hostsError = `HTTP ${r.status}`;
           this.hosts = [];
@@ -4516,37 +4566,87 @@ function app() {
         this.hostsError = d.error || '';
         this.hostsProviderErrors = d.provider_errors || {};
         this.hostsActiveSources = Array.isArray(d.active) ? d.active : [];
-        // Stamp insertion order (_seq) so the 'seq' sort can restore the
-        // curated-list order regardless of how later sorts reshuffle the
-        // array. Backend already returns hosts in curated order.
+        // Skeleton rows — each gets _loading:true + status:'loading'
+        // so the status dot renders neutral until the per-host probe
+        // lands. _seq keeps the "Custom #" / seq sort stable.
         this.hosts = Array.isArray(d.hosts)
-          ? d.hosts.map((h, i) => ({ ...h, _seq: i }))
+          ? d.hosts.map((h, i) => ({
+              ...h, _seq: i, _loading: true, status: 'loading',
+            }))
           : [];
         this.hostsCuratedCount = Number.isFinite(d.curated_count) ? d.curated_count : 0;
         this.hostsEnabledCount = Number.isFinite(d.enabled_count) ? d.enabled_count : 0;
-        // Trim persisted expansion state to hosts that actually exist
-        // in the current response — otherwise a host removed from the
-        // curated list stays in hostsExpanded forever.
+        // Trim persisted expansion state to hosts that actually exist.
         const valid = new Set(this.hosts.map(h => h.host));
         const cleaned = (this.hostsExpanded || []).filter(n => valid.has(n));
         if (cleaned.length !== (this.hostsExpanded || []).length) {
           this.hostsExpanded = cleaned;
         }
-        // Kick off history fetches for pre-expanded hosts so the charts
-        // populate without the operator having to re-click the drawer.
-        // Only runs for hosts with a beszel_id (the history source) and
-        // only when no cached series exists yet.
-        for (const name of this.hostsExpanded || []) {
-          const host = this.hosts.find(h => h.host === name);
-          if (host && host.beszel_id && !this.hostHistory[host.beszel_id]) {
-            this.loadHostHistory(host.beszel_id, host.id);
-          }
-        }
       } catch (e) {
         this.hostsError = `Network: ${e.message}`;
         this.hosts = [];
+        return;
       } finally {
         this.hostsLoading = false;
+      }
+
+      // Fan out per-host fetches. Concurrency cap prevents a 30-host
+      // fleet from opening 30 sockets at once (Webmin probes in
+      // particular hold connections for several seconds).
+      const queue = this.hosts.map(h => h.id);
+      const PARALLEL = 6;
+      const worker = async () => {
+        while (queue.length) {
+          const id = queue.shift();
+          if (!id) break;
+          await this.refreshHostRow(id);
+        }
+      };
+      const workers = [];
+      for (let i = 0; i < Math.min(PARALLEL, this.hosts.length); i++) {
+        workers.push(worker());
+      }
+      // Don't await workers — page paints as they complete. But fire
+      // the history pre-fetch for pre-expanded hosts right away so
+      // the drawer chart populates in parallel with the per-host
+      // stat fetches.
+      for (const name of this.hostsExpanded || []) {
+        const host = this.hosts.find(h => h.host === name);
+        if (host && host.beszel_id && !this.hostHistory[host.beszel_id]) {
+          this.loadHostHistory(host.beszel_id, host.id);
+        }
+      }
+    },
+
+    // Fetch one host's merged stats and splice it back into the
+    // hosts array. Preserves _seq and _loading handling so the UI
+    // can distinguish "not yet loaded" from "probed but empty".
+    async refreshHostRow(id) {
+      try {
+        const r = await fetch('/api/hosts/one/' + encodeURIComponent(id));
+        if (!r.ok) {
+          // Mark the row as probed but errored so the operator can
+          // spot it. Status stays 'unknown' without exploding the UI.
+          const idx = this.hosts.findIndex(h => h.id === id);
+          if (idx >= 0) {
+            const seq = this.hosts[idx]._seq;
+            this.hosts.splice(idx, 1, {
+              ...this.hosts[idx], _seq: seq,
+              _loading: false, status: 'unknown',
+            });
+          }
+          return;
+        }
+        const { host } = await r.json();
+        if (!host) return;
+        const idx = this.hosts.findIndex(h => h.id === id);
+        if (idx < 0) return;
+        const seq = this.hosts[idx]._seq;
+        this.hosts.splice(idx, 1, { ...host, _seq: seq, _loading: false });
+      } catch (_) {
+        // Network failure — leave the row in skeleton state so the
+        // next loadHosts cycle retries. Silent (no toast): on a big
+        // fleet the spam would be worse than the missing data.
       }
     },
     // Status chip for a provider in the Hosts toolbar. Combines
@@ -5047,8 +5147,14 @@ function app() {
     },
     statusDotColor(status) {
       if (status === 'up') return 'var(--success)';
-      if (status === 'down') return 'var(--danger)';
+      if (status === 'down' || status === 'unreachable') return 'var(--danger)';
       if (status === 'paused') return 'var(--warning)';
+      if (status === 'loading') return 'var(--text-faint)';
+      // 'unknown' — a host that's been PROBED and returned nothing.
+      // Treat as red ("we couldn't reach it through any provider")
+      // rather than grey ("never been probed") so operators spot
+      // dead hosts at a glance. Grey stays reserved for 'loading'.
+      if (status === 'unknown') return 'var(--danger)';
       return 'var(--text-faint)';
     },
 

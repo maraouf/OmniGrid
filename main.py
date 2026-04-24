@@ -1866,6 +1866,299 @@ async def api_hosts():
     }
 
 
+# ---------------------------------------------------------------------------
+# Per-host async loading (see note_todo #79)
+#
+# The monolithic /api/hosts waits until every provider probe for every
+# host has returned. With Webmin / Pulse / slow node-exporter scrapes
+# this can take 10+ seconds even with the parallelisation in #85 —
+# long enough that the page feels frozen.
+#
+# The split model:
+#   GET /api/hosts/list         — skeleton: curated list + global
+#                                 state (active sources, provider
+#                                 errors, hub URL). No per-host
+#                                 probes. Fast (<200ms).
+#   GET /api/hosts/one/{id}     — single host's merged data. Runs
+#                                 NE + Webmin probes for THAT host
+#                                 only; reuses Beszel / Pulse batch
+#                                 maps from a short-lived cache so a
+#                                 burst of N parallel calls doesn't
+#                                 incur N × batch-probe cost.
+#
+# Legacy /api/hosts still works (metric scrapers / dashboards that
+# want one round-trip to see the whole fleet). The SPA calls the
+# split pair.
+# ---------------------------------------------------------------------------
+_HOST_PROVIDER_CACHE_TTL = 10.0
+_host_provider_cache: dict = {"ts": 0.0, "state": None}
+
+
+async def _get_host_provider_state(force: bool = False) -> dict:
+    """Fetch + cache the provider state needed to merge any host.
+
+    The "batch" providers (Beszel, Pulse) expose one endpoint that
+    returns every host in one call, so we memoise them for
+    ``_HOST_PROVIDER_CACHE_TTL`` seconds. A burst of /api/hosts/one/{id}
+    calls from the SPA hits the cache; settings changes auto-clear
+    after the TTL expires (no explicit invalidation needed).
+    """
+    from logic import beszel as _beszel
+    from logic import pulse as _pulse
+
+    now = time.time()
+    cached = _host_provider_cache.get("state")
+    if (not force and cached
+            and (now - _host_provider_cache.get("ts", 0.0)) < _HOST_PROVIDER_CACHE_TTL):
+        return cached
+
+    raw_source = (get_setting("host_stats_source", "") or "").strip()
+    if not raw_source:
+        raw_source = ("node_exporter"
+                      if (get_setting("node_exporter_enabled", "false") or "false").lower() == "true"
+                      else "")
+    active = {
+        s.strip().lower()
+        for s in raw_source.split(",")
+        if s.strip() and s.strip().lower() != "none"
+    }
+
+    errors: dict[str, str] = {}
+    beszel_map: dict[str, dict] = {}
+    if "beszel" in active:
+        hub_url = get_setting("beszel_hub_url", "") or ""
+        ident = get_setting("beszel_identity", "") or ""
+        passw = get_setting("beszel_password", "") or ""
+        verify = (get_setting("beszel_verify_tls", "true") or "true").lower() == "true"
+        if hub_url and ident and passw:
+            r = await _beszel.probe_hub(hub_url, ident, passw, verify_tls=verify)
+            if r.get("error"):
+                errors["beszel"] = r["error"]
+            beszel_map = r.get("systems") or {}
+        else:
+            errors["beszel"] = "missing url / identity / password"
+
+    pulse_map: dict[str, dict] = {}
+    if "pulse" in active:
+        pulse_url = get_setting("pulse_url", "") or ""
+        pulse_token = get_setting("pulse_token", "") or ""
+        verify = (get_setting("pulse_verify_tls", "true") or "true").lower() == "true"
+        if pulse_url and pulse_token:
+            r = await _pulse.probe_pulse(pulse_url, pulse_token, verify_tls=verify)
+            if r.get("error"):
+                errors["pulse"] = r["error"]
+            pulse_map = r.get("hosts") or {}
+        else:
+            errors["pulse"] = "missing url / token"
+
+    webmin_creds_ok = False
+    webmin_user = ""
+    webmin_password = ""
+    webmin_verify = False
+    webmin_aliases: dict[str, str] = {}
+    if "webmin" in active:
+        webmin_user = get_setting("webmin_user", "") or ""
+        webmin_password = get_setting("webmin_password", "") or ""
+        webmin_verify = (get_setting("webmin_verify_tls", "false") or "false").lower() == "true"
+        try:
+            wm_aliases_raw = json.loads(get_setting("webmin_aliases", "{}") or "{}")
+            if isinstance(wm_aliases_raw, dict):
+                webmin_aliases = {
+                    str(k).strip(): str(v).strip()
+                    for k, v in wm_aliases_raw.items()
+                    if str(k).strip() and str(v).strip()
+                }
+        except ValueError:
+            webmin_aliases = {}
+        if webmin_user and webmin_password:
+            webmin_creds_ok = True
+        else:
+            errors["webmin"] = "missing user / password"
+
+    state = {
+        "active":           active,
+        "beszel_map":       beszel_map,
+        "pulse_map":        pulse_map,
+        "errors":           errors,
+        "webmin_user":      webmin_user,
+        "webmin_password":  webmin_password,
+        "webmin_verify":    webmin_verify,
+        "webmin_creds_ok":  webmin_creds_ok,
+        "webmin_aliases":   webmin_aliases,
+    }
+    _host_provider_cache["ts"] = now
+    _host_provider_cache["state"] = state
+    return state
+
+
+async def _merge_one_host(h: dict, state: dict) -> tuple[dict, list[str]]:
+    """Merge one curated host with provider data. Runs NE + Webmin
+    probes inline for THIS host only; Beszel/Pulse lookups hit the
+    cached batch maps. Returns (merged_dict, providers_hit)."""
+    from logic import node_exporter as _ne
+    from logic import pulse as _pulse
+    from logic import webmin as _webmin
+
+    merged: dict = {}
+    providers_hit: list[str] = []
+    active = state["active"]
+
+    # Pulse — coarse fallback layer.
+    pulse_key = h.get("pulse_name") or h.get("id") or ""
+    if "pulse" in active and pulse_key:
+        pstats = _pulse.lookup(state["pulse_map"], pulse_key)
+        if pstats:
+            _merge_best(merged, pstats)
+            providers_hit.append("pulse")
+
+    # Beszel.
+    beszel_key = h.get("beszel_name") or h.get("id") or ""
+    if "beszel" in active and beszel_key:
+        bstats = state["beszel_map"].get(beszel_key)
+        if bstats:
+            _merge_best(merged, bstats)
+            providers_hit.append("beszel")
+
+    # Node-exporter (per-host probe).
+    if "node_exporter" in active and h.get("ne_url"):
+        try:
+            async with httpx.AsyncClient(verify=False, timeout=10.0) as ne_client:
+                stats = await _ne.probe_node(ne_client, h["ne_url"])
+            _merge_best(merged, stats or {})
+            if stats and not stats.get("exporter_error"):
+                providers_hit.append("node_exporter")
+        except Exception as e:  # noqa: BLE001
+            print(f"[hosts] NE probe failed for {h.get('id')!r}: {e}")
+
+    # Webmin (per-host probe, 20s outer budget matching api_hosts).
+    if "webmin" in active and state["webmin_creds_ok"]:
+        wm_url = state["webmin_aliases"].get(h["id"]) or h.get("webmin_url") or ""
+        if wm_url:
+            try:
+                result = await asyncio.wait_for(
+                    _webmin.probe_webmin(
+                        wm_url, state["webmin_user"], state["webmin_password"],
+                        verify_tls=state["webmin_verify"],
+                        active_sources=active,
+                    ),
+                    timeout=20.0,
+                )
+            except asyncio.TimeoutError:
+                result = {"hosts": {}, "error": "webmin probe timeout after 20s"}
+            except Exception as e:  # noqa: BLE001
+                result = {"hosts": {}, "error": f"webmin probe failed: {e}"}
+            hosts_map = result.get("hosts") or {}
+            if hosts_map:
+                stats = next(iter(hosts_map.values()))
+                _merge_best(merged, stats)
+                providers_hit.append("webmin")
+
+    return merged, providers_hit
+
+
+def _shape_host_api_row(h: dict, merged: dict, providers_hit: list[str]) -> dict:
+    """Shape a (curated_host, merged_stats) pair into the wire format.
+
+    Extracted from api_hosts so api_hosts_list (skeleton — empty
+    merged) and api_hosts_one (single-host) produce identical rows
+    with no drift.
+    """
+    s = merged or {}
+    return {
+        "id":              h["id"],
+        "name":            h["id"],
+        "host":            h["id"],
+        "label":           h.get("label") or h["id"],
+        "beszel_name":     h.get("beszel_name") or "",
+        "pulse_name":      h.get("pulse_name") or "",
+        "ne_url":          h.get("ne_url") or "",
+        "url":             h.get("url") or "",
+        "icon":            h.get("icon") or "",
+        "providers":       providers_hit or [],
+        "status":          (
+            s.get("beszel_status")
+            or s.get("pulse_status")
+            or ("up" if providers_hit else "unknown")
+        ),
+        "docker_node":     h["id"],
+        "platform":        s.get("host_platform") or "",
+        "os":              s.get("host_os") or "",
+        "kernel":          s.get("host_kernel") or "",
+        "arch":            s.get("host_arch") or "",
+        "agent":           s.get("host_agent") or "",
+        "cores":           s.get("host_cores") or s.get("host_threads") or 0,
+        "threads":         s.get("host_threads") or 0,
+        "cpu_model":       s.get("host_cpu_model") or "",
+        "cpu_percent":     s.get("host_cpu_percent") or 0,
+        "mem_percent":     s.get("host_mem_percent") or 0,
+        "disk_percent":    s.get("host_disk_percent") or 0,
+        "mem_used":        s.get("host_mem_used") or 0,
+        "mem_total":       s.get("host_mem_total") or 0,
+        "disk_used":       s.get("host_disk_used") or 0,
+        "disk_total":      s.get("host_disk_total") or 0,
+        "mounts":          s.get("mounts") or [],
+        "network_ifaces":  s.get("network_ifaces") or [],
+        "bandwidth":       s.get("host_bandwidth") or 0,
+        "containers":      s.get("host_containers") or 0,
+        "uptime_s":        s.get("host_uptime_s") or 0,
+        "boot_ts":         s.get("host_boot_ts"),
+        "beszel_id":       s.get("beszel_id") or "",
+        "beszel_updated":  s.get("beszel_updated") or "",
+        "pulse_kind":      s.get("pulse_kind") or "",
+        "pulse_vmid":      s.get("pulse_vmid") or 0,
+        "pulse_node":      s.get("pulse_node") or "",
+        "pulse_status":    s.get("pulse_status") or "",
+        "updates_pending":  int(s.get("host_updates_pending") or 0),
+        "updates_security": int(s.get("host_updates_security") or 0),
+        "custom_number":    h.get("custom_number"),
+    }
+
+
+@app.get("/api/hosts/list")
+async def api_hosts_list():
+    """Skeleton endpoint — curated host list + global state, NO
+    per-host probes. Paired with /api/hosts/one/{id} for progressive
+    loading: the SPA paints rows immediately from this response, then
+    fans out per-host fetches to fill in the stats.
+    """
+    curated = _load_hosts_config()
+    state = await _get_host_provider_state()
+
+    hosts = [
+        _shape_host_api_row(h, {}, [])
+        for h in curated
+        if h.get("enabled", True)
+    ]
+    agg_error = "; ".join(f"{k}: {v}" for k, v in state["errors"].items()) or None
+    return {
+        "configured":      bool(state["active"]),
+        "active":          sorted(state["active"]),
+        "error":           agg_error,
+        "provider_errors": state["errors"],
+        "hub_url":         get_setting("beszel_hub_url", "") or "",
+        "hosts":           hosts,
+        "curated_count":   len(curated),
+        "enabled_count":   sum(1 for h in curated if h.get("enabled", True)),
+    }
+
+
+@app.get("/api/hosts/one/{host_id}")
+async def api_hosts_one(host_id: str):
+    """Merge ONE curated host with provider data.
+
+    Called N times in parallel by the SPA after /api/hosts/list
+    returns the skeleton. The shared Beszel/Pulse cache ensures the
+    batch probes run at most once per TTL window.
+    """
+    curated = _load_hosts_config()
+    h = next((x for x in curated if x.get("id") == host_id), None)
+    if h is None or not h.get("enabled", True):
+        raise HTTPException(404, f"Host not found: {host_id}")
+    state = await _get_host_provider_state()
+    merged, providers = await _merge_one_host(h, state)
+    return {"host": _shape_host_api_row(h, merged, providers)}
+
+
 def _load_hosts_config() -> list[dict]:
     """Parse the ``hosts_config`` JSON setting into a validated list.
 

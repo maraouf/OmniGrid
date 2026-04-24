@@ -2097,8 +2097,11 @@
                    the host resolved from its hosts_config id. Dry-run-
                    first by default; destructive commands raise a typed-
                    hostname confirm before the real run (also enforced
-                   backend-side via logic/ssh.command_is_destructive). -->
-              <template x-if="me && me.role === 'admin'">
+                   backend-side via logic/ssh.command_is_destructive).
+                   Hidden entirely when SSH is disabled on this host
+                   (hosts_config[].ssh.disabled=true) — the status
+                   probe returns enabled:false, we collapse the card. -->
+              <template x-if="me && me.role === 'admin' && !(sshStatus[h.id] && sshStatus[h.id].enabled === false)">
                 <div class="host-debug-panel">
                   <button type="button"
                           class="host-debug-toggle"
@@ -2111,7 +2114,6 @@
                     <span x-text="t('hosts_extra_ssh.card_title')"></span>
                     <span class="host-debug-hint ms-2"
                           x-text="sshStatus[h.id] && sshStatus[h.id].configured ? t('hosts_extra_ssh.status_ready')
-                                   : sshStatus[h.id] && !sshStatus[h.id].enabled ? t('hosts_extra_ssh.status_disabled')
                                    : t('hosts_extra_ssh.status_not_configured')"></span>
                   </button>
                   <div x-show="sshOpen[h.id]" class="host-debug-body">
@@ -3597,18 +3599,19 @@
            provider-specific fields expand below in a 3-col grid so
            each input gets a sensible minimum width. -->
       <section x-show="adminTab==='hosts'" class="bg-[var(--surface)] border border-[var(--border)] rounded-md p-5">
-        <div class="flex items-start justify-between gap-3 mb-3">
-          <div>
-            <h3 class="font-semibold text-[14px]">Hosts</h3>
-            <p class="text-[12px] text-[var(--text-faint)] mt-1 leading-snug max-w-[720px]">
-              Define the machines you want to monitor and map each to the
-              names used by every enabled provider. OmniGrid fetches all
-              providers on every refresh and merges the best values per
-              host — missing fields degrade to what the other providers
-              returned.
-            </p>
-          </div>
-          <div class="flex items-center gap-2 flex-shrink-0">
+        <!-- Heading + intro take full width; actions wrap to a new
+             row below so the intro doesn't squeeze into a 6-line
+             sliver on typical desktops (tmp/img_20.png). -->
+        <div class="mb-3">
+          <h3 class="font-semibold text-[14px]">Hosts</h3>
+          <p class="text-[12px] text-[var(--text-faint)] mt-1 leading-snug max-w-[720px]">
+            Define the machines you want to monitor and map each to the
+            names used by every enabled provider. OmniGrid fetches all
+            providers on every refresh and merges the best values per
+            host — missing fields degrade to what the other providers
+            returned.
+          </p>
+          <div class="flex items-center gap-2 flex-wrap mt-3">
             <button x-show="isAdmin()" @click="discoverHosts()"
                     class="btn btn-ghost text-[12px]"
                     :disabled="hostsDiscovering"
