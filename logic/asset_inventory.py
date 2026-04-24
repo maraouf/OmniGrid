@@ -47,34 +47,74 @@ async def probe_token(
     if not token_url or not client_id or not client_secret:
         return {"ok": False, "token_type": "", "expires_in": 0,
                 "access_token": "", "error": "missing token_url / client_id / client_secret"}
-    data: dict[str, str] = {"grant_type": "client_credentials"}
+    base_data: dict[str, str] = {"grant_type": "client_credentials"}
     if scope:
-        data["scope"] = scope
-    # Basic auth is the most widely supported client authentication
-    # method per RFC 6749 §2.3.1 — works with Keycloak / Authentik /
-    # oufa.co's PHP implementation. If a server ever requires body-
-    # parameter auth only, we can add a fallback.
+        base_data["scope"] = scope
+    # RFC 6749 §2.3.1 allows client authentication via EITHER Basic
+    # header OR form body parameters; servers pick one. Keycloak /
+    # Authentik accept both; Oracle APEX (oufa.co's flavour) REJECTS
+    # Basic with "missing username or password in client_credentials
+    # grant Ex3552" and requires body params. So: try Basic first
+    # (standards-preferred), fall back to body params on 400/401 so
+    # APEX-style servers also work.
     basic = base64.b64encode(f"{client_id}:{client_secret}".encode("utf-8")).decode("ascii")
-    headers = {
-        "Authorization": f"Basic {basic}",
-        "Content-Type": "application/x-www-form-urlencoded",
-        "Accept": "application/json",
-    }
-    try:
+
+    async def _post(method: str) -> tuple[int, str, Any]:
+        """Returns (status_code, text_preview, parsed_json_or_None)."""
+        if method == "basic":
+            headers = {
+                "Authorization": f"Basic {basic}",
+                "Content-Type": "application/x-www-form-urlencoded",
+                "Accept": "application/json",
+            }
+            body = dict(base_data)
+        else:  # "body"
+            headers = {
+                "Content-Type": "application/x-www-form-urlencoded",
+                "Accept": "application/json",
+            }
+            body = dict(base_data)
+            body["client_id"] = client_id
+            body["client_secret"] = client_secret
         async with httpx.AsyncClient(verify=verify_tls, timeout=timeout) as client:
-            r = await client.post(token_url, data=data, headers=headers)
-        if r.status_code == 401:
+            resp = await client.post(token_url, data=body, headers=headers)
+        # Try to parse JSON eagerly so the retry logic can see a
+        # structured error; non-JSON body is fine too.
+        try:
+            parsed = resp.json()
+        except Exception:
+            parsed = None
+        return resp.status_code, (resp.text or "")[:400], parsed
+
+    try:
+        status, preview, payload = await _post("basic")
+        # Fallback: APEX-style servers return 400 with
+        # "missing username or password" when Basic is used. Retry
+        # with body-params credentials. Also retry on 401 in case a
+        # server silently rejects Basic.
+        needs_body = False
+        if status in (400, 401):
+            lower = (preview or "").lower()
+            if ("missing username or password" in lower
+                    or "invalid_client" in lower
+                    or status == 401):
+                needs_body = True
+        if needs_body:
+            print(f"[asset_inventory] token endpoint rejected Basic auth ({status}); "
+                  f"retrying with body-param credentials. preview={preview[:160]!r}")
+            status, preview, payload = await _post("body")
+        if status == 401:
             return {"ok": False, "token_type": "", "expires_in": 0,
                     "access_token": "",
                     "error": "OAuth2 auth rejected (401) — check client_id / client_secret"}
-        if r.status_code >= 400:
+        if status >= 400:
             return {"ok": False, "token_type": "", "expires_in": 0,
                     "access_token": "",
-                    "error": f"token endpoint HTTP {r.status_code}: {r.text[:200]}"}
-        payload = r.json()
-    except ValueError as e:
-        return {"ok": False, "token_type": "", "expires_in": 0,
-                "access_token": "", "error": f"token endpoint returned non-JSON: {e}"}
+                    "error": f"token endpoint HTTP {status}: {preview}"}
+        if payload is None:
+            return {"ok": False, "token_type": "", "expires_in": 0,
+                    "access_token": "",
+                    "error": f"token endpoint returned non-JSON: {preview}"}
     except Exception as e:
         return {"ok": False, "token_type": "", "expires_in": 0,
                 "access_token": "", "error": f"{type(e).__name__}: {e}"}
