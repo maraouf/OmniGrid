@@ -792,6 +792,63 @@
     "custom_number_label": "Custom #",
     "custom_number_title": "Operator-assigned catalogue number — used for sort/group in Hosts view and as the key for Asset-inventory lookups at oufa.co"
   },
+  "host_drawer": {
+    "system": {
+      "heading": "System",
+      "hostname": "Hostname",
+      "platform": "Platform",
+      "os": "OS",
+      "kernel": "Kernel",
+      "arch": "Architecture",
+      "uptime": "Uptime",
+      "docker_node": "Docker node",
+      "proxmox": "Proxmox",
+      "url": "URL",
+      "add_url": "+ Add"
+    },
+    "hardware": {
+      "heading": "Hardware",
+      "cpu": "CPU",
+      "cores": "Cores",
+      "threads": "Threads",
+      "memory": "Memory",
+      "disk": "Disk",
+      "beszel_agent": "Beszel agent",
+      "beszel_agent_title": "Version reported by the Beszel agent on this host",
+      "status": "Status"
+    },
+    "network": {
+      "heading": "Network",
+      "bandwidth": "Bandwidth"
+    },
+    "disks": {
+      "heading": "Disks",
+      "total_usage": "Total usage",
+      "show_empty_one": "+ Show 1 empty mount",
+      "show_empty_many": "+ Show {count} empty mounts",
+      "hide_empty_one": "− Hide 1 empty mount",
+      "hide_empty_many": "− Hide {count} empty mounts"
+    },
+    "updates": {
+      "heading": "Updates",
+      "pending": "Pending",
+      "security": "Security",
+      "security_count": "{count} security",
+      "source": "Source"
+    },
+    "proxmox_kind": {
+      "lxc": "LXC",
+      "qemu": "VM",
+      "node": "Hypervisor"
+    },
+    "charts": {
+      "cpu": "CPU %",
+      "memory": "Memory %",
+      "disk": "Disk %",
+      "net_in": "Net In B/s",
+      "net_out": "Net Out B/s"
+    }
+  },
   "debug_panel": {
     "show": "Show debug data (admin)",
     "hide": "Hide debug data",

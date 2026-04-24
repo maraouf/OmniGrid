@@ -1349,13 +1349,14 @@
                  info cards side by side on wide screens, mirroring
                  Beszel's own detail layout. -->
             <div x-show="isHostExpanded(h.host)" class="bg-[var(--surface-2)]/50 border-t border-[var(--border)] px-5 py-4">
-              <!-- "No data yet" banner — admins can open the drawer for
-                   any host (including down / unmatched) to reach the
-                   debug panel. When no provider returned data, the
-                   SYSTEM / HARDWARE / metric cards below are empty-
-                   stated, so we hide them entirely and let the Debug
-                   panel at the bottom of the drawer do the talking. -->
-              <template x-if="!((h.providers || []).length > 0)">
+              <!-- "No data yet" banner — shows ONLY when the host has
+                   at least one provider mapped but no data returned
+                   (real "we tried and nothing came back" signal).
+                   Hosts with `status: 'unconfigured'` (no provider
+                   fields set) skip the banner — there's nothing to
+                   report and no action to take. Admins can still
+                   reach the debug panel via expansion. -->
+              <template x-if="!((h.providers || []).length > 0) && h.status !== 'unconfigured'">
                 <div class="flex items-start gap-3 bg-[var(--surface-3)] border border-[var(--border)] rounded-md p-4 text-[12.5px] mb-4">
                   <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-[var(--text-dim)] flex-shrink-0 mt-0.5"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
                   <div>
@@ -2099,9 +2100,11 @@
                    hostname confirm before the real run (also enforced
                    backend-side via logic/ssh.command_is_destructive).
                    Hidden entirely when SSH is disabled on this host
-                   (hosts_config[].ssh.disabled=true) — the status
-                   probe returns enabled:false, we collapse the card. -->
-              <template x-if="me && me.role === 'admin' && !(sshStatus[h.id] && sshStatus[h.id].enabled === false)">
+                   (hosts_config[].ssh.disabled=true). Gate reads
+                   `h.ssh_disabled` straight from the row (not
+                   sshStatus) so the panel never appears even for a
+                   split second before sshStatus loads. -->
+              <template x-if="me && me.role === 'admin' && !h.ssh_disabled">
                 <div class="host-debug-panel">
                   <button type="button"
                           class="host-debug-toggle"

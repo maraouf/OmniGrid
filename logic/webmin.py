@@ -245,9 +245,14 @@ async def _fetch_xml(
                       + (f" — {hint}" if hint else ""))
     if r.status_code >= 400:
         return None, f"{path}: HTTP {r.status_code}"
-    body = r.text or ""
-    if not body.strip():
+    # Keep a reference to the RAW body before any transforms — the
+    # operator needs to see exactly what the wire returned when a
+    # parse fails, including BOMs, duplicate XML declarations, or
+    # stray Content-Type-in-body bytes that the BOM strip missed.
+    raw_body = r.text or ""
+    if not raw_body.strip():
         return None, f"{path}: empty response"
+    body = raw_body
     # Strip a BOM that some Webmin 2.x builds emit ahead of XML
     # declarations. ElementTree's parser rejects a leading BOM as
     # "not well-formed (invalid token): line 2, column 16" — the
@@ -269,11 +274,28 @@ async def _fetch_xml(
     try:
         root = ET.fromstring(body)
     except ET.ParseError as e:
-        # Dump first 200 chars of the response so Admin → Logs can
-        # show exactly what came back. 2.x sometimes wraps XML in
-        # plain-text headers the parser chokes on.
-        preview = body[:200].replace("\n", "\\n").replace("\r", "\\r")
-        print(f"[webmin] XML parse error for {url}: {e}; body preview: {preview!r}")
+        # Verbose diagnostic dump — the operator has been seeing
+        # "line 2 col 16" errors even after the BOM strip. Surface
+        # enough of the actual bytes to identify what the BOM strip
+        # missed: raw content-type header, duplicate <?xml?>
+        # declaration, stray whitespace, etc. Prints BOTH the raw
+        # repr (shows BOMs / control chars as \uXXXX) AND the hex
+        # of the first 32 bytes (catches invisible Unicode).
+        raw_preview = raw_body[:200].replace("\n", "\\n").replace("\r", "\\r")
+        stripped_preview = body[:200].replace("\n", "\\n").replace("\r", "\\r")
+        try:
+            raw_bytes = raw_body.encode("utf-8", errors="replace")[:32]
+            hex_preview = raw_bytes.hex(" ")
+        except Exception:  # noqa: BLE001
+            hex_preview = "<encode failed>"
+        ctype = r.headers.get("content-type", "?")
+        print(
+            f"[webmin] XML parse error for {url}: {e}\n"
+            f"[webmin]   content-type: {ctype!r}\n"
+            f"[webmin]   raw[:200]:      {raw_preview!r}\n"
+            f"[webmin]   stripped[:200]: {stripped_preview!r}\n"
+            f"[webmin]   raw_hex[:32]:   {hex_preview}"
+        )
         return None, f"{path}: XML parse error — {e}"
     return root, None
 

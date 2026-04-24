@@ -2075,10 +2075,28 @@ def _shape_host_api_row(h: dict, merged: dict, providers_hit: list[str]) -> dict
         "url":             h.get("url") or "",
         "icon":            h.get("icon") or "",
         "providers":       providers_hit or [],
+        # Status precedence:
+        #   1. Explicit Beszel / Pulse status when the provider
+        #      contributed (canonical "up/down/paused" signal).
+        #   2. "up" when any provider returned data at all.
+        #   3. "unconfigured" when the curated row has NO provider
+        #      fields set — nothing to probe, so grey (not red). The
+        #      frontend renders this as a neutral dot.
+        #   4. "unknown" when providers ARE mapped but none answered.
+        #      Frontend escalates this to red (real outage signal).
         "status":          (
             s.get("beszel_status")
             or s.get("pulse_status")
-            or ("up" if providers_hit else "unknown")
+            or ("up" if providers_hit else (
+                "unconfigured"
+                if not (
+                    (h.get("beszel_name") or "").strip()
+                    or (h.get("pulse_name") or "").strip()
+                    or (h.get("webmin_name") or "").strip()
+                    or (h.get("ne_url") or "").strip()
+                )
+                else "unknown"
+            ))
         ),
         "docker_node":     h["id"],
         "platform":        s.get("host_platform") or "",
@@ -2111,6 +2129,11 @@ def _shape_host_api_row(h: dict, merged: dict, providers_hit: list[str]) -> dict
         "updates_pending":  int(s.get("host_updates_pending") or 0),
         "updates_security": int(s.get("host_updates_security") or 0),
         "custom_number":    h.get("custom_number"),
+        # Per-host SSH-disabled flag, exposed so the drawer can hide
+        # the SSH card / common-actions panel BEFORE sshStatus has
+        # loaded. Reads the hosts_config `ssh.disabled` field — if the
+        # operator explicitly opted out, the card never renders.
+        "ssh_disabled":     bool((h.get("ssh") or {}).get("disabled", False)),
     }
 
 

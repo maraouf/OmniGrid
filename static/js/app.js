@@ -3654,11 +3654,21 @@ function app() {
     },
     handleHotkey(e) {
       // Ignore while typing in an input / textarea / select / contenteditable.
-      const el = document.activeElement;
-      const inField = el && (
+      // Check BOTH e.target (what received the event) AND
+      // document.activeElement (what currently has focus) — either one
+      // being a field means we should skip hotkey dispatch. Also walk
+      // up the DOM in case the target is a nested span inside a
+      // contenteditable or a <button> inside a SweetAlert input wrapper.
+      const target = e.target || null;
+      const active = document.activeElement || null;
+      const looksLikeField = (el) => !!el && (
         ['INPUT','TEXTAREA','SELECT'].includes(el.tagName) ||
-        el.isContentEditable
+        el.isContentEditable ||
+        (el.closest && el.closest('input, textarea, select, [contenteditable="true"], [contenteditable=""]'))
       );
+      const inField = looksLikeField(target) || looksLikeField(active);
+      // Keep `el` around for the Escape handler's blur() fallback.
+      const el = active;
       // Escape works everywhere, including from inside an input — it's the
       // universal "get me out of here" key.
       if (e.key === 'Escape') {
@@ -3805,7 +3815,21 @@ function app() {
     // still having the original index for move/remove/test actions.
     filteredHostsConfig() {
       const q = (this.hostsConfigFilter || '').trim().toLowerCase();
+      // Keep the ORIGINAL index stable so edits write back to the
+      // correct slot in hostsConfig regardless of display order. Then
+      // sort by custom_number ascending (unassigned rows sink to the
+      // bottom), with id as tiebreaker so the view is deterministic.
       const all = (this.hostsConfig || []).map((row, idx) => ({ row, idx }));
+      const sortKey = ({ row }) => {
+        const raw = row.custom_number;
+        const n = parseInt(raw, 10);
+        return Number.isFinite(n) ? n : Number.MAX_SAFE_INTEGER;
+      };
+      all.sort((a, b) => {
+        const sa = sortKey(a), sb = sortKey(b);
+        if (sa !== sb) return sa - sb;
+        return String(a.row.id || '').localeCompare(String(b.row.id || ''));
+      });
       if (!q) return all;
       return all.filter(({ row }) => {
         const hay = [
@@ -5149,11 +5173,15 @@ function app() {
       if (status === 'up') return 'var(--success)';
       if (status === 'down' || status === 'unreachable') return 'var(--danger)';
       if (status === 'paused') return 'var(--warning)';
-      if (status === 'loading') return 'var(--text-faint)';
-      // 'unknown' — a host that's been PROBED and returned nothing.
-      // Treat as red ("we couldn't reach it through any provider")
-      // rather than grey ("never been probed") so operators spot
-      // dead hosts at a glance. Grey stays reserved for 'loading'.
+      // Grey dots — no signal (yet) worth alerting on:
+      //   'loading'      — skeleton state, probe hasn't returned
+      //   'unconfigured' — curated row has NO provider fields set,
+      //                    so there's literally nothing to probe
+      if (status === 'loading' || status === 'unconfigured') {
+        return 'var(--text-faint)';
+      }
+      // 'unknown' — providers ARE mapped but none returned data.
+      // Red because this IS a real failure to reach the host.
       if (status === 'unknown') return 'var(--danger)';
       return 'var(--text-faint)';
     },
