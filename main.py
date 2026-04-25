@@ -3882,8 +3882,10 @@ async def ws_ssh_terminal(websocket: WebSocket, host_id: str):
                 print(f"[ssh] terminal auth lookup failed: {e}")
     if user is None:
         # 4401 — RFC-6455 application close-code (4xxx is private use).
-        # The browser surfaces this as the close.code on the WS; the SPA
-        # maps it to the "session expired, please reload" toast.
+        # Starlette rejects the upgrade with HTTP 403 when ``close()`` is
+        # called before ``accept()``; that's fine — the browser reads
+        # the failed-handshake event and we never burn an audit row on a
+        # bogus session. The SPA maps either signal to "session expired".
         await websocket.close(code=4401, reason="auth required")
         return
     if user.role != "admin":
@@ -3989,8 +3991,8 @@ async def ws_ssh_terminal(websocket: WebSocket, host_id: str):
                         chunk = chunk.encode("utf-8", errors="replace")
                     bytes_out += len(chunk)
                     await websocket.send_bytes(chunk)
-            except (asyncio.CancelledError, asyncssh.ConnectionLost,
-                    asyncssh.DisconnectError):
+            except (asyncio.CancelledError, asyncssh.DisconnectError,
+                    asyncssh.Error, BrokenPipeError, ConnectionResetError):
                 pass
             except Exception as e:
                 print(f"[ssh] terminal upstream_to_ws error: {type(e).__name__}: {e}")
@@ -4040,8 +4042,8 @@ async def ws_ssh_terminal(websocket: WebSocket, host_id: str):
                                 break
             except WebSocketDisconnect:
                 pass
-            except (asyncio.CancelledError, asyncssh.ConnectionLost,
-                    asyncssh.DisconnectError):
+            except (asyncio.CancelledError, asyncssh.DisconnectError,
+                    asyncssh.Error, BrokenPipeError, ConnectionResetError):
                 pass
             except Exception as e:
                 print(f"[ssh] terminal ws_to_upstream error: {type(e).__name__}: {e}")

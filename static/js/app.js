@@ -358,6 +358,7 @@ function app() {
       { id: 'schedules',      label: 'Schedules' },
       { id: 'backups',        label: 'Backups' },
       { id: 'logs',           label: 'Logs' },
+      { id: 'debug',          label: 'Debug' },
     ],
     // App-logs viewer state. Polled when the Logs tab is visible.
     // `logLines` is append-only during a session; clear() wipes both
@@ -5490,18 +5491,29 @@ function app() {
       // Weave: each top-level row followed by its children — but
       // skip the children when their parent is collapsed via the
       // editor-side toggle. Operator can still expand to edit them.
+      //
+      // `seen` MUST include kids whose parent exists even when we
+      // skip rendering them (collapsed). Otherwise the orphan-catch
+      // below re-adds every hidden child at the bottom of the list,
+      // which is what produced the "hides first parent's kids only"
+      // bug — collapsing parent B simply relocated B's kids to the
+      // trailing orphan bucket instead of hiding them.
       const collapsed = new Set(this.hostGroupsEditorChildrenCollapsed || []);
       const out = [];
+      const seen = new Set();
       for (const t of tops) {
         out.push(t);
+        seen.add(t.origIdx);
         const kids = subs.get(t.g.name);
-        if (kids && !collapsed.has(t.g.name)) out.push(...kids);
+        if (!kids) continue;
+        for (const k of kids) seen.add(k.origIdx);
+        if (!collapsed.has(t.g.name)) out.push(...kids);
       }
-      // Orphaned sub-groups (parent_name set but not found) sink to
-      // the bottom so they stay visible for repair rather than
-      // disappearing. `saveHostGroups` rejects them with inline
-      // errors, but the operator has to SEE them first.
-      const seen = new Set(out.map(e => e.origIdx));
+      // True orphaned sub-groups (parent_name set but no matching
+      // top-level group) still sink to the bottom so they stay
+      // visible for repair rather than silently disappearing.
+      // `saveHostGroups` rejects them with inline errors, but the
+      // operator has to SEE them first.
       for (const e of arr) {
         if (!seen.has(e.origIdx)) out.push(e);
       }
