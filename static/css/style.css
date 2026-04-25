@@ -1677,16 +1677,8 @@ details summary::-webkit-details-marker {
     flex-wrap: wrap;
 }
 
-/* Provider-chip strip inside the host card. Sits at the right of the
-   title row when there's room, drops to its own line when not. The
-   `host-mobile-card-head` wrap above triggers when this strip can't
-   share the row with the title. */
-.host-mobile-providers {
-    display: flex;
-    flex-wrap: wrap;
-    gap: var(--s-1);
-    flex-shrink: 0;
-}
+/* See the consolidated .host-mobile-providers rule below — kept that
+   one (older) and merged the new flex-wrap behaviour into it. */
 
 .host-mobile-card-icon {
     flex-shrink: 0;
@@ -1758,7 +1750,13 @@ details summary::-webkit-details-marker {
 
 .host-mobile-providers {
     display: flex;
+    flex-wrap: wrap;
     gap: 4px;
+    flex-shrink: 0;
+    /* On the same row as the title, push to the right end. When the
+       parent (`.host-mobile-card-head`, flex-wrap) drops this strip
+       to its own line on phones, the auto-margin becomes a no-op
+       (no remaining-space competition) so it sits naturally. */
     margin-inline-start: auto;
 }
 

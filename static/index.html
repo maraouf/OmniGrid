@@ -836,12 +836,16 @@
           <!-- Node header — left side toggles, right side has actions
                (Prune etc). Kept as a flex row (not one big <button>) so
                the Prune click doesn't also collapse/expand the card.
-               Wraps on mobile (was a no-wrap row that overlapped pills
-               into the title text below ~600px — operator's iPhone 17
-               screenshot showed "33 OK svc 37 SOURCES" stacking on
-               itself). -->
-          <div class="flex items-center gap-3 px-4 py-3 hover:bg-[var(--surface-2)]/50 transition flex-wrap">
-            <!-- Toggle area (clickable) -->
+               Stacks vertically on mobile (was inline-wrapping with
+               name + subtitle both inline, which squeezed both into
+               unreadable mush — operator's iPhone screenshots showed
+               name disappearing entirely while pills overlapped the
+               wrapped subtitle). On sm: and up, returns to the
+               desktop single-row layout. -->
+          <div class="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3 px-4 py-3 hover:bg-[var(--surface-2)]/50 transition">
+            <!-- Toggle area (clickable). Title + subtitle nested in a
+                 vertical-stacked div so they NEVER compete for inline
+                 space — name on its own line, subtitle below it. -->
             <div @click="toggleNode(node.name)"
                  class="flex items-center gap-3 flex-1 min-w-0 cursor-pointer">
               <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
@@ -855,25 +859,21 @@
                 <line x1="6" y1="6" x2="6.01" y2="6"/>
                 <line x1="6" y1="18" x2="6.01" y2="18"/>
               </svg>
-              <span class="font-semibold text-[13px] mono truncate" x-text="node.name"></span>
-              <!-- "X svc · Y ctn · Z stacks" — no longer whitespace-nowrap
-                   so it can wrap inside the toggle area when the right
-                   cluster also wraps. Was forcing the parent flex to
-                   keep this on one line, pushing the right pills off-
-                   screen on mobile. -->
-              <span class="text-[11px] text-[var(--text-faint)]">
-                <span x-text="node.services"></span> svc ·
-                <span x-text="node.containers"></span> ctn ·
-                <span x-text="node.stacks"></span> stacks
-              </span>
+              <div class="flex-1 min-w-0 flex flex-col sm:flex-row sm:items-baseline sm:gap-3">
+                <span class="font-semibold text-[13px] mono truncate" x-text="node.name"></span>
+                <span class="text-[11px] text-[var(--text-faint)]">
+                  <span x-text="node.services"></span> svc ·
+                  <span x-text="node.containers"></span> ctn ·
+                  <span x-text="node.stacks"></span> stacks
+                </span>
+              </div>
             </div>
             <!-- Right-side pills + action buttons. Doesn't toggle.
-                 `flex-wrap` so the pills + Prune wrap onto a second
-                 line on phone widths instead of overlapping the title.
-                 `ms-auto` keeps the cluster right-anchored on desktop;
-                 on mobile after wrap, the cluster sits left-aligned
-                 below the title which reads cleanly. -->
-            <div class="flex items-center gap-2 flex-wrap ms-auto">
+                 On mobile (parent is flex-col), this sits BELOW the
+                 toggle area as its own row + wraps internally. On sm+
+                 (parent is flex-row), `ms-auto` re-anchors it to the
+                 right and pills sit inline. -->
+            <div class="flex items-center gap-2 flex-wrap sm:ms-auto">
               <span x-show="node.updates > 0"
                     class="pill pill-update text-[10.5px]">
                 <span x-text="node.updates"></span> updates
@@ -2093,7 +2093,7 @@
           </p>
           <div class="space-y-3">
             <label class="flex items-center gap-2 text-[12.5px]">
-              <input type="checkbox" x-model="headerClockEnabled" @change="saveHeaderPrefs()">
+              <input type="checkbox" x-model="headerClockEnabled">
               <span x-text="t('topbar_widgets.show_clock')"></span>
             </label>
             <!-- Weather toggle hidden entirely when the admin
@@ -2103,7 +2103,7 @@
                  sets the URL in Settings → Notifications. -->
             <label class="flex items-center gap-2 text-[12.5px]"
                    x-show="settings && (settings.open_meteo_url || '').trim()">
-              <input type="checkbox" x-model="headerWeatherEnabled" @change="saveHeaderPrefs()">
+              <input type="checkbox" x-model="headerWeatherEnabled">
               <span x-text="t('topbar_widgets.show_weather')"></span>
             </label>
             <div class="grid grid-cols-1 sm:grid-cols-3 gap-3"
@@ -2111,21 +2111,18 @@
               <div>
                 <label class="block text-[11px] text-[var(--text-dim)] mb-1" x-text="t('topbar_widgets.city_label')"></label>
                 <input type="text" x-model="headerWeatherLabel"
-                       @change="saveHeaderPrefs()"
                        :placeholder="t('topbar_widgets.city_placeholder')"
                        class="w-full text-[12.5px]">
               </div>
               <div>
                 <label class="block text-[11px] text-[var(--text-dim)] mb-1" x-text="t('topbar_widgets.lat_label')"></label>
                 <input type="number" step="any" x-model.number="headerWeatherLat"
-                       @change="saveHeaderPrefs()"
                        placeholder="30.0444"
                        class="w-full text-[12.5px] mono">
               </div>
               <div>
                 <label class="block text-[11px] text-[var(--text-dim)] mb-1" x-text="t('topbar_widgets.lon_label')"></label>
                 <input type="number" step="any" x-model.number="headerWeatherLon"
-                       @change="saveHeaderPrefs()"
                        placeholder="31.2357"
                        class="w-full text-[12.5px] mono">
               </div>
@@ -2136,18 +2133,25 @@
             <div x-show="headerWeatherEnabled && weather && weather.error"
                  class="text-[11px] text-[var(--danger)]"
                  x-text="t('topbar_widgets.fetch_failed', { error: (weather && weather.error) || '' })"></div>
-            <!-- Explicit Save button — preferences auto-persist to
-                 localStorage on every input change (no backend call),
-                 but operators expect a "Save" affordance. Click
-                 re-runs saveHeaderPrefs which also re-fetches weather
-                 and shows a toast. -->
-            <div class="pt-2 border-t border-[var(--border)] mt-3">
+            <!-- Save button — toggling the checkboxes / typing in the
+                 lat/lon/label fields ONLY marks the form dirty. Save
+                 commits to localStorage AND syncs to /api/me/ui-prefs
+                 for cross-device persistence. Same dirty-pattern as
+                 the rest of the admin tabs (Profile / Apprise / OIDC
+                 / etc.) — amber ring + "Unsaved" indicator while
+                 dirty, both clear after save. -->
+            <div class="pt-2 border-t border-[var(--border)] mt-3 flex items-center gap-3 flex-wrap">
               <button type="button"
                       @click="saveHeaderPrefs()"
+                      :class="headerPrefsDirty() ? 'ring-2 ring-[var(--warning)]' : ''"
                       class="btn btn-primary text-[12px]"
                       x-text="t('topbar_widgets.save')"></button>
-              <span class="ms-3 text-[10.5px] text-[var(--text-faint)]"
-                    x-text="t('topbar_widgets.auto_save_hint')"></span>
+              <span x-show="headerPrefsDirty()"
+                    class="text-[11.5px] text-[var(--warning)] flex items-center gap-1.5"
+                    :title="t('common.unsaved_title')">
+                <span class="w-1.5 h-1.5 rounded-full bg-[var(--warning)] animate-pulse"></span>
+                <span x-text="t('hosts_actions.unsaved_label')"></span>
+              </span>
             </div>
           </div>
         </section>
@@ -3410,7 +3414,12 @@
                    toggle the full field grid. Empty-id rows (fresh
                    +Add) always stay expanded so the operator can
                    fill them in without hunting for a chevron. -->
-              <div class="flex items-center gap-2 cursor-pointer select-none"
+              <!-- flex-wrap so the row collapses cleanly on phone widths
+                   instead of truncating the id to "f..." / "rout..." /
+                   "o." while the chip strip steals the space. The "Click
+                   to edit" hint is hidden below sm: — the chevron + the
+                   tappable row already convey the affordance. -->
+              <div class="flex items-center gap-2 cursor-pointer select-none flex-wrap"
                    :class="isHostConfigExpanded(row) ? 'mb-3' : ''"
                    @click="toggleHostConfigRow(row)">
                 <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
@@ -3467,7 +3476,7 @@
                   </svg>
                   <span x-text="t('admin_hosts.autofill.button')"></span>
                 </button>
-                <span class="text-[10.5px] text-[var(--text-faint)]"
+                <span class="text-[10.5px] text-[var(--text-faint)] hidden sm:inline"
                       x-show="!isHostConfigExpanded(row)">Click to edit</span>
                 <!-- SSH state dot — sits at the RIGHT edge of the row
                      header, AFTER the "Click to edit" hint. Reuses

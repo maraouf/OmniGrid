@@ -2432,6 +2432,25 @@ function app() {
       // tabs open they hit the cache after the first.
       this._weatherTimer = setInterval(() => this.loadHeaderWeather(), 600000);
     },
+    // Snapshot of the topbar-widget prefs — same baseline+snapshot
+    // pattern as #305's admin-tab dirty flags. Toggling the show-clock
+    // / show-weather checkboxes or editing the lat/lon/label fields
+    // only marks the form dirty; nothing persists until Save is
+    // clicked. `headerPrefsDirty()` re-evaluates each render via
+    // Alpine reactivity. Re-baselined after every successful save.
+    _headerPrefsBaseline: '',
+    _headerPrefsSnapshot() {
+      return JSON.stringify({
+        clk:   !!this.headerClockEnabled,
+        wth:   !!this.headerWeatherEnabled,
+        lat:   this.headerWeatherLat == null ? '' : String(this.headerWeatherLat),
+        lon:   this.headerWeatherLon == null ? '' : String(this.headerWeatherLon),
+        label: this.headerWeatherLabel || '',
+      });
+    },
+    headerPrefsDirty() {
+      return this._headerPrefsBaseline !== this._headerPrefsSnapshot();
+    },
     saveHeaderPrefs() {
       try {
         localStorage.setItem('headerClockEnabled',   String(!!this.headerClockEnabled));
@@ -2440,6 +2459,12 @@ function app() {
         localStorage.setItem('headerWeatherLon',     this.headerWeatherLon == null ? '' : String(this.headerWeatherLon));
         localStorage.setItem('headerWeatherLabel',   this.headerWeatherLabel || '');
       } catch (_) {}
+      // Re-baseline after the localStorage write so headerPrefsDirty()
+      // returns false on the next render. The server PATCH below is
+      // fire-and-forget — its failure shouldn't keep the form marked
+      // dirty (operator still saved locally; the cross-device sync
+      // can retry on the next save).
+      this._headerPrefsBaseline = this._headerPrefsSnapshot();
       // #313 — also push to server-side per-user prefs so the same
       // toggles persist cross-device for the same login. Fire-and-
       // forget; localStorage stays the fast path on subsequent loads,
