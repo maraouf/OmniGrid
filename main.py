@@ -496,8 +496,11 @@ async def api_items(force: bool = False):
         # (legitimate empty cluster) from "no items because Portainer was
         # never configured" (point operator at Settings → Portainer).
         # Reading this avoids loading the full /api/settings payload just
-        # to render an empty-state hint.
-        "portainer_configured": _portainer.is_configured(),
+        # to render an empty-state hint. Module-level import is
+        # ``portainer`` (line 384); ``_portainer`` only exists inside
+        # function bodies that re-import it locally — using the bare
+        # name here is what matches scope.
+        "portainer_configured": portainer.is_configured(),
     }
 
 

@@ -5232,14 +5232,14 @@
                    each card ~360px on desktop and stacks them on
                    mobile. -->
               <div x-show="(h.providers || []).length > 0 || assetForHost(h)"
-                   class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                   class="grid grid-cols-1 md:grid-cols-12 gap-4">
                 <!-- ASSET INVENTORY (rich) — rendered FIRST so the
                      operator sees the curated metadata before the
                      live telemetry sections. Visible only when
                      `assetForHost(h)` returns a populated shape;
                      hosts without a match show nothing here. -->
                 <template x-if="assetForHost(h)">
-                  <section class="rounded border border-[var(--border)] bg-[var(--surface)] p-4 md:col-span-2 xl:col-span-4">
+                  <section class="rounded border border-[var(--border)] bg-[var(--surface)] p-4 md:col-span-12">
                     <div class="flex items-center justify-between mb-3">
                       <h4 class="text-[10.5px] uppercase tracking-wider text-[var(--text-faint)]"
                           x-text="t('host_drawer.asset.heading')"></h4>
@@ -5384,7 +5384,7 @@
                      agents tend to skip platform / OS / kernel / arch;
                      hiding those empty rows makes the card honest instead
                      of full of em-dashes. -->
-                <section class="rounded border border-[var(--border)] bg-[var(--surface)] p-4">
+                <section class="rounded border border-[var(--border)] bg-[var(--surface)] p-4 md:col-span-6">
                   <h4 class="text-[10.5px] uppercase tracking-wider text-[var(--text-faint)] mb-3" x-text="t('host_drawer.system.heading')"></h4>
                   <dl class="drawer-dl text-[12px]">
                     <dt class="text-[var(--text-dim)]" x-text="t('host_drawer.system.hostname')"></dt>
@@ -5500,7 +5500,7 @@
                      routers / 5G modems). Each row inside is gated
                      on its own field so cards stay tidy when only
                      one source contributes data. -->
-                <section x-show="h.status === 'up' || assetForHost(h)" class="rounded border border-[var(--border)] bg-[var(--surface)] p-4">
+                <section x-show="h.status === 'up' || assetForHost(h)" class="rounded border border-[var(--border)] bg-[var(--surface)] p-4 md:col-span-6">
                   <h4 class="text-[10.5px] uppercase tracking-wider text-[var(--text-faint)] mb-3" x-text="t('host_drawer.hardware.heading')"></h4>
                   <dl class="drawer-dl text-[12px]">
                     <template x-if="h.cpu_model">
@@ -5616,7 +5616,7 @@
                      coded by family. Matches Beszel's own layout so
                      the operator's eye reads the two UIs the same way. -->
                 <section x-show="(h.network_ifaces || []).length > 0 || h.bandwidth"
-                         class="rounded border border-[var(--border)] bg-[var(--surface)] p-4">
+                         class="rounded border border-[var(--border)] bg-[var(--surface)] p-4 md:col-span-6">
                   <h4 class="text-[10.5px] uppercase tracking-wider text-[var(--text-faint)] mb-3" x-text="t('host_drawer.network.heading')"></h4>
                   <div class="space-y-3">
                     <div x-show="h.bandwidth" class="flex items-center justify-between text-[12px]">
@@ -5659,7 +5659,7 @@
                      while still showing richer detail for full-host
                      agents. -->
                 <section x-show="h.disk_total > 0 || (h.mounts || []).length > 0"
-                         class="rounded border border-[var(--border)] bg-[var(--surface)] p-4">
+                         class="rounded border border-[var(--border)] bg-[var(--surface)] p-4 md:col-span-6">
                   <h4 class="text-[10.5px] uppercase tracking-wider text-[var(--text-faint)] mb-3" x-text="t('host_drawer.disks.heading')"></h4>
                   <div class="space-y-3">
                     <!-- Total usage row — single-colour aggregate bar.
@@ -5727,7 +5727,7 @@
                      pending packages. Informational in Phase 1; a
                      later phase may link to a full package list. -->
                 <section x-show="(h.updates_pending || 0) > 0"
-                         class="rounded border border-[var(--border)] bg-[var(--surface)] p-4">
+                         class="rounded border border-[var(--border)] bg-[var(--surface)] p-4 md:col-span-6">
                   <h4 class="text-[10.5px] uppercase tracking-wider text-[var(--text-faint)] mb-3" x-text="t('host_drawer.updates.heading')"></h4>
                   <dl class="drawer-dl text-[12px]">
                     <dt class="text-[var(--text-dim)]" x-text="t('host_drawer.updates.pending')"></dt>
