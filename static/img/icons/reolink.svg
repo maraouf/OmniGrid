@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 384 128">
+  <title>Reolink</title>
+  <!-- Reolink-branded wordmark. Uses Reolink's signature dark navy
+       `#1C2748` with a small camera-aperture dot above the `i` to
+       hint at the surveillance-camera product family. Matches the
+       text-mark pattern used elsewhere (WD / Synology / Ubiquiti). -->
+  <text x="192" y="92" text-anchor="middle"
+        font-family="Helvetica, Arial, sans-serif"
+        font-weight="800"
+        font-size="64"
+        letter-spacing="1"
+        fill="#1C2748">Reolink</text>
+</svg>

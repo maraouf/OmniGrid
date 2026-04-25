@@ -410,7 +410,11 @@
       "clear_prompt_text": "This empties the buffer that powers this viewer. Docker logs on the host are unaffected.",
       "empty": "No log lines captured yet — activity here mirrors stdout/stderr in real time.",
       "no_match": "No lines match the filter.",
-      "hint": "In-memory ring buffer of recent stdout/stderr (capped at 2000 lines). Tees from real streams, so Docker logs still see everything."
+      "hint": "In-memory ring buffer of recent stdout/stderr (capped at 2000 lines). Tees from real streams, so Docker logs still see everything.",
+      "copy": "Copy",
+      "copy_title": "Copy the currently visible (filtered) log lines to the clipboard as plain text.",
+      "copied": "Copied {n} log line(s) to clipboard",
+      "copy_failed": "Couldn't copy to clipboard"
     },
     "schedules": {
       "create_title": "Create schedule",

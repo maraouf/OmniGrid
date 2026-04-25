@@ -1875,6 +1875,40 @@ function app() {
       if (!q) return this.logLines;
       return this.logLines.filter(l => l.text.toLowerCase().includes(q));
     },
+    // Copy the currently-filtered log view to the clipboard as plain
+    // text. Format: "YYYY-MM-DD HH:MM:SS [stream] body" per line, so
+    // the paste lands cleanly in issue trackers / chat apps with the
+    // same visual shape as the viewer. Falls back to a selection-based
+    // copy when navigator.clipboard isn't available (older browsers /
+    // insecure contexts).
+    async copyFilteredLogs() {
+      const lines = this.filteredLogLines();
+      if (!lines.length) return;
+      const body = lines.map(l => {
+        const ts = this.fmtDate ? this.fmtDate(l.ts) : String(l.ts);
+        const stream = (l.stream || '').toUpperCase();
+        return `${ts} [${stream}] ${l.text}`;
+      }).join('\n');
+      try {
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          await navigator.clipboard.writeText(body);
+        } else {
+          // Fallback — dispatch a textarea + execCommand('copy').
+          const ta = document.createElement('textarea');
+          ta.value = body;
+          ta.setAttribute('readonly', '');
+          ta.style.position = 'absolute';
+          ta.style.left = '-9999px';
+          document.body.appendChild(ta);
+          ta.select();
+          document.execCommand('copy');
+          document.body.removeChild(ta);
+        }
+        this.showToast(this.t('admin.logs.copied', { n: lines.length }), 'success');
+      } catch (e) {
+        this.showToast(this.t('admin.logs.copy_failed'), 'error');
+      }
+    },
     // Severity derived from the line body — stderr alone is coarse
     // (backend error prints go to stdout too via print()). We look
     // for textual markers anywhere in the line: ERROR / FAIL[ED|URE]
@@ -5092,6 +5126,13 @@ function app() {
           'airfiber':        'ubiquiti',
           'uisp':            'ubiquiti',
           'amplifi':         'ubiquiti',
+          // Reolink — IP cameras / NVRs. Aliases cover the product
+          // lines operators commonly tag hosts with.
+          'reolink-nvr':     'reolink',
+          'reolink-cam':     'reolink',
+          'reolink-camera':  'reolink',
+          'rlc':             'reolink',
+          'rln':             'reolink',
         };
         const slug = aliases[h.icon.toLowerCase()] || h.icon;
         return '/img/icons/' + slug + '.svg';
@@ -5157,6 +5198,16 @@ function app() {
         // match — more-specific wins when the operator labelled a
         // host with its UniFi flavour.
         ['unifi',                 'unifi'],
+        // Reolink — IP cameras / NVRs. Common host-name shapes:
+        // "reolink-nvr-01", "cam-reolink-front", "rlc-810a". Placed
+        // before the generic "camera" / "nvr" fallbacks below so
+        // brand wins over category.
+        ['reolink nvr',           'reolink'],
+        ['reolink cam',           'reolink'],
+        ['reolink camera',        'reolink'],
+        ['reolink',               'reolink'],
+        ['rlc-',                  'reolink'],
+        ['rln-',                  'reolink'],
         // Ubiquiti family — parent brand mark. Specific product
         // phrases first so "edgerouter" / "airmax" etc. hit even
         // when "ubiquiti" also appears in the label.

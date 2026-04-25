@@ -5807,6 +5807,15 @@
                    class="text-[12px] min-w-[180px]">
             <button @click="loadLogs(true)" class="btn btn-ghost text-[11px]"
                     x-text="t('actions.reload')"></button>
+            <!-- Copy the currently VISIBLE (filtered) log lines to the
+                 clipboard as plain text — ts + stream + body, one per
+                 line. Respects both the search filter AND any future
+                 severity/tag filters so operators can paste the exact
+                 view they're looking at into an issue tracker or chat. -->
+            <button @click="copyFilteredLogs()" class="btn btn-ghost text-[11px]"
+                    :title="t('admin.logs.copy_title')"
+                    :disabled="!filteredLogLines().length"
+                    x-text="t('admin.logs.copy')"></button>
             <button @click="clearLogs()" class="btn btn-ghost text-[11px] text-danger"
                     x-text="t('admin.logs.clear')"></button>
           </div>

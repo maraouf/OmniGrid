@@ -214,7 +214,47 @@ def _find_host_record(host_id: str, hosts_config: list[dict]) -> Optional[dict]:
     return None
 
 
-def _groups_for_host(record: Optional[dict]) -> tuple[Optional[dict], Optional[dict]]:
+# Module-level dedupe for the verbose resolve / status diagnostics.
+# `resolve_ssh_params` and `ssh_status` are called on every drawer
+# status poll — one click into the Hosts view can fire 30+ resolutions,
+# each emitting 9+ trace lines. Without dedupe, Admin → Logs fills with
+# the same trace over and over. We stash a signature of the inputs per
+# host_id; repeat calls with IDENTICAL inputs print nothing (the result
+# hasn't changed, so the trace would be identical). Any input change
+# (hosts_config edit, group SSH update, global default flip) mints a
+# new signature and the full trace re-emits so operators can diagnose
+# the new state.
+_resolve_input_sig: dict[str, str] = {}
+_status_output_sig: dict[str, str] = {}
+
+
+def _compute_resolve_signature(
+    record: Optional[dict],
+    g_settings: dict,
+    host_groups_raw: str,
+) -> str:
+    """Stable one-line signature of the inputs that feed
+    ``resolve_ssh_params``. Any change ⇒ different signature ⇒
+    the resolve trace re-emits on the next call.
+    """
+    import hashlib
+    m = hashlib.md5()
+    m.update(repr(record).encode("utf-8", "ignore"))
+    # Only the fields that actually influence resolution — drops
+    # known_hosts + fingerprint etc. which don't change auth path.
+    relevant = (
+        g_settings.get("user"),
+        g_settings.get("port"),
+        bool(g_settings.get("private_key")),
+        bool(g_settings.get("password")),
+        g_settings.get("fqdn_suffix"),
+    )
+    m.update(repr(relevant).encode("utf-8", "ignore"))
+    m.update(host_groups_raw.encode("utf-8", "ignore"))
+    return m.hexdigest()
+
+
+def _groups_for_host(record: Optional[dict], *, verbose: bool = True) -> tuple[Optional[dict], Optional[dict]]:
     """Match a host_config record against the persisted ``host_groups``
     setting and return ``(main_group, sub_group)`` — either may be
     ``None`` when no match. Sub-group is the most-specific match
@@ -226,33 +266,36 @@ def _groups_for_host(record: Optional[dict]) -> tuple[Optional[dict], Optional[d
     such caller). Tolerant — malformed JSON / missing setting return
     ``(None, None)``.
     """
+    def _log(msg: str) -> None:
+        if verbose:
+            print(msg)
     rid = (record or {}).get("id") if isinstance(record, dict) else None
     if record is None:
-        print(f"[ssh] _groups_for_host: record is None")
+        _log(f"[ssh] _groups_for_host: record is None")
         return (None, None)
     cn = record.get("custom_number")
     if cn is None:
-        print(f"[ssh] _groups_for_host id={rid!r}: custom_number is None — no group match possible")
+        _log(f"[ssh] _groups_for_host id={rid!r}: custom_number is None — no group match possible")
         return (None, None)
     try:
         cn_int = int(cn)
     except (TypeError, ValueError):
-        print(f"[ssh] _groups_for_host id={rid!r}: custom_number={cn!r} not int-parseable")
+        _log(f"[ssh] _groups_for_host id={rid!r}: custom_number={cn!r} not int-parseable")
         return (None, None)
     from logic.db import get_setting
     raw = get_setting("host_groups", "") or ""
     if not raw.strip():
-        print(f"[ssh] _groups_for_host id={rid!r} cn={cn_int}: host_groups setting is empty — no groups defined")
+        _log(f"[ssh] _groups_for_host id={rid!r} cn={cn_int}: host_groups setting is empty — no groups defined")
         return (None, None)
     try:
         groups = json.loads(raw)
     except (TypeError, ValueError) as e:
-        print(f"[ssh] _groups_for_host id={rid!r} cn={cn_int}: host_groups JSON parse failed: {e}")
+        _log(f"[ssh] _groups_for_host id={rid!r} cn={cn_int}: host_groups JSON parse failed: {e}")
         return (None, None)
     if not isinstance(groups, list):
-        print(f"[ssh] _groups_for_host id={rid!r} cn={cn_int}: host_groups is not a list (got {type(groups).__name__})")
+        _log(f"[ssh] _groups_for_host id={rid!r} cn={cn_int}: host_groups is not a list (got {type(groups).__name__})")
         return (None, None)
-    print(f"[ssh] _groups_for_host id={rid!r} cn={cn_int}: scanning {len(groups)} group(s)")
+    _log(f"[ssh] _groups_for_host id={rid!r} cn={cn_int}: scanning {len(groups)} group(s)")
 
     main_group: Optional[dict] = None
     for g in groups:
@@ -267,13 +310,13 @@ def _groups_for_host(record: Optional[dict]) -> tuple[Optional[dict], Optional[d
             continue
         if rs <= cn_int <= re_:
             main_group = g
-            print(f"[ssh] _groups_for_host id={rid!r} cn={cn_int}: matched main_group "
-                  f"name={g.get('name')!r} range={rs}-{re_} "
-                  f"ssh_keys={list((g.get('ssh') or {}).keys())}")
+            _log(f"[ssh] _groups_for_host id={rid!r} cn={cn_int}: matched main_group "
+                 f"name={g.get('name')!r} range={rs}-{re_} "
+                 f"ssh_keys={list((g.get('ssh') or {}).keys())}")
             break
     if main_group is None:
-        print(f"[ssh] _groups_for_host id={rid!r} cn={cn_int}: NO main_group whose range covers cn — "
-              f"check Admin → Host Groups (top-level group's range_start..range_end must include {cn_int})")
+        _log(f"[ssh] _groups_for_host id={rid!r} cn={cn_int}: NO main_group whose range covers cn — "
+             f"check Admin → Host Groups (top-level group's range_start..range_end must include {cn_int})")
     sub_group: Optional[dict] = None
     if main_group is not None:
         for g in groups:
@@ -288,12 +331,12 @@ def _groups_for_host(record: Optional[dict]) -> tuple[Optional[dict], Optional[d
                 continue
             if rs <= cn_int <= re_:
                 sub_group = g
-                print(f"[ssh] _groups_for_host id={rid!r} cn={cn_int}: matched sub_group "
-                      f"name={g.get('name')!r} range={rs}-{re_} "
-                      f"ssh_keys={list((g.get('ssh') or {}).keys())}")
+                _log(f"[ssh] _groups_for_host id={rid!r} cn={cn_int}: matched sub_group "
+                     f"name={g.get('name')!r} range={rs}-{re_} "
+                     f"ssh_keys={list((g.get('ssh') or {}).keys())}")
                 break
         if sub_group is None:
-            print(f"[ssh] _groups_for_host id={rid!r} cn={cn_int}: no sub_group matched (main only)")
+            _log(f"[ssh] _groups_for_host id={rid!r} cn={cn_int}: no sub_group matched (main only)")
     return (main_group, sub_group)
 
 
@@ -372,10 +415,25 @@ def resolve_ssh_params(host_id: str, hosts_config: list[dict]) -> dict:
     """
     record = _find_host_record(host_id, hosts_config)
     g = get_global_ssh_settings()
-    print(f"[ssh] resolve_ssh_params start id={host_id!r} record_found={record is not None} "
-          f"global_user={g.get('user')!r} global_port={g.get('port')} "
-          f"global_key_set={bool(g.get('private_key'))} global_password_set={bool(g.get('password'))} "
-          f"global_fqdn_suffix={g.get('fqdn_suffix')!r}")
+    # Dedupe the verbose trace — compute a signature from the inputs
+    # that actually influence resolution. Matching signature means the
+    # result hasn't changed since the last call for this host_id, so
+    # re-printing the 9+ trace lines would be pure noise. First call
+    # ever (or first after ANY input change) emits the full trace.
+    from logic.db import get_setting as _get_setting
+    _groups_raw = _get_setting("host_groups", "") or ""
+    _new_sig = _compute_resolve_signature(record, g, _groups_raw)
+    verbose = _resolve_input_sig.get(host_id) != _new_sig
+    _resolve_input_sig[host_id] = _new_sig
+
+    def _log(msg: str) -> None:
+        if verbose:
+            print(msg)
+
+    _log(f"[ssh] resolve_ssh_params start id={host_id!r} record_found={record is not None} "
+         f"global_user={g.get('user')!r} global_port={g.get('port')} "
+         f"global_key_set={bool(g.get('private_key'))} global_password_set={bool(g.get('password'))} "
+         f"global_fqdn_suffix={g.get('fqdn_suffix')!r}")
     resolved: dict[str, Any] = {
         "host":              "",
         "user":              g["user"],
@@ -390,17 +448,17 @@ def resolve_ssh_params(host_id: str, hosts_config: list[dict]) -> dict:
     }
     if record is None:
         resolved["error"] = f"unknown host_id: {host_id!r}"
-        print(f"[ssh] resolve_ssh_params id={host_id!r}: NO matching hosts_config record — "
-              f"the host must exist in Admin → Hosts before SSH can resolve")
+        _log(f"[ssh] resolve_ssh_params id={host_id!r}: NO matching hosts_config record — "
+             f"the host must exist in Admin → Hosts before SSH can resolve")
         return resolved
 
-    main_group, sub_group = _groups_for_host(record)
+    main_group, sub_group = _groups_for_host(record, verbose=verbose)
     # Diagnostic — operators reported "Not configured" even after
     # saving group SSH creds. Logs which groups matched and what SSH
     # fields were on each, so root cause (custom_number missing /
     # group range mismatch / password not persisted) is visible in
     # Admin → Logs without further code changes.
-    print(
+    _log(
         f"[ssh] groups_for_host id={host_id!r} cn={record.get('custom_number')!r} "
         f"main={(main_group or {}).get('name')!r} "
         f"main_ssh_keys={list((main_group or {}).get('ssh', {}).keys()) if isinstance((main_group or {}).get('ssh'), dict) else None} "
@@ -414,7 +472,7 @@ def resolve_ssh_params(host_id: str, hosts_config: list[dict]) -> dict:
     ]
     for source_name, s in layer_specs:
         if not s:
-            print(f"[ssh] layer {source_name}: empty (no SSH overrides on this group)")
+            _log(f"[ssh] layer {source_name}: empty (no SSH overrides on this group)")
             continue
         applied = []
         u = str(s.get("user") or "").strip()
@@ -433,7 +491,7 @@ def resolve_ssh_params(host_id: str, hosts_config: list[dict]) -> dict:
             resolved["password_set"] = True
             resolved["password_source"] = source_name
             applied.append("password=<set>")
-        print(f"[ssh] layer {source_name}: applied {applied or '<nothing — all fields blank>'}")
+        _log(f"[ssh] layer {source_name}: applied {applied or '<nothing — all fields blank>'}")
 
     per_host = (record.get("ssh") or {}) if isinstance(record.get("ssh"), dict) else {}
     # Target hostname resolution priority:
@@ -465,7 +523,7 @@ def resolve_ssh_params(host_id: str, hosts_config: list[dict]) -> dict:
             else:
                 resolved["host"] = base_id
                 host_resolution_path = "id_as_is"
-    print(f"[ssh] host_resolution id={host_id!r}: target={resolved['host']!r} via {host_resolution_path}")
+    _log(f"[ssh] host_resolution id={host_id!r}: target={resolved['host']!r} via {host_resolution_path}")
     per_host_applied = []
     u_override = (per_host.get("user") or "").strip()
     if u_override:
@@ -486,12 +544,12 @@ def resolve_ssh_params(host_id: str, hosts_config: list[dict]) -> dict:
     resolved["disabled"] = bool(per_host.get("disabled"))
     if per_host.get("disabled"):
         per_host_applied.append("disabled=True")
-    print(f"[ssh] layer per_host: applied {per_host_applied or '<nothing — no per-host overrides>'}")
-    print(f"[ssh] resolve_ssh_params done id={host_id!r}: "
-          f"host={resolved['host']!r} user={resolved['user']!r} port={resolved['port']} "
-          f"key_set={resolved['key_set']} password_set={resolved['password_set']} "
-          f"password_source={resolved.get('password_source')!r} "
-          f"disabled={resolved['disabled']}")
+    _log(f"[ssh] layer per_host: applied {per_host_applied or '<nothing — no per-host overrides>'}")
+    _log(f"[ssh] resolve_ssh_params done id={host_id!r}: "
+         f"host={resolved['host']!r} user={resolved['user']!r} port={resolved['port']} "
+         f"key_set={resolved['key_set']} password_set={resolved['password_set']} "
+         f"password_source={resolved.get('password_source')!r} "
+         f"disabled={resolved['disabled']}")
     return resolved
 
 
@@ -839,19 +897,29 @@ def ssh_status(host_id: str, hosts_config: list[dict]) -> dict:
     # between "host id unknown", "user blank", "no auth material",
     # and "ssh.disabled=true". Operators have reported false negatives
     # here; redacted dump of the resolved dict makes the root cause
-    # visible without exposing secrets.
-    print(
-        f"[ssh] status host_id={host_id!r} configured={configured} "
-        f"resolved_host={resolved.get('host')!r} "
-        f"user={resolved.get('user')!r} "
-        f"port={resolved.get('port')} "
-        f"key_set={resolved.get('key_set')} "
-        f"password_set={resolved.get('password_set')} "
-        f"password_source={resolved.get('password_source')!r} "
-        f"per_host_password={bool(resolved.get('_per_host_password'))} "
-        f"disabled={resolved.get('disabled')} "
-        f"error={resolved.get('error')!r}"
+    # visible without exposing secrets. Deduped against the last
+    # emitted status for this host — if nothing changed, stay silent.
+    status_sig = (
+        f"{configured}|{resolved.get('host')}|{resolved.get('user')}|"
+        f"{resolved.get('port')}|{resolved.get('key_set')}|"
+        f"{resolved.get('password_set')}|{resolved.get('password_source')}|"
+        f"{bool(resolved.get('_per_host_password'))}|{resolved.get('disabled')}|"
+        f"{resolved.get('error')}"
     )
+    if _status_output_sig.get(host_id) != status_sig:
+        _status_output_sig[host_id] = status_sig
+        print(
+            f"[ssh] status host_id={host_id!r} configured={configured} "
+            f"resolved_host={resolved.get('host')!r} "
+            f"user={resolved.get('user')!r} "
+            f"port={resolved.get('port')} "
+            f"key_set={resolved.get('key_set')} "
+            f"password_set={resolved.get('password_set')} "
+            f"password_source={resolved.get('password_source')!r} "
+            f"per_host_password={bool(resolved.get('_per_host_password'))} "
+            f"disabled={resolved.get('disabled')} "
+            f"error={resolved.get('error')!r}"
+        )
     return {
         "enabled":      not resolved.get("disabled"),
         "configured":   configured,
