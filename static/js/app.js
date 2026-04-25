@@ -6652,18 +6652,13 @@ function app() {
       for (const sub of (bucket.children || [])) {
         const subHosts = sub.hosts || [];
         if (subHosts.length === 0) {
-          // Empty sub-group (e.g. all its hosts got filtered out by
-          // "Hide hosts without agents"). Emit a heading-only marker
-          // so the operator still sees the group exists and isn't
-          // confused into thinking it disappeared. The host card is
-          // gated on `!_heading_only` so it doesn't render an empty
-          // card row underneath.
-          out.push({
-            host: '__empty_heading__:' + sub.group.name,
-            _sub_group: sub.group,
-            _sub_heading: true,
-            _heading_only: true,
-          });
+          // Empty sub-group. With "Hide hosts without agents" ON the
+          // operator wants the noise reduced — skip the heading entirely
+          // (the group has nothing to show). With the filter OFF, we
+          // STILL skip the heading because the previous heading-only
+          // marker created confusion (operator's preference iterated
+          // multiple times — final landing: hide empties always; the
+          // group definition is still visible in Admin → Host Groups).
           continue;
         }
         for (let i = 0; i < subHosts.length; i++) {
@@ -7236,10 +7231,16 @@ function app() {
         }
         if (!placed) ungrouped.hosts.push(h);
       }
+      // Bucket filter — keep parents that have direct hosts OR a sub-group
+      // with hosts. Empty parents (zero direct + zero contributing children)
+      // are dropped. This matches the operator's preference: with "Hide
+      // hosts without agents" ON, empty groups should DISAPPEAR (not show
+      // headings of nothing). The previous `|| topLevel.length` clause was
+      // a no-op (always truthy) — that's the bug that was keeping empty
+      // top-level groups visible regardless of content.
       const out = buckets.filter(b =>
         b.hosts.length > 0
-        || b.children.some(c => c.hosts.length > 0)
-        || topLevel.length,
+        || b.children.some(c => c.hosts.length > 0),
       );
       if (ungrouped.hosts.length > 0) out.push(ungrouped);
       return out;

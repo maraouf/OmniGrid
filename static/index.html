@@ -461,7 +461,14 @@
                 <td class="hidden lg:table-cell"></td>
                 <td class="hidden xl:table-cell"></td>
                 <td class="align-right" @click.stop>
-                  <button x-show="isAdmin() && stack.updates>0 && stack.stack_id"
+                  <!-- Header "Update stack" button only renders when the
+                       stack is COLLAPSED. Expanding the stack reveals
+                       the per-service action column (Update / Restart
+                       buttons inline with each row), so showing the
+                       header button too duplicates the affordance and
+                       stacks two amber buttons in the same horizontal
+                       slice. Toggle off when expanded. -->
+                  <button x-show="isAdmin() && stack.updates>0 && stack.stack_id && !expanded.includes(stack.name)"
                           @click="updateStack(stack)"
                           :disabled="isStackBusy(stack)"
                           class="btn btn-warning text-[12px]">
