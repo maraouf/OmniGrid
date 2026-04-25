@@ -994,7 +994,11 @@
     "open_meteo_desc": "URL the topbar weather widget fetches from. Leave blank to use the public Open-Meteo endpoint; point at a self-hosted instance if you run one.",
     "open_meteo_placeholder": "https://api.open-meteo.com/v1/forecast",
     "open_meteo_hint": "Blank = use the default public endpoint. Changes apply on the next 10-minute cache refresh.",
-    "open_meteo_saved": "Open-Meteo URL saved"
+    "open_meteo_saved": "Open-Meteo URL saved",
+    "enabled_label": "Service enabled",
+    "disabled_hint": "Disabled — settings preserved, callers will short-circuit until re-enabled.",
+    "toggle_enabled_toast": "{name} enabled",
+    "toggle_disabled_toast": "{name} disabled (settings preserved)"
   },
   "admin_hosts": {
     "debug_panel_toggle_label": "Show host-drawer debug panel",
@@ -1006,6 +1010,10 @@
       "filled": "Asset details loaded: {fields}",
       "nothing_to_fill": "Asset matched, but every field you'd fill is already typed.",
       "no_match": "No asset-inventory record matches custom_number={n}."
+    },
+    "ssh_state": {
+      "enabled": "SSH enabled for this host",
+      "disabled": "SSH disabled (operator override on this row)"
     },
     "row": {
       "id_placeholder": "e.g. host01",
@@ -1058,7 +1066,9 @@
       "ssh_hint": "Resolution order: per-host override → this sub-group / parent → global default. Most-specific value wins.",
       "children_show": "Show children",
       "children_hide": "Hide children",
-      "children_toggle_title": "Collapse this parent group's sub-rows so the editor stays compact while you add more items."
+      "children_toggle_title": "Collapse this parent group's sub-rows so the editor stays compact while you add more items.",
+      "add_subgroup": "Add sub-group",
+      "add_subgroup_title": "Add a sub-group nested under \"{parent}\". Range pre-fills inside the parent's range so you don't trip the containment validator."
     }
   },
   "admin_assets": {

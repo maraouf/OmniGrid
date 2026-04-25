@@ -3703,15 +3703,31 @@
       <!-- NOTIFICATIONS TAB (moved from Settings — admin-only global config). -->
       <section x-show="adminTab==='notifications'" class="bg-[var(--surface)] border border-[var(--border)] rounded-md p-5">
         <h3 class="font-semibold text-[13px] mb-2" x-text="t('settings.notifications.title')"></h3>
+        <!-- Master switch (#204). Disables `notify()` in the backend
+             without erasing the URL/tag — flip back on to resume. -->
+        <label class="flex items-center gap-2 text-[12.5px] cursor-pointer mb-3 select-none">
+          <input type="checkbox" x-model="settings.apprise_enabled"
+                 @change="saveServiceEnabled('apprise')"
+                 :disabled="isReadonly()">
+          <span class="font-medium" x-text="t('admin_integrations.enabled_label')"></span>
+          <span class="text-[11px] text-[var(--text-faint)]"
+                x-text="settings.apprise_enabled ? '' : t('admin_integrations.disabled_hint')"></span>
+        </label>
         <p class="text-[11.5px] text-[var(--text-faint)] mb-3">
           <span x-text="t('settings.notifications.url_format_prefix')"></span> <code class="mono text-[var(--text-dim)]">http://&lt;host&gt;:&lt;port&gt;/notify/&lt;CONFIG-KEY&gt;</code> —
           <code class="mono text-[var(--text-dim)]">&lt;CONFIG-KEY&gt;</code> <span x-html="t('settings.notifications.url_format_suffix')"></span>
         </p>
-        <input x-model="settings.apprise_url" type="url" :disabled="isReadonly()" :placeholder="t('settings.notifications.url_placeholder')" class="w-full">
-        <input x-model="settings.apprise_tag" type="text" :disabled="isReadonly()" :placeholder="t('settings.notifications.tag_placeholder')" class="w-full mt-2">
+        <input x-model="settings.apprise_url" type="url"
+               :disabled="isReadonly() || !settings.apprise_enabled"
+               :placeholder="t('settings.notifications.url_placeholder')" class="w-full">
+        <input x-model="settings.apprise_tag" type="text"
+               :disabled="isReadonly() || !settings.apprise_enabled"
+               :placeholder="t('settings.notifications.tag_placeholder')" class="w-full mt-2">
         <div class="flex gap-2 mt-3" x-show="isAdmin()">
           <button @click="saveSettings()" class="btn btn-primary text-[12px]" x-text="t('actions.save')"></button>
-          <button @click="testNotify()" class="btn btn-soft text-[12px]" x-text="t('actions.send_test')"></button>
+          <button @click="testNotify()"
+                  :disabled="!settings.apprise_enabled"
+                  class="btn btn-soft text-[12px]" x-text="t('actions.send_test')"></button>
         </div>
 
         <!-- Open-Meteo upstream — where the topbar weather widget
@@ -3721,10 +3737,20 @@
              the override and falls back to the default. -->
         <div class="mt-6 pt-4 border-t border-[var(--border)]">
           <h4 class="font-semibold text-[12.5px] mb-1" x-text="t('admin_integrations.open_meteo_title')"></h4>
+          <!-- Master switch — disables the weather endpoint without
+               erasing the URL. Same pattern as Apprise above. -->
+          <label class="flex items-center gap-2 text-[12.5px] cursor-pointer mb-2 select-none">
+            <input type="checkbox" x-model="settings.open_meteo_enabled"
+                   @change="saveServiceEnabled('open_meteo')"
+                   :disabled="isReadonly()">
+            <span class="font-medium" x-text="t('admin_integrations.enabled_label')"></span>
+            <span class="text-[11px] text-[var(--text-faint)]"
+                  x-text="settings.open_meteo_enabled ? '' : t('admin_integrations.disabled_hint')"></span>
+          </label>
           <p class="text-[11px] text-[var(--text-faint)] mb-2" x-text="t('admin_integrations.open_meteo_desc')"></p>
           <div class="flex items-end gap-2 flex-wrap">
             <input x-model="settings.open_meteo_url" type="url"
-                   :disabled="isReadonly()"
+                   :disabled="isReadonly() || !settings.open_meteo_enabled"
                    :placeholder="t('admin_integrations.open_meteo_placeholder')"
                    class="flex-1 min-w-[260px] mono text-[12px]">
             <button x-show="isAdmin()" @click="saveOpenMeteoUrl()"
@@ -3751,9 +3777,22 @@
                   x-text="portainerStatus ? (portainerStatus.configured ? t('settings.portainer.configured') : t('settings.portainer.not_configured')) : ''"></span>
           </div>
           <div x-show="portainerStatus" class="space-y-3">
+            <!-- Master switch (#204). Disables every Portainer-bound
+                 fetch via `is_configured()` so the app degrades
+                 gracefully (Stacks/Services/Nodes empty, no error
+                 spam) without erasing the stored URL or API key. -->
+            <label class="flex items-center gap-2 text-[12.5px] cursor-pointer select-none">
+              <input type="checkbox" x-model="settings.portainer_enabled"
+                     @change="saveServiceEnabled('portainer')"
+                     :disabled="isReadonly()">
+              <span class="font-medium" x-text="t('admin_integrations.enabled_label')"></span>
+              <span class="text-[11px] text-[var(--text-faint)]"
+                    x-text="settings.portainer_enabled ? '' : t('admin_integrations.disabled_hint')"></span>
+            </label>
             <div>
               <label class="block text-[11px] text-[var(--text-dim)] mb-1" x-text="t('settings.portainer.url_label')"></label>
-              <input x-model="portainerForm.url" type="url" :disabled="isReadonly()"
+              <input x-model="portainerForm.url" type="url"
+                     :disabled="isReadonly() || !settings.portainer_enabled"
                      :placeholder="t('settings.portainer.url_placeholder')" class="w-full mono text-[12.5px]">
             </div>
             <div>
@@ -3762,7 +3801,8 @@
                 <span class="text-[var(--text-faint)]"
                       x-text="portainerStatus && portainerStatus.api_key_set ? t('settings.portainer.api_key_set') : t('settings.portainer.api_key_not_set')"></span>
               </label>
-              <input x-model="portainerForm.api_key" type="password" :disabled="isReadonly()"
+              <input x-model="portainerForm.api_key" type="password"
+                     :disabled="isReadonly() || !settings.portainer_enabled"
                      :placeholder="t('settings.portainer.api_key_placeholder')"
                      autocomplete="new-password"
                      class="w-full mono text-[12px]">
@@ -4288,6 +4328,18 @@
                      class="host-row-header-icon"
                      loading="lazy"
                      @error="$event.target.style.display='none'">
+                <!-- SSH state dot — only on the collapsed-row header.
+                     Reuses the existing `.dot` token system: green
+                     (.dot-healthy) when SSH is enabled for this host,
+                     muted (.dot-offline) when explicitly disabled via
+                     `row.ssh.disabled = true`. Title gives the
+                     hover tooltip in plain English. -->
+                <span x-show="!isHostConfigExpanded(row)"
+                      class="dot"
+                      :class="(row.ssh && row.ssh.disabled) ? 'dot-offline' : 'dot-healthy'"
+                      :title="(row.ssh && row.ssh.disabled)
+                                ? t('admin_hosts.ssh_state.disabled')
+                                : t('admin_hosts.ssh_state.enabled')"></span>
                 <span x-show="row.custom_number != null && row.custom_number !== ''"
                       class="chip text-[10px] px-1.5 py-0 mono pill-muted"
                       x-text="'#' + row.custom_number"></span>
@@ -4640,7 +4692,7 @@
                   x-text="t('hosts_actions.add')"></button>
           <button x-show="isAdmin() && hostsConfig.length > 0"
                   @click="collapseAllHostConfigRows()"
-                  class="btn btn-ghost text-[12px]"
+                  class="btn btn-soft text-[12px]"
                   :title="t('hosts_actions.collapse_all_title')"
                   x-text="t('hosts_actions.collapse_all')"></button>
           <button x-show="isAdmin()" @click="saveHostsConfig()"
@@ -4698,14 +4750,20 @@
           <template x-for="({g, origIdx}, listIdx) in sortedGroupsForEditor()" :key="'g' + origIdx">
             <div class="border border-[var(--border)] rounded-md p-3"
                  :class="g.parent_name ? 'bg-[var(--surface)] ms-6' : 'bg-[var(--surface-2)]'">
-              <!-- Children-collapse toggle on top-level groups that
-                   have at least one child. Hides every sub-group row
-                   under this parent so the editor stays compact when
-                   adding new items further down the page. State is
-                   persisted by parent name in localStorage. -->
-              <div x-show="!g.parent_name && hostGroupChildCount(g.name) > 0"
+              <!-- Children-collapse toggle + add-sub-group button on
+                   top-level groups. The toggle hides every sub-group
+                   row under this parent so the editor stays compact
+                   when adding new items further down the page (state
+                   persists by parent name in localStorage). The "+"
+                   button creates a new sub-group with `parent_name`
+                   already set to this parent — the operator skips
+                   the parent dropdown entirely. Both render on every
+                   top-level row (the toggle is hidden when there are
+                   no children yet, but the "+" stays visible). -->
+              <div x-show="!g.parent_name && (g.name || '').trim()"
                    class="flex items-center gap-2 mb-2 -mt-1">
                 <button type="button"
+                        x-show="hostGroupChildCount(g.name) > 0"
                         @click="toggleHostGroupChildrenCollapsed(g.name)"
                         class="btn btn-ghost text-[11px] px-2 py-0.5"
                         :title="t('admin_hosts.groups.children_toggle_title')">
@@ -4717,6 +4775,19 @@
                                   ? t('admin_hosts.groups.children_show')
                                   : t('admin_hosts.groups.children_hide'))
                                 + ' (' + hostGroupChildCount(g.name) + ')'"></span>
+                </button>
+                <button type="button"
+                        x-show="isAdmin()"
+                        @click="addHostSubGroup(g.name)"
+                        class="btn btn-ghost text-[11px] px-2 py-0.5 text-[var(--success)]"
+                        :title="t('admin_hosts.groups.add_subgroup_title', { parent: g.name })">
+                  <svg width="11" height="11" viewBox="0 0 24 24" fill="none"
+                       stroke="currentColor" stroke-width="2.6"
+                       stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <line x1="12" y1="5" x2="12" y2="19"/>
+                    <line x1="5" y1="12" x2="19" y2="12"/>
+                  </svg>
+                  <span x-text="t('admin_hosts.groups.add_subgroup')"></span>
                 </button>
               </div>
               <!-- Row 1: name, parent picker, range, controls.
@@ -5118,8 +5189,21 @@
            overrides live on each row in Admin → Hosts. -->
       <section x-show="adminTab==='ssh'" class="bg-[var(--surface)] border border-[var(--border)] rounded-md p-5">
         <h3 class="font-semibold text-[13px] mb-2" x-text="t('admin_ssh.title')"></h3>
-        <p class="text-[11.5px] text-[var(--text-faint)] mb-4 leading-snug max-w-[720px]"
+        <p class="text-[11.5px] text-[var(--text-faint)] mb-3 leading-snug max-w-[720px]"
            x-text="t('admin_ssh.intro')"></p>
+        <!-- Master switch (#204). When off, every `resolve_ssh_params`
+             call short-circuits to disabled=true with a clear error,
+             and every host-drawer SSH card reads as "Not configured".
+             Stored creds + per-host overrides STAY in the settings
+             table so flipping back on resumes service. -->
+        <label class="flex items-center gap-2 text-[12.5px] cursor-pointer mb-4 select-none">
+          <input type="checkbox" x-model="settings.ssh_enabled"
+                 @change="saveServiceEnabled('ssh')"
+                 :disabled="isReadonly()">
+          <span class="font-medium" x-text="t('admin_integrations.enabled_label')"></span>
+          <span class="text-[11px] text-[var(--text-faint)]"
+                x-text="settings.ssh_enabled ? '' : t('admin_integrations.disabled_hint')"></span>
+        </label>
         <div class="grid grid-cols-1 md:grid-cols-[1fr_120px] gap-3 mb-3">
           <div>
             <label class="block text-[11px] text-[var(--text-faint)] mb-1"

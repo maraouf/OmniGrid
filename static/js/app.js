@@ -2542,6 +2542,13 @@ function app() {
           scheduler_timezone: d.scheduler_timezone || '',
           // Open-Meteo upstream (weather widget). Blank = default.
           open_meteo_url: d.open_meteo_url || '',
+          // Per-service master switches (#204). Default true so legacy
+          // deploys keep working before the operator interacts with
+          // the toggles.
+          apprise_enabled:    d.apprise_enabled    !== false,
+          open_meteo_enabled: d.open_meteo_enabled !== false,
+          portainer_enabled:  d.portainer_enabled  !== false,
+          ssh_enabled:        d.ssh_enabled        !== false,
           // Admin → Hosts toggle that controls visibility of the
           // host-drawer debug-data panel. Default true keeps the
           // legacy admin behaviour for fresh installs / pre-toggle
@@ -3437,6 +3444,34 @@ function app() {
         if (!r.ok) throw new Error(await r.text());
         this.showToast(this.t('toasts.settings_saved'));
       } catch (e) { this.showToast(this.t('toasts.load_failed', { error: e.message }), 'error'); }
+    },
+    // Auto-save a single per-service "enabled" master switch (#204).
+    // Wired to the @change of the toggle checkbox for Apprise /
+    // Open-Meteo / Portainer / SSH so the operator doesn't have to
+    // hunt for a Save button just to flip the master switch. Sends
+    // ONLY the one field so it doesn't drag along whatever else is
+    // dirty in the form. Toast confirms with the resulting state.
+    async saveServiceEnabled(name) {
+      const allowed = ['apprise', 'open_meteo', 'portainer', 'ssh'];
+      if (!allowed.includes(name)) return;
+      const key = name + '_enabled';
+      const value = !!this.settings[key];
+      try {
+        const r = await fetch('/api/settings', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ [key]: value }),
+        });
+        if (!r.ok) throw new Error(await r.text());
+        const stateKey = value
+          ? 'admin_integrations.toggle_enabled_toast'
+          : 'admin_integrations.toggle_disabled_toast';
+        this.showToast(this.t(stateKey, { name }), 'success');
+      } catch (e) {
+        // Roll the in-memory toggle back so UI matches server state.
+        this.settings[key] = !value;
+        this.showToast(this.t('toasts_extra.save_failed_generic'), 'error');
+      }
     },
     async testNotify() {
       try {
@@ -5133,6 +5168,15 @@ function app() {
           'reolink-camera':  'reolink',
           'rlc':             'reolink',
           'rln':             'reolink',
+          // Xiaomi family — phones, routers (Mi Router), smart-home
+          // hubs, vacuums. Aliases cover the product names operators
+          // commonly tag hosts with.
+          'mi':              'xiaomi',
+          'mi-router':       'xiaomi',
+          'mi-home':         'xiaomi',
+          'redmi':           'xiaomi',
+          'poco':            'xiaomi',
+          'mihome':          'xiaomi',
         };
         const slug = aliases[h.icon.toLowerCase()] || h.icon;
         return '/img/icons/' + slug + '.svg';
@@ -5208,6 +5252,17 @@ function app() {
         ['reolink',               'reolink'],
         ['rlc-',                  'reolink'],
         ['rln-',                  'reolink'],
+        // Xiaomi family — Mi Router / Redmi / POCO / Mi Home hubs.
+        // Most-specific phrases first so "mi router" wins over
+        // bare "mi" (which would also match "mint" etc.).
+        ['mi router',             'xiaomi'],
+        ['mi-router',             'xiaomi'],
+        ['mi home',               'xiaomi'],
+        ['mi-home',               'xiaomi'],
+        ['mihome',                'xiaomi'],
+        ['xiaomi',                'xiaomi'],
+        ['redmi',                 'xiaomi'],
+        ['poco',                  'xiaomi'],
         // Ubiquiti family — parent brand mark. Specific product
         // phrases first so "edgerouter" / "airmax" etc. hit even
         // when "ubiquiti" also appears in the label.
@@ -5658,6 +5713,65 @@ function app() {
     // Operator-defined custom_number ranges that bucket hosts into
     // collapsible sections in the Hosts view. Supports 2-level
     // nesting via `parent_name` + a free-text `ip_range`.
+    // Append a SUB-GROUP under a specific top-level parent. Same
+    // shape as addHostGroup() but pre-fills `parent_name` so the
+    // operator doesn't have to navigate the parent dropdown — the
+    // Hosts-groups admin tab grew a `+` chip on each top-level
+    // group's header that fires this. Range pre-fill walks every
+    // EXISTING sub-group of that parent to land at
+    // `max(child range_end) + 1`, falling back to the parent's
+    // `range_start` so a fresh-no-children parent gets a sensible
+    // first sub-group window.
+    addHostSubGroup(parentName) {
+      const name = (parentName || '').trim();
+      if (!name) return;
+      const groups = this.hostGroups || [];
+      const parent = groups.find(g => !(g && g.parent_name) && (g.name || '').trim() === name);
+      if (!parent) return;
+      const childEnds = groups
+        .filter(g => g && (g.parent_name || '').trim() === name)
+        .map(g => parseInt(g.range_end, 10))
+        .filter(n => Number.isFinite(n) && n >= 0);
+      const startAt = childEnds.length
+        ? Math.max(...childEnds) + 1
+        : (parseInt(parent.range_start, 10) || 1);
+      const SPAN = 4;
+      // Cap end at the parent's range_end so the sub-group's range
+      // CAN'T spill outside its parent (the save-side validator
+      // already enforces this; pre-filling within bounds avoids
+      // an immediate inline error after click).
+      const parentEnd = parseInt(parent.range_end, 10);
+      let endAt = startAt + SPAN - 1;
+      if (Number.isFinite(parentEnd)) endAt = Math.min(endAt, parentEnd);
+      const next = {
+        name: '',
+        range_start: startAt,
+        range_end:   endAt,
+        order: groups.length,
+        parent_name: name,
+        ip_range: '',
+        ssh: { user: '', port: '', password: '', password_set: false, clear_password: false },
+      };
+      this.hostGroups = [...groups, next];
+      this.hostGroupsDirty = true;
+      // Make sure the parent's children block is EXPANDED so the new
+      // sub-group is immediately visible — operators just clicked on
+      // that parent's "+", they expect to see the result.
+      const collapsed = new Set(this.hostGroupsEditorChildrenCollapsed || []);
+      if (collapsed.has(name)) {
+        collapsed.delete(name);
+        this.hostGroupsEditorChildrenCollapsed = [...collapsed];
+        try {
+          if (typeof localStorage !== 'undefined') {
+            localStorage.setItem(
+              'hostGroupsEditorChildrenCollapsed',
+              JSON.stringify(this.hostGroupsEditorChildrenCollapsed),
+            );
+          }
+        } catch (_) {}
+      }
+    },
+
     addHostGroup() {
       // Smart range pre-fill — look at every existing top-level group's
       // range_end and start the new group at `max(range_end) + 1`.

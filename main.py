@@ -748,6 +748,16 @@ async def api_del_ignore(
 
 
 class SettingsIn(BaseModel):
+    # Per-service "enabled" master switches. Default true (legacy
+    # behaviour preserved on first boot). When false, the service's
+    # consumer code short-circuits — values stay in the settings
+    # table so the operator can flip back on without re-typing. The
+    # admin UI also disables the inputs visually so the operator
+    # sees the saved config grayed out, not erased.
+    apprise_enabled: Optional[bool] = None
+    open_meteo_enabled: Optional[bool] = None
+    portainer_enabled: Optional[bool] = None
+    ssh_enabled: Optional[bool] = None
     apprise_url: Optional[str] = None
     apprise_tag: Optional[str] = None
     portainer_public_url: Optional[str] = None
@@ -938,6 +948,13 @@ async def api_get_settings(request: Request):
         a = auth.get_auth_settings(c)
     p = _portainer.get_portainer_settings()
     return {
+        # Per-service master switches (#204). Default true so existing
+        # deploys don't change behaviour — flip false to short-circuit
+        # the service in code AND grey out the inputs in the UI.
+        "apprise_enabled":    (get_setting("apprise_enabled",    "true") or "true").lower() == "true",
+        "open_meteo_enabled": (get_setting("open_meteo_enabled", "true") or "true").lower() == "true",
+        "portainer_enabled":  (get_setting("portainer_enabled",  "true") or "true").lower() == "true",
+        "ssh_enabled":        (get_setting("ssh_enabled",        "true") or "true").lower() == "true",
         "apprise_url": get_setting("apprise_url", ""),
         "apprise_tag": get_setting("apprise_tag", ""),
         # Open-Meteo upstream (Admin → Notifications). Returned in the
@@ -1094,6 +1111,16 @@ async def api_set_settings(
     _admin: auth.User = Depends(auth.require_admin),
 ):
     from logic import portainer as _portainer
+    # Per-service master switches (#204). Persisted as "true" / "false"
+    # strings to match every other boolean toggle in the settings table.
+    if s.apprise_enabled is not None:
+        set_setting("apprise_enabled", "true" if s.apprise_enabled else "false")
+    if s.open_meteo_enabled is not None:
+        set_setting("open_meteo_enabled", "true" if s.open_meteo_enabled else "false")
+    if s.portainer_enabled is not None:
+        set_setting("portainer_enabled", "true" if s.portainer_enabled else "false")
+    if s.ssh_enabled is not None:
+        set_setting("ssh_enabled", "true" if s.ssh_enabled else "false")
     if s.apprise_url is not None: set_setting("apprise_url", s.apprise_url)
     if s.apprise_tag is not None: set_setting("apprise_tag", s.apprise_tag)
     # Open-Meteo upstream — strips trailing slashes so `<base>/v1/...`
@@ -4239,7 +4266,15 @@ def _open_meteo_url() -> str:
     Returns the stored URL (trailing slash stripped) or the empty
     string when unset. Callers must treat `""` as "not configured"
     rather than falling back to a default.
+
+    The per-service master switch (#204) `open_meteo_enabled` is
+    consulted first — when disabled, return `""` regardless of what
+    URL is stored. This way the URL stays in the settings table for
+    when the operator flips back on, but the weather endpoint cleanly
+    reports "not configured" while the switch is off.
     """
+    if (get_setting("open_meteo_enabled", "true") or "true").lower() != "true":
+        return ""
     return (get_setting("open_meteo_url", "") or "").strip().rstrip("/")
 
 _weather_cache: dict[tuple[float, float], tuple[float, dict]] = {}

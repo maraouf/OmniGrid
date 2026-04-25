@@ -421,6 +421,25 @@ def resolve_ssh_params(host_id: str, hosts_config: list[dict]) -> dict:
     # re-printing the 9+ trace lines would be pure noise. First call
     # ever (or first after ANY input change) emits the full trace.
     from logic.db import get_setting as _get_setting
+    # Per-service master switch (#204). When SSH is globally disabled
+    # in Admin → SSH, force every resolution to "disabled" with a
+    # clear error. The stored creds + per-host overrides STAY in the
+    # settings table — flipping the switch back on resumes service
+    # without re-typing. Note this short-circuits BEFORE the heavier
+    # per-host walk, so the cost stays at one DB read.
+    if (_get_setting("ssh_enabled", "true") or "true").lower() != "true":
+        return {
+            "host":              "",
+            "user":              g["user"],
+            "port":              g["port"],
+            "disabled":          True,
+            "key_set":           bool(g["private_key"]),
+            "password_set":      bool(g["password"]),
+            "known_hosts_set":   bool(g["known_hosts"]),
+            "key_fingerprint":   "",
+            "password_source":   "",
+            "error":             "SSH disabled in Admin → SSH (master switch off)",
+        }
     _groups_raw = _get_setting("host_groups", "") or ""
     _new_sig = _compute_resolve_signature(record, g, _groups_raw)
     verbose = _resolve_input_sig.get(host_id) != _new_sig

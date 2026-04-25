@@ -111,6 +111,15 @@ def persist_history(op: Operation) -> None:
 # Apprise URL/tag live without restart.
 # ---------------------------------------------------------------------
 async def notify(title: str, body: str, status: str = "info") -> None:
+    # Honour the per-service master switch (#204). When apprise is
+    # disabled in Admin → Notifications, short-circuit BEFORE the
+    # configured-url check so an operator with a stored URL but the
+    # toggle off doesn't fire notifications. The URL stays in the
+    # settings table — flipping the toggle back on resumes service
+    # without requiring re-typing.
+    if (get_setting("apprise_enabled", "true") or "true").lower() != "true":
+        print("[notify] skipped — apprise disabled in Admin → Notifications")
+        return
     url = get_setting("apprise_url", "")
     if not url:
         print("[notify] skipped — no apprise_url configured")

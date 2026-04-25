@@ -154,9 +154,15 @@ def invalidate_portainer_cache() -> None:
 
 
 def is_configured() -> bool:
-    """True when both URL and API key are non-empty. Callers use this as
-    a pre-flight check so they can short-circuit instead of firing a
-    doomed httpx request against an empty URL."""
+    """True when both URL and API key are non-empty AND the per-service
+    master switch (#204) is on. Callers use this as a pre-flight check
+    so they can short-circuit instead of firing a doomed httpx request
+    against an empty URL — and the master-switch path lets an operator
+    flip Portainer off (during maintenance, debugging, etc.) without
+    erasing the stored URL/key."""
+    from logic.db import get_setting as _get
+    if (_get("portainer_enabled", "true") or "true").lower() != "true":
+        return False
     s = get_portainer_settings()
     return bool(s.get("portainer_url")) and bool(s.get("portainer_api_key"))
 
