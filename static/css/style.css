@@ -3054,6 +3054,33 @@ select.field-invalid {
     overflow-wrap: anywhere;
 }
 
+/* Drawer card label/value list. Switches between "row" (label on the
+   left, value on the right) and "stacked" (label above value) based
+   on the card's available width via a CSS container query. The row
+   form needs at least 220px of column space — below that, "VMware
+   Virtual Platform" and "https://portainer.www.home.lan/" are forced
+   to character-wrap and the result reads as scrambled letters per
+   the operator's tmp/img_3.png. Stacking the dt/dd pair restores
+   readable values without making the drawer wider. */
+.host-drawer section { container-type: inline-size; }
+.drawer-dl {
+    display: grid;
+    grid-template-columns: max-content 1fr;
+    column-gap: var(--s-3);
+    row-gap: var(--s-2);
+    align-items: baseline;
+}
+.drawer-dl > dt { white-space: nowrap; }
+@container (max-width: 320px) {
+    .drawer-dl {
+        grid-template-columns: 1fr;
+        row-gap: var(--s-1);
+    }
+    .drawer-dl > dt { white-space: normal; }
+    .drawer-dl > dd { text-align: start !important; padding-bottom: var(--s-2); border-bottom: 1px dashed var(--border); }
+    .drawer-dl > dd:last-child { border-bottom: none; padding-bottom: 0; }
+}
+
 [dir="rtl"] .host-drawer {
     /* In RTL the drawer slides in from the LEFT visually, mirroring the
        expected right-anchored panel for LTR. logical properties flip

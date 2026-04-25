@@ -2615,7 +2615,16 @@ function app() {
       // /api/stats after "Off" was selected) AND don't schedule
       // further ticks. Other call sites like refresh() can still
       // fetch stats on demand; we just stop the periodic timer.
-      if (!(this.statsInterval > 0)) return;
+      if (!(this.statsInterval > 0)) {
+        // Diagnostic — without this, "no graphs anywhere" looks like
+        // a backend bug when the actual cause is that the operator's
+        // last session left the stats-interval picker on "Off". One
+        // shot still fires below so the operator sees CURRENT data;
+        // future ticks are intentionally suppressed.
+        console.warn('[stats] pollStats: stats polling is OFF (statsInterval=0). Re-enable it from the topbar interval picker. Firing one diagnostic loadStats() anyway so /api/stats response is logged once.');
+        try { this.loadStats(); } catch (_) { /* never crash init */ }
+        return;
+      }
       const tick = async () => {
         await this.loadStats();
         if (this.statsInterval > 0) {

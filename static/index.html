@@ -5143,7 +5143,7 @@
                          :title="t('host_drawer.asset.edit_title')"
                          x-text="t('host_drawer.asset.edit_link')"></a>
                     </div>
-                    <dl class="grid grid-cols-[auto_1fr] gap-x-4 gap-y-2 text-[12px]">
+                    <dl class="drawer-dl text-[12px]">
                       <template x-if="assetForHost(h).name">
                         <dt class="text-[var(--text-dim)]" x-text="t('host_drawer.asset.name')"></dt>
                       </template>
@@ -5280,7 +5280,7 @@
                      of full of em-dashes. -->
                 <section class="rounded border border-[var(--border)] bg-[var(--surface)] p-4">
                   <h4 class="text-[10.5px] uppercase tracking-wider text-[var(--text-faint)] mb-3" x-text="t('host_drawer.system.heading')"></h4>
-                  <dl class="grid grid-cols-[auto_1fr] gap-x-4 gap-y-2 text-[12px]">
+                  <dl class="drawer-dl text-[12px]">
                     <dt class="text-[var(--text-dim)]" x-text="t('host_drawer.system.hostname')"></dt>
                     <dd class="mono text-end" x-text="h.host"></dd>
                     <!-- Hide Platform when it duplicates the OS's
@@ -5331,13 +5331,13 @@
                       <dt class="text-[var(--text-dim)]" x-text="t('host_drawer.system.vendor')"></dt>
                     </template>
                     <template x-if="h.dmi_vendor">
-                      <dd class="text-end break-all" x-text="h.dmi_vendor"></dd>
+                      <dd class="text-end" x-text="h.dmi_vendor"></dd>
                     </template>
                     <template x-if="h.dmi_product">
                       <dt class="text-[var(--text-dim)]" x-text="t('host_drawer.system.product')"></dt>
                     </template>
                     <template x-if="h.dmi_product">
-                      <dd class="text-end break-all" x-text="h.dmi_product"></dd>
+                      <dd class="text-end" x-text="h.dmi_product"></dd>
                     </template>
                     <template x-if="h.dmi_bios_version">
                       <dt class="text-[var(--text-dim)]" x-text="t('host_drawer.system.bios_version')"></dt>
@@ -5396,7 +5396,7 @@
                      one source contributes data. -->
                 <section x-show="h.status === 'up' || assetForHost(h)" class="rounded border border-[var(--border)] bg-[var(--surface)] p-4">
                   <h4 class="text-[10.5px] uppercase tracking-wider text-[var(--text-faint)] mb-3" x-text="t('host_drawer.hardware.heading')"></h4>
-                  <dl class="grid grid-cols-[auto_1fr] gap-x-4 gap-y-2 text-[12px]">
+                  <dl class="drawer-dl text-[12px]">
                     <template x-if="h.cpu_model">
                       <dt class="text-[var(--text-dim)]" x-text="t('host_drawer.hardware.cpu')"></dt>
                     </template>
@@ -5623,7 +5623,7 @@
                 <section x-show="(h.updates_pending || 0) > 0"
                          class="rounded border border-[var(--border)] bg-[var(--surface)] p-4">
                   <h4 class="text-[10.5px] uppercase tracking-wider text-[var(--text-faint)] mb-3" x-text="t('host_drawer.updates.heading')"></h4>
-                  <dl class="grid grid-cols-[auto_1fr] gap-x-4 gap-y-2 text-[12px]">
+                  <dl class="drawer-dl text-[12px]">
                     <dt class="text-[var(--text-dim)]" x-text="t('host_drawer.updates.pending')"></dt>
                     <dd class="mono text-end" x-text="h.updates_pending"></dd>
                     <template x-if="(h.updates_security || 0) > 0">
