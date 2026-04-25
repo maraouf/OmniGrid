@@ -1331,26 +1331,14 @@ details summary::-webkit-details-marker {
 .metric-card--mem  { color: var(--metric-mem); }
 .metric-card--disk { color: var(--metric-disk); }
 
-/* Net In / Net Out — shorter than the percent charts because the
-   signal is often flat (most homelab hosts sit near-zero bytes/s
-   between bursts) and a full-size panel wastes screen real estate.
-   Still proportionally tall enough to read a spike. */
-.metric-card--net,
-.metric-card--net-out {
-    min-height: 130px;
-}
-
-.metric-card--net .metric-card-body,
-.metric-card--net-out .metric-card-body {
-    min-height: 70px;
-}
-
-.metric-card--net .metric-svg,
-.metric-card--net-out .metric-svg {
-    min-height: 60px;
-    height: 60px;
-}
-
+/* Net In / Net Out — same height as CPU / Memory / Disk so the four
+   panels read as a coherent grid (operator request 2026-04-26).
+   Earlier versions deliberately shortened these because most homelab
+   hosts sit near-zero between bursts, but the visual asymmetry was
+   worse than the wasted whitespace. The flat-signal collapse below
+   (`.metric-card--flat`) still kicks in when the peak is exactly
+   zero — that's the right place to recover the room, not in the
+   non-flat case where actual traffic IS plotted. */
 .metric-card--net  { color: var(--metric-net); }
 .metric-card--net-out { color: var(--metric-net-out); }
 

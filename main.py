@@ -1657,6 +1657,26 @@ async def api_set_settings(
                 )
             seen_numbers[num] = g["name"]
 
+        # Duplicate-id check — analogous to BUG-009's fix on hosts_config.
+        # The password-merge logic at the top of this loop matches by
+        # stable `id`; two incoming rows sharing the same id is an
+        # ambiguous-state condition (operator hand-crafted JSON, UI race,
+        # or a restored backup that overlapped a fresh row). Reject early
+        # with both names so the operator can spot the offender.
+        gid_seen: dict[str, str] = {}
+        for g in clean_groups:
+            gid = g.get("id")
+            if not gid:
+                continue
+            prior_name = gid_seen.get(gid)
+            if prior_name is not None:
+                raise HTTPException(
+                    400,
+                    f"host_groups: id {gid} is used by both "
+                    f"'{prior_name}' and '{g['name']}'. Each group must have a unique id.",
+                )
+            gid_seen[gid] = g["name"]
+
         # Persist in order-field order so render iteration doesn't have to re-sort.
         clean_groups.sort(key=lambda g: (g["order"], g["name"]))
         set_setting("host_groups", json.dumps(clean_groups))
@@ -2841,6 +2861,12 @@ def _shape_host_api_row(
         # Status precedence:
         #   1. Explicit Beszel / Pulse status when the provider
         #      contributed (canonical "up/down/paused" signal).
+        #      Beszel "paused" is normalised to "down" because the
+        #      operator's pause-in-Beszel intent is "this host is
+        #      offline, suppress the alert noise" — surfacing it as
+        #      amber (paused) implies "still under monitoring" which
+        #      mismatches the actual state. Red (down) reflects that
+        #      no live telemetry is flowing.
         #   2. "up" when any provider returned data at all.
         #   3. "unconfigured" when EITHER the curated row has NO
         #      provider fields set OR no provider is enabled
@@ -2849,7 +2875,7 @@ def _shape_host_api_row(
         #      active, but none answered. Frontend escalates this
         #      to red (real outage signal).
         "status":          (
-            s.get("beszel_status")
+            ("down" if s.get("beszel_status") == "paused" else s.get("beszel_status"))
             or s.get("pulse_status")
             or ("up" if providers_hit else (
                 "unconfigured"

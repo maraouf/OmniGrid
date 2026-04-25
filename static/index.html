@@ -5623,10 +5623,12 @@
                       <span class="text-[var(--text-dim)]" x-text="t('host_drawer.network.bandwidth')"></span>
                       <span class="mono" x-text="fmtBytes(h.bandwidth) + '/s'"></span>
                     </div>
-                    <template x-for="(iface, i) in (h.network_ifaces || [])" :key="i">
+                    <!-- "Real" interfaces always render — physical / virtual
+                         NICs the operator cares about (ens*, eth*, wlan*,
+                         enp*, etc.). Docker / k8s / Proxmox internals get
+                         partitioned out into a collapsed group below. -->
+                    <template x-for="(iface, i) in networkIfacesPartition(h).real" :key="'r' + i">
                       <div class="space-y-1.5">
-                        <!-- Interface header: name (bold) + MAC (muted).
-                             Fallback: older agents only gave a name. -->
                         <div class="flex items-baseline gap-2 flex-wrap">
                           <span class="font-semibold text-[12.5px] mono"
                                 x-text="typeof iface === 'string' ? iface : iface.name"></span>
@@ -5634,13 +5636,51 @@
                                 class="ip-chip ip-chip--mac"
                                 x-text="iface.mac"></span>
                         </div>
-                        <!-- Addresses — blue chip for IPv4, violet for IPv6. -->
                         <div x-show="typeof iface === 'object' && (iface.addrs || []).length"
                              class="flex flex-wrap gap-1.5">
                           <template x-for="a in (typeof iface === 'object' ? (iface.addrs || []) : [])" :key="a">
                             <span class="ip-chip"
                                   :class="a.includes(':') ? 'ip-chip--v6' : 'ip-chip--v4'"
                                   x-text="a"></span>
+                          </template>
+                        </div>
+                      </div>
+                    </template>
+                    <!-- Docker / k8s / Proxmox internal interfaces. Hidden
+                         by default behind a toggle keyed per host. On a
+                         Docker host with 30+ veths this collapses the
+                         drawer from a 50-row wall to a tidy summary. -->
+                    <template x-if="networkIfacesPartition(h).internal.length > 0">
+                      <div class="pt-2 border-t border-dashed border-[var(--border)]">
+                        <button @click="toggleNetworkIfacesDocker(h)"
+                                class="text-[11.5px] text-[var(--text-dim)] hover:text-[var(--text)] flex items-center gap-1.5"
+                                :title="t('host_drawer.network.docker_toggle_title')">
+                          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"
+                               :style="networkIfacesShowDocker[h.id] ? 'transform: rotate(90deg)' : ''"
+                               style="transition: transform 120ms ease-out"><polyline points="9 18 15 12 9 6"/></svg>
+                          <span x-text="networkIfacesShowDocker[h.id]
+                                        ? t('host_drawer.network.docker_hide', { count: networkIfacesPartition(h).internal.length })
+                                        : t('host_drawer.network.docker_show', { count: networkIfacesPartition(h).internal.length })"></span>
+                        </button>
+                        <div x-show="networkIfacesShowDocker[h.id]" class="space-y-1.5 mt-2">
+                          <template x-for="(iface, i) in networkIfacesPartition(h).internal" :key="'i' + i">
+                            <div class="space-y-1.5">
+                              <div class="flex items-baseline gap-2 flex-wrap">
+                                <span class="font-semibold text-[12.5px] mono"
+                                      x-text="typeof iface === 'string' ? iface : iface.name"></span>
+                                <span x-show="typeof iface === 'object' && iface.mac"
+                                      class="ip-chip ip-chip--mac"
+                                      x-text="iface.mac"></span>
+                              </div>
+                              <div x-show="typeof iface === 'object' && (iface.addrs || []).length"
+                                   class="flex flex-wrap gap-1.5">
+                                <template x-for="a in (typeof iface === 'object' ? (iface.addrs || []) : [])" :key="a">
+                                  <span class="ip-chip"
+                                        :class="a.includes(':') ? 'ip-chip--v6' : 'ip-chip--v4'"
+                                        x-text="a"></span>
+                                </template>
+                              </div>
+                            </div>
                           </template>
                         </div>
                       </div>

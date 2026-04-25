@@ -935,7 +935,10 @@
     },
     "network": {
       "heading": "Network",
-      "bandwidth": "Bandwidth"
+      "bandwidth": "Bandwidth",
+      "docker_show": "Show {count} Docker / internal interface(s)",
+      "docker_hide": "Hide {count} Docker / internal interface(s)",
+      "docker_toggle_title": "Toggle Docker veth pairs, bridges, and other internal interfaces (lo, docker0, br-*, veth*, cni*, flannel*, cali*, kube-*, vxlan*, vmbr*)"
     },
     "disks": {
       "heading": "Disks",

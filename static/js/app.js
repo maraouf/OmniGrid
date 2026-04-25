@@ -4179,6 +4179,42 @@ function app() {
     statsFor(item) {
       return (item && this.stats[item.id]) || { cpu_percent: 0, mem_usage: 0, mem_limit: 0, size_root: 0, size_rw: 0, has_stats: false, has_size: false };
     },
+    // Split a host's network_ifaces into "real" (public-facing physical /
+    // virtual NICs the operator cares about) and "internal" (docker veth
+    // pairs, br-<id> bridges, docker0, docker_gwbridge, lo). On a Docker
+    // host with N running containers there are N+ veths plus the bridge
+    // pool — this turned the drawer's Network card into a 50-row wall.
+    // The "real" list renders by default; the "internal" group is hidden
+    // behind a toggle keyed by host.id in `networkIfacesShowDocker` so
+    // each host can be expanded independently.
+    networkIfacesPartition(h) {
+      const ifaces = (h && h.network_ifaces) || [];
+      const ifaceName = x => (typeof x === 'string' ? x : (x && x.name) || '');
+      const isInternal = name => {
+        const n = (name || '').toLowerCase();
+        return n === 'lo'
+            || n === 'docker0'
+            || n === 'docker_gwbridge'
+            || n.startsWith('veth')
+            || n.startsWith('br-')      // docker bridge networks (br-<12hex>)
+            || n.startsWith('cni')      // k8s pod network
+            || n.startsWith('flannel')
+            || n.startsWith('cali')     // calico
+            || n.startsWith('kube-')
+            || n.startsWith('vxlan')
+            || n.startsWith('vmbr');    // proxmox bridge (when surfaced)
+      };
+      const real = [], internal = [];
+      for (const iface of ifaces) {
+        (isInternal(ifaceName(iface)) ? internal : real).push(iface);
+      }
+      return { real, internal };
+    },
+    networkIfacesShowDocker: {},  // {host_id: bool} — toggle map per host
+    toggleNetworkIfacesDocker(h) {
+      if (!h || !h.id) return;
+      this.networkIfacesShowDocker[h.id] = !this.networkIfacesShowDocker[h.id];
+    },
     // Stale-marker helpers for the UI.
     //
     // Backend stamps two markers on cache-seeded entries:
