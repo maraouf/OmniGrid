@@ -4109,11 +4109,29 @@ function app() {
       });
       let lo = Infinity, hi = -Infinity;
       for (const v of vals) { if (v < lo) lo = v; if (v > hi) hi = v; }
-      if (hi - lo < 0.5) { lo = Math.max(0, lo - 0.5); hi = lo + 1; }
+      // Flat / idle series — center the line in the box rather than
+      // pinning it to the bottom edge. Earlier code did
+      // `lo = max(0, lo-0.5); hi = lo+1` which mapped `v=0` to `y=H`
+      // (the very bottom). With stroke-width=1 the line then drew
+      // from y=H-0.5 to y=H+0.5; the bottom half landed OUTSIDE the
+      // viewBox and got clipped — visible result was an invisible
+      // sparkline (operator's "CPU graph not showing" report on idle
+      // nodes). Re-center on the midpoint so flat data lands at y=H/2.
+      if (hi - lo < 0.5) {
+        const mid = (lo + hi) / 2;
+        lo = mid - 1;
+        hi = mid + 1;
+      }
+      // Vertical padding — keep the polyline at least 1 unit clear of
+      // the top and bottom edges so the stroke isn't clipped on
+      // boundary values (a CPU sample at 0% or 100% would otherwise
+      // render half-cropped). Effective drawable height = H - 2*PAD.
+      const PAD = 1;
+      const drawH = H - 2 * PAD;
       const step = W / (vals.length - 1);
       return vals.map((v, i) => {
         const x = (i * step).toFixed(1);
-        const y = (H - ((v - lo) / (hi - lo)) * H).toFixed(1);
+        const y = (PAD + (1 - (v - lo) / (hi - lo)) * drawH).toFixed(1);
         return `${x},${y}`;
       }).join(' ');
     },
@@ -5233,6 +5251,11 @@ function app() {
           // Hisense — TVs, smart-home hubs, white goods.
           'hisense-tv':      'hisense',
           'vidaa':           'hisense',
+          // Sensibo — smart-AC controllers (sky / air / pure / pod).
+          'sensibo-sky':     'sensibo',
+          'sensibo-air':     'sensibo',
+          'sensibo-pod':     'sensibo',
+          'sensibo-pure':    'sensibo',
         };
         const slug = aliases[h.icon.toLowerCase()] || h.icon;
         return '/img/icons/' + slug + '.svg';
@@ -5322,6 +5345,8 @@ function app() {
         // Hisense — TVs (VIDAA OS) + appliances.
         ['hisense',               'hisense'],
         ['vidaa',                 'hisense'],
+        // Sensibo — AC controller pucks. Models: Sky, Air, Pod, Pure.
+        ['sensibo',               'sensibo'],
         // Ubiquiti family — parent brand mark. Specific product
         // phrases first so "edgerouter" / "airmax" etc. hit even
         // when "ubiquiti" also appears in the label.
