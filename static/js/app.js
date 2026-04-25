@@ -4454,20 +4454,44 @@ function app() {
     // + provider + icon + URL fields on every row, a 20-host list is
     // a 2000-line scroll. Collapsed rows show only the summary; the
     // field grid renders behind x-show when expanded.
-    isHostConfigExpanded(id) {
-      if (!id) return true;  // empty-id rows (fresh adds) always expand
-      return !!this.hostsConfigExpanded[id];
+    //
+    // Keyed on the row's stable `_uid` (assigned on load / add) — NOT
+    // on `row.id`. Earlier the lookup used `row.id` as the key, so
+    // typing into the ID field changed the key mid-keystroke and the
+    // row collapsed (`hostsConfigExpanded[oldId]` was true but
+    // `hostsConfigExpanded[newId]` was undefined). Operators reported
+    // "typing in ID closes the host" — this is that bug. _uid never
+    // changes for the lifetime of the row, so the expansion state
+    // sticks regardless of edits to any field.
+    isHostConfigExpanded(row) {
+      // Backwards-compatible: callers may pass either a row OR a
+      // bare id (legacy paths). When given a string, fall back to
+      // looking it up via id then resolve to _uid.
+      if (typeof row === 'string') {
+        if (!row) return true;
+        const found = (this.hostsConfig || []).find(r => r && r.id === row);
+        return found ? !!this.hostsConfigExpanded[found._uid] : false;
+      }
+      if (!row) return false;
+      // Empty-id rows (fresh adds) always expand so the operator
+      // sees the form fields without hunting for a chevron.
+      if (!row.id) return true;
+      return !!this.hostsConfigExpanded[row._uid];
     },
-    toggleHostConfigRow(id) {
-      if (!id) return;
+    toggleHostConfigRow(row) {
+      if (typeof row === 'string') {
+        const found = (this.hostsConfig || []).find(r => r && r.id === row);
+        row = found;
+      }
+      if (!row || !row._uid) return;
       const next = { ...this.hostsConfigExpanded };
-      if (next[id]) delete next[id]; else next[id] = true;
+      if (next[row._uid]) delete next[row._uid]; else next[row._uid] = true;
       this.hostsConfigExpanded = next;
     },
     expandAllHostConfigRows() {
       const next = {};
       for (const h of (this.hostsConfig || [])) {
-        if (h && h.id) next[h.id] = true;
+        if (h && h._uid) next[h._uid] = true;
       }
       this.hostsConfigExpanded = next;
     },
@@ -4897,11 +4921,15 @@ function app() {
 
       let hadError = false;
       const ensureExpanded = (id) => {
-        // Expanding the offending row first so the error-decorated
-        // field is actually visible. Collapsed rows only render the
-        // summary line, hiding the red border.
-        if (id && !this.hostsConfigExpanded[id]) {
-          this.hostsConfigExpanded = { ...this.hostsConfigExpanded, [id]: true };
+        // Expand the row carrying this id so the error-decorated
+        // field is visible. Looks up the row by id to find its
+        // stable `_uid` (the actual key in hostsConfigExpanded
+        // since the typing-collapse fix).
+        if (!id) return;
+        const row = (this.hostsConfig || []).find(r => r && r.id === id);
+        const uid = row && row._uid;
+        if (uid && !this.hostsConfigExpanded[uid]) {
+          this.hostsConfigExpanded = { ...this.hostsConfigExpanded, [uid]: true };
         }
       };
 

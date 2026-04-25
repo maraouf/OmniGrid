@@ -1559,13 +1559,23 @@
               <div x-show="(h.providers || []).length > 0"
                    class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
                 <!-- ASSET INVENTORY (rich) — rendered FIRST so the
-                     operator sees the curated metadata (name, type,
-                     hostnames, location, serial, SKU, RAM, firmware,
-                     interfaces, ports, comment) before the live
-                     telemetry sections. Sourced from the cached
-                     oufa.co snapshot; visible whenever assetForHost
-                     returns a row, so hosts with no live providers
-                     still get an expandable detail card. -->
+                     operator sees the curated metadata before the
+                     live telemetry sections. Two render paths:
+                       - assetForHost(h) returns truthy → full card.
+                       - h.custom_number set but no asset match →
+                         diagnostic empty-state with the cn lookup
+                         that failed. Hosts with no custom_number
+                         render nothing (no asset is possible). -->
+                <template x-if="!assetForHost(h) && h.custom_number != null && h.custom_number !== ''">
+                  <section class="rounded border border-[var(--border)] bg-[var(--surface)] p-4 md:col-span-2 xl:col-span-4">
+                    <div class="flex items-center justify-between mb-2">
+                      <h4 class="text-[10.5px] uppercase tracking-wider text-[var(--text-faint)]"
+                          x-text="t('host_drawer.asset.heading')"></h4>
+                    </div>
+                    <p class="text-[11.5px] text-[var(--text-faint)]"
+                       x-text="'No asset-inventory match for custom_number=' + h.custom_number + '. Run Admin → Asset inventory → Refresh, or verify this host\\'s custom_number against the upstream asset list.'"></p>
+                  </section>
+                </template>
                 <template x-if="assetForHost(h)">
                   <section class="rounded border border-[var(--border)] bg-[var(--surface)] p-4 md:col-span-2 xl:col-span-4">
                     <div class="flex items-center justify-between mb-3">
@@ -1680,18 +1690,25 @@
                                port without a service URL is just as
                                visible as one with — operator wanted
                                ALL ports surfaced, not only URL ones. -->
+                          <!-- Each iteration of <template x-for>
+                               needs a SINGLE root element. Two
+                               sibling <template x-if> blocks would
+                               cause Alpine to render only the first
+                               (URL-only ports), silently dropping
+                               every non-URL port. Wrapping them in
+                               one <span> per iteration fixes it. -->
                           <template x-for="port in assetForHost(h).ports" :key="port.id || (port.name + ':' + port.number)">
-                            <template x-if="assetPortServiceUrl(port, h)">
-                              <a :href="assetPortServiceUrl(port, h)" target="_blank" rel="noopener"
+                            <span>
+                              <a x-show="assetPortServiceUrl(port, h)"
+                                 :href="assetPortServiceUrl(port, h)" target="_blank" rel="noopener"
                                  class="pill pill-info text-[10.5px] mono hover:underline"
                                  :title="port.protocol || ''"
                                  x-text="port.name + (port.number != null ? ' ' + port.number : '')"></a>
-                            </template>
-                            <template x-if="!assetPortServiceUrl(port, h)">
-                              <span class="text-[11px] mono text-[var(--text-faint)] px-1.5 py-1"
+                              <span x-show="!assetPortServiceUrl(port, h)"
+                                    class="text-[11px] mono text-[var(--text-faint)] px-1.5 py-1"
                                     :title="port.protocol || ''"
                                     x-text="port.name + (port.number != null ? ' ' + port.number : '')"></span>
-                            </template>
+                            </span>
                           </template>
                         </div>
                       </div>
@@ -4194,11 +4211,11 @@
                    +Add) always stay expanded so the operator can
                    fill them in without hunting for a chevron. -->
               <div class="flex items-center gap-2 cursor-pointer select-none"
-                   :class="isHostConfigExpanded(row.id) ? 'mb-3' : ''"
-                   @click="toggleHostConfigRow(row.id)">
+                   :class="isHostConfigExpanded(row) ? 'mb-3' : ''"
+                   @click="toggleHostConfigRow(row)">
                 <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
                      class="text-[var(--text-dim)] transition-transform flip-rtl"
-                     :style="isHostConfigExpanded(row.id) ? 'transform: rotate(90deg)' : ''">
+                     :style="isHostConfigExpanded(row) ? 'transform: rotate(90deg)' : ''">
                   <polyline points="9 18 15 12 9 6"/>
                 </svg>
                 <span x-show="row.custom_number != null && row.custom_number !== ''"
@@ -4218,14 +4235,14 @@
                 </template>
                 <span x-show="!row.enabled" class="chip text-[9.5px] px-1 py-0 pill-warning" x-text="t('states.disabled')"></span>
                 <span class="ms-auto text-[10.5px] text-[var(--text-faint)]"
-                      x-show="!isHostConfigExpanded(row.id)">Click to edit</span>
+                      x-show="!isHostConfigExpanded(row)">Click to edit</span>
               </div>
 
               <!-- Everything below hides when the row is collapsed.
                    We wrap in a single x-show on the outer div so the
                    existing grid/spacing rules apply unchanged when
                    the row is expanded. -->
-              <div x-show="isHostConfigExpanded(row.id)" class="space-y-3">
+              <div x-show="isHostConfigExpanded(row)" class="space-y-3">
               <!-- Row 1 — identity + toggles -->
               <div class="grid grid-cols-1 md:grid-cols-[80px_1fr_3fr_auto_auto] gap-3 items-end min-w-0">
                 <div>
