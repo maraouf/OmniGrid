@@ -2379,9 +2379,43 @@ function app() {
     async loadStats(force=false) {
       try {
         const r = await fetch('/api/stats' + (force ? '?force=true' : ''));
-        if (!r.ok) return;
+        if (!r.ok) {
+          // Surface the failure in the console once per load so an
+          // operator can spot a 401 / 502 / 504 without hand-checking
+          // the Network tab. Stats bars stay at `—` silently otherwise.
+          console.warn('[stats] /api/stats returned', r.status);
+          return;
+        }
         const d = await r.json();
         this.stats = d.stats || {};
+        // Self-diagnostic — fires when /api/stats came back with
+        // ZERO has_stats=true rows AND we have items loaded. That's
+        // the signature of "Portainer's per-container /stats endpoint
+        // failed for every running container" (most common root
+        // cause: API key with restricted scope, Portainer node-agent
+        // unreachable, or a network policy blocking the docker-stats
+        // RPC). Logged once per noticeably-empty response, NOT every
+        // poll, so the console doesn't drown in repetition.
+        const ids = Object.keys(this.stats);
+        const withStats = ids.filter(id => this.stats[id] && this.stats[id].has_stats).length;
+        if ((this.items || []).length > 0 && ids.length > 0 && withStats === 0) {
+          if (!this._warnedNoStats) {
+            this._warnedNoStats = true;
+            console.warn(
+              '[stats] /api/stats returned ' + ids.length + ' items but ' +
+              'has_stats=true on 0 of them. Per-container Docker stats are ' +
+              'missing — check Portainer API-key scope / agent reachability. ' +
+              'On the deploy host: tail -F the omnigrid container logs and ' +
+              'look for `[stats] <cid>: ...` error lines, or hit ' +
+              '/api/endpoints/<eid>/docker/containers/<cid>/stats?stream=false ' +
+              'directly via curl with the same API key.'
+            );
+          }
+        } else if (withStats > 0) {
+          // Live data flowing — clear the once-per-session guard so a
+          // future regression re-warns instead of staying silent.
+          this._warnedNoStats = false;
+        }
         // Compute max image size across all items so the disk bar is
         // normalised against the largest thing on the cluster.
         let m = 1;
@@ -2389,7 +2423,9 @@ function app() {
           if (this.stats[id].size_root > m) m = this.stats[id].size_root;
         }
         this._maxSize = m;
-      } catch (e) {}
+      } catch (e) {
+        console.warn('[stats] /api/stats fetch failed:', e && e.message);
+      }
     },
     pollStats() {
       if (this._statsTimer) {

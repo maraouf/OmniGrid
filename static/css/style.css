@@ -2924,15 +2924,42 @@ select.field-invalid {
     overflow-y: auto;
     background: var(--surface);
     border-left: 1px solid var(--border);
-    box-shadow: -8px 0 24px -12px var(--backdrop-strong, rgba(0, 0, 0, .35));
+    box-shadow: -8px 0 24px -12px var(--backdrop-strong);
     padding: 1rem 1.25rem;
+    /* The slide animation is driven by Alpine x-transition on the
+       outer element (`translate-x-full` → `translate-x-0`). Don't
+       add a CSS keyframe `animation:` here — the two would compete
+       on the same `transform` property and produce a janky enter. */
 }
 @media (min-width: 768px) {
-    .host-drawer { max-width: 640px; }
-}
-@media (min-width: 1280px) {
+    /* Host drawer holds far more data than the item / node drawers
+       (asset card + system + hardware + network + disks + Beszel
+       history charts + SSH card + debug panel). Wider caps so
+       label/value pairs in the card grid don't squeeze the values
+       to 2-3 visible characters on big monitors. */
     .host-drawer { max-width: 760px; }
 }
+@media (min-width: 1280px) {
+    .host-drawer { max-width: 1080px; }
+}
+@media (min-width: 1600px) {
+    .host-drawer { max-width: 1280px; }
+}
+/* Drawer-card definition lists — every `<dl>` inside a `.host-drawer`
+   subsection uses `grid-cols-[auto_1fr]`. CSS Grid's default
+   `min-width: auto` on grid items can force a long value cell to
+   overflow OR push the layout wider than the drawer. Setting
+   `min-width: 0` on every dt/dd lets the value column clamp to its
+   share of width, and `overflow-wrap: anywhere` lets long mono values
+   (kernel strings, FQDNs, serials, asset IDs) wrap mid-string instead
+   of truncating to "op" / "F" the way the operator's tmp/img_1.png
+   showed when the drawer width was tighter. */
+.host-drawer dl > dt,
+.host-drawer dl > dd {
+    min-width: 0;
+    overflow-wrap: anywhere;
+}
+
 [dir="rtl"] .host-drawer {
     /* In RTL the drawer slides in from the LEFT visually, mirroring the
        expected right-anchored panel for LTR. logical properties flip
