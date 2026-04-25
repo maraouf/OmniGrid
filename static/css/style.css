@@ -133,6 +133,48 @@
     --label-shadow: rgba(0, 0, 0, .4);
     --kbd-shadow: rgba(0, 0, 0, .35);
 
+    /* Admin → Logs accent palette — one hue per [tag] prefix so the
+       log viewer's chip colours are visually distinguishable. Tokens
+       here so adding a new tag = add one root entry + one rule
+       (CLAUDE.md: every value in CSS rules must come from a token). */
+    --log-tag-webmin:           #d97706;
+    --log-tag-beszel:           #22c55e;
+    --log-tag-pulse:            #a78bfa;
+    --log-tag-hosts:            #3b82f6;
+    --log-tag-host-net-sampler: #14b8a6;
+    --log-tag-ssh:              #ec4899;
+    --log-tag-portainer:        #0ea5e9;
+    --log-tag-i18n:             #94a3b8;
+    --log-tag-ops:              #f59e0b;
+    --log-tag-schedules:        #8b5cf6;
+    --log-tag-gather:           #06b6d4;
+    --log-tag-node-exporter:    #f97316;
+    --log-tag-oidc:             #e11d48;
+    --log-tag-backup:           #84cc16;
+    --log-tag-stats:            #60a5fa;
+    --log-tag-deploy:           #fbbf24;
+
+    /* Per-segment disk palette — Hosts drawer renders mounts as
+       coloured stripes. Six distinct hues + a fallback. Tokens
+       follow the same family pattern as log-tag-*. */
+    --disk-seg-0: #22c55e;
+    --disk-seg-1: #3b82f6;
+    --disk-seg-2: #a78bfa;
+    --disk-seg-3: #f59e0b;
+    --disk-seg-4: #ec4899;
+    --disk-seg-5: #14b8a6;
+    --disk-seg-6: #f97316;
+
+    /* IP-chip palette — IPv4 + IPv6 each get their own bg/border/fg
+       trio so the Hosts drawer can colour them distinctly without
+       inline rgba() literals. Both pairs use color-mix in the rules
+       below to preserve token + alpha composability. */
+    --ipv4-fg: #60a5fa;
+    --ipv6-fg: #a78bfa;
+
+    /* Drop-shadow tint for the dark-mode `.app-icon` hover glow. */
+    --icon-glow: rgba(255, 255, 255, .15);
+
     /* Spacing scale */
     --s-1: 2px;
     --s-2: 4px;
@@ -2926,10 +2968,16 @@ select.field-invalid {
     border-left: 1px solid var(--border);
     box-shadow: -8px 0 24px -12px var(--backdrop-strong);
     padding: 1rem 1.25rem;
-    /* The slide animation is driven by Alpine x-transition on the
-       outer element (`translate-x-full` → `translate-x-0`). Don't
-       add a CSS keyframe `animation:` here — the two would compete
-       on the same `transform` property and produce a janky enter. */
+    /* Slide-in keyframe animation — same shape as the legacy
+       `.slide-in` utility used by drawerNode / drawerItem. We
+       previously tried Alpine x-transition with `translate-x-full`
+       Tailwind classes, but Tailwind v4's browser-JIT runtime
+       doesn't pick up classes that Alpine adds dynamically at
+       runtime, so the slide silently no-op'd on this drawer while
+       the item drawer (which uses this CSS class directly) slid
+       cleanly. CSS animation runs unconditionally on `display`-flip
+       so it matches the item drawer's behaviour exactly. */
+    animation: slideIn .2s ease-out;
 }
 @media (min-width: 768px) {
     /* Host drawer holds far more data than the item / node drawers

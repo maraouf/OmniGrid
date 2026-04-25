@@ -2415,6 +2415,39 @@ function app() {
       location.href = location.pathname + location.search + sep + '_v=' + encodeURIComponent(this.newVersionString || Date.now());
     },
 
+    // Console-pasteable snapshot of stats state — operators paste
+    //   app().statsDebug()
+    // to dump current items / stats / sparks counts in one go,
+    // without hunting through the Console for warnings or repeating
+    // grep-style queries against the SQLite. Returns the snapshot
+    // object (also console.tabled for readability).
+    statsDebug() {
+      const items = this.items || [];
+      const stats = this.stats || {};
+      const sparks = this.sparks || {};
+      const itemIds = items.map(i => i.id);
+      const withStats = itemIds.filter(id => stats[id] && stats[id].has_stats).length;
+      const sparkIds = Object.keys(sparks);
+      const withSparks = sparkIds.filter(id => Array.isArray(sparks[id]) && sparks[id].length > 0).length;
+      const sample = items.slice(0, 3).map(i => ({
+        id: i.id, name: i.name, type: i.type, status: i.status,
+        has_stats: !!(stats[i.id] && stats[i.id].has_stats),
+        cpu: stats[i.id] && stats[i.id].cpu_percent,
+        mem_used: stats[i.id] && stats[i.id].mem_usage,
+        spark_points: (sparks[i.id] || []).length,
+      }));
+      const snap = {
+        items_total: items.length,
+        stats_keys: Object.keys(stats).length,
+        items_with_stats_true: withStats,
+        sparks_keys: sparkIds.length,
+        items_with_sparks: withSparks,
+        first_three_items: sample,
+      };
+      console.table(snap);
+      console.log('[statsDebug]', snap);
+      return snap;
+    },
     async loadStats(force=false) {
       try {
         const r = await fetch('/api/stats' + (force ? '?force=true' : ''));
@@ -2523,10 +2556,39 @@ function app() {
       try {
         const params = new URLSearchParams({ item_id: ids.join(','), hours: '24' });
         const r = await fetch('/api/stats/history?' + params.toString());
-        if (!r.ok) return;
+        if (!r.ok) {
+          console.warn('[sparks] /api/stats/history returned', r.status);
+          return;
+        }
         const d = await r.json();
         this.sparks = d.series || {};
-      } catch (e) {}
+        // Self-diagnostic — fires once when sparks come back empty
+        // AND we have items. The most common cause is item-id drift
+        // (stats_samples table has rows under historical container/
+        // service IDs that don't match current cache item_ids — e.g.
+        // after a Portainer migration or a stack redeploy that
+        // recreated container IDs). Operator can confirm by running
+        // sqlite3 on the DB: items with samples → SELECT DISTINCT
+        // item_id FROM stats_samples vs current item_ids.
+        const sparkIds = Object.keys(this.sparks);
+        const withData = sparkIds.filter(id => Array.isArray(this.sparks[id]) && this.sparks[id].length > 0).length;
+        if (ids.length > 0 && withData === 0) {
+          if (!this._warnedNoSparks) {
+            this._warnedNoSparks = true;
+            console.warn(
+              '[sparks] /api/stats/history returned ' + sparkIds.length +
+              ' keys, ' + withData + ' with data, for ' + ids.length + ' current items. ' +
+              'If 0/N, the stats_samples table holds data for OLD item_ids that ' +
+              'no longer match current items. Sample current id: ' + ids[0] +
+              '. Check: sqlite3 .../omnigrid.db "SELECT DISTINCT item_id FROM stats_samples LIMIT 5".'
+            );
+          }
+        } else if (withData > 0) {
+          this._warnedNoSparks = false;
+        }
+      } catch (e) {
+        console.warn('[sparks] /api/stats/history fetch failed:', e && e.message);
+      }
     },
     pollSparks() {
       if (this._sparksTimer) clearInterval(this._sparksTimer);
