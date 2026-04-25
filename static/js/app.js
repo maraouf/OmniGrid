@@ -4215,29 +4215,45 @@ function app() {
       if (!h || !h.id) return;
       this.networkIfacesShowDocker[h.id] = !this.networkIfacesShowDocker[h.id];
     },
-    // Per-provider status for a single host. Returns an array of
+    // Set of providers that returned data for AT LEAST ONE host on
+    // the most recent /api/hosts response. Used by `providerStates()`
+    // to suppress chips for globally-broken providers — if pulse
+    // failed cluster-wide (operator typo'd the URL, hub container
+    // down), we DON'T blame every individual host with `pulse_name`
+    // set; those are global-config issues, not per-host problems.
+    // Recomputed cheaply each time providerStates() runs since the
+    // hosts list isn't huge.
+    providersWorkingGlobally() {
+      const seen = new Set();
+      for (const h of (this.hosts || [])) {
+        for (const p of (h.providers || [])) seen.add(p);
+      }
+      return seen;
+    },
+    // Per-host provider chip states. Returns an array of
     //   { name: <provider>, state: 'ok' | 'failing' }
-    // entries — one per (mapped + globally-enabled) provider:
-    //   - 'ok'      → provider returned data (in h.providers) AND
-    //                 its self-reported status (when applicable) is
-    //                 NOT 'paused' / 'down' / 'unreachable'.
-    //   - 'failing' → either the probe returned no data OR the
-    //                 provider's self-reported status is paused/down.
-    //                 The chip turns red.
-    // Hosts with NO mapped provider for a given source skip that
-    // entry entirely (no chip rendered). Order: beszel → pulse →
-    // node_exporter → webmin (matches the chip strip's reading order).
+    // for chips that should render. Rules:
+    //   1. Provider must be mapped on this host (the relevant
+    //      `<provider>_name` / `ne_url` field is set).
+    //   2. Provider must be globally enabled.
+    //   3. Provider must be GLOBALLY HEALTHY (returned data for at
+    //      least one host on this fleet). If pulse fails cluster-
+    //      wide, the chip disappears from every host — that's a
+    //      global-config issue, not a per-host one. The operator
+    //      fixes the hub URL once, not on N hosts.
+    //   4. State derivation:
+    //      - 'ok'      → provider hit on THIS host AND its self-
+    //                    reported status (when applicable) is not
+    //                    paused/down/unreachable.
+    //      - 'failing' → mapped on this host but provider didn't hit
+    //                    here OR returned data with a paused/down
+    //                    self-status. Chip turns red.
     providerStates(h) {
       if (!h) return [];
       const active = this.hostsActiveSources || [];
+      const globalOk = this.providersWorkingGlobally();
       const got = new Set(h.providers || []);
       const out = [];
-      // A provider is "failing" when (a) it's mapped + enabled but
-      // returned no data at all, OR (b) it returned data BUT its
-      // self-reported status is paused / down / unreachable. Beszel's
-      // map still includes paused hosts (so providers_hit contains
-      // 'beszel' even when the agent is paused), which previously left
-      // the chip green for an obviously broken state.
       const badStatus = v => {
         const s = String(v || '').toLowerCase();
         return s === 'paused' || s === 'down' || s === 'unreachable';
@@ -4245,6 +4261,11 @@ function app() {
       const add = (name, mapped, selfStatus) => {
         if (!mapped) return;
         if (!active.includes(name)) return;
+        // Globally-broken provider — suppress the chip entirely so
+        // operators see the failure once in Settings (not N times in
+        // the Hosts grid). Exception: if THIS host got data from it,
+        // the provider IS working — render the ok chip.
+        if (!globalOk.has(name) && !got.has(name)) return;
         let state;
         if (!got.has(name))      state = 'failing';
         else if (badStatus(selfStatus)) state = 'failing';
