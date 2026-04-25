@@ -4704,12 +4704,23 @@
                                 + ' (' + hostGroupChildCount(g.name) + ')'"></span>
                 </button>
               </div>
-              <!-- Row 1: name, parent picker, range, controls. -->
+              <!-- Row 1: name, parent picker, range, controls.
+                   Text inputs use `x-model.lazy` so the bound model
+                   only commits on blur — typing into 22+ group cards
+                   was sluggish because every keystroke re-ran
+                   `sortedGroupsForEditor()` (which walks all groups
+                   and rebuilds the rendered array) plus per-row
+                   `hostGroupChildCount` / `topLevelGroupNames` calls.
+                   With `.lazy`, the DOM input stays responsive; the
+                   @input handler still fires for the dirty-flag flip
+                   and inline-error clear (both cheap) so save-button
+                   feedback is unchanged. The expensive reactive
+                   cascade only runs once when the operator tabs away. -->
               <div class="grid grid-cols-1 md:grid-cols-[2fr_1.3fr_110px_110px_auto] gap-3 items-end">
                 <div>
                   <label class="block text-[10.5px] uppercase tracking-wider text-[var(--text-faint)] mb-1"
                          x-text="t('admin_hosts.groups.name_label')"></label>
-                  <input type="text" x-model="g.name"
+                  <input type="text" x-model.lazy="g.name"
                          :disabled="isReadonly()"
                          @input="markHostGroupDirty(); clearFieldError('group_' + origIdx + '_name')"
                          class="w-full text-[13px] py-1.5"
@@ -4739,7 +4750,7 @@
                 <div>
                   <label class="block text-[10.5px] uppercase tracking-wider text-[var(--text-faint)] mb-1"
                          x-text="t('admin_hosts.groups.range_start_label')"></label>
-                  <input type="number" x-model.number="g.range_start"
+                  <input type="number" x-model.lazy.number="g.range_start"
                          :disabled="isReadonly()"
                          @input="markHostGroupDirty(); clearFieldError('group_' + origIdx + '_range')"
                          class="w-full mono text-[13px] py-1.5"
@@ -4749,7 +4760,7 @@
                 <div>
                   <label class="block text-[10.5px] uppercase tracking-wider text-[var(--text-faint)] mb-1"
                          x-text="t('admin_hosts.groups.range_end_label')"></label>
-                  <input type="number" x-model.number="g.range_end"
+                  <input type="number" x-model.lazy.number="g.range_end"
                          :disabled="isReadonly()"
                          @input="markHostGroupDirty(); clearFieldError('group_' + origIdx + '_range')"
                          class="w-full mono text-[13px] py-1.5"
@@ -4780,7 +4791,7 @@
               <div class="mt-2">
                 <label class="block text-[10.5px] uppercase tracking-wider text-[var(--text-faint)] mb-1"
                        x-text="t('admin_hosts.groups.ip_range_label')"></label>
-                <input type="text" x-model="g.ip_range"
+                <input type="text" x-model.lazy="g.ip_range"
                        :disabled="isReadonly()"
                        @input="markHostGroupDirty()"
                        class="w-full mono text-[12.5px] py-1.5"
@@ -4798,7 +4809,7 @@
                   <div>
                     <label class="block text-[10.5px] text-[var(--text-faint)] mb-1"
                            x-text="t('admin_hosts.groups.ssh_user_label')"></label>
-                    <input type="text" x-model="g.ssh.user"
+                    <input type="text" x-model.lazy="g.ssh.user"
                            :disabled="isReadonly()"
                            @input="markHostGroupDirty()"
                            class="w-full mono text-[12.5px] py-1.5"
@@ -4807,7 +4818,7 @@
                   <div>
                     <label class="block text-[10.5px] text-[var(--text-faint)] mb-1"
                            x-text="t('admin_hosts.groups.ssh_port_label')"></label>
-                    <input type="number" x-model.number="g.ssh.port"
+                    <input type="number" x-model.lazy.number="g.ssh.port"
                            :disabled="isReadonly()"
                            @input="markHostGroupDirty()"
                            class="w-full mono text-[12.5px] py-1.5"

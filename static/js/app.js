@@ -3814,9 +3814,9 @@ function app() {
         'myspeed': '/img/icons/myspeed.svg',
         'squid-proxy': '/img/icons/squid.png',
         'squid': '/img/icons/squid.png',
-        'tracearr': '/img/icons/tracearr.png',
-        'portainer': '/img/icons/portainer.png',
-        'portainer-agent': '/img/icons/portainer.png',
+        'tracearr': '/img/icons/tracearr.svg',
+        'portainer': '/img/icons/portainer.svg',
+        'portainer-agent': '/img/icons/portainer.svg',
       };
       // Prefix patterns — one entry covers all siblings of a product
       // (authentik outposts: ak-outpost-authentik-ldap-outpost, etc.).
@@ -5608,13 +5608,32 @@ function app() {
           throw new Error(j.detail || `HTTP ${r.status}`);
         }
         const d = await r.json();
+        // Capture the previous id→_uid map BEFORE replacing the
+        // array. Server-side rows don't carry `_uid` (it's a
+        // client-only key), so a naive replace would strip every
+        // row's stable identity → `hostsConfigExpanded` keys go
+        // stale → chevron clicks early-exit at `!row._uid` →
+        // operator can't expand any row. Preserving the existing
+        // uids by id keeps the expansion state alive across saves.
+        // The same fix protects fresh `+Add` rows (their _uid was
+        // minted in `addHostRow`) from being clobbered the moment
+        // the operator hits Save.
+        const oldUidById = {};
+        for (const r of (this.hostsConfig || [])) {
+          if (r && r.id && r._uid) oldUidById[r.id] = r._uid;
+        }
         this.hostsConfig = d.hosts || [];
         // Re-stamp each row with its webmin_url (the hosts_config
         // endpoint doesn't know about aliases, so the field is
-        // load-bearing for the editor UI only).
+        // load-bearing for the editor UI only) AND its _uid (re-use
+        // the previous one when the id matches; mint fresh otherwise).
         for (const row of this.hostsConfig) {
           row.webmin_url = webminAliases[row.id] || '';
+          if (!row.ssh || typeof row.ssh !== 'object') row.ssh = {};
+          row._uid = oldUidById[row.id]
+            || ('r' + Math.random().toString(36).slice(2, 10) + Date.now().toString(36));
         }
+        this.rebuildHostsConfigOrder();
         // Persist the derived webmin_aliases in settings so the probe
         // pipeline can read it next gather.
         await fetch('/api/settings', {
