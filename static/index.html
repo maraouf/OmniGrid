@@ -5794,6 +5794,36 @@
              x-text="t('admin.logs.hint')"></p>
         </section>
       </div>
+
+      <!-- DEBUG TAB — admin-wide debug / diagnostic preferences. One
+           home for every "show me internals" toggle so they're easy
+           to find + easy to turn off. First item is the host-drawer
+           debug panel (raw provider JSON + merged shape); future
+           toggles land below it. Each flips on change, no Save. -->
+      <div x-show="adminTab==='debug'" class="space-y-4">
+        <section class="bg-[var(--surface)] border border-[var(--border)] rounded-md p-5">
+          <h3 class="font-semibold text-[13px] mb-1"
+              x-text="t('admin.debug.title')"></h3>
+          <p class="text-[11.5px] text-[var(--text-faint)] mb-4 max-w-[720px]"
+             x-text="t('admin.debug.intro')"></p>
+
+          <div class="border border-[var(--border)] rounded-md bg-[var(--surface-2)] p-3">
+            <label class="flex items-start gap-3 cursor-pointer select-none">
+              <input type="checkbox"
+                     x-model="settings.debug_panel_enabled"
+                     @change="saveDebugPanelEnabled()"
+                     :disabled="!isAdmin()"
+                     class="mt-0.5">
+              <span class="flex-1">
+                <span class="text-[13px] font-medium block"
+                      x-text="t('admin_hosts.debug_panel_toggle_label')"></span>
+                <span class="text-[11.5px] text-[var(--text-faint)] block mt-0.5 leading-snug"
+                      x-text="t('admin_hosts.debug_panel_toggle_hint')"></span>
+              </span>
+            </label>
+          </div>
+        </section>
+      </div>
       </div>
     </div>
 

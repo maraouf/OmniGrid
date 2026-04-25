@@ -4953,6 +4953,16 @@ function app() {
           'asuswrt':         'asus',
           'rt-ax':           'asus',
           'rt-ac':           'asus',
+          'western-digital': 'wd',
+          'western digital': 'wd',
+          'wdc':             'wd',
+          'mycloud':         'wd',
+          'my-cloud':        'wd',
+          'mybooklive':      'wd',
+          'my-book-live':    'wd',
+          'syno':            'synology',
+          'dsm':             'synology',
+          'synology-dsm':    'synology',
         };
         const slug = aliases[h.icon.toLowerCase()] || h.icon;
         return '/img/icons/' + slug + '.svg';
@@ -5029,6 +5039,23 @@ function app() {
         ['rt-ac',                 'asus'],
         ['gt-ax',                 'asus'],
         ['asus',                  'asus'],
+        // NAS / storage — Synology DSM + Western Digital (DS / RS
+        // models for Synology, MyCloud / MyBook / WD Red / WD Blue
+        // for Western Digital). Longer phrases first so
+        // "western digital" wins over "wd".
+        ['synology',              'synology'],
+        ['dsm ',                  'synology'],
+        ['ds ',                   'synology'],
+        ['rs ',                   'synology'],
+        ['syno',                  'synology'],
+        ['western digital',       'wd'],
+        ['western-digital',       'wd'],
+        ['mycloud',               'wd'],
+        ['my cloud',              'wd'],
+        ['mybooklive',            'wd'],
+        ['my book',               'wd'],
+        ['wdc',                   'wd'],
+        [' wd ',                  'wd'],
         // ISP / access-technology routers — longer phrases first so
         // "ftth router" hits ftth (not the bare "router" fallback).
         ['ftth',                  'ftth'],

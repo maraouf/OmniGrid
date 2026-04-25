@@ -392,7 +392,12 @@
       "assets": "Asset inventory",
       "schedules": "Schedules",
       "backups": "Backups",
-      "logs": "Logs"
+      "logs": "Logs",
+      "debug": "Debug"
+    },
+    "debug": {
+      "title": "Debug & diagnostics",
+      "intro": "Admin-wide switches for the \"show me internals\" affordances scattered across the SPA. Every toggle here persists on change — no Save button."
     },
     "logs": {
       "title": "Application logs",
