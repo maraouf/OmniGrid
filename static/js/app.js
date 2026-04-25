@@ -4535,14 +4535,18 @@ function app() {
       return Math.max(0, all.length - active.length);
     },
     // True when the named provider is enabled in
-    // settings.host_stats_sources. The host editor uses this to
-    // hide per-row Beszel / Pulse / Webmin / NE fields whose global
+    // settings.host_stats_source (singular CSV string — "beszel,pulse,
+    // node_exporter,webmin"). The host editor uses this to hide
+    // per-row Beszel / Pulse / Webmin / NE fields whose global
     // provider is disabled — operators don't waste time configuring
-    // mappings that won't be probed.
+    // mappings that won't be probed. Falls back to TRUE (show) when
+    // settings haven't loaded yet so we don't strip fields prematurely.
     hostStatsSourceEnabled(name) {
-      const sources = (this.settings && this.settings.host_stats_sources) || [];
-      if (!Array.isArray(sources)) return true;  // unknown → show
-      return sources.includes(name);
+      const raw = (this.settings && this.settings.host_stats_source) || '';
+      if (!raw) return true;  // settings not loaded yet → show everything
+      if (raw === 'none') return false;
+      const parts = String(raw).split(',').map(s => s.trim()).filter(Boolean);
+      return parts.includes(name);
     },
     addHostRow() {
       // Pre-fill custom_number with the next unused integer so a fresh
