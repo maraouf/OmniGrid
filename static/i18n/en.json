@@ -816,6 +816,8 @@
   "hosts_extra": {
     "sort_label": "Sort",
     "sort_title": "Sort hosts — persisted in this browser",
+    "hide_unconfigured_label": "Hide hosts without agents",
+    "hide_unconfigured_title": "Hide curated rows that have no Beszel / Pulse / node-exporter / Webmin field set — inventory-only entries are filtered out. Persisted in this browser.",
     "sort": {
       "status": "Status (default)",
       "custom_number": "Custom # (catalogue order)",

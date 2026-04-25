@@ -146,6 +146,12 @@ function app() {
     //   'cpu' / 'mem' / 'disk' (descending — hottest first)
     //   'uptime' (descending — longest running first)
     hostsSort: (typeof localStorage !== 'undefined' && localStorage.getItem('hostsSort')) || 'status',
+    // Hide hosts that have NO agent fields configured (no beszel_name,
+    // no pulse_name, no ne_url, no webmin_name). Persisted across reloads.
+    // Useful when the curated list contains inventory-only entries (FTTH /
+    // 5G routers, switches without an exporter) and the operator wants
+    // to focus on rows that actually probe.
+    hostsHideUnconfigured: (typeof localStorage !== 'undefined' && localStorage.getItem('hostsHideUnconfigured') === '1') || false,
     // Per-host debug payloads (admin-only). Keyed by host.id. Lazily
     // populated when the operator opens the drawer's Debug panel so
     // the normal hosts-view cadence stays cheap.
@@ -564,6 +570,7 @@ function app() {
       window.addEventListener('popstate', () => this._applyRouteFromPath());
       this.$watch('expanded', v => localStorage.setItem('expanded', JSON.stringify(v)));
       this.$watch('hostsSort', v => { try { localStorage.setItem('hostsSort', v); } catch {} });
+      this.$watch('hostsHideUnconfigured', v => { try { localStorage.setItem('hostsHideUnconfigured', v ? '1' : '0'); } catch {} });
       // Webmin scratch-test URL persists so operators don't retype
       // the same host every time they reload Host Stats.
       this.$watch('webminTestUrl', v => { try { localStorage.setItem('webminTestUrl', v || ''); } catch {} });
@@ -7717,6 +7724,15 @@ function app() {
     // each group alphabetical by label/id. Dead rows cluster at the
     // bottom so the top of the view is always the "interesting"
     // stuff.
+    // True when the curated row has at least one provider name mapped —
+    // i.e. SOMETHING will probe it. Inventory rows (no beszel_name /
+    // pulse_name / ne_url / webmin_name) return false. Used both by
+    // `filteredHosts()` for the hide-unconfigured filter and by the
+    // toolbar count badge.
+    hostHasAgent(h) {
+      if (!h) return false;
+      return !!(h.beszel_name || h.pulse_name || h.ne_url || h.webmin_name);
+    },
     filteredHosts() {
       const q = (this.hostsSearch || '').trim().toLowerCase();
       const statusWeight = (s) => {
@@ -7738,6 +7754,9 @@ function app() {
       const num = (v) => (Number.isFinite(+v) ? +v : 0);
 
       let list = (this.hosts || []).slice();
+      if (this.hostsHideUnconfigured) {
+        list = list.filter(h => this.hostHasAgent(h));
+      }
       if (q) {
         list = list.filter(h => {
           const hay = [

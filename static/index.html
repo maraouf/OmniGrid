@@ -1167,6 +1167,11 @@
               x-text="filteredHosts().length + ' of ' + hosts.length"></span>
         <button x-show="hostsSearch" @click="hostsSearch=''"
                 class="btn btn-ghost text-[11px]" :title="t('hosts_extra.empty.clear_filter')">✕</button>
+        <label class="flex items-center gap-1.5 text-[11px] text-[var(--text-faint)] whitespace-nowrap"
+               :title="t('hosts_extra.hide_unconfigured_title')">
+          <input type="checkbox" x-model="hostsHideUnconfigured" class="align-middle">
+          <span x-text="t('hosts_extra.hide_unconfigured_label')"></span>
+        </label>
         <label class="flex items-center gap-1.5 text-[11px] text-[var(--text-faint)]">
           <span x-text="t('hosts_extra.sort_label')"></span>
           <select x-model="hostsSort" class="text-[12px] py-1 px-1.5"
