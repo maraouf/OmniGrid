@@ -2847,6 +2847,51 @@ def _shape_host_api_row(
     path instead of a false red alert.
     """
     s = merged or {}
+    # Status precedence (revised — see operator complaint that hosts
+    # were marked "down" purely because Beszel was paused/down even
+    # when Pulse + node-exporter + Webmin were happily scraping):
+    #   1. ANY non-Beszel provider returning data → "up". Beszel's
+    #      self-reported status is suggestive but its agent can be
+    #      paused/down while the host is still reachable — pulse /
+    #      NE / webmin all probe via different paths/ports/protocols
+    #      and a successful scrape from any of them proves the host
+    #      is alive. SSH and other "is this host reachable" gates
+    #      depend on this status, so a single failing provider must
+    #      not lock other features out.
+    #   2. Beszel's explicit status (with paused → down normalisation)
+    #      when Beszel is the ONLY signal we have. Operator pauses
+    #      hosts in Beszel deliberately when they're offline; "down"
+    #      here reflects reality.
+    #   3. Pulse's explicit status as a secondary fallback.
+    #   4. "up" if any provider hit at all (covers Beszel-only
+    #      hosts where Beszel returned data with no explicit status).
+    #   5. "unconfigured" when no provider is mapped/enabled — grey.
+    #   6. "unknown" when providers ARE mapped + active but none
+    #      answered — surfaced red as a real outage signal.
+    beszel_st = s.get("beszel_status")
+    if beszel_st == "paused":
+        beszel_st = "down"
+    pulse_st = s.get("pulse_status")
+    non_beszel_hit = any(
+        p in providers_hit for p in ("pulse", "node_exporter", "webmin")
+    )
+    if non_beszel_hit:
+        host_status = "up"
+    elif beszel_st in ("up", "down"):
+        host_status = beszel_st
+    elif pulse_st:
+        host_status = pulse_st
+    elif providers_hit:
+        host_status = "up"
+    elif (not any_provider_enabled) or not (
+        (h.get("beszel_name") or "").strip()
+        or (h.get("pulse_name")  or "").strip()
+        or (h.get("webmin_name") or "").strip()
+        or (h.get("ne_url")      or "").strip()
+    ):
+        host_status = "unconfigured"
+    else:
+        host_status = "unknown"
     return {
         "id":              h["id"],
         "name":            h["id"],
@@ -2858,36 +2903,12 @@ def _shape_host_api_row(
         "url":             h.get("url") or "",
         "icon":            h.get("icon") or "",
         "providers":       providers_hit or [],
-        # Status precedence:
-        #   1. Explicit Beszel / Pulse status when the provider
-        #      contributed (canonical "up/down/paused" signal).
-        #      Beszel "paused" is normalised to "down" because the
-        #      operator's pause-in-Beszel intent is "this host is
-        #      offline, suppress the alert noise" — surfacing it as
-        #      amber (paused) implies "still under monitoring" which
-        #      mismatches the actual state. Red (down) reflects that
-        #      no live telemetry is flowing.
-        #   2. "up" when any provider returned data at all.
-        #   3. "unconfigured" when EITHER the curated row has NO
-        #      provider fields set OR no provider is enabled
-        #      globally — nothing to probe, grey (not red).
-        #   4. "unknown" when providers ARE mapped AND globally
-        #      active, but none answered. Frontend escalates this
-        #      to red (real outage signal).
-        "status":          (
-            ("down" if s.get("beszel_status") == "paused" else s.get("beszel_status"))
-            or s.get("pulse_status")
-            or ("up" if providers_hit else (
-                "unconfigured"
-                if (not any_provider_enabled) or not (
-                    (h.get("beszel_name") or "").strip()
-                    or (h.get("pulse_name") or "").strip()
-                    or (h.get("webmin_name") or "").strip()
-                    or (h.get("ne_url") or "").strip()
-                )
-                else "unknown"
-            ))
-        ),
+        "status":          host_status,
+        # Raw per-provider status surfaced so the SPA's `providerStates(h)`
+        # helper can mark a chip red when Beszel/Pulse self-reports
+        # paused/down even if it returned data (otherwise the chip
+        # stays green because the provider was technically "hit").
+        "beszel_status":   s.get("beszel_status") or "",
         "docker_node":     (h["id"] if _is_swarm_node(h.get("id")) else ""),
         "platform":        s.get("host_platform") or "",
         "os":              s.get("host_os") or "",

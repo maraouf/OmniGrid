@@ -19,7 +19,7 @@ const KNOWN_ICONS = new Set([
   'freenas', 'ftth', 'gigabyte', 'glinet', 'glinet-dark', 'google',
   'google-home', 'grafana', 'hisense', 'homarr', 'home-assistant', 'homebridge',
   'homepage', 'hp', 'huawei', 'humax', 'idrac', 'ikea', 'ilo',
-  'influxdb', 'jellyfin', 'jellyseerr', 'kali', 'kavita', 'keycloak',
+  'influxdb', 'jellyfin', 'jellyseerr', 'kali', 'kaonmedia', 'kavita', 'keycloak',
   'komodo', 'kubernetes', 'lenovo', 'linuxmint', 'lubelogger', 'mail',
   'mailcow', 'meta', 'microsoft', 'mikrotik', 'mongodb', 'motorola',
   'myspeed', 'n8n', 'nest', 'netboot-xyz', 'netdata', 'nginx',
@@ -4218,29 +4218,43 @@ function app() {
     // Per-provider status for a single host. Returns an array of
     //   { name: <provider>, state: 'ok' | 'failing' }
     // entries — one per (mapped + globally-enabled) provider:
-    //   - 'ok'      → provider returned data (in h.providers)
-    //   - 'failing' → provider enabled globally AND host has the
-    //                 field set, but probe didn't return data. The
-    //                 chip turns red so the operator sees per-host
-    //                 provider health at a glance instead of digging
-    //                 into the drawer's debug panel.
+    //   - 'ok'      → provider returned data (in h.providers) AND
+    //                 its self-reported status (when applicable) is
+    //                 NOT 'paused' / 'down' / 'unreachable'.
+    //   - 'failing' → either the probe returned no data OR the
+    //                 provider's self-reported status is paused/down.
+    //                 The chip turns red.
     // Hosts with NO mapped provider for a given source skip that
-    // entry entirely (no chip rendered). The order matches the chip
-    // strip's reading order: beszel → pulse → node_exporter → webmin.
+    // entry entirely (no chip rendered). Order: beszel → pulse →
+    // node_exporter → webmin (matches the chip strip's reading order).
     providerStates(h) {
       if (!h) return [];
       const active = this.hostsActiveSources || [];
       const got = new Set(h.providers || []);
       const out = [];
-      const add = (name, mapped) => {
+      // A provider is "failing" when (a) it's mapped + enabled but
+      // returned no data at all, OR (b) it returned data BUT its
+      // self-reported status is paused / down / unreachable. Beszel's
+      // map still includes paused hosts (so providers_hit contains
+      // 'beszel' even when the agent is paused), which previously left
+      // the chip green for an obviously broken state.
+      const badStatus = v => {
+        const s = String(v || '').toLowerCase();
+        return s === 'paused' || s === 'down' || s === 'unreachable';
+      };
+      const add = (name, mapped, selfStatus) => {
         if (!mapped) return;
         if (!active.includes(name)) return;
-        out.push({ name, state: got.has(name) ? 'ok' : 'failing' });
+        let state;
+        if (!got.has(name))      state = 'failing';
+        else if (badStatus(selfStatus)) state = 'failing';
+        else                     state = 'ok';
+        out.push({ name, state });
       };
-      add('beszel',        !!(h.beszel_name && String(h.beszel_name).trim()));
-      add('pulse',         !!(h.pulse_name  && String(h.pulse_name).trim()));
-      add('node_exporter', !!(h.ne_url      && String(h.ne_url).trim()));
-      add('webmin',        !!(h.webmin_name && String(h.webmin_name).trim()));
+      add('beszel',        !!(h.beszel_name && String(h.beszel_name).trim()), h.beszel_status);
+      add('pulse',         !!(h.pulse_name  && String(h.pulse_name).trim()),  h.pulse_status);
+      add('node_exporter', !!(h.ne_url      && String(h.ne_url).trim()),      null);
+      add('webmin',        !!(h.webmin_name && String(h.webmin_name).trim()), null);
       return out;
     },
     // Stale-marker helpers for the UI.
@@ -6163,6 +6177,10 @@ function app() {
         ['huawei',                'huawei'],
         // Humax — UK / EU set-top box manufacturer (Freesat, Aura, etc).
         ['humax',                 'humax'],
+        // Kaonmedia — Korean set-top box / cable modem maker.
+        ['kaonmedia',             'kaonmedia'],
+        ['kaon media',            'kaonmedia'],
+        ['kaon',                  'kaonmedia'],
         // Samsung — separate slugs for the parent brand (`samsung`,
         // clean wordmark) vs. the corporate / B2B entity (`samsung-
         // electronics`, the older "Samsung Electronics" mark with the
@@ -6612,6 +6630,21 @@ function app() {
       }
       for (const sub of (bucket.children || [])) {
         const subHosts = sub.hosts || [];
+        if (subHosts.length === 0) {
+          // Empty sub-group (e.g. all its hosts got filtered out by
+          // "Hide hosts without agents"). Emit a heading-only marker
+          // so the operator still sees the group exists and isn't
+          // confused into thinking it disappeared. The host card is
+          // gated on `!_heading_only` so it doesn't render an empty
+          // card row underneath.
+          out.push({
+            host: '__empty_heading__:' + sub.group.name,
+            _sub_group: sub.group,
+            _sub_heading: true,
+            _heading_only: true,
+          });
+          continue;
+        }
         for (let i = 0; i < subHosts.length; i++) {
           out.push(Object.assign({}, subHosts[i], {
             _sub_group:   sub.group,
