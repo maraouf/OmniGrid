@@ -3811,19 +3811,24 @@
             <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div>
                 <label class="block text-[11px] text-[var(--text-dim)] mb-1" x-text="t('settings.portainer.endpoint_id')"></label>
-                <input x-model.number="portainerForm.endpoint_id" type="number" min="1" :disabled="isReadonly()"
+                <input x-model.number="portainerForm.endpoint_id" type="number" min="1"
+                       :disabled="isReadonly() || !settings.portainer_enabled"
                        class="w-full mono text-[12.5px]">
               </div>
               <label class="flex items-center gap-2 text-[12.5px] cursor-pointer mt-5">
                 <input type="checkbox" :checked="portainerForm.verify_tls"
                        @change="portainerForm.verify_tls = $event.target.checked"
-                       :disabled="isReadonly()">
+                       :disabled="isReadonly() || !settings.portainer_enabled">
                 <span x-text="t('settings.portainer.verify_tls')"></span>
               </label>
             </div>
             <div x-show="isAdmin()" class="flex gap-2 pt-1 flex-wrap">
-              <button @click="savePortainerSettings()" class="btn btn-primary text-[12px]" x-text="t('settings.portainer.save_button')"></button>
-              <button @click="testPortainerConnection()" class="btn btn-soft text-[12px]" x-text="t('settings.portainer.test_button')"></button>
+              <button @click="savePortainerSettings()"
+                      :disabled="!settings.portainer_enabled"
+                      class="btn btn-primary text-[12px]" x-text="t('settings.portainer.save_button')"></button>
+              <button @click="testPortainerConnection()"
+                      :disabled="!settings.portainer_enabled"
+                      class="btn btn-soft text-[12px]" x-text="t('settings.portainer.test_button')"></button>
             </div>
             <div x-show="portainerTestResult" class="text-[12px] rounded-md px-3 py-2"
                  :class="portainerTestResult && portainerTestResult.ok ? 'bg-[var(--pill-ok-bg)] text-[var(--pill-ok-fg)] border border-[var(--pill-ok-br)]' : 'bg-[var(--pill-error-bg)] text-[var(--pill-error-fg)] border border-[var(--pill-error-br)]'">
@@ -3990,12 +3995,18 @@
                 x-show="!hasHostStatsSource('node_exporter') && !hasHostStatsSource('beszel') && !hasHostStatsSource('pulse') && !hasHostStatsSource('webmin')"
                 x-text="t('settings.host_stats.source_none') + ' — host stats disabled'"></span>
         </div>
-        <div x-show="hasHostStatsSource('node_exporter')" class="space-y-3">
+        <!-- Per-provider config blocks (#213) — visible always, inputs
+             disabled when the matching toggle in the source-list above
+             is off. Wrapper div carries `opacity-60` so the off state
+             reads as "saved but inactive" instead of disappearing.
+             Operator can audit configured values for a disabled
+             provider without flipping it back on. -->
+        <div class="space-y-3" :class="!hasHostStatsSource('node_exporter') ? 'opacity-60' : ''">
           <div>
             <label class="block text-[11px] text-[var(--text-faint)] mb-1"
                    x-text="t('settings.host_stats.url_label')"></label>
             <input x-model="settings.node_exporter_url_template" type="text"
-                   :disabled="isReadonly()"
+                   :disabled="isReadonly() || !hasHostStatsSource('node_exporter')"
                    class="w-full mono text-[11.5px]"
                    placeholder="http://{host}:9100/metrics">
             <p class="text-[10.5px] text-[var(--text-faint)] mt-1"
@@ -4005,19 +4016,19 @@
             <label class="block text-[11px] text-[var(--text-faint)] mb-1"
                    x-text="t('settings.host_stats.overrides_label')"></label>
             <textarea x-model="settings.node_exporter_overrides_json"
-                      :disabled="isReadonly()" rows="5"
+                      :disabled="isReadonly() || !hasHostStatsSource('node_exporter')" rows="5"
                       class="w-full mono text-[11.5px]"
                       :placeholder='`{\n  "host-id": "http://10.0.0.10:9100/metrics"\n}`'></textarea>
             <p class="text-[10.5px] text-[var(--text-faint)] mt-1"
                x-text="t('settings.host_stats.overrides_hint')"></p>
           </div>
         </div>
-        <div x-show="hasHostStatsSource('beszel')" class="space-y-3">
+        <div class="space-y-3 mt-4" :class="!hasHostStatsSource('beszel') ? 'opacity-60' : ''">
           <div>
             <label class="block text-[11px] text-[var(--text-faint)] mb-1"
                    x-text="t('settings.host_stats.beszel_url_label')"></label>
             <input x-model="settings.beszel_hub_url" type="url"
-                   :disabled="isReadonly()"
+                   :disabled="isReadonly() || !hasHostStatsSource('beszel')"
                    class="w-full mono text-[11.5px]"
                    placeholder="http://beszel.example.com:8090">
             <p class="text-[10.5px] text-[var(--text-faint)] mt-1"
@@ -4028,7 +4039,7 @@
               <label class="block text-[11px] text-[var(--text-faint)] mb-1"
                      x-text="t('settings.host_stats.beszel_identity_label')"></label>
               <input x-model="settings.beszel_identity" type="text"
-                     :disabled="isReadonly()"
+                     :disabled="isReadonly() || !hasHostStatsSource('beszel')"
                      class="w-full text-[11.5px]"
                      placeholder="readonly@example.com">
             </div>
@@ -4039,18 +4050,19 @@
                       x-text="t('settings.host_stats.beszel_password_set')"></span>
               </label>
               <input x-model="settings.beszel_password" type="password"
-                     :disabled="isReadonly()"
+                     :disabled="isReadonly() || !hasHostStatsSource('beszel')"
                      class="w-full text-[11.5px]"
                      :placeholder="settings.beszel_password_set ? '••••••••' : t('settings.host_stats.beszel_password_placeholder')">
             </div>
           </div>
           <label class="inline-flex items-center gap-2 text-[12px] text-[var(--text-dim)]">
-            <input type="checkbox" x-model="settings.beszel_verify_tls" :disabled="isReadonly()">
+            <input type="checkbox" x-model="settings.beszel_verify_tls"
+                   :disabled="isReadonly() || !hasHostStatsSource('beszel')">
             <span x-text="t('settings.host_stats.beszel_verify_tls')"></span>
           </label>
           <div class="flex items-center gap-2 flex-wrap">
             <button x-show="isAdmin()" @click="testBeszelConnection()"
-                    :disabled="beszelTestResult && beszelTestResult.pending"
+                    :disabled="(beszelTestResult && beszelTestResult.pending) || !hasHostStatsSource('beszel')"
                     class="btn btn-soft text-[12px]"
                     x-text="(beszelTestResult && beszelTestResult.pending) ? t('settings.host_stats.beszel_testing') : t('settings.host_stats.beszel_test_button')"></button>
             <span x-show="beszelTestResult && !beszelTestResult.pending"
@@ -4065,11 +4077,11 @@
         <!-- Pulse config — third provider. PVE-only, so it pairs well
              with Beszel (cross-platform) + node-exporter (Linux detail).
              Token is write-only like Beszel's password. -->
-        <div x-show="hasHostStatsSource('pulse')" class="space-y-3 mt-4">
+        <div class="space-y-3 mt-4" :class="!hasHostStatsSource('pulse') ? 'opacity-60' : ''">
           <div>
             <label class="block text-[11px] text-[var(--text-faint)] mb-1">Pulse URL</label>
             <input x-model="settings.pulse_url" type="url"
-                   :disabled="isReadonly()"
+                   :disabled="isReadonly() || !hasHostStatsSource('pulse')"
                    class="w-full mono text-[11.5px]"
                    placeholder="http://pulse.example.com:7655">
             <p class="text-[10.5px] text-[var(--text-faint)] mt-1">
@@ -4083,17 +4095,18 @@
               <span x-show="settings.pulse_token_set" class="text-[var(--success)]"> · set</span>
             </label>
             <input x-model="settings.pulse_token" type="password"
-                   :disabled="isReadonly()"
+                   :disabled="isReadonly() || !hasHostStatsSource('pulse')"
                    class="w-full text-[11.5px]"
                    :placeholder="settings.pulse_token_set ? '••••••••' : 'Create a read-only token in Pulse → Settings'">
           </div>
           <label class="inline-flex items-center gap-2 text-[12px] text-[var(--text-dim)]">
-            <input type="checkbox" x-model="settings.pulse_verify_tls" :disabled="isReadonly()">
+            <input type="checkbox" x-model="settings.pulse_verify_tls"
+                   :disabled="isReadonly() || !hasHostStatsSource('pulse')">
             <span>Verify TLS certificate</span>
           </label>
           <div class="flex items-center gap-2 flex-wrap">
             <button x-show="isAdmin()" @click="testPulseConnection()"
-                    :disabled="pulseTestResult && pulseTestResult.pending"
+                    :disabled="(pulseTestResult && pulseTestResult.pending) || !hasHostStatsSource('pulse')"
                     class="btn btn-soft text-[12px]"
                     x-text="(pulseTestResult && pulseTestResult.pending) ? 'Testing…' : 'Test connection'"></button>
             <span x-show="pulseTestResult && !pulseTestResult.pending"
@@ -4113,12 +4126,12 @@
              per-host (edited in the Hosts tab's webmin_aliases map).
              These fields carry the SHARED credentials that probe every
              Webmin endpoint. Password is write-only like the others. -->
-        <div x-show="hasHostStatsSource('webmin')" class="space-y-3 mt-4">
+        <div class="space-y-3 mt-4" :class="!hasHostStatsSource('webmin') ? 'opacity-60' : ''">
           <div class="grid grid-cols-1 md:grid-cols-2 gap-2">
             <div>
               <label class="block text-[11px] text-[var(--text-faint)] mb-1">Webmin user</label>
               <input x-model="settings.webmin_user" type="text"
-                     :disabled="isReadonly()"
+                     :disabled="isReadonly() || !hasHostStatsSource('webmin')"
                      class="w-full text-[11.5px]"
                      placeholder="omnigrid-ro">
               <p class="text-[10.5px] text-[var(--text-faint)] mt-1">
@@ -4133,18 +4146,19 @@
                 <span x-show="settings.webmin_password_set" class="text-[var(--success)]"> · set</span>
               </label>
               <input x-model="settings.webmin_password" type="password"
-                     :disabled="isReadonly()"
+                     :disabled="isReadonly() || !hasHostStatsSource('webmin')"
                      class="w-full text-[11.5px]"
                      :placeholder="settings.webmin_password_set ? '••••••••' : 'read-only user password'">
             </div>
           </div>
           <label class="inline-flex items-center gap-2 text-[12px] text-[var(--text-dim)]">
-            <input type="checkbox" x-model="settings.webmin_verify_tls" :disabled="isReadonly()">
+            <input type="checkbox" x-model="settings.webmin_verify_tls"
+                   :disabled="isReadonly() || !hasHostStatsSource('webmin')">
             <span>Verify TLS certificate (Webmin's default cert is self-signed — leave off for homelab)</span>
           </label>
           <div class="flex items-center gap-2 flex-wrap">
             <button x-show="isAdmin()" @click="testWebminConnection()"
-                    :disabled="webminTestResult && webminTestResult.pending"
+                    :disabled="(webminTestResult && webminTestResult.pending) || !hasHostStatsSource('webmin')"
                     class="btn btn-soft text-[12px]"
                     x-text="(webminTestResult && webminTestResult.pending) ? 'Testing…' : 'Test one Webmin URL'"></button>
             <input x-model="webminTestUrl" type="url" class="flex-1 text-[11.5px] mono"

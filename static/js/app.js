@@ -4922,13 +4922,34 @@ function app() {
         return [];
       }
       const filled = [];
+      // Strip the FQDN's domain suffix when populating the host id.
+      // The global `ssh_fqdn_suffix` setting (e.g. ".home.lan") is
+      // appended at SSH-resolve time, so storing the SHORT hostname
+      // here keeps the global suffix authoritative — different deploys
+      // can swap suffixes without re-typing every host. IPs and
+      // hostnames-without-dots are returned unchanged.
+      const _stripDomain = (raw) => {
+        const v = String(raw || '').trim();
+        if (!v) return '';
+        // Bare hostname (no dot) — nothing to strip.
+        if (v.indexOf('.') === -1) return v;
+        // IPv4 — leave intact.
+        if (/^\d+\.\d+\.\d+\.\d+$/.test(v)) return v;
+        // IPv6 — leave intact (contains `:`, no other shape collides).
+        if (v.indexOf(':') !== -1) return v;
+        // FQDN — keep the leading label only.
+        return v.split('.')[0];
+      };
       // id / hostname — prefer the first FQDN in the asset's Hostname
       // CSV; fall back to asset.name (device label, often lowercase).
+      // Strip the domain suffix so the global `ssh_fqdn_suffix`
+      // setting remains the single source of truth for what gets
+      // appended at resolution time.
       if (!(row.id || '').trim()) {
         const primary = (Array.isArray(asset.hostnames) && asset.hostnames[0])
           || asset.name || '';
         if (primary) {
-          row.id = String(primary).trim();
+          row.id = _stripDomain(primary);
           filled.push('id');
           // Mirror the label convenience from onHostRowEdit so first
           // fill doesn't leave a blank label behind.
