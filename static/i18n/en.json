@@ -1214,6 +1214,23 @@
     "per_host_override_title": "SSH (per-host override)",
     "per_host_user": "Override user",
     "per_host_port": "Override port",
-    "per_host_disabled": "Disable SSH for this host"
+    "per_host_disabled": "Disable SSH for this host",
+    "terminal": {
+      "open_button": "Open Terminal",
+      "open_button_hint": "Open an interactive PTY shell on this host (admin only)",
+      "modal_title": "Terminal — {host}",
+      "close_hint": "Close terminal (Esc)",
+      "reconnect": "Reconnect",
+      "connecting": "Connecting…",
+      "connected": "Connected",
+      "disconnected": "Disconnected",
+      "connection_failed": "Connection failed",
+      "cookie_expired": "Session expired — please reload and sign in again",
+      "not_admin": "Admin role required to open a terminal",
+      "not_configured": "SSH is not configured for this host",
+      "exit_code": "shell exited (code {code})",
+      "xterm_missing": "xterm.js failed to load — refresh the page and try again"
+    }
   }
 }
+

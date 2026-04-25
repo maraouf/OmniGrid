@@ -4272,6 +4272,12 @@ function app() {
       if (e.key === 'Escape') {
         if (this.userMenuOpen) { this.userMenuOpen = false; e.preventDefault(); return; }
         if (this.showHotkeys) { this.showHotkeys = false; e.preventDefault(); return; }
+        // Terminal modal owns ALL keystrokes when active EXCEPT Esc.
+        // Closing on Esc is the universal "get me out" affordance even
+        // though it would otherwise be a legitimate keystroke for the
+        // shell — operators can always reopen, and the alternative is
+        // a Trap with no fallback.
+        if (this.terminalModalOpen) { this.closeHostTerminal(); e.preventDefault(); return; }
         if (this.drawerItem) { this.drawerItem = null; e.preventDefault(); return; }
         if (this.selected.length) { this.clearSelection(); e.preventDefault(); return; }
         if (this.search || this.statusFilter || this.healthFilter) {
