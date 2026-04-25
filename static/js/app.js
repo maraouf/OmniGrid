@@ -4963,6 +4963,13 @@ function app() {
           'syno':            'synology',
           'dsm':             'synology',
           'synology-dsm':    'synology',
+          'meraki':          'cisco',
+          'cisco-asa':       'cisco',
+          'asa':             'cisco',
+          'ios-xe':          'cisco',
+          'iosxe':           'cisco',
+          'catalyst':        'cisco',
+          'nexus':           'cisco',
         };
         const slug = aliases[h.icon.toLowerCase()] || h.icon;
         return '/img/icons/' + slug + '.svg';
@@ -5039,6 +5046,21 @@ function app() {
         ['rt-ac',                 'asus'],
         ['gt-ax',                 'asus'],
         ['asus',                  'asus'],
+        // Cisco — enterprise switching / routing / firewall / wireless.
+        // Covers the big product families: Meraki (cloud-managed
+        // dashboards), ASA (firewalls), Catalyst + Nexus (switches),
+        // IOS-XE / IOS-XR (operating systems operators often tag
+        // hosts with). Placed before the generic firewall / router
+        // fallbacks below so brand wins over category.
+        ['cisco meraki',          'cisco'],
+        ['meraki',                'cisco'],
+        ['cisco asa',             'cisco'],
+        ['catalyst',              'cisco'],
+        ['nexus',                 'cisco'],
+        ['ios-xe',                'cisco'],
+        ['ios-xr',                'cisco'],
+        ['iosxe',                 'cisco'],
+        ['cisco',                 'cisco'],
         // NAS / storage — Synology DSM + Western Digital (DS / RS
         // models for Synology, MyCloud / MyBook / WD Red / WD Blue
         // for Western Digital). Longer phrases first so

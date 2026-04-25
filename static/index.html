@@ -103,24 +103,13 @@
         <span x-show="search" @click="search=''" class="absolute right-3 top-1/2 -translate-y-1/2 text-[var(--text-faint)] hover:text-[var(--text)] cursor-pointer text-xs">✕</span>
       </div>
 
+      <!-- Row-1 right cluster — only navigation-critical actions ride
+           here: admin-only cleanup pill, deploy-watcher pill, refresh
+           button, and the always-visible clock + weather widget. The
+           "utility belt" (sync / stats / theme / hotkeys / lang) moved
+           to the second row below so the primary row stays readable at
+           narrow desktop widths (was 14 controls; now 4 + widget). -->
       <div class="flex items-center gap-2">
-        <div class="flex items-center gap-0 bg-[var(--surface-2)] rounded-md p-0.5 border border-[var(--border)]" :title="t('topbar.sync_title')">
-          <span class="px-1.5 text-[10px] text-faint uppercase tracking-wider" x-text="t('topbar.sync_label')"></span>
-          <template x-for="p in [[t('topbar.off'),0],['30s',30],['1m',60],['5m',300]]" :key="p[1]">
-            <button @click="setAutoRefresh(p[1])"
-                    :class="autoRefresh===p[1] ? 'bg-[var(--primary)] text-white' : 'text-[var(--text-dim)] hover:text-[var(--text)]'"
-                    class="px-2 py-1 rounded text-[11px] font-medium transition" x-text="p[0]"></button>
-          </template>
-        </div>
-        <div class="flex items-center gap-0 bg-[var(--surface-2)] rounded-md p-0.5 border border-[var(--border)] hidden lg:flex" :title="t('topbar.stats_title')">
-          <span class="px-1.5 text-[10px] text-faint uppercase tracking-wider" x-text="t('topbar.stats_label')"></span>
-          <template x-for="p in [[t('topbar.off'),0],['5s',5],['15s',15],['30s',30],['1m',60]]" :key="p[1]">
-            <button @click="setStatsInterval(p[1])"
-                    :class="statsInterval===p[1] ? 'bg-[var(--primary)] text-white' : 'text-[var(--text-dim)] hover:text-[var(--text)]'"
-                    class="px-2 py-1 rounded text-[11px] font-medium transition" x-text="p[0]"></button>
-          </template>
-        </div>
-        <span class="text-[11px] text-[var(--text-faint)] hidden xl:inline" x-text="cacheLabel"></span>
         <button x-show="isAdmin() && removableAll().length > 0"
                 @click="bulkRemoveAll()"
                 class="btn btn-danger-outline"
@@ -146,7 +135,9 @@
              (configured under Profile). Clock ticks every 10s; weather
              via /api/weather proxy (Open-Meteo, 10-min server cache).
              Widget is single row: clock mono font · cloud icon · label,
-             temp · condition subtext. Absent / disabled = nothing renders. -->
+             temp · condition subtext. Absent / disabled = nothing renders.
+             Pinned to row 1 per operator preference — always-visible
+             status, not a tweak-it-once-a-session preference. -->
         <div x-show="headerClockEnabled || (headerWeatherEnabled && weather && !weather.error && weather.temp_c != null)"
              class="flex items-center gap-2 ps-2 ms-1 border-s border-[var(--border)] text-[11.5px] text-[var(--text-dim)]">
           <span x-show="headerClockEnabled" class="mono font-semibold tracking-wide"
@@ -164,43 +155,6 @@
             </div>
           </template>
         </div>
-        <button @click="cycleTheme()" :title="t('topbar.theme_title', { pref: themePref })" class="btn btn-soft">
-          <!-- Moon for dark, sun for light, sun+moon split (crescent over sun) for auto. -->
-          <template x-if="themePref==='dark'">
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
-          </template>
-          <template x-if="themePref==='light'">
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/></svg>
-          </template>
-          <template x-if="themePref==='auto'">
-            <!-- Lucide "sun-moon": sun rays surrounding a crescent, i.e. "follow system". -->
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M12 8a2.83 2.83 0 0 0 4 4 4 4 0 1 1-4-4"/>
-              <path d="M12 2v2"/>
-              <path d="M12 20v2"/>
-              <path d="m4.9 4.9 1.4 1.4"/>
-              <path d="m17.7 17.7 1.4 1.4"/>
-              <path d="M2 12h2"/>
-              <path d="M20 12h2"/>
-              <path d="m6.3 17.7-1.4 1.4"/>
-              <path d="m19.1 4.9-1.4 1.4"/>
-            </svg>
-          </template>
-        </button>
-        <button @click="showHotkeys=true" class="btn btn-soft" :title="t('topbar.hotkeys_title')">
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><path d="M12 17h.01"/></svg>
-        </button>
-
-        <!-- Language picker. Compact <select> — the richer UI lives in
-             Settings → Language. Rendered from I18N.languages which is
-             populated from /i18n/index.json at boot. -->
-        <select :value="lang" @change="setLang($event.target.value)"
-                class="lang-picker text-[11px]"
-                :title="t('settings.language.label')">
-          <template x-for="l in availableLanguages" :key="l.code">
-            <option :value="l.code" x-text="l.name"></option>
-          </template>
-        </select>
       </div>
 
       <!-- User menu — avatar button in the top-right opens a dropdown with
@@ -258,6 +212,69 @@
           </button>
         </div>
       </div>
+    </div>
+
+    <!-- ROW 2 — utility belt. Controls that sit here are background
+         polling cadences + once-a-session preferences: sync / stats
+         intervals on the left, cache-age label + theme + hotkeys +
+         language picker on the right. Clock + weather stay on row 1
+         (always-visible status per operator preference, 2026-04-25).
+         Same horizontal padding as row 1, shorter vertical padding,
+         subtle top border so the two rows read as distinct layers. -->
+    <div class="flex items-center gap-2 px-5 py-1.5 max-w-full mx-auto border-t border-[var(--border)] flex-wrap">
+      <div class="flex items-center gap-0 bg-[var(--surface-2)] rounded-md p-0.5 border border-[var(--border)]" :title="t('topbar.sync_title')">
+        <span class="px-1.5 text-[10px] text-faint uppercase tracking-wider" x-text="t('topbar.sync_label')"></span>
+        <template x-for="p in [[t('topbar.off'),0],['30s',30],['1m',60],['5m',300]]" :key="p[1]">
+          <button @click="setAutoRefresh(p[1])"
+                  :class="autoRefresh===p[1] ? 'bg-[var(--primary)] text-white' : 'text-[var(--text-dim)] hover:text-[var(--text)]'"
+                  class="px-2 py-0.5 rounded text-[11px] font-medium transition" x-text="p[0]"></button>
+        </template>
+      </div>
+      <div class="flex items-center gap-0 bg-[var(--surface-2)] rounded-md p-0.5 border border-[var(--border)] hidden lg:flex" :title="t('topbar.stats_title')">
+        <span class="px-1.5 text-[10px] text-faint uppercase tracking-wider" x-text="t('topbar.stats_label')"></span>
+        <template x-for="p in [[t('topbar.off'),0],['5s',5],['15s',15],['30s',30],['1m',60]]" :key="p[1]">
+          <button @click="setStatsInterval(p[1])"
+                  :class="statsInterval===p[1] ? 'bg-[var(--primary)] text-white' : 'text-[var(--text-dim)] hover:text-[var(--text)]'"
+                  class="px-2 py-0.5 rounded text-[11px] font-medium transition" x-text="p[0]"></button>
+        </template>
+      </div>
+      <span class="text-[11px] text-[var(--text-faint)] hidden xl:inline" x-text="cacheLabel"></span>
+      <span class="flex-1"></span>
+      <button @click="cycleTheme()" :title="t('topbar.theme_title', { pref: themePref })" class="btn btn-soft">
+        <!-- Moon for dark, sun for light, sun+moon split (crescent over sun) for auto. -->
+        <template x-if="themePref==='dark'">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+        </template>
+        <template x-if="themePref==='light'">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/></svg>
+        </template>
+        <template x-if="themePref==='auto'">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 8a2.83 2.83 0 0 0 4 4 4 4 0 1 1-4-4"/>
+            <path d="M12 2v2"/>
+            <path d="M12 20v2"/>
+            <path d="m4.9 4.9 1.4 1.4"/>
+            <path d="m17.7 17.7 1.4 1.4"/>
+            <path d="M2 12h2"/>
+            <path d="M20 12h2"/>
+            <path d="m6.3 17.7-1.4 1.4"/>
+            <path d="m19.1 4.9-1.4 1.4"/>
+          </svg>
+        </template>
+      </button>
+      <button @click="showHotkeys=true" class="btn btn-soft" :title="t('topbar.hotkeys_title')">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><path d="M12 17h.01"/></svg>
+      </button>
+      <!-- Language picker. Compact <select> — the richer UI lives in
+           Settings → Language. Rendered from I18N.languages which is
+           populated from /i18n/index.json at boot. -->
+      <select :value="lang" @change="setLang($event.target.value)"
+              class="lang-picker text-[11px]"
+              :title="t('settings.language.label')">
+        <template x-for="l in availableLanguages" :key="l.code">
+          <option :value="l.code" x-text="l.name"></option>
+        </template>
+      </select>
     </div>
 
     <!-- FILTER BAR -->
@@ -2623,12 +2640,22 @@
                         <!-- Interactive PTY terminal modal (TODO #170). Admin-only,
                              same gating as the rest of the SSH card. Disabled until
                              SSH is configured + the host is up — same rules as the
-                             one-shot Run button. -->
-                        <button type="button" class="btn btn-secondary text-[11px]"
+                             one-shot Run button. Styled as a primary action with
+                             an icon so it reads as a clickable button, not a link. -->
+                        <button type="button"
+                                class="btn btn-primary text-[11.5px] flex items-center gap-1.5"
                                 @click="openHostTerminal(h)"
                                 :disabled="!(sshStatus[h.id] && sshStatus[h.id].configured) || !isSshAllowed(h)"
-                                :title="!isSshAllowed(h) ? sshDisabledReason(h) : t('hosts_extra_ssh.terminal.open_button_hint')"
-                                x-text="t('hosts_extra_ssh.terminal.open_button')"></button>
+                                :title="!isSshAllowed(h) ? sshDisabledReason(h) : t('hosts_extra_ssh.terminal.open_button_hint')">
+                          <svg width="13" height="13" viewBox="0 0 24 24" fill="none"
+                               stroke="currentColor" stroke-width="2"
+                               stroke-linecap="round" stroke-linejoin="round"
+                               aria-hidden="true">
+                            <polyline points="4 17 10 11 4 5"/>
+                            <line x1="12" y1="19" x2="20" y2="19"/>
+                          </svg>
+                          <span x-text="t('hosts_extra_ssh.terminal.open_button')"></span>
+                        </button>
                       </div>
                     </div>
 
