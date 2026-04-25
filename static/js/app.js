@@ -485,6 +485,14 @@ function app() {
     me: null,
 
     async init() {
+      // Expose the live Alpine component instance globally for the
+      // browser-console diagnostic helpers (e.g.
+      // `omnigrid.statsDebug()`). The factory function `app()` would
+      // return a FRESH default-state object on each call — what we
+      // need here is the same `this` that Alpine has been mutating
+      // since boot. Single-replica + single-component-per-page so
+      // there's no ambiguity about which instance to expose.
+      try { window.omnigrid = this; } catch (_) {}
       // i18n is already loaded (Alpine is gated on __i18nReady), but pull
       // the authoritative language list + current code/dir into the
       // reactive Alpine state so pickers and v-bindings track it.
