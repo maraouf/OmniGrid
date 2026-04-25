@@ -23,7 +23,7 @@ import tempfile
 import time
 import uuid
 from contextlib import asynccontextmanager
-from typing import Any, Optional
+from typing import Any, Optional, Set
 
 # Load .env BEFORE any os.getenv() calls (including those done at import time
 # in auth.py). The file lives in the /app bind-mount and travels with the
@@ -5547,13 +5547,44 @@ async def prometheus_metrics():
     )
 
 
-# Serve node_modules directly — HTML references Alpine / SweetAlert2
-# from /node_modules/<pkg>/dist/…, so we expose the whole tree as static.
-# Mounted before the "/" catch-all so the path routes here first. Only
-# paths prefixed with /node_modules/ land here; it's auth.FULLY_PUBLIC
-# by virtue of not starting with /api/.
-if os.path.isdir("node_modules"):
-    app.mount("/node_modules", StaticFiles(directory="node_modules"), name="node_modules")
+# Serve node_modules directly — but only the specific files that
+# index.html / login.html / alpine-gate.js actually reference.
+# Earlier this was a wildcard `app.mount("/node_modules", StaticFiles(...))`
+# which served EVERY file in the tree (readmes, sourcemaps, TS sources,
+# unused locales, package metadata) even though only ~7 files are
+# actually requested. ARCH-003 in the code review flagged this as
+# unnecessary surface bloat — not a security hole (the files are public
+# on npm anyway) but tidy + faster to audit.
+#
+# Adding a new dep that needs serving = add its path to _NPM_ALLOWED.
+# Anything outside the allowlist 404s; anything inside is served
+# straight from the on-disk file with the correct media-type.
+_NPM_ALLOWED: Set[str] = {
+    "@tailwindcss/browser/dist/index.global.js",
+    "alpinejs/dist/cdn.min.js",
+    "sweetalert2/dist/sweetalert2.all.min.js",
+    "@xterm/xterm/css/xterm.css",
+    "@xterm/xterm/lib/xterm.js",
+    "@xterm/addon-fit/lib/addon-fit.js",
+    "@xterm/addon-web-links/lib/addon-web-links.js",
+}
+
+
+@app.get("/node_modules/{path:path}")
+async def api_node_modules(path: str):
+    """Allowlist-gated static server for the 7 npm files the SPA actually
+    uses. Everything else returns 404 — keeps the served surface tight.
+    """
+    # Path-traversal guard: no `..` segments, no leading slashes, must
+    # match an entry in the allowlist exactly. Belt-and-braces — FastAPI's
+    # path converter wouldn't let `..` through in practice, but the
+    # explicit check makes the security property obvious.
+    if ".." in path or path.startswith("/") or path not in _NPM_ALLOWED:
+        raise HTTPException(404, "Not found")
+    file_path = os.path.join("node_modules", path)
+    if not os.path.isfile(file_path):
+        raise HTTPException(404, "Not found")
+    return FileResponse(file_path)
 
 
 # Translation bundles. Mounted at /i18n/ (before the "/" catch-all, same
