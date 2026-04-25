@@ -1094,30 +1094,30 @@
           <button @click="loadHosts()"
                   :disabled="hostsLoading"
                   class="btn btn-ghost text-[12px] flex items-center gap-1.5"
-                  title="Force refresh now — normally polls every 15s.">
+                  :title="t('hosts_extra.refresh_title')">
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
                  :class="hostsLoading ? 'animate-spin' : ''">
               <polyline points="23 4 23 10 17 10"/>
               <polyline points="1 20 1 14 7 14"/>
               <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>
             </svg>
-            <span x-show="!hostsLoading">Refresh</span>
-            <span x-show="hostsLoading">Refreshing…</span>
+            <span x-show="!hostsLoading" x-text="t('actions.refresh')"></span>
+            <span x-show="hostsLoading" x-text="t('actions.refreshing')"></span>
           </button>
           <a :href="settings.beszel_hub_url || '#'" target="_blank" rel="noopener"
              x-show="settings.beszel_hub_url"
              class="btn btn-ghost text-[12px] flex items-center gap-1.5"
-             title="Open the Beszel hub in a new tab — host registration happens there.">
+             :title="t('hosts_extra.open_beszel_title')">
             <img src="/img/icons/beszel.svg" alt="" width="14" height="14" class="rounded-sm">
-            <span>Open Beszel</span>
+            <span x-text="t('hosts_extra.open_beszel')"></span>
             <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="opacity-60"><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
           </a>
           <a :href="settings.pulse_url || '#'" target="_blank" rel="noopener"
              x-show="settings.pulse_url"
              class="btn btn-ghost text-[12px] flex items-center gap-1.5"
-             title="Open Pulse in a new tab to manage the Proxmox-side systems it monitors.">
+             :title="t('hosts_extra.open_pulse_title')">
             <img src="/img/icons/pulse.svg" alt="" width="14" height="14" class="rounded-sm">
-            <span>Open Pulse</span>
+            <span x-text="t('hosts_extra.open_pulse')"></span>
             <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="opacity-60"><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
           </a>
         </div>
@@ -1595,7 +1595,7 @@
       <!-- Empty-state ladder — loading, no hosts, providers broken. -->
       <div x-show="hostsConfigured && hostsLoading && hosts.length === 0" class="loading-state">
         <span class="spin-lg" aria-hidden="true"></span>
-        <div>Loading hosts from providers…</div>
+        <div x-text="t('hosts_extra.empty.loading')"></div>
       </div>
       <!-- Filter-only empty state — hosts exist but no match for
            the current search query. Distinct from the "no hosts at
@@ -1604,11 +1604,12 @@
       <div x-show="hostsConfigured && !hostsLoading && hosts.length > 0 && filteredHosts().length === 0"
            class="text-center py-12 text-[var(--text-faint)] text-sm">
         <div>
-          No hosts match
+          <span x-text="t('hosts_extra.empty.no_match')"></span>
           <span class="mono text-[var(--text-dim)]" x-text="'“' + hostsSearch + '”'"></span>.
         </div>
         <button @click="hostsSearch = ''"
-                class="mt-2 text-[var(--primary)] hover:underline">Clear filter</button>
+                class="mt-2 text-[var(--primary)] hover:underline"
+                x-text="t('hosts_extra.empty.clear_filter')"></button>
       </div>
 
       <!-- Empty-state ladder — ordered by most-specific cause. The
@@ -2549,17 +2550,18 @@
         </p>
         <input x-model="settings.apprise_url" type="url"
                @input="markAppriseDirty()"
-               :disabled="isReadonly()"
+               :disabled="isReadonly() || !settings.apprise_enabled"
                :placeholder="t('settings.notifications.url_placeholder')" class="w-full">
         <input x-model="settings.apprise_tag" type="text"
                @input="markAppriseDirty()"
-               :disabled="isReadonly()"
+               :disabled="isReadonly() || !settings.apprise_enabled"
                :placeholder="t('settings.notifications.tag_placeholder')" class="w-full mt-2">
         <div class="flex items-center gap-3 mt-3 flex-wrap" x-show="isAdmin()">
           <button @click="saveSettings()"
                   :class="appriseDirty ? 'ring-2 ring-[var(--warning)]' : ''"
                   class="btn btn-primary text-[12px]" x-text="t('actions.save')"></button>
           <button @click="testNotify()"
+                  :disabled="!settings.apprise_enabled"
                   class="btn btn-soft text-[12px]" x-text="t('actions.send_test')"></button>
           <span x-show="appriseDirty"
                 class="text-[11.5px] text-[var(--warning)] flex items-center gap-1.5">
@@ -2590,7 +2592,7 @@
           <div class="flex items-end gap-2 flex-wrap">
             <input x-model="settings.open_meteo_url" type="url"
                    @input="markOpenMeteoDirty()"
-                   :disabled="isReadonly()"
+                   :disabled="isReadonly() || !settings.open_meteo_enabled"
                    :placeholder="t('admin_integrations.open_meteo_placeholder')"
                    class="flex-1 min-w-[260px] mono text-[12px]">
             <button x-show="isAdmin()" @click="saveOpenMeteoUrl()"
@@ -2641,7 +2643,7 @@
               <label class="block text-[11px] text-[var(--text-dim)] mb-1" x-text="t('settings.portainer.url_label')"></label>
               <input x-model="portainerForm.url" type="url"
                      @input="markPortainerFormDirty()"
-                     :disabled="isReadonly()"
+                     :disabled="isReadonly() || !settings.portainer_enabled"
                      :placeholder="t('settings.portainer.url_placeholder')" class="w-full mono text-[12.5px]">
             </div>
             <div>
@@ -2652,7 +2654,7 @@
               </label>
               <input x-model="portainerForm.api_key" type="password"
                      @input="markPortainerFormDirty()"
-                     :disabled="isReadonly()"
+                     :disabled="isReadonly() || !settings.portainer_enabled"
                      :placeholder="t('settings.portainer.api_key_placeholder')"
                      autocomplete="new-password"
                      class="w-full mono text-[12px]">
@@ -2663,13 +2665,13 @@
                 <label class="block text-[11px] text-[var(--text-dim)] mb-1" x-text="t('settings.portainer.endpoint_id')"></label>
                 <input x-model.number="portainerForm.endpoint_id" type="number" min="1"
                        @input="markPortainerFormDirty()"
-                       :disabled="isReadonly()"
+                       :disabled="isReadonly() || !settings.portainer_enabled"
                        class="w-full mono text-[12.5px]">
               </div>
               <label class="flex items-center gap-2 text-[12.5px] cursor-pointer mt-5">
                 <input type="checkbox" :checked="portainerForm.verify_tls"
                        @change="portainerForm.verify_tls = $event.target.checked; markPortainerFormDirty()"
-                       :disabled="isReadonly()">
+                       :disabled="isReadonly() || !settings.portainer_enabled">
                 <span x-text="t('settings.portainer.verify_tls')"></span>
               </label>
             </div>
@@ -2678,6 +2680,7 @@
                       :class="portainerDirty ? 'ring-2 ring-[var(--warning)]' : ''"
                       class="btn btn-primary text-[12px]" x-text="t('settings.portainer.save_button')"></button>
               <button @click="testPortainerConnection()"
+                      :disabled="!settings.portainer_enabled"
                       class="btn btn-soft text-[12px]" x-text="t('settings.portainer.test_button')"></button>
               <span x-show="portainerDirty"
                     class="text-[11.5px] text-[var(--warning)] flex items-center gap-1.5">
@@ -2732,7 +2735,7 @@
             <label class="block text-[11px] text-[var(--text-dim)] mb-1" x-text="t('settings.oidc.issuer_url')"></label>
             <input x-model="oidcForm.issuer_url" type="url"
                    @input="markOidcFormDirty()"
-                   :disabled="isReadonly()"
+                   :disabled="isReadonly() || !oidcForm.enabled"
                    :placeholder="t('settings.oidc.issuer_placeholder')"
                    class="w-full mono text-[12px]">
             <p class="text-[11px] text-[var(--text-faint)] mt-1" x-html="t('settings.oidc.issuer_hint')"></p>
@@ -2742,7 +2745,7 @@
               <label class="block text-[11px] text-[var(--text-dim)] mb-1" x-text="t('settings.oidc.client_id')"></label>
               <input x-model="oidcForm.client_id" type="text"
                      @input="markOidcFormDirty()"
-                     :disabled="isReadonly()"
+                     :disabled="isReadonly() || !oidcForm.enabled"
                      :placeholder="t('settings.oidc.client_id_placeholder')"
                      class="w-full mono text-[12px]">
             </div>
@@ -2754,7 +2757,7 @@
               </label>
               <input x-model="oidcForm.client_secret" type="password"
                      @input="markOidcFormDirty()"
-                     :disabled="isReadonly()"
+                     :disabled="isReadonly() || !oidcForm.enabled"
                      :placeholder="t('settings.oidc.client_secret_placeholder')"
                      autocomplete="new-password"
                      class="w-full mono text-[12px]">
@@ -2778,7 +2781,7 @@
               <label class="block text-[11px] text-[var(--text-dim)] mb-1" x-text="t('settings.oidc.scopes')"></label>
               <input x-model="oidcForm.scopes" type="text"
                      @input="markOidcFormDirty()"
-                     :disabled="isReadonly()"
+                     :disabled="isReadonly() || !oidcForm.enabled"
                      :placeholder="t('settings.oidc.scopes_placeholder')"
                      class="w-full mono text-[12px]">
               <p class="text-[11px] text-[var(--text-faint)] mt-1" x-html="t('settings.oidc.scopes_hint')"></p>
@@ -2787,7 +2790,7 @@
               <label class="block text-[11px] text-[var(--text-dim)] mb-1" x-text="t('settings.oidc.admin_group')"></label>
               <input x-model="oidcForm.admin_group" type="text"
                      @input="markOidcFormDirty()"
-                     :disabled="isReadonly()"
+                     :disabled="isReadonly() || !oidcForm.enabled"
                      :placeholder="t('settings.oidc.admin_group_placeholder')"
                      class="w-full mono text-[12.5px]">
               <p class="text-[11px] text-[var(--text-faint)] mt-1" x-html="t('settings.oidc.admin_group_hint')"></p>
@@ -2796,7 +2799,7 @@
           <label class="flex items-start gap-2 text-[12.5px] cursor-pointer">
             <input type="checkbox" :checked="oidcForm.verify_tls"
                    @change="oidcForm.verify_tls = $event.target.checked; markOidcFormDirty()"
-                   :disabled="isReadonly()" class="mt-0.5">
+                   :disabled="isReadonly() || !oidcForm.enabled" class="mt-0.5">
             <span>
               <span class="font-medium" x-text="t('settings.oidc.verify_tls_title')"></span>
               <span class="block text-[11px] text-[var(--text-faint)] mt-0.5" x-html="t('settings.oidc.verify_tls_hint')"></span>
@@ -2807,6 +2810,7 @@
                     :class="oidcDirty ? 'ring-2 ring-[var(--warning)]' : ''"
                     class="btn btn-primary text-[12px]" x-text="t('settings.oidc.save_button')"></button>
             <button @click="testOidcConnection()"
+                    :disabled="!oidcForm.enabled"
                     class="btn btn-soft text-[12px]" x-text="t('settings.oidc.test_button')"></button>
             <span x-show="oidcDirty"
                   class="text-[11.5px] text-[var(--warning)] flex items-center gap-1.5">
@@ -4178,7 +4182,7 @@
                    x-text="t('admin_ssh.user_label')"></label>
             <input x-model="sshSettings.user" type="text"
                    @input="markSshSettingsDirty()"
-                   :disabled="isReadonly()"
+                   :disabled="isReadonly() || !settings.ssh_enabled"
                    class="w-full mono text-[12.5px] py-1.5"
                    :placeholder="t('admin_ssh.user_placeholder')">
           </div>
@@ -4187,7 +4191,7 @@
                    x-text="t('admin_ssh.port_label')"></label>
             <input x-model.number="sshSettings.port" type="number"
                    @input="markSshSettingsDirty()"
-                   :disabled="isReadonly()"
+                   :disabled="isReadonly() || !settings.ssh_enabled"
                    min="1" max="65535"
                    class="w-full mono text-[12.5px] py-1.5">
           </div>
@@ -4207,7 +4211,7 @@
           </label>
           <textarea x-model="sshSettings.private_key"
                     @input="markSshSettingsDirty()"
-                    :disabled="isReadonly()"
+                    :disabled="isReadonly() || !settings.ssh_enabled"
                     rows="6"
                     class="w-full mono text-[11px] py-1.5 scrollbar"
                     :placeholder="sshSettings.private_key_set ? '••••••••' : t('admin_ssh.key_placeholder')"></textarea>
@@ -4229,7 +4233,7 @@
           </label>
           <input x-model="sshSettings.passphrase" type="password"
                  @input="markSshSettingsDirty()"
-                 :disabled="isReadonly()"
+                 :disabled="isReadonly() || !settings.ssh_enabled"
                  class="w-full text-[12.5px]"
                  :placeholder="sshSettings.passphrase_set ? '••••••••' : t('admin_ssh.passphrase_placeholder')">
         </div>
@@ -4250,7 +4254,7 @@
           </label>
           <input x-model="sshSettings.password" type="password"
                  @input="markSshSettingsDirty()"
-                 :disabled="isReadonly()"
+                 :disabled="isReadonly() || !settings.ssh_enabled"
                  class="w-full text-[12.5px]"
                  :placeholder="sshSettings.password_set ? '••••••••' : 'Alternative to private key'">
           <p class="text-[10.5px] text-[var(--text-faint)] mt-1">
@@ -4270,7 +4274,7 @@
           </label>
           <input x-model="sshSettings.fqdn_suffix" type="text"
                  @input="markSshSettingsDirty()"
-                 :disabled="isReadonly()"
+                 :disabled="isReadonly() || !settings.ssh_enabled"
                  placeholder="e.g. .example.com"
                  class="w-full mono text-[12.5px] py-1.5">
           <p class="text-[10.5px] text-[var(--text-faint)] mt-1">
@@ -4284,7 +4288,7 @@
                  x-text="t('admin_ssh.known_hosts_label')"></label>
           <textarea x-model="sshSettings.known_hosts"
                     @input="markSshSettingsDirty()"
-                    :disabled="isReadonly()"
+                    :disabled="isReadonly() || !settings.ssh_enabled"
                     rows="3"
                     class="w-full mono text-[11px] py-1.5 scrollbar"
                     :placeholder="t('admin_ssh.known_hosts_placeholder')"></textarea>
@@ -4306,7 +4310,7 @@
                   <input type="text"
                          :value="action.title"
                          @input="action.title = $event.target.value; markSshSettingsDirty()"
-                         :disabled="isReadonly()"
+                         :disabled="isReadonly() || !settings.ssh_enabled"
                          :placeholder="t('admin_ssh.custom_action_title_placeholder')"
                          class="w-full text-[12px] py-1">
                 </div>
@@ -4315,7 +4319,7 @@
                          x-text="t('admin_ssh.custom_action_command_label')"></label>
                   <textarea :value="action.command"
                             @input="action.command = $event.target.value; markSshSettingsDirty()"
-                            :disabled="isReadonly()"
+                            :disabled="isReadonly() || !settings.ssh_enabled"
                             rows="9"
                             class="w-full mono text-[11.5px] py-2 scrollbar"
                             style="min-height: 11rem; resize: vertical;"
@@ -4355,7 +4359,7 @@
                  x-text="t('admin_ssh.destructive_label')"></label>
           <textarea x-model="sshSettings.destructive_patterns"
                     @input="markSshSettingsDirty()"
-                    :disabled="isReadonly()"
+                    :disabled="isReadonly() || !settings.ssh_enabled"
                     rows="4"
                     class="w-full mono text-[11px] py-1.5 scrollbar"
                     :placeholder="t('admin_ssh.destructive_placeholder')"></textarea>
@@ -5747,7 +5751,7 @@
                 <div class="metric-card metric-card--net"
                      :class="(hostMetricStats(h.beszel_id, 'nr', false) && hostMetricStats(h.beszel_id, 'nr', false).maxRaw === 0) ? 'metric-card--flat' : ''">
                   <div class="metric-card-head">
-                    <div class="metric-card-title">Net In<span class="unit">B/s</span></div>
+                    <div class="metric-card-title"><span x-text="t('hosts_extra.metrics.net_in')"></span><span class="unit">B/s</span></div>
                     <div class="metric-card-stats"
                          x-show="hostMetricStats(h.beszel_id, 'nr', false)">
                       <span>Min <span class="min-val" x-text="hostMetricStats(h.beszel_id, 'nr', false) ? hostMetricStats(h.beszel_id, 'nr', false).min : ''"></span></span>
@@ -5803,7 +5807,7 @@
                 <div class="metric-card metric-card--net-out"
                      :class="(hostMetricStats(h.beszel_id, 'ns', false) && hostMetricStats(h.beszel_id, 'ns', false).maxRaw === 0) ? 'metric-card--flat' : ''">
                   <div class="metric-card-head">
-                    <div class="metric-card-title">Net Out<span class="unit">B/s</span></div>
+                    <div class="metric-card-title"><span x-text="t('hosts_extra.metrics.net_out')"></span><span class="unit">B/s</span></div>
                     <div class="metric-card-stats"
                          x-show="hostMetricStats(h.beszel_id, 'ns', false)">
                       <span>Min <span class="min-val" x-text="hostMetricStats(h.beszel_id, 'ns', false) ? hostMetricStats(h.beszel_id, 'ns', false).min : ''"></span></span>
@@ -6257,10 +6261,10 @@
                 <button class="btn btn-primary text-[12px]"
                         :disabled="drawerNodeSaving"
                         @click="saveNodeBeszelMapping()">
-                  <span x-show="!drawerNodeSaving">Save</span>
-                  <span x-show="drawerNodeSaving" class="flex items-center gap-1"><span class="spin"></span>Saving…</span>
+                  <span x-show="!drawerNodeSaving" x-text="t('actions.save')"></span>
+                  <span x-show="drawerNodeSaving" class="flex items-center gap-1"><span class="spin"></span><span x-text="t('actions.saving')"></span></span>
                 </button>
-                <button class="btn btn-ghost text-[12px]" @click="drawerNode=null">Cancel</button>
+                <button class="btn btn-ghost text-[12px]" @click="drawerNode=null" x-text="t('actions.cancel')"></button>
               </div>
             </section>
           </div>

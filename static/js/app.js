@@ -924,17 +924,12 @@ function app() {
       // stopped containers go away, dangling images, unused networks, AND
       // unused volumes (which can carry data users forgot was orphaned).
       const res = await Swal.fire({
-        title: 'Prune ' + host + '?',
-        html: `This runs <code class="mono">docker system prune -f --volumes</code> on <b>${host}</b>:<br><br>` +
-              '• Stopped containers<br>' +
-              '• Dangling images (not <code>-a</code>)<br>' +
-              '• Unused networks<br>' +
-              '• Unused local volumes — <b>orphaned data is deleted</b><br>' +
-              '• Build cache<br><br>' +
-              'Running workloads are NOT affected.',
+        title: this.t('admin.nodes.prune_prompt_title', { host }),
+        html: this.t('admin.nodes.prune_prompt_html', { host }),
         icon: 'warning',
         showCancelButton: true,
-        confirmButtonText: 'Prune now',
+        confirmButtonText: this.t('actions.prune_now'),
+        cancelButtonText: this.t('actions.cancel'),
         confirmButtonColor: 'var(--danger)',
       });
       if (!res.isConfirmed) return;
@@ -946,15 +941,15 @@ function app() {
           // this, the toast refers to a panel that only appears briefly
           // and stays collapsed if they've dismissed it before.
           this.opsExpanded = true;
-          this.showToast('Prune started on ' + host + ' — see the floating panel (bottom-right) for progress. It will also show up in History when done.');
+          this.showToast(this.t('toasts_extra.prune_started', { host }));
           // Kick an immediate ops poll so the button flips to "Pruning…".
           this.pollOnce && this.pollOnce();
         } else {
           const j = await r.json().catch(() => ({}));
-          this.showToast(j.detail || 'Prune failed to start', 'error');
+          this.showToast(j.detail || this.t('toasts_extra.save_failed_generic'), 'error');
         }
       } catch (_) {
-        this.showToast('Network error', 'error');
+        this.showToast(this.t('toasts.network_error'), 'error');
       }
     },
 
@@ -1649,11 +1644,11 @@ function app() {
       if (active.has('pulse')) {
         const url = (this.settings.pulse_url || '').trim();
         if (!url) {
-          this.showToast('Pulse URL is required', 'error');
+          this.showToast(this.t('toasts_extra.pulse_url_required'), 'error');
           return;
         }
         if (!this.settings.pulse_token_set && !this.settings.pulse_token) {
-          this.showToast('Pulse API token is required', 'error');
+          this.showToast(this.t('toasts_extra.pulse_token_required'), 'error');
           return;
         }
         payload.pulse_url = url;
@@ -1665,11 +1660,11 @@ function app() {
       if (active.has('webmin')) {
         const user = (this.settings.webmin_user || '').trim();
         if (!user) {
-          this.showToast('Webmin user is required', 'error');
+          this.showToast(this.t('toasts_extra.webmin_user_required'), 'error');
           return;
         }
         if (!this.settings.webmin_password_set && !this.settings.webmin_password) {
-          this.showToast('Webmin password is required', 'error');
+          this.showToast(this.t('toasts_extra.webmin_password_required'), 'error');
           return;
         }
         // Strip trailing slash(es) — operators paste URLs with or
@@ -2712,7 +2707,7 @@ function app() {
         const j = await r.json().catch(() => ({}));
         this.oidcTestResult = { ok: !!j.ok, status: j.status || 0, detail: j.detail || '' };
       } catch (e) {
-        this.oidcTestResult = { ok: false, status: 0, detail: 'Network error' };
+        this.oidcTestResult = { ok: false, status: 0, detail: this.t('toasts.network_error') };
       }
     },
 
@@ -2839,7 +2834,7 @@ function app() {
       // from the settings form (or persisted values when blank).
       const url = (this.webminTestUrl || this.settings.webmin_url || '').trim();
       if (!url) {
-        this.showToast('Enter a Webmin URL to test', 'error');
+        this.showToast(this.t('admin_hosts.webmin_test_url_required'), 'error');
         return;
       }
       this.webminTestResult = { pending: true };
@@ -2973,9 +2968,10 @@ function app() {
       const label = kind === 'private_key' ? 'SSH private key'
                   : kind === 'passphrase' ? 'passphrase'
                   : 'default password';
+      const promptTitle = this.t('toasts_extra.ssh_clear_secret_prompt_title', { label });
       const ok = typeof Swal !== 'undefined'
         ? (await Swal.fire({
-            title: 'Clear the stored ' + label + '?',
+            title: promptTitle,
             text: kind === 'private_key'
               ? 'This also clears the passphrase. You will need to paste a new key before any SSH action will work.'
               : kind === 'passphrase'
@@ -2983,10 +2979,10 @@ function app() {
               : 'Hosts with a per-host password override will still work; everything else will need a new default.',
             icon: 'warning',
             showCancelButton: true,
-            confirmButtonText: 'Clear',
-            cancelButtonText: 'Cancel',
+            confirmButtonText: this.t('actions.clear'),
+            cancelButtonText: this.t('actions.cancel'),
           })).isConfirmed
-        : window.confirm('Clear the stored ' + label + '?');
+        : window.confirm(promptTitle);
       if (!ok) return;
       try {
         const body = {};
@@ -3000,13 +2996,13 @@ function app() {
         });
         if (!r.ok) {
           const j = await r.json().catch(() => ({}));
-          this.showToast(j.detail || 'Clear failed', 'error');
+          this.showToast(j.detail || this.t('toasts_extra.clear_failed_generic'), 'error');
           return;
         }
         await this.loadSettings();
         this.showToast(label[0].toUpperCase() + label.slice(1) + ' cleared', 'success');
       } catch (e) {
-        this.showToast('Network error: ' + e.message, 'error');
+        this.showToast(this.t('toasts_extra.clear_failed_with_error', { error: e.message }), 'error');
       }
     },
     async saveSshSettings() {

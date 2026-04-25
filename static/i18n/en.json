@@ -141,6 +141,7 @@
     "saving": "Saving…",
     "save_changes": "Save changes",
     "cancel": "Cancel",
+    "close": "Close",
     "confirm": "Confirm",
     "add": "Add",
     "edit": "Edit",
@@ -152,7 +153,13 @@
     "no_stack": "No stack",
     "em_dash": "—",
     "open_shortcut_reference": "Open shortcut reference",
-    "cleanup": "Cleanup"
+    "cleanup": "Cleanup",
+    "refresh": "Refresh",
+    "refreshing": "Refreshing…",
+    "test_all": "Test all",
+    "testing": "Testing…",
+    "clear": "Clear",
+    "prune_now": "Prune now"
   },
   "states": {
     "healthy": "healthy",
@@ -378,6 +385,10 @@
   },
   "admin": {
     "intro": "User accounts, active sessions, and API tokens. Destructive actions prompt for confirmation.",
+    "nodes": {
+      "prune_prompt_title": "Prune {host}?",
+      "prune_prompt_html": "<div style=\"text-align:left\"><p>Run <code>docker system prune -af --volumes</code> on <strong>{host}</strong>?</p><p>This deletes all stopped containers, unused networks, dangling images, and unreferenced volumes. Active services are not affected.</p></div>"
+    },
     "sections": {
       "users": "Users",
       "sessions": "Sessions",
@@ -830,7 +841,23 @@
       "body_out": "Add {code} to the Beszel agent's env (see Net In card for details)."
     },
     "custom_number_label": "Custom #",
-    "custom_number_title": "Operator-assigned catalogue number — used for sort/group in Hosts view and as the key for Asset-inventory lookups"
+    "custom_number_title": "Operator-assigned catalogue number — used for sort/group in Hosts view and as the key for Asset-inventory lookups",
+    "refresh_title": "Force refresh now — normally polls every 15s.",
+    "open_beszel": "Open Beszel",
+    "open_beszel_title": "Open the Beszel hub in a new tab.",
+    "open_pulse": "Open Pulse",
+    "open_pulse_title": "Open Pulse in a new tab.",
+    "metrics": {
+      "net_in": "Net In",
+      "net_out": "Net Out"
+    },
+    "empty": {
+      "loading": "Loading hosts from providers…",
+      "no_match": "No hosts match the current filter.",
+      "clear_filter": "Clear filter",
+      "no_provider_enabled": "No host-stats provider is enabled.",
+      "test_providers": "Test providers"
+    }
   },
   "host_drawer": {
     "system": {
@@ -1004,6 +1031,16 @@
     "debug_panel_toggle_label": "Show host-drawer debug panel",
     "debug_panel_toggle_hint": "When off, hides the per-host raw-JSON / merged-shape diagnostic panel for every admin.",
     "debug_panel_toggle_saved": "Debug panel preference saved",
+    "loading": "Loading hosts…",
+    "test_providers": "Test providers",
+    "import": {
+      "nothing_new": "Nothing new to import — every discovered name is already configured.",
+      "no_hosts_in_file": "No hosts found in file."
+    },
+    "test": {
+      "no_eligible": "No enabled hosts with provider mappings to test."
+    },
+    "webmin_test_url_required": "Enter a Webmin URL to test.",
     "autofill": {
       "button": "Load from asset",
       "button_title": "Fill empty fields (hostname, label, URL, IP) from the matching asset-inventory record. Never overwrites values you've already typed.",
@@ -1157,6 +1194,19 @@
     "nothing_to_copy": "Nothing to copy",
     "save_failed_generic": "Save failed",
     "network_error_generic": "Network error",
+    "language_load_failed": "Language load failed",
+    "test_result_ok": "OK",
+    "test_result_failed": "Failed",
+    "pulse_url_required": "Pulse URL is required.",
+    "pulse_token_required": "Pulse API token is required.",
+    "webmin_user_required": "Webmin user is required.",
+    "webmin_password_required": "Webmin password is required.",
+    "prune_started": "Prune started on {host} — see the floating panel.",
+    "clear_failed_with_error": "Clear failed: {error}",
+    "clear_failed_generic": "Clear failed",
+    "asset_clear_secret_prompt": "Clear asset inventory client secret?",
+    "asset_clear_token_prompt": "Clear asset inventory lifetime token?",
+    "ssh_clear_secret_prompt_title": "Clear the stored {label}?",
     "webmin_url_without_name": "Row {id}: Webmin URL is set but Webmin hostname is blank. Enter the hostname the Miniserv reports (or clear the URL).",
     "custom_number_duplicate": "Duplicate custom numbers — {detail}. Each host must have a unique custom number.",
     "webmin_url_without_name_inline": "Webmin URL is set — hostname is required too.",
