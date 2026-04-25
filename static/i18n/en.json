@@ -986,6 +986,15 @@
     "open_meteo_saved": "Open-Meteo URL saved"
   },
   "admin_hosts": {
+    "row": {
+      "id_placeholder": "e.g. host01",
+      "url_placeholder": "https://app.example.com",
+      "ip_placeholder": "10.0.0.1",
+      "beszel_name_placeholder": "host01.example.com",
+      "pulse_name_placeholder": "node · vm · ct",
+      "webmin_url_placeholder": "https://host.example.com:10000",
+      "webmin_name_placeholder": "e.g. webserver.example.com"
+    },
     "groups": {
       "heading": "Host groups",
       "intro": "Collect hosts into collapsible sections in the Hosts view by matching their Custom # against a numeric range. Example: \"ISP Routers\" covers 1–4, \"Gateways\" covers 5–8. Hosts that don't fall into any range land in the \"Ungrouped\" bucket at the bottom.",
