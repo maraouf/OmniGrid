@@ -1006,6 +1006,18 @@
          uptime, agent, cores, arch, kernel). Expanding a row reveals
          SYSTEM + HARDWARE cards. See /api/hosts for the data shape. -->
     <div x-show="view==='hosts'" class="space-y-3">
+      <!-- Drawer backdrop (#239) — dims the page behind the host
+           detail drawer + closes it on click. Sits above the Hosts
+           view content but below the drawer (z-30 vs z-40). -->
+      <div x-show="drawerHost"
+           x-transition:enter="transition ease-out duration-200"
+           x-transition:enter-start="opacity-0"
+           x-transition:enter-end="opacity-100"
+           x-transition:leave="transition ease-in duration-150"
+           x-transition:leave-start="opacity-100"
+           x-transition:leave-end="opacity-0"
+           @click="closeHostDrawer()"
+           class="fixed inset-0 z-30 backdrop"></div>
       <!-- Toolbar — quick links to each configured provider UI, so
            adding or managing systems outside OmniGrid is one click
            away. Each button carries the provider's brand glyph for a
@@ -1571,1196 +1583,9 @@
               </div>
             </div>
 
-            <!-- Expanded row — SYSTEM / HARDWARE / NETWORK / DISKS
-                 info cards side by side on wide screens, mirroring
-                 Beszel's own detail layout. -->
-            <div x-show="isHostExpanded(h.host)" class="bg-[var(--surface-2)]/50 border-t border-[var(--border)] px-5 py-4">
-              <!-- "No data yet" banner — shows only for hosts with
-                   a provider MAPPED but probes returning nothing
-                   (status='unknown' — a real "agent running, but
-                   we can't reach it / no name match" signal).
-                   Every other no-data case (unconfigured rows, FTTH
-                   /VDSL /5G inventory entries without any agent,
-                   loading skeleton, globally-no-providers) skips the
-                   banner — the status dot + debug panel already
-                   tell the story without the extra scary yellow. -->
-              <template x-if="(h.providers || []).length === 0 && h.status === 'unknown'">
-                <div class="flex items-start gap-3 bg-[var(--surface-3)] border border-[var(--border)] rounded-md p-4 text-[12.5px] mb-4">
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-[var(--text-dim)] flex-shrink-0 mt-0.5"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
-                  <div>
-                    <div class="font-semibold text-[var(--text)]" x-text="t('hosts_extra.no_data.title')"></div>
-                    <div class="text-[var(--text-dim)] mt-1"
-                         x-text="t('hosts_extra.no_data.body', { debug_label: t('debug_panel.show') })"></div>
-                  </div>
-                </div>
-              </template>
-              <!-- Drawer grid — shows whenever we have ANY data
-                   worth displaying: live providers OR an asset
-                   inventory match. Hosts with NEITHER still see the
-                   SSH card + debug panel below. Each individual
-                   section inside the grid carries its own visibility
-                   gate (asset section → assetForHost(h), HARDWARE →
-                   status==='up' || assetForHost(h), etc.) so empty
-                   rows stay tidy. Hosts whose custom_number doesn't
-                   match an asset row deliberately render NO asset
-                   card — operator wants those silent (was previously
-                   a diagnostic empty-state, now hidden per request). -->
-              <div x-show="(h.providers || []).length > 0 || assetForHost(h)"
-                   class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
-                <!-- ASSET INVENTORY (rich) — rendered FIRST so the
-                     operator sees the curated metadata before the
-                     live telemetry sections. Visible only when
-                     `assetForHost(h)` returns a populated shape;
-                     hosts without a match show nothing here. -->
-                <template x-if="assetForHost(h)">
-                  <section class="rounded border border-[var(--border)] bg-[var(--surface)] p-4 md:col-span-2 xl:col-span-4">
-                    <div class="flex items-center justify-between mb-3">
-                      <h4 class="text-[10.5px] uppercase tracking-wider text-[var(--text-faint)]"
-                          x-text="t('host_drawer.asset.heading')"></h4>
-                      <a x-show="assetEditUrl(assetForHost(h))"
-                         :href="assetEditUrl(assetForHost(h))" target="_blank" rel="noopener"
-                         class="text-[11px] text-[var(--primary)] hover:underline"
-                         :title="t('host_drawer.asset.edit_title')"
-                         x-text="t('host_drawer.asset.edit_link')"></a>
-                    </div>
-                    <dl class="grid grid-cols-[auto_1fr] gap-x-4 gap-y-2 text-[12px]">
-                      <template x-if="assetForHost(h).name">
-                        <dt class="text-[var(--text-dim)]" x-text="t('host_drawer.asset.name')"></dt>
-                      </template>
-                      <template x-if="assetForHost(h).name">
-                        <dd class="text-end break-words" x-text="assetForHost(h).name"></dd>
-                      </template>
-                      <template x-if="assetForHost(h).type">
-                        <dt class="text-[var(--text-dim)]" x-text="t('host_drawer.asset.type')"></dt>
-                      </template>
-                      <template x-if="assetForHost(h).type">
-                        <dd class="text-end break-all" x-text="assetForHost(h).type"></dd>
-                      </template>
-                      <template x-if="(assetForHost(h).hostnames || []).length">
-                        <dt class="text-[var(--text-dim)]" x-text="t('host_drawer.asset.hostnames')"></dt>
-                      </template>
-                      <template x-if="(assetForHost(h).hostnames || []).length">
-                        <dd class="text-end mono break-all">
-                          <template x-for="hn in assetForHost(h).hostnames" :key="hn">
-                            <div x-text="hn"></div>
-                          </template>
-                        </dd>
-                      </template>
-                      <template x-if="assetForHost(h).location">
-                        <dt class="text-[var(--text-dim)]" x-text="t('host_drawer.asset.location')"></dt>
-                      </template>
-                      <template x-if="assetForHost(h).location">
-                        <dd class="text-end" x-text="assetForHost(h).location"></dd>
-                      </template>
-                      <template x-if="assetForHost(h).serial">
-                        <dt class="text-[var(--text-dim)]" x-text="t('host_drawer.asset.serial')"></dt>
-                      </template>
-                      <template x-if="assetForHost(h).serial">
-                        <dd class="mono text-end break-all text-[var(--text-faint)]"
-                            x-text="assetForHost(h).serial"></dd>
-                      </template>
-                      <template x-if="assetForHost(h).sku">
-                        <dt class="text-[var(--text-dim)]" x-text="t('host_drawer.asset.sku')"></dt>
-                      </template>
-                      <template x-if="assetForHost(h).sku">
-                        <dd class="mono text-end break-all" x-text="assetForHost(h).sku"></dd>
-                      </template>
-                      <template x-if="assetForHost(h).ram">
-                        <dt class="text-[var(--text-dim)]" x-text="t('host_drawer.asset.ram')"></dt>
-                      </template>
-                      <template x-if="assetForHost(h).ram">
-                        <dd class="mono text-end" x-text="assetForHost(h).ram"></dd>
-                      </template>
-                      <template x-if="assetForHost(h).firmware">
-                        <dt class="text-[var(--text-dim)]" x-text="t('host_drawer.asset.firmware')"></dt>
-                      </template>
-                      <template x-if="assetForHost(h).firmware">
-                        <dd class="mono text-end break-all" x-text="assetForHost(h).firmware"></dd>
-                      </template>
-                      <template x-if="assetForHost(h).hardware_version">
-                        <dt class="text-[var(--text-dim)]" x-text="t('host_drawer.asset.hardware_version')"></dt>
-                      </template>
-                      <template x-if="assetForHost(h).hardware_version">
-                        <dd class="mono text-end" x-text="assetForHost(h).hardware_version"></dd>
-                      </template>
-                    </dl>
-
-                    <template x-if="(assetForHost(h).interfaces || []).length">
-                      <div class="mt-4 pt-3 border-t border-[var(--border)]">
-                        <div class="text-[10.5px] uppercase tracking-wider text-[var(--text-faint)] mb-2"
-                             x-text="t('host_drawer.asset.interfaces_heading')"></div>
-                        <div class="space-y-1.5">
-                          <template x-for="iface in assetForHost(h).interfaces" :key="iface.number + ':' + iface.name + ':' + iface.ip">
-                            <div class="grid grid-cols-[1fr_auto] gap-x-3 text-[12px]"
-                                 :class="iface.enabled ? '' : 'opacity-50'">
-                              <div class="flex items-center gap-2 min-w-0">
-                                <span x-show="iface.number != null"
-                                      class="pill pill-info text-[10px] mono"
-                                      x-text="'#' + iface.number"></span>
-                                <span class="font-semibold mono" x-text="iface.name || '—'"></span>
-                                <span x-show="iface.comment"
-                                      class="text-[10.5px] text-[var(--text-faint)] truncate"
-                                      :title="iface.comment"
-                                      x-text="'· ' + iface.comment"></span>
-                              </div>
-                              <div class="text-end mono">
-                                <span x-show="iface.ip" x-text="iface.ip"></span>
-                                <span x-show="iface.mac"
-                                      class="ms-2 text-[10.5px] text-[var(--text-faint)]"
-                                      x-text="iface.mac"></span>
-                              </div>
-                            </div>
-                          </template>
-                        </div>
-                      </div>
-                    </template>
-
-                    <template x-if="(assetForHost(h).ports || []).length">
-                      <div class="mt-4 pt-3 border-t border-[var(--border)]">
-                        <div class="text-[10.5px] uppercase tracking-wider text-[var(--text-faint)] mb-2"
-                             x-text="t('host_drawer.asset.ports_heading')"></div>
-                        <div class="flex flex-wrap gap-1.5">
-                          <!-- Every port renders as the same chip;
-                               clickable ones wrap in <a>, the rest
-                               wrap in <span>. Uniform styling so a
-                               port without a service URL is just as
-                               visible as one with — operator wanted
-                               ALL ports surfaced, not only URL ones. -->
-                          <!-- Each iteration of <template x-for>
-                               needs a SINGLE root element. Two
-                               sibling <template x-if> blocks would
-                               cause Alpine to render only the first
-                               (URL-only ports), silently dropping
-                               every non-URL port. Wrapping them in
-                               one <span> per iteration fixes it. -->
-                          <template x-for="port in assetForHost(h).ports" :key="port.id || (port.name + ':' + port.number)">
-                            <span>
-                              <a x-show="assetPortServiceUrl(port, h)"
-                                 :href="assetPortServiceUrl(port, h)" target="_blank" rel="noopener"
-                                 class="pill pill-info text-[10.5px] mono hover:underline"
-                                 :title="port.protocol || ''"
-                                 x-text="port.name + (port.number != null ? ' ' + port.number : '')"></a>
-                              <span x-show="!assetPortServiceUrl(port, h)"
-                                    class="text-[11px] mono text-[var(--text-faint)] px-1.5 py-1"
-                                    :title="port.protocol || ''"
-                                    x-text="port.name + (port.number != null ? ' ' + port.number : '')"></span>
-                            </span>
-                          </template>
-                        </div>
-                      </div>
-                    </template>
-
-                  </section>
-                </template>
-
-                <!-- SYSTEM — only the fields Beszel's agent actually
-                     reports for this host are rendered. Container-mode
-                     agents tend to skip platform / OS / kernel / arch;
-                     hiding those empty rows makes the card honest instead
-                     of full of em-dashes. -->
-                <section class="rounded border border-[var(--border)] bg-[var(--surface)] p-4">
-                  <h4 class="text-[10.5px] uppercase tracking-wider text-[var(--text-faint)] mb-3" x-text="t('host_drawer.system.heading')"></h4>
-                  <dl class="grid grid-cols-[auto_1fr] gap-x-4 gap-y-2 text-[12px]">
-                    <dt class="text-[var(--text-dim)]" x-text="t('host_drawer.system.hostname')"></dt>
-                    <dd class="mono text-end" x-text="h.host"></dd>
-                    <!-- Hide Platform when it duplicates the OS's
-                         first word (common when Pulse derived the
-                         platform hint from its ``osName``). "debian"
-                         + "debian 13.4" reads as a single row now. -->
-                    <template x-if="h.platform && !(h.os && h.os.toLowerCase().startsWith(h.platform.toLowerCase()))">
-                      <dt class="text-[var(--text-dim)]" x-text="t('host_drawer.system.platform')"></dt>
-                    </template>
-                    <template x-if="h.platform && !(h.os && h.os.toLowerCase().startsWith(h.platform.toLowerCase()))">
-                      <dd class="text-end" x-text="h.platform"></dd>
-                    </template>
-                    <template x-if="h.os">
-                      <dt class="text-[var(--text-dim)]" x-text="t('host_drawer.system.os')"></dt>
-                    </template>
-                    <template x-if="h.os">
-                      <dd class="text-end" x-text="h.os"></dd>
-                    </template>
-                    <template x-if="h.kernel">
-                      <dt class="text-[var(--text-dim)]" x-text="t('host_drawer.system.kernel')"></dt>
-                    </template>
-                    <template x-if="h.kernel">
-                      <dd class="mono text-end break-all" x-text="h.kernel"></dd>
-                    </template>
-                    <template x-if="h.arch">
-                      <dt class="text-[var(--text-dim)]" x-text="t('host_drawer.system.arch')"></dt>
-                    </template>
-                    <template x-if="h.arch">
-                      <dd class="mono text-end" x-text="h.arch"></dd>
-                    </template>
-                    <dt class="text-[var(--text-dim)]" x-text="t('host_drawer.system.uptime')"></dt>
-                    <dd class="mono text-end" x-text="fmtUptimeShort(h.uptime_s)"></dd>
-                    <template x-if="h.docker_node">
-                      <dt class="text-[var(--text-dim)]" x-text="t('host_drawer.system.docker_node')"></dt>
-                    </template>
-                    <template x-if="h.docker_node">
-                      <dd class="mono text-end" x-text="h.docker_node"></dd>
-                    </template>
-                    <!-- DMI / hardware identity — populated only when
-                         node-exporter scraped `node_dmi_info` on a
-                         physical / VM host (containers usually skip
-                         the DMI collector). Vendor + product identify
-                         the actual box (e.g. "QOTOM Q555G6"); BIOS
-                         version is useful for firmware audit; serial
-                         shown last + muted because most operators
-                         treat it as private. -->
-                    <template x-if="h.dmi_vendor">
-                      <dt class="text-[var(--text-dim)]" x-text="t('host_drawer.system.vendor')"></dt>
-                    </template>
-                    <template x-if="h.dmi_vendor">
-                      <dd class="text-end break-all" x-text="h.dmi_vendor"></dd>
-                    </template>
-                    <template x-if="h.dmi_product">
-                      <dt class="text-[var(--text-dim)]" x-text="t('host_drawer.system.product')"></dt>
-                    </template>
-                    <template x-if="h.dmi_product">
-                      <dd class="text-end break-all" x-text="h.dmi_product"></dd>
-                    </template>
-                    <template x-if="h.dmi_bios_version">
-                      <dt class="text-[var(--text-dim)]" x-text="t('host_drawer.system.bios_version')"></dt>
-                    </template>
-                    <template x-if="h.dmi_bios_version">
-                      <dd class="mono text-end break-all" x-text="h.dmi_bios_version"></dd>
-                    </template>
-                    <template x-if="h.dmi_serial">
-                      <dt class="text-[var(--text-dim)]" x-text="t('host_drawer.system.serial')"></dt>
-                    </template>
-                    <template x-if="h.dmi_serial">
-                      <dd class="mono text-end break-all text-[var(--text-faint)]" x-text="h.dmi_serial"></dd>
-                    </template>
-                    <!-- Proxmox metadata from Pulse — shows VM/LXC
-                         identity and the PVE host it runs on so the
-                         operator can tell apart two guests with
-                         similar names (e.g. docker, docker-dev). -->
-                    <template x-if="h.pulse_kind">
-                      <dt class="text-[var(--text-dim)]" x-text="t('host_drawer.system.proxmox')"></dt>
-                    </template>
-                    <template x-if="h.pulse_kind">
-                      <dd class="mono text-end">
-                        <span x-text="h.pulse_kind === 'lxc' ? t('host_drawer.proxmox_kind.lxc')
-                                     : h.pulse_kind === 'qemu' ? t('host_drawer.proxmox_kind.qemu')
-                                     : h.pulse_kind === 'node' ? t('host_drawer.proxmox_kind.node')
-                                     : (h.pulse_kind || '').toUpperCase()"></span>
-                        <span x-show="h.pulse_vmid" class="text-[var(--text-faint)]"
-                              x-text="' #' + h.pulse_vmid"></span>
-                        <span x-show="h.pulse_node && h.pulse_kind !== 'node'" class="text-[var(--text-faint)]"
-                              x-text="' · on ' + h.pulse_node"></span>
-                      </dd>
-                    </template>
-                    <!-- URL row — always visible. Clickable link when
-                         populated, "+ Add" deep-link to Admin → Hosts
-                         when empty, matching Beszel's affordance. -->
-                    <dt class="text-[var(--text-dim)]" x-text="t('host_drawer.system.url')"></dt>
-                    <dd class="text-end">
-                      <a x-show="h.url" :href="h.url" target="_blank" rel="noopener"
-                         class="text-[var(--primary)] hover:underline mono" x-text="h.url"></a>
-                      <a x-show="!h.url" href="/admin/hosts"
-                         class="text-[var(--primary)] hover:underline" x-text="t('host_drawer.system.add_url')"></a>
-                    </dd>
-                  </dl>
-                </section>
-
-                <!-- HARDWARE — same honest-fields rule. CPU model /
-                     Cores come from the host-daemon agent; container
-                     agents omit them. Threads / Memory / Disk / Agent /
-                     Status are always emitted, so they always render.
-                     Card visible when EITHER the host is up (live
-                     metrics) OR an asset-inventory match exists
-                     (vendor / model / serial from oufa.co — useful
-                     even for hosts with no live providers like FTTH
-                     routers / 5G modems). Each row inside is gated
-                     on its own field so cards stay tidy when only
-                     one source contributes data. -->
-                <section x-show="h.status === 'up' || assetForHost(h)" class="rounded border border-[var(--border)] bg-[var(--surface)] p-4">
-                  <h4 class="text-[10.5px] uppercase tracking-wider text-[var(--text-faint)] mb-3" x-text="t('host_drawer.hardware.heading')"></h4>
-                  <dl class="grid grid-cols-[auto_1fr] gap-x-4 gap-y-2 text-[12px]">
-                    <template x-if="h.cpu_model">
-                      <dt class="text-[var(--text-dim)]" x-text="t('host_drawer.hardware.cpu')"></dt>
-                    </template>
-                    <template x-if="h.cpu_model">
-                      <dd class="text-end mono break-all" x-text="h.cpu_model"></dd>
-                    </template>
-                    <template x-if="h.cores">
-                      <dt class="text-[var(--text-dim)]" x-text="t('host_drawer.hardware.cores')"></dt>
-                    </template>
-                    <template x-if="h.cores">
-                      <dd class="mono text-end" x-text="h.cores"></dd>
-                    </template>
-                    <template x-if="h.threads">
-                      <dt class="text-[var(--text-dim)]" x-text="t('host_drawer.hardware.threads')"></dt>
-                    </template>
-                    <template x-if="h.threads">
-                      <dd class="mono text-end" x-text="h.threads"></dd>
-                    </template>
-                    <template x-if="h.mem_total">
-                      <dt class="text-[var(--text-dim)]" x-text="t('host_drawer.hardware.memory')"></dt>
-                    </template>
-                    <template x-if="h.mem_total">
-                      <dd class="mono text-end" x-text="fmtBytes(h.mem_total)"></dd>
-                    </template>
-                    <template x-if="h.disk_total">
-                      <dt class="text-[var(--text-dim)]" x-text="t('host_drawer.hardware.disk')"></dt>
-                    </template>
-                    <template x-if="h.disk_total">
-                      <dd class="mono text-end" x-text="fmtBytes(h.disk_total)"></dd>
-                    </template>
-                    <template x-if="h.agent">
-                      <dt class="text-[var(--text-dim)]"
-                          :title="t('host_drawer.hardware.beszel_agent_title')"
-                          x-text="t('host_drawer.hardware.beszel_agent')"></dt>
-                    </template>
-                    <template x-if="h.agent">
-                      <dd class="mono text-end" x-text="h.agent"></dd>
-                    </template>
-                    <!-- Load averages — three windows (1m / 5m / 15m)
-                         rendered as percentages of total CPU capacity
-                         (load ÷ cores × 100). Each labelled inline so
-                         the operator doesn't have to remember which
-                         number is which window. Falls back to raw
-                         load when core count is unknown (rare — only
-                         when the live providers haven't reported it
-                         yet). Populated only when node-exporter
-                         scraped this host. -->
-                    <template x-if="(h.load_1m || 0) > 0 || (h.load_5m || 0) > 0 || (h.load_15m || 0) > 0">
-                      <dt class="text-[var(--text-dim)]"
-                          :title="t('host_drawer.hardware.load_title')"
-                          x-text="t('host_drawer.hardware.load')"></dt>
-                    </template>
-                    <template x-if="(h.load_1m || 0) > 0 || (h.load_5m || 0) > 0 || (h.load_15m || 0) > 0">
-                      <dd class="mono text-end"
-                          x-text="(h.cores && h.cores > 0)
-                            ? ('1m ' + (((h.load_1m || 0) / h.cores) * 100).toFixed(0) + '%'
-                               + ' · 5m ' + (((h.load_5m || 0) / h.cores) * 100).toFixed(0) + '%'
-                               + ' · 15m ' + (((h.load_15m || 0) / h.cores) * 100).toFixed(0) + '%')
-                            : ('1m ' + (h.load_1m || 0).toFixed(2)
-                               + ' · 5m ' + (h.load_5m || 0).toFixed(2)
-                               + ' · 15m ' + (h.load_15m || 0).toFixed(2))"></dd>
-                    </template>
-                    <!-- Asset inventory rows (ticket #78 follow-up).
-                         Matched by h.custom_number against the cached
-                         oufa.co asset list. Each row gated on its own
-                         field so hosts without that data stay tidy.
-                         Distinct from DMI so operators can spot when
-                         the DB record ≠ what node-exporter reports
-                         on the box (manufacturer mismatch / swap
-                         wasn't recorded upstream). Title tooltip
-                         explains the source. -->
-                    <template x-if="assetForHost(h) && assetForHost(h).vendor">
-                      <dt class="text-[var(--text-dim)]"
-                          :title="t('host_drawer.hardware.asset_title')"
-                          x-text="t('host_drawer.hardware.asset_vendor')"></dt>
-                    </template>
-                    <template x-if="assetForHost(h) && assetForHost(h).vendor">
-                      <dd class="text-end break-all" x-text="assetForHost(h).vendor"></dd>
-                    </template>
-                    <template x-if="assetForHost(h) && assetForHost(h).model">
-                      <dt class="text-[var(--text-dim)]"
-                          :title="t('host_drawer.hardware.asset_title')"
-                          x-text="t('host_drawer.hardware.asset_model')"></dt>
-                    </template>
-                    <template x-if="assetForHost(h) && assetForHost(h).model">
-                      <dd class="text-end break-all" x-text="assetForHost(h).model"></dd>
-                    </template>
-                    <template x-if="assetForHost(h) && assetForHost(h).serial">
-                      <dt class="text-[var(--text-dim)]"
-                          :title="t('host_drawer.hardware.asset_title')"
-                          x-text="t('host_drawer.hardware.asset_serial')"></dt>
-                    </template>
-                    <template x-if="assetForHost(h) && assetForHost(h).serial">
-                      <dd class="mono text-end break-all text-[var(--text-faint)]"
-                          x-text="assetForHost(h).serial"></dd>
-                    </template>
-                    <dt class="text-[var(--text-dim)]" x-text="t('host_drawer.hardware.status')"></dt>
-                    <dd class="text-end">
-                      <span class="pill text-[10.5px]"
-                            :class="h.status === 'up' ? 'pill-ok' : h.status === 'down' ? 'pill-error' : 'pill-unknown'"
-                            x-text="h.status"></span>
-                    </dd>
-                  </dl>
-                </section>
-
-                <!-- NETWORK — each interface rendered as a block with
-                     its MAC (muted) and IPv4 / IPv6 addresses colour-
-                     coded by family. Matches Beszel's own layout so
-                     the operator's eye reads the two UIs the same way. -->
-                <section x-show="(h.network_ifaces || []).length > 0 || h.bandwidth"
-                         class="rounded border border-[var(--border)] bg-[var(--surface)] p-4">
-                  <h4 class="text-[10.5px] uppercase tracking-wider text-[var(--text-faint)] mb-3" x-text="t('host_drawer.network.heading')"></h4>
-                  <div class="space-y-3">
-                    <div x-show="h.bandwidth" class="flex items-center justify-between text-[12px]">
-                      <span class="text-[var(--text-dim)]" x-text="t('host_drawer.network.bandwidth')"></span>
-                      <span class="mono" x-text="fmtBytes(h.bandwidth) + '/s'"></span>
-                    </div>
-                    <template x-for="(iface, i) in (h.network_ifaces || [])" :key="i">
-                      <div class="space-y-1.5">
-                        <!-- Interface header: name (bold) + MAC (muted).
-                             Fallback: older agents only gave a name. -->
-                        <div class="flex items-baseline gap-2 flex-wrap">
-                          <span class="font-semibold text-[12.5px] mono"
-                                x-text="typeof iface === 'string' ? iface : iface.name"></span>
-                          <span x-show="typeof iface === 'object' && iface.mac"
-                                class="ip-chip ip-chip--mac"
-                                x-text="iface.mac"></span>
-                        </div>
-                        <!-- Addresses — blue chip for IPv4, violet for IPv6. -->
-                        <div x-show="typeof iface === 'object' && (iface.addrs || []).length"
-                             class="flex flex-wrap gap-1.5">
-                          <template x-for="a in (typeof iface === 'object' ? (iface.addrs || []) : [])" :key="a">
-                            <span class="ip-chip"
-                                  :class="a.includes(':') ? 'ip-chip--v6' : 'ip-chip--v4'"
-                                  x-text="a"></span>
-                          </template>
-                        </div>
-                      </div>
-                    </template>
-                  </div>
-                </section>
-
-                <!-- DISKS — always rendered when we have at least the
-                     aggregate disk total from Beszel / Pulse / node-
-                     exporter. Starts with a "Total Usage" bar (the
-                     merged host_disk_total/used from whichever
-                     provider reported it), then drops in per-mount
-                     bars under ``efs`` when the newer Beszel agent
-                     emits them. This keeps the card informative for
-                     container-mode Beszel agents (which skip ``efs``)
-                     while still showing richer detail for full-host
-                     agents. -->
-                <section x-show="h.disk_total > 0 || (h.mounts || []).length > 0"
-                         class="rounded border border-[var(--border)] bg-[var(--surface)] p-4">
-                  <h4 class="text-[10.5px] uppercase tracking-wider text-[var(--text-faint)] mb-3" x-text="t('host_drawer.disks.heading')"></h4>
-                  <div class="space-y-3">
-                    <!-- Total usage row — single-colour aggregate bar.
-                         Per-mount rows below give the breakdown; the
-                         segmented rendering now lives on the
-                         collapsed host row's small disk column
-                         instead (see the Disk column in the grid
-                         row). Keeps the expanded DISKS card matching
-                         Beszel's reference layout. -->
-                    <div x-show="h.disk_total > 0">
-                      <div class="flex items-baseline justify-between">
-                        <span class="text-[11.5px] text-[var(--text-dim)] font-semibold" x-text="t('host_drawer.disks.total_usage')"></span>
-                        <span class="text-[10.5px] text-[var(--text-faint)] mono"
-                              x-text="diskPercentOf(h).toFixed(1) + '% · '
-                                      + fmtBytes(h.disk_used) + ' / '
-                                      + fmtBytes(h.disk_total)"></span>
-                      </div>
-                      <div class="stat-bar mt-1"
-                           :class="barLevel(diskPercentOf(h))"
-                           :style="'--w: ' + diskPercentOf(h) + '%'">
-                        <div class="fill"></div>
-                      </div>
-                    </div>
-                    <!-- Per-mount breakdown (when stats.efs was
-                         populated — full-host Beszel agents only).
-                         Zero-usage mounts collapse behind a toggle
-                         to keep hosts with many ZFS datasets readable
-                         the card). visibleMounts(h) returns the
-                         above-threshold set; toggleHostShowEmptyDisks
-                         expands to show the remainder. -->
-                    <template x-for="(m, i) in visibleMounts(h)" :key="i">
-                      <div class="disk-mount-row">
-                        <div class="flex items-baseline justify-between">
-                          <span class="text-[11.5px] mono truncate" x-text="m.n || m.name || '(disk)'"></span>
-                          <span class="text-[10.5px] text-[var(--text-faint)] mono"
-                                x-text="m.d && m.du
-                                        ? (m.dp || 0).toFixed(1) + '% · '
-                                          + fmtBytes((m.du || 0) * 1024**3) + ' / '
-                                          + fmtBytes((m.d || 0) * 1024**3)
-                                        : ''"></span>
-                        </div>
-                        <div class="stat-bar mt-0.5"
-                             :class="barLevel(m.dp || 0)"
-                             :style="'--w: ' + (m.dp || 0) + '%'">
-                          <div class="fill"></div>
-                        </div>
-                      </div>
-                    </template>
-                    <!-- Show-empty toggle when there are zero-usage
-                         mounts hiding. Clicking expands (or collapses)
-                         them for this host only. -->
-                    <button type="button"
-                            x-show="emptyMountCount(h) > 0"
-                            @click="toggleHostShowEmptyDisks(h.host)"
-                            class="text-[10.5px] text-[var(--text-faint)] hover:text-[var(--primary)] hover:underline w-full text-start pt-1 mono">
-                      <span x-show="!hostDisksShowEmpty[h.host]"
-                            x-text="emptyMountCount(h) === 1 ? t('host_drawer.disks.show_empty_one') : t('host_drawer.disks.show_empty_many', { count: emptyMountCount(h) })"></span>
-                      <span x-show="hostDisksShowEmpty[h.host]"
-                            x-text="emptyMountCount(h) === 1 ? t('host_drawer.disks.hide_empty_one') : t('host_drawer.disks.hide_empty_many', { count: emptyMountCount(h) })"></span>
-                    </button>
-                  </div>
-                </section>
-
-                <!-- UPDATES — only rendered when Webmin reported
-                     pending packages. Informational in Phase 1; a
-                     later phase may link to a full package list. -->
-                <section x-show="(h.updates_pending || 0) > 0"
-                         class="rounded border border-[var(--border)] bg-[var(--surface)] p-4">
-                  <h4 class="text-[10.5px] uppercase tracking-wider text-[var(--text-faint)] mb-3" x-text="t('host_drawer.updates.heading')"></h4>
-                  <dl class="grid grid-cols-[auto_1fr] gap-x-4 gap-y-2 text-[12px]">
-                    <dt class="text-[var(--text-dim)]" x-text="t('host_drawer.updates.pending')"></dt>
-                    <dd class="mono text-end" x-text="h.updates_pending"></dd>
-                    <template x-if="(h.updates_security || 0) > 0">
-                      <dt class="text-[var(--text-dim)]" x-text="t('host_drawer.updates.security')"></dt>
-                    </template>
-                    <template x-if="(h.updates_security || 0) > 0">
-                      <dd class="text-end">
-                        <span class="pill pill-degraded text-[10.5px]"
-                              x-text="t('host_drawer.updates.security_count', { count: h.updates_security })"></span>
-                      </dd>
-                    </template>
-                    <dt class="text-[var(--text-dim)]" x-text="t('host_drawer.updates.source')"></dt>
-                    <dd class="mono text-end text-[var(--text-faint)]">Webmin</dd>
-                  </dl>
-                </section>
-              </div>
-
-              <!-- Time-range picker — segmented buttons, mirrors img_8's
-                   Beszel look. Each button rewrites the range + reloads
-                   every expanded host's history. Hidden when Beszel
-                   didn't match this host; the charts section below
-                   falls back to a "history only available via Beszel"
-                   note in that case. Whole section hides when no
-                   provider matched — the "No data" banner above +
-                   Debug panel below do the talking. -->
-              <div class="mt-4 flex items-center gap-2" x-show="h.beszel_id && h.status === 'up' && (h.providers || []).length > 0">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-[var(--text-dim)]"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
-                <div class="range-seg">
-                  <button type="button" :class="hostHistoryRange === 1 ? 'active' : ''"
-                          @click="setHostHistoryRange(1)">1h</button>
-                  <button type="button" :class="hostHistoryRange === 6 ? 'active' : ''"
-                          @click="setHostHistoryRange(6)">6h</button>
-                  <button type="button" :class="hostHistoryRange === 24 ? 'active' : ''"
-                          @click="setHostHistoryRange(24)">24h</button>
-                  <button type="button" :class="hostHistoryRange === 168 ? 'active' : ''"
-                          @click="setHostHistoryRange(168)">7d</button>
-                </div>
-              </div>
-              <div x-show="!h.beszel_id && h.status === 'up' && (h.providers || []).length > 0" class="mt-4 text-[11.5px] text-[var(--text-faint)] italic">
-                Time-series charts are sourced from Beszel. Link this
-                host to a Beszel system in
-                <a href="/admin/hosts" class="text-[var(--primary)] hover:underline">Admin → Hosts</a>
-                to see CPU / Memory / Disk / Net history here.
-              </div>
-
-              <!-- Metric cards — Beszel-style. Three percentage charts
-                   (CPU / Memory / Disk) in a 3-col grid, then Net In /
-                   Net Out side by side beneath. Axis labels live
-                   outside the SVG so the polyline can stretch edge to
-                   edge and still read at a glance. Whole grid hides
-                   when no provider matched — the "Collecting data…"
-                   placeholders are misleading for hosts that never had
-                   a provider mapping. -->
-              <!-- Chart grid: only renders when Beszel matched AND
-                   returned history. Hosts that have ONLY node-exporter
-                   (no beszel_id) get the "link to Beszel" hint above
-                   instead of an empty "Collecting data…" grid. -->
-              <div class="mt-3 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4"
-                   x-show="h.beszel_id && h.status === 'up' && (h.providers || []).length > 0">
-                <!-- CPU % -->
-                <div class="metric-card metric-card--cpu">
-                  <div class="metric-card-head">
-                    <div class="metric-card-title">CPU<span class="unit">%</span></div>
-                    <div class="metric-card-stats"
-                         x-show="hostMetricStats(h.beszel_id, 'cpu')">
-                      <span>Min <span class="min-val" x-text="hostMetricStats(h.beszel_id, 'cpu') ? hostMetricStats(h.beszel_id, 'cpu').min : ''"></span></span>
-                      <span>Max <span class="max-val" x-text="hostMetricStats(h.beszel_id, 'cpu') ? hostMetricStats(h.beszel_id, 'cpu').max : ''"></span></span>
-                    </div>
-                  </div>
-                  <template x-if="hostChart(h.beszel_id, 'cpu', { min: 0, max: 100 })">
-                    <div class="metric-card-body">
-                      <div class="metric-y-axis">
-                        <template x-for="(l, i) in yAxisPercent()" :key="i">
-                          <span x-text="l"></span>
-                        </template>
-                      </div>
-                      <svg class="metric-svg" viewBox="0 0 420 120" preserveAspectRatio="none">
-                        <template x-for="(tk, i) in hostChart(h.beszel_id, 'cpu', { min: 0, max: 100 }).ticks" :key="i">
-                          <line class="metric-grid" x1="0" x2="420" :y1="tk.y * 1.2" :y2="tk.y * 1.2"/>
-                        </template>
-                        <path class="metric-area" :d="hostChart(h.beszel_id, 'cpu', { min: 0, max: 100, height: 120 }).area"/>
-                        <polyline class="metric-line" :points="hostChart(h.beszel_id, 'cpu', { min: 0, max: 100, height: 120 }).points"/>
-                      </svg>
-                      <div class="metric-x-axis">
-                        <template x-for="(l, i) in xAxisFromSeries(h.beszel_id, 5)" :key="i">
-                          <span x-text="l"></span>
-                        </template>
-                      </div>
-                    </div>
-                  </template>
-                  <template x-if="!hostChart(h.beszel_id, 'cpu', { min: 0, max: 100 })">
-                    <div class="collecting-block">
-                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
-                      <div>
-                        <div x-text="t('loading.collecting_data')"></div>
-                        <div class="text-[10.5px] text-[var(--text-faint)] not-italic mt-0.5" x-text="t('loading.history_will_appear')"></div>
-                      </div>
-                    </div>
-                  </template>
-                </div>
-
-                <!-- Memory % -->
-                <div class="metric-card metric-card--mem">
-                  <div class="metric-card-head">
-                    <div class="metric-card-title">Memory<span class="unit">%</span></div>
-                    <div class="metric-card-stats"
-                         x-show="hostMetricStats(h.beszel_id, 'mp')">
-                      <span>Min <span class="min-val" x-text="hostMetricStats(h.beszel_id, 'mp') ? hostMetricStats(h.beszel_id, 'mp').min : ''"></span></span>
-                      <span>Max <span class="max-val" x-text="hostMetricStats(h.beszel_id, 'mp') ? hostMetricStats(h.beszel_id, 'mp').max : ''"></span></span>
-                    </div>
-                  </div>
-                  <template x-if="hostChart(h.beszel_id, 'mp', { min: 0, max: 100 })">
-                    <div class="metric-card-body">
-                      <div class="metric-y-axis">
-                        <template x-for="(l, i) in yAxisPercent()" :key="i">
-                          <span x-text="l"></span>
-                        </template>
-                      </div>
-                      <svg class="metric-svg" viewBox="0 0 420 120" preserveAspectRatio="none">
-                        <path class="metric-area" :d="hostChart(h.beszel_id, 'mp', { min: 0, max: 100, height: 120 }).area"/>
-                        <polyline class="metric-line" :points="hostChart(h.beszel_id, 'mp', { min: 0, max: 100, height: 120 }).points"/>
-                      </svg>
-                      <div class="metric-x-axis">
-                        <template x-for="(l, i) in xAxisFromSeries(h.beszel_id, 5)" :key="i">
-                          <span x-text="l"></span>
-                        </template>
-                      </div>
-                    </div>
-                  </template>
-                  <template x-if="!hostChart(h.beszel_id, 'mp', { min: 0, max: 100 })">
-                    <div class="collecting-block">
-                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
-                      <div>
-                        <div x-text="t('loading.collecting_data')"></div>
-                      </div>
-                    </div>
-                  </template>
-                </div>
-
-                <!-- Disk % -->
-                <div class="metric-card metric-card--disk">
-                  <div class="metric-card-head">
-                    <div class="metric-card-title">Disk<span class="unit">%</span></div>
-                    <div class="metric-card-stats"
-                         x-show="hostMetricStats(h.beszel_id, 'dp')">
-                      <span>Min <span class="min-val" x-text="hostMetricStats(h.beszel_id, 'dp') ? hostMetricStats(h.beszel_id, 'dp').min : ''"></span></span>
-                      <span>Max <span class="max-val" x-text="hostMetricStats(h.beszel_id, 'dp') ? hostMetricStats(h.beszel_id, 'dp').max : ''"></span></span>
-                    </div>
-                  </div>
-                  <template x-if="hostChart(h.beszel_id, 'dp', { min: 0, max: 100 })">
-                    <div class="metric-card-body">
-                      <div class="metric-y-axis">
-                        <template x-for="(l, i) in yAxisPercent()" :key="i">
-                          <span x-text="l"></span>
-                        </template>
-                      </div>
-                      <svg class="metric-svg" viewBox="0 0 420 120" preserveAspectRatio="none">
-                        <path class="metric-area" :d="hostChart(h.beszel_id, 'dp', { min: 0, max: 100, height: 120 }).area"/>
-                        <polyline class="metric-line" :points="hostChart(h.beszel_id, 'dp', { min: 0, max: 100, height: 120 }).points"/>
-                      </svg>
-                      <div class="metric-x-axis">
-                        <template x-for="(l, i) in xAxisFromSeries(h.beszel_id, 5)" :key="i">
-                          <span x-text="l"></span>
-                        </template>
-                      </div>
-                    </div>
-                  </template>
-                  <template x-if="!hostChart(h.beszel_id, 'dp', { min: 0, max: 100 })">
-                    <div class="collecting-block">
-                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
-                      <div>
-                        <div x-text="t('loading.collecting_data')"></div>
-                      </div>
-                    </div>
-                  </template>
-                </div>
-              </div>
-
-              <!-- Net In / Net Out — split into two cards, each auto-
-                   ranged against its own peak. Newer Beszel emits
-                   ``nr`` (recv) / ``ns`` (send) separately; older
-                   versions fold both into ``b`` so the second card
-                   stays empty with a "collecting…" placeholder if only
-                   ``b`` is present. Whole grid hidden for hosts
-                   without Beszel (same gate as the main CPU/Mem/Disk
-                   grid above — the Beszel-only chart source has
-                   nothing to chart for NE-only hosts). -->
-              <div class="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4"
-                   x-show="h.beszel_id && h.status === 'up' && (h.providers || []).length > 0">
-                <!-- Net In — collapses to a single-line "no activity"
-                     state when the peak is zero (most homelab hosts
-                     sit near zero between bursts), so the card
-                     doesn't take up a full panel showing nothing. -->
-                <div class="metric-card metric-card--net"
-                     :class="(hostMetricStats(h.beszel_id, 'nr', false) && hostMetricStats(h.beszel_id, 'nr', false).maxRaw === 0) ? 'metric-card--flat' : ''">
-                  <div class="metric-card-head">
-                    <div class="metric-card-title">Net In<span class="unit">B/s</span></div>
-                    <div class="metric-card-stats"
-                         x-show="hostMetricStats(h.beszel_id, 'nr', false)">
-                      <span>Min <span class="min-val" x-text="hostMetricStats(h.beszel_id, 'nr', false) ? hostMetricStats(h.beszel_id, 'nr', false).min : ''"></span></span>
-                      <span>Max <span class="max-val" x-text="hostMetricStats(h.beszel_id, 'nr', false) ? hostMetricStats(h.beszel_id, 'nr', false).max : ''"></span></span>
-                    </div>
-                  </div>
-                  <template x-if="hostChart(h.beszel_id, 'nr') && !isNetSeriesFlat(h.beszel_id, 'nr')">
-                    <div class="metric-card-body">
-                      <div class="metric-y-axis">
-                        <template x-for="(l, i) in yAxisAuto(hostChart(h.beszel_id, 'nr').max, _fmtAxisBytes)" :key="i">
-                          <span x-text="l"></span>
-                        </template>
-                      </div>
-                      <svg class="metric-svg" viewBox="0 0 420 120" preserveAspectRatio="none">
-                        <path class="metric-area" :d="hostChart(h.beszel_id, 'nr', { height: 120 }).area"/>
-                        <polyline class="metric-line" :points="hostChart(h.beszel_id, 'nr', { height: 120 }).points"/>
-                      </svg>
-                      <div class="metric-x-axis">
-                        <template x-for="(l, i) in xAxisFromSeries(h.beszel_id, 5)" :key="i">
-                          <span x-text="l"></span>
-                        </template>
-                      </div>
-                    </div>
-                  </template>
-                  <!-- Agent-not-tracking-NICs hint. Fires when the series
-                       IS populated but every point is 0 — almost always
-                       means the Beszel agent lacks NICS=<iface> in env.
-                       Actionable copy beats a flat grey card. -->
-                  <template x-if="hostChart(h.beszel_id, 'nr') && isNetSeriesFlat(h.beszel_id, 'nr')">
-                    <div class="collecting-block">
-                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
-                      <div>
-                        <div x-text="t('hosts_extra.net_inactive.title')"></div>
-                        <div class="text-[10.5px] text-[var(--text-faint)] mt-1"
-                             x-html="t('hosts_extra.net_inactive.body_in', {
-                               code: '<code class=\'mono text-[var(--text-dim)]\'>NICS=eth0</code>',
-                               ipcmd: '<code class=\'mono text-[var(--text-dim)]\'>ip a</code>'
-                             })"></div>
-                      </div>
-                    </div>
-                  </template>
-                  <template x-if="!hostChart(h.beszel_id, 'nr')">
-                    <div class="collecting-block">
-                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
-                      <div>
-                        <div x-text="t('loading.collecting_data')"></div>
-                      </div>
-                    </div>
-                  </template>
-                </div>
-
-                <!-- Net Out — same flat-signal collapse as Net In. -->
-                <div class="metric-card metric-card--net-out"
-                     :class="(hostMetricStats(h.beszel_id, 'ns', false) && hostMetricStats(h.beszel_id, 'ns', false).maxRaw === 0) ? 'metric-card--flat' : ''">
-                  <div class="metric-card-head">
-                    <div class="metric-card-title">Net Out<span class="unit">B/s</span></div>
-                    <div class="metric-card-stats"
-                         x-show="hostMetricStats(h.beszel_id, 'ns', false)">
-                      <span>Min <span class="min-val" x-text="hostMetricStats(h.beszel_id, 'ns', false) ? hostMetricStats(h.beszel_id, 'ns', false).min : ''"></span></span>
-                      <span>Max <span class="max-val" x-text="hostMetricStats(h.beszel_id, 'ns', false) ? hostMetricStats(h.beszel_id, 'ns', false).max : ''"></span></span>
-                    </div>
-                  </div>
-                  <template x-if="hostChart(h.beszel_id, 'ns') && !isNetSeriesFlat(h.beszel_id, 'ns')">
-                    <div class="metric-card-body">
-                      <div class="metric-y-axis">
-                        <template x-for="(l, i) in yAxisAuto(hostChart(h.beszel_id, 'ns').max, _fmtAxisBytes)" :key="i">
-                          <span x-text="l"></span>
-                        </template>
-                      </div>
-                      <svg class="metric-svg" viewBox="0 0 420 120" preserveAspectRatio="none">
-                        <path class="metric-area" :d="hostChart(h.beszel_id, 'ns', { height: 120 }).area"/>
-                        <polyline class="metric-line" :points="hostChart(h.beszel_id, 'ns', { height: 120 }).points"/>
-                      </svg>
-                      <div class="metric-x-axis">
-                        <template x-for="(l, i) in xAxisFromSeries(h.beszel_id, 5)" :key="i">
-                          <span x-text="l"></span>
-                        </template>
-                      </div>
-                    </div>
-                  </template>
-                  <template x-if="hostChart(h.beszel_id, 'ns') && isNetSeriesFlat(h.beszel_id, 'ns')">
-                    <div class="collecting-block">
-                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
-                      <div>
-                        <div x-text="t('hosts_extra.net_inactive.title')"></div>
-                        <div class="text-[10.5px] text-[var(--text-faint)] mt-1"
-                             x-html="t('hosts_extra.net_inactive.body_out', {
-                               code: '<code class=\'mono text-[var(--text-dim)]\'>NICS=eth0</code>'
-                             })"></div>
-                      </div>
-                    </div>
-                  </template>
-                  <template x-if="!hostChart(h.beszel_id, 'ns')">
-                    <div class="collecting-block">
-                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
-                      <div>
-                        <div x-text="t('loading.collecting_data')"></div>
-                      </div>
-                    </div>
-                  </template>
-                </div>
-              </div>
-
-              <!-- Admin-only debug panel — side-by-side JSON blobs for
-                   each provider's raw response, the normalized extract,
-                   the merged best-of dict, and the rendered API payload
-                   the UI consumes. Collapsed by default; first open
-                   triggers a lazy fetch. Useful for spotting dropped
-                   fields / shape mismatches without grepping logs.
-                   Operator-toggled in Admin → Hosts (settings.debug_panel_enabled);
-                   default true preserves legacy visibility. -->
-              <template x-if="me && me.role === 'admin' && (settings && settings.debug_panel_enabled !== false)">
-                <div class="host-debug-panel">
-                  <button type="button"
-                          class="host-debug-toggle"
-                          @click="toggleHostDebug(h.id)"
-                          :aria-expanded="hostsDebugOpen[h.id] ? 'true' : 'false'">
-                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="flip-rtl"
-                         :style="hostsDebugOpen[h.id] ? 'transform: rotate(90deg)' : ''">
-                      <polyline points="9 18 15 12 9 6"/>
-                    </svg>
-                    <span x-text="hostsDebugOpen[h.id] ? t('debug_panel.hide') : t('debug_panel.show')"></span>
-                    <span class="host-debug-hint" x-show="!hostsDebugOpen[h.id]" x-text="t('debug_panel.hint')"></span>
-                  </button>
-                  <div x-show="hostsDebugOpen[h.id]" class="host-debug-body">
-                    <template x-if="hostsDebugLoading[h.id]">
-                      <div class="host-debug-loading">
-                        <span class="spin-lg" aria-hidden="true"></span>
-                        <span x-text="t('debug_panel.probing')"></span>
-                      </div>
-                    </template>
-                    <template x-if="!hostsDebugLoading[h.id] && hostsDebug[h.id] && hostsDebug[h.id]._error">
-                      <div class="host-debug-error" x-text="'Error: ' + hostsDebug[h.id]._error"></div>
-                    </template>
-                    <template x-if="!hostsDebugLoading[h.id] && hostsDebug[h.id] && !hostsDebug[h.id]._error">
-                      <div class="host-debug-content">
-                        <div class="host-debug-toolbar">
-                          <div class="host-debug-meta">
-                            <span x-text="t('debug_panel.active_providers')"></span>
-                            <template x-for="p in (hostsDebug[h.id].active_providers || [])" :key="p">
-                              <span class="host-debug-tag" x-text="p"></span>
-                            </template>
-                            <template x-if="(hostsDebug[h.id].active_providers || []).length === 0">
-                              <span class="host-debug-tag host-debug-tag--warn" x-text="t('debug_panel.none')"></span>
-                            </template>
-                          </div>
-                          <button type="button" class="btn btn-ghost text-[11px]"
-                                  @click="loadHostDebug(h.id)"
-                                  :disabled="!!hostsDebugLoading[h.id]"
-                                  :title="t('debug_panel.refresh_title')"
-                                  x-text="t('debug_panel.refresh')"></button>
-                        </div>
-                        <!-- Five columns wrap to two rows on narrow
-                             viewports. Each block is independently
-                             scrollable so a huge raw dump doesn't push
-                             the others off-screen. -->
-                        <div class="host-debug-grid">
-                          <section class="host-debug-box" x-show="hasDebugData(hostsDebug[h.id].providers_raw?.pulse)">
-                            <header class="host-debug-box-head">
-                              <span class="host-debug-label host-debug-label--pulse" x-text="t('debug_panel.labels.raw_pulse')"></span>
-                              <button type="button" class="host-debug-copy"
-                                      @click="copyDebugJson(hostsDebug[h.id].providers_raw?.pulse, 'Raw · Pulse')"
-                                      :title="t('debug_panel.copy_title')">
-                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
-                              </button>
-                            </header>
-                            <pre class="host-debug-json scrollbar" x-text="fmtDebugJson(hostsDebug[h.id].providers_raw?.pulse)"></pre>
-                          </section>
-                          <section class="host-debug-box" x-show="hasDebugData(hostsDebug[h.id].providers_raw?.beszel)">
-                            <header class="host-debug-box-head">
-                              <span class="host-debug-label host-debug-label--beszel" x-text="t('debug_panel.labels.raw_beszel')"></span>
-                              <button type="button" class="host-debug-copy"
-                                      @click="copyDebugJson(hostsDebug[h.id].providers_raw?.beszel, 'Raw · Beszel')"
-                                      :title="t('debug_panel.copy_title')">
-                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
-                              </button>
-                            </header>
-                            <pre class="host-debug-json scrollbar" x-text="fmtDebugJson(hostsDebug[h.id].providers_raw?.beszel)"></pre>
-                          </section>
-                          <section class="host-debug-box" x-show="hasDebugData(hostsDebug[h.id].providers_raw?.node_exporter)">
-                            <header class="host-debug-box-head">
-                              <span class="host-debug-label host-debug-label--ne" x-text="t('debug_panel.labels.raw_ne')"></span>
-                              <button type="button" class="host-debug-copy"
-                                      @click="copyDebugJson(hostsDebug[h.id].providers_raw?.node_exporter, 'Raw · node-exporter')"
-                                      :title="t('debug_panel.copy_title')">
-                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
-                              </button>
-                            </header>
-                            <pre class="host-debug-json scrollbar" x-text="fmtDebugJson(hostsDebug[h.id].providers_raw?.node_exporter)"></pre>
-                          </section>
-                          <section class="host-debug-box" x-show="hasDebugData(hostsDebug[h.id].providers_raw?.webmin)">
-                            <header class="host-debug-box-head">
-                              <span class="host-debug-label host-debug-label--webmin" x-text="t('debug_panel.labels.raw_webmin')"></span>
-                              <button type="button" class="host-debug-copy"
-                                      @click="copyDebugJson(hostsDebug[h.id].providers_raw?.webmin, 'Raw · Webmin')"
-                                      :title="t('debug_panel.copy_title')">
-                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
-                              </button>
-                            </header>
-                            <pre class="host-debug-json scrollbar" x-text="fmtDebugJson(hostsDebug[h.id].providers_raw?.webmin)"></pre>
-                          </section>
-                          <section class="host-debug-box" x-show="hasDebugData(hostsDebug[h.id].merged)">
-                            <header class="host-debug-box-head">
-                              <span class="host-debug-label host-debug-label--merged" x-text="t('debug_panel.labels.merged')"></span>
-                              <span class="host-debug-hint" x-text="t('debug_panel.hints.merged')"></span>
-                              <button type="button" class="host-debug-copy"
-                                      @click="copyDebugJson(hostsDebug[h.id].merged, 'Merged')"
-                                      :title="t('debug_panel.copy_title')">
-                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
-                              </button>
-                            </header>
-                            <pre class="host-debug-json scrollbar" x-text="fmtDebugJson(hostsDebug[h.id].merged)"></pre>
-                          </section>
-                          <section class="host-debug-box host-debug-box--wide" x-show="hasDebugData(hostsDebug[h.id].rendered)">
-                            <header class="host-debug-box-head">
-                              <span class="host-debug-label host-debug-label--rendered" x-text="t('debug_panel.labels.rendered')"></span>
-                              <span class="host-debug-hint" x-text="t('debug_panel.hints.rendered')"></span>
-                              <button type="button" class="host-debug-copy"
-                                      @click="copyDebugJson(hostsDebug[h.id].rendered, 'Rendered')"
-                                      :title="t('debug_panel.copy_title')">
-                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
-                              </button>
-                            </header>
-                            <pre class="host-debug-json scrollbar" x-text="fmtDebugJson(hostsDebug[h.id].rendered)"></pre>
-                          </section>
-                          <section class="host-debug-box" x-show="hasDebugData(hostsDebug[h.id].providers_normalized?.pulse)">
-                            <header class="host-debug-box-head">
-                              <span class="host-debug-label host-debug-label--pulse" x-text="t('debug_panel.labels.normalized_pulse')"></span>
-                              <button type="button" class="host-debug-copy"
-                                      @click="copyDebugJson(hostsDebug[h.id].providers_normalized?.pulse, 'Normalized · Pulse')"
-                                      :title="t('debug_panel.copy_title')">
-                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
-                              </button>
-                            </header>
-                            <pre class="host-debug-json scrollbar" x-text="fmtDebugJson(hostsDebug[h.id].providers_normalized?.pulse)"></pre>
-                          </section>
-                          <section class="host-debug-box" x-show="hasDebugData(hostsDebug[h.id].providers_normalized?.beszel)">
-                            <header class="host-debug-box-head">
-                              <span class="host-debug-label host-debug-label--beszel" x-text="t('debug_panel.labels.normalized_beszel')"></span>
-                              <button type="button" class="host-debug-copy"
-                                      @click="copyDebugJson(hostsDebug[h.id].providers_normalized?.beszel, 'Normalized · Beszel')"
-                                      :title="t('debug_panel.copy_title')">
-                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
-                              </button>
-                            </header>
-                            <pre class="host-debug-json scrollbar" x-text="fmtDebugJson(hostsDebug[h.id].providers_normalized?.beszel)"></pre>
-                          </section>
-                          <section class="host-debug-box" x-show="hasDebugData(hostsDebug[h.id].providers_normalized?.node_exporter)">
-                            <header class="host-debug-box-head">
-                              <span class="host-debug-label host-debug-label--ne" x-text="t('debug_panel.labels.normalized_ne')"></span>
-                              <button type="button" class="host-debug-copy"
-                                      @click="copyDebugJson(hostsDebug[h.id].providers_normalized?.node_exporter, 'Normalized · node-exporter')"
-                                      :title="t('debug_panel.copy_title')">
-                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
-                              </button>
-                            </header>
-                            <pre class="host-debug-json scrollbar" x-text="fmtDebugJson(hostsDebug[h.id].providers_normalized?.node_exporter)"></pre>
-                          </section>
-                          <section class="host-debug-box" x-show="hasDebugData(hostsDebug[h.id].providers_normalized?.webmin)">
-                            <header class="host-debug-box-head">
-                              <span class="host-debug-label host-debug-label--webmin" x-text="t('debug_panel.labels.normalized_webmin')"></span>
-                              <button type="button" class="host-debug-copy"
-                                      @click="copyDebugJson(hostsDebug[h.id].providers_normalized?.webmin, 'Normalized · Webmin')"
-                                      :title="t('debug_panel.copy_title')">
-                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
-                              </button>
-                            </header>
-                            <pre class="host-debug-json scrollbar" x-text="fmtDebugJson(hostsDebug[h.id].providers_normalized?.webmin)"></pre>
-                          </section>
-                          <!-- Asset inventory (raw upstream payload).
-                               Sourced from the host's `asset` field
-                               which is itself the compact shape; the
-                               operator wants the FULL upstream row
-                               for cross-referencing, so we read from
-                               the asset cache by custom_number. -->
-                          <section class="host-debug-box host-debug-box--wide" x-show="hasDebugData(rawAssetForHost(h))">
-                            <header class="host-debug-box-head">
-                              <span class="host-debug-label host-debug-label--merged">Asset (raw)</span>
-                              <button type="button" class="host-debug-copy"
-                                      @click="copyDebugJson(rawAssetForHost(h), 'Asset · Raw')"
-                                      :title="t('debug_panel.copy_title')">
-                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
-                              </button>
-                            </header>
-                            <pre class="host-debug-json scrollbar" x-text="fmtDebugJson(rawAssetForHost(h))"></pre>
-                          </section>
-                          <!-- Asset inventory (compact shape — what
-                               the drawer actually renders). -->
-                          <section class="host-debug-box host-debug-box--wide" x-show="hasDebugData(assetForHost(h))">
-                            <header class="host-debug-box-head">
-                              <span class="host-debug-label host-debug-label--merged">Asset (shape)</span>
-                              <button type="button" class="host-debug-copy"
-                                      @click="copyDebugJson(assetForHost(h), 'Asset · Shape')"
-                                      :title="t('debug_panel.copy_title')">
-                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
-                              </button>
-                            </header>
-                            <pre class="host-debug-json scrollbar" x-text="fmtDebugJson(assetForHost(h))"></pre>
-                          </section>
-                        </div>
-                      </div>
-                    </template>
-                  </div>
-                </div>
-              </template>
-
-              <!-- Admin-only SSH card — one-shot command runner against
-                   the host resolved from its hosts_config id. Dry-run-
-                   first by default; destructive commands raise a typed-
-                   hostname confirm before the real run (also enforced
-                   backend-side via logic/ssh.command_is_destructive).
-                   Hidden entirely when SSH is disabled on this host
-                   (hosts_config[].ssh.disabled=true). Gate reads
-                   `h.ssh_disabled` straight from the row (not
-                   sshStatus) so the panel never appears even for a
-                   split second before sshStatus loads. -->
-              <template x-if="me && me.role === 'admin' && !h.ssh_disabled">
-                <div class="host-debug-panel">
-                  <button type="button"
-                          class="host-debug-toggle"
-                          @click="toggleSshCard(h.id)"
-                          :aria-expanded="sshOpen[h.id] ? 'true' : 'false'">
-                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="flip-rtl"
-                         :style="sshOpen[h.id] ? 'transform: rotate(90deg)' : ''">
-                      <polyline points="9 18 15 12 9 6"/>
-                    </svg>
-                    <span x-text="t('hosts_extra_ssh.card_title')"></span>
-                    <span class="host-debug-hint ms-2"
-                          x-text="!sshStatus[h.id] ? t('hosts_extra_ssh.status_checking')
-                                   : sshStatus[h.id].configured ? t('hosts_extra_ssh.status_ready')
-                                   : t('hosts_extra_ssh.status_not_configured')"></span>
-                  </button>
-                  <div x-show="sshOpen[h.id]" class="host-debug-body">
-                    <!-- Resolved target summary -->
-                    <div class="host-debug-toolbar">
-                      <div class="host-debug-meta">
-                        <span x-text="t('hosts_extra_ssh.resolved_label') + ':'"></span>
-                        <span class="host-debug-tag mono"
-                              x-text="sshStatus[h.id] && sshStatus[h.id].resolved
-                                       ? (sshStatus[h.id].resolved.user || '?') + '@' + (sshStatus[h.id].resolved.host || h.id) + ':' + (sshStatus[h.id].resolved.port || 22)
-                                       : h.id"></span>
-                        <span x-show="sshStatus[h.id] && sshStatus[h.id].resolved && sshStatus[h.id].resolved.key_fingerprint"
-                              class="host-debug-tag mono"
-                              :title="t('hosts_extra_ssh.fingerprint_label')"
-                              x-text="'SHA256:' + (sshStatus[h.id] && sshStatus[h.id].resolved && sshStatus[h.id].resolved.key_fingerprint || '')"></span>
-                        <span x-show="sshStatus[h.id] && !sshStatus[h.id].configured"
-                              class="host-debug-tag host-debug-tag--warn"
-                              x-text="t('hosts_extra_ssh.fingerprint_empty')"></span>
-                      </div>
-                      <div class="flex items-center gap-2">
-                        <button type="button" class="btn btn-ghost text-[11px]"
-                                @click="testSshConnection(h.id)"
-                                :disabled="!!sshTestBusy[h.id]"
-                                x-text="sshTestBusy[h.id] ? t('hosts_extra_ssh.running') : t('hosts_extra_ssh.test_button')"></button>
-                        <!-- Interactive PTY terminal modal (TODO #170). Admin-only,
-                             same gating as the rest of the SSH card. Disabled until
-                             SSH is configured + the host is up — same rules as the
-                             one-shot Run button. Styled as a primary action with
-                             an icon so it reads as a clickable button, not a link. -->
-                        <button type="button"
-                                class="btn btn-primary text-[11.5px] flex items-center gap-1.5"
-                                @click="openHostTerminal(h)"
-                                :disabled="!(sshStatus[h.id] && sshStatus[h.id].configured) || !isSshAllowed(h)"
-                                :title="!isSshAllowed(h) ? sshDisabledReason(h) : t('hosts_extra_ssh.terminal.open_button_hint')">
-                          <svg width="13" height="13" viewBox="0 0 24 24" fill="none"
-                               stroke="currentColor" stroke-width="2"
-                               stroke-linecap="round" stroke-linejoin="round"
-                               aria-hidden="true">
-                            <polyline points="4 17 10 11 4 5"/>
-                            <line x1="12" y1="19" x2="20" y2="19"/>
-                          </svg>
-                          <span x-text="t('hosts_extra_ssh.terminal.open_button')"></span>
-                        </button>
-                      </div>
-                    </div>
-
-                    <!-- Common actions — ALL driven by Admin → SSH
-                         custom actions. Clicking a preset drops the
-                         rendered command (with `{host}` substituted)
-                         into the textarea below so the operator can
-                         review and edit before hitting Run. -->
-                    <div class="mb-3"
-                         x-show="(sshSettings.custom_actions || []).length > 0">
-                      <div class="text-[11px] text-[var(--text-faint)] mb-1.5"
-                           x-text="t('hosts_extra_ssh.common_actions_label')"></div>
-                      <div class="flex flex-wrap gap-2">
-                        <template x-for="(action, idx) in (sshSettings.custom_actions || [])"
-                                  :key="action.id || ('a' + idx)">
-                          <button type="button" class="btn btn-soft text-[11.5px]"
-                                  @click="runSshCustomAction(h.id, action)"
-                                  :disabled="!isSshAllowed(h)"
-                                  :title="isSshAllowed(h) ? action.command : sshDisabledReason(h)"
-                                  x-text="action.title"></button>
-                        </template>
-                      </div>
-                    </div>
-
-                    <!-- Custom command + dry-run + Run button. -->
-                    <div class="mb-3">
-                      <label class="block text-[11px] text-[var(--text-faint)] mb-1"
-                             x-text="t('hosts_extra_ssh.custom_label')"></label>
-                      <textarea :value="sshCommand[h.id] || ''"
-                                @input="sshCommand = Object.assign({}, sshCommand, { [h.id]: $event.target.value })"
-                                :disabled="!(sshStatus[h.id] && sshStatus[h.id].configured) || !isSshAllowed(h)"
-                                :title="!isSshAllowed(h) ? sshDisabledReason(h) : ''"
-                                rows="6" maxlength="4096"
-                                class="w-full mono text-[11.5px] py-2 scrollbar"
-                                style="min-height: 7rem; resize: vertical;"
-                                :placeholder="t('hosts_extra_ssh.custom_placeholder')"></textarea>
-                      <div class="flex items-center gap-3 flex-wrap mt-2">
-                        <label class="inline-flex items-center gap-2 text-[11.5px] text-[var(--text-dim)]">
-                          <input type="checkbox"
-                                 :checked="sshDryRun[h.id] === true"
-                                 @change="sshDryRun = Object.assign({}, sshDryRun, { [h.id]: $event.target.checked })">
-                          <span x-text="t('hosts_extra_ssh.dry_run_label')"></span>
-                        </label>
-                        <button type="button"
-                                class="btn btn-primary text-[12px]"
-                                @click="runSshCommand(h.id)"
-                                :disabled="!!sshBusy[h.id] || !(sshStatus[h.id] && sshStatus[h.id].configured) || !((sshCommand[h.id] || '').trim()) || !isSshAllowed(h)"
-                                :title="!isSshAllowed(h) ? sshDisabledReason(h) : ''">
-                          <span x-show="!sshBusy[h.id]" x-text="t('hosts_extra_ssh.run_button')"></span>
-                          <span x-show="!!sshBusy[h.id]" class="flex items-center gap-1"><span class="spin"></span><span x-text="t('hosts_extra_ssh.running')"></span></span>
-                        </button>
-                        <span x-show="!isSshAllowed(h)"
-                              class="text-[11px] text-[var(--warning)]"
-                              x-text="sshDisabledReason(h)"></span>
-                      </div>
-                    </div>
-
-                    <!-- Result pane — exit, stdout, stderr, duration,
-                         copy. Shown only after at least one run. -->
-                    <template x-if="sshResult[h.id]">
-                      <div class="host-debug-box">
-                        <header class="host-debug-box-head">
-                          <span class="host-debug-label"
-                                x-text="t('hosts_extra_ssh.result_exit') + ': ' + (sshResult[h.id].exit_code == null ? '—' : sshResult[h.id].exit_code)"></span>
-                          <span class="host-debug-hint"
-                                x-text="t('hosts_extra_ssh.result_duration') + ': ' + (sshResult[h.id].duration_ms || 0) + 'ms' + (sshResult[h.id].dry_run ? ' · dry-run' : '')"></span>
-                          <button type="button" class="host-debug-copy"
-                                  @click="copySshOutput(h.id)"
-                                  :title="t('hosts_extra_ssh.result_copy')">
-                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
-                          </button>
-                        </header>
-                        <div x-show="sshResult[h.id].error" class="host-debug-error"
-                             x-text="sshResult[h.id].error"></div>
-                        <div x-show="sshResult[h.id].stdout" class="px-3 pt-2 text-[10.5px] text-[var(--text-faint)]"
-                             x-text="t('hosts_extra_ssh.result_stdout')"></div>
-                        <pre x-show="sshResult[h.id].stdout" class="host-debug-json scrollbar"
-                             x-text="sshResult[h.id].stdout"></pre>
-                        <div x-show="sshResult[h.id].stderr" class="px-3 pt-2 text-[10.5px] text-[var(--danger)]"
-                             x-text="t('hosts_extra_ssh.result_stderr')"></div>
-                        <pre x-show="sshResult[h.id].stderr" class="host-debug-json scrollbar ssh-result-stderr"
-                             x-text="sshResult[h.id].stderr"></pre>
-                      </div>
-                    </template>
-                  </div>
-                </div>
-              </template>
-
-            </div>
-          </div>
+            <!-- Detail drawer (#239) lives at top-level — see
+                 the HOST DETAIL DRAWER block near the bottom of
+                 this file. -->
               </div><!-- /per-row wrapper from bucketRenderList template -->
             </template>
           </div>
@@ -6167,6 +4992,1227 @@
       </template>
     </div>
   </div>
+
+
+  <!-- ================== HOST DETAIL DRAWER (#239) ==================
+       Slide-out panel that replaces the legacy inline row expansion.
+       Lives at top-level (outside both .hosts-mobile-cards and
+       .hosts-desktop-table) so it renders on phone AND desktop —
+       the responsive-grid containers above use display:none on the
+       inactive form factor, which would have killed an in-row drawer.
+       Wrapped in a single-element x-for so the extracted markup
+       keeps using `h.X` references without rewriting every binding. -->
+  <template x-if="drawerHost">
+    <template x-for="h in [drawerHost]" :key="h.host">
+      <div>
+            <div x-show="isHostExpanded(h.host)"
+                 x-transition:enter="transition ease-out duration-200"
+                 x-transition:enter-start="opacity-0 translate-x-8"
+                 x-transition:enter-end="opacity-100 translate-x-0"
+                 x-transition:leave="transition ease-in duration-150"
+                 x-transition:leave-start="opacity-100 translate-x-0"
+                 x-transition:leave-end="opacity-0 translate-x-8"
+                 class="host-drawer scrollbar">
+              <div class="flex items-center justify-between gap-3 mb-4 sticky top-0 bg-[var(--surface)] border-b border-[var(--border)] -mx-5 -mt-4 px-5 py-3 z-10">
+                <div class="min-w-0 flex items-center gap-2">
+                  <img class="w-5 h-5 rounded" :src="hostIconUrl(h)"
+                       x-show="hostIconUrl(h)" alt="" loading="lazy"
+                       @error="$event.target.style.display='none'">
+                  <h2 class="text-[14px] font-semibold mono break-all"
+                      x-text="hostTypePrefix(h) + (h.label || h.host)"></h2>
+                </div>
+                <button @click="closeHostDrawer()"
+                        class="btn btn-ghost text-base leading-none"
+                        :title="t('actions.close') || 'Close'">✕</button>
+              </div>
+              <!-- "No data yet" banner — shows only for hosts with
+                   a provider MAPPED but probes returning nothing
+                   (status='unknown' — a real "agent running, but
+                   we can't reach it / no name match" signal).
+                   Every other no-data case (unconfigured rows, FTTH
+                   /VDSL /5G inventory entries without any agent,
+                   loading skeleton, globally-no-providers) skips the
+                   banner — the status dot + debug panel already
+                   tell the story without the extra scary yellow. -->
+              <template x-if="(h.providers || []).length === 0 && h.status === 'unknown'">
+                <div class="flex items-start gap-3 bg-[var(--surface-3)] border border-[var(--border)] rounded-md p-4 text-[12.5px] mb-4">
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-[var(--text-dim)] flex-shrink-0 mt-0.5"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+                  <div>
+                    <div class="font-semibold text-[var(--text)]" x-text="t('hosts_extra.no_data.title')"></div>
+                    <div class="text-[var(--text-dim)] mt-1"
+                         x-text="t('hosts_extra.no_data.body', { debug_label: t('debug_panel.show') })"></div>
+                  </div>
+                </div>
+              </template>
+              <!-- Drawer grid — shows whenever we have ANY data
+                   worth displaying: live providers OR an asset
+                   inventory match. Hosts with NEITHER still see the
+                   SSH card + debug panel below. Each individual
+                   section inside the grid carries its own visibility
+                   gate (asset section → assetForHost(h), HARDWARE →
+                   status==='up' || assetForHost(h), etc.) so empty
+                   rows stay tidy. Hosts whose custom_number doesn't
+                   match an asset row deliberately render NO asset
+                   card — operator wants those silent (was previously
+                   a diagnostic empty-state, now hidden per request). -->
+              <div x-show="(h.providers || []).length > 0 || assetForHost(h)"
+                   class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
+                <!-- ASSET INVENTORY (rich) — rendered FIRST so the
+                     operator sees the curated metadata before the
+                     live telemetry sections. Visible only when
+                     `assetForHost(h)` returns a populated shape;
+                     hosts without a match show nothing here. -->
+                <template x-if="assetForHost(h)">
+                  <section class="rounded border border-[var(--border)] bg-[var(--surface)] p-4 md:col-span-2 xl:col-span-4">
+                    <div class="flex items-center justify-between mb-3">
+                      <h4 class="text-[10.5px] uppercase tracking-wider text-[var(--text-faint)]"
+                          x-text="t('host_drawer.asset.heading')"></h4>
+                      <a x-show="assetEditUrl(assetForHost(h))"
+                         :href="assetEditUrl(assetForHost(h))" target="_blank" rel="noopener"
+                         class="text-[11px] text-[var(--primary)] hover:underline"
+                         :title="t('host_drawer.asset.edit_title')"
+                         x-text="t('host_drawer.asset.edit_link')"></a>
+                    </div>
+                    <dl class="grid grid-cols-[auto_1fr] gap-x-4 gap-y-2 text-[12px]">
+                      <template x-if="assetForHost(h).name">
+                        <dt class="text-[var(--text-dim)]" x-text="t('host_drawer.asset.name')"></dt>
+                      </template>
+                      <template x-if="assetForHost(h).name">
+                        <dd class="text-end break-words" x-text="assetForHost(h).name"></dd>
+                      </template>
+                      <template x-if="assetForHost(h).type">
+                        <dt class="text-[var(--text-dim)]" x-text="t('host_drawer.asset.type')"></dt>
+                      </template>
+                      <template x-if="assetForHost(h).type">
+                        <dd class="text-end break-all" x-text="assetForHost(h).type"></dd>
+                      </template>
+                      <template x-if="(assetForHost(h).hostnames || []).length">
+                        <dt class="text-[var(--text-dim)]" x-text="t('host_drawer.asset.hostnames')"></dt>
+                      </template>
+                      <template x-if="(assetForHost(h).hostnames || []).length">
+                        <dd class="text-end mono break-all">
+                          <template x-for="hn in assetForHost(h).hostnames" :key="hn">
+                            <div x-text="hn"></div>
+                          </template>
+                        </dd>
+                      </template>
+                      <template x-if="assetForHost(h).location">
+                        <dt class="text-[var(--text-dim)]" x-text="t('host_drawer.asset.location')"></dt>
+                      </template>
+                      <template x-if="assetForHost(h).location">
+                        <dd class="text-end" x-text="assetForHost(h).location"></dd>
+                      </template>
+                      <template x-if="assetForHost(h).serial">
+                        <dt class="text-[var(--text-dim)]" x-text="t('host_drawer.asset.serial')"></dt>
+                      </template>
+                      <template x-if="assetForHost(h).serial">
+                        <dd class="mono text-end break-all text-[var(--text-faint)]"
+                            x-text="assetForHost(h).serial"></dd>
+                      </template>
+                      <template x-if="assetForHost(h).sku">
+                        <dt class="text-[var(--text-dim)]" x-text="t('host_drawer.asset.sku')"></dt>
+                      </template>
+                      <template x-if="assetForHost(h).sku">
+                        <dd class="mono text-end break-all" x-text="assetForHost(h).sku"></dd>
+                      </template>
+                      <template x-if="assetForHost(h).ram">
+                        <dt class="text-[var(--text-dim)]" x-text="t('host_drawer.asset.ram')"></dt>
+                      </template>
+                      <template x-if="assetForHost(h).ram">
+                        <dd class="mono text-end" x-text="assetForHost(h).ram"></dd>
+                      </template>
+                      <template x-if="assetForHost(h).firmware">
+                        <dt class="text-[var(--text-dim)]" x-text="t('host_drawer.asset.firmware')"></dt>
+                      </template>
+                      <template x-if="assetForHost(h).firmware">
+                        <dd class="mono text-end break-all" x-text="assetForHost(h).firmware"></dd>
+                      </template>
+                      <template x-if="assetForHost(h).hardware_version">
+                        <dt class="text-[var(--text-dim)]" x-text="t('host_drawer.asset.hardware_version')"></dt>
+                      </template>
+                      <template x-if="assetForHost(h).hardware_version">
+                        <dd class="mono text-end" x-text="assetForHost(h).hardware_version"></dd>
+                      </template>
+                    </dl>
+
+                    <template x-if="(assetForHost(h).interfaces || []).length">
+                      <div class="mt-4 pt-3 border-t border-[var(--border)]">
+                        <div class="text-[10.5px] uppercase tracking-wider text-[var(--text-faint)] mb-2"
+                             x-text="t('host_drawer.asset.interfaces_heading')"></div>
+                        <div class="space-y-1.5">
+                          <template x-for="iface in assetForHost(h).interfaces" :key="iface.number + ':' + iface.name + ':' + iface.ip">
+                            <div class="grid grid-cols-[1fr_auto] gap-x-3 text-[12px]"
+                                 :class="iface.enabled ? '' : 'opacity-50'">
+                              <div class="flex items-center gap-2 min-w-0">
+                                <span x-show="iface.number != null"
+                                      class="pill pill-info text-[10px] mono"
+                                      x-text="'#' + iface.number"></span>
+                                <span class="font-semibold mono" x-text="iface.name || '—'"></span>
+                                <span x-show="iface.comment"
+                                      class="text-[10.5px] text-[var(--text-faint)] truncate"
+                                      :title="iface.comment"
+                                      x-text="'· ' + iface.comment"></span>
+                              </div>
+                              <div class="text-end mono">
+                                <span x-show="iface.ip" x-text="iface.ip"></span>
+                                <span x-show="iface.mac"
+                                      class="ms-2 text-[10.5px] text-[var(--text-faint)]"
+                                      x-text="iface.mac"></span>
+                              </div>
+                            </div>
+                          </template>
+                        </div>
+                      </div>
+                    </template>
+
+                    <template x-if="(assetForHost(h).ports || []).length">
+                      <div class="mt-4 pt-3 border-t border-[var(--border)]">
+                        <div class="text-[10.5px] uppercase tracking-wider text-[var(--text-faint)] mb-2"
+                             x-text="t('host_drawer.asset.ports_heading')"></div>
+                        <div class="flex flex-wrap gap-1.5">
+                          <!-- Every port renders as the same chip;
+                               clickable ones wrap in <a>, the rest
+                               wrap in <span>. Uniform styling so a
+                               port without a service URL is just as
+                               visible as one with — operator wanted
+                               ALL ports surfaced, not only URL ones. -->
+                          <!-- Each iteration of <template x-for>
+                               needs a SINGLE root element. Two
+                               sibling <template x-if> blocks would
+                               cause Alpine to render only the first
+                               (URL-only ports), silently dropping
+                               every non-URL port. Wrapping them in
+                               one <span> per iteration fixes it. -->
+                          <template x-for="port in assetForHost(h).ports" :key="port.id || (port.name + ':' + port.number)">
+                            <span>
+                              <a x-show="assetPortServiceUrl(port, h)"
+                                 :href="assetPortServiceUrl(port, h)" target="_blank" rel="noopener"
+                                 class="pill pill-info text-[10.5px] mono hover:underline"
+                                 :title="port.protocol || ''"
+                                 x-text="port.name + (port.number != null ? ' ' + port.number : '')"></a>
+                              <span x-show="!assetPortServiceUrl(port, h)"
+                                    class="text-[11px] mono text-[var(--text-faint)] px-1.5 py-1"
+                                    :title="port.protocol || ''"
+                                    x-text="port.name + (port.number != null ? ' ' + port.number : '')"></span>
+                            </span>
+                          </template>
+                        </div>
+                      </div>
+                    </template>
+
+                  </section>
+                </template>
+
+                <!-- SYSTEM — only the fields Beszel's agent actually
+                     reports for this host are rendered. Container-mode
+                     agents tend to skip platform / OS / kernel / arch;
+                     hiding those empty rows makes the card honest instead
+                     of full of em-dashes. -->
+                <section class="rounded border border-[var(--border)] bg-[var(--surface)] p-4">
+                  <h4 class="text-[10.5px] uppercase tracking-wider text-[var(--text-faint)] mb-3" x-text="t('host_drawer.system.heading')"></h4>
+                  <dl class="grid grid-cols-[auto_1fr] gap-x-4 gap-y-2 text-[12px]">
+                    <dt class="text-[var(--text-dim)]" x-text="t('host_drawer.system.hostname')"></dt>
+                    <dd class="mono text-end" x-text="h.host"></dd>
+                    <!-- Hide Platform when it duplicates the OS's
+                         first word (common when Pulse derived the
+                         platform hint from its ``osName``). "debian"
+                         + "debian 13.4" reads as a single row now. -->
+                    <template x-if="h.platform && !(h.os && h.os.toLowerCase().startsWith(h.platform.toLowerCase()))">
+                      <dt class="text-[var(--text-dim)]" x-text="t('host_drawer.system.platform')"></dt>
+                    </template>
+                    <template x-if="h.platform && !(h.os && h.os.toLowerCase().startsWith(h.platform.toLowerCase()))">
+                      <dd class="text-end" x-text="h.platform"></dd>
+                    </template>
+                    <template x-if="h.os">
+                      <dt class="text-[var(--text-dim)]" x-text="t('host_drawer.system.os')"></dt>
+                    </template>
+                    <template x-if="h.os">
+                      <dd class="text-end" x-text="h.os"></dd>
+                    </template>
+                    <template x-if="h.kernel">
+                      <dt class="text-[var(--text-dim)]" x-text="t('host_drawer.system.kernel')"></dt>
+                    </template>
+                    <template x-if="h.kernel">
+                      <dd class="mono text-end break-all" x-text="h.kernel"></dd>
+                    </template>
+                    <template x-if="h.arch">
+                      <dt class="text-[var(--text-dim)]" x-text="t('host_drawer.system.arch')"></dt>
+                    </template>
+                    <template x-if="h.arch">
+                      <dd class="mono text-end" x-text="h.arch"></dd>
+                    </template>
+                    <dt class="text-[var(--text-dim)]" x-text="t('host_drawer.system.uptime')"></dt>
+                    <dd class="mono text-end" x-text="fmtUptimeShort(h.uptime_s)"></dd>
+                    <template x-if="h.docker_node">
+                      <dt class="text-[var(--text-dim)]" x-text="t('host_drawer.system.docker_node')"></dt>
+                    </template>
+                    <template x-if="h.docker_node">
+                      <dd class="mono text-end" x-text="h.docker_node"></dd>
+                    </template>
+                    <!-- DMI / hardware identity — populated only when
+                         node-exporter scraped `node_dmi_info` on a
+                         physical / VM host (containers usually skip
+                         the DMI collector). Vendor + product identify
+                         the actual box (e.g. "QOTOM Q555G6"); BIOS
+                         version is useful for firmware audit; serial
+                         shown last + muted because most operators
+                         treat it as private. -->
+                    <template x-if="h.dmi_vendor">
+                      <dt class="text-[var(--text-dim)]" x-text="t('host_drawer.system.vendor')"></dt>
+                    </template>
+                    <template x-if="h.dmi_vendor">
+                      <dd class="text-end break-all" x-text="h.dmi_vendor"></dd>
+                    </template>
+                    <template x-if="h.dmi_product">
+                      <dt class="text-[var(--text-dim)]" x-text="t('host_drawer.system.product')"></dt>
+                    </template>
+                    <template x-if="h.dmi_product">
+                      <dd class="text-end break-all" x-text="h.dmi_product"></dd>
+                    </template>
+                    <template x-if="h.dmi_bios_version">
+                      <dt class="text-[var(--text-dim)]" x-text="t('host_drawer.system.bios_version')"></dt>
+                    </template>
+                    <template x-if="h.dmi_bios_version">
+                      <dd class="mono text-end break-all" x-text="h.dmi_bios_version"></dd>
+                    </template>
+                    <template x-if="h.dmi_serial">
+                      <dt class="text-[var(--text-dim)]" x-text="t('host_drawer.system.serial')"></dt>
+                    </template>
+                    <template x-if="h.dmi_serial">
+                      <dd class="mono text-end break-all text-[var(--text-faint)]" x-text="h.dmi_serial"></dd>
+                    </template>
+                    <!-- Proxmox metadata from Pulse — shows VM/LXC
+                         identity and the PVE host it runs on so the
+                         operator can tell apart two guests with
+                         similar names (e.g. docker, docker-dev). -->
+                    <template x-if="h.pulse_kind">
+                      <dt class="text-[var(--text-dim)]" x-text="t('host_drawer.system.proxmox')"></dt>
+                    </template>
+                    <template x-if="h.pulse_kind">
+                      <dd class="mono text-end">
+                        <span x-text="h.pulse_kind === 'lxc' ? t('host_drawer.proxmox_kind.lxc')
+                                     : h.pulse_kind === 'qemu' ? t('host_drawer.proxmox_kind.qemu')
+                                     : h.pulse_kind === 'node' ? t('host_drawer.proxmox_kind.node')
+                                     : (h.pulse_kind || '').toUpperCase()"></span>
+                        <span x-show="h.pulse_vmid" class="text-[var(--text-faint)]"
+                              x-text="' #' + h.pulse_vmid"></span>
+                        <span x-show="h.pulse_node && h.pulse_kind !== 'node'" class="text-[var(--text-faint)]"
+                              x-text="' · on ' + h.pulse_node"></span>
+                      </dd>
+                    </template>
+                    <!-- URL row — always visible. Clickable link when
+                         populated, "+ Add" deep-link to Admin → Hosts
+                         when empty, matching Beszel's affordance. -->
+                    <dt class="text-[var(--text-dim)]" x-text="t('host_drawer.system.url')"></dt>
+                    <dd class="text-end">
+                      <a x-show="h.url" :href="h.url" target="_blank" rel="noopener"
+                         class="text-[var(--primary)] hover:underline mono" x-text="h.url"></a>
+                      <a x-show="!h.url" href="/admin/hosts"
+                         class="text-[var(--primary)] hover:underline" x-text="t('host_drawer.system.add_url')"></a>
+                    </dd>
+                  </dl>
+                </section>
+
+                <!-- HARDWARE — same honest-fields rule. CPU model /
+                     Cores come from the host-daemon agent; container
+                     agents omit them. Threads / Memory / Disk / Agent /
+                     Status are always emitted, so they always render.
+                     Card visible when EITHER the host is up (live
+                     metrics) OR an asset-inventory match exists
+                     (vendor / model / serial from oufa.co — useful
+                     even for hosts with no live providers like FTTH
+                     routers / 5G modems). Each row inside is gated
+                     on its own field so cards stay tidy when only
+                     one source contributes data. -->
+                <section x-show="h.status === 'up' || assetForHost(h)" class="rounded border border-[var(--border)] bg-[var(--surface)] p-4">
+                  <h4 class="text-[10.5px] uppercase tracking-wider text-[var(--text-faint)] mb-3" x-text="t('host_drawer.hardware.heading')"></h4>
+                  <dl class="grid grid-cols-[auto_1fr] gap-x-4 gap-y-2 text-[12px]">
+                    <template x-if="h.cpu_model">
+                      <dt class="text-[var(--text-dim)]" x-text="t('host_drawer.hardware.cpu')"></dt>
+                    </template>
+                    <template x-if="h.cpu_model">
+                      <dd class="text-end mono break-all" x-text="h.cpu_model"></dd>
+                    </template>
+                    <template x-if="h.cores">
+                      <dt class="text-[var(--text-dim)]" x-text="t('host_drawer.hardware.cores')"></dt>
+                    </template>
+                    <template x-if="h.cores">
+                      <dd class="mono text-end" x-text="h.cores"></dd>
+                    </template>
+                    <template x-if="h.threads">
+                      <dt class="text-[var(--text-dim)]" x-text="t('host_drawer.hardware.threads')"></dt>
+                    </template>
+                    <template x-if="h.threads">
+                      <dd class="mono text-end" x-text="h.threads"></dd>
+                    </template>
+                    <template x-if="h.mem_total">
+                      <dt class="text-[var(--text-dim)]" x-text="t('host_drawer.hardware.memory')"></dt>
+                    </template>
+                    <template x-if="h.mem_total">
+                      <dd class="mono text-end" x-text="fmtBytes(h.mem_total)"></dd>
+                    </template>
+                    <template x-if="h.disk_total">
+                      <dt class="text-[var(--text-dim)]" x-text="t('host_drawer.hardware.disk')"></dt>
+                    </template>
+                    <template x-if="h.disk_total">
+                      <dd class="mono text-end" x-text="fmtBytes(h.disk_total)"></dd>
+                    </template>
+                    <template x-if="h.agent">
+                      <dt class="text-[var(--text-dim)]"
+                          :title="t('host_drawer.hardware.beszel_agent_title')"
+                          x-text="t('host_drawer.hardware.beszel_agent')"></dt>
+                    </template>
+                    <template x-if="h.agent">
+                      <dd class="mono text-end" x-text="h.agent"></dd>
+                    </template>
+                    <!-- Load averages — three windows (1m / 5m / 15m)
+                         rendered as percentages of total CPU capacity
+                         (load ÷ cores × 100). Each labelled inline so
+                         the operator doesn't have to remember which
+                         number is which window. Falls back to raw
+                         load when core count is unknown (rare — only
+                         when the live providers haven't reported it
+                         yet). Populated only when node-exporter
+                         scraped this host. -->
+                    <template x-if="(h.load_1m || 0) > 0 || (h.load_5m || 0) > 0 || (h.load_15m || 0) > 0">
+                      <dt class="text-[var(--text-dim)]"
+                          :title="t('host_drawer.hardware.load_title')"
+                          x-text="t('host_drawer.hardware.load')"></dt>
+                    </template>
+                    <template x-if="(h.load_1m || 0) > 0 || (h.load_5m || 0) > 0 || (h.load_15m || 0) > 0">
+                      <dd class="mono text-end"
+                          x-text="(h.cores && h.cores > 0)
+                            ? ('1m ' + (((h.load_1m || 0) / h.cores) * 100).toFixed(0) + '%'
+                               + ' · 5m ' + (((h.load_5m || 0) / h.cores) * 100).toFixed(0) + '%'
+                               + ' · 15m ' + (((h.load_15m || 0) / h.cores) * 100).toFixed(0) + '%')
+                            : ('1m ' + (h.load_1m || 0).toFixed(2)
+                               + ' · 5m ' + (h.load_5m || 0).toFixed(2)
+                               + ' · 15m ' + (h.load_15m || 0).toFixed(2))"></dd>
+                    </template>
+                    <!-- Asset inventory rows (ticket #78 follow-up).
+                         Matched by h.custom_number against the cached
+                         oufa.co asset list. Each row gated on its own
+                         field so hosts without that data stay tidy.
+                         Distinct from DMI so operators can spot when
+                         the DB record ≠ what node-exporter reports
+                         on the box (manufacturer mismatch / swap
+                         wasn't recorded upstream). Title tooltip
+                         explains the source. -->
+                    <template x-if="assetForHost(h) && assetForHost(h).vendor">
+                      <dt class="text-[var(--text-dim)]"
+                          :title="t('host_drawer.hardware.asset_title')"
+                          x-text="t('host_drawer.hardware.asset_vendor')"></dt>
+                    </template>
+                    <template x-if="assetForHost(h) && assetForHost(h).vendor">
+                      <dd class="text-end break-all" x-text="assetForHost(h).vendor"></dd>
+                    </template>
+                    <template x-if="assetForHost(h) && assetForHost(h).model">
+                      <dt class="text-[var(--text-dim)]"
+                          :title="t('host_drawer.hardware.asset_title')"
+                          x-text="t('host_drawer.hardware.asset_model')"></dt>
+                    </template>
+                    <template x-if="assetForHost(h) && assetForHost(h).model">
+                      <dd class="text-end break-all" x-text="assetForHost(h).model"></dd>
+                    </template>
+                    <template x-if="assetForHost(h) && assetForHost(h).serial">
+                      <dt class="text-[var(--text-dim)]"
+                          :title="t('host_drawer.hardware.asset_title')"
+                          x-text="t('host_drawer.hardware.asset_serial')"></dt>
+                    </template>
+                    <template x-if="assetForHost(h) && assetForHost(h).serial">
+                      <dd class="mono text-end break-all text-[var(--text-faint)]"
+                          x-text="assetForHost(h).serial"></dd>
+                    </template>
+                    <dt class="text-[var(--text-dim)]" x-text="t('host_drawer.hardware.status')"></dt>
+                    <dd class="text-end">
+                      <span class="pill text-[10.5px]"
+                            :class="h.status === 'up' ? 'pill-ok' : h.status === 'down' ? 'pill-error' : 'pill-unknown'"
+                            x-text="h.status"></span>
+                    </dd>
+                  </dl>
+                </section>
+
+                <!-- NETWORK — each interface rendered as a block with
+                     its MAC (muted) and IPv4 / IPv6 addresses colour-
+                     coded by family. Matches Beszel's own layout so
+                     the operator's eye reads the two UIs the same way. -->
+                <section x-show="(h.network_ifaces || []).length > 0 || h.bandwidth"
+                         class="rounded border border-[var(--border)] bg-[var(--surface)] p-4">
+                  <h4 class="text-[10.5px] uppercase tracking-wider text-[var(--text-faint)] mb-3" x-text="t('host_drawer.network.heading')"></h4>
+                  <div class="space-y-3">
+                    <div x-show="h.bandwidth" class="flex items-center justify-between text-[12px]">
+                      <span class="text-[var(--text-dim)]" x-text="t('host_drawer.network.bandwidth')"></span>
+                      <span class="mono" x-text="fmtBytes(h.bandwidth) + '/s'"></span>
+                    </div>
+                    <template x-for="(iface, i) in (h.network_ifaces || [])" :key="i">
+                      <div class="space-y-1.5">
+                        <!-- Interface header: name (bold) + MAC (muted).
+                             Fallback: older agents only gave a name. -->
+                        <div class="flex items-baseline gap-2 flex-wrap">
+                          <span class="font-semibold text-[12.5px] mono"
+                                x-text="typeof iface === 'string' ? iface : iface.name"></span>
+                          <span x-show="typeof iface === 'object' && iface.mac"
+                                class="ip-chip ip-chip--mac"
+                                x-text="iface.mac"></span>
+                        </div>
+                        <!-- Addresses — blue chip for IPv4, violet for IPv6. -->
+                        <div x-show="typeof iface === 'object' && (iface.addrs || []).length"
+                             class="flex flex-wrap gap-1.5">
+                          <template x-for="a in (typeof iface === 'object' ? (iface.addrs || []) : [])" :key="a">
+                            <span class="ip-chip"
+                                  :class="a.includes(':') ? 'ip-chip--v6' : 'ip-chip--v4'"
+                                  x-text="a"></span>
+                          </template>
+                        </div>
+                      </div>
+                    </template>
+                  </div>
+                </section>
+
+                <!-- DISKS — always rendered when we have at least the
+                     aggregate disk total from Beszel / Pulse / node-
+                     exporter. Starts with a "Total Usage" bar (the
+                     merged host_disk_total/used from whichever
+                     provider reported it), then drops in per-mount
+                     bars under ``efs`` when the newer Beszel agent
+                     emits them. This keeps the card informative for
+                     container-mode Beszel agents (which skip ``efs``)
+                     while still showing richer detail for full-host
+                     agents. -->
+                <section x-show="h.disk_total > 0 || (h.mounts || []).length > 0"
+                         class="rounded border border-[var(--border)] bg-[var(--surface)] p-4">
+                  <h4 class="text-[10.5px] uppercase tracking-wider text-[var(--text-faint)] mb-3" x-text="t('host_drawer.disks.heading')"></h4>
+                  <div class="space-y-3">
+                    <!-- Total usage row — single-colour aggregate bar.
+                         Per-mount rows below give the breakdown; the
+                         segmented rendering now lives on the
+                         collapsed host row's small disk column
+                         instead (see the Disk column in the grid
+                         row). Keeps the expanded DISKS card matching
+                         Beszel's reference layout. -->
+                    <div x-show="h.disk_total > 0">
+                      <div class="flex items-baseline justify-between">
+                        <span class="text-[11.5px] text-[var(--text-dim)] font-semibold" x-text="t('host_drawer.disks.total_usage')"></span>
+                        <span class="text-[10.5px] text-[var(--text-faint)] mono"
+                              x-text="diskPercentOf(h).toFixed(1) + '% · '
+                                      + fmtBytes(h.disk_used) + ' / '
+                                      + fmtBytes(h.disk_total)"></span>
+                      </div>
+                      <div class="stat-bar mt-1"
+                           :class="barLevel(diskPercentOf(h))"
+                           :style="'--w: ' + diskPercentOf(h) + '%'">
+                        <div class="fill"></div>
+                      </div>
+                    </div>
+                    <!-- Per-mount breakdown (when stats.efs was
+                         populated — full-host Beszel agents only).
+                         Zero-usage mounts collapse behind a toggle
+                         to keep hosts with many ZFS datasets readable
+                         the card). visibleMounts(h) returns the
+                         above-threshold set; toggleHostShowEmptyDisks
+                         expands to show the remainder. -->
+                    <template x-for="(m, i) in visibleMounts(h)" :key="i">
+                      <div class="disk-mount-row">
+                        <div class="flex items-baseline justify-between">
+                          <span class="text-[11.5px] mono truncate" x-text="m.n || m.name || '(disk)'"></span>
+                          <span class="text-[10.5px] text-[var(--text-faint)] mono"
+                                x-text="m.d && m.du
+                                        ? (m.dp || 0).toFixed(1) + '% · '
+                                          + fmtBytes((m.du || 0) * 1024**3) + ' / '
+                                          + fmtBytes((m.d || 0) * 1024**3)
+                                        : ''"></span>
+                        </div>
+                        <div class="stat-bar mt-0.5"
+                             :class="barLevel(m.dp || 0)"
+                             :style="'--w: ' + (m.dp || 0) + '%'">
+                          <div class="fill"></div>
+                        </div>
+                      </div>
+                    </template>
+                    <!-- Show-empty toggle when there are zero-usage
+                         mounts hiding. Clicking expands (or collapses)
+                         them for this host only. -->
+                    <button type="button"
+                            x-show="emptyMountCount(h) > 0"
+                            @click="toggleHostShowEmptyDisks(h.host)"
+                            class="text-[10.5px] text-[var(--text-faint)] hover:text-[var(--primary)] hover:underline w-full text-start pt-1 mono">
+                      <span x-show="!hostDisksShowEmpty[h.host]"
+                            x-text="emptyMountCount(h) === 1 ? t('host_drawer.disks.show_empty_one') : t('host_drawer.disks.show_empty_many', { count: emptyMountCount(h) })"></span>
+                      <span x-show="hostDisksShowEmpty[h.host]"
+                            x-text="emptyMountCount(h) === 1 ? t('host_drawer.disks.hide_empty_one') : t('host_drawer.disks.hide_empty_many', { count: emptyMountCount(h) })"></span>
+                    </button>
+                  </div>
+                </section>
+
+                <!-- UPDATES — only rendered when Webmin reported
+                     pending packages. Informational in Phase 1; a
+                     later phase may link to a full package list. -->
+                <section x-show="(h.updates_pending || 0) > 0"
+                         class="rounded border border-[var(--border)] bg-[var(--surface)] p-4">
+                  <h4 class="text-[10.5px] uppercase tracking-wider text-[var(--text-faint)] mb-3" x-text="t('host_drawer.updates.heading')"></h4>
+                  <dl class="grid grid-cols-[auto_1fr] gap-x-4 gap-y-2 text-[12px]">
+                    <dt class="text-[var(--text-dim)]" x-text="t('host_drawer.updates.pending')"></dt>
+                    <dd class="mono text-end" x-text="h.updates_pending"></dd>
+                    <template x-if="(h.updates_security || 0) > 0">
+                      <dt class="text-[var(--text-dim)]" x-text="t('host_drawer.updates.security')"></dt>
+                    </template>
+                    <template x-if="(h.updates_security || 0) > 0">
+                      <dd class="text-end">
+                        <span class="pill pill-degraded text-[10.5px]"
+                              x-text="t('host_drawer.updates.security_count', { count: h.updates_security })"></span>
+                      </dd>
+                    </template>
+                    <dt class="text-[var(--text-dim)]" x-text="t('host_drawer.updates.source')"></dt>
+                    <dd class="mono text-end text-[var(--text-faint)]">Webmin</dd>
+                  </dl>
+                </section>
+              </div>
+
+              <!-- Time-range picker — segmented buttons, mirrors img_8's
+                   Beszel look. Each button rewrites the range + reloads
+                   every expanded host's history. Hidden when Beszel
+                   didn't match this host; the charts section below
+                   falls back to a "history only available via Beszel"
+                   note in that case. Whole section hides when no
+                   provider matched — the "No data" banner above +
+                   Debug panel below do the talking. -->
+              <div class="mt-4 flex items-center gap-2" x-show="h.beszel_id && h.status === 'up' && (h.providers || []).length > 0">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-[var(--text-dim)]"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+                <div class="range-seg">
+                  <button type="button" :class="hostHistoryRange === 1 ? 'active' : ''"
+                          @click="setHostHistoryRange(1)">1h</button>
+                  <button type="button" :class="hostHistoryRange === 6 ? 'active' : ''"
+                          @click="setHostHistoryRange(6)">6h</button>
+                  <button type="button" :class="hostHistoryRange === 24 ? 'active' : ''"
+                          @click="setHostHistoryRange(24)">24h</button>
+                  <button type="button" :class="hostHistoryRange === 168 ? 'active' : ''"
+                          @click="setHostHistoryRange(168)">7d</button>
+                </div>
+              </div>
+              <div x-show="!h.beszel_id && h.status === 'up' && (h.providers || []).length > 0" class="mt-4 text-[11.5px] text-[var(--text-faint)] italic">
+                Time-series charts are sourced from Beszel. Link this
+                host to a Beszel system in
+                <a href="/admin/hosts" class="text-[var(--primary)] hover:underline">Admin → Hosts</a>
+                to see CPU / Memory / Disk / Net history here.
+              </div>
+
+              <!-- Metric cards — Beszel-style. Three percentage charts
+                   (CPU / Memory / Disk) in a 3-col grid, then Net In /
+                   Net Out side by side beneath. Axis labels live
+                   outside the SVG so the polyline can stretch edge to
+                   edge and still read at a glance. Whole grid hides
+                   when no provider matched — the "Collecting data…"
+                   placeholders are misleading for hosts that never had
+                   a provider mapping. -->
+              <!-- Chart grid: only renders when Beszel matched AND
+                   returned history. Hosts that have ONLY node-exporter
+                   (no beszel_id) get the "link to Beszel" hint above
+                   instead of an empty "Collecting data…" grid. -->
+              <div class="mt-3 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4"
+                   x-show="h.beszel_id && h.status === 'up' && (h.providers || []).length > 0">
+                <!-- CPU % -->
+                <div class="metric-card metric-card--cpu">
+                  <div class="metric-card-head">
+                    <div class="metric-card-title">CPU<span class="unit">%</span></div>
+                    <div class="metric-card-stats"
+                         x-show="hostMetricStats(h.beszel_id, 'cpu')">
+                      <span>Min <span class="min-val" x-text="hostMetricStats(h.beszel_id, 'cpu') ? hostMetricStats(h.beszel_id, 'cpu').min : ''"></span></span>
+                      <span>Max <span class="max-val" x-text="hostMetricStats(h.beszel_id, 'cpu') ? hostMetricStats(h.beszel_id, 'cpu').max : ''"></span></span>
+                    </div>
+                  </div>
+                  <template x-if="hostChart(h.beszel_id, 'cpu', { min: 0, max: 100 })">
+                    <div class="metric-card-body">
+                      <div class="metric-y-axis">
+                        <template x-for="(l, i) in yAxisPercent()" :key="i">
+                          <span x-text="l"></span>
+                        </template>
+                      </div>
+                      <svg class="metric-svg" viewBox="0 0 420 120" preserveAspectRatio="none">
+                        <template x-for="(tk, i) in hostChart(h.beszel_id, 'cpu', { min: 0, max: 100 }).ticks" :key="i">
+                          <line class="metric-grid" x1="0" x2="420" :y1="tk.y * 1.2" :y2="tk.y * 1.2"/>
+                        </template>
+                        <path class="metric-area" :d="hostChart(h.beszel_id, 'cpu', { min: 0, max: 100, height: 120 }).area"/>
+                        <polyline class="metric-line" :points="hostChart(h.beszel_id, 'cpu', { min: 0, max: 100, height: 120 }).points"/>
+                      </svg>
+                      <div class="metric-x-axis">
+                        <template x-for="(l, i) in xAxisFromSeries(h.beszel_id, 5)" :key="i">
+                          <span x-text="l"></span>
+                        </template>
+                      </div>
+                    </div>
+                  </template>
+                  <template x-if="!hostChart(h.beszel_id, 'cpu', { min: 0, max: 100 })">
+                    <div class="collecting-block">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+                      <div>
+                        <div x-text="t('loading.collecting_data')"></div>
+                        <div class="text-[10.5px] text-[var(--text-faint)] not-italic mt-0.5" x-text="t('loading.history_will_appear')"></div>
+                      </div>
+                    </div>
+                  </template>
+                </div>
+
+                <!-- Memory % -->
+                <div class="metric-card metric-card--mem">
+                  <div class="metric-card-head">
+                    <div class="metric-card-title">Memory<span class="unit">%</span></div>
+                    <div class="metric-card-stats"
+                         x-show="hostMetricStats(h.beszel_id, 'mp')">
+                      <span>Min <span class="min-val" x-text="hostMetricStats(h.beszel_id, 'mp') ? hostMetricStats(h.beszel_id, 'mp').min : ''"></span></span>
+                      <span>Max <span class="max-val" x-text="hostMetricStats(h.beszel_id, 'mp') ? hostMetricStats(h.beszel_id, 'mp').max : ''"></span></span>
+                    </div>
+                  </div>
+                  <template x-if="hostChart(h.beszel_id, 'mp', { min: 0, max: 100 })">
+                    <div class="metric-card-body">
+                      <div class="metric-y-axis">
+                        <template x-for="(l, i) in yAxisPercent()" :key="i">
+                          <span x-text="l"></span>
+                        </template>
+                      </div>
+                      <svg class="metric-svg" viewBox="0 0 420 120" preserveAspectRatio="none">
+                        <path class="metric-area" :d="hostChart(h.beszel_id, 'mp', { min: 0, max: 100, height: 120 }).area"/>
+                        <polyline class="metric-line" :points="hostChart(h.beszel_id, 'mp', { min: 0, max: 100, height: 120 }).points"/>
+                      </svg>
+                      <div class="metric-x-axis">
+                        <template x-for="(l, i) in xAxisFromSeries(h.beszel_id, 5)" :key="i">
+                          <span x-text="l"></span>
+                        </template>
+                      </div>
+                    </div>
+                  </template>
+                  <template x-if="!hostChart(h.beszel_id, 'mp', { min: 0, max: 100 })">
+                    <div class="collecting-block">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+                      <div>
+                        <div x-text="t('loading.collecting_data')"></div>
+                      </div>
+                    </div>
+                  </template>
+                </div>
+
+                <!-- Disk % -->
+                <div class="metric-card metric-card--disk">
+                  <div class="metric-card-head">
+                    <div class="metric-card-title">Disk<span class="unit">%</span></div>
+                    <div class="metric-card-stats"
+                         x-show="hostMetricStats(h.beszel_id, 'dp')">
+                      <span>Min <span class="min-val" x-text="hostMetricStats(h.beszel_id, 'dp') ? hostMetricStats(h.beszel_id, 'dp').min : ''"></span></span>
+                      <span>Max <span class="max-val" x-text="hostMetricStats(h.beszel_id, 'dp') ? hostMetricStats(h.beszel_id, 'dp').max : ''"></span></span>
+                    </div>
+                  </div>
+                  <template x-if="hostChart(h.beszel_id, 'dp', { min: 0, max: 100 })">
+                    <div class="metric-card-body">
+                      <div class="metric-y-axis">
+                        <template x-for="(l, i) in yAxisPercent()" :key="i">
+                          <span x-text="l"></span>
+                        </template>
+                      </div>
+                      <svg class="metric-svg" viewBox="0 0 420 120" preserveAspectRatio="none">
+                        <path class="metric-area" :d="hostChart(h.beszel_id, 'dp', { min: 0, max: 100, height: 120 }).area"/>
+                        <polyline class="metric-line" :points="hostChart(h.beszel_id, 'dp', { min: 0, max: 100, height: 120 }).points"/>
+                      </svg>
+                      <div class="metric-x-axis">
+                        <template x-for="(l, i) in xAxisFromSeries(h.beszel_id, 5)" :key="i">
+                          <span x-text="l"></span>
+                        </template>
+                      </div>
+                    </div>
+                  </template>
+                  <template x-if="!hostChart(h.beszel_id, 'dp', { min: 0, max: 100 })">
+                    <div class="collecting-block">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+                      <div>
+                        <div x-text="t('loading.collecting_data')"></div>
+                      </div>
+                    </div>
+                  </template>
+                </div>
+              </div>
+
+              <!-- Net In / Net Out — split into two cards, each auto-
+                   ranged against its own peak. Newer Beszel emits
+                   ``nr`` (recv) / ``ns`` (send) separately; older
+                   versions fold both into ``b`` so the second card
+                   stays empty with a "collecting…" placeholder if only
+                   ``b`` is present. Whole grid hidden for hosts
+                   without Beszel (same gate as the main CPU/Mem/Disk
+                   grid above — the Beszel-only chart source has
+                   nothing to chart for NE-only hosts). -->
+              <div class="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4"
+                   x-show="h.beszel_id && h.status === 'up' && (h.providers || []).length > 0">
+                <!-- Net In — collapses to a single-line "no activity"
+                     state when the peak is zero (most homelab hosts
+                     sit near zero between bursts), so the card
+                     doesn't take up a full panel showing nothing. -->
+                <div class="metric-card metric-card--net"
+                     :class="(hostMetricStats(h.beszel_id, 'nr', false) && hostMetricStats(h.beszel_id, 'nr', false).maxRaw === 0) ? 'metric-card--flat' : ''">
+                  <div class="metric-card-head">
+                    <div class="metric-card-title">Net In<span class="unit">B/s</span></div>
+                    <div class="metric-card-stats"
+                         x-show="hostMetricStats(h.beszel_id, 'nr', false)">
+                      <span>Min <span class="min-val" x-text="hostMetricStats(h.beszel_id, 'nr', false) ? hostMetricStats(h.beszel_id, 'nr', false).min : ''"></span></span>
+                      <span>Max <span class="max-val" x-text="hostMetricStats(h.beszel_id, 'nr', false) ? hostMetricStats(h.beszel_id, 'nr', false).max : ''"></span></span>
+                    </div>
+                  </div>
+                  <template x-if="hostChart(h.beszel_id, 'nr') && !isNetSeriesFlat(h.beszel_id, 'nr')">
+                    <div class="metric-card-body">
+                      <div class="metric-y-axis">
+                        <template x-for="(l, i) in yAxisAuto(hostChart(h.beszel_id, 'nr').max, _fmtAxisBytes)" :key="i">
+                          <span x-text="l"></span>
+                        </template>
+                      </div>
+                      <svg class="metric-svg" viewBox="0 0 420 120" preserveAspectRatio="none">
+                        <path class="metric-area" :d="hostChart(h.beszel_id, 'nr', { height: 120 }).area"/>
+                        <polyline class="metric-line" :points="hostChart(h.beszel_id, 'nr', { height: 120 }).points"/>
+                      </svg>
+                      <div class="metric-x-axis">
+                        <template x-for="(l, i) in xAxisFromSeries(h.beszel_id, 5)" :key="i">
+                          <span x-text="l"></span>
+                        </template>
+                      </div>
+                    </div>
+                  </template>
+                  <!-- Agent-not-tracking-NICs hint. Fires when the series
+                       IS populated but every point is 0 — almost always
+                       means the Beszel agent lacks NICS=<iface> in env.
+                       Actionable copy beats a flat grey card. -->
+                  <template x-if="hostChart(h.beszel_id, 'nr') && isNetSeriesFlat(h.beszel_id, 'nr')">
+                    <div class="collecting-block">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+                      <div>
+                        <div x-text="t('hosts_extra.net_inactive.title')"></div>
+                        <div class="text-[10.5px] text-[var(--text-faint)] mt-1"
+                             x-html="t('hosts_extra.net_inactive.body_in', {
+                               code: '<code class=\'mono text-[var(--text-dim)]\'>NICS=eth0</code>',
+                               ipcmd: '<code class=\'mono text-[var(--text-dim)]\'>ip a</code>'
+                             })"></div>
+                      </div>
+                    </div>
+                  </template>
+                  <template x-if="!hostChart(h.beszel_id, 'nr')">
+                    <div class="collecting-block">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+                      <div>
+                        <div x-text="t('loading.collecting_data')"></div>
+                      </div>
+                    </div>
+                  </template>
+                </div>
+
+                <!-- Net Out — same flat-signal collapse as Net In. -->
+                <div class="metric-card metric-card--net-out"
+                     :class="(hostMetricStats(h.beszel_id, 'ns', false) && hostMetricStats(h.beszel_id, 'ns', false).maxRaw === 0) ? 'metric-card--flat' : ''">
+                  <div class="metric-card-head">
+                    <div class="metric-card-title">Net Out<span class="unit">B/s</span></div>
+                    <div class="metric-card-stats"
+                         x-show="hostMetricStats(h.beszel_id, 'ns', false)">
+                      <span>Min <span class="min-val" x-text="hostMetricStats(h.beszel_id, 'ns', false) ? hostMetricStats(h.beszel_id, 'ns', false).min : ''"></span></span>
+                      <span>Max <span class="max-val" x-text="hostMetricStats(h.beszel_id, 'ns', false) ? hostMetricStats(h.beszel_id, 'ns', false).max : ''"></span></span>
+                    </div>
+                  </div>
+                  <template x-if="hostChart(h.beszel_id, 'ns') && !isNetSeriesFlat(h.beszel_id, 'ns')">
+                    <div class="metric-card-body">
+                      <div class="metric-y-axis">
+                        <template x-for="(l, i) in yAxisAuto(hostChart(h.beszel_id, 'ns').max, _fmtAxisBytes)" :key="i">
+                          <span x-text="l"></span>
+                        </template>
+                      </div>
+                      <svg class="metric-svg" viewBox="0 0 420 120" preserveAspectRatio="none">
+                        <path class="metric-area" :d="hostChart(h.beszel_id, 'ns', { height: 120 }).area"/>
+                        <polyline class="metric-line" :points="hostChart(h.beszel_id, 'ns', { height: 120 }).points"/>
+                      </svg>
+                      <div class="metric-x-axis">
+                        <template x-for="(l, i) in xAxisFromSeries(h.beszel_id, 5)" :key="i">
+                          <span x-text="l"></span>
+                        </template>
+                      </div>
+                    </div>
+                  </template>
+                  <template x-if="hostChart(h.beszel_id, 'ns') && isNetSeriesFlat(h.beszel_id, 'ns')">
+                    <div class="collecting-block">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+                      <div>
+                        <div x-text="t('hosts_extra.net_inactive.title')"></div>
+                        <div class="text-[10.5px] text-[var(--text-faint)] mt-1"
+                             x-html="t('hosts_extra.net_inactive.body_out', {
+                               code: '<code class=\'mono text-[var(--text-dim)]\'>NICS=eth0</code>'
+                             })"></div>
+                      </div>
+                    </div>
+                  </template>
+                  <template x-if="!hostChart(h.beszel_id, 'ns')">
+                    <div class="collecting-block">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+                      <div>
+                        <div x-text="t('loading.collecting_data')"></div>
+                      </div>
+                    </div>
+                  </template>
+                </div>
+              </div>
+
+              <!-- Admin-only debug panel — side-by-side JSON blobs for
+                   each provider's raw response, the normalized extract,
+                   the merged best-of dict, and the rendered API payload
+                   the UI consumes. Collapsed by default; first open
+                   triggers a lazy fetch. Useful for spotting dropped
+                   fields / shape mismatches without grepping logs.
+                   Operator-toggled in Admin → Hosts (settings.debug_panel_enabled);
+                   default true preserves legacy visibility. -->
+              <template x-if="me && me.role === 'admin' && (settings && settings.debug_panel_enabled !== false)">
+                <div class="host-debug-panel">
+                  <button type="button"
+                          class="host-debug-toggle"
+                          @click="toggleHostDebug(h.id)"
+                          :aria-expanded="hostsDebugOpen[h.id] ? 'true' : 'false'">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="flip-rtl"
+                         :style="hostsDebugOpen[h.id] ? 'transform: rotate(90deg)' : ''">
+                      <polyline points="9 18 15 12 9 6"/>
+                    </svg>
+                    <span x-text="hostsDebugOpen[h.id] ? t('debug_panel.hide') : t('debug_panel.show')"></span>
+                    <span class="host-debug-hint" x-show="!hostsDebugOpen[h.id]" x-text="t('debug_panel.hint')"></span>
+                  </button>
+                  <div x-show="hostsDebugOpen[h.id]" class="host-debug-body">
+                    <template x-if="hostsDebugLoading[h.id]">
+                      <div class="host-debug-loading">
+                        <span class="spin-lg" aria-hidden="true"></span>
+                        <span x-text="t('debug_panel.probing')"></span>
+                      </div>
+                    </template>
+                    <template x-if="!hostsDebugLoading[h.id] && hostsDebug[h.id] && hostsDebug[h.id]._error">
+                      <div class="host-debug-error" x-text="'Error: ' + hostsDebug[h.id]._error"></div>
+                    </template>
+                    <template x-if="!hostsDebugLoading[h.id] && hostsDebug[h.id] && !hostsDebug[h.id]._error">
+                      <div class="host-debug-content">
+                        <div class="host-debug-toolbar">
+                          <div class="host-debug-meta">
+                            <span x-text="t('debug_panel.active_providers')"></span>
+                            <template x-for="p in (hostsDebug[h.id].active_providers || [])" :key="p">
+                              <span class="host-debug-tag" x-text="p"></span>
+                            </template>
+                            <template x-if="(hostsDebug[h.id].active_providers || []).length === 0">
+                              <span class="host-debug-tag host-debug-tag--warn" x-text="t('debug_panel.none')"></span>
+                            </template>
+                          </div>
+                          <button type="button" class="btn btn-ghost text-[11px]"
+                                  @click="loadHostDebug(h.id)"
+                                  :disabled="!!hostsDebugLoading[h.id]"
+                                  :title="t('debug_panel.refresh_title')"
+                                  x-text="t('debug_panel.refresh')"></button>
+                        </div>
+                        <!-- Five columns wrap to two rows on narrow
+                             viewports. Each block is independently
+                             scrollable so a huge raw dump doesn't push
+                             the others off-screen. -->
+                        <div class="host-debug-grid">
+                          <section class="host-debug-box" x-show="hasDebugData(hostsDebug[h.id].providers_raw?.pulse)">
+                            <header class="host-debug-box-head">
+                              <span class="host-debug-label host-debug-label--pulse" x-text="t('debug_panel.labels.raw_pulse')"></span>
+                              <button type="button" class="host-debug-copy"
+                                      @click="copyDebugJson(hostsDebug[h.id].providers_raw?.pulse, 'Raw · Pulse')"
+                                      :title="t('debug_panel.copy_title')">
+                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+                              </button>
+                            </header>
+                            <pre class="host-debug-json scrollbar" x-text="fmtDebugJson(hostsDebug[h.id].providers_raw?.pulse)"></pre>
+                          </section>
+                          <section class="host-debug-box" x-show="hasDebugData(hostsDebug[h.id].providers_raw?.beszel)">
+                            <header class="host-debug-box-head">
+                              <span class="host-debug-label host-debug-label--beszel" x-text="t('debug_panel.labels.raw_beszel')"></span>
+                              <button type="button" class="host-debug-copy"
+                                      @click="copyDebugJson(hostsDebug[h.id].providers_raw?.beszel, 'Raw · Beszel')"
+                                      :title="t('debug_panel.copy_title')">
+                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+                              </button>
+                            </header>
+                            <pre class="host-debug-json scrollbar" x-text="fmtDebugJson(hostsDebug[h.id].providers_raw?.beszel)"></pre>
+                          </section>
+                          <section class="host-debug-box" x-show="hasDebugData(hostsDebug[h.id].providers_raw?.node_exporter)">
+                            <header class="host-debug-box-head">
+                              <span class="host-debug-label host-debug-label--ne" x-text="t('debug_panel.labels.raw_ne')"></span>
+                              <button type="button" class="host-debug-copy"
+                                      @click="copyDebugJson(hostsDebug[h.id].providers_raw?.node_exporter, 'Raw · node-exporter')"
+                                      :title="t('debug_panel.copy_title')">
+                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+                              </button>
+                            </header>
+                            <pre class="host-debug-json scrollbar" x-text="fmtDebugJson(hostsDebug[h.id].providers_raw?.node_exporter)"></pre>
+                          </section>
+                          <section class="host-debug-box" x-show="hasDebugData(hostsDebug[h.id].providers_raw?.webmin)">
+                            <header class="host-debug-box-head">
+                              <span class="host-debug-label host-debug-label--webmin" x-text="t('debug_panel.labels.raw_webmin')"></span>
+                              <button type="button" class="host-debug-copy"
+                                      @click="copyDebugJson(hostsDebug[h.id].providers_raw?.webmin, 'Raw · Webmin')"
+                                      :title="t('debug_panel.copy_title')">
+                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+                              </button>
+                            </header>
+                            <pre class="host-debug-json scrollbar" x-text="fmtDebugJson(hostsDebug[h.id].providers_raw?.webmin)"></pre>
+                          </section>
+                          <section class="host-debug-box" x-show="hasDebugData(hostsDebug[h.id].merged)">
+                            <header class="host-debug-box-head">
+                              <span class="host-debug-label host-debug-label--merged" x-text="t('debug_panel.labels.merged')"></span>
+                              <span class="host-debug-hint" x-text="t('debug_panel.hints.merged')"></span>
+                              <button type="button" class="host-debug-copy"
+                                      @click="copyDebugJson(hostsDebug[h.id].merged, 'Merged')"
+                                      :title="t('debug_panel.copy_title')">
+                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+                              </button>
+                            </header>
+                            <pre class="host-debug-json scrollbar" x-text="fmtDebugJson(hostsDebug[h.id].merged)"></pre>
+                          </section>
+                          <section class="host-debug-box host-debug-box--wide" x-show="hasDebugData(hostsDebug[h.id].rendered)">
+                            <header class="host-debug-box-head">
+                              <span class="host-debug-label host-debug-label--rendered" x-text="t('debug_panel.labels.rendered')"></span>
+                              <span class="host-debug-hint" x-text="t('debug_panel.hints.rendered')"></span>
+                              <button type="button" class="host-debug-copy"
+                                      @click="copyDebugJson(hostsDebug[h.id].rendered, 'Rendered')"
+                                      :title="t('debug_panel.copy_title')">
+                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+                              </button>
+                            </header>
+                            <pre class="host-debug-json scrollbar" x-text="fmtDebugJson(hostsDebug[h.id].rendered)"></pre>
+                          </section>
+                          <section class="host-debug-box" x-show="hasDebugData(hostsDebug[h.id].providers_normalized?.pulse)">
+                            <header class="host-debug-box-head">
+                              <span class="host-debug-label host-debug-label--pulse" x-text="t('debug_panel.labels.normalized_pulse')"></span>
+                              <button type="button" class="host-debug-copy"
+                                      @click="copyDebugJson(hostsDebug[h.id].providers_normalized?.pulse, 'Normalized · Pulse')"
+                                      :title="t('debug_panel.copy_title')">
+                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+                              </button>
+                            </header>
+                            <pre class="host-debug-json scrollbar" x-text="fmtDebugJson(hostsDebug[h.id].providers_normalized?.pulse)"></pre>
+                          </section>
+                          <section class="host-debug-box" x-show="hasDebugData(hostsDebug[h.id].providers_normalized?.beszel)">
+                            <header class="host-debug-box-head">
+                              <span class="host-debug-label host-debug-label--beszel" x-text="t('debug_panel.labels.normalized_beszel')"></span>
+                              <button type="button" class="host-debug-copy"
+                                      @click="copyDebugJson(hostsDebug[h.id].providers_normalized?.beszel, 'Normalized · Beszel')"
+                                      :title="t('debug_panel.copy_title')">
+                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+                              </button>
+                            </header>
+                            <pre class="host-debug-json scrollbar" x-text="fmtDebugJson(hostsDebug[h.id].providers_normalized?.beszel)"></pre>
+                          </section>
+                          <section class="host-debug-box" x-show="hasDebugData(hostsDebug[h.id].providers_normalized?.node_exporter)">
+                            <header class="host-debug-box-head">
+                              <span class="host-debug-label host-debug-label--ne" x-text="t('debug_panel.labels.normalized_ne')"></span>
+                              <button type="button" class="host-debug-copy"
+                                      @click="copyDebugJson(hostsDebug[h.id].providers_normalized?.node_exporter, 'Normalized · node-exporter')"
+                                      :title="t('debug_panel.copy_title')">
+                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+                              </button>
+                            </header>
+                            <pre class="host-debug-json scrollbar" x-text="fmtDebugJson(hostsDebug[h.id].providers_normalized?.node_exporter)"></pre>
+                          </section>
+                          <section class="host-debug-box" x-show="hasDebugData(hostsDebug[h.id].providers_normalized?.webmin)">
+                            <header class="host-debug-box-head">
+                              <span class="host-debug-label host-debug-label--webmin" x-text="t('debug_panel.labels.normalized_webmin')"></span>
+                              <button type="button" class="host-debug-copy"
+                                      @click="copyDebugJson(hostsDebug[h.id].providers_normalized?.webmin, 'Normalized · Webmin')"
+                                      :title="t('debug_panel.copy_title')">
+                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+                              </button>
+                            </header>
+                            <pre class="host-debug-json scrollbar" x-text="fmtDebugJson(hostsDebug[h.id].providers_normalized?.webmin)"></pre>
+                          </section>
+                          <!-- Asset inventory (raw upstream payload).
+                               Sourced from the host's `asset` field
+                               which is itself the compact shape; the
+                               operator wants the FULL upstream row
+                               for cross-referencing, so we read from
+                               the asset cache by custom_number. -->
+                          <section class="host-debug-box host-debug-box--wide" x-show="hasDebugData(rawAssetForHost(h))">
+                            <header class="host-debug-box-head">
+                              <span class="host-debug-label host-debug-label--merged">Asset (raw)</span>
+                              <button type="button" class="host-debug-copy"
+                                      @click="copyDebugJson(rawAssetForHost(h), 'Asset · Raw')"
+                                      :title="t('debug_panel.copy_title')">
+                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+                              </button>
+                            </header>
+                            <pre class="host-debug-json scrollbar" x-text="fmtDebugJson(rawAssetForHost(h))"></pre>
+                          </section>
+                          <!-- Asset inventory (compact shape — what
+                               the drawer actually renders). -->
+                          <section class="host-debug-box host-debug-box--wide" x-show="hasDebugData(assetForHost(h))">
+                            <header class="host-debug-box-head">
+                              <span class="host-debug-label host-debug-label--merged">Asset (shape)</span>
+                              <button type="button" class="host-debug-copy"
+                                      @click="copyDebugJson(assetForHost(h), 'Asset · Shape')"
+                                      :title="t('debug_panel.copy_title')">
+                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+                              </button>
+                            </header>
+                            <pre class="host-debug-json scrollbar" x-text="fmtDebugJson(assetForHost(h))"></pre>
+                          </section>
+                        </div>
+                      </div>
+                    </template>
+                  </div>
+                </div>
+              </template>
+
+              <!-- Admin-only SSH card — one-shot command runner against
+                   the host resolved from its hosts_config id. Dry-run-
+                   first by default; destructive commands raise a typed-
+                   hostname confirm before the real run (also enforced
+                   backend-side via logic/ssh.command_is_destructive).
+                   Hidden entirely when SSH is disabled on this host
+                   (hosts_config[].ssh.disabled=true). Gate reads
+                   `h.ssh_disabled` straight from the row (not
+                   sshStatus) so the panel never appears even for a
+                   split second before sshStatus loads. -->
+              <template x-if="me && me.role === 'admin' && !h.ssh_disabled">
+                <div class="host-debug-panel">
+                  <button type="button"
+                          class="host-debug-toggle"
+                          @click="toggleSshCard(h.id)"
+                          :aria-expanded="sshOpen[h.id] ? 'true' : 'false'">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="flip-rtl"
+                         :style="sshOpen[h.id] ? 'transform: rotate(90deg)' : ''">
+                      <polyline points="9 18 15 12 9 6"/>
+                    </svg>
+                    <span x-text="t('hosts_extra_ssh.card_title')"></span>
+                    <span class="host-debug-hint ms-2"
+                          x-text="!sshStatus[h.id] ? t('hosts_extra_ssh.status_checking')
+                                   : sshStatus[h.id].configured ? t('hosts_extra_ssh.status_ready')
+                                   : t('hosts_extra_ssh.status_not_configured')"></span>
+                  </button>
+                  <div x-show="sshOpen[h.id]" class="host-debug-body">
+                    <!-- Resolved target summary -->
+                    <div class="host-debug-toolbar">
+                      <div class="host-debug-meta">
+                        <span x-text="t('hosts_extra_ssh.resolved_label') + ':'"></span>
+                        <span class="host-debug-tag mono"
+                              x-text="sshStatus[h.id] && sshStatus[h.id].resolved
+                                       ? (sshStatus[h.id].resolved.user || '?') + '@' + (sshStatus[h.id].resolved.host || h.id) + ':' + (sshStatus[h.id].resolved.port || 22)
+                                       : h.id"></span>
+                        <span x-show="sshStatus[h.id] && sshStatus[h.id].resolved && sshStatus[h.id].resolved.key_fingerprint"
+                              class="host-debug-tag mono"
+                              :title="t('hosts_extra_ssh.fingerprint_label')"
+                              x-text="'SHA256:' + (sshStatus[h.id] && sshStatus[h.id].resolved && sshStatus[h.id].resolved.key_fingerprint || '')"></span>
+                        <span x-show="sshStatus[h.id] && !sshStatus[h.id].configured"
+                              class="host-debug-tag host-debug-tag--warn"
+                              x-text="t('hosts_extra_ssh.fingerprint_empty')"></span>
+                      </div>
+                      <div class="flex items-center gap-2">
+                        <button type="button" class="btn btn-ghost text-[11px]"
+                                @click="testSshConnection(h.id)"
+                                :disabled="!!sshTestBusy[h.id]"
+                                x-text="sshTestBusy[h.id] ? t('hosts_extra_ssh.running') : t('hosts_extra_ssh.test_button')"></button>
+                        <!-- Interactive PTY terminal modal (TODO #170). Admin-only,
+                             same gating as the rest of the SSH card. Disabled until
+                             SSH is configured + the host is up — same rules as the
+                             one-shot Run button. Styled as a primary action with
+                             an icon so it reads as a clickable button, not a link. -->
+                        <button type="button"
+                                class="btn btn-primary text-[11.5px] flex items-center gap-1.5"
+                                @click="openHostTerminal(h)"
+                                :disabled="!(sshStatus[h.id] && sshStatus[h.id].configured) || !isSshAllowed(h)"
+                                :title="!isSshAllowed(h) ? sshDisabledReason(h) : t('hosts_extra_ssh.terminal.open_button_hint')">
+                          <svg width="13" height="13" viewBox="0 0 24 24" fill="none"
+                               stroke="currentColor" stroke-width="2"
+                               stroke-linecap="round" stroke-linejoin="round"
+                               aria-hidden="true">
+                            <polyline points="4 17 10 11 4 5"/>
+                            <line x1="12" y1="19" x2="20" y2="19"/>
+                          </svg>
+                          <span x-text="t('hosts_extra_ssh.terminal.open_button')"></span>
+                        </button>
+                      </div>
+                    </div>
+
+                    <!-- Common actions — ALL driven by Admin → SSH
+                         custom actions. Clicking a preset drops the
+                         rendered command (with `{host}` substituted)
+                         into the textarea below so the operator can
+                         review and edit before hitting Run. -->
+                    <div class="mb-3"
+                         x-show="(sshSettings.custom_actions || []).length > 0">
+                      <div class="text-[11px] text-[var(--text-faint)] mb-1.5"
+                           x-text="t('hosts_extra_ssh.common_actions_label')"></div>
+                      <div class="flex flex-wrap gap-2">
+                        <template x-for="(action, idx) in (sshSettings.custom_actions || [])"
+                                  :key="action.id || ('a' + idx)">
+                          <button type="button" class="btn btn-soft text-[11.5px]"
+                                  @click="runSshCustomAction(h.id, action)"
+                                  :disabled="!isSshAllowed(h)"
+                                  :title="isSshAllowed(h) ? action.command : sshDisabledReason(h)"
+                                  x-text="action.title"></button>
+                        </template>
+                      </div>
+                    </div>
+
+                    <!-- Custom command + dry-run + Run button. -->
+                    <div class="mb-3">
+                      <label class="block text-[11px] text-[var(--text-faint)] mb-1"
+                             x-text="t('hosts_extra_ssh.custom_label')"></label>
+                      <textarea :value="sshCommand[h.id] || ''"
+                                @input="sshCommand = Object.assign({}, sshCommand, { [h.id]: $event.target.value })"
+                                :disabled="!(sshStatus[h.id] && sshStatus[h.id].configured) || !isSshAllowed(h)"
+                                :title="!isSshAllowed(h) ? sshDisabledReason(h) : ''"
+                                rows="6" maxlength="4096"
+                                class="w-full mono text-[11.5px] py-2 scrollbar"
+                                style="min-height: 7rem; resize: vertical;"
+                                :placeholder="t('hosts_extra_ssh.custom_placeholder')"></textarea>
+                      <div class="flex items-center gap-3 flex-wrap mt-2">
+                        <label class="inline-flex items-center gap-2 text-[11.5px] text-[var(--text-dim)]">
+                          <input type="checkbox"
+                                 :checked="sshDryRun[h.id] === true"
+                                 @change="sshDryRun = Object.assign({}, sshDryRun, { [h.id]: $event.target.checked })">
+                          <span x-text="t('hosts_extra_ssh.dry_run_label')"></span>
+                        </label>
+                        <button type="button"
+                                class="btn btn-primary text-[12px]"
+                                @click="runSshCommand(h.id)"
+                                :disabled="!!sshBusy[h.id] || !(sshStatus[h.id] && sshStatus[h.id].configured) || !((sshCommand[h.id] || '').trim()) || !isSshAllowed(h)"
+                                :title="!isSshAllowed(h) ? sshDisabledReason(h) : ''">
+                          <span x-show="!sshBusy[h.id]" x-text="t('hosts_extra_ssh.run_button')"></span>
+                          <span x-show="!!sshBusy[h.id]" class="flex items-center gap-1"><span class="spin"></span><span x-text="t('hosts_extra_ssh.running')"></span></span>
+                        </button>
+                        <span x-show="!isSshAllowed(h)"
+                              class="text-[11px] text-[var(--warning)]"
+                              x-text="sshDisabledReason(h)"></span>
+                      </div>
+                    </div>
+
+                    <!-- Result pane — exit, stdout, stderr, duration,
+                         copy. Shown only after at least one run. -->
+                    <template x-if="sshResult[h.id]">
+                      <div class="host-debug-box">
+                        <header class="host-debug-box-head">
+                          <span class="host-debug-label"
+                                x-text="t('hosts_extra_ssh.result_exit') + ': ' + (sshResult[h.id].exit_code == null ? '—' : sshResult[h.id].exit_code)"></span>
+                          <span class="host-debug-hint"
+                                x-text="t('hosts_extra_ssh.result_duration') + ': ' + (sshResult[h.id].duration_ms || 0) + 'ms' + (sshResult[h.id].dry_run ? ' · dry-run' : '')"></span>
+                          <button type="button" class="host-debug-copy"
+                                  @click="copySshOutput(h.id)"
+                                  :title="t('hosts_extra_ssh.result_copy')">
+                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+                          </button>
+                        </header>
+                        <div x-show="sshResult[h.id].error" class="host-debug-error"
+                             x-text="sshResult[h.id].error"></div>
+                        <div x-show="sshResult[h.id].stdout" class="px-3 pt-2 text-[10.5px] text-[var(--text-faint)]"
+                             x-text="t('hosts_extra_ssh.result_stdout')"></div>
+                        <pre x-show="sshResult[h.id].stdout" class="host-debug-json scrollbar"
+                             x-text="sshResult[h.id].stdout"></pre>
+                        <div x-show="sshResult[h.id].stderr" class="px-3 pt-2 text-[10.5px] text-[var(--danger)]"
+                             x-text="t('hosts_extra_ssh.result_stderr')"></div>
+                        <pre x-show="sshResult[h.id].stderr" class="host-debug-json scrollbar ssh-result-stderr"
+                             x-text="sshResult[h.id].stderr"></pre>
+                      </div>
+                    </template>
+                  </div>
+                </div>
+              </template>
+
+            </div>
+      </div>
+    </template>
+  </template>
 
   <!-- ================== NODE DRAWER ================== -->
   <!-- Per-node config: Beszel system-name alias, etc. Opens from the

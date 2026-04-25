@@ -2897,6 +2897,55 @@ select.field-invalid {
 }
 
 /* ---------------------------------------------------------------------------
+   Host detail drawer (#239) — the slide-out panel that replaced the
+   legacy inline row expansion. Markup lives inside the desktop row's
+   iteration scope so existing `h.X` references keep working, but the
+   .host-drawer class pulls the element OUT of the document flow into a
+   fixed-position panel anchored to the right edge. Result: clicking a
+   host doesn't push other rows down anymore — the page stays at its
+   natural height and the detail content slides in over it.
+
+   `x-show` only renders true for the one row whose host matches
+   `drawerHost`, so even though the directive is on every row, only
+   ONE drawer panel is ever in the DOM with display:block.
+
+   Width: scales from full-width on phones up to a fixed 760px on
+   wide screens — wide enough for the four-column drawer grid (asset /
+   system / hardware / network) without ever covering the full page.
+   --------------------------------------------------------------------------- */
+.host-drawer {
+    position: fixed;
+    top: 0;
+    bottom: 0;
+    right: 0;
+    z-index: 40;
+    width: 100%;
+    max-width: 100%;
+    overflow-y: auto;
+    background: var(--surface);
+    border-left: 1px solid var(--border);
+    box-shadow: -8px 0 24px -12px var(--backdrop-strong, rgba(0, 0, 0, .35));
+    padding: 1rem 1.25rem;
+}
+@media (min-width: 768px) {
+    .host-drawer { max-width: 640px; }
+}
+@media (min-width: 1280px) {
+    .host-drawer { max-width: 760px; }
+}
+[dir="rtl"] .host-drawer {
+    /* In RTL the drawer slides in from the LEFT visually, mirroring the
+       expected right-anchored panel for LTR. logical properties flip
+       automatically; only the box-shadow direction needs to be flipped
+       so the depth cue still cues "panel attached to one edge". */
+    right: auto;
+    left: 0;
+    border-left: none;
+    border-right: 1px solid var(--border);
+    box-shadow: 8px 0 24px -12px var(--backdrop-strong, rgba(0, 0, 0, .35));
+}
+
+/* ---------------------------------------------------------------------------
    Brand icon shown on the COLLAPSED host-row header in Admin → Hosts so
    operators can scan the list visually. Resolved via hostIconUrl(row)
    — same logic as the Hosts view + drawer. Subtle ring + soft surface

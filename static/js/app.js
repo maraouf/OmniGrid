@@ -91,6 +91,12 @@ function app() {
         return [];
       }
     })(),
+    // Slide-out drawer mode (#239) — clicking a host row opens this
+    // drawer instead of expanding the row inline. `drawerHost` is the
+    // live host object reference (kept up-to-date by the existing
+    // `loadHosts` reconcile loop, since rows mutate fields in place
+    // rather than reassigning the array). Null = drawer closed.
+    drawerHost: null,
     hostsSearch: '',
     // Sort key for the Hosts view. Persisted to localStorage so the
     // operator's preferred order sticks across reloads. Supported keys:
@@ -3892,6 +3898,13 @@ function app() {
         'tracearr': '/img/icons/tracearr.svg',
         'portainer': '/img/icons/portainer.svg',
         'portainer-agent': '/img/icons/portainer.svg',
+        // Somfy typos / product-line synonyms — keep these in sync
+        // with the `hostIconUrl` alias map so item / stack contexts
+        // (not just curated host rows) accept the same misspellings.
+        'smofy':     'somfy',
+        'somphy':    'somfy',
+        'tahoma':    'somfy',
+        'connexoon': 'somfy',
       };
       // Prefix patterns — one entry covers all siblings of a product
       // (authentik outposts: ak-outpost-authentik-ldap-outpost, etc.).
@@ -4419,6 +4432,7 @@ function app() {
         // shell — operators can always reopen, and the alternative is
         // a Trap with no fallback.
         if (this.terminalModalOpen) { this.closeHostTerminal(); e.preventDefault(); return; }
+        if (this.drawerHost) { this.closeHostDrawer(); e.preventDefault(); return; }
         if (this.drawerItem) { this.drawerItem = null; e.preventDefault(); return; }
         if (this.selected.length) { this.clearSelection(); e.preventDefault(); return; }
         if (this.search || this.statusFilter || this.healthFilter) {
@@ -5284,6 +5298,18 @@ function app() {
           'hpe':              'hp',
           'hewlett-packard':  'hp',
           'hewlettpackard':   'hp',
+          // Common typo + product-line synonyms for Somfy (motorised
+          // blinds / smart-home hubs). Operators have typed "smofy" /
+          // "somphy" repeatedly — alias them all to the canonical
+          // somfy.svg so the icon picker is forgiving.
+          'smofy':            'somfy',
+          'somphy':           'somfy',
+          'tahoma':           'somfy',
+          'connexoon':        'somfy',
+          // Amazon Fire TV product line.
+          'fire-tv':          'firetv',
+          'fire_tv':          'firetv',
+          'firestick':        'firetv',
         };
         const slug = aliases[h.icon.toLowerCase()] || h.icon;
         return '/img/icons/' + slug + '.svg';
@@ -5614,6 +5640,17 @@ function app() {
         ['hpe-',                  'hp'],
         [' hp ',                  'hp'],
         ['hp-',                   'hp'],
+        // SanDisk — flash storage / SSDs / SD cards. Common host
+        // labels: "SanDisk Extreme", "SD-Pro" model strings.
+        ['sandisk',               'sandisk'],
+        [' sd-pro',               'sandisk'],
+        // Amazon Fire TV — streaming sticks / cubes / TVs running Fire OS.
+        // Common host labels: "Fire TV Stick", "Fire TV Cube", "Fire TV 4K".
+        ['fire tv',               'firetv'],
+        ['fire-tv',               'firetv'],
+        ['firetv',                'firetv'],
+        ['firestick',             'firetv'],
+        ['fire stick',            'firetv'],
       ];
       for (const [needle, slug] of tokens) {
         if (hay.includes(needle)) return '/img/icons/' + slug + '.svg';
@@ -5980,7 +6017,11 @@ function app() {
       if (!g) return '';
       const name = String(g.name || '');
       const num = (g.number != null && +g.number > 0) ? +g.number : null;
-      return num != null ? `${num} ${name}` : name;
+      // Format: "<number>. <name>" — dot separator (#244) for visual
+      // clarity in the Hosts view headings ("32. ISP Routers" reads
+      // cleaner than "32 ISP Routers" when the name itself contains
+      // numbers).
+      return num != null ? `${num}. ${name}` : name;
     },
 
     topLevelGroupNames(excludeIdx) {
@@ -6141,20 +6182,31 @@ function app() {
           );
         }
       } catch (_) {}
-      // Re-touch every now-visible sub-group's parent_name in
-      // $nextTick so x-model re-binds the parent <select> after
-      // its <option> elements finish rendering. Without this the
-      // dropdowns silently fall back to "— top-level —".
+      // Re-touch every now-visible sub-group's parent_name with the
+      // empty→set dance (same as toggleHostGroupChildrenCollapsed).
+      // Self-assignment is elided by Alpine; we must clear the value
+      // first, let Alpine render with the empty placeholder, then in
+      // a double-nextTick reassign the real value so x-model rebinds
+      // after the <option> x-for has finished inserting its children.
       if (wereCollapsed.size === 0) return;
-      this.$nextTick(() => {
-        const groups = this.hostGroups || [];
-        for (let i = 0; i < groups.length; i++) {
-          const g = groups[i];
-          const parent = (g && g.parent_name || '').trim();
-          if (parent && wereCollapsed.has(parent)) {
-            g.parent_name = g.parent_name;
-          }
+      const groups = this.hostGroups || [];
+      const restore = [];
+      for (let i = 0; i < groups.length; i++) {
+        const g = groups[i];
+        const parent = (g && g.parent_name || '').trim();
+        if (parent && wereCollapsed.has(parent)) {
+          restore.push({ idx: i, value: g.parent_name });
+          g.parent_name = '';
         }
+      }
+      if (restore.length === 0) return;
+      this.$nextTick(() => {
+        this.$nextTick(() => {
+          const list = this.hostGroups || [];
+          for (const { idx, value } of restore) {
+            if (list[idx]) list[idx].parent_name = value;
+          }
+        });
       });
     },
     toggleHostGroupChildrenCollapsed(parentName) {
@@ -6178,26 +6230,38 @@ function app() {
       // <option> elements (populated from `topLevelGroupNames`).
       // Without intervention the select silently falls back to the
       // empty "— top-level —" placeholder even though `g.parent_name`
-      // is set in state. Fix: in $nextTick (after Alpine has flushed
-      // the new DOM and the options are in place), re-touch
-      // `parent_name` on every now-visible sub-group of THIS parent
-      // so x-model fires its model→DOM effect again and the select
-      // displays the correct value.
+      // is set in state. Fix: clear parent_name to '' synchronously
+      // (forces Alpine to render the empty placeholder), then in a
+      // double-nextTick (after Alpine flushes the new DOM AND the
+      // <option> x-for finishes inserting its children) reassign
+      // the original value. The empty→set dance is what makes the
+      // x-model effect fire on a TRUE value change and rebind the
+      // select. Self-assignment doesn't work because Alpine elides
+      // identical-value writes.
       if (!wasCollapsed) return;  // we just collapsed — no children visible to fix
-      this.$nextTick(() => {
-        const groups = this.hostGroups || [];
-        for (let i = 0; i < groups.length; i++) {
-          const g = groups[i];
-          if (g && (g.parent_name || '').trim() === name) {
-            const v = g.parent_name;
-            // Setting same value works: assigning ANY value re-runs
-            // x-model's effect and refreshes the select. Skipping
-            // the empty-then-set dance from #230 because the value
-            // is already correct in state — we only need a re-bind
-            // signal, not a value change.
-            g.parent_name = v;
-          }
+      const groups = this.hostGroups || [];
+      const restore = [];
+      for (let i = 0; i < groups.length; i++) {
+        const g = groups[i];
+        const parent = (g && g.parent_name || '').trim();
+        if (parent && parent === name) {
+          restore.push({ idx: i, value: g.parent_name });
+          g.parent_name = '';
         }
+      }
+      if (restore.length === 0) return;
+      // First $nextTick: Alpine has rendered each sub-group's row
+      // with parent_name='' so the <select> mounts uncontroversially
+      // on the empty option. Second $nextTick: the inner <option>
+      // x-for has now finished, so reassigning the real parent_name
+      // lets x-model find the matching <option value="...">.
+      this.$nextTick(() => {
+        this.$nextTick(() => {
+          const list = this.hostGroups || [];
+          for (const { idx, value } of restore) {
+            if (list[idx]) list[idx].parent_name = value;
+          }
+        });
       });
     },
     // Move a row up/down in the VISIBLE order. Translates to a raw-
@@ -6921,69 +6985,13 @@ function app() {
           );
         }
       }
-      const label = (a.type_short || this._deriveTypeShort(a.type) || a.type || '').trim();
+      // Source of truth is the asset's `ShortName` (oufa.co MDI
+      // §5.2.4, exposed by `shape_asset` as `type_short`). When the
+      // operator hasn't set a ShortName upstream, fall back to the
+      // long Type.Name verbatim — never invent an abbreviation,
+      // since the operator's asset record is authoritative.
+      const label = (a.type_short || a.type || '').trim();
       return label ? '[' + label + '] ' : '';
-    },
-
-    // Deterministic short-form for common asset-type names when the
-    // upstream Type object doesn't expose a shortname field. Operators
-    // already mentally use these abbreviations ("VM" for Virtual
-    // Machine, "PHY" for Physical) — applying them here removes the
-    // visual noise of a long bracket prefix without requiring any
-    // upstream API change. Falls back to a word-initials acronym
-    // (e.g. "Bare Metal" → "BM") for one/two-word types not in the
-    // explicit map. Returns '' for empty input or types so long that
-    // an acronym would be misleading (4+ words).
-    _deriveTypeShort(longType) {
-      if (!longType) return '';
-      const t = String(longType).trim().toLowerCase();
-      const aliases = {
-        'virtual machine':       'VM',
-        'virtual server':        'VM',
-        'vm':                    'VM',
-        'physical server':       'PHY',
-        'physical machine':      'PHY',
-        'physical':              'PHY',
-        'bare metal':            'BM',
-        'baremetal':             'BM',
-        'container':             'CT',
-        'lxc container':         'CT',
-        'docker container':      'CT',
-        'kubernetes pod':        'POD',
-        'pod':                   'POD',
-        'router':                'RTR',
-        'switch':                'SW',
-        'firewall':              'FW',
-        'access point':          'AP',
-        'wifi access point':     'AP',
-        'access-point':          'AP',
-        'nas':                   'NAS',
-        'san':                   'SAN',
-        'network attached storage': 'NAS',
-        'storage':               'STG',
-        'ups':                   'UPS',
-        'pdu':                   'PDU',
-        'server':                'SRV',
-        'workstation':           'WS',
-        'laptop':                'LT',
-        'desktop':               'DT',
-        'mobile':                'MOB',
-        'phone':                 'PHN',
-        'tablet':                'TAB',
-        'printer':               'PRN',
-        'camera':                'CAM',
-        'iot device':            'IOT',
-        'iot':                   'IOT',
-      };
-      if (aliases[t]) return aliases[t];
-      // Word-initials fallback: capital letter of each word, max 3 chars.
-      // Only kicks in for 2-3 word types — single-word unknowns return
-      // "" so we don't strip "OPNsense" → "O" which adds no value.
-      const words = t.split(/\s+/).filter(Boolean);
-      if (words.length >= 2 && words.length <= 3) {
-        return words.map(w => w[0]).join('').toUpperCase();
-      }
-      return '';
     },
     // Raw asset row from the cached snapshot — for the debug panel.
     // The shaped resolver (`assetForHost`) drops fields the drawer
@@ -7313,7 +7321,13 @@ function app() {
         title: `${name} — ${matchCount} host${matchCount === 1 ? '' : 's'}`,
       };
     },
-    isHostExpanded(name) { return this.hostsExpanded.includes(name); },
+    // Drawer mode (#239): row is "expanded" when its host matches
+    // the currently-open drawer. Used for chevron rotation +
+    // hover-tint suppression on the source row, exactly as the
+    // legacy inline-expansion behaved.
+    isHostExpanded(name) {
+      return !!(this.drawerHost && this.drawerHost.host === name);
+    },
     // A host is "expandable" only when it's actually alive AND has
     // enough merged data to justify opening the detail cards. The
     // green dot (``status === 'up'``) is the primary signal; we
@@ -7514,33 +7528,39 @@ function app() {
     },
     toggleHost(name) {
       const host = (this.hosts || []).find(h => h.host === name);
-      // Already-expanded rows can always be collapsed, even if they
-      // flipped from "up" to "down" since the last open — otherwise
-      // the operator would be stuck looking at stale detail cards.
-      const already = this.hostsExpanded.includes(name);
-      if (!already && !this.isHostExpandable(host)) {
+      // Already-open drawer can always close (e.g. by clicking the
+      // same row again) even if the host flipped from "up" to "down"
+      // since the last open — otherwise the operator would be stuck
+      // looking at stale detail cards.
+      const already = this.drawerHost && this.drawerHost.host === name;
+      if (already) {
+        this.closeHostDrawer();
+        return;
+      }
+      if (!this.isHostExpandable(host)) {
         return;  // dead / unmatched host — header click is a no-op
       }
-      const i = this.hostsExpanded.indexOf(name);
-      if (i === -1) {
-        this.hostsExpanded.push(name);
-        // Load history when a row expands for the first time. Further
-        // expand/collapse cycles use the cached data until the range
-        // changes.
-        if (host && host.beszel_id && !this.hostHistory[host.beszel_id]) {
-          this.loadHostHistory(host.beszel_id, host.id);
-        }
-        // Preload SSH status on drawer open (admin only, and only
-        // when the host didn't opt out of SSH). Without this, the
-        // SSH card header shows "Not configured" until the operator
-        // clicks to expand the card — reads as a false negative
-        // even for fully-configured fleets.
-        if (host && this.isAdmin && this.isAdmin() && !host.ssh_disabled) {
-          this.loadSshStatus(host.id);
-        }
-      } else {
-        this.hostsExpanded.splice(i, 1);
+      this.openHostDrawer(host);
+    },
+    openHostDrawer(host) {
+      if (!host) return;
+      this.drawerHost = host;
+      // Load history once per (host, range). Subsequent re-opens of
+      // the same host reuse the cached series until the range picker
+      // forces a refetch. Same logic the legacy inline-expansion used.
+      if (host.beszel_id && !this.hostHistory[host.beszel_id]) {
+        this.loadHostHistory(host.beszel_id, host.id);
       }
+      // Preload SSH status — admin only, and only when the host
+      // didn't opt out. Without this the SSH card header shows
+      // "Not configured" until the operator clicks to expand it —
+      // a false-negative for fully-configured fleets.
+      if (this.isAdmin && this.isAdmin() && !host.ssh_disabled) {
+        this.loadSshStatus(host.id);
+      }
+    },
+    closeHostDrawer() {
+      this.drawerHost = null;
     },
     async loadHostHistory(systemId, hostId) {
       // Preserve whatever series we already have so the chart doesn't
