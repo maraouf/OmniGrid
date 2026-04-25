@@ -581,27 +581,12 @@ async def _gather_impl() -> None:
         # mixed fleet doesn't wipe Beszel's cpu/mem reading on hosts
         # Pulse doesn't know about. Legacy single-value strings stay
         # valid.
-        def _meaningful(v) -> bool:
-            if v is None:
-                return False
-            if isinstance(v, (int, float)):
-                return v != 0
-            if isinstance(v, str):
-                return v.strip() != ""
-            if isinstance(v, (list, dict)):
-                return len(v) > 0
-            return True
-
-        def _merge_best(dst: dict, src: dict) -> None:
-            """Copy meaningful values from src into dst, leaving dst's
-            existing non-zero fields intact when src is empty/zero."""
-            if not src:
-                return
-            for k, v in src.items():
-                if _meaningful(v):
-                    dst[k] = v
-                elif k not in dst:
-                    dst[k] = v  # seed zero only if nothing there yet
+        # Use the canonical merge helpers from logic/merge.py — the
+        # same module main.py imports from. Single source of truth
+        # for the "fold provider into nodes_info row" merge semantics
+        # so the Hosts endpoint and the gather flow stay byte-
+        # identical. See #271 / CONS-003 for the dedup rationale.
+        from logic.merge import is_meaningful as _meaningful, merge_best as _merge_best
         from logic.db import get_setting
         from logic import beszel as _beszel
         from logic import node_exporter as _ne

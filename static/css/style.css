@@ -976,7 +976,7 @@ details summary::-webkit-details-marker {
 .stat-bar > .fill {
     position: absolute;
     inset: 0;
-    width: var(--w, 0%);
+    width: var(--w);
     background: var(--success);
     transition: width .25s ease, background .25s ease;
 }

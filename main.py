@@ -1817,10 +1817,12 @@ async def api_portainer_test(
     url = (body.get("url") or "").strip().rstrip("/")
     endpoint_id = int(body.get("endpoint_id") or 1)
     verify_tls = bool(body.get("verify_tls", True))
-    api_key = body.get("api_key") or ""
+    # Portainer's API key isn't in the `settings` table — it lives in
+    # the Portainer-specific settings dict — so this one keeps a
+    # purpose-built fallback. Every other test endpoint below uses
+    # the shared `_resolve_field` helper.
+    api_key = (body.get("api_key") or "").strip()
     if not api_key:
-        # Fall back to the stored value so Test can work without
-        # retyping the key every time.
         api_key = str(_portainer.get_portainer_settings().get("portainer_api_key") or "")
     if not url or not api_key:
         return {"ok": False, "status": 0, "detail": "URL and API key are both required"}
@@ -1857,11 +1859,9 @@ async def api_pulse_test(
     first save without re-typing the secret."""
     from logic import pulse as _pulse
     body = await request.json()
-    url = (body.get("url") or "").strip().rstrip("/")
-    token = body.get("token") or ""
+    url = _resolve_field(body, "url", "pulse_url").rstrip("/")
+    token = _resolve_field(body, "token", "pulse_token")
     verify_tls = bool(body.get("verify_tls", True))
-    if not token:
-        token = get_setting("pulse_token", "") or ""
     if not url or not token:
         return {"ok": False, "detail": "URL and API token are both required"}
     result = await _pulse.probe_pulse(
@@ -1892,14 +1892,10 @@ async def api_webmin_test(
     """
     from logic import webmin as _webmin
     body = await request.json()
-    url = (body.get("url") or "").strip().rstrip("/")
-    user = (body.get("user") or "").strip()
-    password = body.get("password") or ""
+    url = _resolve_field(body, "url", "webmin_url").rstrip("/")
+    user = _resolve_field(body, "user", "webmin_user")
+    password = _resolve_field(body, "password", "webmin_password")
     verify_tls = bool(body.get("verify_tls", False))
-    if not password:
-        password = get_setting("webmin_password", "") or ""
-    if not user:
-        user = get_setting("webmin_user", "") or ""
     if not url or not user or not password:
         return {"ok": False,
                 "detail": "URL, user and password are all required"}
@@ -1944,13 +1940,10 @@ async def api_beszel_test(
     """
     from logic import beszel as _beszel
     body = await request.json()
-    hub_url = (body.get("hub_url") or "").strip().rstrip("/")
-    identity = (body.get("identity") or "").strip()
-    password = body.get("password") or ""
+    hub_url = _resolve_field(body, "hub_url", "beszel_hub_url").rstrip("/")
+    identity = _resolve_field(body, "identity", "beszel_identity")
+    password = _resolve_field(body, "password", "beszel_password")
     verify_tls = bool(body.get("verify_tls", True))
-    if not password:
-        # Same keep-current-if-blank contract as Portainer's API key.
-        password = get_setting("beszel_password", "") or ""
     if not hub_url or not identity or not password:
         return {"ok": False, "detail": "Hub URL, identity and password are all required"}
     result = await _beszel.probe_hub(
@@ -2137,31 +2130,32 @@ async def api_asset_inventory_refresh(
     )
 
 
-def _meaningful(v) -> bool:
-    if v is None:
-        return False
-    if isinstance(v, (int, float)):
-        return v != 0
-    if isinstance(v, str):
-        return v.strip() != ""
-    if isinstance(v, (list, dict)):
-        return len(v) > 0
-    return True
+# Local aliases for the canonical merge helpers in `logic/merge.py`.
+# Was a duplicated private implementation here AND in logic/gather.py;
+# centralised in #271 (CONS-003) so the merge semantics stay byte-
+# identical across the two call sites without a "don't import private
+# helpers across modules" caveat.
+from logic.merge import is_meaningful as _meaningful, merge_best as _merge_best
 
 
-def _merge_best(dst: dict, src: dict) -> None:
-    """Copy meaningful values from src into dst; leave dst's existing
-    non-zero fields intact when src is empty/zero. Same helper as
-    :mod:`logic.gather` uses — kept local here so the Hosts endpoint
-    and gather stay in sync without a cross-module dependency on a
-    private helper."""
-    if not src:
-        return
-    for k, v in src.items():
-        if _meaningful(v):
-            dst[k] = v
-        elif k not in dst:
-            dst[k] = v
+def _resolve_field(body: dict, body_key: str,
+                   setting_key: str, default: str = "") -> str:
+    """Pick a field value from ``body`` first, falling back to the
+    persisted ``settings`` table when ``body[body_key]`` is blank.
+
+    Standard contract for the test-connection endpoints (CONS-007 in
+    notes/code_review_2026-04-25.md): operators can hit Test BEFORE
+    Save without re-typing every field — Test reuses whatever the
+    previous Save committed. Empty / whitespace-only bodies, missing
+    keys, and explicit None all fall through to the saved value;
+    only a non-empty operator-typed string overrides.
+    """
+    raw = body.get(body_key)
+    if raw is not None:
+        s = str(raw).strip()
+        if s:
+            return s
+    return get_setting(setting_key, default) or default
 
 
 @app.get("/api/hosts")

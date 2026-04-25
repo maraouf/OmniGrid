@@ -72,7 +72,11 @@ except ImportError:
 
 
 _AUTH_COOLDOWN_SECONDS = 300
-_auth_cooldown: dict[tuple[str, str], float] = {}
+# Auth cool-down — same shape as logic/ssh.py; centralised in
+# `logic/cooldown.py` per CONS-004. Per-(base_url, user) key avoids
+# locking out global creds when ONE Miniserv instance has stale auth.
+from logic.cooldown import Cooldown as _Cooldown
+_auth_cooldown_timer = _Cooldown(_AUTH_COOLDOWN_SECONDS)
 
 # Plural → singular for _json_to_element's list wrapping. Webmin JSON
 # responses use plural keys for arrays ("mounts", "updates") but the
@@ -90,28 +94,14 @@ _SINGULAR_TAG = {
 }
 
 
-def _cooldown_key(base_url: str, user: str) -> tuple[str, str]:
-    return (base_url.rstrip("/"), user or "")
-
-
 def _in_cooldown(base_url: str, user: str) -> Optional[float]:
     """Return remaining cool-down seconds (>0) if we're still backing
     off from a recent 401, or ``None`` when the probe can proceed."""
-    key = _cooldown_key(base_url, user)
-    expires = _auth_cooldown.get(key)
-    if not expires:
-        return None
-    remaining = expires - time.time()
-    if remaining <= 0:
-        _auth_cooldown.pop(key, None)
-        return None
-    return remaining
+    return _auth_cooldown_timer.remaining(base_url.rstrip("/"), user or "")
 
 
 def _arm_cooldown(base_url: str, user: str) -> None:
-    _auth_cooldown[_cooldown_key(base_url, user)] = (
-        time.time() + _AUTH_COOLDOWN_SECONDS
-    )
+    _auth_cooldown_timer.arm(base_url.rstrip("/"), user or "")
 
 
 async def _session_login(

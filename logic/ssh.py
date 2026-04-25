@@ -106,30 +106,19 @@ DEFAULT_DESTRUCTIVE_PATTERNS = (
 )
 
 # Auth cool-down — keyed by (host_id, user). Mirrors logic/webmin.py.
+# Centralised in `logic/cooldown.py` per CONS-004 so SSH and Webmin
+# share one implementation of the lazy-expiry timer dict.
 _AUTH_COOLDOWN_SECONDS = 300
-_auth_cooldown: dict[tuple[str, str], float] = {}
-
-
-def _cooldown_key(host_id: str, user: str) -> tuple[str, str]:
-    return (host_id or "", user or "")
+from logic.cooldown import Cooldown
+_auth_cooldown_timer = Cooldown(_AUTH_COOLDOWN_SECONDS)
 
 
 def _in_cooldown(host_id: str, user: str) -> Optional[float]:
-    key = _cooldown_key(host_id, user)
-    expires = _auth_cooldown.get(key)
-    if not expires:
-        return None
-    remaining = expires - time.time()
-    if remaining <= 0:
-        _auth_cooldown.pop(key, None)
-        return None
-    return remaining
+    return _auth_cooldown_timer.remaining(host_id or "", user or "")
 
 
 def _arm_cooldown(host_id: str, user: str) -> None:
-    _auth_cooldown[_cooldown_key(host_id, user)] = (
-        time.time() + _AUTH_COOLDOWN_SECONDS
-    )
+    _auth_cooldown_timer.arm(host_id or "", user or "")
 
 
 # ---------------------------------------------------------------------------
