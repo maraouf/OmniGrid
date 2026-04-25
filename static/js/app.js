@@ -8332,11 +8332,28 @@ function app() {
         y: (PAD_T + usableH * frac).toFixed(1),
         value: (hi - (hi - lo) * frac),
       }));
+      // Pre-rendered gridline path — a single SVG path string with
+      // `M0,y H W` for each tick. Used instead of an Alpine
+      // `<template x-for>` inside `<svg>` (Alpine's `<template>`
+      // doesn't work in the SVG namespace — the browser parses
+      // SVG `<template>` as an unknown element, child nodes never
+      // attach to its `.content` document fragment, so Alpine
+      // throws "Cannot read properties of undefined (reading
+      // 'children')" + the inner `tk` reference goes undefined).
+      // Single path keeps the SVG renderable + avoids the runtime
+      // error; visual outcome is identical (3 horizontal lines).
+      // The y coordinate uses the same `* 1.2` multiplier the old
+      // template did so the gridline positions match the layout
+      // the operator was already seeing.
+      const gridPath = ticks
+        .map(t => `M0,${(parseFloat(t.y) * 1.2).toFixed(1)} H${W}`)
+        .join(' ');
       const cur = Number(pts[pts.length - 1]) || 0;
       return {
         points,
         area,
         ticks,
+        gridPath,
         width: W,
         height: H,
         min: lo,

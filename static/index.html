@@ -5896,9 +5896,13 @@
                         </template>
                       </div>
                       <svg class="metric-svg" viewBox="0 0 420 120" preserveAspectRatio="none">
-                        <template x-for="(tk, i) in hostChart(h.beszel_id, 'cpu', { min: 0, max: 100 }).ticks" :key="i">
-                          <line class="metric-grid" x1="0" x2="420" :y1="tk.y * 1.2" :y2="tk.y * 1.2"/>
-                        </template>
+                        <!-- Gridlines as a single <path> string — Alpine
+                             `<template x-for>` doesn't work inside <svg>
+                             (the SVG-namespace template element isn't a
+                             real HTMLTemplateElement, so .content is
+                             undefined and Alpine throws). hostChart()
+                             precomputes `gridPath` to avoid the issue. -->
+                        <path class="metric-grid" :d="hostChart(h.beszel_id, 'cpu', { min: 0, max: 100, height: 120 }).gridPath" fill="none"/>
                         <path class="metric-area" :d="hostChart(h.beszel_id, 'cpu', { min: 0, max: 100, height: 120 }).area"/>
                         <polyline class="metric-line" :points="hostChart(h.beszel_id, 'cpu', { min: 0, max: 100, height: 120 }).points"/>
                       </svg>
