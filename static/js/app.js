@@ -6419,6 +6419,21 @@ function app() {
           location:  pick(a.Location, a.location, a.site, a.room),
           location_details: locObj ? String(locObj.Details || locObj.details || '').trim() : '',
           type:      pick(a.Type, a.type),
+          // Type SHORT-form — checks `Type.shortname` (any case) so the
+          // host title can render a compact `[VM]` / `[PHY]` / `[CT]`
+          // badge instead of the long Type.Name. Falls through to ''
+          // when the upstream Type object only carries Name. The host
+          // title template then prefers shortname → falls back to the
+          // long `type` field above.
+          type_short: (() => {
+            const obj = (a.Type && typeof a.Type === 'object') ? a.Type
+                      : (a.type && typeof a.type === 'object') ? a.type
+                      : null;
+            if (!obj) return '';
+            const s = obj.shortname || obj.ShortName || obj.short_name
+                   || obj.Shortname || obj.shortName || '';
+            return String(s || '').trim();
+          })(),
           name:      pick(a.Name, a.name),
           hostnames,
           primary_ip: primaryIp,
@@ -6441,6 +6456,19 @@ function app() {
         };
       }
       return null;
+    },
+    // Bracketed type prefix for the Hosts-view host title — renders
+    // as "[VM]" / "[PHY]" / "[CT]" before the display label so
+    // operators can scan a long list and tell physical / virtual /
+    // container hosts apart at a glance. Resolution: prefer the
+    // asset's `Type.shortname` (compact 2-3 char code), fall back to
+    // the long `Type.Name`, return '' when no asset / no type. Empty
+    // result skips the prefix entirely so non-asset hosts stay clean.
+    hostTypePrefix(h) {
+      const a = this.assetForHost(h);
+      if (!a) return '';
+      const label = (a.type_short || a.type || '').trim();
+      return label ? '[' + label + '] ' : '';
     },
     // Raw asset row from the cached snapshot — for the debug panel.
     // The shaped resolver (`assetForHost`) drops fields the drawer

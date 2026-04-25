@@ -1231,7 +1231,7 @@
                    x-show="hostIconUrl(h)" alt="" loading="lazy"
                    @error="$event.target.style.display='none'">
               <div class="host-mobile-card-title">
-                <span class="label" x-text="h.label || h.host"></span>
+                <span class="label" x-text="hostTypePrefix(h) + (h.label || h.host)"></span>
                 <span class="sub" x-text="h.host + ' · ' + (h.os || h.platform || '—')"></span>
               </div>
               <div class="host-mobile-providers">
@@ -1401,7 +1401,8 @@
                           :class="'pill-muted'"
                           :title="t('hosts_extra.custom_number_title')"
                           x-text="'#' + h.custom_number"></span>
-                    <span class="font-semibold text-[13px] mono truncate" x-text="h.label || h.host"></span>
+                    <span class="font-semibold text-[13px] mono truncate"
+                          x-text="hostTypePrefix(h) + (h.label || h.host)"></span>
                     <template x-for="p in (h.providers || [])" :key="p">
                       <span class="chip text-[9.5px] px-1 py-0"
                             :class="p === 'beszel' ? 'pill-ok' : p === 'pulse' ? 'pill-info' : 'pill-update'"
