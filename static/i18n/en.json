@@ -4,6 +4,10 @@
     "name": "English",
     "dir": "ltr"
   },
+  "common": {
+    "unsaved": "Unsaved",
+    "unsaved_title": "You have unsaved changes — click Save to commit them."
+  },
   "errors": {
     "OG0001": "DNS resolution failed — the hostname could not be resolved. Check the URL, container DNS (/etc/resolv.conf), split-horizon DNS, or an outbound VPN.",
     "OG0002": "Connection refused by the upstream host — check the port and that the upstream service is running.",

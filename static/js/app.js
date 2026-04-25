@@ -747,6 +747,39 @@ function app() {
           || (f.email        || '') !== base.email;
     },
 
+    // UX-005: Asset Inventory dirty tracker — same shape as
+    // `profileDirty()` and the host-stats / OIDC / Portainer /
+    // Apprise / SSH dirty flags. Compares the editable `assetForm`
+    // against the server-supplied `assetStatus` snapshot. Secret
+    // fields (client_secret / lifetime_token) follow the standard
+    // "_set" pattern: blank = keep, any non-empty value = dirty.
+    assetDirty() {
+      const f = this.assetForm || {};
+      const s = this.assetStatus || {};
+      const norm = v => (v == null ? '' : String(v));
+      // Status's auth_mode comes through as 'lifetime_token' or anything-else;
+      // form normalises to 'oauth2' as the default fallback.
+      const baseAuth = (s.auth_mode === 'lifetime_token') ? 'lifetime_token' : 'oauth2';
+      if ((f.auth_mode || 'oauth2') !== baseAuth) return true;
+      const fields = [
+        'base_url', 'token_url', 'client_id', 'scope',
+        'service', 'action', 'edit_url_template',
+      ];
+      for (const k of fields) {
+        if (norm(f[k]) !== norm(s[k])) return true;
+      }
+      // min_value / max_value — form holds strings, status numbers.
+      const sMin = (s.min_value != null) ? String(s.min_value) : '';
+      const sMax = (s.max_value != null) ? String(s.max_value) : '';
+      if (norm(f.min_value) !== sMin) return true;
+      if (norm(f.max_value) !== sMax) return true;
+      // Write-only secrets: any non-empty value in the form is a pending
+      // change. Blank = keep current; the operator hasn't typed anything.
+      if ((f.client_secret  || '').length > 0) return true;
+      if ((f.lifetime_token || '').length > 0) return true;
+      return false;
+    },
+
     async saveProfile() {
       if (this.profileBusy) return;
       this.profileBusy = true;

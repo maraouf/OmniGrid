@@ -1343,8 +1343,9 @@
                 <span class="name">CPU</span>
                 <span class="value" x-text="(h.cpu_percent || 0).toFixed(1) + '%'"></span>
                 <div class="stat-bar"
-                     :class="barLevel(h.cpu_percent)"
-                     :style="'--w: ' + Math.min(100, h.cpu_percent) + '%'">
+                     :class="[barLevel(h.cpu_percent), isStaleField(h, 'host_cpu_percent') ? 'stale' : '']"
+                     :style="'--w: ' + Math.min(100, h.cpu_percent) + '%'"
+                     :title="isStaleField(h, 'host_cpu_percent') ? staleAge(h) : ''">
                   <div class="fill"></div>
                 </div>
               </div>
@@ -1353,8 +1354,9 @@
                 <span class="value"
                       x-text="(h.mem_percent || memPercentOf(h)) + '%'"></span>
                 <div class="stat-bar"
-                     :class="barLevel(h.mem_percent || memPercentOf(h))"
-                     :style="'--w: ' + (h.mem_percent || memPercentOf(h)) + '%'">
+                     :class="[barLevel(h.mem_percent || memPercentOf(h)), (isStaleField(h, 'host_mem_total') || isStaleField(h, 'host_mem_used')) ? 'stale' : '']"
+                     :style="'--w: ' + (h.mem_percent || memPercentOf(h)) + '%'"
+                     :title="(isStaleField(h, 'host_mem_total') || isStaleField(h, 'host_mem_used')) ? staleAge(h) : ''">
                   <div class="fill"></div>
                 </div>
               </div>
@@ -1363,8 +1365,9 @@
                 <span class="value"
                       x-text="(h.disk_percent || diskPercentOf(h)) + '%'"></span>
                 <div class="stat-bar"
-                     :class="barLevel(h.disk_percent || diskPercentOf(h))"
-                     :style="'--w: ' + (h.disk_percent || diskPercentOf(h)) + '%'">
+                     :class="[barLevel(h.disk_percent || diskPercentOf(h)), (isStaleField(h, 'host_disk_total') || isStaleField(h, 'host_disk_used')) ? 'stale' : '']"
+                     :style="'--w: ' + (h.disk_percent || diskPercentOf(h)) + '%'"
+                     :title="(isStaleField(h, 'host_disk_total') || isStaleField(h, 'host_disk_used')) ? staleAge(h) : ''">
                   <div class="fill"></div>
                 </div>
               </div>
@@ -1565,8 +1568,9 @@
                 <template x-if="h.status === 'up'">
                   <div>
                     <div class="stat-bar"
-                         :class="barLevel(h.cpu_percent)"
-                         :style="'--w: ' + Math.min(100, h.cpu_percent) + '%'">
+                         :class="[barLevel(h.cpu_percent), isStaleField(h, 'host_cpu_percent') ? 'stale' : '']"
+                         :style="'--w: ' + Math.min(100, h.cpu_percent) + '%'"
+                         :title="isStaleField(h, 'host_cpu_percent') ? staleAge(h) : ''">
                       <div class="fill"></div>
                     </div>
                     <div class="text-[10.5px] mono mt-1"
@@ -1579,8 +1583,9 @@
                 <template x-if="h.status === 'up'">
                   <div>
                     <div class="stat-bar"
-                         :class="barLevel(h.mem_percent || memPercentOf(h))"
-                         :style="'--w: ' + (h.mem_percent || memPercentOf(h)) + '%'">
+                         :class="[barLevel(h.mem_percent || memPercentOf(h)), (isStaleField(h, 'host_mem_total') || isStaleField(h, 'host_mem_used')) ? 'stale' : '']"
+                         :style="'--w: ' + (h.mem_percent || memPercentOf(h)) + '%'"
+                         :title="(isStaleField(h, 'host_mem_total') || isStaleField(h, 'host_mem_used')) ? staleAge(h) : ''">
                       <div class="fill"></div>
                     </div>
                     <div class="text-[10.5px] mono mt-1">
@@ -1616,8 +1621,9 @@
                     </template>
                     <template x-if="(h.mounts || []).length <= 1">
                       <div class="stat-bar"
-                           :class="barLevel(h.disk_percent || diskPercentOf(h))"
-                           :style="'--w: ' + (h.disk_percent || diskPercentOf(h)) + '%'">
+                           :class="[barLevel(h.disk_percent || diskPercentOf(h)), (isStaleField(h, 'host_disk_total') || isStaleField(h, 'host_disk_used')) ? 'stale' : '']"
+                           :style="'--w: ' + (h.disk_percent || diskPercentOf(h)) + '%'"
+                           :title="(isStaleField(h, 'host_disk_total') || isStaleField(h, 'host_disk_used')) ? staleAge(h) : ''">
                         <div class="fill"></div>
                       </div>
                     </template>
@@ -1980,7 +1986,7 @@
                       x-text="profileBusy ? t('actions.saving') : t('actions.save_changes')"></button>
               <span x-show="profileDirty()"
                     class="text-[11.5px] text-[var(--warning)] flex items-center gap-1.5"
-                    title="You have unsaved profile changes.">
+                    :title="t('common.unsaved_title')">
                 <span class="w-1.5 h-1.5 rounded-full bg-[var(--warning)] animate-pulse"></span>
                 <span x-text="t('hosts_actions.unsaved_label')"></span>
               </span>
@@ -2415,6 +2421,19 @@
 
     <!-- ===== ADMIN VIEW (admin role only) ===== -->
     <div x-show="view==='admin'" class="page-layout">
+      <!-- UX-008: mobile sidebar replacement. Below 768px the
+           full-width button list eats half the viewport; a single
+           <select> is denser and matches platform conventions for
+           narrow screens. The desktop <aside> below stays for
+           ≥768px (CSS hides this `.page-mobile-nav` block). -->
+      <div class="page-mobile-nav">
+        <label class="text-[11px] text-[var(--text-faint)] block mb-1" x-text="t('nav.admin')"></label>
+        <select :value="adminTab" @change="openAdminTab($event.target.value)" class="w-full text-[13px] py-2">
+          <template x-for="s in adminSections" :key="s.id">
+            <option :value="s.id" :selected="adminTab === s.id" x-text="t('admin.sections.' + s.id)"></option>
+          </template>
+        </select>
+      </div>
       <aside class="page-sidebar">
         <div class="page-sidebar-header" x-text="t('nav.admin')"></div>
         <template x-for="s in adminSections" :key="s.id">
@@ -4224,10 +4243,17 @@
           </button>
           <button x-show="isAdmin()" @click="saveAssetSettings()"
                   class="btn btn-primary text-[12px]"
+                  :class="assetDirty() ? 'ring-2 ring-[var(--warning)]' : ''"
                   :disabled="assetSaving">
             <span x-show="!assetSaving" x-text="t('admin_assets.save')"></span>
             <span x-show="assetSaving" class="flex items-center gap-1"><span class="spin"></span><span x-text="t('admin_assets.saving')"></span></span>
           </button>
+          <span x-show="assetDirty()"
+                class="pill pill-warning text-[10.5px] mono inline-flex items-center gap-1"
+                :title="t('common.unsaved_title')">
+            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/></svg>
+            <span x-text="t('common.unsaved')"></span>
+          </span>
           <button x-show="isAdmin()" @click="refreshAssetCache()"
                   class="btn btn-ghost text-[12px]"
                   :disabled="assetRefreshing">
