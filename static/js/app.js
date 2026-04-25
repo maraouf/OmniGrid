@@ -2463,6 +2463,74 @@ function app() {
       console.log('[statsDebug]', snap);
       return snap;
     },
+    // Operator-callable: walks every visible item and reports WHY each
+    // one is rendering blank/empty bars. Prints a per-item table to the
+    // console with the diagnosis in plain English. Run from DevTools as
+    // `omnigrid.whyNoGraphs()` after the page settles.
+    whyNoGraphs() {
+      const items = this.items || [];
+      const rows = [];
+      let okCount = 0, missingFromStats = 0, statsButNoFlag = 0,
+          fallbackOnly = 0, sparkOnly = 0;
+      for (const i of items) {
+        const id = i.id;
+        const s = this.stats[id];
+        const sp = this.sparks[id];
+        const sparkCount = Array.isArray(sp) ? sp.length : 0;
+        let diagnosis = '';
+        if (!s) {
+          diagnosis = 'no entry in this.stats — /api/stats did not include this id';
+          missingFromStats++;
+        } else if (s._stale && (!s.ts || s.ts === 0)) {
+          diagnosis = 'fallback-only (cache seed from stats_samples; live gather has not run yet)';
+          fallbackOnly++;
+        } else if (!s.has_stats && !s.has_size) {
+          diagnosis = 'has_stats=false AND has_size=false (Portainer per-container /stats fetch failed for this container)';
+          statsButNoFlag++;
+        } else if (!s.has_stats && s.has_size) {
+          diagnosis = 'has_stats=false but has_size=true (container offline; size came from inspect)';
+          statsButNoFlag++;
+        } else {
+          diagnosis = 'OK — has_stats=true (bar should render)';
+          okCount++;
+        }
+        if (sparkCount === 0 && diagnosis.startsWith('OK')) diagnosis += ' but spark line empty';
+        else if (sparkCount > 0 && !s) { diagnosis += ' (sparks alone — bar fallback to 0)'; sparkOnly++; }
+        rows.push({
+          id, name: i.name, type: i.type, status: i.status,
+          stats_entry: !!s,
+          has_stats: !!(s && s.has_stats),
+          has_size:  !!(s && s.has_size),
+          stale:     !!(s && s._stale),
+          cpu:       s && s.cpu_percent,
+          mem_used:  s && s.mem_usage,
+          mem_limit: s && s.mem_limit,
+          spark_pts: sparkCount,
+          diagnosis,
+        });
+      }
+      const summary = {
+        items_total: items.length,
+        ok: okCount,
+        missing_from_stats: missingFromStats,
+        stats_entry_but_no_data: statsButNoFlag,
+        fallback_only: fallbackOnly,
+        spark_only: sparkOnly,
+      };
+      console.log('[whyNoGraphs] SUMMARY', summary);
+      console.table(rows);
+      // Actionable next-step hints based on the dominant failure mode.
+      if (missingFromStats === items.length && items.length > 0) {
+        console.warn('[whyNoGraphs] EVERY item is missing from this.stats. Either /api/stats returned an empty {stats:{}} OR loadStats() never fired. Check Network tab for /api/stats response body.');
+      } else if (statsButNoFlag > okCount) {
+        console.warn('[whyNoGraphs] Most entries have has_stats=false. Portainer per-container /stats is failing — check API key scope / agent reachability on the deploy host.');
+      } else if (fallbackOnly > okCount) {
+        console.warn('[whyNoGraphs] Most entries are fallback-only (seeded from stats_samples, no live gather). _gather_stats() has not yet run since boot. Wait ~30s and retry.');
+      } else if (okCount === items.length && items.length > 0) {
+        console.log('[whyNoGraphs] All items have valid live stats. If bars still look blank, the issue is template/CSS — inspect the rendered DOM for .stat-bar elements and their --w / --c CSS variables.');
+      }
+      return summary;
+    },
     async loadStats(force=false) {
       try {
         const r = await fetch('/api/stats' + (force ? '?force=true' : ''));
@@ -2475,6 +2543,29 @@ function app() {
         }
         const d = await r.json();
         this.stats = d.stats || {};
+        // Unconditional "what arrived" line so the operator can spot
+        // the disconnect between server-side `/api/stats` (which may
+        // return rich data) and what the SPA actually has in
+        // `this.stats` (which the templates read). If this line shows
+        // 0 keys but `curl /api/stats` shows non-zero rows, the SPA
+        // has a parse / state issue, not a backend issue.
+        try {
+          const ids = Object.keys(this.stats);
+          const withStats = ids.filter(id => this.stats[id] && this.stats[id].has_stats).length;
+          const withSize = ids.filter(id => this.stats[id] && this.stats[id].has_size).length;
+          const withStale = ids.filter(id => this.stats[id] && this.stats[id]._stale).length;
+          const sample = ids.slice(0, 2).map(id => ({
+            id,
+            has_stats: !!(this.stats[id] && this.stats[id].has_stats),
+            has_size: !!(this.stats[id] && this.stats[id].has_size),
+            cpu: this.stats[id] && this.stats[id].cpu_percent,
+            mem_used: this.stats[id] && this.stats[id].mem_usage,
+            mem_limit: this.stats[id] && this.stats[id].mem_limit,
+            size_root: this.stats[id] && this.stats[id].size_root,
+            stale: !!(this.stats[id] && this.stats[id]._stale),
+          }));
+          console.log('[stats] loadStats: keys=' + ids.length + ' with_stats=' + withStats + ' with_size=' + withSize + ' stale=' + withStale + ' items=' + (this.items || []).length, sample);
+        } catch (_) { /* never let logging crash the path */ }
         // Self-diagnostic — fires when /api/stats came back with
         // ZERO has_stats=true rows AND we have items loaded. That's
         // the signature of "Portainer's per-container /stats endpoint
@@ -2577,6 +2668,16 @@ function app() {
         }
         const d = await r.json();
         this.sparks = d.series || {};
+        try {
+          const sparkIds = Object.keys(this.sparks);
+          const withData = sparkIds.filter(id => Array.isArray(this.sparks[id]) && this.sparks[id].length > 0).length;
+          const sample = sparkIds.slice(0, 2).map(id => ({
+            id, points: (this.sparks[id] || []).length,
+            first: (this.sparks[id] || [])[0] || null,
+            last: (this.sparks[id] || []).slice(-1)[0] || null,
+          }));
+          console.log('[sparks] loadSparks: keys=' + sparkIds.length + ' with_points=' + withData + ' requested_for=' + ids.length, sample);
+        } catch (_) { /* never let logging crash the path */ }
         // Self-diagnostic — fires once when sparks come back empty
         // AND we have items. The most common cause is item-id drift
         // (stats_samples table has rows under historical container/
