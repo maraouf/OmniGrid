@@ -300,6 +300,48 @@
     --terminal-status-warn-fg: #b45309;
     --terminal-status-err-bg:  rgba(220, 38, 38, .14);
     --terminal-status-err-fg:  #b91c1c;
+
+    /* Admin → Logs accent palette — light-theme variants. The hues
+       are slightly darker / more saturated than the dark-theme set
+       because the light surface needs more contrast to hit AA on
+       12-px chip text. Keep this list in lockstep with the dark
+       block above (every key declared in one MUST exist in the
+       other per CLAUDE.md). */
+    --log-tag-webmin:           #b45309;
+    --log-tag-beszel:           #15803d;
+    --log-tag-pulse:            #6d28d9;
+    --log-tag-hosts:            #1d4ed8;
+    --log-tag-host-net-sampler: #0f766e;
+    --log-tag-ssh:              #be185d;
+    --log-tag-portainer:        #0369a1;
+    --log-tag-i18n:             #475569;
+    --log-tag-ops:              #b45309;
+    --log-tag-schedules:        #6d28d9;
+    --log-tag-gather:           #0e7490;
+    --log-tag-node-exporter:    #c2410c;
+    --log-tag-oidc:             #be123c;
+    --log-tag-backup:           #4d7c0f;
+    --log-tag-stats:            #2563eb;
+    --log-tag-deploy:           #b45309;
+
+    /* Per-segment disk palette — light-theme variants. Same darker
+       hues so coloured stripes are legible against the light
+       drawer surface. */
+    --disk-seg-0: #15803d;
+    --disk-seg-1: #1d4ed8;
+    --disk-seg-2: #6d28d9;
+    --disk-seg-3: #b45309;
+    --disk-seg-4: #be185d;
+    --disk-seg-5: #0f766e;
+    --disk-seg-6: #c2410c;
+
+    /* IP-chip palette — light-theme variants. */
+    --ipv4-fg: #2563eb;
+    --ipv6-fg: #6d28d9;
+
+    /* Drop-shadow tint for `.app-icon` — light theme uses a soft
+       dark tint to lift icons against the bright surface. */
+    --icon-glow: rgba(15, 23, 42, .12);
 }
 
 /* ---------------------------------------------------------------------------
@@ -724,9 +766,9 @@ select:focus {
    swatch stands apart from the beszel (ok-green) and exporter (update-
    amber) chips. Borrows the --info token defined on :root. */
 .pill-info {
-    background: rgba(99, 102, 241, .10);
+    background: color-mix(in srgb, var(--info) 10%, transparent);
     color: var(--info);
-    border-color: rgba(99, 102, 241, .30);
+    border-color: color-mix(in srgb, var(--info) 30%, transparent);
 }
 
 .pill-offline {
@@ -1217,9 +1259,9 @@ details summary::-webkit-details-marker {
     vector-effect: non-scaling-stroke;
 }
 
-.metric-card--cpu  { color: var(--metric-cpu,  #a78bfa); }
-.metric-card--mem  { color: var(--metric-mem,  #f59e0b); }
-.metric-card--disk { color: var(--metric-disk, #22c55e); }
+.metric-card--cpu  { color: var(--metric-cpu); }
+.metric-card--mem  { color: var(--metric-mem); }
+.metric-card--disk { color: var(--metric-disk); }
 
 /* Net In / Net Out — shorter than the percent charts because the
    signal is often flat (most homelab hosts sit near-zero bytes/s
@@ -1241,8 +1283,8 @@ details summary::-webkit-details-marker {
     height: 60px;
 }
 
-.metric-card--net  { color: var(--metric-net,  #3b82f6); }
-.metric-card--net-out { color: var(--metric-net-out, #8b5cf6); }
+.metric-card--net  { color: var(--metric-net); }
+.metric-card--net-out { color: var(--metric-net-out); }
 
 /* Flat-signal modifier — applied when the peak is zero, which
    collapses the chart to a single-line "nothing happening" state.
@@ -1290,15 +1332,15 @@ details summary::-webkit-details-marker {
 }
 
 .ip-chip--v4 {
-    background: rgba(59, 130, 246, .14);
-    border-color: rgba(59, 130, 246, .32);
-    color: #60a5fa;
+    background: color-mix(in srgb, var(--primary) 14%, transparent);
+    border-color: color-mix(in srgb, var(--primary) 32%, transparent);
+    color: var(--ipv4-fg);
 }
 
 .ip-chip--v6 {
-    background: rgba(139, 92, 246, .14);
-    border-color: rgba(139, 92, 246, .32);
-    color: #a78bfa;
+    background: color-mix(in srgb, var(--metric-cpu) 14%, transparent);
+    border-color: color-mix(in srgb, var(--metric-cpu) 32%, transparent);
+    color: var(--ipv6-fg);
 }
 
 
@@ -1347,25 +1389,29 @@ details summary::-webkit-details-marker {
     color: var(--text-dim);
     background: color-mix(in srgb, var(--text-dim) 12%, transparent);
 }
-.log-tag--webmin       { color: #d97706; background: color-mix(in srgb, #d97706 14%, transparent); }
-.log-tag--beszel       { color: #22c55e; background: color-mix(in srgb, #22c55e 14%, transparent); }
-.log-tag--pulse        { color: #a78bfa; background: color-mix(in srgb, #a78bfa 14%, transparent); }
-.log-tag--hosts        { color: #3b82f6; background: color-mix(in srgb, #3b82f6 14%, transparent); }
-.log-tag--host_net_sampler { color: #14b8a6; background: color-mix(in srgb, #14b8a6 14%, transparent); }
-.log-tag--ssh          { color: #ec4899; background: color-mix(in srgb, #ec4899 14%, transparent); }
-.log-tag--portainer    { color: #0ea5e9; background: color-mix(in srgb, #0ea5e9 14%, transparent); }
-.log-tag--i18n         { color: #94a3b8; background: color-mix(in srgb, #94a3b8 14%, transparent); }
-.log-tag--ops          { color: #f59e0b; background: color-mix(in srgb, #f59e0b 14%, transparent); }
-.log-tag--schedules    { color: #8b5cf6; background: color-mix(in srgb, #8b5cf6 14%, transparent); }
-.log-tag--gather       { color: #06b6d4; background: color-mix(in srgb, #06b6d4 14%, transparent); }
+/* Tokenised palette — every hue lives in :root[data-theme="dark"]
+   AND :root[data-theme="light"] as `--log-tag-<name>`. The two
+   themes use slightly different lightness values to stay legible
+   against their respective surface colours. */
+.log-tag--webmin       { color: var(--log-tag-webmin);           background: color-mix(in srgb, var(--log-tag-webmin) 14%, transparent); }
+.log-tag--beszel       { color: var(--log-tag-beszel);           background: color-mix(in srgb, var(--log-tag-beszel) 14%, transparent); }
+.log-tag--pulse        { color: var(--log-tag-pulse);            background: color-mix(in srgb, var(--log-tag-pulse) 14%, transparent); }
+.log-tag--hosts        { color: var(--log-tag-hosts);            background: color-mix(in srgb, var(--log-tag-hosts) 14%, transparent); }
+.log-tag--host_net_sampler { color: var(--log-tag-host-net-sampler); background: color-mix(in srgb, var(--log-tag-host-net-sampler) 14%, transparent); }
+.log-tag--ssh          { color: var(--log-tag-ssh);              background: color-mix(in srgb, var(--log-tag-ssh) 14%, transparent); }
+.log-tag--portainer    { color: var(--log-tag-portainer);        background: color-mix(in srgb, var(--log-tag-portainer) 14%, transparent); }
+.log-tag--i18n         { color: var(--log-tag-i18n);             background: color-mix(in srgb, var(--log-tag-i18n) 14%, transparent); }
+.log-tag--ops          { color: var(--log-tag-ops);              background: color-mix(in srgb, var(--log-tag-ops) 14%, transparent); }
+.log-tag--schedules    { color: var(--log-tag-schedules);        background: color-mix(in srgb, var(--log-tag-schedules) 14%, transparent); }
+.log-tag--gather       { color: var(--log-tag-gather);           background: color-mix(in srgb, var(--log-tag-gather) 14%, transparent); }
 .log-tag--node_exporter,
-.log-tag--ne           { color: #f97316; background: color-mix(in srgb, #f97316 14%, transparent); }
+.log-tag--ne           { color: var(--log-tag-node-exporter);    background: color-mix(in srgb, var(--log-tag-node-exporter) 14%, transparent); }
 .log-tag--oidc,
-.log-tag--auth         { color: #e11d48; background: color-mix(in srgb, #e11d48 14%, transparent); }
-.log-tag--backup       { color: #84cc16; background: color-mix(in srgb, #84cc16 14%, transparent); }
-.log-tag--stats        { color: #60a5fa; background: color-mix(in srgb, #60a5fa 14%, transparent); }
+.log-tag--auth         { color: var(--log-tag-oidc);             background: color-mix(in srgb, var(--log-tag-oidc) 14%, transparent); }
+.log-tag--backup       { color: var(--log-tag-backup);           background: color-mix(in srgb, var(--log-tag-backup) 14%, transparent); }
+.log-tag--stats        { color: var(--log-tag-stats);            background: color-mix(in srgb, var(--log-tag-stats) 14%, transparent); }
 .log-tag--deploy,
-.log-tag--version      { color: #fbbf24; background: color-mix(in srgb, #fbbf24 14%, transparent); }
+.log-tag--version      { color: var(--log-tag-deploy);           background: color-mix(in srgb, var(--log-tag-deploy) 14%, transparent); }
 
 
 /* Loading spinner for host rows whose /api/hosts/one/{id} probe is
@@ -1462,13 +1508,13 @@ details summary::-webkit-details-marker {
 
 /* Palette for mount segments — reuses the same hues the Hosts
    view metric-cards pick to maintain visual consistency. */
-.disk-seg-0 { background: #22c55e; color: #22c55e; }   /* emerald */
-.disk-seg-1 { background: #3b82f6; color: #3b82f6; }   /* blue */
-.disk-seg-2 { background: #a78bfa; color: #a78bfa; }   /* violet */
-.disk-seg-3 { background: #f59e0b; color: #f59e0b; }   /* amber */
-.disk-seg-4 { background: #ec4899; color: #ec4899; }   /* pink */
-.disk-seg-5 { background: #14b8a6; color: #14b8a6; }   /* teal */
-.disk-seg-6 { background: #f97316; color: #f97316; }   /* orange */
+.disk-seg-0 { background: var(--disk-seg-0); color: var(--disk-seg-0); }
+.disk-seg-1 { background: var(--disk-seg-1); color: var(--disk-seg-1); }
+.disk-seg-2 { background: var(--disk-seg-2); color: var(--disk-seg-2); }
+.disk-seg-3 { background: var(--disk-seg-3); color: var(--disk-seg-3); }
+.disk-seg-4 { background: var(--disk-seg-4); color: var(--disk-seg-4); }
+.disk-seg-5 { background: var(--disk-seg-5); color: var(--disk-seg-5); }
+.disk-seg-6 { background: var(--disk-seg-6); color: var(--disk-seg-6); }
 
 
 /* "Collecting data…" placeholder shown where a sparkline or chart
@@ -1770,7 +1816,7 @@ details summary::-webkit-details-marker {
 /* On the dark theme, pure-black logos vanish — lift them with a white
    glow-like background. Only kicks in for known-dark icons via a class. */
 :root[data-theme="dark"] .app-icon {
-    filter: drop-shadow(0 0 0.5px rgba(255, 255, 255, .15));
+    filter: drop-shadow(0 0 0.5px var(--icon-glow));
 }
 
 /* ---------------------------------------------------------------------------
@@ -2268,7 +2314,7 @@ details summary::-webkit-details-marker {
     width: 26px;
     height: 26px;
     border-radius: 50%;
-    background: hsl(var(--avatar-hue, 210), 55%, 45%);
+    background: hsl(var(--avatar-hue), 55%, 45%);
     color: var(--text-on-primary);
     font-size: 11px;
     font-weight: 600;
@@ -2618,7 +2664,7 @@ body.login {
     background: var(--surface-3);
     color: var(--text);
     font-size: 10.5px;
-    font-family: var(--font-mono, monospace);
+    font-family: var(--font-mono);
     line-height: 1.4;
 }
 
@@ -2703,7 +2749,7 @@ body.login {
 .host-debug-json {
     margin: 0;
     padding: var(--s-3);
-    font-family: var(--font-mono, monospace);
+    font-family: var(--font-mono);
     font-size: 11px;
     line-height: 1.5;
     color: var(--text-dim);
@@ -3017,7 +3063,7 @@ select.field-invalid {
     left: 0;
     border-left: none;
     border-right: 1px solid var(--border);
-    box-shadow: 8px 0 24px -12px var(--backdrop-strong, rgba(0, 0, 0, .35));
+    box-shadow: 8px 0 24px -12px var(--backdrop-strong);
 }
 
 /* ---------------------------------------------------------------------------
@@ -3061,7 +3107,7 @@ select.field-invalid {
     padding: 2px 8px;
     border-radius: var(--r-sm);
     font-size: 10.5px;
-    font-family: var(--font-mono, monospace);
+    font-family: var(--font-mono);
     line-height: 1.5;
     background: var(--surface-3);
     color: var(--text-dim);

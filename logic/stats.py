@@ -250,17 +250,26 @@ async def gather_stats() -> None:
     """
     items_cache = _gather_mod.get_cache()
     if not items_cache["items"]:
+        # Diagnostic — surfaces the early-return that would explain
+        # why /api/stats returns {} despite stats_samples being
+        # populated. The note_todo #250 thread chased this for a
+        # while; the operator log capture will pin the cause.
+        print(f"[stats] gather_stats early-return: items_cache empty (size={len(items_cache.get('items') or [])})")
         return
     if not portainer.is_configured():
         # Mirror the gather short-circuit. Without this we'd send httpx
         # requests to an empty URL and log noise on every poll tick.
+        print("[stats] gather_stats early-return: portainer.is_configured() == False")
         return
+    print(f"[stats] gather_stats start: items={len(items_cache['items'])}")
     async with httpx.AsyncClient(verify=portainer.VERIFY_TLS, timeout=30.0) as client:
         ep = f"/api/endpoints/{portainer.PORTAINER_ENDPOINT_ID}/docker"
         try:
             containers = await portainer.pg(client, f"{ep}/containers/json?all=1&size=1")
-        except Exception:
+        except Exception as e:
+            print(f"[stats] gather_stats: containers fetch FAILED: {type(e).__name__}: {e}")
             containers = []
+        print(f"[stats] gather_stats: containers fetched={len(containers)}")
 
         # Track two sizes per container:
         #   size_root = full image size on disk (SizeRootFs). Always non-zero and
@@ -368,3 +377,6 @@ async def gather_stats() -> None:
             }
         _stats_cache["stats"] = out
         _stats_cache["ts"] = time.time()
+        with_stats = sum(1 for v in out.values() if v.get("has_stats"))
+        with_size  = sum(1 for v in out.values() if v.get("has_size"))
+        print(f"[stats] gather_stats wrote: items={len(out)} has_stats_true={with_stats} has_size_true={with_size}")
