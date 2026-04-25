@@ -1556,7 +1556,18 @@
                   </div>
                 </div>
               </template>
-              <div x-show="(h.providers || []).length > 0"
+              <!-- Drawer grid — shows whenever we have ANY data
+                   worth displaying: live providers OR an asset
+                   inventory match OR a custom_number that lets the
+                   asset card render its empty-state diagnostic.
+                   Hosts with NONE of those still see the SSH card +
+                   debug panel below. Each individual section inside
+                   the grid carries its own visibility gate (asset
+                   section → assetForHost(h), HARDWARE → status==='up'
+                   || assetForHost(h), etc.) so empty rows stay tidy. -->
+              <div x-show="(h.providers || []).length > 0
+                           || assetForHost(h)
+                           || (h.custom_number != null && h.custom_number !== '')"
                    class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
                 <!-- ASSET INVENTORY (rich) — rendered FIRST so the
                      operator sees the curated metadata before the
