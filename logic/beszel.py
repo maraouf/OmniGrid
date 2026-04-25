@@ -41,6 +41,18 @@ import httpx
 # in Settings will miss the cache and re-auth, which is correct.
 _token_cache: dict[tuple[str, str], dict] = {}
 
+# Module-level dedupe for the per-host "mounts=0 — agent not reporting
+# efs" diagnostic. Without this set, every gather cycle re-prints the
+# same warning for every host whose Beszel agent lacks
+# ``EXTRA_FILESYSTEMS`` — ~30 hosts × every tick = flooded logs. We
+# instead print the warning ONCE per (host_key) for the lifetime of the
+# process. If mounts start appearing later (operator fixed the agent),
+# we clear the host's entry so a future regression would re-warn.
+# The "sample system_id has no efs key" line uses its own one-shot
+# guard (`_warned_sample_no_efs`) so it doesn't fire every cycle either.
+_warned_no_mounts: set[str] = set()
+_warned_sample_no_efs: bool = False
+
 
 def _cache_key(base_url: str, identity: str) -> tuple[str, str]:
     return (base_url.rstrip("/"), identity)
@@ -612,7 +624,11 @@ async def probe_hub(
     # operator can confirm what Beszel is actually sending for each
     # host. An empty ``efs`` on a machine with multiple mounts means
     # the Beszel agent wasn't started with ``EXTRA_FILESYSTEMS=...``.
+    # The "no efs key" warning is guarded by a one-shot module flag
+    # so it doesn't print every gather cycle — the hint is useful at
+    # startup but becomes noise on subsequent ticks.
     if latest_stats:
+        global _warned_sample_no_efs
         sample_sid = next(iter(latest_stats))
         sample = latest_stats[sample_sid] or {}
         efs = sample.get("efs")
@@ -621,9 +637,15 @@ async def probe_hub(
             keys = list(efs.keys()) if isinstance(efs, dict) else (efs if isinstance(efs, list) else [])
             print(f"[beszel] sample efs for system_id={sample_sid!r}: "
                   f"type={shape} count={len(keys)} keys={keys[:8]}")
-        else:
+            # If ``efs`` reappears after a prior warning (operator set
+            # EXTRA_FILESYSTEMS), reset the one-shot so a future
+            # regression re-warns.
+            _warned_sample_no_efs = False
+        elif not _warned_sample_no_efs:
             print(f"[beszel] sample system_id={sample_sid!r} has no 'efs' key — "
-                  f"agent probably not configured with EXTRA_FILESYSTEMS")
+                  f"agent probably not configured with EXTRA_FILESYSTEMS "
+                  f"(this warning is suppressed on subsequent ticks)")
+            _warned_sample_no_efs = True
 
     out: dict[str, dict] = {}
     for rec in records:
@@ -648,12 +670,26 @@ async def probe_hub(
         stats = extract_stats(info, latest_stats.get(rec_id))
         mounts = stats.get("mounts") or []
         if mounts:
-            print(f"[beszel] host={host_key!r} mounts={len(mounts)}: "
-                  + ", ".join(f"{m.get('n')}={m.get('du'):.1f}/{m.get('d'):.1f} GiB"
-                              for m in mounts[:5]))
+            # Positive mount line ALSO used to fire every cycle — kept
+            # only when something changed (mount count changed since
+            # last probe) or the operator just fixed a previously-zero
+            # host. Otherwise the steady-state tick is silent for this
+            # host and the log stays readable.
+            if host_key in _warned_no_mounts:
+                print(f"[beszel] host={host_key!r} mounts={len(mounts)} now reporting "
+                      f"(previously empty — agent picked up EXTRA_FILESYSTEMS): "
+                      + ", ".join(f"{m.get('n')}={m.get('du'):.1f}/{m.get('d'):.1f} GiB"
+                                  for m in mounts[:5]))
+                _warned_no_mounts.discard(host_key)
         else:
-            print(f"[beszel] host={host_key!r} mounts=0 — agent not reporting efs "
-                  f"(use EXTRA_FILESYSTEMS env on the Beszel agent to enable multi-mount)")
+            # One-shot warning per host for the lifetime of the process.
+            # Keeps the "set EXTRA_FILESYSTEMS" hint visible on first
+            # probe without flooding the log every gather cycle.
+            if host_key not in _warned_no_mounts:
+                print(f"[beszel] host={host_key!r} mounts=0 — agent not reporting efs "
+                      f"(set EXTRA_FILESYSTEMS env on the Beszel agent to enable "
+                      f"multi-mount; this warning is suppressed on subsequent ticks)")
+                _warned_no_mounts.add(host_key)
         # Carry the top-level status so callers can tell a paused /
         # down system from one that's actually fresh.
         stats["beszel_status"] = rec.get("status") or "unknown"
