@@ -1558,35 +1558,22 @@
               </template>
               <!-- Drawer grid — shows whenever we have ANY data
                    worth displaying: live providers OR an asset
-                   inventory match OR a custom_number that lets the
-                   asset card render its empty-state diagnostic.
-                   Hosts with NONE of those still see the SSH card +
-                   debug panel below. Each individual section inside
-                   the grid carries its own visibility gate (asset
-                   section → assetForHost(h), HARDWARE → status==='up'
-                   || assetForHost(h), etc.) so empty rows stay tidy. -->
-              <div x-show="(h.providers || []).length > 0
-                           || assetForHost(h)
-                           || (h.custom_number != null && h.custom_number !== '')"
+                   inventory match. Hosts with NEITHER still see the
+                   SSH card + debug panel below. Each individual
+                   section inside the grid carries its own visibility
+                   gate (asset section → assetForHost(h), HARDWARE →
+                   status==='up' || assetForHost(h), etc.) so empty
+                   rows stay tidy. Hosts whose custom_number doesn't
+                   match an asset row deliberately render NO asset
+                   card — operator wants those silent (was previously
+                   a diagnostic empty-state, now hidden per request). -->
+              <div x-show="(h.providers || []).length > 0 || assetForHost(h)"
                    class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
                 <!-- ASSET INVENTORY (rich) — rendered FIRST so the
                      operator sees the curated metadata before the
-                     live telemetry sections. Two render paths:
-                       - assetForHost(h) returns truthy → full card.
-                       - h.custom_number set but no asset match →
-                         diagnostic empty-state with the cn lookup
-                         that failed. Hosts with no custom_number
-                         render nothing (no asset is possible). -->
-                <template x-if="!assetForHost(h) && h.custom_number != null && h.custom_number !== ''">
-                  <section class="rounded border border-[var(--border)] bg-[var(--surface)] p-4 md:col-span-2 xl:col-span-4">
-                    <div class="flex items-center justify-between mb-2">
-                      <h4 class="text-[10.5px] uppercase tracking-wider text-[var(--text-faint)]"
-                          x-text="t('host_drawer.asset.heading')"></h4>
-                    </div>
-                    <p class="text-[11.5px] text-[var(--text-faint)]"
-                       x-text="'No asset-inventory match for custom_number=' + h.custom_number + '. Run Admin → Asset inventory → Refresh, or verify this host\\'s custom_number against the upstream asset list.'"></p>
-                  </section>
-                </template>
+                     live telemetry sections. Visible only when
+                     `assetForHost(h)` returns a populated shape;
+                     hosts without a match show nothing here. -->
                 <template x-if="assetForHost(h)">
                   <section class="rounded border border-[var(--border)] bg-[var(--surface)] p-4 md:col-span-2 xl:col-span-4">
                     <div class="flex items-center justify-between mb-3">

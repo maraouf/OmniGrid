@@ -2230,18 +2230,10 @@ async def api_hosts():
     # common "all three columns are empty" complaint by showing each
     # curated host's merged values + which providers contributed.
     hosts = []
-    # Set of Swarm node hostnames (short + long forms) — used to
-    # gate the `docker_node` field. Hosts that AREN'T Docker/Swarm
-    # nodes get an empty value so the drawer's "Docker node: …"
-    # row hides for VMs / appliances / routers that have no Docker.
-    swarm_hostnames: set[str] = set()
-    for n in (_cache.get("nodes") or {}).values():
-        if not n:
-            continue
-        ns = str(n).strip().lower()
-        if ns:
-            swarm_hostnames.add(ns)
-            swarm_hostnames.add(ns.split(".", 1)[0])
+    # `docker_node` gating moved to the module-level `_is_swarm_node`
+    # helper so `/api/hosts/list` + `/api/hosts/one/{id}` (via
+    # `_shape_host_api_row`) and this endpoint share one
+    # implementation. No inline set rebuild needed here anymore.
     for entry in out:
         h = entry["_host_record"]
         s = entry["_merged"]
@@ -2279,10 +2271,7 @@ async def api_hosts():
                 or s.get("pulse_status")
                 or ("up" if entry["_providers"] else "unknown")
             ),
-            "docker_node":     (h["id"] if (
-                h["id"].lower() in swarm_hostnames
-                or h["id"].lower().split(".", 1)[0] in swarm_hostnames
-            ) else ""),  # only set when the host is an actual Swarm node
+            "docker_node":     (h["id"] if _is_swarm_node(h.get("id")) else ""),
             "platform":        s.get("host_platform") or "",
             "os":              s.get("host_os") or "",
             "kernel":          s.get("host_kernel") or "",
@@ -2570,6 +2559,29 @@ async def _merge_one_host(h: dict, state: dict) -> tuple[dict, list[str]]:
     return merged, providers_hit
 
 
+# True when a host id matches a Swarm node hostname (long-form OR
+# short-form). Used to gate the `docker_node` field — non-Swarm hosts
+# (VMs / appliances / routers / 5G modems) get an empty value so the
+# drawer's misleading "Docker node: <id>" row hides for them.
+def _is_swarm_node(host_id) -> bool:
+    if not host_id:
+        return False
+    hid = str(host_id).strip().lower()
+    if not hid:
+        return False
+    short = hid.split(".", 1)[0]
+    for n in (_cache.get("nodes") or {}).values():
+        if not n:
+            continue
+        ns = str(n).strip().lower()
+        if not ns:
+            continue
+        if ns == hid or ns == short or ns.split(".", 1)[0] == hid \
+                or ns.split(".", 1)[0] == short:
+            return True
+    return False
+
+
 # Module-level asset-index cache, keyed on the cache file's mtime so
 # we re-build only when the on-disk snapshot actually changes. Hot
 # path: every `_shape_host_api_row` call. Cold path: refresh adds
@@ -2660,7 +2672,7 @@ def _shape_host_api_row(
                 else "unknown"
             ))
         ),
-        "docker_node":     h["id"],
+        "docker_node":     (h["id"] if _is_swarm_node(h.get("id")) else ""),
         "platform":        s.get("host_platform") or "",
         "os":              s.get("host_os") or "",
         "kernel":          s.get("host_kernel") or "",
