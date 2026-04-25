@@ -226,25 +226,33 @@ def _groups_for_host(record: Optional[dict]) -> tuple[Optional[dict], Optional[d
     such caller). Tolerant — malformed JSON / missing setting return
     ``(None, None)``.
     """
+    rid = (record or {}).get("id") if isinstance(record, dict) else None
     if record is None:
+        print(f"[ssh] _groups_for_host: record is None")
         return (None, None)
     cn = record.get("custom_number")
     if cn is None:
+        print(f"[ssh] _groups_for_host id={rid!r}: custom_number is None — no group match possible")
         return (None, None)
     try:
         cn_int = int(cn)
     except (TypeError, ValueError):
+        print(f"[ssh] _groups_for_host id={rid!r}: custom_number={cn!r} not int-parseable")
         return (None, None)
     from logic.db import get_setting
     raw = get_setting("host_groups", "") or ""
     if not raw.strip():
+        print(f"[ssh] _groups_for_host id={rid!r} cn={cn_int}: host_groups setting is empty — no groups defined")
         return (None, None)
     try:
         groups = json.loads(raw)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError) as e:
+        print(f"[ssh] _groups_for_host id={rid!r} cn={cn_int}: host_groups JSON parse failed: {e}")
         return (None, None)
     if not isinstance(groups, list):
+        print(f"[ssh] _groups_for_host id={rid!r} cn={cn_int}: host_groups is not a list (got {type(groups).__name__})")
         return (None, None)
+    print(f"[ssh] _groups_for_host id={rid!r} cn={cn_int}: scanning {len(groups)} group(s)")
 
     main_group: Optional[dict] = None
     for g in groups:
@@ -259,7 +267,13 @@ def _groups_for_host(record: Optional[dict]) -> tuple[Optional[dict], Optional[d
             continue
         if rs <= cn_int <= re_:
             main_group = g
+            print(f"[ssh] _groups_for_host id={rid!r} cn={cn_int}: matched main_group "
+                  f"name={g.get('name')!r} range={rs}-{re_} "
+                  f"ssh_keys={list((g.get('ssh') or {}).keys())}")
             break
+    if main_group is None:
+        print(f"[ssh] _groups_for_host id={rid!r} cn={cn_int}: NO main_group whose range covers cn — "
+              f"check Admin → Host Groups (top-level group's range_start..range_end must include {cn_int})")
     sub_group: Optional[dict] = None
     if main_group is not None:
         for g in groups:
@@ -274,7 +288,12 @@ def _groups_for_host(record: Optional[dict]) -> tuple[Optional[dict], Optional[d
                 continue
             if rs <= cn_int <= re_:
                 sub_group = g
+                print(f"[ssh] _groups_for_host id={rid!r} cn={cn_int}: matched sub_group "
+                      f"name={g.get('name')!r} range={rs}-{re_} "
+                      f"ssh_keys={list((g.get('ssh') or {}).keys())}")
                 break
+        if sub_group is None:
+            print(f"[ssh] _groups_for_host id={rid!r} cn={cn_int}: no sub_group matched (main only)")
     return (main_group, sub_group)
 
 
@@ -353,6 +372,10 @@ def resolve_ssh_params(host_id: str, hosts_config: list[dict]) -> dict:
     """
     record = _find_host_record(host_id, hosts_config)
     g = get_global_ssh_settings()
+    print(f"[ssh] resolve_ssh_params start id={host_id!r} record_found={record is not None} "
+          f"global_user={g.get('user')!r} global_port={g.get('port')} "
+          f"global_key_set={bool(g.get('private_key'))} global_password_set={bool(g.get('password'))} "
+          f"global_fqdn_suffix={g.get('fqdn_suffix')!r}")
     resolved: dict[str, Any] = {
         "host":              "",
         "user":              g["user"],
@@ -367,6 +390,8 @@ def resolve_ssh_params(host_id: str, hosts_config: list[dict]) -> dict:
     }
     if record is None:
         resolved["error"] = f"unknown host_id: {host_id!r}"
+        print(f"[ssh] resolve_ssh_params id={host_id!r}: NO matching hosts_config record — "
+              f"the host must exist in Admin → Hosts before SSH can resolve")
         return resolved
 
     main_group, sub_group = _groups_for_host(record)
@@ -389,20 +414,26 @@ def resolve_ssh_params(host_id: str, hosts_config: list[dict]) -> dict:
     ]
     for source_name, s in layer_specs:
         if not s:
+            print(f"[ssh] layer {source_name}: empty (no SSH overrides on this group)")
             continue
+        applied = []
         u = str(s.get("user") or "").strip()
         if u:
             resolved["user"] = u
+            applied.append(f"user={u!r}")
         if s.get("port") not in (None, "", 0):
             try:
                 pi = int(s["port"])
                 if 1 <= pi <= 65535:
                     resolved["port"] = pi
+                    applied.append(f"port={pi}")
             except (TypeError, ValueError):
                 pass
         if (s.get("password") or "").strip():
             resolved["password_set"] = True
             resolved["password_source"] = source_name
+            applied.append("password=<set>")
+        print(f"[ssh] layer {source_name}: applied {applied or '<nothing — all fields blank>'}")
 
     per_host = (record.get("ssh") or {}) if isinstance(record.get("ssh"), dict) else {}
     # Target hostname resolution priority:
@@ -415,40 +446,52 @@ def resolve_ssh_params(host_id: str, hosts_config: list[dict]) -> dict:
     # already contain a dot are treated as already-fully-qualified.
     ssh_host_override = (per_host.get("host") or per_host.get("fqdn") or "").strip()
     base_id = record.get("id") or ""
+    host_resolution_path: str
     if ssh_host_override:
         resolved["host"] = ssh_host_override
+        host_resolution_path = "per_host_override"
     else:
         suffix = (g.get("fqdn_suffix") or "").strip()
         if base_id and "." not in base_id and suffix:
             resolved["host"] = base_id + (suffix if suffix.startswith(".") else "." + suffix)
+            host_resolution_path = f"id+suffix({suffix!r})"
         else:
             # Bare id with no fqdn_suffix — try the asset inventory's
             # canonical FQDN before falling back to the bare id.
-            # Asset hostnames are ordered least-→most-specific, so
-            # `_asset_fqdn_for_record` returns the last non-IP entry
-            # which is the right SSH target.
             asset_fqdn = _asset_fqdn_for_record(record)
             if asset_fqdn and "." not in base_id:
                 resolved["host"] = asset_fqdn
+                host_resolution_path = f"asset_fqdn({asset_fqdn!r})"
             else:
                 resolved["host"] = base_id
+                host_resolution_path = "id_as_is"
+    print(f"[ssh] host_resolution id={host_id!r}: target={resolved['host']!r} via {host_resolution_path}")
+    per_host_applied = []
     u_override = (per_host.get("user") or "").strip()
     if u_override:
         resolved["user"] = u_override
-    # Per-host password override trumps every layer above — most-
-    # specific wins. Useful when one box has a special account that
-    # differs from the fleet's shared read-only user.
+        per_host_applied.append(f"user={u_override!r}")
+    # Per-host password override trumps every layer above.
     if (per_host.get("password") or "").strip():
         resolved["password_set"] = True
         resolved["password_source"] = "per_host"
-        resolved["_per_host_password"] = True  # legacy flag kept for run_command
+        resolved["_per_host_password"] = True
+        per_host_applied.append("password=<set>")
     try:
         if per_host.get("port") not in (None, "", 0):
             resolved["port"] = int(per_host["port"])
+            per_host_applied.append(f"port={resolved['port']}")
     except (TypeError, ValueError):
-        # Ignore a bad per-host port override; the global default stands.
         pass
     resolved["disabled"] = bool(per_host.get("disabled"))
+    if per_host.get("disabled"):
+        per_host_applied.append("disabled=True")
+    print(f"[ssh] layer per_host: applied {per_host_applied or '<nothing — no per-host overrides>'}")
+    print(f"[ssh] resolve_ssh_params done id={host_id!r}: "
+          f"host={resolved['host']!r} user={resolved['user']!r} port={resolved['port']} "
+          f"key_set={resolved['key_set']} password_set={resolved['password_set']} "
+          f"password_source={resolved.get('password_source')!r} "
+          f"disabled={resolved['disabled']}")
     return resolved
 
 
