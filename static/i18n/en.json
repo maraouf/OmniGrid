@@ -194,6 +194,12 @@
     "no_match_filters": "No resources match your filters.",
     "clear": "Clear",
     "no_match": "No resources match.",
+    "no_nodes": "No nodes visible — check the Portainer connection.",
+    "portainer_not_configured": {
+      "title": "Portainer connection not configured",
+      "body": "OmniGrid needs Portainer URL + API key to discover services and containers. Set them in Admin → Portainer.",
+      "cta": "Open Portainer settings"
+    },
     "no_history": "No history entries match the current filter.",
     "no_ignores": "No ignores configured.",
     "no_users": "No users loaded. Click Reload.",
@@ -861,7 +867,14 @@
       "test_providers": "Test providers"
     }
   },
+  "stale_marker": {
+    "tooltip": "Last live data {age} ago — value restored from cache snapshot"
+  },
   "host_drawer": {
+    "stale": {
+      "title": "Showing cached data — provider unavailable",
+      "body": "Last live update {age} ago. {count} field(s) restored from the snapshot — values dimmed below are not live."
+    },
     "system": {
       "heading": "System",
       "hostname": "Hostname",

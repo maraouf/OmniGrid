@@ -519,7 +519,7 @@
                   <td class="hidden md:table-cell stat-cell">
                     <template x-if="statsFor(item).has_stats">
                       <div>
-                        <div class="stat-bar" :class="barLevel(statsFor(item).cpu_percent)" :style="`--w:${statsFor(item).cpu_percent}%`">
+                        <div class="stat-bar" :class="[barLevel(statsFor(item).cpu_percent), isStale(statsFor(item)) ? 'stale' : '']" :style="`--w:${statsFor(item).cpu_percent}%`" :title="staleAge(statsFor(item))">
                           <div class="fill"></div>
                           <div class="label" x-text="cpuLabel(statsFor(item).cpu_percent)"></div>
                         </div>
@@ -538,7 +538,7 @@
                   <td class="hidden md:table-cell stat-cell">
                     <template x-if="statsFor(item).has_stats">
                       <div>
-                        <div class="stat-bar" :class="barLevel(memPercent(item))" :style="`--w:${memPercent(item)}%`">
+                        <div class="stat-bar" :class="[barLevel(memPercent(item)), isStale(statsFor(item)) ? 'stale' : '']" :style="`--w:${memPercent(item)}%`" :title="staleAge(statsFor(item))">
                           <div class="fill"></div>
                           <div class="label" x-text="memPercent(item).toFixed(0) + '%'"></div>
                         </div>
@@ -557,7 +557,7 @@
                   </td>
                   <td class="hidden xl:table-cell stat-cell">
                     <template x-if="statsFor(item).has_size">
-                      <div class="stat-bar info" :style="`--w:${diskPercent(item)}%`">
+                      <div class="stat-bar info" :class="isStale(statsFor(item)) ? 'stale' : ''" :style="`--w:${diskPercent(item)}%`" :title="staleAge(statsFor(item))">
                         <div class="fill"></div>
                         <div class="label" x-text="fmtBytes(statsFor(item).size_root)"></div>
                       </div>
@@ -604,9 +604,28 @@
           </template>
         </table>
       </div>
-      <div x-show="loading && items.length === 0" class="loading-state">
-        <span class="spin-lg" aria-hidden="true"></span>
-        <div x-text="t('loading.resources')"></div>
+      <div x-show="loading && items.length === 0" class="skeleton-table" :aria-label="t('loading.resources')">
+        <template x-for="i in 6" :key="i">
+          <div class="skeleton-row">
+            <div class="skeleton-cell tall"></div>
+            <div class="skeleton-cell"></div>
+            <div class="skeleton-cell bar"></div>
+            <div class="skeleton-cell bar"></div>
+            <div class="skeleton-cell short"></div>
+            <div class="skeleton-cell short"></div>
+          </div>
+        </template>
+      </div>
+      <div x-show="!loading && items.length === 0 && portainerConfigured === false"
+           class="rounded border border-[var(--warning)] bg-[var(--surface-2)] px-4 py-3 text-[12.5px] text-[var(--text-dim)] flex items-start gap-3">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-[var(--warning)] flex-shrink-0 mt-0.5"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+        <div class="min-w-0 flex-1">
+          <div class="font-semibold text-[var(--text)]" x-text="t('empty.portainer_not_configured.title')"></div>
+          <div class="mt-1" x-text="t('empty.portainer_not_configured.body')"></div>
+          <button x-show="isAdmin()" @click="view='admin'; adminTab='portainer'"
+                  class="btn btn-primary text-[12px] mt-2"
+                  x-text="t('empty.portainer_not_configured.cta')"></button>
+        </div>
       </div>
       <div x-show="filteredStacks.length===0 && !loading && items.length > 0" class="text-center py-16 text-[var(--text-faint)] text-sm">
         <span x-text="t('empty.no_match_filters')"></span>
@@ -670,7 +689,7 @@
                 </td>
                 <td class="hidden md:table-cell stat-cell">
                   <template x-if="statsFor(item).has_stats">
-                    <div class="stat-bar" :class="barLevel(statsFor(item).cpu_percent)" :style="`--w:${statsFor(item).cpu_percent}%`">
+                    <div class="stat-bar" :class="[barLevel(statsFor(item).cpu_percent), isStale(statsFor(item)) ? 'stale' : '']" :style="`--w:${statsFor(item).cpu_percent}%`" :title="staleAge(statsFor(item))">
                       <div class="fill"></div>
                       <div class="label" x-text="cpuLabel(statsFor(item).cpu_percent)"></div>
                     </div>
@@ -682,7 +701,7 @@
                 <td class="hidden md:table-cell stat-cell">
                   <template x-if="statsFor(item).has_stats">
                     <div>
-                      <div class="stat-bar" :class="barLevel(memPercent(item))" :style="`--w:${memPercent(item)}%`">
+                      <div class="stat-bar" :class="[barLevel(memPercent(item)), isStale(statsFor(item)) ? 'stale' : '']" :style="`--w:${memPercent(item)}%`" :title="staleAge(statsFor(item))">
                         <div class="fill"></div>
                         <div class="label" x-text="memPercent(item).toFixed(0) + '%'"></div>
                       </div>
@@ -695,7 +714,7 @@
                 </td>
                 <td class="hidden xl:table-cell stat-cell">
                   <template x-if="statsFor(item).has_size">
-                    <div class="stat-bar info" :style="`--w:${diskPercent(item)}%`">
+                    <div class="stat-bar info" :class="isStale(statsFor(item)) ? 'stale' : ''" :style="`--w:${diskPercent(item)}%`" :title="staleAge(statsFor(item))">
                       <div class="fill"></div>
                       <div class="label" x-text="fmtBytes(statsFor(item).size_root)"></div>
                     </div>
@@ -741,9 +760,28 @@
           </tbody>
         </table>
       </div>
-      <div x-show="loading && items.length === 0" class="loading-state">
-        <span class="spin-lg" aria-hidden="true"></span>
-        <div x-text="t('loading.resources')"></div>
+      <div x-show="loading && items.length === 0" class="skeleton-table" :aria-label="t('loading.resources')">
+        <template x-for="i in 6" :key="i">
+          <div class="skeleton-row">
+            <div class="skeleton-cell tall"></div>
+            <div class="skeleton-cell"></div>
+            <div class="skeleton-cell bar"></div>
+            <div class="skeleton-cell bar"></div>
+            <div class="skeleton-cell short"></div>
+            <div class="skeleton-cell short"></div>
+          </div>
+        </template>
+      </div>
+      <div x-show="!loading && items.length === 0 && portainerConfigured === false"
+           class="rounded border border-[var(--warning)] bg-[var(--surface-2)] px-4 py-3 text-[12.5px] text-[var(--text-dim)] flex items-start gap-3">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-[var(--warning)] flex-shrink-0 mt-0.5"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+        <div class="min-w-0 flex-1">
+          <div class="font-semibold text-[var(--text)]" x-text="t('empty.portainer_not_configured.title')"></div>
+          <div class="mt-1" x-text="t('empty.portainer_not_configured.body')"></div>
+          <button x-show="isAdmin()" @click="view='admin'; adminTab='portainer'"
+                  class="btn btn-primary text-[12px] mt-2"
+                  x-text="t('empty.portainer_not_configured.cta')"></button>
+        </div>
       </div>
       <div x-show="filteredItems.length===0 && !loading && items.length > 0" class="text-center py-16 text-[var(--text-faint)] text-sm" x-text="t('empty.no_match')">
       </div>
@@ -1001,13 +1039,30 @@
              1. loading + no data yet → spinner
              2. loading done + empty → point at Portainer settings / filter
              3. filtered out → "no match" with a clear-filters shortcut -->
-      <div x-show="loading && items.length === 0" class="loading-state">
-        <span class="spin-lg" aria-hidden="true"></span>
-        <div x-text="t('loading.resources')"></div>
+      <div x-show="loading && items.length === 0" class="skeleton-table" :aria-label="t('loading.resources')">
+        <template x-for="i in 6" :key="i">
+          <div class="skeleton-row">
+            <div class="skeleton-cell tall"></div>
+            <div class="skeleton-cell"></div>
+            <div class="skeleton-cell bar"></div>
+            <div class="skeleton-cell bar"></div>
+            <div class="skeleton-cell short"></div>
+            <div class="skeleton-cell short"></div>
+          </div>
+        </template>
       </div>
-      <div x-show="!loading && items.length === 0" class="text-center py-16 text-[var(--text-faint)] text-sm">
-        No nodes visible — check the Portainer connection in Settings.
+      <div x-show="!loading && items.length === 0 && portainerConfigured === false"
+           class="rounded border border-[var(--warning)] bg-[var(--surface-2)] px-4 py-3 text-[12.5px] text-[var(--text-dim)] flex items-start gap-3">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-[var(--warning)] flex-shrink-0 mt-0.5"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+        <div class="min-w-0 flex-1">
+          <div class="font-semibold text-[var(--text)]" x-text="t('empty.portainer_not_configured.title')"></div>
+          <div class="mt-1" x-text="t('empty.portainer_not_configured.body')"></div>
+          <button x-show="isAdmin()" @click="view='admin'; adminTab='portainer'"
+                  class="btn btn-primary text-[12px] mt-2"
+                  x-text="t('empty.portainer_not_configured.cta')"></button>
+        </div>
       </div>
+      <div x-show="!loading && items.length === 0 && portainerConfigured !== false" class="text-center py-16 text-[var(--text-faint)] text-sm" x-text="t('empty.no_nodes')"></div>
       <div x-show="!loading && items.length > 0 && nodeGroups().length === 0" class="text-center py-16 text-[var(--text-faint)] text-sm">
         <span x-text="t('empty.no_match_filters')"></span>
         <button @click="search='';statusFilter='';healthFilter=''" class="ms-2 text-[var(--primary)] hover:underline" x-text="t('empty.clear')"></button>
@@ -1615,9 +1670,17 @@
       </div>
 
       <!-- Empty-state ladder — loading, no hosts, providers broken. -->
-      <div x-show="hostsConfigured && hostsLoading && hosts.length === 0" class="loading-state">
-        <span class="spin-lg" aria-hidden="true"></span>
-        <div x-text="t('hosts_extra.empty.loading')"></div>
+      <div x-show="hostsConfigured && hostsLoading && hosts.length === 0" class="skeleton-table" :aria-label="t('hosts_extra.empty.loading')">
+        <template x-for="i in 6" :key="i">
+          <div class="skeleton-row">
+            <div class="skeleton-cell tall"></div>
+            <div class="skeleton-cell"></div>
+            <div class="skeleton-cell bar"></div>
+            <div class="skeleton-cell bar"></div>
+            <div class="skeleton-cell short"></div>
+            <div class="skeleton-cell short"></div>
+          </div>
+        </template>
       </div>
       <!-- Filter-only empty state — hosts exist but no match for
            the current search query. Distinct from the "no hosts at
@@ -5104,6 +5167,23 @@
                     <div class="font-semibold text-[var(--text)]" x-text="t('hosts_extra.no_data.title')"></div>
                     <div class="text-[var(--text-dim)] mt-1"
                          x-text="t('hosts_extra.no_data.body', { debug_label: t('debug_panel.show') })"></div>
+                  </div>
+                </div>
+              </template>
+              <!-- Stale-snapshot banner — fires when the backend stamped
+                   `_stale_fields` on this host because at least one
+                   provider went down and we're falling back to the last
+                   cached snapshot (UX-001). Banner answers "wait, is
+                   this number live?" before the operator chases a ghost
+                   metric. The drawer cards themselves dim individual
+                   fields via the `.stale` CSS class via :class binding. -->
+              <template x-if="isStale(h)">
+                <div class="flex items-start gap-3 bg-[color-mix(in_srgb,var(--warning)_8%,transparent)] border border-[color-mix(in_srgb,var(--warning)_40%,var(--border))] rounded-md p-3 text-[12px] mb-4">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-[var(--warning)] flex-shrink-0 mt-0.5"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+                  <div class="min-w-0">
+                    <div class="font-semibold text-[var(--text)]" x-text="t('host_drawer.stale.title')"></div>
+                    <div class="text-[var(--text-dim)] mt-0.5"
+                         x-text="t('host_drawer.stale.body', { age: staleAge(h), count: (h._stale_fields || []).length })"></div>
                   </div>
                 </div>
               </template>

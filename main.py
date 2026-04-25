@@ -492,6 +492,12 @@ async def api_items(force: bool = False):
         "nodes_info": _cache.get("nodes_info") or {},
         "cached": (now - _cache["ts"] > 1),
         "age": int(now - _cache["ts"]) if _cache["ts"] else None,
+        # UX-003: lets the SPA distinguish "no items + Portainer connected"
+        # (legitimate empty cluster) from "no items because Portainer was
+        # never configured" (point operator at Settings → Portainer).
+        # Reading this avoids loading the full /api/settings payload just
+        # to render an empty-state hint.
+        "portainer_configured": _portainer.is_configured(),
     }
 
 

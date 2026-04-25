@@ -303,6 +303,12 @@ function app() {
     // Portainer connection — same DB-backed / UI-managed pattern as OIDC.
     // API key is write-only; blank on save means "keep current".
     portainerStatus: null,
+    // UX-003: lightweight "is Portainer configured?" flag refreshed on
+    // every /api/items poll. Distinct from `portainerStatus` which is
+    // populated from the heavier /api/settings response only when the
+    // settings page loads. null = unknown (initial paint), true/false =
+    // explicit. Drives the empty-state copy on stacks/services/nodes.
+    portainerConfigured: null,
     portainerForm: {
       url: '', endpoint_id: 1, verify_tls: true, api_key: '',
     },
@@ -2764,6 +2770,11 @@ function app() {
         // Per-node capacity + uptime proxy — see logic/gather.py's nodes_info.
         // Drives the Nodes view's normalized CPU/mem bars.
         this.nodesInfo = d.nodes_info || {};
+        // UX-003: drives the "Portainer not configured" empty-state hint.
+        // null → not yet known (skeleton state); true/false → explicit.
+        if (typeof d.portainer_configured === 'boolean') {
+          this.portainerConfigured = d.portainer_configured;
+        }
         // Non-UI label; stays English since it's diagnostic-adjacent.
         this.cacheLabel = d.cached ? `cached ${d.age}s ago` : 'fresh';
         // Only fire stats alongside a forced refresh when stats
@@ -4134,6 +4145,39 @@ function app() {
     statusKey(s) { return (s || 'unknown').replace('up-to-date','ok'); },
     statsFor(item) {
       return (item && this.stats[item.id]) || { cpu_percent: 0, mem_usage: 0, mem_limit: 0, size_root: 0, size_rw: 0, has_stats: false, has_size: false };
+    },
+    // Stale-marker helpers for the UI.
+    //
+    // Backend stamps two markers on cache-seeded entries:
+    //   1. `_stats_cache[id]._stale: true`              ← per-item stats
+    //   2. `nodes_info[host]._stale_fields: [..]`       ← per-host telemetry
+    //   3. `_stale_ts: <epoch_seconds>`                 ← persistence write
+    //
+    // The SPA dims any element bound to a stale value AND surfaces an
+    // "X minutes ago" tooltip via `staleAge()`. This makes the
+    // "provider went down" case visually explicit instead of letting
+    // last-known-good values silently masquerade as live.
+    isStale(obj) {
+      if (!obj) return false;
+      if (obj._stale === true) return true;
+      const sf = obj._stale_fields;
+      return Array.isArray(sf) && sf.length > 0;
+    },
+    isStaleField(obj, field) {
+      if (!obj || !field) return false;
+      const sf = obj._stale_fields;
+      return Array.isArray(sf) && sf.indexOf(field) !== -1;
+    },
+    staleAge(obj) {
+      if (!obj) return '';
+      const ts = obj._stale_ts;
+      if (!ts || ts <= 0) return '';
+      const ms = ts * 1000;
+      const ago = this.fmtAgo(ms);
+      // i18n: tooltip surface, not visible label. Translators handle
+      // the "stale_marker.tooltip" key with the {age} placeholder.
+      try { return (window.t && window.t('stale_marker.tooltip', { age: ago })) || ('Last live data ' + ago + ' ago'); }
+      catch (_) { return 'Last live data ' + ago + ' ago'; }
     },
     iconUrlFor(name) {
       // Resolve an app name to an icon URL. Every icon is local (in

@@ -623,6 +623,50 @@ select:focus {
     font-size: 12.5px;
 }
 
+/* Skeleton placeholders — shown during the initial /api/items fetch on
+   Stacks / Services / Nodes views before the first response lands.
+   Replaces the standalone spinner with a layout-shaped placeholder so
+   the operator perceives "table is loading at this layout" instead of
+   "page is empty". The shimmer is a moving gradient across surface-2;
+   `prefers-reduced-motion` users get a static dim block instead. */
+.skeleton-table {
+    display: flex;
+    flex-direction: column;
+    gap: var(--s-2);
+    padding: var(--s-4);
+}
+.skeleton-row {
+    display: grid;
+    grid-template-columns: 1fr 110px 90px 90px 80px 70px;
+    gap: var(--s-3);
+    align-items: center;
+    padding: var(--s-3) var(--s-4);
+    border-radius: var(--r-sm);
+    background: var(--surface);
+}
+.skeleton-cell {
+    height: 12px;
+    border-radius: var(--r-sm);
+    background: linear-gradient(
+        90deg,
+        var(--surface-2) 0%,
+        var(--surface-3) 40%,
+        var(--surface-2) 80%
+    );
+    background-size: 300% 100%;
+    animation: skeleton-shimmer 1.4s ease-in-out infinite;
+}
+.skeleton-cell.tall { height: 18px; }
+.skeleton-cell.short { height: 10px; }
+.skeleton-cell.bar { height: 8px; border-radius: 999px; }
+@keyframes skeleton-shimmer {
+    0%   { background-position: 100% 0; }
+    100% { background-position: -100% 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+    .skeleton-cell { animation: none; background: var(--surface-2); }
+}
+
 /* ---------------------------------------------------------------------------
    Password strength meter + requirements checklist.
    Colour classes (.pw-*-danger / -warning / -primary / -success / -faint)
@@ -1007,6 +1051,30 @@ details summary::-webkit-details-marker {
     text-shadow: 0 1px 1px var(--label-shadow);
     white-space: nowrap;
     padding: 0 var(--s-2);
+}
+
+/* Stale marker — applied via :class="isStale(s) ? 'stale' : ''" by the
+   templates whenever the backing value came from the cache-seed path
+   (provider down, last-known-good only). The reduced opacity is the
+   primary "this isn't live" cue; the dashed-underline on the bar's
+   ::after pseudo-element gives a second affordance for operators with
+   reduced-contrast vision. Hover restores 0.9 so the value is still
+   readable without dismissing the dim. Also applied to host-drawer
+   <dd> elements via the same isStaleField() / isStale() helpers. */
+.stale {
+    opacity: 0.55;
+    transition: opacity 120ms ease-out;
+}
+.stale:hover { opacity: 0.9; }
+.stat-bar.stale { position: relative; }
+.stat-bar.stale::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border: 1px dashed var(--text-faint);
+    border-radius: inherit;
+    pointer-events: none;
+    opacity: 0.8;
 }
 
 .stat-sub {
@@ -3054,31 +3122,22 @@ select.field-invalid {
     overflow-wrap: anywhere;
 }
 
-/* Drawer card label/value list. Switches between "row" (label on the
-   left, value on the right) and "stacked" (label above value) based
-   on the card's available width via a CSS container query. The row
-   form needs at least 220px of column space — below that, "VMware
-   Virtual Platform" and "https://portainer.www.home.lan/" are forced
-   to character-wrap and the result reads as scrambled letters per
-   the operator's tmp/img_3.png. Stacking the dt/dd pair restores
-   readable values without making the drawer wider. */
-.host-drawer section { container-type: inline-size; }
+/* Drawer card label/value list. Original Tailwind shape preserved —
+   `grid-cols-[auto_1fr] gap-x-4 gap-y-2`. The `.drawer-dl` class is
+   the same shape so the markup can use a single class instead of
+   the verbose Tailwind chain. NO container query: `container-type:
+   inline-size` made the parent grid (`sm:grid-cols-2`) misbehave on
+   wide viewports per tmp/img_4.png — sections lost their fair
+   share of space and SYSTEM/HARDWARE grew while NETWORK/DISKS got
+   squashed to ~70px. The text-compaction fix that survived is
+   removing `break-all` from natural-language values like
+   `dmi_vendor`/`dmi_product` (commit comment in note_todo #274). */
 .drawer-dl {
     display: grid;
-    grid-template-columns: max-content 1fr;
-    column-gap: var(--s-3);
+    grid-template-columns: auto 1fr;
+    column-gap: var(--s-4);
     row-gap: var(--s-2);
     align-items: baseline;
-}
-.drawer-dl > dt { white-space: nowrap; }
-@container (max-width: 320px) {
-    .drawer-dl {
-        grid-template-columns: 1fr;
-        row-gap: var(--s-1);
-    }
-    .drawer-dl > dt { white-space: normal; }
-    .drawer-dl > dd { text-align: start !important; padding-bottom: var(--s-2); border-bottom: 1px dashed var(--border); }
-    .drawer-dl > dd:last-child { border-bottom: none; padding-bottom: 0; }
 }
 
 [dir="rtl"] .host-drawer {
