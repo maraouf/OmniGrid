@@ -166,14 +166,27 @@
            instead of hugging the avatar. Inside the wrapper the
            two children flow naturally with `gap-2`, so clock+weather
            sits immediately to the left of the user-avatar. -->
-      <div class="flex items-center gap-2 ms-auto">
+      <!-- Right-edge wrapper. On sm+ it's a real flex-row anchored
+           right via `ms-auto`, holding clock+weather IMMEDIATELY to
+           the left of the user avatar (the original desktop layout).
+           On mobile, `display: contents` makes the wrapper transparent
+           so its children become direct children of the topbar's flex,
+           letting us reorder via Tailwind order classes:
+             - avatar lifts UP onto row 1 with logo + nav (order-2)
+             - clock + weather take their own full-width row 2 (order-3)
+           Operator request: "make avatar go up, then make weather and
+           clock use space below it". -->
+      <div class="contents sm:flex sm:items-center sm:gap-2 sm:ms-auto">
         <!-- Topbar clock + weather — per-browser prefs from localStorage
              (configured under Profile). Clock ticks every 10s; weather
              via /api/weather proxy (Open-Meteo, 10-min server cache).
              Widget is single row: clock mono font · cloud icon · label,
-             temp · condition subtext. Absent / disabled = nothing renders. -->
+             temp · condition subtext. Absent / disabled = nothing renders.
+             On mobile: `order-3 w-full` drops it to its own row below
+             the avatar; `justify-center` centers the clock+weather pair
+             so they don't hug the left edge awkwardly. -->
         <div x-show="headerClockEnabled || (headerWeatherEnabled && weather && !weather.error && weather.temp_c != null)"
-             class="flex items-center gap-2 pe-1 text-[11.5px] text-[var(--text-dim)]">
+             class="flex items-center gap-2 pe-1 text-[11.5px] text-[var(--text-dim)] order-3 w-full justify-center sm:order-none sm:w-auto sm:justify-start">
           <span x-show="headerClockEnabled" class="mono font-semibold tracking-wide"
                 x-text="currentClock"></span>
           <template x-if="headerWeatherEnabled && weather && !weather.error && weather.temp_c != null">
@@ -194,8 +207,12 @@
              "Signed in as …" header + profile / settings / admin / help /
              sign out. Click-outside and Esc both close it. Sits adjacent
              to the clock/weather widget above — no `ms-auto` needed, the
-             wrapper handles right-anchoring for the whole pair. -->
-        <div x-show="me" x-data="{ }" class="relative ps-3 border-s border-[var(--border)]">
+             wrapper handles right-anchoring for the whole pair.
+             On mobile (parent's `display: contents`): `order-2 ms-auto`
+             lifts the avatar up to row 1 with logo + nav, anchored to the
+             far right. The `border-s` separator is hidden below sm: since
+             there's no clock to its left to need separating from. -->
+        <div x-show="me" x-data="{ }" class="relative sm:ps-3 sm:border-s sm:border-[var(--border)] order-2 ms-auto sm:order-none sm:ms-0">
         <button @click="userMenuOpen = !userMenuOpen"
                 class="flex items-center gap-1 p-1 rounded-full hover:bg-[var(--surface-2)] transition"
                 :title="me ? t('app.signed_in_as') + ' ' + me.username : ''"
