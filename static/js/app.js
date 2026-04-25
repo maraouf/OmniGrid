@@ -6533,20 +6533,41 @@ function app() {
           location:  pick(a.Location, a.location, a.site, a.room),
           location_details: locObj ? String(locObj.Details || locObj.details || '').trim() : '',
           type:      pick(a.Type, a.type),
-          // Type SHORT-form — checks `Type.shortname` (any case) so the
-          // host title can render a compact `[VM]` / `[PHY]` / `[CT]`
-          // badge instead of the long Type.Name. Falls through to ''
-          // when the upstream Type object only carries Name. The host
-          // title template then prefers shortname → falls back to the
-          // long `type` field above.
+          // Type SHORT-form — render a compact `[VM]` / `[PHY]` / etc.
+          // badge when the upstream Type object carries any short-form
+          // alias. oufa.co's payloads have surfaced multiple casings
+          // for this field across asset rows ("Virtual Machine" with
+          // shortname "VM", "Physical Server" with code "PHY"), so we
+          // walk every plausible naming the team has used. Returns ''
+          // when only the long Name is present, which lets
+          // hostTypePrefix fall back to that long form via `type`.
           type_short: (() => {
             const obj = (a.Type && typeof a.Type === 'object') ? a.Type
                       : (a.type && typeof a.type === 'object') ? a.type
                       : null;
             if (!obj) return '';
-            const s = obj.shortname || obj.ShortName || obj.short_name
-                   || obj.Shortname || obj.shortName || '';
-            return String(s || '').trim();
+            // Cast a wide net — match every casing variant + every
+            // synonym for "short form" we've seen on this kind of
+            // payload. First non-blank wins.
+            const candidates = [
+              obj.shortname, obj.ShortName, obj.SHORTNAME,
+              obj.short_name, obj.Shortname, obj.shortName,
+              obj.short, obj.Short, obj.SHORT,
+              obj.code, obj.Code, obj.CODE,
+              obj.abbr, obj.Abbr, obj.ABBR,
+              obj.abbreviation, obj.Abbreviation,
+              obj.acronym, obj.Acronym, obj.ACRONYM,
+              obj.symbol, obj.Symbol,
+              obj.tag, obj.Tag, obj.TAG,
+              obj.slug, obj.Slug, obj.SLUG,
+              obj.alias, obj.Alias,
+            ];
+            for (const v of candidates) {
+              if (v == null) continue;
+              const s = String(v).trim();
+              if (s) return s;
+            }
+            return '';
           })(),
           name:      pick(a.Name, a.name),
           hostnames,
@@ -6578,9 +6599,32 @@ function app() {
     // asset's `Type.shortname` (compact 2-3 char code), fall back to
     // the long `Type.Name`, return '' when no asset / no type. Empty
     // result skips the prefix entirely so non-asset hosts stay clean.
+    //
+    // One-time debug: if we have a Type object with a long `type` but
+    // no `type_short`, log the available keys ONCE so the operator can
+    // tell us the correct upstream field name. The set is process-wide
+    // so we don't flood the console — first asset that misses logs.
     hostTypePrefix(h) {
       const a = this.assetForHost(h);
       if (!a) return '';
+      // Diagnostic — fires once per asset id when type_short is empty
+      // but type IS present, suggesting the upstream Type object uses
+      // a field name we don't recognise yet.
+      if (!a.type_short && a.type && a._raw && a._raw.Type
+          && typeof a._raw.Type === 'object') {
+        if (!this._loggedMissingTypeShort) this._loggedMissingTypeShort = new Set();
+        const aid = String(a.id || a.type || '');
+        if (!this._loggedMissingTypeShort.has(aid)) {
+          this._loggedMissingTypeShort.add(aid);
+          // eslint-disable-next-line no-console
+          console.info(
+            '[asset] type has no recognised short-name field; available keys:',
+            Object.keys(a._raw.Type || {}),
+            '— type:', a.type,
+            '— share these keys to wire short-name resolution.',
+          );
+        }
+      }
       const label = (a.type_short || a.type || '').trim();
       return label ? '[' + label + '] ' : '';
     },

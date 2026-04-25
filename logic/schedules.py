@@ -153,7 +153,16 @@ def _next_fixed_time_run(
     now = now if now is not None else time.time()
     anchor = _today_anchor_ts(hh, mm, now)
     last = int(last_run_at or 0)
-    if now < anchor and last < anchor:
+    # Grace window: the tick interval is 60s, so the tick that lands
+    # right after a fixed-time anchor (e.g. anchor=01:00:00, tick runs
+    # at 01:00:30) was previously seeing `now > anchor` and skipping
+    # to tomorrow — the daily/weekly/monthly schedule never fired in
+    # practice. We allow up to 2× the tick interval as a "we just
+    # crossed the anchor, fire now" window. Beyond that → tomorrow
+    # (preserves the original no-catch-up contract for restarts /
+    # late-edited schedules).
+    GRACE = TICK_INTERVAL_SECONDS * 2
+    if last < anchor and now < anchor + GRACE:
         return int(anchor)
     # Derive "tomorrow" in the same zone the anchor was computed in —
     # using container-local here would drift the date boundary by the
@@ -209,13 +218,17 @@ def _next_weekly_run(
     today = time.localtime(now)
     import datetime
     base_date = datetime.date(today.tm_year, today.tm_mon, today.tm_mday)
+    # Same grace window as `_next_fixed_time_run` — the tick that lands
+    # 30s after a weekly anchor needs to still recognise today as the
+    # firing day, otherwise it skips to next week.
+    GRACE = TICK_INTERVAL_SECONDS * 2
     for offset in range(8):
         d = base_date + datetime.timedelta(days=offset)
         # Python weekday(): Mon=0..Sun=6 — matches our storage convention.
         if d.weekday() not in dow_set:
             continue
         anchor = _day_anchor_ts(hh, mm, d.year, d.month, d.day)
-        if anchor <= now:          # today-or-earlier and already passed
+        if anchor + GRACE <= now:  # past anchor + grace → skip
             continue
         if anchor <= last:         # already fired for this anchor
             continue
@@ -239,11 +252,15 @@ def _next_monthly_run(
     dom = max(1, min(int(day_of_month), 31))
     t = time.localtime(now)
     y, m = t.tm_year, t.tm_mon
+    # Same grace window as the daily/weekly helpers — accept the tick
+    # that lands shortly AFTER the anchor as still firing this month
+    # rather than punting to next month.
+    GRACE = TICK_INTERVAL_SECONDS * 2
     for _ in range(14):
         last_day = calendar.monthrange(y, m)[1]
         target_day = min(dom, last_day)
         anchor = _day_anchor_ts(hh, mm, y, m, target_day)
-        if anchor > now and anchor > last:
+        if anchor + GRACE > now and anchor > last:
             return int(anchor)
         if m == 12:
             y += 1
