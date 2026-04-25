@@ -316,6 +316,14 @@ function app() {
     },
     sshSettingsDirty: false,
     sshSettingsBusy: false,
+    // Dirty trackers (#220) — same pattern as `sshSettingsDirty` /
+    // `hostsConfigDirty` / `hostStatsDirty()`. Each tab's Save button
+    // shows the amber unsaved-changes ring + dot when its flag is
+    // true. Marked by @input / @change on every relevant input;
+    // cleared by the corresponding save handler on success.
+    appriseDirty: false,
+    openMeteoDirty: false,
+    portainerDirty: false,
     sshTestOnHost: { host_id: '', result: null, pending: false },
     // Settings / Admin sidebar layout. Arrays drive the nav — adding a
     // section is one entry here + one <section> in the markup.
@@ -1753,13 +1761,20 @@ function app() {
       this.openMeteoSaving = true;
       try {
         const url = (this.settings.open_meteo_url || '').trim().replace(/\/+$/, '');
+        // Save the enabled flag together with the URL so the operator's
+        // toggle-change persists on Save (no per-checkbox auto-save).
+        const enabled = !!this.settings.open_meteo_enabled;
         const r = await fetch('/api/settings', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ open_meteo_url: url }),
+          body: JSON.stringify({
+            open_meteo_url: url,
+            open_meteo_enabled: enabled,
+          }),
         });
         if (r.ok) {
           this.settings.open_meteo_url = url;
+          this.openMeteoDirty = false;
           this.showToast(this.t('admin_integrations.open_meteo_saved'), 'success');
           // Re-fetch weather now so the topbar reflects the new upstream.
           if (this.loadHeaderWeather) this.loadHeaderWeather();
@@ -2700,6 +2715,10 @@ function app() {
 
     async savePortainerSettings() {
       const body = {
+        // Master switch (#204) saved alongside the URL / API key /
+        // endpoint / verify_tls so the operator's toggle persists on
+        // Save (no per-checkbox auto-save).
+        portainer_enabled:     !!this.settings.portainer_enabled,
         portainer_url:         (this.portainerForm.url || '').trim(),
         portainer_endpoint_id: parseInt(this.portainerForm.endpoint_id) || 1,
         portainer_verify_tls:  !!this.portainerForm.verify_tls,
@@ -2714,6 +2733,7 @@ function app() {
           body: JSON.stringify(body),
         });
         if (r.ok) {
+          this.portainerDirty = false;
           this.showToast(this.t('toasts.portainer_saved'));
           await this.loadSettings();
           this.portainerTestResult = null;
@@ -2980,6 +3000,10 @@ function app() {
       this.sshSettingsBusy = true;
       try {
         const body = {
+          // Master switch (#204) saved alongside the rest of the form
+          // — flipping the toggle marks the form dirty; clicking Save
+          // commits both the toggle and any field edits in one go.
+          ssh_enabled:                   !!this.settings.ssh_enabled,
           ssh_default_user:              this.sshSettings.user || '',
           ssh_default_port:              parseInt(this.sshSettings.port, 10) || 22,
           ssh_fqdn_suffix:               this.sshSettings.fqdn_suffix || '',
@@ -3442,9 +3466,17 @@ function app() {
           body: JSON.stringify(this.settings),
         });
         if (!r.ok) throw new Error(await r.text());
+        // Clear the per-tab dirty flags this single save covers — the
+        // Notifications tab (Apprise + Open-Meteo) is the most common
+        // caller of saveSettings and lands the whole settings object.
+        this.appriseDirty = false;
+        this.openMeteoDirty = false;
         this.showToast(this.t('toasts.settings_saved'));
       } catch (e) { this.showToast(this.t('toasts.load_failed', { error: e.message }), 'error'); }
     },
+    markAppriseDirty()    { this.appriseDirty = true; },
+    markOpenMeteoDirty()  { this.openMeteoDirty = true; },
+    markPortainerFormDirty() { this.portainerDirty = true; },
     // Auto-save a single per-service "enabled" master switch (#204).
     // Wired to the @change of the toggle checkbox for Apprise /
     // Open-Meteo / Portainer / SSH so the operator doesn't have to
@@ -5198,6 +5230,9 @@ function app() {
           'redmi':           'xiaomi',
           'poco':            'xiaomi',
           'mihome':          'xiaomi',
+          // Hisense — TVs, smart-home hubs, white goods.
+          'hisense-tv':      'hisense',
+          'vidaa':           'hisense',
         };
         const slug = aliases[h.icon.toLowerCase()] || h.icon;
         return '/img/icons/' + slug + '.svg';
@@ -5284,6 +5319,9 @@ function app() {
         ['xiaomi',                'xiaomi'],
         ['redmi',                 'xiaomi'],
         ['poco',                  'xiaomi'],
+        // Hisense — TVs (VIDAA OS) + appliances.
+        ['hisense',               'hisense'],
+        ['vidaa',                 'hisense'],
         // Ubiquiti family — parent brand mark. Specific product
         // phrases first so "edgerouter" / "airmax" etc. hit even
         // when "ubiquiti" also appears in the label.
@@ -6838,10 +6876,19 @@ function app() {
         ];
         const incoming = Array.isArray(d.hosts) ? d.hosts : [];
         const incomingIds = new Set(incoming.map(h => h.id));
+        // A host with NO providers mapped (or running in a deploy with
+        // every host-stats source disabled globally) has nothing to
+        // probe — the backend already stamps such rows with
+        // `status: 'unconfigured'` from `_shape_host_api_row`. Skipping
+        // the per-host fetch here means: (a) the dot lands directly
+        // on grey with no transient "loading" flash, (b) we don't
+        // burn a /api/hosts/one/{id} round-trip for every dead row.
+        const isUnconfigured = (h) => h && h.status === 'unconfigured';
         // 1+2: reconcile — update existing, append new.
         for (let i = 0; i < incoming.length; i++) {
           const h = incoming[i];
           const existing = (this.hosts || []).find(r => r.id === h.id);
+          const skipProbe = isUnconfigured(h);
           if (existing) {
             // Existing row — overlay curated fields only and flag
             // loading (refreshHostRow will patch stats in place).
@@ -6849,10 +6896,19 @@ function app() {
               if (k in h) existing[k] = h[k];
             }
             existing._seq = i;
-            existing._loading = true;
+            // Unconfigured hosts skip the loading flag → grey dot
+            // stays grey across reloads instead of flashing back to
+            // "loading" before the (skipped) probe would have run.
+            existing._loading = !skipProbe;
+            if (skipProbe) existing.status = 'unconfigured';
           } else {
             // Brand-new row — push the full skeleton so it renders.
-            this.hosts.push({ ...h, _seq: i, _loading: true, status: 'loading' });
+            this.hosts.push({
+              ...h,
+              _seq: i,
+              _loading: !skipProbe,
+              status: skipProbe ? 'unconfigured' : 'loading',
+            });
           }
         }
         // 3: drop rows whose id is no longer present.
@@ -6880,7 +6936,14 @@ function app() {
       // Fan out per-host fetches. Concurrency cap prevents a 30-host
       // fleet from opening 30 sockets at once (Webmin probes in
       // particular hold connections for several seconds).
-      const queue = this.hosts.map(h => h.id);
+      // Unconfigured hosts (no providers mapped or all providers
+      // disabled globally) are skipped — refreshHostRow would just
+      // re-run the same backend logic that already stamped them
+      // unconfigured in the LIST response. Saves a round trip per
+      // dead row and prevents the dot from flashing yellow→grey.
+      const queue = this.hosts
+        .filter(h => h.status !== 'unconfigured')
+        .map(h => h.id);
       const PARALLEL = 6;
       const worker = async () => {
         while (queue.length) {
