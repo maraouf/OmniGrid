@@ -355,6 +355,8 @@ function app() {
     })(),
     scheduleQueuePage: 1,
     scheduleQueueTotal: 0,
+    scheduleQueueSearch: '',
+    _scheduleQueueSearchTimer: null,
     scheduleQueueTotalPages: 1,
     scheduleKinds: ['prune_node', 'prune_all_nodes', 'gather_refresh', 'backup', 'asset_inventory_refresh'],
     scheduleMinInterval: 60,
@@ -1046,9 +1048,11 @@ function app() {
       // Keeping the request narrow to one page's worth also saves
       // bandwidth on fleets with thousands of historic runs.
       try {
+        const search = (this.scheduleQueueSearch || '').trim();
         const url = '/api/schedules/queue'
           + '?page=' + encodeURIComponent(this.scheduleQueuePage)
-          + '&page_size=' + encodeURIComponent(this.scheduleQueuePageSize);
+          + '&page_size=' + encodeURIComponent(this.scheduleQueuePageSize)
+          + (search ? '&search=' + encodeURIComponent(search) : '');
         const r = await fetch(url);
         if (!r.ok) return;
         const d = await r.json();
@@ -1082,6 +1086,21 @@ function app() {
       const p = Math.max(1, Math.min(total, parseInt(page, 10) || 1));
       if (p === this.scheduleQueuePage) return;
       this.scheduleQueuePage = p;
+      this.loadScheduleQueue();
+    },
+    // Debounced search — refetch 250ms after the operator stops
+    // typing. Reset to page 1 so the new filtered result starts at
+    // the top instead of an out-of-range page.
+    onScheduleQueueSearchInput() {
+      if (this._scheduleQueueSearchTimer) clearTimeout(this._scheduleQueueSearchTimer);
+      this._scheduleQueueSearchTimer = setTimeout(() => {
+        this.scheduleQueuePage = 1;
+        this.loadScheduleQueue();
+      }, 250);
+    },
+    clearScheduleQueueSearch() {
+      this.scheduleQueueSearch = '';
+      this.scheduleQueuePage = 1;
       this.loadScheduleQueue();
     },
 

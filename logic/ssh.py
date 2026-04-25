@@ -277,6 +277,51 @@ def _groups_for_host(record: Optional[dict]) -> tuple[Optional[dict], Optional[d
     return (main_group, sub_group)
 
 
+def _asset_fqdn_for_record(record: Optional[dict]) -> str:
+    """Look up the asset-inventory row matching a host's custom_number
+    and return its LAST hostname (most-specific FQDN by upstream
+    convention). Returns "" when no match / no hostnames.
+
+    Used by `resolve_ssh_params` as a fallback target when the host
+    record's id is bare (no dot) and no `ssh_fqdn_suffix` is set —
+    saves the operator from having to manually enter the FQDN in
+    each per-host SSH override when the asset already knows it.
+    """
+    if not isinstance(record, dict):
+        return ""
+    cn = record.get("custom_number")
+    if cn is None:
+        return ""
+    try:
+        cn_int = int(cn)
+    except (TypeError, ValueError):
+        return ""
+    try:
+        from logic import asset_inventory as _ai
+        cache = _ai.load_cache()
+        idx = _ai.index_by_custom_number(cache.get("assets") or [])
+        raw = idx.get(cn_int)
+        if not isinstance(raw, dict):
+            return ""
+        hostname_str = str(raw.get("Hostname") or raw.get("hostname") or "").strip()
+        if not hostname_str:
+            return ""
+        # Pick the LAST entry — by oufa.co convention the CSV is
+        # ordered least-specific → most-specific (raw IP first,
+        # canonical FQDN last). Skip any entry that looks like an
+        # IP address — those aren't valid SSH targets.
+        parts = [p.strip() for p in hostname_str.split(",") if p.strip()]
+        # Walk from the end backwards, pick the first non-IP entry.
+        ip_pat = re.compile(r"^\d+\.\d+\.\d+\.\d+$")
+        for p in reversed(parts):
+            if ip_pat.match(p):
+                continue
+            return p
+        return ""
+    except Exception:
+        return ""
+
+
 def _group_ssh(group: Optional[dict]) -> dict:
     """Extract a {user, port, password} dict from a group's ``ssh``
     sub-block. Returns empty dict for missing/malformed inputs so
@@ -376,7 +421,16 @@ def resolve_ssh_params(host_id: str, hosts_config: list[dict]) -> dict:
         if base_id and "." not in base_id and suffix:
             resolved["host"] = base_id + (suffix if suffix.startswith(".") else "." + suffix)
         else:
-            resolved["host"] = base_id
+            # Bare id with no fqdn_suffix — try the asset inventory's
+            # canonical FQDN before falling back to the bare id.
+            # Asset hostnames are ordered least-→most-specific, so
+            # `_asset_fqdn_for_record` returns the last non-IP entry
+            # which is the right SSH target.
+            asset_fqdn = _asset_fqdn_for_record(record)
+            if asset_fqdn and "." not in base_id:
+                resolved["host"] = asset_fqdn
+            else:
+                resolved["host"] = base_id
     u_override = (per_host.get("user") or "").strip()
     if u_override:
         resolved["user"] = u_override

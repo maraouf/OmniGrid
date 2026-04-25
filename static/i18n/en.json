@@ -427,6 +427,7 @@
       "min_interval_hint": "Minimum interval: {min} seconds.",
       "scheduled_title": "Scheduled",
       "queue_title": "Queue",
+      "queue_search_placeholder": "Search name / kind / status…",
       "queue_empty": "No scheduled runs yet. They'll appear here once a schedule fires.",
       "queue_per_page": "Per page",
       "queue_page_label": "Page {page} / {total}",

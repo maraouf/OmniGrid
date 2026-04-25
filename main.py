@@ -4660,6 +4660,7 @@ async def api_schedule_queue(
     limit: int = 50,
     page: int = 1,
     page_size: int = 0,
+    search: str = "",
     _admin: auth.User = Depends(auth.require_admin),
 ):
     """Recent scheduler-driven ops from the history table.
@@ -4673,33 +4674,53 @@ async def api_schedule_queue(
     ``page_size`` is 0 (or omitted), the endpoint falls back to the
     legacy flat-list shape (`limit` rows, no `total`) so older
     clients keep working.
+
+    Optional ``search`` param does a case-insensitive substring
+    match on ``target_name`` / ``op_type`` / ``status``. Backend
+    filtering keeps the page count accurate when the operator is
+    searching across thousands of rows.
     """
+    # Build a reusable WHERE-clause + bind args. Backend search lives
+    # entirely in SQL so the page count + slice are correct against
+    # the filtered set, not the unfiltered total.
+    actor = schedules.SCHEDULER_ACTOR
+    where = "actor = ?"
+    args: list = [actor]
+    s = (search or "").strip().lower()
+    if s:
+        where += (" AND ("
+                  "LOWER(COALESCE(target_name, '')) LIKE ? OR "
+                  "LOWER(COALESCE(op_type, '')) LIKE ? OR "
+                  "LOWER(COALESCE(status, '')) LIKE ?"
+                  ")")
+        like = f"%{s}%"
+        args.extend([like, like, like])
+
     # Legacy single-query path — keep until every caller is migrated.
     if page_size <= 0:
         limit = max(1, min(int(limit), 500))
-        rows = _history_query(
-            stack=None, op_type=None, status=None,
-            actor=schedules.SCHEDULER_ACTOR, q=None,
-            since=None, until=None, limit=limit,
-        )
-        return {"queue": rows}
-    # Paginated path — count + slice via explicit SQL so we don't
-    # have to teach `_history_query` about OFFSET (its other callers
-    # treat the full result as "the N most recent"). Cap page_size
-    # at 100 to guard against accidentally-huge queries.
+        with db_conn() as c:
+            rows = c.execute(
+                f"SELECT * FROM history WHERE {where} "
+                f"ORDER BY ts DESC LIMIT ?",
+                args + [limit],
+            ).fetchall()
+        return {"queue": [dict(r) for r in rows]}
+
+    # Paginated path — count + slice. Cap page_size at 100 to guard
+    # against accidentally-huge queries.
     page = max(1, int(page))
     page_size = max(1, min(int(page_size), 100))
-    actor = schedules.SCHEDULER_ACTOR
     offset = (page - 1) * page_size
     with db_conn() as c:
         total_row = c.execute(
-            "SELECT COUNT(*) FROM history WHERE actor = ?", (actor,),
+            f"SELECT COUNT(*) FROM history WHERE {where}", args,
         ).fetchone()
         total = int((total_row[0] if total_row else 0) or 0)
         rows = c.execute(
-            "SELECT * FROM history WHERE actor = ? "
-            "ORDER BY ts DESC LIMIT ? OFFSET ?",
-            (actor, page_size, offset),
+            f"SELECT * FROM history WHERE {where} "
+            f"ORDER BY ts DESC LIMIT ? OFFSET ?",
+            args + [page_size, offset],
         ).fetchall()
     return {
         "queue":     [dict(r) for r in rows],
@@ -4707,6 +4728,7 @@ async def api_schedule_queue(
         "page":      page,
         "page_size": page_size,
         "pages":     max(1, (total + page_size - 1) // page_size),
+        "search":    search or "",
     }
 
 

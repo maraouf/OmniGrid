@@ -5437,12 +5437,24 @@
 
         <!-- Queue table -->
         <section class="bg-[var(--surface)] border border-[var(--border)] rounded-md overflow-hidden">
-          <div class="p-4 border-b border-[var(--border)] flex justify-between items-center">
+          <div class="p-4 border-b border-[var(--border)] flex justify-between items-center gap-3 flex-wrap">
             <h3 class="font-semibold text-[13px]">
               <span x-text="t('admin.schedules.queue_title')"></span>
               <span class="text-[var(--text-faint)] font-normal" x-text="'(' + scheduleQueueTotal + ')'"></span>
             </h3>
-            <button @click="loadScheduleQueue()" class="btn btn-ghost text-[11px]" x-text="t('actions.reload')"></button>
+            <!-- Server-side search — name / op_type / status. Debounced
+                 250ms; clearing the field re-fetches the unfiltered
+                 first page. -->
+            <div class="flex items-center gap-2 ms-auto">
+              <input type="search"
+                     x-model="scheduleQueueSearch"
+                     @input="onScheduleQueueSearchInput()"
+                     :placeholder="t('admin.schedules.queue_search_placeholder')"
+                     class="text-[12px] py-1 min-w-[220px]">
+              <button x-show="scheduleQueueSearch" @click="clearScheduleQueueSearch()"
+                      class="btn btn-ghost text-[11px]" title="Clear search">✕</button>
+              <button @click="loadScheduleQueue()" class="btn btn-ghost text-[11px]" x-text="t('actions.reload')"></button>
+            </div>
           </div>
           <div class="overflow-x-auto scrollbar">
             <table class="w-full text-[12.5px]">
