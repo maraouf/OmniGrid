@@ -851,7 +851,7 @@
       "beszel_agent_title": "Version reported by the Beszel agent on this host",
       "status": "Status",
       "load": "Load",
-      "load_title": "1-, 5-, and 15-minute load averages (from node-exporter)",
+      "load_title": "Average CPU saturation over the last 1, 5, and 15 minutes (load ÷ cores × 100). 100% means the run-queue averaged one runnable process per core; >100% means processes were waiting for CPU.",
       "asset_vendor": "Vendor (asset)",
       "asset_model": "Model (asset)",
       "asset_serial": "Serial (asset)",

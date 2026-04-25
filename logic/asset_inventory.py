@@ -761,6 +761,141 @@ async def refresh_cache(
     }
 
 
+def _pick_named(*candidates) -> str:
+    """Return the first non-empty string from a list of candidates that
+    are either bare strings or {Name|name|CalculatedName} dicts.
+    Mirrors the JS frontend's `pick()` helper inside `assetForHost`."""
+    for v in candidates:
+        if v is None:
+            continue
+        if isinstance(v, str) and v.strip():
+            return v.strip()
+        if isinstance(v, dict):
+            for k in ("CalculatedName", "Name", "name"):
+                s = v.get(k)
+                if isinstance(s, str) and s.strip():
+                    return s.strip()
+    return ""
+
+
+def shape_asset(a: dict) -> Optional[dict]:
+    """Compact public shape for an asset row, mirrored from the
+    frontend's `assetForHost(h)` resolver so the same field names are
+    available to backend API consumers (`/api/hosts*` injects this
+    onto each curated host row when the custom_number matches).
+
+    Returns ``None`` when the input isn't a dict.
+    """
+    if not isinstance(a, dict):
+        return None
+
+    # Hostname CSV → list of FQDNs.
+    hostname_str = str(a.get("Hostname") or a.get("hostname") or "").strip()
+    hostnames = [s.strip() for s in hostname_str.split(",")] if hostname_str else []
+    hostnames = [h for h in hostnames if h]
+
+    # Interfaces — normalize and order by Number then Name. Same shape
+    # the frontend uses (lowercase keys).
+    raw_ifaces = a.get("Interfaces") or a.get("interfaces") or []
+    ifaces = []
+    if isinstance(raw_ifaces, list):
+        for i in raw_ifaces:
+            if not isinstance(i, dict):
+                continue
+            ifaces.append({
+                "name":       str(i.get("Name") or i.get("name") or "").strip(),
+                "ip":         str(i.get("IP") or i.get("ip") or "").strip(),
+                "mac":        str(i.get("MacAddress") or i.get("mac_address") or "").strip(),
+                "number":     i.get("Number"),
+                "comment":    str(i.get("Comment") or "").strip(),
+                "enabled":    i.get("IsEnabled") is not False,
+                "ip_version": str(i.get("IPVersion") or i.get("ip_version") or "").strip(),
+            })
+    ifaces.sort(key=lambda x: (
+        x["number"] if isinstance(x["number"], int) else 1_000_000_000,
+        x["name"],
+    ))
+
+    # Primary IP — first enabled interface, fallback to first iface.
+    primary_ip = ""
+    for f in ifaces:
+        if f["enabled"] and f["ip"]:
+            primary_ip = f["ip"]
+            break
+    if not primary_ip:
+        for f in ifaces:
+            if f["ip"]:
+                primary_ip = f["ip"]
+                break
+
+    # Ports — flatten the nested {Port: {...}} into a flat shape.
+    raw_ports = a.get("Ports") or a.get("ports") or []
+    ports = []
+    if isinstance(raw_ports, list):
+        for p in raw_ports:
+            if not isinstance(p, dict):
+                continue
+            inner = p.get("Port") or p.get("port") or {}
+            if not isinstance(inner, dict):
+                inner = {}
+            name = str(inner.get("Name") or inner.get("name") or "").strip()
+            number = inner.get("Port") if isinstance(inner.get("Port"), int) else inner.get("port")
+            if not name and number is None:
+                continue
+            ports.append({
+                "id":            p.get("ID") or p.get("id"),
+                "name":          name,
+                "number":        number,
+                "service_name":  str(inner.get("ServiceName") or inner.get("service_name") or "").strip(),
+                "protocol":      str(inner.get("Protocol") or inner.get("protocol") or "").strip(),
+            })
+
+    # Serial — drop placeholder NONE-prefixed values (VMs without
+    # real hardware serials report this).
+    raw_serial = _pick_named(a.get("SerialNumber"), a.get("serial"), a.get("serial_number"))
+    if raw_serial:
+        import re as _re
+        if _re.match(r"^NONE\d*$", raw_serial, _re.IGNORECASE):
+            raw_serial = ""
+
+    brand_obj = a.get("Brand") if isinstance(a.get("Brand"), dict) else None
+    location_obj = a.get("Location") if isinstance(a.get("Location"), dict) else None
+    status_obj = a.get("Status") if isinstance(a.get("Status"), dict) else None
+
+    return {
+        "id":                a.get("ID") or a.get("id"),
+        "custom_number":     a.get("CustomNumber") or a.get("custom_number"),
+        "vendor":            _pick_named(a.get("Brand"), a.get("brand"),
+                                         a.get("vendor"), a.get("manufacturer")),
+        "brand_link":        (str((brand_obj or {}).get("Link") or "").strip()
+                              if brand_obj else ""),
+        "model":             _pick_named(a.get("Model"), a.get("model"),
+                                         a.get("product"), a.get("product_name")),
+        "serial":            raw_serial,
+        "location":          _pick_named(a.get("Location"), a.get("location"),
+                                         a.get("site"), a.get("room")),
+        "location_details":  (str((location_obj or {}).get("Details") or "").strip()
+                              if location_obj else ""),
+        "type":              _pick_named(a.get("Type"), a.get("type")),
+        "name":              _pick_named(a.get("Name"), a.get("name")),
+        "hostnames":         hostnames,
+        "primary_ip":        primary_ip,
+        "ram":               _pick_named(a.get("RAM"), a.get("ram"), a.get("memory")),
+        "sku":               _pick_named(a.get("SKU"), a.get("sku")),
+        "firmware":          _pick_named(a.get("Firmware"), a.get("firmware")),
+        "hardware_version":  _pick_named(a.get("HardwareVersion"), a.get("hardware_version")),
+        "barcode":           _pick_named(a.get("Barcode"), a.get("barcode")),
+        "comment":           _pick_named(a.get("Comment"), a.get("comment")),
+        "status_name":       _pick_named(a.get("Status"), a.get("status")),
+        "status_color":      (str((status_obj or {}).get("Color") or "").strip()
+                              if status_obj else ""),
+        "last_modified":     str(a.get("LastModifiedOn") or "").strip(),
+        "created_on":        str(a.get("CreatedOn") or "").strip(),
+        "interfaces":        ifaces,
+        "ports":             ports,
+    }
+
+
 def index_by_custom_number(assets: list) -> dict[int, dict]:
     """Build a {custom_number: asset} map for drawer lookups.
 

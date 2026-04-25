@@ -5642,13 +5642,14 @@ function app() {
           brand_link: brandObj ? String(brandObj.Link || brandObj.link || '').trim() : '',
           model:     pick(a.Model, a.model, a.product, a.product_name),
           // Serial — placeholder values like "NONE224" / "NONE100" /
-          // "NONEXXX" mean "no real serial recorded upstream". Map
-          // them to the localised "missing" string so the drawer
-          // surfaces the absence honestly instead of showing a
-          // misleading-looking value.
+          // "NONEXXX" mean "no real serial recorded upstream"
+          // (typically a VM that doesn't have a hardware serial).
+          // Return empty so the existing `x-if="assetForHost(h).serial"`
+          // gate hides the row entirely instead of surfacing a
+          // misleading placeholder string.
           serial:    (() => {
             const s = pick(a.SerialNumber, a.serial, a.serial_number);
-            return /^NONE/i.test(s) ? this.t('host_drawer.asset.serial_missing') : s;
+            return /^NONE\d*$/i.test(s) ? '' : s;
           })(),
           location:  pick(a.Location, a.location, a.site, a.room),
           location_details: locObj ? String(locObj.Details || locObj.details || '').trim() : '',
@@ -5728,16 +5729,36 @@ function app() {
       const haystack = name + ' ' + proto;
       const isHttps = haystack.includes('HTTPS');
       const isHttp  = !isHttps && haystack.includes('HTTP');
-      if (!isHttp && !isHttps) return '';
-      // Pick the best FQDN we have for the host.
+      // Protocol "IP" — use the host's raw IP (not its FQDN) for
+      // the URL host part. Common for node-exporter / netdata
+      // metric scrapers where DNS isn't reliable. Defaults to http
+      // scheme since that's the typical raw-IP use case.
+      const isIpProto = !isHttp && !isHttps && proto === 'IP';
+      if (!isHttp && !isHttps && !isIpProto) return '';
+
+      const asset = (h && this.assetForHost) ? this.assetForHost(h) : null;
+      // Pick host (FQDN) and ip from the asset row + curated host.
+      // The asset's `Hostname` CSV is ordered LEAST-specific → MOST-
+      // specific by upstream convention (e.g. raw IP first, friendly
+      // name last), so we pick the LAST entry — that's the canonical
+      // FQDN the operator wants links to land on.
       let fqdn = '';
-      if (h) {
-        const asset = this.assetForHost ? this.assetForHost(h) : null;
-        if (asset && Array.isArray(asset.hostnames) && asset.hostnames.length) {
-          fqdn = asset.hostnames[0];
-        }
-        if (!fqdn) fqdn = String(h.host || h.id || h.label || '').trim();
+      if (asset && Array.isArray(asset.hostnames) && asset.hostnames.length) {
+        fqdn = asset.hostnames[asset.hostnames.length - 1];
       }
+      if (!fqdn && h) fqdn = String(h.host || h.id || h.label || '').trim();
+      const ip = (asset && asset.primary_ip) || (h && h.ip) || '';
+
+      // IP-protocol path uses raw IP and falls back to FQDN if no
+      // IP is known (better something clickable than nothing).
+      if (isIpProto) {
+        const target = ip || fqdn;
+        if (!target) return '';
+        const num = (port && port.number != null) ? port.number : null;
+        const portSuffix = (num != null) ? (':' + num) : '';
+        return `http://${target}${portSuffix}`;
+      }
+
       if (!fqdn) return '';
       const scheme = isHttps ? 'https' : 'http';
       const defaultPort = isHttps ? 443 : 80;

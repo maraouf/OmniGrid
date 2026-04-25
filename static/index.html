@@ -1685,12 +1685,12 @@
                               <a :href="assetPortServiceUrl(port, h)" target="_blank" rel="noopener"
                                  class="pill pill-info text-[10.5px] mono hover:underline"
                                  :title="port.protocol || ''"
-                                 x-text="port.name + (port.number != null ? ' :' + port.number : '')"></a>
+                                 x-text="port.name + (port.number != null ? ' ' + port.number : '')"></a>
                             </template>
                             <template x-if="!assetPortServiceUrl(port, h)">
-                              <span class="pill pill-info text-[10.5px] mono opacity-80"
+                              <span class="text-[11px] mono text-[var(--text-faint)] px-1.5 py-1"
                                     :title="port.protocol || ''"
-                                    x-text="port.name + (port.number != null ? ' :' + port.number : '')"></span>
+                                    x-text="port.name + (port.number != null ? ' ' + port.number : '')"></span>
                             </template>
                           </template>
                         </div>
@@ -1862,9 +1862,15 @@
                     <template x-if="h.agent">
                       <dd class="mono text-end" x-text="h.agent"></dd>
                     </template>
-                    <!-- Load averages — one row showing 1m / 5m / 15m.
-                         Populated only when node-exporter scraped this
-                         host (Beszel / Pulse don't expose loadavg). -->
+                    <!-- Load averages — three windows (1m / 5m / 15m)
+                         rendered as percentages of total CPU capacity
+                         (load ÷ cores × 100). Each labelled inline so
+                         the operator doesn't have to remember which
+                         number is which window. Falls back to raw
+                         load when core count is unknown (rare — only
+                         when the live providers haven't reported it
+                         yet). Populated only when node-exporter
+                         scraped this host. -->
                     <template x-if="(h.load_1m || 0) > 0 || (h.load_5m || 0) > 0 || (h.load_15m || 0) > 0">
                       <dt class="text-[var(--text-dim)]"
                           :title="t('host_drawer.hardware.load_title')"
@@ -1872,9 +1878,13 @@
                     </template>
                     <template x-if="(h.load_1m || 0) > 0 || (h.load_5m || 0) > 0 || (h.load_15m || 0) > 0">
                       <dd class="mono text-end"
-                          x-text="(h.load_1m || 0).toFixed(2) + ' · '
-                                  + (h.load_5m || 0).toFixed(2) + ' · '
-                                  + (h.load_15m || 0).toFixed(2)"></dd>
+                          x-text="(h.cores && h.cores > 0)
+                            ? ('1m ' + (((h.load_1m || 0) / h.cores) * 100).toFixed(0) + '%'
+                               + ' · 5m ' + (((h.load_5m || 0) / h.cores) * 100).toFixed(0) + '%'
+                               + ' · 15m ' + (((h.load_15m || 0) / h.cores) * 100).toFixed(0) + '%')
+                            : ('1m ' + (h.load_1m || 0).toFixed(2)
+                               + ' · 5m ' + (h.load_5m || 0).toFixed(2)
+                               + ' · 15m ' + (h.load_15m || 0).toFixed(2))"></dd>
                     </template>
                     <!-- Asset inventory rows (ticket #78 follow-up).
                          Matched by h.custom_number against the cached

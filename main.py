@@ -2176,6 +2176,41 @@ async def api_hosts():
     # common "all three columns are empty" complaint by showing each
     # curated host's merged values + which providers contributed.
     hosts = []
+    # Set of Swarm node hostnames (short + long forms) — used to
+    # gate the `docker_node` field. Hosts that AREN'T Docker/Swarm
+    # nodes get an empty value so the drawer's "Docker node: …"
+    # row hides for VMs / appliances / routers that have no Docker.
+    swarm_hostnames: set[str] = set()
+    for n in (_cache.get("nodes") or {}).values():
+        if not n:
+            continue
+        ns = str(n).strip().lower()
+        if ns:
+            swarm_hostnames.add(ns)
+            swarm_hostnames.add(ns.split(".", 1)[0])
+    # Asset-inventory map by custom_number. Loaded once per request
+    # so `/api/hosts` injects the same compact `asset` shape the
+    # frontend's `assetForHost(h)` resolver returns — external API
+    # consumers (metric scrapers, third-party dashboards) get the
+    # vendor / model / serial / interfaces / ports / etc. without
+    # having to call /api/asset-inventory + reconcile themselves.
+    from logic import asset_inventory as _ai
+    _asset_cache = _ai.load_cache()
+    _asset_index = _ai.index_by_custom_number(_asset_cache.get("assets") or [])
+
+    # Tiny helper used by both /api/hosts here and by
+    # `_shape_host_api_row` (which doesn't share the local index).
+    # Caches the resolved per-call index on a private attribute so
+    # the file read + index build runs at most once per request even
+    # when /api/hosts/one/{id} is fanned out N times.
+    def _resolve_asset_for_host_inline(cn):
+        try:
+            cn_int = int(cn)
+        except (TypeError, ValueError):
+            return None
+        a = _asset_index.get(cn_int)
+        return _ai.shape_asset(a) if a else None
+
     for entry in out:
         h = entry["_host_record"]
         s = entry["_merged"]
@@ -2213,7 +2248,10 @@ async def api_hosts():
                 or s.get("pulse_status")
                 or ("up" if entry["_providers"] else "unknown")
             ),
-            "docker_node":     h["id"],  # curated list IS the docker-node-like mapping
+            "docker_node":     (h["id"] if (
+                h["id"].lower() in swarm_hostnames
+                or h["id"].lower().split(".", 1)[0] in swarm_hostnames
+            ) else ""),  # only set when the host is an actual Swarm node
             "platform":        s.get("host_platform") or "",
             "os":              s.get("host_os") or "",
             "kernel":          s.get("host_kernel") or "",
@@ -2260,6 +2298,17 @@ async def api_hosts():
             # the "Custom #" sort option in the Hosts view and is the
             # eventual key for Asset-inventory lookups at oufa.co.
             "custom_number":    h.get("custom_number"),
+            # Asset-inventory snapshot — null when no match. External
+            # API consumers can read vendor/model/serial/interfaces/
+            # ports here without hitting /api/asset-inventory
+            # separately.
+            "asset":            (
+                _ai.shape_asset(_asset_index.get(int(h.get("custom_number") or 0)))
+                if h.get("custom_number") is not None
+                   and isinstance(h.get("custom_number"), int)
+                   and _asset_index.get(int(h["custom_number"])) is not None
+                else None
+            ),
         })
 
     # Aggregate error — non-fatal; UI shows the first one per provider.
@@ -2578,6 +2627,14 @@ def _shape_host_api_row(
         "updates_pending":  int(s.get("host_updates_pending") or 0),
         "updates_security": int(s.get("host_updates_security") or 0),
         "custom_number":    h.get("custom_number"),
+        # Asset-inventory snapshot — null when no match. Resolved
+        # lazily here (vs. eagerly in the loop above) so each
+        # _shape_host_api_row call is self-contained. The cache read
+        # is fast (file → JSON) but the index build is O(N), so
+        # repeated calls in /api/hosts/one/{id} fanouts pay it once
+        # per call. If that becomes a hotspot we can stash the
+        # index on the request via FastAPI Depends().
+        "asset":            _resolve_asset_for_host(h.get("custom_number")),
         # Per-host SSH-disabled flag, exposed so the drawer can hide
         # the SSH card / common-actions panel BEFORE sshStatus has
         # loaded. Reads the hosts_config `ssh.disabled` field — if the
