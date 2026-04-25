@@ -377,11 +377,18 @@ function app() {
     // `hostsConfigDirty` / `hostStatsDirty()`. Each tab's Save button
     // shows the amber unsaved-changes ring + dot when its flag is
     // true. Marked by @input / @change on every relevant input;
-    // cleared by the corresponding save handler on success.
-    appriseDirty: false,
-    openMeteoDirty: false,
-    portainerDirty: false,
-    oidcDirty: false,
+    // Per-tab baselines for the unified dirty-tracking pattern. Each
+    // baseline is a JSON snapshot string captured after loadSettings()
+    // (and after a successful save). The matching `<X>Dirty()` getter
+    // compares the current snapshot against the baseline so reverting
+    // a typed-and-deleted edit clears the indicator — same UX as the
+    // existing Profile / Asset Inventory / Host stats tabs. Replaces
+    // the older "set true on input, reset on save" boolean toggle
+    // pattern that couldn't detect a revert.
+    _appriseBaseline: '',
+    _openMeteoBaseline: '',
+    _portainerBaseline: '',
+    _oidcBaseline: '',
     sshTestOnHost: { host_id: '', result: null, pending: false },
     // Settings / Admin sidebar layout. Arrays drive the nav — adding a
     // section is one entry here + one <section> in the markup.
@@ -1869,7 +1876,7 @@ function app() {
         });
         if (r.ok) {
           this.settings.open_meteo_url = url;
-          this.openMeteoDirty = false;
+          this._openMeteoBaseline = this._openMeteoSnapshot();
           this.showToast(this.t('admin_integrations.open_meteo_saved'), 'success');
           // Re-fetch weather now so the topbar reflects the new upstream.
           if (this.loadHeaderWeather) this.loadHeaderWeather();
@@ -2899,7 +2906,6 @@ function app() {
             // after the migration); otherwise reflect whatever's persisted.
             verify_tls:    this.oidcStatus.verify_tls !== false,
           };
-          this.oidcDirty = false;
         }
 
         // --- Portainer connection panel state ---
@@ -2912,6 +2918,16 @@ function app() {
             api_key:      '',  // write-only — never prefill
           };
         }
+        // Capture portainer-public-url baseline for the dirty getter
+        // (separate from portainerForm because the public URL lives on
+        // the broader `settings` object, not the form).
+        this._portainerPublicBaseline = (this.settings || {}).portainer_public_url || '';
+        // Capture all 4 unified-pattern baselines AFTER the form/settings
+        // are fully populated. Subsequent edits compare against these.
+        this._appriseBaseline   = this._appriseSnapshot();
+        this._openMeteoBaseline = this._openMeteoSnapshot();
+        this._portainerBaseline = this._portainerSnapshot();
+        this._oidcBaseline      = this._oidcSnapshot();
 
         // --- Admin → SSH panel state ---
         this.hydrateSshSettings(d);
@@ -2996,7 +3012,8 @@ function app() {
           body: JSON.stringify(body),
         });
         if (r.ok) {
-          this.oidcDirty = false;
+          // loadSettings() below re-captures the baseline; nothing to
+          // clear here under the unified pattern.
           this.showToast(this.t('toasts.oidc_saved'));
           await this.loadSettings();
           this.oidcTestResult = null;
@@ -3057,7 +3074,7 @@ function app() {
           body: JSON.stringify(body),
         });
         if (r.ok) {
-          this.portainerDirty = false;
+          // loadSettings() below re-captures the baseline.
           this.showToast(this.t('toasts.portainer_saved'));
           await this.loadSettings();
           this.portainerTestResult = null;
@@ -3791,18 +3808,91 @@ function app() {
           body: JSON.stringify(this.settings),
         });
         if (!r.ok) throw new Error(await r.text());
-        // Clear the per-tab dirty flags this single save covers — the
-        // Notifications tab (Apprise + Open-Meteo) is the most common
-        // caller of saveSettings and lands the whole settings object.
-        this.appriseDirty = false;
-        this.openMeteoDirty = false;
+        // Re-capture per-tab baselines under the unified dirty-tracking
+        // pattern — the Notifications tab (Apprise + Open-Meteo) is the
+        // most common caller of saveSettings and lands the whole
+        // settings object. Capturing both here covers the multi-section
+        // save path; single-section saves (savePortainerSettings,
+        // saveOidcSettings) call loadSettings which re-captures via the
+        // central baseline-update block.
+        this._appriseBaseline   = this._appriseSnapshot();
+        this._openMeteoBaseline = this._openMeteoSnapshot();
         this.showToast(this.t('toasts.settings_saved'));
       } catch (e) { this.showToast(this.t('toasts.load_failed', { error: e.message }), 'error'); }
     },
-    markAppriseDirty()    { this.appriseDirty = true; },
-    markOpenMeteoDirty()  { this.openMeteoDirty = true; },
-    markPortainerFormDirty() { this.portainerDirty = true; },
-    markOidcFormDirty()   { this.oidcDirty = true; },
+    // Unified dirty-tracking — per-tab snapshot+baseline pattern. The
+    // `<X>Dirty()` getter compares the current state against the
+    // baseline captured by loadSettings / saveX, so reverting a typed
+    // edit clears the indicator. Mirror of profileDirty / assetDirty /
+    // hostStatsDirty.
+    _appriseSnapshot() {
+      const s = this.settings || {};
+      return JSON.stringify({
+        enabled: !!s.apprise_enabled,
+        url:     s.apprise_url || '',
+        tag:     s.apprise_tag || '',
+      });
+    },
+    appriseDirty()   { return this._appriseBaseline   !== this._appriseSnapshot(); },
+    _openMeteoSnapshot() {
+      const s = this.settings || {};
+      return JSON.stringify({
+        enabled: !!s.open_meteo_enabled,
+        url:     (s.open_meteo_url || '').trim().replace(/\/+$/, ''),
+      });
+    },
+    openMeteoDirty() { return this._openMeteoBaseline !== this._openMeteoSnapshot(); },
+    _portainerSnapshot() {
+      const f = this.portainerForm || {};
+      const s = this.portainerStatus || {};
+      // Form vs status. api_key is write-only — any typed value (any
+      // non-empty string) is dirty; baseline always has empty api_key.
+      return JSON.stringify({
+        enabled:     !!(this.settings || {}).portainer_enabled,
+        url:         (f.url || '').trim(),
+        endpoint_id: f.endpoint_id || 1,
+        verify_tls:  !!f.verify_tls,
+        api_key:     f.api_key ? '<set>' : '',
+        baseEnabled: !!s.enabled,
+        baseUrl:     s.url || '',
+        baseEpId:    s.endpoint_id || 1,
+        baseVerify:  !!s.verify_tls,
+        publicUrl:   (this.settings || {}).portainer_public_url || '',
+        basePublic:  this._portainerPublicBaseline || '',
+      });
+    },
+    portainerDirty() { return this._portainerBaseline !== this._portainerSnapshot(); },
+    _oidcSnapshot() {
+      const f = this.oidcForm || {};
+      const s = this.oidcStatus || {};
+      return JSON.stringify({
+        enabled:     !!f.enabled,
+        issuer:      (f.issuer_url || '').trim(),
+        client_id:   (f.client_id || '').trim(),
+        secret:      f.client_secret ? '<set>' : '',
+        redirect:    (f.redirect_uri || '').trim(),
+        scopes:      (f.scopes || '').trim(),
+        admin_group: (f.admin_group || '').trim(),
+        verify_tls:  f.verify_tls !== false,
+        baseEnabled: !!s.enabled,
+        baseIssuer:  s.issuer_url || '',
+        baseCid:     s.client_id || '',
+        baseRedir:   s.redirect_uri || '',
+        baseScopes:  s.scopes || '',
+        baseGrp:     s.admin_group || '',
+        baseVerify:  s.verify_tls !== false,
+      });
+    },
+    oidcDirty()      { return this._oidcBaseline      !== this._oidcSnapshot(); },
+    // No-op stubs kept so any existing @input / @change bindings that
+    // call mark<X>Dirty() don't throw. The smart getters re-evaluate
+    // automatically on form changes via Alpine reactivity, so these
+    // calls are now unnecessary but harmless. Removing the markup
+    // bindings is a separate cleanup (#305 follow-up).
+    markAppriseDirty()    {},
+    markOpenMeteoDirty()  {},
+    markPortainerFormDirty() {},
+    markOidcFormDirty()   {},
     // Auto-save a single per-service "enabled" master switch (#204).
     // Wired to the @change of the toggle checkbox for Apprise /
     // Open-Meteo / Portainer / SSH so the operator doesn't have to
