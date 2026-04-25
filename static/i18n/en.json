@@ -1054,6 +1054,7 @@
       "err_not_contained": "Sub-group range must fit inside parent \"{parent}\" ({ps}–{pe}).",
       "err_overlap": "Range overlaps \"{other}\" ({os}–{oe}). Ranges must be disjoint except for parent↔sub-group pairs.",
       "number_label": "Number (optional)",
+      "number_label_short": "Number",
       "number_placeholder": "e.g. 32",
       "number_hint": "Optional display prefix shown before the group name in the Hosts view (e.g. \"32 Smart & IOT Routers\"). Must be unique across all groups when set.",
       "invalid_number": "Number must be a positive integer.",
@@ -1072,6 +1073,11 @@
       "children_show": "Show children",
       "children_hide": "Hide children",
       "children_toggle_title": "Collapse this parent group's sub-rows so the editor stays compact while you add more items.",
+      "collapse_all": "Collapse all children",
+      "collapse_all_title": "Hide every parent group's sub-rows so only top-level rows are visible.",
+      "expand_all": "Expand all children",
+      "expand_all_title": "Show every parent group's sub-rows.",
+      "preview_title": "Preview — how this group will render in the Hosts view.",
       "add_subgroup": "Add sub-group",
       "add_subgroup_title": "Add a sub-group nested under \"{parent}\". Range pre-fills inside the parent's range so you don't trip the containment validator."
     }

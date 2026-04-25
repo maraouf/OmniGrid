@@ -4813,6 +4813,36 @@
              class="text-[12px] text-[var(--text-faint)] italic mb-3"
              x-text="t('admin_hosts.groups.empty')"></div>
 
+        <!-- Bulk-toggle bar — collapse / expand the children of every
+             top-level group at once. Saves the operator from clicking
+             through every parent's chevron when the editor list grows
+             past ~5 parents. Only renders when there's at least one
+             top-level group with children to toggle. -->
+        <div x-show="(hostGroups || []).filter(g => g && !g.parent_name && hostGroupChildCount(g.name) > 0).length > 0"
+             class="flex items-center gap-2 mb-3 flex-wrap">
+          <button type="button"
+                  @click="collapseAllHostGroupChildren()"
+                  class="host-group-chip host-group-chip--neutral"
+                  :title="t('admin_hosts.groups.collapse_all_title') || 'Hide every parent group\'s sub-rows'">
+            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                 stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
+              <polyline points="6 9 12 15 18 9"/>
+            </svg>
+            <span x-text="t('admin_hosts.groups.collapse_all') || 'Collapse all children'"></span>
+          </button>
+          <button type="button"
+                  @click="expandAllHostGroupChildren()"
+                  class="host-group-chip host-group-chip--neutral"
+                  :title="t('admin_hosts.groups.expand_all_title') || 'Show every parent group\'s sub-rows'">
+            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                 stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" class="flip-rtl"
+                 style="transform: rotate(90deg);">
+              <polyline points="9 18 15 12 9 6"/>
+            </svg>
+            <span x-text="t('admin_hosts.groups.expand_all') || 'Expand all children'"></span>
+          </button>
+        </div>
+
         <div class="space-y-2">
           <template x-for="({g, origIdx}, listIdx) in sortedGroupsForEditor()" :key="'g' + origIdx">
             <div class="host-group-card border rounded-md p-3 transition-colors"
@@ -4884,7 +4914,31 @@
                    and inline-error clear (both cheap) so save-button
                    feedback is unchanged. The expensive reactive
                    cascade only runs once when the operator tabs away. -->
-              <div class="grid grid-cols-1 md:grid-cols-[2fr_1.3fr_110px_110px_auto] gap-3 items-end">
+              <div class="grid grid-cols-1 md:grid-cols-[90px_2fr_1.3fr_100px_100px_auto] gap-3 items-end">
+                <!-- Number first — operator's preferred Tab order is
+                     NUMBER → NAME → PARENT → RANGE (digits typed first
+                     so the prefix appears before the readable name in
+                     the Hosts view). The `?` icon keeps the verbose
+                     "optional / must be unique" rule out of the form
+                     chrome. -->
+                <div>
+                  <label class="text-[10.5px] uppercase tracking-wider text-[var(--text-faint)] mb-1 flex items-center gap-1 whitespace-nowrap">
+                    <span x-text="t('admin_hosts.groups.number_label_short') || t('admin_hosts.groups.number_label')"></span>
+                    <span class="host-group-help-icon"
+                          :title="t('admin_hosts.groups.number_hint')"
+                          aria-hidden="true">?</span>
+                  </label>
+                  <input type="number" x-model.lazy.number="g.number"
+                         :disabled="isReadonly()"
+                         @input="markHostGroupDirty(); clearFieldError('group_' + origIdx + '_number')"
+                         class="w-full mono text-[12.5px] py-1.5"
+                         :class="hasFieldError('group_' + origIdx + '_number') ? 'field-invalid' : ''"
+                         min="1" step="1"
+                         :placeholder="t('admin_hosts.groups.number_placeholder')">
+                  <div x-show="hasFieldError('group_' + origIdx + '_number')"
+                       class="field-error-msg"
+                       x-text="fieldError('group_' + origIdx + '_number')"></div>
+                </div>
                 <div>
                   <label class="block text-[10.5px] uppercase tracking-wider text-[var(--text-faint)] mb-1"
                          x-text="t('admin_hosts.groups.name_label')"></label>
@@ -4958,39 +5012,17 @@
                           :title="t('admin_hosts.groups.remove_title')">✕</button>
                 </div>
               </div>
-              <!-- Row 2: number prefix (optional) + IP range. The
-                   number's verbose explanation now hides behind a
-                   `?` tooltip so the form stays compact — the live
-                   preview chip in the header already shows operators
-                   what the number does without reading paragraph text. -->
-              <div class="mt-2 grid grid-cols-1 md:grid-cols-[110px_1fr] gap-3 items-start">
-                <div>
-                  <label class="text-[10.5px] uppercase tracking-wider text-[var(--text-faint)] mb-1 flex items-center gap-1">
-                    <span x-text="t('admin_hosts.groups.number_label')"></span>
-                    <span class="host-group-help-icon"
-                          :title="t('admin_hosts.groups.number_hint')"
-                          aria-hidden="true">?</span>
-                  </label>
-                  <input type="number" x-model.lazy.number="g.number"
-                         :disabled="isReadonly()"
-                         @input="markHostGroupDirty(); clearFieldError('group_' + origIdx + '_number')"
-                         class="w-full mono text-[12.5px] py-1.5"
-                         :class="hasFieldError('group_' + origIdx + '_number') ? 'field-invalid' : ''"
-                         min="1" step="1"
-                         :placeholder="t('admin_hosts.groups.number_placeholder')">
-                  <div x-show="hasFieldError('group_' + origIdx + '_number')"
-                       class="field-error-msg"
-                       x-text="fieldError('group_' + origIdx + '_number')"></div>
-                </div>
-                <div>
-                  <label class="block text-[10.5px] uppercase tracking-wider text-[var(--text-faint)] mb-1"
-                         x-text="t('admin_hosts.groups.ip_range_label')"></label>
-                  <input type="text" x-model.lazy="g.ip_range"
-                         :disabled="isReadonly()"
-                         @input="markHostGroupDirty()"
-                         class="w-full mono text-[12.5px] py-1.5"
-                         :placeholder="t('admin_hosts.groups.ip_range_placeholder')">
-                </div>
+              <!-- Row 2: IP range only (NUMBER moved to row 1 first
+                   column so the natural Tab order is NUMBER → NAME →
+                   PARENT → RANGE). -->
+              <div class="mt-2">
+                <label class="block text-[10.5px] uppercase tracking-wider text-[var(--text-faint)] mb-1 whitespace-nowrap"
+                       x-text="t('admin_hosts.groups.ip_range_label')"></label>
+                <input type="text" x-model.lazy="g.ip_range"
+                       :disabled="isReadonly()"
+                       @input="markHostGroupDirty()"
+                       class="w-full mono text-[12.5px] py-1.5"
+                       :placeholder="t('admin_hosts.groups.ip_range_placeholder')">
               </div>
               <!-- Row 3: SSH credentials (user / port / password).
                    Optional. Resolves at runtime in this priority

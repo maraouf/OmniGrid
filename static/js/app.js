@@ -5277,6 +5277,13 @@ function app() {
           'sensibo-air':     'sensibo',
           'sensibo-pod':     'sensibo',
           'sensibo-pure':    'sensibo',
+          // HP family — short / common synonyms route to the canonical
+          // hp.svg brand mark. ProLiant / iLO keep their existing
+          // dedicated icons (proliant.svg / ilo.svg) since those are
+          // distinct product-line marks rather than the parent HP logo.
+          'hpe':              'hp',
+          'hewlett-packard':  'hp',
+          'hewlettpackard':   'hp',
         };
         const slug = aliases[h.icon.toLowerCase()] || h.icon;
         return '/img/icons/' + slug + '.svg';
@@ -5595,6 +5602,18 @@ function app() {
         ['somfy',                 'somfy'],
         ['tahoma',                'somfy'],
         ['connexoon',             'somfy'],
+        // HP / HPE family. Longest phrases first so "HPE ProLiant"
+        // hits the existing `proliant` icon rather than falling
+        // through to the generic HP wordmark, and "HP printer" /
+        // "HP laptop" routes to the HP brand mark. The bare ` hp `
+        // (with surrounding whitespace) avoids matching unrelated
+        // "https" / "wp" / "shop" substrings inside hostnames.
+        ['hewlett-packard',       'hp'],
+        ['hewlett packard',       'hp'],
+        [' hpe ',                 'hp'],
+        ['hpe-',                  'hp'],
+        [' hp ',                  'hp'],
+        ['hp-',                   'hp'],
       ];
       for (const [needle, slug] of tokens) {
         if (hay.includes(needle)) return '/img/icons/' + slug + '.svg';
@@ -6087,11 +6106,63 @@ function app() {
     // VIEW collapse (hostGroupsCollapsed) is intentionally separate
     // — operators may want to keep the sidebar compact without
     // affecting the editor, or vice versa.
+    // Bulk toggle: hide / show every top-level group's sub-rows in
+    // one click. Useful when the editor has 10+ parents and the
+    // operator wants to scan only the top-level rows. Persists to
+    // the same localStorage key as the per-parent toggles so the
+    // state survives reloads.
+    collapseAllHostGroupChildren() {
+      const names = (this.hostGroups || [])
+        .filter(g => g && !g.parent_name && (g.name || '').trim()
+                     && this.hostGroupChildCount(g.name) > 0)
+        .map(g => g.name);
+      this.hostGroupsEditorChildrenCollapsed = [...new Set(names)];
+      try {
+        if (typeof localStorage !== 'undefined') {
+          localStorage.setItem(
+            'hostGroupsEditorChildrenCollapsed',
+            JSON.stringify(this.hostGroupsEditorChildrenCollapsed),
+          );
+        }
+      } catch (_) {}
+    },
+    expandAllHostGroupChildren() {
+      // Capture which parents had their children hidden BEFORE
+      // wiping the set — those rows are about to re-enter the DOM
+      // and need the same select-mount-race fix as
+      // toggleHostGroupChildrenCollapsed (see #230).
+      const wereCollapsed = new Set(this.hostGroupsEditorChildrenCollapsed || []);
+      this.hostGroupsEditorChildrenCollapsed = [];
+      try {
+        if (typeof localStorage !== 'undefined') {
+          localStorage.setItem(
+            'hostGroupsEditorChildrenCollapsed',
+            JSON.stringify(this.hostGroupsEditorChildrenCollapsed),
+          );
+        }
+      } catch (_) {}
+      // Re-touch every now-visible sub-group's parent_name in
+      // $nextTick so x-model re-binds the parent <select> after
+      // its <option> elements finish rendering. Without this the
+      // dropdowns silently fall back to "— top-level —".
+      if (wereCollapsed.size === 0) return;
+      this.$nextTick(() => {
+        const groups = this.hostGroups || [];
+        for (let i = 0; i < groups.length; i++) {
+          const g = groups[i];
+          const parent = (g && g.parent_name || '').trim();
+          if (parent && wereCollapsed.has(parent)) {
+            g.parent_name = g.parent_name;
+          }
+        }
+      });
+    },
     toggleHostGroupChildrenCollapsed(parentName) {
       const name = (parentName || '').trim();
       if (!name) return;
       const set = new Set(this.hostGroupsEditorChildrenCollapsed || []);
-      if (set.has(name)) set.delete(name); else set.add(name);
+      const wasCollapsed = set.has(name);
+      if (wasCollapsed) set.delete(name); else set.add(name);
       this.hostGroupsEditorChildrenCollapsed = [...set];
       try {
         if (typeof localStorage !== 'undefined') {
@@ -6101,6 +6172,33 @@ function app() {
           );
         }
       } catch (_) {}
+      // Same Alpine select-mount race as #230 — when sub-group rows
+      // re-enter the DOM after un-collapsing, each row's <select>
+      // mounts BEFORE the inner x-for finishes rendering its
+      // <option> elements (populated from `topLevelGroupNames`).
+      // Without intervention the select silently falls back to the
+      // empty "— top-level —" placeholder even though `g.parent_name`
+      // is set in state. Fix: in $nextTick (after Alpine has flushed
+      // the new DOM and the options are in place), re-touch
+      // `parent_name` on every now-visible sub-group of THIS parent
+      // so x-model fires its model→DOM effect again and the select
+      // displays the correct value.
+      if (!wasCollapsed) return;  // we just collapsed — no children visible to fix
+      this.$nextTick(() => {
+        const groups = this.hostGroups || [];
+        for (let i = 0; i < groups.length; i++) {
+          const g = groups[i];
+          if (g && (g.parent_name || '').trim() === name) {
+            const v = g.parent_name;
+            // Setting same value works: assigning ANY value re-runs
+            // x-model's effect and refreshes the select. Skipping
+            // the empty-then-set dance from #230 because the value
+            // is already correct in state — we only need a re-bind
+            // signal, not a value change.
+            g.parent_name = v;
+          }
+        }
+      });
     },
     // Move a row up/down in the VISIBLE order. Translates to a raw-
     // array swap so sub-groups stick next to their parent after the
