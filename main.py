@@ -373,6 +373,16 @@ def init_db():
         # Scheduler schema — admin-defined recurring jobs. Same pattern:
         # owned by logic/schedules.py, created here.
         schedules.init_schedules_schema(c)
+        # Schema migrations infrastructure (ARCH-002). Adds the
+        # `schema_migrations` table and applies any pending migrations
+        # registered in `logic/migrations.py:MIGRATIONS`. Empty registry
+        # today — additive changes still go in the CREATE TABLE block
+        # above. Non-additive changes (renames, type changes, data
+        # migrations) get a numbered migration function. Boot halts on
+        # migration failure so a half-applied schema can't slip through.
+        from logic import migrations as _migrations
+        _migrations.init_migrations_schema(c)
+        _migrations.apply_pending(c)
 
 
 # ============================================================================
@@ -4769,6 +4779,16 @@ async def api_me(request: Request):
         "role": user.role,
         "source": user.auth_source,
     }
+    # ARCH-004: surface the SESSION_SECRET-auto-generated state to admins.
+    # When SESSION_SECRET isn't set in the env, logic/auth.py generates an
+    # ephemeral one at boot — every container restart invalidates every
+    # session. Today the only signal is a one-line print at boot, buried
+    # in logs. Exposing this boolean lets the SPA render a dismissible
+    # warning banner so operators know their sessions die on every redeploy.
+    # Boolean only (no message string) — i18n surface lives in en.json.
+    # Always included so the SPA can also clear a stale "dismissed" flag
+    # once SESSION_SECRET is finally set in the env.
+    out["session_secret_auto"] = (auth.auto_secret_warning() is not None)
     if profile:
         out.update({
             "id":           profile["id"],

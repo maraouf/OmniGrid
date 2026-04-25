@@ -502,6 +502,15 @@ function app() {
     // Current user, set from /api/me on init. Null until that call
     // completes; the SPA defers rendering everything that depends on it.
     me: null,
+    // ARCH-004 — per-session dismiss flag for the SESSION_SECRET-auto
+    // warning banner. Stored in sessionStorage (NOT localStorage) so
+    // it resets every browser-session — that's the whole point: each
+    // restart of the OmniGrid container kills sessions, and operators
+    // should be re-warned each restart so they remember to set
+    // SESSION_SECRET in the env. Once they fix it, the backend stops
+    // setting `me.session_secret_auto` so the banner disappears.
+    sessionSecretWarningDismissed: (typeof sessionStorage !== 'undefined' &&
+                                    sessionStorage.getItem('sessionSecretWarningDismissed') === '1') || false,
 
     async init() {
       // Expose the live Alpine component instance globally for the
@@ -567,7 +576,7 @@ function app() {
           // (with its brief loading-spinner flash on every row)
           // is part of the "live updates" they wanted to silence.
           if (this.statsInterval > 0) {
-            this._hostsTimer = setInterval(() => this.loadHosts(), 15000);
+            this._hostsTimer = setInterval(() => this.loadHosts(), this.statsInterval * 1000);
           }
         } else if (this._hostsTimer) {
           clearInterval(this._hostsTimer);
@@ -638,7 +647,7 @@ function app() {
         this.loadHosts();
         // Same off-honoring rule as the view-watcher above.
         if (this.statsInterval > 0) {
-          this._hostsTimer = setInterval(() => this.loadHosts(), 15000);
+          this._hostsTimer = setInterval(() => this.loadHosts(), this.statsInterval * 1000);
         }
       }
       setInterval(() => this.updateCacheLabel(), 1000);
@@ -649,6 +658,16 @@ function app() {
         await fetch('/api/local-auth/logout', { method: 'POST' });
       } catch (_) { /* ignore — clearing the cookie is the important bit */ }
       location.href = '/login';
+    },
+    // ARCH-004 — dismiss the SESSION_SECRET-auto banner for this
+    // browser session. Persists in sessionStorage so a hard-refresh
+    // doesn't unhide it again, but a fresh browser-session (close +
+    // reopen, or container restart on the operator's side) brings it
+    // back. That's intentional: every restart kills user sessions,
+    // operators need the recurring nudge to set SESSION_SECRET.
+    dismissSessionSecretWarning() {
+      this.sessionSecretWarningDismissed = true;
+      try { sessionStorage.setItem('sessionSecretWarningDismissed', '1'); } catch (_) {}
     },
 
     // --- Profile: password strength meter -------------------------------
@@ -2697,7 +2716,7 @@ function app() {
       // When they re-enable, restart it for the hosts view.
       if (seconds > 0) {
         if (this.view === 'hosts' && !this._hostsTimer) {
-          this._hostsTimer = setInterval(() => this.loadHosts(), 15000);
+          this._hostsTimer = setInterval(() => this.loadHosts(), this.statsInterval * 1000);
         }
       } else if (this._hostsTimer) {
         clearInterval(this._hostsTimer);
@@ -4813,6 +4832,17 @@ function app() {
       const d = Math.floor(sec / 86400);
       const h = Math.floor((sec % 86400) / 3600);
       return h > 0 ? `${d}d ${h}h` : `${d}d`;
+    },
+    // Short-form interval label — matches the topbar stats picker
+    // values exactly (5s / 15s / 30s / 1m / 5m). Used by the Hosts
+    // subtitle's "polled every X" so it reflects the operator's
+    // actual setting instead of a hardcoded "15s".
+    fmtIntervalShort(seconds) {
+      const s = Number(seconds) || 0;
+      if (s <= 0) return '';
+      if (s < 60) return s + 's';
+      if (s % 60 === 0) return (s / 60) + 'm';
+      return s + 's';
     },
     itemSubline(item) {
       // Node hostname is rendered by the topology chip strip below,

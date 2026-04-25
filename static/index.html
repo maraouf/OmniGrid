@@ -378,6 +378,24 @@
   <!-- ================== MAIN ================== -->
   <main class="flex-1 px-5 py-4 max-w-full mx-auto w-full">
 
+    <!-- ARCH-004: SESSION_SECRET auto-generated warning. Shown only to
+         admins, only when the backend reports the boot-time auto-gen
+         state, only when the operator hasn't dismissed it for this
+         session. Dismissal is per-session (not per-deploy) so the
+         banner reappears after a restart — that's the whole point,
+         operators should be reminded each restart that sessions died. -->
+    <div x-show="me && me.role === 'admin' && me.session_secret_auto && !sessionSecretWarningDismissed"
+         class="rounded-md border border-[var(--warning)] bg-[color-mix(in_srgb,var(--warning)_10%,var(--surface))] px-4 py-2.5 mb-3 flex items-start gap-3 text-[12.5px]">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-[var(--warning)] flex-shrink-0 mt-0.5"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+      <div class="flex-1 min-w-0">
+        <div class="font-semibold text-[var(--text)]" x-text="t('warnings.session_secret_auto.title')"></div>
+        <div class="text-[var(--text-dim)] mt-0.5" x-text="t('warnings.session_secret_auto.body')"></div>
+      </div>
+      <button @click="dismissSessionSecretWarning()"
+              class="btn btn-ghost text-[11px] flex-shrink-0"
+              :title="t('warnings.session_secret_auto.dismiss_title')">✕</button>
+    </div>
+
     <!-- BULK BAR — only shown to admins (readonly can select for inspection but not act). -->
     <div x-show="selected.length>0 && isAdmin()"
          class="sticky top-[108px] z-20 bg-[var(--surface)] border border-[var(--border-bright)] rounded-md px-4 py-2 flex items-center gap-3 mb-3 shadow-lg fade-in">
@@ -1111,12 +1129,13 @@
                 · merged from
                 <span x-text="(hostsActiveSources || []).map(s => s === 'node_exporter' ? 'node-exporter' : s).join(' + ')"></span>
               </span>
-              <!-- Polling-cadence label gated on the actual `statsInterval`
-                   (which the Hosts poll piggybacks on — see setStatsInterval
-                   at app.js:2693+: when stats picker is OFF the hosts
-                   timer is killed too). Hardcoded "polled every 15s" was
-                   misleading when the operator had stats turned off. -->
-              <span x-show="statsInterval > 0"> · polled every 15s</span>
+              <!-- Polling-cadence label gated on `statsInterval`. The
+                   Hosts poll timer now uses `statsInterval * 1000`
+                   (was hardcoded 15000) so it actually matches what
+                   the operator picks in the topbar — and this label
+                   reflects that value too via fmtIntervalShort(). -->
+              <span x-show="statsInterval > 0"
+                    x-text="' · polled every ' + fmtIntervalShort(statsInterval)"></span>
               <span x-show="statsInterval === 0" class="text-[var(--warning)]"> · polling off</span>
             </span>
           </span>

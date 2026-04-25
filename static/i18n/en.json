@@ -8,6 +8,13 @@
     "unsaved": "Unsaved",
     "unsaved_title": "You have unsaved changes — click Save to commit them."
   },
+  "warnings": {
+    "session_secret_auto": {
+      "title": "SESSION_SECRET not set — sessions will not survive a restart",
+      "body": "OmniGrid generated an ephemeral session-signing key at boot because the SESSION_SECRET env var is unset. Every container restart invalidates every active session (yours included), forcing all users to log in again. Set SESSION_SECRET in /app/.env to a stable random value to fix this.",
+      "dismiss_title": "Dismiss for this browser session (will reappear after the next OmniGrid restart)"
+    }
+  },
   "errors": {
     "OG0001": "DNS resolution failed — the hostname could not be resolved. Check the URL, container DNS (/etc/resolv.conf), split-horizon DNS, or an outbound VPN.",
     "OG0002": "Connection refused by the upstream host — check the port and that the upstream service is running.",
