@@ -4833,6 +4833,97 @@ function app() {
       const parts = String(raw).split(',').map(s => s.trim()).filter(Boolean);
       return parts.includes(name);
     },
+    // Asset-inventory autofill — called from the host-row editor when
+    // the operator clicks "Load from asset inventory". Looks up the
+    // row's `custom_number` against the loaded asset cache (via the
+    // shared `assetForHost` helper so backend-injected + client-cache
+    // paths both work) and populates EMPTY fields on the row:
+    //   id (Docker hostname) ← first entry in asset.hostnames (or asset.name)
+    //   label              ← asset.name / vendor+model fallback
+    //   url                ← first port.service_name starting with http(s)
+    // Never overwrites a value the operator already typed — blank
+    // fields only. Toast reports what was filled (or why nothing was).
+    // Returns an array of field names that were filled, for the UI.
+    autofillHostRowFromAsset(idx) {
+      const row = (this.hostsConfig || [])[idx];
+      if (!row) return [];
+      const asset = this.assetForHost({ custom_number: row.custom_number });
+      if (!asset) {
+        this.showToast(this.t('admin_hosts.autofill.no_match', { n: row.custom_number }), 'warning');
+        return [];
+      }
+      const filled = [];
+      // id / hostname — prefer the first FQDN in the asset's Hostname
+      // CSV; fall back to asset.name (device label, often lowercase).
+      if (!(row.id || '').trim()) {
+        const primary = (Array.isArray(asset.hostnames) && asset.hostnames[0])
+          || asset.name || '';
+        if (primary) {
+          row.id = String(primary).trim();
+          filled.push('id');
+          // Mirror the label convenience from onHostRowEdit so first
+          // fill doesn't leave a blank label behind.
+          if (!(row.label || '').trim()) {
+            // asset.name is a better label than the FQDN when both exist.
+            row.label = String(asset.name || primary).trim();
+            filled.push('label');
+          }
+        }
+      }
+      if (!(row.label || '').trim()) {
+        const label = asset.name
+          || ((asset.vendor && asset.model) ? `${asset.vendor} ${asset.model}` : '')
+          || asset.vendor || asset.model || '';
+        if (label) {
+          row.label = String(label).trim();
+          filled.push('label');
+        }
+      }
+      // URL — first port whose service_name looks like an http(s) link.
+      // Ports without a URL-shaped service_name are skipped.
+      if (!(row.url || '').trim() && Array.isArray(asset.ports)) {
+        for (const p of asset.ports) {
+          const sn = (p && p.service_name) || '';
+          if (/^https?:\/\//i.test(sn)) {
+            row.url = sn;
+            filled.push('url');
+            break;
+          }
+        }
+      }
+      // IP — primary IP from the asset's interfaces. Helpful for
+      // hosts where node-exporter scrape templates reference {ip}.
+      if (!(row.ip || '').trim() && asset.primary_ip) {
+        row.ip = asset.primary_ip;
+        filled.push('ip');
+      }
+      if (!filled.length) {
+        this.showToast(this.t('admin_hosts.autofill.nothing_to_fill'), 'info');
+        return [];
+      }
+      this.markHostRowDirty(idx);
+      // Keep the row visibly expanded after the fill — same sticky
+      // rule used for typed input (see onHostRowEdit).
+      if (row._uid) {
+        this.hostsConfigExpanded = {
+          ...this.hostsConfigExpanded,
+          [row._uid]: true,
+        };
+      }
+      this.showToast(this.t('admin_hosts.autofill.filled', {
+        fields: filled.join(', '),
+      }), 'success');
+      return filled;
+    },
+    // Quick predicate for the editor UI: "is there an asset-inventory
+    // match for this row's custom_number?" — drives whether the
+    // autofill button is shown vs hidden. Cheap lookup via the shared
+    // `assetForHost` helper.
+    hostRowHasAssetMatch(row) {
+      if (!row || row.custom_number == null || row.custom_number === '') return false;
+      return !!this.assetForHost({ custom_number: row.custom_number });
+    },
+
     addHostRow() {
       // Pre-fill custom_number with the next unused integer so a fresh
       // row slots into the catalogue sequence without manual thought.
@@ -4897,9 +4988,24 @@ function app() {
     // type — once it's populated, it stays.
     onHostRowEdit(idx, field, value) {
       this.markHostRowDirty(idx);
+      const row = this.hostsConfig[idx];
+      if (!row) return;
       if (field === 'id') {
-        const row = this.hostsConfig[idx];
-        if (row && !row.label) row.label = value;
+        if (!row.label) row.label = value;
+        // Promote the implicit "empty-id rows always render expanded"
+        // rule to an EXPLICIT entry in hostsConfigExpanded the moment
+        // any character lands in the ID field. Without this, typing
+        // the very first character flips `!row.id` from true to false
+        // and `isHostConfigExpanded(row)` falls through to the map —
+        // which has no key for a fresh row — returning false and
+        // collapsing the panel mid-keystroke. Sticky-expand on first
+        // edit survives typing AND copy-paste.
+        if (row._uid && !this.hostsConfigExpanded[row._uid]) {
+          this.hostsConfigExpanded = {
+            ...this.hostsConfigExpanded,
+            [row._uid]: true,
+          };
+        }
       }
     },
     // Resolve a curated host to an icon URL. Priority:

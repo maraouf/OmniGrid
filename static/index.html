@@ -4317,6 +4317,21 @@
                   <div x-show="hasFieldError('host_' + idx + '_cn')"
                        class="field-error-msg"
                        x-text="fieldError('host_' + idx + '_cn')"></div>
+                  <!-- Asset-inventory autofill. Only appears when the
+                       entered custom_number has a match in the cached
+                       asset list — the click fills id / label / url /
+                       ip from the asset, skipping any field the
+                       operator has already typed a value into. -->
+                  <button type="button"
+                          x-show="!isReadonly() && hostRowHasAssetMatch(row)"
+                          @click="autofillHostRowFromAsset(idx)"
+                          class="mt-1 w-full text-[10.5px] px-1.5 py-1 rounded border border-[var(--success)]/40 bg-[var(--success)]/10 text-[var(--success)] hover:bg-[var(--success)]/20 transition flex items-center justify-center gap-1"
+                          :title="t('admin_hosts.autofill.button_title')">
+                    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                      <polyline points="20 6 9 17 4 12"/>
+                    </svg>
+                    <span x-text="t('admin_hosts.autofill.button')"></span>
+                  </button>
                 </div>
                 <div>
                   <label class="block text-[10.5px] uppercase tracking-wider text-[var(--text-faint)] mb-1">ID · Docker hostname</label>
