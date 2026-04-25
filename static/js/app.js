@@ -5076,6 +5076,22 @@ function app() {
           'iosxe':           'cisco',
           'catalyst':        'cisco',
           'nexus':           'cisco',
+          // Ubiquiti family — `ubiquiti.svg` is the parent brand mark,
+          // `ui.svg` is the short-form UI badge, `unifi.svg` (unchanged)
+          // stays for the UniFi product line specifically. An operator
+          // tagging a host `ubnt` / `edgerouter` / `airmax` / `airfiber`
+          // / `unifi-os` lands on the parent Ubiquiti mark.
+          'ubnt':            'ubiquiti',
+          'ui.com':          'ui',
+          'unifi-os':        'ubiquiti',
+          'edgerouter':      'ubiquiti',
+          'edge-router':     'ubiquiti',
+          'edgeswitch':      'ubiquiti',
+          'edge-switch':     'ubiquiti',
+          'airmax':          'ubiquiti',
+          'airfiber':        'ubiquiti',
+          'uisp':            'ubiquiti',
+          'amplifi':         'ubiquiti',
         };
         const slug = aliases[h.icon.toLowerCase()] || h.icon;
         return '/img/icons/' + slug + '.svg';
@@ -5137,7 +5153,24 @@ function app() {
         ['opnsense',              'opnsense'],
         ['pfsense',               'pfsense'],
         ['mikrotik',              'mikrotik'],
+        // UniFi-product-line phrases win over the bare "ubiquiti"
+        // match — more-specific wins when the operator labelled a
+        // host with its UniFi flavour.
         ['unifi',                 'unifi'],
+        // Ubiquiti family — parent brand mark. Specific product
+        // phrases first so "edgerouter" / "airmax" etc. hit even
+        // when "ubiquiti" also appears in the label.
+        ['edgerouter',            'ubiquiti'],
+        ['edge-router',           'ubiquiti'],
+        ['edgeswitch',            'ubiquiti'],
+        ['edge-switch',           'ubiquiti'],
+        ['airfiber',              'ubiquiti'],
+        ['airmax',                'ubiquiti'],
+        ['amplifi',               'ubiquiti'],
+        ['uisp',                  'ubiquiti'],
+        ['unifi-os',              'ubiquiti'],
+        ['ubnt',                  'ubiquiti'],
+        ['ubiquiti',              'ubiquiti'],
         // ASUS routers — typical model strings: "RT-AX88U",
         // "RT-AC68U", "GT-AX11000", "ZenWiFi". "asuswrt" / "merlin"
         // are the firmware names operators sometimes label hosts

@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128">
+  <title>UI (Ubiquiti)</title>
+  <!-- Ubiquiti's shorter "UI" wordmark — used on ui.com + newer
+       product branding. White "UI" on Ubiquiti blue background in
+       a rounded-square badge. Same brand family as ubiquiti.svg;
+       both aliases resolve so operators can tag either way. -->
+  <rect x="4" y="4" width="120" height="120" rx="20" ry="20" fill="#0559C9"/>
+  <text x="64" y="84" text-anchor="middle"
+        font-family="Helvetica, Arial, sans-serif"
+        font-weight="800"
+        font-size="58"
+        letter-spacing="2"
+        fill="#FFFFFF">UI</text>
+</svg>
