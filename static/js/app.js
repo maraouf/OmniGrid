@@ -4360,6 +4360,20 @@ function app() {
         this.hostsTestingAll = false;
       }
     },
+    // True when at least one provider (Beszel / Pulse / node-exporter
+    // / Webmin) is mapped on this row. The "Test providers" button
+    // disables when none are set — there's nothing to probe and the
+    // backend would return all-skipped anyway.
+    rowHasProviderMapping(row) {
+      if (!row) return false;
+      return !!(
+        (row.beszel_name || '').trim() ||
+        (row.pulse_name  || '').trim() ||
+        (row.ne_url      || '').trim() ||
+        (row.webmin_name || '').trim() ||
+        (row.webmin_url  || '').trim()
+      );
+    },
     async testHostRow(idx) {
       const row = this.hostsConfig[idx];
       if (!row) return;
@@ -4579,6 +4593,29 @@ function app() {
         // webservers
         ['nginx',                 'nginx'],
         ['apache',                'apache'],
+        // server hardware / lights-out management — checked BEFORE
+        // hypervisors so "Dell PowerEdge … (iDRAC)" hits idrac and
+        // "VMware vCenter Server" hits vcenter rather than the
+        // generic vmware fallback.
+        ['idrac',                 'idrac'],
+        ['ilo',                   'ilo'],
+        ['poweredge',             'poweredge'],
+        ['power edge',            'poweredge'],
+        ['dell server',           'poweredge'],
+        ['proliant',              'proliant'],
+        ['dell',                  'dell'],
+        // virtualisation suite — most-specific labels first.
+        ['vcenter',               'vcenter'],
+        ['v-center',              'vcenter'],
+        ['vsphere',               'vsphere'],
+        ['esxi',                  'esxi'],
+        ['esx',                   'esxi'],
+        ['vmware',                'vmware'],
+        // power / UPS
+        ['apc ups',               'apc-ups'],
+        ['apc-ups',               'apc-ups'],
+        ['apc',                   'apc'],
+        [' ups',                  'ups'],
         // firewalls / routers / gateways
         ['opnsense',              'opnsense'],
         ['pfsense',               'pfsense'],
@@ -5669,13 +5706,44 @@ function app() {
       const adminBase = upstream.replace(/\/api\/?$/, '');
       return `${adminBase}?asset=${asset.id}`;
     },
-    // Treat a port's `service_name` as a clickable URL when it starts
-    // with http:// or https://. Otherwise the field is just a label
-    // (or empty). Used by the drawer to render either an <a> or a
-    // plain <span> per port.
-    assetPortServiceUrl(port) {
+    // Resolve a clickable URL for a port chip. Three cases:
+    //   1. The port's `service_name` is already an http(s):// URL —
+    //      use it as-is (operator-curated full URL).
+    //   2. The port's `name` or `protocol` indicates HTTP / HTTPS —
+    //      synthesize a URL from the host's FQDN. Picks the first
+    //      hostname from the asset row, falling back to `h.host`,
+    //      then `h.label`. Skips the explicit `:port` when it's the
+    //      protocol's default (80 / 443) so the URL stays clean.
+    //   3. Anything else — empty string (renders as a plain chip).
+    assetPortServiceUrl(port, h) {
       const s = String((port && port.service_name) || '').trim();
-      return /^https?:\/\//i.test(s) ? s : '';
+      if (/^https?:\/\//i.test(s)) return s;
+      // Substring match on name + protocol — catches obvious HTTP
+      // ports ("HTTP", "HTTPS") AND looser labels like "HTTP Admin"
+      // / "NetData" (Protocol="HTTP") / "NGINX Admin" without a
+      // service_name URL. HTTPS check runs first so a port labelled
+      // "HTTPS" doesn't fall into the http bucket.
+      const name = String((port && port.name) || '').toUpperCase();
+      const proto = String((port && port.protocol) || '').toUpperCase();
+      const haystack = name + ' ' + proto;
+      const isHttps = haystack.includes('HTTPS');
+      const isHttp  = !isHttps && haystack.includes('HTTP');
+      if (!isHttp && !isHttps) return '';
+      // Pick the best FQDN we have for the host.
+      let fqdn = '';
+      if (h) {
+        const asset = this.assetForHost ? this.assetForHost(h) : null;
+        if (asset && Array.isArray(asset.hostnames) && asset.hostnames.length) {
+          fqdn = asset.hostnames[0];
+        }
+        if (!fqdn) fqdn = String(h.host || h.id || h.label || '').trim();
+      }
+      if (!fqdn) return '';
+      const scheme = isHttps ? 'https' : 'http';
+      const defaultPort = isHttps ? 443 : 80;
+      const num = (port && port.number != null) ? port.number : null;
+      const portSuffix = (num != null && num !== defaultPort) ? (':' + num) : '';
+      return `${scheme}://${fqdn}${portSuffix}`;
     },
     async refreshAssetCache() {
       this.assetRefreshing = true;

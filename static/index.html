@@ -1674,29 +1674,29 @@
                         <div class="text-[10.5px] uppercase tracking-wider text-[var(--text-faint)] mb-2"
                              x-text="t('host_drawer.asset.ports_heading')"></div>
                         <div class="flex flex-wrap gap-1.5">
+                          <!-- Every port renders as the same chip;
+                               clickable ones wrap in <a>, the rest
+                               wrap in <span>. Uniform styling so a
+                               port without a service URL is just as
+                               visible as one with — operator wanted
+                               ALL ports surfaced, not only URL ones. -->
                           <template x-for="port in assetForHost(h).ports" :key="port.id || (port.name + ':' + port.number)">
-                            <a x-show="assetPortServiceUrl(port)"
-                               :href="assetPortServiceUrl(port)" target="_blank" rel="noopener"
-                               class="pill pill-info text-[10.5px] mono hover:underline"
-                               :title="port.protocol || ''"
-                               x-text="port.name + (port.number != null ? ' :' + port.number : '')"></a>
-                            <span x-show="!assetPortServiceUrl(port)"
-                                  class="pill text-[10.5px] mono"
-                                  :title="port.protocol || ''"
-                                  x-text="port.name + (port.number != null ? ' :' + port.number : '')"></span>
+                            <template x-if="assetPortServiceUrl(port, h)">
+                              <a :href="assetPortServiceUrl(port, h)" target="_blank" rel="noopener"
+                                 class="pill pill-info text-[10.5px] mono hover:underline"
+                                 :title="port.protocol || ''"
+                                 x-text="port.name + (port.number != null ? ' :' + port.number : '')"></a>
+                            </template>
+                            <template x-if="!assetPortServiceUrl(port, h)">
+                              <span class="pill pill-info text-[10.5px] mono opacity-80"
+                                    :title="port.protocol || ''"
+                                    x-text="port.name + (port.number != null ? ' :' + port.number : '')"></span>
+                            </template>
                           </template>
                         </div>
                       </div>
                     </template>
 
-                    <template x-if="assetForHost(h).comment">
-                      <div class="mt-4 pt-3 border-t border-[var(--border)]">
-                        <div class="text-[10.5px] uppercase tracking-wider text-[var(--text-faint)] mb-2"
-                             x-text="t('host_drawer.asset.comment')"></div>
-                        <pre class="text-[11.5px] whitespace-pre-wrap break-words text-[var(--text-dim)]"
-                             x-text="assetForHost(h).comment"></pre>
-                      </div>
-                    </template>
                   </section>
                 </template>
 
@@ -4248,8 +4248,8 @@
                           title="Remove this host">Remove</button>
                 </div>
               </div>
-              <!-- Row 1a — optional external URL + IP + icon override. -->
-              <div class="grid grid-cols-1 md:grid-cols-[2fr_140px_1fr] gap-3">
+              <!-- Row 1a — optional external URL + icon override. -->
+              <div class="grid grid-cols-1 md:grid-cols-[2fr_1fr] gap-3">
                 <div>
                   <label class="block text-[10.5px] uppercase tracking-wider text-[var(--text-faint)] mb-1">
                     External URL
@@ -4259,16 +4259,6 @@
                          @input="markHostRowDirty(idx)"
                          class="w-full mono text-[12.5px] py-1.5"
                          :placeholder="t('admin_hosts.row.url_placeholder')">
-                </div>
-                <div>
-                  <label class="block text-[10.5px] uppercase tracking-wider text-[var(--text-faint)] mb-1">
-                    IP
-                    <span class="text-[10px] normal-case text-[var(--text-faint)] ms-1">(free text)</span>
-                  </label>
-                  <input type="text" x-model="row.ip" :disabled="isReadonly()"
-                         @input="markHostRowDirty(idx)"
-                         class="w-full mono text-[12.5px] py-1.5"
-                         :placeholder="t('admin_hosts.row.ip_placeholder')">
                 </div>
                 <div>
                   <label class="block text-[10.5px] uppercase tracking-wider text-[var(--text-faint)] mb-1">
@@ -4436,7 +4426,8 @@
                      stuck the button in a permanently-disabled state. -->
                 <button x-show="isAdmin()" @click="testHostRow(idx)"
                         class="btn btn-soft text-[11.5px]"
-                        :disabled="!!(hostsTestResults[idx] && hostsTestResults[idx].pending)">
+                        :disabled="!!(hostsTestResults[idx] && hostsTestResults[idx].pending) || !rowHasProviderMapping(row)"
+                        :title="!rowHasProviderMapping(row) ? 'Add a Beszel / Pulse / node-exporter / Webmin entry first' : ''">
                   <span x-show="!(hostsTestResults[idx] && hostsTestResults[idx].pending)">Test providers</span>
                   <span x-show="!!(hostsTestResults[idx] && hostsTestResults[idx].pending)" class="flex items-center gap-1"><span class="spin"></span>Testing…</span>
                 </button>
