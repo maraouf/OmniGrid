@@ -1,3 +1,42 @@
+// Registry of every icon file that actually exists under static/img/icons/.
+// `iconUrlFor()` consults this before returning a /img/icons/<slug>.svg URL
+// so unknown stack / host names don't trigger 404 noise in the browser
+// console — operators flagged "Failed to load resource: website-monitoring.svg"
+// for a stack that simply doesn't have a brand mark. With the registry, the
+// resolver returns '' for unrecognized slugs and the SPA's existing
+// `x-show="iconUrl"` gates hide the <img> entirely.
+//
+// Auto-built from `ls static/img/icons/*.svg | sed 's/\.svg$//'`. Re-run that
+// pipeline (or `scripts/sync_icon_registry.sh` if/when added) after adding or
+// removing icons.
+const KNOWN_ICONS = new Set([
+  '5g', 'adguard-home', 'alexa', 'alienware', 'amazon', 'ansible',
+  'apache', 'apc', 'apc-ups', 'apple', 'apple-light', 'apple-tv-plus',
+  'apple-tv-plus-light', 'apprise', 'aqara', 'asus', 'authentik', 'bazarr',
+  'beszel', 'bose', 'caddy', 'chromecast', 'cisco', 'database',
+  'ddns-updater', 'debian', 'dell', 'deluge', 'docker', 'dovecot',
+  'dozzle', 'esxi', 'fing', 'firetv', 'flaresolverr', 'forgejo',
+  'freenas', 'ftth', 'gigabyte', 'glinet', 'glinet-dark', 'google',
+  'google-home', 'grafana', 'hisense', 'homarr', 'home-assistant', 'homebridge',
+  'homepage', 'hp', 'huawei', 'idrac', 'ikea', 'ilo',
+  'influxdb', 'jellyfin', 'jellyseerr', 'kali', 'kavita', 'keycloak',
+  'komodo', 'kubernetes', 'lenovo', 'linuxmint', 'lubelogger', 'mail',
+  'mailcow', 'meta', 'microsoft', 'mikrotik', 'mongodb', 'motorola',
+  'myspeed', 'n8n', 'nest', 'netboot-xyz', 'netdata', 'nginx',
+  'nginx-proxy-manager', 'nintendo-switch', 'nzbget', 'oculus', 'openvpn', 'opnsense',
+  'pfsense', 'pi-hole', 'pihole', 'pivpn', 'playstation', 'plex',
+  'portainer', 'portainer-dark', 'postgresql', 'poweredge', 'proliant', 'prometheus',
+  'prowlarr', 'proxmox', 'pulse', 'qbittorrent', 'rachio', 'radarr',
+  'reolink', 'roku', 'roundcube', 'rundeck', 'rustdesk', 'sabnzbd',
+  'samsung', 'sandisk', 'sensibo', 'smtp', 'somfy', 'sonarr',
+  'speedtest-tracker', 'squid', 'stalwart', 'synology', 'tailscale', 'tautulli',
+  'tracearr', 'traefik', 'transmission', 'truenas', 'truenas-core', 'truenas-scale',
+  'ubiquiti', 'ubuntu', 'ui', 'unifi', 'ups', 'uptime-kuma',
+  'vcenter', 'vdsl', 'veeam', 'vmware', 'vsphere', 'wd',
+  'webmin', 'windows', 'windows-10', 'windows-server', 'wireguard', 'xiaomi',
+  'zabbix',
+]);
+
 function app() {
   return {
     // i18n reactive state. `lang` is watched to trigger Alpine re-renders
@@ -3967,7 +4006,13 @@ function app() {
         if (natural.startsWith(prefix)) return `/img/icons/${slug}.svg`;
       }
       if (!natural) return '';
-      return `/img/icons/${natural}.svg`;
+      // Only return a URL when the slug actually exists on disk —
+      // otherwise the browser fires a 404 for every stack/host name
+      // that doesn't happen to match a brand. Operator complaint:
+      // "this is a stack without an image, why system looking for
+      // image" → fixed by gating on KNOWN_ICONS.
+      if (KNOWN_ICONS.has(natural)) return `/img/icons/${natural}.svg`;
+      return '';
     },
     stackIconUrl(stack) {
       return stack ? this.iconUrlFor(stack.name) : '';
@@ -5359,6 +5404,14 @@ function app() {
           'echo-show':        'alexa',
           'echo-studio':      'alexa',
           'amazon-echo':      'alexa',
+          // Generic monitoring labels — operator-typed slugs that
+          // don't match a concrete brand fall through to uptime-kuma
+          // (the canonical free-software uptime monitor mark) so the
+          // resolver returns a real file instead of a 404.
+          'website-monitoring': 'uptime-kuma',
+          'website_monitoring': 'uptime-kuma',
+          'uptime-monitor':     'uptime-kuma',
+          'monitoring':         'uptime-kuma',
         };
         const slug = aliases[h.icon.toLowerCase()] || h.icon;
         return '/img/icons/' + slug + '.svg';
@@ -6920,7 +6973,7 @@ function app() {
           : (j.detail || '');
         this.assetTestResult = { ok: !!j.ok, detail };
       } catch (e) {
-        this.assetTestResult = { ok: false, detail: 'Network error' };
+        this.assetTestResult = { ok: false, detail: this.t('toasts.network_error') };
       }
     },
     async loadAssetCache() {

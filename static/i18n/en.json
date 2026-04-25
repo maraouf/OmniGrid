@@ -1033,6 +1033,7 @@
     "debug_panel_toggle_saved": "Debug panel preference saved",
     "loading": "Loading hosts…",
     "test_providers": "Test providers",
+    "test_providers_disabled_title": "Add a Beszel / Pulse / node-exporter / Webmin entry first",
     "import": {
       "nothing_new": "Nothing new to import — every discovered name is already configured.",
       "no_hosts_in_file": "No hosts found in file."

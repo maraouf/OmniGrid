@@ -429,6 +429,7 @@
                 <td colspan="2">
                   <div class="flex items-center gap-2">
                     <img class="app-icon" :src="stackIconUrl(stack)" :alt="stack.name" loading="lazy"
+                         x-show="stackIconUrl(stack)"
                          @error="$el.classList.add('broken')">
                     <span x-text="stack.name"></span>
                     <span class="text-[var(--text-faint)] text-[11px] font-normal" x-text="'(' + stack.total + ')'"></span>
@@ -485,6 +486,7 @@
                   <td class="col-grow">
                     <div class="flex items-center gap-2">
                       <img class="app-icon sm" :src="itemIconUrl(item)" :alt="item.stack || item.name" loading="lazy"
+                           x-show="itemIconUrl(item)"
                            @error="$el.classList.add('broken')">
                       <div class="min-w-0">
                         <div class="mono text-[12.5px] text-[var(--text)]" x-text="item.name"></div>
@@ -975,7 +977,7 @@
                 <template x-for="item in stack.items" :key="node.name + '|' + item.id">
                   <div class="flex items-center gap-3 px-5 py-2 border-t border-[var(--border)] hover:bg-[var(--row-hover)] cursor-pointer"
                        @click="openDrawer(item)">
-                    <img :src="itemIconUrl(item)" width="18" height="18" class="opacity-90 flex-shrink-0">
+                    <img :src="itemIconUrl(item)" x-show="itemIconUrl(item)" width="18" height="18" class="opacity-90 flex-shrink-0">
                     <div class="flex-1 min-w-0">
                       <div class="text-[12.5px] font-medium truncate" x-text="item.name"></div>
                       <div class="text-[10.5px] text-[var(--text-faint)] mono truncate" x-text="item.image"></div>
@@ -1164,7 +1166,7 @@
               x-show="hostsSearch"
               x-text="filteredHosts().length + ' of ' + hosts.length"></span>
         <button x-show="hostsSearch" @click="hostsSearch=''"
-                class="btn btn-ghost text-[11px]" title="Clear filter">✕</button>
+                class="btn btn-ghost text-[11px]" :title="t('hosts_extra.empty.clear_filter')">✕</button>
         <label class="flex items-center gap-1.5 text-[11px] text-[var(--text-faint)]">
           <span x-text="t('hosts_extra.sort_label')"></span>
           <select x-model="hostsSort" class="text-[12px] py-1 px-1.5"
@@ -2144,6 +2146,7 @@
               </label>
               <input x-model="settings.beszel_password" type="password"
                      :disabled="isReadonly()"
+                     autocomplete="new-password"
                      class="w-full text-[11.5px]"
                      :placeholder="settings.beszel_password_set ? '••••••••' : t('settings.host_stats.beszel_password_placeholder')">
             </div>
@@ -2374,6 +2377,7 @@
             </select>
             <input x-show="newUser.auth_source==='local'" x-model="newUser.password"
                    type="password" :placeholder="t('admin.users.password_placeholder')"
+                   autocomplete="new-password"
                    class="w-full md:col-span-2">
           </div>
           <div class="mt-3 flex items-center gap-3">
@@ -2957,6 +2961,7 @@
                       x-text="t('settings.host_stats.beszel_password_set')"></span>
               </label>
               <input x-model="settings.beszel_password" type="password"
+                     autocomplete="new-password"
                      :disabled="isReadonly() || !hasHostStatsSource('beszel')"
                      class="w-full text-[11.5px]"
                      :placeholder="settings.beszel_password_set ? '••••••••' : t('settings.host_stats.beszel_password_placeholder')">
@@ -3002,6 +3007,7 @@
               <span x-show="settings.pulse_token_set" class="text-[var(--success)]"> · set</span>
             </label>
             <input x-model="settings.pulse_token" type="password"
+                   autocomplete="new-password"
                    :disabled="isReadonly() || !hasHostStatsSource('pulse')"
                    class="w-full text-[11.5px]"
                    :placeholder="settings.pulse_token_set ? '••••••••' : 'Create a read-only token in Pulse → Settings'">
@@ -3053,6 +3059,7 @@
                 <span x-show="settings.webmin_password_set" class="text-[var(--success)]"> · set</span>
               </label>
               <input x-model="settings.webmin_password" type="password"
+                     autocomplete="new-password"
                      :disabled="isReadonly() || !hasHostStatsSource('webmin')"
                      class="w-full text-[11.5px]"
                      :placeholder="settings.webmin_password_set ? '••••••••' : 'read-only user password'">
@@ -3146,8 +3153,8 @@
                     :disabled="hostsTestingAll"
                     class="btn btn-ghost text-[12px]"
                     :title="'Probe every enabled host against all its configured providers and show the results per row.'">
-              <span x-show="!hostsTestingAll">Test all</span>
-              <span x-show="hostsTestingAll" class="flex items-center gap-1"><span class="spin"></span>Testing…</span>
+              <span x-show="!hostsTestingAll" x-text="t('actions.test_all')"></span>
+              <span x-show="hostsTestingAll" class="flex items-center gap-1"><span class="spin"></span><span x-text="t('actions.testing')"></span></span>
             </button>
             <!-- Export / Import — back up the curated list as JSON
                  or restore from a saved file. Round-trips cleanly
@@ -3165,7 +3172,8 @@
                    @change="importHostsConfig($event)">
             <button x-show="isAdmin()" @click="loadHostsConfig()"
                     class="btn btn-ghost text-[12px]"
-                    :disabled="hostsConfigLoading">Reload</button>
+                    :disabled="hostsConfigLoading"
+                    x-text="t('actions.reload')"></button>
             <!-- Top-of-card Save shortcut — saves operators from
                  scrolling past 20-50 rows to reach the bottom bar
                  when they just tweaked one field near the top. Same
@@ -3174,15 +3182,15 @@
                     :class="hostsConfigDirty ? 'ring-2 ring-[var(--warning)]' : ''"
                     class="btn btn-primary text-[12px]"
                     :disabled="hostsConfigSaving">
-              <span x-show="!hostsConfigSaving">Save</span>
-              <span x-show="hostsConfigSaving" class="flex items-center gap-1"><span class="spin"></span>Saving…</span>
+              <span x-show="!hostsConfigSaving" x-text="t('actions.save')"></span>
+              <span x-show="hostsConfigSaving" class="flex items-center gap-1"><span class="spin"></span><span x-text="t('actions.saving')"></span></span>
             </button>
           </div>
         </div>
 
         <div x-show="hostsConfigLoading" class="loading-state py-8">
           <span class="spin" aria-hidden="true"></span>
-          <span class="ms-2">Loading hosts…</span>
+          <span class="ms-2" x-text="t('admin_hosts.loading')"></span>
         </div>
 
         <!-- Datalists populated by the Discover endpoint. Inputs
@@ -3357,14 +3365,14 @@
                           :disabled="idx === 0"
                           class="btn btn-ghost text-[12px] px-2"
                           :class="idx === 0 ? 'opacity-40 cursor-not-allowed' : ''"
-                          title="Move up">
+                          :title="t('admin_hosts.groups.move_up_title')">
                     <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="18 15 12 9 6 15"/></svg>
                   </button>
                   <button x-show="isAdmin()" @click="moveHostRow(idx, +1)"
                           :disabled="idx === hostsConfig.length - 1"
                           class="btn btn-ghost text-[12px] px-2"
                           :class="idx === hostsConfig.length - 1 ? 'opacity-40 cursor-not-allowed' : ''"
-                          title="Move down">
+                          :title="t('admin_hosts.groups.move_down_title')">
                     <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
                   </button>
                   <button x-show="isAdmin()" @click="duplicateHostRow(idx)"
@@ -3541,6 +3549,7 @@
                     <span class="text-[10px] normal-case text-[var(--text-faint)] ms-1">(blank = use global)</span>
                   </label>
                   <input type="password"
+                         autocomplete="new-password"
                          :value="row.ssh && row.ssh.password || ''"
                          @input="row.ssh = Object.assign({}, row.ssh || {}, { password: $event.target.value }); markHostRowDirty(idx)"
                          :disabled="isReadonly()"
@@ -3561,9 +3570,9 @@
                 <button x-show="isAdmin()" @click="testHostRow(idx)"
                         class="btn btn-soft text-[11.5px]"
                         :disabled="!!(hostsTestResults[idx] && hostsTestResults[idx].pending) || !rowHasProviderMapping(row)"
-                        :title="!rowHasProviderMapping(row) ? 'Add a Beszel / Pulse / node-exporter / Webmin entry first' : ''">
-                  <span x-show="!(hostsTestResults[idx] && hostsTestResults[idx].pending)">Test providers</span>
-                  <span x-show="!!(hostsTestResults[idx] && hostsTestResults[idx].pending)" class="flex items-center gap-1"><span class="spin"></span>Testing…</span>
+                        :title="!rowHasProviderMapping(row) ? t('admin_hosts.test_providers_disabled_title') : ''">
+                  <span x-show="!(hostsTestResults[idx] && hostsTestResults[idx].pending)" x-text="t('admin_hosts.test_providers')"></span>
+                  <span x-show="!!(hostsTestResults[idx] && hostsTestResults[idx].pending)" class="flex items-center gap-1"><span class="spin"></span><span x-text="t('actions.testing')"></span></span>
                 </button>
                 <div x-show="!!(hostsTestResults[idx] && !hostsTestResults[idx].pending && !hostsTestResults[idx].error)"
                      class="flex flex-wrap gap-3 text-[11px] flex-1">
@@ -3929,6 +3938,7 @@
                     </label>
                     <div class="flex items-center gap-2">
                       <input type="password" x-model="g.ssh.password"
+                             autocomplete="new-password"
                              :disabled="isReadonly()"
                              @input="markHostGroupDirty()"
                              class="flex-1 mono text-[12.5px] py-1.5"
@@ -4272,6 +4282,7 @@
             </button>
           </label>
           <input x-model="sshSettings.passphrase" type="password"
+                 autocomplete="new-password"
                  @input="markSshSettingsDirty()"
                  :disabled="isReadonly() || !settings.ssh_enabled"
                  class="w-full text-[12.5px]"
@@ -4293,6 +4304,7 @@
             </button>
           </label>
           <input x-model="sshSettings.password" type="password"
+                 autocomplete="new-password"
                  @input="markSshSettingsDirty()"
                  :disabled="isReadonly() || !settings.ssh_enabled"
                  class="w-full text-[12.5px]"
