@@ -18,7 +18,7 @@ const KNOWN_ICONS = new Set([
   'dozzle', 'esxi', 'fing', 'firetv', 'flaresolverr', 'forgejo',
   'freenas', 'ftth', 'gigabyte', 'glinet', 'glinet-dark', 'google',
   'google-home', 'grafana', 'hisense', 'homarr', 'home-assistant', 'homebridge',
-  'homepage', 'hp', 'huawei', 'idrac', 'ikea', 'ilo',
+  'homepage', 'hp', 'huawei', 'humax', 'idrac', 'ikea', 'ilo',
   'influxdb', 'jellyfin', 'jellyseerr', 'kali', 'kavita', 'keycloak',
   'komodo', 'kubernetes', 'lenovo', 'linuxmint', 'lubelogger', 'mail',
   'mailcow', 'meta', 'microsoft', 'mikrotik', 'mongodb', 'motorola',
@@ -28,7 +28,7 @@ const KNOWN_ICONS = new Set([
   'portainer', 'portainer-dark', 'postgresql', 'poweredge', 'proliant', 'prometheus',
   'prowlarr', 'proxmox', 'pulse', 'qbittorrent', 'rachio', 'radarr',
   'reolink', 'roku', 'roundcube', 'rundeck', 'rustdesk', 'sabnzbd',
-  'samsung', 'sandisk', 'sensibo', 'smtp', 'somfy', 'sonarr',
+  'samsung', 'samsung-electronics', 'sandisk', 'sensibo', 'smtp', 'somfy', 'sonarr',
   'speedtest-tracker', 'squid', 'stalwart', 'synology', 'tailscale', 'tautulli',
   'tracearr', 'traefik', 'transmission', 'truenas', 'truenas-core', 'truenas-scale',
   'ubiquiti', 'ubuntu', 'ui', 'unifi', 'ups', 'uptime-kuma',
@@ -4215,6 +4215,34 @@ function app() {
       if (!h || !h.id) return;
       this.networkIfacesShowDocker[h.id] = !this.networkIfacesShowDocker[h.id];
     },
+    // Per-provider status for a single host. Returns an array of
+    //   { name: <provider>, state: 'ok' | 'failing' }
+    // entries — one per (mapped + globally-enabled) provider:
+    //   - 'ok'      → provider returned data (in h.providers)
+    //   - 'failing' → provider enabled globally AND host has the
+    //                 field set, but probe didn't return data. The
+    //                 chip turns red so the operator sees per-host
+    //                 provider health at a glance instead of digging
+    //                 into the drawer's debug panel.
+    // Hosts with NO mapped provider for a given source skip that
+    // entry entirely (no chip rendered). The order matches the chip
+    // strip's reading order: beszel → pulse → node_exporter → webmin.
+    providerStates(h) {
+      if (!h) return [];
+      const active = this.hostsActiveSources || [];
+      const got = new Set(h.providers || []);
+      const out = [];
+      const add = (name, mapped) => {
+        if (!mapped) return;
+        if (!active.includes(name)) return;
+        out.push({ name, state: got.has(name) ? 'ok' : 'failing' });
+      };
+      add('beszel',        !!(h.beszel_name && String(h.beszel_name).trim()));
+      add('pulse',         !!(h.pulse_name  && String(h.pulse_name).trim()));
+      add('node_exporter', !!(h.ne_url      && String(h.ne_url).trim()));
+      add('webmin',        !!(h.webmin_name && String(h.webmin_name).trim()));
+      return out;
+    },
     // Stale-marker helpers for the UI.
     //
     // Backend stamps two markers on cache-seeded entries:
@@ -5685,6 +5713,10 @@ function app() {
           'hpe':              'hp',
           'hewlett-packard':  'hp',
           'hewlettpackard':   'hp',
+          // Samsung — `samsung` is the consumer wordmark; the corporate
+          // "Samsung Electronics" mark lives at `samsung-electronics`.
+          'samsung_electronics': 'samsung-electronics',
+          'samsungelectronics':  'samsung-electronics',
           // Common typo + product-line synonyms for Somfy (motorised
           // blinds / smart-home hubs). Operators have typed "smofy" /
           // "somphy" repeatedly — alias them all to the canonical
@@ -6129,10 +6161,16 @@ function app() {
         ['meta quest',            'meta'],
         // Huawei phones / tablets
         ['huawei',                'huawei'],
-        // Samsung — TVs / Galaxy line. Wikimedia Commons "Samsung
-        // Electronics logo (english).svg" — modern blue wordmark.
-        // Most-specific Galaxy / model phrases land on samsung too
-        // (no separate Galaxy mark in our icon set yet).
+        // Humax — UK / EU set-top box manufacturer (Freesat, Aura, etc).
+        ['humax',                 'humax'],
+        // Samsung — separate slugs for the parent brand (`samsung`,
+        // clean wordmark) vs. the corporate / B2B entity (`samsung-
+        // electronics`, the older "Samsung Electronics" mark with the
+        // ellipse). Most-specific phrase wins so "samsung electronics"
+        // matches the corporate slug while "samsung galaxy" / "samsung tv"
+        // land on the consumer wordmark. Order matters here.
+        ['samsung electronics',   'samsung-electronics'],
+        ['samsungelectronics',    'samsung-electronics'],
         ['samsung galaxy',        'samsung'],
         ['galaxy s',              'samsung'],
         ['galaxy a',              'samsung'],

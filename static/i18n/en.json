@@ -845,6 +845,7 @@
     },
     "provider_count_one": "1 provider",
     "provider_count_many": "{count} providers",
+    "provider_failing": "{provider} is enabled and mapped for this host but returned no data (probe failed / agent paused / unreachable / auth error). Open the drawer's Debug panel for the provider's raw response.",
     "no_agents_configured": "No agents configured",
     "agents_not_responding": "No data from agents",
     "net_inactive": {

@@ -1226,6 +1226,13 @@
                :title="t('hosts_extra.hide_unconfigured_title')">
           <input type="checkbox" x-model="hostsHideUnconfigured" class="align-middle">
           <span x-text="t('hosts_extra.hide_unconfigured_label')"></span>
+          <!-- Count badge — shows how many no-agent hosts (typically IOT
+               inventory: routers, switches, smart-home devices) are
+               hidden behind the toggle so the operator stays aware of
+               the rows that exist but aren't shown right now. -->
+          <span x-show="hostsHideUnconfigured && (hosts || []).filter(h => !hostHasAgent(h)).length > 0"
+                class="pill text-[10px] py-0 px-1.5 mono"
+                x-text="(hosts || []).filter(h => !hostHasAgent(h)).length"></span>
         </label>
         <label class="flex items-center gap-1.5 text-[11px] text-[var(--text-faint)]">
           <span x-text="t('hosts_extra.sort_label')"></span>
@@ -1327,10 +1334,18 @@
                 <span class="sub" x-text="h.host + ' · ' + (h.os || h.platform || '—')"></span>
               </div>
               <div class="host-mobile-providers">
-                <template x-for="p in (h.providers || [])" :key="p">
+                <!-- Per-host provider chips. Red when provider is
+                     globally enabled AND mapped to this host but
+                     didn't return data (paused / unreachable / 401).
+                     Brand color when healthy. -->
+                <template x-for="p in providerStates(h)" :key="p.name">
                   <span class="chip text-[9.5px] px-1 py-0"
-                        :class="p === 'beszel' ? 'pill-ok' : p === 'pulse' ? 'pill-info' : 'pill-update'"
-                        x-text="p === 'node_exporter' ? 'exporter' : p"></span>
+                        :class="p.state === 'failing' ? 'pill-error'
+                              : p.name === 'beszel' ? 'pill-ok'
+                              : p.name === 'pulse'  ? 'pill-info'
+                              : 'pill-update'"
+                        :title="p.state === 'failing' ? t('hosts_extra.provider_failing', { provider: p.name }) : ''"
+                        x-text="p.name === 'node_exporter' ? 'exporter' : p.name"></span>
                 </template>
               </div>
             </div>
@@ -1498,10 +1513,18 @@
                           x-text="'#' + h.custom_number"></span>
                     <span class="font-semibold text-[13px] mono truncate"
                           x-text="hostTypePrefix(h) + (h.label || h.host)"></span>
-                    <template x-for="p in (h.providers || [])" :key="p">
+                    <!-- Per-host provider chips. Red when provider is
+                         globally enabled AND mapped to this host but
+                         didn't return data (paused / unreachable / 401).
+                         Brand color when healthy. -->
+                    <template x-for="p in providerStates(h)" :key="p.name">
                       <span class="chip text-[9.5px] px-1 py-0"
-                            :class="p === 'beszel' ? 'pill-ok' : p === 'pulse' ? 'pill-info' : 'pill-update'"
-                            x-text="p === 'node_exporter' ? 'exporter' : p"></span>
+                            :class="p.state === 'failing' ? 'pill-error'
+                                  : p.name === 'beszel' ? 'pill-ok'
+                                  : p.name === 'pulse'  ? 'pill-info'
+                                  : 'pill-update'"
+                            :title="p.state === 'failing' ? t('hosts_extra.provider_failing', { provider: p.name }) : ''"
+                            x-text="p.name === 'node_exporter' ? 'exporter' : p.name"></span>
                     </template>
                   </div>
                   <!-- Asset location — its OWN line under the title
@@ -5417,8 +5440,17 @@
                     <template x-if="h.arch">
                       <dd class="mono text-end" x-text="h.arch"></dd>
                     </template>
-                    <dt class="text-[var(--text-dim)]" x-text="t('host_drawer.system.uptime')"></dt>
-                    <dd class="mono text-end" x-text="fmtUptimeShort(h.uptime_s)"></dd>
+                    <!-- Uptime row only renders when a provider actually
+                         reported uptime_s. Inventory-only / no-agent hosts
+                         (status='unconfigured') used to show "Uptime —"
+                         which read as "we know but don't know" rather than
+                         "no source". Hide entirely instead. -->
+                    <template x-if="h.uptime_s != null && h.uptime_s > 0">
+                      <dt class="text-[var(--text-dim)]" x-text="t('host_drawer.system.uptime')"></dt>
+                    </template>
+                    <template x-if="h.uptime_s != null && h.uptime_s > 0">
+                      <dd class="mono text-end" x-text="fmtUptimeShort(h.uptime_s)"></dd>
+                    </template>
                     <template x-if="h.docker_node">
                       <dt class="text-[var(--text-dim)]" x-text="t('host_drawer.system.docker_node')"></dt>
                     </template>
@@ -5602,12 +5634,22 @@
                       <dd class="mono text-end break-all text-[var(--text-faint)]"
                           x-text="assetForHost(h).serial"></dd>
                     </template>
-                    <dt class="text-[var(--text-dim)]" x-text="t('host_drawer.hardware.status')"></dt>
-                    <dd class="text-end">
-                      <span class="pill text-[10.5px]"
-                            :class="h.status === 'up' ? 'pill-ok' : h.status === 'down' ? 'pill-error' : 'pill-unknown'"
-                            x-text="h.status"></span>
-                    </dd>
+                    <!-- Status row hidden for inventory-only / no-agent
+                         hosts. The header status dot already conveys
+                         "unconfigured" — repeating it here as a row that
+                         literally reads "Status: unconfigured" was just
+                         noise. Show only when something meaningful is
+                         being communicated (up / down / paused / unknown). -->
+                    <template x-if="h.status && h.status !== 'unconfigured'">
+                      <dt class="text-[var(--text-dim)]" x-text="t('host_drawer.hardware.status')"></dt>
+                    </template>
+                    <template x-if="h.status && h.status !== 'unconfigured'">
+                      <dd class="text-end">
+                        <span class="pill text-[10.5px]"
+                              :class="h.status === 'up' ? 'pill-ok' : h.status === 'down' ? 'pill-error' : 'pill-unknown'"
+                              x-text="h.status"></span>
+                      </dd>
+                    </template>
                   </dl>
                 </section>
 
