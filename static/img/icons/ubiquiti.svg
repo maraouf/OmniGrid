@@ -1,21 +1,9 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 384 96">
   <title>Ubiquiti</title>
-  <!-- Stylised "U" arc — Ubiquiti's UI mark is a truncated arc
-       suggesting the letter U / a signal dish. Rendered as a thick
-       ring segment opening upward, inside a rounded-square badge
-       so it reads as a brand mark at small icon sizes. Colour is
-       Ubiquiti's signature blue `#0559C9`. -->
-  <rect x="4" y="4" width="120" height="120" rx="20" ry="20" fill="#0559C9"/>
-  <!-- The U shape: a circle with the top chunk removed + white
-       inner fill forming the arc. Stroke-based so the shape scales
-       cleanly. Centered in the 128-unit box. -->
-  <path d="M 32 44
-           A 32 32 0 0 0 96 44
-           L 96 80
-           A 32 32 0 0 1 32 80
-           Z"
-        fill="none" stroke="#FFFFFF" stroke-width="12"
-        stroke-linecap="round" stroke-linejoin="round"/>
-  <!-- Top dot — the U's signature "lid" pip. -->
-  <circle cx="64" cy="32" r="6" fill="#FFFFFF"/>
+  <text x="192" y="68" text-anchor="middle"
+        font-family="Helvetica, Arial, sans-serif"
+        font-weight="700"
+        font-size="52"
+        letter-spacing="0.5"
+        fill="#0559C9">Ubiquiti</text>
 </svg>

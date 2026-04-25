@@ -2772,6 +2772,37 @@ select.field-invalid {
 }
 
 /* ---------------------------------------------------------------------------
+   Asset-inventory autofill chip — appears in the host-row editor header
+   (Admin → Hosts) when the row's custom_number matches a cached asset.
+   Clicking fills empty id / label / url / ip from the asset record.
+   Token-driven; green accent so it reads as a "success-flavoured" action
+   distinct from the neutral provider chips sitting next to it.
+   --------------------------------------------------------------------------- */
+.host-row-autofill-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 3px 9px;
+    font-size: 10.5px;
+    font-weight: 600;
+    line-height: 1.2;
+    border-radius: 999px;
+    border: 1px solid color-mix(in srgb, var(--success) 50%, transparent);
+    background: color-mix(in srgb, var(--success) 14%, transparent);
+    color: var(--success);
+    cursor: pointer;
+    transition: background 120ms ease, border-color 120ms ease, transform 120ms ease;
+    white-space: nowrap;
+}
+.host-row-autofill-chip:hover {
+    background: color-mix(in srgb, var(--success) 22%, transparent);
+    border-color: color-mix(in srgb, var(--success) 70%, transparent);
+}
+.host-row-autofill-chip:active {
+    transform: translateY(1px);
+}
+
+/* ---------------------------------------------------------------------------
    Interactive SSH terminal modal (TODO #170)
    --------------------------------------------------------------------------- */
 .terminal-host {
