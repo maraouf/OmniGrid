@@ -4798,8 +4798,43 @@ async def api_me(request: Request):
             "created_at":   profile.get("created_at"),
             "last_login_at": profile.get("last_login_at"),
             "avatar_url":   f"/api/avatars/{profile['avatar_path']}" if profile.get("avatar_path") else None,
+            # Per-user UI prefs (#313). JSON dict — currently carries
+            # `headerWeatherEnabled` / `headerClockEnabled` so toggling
+            # them on desktop survives the trip to iPhone (or any other
+            # browser) for the same login. Empty `{}` for users who've
+            # never set anything; SPA falls back to its own per-toggle
+            # defaults in that case.
+            "ui_prefs":     profile.get("ui_prefs") or {},
         })
     return out
+
+
+class UiPrefsIn(BaseModel):
+    """Partial-update payload for PATCH /api/me/ui-prefs.
+
+    Free-form dict — keys are SPA-defined (e.g. headerWeatherEnabled).
+    Send `null` for a key to delete it from the stored prefs (so the
+    SPA falls back to its default).
+    """
+    prefs: dict
+
+
+@app.patch("/api/me/ui-prefs")
+async def api_me_ui_prefs(body: UiPrefsIn, request: Request):
+    """Merge `body.prefs` into the calling user's `ui_prefs`.
+
+    Auth required (cookie or token). API-token "users" (negative ids)
+    can't store prefs — return 400. Returns the merged prefs so the
+    SPA can confirm what's persisted.
+    """
+    user = getattr(request.state, "user", None)
+    if not user:
+        raise HTTPException(401, "Authentication required")
+    if user.id < 0:
+        raise HTTPException(400, "API tokens cannot store UI prefs")
+    with db_conn() as c:
+        merged = auth.update_ui_prefs(c, user.id, body.prefs)
+    return {"ui_prefs": merged}
 
 
 class ProfileIn(BaseModel):

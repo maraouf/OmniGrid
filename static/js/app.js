@@ -546,6 +546,13 @@ function app() {
           }
           this.me = m;
           this.syncProfileForm();
+          // #313 — apply per-user UI prefs from the server so the
+          // weather/clock toggles (etc.) sync across devices for the
+          // same login. Runs AFTER `me` lands so applyServerUiPrefs
+          // can read this.me.ui_prefs.
+          if (typeof this.applyServerUiPrefs === 'function') {
+            this.applyServerUiPrefs();
+          }
         }
       } catch (_) { /* network hiccup — next fetch will trip the wrapper */ }
 
@@ -2433,6 +2440,24 @@ function app() {
         localStorage.setItem('headerWeatherLon',     this.headerWeatherLon == null ? '' : String(this.headerWeatherLon));
         localStorage.setItem('headerWeatherLabel',   this.headerWeatherLabel || '');
       } catch (_) {}
+      // #313 — also push to server-side per-user prefs so the same
+      // toggles persist cross-device for the same login. Fire-and-
+      // forget; localStorage stays the fast path on subsequent loads,
+      // but /api/me's ui_prefs is the cross-device source of truth
+      // and overrides localStorage on next page load (see init()).
+      try {
+        fetch('/api/me/ui-prefs', {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ prefs: {
+            headerClockEnabled:   !!this.headerClockEnabled,
+            headerWeatherEnabled: !!this.headerWeatherEnabled,
+            headerWeatherLat:     this.headerWeatherLat == null ? null : Number(this.headerWeatherLat),
+            headerWeatherLon:     this.headerWeatherLon == null ? null : Number(this.headerWeatherLon),
+            headerWeatherLabel:   this.headerWeatherLabel || null,
+          }}),
+        }).catch(() => {/* silent — localStorage still has it */});
+      } catch (_) {}
       // Re-fetch with the new settings immediately rather than waiting
       // for the 10-min tick. Also flushes weather to null when disabled.
       this.loadHeaderWeather();
@@ -2440,6 +2465,36 @@ function app() {
       // change, but operators coming from the per-user Profile section
       // expect a visual "saved" signal.
       if (this.showToast) this.showToast(this.t('toasts_extra.topbar_saved'), 'success');
+    },
+    // #313 — apply server-side ui_prefs onto local state. Called from
+    // init() right after /api/me lands. Server is the cross-device
+    // source of truth; localStorage is the fast-path cache that gets
+    // overwritten when the server has a non-empty pref.
+    applyServerUiPrefs() {
+      const p = (this.me && this.me.ui_prefs) || {};
+      // Only override when the server has an explicit value. An
+      // empty {} means "user never saved anything" → leave the
+      // localStorage default in place.
+      if (typeof p.headerClockEnabled === 'boolean') {
+        this.headerClockEnabled = p.headerClockEnabled;
+        try { localStorage.setItem('headerClockEnabled', String(p.headerClockEnabled)); } catch (_) {}
+      }
+      if (typeof p.headerWeatherEnabled === 'boolean') {
+        this.headerWeatherEnabled = p.headerWeatherEnabled;
+        try { localStorage.setItem('headerWeatherEnabled', String(p.headerWeatherEnabled)); } catch (_) {}
+      }
+      if (p.headerWeatherLat != null) {
+        this.headerWeatherLat = Number(p.headerWeatherLat);
+        try { localStorage.setItem('headerWeatherLat', String(p.headerWeatherLat)); } catch (_) {}
+      }
+      if (p.headerWeatherLon != null) {
+        this.headerWeatherLon = Number(p.headerWeatherLon);
+        try { localStorage.setItem('headerWeatherLon', String(p.headerWeatherLon)); } catch (_) {}
+      }
+      if (typeof p.headerWeatherLabel === 'string') {
+        this.headerWeatherLabel = p.headerWeatherLabel;
+        try { localStorage.setItem('headerWeatherLabel', p.headerWeatherLabel); } catch (_) {}
+      }
     },
     // Inline SVG path(s) per WMO-icon slug. Kept tiny — the topbar chip
     // is 16px so detail is wasted. Backend maps WMO codes to slugs in

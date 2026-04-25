@@ -236,6 +236,13 @@ def init_auth_schema(conn: sqlite3.Connection) -> None:
         "ALTER TABLE users ADD COLUMN display_name TEXT",
         "ALTER TABLE users ADD COLUMN bio TEXT",
         "ALTER TABLE users ADD COLUMN avatar_path TEXT",
+        # Per-user UI preferences (#313). JSON blob for cross-device
+        # sync of toggles like headerWeatherEnabled / headerClockEnabled
+        # that previously lived only in browser localStorage. Server
+        # is the source of truth; localStorage is a fast-path cache.
+        # Default '{}' so existing rows hydrate to "no overrides" and
+        # the SPA falls back to its own per-toggle defaults.
+        "ALTER TABLE users ADD COLUMN ui_prefs TEXT DEFAULT '{}'",
     ):
         try:
             conn.execute(ddl)
@@ -401,13 +408,71 @@ def delete_user(conn: sqlite3.Connection, user_id: int) -> None:
 
 def get_user_profile(conn: sqlite3.Connection, user_id: int) -> Optional[dict]:
     """Full profile row (all columns) as a dict — used by /api/me and the
-    profile page. Returns None for missing users."""
+    profile page. Returns None for missing users.
+
+    `ui_prefs` is parsed from JSON into a dict; defaults to `{}` for
+    rows where it's NULL or invalid (older deployments before the
+    column was added, or DB rows hand-tampered).
+    """
     r = conn.execute("""
         SELECT id, username, email, role, auth_source, disabled,
-               created_at, last_login_at, display_name, bio, avatar_path
+               created_at, last_login_at, display_name, bio, avatar_path,
+               ui_prefs
         FROM users WHERE id=?
     """, (user_id,)).fetchone()
-    return dict(r) if r else None
+    if not r:
+        return None
+    out = dict(r)
+    raw = out.pop("ui_prefs", None)
+    try:
+        import json as _json
+        prefs = _json.loads(raw) if raw else {}
+        if not isinstance(prefs, dict):
+            prefs = {}
+    except (ValueError, TypeError):
+        prefs = {}
+    out["ui_prefs"] = prefs
+    return out
+
+
+def update_ui_prefs(
+    conn: sqlite3.Connection,
+    user_id: int,
+    new_prefs: dict,
+) -> dict:
+    """Merge `new_prefs` into the user's stored ui_prefs, write back, and
+    return the merged result.
+
+    Last-write-wins on key collisions — clients PATCH the partial dict
+    they want to change. To delete a pref, send the value `None` (the
+    merge drops null values so the dict stays compact). Validation is
+    intentionally lenient — these are UI toggles, not security state.
+    """
+    import json as _json
+    if not isinstance(new_prefs, dict):
+        raise ValueError("ui_prefs payload must be a dict")
+    row = conn.execute(
+        "SELECT ui_prefs FROM users WHERE id=?", (user_id,),
+    ).fetchone()
+    if not row:
+        raise LookupError(f"user {user_id} not found")
+    try:
+        cur = _json.loads(row["ui_prefs"]) if row["ui_prefs"] else {}
+        if not isinstance(cur, dict):
+            cur = {}
+    except (ValueError, TypeError):
+        cur = {}
+    merged = dict(cur)
+    for k, v in new_prefs.items():
+        if v is None:
+            merged.pop(k, None)
+        else:
+            merged[k] = v
+    conn.execute(
+        "UPDATE users SET ui_prefs=? WHERE id=?",
+        (_json.dumps(merged), user_id),
+    )
+    return merged
 
 
 def update_user_profile(

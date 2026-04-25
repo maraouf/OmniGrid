@@ -835,8 +835,12 @@
         <div class="bg-[var(--surface)] border border-[var(--border)] rounded-md overflow-hidden">
           <!-- Node header — left side toggles, right side has actions
                (Prune etc). Kept as a flex row (not one big <button>) so
-               the Prune click doesn't also collapse/expand the card. -->
-          <div class="flex items-center gap-3 px-4 py-3 hover:bg-[var(--surface-2)]/50 transition">
+               the Prune click doesn't also collapse/expand the card.
+               Wraps on mobile (was a no-wrap row that overlapped pills
+               into the title text below ~600px — operator's iPhone 17
+               screenshot showed "33 OK svc 37 SOURCES" stacking on
+               itself). -->
+          <div class="flex items-center gap-3 px-4 py-3 hover:bg-[var(--surface-2)]/50 transition flex-wrap">
             <!-- Toggle area (clickable) -->
             <div @click="toggleNode(node.name)"
                  class="flex items-center gap-3 flex-1 min-w-0 cursor-pointer">
@@ -852,14 +856,24 @@
                 <line x1="6" y1="18" x2="6.01" y2="18"/>
               </svg>
               <span class="font-semibold text-[13px] mono truncate" x-text="node.name"></span>
-              <span class="text-[11px] text-[var(--text-faint)] whitespace-nowrap">
+              <!-- "X svc · Y ctn · Z stacks" — no longer whitespace-nowrap
+                   so it can wrap inside the toggle area when the right
+                   cluster also wraps. Was forcing the parent flex to
+                   keep this on one line, pushing the right pills off-
+                   screen on mobile. -->
+              <span class="text-[11px] text-[var(--text-faint)]">
                 <span x-text="node.services"></span> svc ·
                 <span x-text="node.containers"></span> ctn ·
                 <span x-text="node.stacks"></span> stacks
               </span>
             </div>
-            <!-- Right-side pills + action buttons. Doesn't toggle. -->
-            <div class="flex items-center gap-2 flex-shrink-0">
+            <!-- Right-side pills + action buttons. Doesn't toggle.
+                 `flex-wrap` so the pills + Prune wrap onto a second
+                 line on phone widths instead of overlapping the title.
+                 `ms-auto` keeps the cluster right-anchored on desktop;
+                 on mobile after wrap, the cluster sits left-aligned
+                 below the title which reads cleanly. -->
+            <div class="flex items-center gap-2 flex-wrap ms-auto">
               <span x-show="node.updates > 0"
                     class="pill pill-update text-[10.5px]">
                 <span x-text="node.updates"></span> updates
@@ -1256,11 +1270,15 @@
       <!-- Search + sort row — filters the table by host id / label / OS /
            platform / kernel / provider names. Sort dropdown picks the
            ordering axis; default is status (alive first). Empty search
-           = show all. -->
-      <div x-show="hostsConfigured && hosts.length > 0" class="flex items-center gap-2">
+           = show all. `flex-wrap` so the search input + sort + toggle
+           wrap onto separate rows on phone widths instead of clipping
+           the "Hide hosts without agents" label and pushing the sort
+           dropdown off-screen. `min-w-[180px]` on the search keeps it
+           usable when the row wraps. -->
+      <div x-show="hostsConfigured && hosts.length > 0" class="flex items-center gap-2 flex-wrap">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-[var(--text-faint)]"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
         <input type="search" x-model="hostsSearch"
-               class="flex-1 text-[12.5px] py-1.5"
+               class="flex-1 min-w-[180px] text-[12.5px] py-1.5"
                placeholder="Filter hosts by name, platform, OS, provider…">
         <span class="text-[10.5px] text-[var(--text-faint)]"
               x-show="hostsSearch"

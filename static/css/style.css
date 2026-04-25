@@ -1669,6 +1669,23 @@ details summary::-webkit-details-marker {
     align-items: center;
     gap: var(--s-4);
     min-height: var(--touch-target-min);
+    /* Wrap when the chip strip + title can't both fit. Without this
+       the 4-chip provider strip (beszel + pulse + exporter + webmin)
+       takes ~250px and squeezes the title to "f..." / "rout..." /
+       "o." on iPhone widths. With wrap, the chips drop to a second
+       line below the title. */
+    flex-wrap: wrap;
+}
+
+/* Provider-chip strip inside the host card. Sits at the right of the
+   title row when there's room, drops to its own line when not. The
+   `host-mobile-card-head` wrap above triggers when this strip can't
+   share the row with the title. */
+.host-mobile-providers {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--s-1);
+    flex-shrink: 0;
 }
 
 .host-mobile-card-icon {
