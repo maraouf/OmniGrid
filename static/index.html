@@ -4273,6 +4273,20 @@
                      :style="isHostConfigExpanded(row) ? 'transform: rotate(90deg)' : ''">
                   <polyline points="9 18 15 12 9 6"/>
                 </svg>
+                <!-- Brand icon — only on the collapsed-row header so
+                     operators can scan the list visually before
+                     opening anything. Hidden when the row is expanded
+                     so the icon picker (in the field grid below) is
+                     the canonical place to edit it. `@error` hides the
+                     img tag entirely if the resolved file is missing,
+                     keeping the row clean instead of showing a broken
+                     placeholder. -->
+                <img x-show="!isHostConfigExpanded(row) && hostIconUrl(row)"
+                     :src="hostIconUrl(row)"
+                     alt=""
+                     class="host-row-header-icon"
+                     loading="lazy"
+                     @error="$event.target.style.display='none'">
                 <span x-show="row.custom_number != null && row.custom_number !== ''"
                       class="chip text-[10px] px-1.5 py-0 mono pill-muted"
                       x-text="'#' + row.custom_number"></span>
