@@ -131,35 +131,42 @@
           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
           <span x-text="t('topbar_extra.new_version')"></span>
         </button>
-        <!-- Topbar clock + weather — per-browser prefs from localStorage
-             (configured under Profile). Clock ticks every 10s; weather
-             via /api/weather proxy (Open-Meteo, 10-min server cache).
-             Widget is single row: clock mono font · cloud icon · label,
-             temp · condition subtext. Absent / disabled = nothing renders.
-             Pinned to row 1 per operator preference — always-visible
-             status, not a tweak-it-once-a-session preference. -->
-        <div x-show="headerClockEnabled || (headerWeatherEnabled && weather && !weather.error && weather.temp_c != null)"
-             class="flex items-center gap-2 ps-2 ms-1 border-s border-[var(--border)] text-[11.5px] text-[var(--text-dim)]">
-          <span x-show="headerClockEnabled" class="mono font-semibold tracking-wide"
-                x-text="currentClock"></span>
-          <template x-if="headerWeatherEnabled && weather && !weather.error && weather.temp_c != null">
-            <div class="flex items-center gap-1.5">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" x-html="weatherIconPath(weather.icon)"></svg>
-              <div class="flex flex-col leading-tight">
-                <span>
-                  <span x-show="weather.label" x-text="weather.label + ', '"></span>
-                  <span x-text="(Math.round((weather.temp_c || 0) * 10) / 10) + '°C'"></span>
-                </span>
-                <span class="text-[10.5px] text-[var(--text-faint)]" x-text="weather.condition"></span>
-              </div>
+      </div>
+
+      <!-- Topbar clock + weather — per-browser prefs from localStorage
+           (configured under Profile). Clock ticks every 10s; weather
+           via /api/weather proxy (Open-Meteo, 10-min server cache).
+           Widget is single row: clock mono font · cloud icon · label,
+           temp · condition subtext. Absent / disabled = nothing renders.
+           Positioned immediately to the LEFT of the user-avatar menu
+           (operator preference — always-visible status anchors to the
+           right edge, not buried in the mid-header action cluster).
+           `ms-auto` on the user-menu below pushes both to the right
+           edge; this widget drags along next to it. -->
+      <div x-show="headerClockEnabled || (headerWeatherEnabled && weather && !weather.error && weather.temp_c != null)"
+           class="flex items-center gap-2 ms-auto ps-3 border-s border-[var(--border)] text-[11.5px] text-[var(--text-dim)]">
+        <span x-show="headerClockEnabled" class="mono font-semibold tracking-wide"
+              x-text="currentClock"></span>
+        <template x-if="headerWeatherEnabled && weather && !weather.error && weather.temp_c != null">
+          <div class="flex items-center gap-1.5">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" x-html="weatherIconPath(weather.icon)"></svg>
+            <div class="flex flex-col leading-tight">
+              <span>
+                <span x-show="weather.label" x-text="weather.label + ', '"></span>
+                <span x-text="(Math.round((weather.temp_c || 0) * 10) / 10) + '°C'"></span>
+              </span>
+              <span class="text-[10.5px] text-[var(--text-faint)]" x-text="weather.condition"></span>
             </div>
-          </template>
-        </div>
+          </div>
+        </template>
       </div>
 
       <!-- User menu — avatar button in the top-right opens a dropdown with
            "Signed in as …" header + profile / settings / admin / help /
-           sign out. Click-outside and Esc both close it. -->
+           sign out. Click-outside and Esc both close it. `ms-auto` keeps
+           it pinned to the right edge even when the clock+weather widget
+           above is hidden (x-show="false" => display:none so ITS ms-auto
+           wouldn't anchor anything). -->
       <div x-show="me" x-data="{ }" class="relative ms-auto ps-4 border-s border-[var(--border)]">
         <button @click="userMenuOpen = !userMenuOpen"
                 class="flex items-center gap-1 p-1 rounded-full hover:bg-[var(--surface-2)] transition"
