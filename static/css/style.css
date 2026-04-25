@@ -354,6 +354,18 @@ body {
     font-family: var(--font-sans);
     font-feature-settings: 'cv02', 'cv03', 'cv04', 'cv11';
     -webkit-font-smoothing: antialiased;
+    /* Phone-viewport overflow guard. Some long content (table rows,
+       wide drawers, error toasts with long URLs) historically pushed
+       the body wider than the viewport, causing horizontal scroll on
+       iPhone. Belt-and-braces: the actual fix is per-component
+       (flex-wrap / overflow-hidden / min-w-0), but capping the html
+       width at viewport-width prevents any single component bug from
+       breaking the whole-page layout. Inner scrollers (`.scrollbar`
+       wrappers, table containers) still get their own horizontal
+       scroll where they need it — this only catches "the page itself
+       is wider than the screen" bugs. */
+    overflow-x: hidden;
+    max-width: 100vw;
 }
 
 .mono {
