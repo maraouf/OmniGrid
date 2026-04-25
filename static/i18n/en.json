@@ -872,6 +872,7 @@
       "firmware": "Firmware",
       "hardware_version": "Hardware version",
       "status": "Status",
+      "serial_missing": "missing",
       "interfaces_heading": "Interfaces",
       "ports_heading": "Services / ports",
       "comment": "Notes"

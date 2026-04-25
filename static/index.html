@@ -932,7 +932,7 @@
                       <div class="text-[10.5px] text-[var(--text-faint)] mono truncate" x-text="item.image"></div>
                     </div>
                     <span class="pill" :class="'pill-' + (item.health || 'unknown')" x-text="item.health || '—'"></span>
-                    <span class="pill" :class="'pill-' + (item.status || 'unknown')" x-text="item.status || '—'"></span>
+                    <span class="pill" :class="'pill-' + statusKey(item.status)" x-text="item.status || '—'"></span>
                     <span class="text-[10.5px] text-[var(--text-faint)] mono hidden md:inline"
                           x-text="item.type"></span>
                   </div>
@@ -1153,47 +1153,33 @@
                       x-text="bucketTotalHosts(bucket) === 1 ? t('hosts_extra_groups.count_one', {count: bucketTotalHosts(bucket)}) : t('hosts_extra_groups.count_many', {count: bucketTotalHosts(bucket)})"></span>
               </div>
             </div>
-            <!-- Sub-group headings with their hosts (2-level, #134). -->
-            <template x-for="(sub, si) in (bucket.children || [])" :key="'sub-m:' + (bucket.group ? bucket.group.name : '_') + '>' + sub.group.name + ':' + si">
-              <div x-show="!isGroupCollapsed(bucket.group ? bucket.group.name : '')">
-                <div @click="toggleGroup(sub.group.name)"
+            <!-- One render loop covers BOTH parent-direct and
+                 sub-group hosts (2-level nesting). bucketRenderList()
+                 flattens with `_sub_group` + `_sub_heading` markers
+                 so the SAME host-mobile-card markup serves both —
+                 no template duplication. -->
+            <template x-for="h in bucketRenderList(bucket)" :key="(h._sub_group ? h._sub_group.name + '|' : '') + h.host">
+              <div>
+                <!-- Sub-group heading row (first host of each sub). -->
+                <div x-show="h._sub_heading && !isGroupCollapsed(bucket.group ? bucket.group.name : '')"
+                     @click="toggleGroup(h._sub_group ? h._sub_group.name : '')"
                      class="host-group-heading flex items-center gap-2 mt-2 mb-1 ms-4 px-2 py-1.5 rounded cursor-pointer select-none bg-[var(--surface)] border border-[var(--border)]">
                   <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
                        class="text-[var(--text-dim)] transition-transform flip-rtl"
-                       :style="isGroupCollapsed(sub.group.name) ? '' : 'transform: rotate(90deg)'">
+                       :style="(h._sub_group && isGroupCollapsed(h._sub_group.name)) ? '' : 'transform: rotate(90deg)'">
                     <polyline points="9 18 15 12 9 6"/>
                   </svg>
-                  <span class="font-semibold text-[11.5px]" x-text="sub.group.name"></span>
-                  <div class="flex items-center gap-2 ms-auto">
+                  <span class="font-semibold text-[11.5px]" x-text="h._sub_group ? h._sub_group.name : ''"></span>
+                  <div class="flex items-center gap-2 ms-auto" x-show="h._sub_group">
                     <span class="pill pill-info text-[10px] mono"
-                          x-text="'#' + sub.group.range_start + '–' + sub.group.range_end"></span>
-                    <span x-show="sub.group.ip_range" class="pill pill-info text-[10px] mono"
-                          x-text="sub.group.ip_range"></span>
-                    <span class="text-[10.5px] text-[var(--text-faint)]"
-                          x-text="sub.hosts.length === 1 ? t('hosts_extra_groups.count_one', {count: sub.hosts.length}) : t('hosts_extra_groups.count_many', {count: sub.hosts.length})"></span>
+                          x-text="h._sub_group ? ('#' + h._sub_group.range_start + '–' + h._sub_group.range_end) : ''"></span>
+                    <span x-show="h._sub_group && h._sub_group.ip_range" class="pill pill-info text-[10px] mono"
+                          x-text="h._sub_group ? h._sub_group.ip_range : ''"></span>
                   </div>
                 </div>
-                <template x-for="h in sub.hosts" :key="'sub-m:' + h.host">
-                  <div class="host-mobile-card ms-4"
-                       x-show="!isGroupCollapsed(sub.group.name)"
-                       :data-expandable="isHostExpandable(h) ? 'true' : 'false'"
-                       @click="toggleHost(h.host)">
-                    <div class="host-mobile-card-head">
-                      <template x-if="h._loading"><span class="host-loading-spinner" aria-hidden="true"></span></template>
-                      <template x-if="!h._loading"><span class="host-mobile-card-status" :style="'background:' + statusDotColor(h.status)"></span></template>
-                      <img class="host-mobile-card-icon" :src="hostIconUrl(h)" x-show="hostIconUrl(h)" alt="" loading="lazy" @error="$event.target.style.display='none'">
-                      <div class="host-mobile-card-title">
-                        <span class="label" x-text="h.label || h.host"></span>
-                        <span class="sub" x-text="h.host + ' · ' + (h.os || h.platform || '—')"></span>
-                      </div>
-                    </div>
-                  </div>
-                </template>
-              </div>
-            </template>
-            <template x-for="h in bucket.hosts" :key="h.host">
           <div class="host-mobile-card"
-               x-show="!isGroupCollapsed(bucket.group ? bucket.group.name : '')"
+               :class="h._sub_group ? 'ms-4' : ''"
+               x-show="!isGroupCollapsed(bucket.group ? bucket.group.name : '') && (!h._sub_group || !isGroupCollapsed(h._sub_group.name))"
                :data-expandable="isHostExpandable(h) ? 'true' : 'false'"
                @click="toggleHost(h.host)">
             <div class="host-mobile-card-head">
@@ -1258,6 +1244,7 @@
               </div>
             </div>
           </div>
+              </div><!-- /per-row wrapper from bucketRenderList template -->
             </template>
           </div>
         </template>
@@ -1305,63 +1292,37 @@
                       x-text="bucketTotalHosts(bucket) === 1 ? t('hosts_extra_groups.count_one', {count: bucketTotalHosts(bucket)}) : t('hosts_extra_groups.count_many', {count: bucketTotalHosts(bucket)})"></span>
               </div>
             </div>
-            <!-- Sub-group headings + their hosts (2-level nesting, #134).
-                 Each sub-group has its own collapse state. A host that
-                 lands under a sub-group renders ONLY here — not in
-                 bucket.hosts (see groupedHosts() for the
-                 most-specific-match rule). -->
-            <template x-for="(sub, si) in (bucket.children || [])" :key="'sub-d:' + (bucket.group ? bucket.group.name : '_') + '>' + sub.group.name + ':' + si">
-              <div x-show="!isGroupCollapsed(bucket.group ? bucket.group.name : '')">
-                <div @click="toggleGroup(sub.group.name)"
+            <!-- One render loop covers BOTH parent-direct hosts and
+                 sub-group hosts. `bucketRenderList(bucket)` flattens
+                 them in order and tags each row with `_sub_group` +
+                 `_sub_heading`; we emit a sub-group heading once
+                 before its first row, then render every host using
+                 the SAME markup. No template duplication — adding a
+                 feature in one place picks it up everywhere. -->
+            <template x-for="h in bucketRenderList(bucket)" :key="(h._sub_group ? h._sub_group.name + '|' : '') + h.host">
+              <div>
+                <!-- Sub-group heading row (first host of each sub). -->
+                <div x-show="h._sub_heading && !isGroupCollapsed(bucket.group ? bucket.group.name : '')"
+                     @click="toggleGroup(h._sub_group ? h._sub_group.name : '')"
                      class="host-group-heading flex items-center gap-2 px-4 py-2 ps-10 border-b border-[var(--border)] bg-[var(--surface)] cursor-pointer select-none">
                   <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
                        class="text-[var(--text-dim)] transition-transform flip-rtl"
-                       :style="isGroupCollapsed(sub.group.name) ? '' : 'transform: rotate(90deg)'">
+                       :style="(h._sub_group && isGroupCollapsed(h._sub_group.name)) ? '' : 'transform: rotate(90deg)'">
                     <polyline points="9 18 15 12 9 6"/>
                   </svg>
-                  <span class="font-semibold text-[12px]" x-text="sub.group.name"></span>
-                  <div class="flex items-center gap-2 ms-auto">
+                  <span class="font-semibold text-[12px]" x-text="h._sub_group ? h._sub_group.name : ''"></span>
+                  <div class="flex items-center gap-2 ms-auto" x-show="h._sub_group">
                     <span class="pill pill-info text-[10px] mono"
-                          x-text="'#' + sub.group.range_start + '–' + sub.group.range_end"></span>
-                    <span x-show="sub.group.ip_range" class="pill pill-info text-[10px] mono"
-                          x-text="sub.group.ip_range"></span>
-                    <span class="text-[10.5px] text-[var(--text-faint)]"
-                          x-text="sub.hosts.length === 1 ? t('hosts_extra_groups.count_one', {count: sub.hosts.length}) : t('hosts_extra_groups.count_many', {count: sub.hosts.length})"></span>
+                          x-text="h._sub_group ? ('#' + h._sub_group.range_start + '–' + h._sub_group.range_end) : ''"></span>
+                    <span x-show="h._sub_group && h._sub_group.ip_range" class="pill pill-info text-[10px] mono"
+                          x-text="h._sub_group ? h._sub_group.ip_range : ''"></span>
                   </div>
                 </div>
-                <template x-for="h in sub.hosts" :key="'sub-d:' + h.host">
-                  <div class="border-b border-[var(--border)] last:border-b-0"
-                       x-show="!isGroupCollapsed(sub.group.name)">
-                    <div class="grid grid-cols-[26px_minmax(320px,1.8fr)_140px_140px_140px_minmax(160px,1fr)_80px_60px_72px_84px_40px] gap-3 px-4 py-3 items-center ps-10"
-                         :class="isHostExpandable(h) ? 'cursor-pointer hover:bg-[var(--row-hover)]' : 'cursor-default opacity-75'"
-                         @click="toggleHost(h.host)">
-                      <template x-if="h._loading"><div class="host-loading-spinner" aria-hidden="true"></div></template>
-                      <template x-if="!h._loading"><div class="w-[10px] h-[10px] rounded-full" :style="'background:' + statusDotColor(h.status)"></div></template>
-                      <div class="flex items-center gap-2 min-w-0">
-                        <img class="w-4 h-4 flex-shrink-0" :src="hostIconUrl(h)" x-show="hostIconUrl(h)" alt="" loading="lazy" @error="$event.target.style.display='none'">
-                        <div class="min-w-0">
-                          <div class="text-[12.5px] truncate" x-text="h.label || h.host"></div>
-                          <div class="text-[10.5px] text-[var(--text-faint)] truncate mono" x-text="h.host"></div>
-                        </div>
-                      </div>
-                      <div class="text-[11.5px] text-[var(--text-dim)] truncate" x-text="h.platform || h.os || '—'"></div>
-                      <div class="text-[11.5px] mono text-[var(--text-dim)]" x-text="h.status==='up' ? (h.cpu_percent || 0).toFixed(1) + '%' : '—'"></div>
-                      <div class="text-[11.5px] mono text-[var(--text-dim)]" x-text="h.status==='up' ? ((h.mem_percent || memPercentOf(h)) + '%') : '—'"></div>
-                      <div class="text-[11.5px] mono text-[var(--text-dim)]" x-text="h.status==='up' ? ((h.disk_percent || diskPercentOf(h)) + '%') : '—'"></div>
-                      <div class="text-[11.5px] mono text-[var(--text-dim)] text-center" x-text="h.uptime_label || '—'"></div>
-                      <div class="text-[11.5px] mono text-[var(--text-dim)] text-center" x-text="h.cores || '—'"></div>
-                      <div class="text-[11.5px] mono text-[var(--text-dim)] text-center truncate" x-text="h.arch || '—'"></div>
-                      <div class="text-[11.5px] mono text-[var(--text-dim)] text-center truncate" x-text="h.kernel || '—'"></div>
-                      <div></div>
-                    </div>
-                  </div>
-                </template>
-              </div>
-            </template>
-
-            <template x-for="h in bucket.hosts" :key="h.host">
-          <div class="border-b border-[var(--border)] last:border-b-0"
-               x-show="!isGroupCollapsed(bucket.group ? bucket.group.name : '') && (!bucket.is_subgroup || !isGroupCollapsed(bucket.parent_name || ''))">
+                <!-- Host row — used for BOTH parent-direct and
+                     sub-group hosts. Indent applied when the row
+                     belongs to a sub-group. -->
+                <div class="border-b border-[var(--border)] last:border-b-0"
+                     x-show="!isGroupCollapsed(bucket.group ? bucket.group.name : '') && (!h._sub_group || !isGroupCollapsed(h._sub_group.name))">
             <!-- Collapsed row — click-to-expand only when the host
                  is "up" AND at least one provider returned data.
                  Dead / unmatched rows get a muted cursor and no
@@ -1675,12 +1636,6 @@
                       </template>
                       <template x-if="assetForHost(h).hardware_version">
                         <dd class="mono text-end" x-text="assetForHost(h).hardware_version"></dd>
-                      </template>
-                      <template x-if="assetForHost(h).status_name">
-                        <dt class="text-[var(--text-dim)]" x-text="t('host_drawer.asset.status')"></dt>
-                      </template>
-                      <template x-if="assetForHost(h).status_name">
-                        <dd class="text-end" x-text="assetForHost(h).status_name"></dd>
                       </template>
                     </dl>
 
@@ -2690,6 +2645,7 @@
 
             </div>
           </div>
+              </div><!-- /per-row wrapper from bucketRenderList template -->
             </template>
           </div>
         </template>

@@ -4986,6 +4986,37 @@ function app() {
         .reduce((acc, c) => acc + ((c && c.hosts && c.hosts.length) || 0), 0);
       return own + sub;
     },
+    // Flat render-list for the Hosts view's host-row template.
+    // Parent-direct hosts first, then each sub-group's hosts. The
+    // host object is SPREAD into the entry (so `h.label`, `h.host`,
+    // `h.providers` etc. all pass through unchanged) and two extra
+    // markers are attached:
+    //   _sub_group   — the sub-group this row belongs to (null for
+    //                  parent-direct rows).
+    //   _sub_heading — true on the FIRST row of a sub-group; the
+    //                  template emits the heading once before that
+    //                  row, then false on subsequent rows.
+    // Result: the SAME full host row markup (custom_number chip,
+    // provider chips, asset location subline, drawer-expandable
+    // content) renders for both parent and sub-group hosts. No
+    // duplicated template — adding a feature in one place picks it
+    // up everywhere.
+    bucketRenderList(bucket) {
+      const out = [];
+      for (const h of (bucket.hosts || [])) {
+        out.push(Object.assign({}, h, { _sub_group: null, _sub_heading: false }));
+      }
+      for (const sub of (bucket.children || [])) {
+        const subHosts = sub.hosts || [];
+        for (let i = 0; i < subHosts.length; i++) {
+          out.push(Object.assign({}, subHosts[i], {
+            _sub_group:   sub.group,
+            _sub_heading: i === 0,
+          }));
+        }
+      }
+      return out;
+    },
 
     // Visual order for the groups editor — each top-level group
     // immediately followed by its sub-groups. Operator's `order`
@@ -5573,7 +5604,15 @@ function app() {
           vendor:    pick(a.Brand, a.brand, a.vendor, a.manufacturer),
           brand_link: brandObj ? String(brandObj.Link || brandObj.link || '').trim() : '',
           model:     pick(a.Model, a.model, a.product, a.product_name),
-          serial:    pick(a.SerialNumber, a.serial, a.serial_number),
+          // Serial — placeholder values like "NONE224" / "NONE100" /
+          // "NONEXXX" mean "no real serial recorded upstream". Map
+          // them to the localised "missing" string so the drawer
+          // surfaces the absence honestly instead of showing a
+          // misleading-looking value.
+          serial:    (() => {
+            const s = pick(a.SerialNumber, a.serial, a.serial_number);
+            return /^NONE/i.test(s) ? this.t('host_drawer.asset.serial_missing') : s;
+          })(),
           location:  pick(a.Location, a.location, a.site, a.room),
           location_details: locObj ? String(locObj.Details || locObj.details || '').trim() : '',
           type:      pick(a.Type, a.type),
