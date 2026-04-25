@@ -224,9 +224,20 @@ def _next_weekly_run(
         # doesn't silently never fire.
         return _next_fixed_time_run(hh, mm, last_run_at, now)
     dow_set = {int(d) for d in days_of_week if 0 <= int(d) <= 6}
-    today = time.localtime(now)
     import datetime
-    base_date = datetime.date(today.tm_year, today.tm_mon, today.tm_mday)
+    # `base_date` MUST come from the same timezone the anchor calc
+    # uses (`_day_anchor_ts` honours `_scheduler_tz()`). Without
+    # alignment, container-local time near midnight in operator-TZ
+    # can produce the wrong day-of-week and either fire a day early
+    # / late or skip the firing day entirely. See BUG-002 in
+    # notes/code_review_2026-04-25.md.
+    tz = _scheduler_tz()
+    if tz is not None:
+        nowdt = datetime.datetime.fromtimestamp(now, tz=tz)
+        base_date = nowdt.date()
+    else:
+        today = time.localtime(now)
+        base_date = datetime.date(today.tm_year, today.tm_mon, today.tm_mday)
     # Same grace window as `_next_fixed_time_run` — the tick that lands
     # 30s after a weekly anchor needs to still recognise today as the
     # firing day, otherwise it skips to next week.
@@ -259,8 +270,17 @@ def _next_monthly_run(
     now = now if now is not None else time.time()
     last = int(last_run_at or 0)
     dom = max(1, min(int(day_of_month), 31))
-    t = time.localtime(now)
-    y, m = t.tm_year, t.tm_mon
+    # `y, m` MUST come from the same timezone the anchor calc uses —
+    # at month boundaries, container-local UTC can disagree with
+    # operator-TZ and pick the wrong calendar month. See BUG-002.
+    tz = _scheduler_tz()
+    if tz is not None:
+        import datetime
+        nowdt = datetime.datetime.fromtimestamp(now, tz=tz)
+        y, m = nowdt.year, nowdt.month
+    else:
+        t = time.localtime(now)
+        y, m = t.tm_year, t.tm_mon
     # Same grace window as the daily/weekly helpers — accept the tick
     # that lands shortly AFTER the anchor as still firing this month
     # rather than punting to next month.

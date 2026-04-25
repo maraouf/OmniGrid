@@ -237,9 +237,14 @@ def _compute_resolve_signature(
     ``resolve_ssh_params``. Any change ⇒ different signature ⇒
     the resolve trace re-emits on the next call.
     """
-    import hashlib
+    import hashlib, json
     m = hashlib.md5()
-    m.update(repr(record).encode("utf-8", "ignore"))
+    # `json.dumps(..., sort_keys=True, default=str)` produces a
+    # stable serialisation regardless of dict key insertion order
+    # (`repr(dict)` was sensitive to that — a hosts_config copy
+    # with re-inserted keys would blow the cache and re-emit the
+    # full verbose trace). BUG-007 in the code review.
+    m.update(json.dumps(record, sort_keys=True, default=str).encode("utf-8", "ignore"))
     # Only the fields that actually influence resolution — drops
     # known_hosts + fingerprint etc. which don't change auth path.
     relevant = (
@@ -249,7 +254,7 @@ def _compute_resolve_signature(
         bool(g_settings.get("password")),
         g_settings.get("fqdn_suffix"),
     )
-    m.update(repr(relevant).encode("utf-8", "ignore"))
+    m.update(json.dumps(relevant, default=str).encode("utf-8", "ignore"))
     m.update(host_groups_raw.encode("utf-8", "ignore"))
     return m.hexdigest()
 
@@ -939,10 +944,16 @@ def ssh_status(host_id: str, hosts_config: list[dict]) -> dict:
             f"disabled={resolved.get('disabled')} "
             f"error={resolved.get('error')!r}"
         )
+    # Strip every underscore-prefixed key from the resolved dict
+    # before handing it to the API — those are internal-only
+    # bookkeeping fields (BUG-004 in the code review). Today
+    # `_per_host_password` is the only one, but the strip is generic
+    # so future internal flags don't leak by default.
+    public_resolved = {k: v for k, v in resolved.items() if not str(k).startswith("_")}
     return {
         "enabled":      not resolved.get("disabled"),
         "configured":   configured,
-        "resolved":     resolved,
+        "resolved":     public_resolved,
     }
 
 

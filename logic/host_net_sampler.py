@@ -223,6 +223,15 @@ async def host_net_sampler_loop() -> None:
     Cadence matches the stats sampler so a ``hostHistory[]`` chart backed
     by NE fallback samples the same way the Beszel-native path does.
     """
+    # Clear the in-process counter cache before the first tick. The
+    # module-level dict survives a lifespan cancel/restart cycle (e.g.
+    # tests, future hot-reload), and a stale "previous counter" carried
+    # across the gap could yield an inflated rate on the first new
+    # sample. The sanity-bounds checks would catch most of these (Δs >
+    # 900 → skip), but a restart that lands inside the window would
+    # still write a wrong rate. Clearing here makes the first tick after
+    # any restart establish a fresh baseline. BUG-005 in the code review.
+    _last_counters.clear()
     # Wait a beat so the DB tables are created + hosts_config is loaded
     # before the first probe. Same pattern as stats_sampler_loop.
     await asyncio.sleep(min(60, STATS_SAMPLE_INTERVAL))

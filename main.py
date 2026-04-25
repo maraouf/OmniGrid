@@ -276,7 +276,15 @@ metrics.register_cache_age_collector(lambda: _cache)
 # ============================================================================
 def init_db():
     with db_conn() as c:
+        # Wrap the whole schema-create script in an explicit transaction
+        # so a power loss / hard kill mid-init can't leave a half-applied
+        # schema. Every statement in here is idempotent (CREATE IF NOT
+        # EXISTS / ALTER ... except OperationalError) so the worst case
+        # was always recoverable, but rolling-back an interrupted boot
+        # is cleaner than racing with `IF NOT EXISTS` on the next start.
+        # BUG-011 in the code review.
         c.executescript("""
+        BEGIN;
         CREATE TABLE IF NOT EXISTS history (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             ts REAL NOT NULL, op_type TEXT NOT NULL,
@@ -341,6 +349,7 @@ def init_db():
             ts REAL NOT NULL,
             data TEXT NOT NULL
         );
+        COMMIT;
         """)
         # Idempotent column additions for existing deployments. SQLite pre-3.35
         # has no "ADD COLUMN IF NOT EXISTS", so we catch the OperationalError
@@ -1472,6 +1481,18 @@ async def api_set_settings(
                         clean_ssh["port"] = pi
                 except (TypeError, ValueError):
                     pass
+            # Stable group id — UUID minted on first save, persists
+            # across renames. Used as the key for password keep-current
+            # lookup so a rename + new-group-with-old-name pair can't
+            # leak the old password into a freshly-created row (BUG-003
+            # in notes/code_review_2026-04-25.md). New groups arrive
+            # without an id and get one minted here; existing groups
+            # round-trip whatever the API previously emitted.
+            row_id = str(g.get("id") or "").strip()
+            if not row_id:
+                import uuid
+                row_id = uuid.uuid4().hex
+
             # Password resolution:
             #   1. New non-empty password → store it (clear flag is
             #      ignored — operator typed a new value, that wins).
@@ -1480,7 +1501,9 @@ async def api_set_settings(
             #   3. Empty + no clear flag → carry forward the prior
             #      persisted value (keep-current-if-blank — same
             #      contract as every other secret in the settings
-            #      table).
+            #      table). Lookup is by stable `id`, not by `name`,
+            #      so renames preserve the password but a new group
+            #      that happens to reuse an old name does NOT inherit.
             new_pw = str((ssh_in or {}).get("password") or "").strip()
             clear = bool((ssh_in or {}).get("clear_password"))
             if new_pw:
@@ -1493,12 +1516,34 @@ async def api_set_settings(
                     prior_groups = []
                 if isinstance(prior_groups, list):
                     for pg in prior_groups:
-                        if isinstance(pg, dict) and pg.get("name") == name:
+                        if not isinstance(pg, dict):
+                            continue
+                        prior_id = str(pg.get("id") or "").strip()
+                        # First-pass match: by stable id.
+                        if prior_id and prior_id == row_id:
                             prior_pw = (pg.get("ssh") or {}).get("password") or ""
                             if prior_pw:
                                 clean_ssh["password"] = prior_pw
                             break
+                    else:
+                        # No id-match. Only fall back to name-match
+                        # for legacy rows that lack an id at all
+                        # (first save after the upgrade). Any prior
+                        # row that already has an id is treated as
+                        # a different group, even if names collide.
+                        for pg in prior_groups:
+                            if not isinstance(pg, dict):
+                                continue
+                            prior_id = str(pg.get("id") or "").strip()
+                            if prior_id:
+                                continue  # has an id; can't be us
+                            if pg.get("name") == name:
+                                prior_pw = (pg.get("ssh") or {}).get("password") or ""
+                                if prior_pw:
+                                    clean_ssh["password"] = prior_pw
+                                break
             clean_groups.append({
+                "id":          row_id,
                 "name":        name,
                 "range_start": rs,
                 "range_end":   re_,
@@ -3095,6 +3140,27 @@ def _save_hosts_config(hosts: list[dict]) -> list[dict]:
             "hosts_config: duplicate custom_number — "
             + "; ".join(parts)
             + ". Each host must have a unique custom_number.",
+        )
+
+    # Duplicate-id check — without this, two rows with the same id
+    # would silently collapse via `seen[hid] = ...` (last wins),
+    # losing the first row + its custom_number / IP / SSH overrides
+    # without any error to the operator (BUG-009 in the code review).
+    id_counts: dict[str, int] = {}
+    for h in hosts:
+        if not isinstance(h, dict):
+            continue
+        hid = (h.get("id") or h.get("name") or "").strip()
+        if not hid:
+            continue
+        id_counts[hid] = id_counts.get(hid, 0) + 1
+    id_dupes = sorted(hid for hid, n in id_counts.items() if n > 1)
+    if id_dupes:
+        raise HTTPException(
+            400,
+            "hosts_config: duplicate id — "
+            + ", ".join(id_dupes)
+            + ". Each host must have a unique id.",
         )
 
     seen: dict[str, dict] = {}
@@ -4890,7 +4956,21 @@ async def api_delete_user(
                 status_code=400,
                 detail="Cannot delete the last active admin.",
             )
+        # Capture the avatar path BEFORE the delete so we can unlink
+        # the file on disk afterwards. Without this the file lingers
+        # under /app/data/avatars/ and a recycled user-id (rare —
+        # autoincrement reset / restore-from-backup) would silently
+        # inherit the orphan. BUG-008 in the code review.
+        profile = auth.get_user_profile(c, user_id) or {}
+        avatar_path = (profile.get("avatar_path") or "").strip()
         auth.delete_user(c, user_id)
+    if avatar_path:
+        try:
+            full = os.path.join(_AVATAR_DIR, avatar_path)
+            if os.path.exists(full):
+                os.remove(full)
+        except OSError:
+            pass  # best-effort cleanup; the orphan is cosmetic
     return {"ok": True}
 
 

@@ -2616,6 +2616,11 @@ function app() {
         // here so the editor renders in the same order as the Hosts
         // view will. Fresh load resets dirty flag.
         this.hostGroups = Array.isArray(d.host_groups) ? d.host_groups.map(g => ({
+          // Stable id minted server-side on first save (BUG-003 fix).
+          // Round-trips unchanged so renames preserve the persisted
+          // SSH password while a new same-named group can't inherit
+          // it. Blank for any row that hasn't been saved yet.
+          id: String(g.id || ''),
           name: String(g.name || ''),
           range_start: Number.isFinite(+g.range_start) ? +g.range_start : 0,
           range_end:   Number.isFinite(+g.range_end) ? +g.range_end : 0,
@@ -5674,6 +5679,86 @@ function app() {
         // Fire-TV phrases so a host labelled "Amazon Echo Dot"
         // resolves to alexa.svg, not amazon.svg.
         ['amazon',                'amazon'],
+        // Apple-family devices and OS marks. Apple TV / Apple TV 4K /
+        // Apple TV HD all resolve to the apple-tv-plus mark (the
+        // canonical curved-edge "tv" Apple uses across hardware +
+        // streaming service). Generic Apple phrases fall through to
+        // the apple wordmark.
+        ['apple tv',              'apple-tv-plus'],
+        ['apple-tv',              'apple-tv-plus'],
+        ['appletv',               'apple-tv-plus'],
+        ['apple homepod',         'apple'],
+        ['homepod mini',          'apple'],
+        ['homepod',               'apple'],
+        ['apple watch',           'apple'],
+        ['apple ',                'apple'],
+        ['imac',                  'apple'],
+        ['macbook',               'apple'],
+        ['ipad',                  'apple'],
+        ['iphone',                'apple'],
+        // Google smart-home line — Nest Hub / Hub Max use the
+        // dedicated `nest.svg` mark (Wikimedia Commons "Google Nest
+        // logo"), Chromecast uses `chromecast.svg` (Wikimedia
+        // Commons "Google Chromecast wordmark"), and the broader
+        // Google Home / Home Hub lineup falls back to `google-home`
+        // (homarr-labs dashboard-icons). Most-specific phrases first
+        // so "Google Nest Hub Max" hits nest, not google-home.
+        ['nest hub max',          'nest'],
+        ['google nest hub',       'nest'],
+        ['nest hub',              'nest'],
+        ['google nest',           'nest'],
+        ['google chromecast',     'chromecast'],
+        ['chromecast',            'chromecast'],
+        ['google home hub',       'google-home'],
+        ['google home',           'google-home'],
+        ['google pixel',          'google'],
+        ['pixel ',                'google'],
+        // Console gaming
+        ['playstation',           'playstation'],
+        ['ps4',                   'playstation'],
+        ['ps5',                   'playstation'],
+        ['nintendo switch',       'nintendo-switch'],
+        ['switch 2',              'nintendo-switch'],
+        ['nintendo',              'nintendo-switch'],
+        // Microsoft + family. Surface lands on microsoft.svg (no
+        // dedicated Surface mark in dashboard-icons).
+        ['microsoft surface',     'microsoft'],
+        ['surface pro',           'microsoft'],
+        ['microsoft',             'microsoft'],
+        // Hardware brands
+        ['lenovo',                'lenovo'],
+        ['veeam',                 'veeam'],
+        // Linux distros
+        ['debian',                'debian'],
+        ['ubuntu',                'ubuntu'],
+        ['linux mint',            'linuxmint'],
+        ['linuxmint',             'linuxmint'],
+        ['kali linux',            'kali'],
+        ['kali',                  'kali'],
+        // Meta / Oculus VR
+        ['oculus',                'oculus'],
+        ['meta quest',            'meta'],
+        // Huawei phones / tablets
+        ['huawei',                'huawei'],
+        // Samsung — TVs / Galaxy line. Wikimedia Commons "Samsung
+        // Electronics logo (english).svg" — modern blue wordmark.
+        // Most-specific Galaxy / model phrases land on samsung too
+        // (no separate Galaxy mark in our icon set yet).
+        ['samsung galaxy',        'samsung'],
+        ['galaxy s',              'samsung'],
+        ['galaxy a',              'samsung'],
+        ['galaxy m',              'samsung'],
+        ['galaxy tab',            'samsung'],
+        ['samsung',               'samsung'],
+        // Bose audio — SoundTouch / Home Speaker / Wave / QC family.
+        ['bose soundtouch',       'bose'],
+        ['bose home speaker',     'bose'],
+        ['bose ',                 'bose'],
+        ['soundtouch',            'bose'],
+        // Gigabyte motherboards / desktops / Aorus brand
+        ['gigabyte',              'gigabyte'],
+        ['aorus',                 'gigabyte'],
+        ['b550 aorus',            'gigabyte'],
       ];
       for (const [needle, slug] of tokens) {
         if (hay.includes(needle)) return '/img/icons/' + slug + '.svg';
@@ -6437,6 +6522,11 @@ function app() {
           numberVal = n;
         }
         clean.push({
+          // Round-trip the stable id (server mints it on first save;
+          // null/blank for fresh rows so the backend assigns one).
+          // Without this, a rename would lose the password keep-
+          // current carryover. See BUG-003 fix.
+          id: String(g.id || ''),
           name, range_start: rs, range_end: re_,
           order: Number.isFinite(+g.order) ? +g.order : clean.length,
           parent_name: parent_name || null,

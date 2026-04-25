@@ -26,6 +26,18 @@
 <!-- Poppins is vendored under /fonts/ and declared in css/style.css. No
      external font fetches — the app stays functional fully offline. -->
 
+<!-- app.js MUST load before alpine-gate.js fires — Alpine processes
+     x-data="app()" the moment its bundle finishes downloading, and a
+     369-KB app.js racing against a ~50-KB Alpine bundle would lose
+     on the cache-busted reload triggered by the new-version banner.
+     The result was a wave of "statusFilter is not defined" / "counts
+     is not defined" / "settings is not defined" Alpine expression
+     errors per refresh. Loading app.js synchronously here (no defer)
+     guarantees `app` is registered on `window` before Alpine starts
+     its DOM walk. The script just defines the factory; no DOM access
+     at module level, so blocking on it is cheap. -->
+<script src="/js/app.js?v=__APP_VERSION__"></script>
+
 <!-- All three front-end deps served straight from /node_modules/. Tailwind
      uses @tailwindcss/browser (v4's in-browser JIT runtime equivalent to
      the old v3 Play CDN). Bump versions in package.json, `npm install`,
@@ -6574,7 +6586,10 @@
 
 </div>
 
-<script src="/js/app.js?v=__APP_VERSION__" defer></script>
+<!-- app.js moved to <head> — see the comment there for why it must
+     load before Alpine. The previous deferred-at-bottom placement
+     raced against alpine-gate.js's dynamic Alpine injection on the
+     reload-after-new-version path. -->
 
 </body>
 </html>
