@@ -213,13 +213,97 @@ def _find_host_record(host_id: str, hosts_config: list[dict]) -> Optional[dict]:
     return None
 
 
-def resolve_ssh_params(host_id: str, hosts_config: list[dict]) -> dict:
-    """Merge global defaults + per-host overrides into one connect spec.
+def _groups_for_host(record: Optional[dict]) -> tuple[Optional[dict], Optional[dict]]:
+    """Match a host_config record against the persisted ``host_groups``
+    setting and return ``(main_group, sub_group)`` — either may be
+    ``None`` when no match. Sub-group is the most-specific match
+    (host's custom_number sits inside the sub-group's range AND that
+    sub-group is a child of the matched main_group).
 
-    Returns ``{host, user, port, disabled, key_set, known_hosts_set,
-    key_fingerprint, error}``. Caller treats ``error`` as a
-    configuration problem (not a connection problem) — no SSH call has
-    been attempted yet.
+    Loaded directly from settings so this works in contexts that
+    don't already have the parsed groups list (the SSH runner is one
+    such caller). Tolerant — malformed JSON / missing setting return
+    ``(None, None)``.
+    """
+    if record is None:
+        return (None, None)
+    cn = record.get("custom_number")
+    if cn is None:
+        return (None, None)
+    try:
+        cn_int = int(cn)
+    except (TypeError, ValueError):
+        return (None, None)
+    from logic.db import get_setting
+    raw = get_setting("host_groups", "") or ""
+    if not raw.strip():
+        return (None, None)
+    try:
+        groups = json.loads(raw)
+    except (TypeError, ValueError):
+        return (None, None)
+    if not isinstance(groups, list):
+        return (None, None)
+
+    main_group: Optional[dict] = None
+    for g in groups:
+        if not isinstance(g, dict):
+            continue
+        if g.get("parent_name"):
+            continue  # skip sub-groups in pass 1
+        try:
+            rs = int(g.get("range_start"))
+            re_ = int(g.get("range_end"))
+        except (TypeError, ValueError):
+            continue
+        if rs <= cn_int <= re_:
+            main_group = g
+            break
+    sub_group: Optional[dict] = None
+    if main_group is not None:
+        for g in groups:
+            if not isinstance(g, dict):
+                continue
+            if g.get("parent_name") != main_group.get("name"):
+                continue
+            try:
+                rs = int(g.get("range_start"))
+                re_ = int(g.get("range_end"))
+            except (TypeError, ValueError):
+                continue
+            if rs <= cn_int <= re_:
+                sub_group = g
+                break
+    return (main_group, sub_group)
+
+
+def _group_ssh(group: Optional[dict]) -> dict:
+    """Extract a {user, port, password} dict from a group's ``ssh``
+    sub-block. Returns empty dict for missing/malformed inputs so
+    callers can iterate uniformly across all four credential layers.
+    """
+    if not isinstance(group, dict):
+        return {}
+    s = group.get("ssh")
+    return s if isinstance(s, dict) else {}
+
+
+def resolve_ssh_params(host_id: str, hosts_config: list[dict]) -> dict:
+    """Merge global defaults + group + per-host overrides into one
+    connect spec.
+
+    Credentials priority ladder (most specific wins):
+      1. per-host (``hosts_config[].ssh``)
+      2. per-sub-group (``host_groups[].ssh`` on a group with a parent)
+      3. per-main-group (``host_groups[].ssh`` on a top-level group)
+      4. global default (``ssh_default_*`` settings)
+
+    Returns ``{host, user, port, disabled, key_set, password_set,
+    known_hosts_set, key_fingerprint, password_source, error}``.
+    ``password_source`` is one of ``"per_host"`` / ``"sub_group"`` /
+    ``"main_group"`` / ``"global"`` / ``""`` — used by ``run_command``
+    to pick the matching password value, and surfaced to the UI for
+    operator transparency.
     """
     record = _find_host_record(host_id, hosts_config)
     g = get_global_ssh_settings()
@@ -232,11 +316,36 @@ def resolve_ssh_params(host_id: str, hosts_config: list[dict]) -> dict:
         "password_set":      bool(g["password"]),
         "known_hosts_set":   bool(g["known_hosts"]),
         "key_fingerprint":   _key_fingerprint(g["private_key"], g["passphrase"]),
+        "password_source":   "global" if g["password"] else "",
         "error":             None,
     }
     if record is None:
         resolved["error"] = f"unknown host_id: {host_id!r}"
         return resolved
+
+    main_group, sub_group = _groups_for_host(record)
+    # Walk layers least-specific → most-specific so later overrides win.
+    layer_specs = [
+        ("main_group", _group_ssh(main_group)),
+        ("sub_group",  _group_ssh(sub_group)),
+    ]
+    for source_name, s in layer_specs:
+        if not s:
+            continue
+        u = str(s.get("user") or "").strip()
+        if u:
+            resolved["user"] = u
+        if s.get("port") not in (None, "", 0):
+            try:
+                pi = int(s["port"])
+                if 1 <= pi <= 65535:
+                    resolved["port"] = pi
+            except (TypeError, ValueError):
+                pass
+        if (s.get("password") or "").strip():
+            resolved["password_set"] = True
+            resolved["password_source"] = source_name
+
     per_host = (record.get("ssh") or {}) if isinstance(record.get("ssh"), dict) else {}
     # Target hostname resolution priority:
     #   1. per-host ssh.host override (operator pasted the full FQDN)

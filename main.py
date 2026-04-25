@@ -2188,29 +2188,6 @@ async def api_hosts():
         if ns:
             swarm_hostnames.add(ns)
             swarm_hostnames.add(ns.split(".", 1)[0])
-    # Asset-inventory map by custom_number. Loaded once per request
-    # so `/api/hosts` injects the same compact `asset` shape the
-    # frontend's `assetForHost(h)` resolver returns — external API
-    # consumers (metric scrapers, third-party dashboards) get the
-    # vendor / model / serial / interfaces / ports / etc. without
-    # having to call /api/asset-inventory + reconcile themselves.
-    from logic import asset_inventory as _ai
-    _asset_cache = _ai.load_cache()
-    _asset_index = _ai.index_by_custom_number(_asset_cache.get("assets") or [])
-
-    # Tiny helper used by both /api/hosts here and by
-    # `_shape_host_api_row` (which doesn't share the local index).
-    # Caches the resolved per-call index on a private attribute so
-    # the file read + index build runs at most once per request even
-    # when /api/hosts/one/{id} is fanned out N times.
-    def _resolve_asset_for_host_inline(cn):
-        try:
-            cn_int = int(cn)
-        except (TypeError, ValueError):
-            return None
-        a = _asset_index.get(cn_int)
-        return _ai.shape_asset(a) if a else None
-
     for entry in out:
         h = entry["_host_record"]
         s = entry["_merged"]
@@ -2301,14 +2278,9 @@ async def api_hosts():
             # Asset-inventory snapshot — null when no match. External
             # API consumers can read vendor/model/serial/interfaces/
             # ports here without hitting /api/asset-inventory
-            # separately.
-            "asset":            (
-                _ai.shape_asset(_asset_index.get(int(h.get("custom_number") or 0)))
-                if h.get("custom_number") is not None
-                   and isinstance(h.get("custom_number"), int)
-                   and _asset_index.get(int(h["custom_number"])) is not None
-                else None
-            ),
+            # separately. Shared resolver with `_shape_host_api_row`
+            # via the module-level mtime-keyed cache.
+            "asset":            _resolve_asset_for_host(h.get("custom_number")),
         })
 
     # Aggregate error — non-fatal; UI shows the first one per provider.
@@ -2542,6 +2514,44 @@ async def _merge_one_host(h: dict, state: dict) -> tuple[dict, list[str]]:
                 providers_hit.append("webmin")
 
     return merged, providers_hit
+
+
+# Module-level asset-index cache, keyed on the cache file's mtime so
+# we re-build only when the on-disk snapshot actually changes. Hot
+# path: every `_shape_host_api_row` call. Cold path: refresh adds
+# ~10ms (file read + dict build).
+_asset_idx_cache: dict = {"mtime": -1.0, "index": {}}
+
+
+def _resolve_asset_for_host(cn) -> Optional[dict]:
+    """Look up the cached asset row for a host's custom_number and
+    return the compact `shape_asset` dict (or None when no match).
+
+    Re-reads the cache file when its mtime advances, otherwise reuses
+    the indexed map. Resilient to a missing / unreadable cache —
+    returns None on any error so `_shape_host_api_row` can still
+    build a row for hosts whose asset data isn't available yet.
+    """
+    if cn is None:
+        return None
+    try:
+        cn_int = int(cn)
+    except (TypeError, ValueError):
+        return None
+    from logic import asset_inventory as _ai
+    try:
+        mtime = os.path.getmtime(_ai.DEFAULT_CACHE_PATH)
+    except OSError:
+        mtime = 0.0
+    if mtime != _asset_idx_cache["mtime"]:
+        try:
+            cache = _ai.load_cache()
+            _asset_idx_cache["index"] = _ai.index_by_custom_number(cache.get("assets") or [])
+        except Exception:
+            _asset_idx_cache["index"] = {}
+        _asset_idx_cache["mtime"] = mtime
+    raw = _asset_idx_cache["index"].get(cn_int)
+    return _ai.shape_asset(raw) if raw else None
 
 
 def _shape_host_api_row(
