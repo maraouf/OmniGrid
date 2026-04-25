@@ -2512,6 +2512,36 @@
                             </header>
                             <pre class="host-debug-json scrollbar" x-text="fmtDebugJson(hostsDebug[h.id].providers_normalized?.webmin)"></pre>
                           </section>
+                          <!-- Asset inventory (raw upstream payload).
+                               Sourced from the host's `asset` field
+                               which is itself the compact shape; the
+                               operator wants the FULL upstream row
+                               for cross-referencing, so we read from
+                               the asset cache by custom_number. -->
+                          <section class="host-debug-box host-debug-box--wide" x-show="hasDebugData(rawAssetForHost(h))">
+                            <header class="host-debug-box-head">
+                              <span class="host-debug-label host-debug-label--merged">Asset (raw)</span>
+                              <button type="button" class="host-debug-copy"
+                                      @click="copyDebugJson(rawAssetForHost(h), 'Asset · Raw')"
+                                      :title="t('debug_panel.copy_title')">
+                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+                              </button>
+                            </header>
+                            <pre class="host-debug-json scrollbar" x-text="fmtDebugJson(rawAssetForHost(h))"></pre>
+                          </section>
+                          <!-- Asset inventory (compact shape — what
+                               the drawer actually renders). -->
+                          <section class="host-debug-box host-debug-box--wide" x-show="hasDebugData(assetForHost(h))">
+                            <header class="host-debug-box-head">
+                              <span class="host-debug-label host-debug-label--merged">Asset (shape)</span>
+                              <button type="button" class="host-debug-copy"
+                                      @click="copyDebugJson(assetForHost(h), 'Asset · Shape')"
+                                      :title="t('debug_panel.copy_title')">
+                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+                              </button>
+                            </header>
+                            <pre class="host-debug-json scrollbar" x-text="fmtDebugJson(assetForHost(h))"></pre>
+                          </section>
                         </div>
                       </div>
                     </template>
@@ -4631,6 +4661,60 @@
                        @input="markHostGroupDirty()"
                        class="w-full mono text-[12.5px] py-1.5"
                        :placeholder="t('admin_hosts.groups.ip_range_placeholder')">
+              </div>
+              <!-- Row 3: SSH credentials (user / port / password).
+                   Optional. Resolves at runtime in this priority
+                   order: per-host → per-sub-group → per-main-group →
+                   global default. Password is write-only — server
+                   returns a `password_set` flag instead of the value. -->
+              <div class="mt-3 pt-3 border-t border-dashed border-[var(--border)]">
+                <div class="text-[10.5px] uppercase tracking-wider text-[var(--text-faint)] mb-2"
+                     x-text="t('admin_hosts.groups.ssh_heading')"></div>
+                <div class="grid grid-cols-1 md:grid-cols-[2fr_120px_2fr] gap-3 items-end">
+                  <div>
+                    <label class="block text-[10.5px] text-[var(--text-faint)] mb-1"
+                           x-text="t('admin_hosts.groups.ssh_user_label')"></label>
+                    <input type="text" x-model="g.ssh.user"
+                           :disabled="isReadonly()"
+                           @input="markHostGroupDirty()"
+                           class="w-full mono text-[12.5px] py-1.5"
+                           :placeholder="t('admin_hosts.groups.ssh_user_placeholder')">
+                  </div>
+                  <div>
+                    <label class="block text-[10.5px] text-[var(--text-faint)] mb-1"
+                           x-text="t('admin_hosts.groups.ssh_port_label')"></label>
+                    <input type="number" x-model.number="g.ssh.port"
+                           :disabled="isReadonly()"
+                           @input="markHostGroupDirty()"
+                           class="w-full mono text-[12.5px] py-1.5"
+                           min="1" max="65535" placeholder="22">
+                  </div>
+                  <div>
+                    <label class="block text-[10.5px] text-[var(--text-faint)] mb-1">
+                      <span x-text="t('admin_hosts.groups.ssh_password_label')"></span>
+                      <span x-show="g.ssh && g.ssh.password_set"
+                            class="text-[var(--success)]"
+                            x-text="t('admin_hosts.groups.ssh_password_set')"></span>
+                    </label>
+                    <div class="flex items-center gap-2">
+                      <input type="password" x-model="g.ssh.password"
+                             :disabled="isReadonly()"
+                             @input="markHostGroupDirty()"
+                             class="flex-1 mono text-[12.5px] py-1.5"
+                             :placeholder="t('admin_hosts.groups.ssh_password_placeholder')"
+                             autocomplete="new-password">
+                      <button type="button"
+                              x-show="isAdmin() && g.ssh && g.ssh.password_set"
+                              @click="g.ssh.clear_password = !g.ssh.clear_password; markHostGroupDirty()"
+                              class="btn btn-ghost text-[11.5px]"
+                              :class="g.ssh && g.ssh.clear_password ? 'ring-2 ring-[var(--warning)]' : ''"
+                              :title="t('admin_hosts.groups.ssh_clear_title')"
+                              x-text="(g.ssh && g.ssh.clear_password) ? t('admin_hosts.groups.ssh_clear_armed') : t('admin_hosts.groups.ssh_clear_label')"></button>
+                    </div>
+                  </div>
+                </div>
+                <p class="text-[10.5px] text-[var(--text-faint)] mt-1.5"
+                   x-text="t('admin_hosts.groups.ssh_hint')"></p>
               </div>
             </div>
           </template>

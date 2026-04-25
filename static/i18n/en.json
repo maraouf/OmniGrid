@@ -1024,7 +1024,18 @@
       "err_parent_missing": "Parent \"{name}\" doesn't exist — type the exact name of a top-level group.",
       "err_parent_is_sub": "Parent \"{name}\" is itself a sub-group. Nesting is limited to 2 levels.",
       "err_not_contained": "Sub-group range must fit inside parent \"{parent}\" ({ps}–{pe}).",
-      "err_overlap": "Range overlaps \"{other}\" ({os}–{oe}). Ranges must be disjoint except for parent↔sub-group pairs."
+      "err_overlap": "Range overlaps \"{other}\" ({os}–{oe}). Ranges must be disjoint except for parent↔sub-group pairs.",
+      "ssh_heading": "SSH credentials (optional)",
+      "ssh_user_label": "User",
+      "ssh_user_placeholder": "e.g. admin",
+      "ssh_port_label": "Port",
+      "ssh_password_label": "Password",
+      "ssh_password_placeholder": "(leave blank to keep current)",
+      "ssh_password_set": " · set",
+      "ssh_clear_label": "Clear",
+      "ssh_clear_armed": "Clear armed (save to apply)",
+      "ssh_clear_title": "Erase the stored password on save",
+      "ssh_hint": "Resolution order: per-host override → this sub-group / parent → global default. Most-specific value wins."
     }
   },
   "admin_assets": {

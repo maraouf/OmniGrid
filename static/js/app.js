@@ -2457,6 +2457,18 @@ function app() {
           range_end:   Number.isFinite(+g.range_end) ? +g.range_end : 0,
           parent_name: String(g.parent_name || ''),
           ip_range:    String(g.ip_range || ''),
+          // Per-group SSH overrides — same shape as `hosts_config[].ssh`.
+          // Password is write-only (server returns `password_set`
+          // flag instead of the value); UI surfaces "set" badge so
+          // operators can see whether one's configured without
+          // exposing it.
+          ssh: {
+            user:         String((g.ssh && g.ssh.user) || ''),
+            port:         (g.ssh && g.ssh.port) || '',
+            password:     '',
+            password_set: !!(g.ssh && g.ssh.password_set),
+            clear_password: false,
+          },
           order:       Number.isFinite(+g.order) ? +g.order : 0,
         })) : [];
         this.hostGroupsDirty = false;
@@ -4996,6 +5008,7 @@ function app() {
         order: (this.hostGroups || []).length,
         parent_name: '',
         ip_range: '',
+        ssh: { user: '', port: '', password: '', password_set: false, clear_password: false },
       };
       this.hostGroups = [...(this.hostGroups || []), next];
       this.hostGroupsDirty = true;
@@ -5210,11 +5223,28 @@ function app() {
         }
         const parent_name = String(g.parent_name || '').trim();
         const ip_range = String(g.ip_range || '').trim();
+        // SSH block — only send fields the operator actually touched.
+        // `password` is keep-current-if-blank (matches the global
+        // secret store contract); `clear_password: true` is the
+        // explicit-clear escape hatch.
+        const sshIn = (g && g.ssh && typeof g.ssh === 'object') ? g.ssh : {};
+        const ssh = {};
+        const sUser = String(sshIn.user || '').trim();
+        if (sUser) ssh.user = sUser;
+        const sPort = sshIn.port;
+        if (sPort != null && sPort !== '') {
+          const pi = parseInt(sPort, 10);
+          if (Number.isFinite(pi) && pi >= 1 && pi <= 65535) ssh.port = pi;
+        }
+        const sPw = String(sshIn.password || '').trim();
+        if (sPw) ssh.password = sPw;
+        if (sshIn.clear_password) ssh.clear_password = true;
         clean.push({
           name, range_start: rs, range_end: re_,
           order: Number.isFinite(+g.order) ? +g.order : clean.length,
           parent_name: parent_name || null,
           ip_range,
+          ssh,
         });
         indexMap.push(gi);
       });
@@ -5560,7 +5590,19 @@ function app() {
     // (`vendor`/`manufacturer`/`model`/`serial`/`location`/`custom_number`)
     // so a generic non-MDI upstream still works without a schema map.
     assetForHost(h) {
-      if (!h || h.custom_number == null || h.custom_number === '') return null;
+      if (!h) return null;
+      // Backend-provided shape (`/api/hosts*` injects `asset` keyed
+      // by custom_number, see `_resolve_asset_for_host` in main.py).
+      // When present we use it directly — works even before the
+      // client-side asset cache has loaded, AND for hosts with no
+      // agents configured (the live providers never populated, but
+      // the asset shape is still attached). Spread into a fresh
+      // object so the legacy `_raw` field exists for the debug
+      // panel even on the no-cache path.
+      if (h.asset && typeof h.asset === 'object') {
+        return Object.assign({ _raw: null }, h.asset);
+      }
+      if (h.custom_number == null || h.custom_number === '') return null;
       const assets = (this.assetCache && Array.isArray(this.assetCache.assets))
         ? this.assetCache.assets : null;
       if (!assets || !assets.length) return null;
@@ -5674,6 +5716,23 @@ function app() {
           ports,
           _raw:      a,
         };
+      }
+      return null;
+    },
+    // Raw asset row from the cached snapshot — for the debug panel.
+    // The shaped resolver (`assetForHost`) drops fields the drawer
+    // doesn't render; this returns the unfiltered upstream object.
+    rawAssetForHost(h) {
+      if (!h || h.custom_number == null || h.custom_number === '') return null;
+      const assets = (this.assetCache && Array.isArray(this.assetCache.assets))
+        ? this.assetCache.assets : null;
+      if (!assets || !assets.length) return null;
+      const n = parseInt(h.custom_number, 10);
+      if (!Number.isFinite(n)) return null;
+      for (const a of assets) {
+        if (!a) continue;
+        const cn = a.CustomNumber ?? a.custom_number ?? a.number ?? a.id;
+        if (parseInt(cn, 10) === n) return a;
       }
       return null;
     },
@@ -5826,7 +5885,7 @@ function app() {
         const CURATED_FIELDS = [
           'label', 'icon', 'custom_number', 'url',
           'beszel_name', 'pulse_name', 'ne_url', 'webmin_name',
-          'ssh_disabled',
+          'ssh_disabled', 'asset',
         ];
         const incoming = Array.isArray(d.hosts) ? d.hosts : [];
         const incomingIds = new Set(incoming.map(h => h.id));

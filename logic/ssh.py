@@ -368,12 +368,13 @@ def resolve_ssh_params(host_id: str, hosts_config: list[dict]) -> dict:
     u_override = (per_host.get("user") or "").strip()
     if u_override:
         resolved["user"] = u_override
-    # Per-host password override trumps the global password — useful
-    # when one box has a special account that differs from the fleet's
-    # shared read-only user.
+    # Per-host password override trumps every layer above — most-
+    # specific wins. Useful when one box has a special account that
+    # differs from the fleet's shared read-only user.
     if (per_host.get("password") or "").strip():
         resolved["password_set"] = True
-        resolved["_per_host_password"] = True  # flag for run_command
+        resolved["password_source"] = "per_host"
+        resolved["_per_host_password"] = True  # legacy flag kept for run_command
     try:
         if per_host.get("port") not in (None, "", 0):
             resolved["port"] = int(per_host["port"])
@@ -503,21 +504,30 @@ async def run_command(
                 g["private_key"], passphrase=g["passphrase"] or None,
             )]
         except Exception as e:
-            # If the key is bad but we also have a password, fall
-            # through silently to password auth. Otherwise fail.
-            if not (g["password"] or resolved.get("_per_host_password")):
+            # If the key is bad but we also have a password (any
+            # layer of the priority ladder), fall through silently
+            # to password auth. Otherwise fail.
+            if not resolved.get("password_set"):
                 base_result["error"] = f"bad SSH key: {type(e).__name__}: {e}"
                 return base_result
             client_keys_arg = None
 
-    # Resolve password — per-host override first, then global.
+    # Resolve password using the same priority ladder
+    # `resolve_ssh_params` recorded via `password_source`. We re-read
+    # the source's actual password value here (not stashed on
+    # resolved[] — keeps secrets out of audit logs) and fall through
+    # to global on a miss.
     ssh_password: Optional[str] = None
-    if resolved.get("_per_host_password"):
-        # Re-read from hosts_config because we don't return the actual
-        # value through resolved[] (keeps it out of audit logs).
-        record = _find_host_record(host_id, hosts_config)
+    record = _find_host_record(host_id, hosts_config)
+    src = resolved.get("password_source") or ""
+    if src == "per_host":
         if record and isinstance(record.get("ssh"), dict):
             ssh_password = (record["ssh"].get("password") or "").strip() or None
+    elif src in ("sub_group", "main_group"):
+        main_group, sub_group = _groups_for_host(record)
+        target = sub_group if src == "sub_group" else main_group
+        if target and isinstance(target.get("ssh"), dict):
+            ssh_password = (target["ssh"].get("password") or "").strip() or None
     if ssh_password is None and g["password"]:
         ssh_password = g["password"]
 
@@ -724,8 +734,10 @@ def ssh_status(host_id: str, hosts_config: list[dict]) -> dict:
         f"[ssh] status host_id={host_id!r} configured={configured} "
         f"resolved_host={resolved.get('host')!r} "
         f"user={resolved.get('user')!r} "
+        f"port={resolved.get('port')} "
         f"key_set={resolved.get('key_set')} "
         f"password_set={resolved.get('password_set')} "
+        f"password_source={resolved.get('password_source')!r} "
         f"per_host_password={bool(resolved.get('_per_host_password'))} "
         f"disabled={resolved.get('disabled')} "
         f"error={resolved.get('error')!r}"

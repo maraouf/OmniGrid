@@ -930,10 +930,19 @@ async def api_get_settings(request: Request):
         # clear so the input round-trips and reloads persisted. Blank
         # disables the topbar weather widget (see _open_meteo_url).
         "open_meteo_url": get_setting("open_meteo_url", "") or "",
-        # Host groups — returned as a parsed list of dicts. Admin →
-        # Hosts editor round-trips this to build the group editor UI.
+        # Host groups — returned as a parsed list of dicts. Per-group
+        # SSH password is masked at the boundary: we replace it with
+        # a `password_set: bool` flag so the browser learns whether a
+        # password is configured but never receives the value. Same
+        # contract as every other secret in the settings table.
         "host_groups": (lambda raw: (
-            json.loads(raw) if (raw or "").strip() else []
+            (lambda groups: [
+                {**g, "ssh": (lambda s: (
+                    {k: v for k, v in s.items() if k != "password"}
+                    | ({"password_set": True} if (s.get("password") or "") else {"password_set": False})
+                ))(g.get("ssh") if isinstance(g.get("ssh"), dict) else {})}
+                for g in groups if isinstance(g, dict)
+            ])(json.loads(raw) if (raw or "").strip() else [])
         ))(get_setting("host_groups", "") or ""),
         # Asset inventory (oufa.co). Secret is write-only — UI sees
         # a `_set` flag only. Other fields round-trip in the clear.
@@ -1328,6 +1337,50 @@ async def api_set_settings(
                 order = i
             parent_name = (g.get("parent_name") or "").strip()[:60] or None
             ip_range = (g.get("ip_range") or "").strip()[:120]
+            # Optional per-group SSH credentials. Same shape as
+            # `hosts_config[].ssh` so the resolver in `logic/ssh.py`
+            # can iterate them uniformly. Keep-current-if-blank for
+            # the password — same convention as the global secret
+            # store.
+            clean_ssh: dict = {}
+            ssh_in = g.get("ssh") if isinstance(g.get("ssh"), dict) else {}
+            user = str((ssh_in or {}).get("user") or "").strip()
+            if user:
+                clean_ssh["user"] = user
+            port = (ssh_in or {}).get("port")
+            if port not in (None, "", 0):
+                try:
+                    pi = int(port)
+                    if 1 <= pi <= 65535:
+                        clean_ssh["port"] = pi
+                except (TypeError, ValueError):
+                    pass
+            # Password resolution:
+            #   1. New non-empty password → store it (clear flag is
+            #      ignored — operator typed a new value, that wins).
+            #   2. Empty + clear_password=true → erase (don't carry
+            #      forward).
+            #   3. Empty + no clear flag → carry forward the prior
+            #      persisted value (keep-current-if-blank — same
+            #      contract as every other secret in the settings
+            #      table).
+            new_pw = str((ssh_in or {}).get("password") or "").strip()
+            clear = bool((ssh_in or {}).get("clear_password"))
+            if new_pw:
+                clean_ssh["password"] = new_pw
+            elif not clear:
+                try:
+                    prior_raw = get_setting("host_groups", "") or ""
+                    prior_groups = json.loads(prior_raw) if prior_raw.strip() else []
+                except (TypeError, ValueError):
+                    prior_groups = []
+                if isinstance(prior_groups, list):
+                    for pg in prior_groups:
+                        if isinstance(pg, dict) and pg.get("name") == name:
+                            prior_pw = (pg.get("ssh") or {}).get("password") or ""
+                            if prior_pw:
+                                clean_ssh["password"] = prior_pw
+                            break
             clean_groups.append({
                 "name":        name,
                 "range_start": rs,
@@ -1335,6 +1388,7 @@ async def api_set_settings(
                 "order":       order,
                 "parent_name": parent_name,
                 "ip_range":    ip_range,
+                "ssh":         clean_ssh,
             })
 
         # Parent validation — 2-level nesting means the referenced
