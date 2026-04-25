@@ -1391,6 +1391,23 @@ async def api_set_settings(
                 order = i
             parent_name = (g.get("parent_name") or "").strip()[:60] or None
             ip_range = (g.get("ip_range") or "").strip()[:120]
+            # Optional `number` — operator-supplied display prefix
+            # (e.g. "32 Smart & IOT Routers"). Stored separately from
+            # the range so the operator can pick a label number that
+            # doesn't have to match a host's custom_number. Blank /
+            # missing → None; uniqueness is enforced below alongside
+            # parent / containment / overlap checks.
+            number_raw = g.get("number")
+            number_val: int | None
+            if number_raw in (None, "", 0, "0"):
+                number_val = None
+            else:
+                try:
+                    number_val = int(number_raw)
+                    if number_val <= 0:
+                        number_val = None
+                except (TypeError, ValueError):
+                    number_val = None
             # Optional per-group SSH credentials. Same shape as
             # `hosts_config[].ssh` so the resolver in `logic/ssh.py`
             # can iterate them uniformly. Keep-current-if-blank for
@@ -1442,6 +1459,7 @@ async def api_set_settings(
                 "order":       order,
                 "parent_name": parent_name,
                 "ip_range":    ip_range,
+                "number":      number_val,
                 "ssh":         clean_ssh,
             })
 
@@ -1521,6 +1539,23 @@ async def api_set_settings(
                         f"'{b['name']}' ({b['range_start']}–{b['range_end']}). "
                         f"Ranges must be disjoint except for parent↔sub-group pairs.",
                     )
+
+        # Number uniqueness — when set, no two groups may share the
+        # same display number. Operators using the prefix to mirror an
+        # asset-tag scheme would silently get duplicates without this.
+        seen_numbers: dict[int, str] = {}
+        for g in clean_groups:
+            num = g.get("number")
+            if num is None:
+                continue
+            prior = seen_numbers.get(num)
+            if prior is not None:
+                raise HTTPException(
+                    400,
+                    f"host_groups: number {num} is used by both "
+                    f"'{prior}' and '{g['name']}'. Group numbers must be unique.",
+                )
+            seen_numbers[num] = g["name"]
 
         # Persist in order-field order so render iteration doesn't have to re-sort.
         clean_groups.sort(key=lambda g: (g["order"], g["name"]))

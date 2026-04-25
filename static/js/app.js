@@ -324,6 +324,7 @@ function app() {
     appriseDirty: false,
     openMeteoDirty: false,
     portainerDirty: false,
+    oidcDirty: false,
     sshTestOnHost: { host_id: '', result: null, pending: false },
     // Settings / Admin sidebar layout. Arrays drive the nav — adding a
     // section is one entry here + one <section> in the markup.
@@ -2591,6 +2592,7 @@ function app() {
             // after the migration); otherwise reflect whatever's persisted.
             verify_tls:    this.oidcStatus.verify_tls !== false,
           };
+          this.oidcDirty = false;
         }
 
         // --- Portainer connection panel state ---
@@ -2616,6 +2618,10 @@ function app() {
           name: String(g.name || ''),
           range_start: Number.isFinite(+g.range_start) ? +g.range_start : 0,
           range_end:   Number.isFinite(+g.range_end) ? +g.range_end : 0,
+          // Optional display-prefix number. Empty string in the form
+          // when unset; a positive integer otherwise. Sent through to
+          // the server unchanged on save.
+          number:      (g.number != null && +g.number > 0) ? +g.number : '',
           parent_name: String(g.parent_name || ''),
           ip_range:    String(g.ip_range || ''),
           // Per-group SSH overrides — same shape as `hosts_config[].ssh`.
@@ -2678,6 +2684,7 @@ function app() {
           body: JSON.stringify(body),
         });
         if (r.ok) {
+          this.oidcDirty = false;
           this.showToast(this.t('toasts.oidc_saved'));
           await this.loadSettings();
           this.oidcTestResult = null;
@@ -3477,6 +3484,7 @@ function app() {
     markAppriseDirty()    { this.appriseDirty = true; },
     markOpenMeteoDirty()  { this.openMeteoDirty = true; },
     markPortainerFormDirty() { this.portainerDirty = true; },
+    markOidcFormDirty()   { this.oidcDirty = true; },
     // Auto-save a single per-service "enabled" master switch (#204).
     // Wired to the @change of the toggle checkbox for Apprise /
     // Open-Meteo / Portainer / SSH so the operator doesn't have to
@@ -3959,6 +3967,12 @@ function app() {
       const hostDiskUsed = Number.isFinite(info.host_disk_used) ? info.host_disk_used : 0;
       const hostMemTotal = Number.isFinite(info.host_mem_total) ? info.host_mem_total : 0;
       const hostMemUsed = Number.isFinite(info.host_mem_used) ? info.host_mem_used : 0;
+      // Host-level CPU% straight from the provider (Beszel/Pulse/NE).
+      // Lets the CPU bar render even when Portainer's per-container
+      // stats haven't been gathered yet (or when the node hosts no
+      // containers at all). Falls through to container-derived cpuRaw
+      // when the provider didn't supply one.
+      const hostCpuRaw = Number.isFinite(info.host_cpu_percent) ? info.host_cpu_percent : 0;
       // Host-stats status — three values:
       //   - 'ok'       scrape succeeded (any host_* fields populated)
       //   - 'error'    probe attempted but failed (exporter_error set,
@@ -3981,6 +3995,8 @@ function app() {
       else if (hostStatsEnabled) exporterStatus = 'error';  // enabled but no data came back
       return {
         cpuRaw,                        // 0..cores*100 (can exceed 100)
+        hostCpuRaw,                    // 0..100 — host-provider CPU%
+        hasHostCpu: hostCpuRaw > 0,
         memUsage,                      // bytes — sum of container usages
         memLimit: memBytes,            // NODE RAM capacity
         cores,
@@ -4030,11 +4046,16 @@ function app() {
     },
 
     nodeCpuPercent(host) {
-      // Raw CPU sum is 0..cores*100. Divide by cores to get 0..100%
-      // normalised against THIS node's actual capacity. Clamp at 100 —
-      // brief spikes over a single tick can exceed cores*100 due to
-      // sub-second bursts, and a bar that pokes past 100% looks broken.
-      const { cpuRaw, cores } = this.nodeStats(host);
+      // Prefer the host-provider's CPU% (Beszel/Pulse/NE) when present —
+      // it's already a 0..100 number derived from /proc/stat (or
+      // equivalent) and reflects total host load including processes
+      // outside Docker. Falls back to the container-aggregate cpuRaw
+      // (sum of per-container Docker stats) divided by core count.
+      // Clamp at 100 — brief spikes over a single tick can exceed
+      // cores*100 due to sub-second bursts, and a bar that pokes past
+      // 100% looks broken.
+      const { cpuRaw, hostCpuRaw, hasHostCpu, cores } = this.nodeStats(host);
+      if (hasHostCpu) return Math.min(100, hostCpuRaw);
       if (!cores) return 0;
       return Math.min(100, cpuRaw / cores);
     },
@@ -5556,6 +5577,24 @@ function app() {
         ['kavita',                'kavita'],
         ['squid',                 'squid'],
         ['lubelogger',            'lubelogger'],
+        // Rachio — smart sprinkler controllers.
+        ['rachio',                'rachio'],
+        // GL.iNet — travel routers / mini-routers (GL-MT, GL-AR,
+        // GL-AXT, Slate, Brume, Beryl model lines).
+        ['gl.inet',               'glinet'],
+        ['gl-inet',               'glinet'],
+        ['glinet',                'glinet'],
+        ['gl-mt',                 'glinet'],
+        ['gl-ar',                 'glinet'],
+        ['gl-axt',                'glinet'],
+        ['gl-b',                  'glinet'],
+        ['slate-ax',              'glinet'],
+        ['brume',                 'glinet'],
+        ['beryl-ax',              'glinet'],
+        // Somfy — smart-home / motorised-blind hubs (TaHoma, Connexoon).
+        ['somfy',                 'somfy'],
+        ['tahoma',                'somfy'],
+        ['connexoon',             'somfy'],
       ];
       for (const [needle, slug] of tokens) {
         if (hay.includes(needle)) return '/img/icons/' + slug + '.svg';
@@ -5844,6 +5883,15 @@ function app() {
         ip_range: '',
         ssh: { user: '', port: '', password: '', password_set: false, clear_password: false },
       };
+      // Capture the index BEFORE the array reassignment so we can
+      // reach the new row through `this.hostGroups[newIdx]` later.
+      // Reference-based lookup (`find(g => g === next)`) doesn't
+      // work: Alpine wraps `this.hostGroups` in a reactive Proxy on
+      // assignment, so iterating the array yields proxied entries
+      // that compare unequal to the raw `next` literal — find()
+      // returns undefined and the deferred parent_name assignment
+      // silently no-ops, leaving the dropdown stuck on "— top-level —".
+      const newIdx = groups.length;
       this.hostGroups = [...groups, next];
       this.hostGroupsDirty = true;
       // Make sure the parent's children block is EXPANDED so the new
@@ -5865,13 +5913,12 @@ function app() {
       // Now that the new row is in the DOM and its <option> elements
       // exist, set parent_name. The select's x-model picks up the
       // new value, the matching <option> is in place, and the
-      // dropdown displays "<parentName>" correctly.
+      // dropdown displays "<parentName>" correctly. Mutating through
+      // `this.hostGroups[newIdx]` goes via Alpine's Proxy so the
+      // reactivity flush triggers the select-binding effect.
       this.$nextTick(() => {
-        // Re-find the row by reference — the array spread above kept
-        // the same `next` object, but use a defensive lookup in case
-        // a future refactor changes the array shape.
-        const row = (this.hostGroups || []).find(g => g === next);
-        if (row) row.parent_name = name;
+        const list = this.hostGroups || [];
+        if (list[newIdx]) list[newIdx].parent_name = name;
       });
     },
 
@@ -5907,6 +5954,16 @@ function app() {
     // current row is excluded — a group cannot be its own parent. A
     // group that's already a sub-group is also excluded since
     // nesting is capped at 2 levels.
+    // Render a host-group heading for the Hosts view. Prepends the
+    // operator's optional `number` prefix when set so groups read as
+    // "32 Smart & IOT Routers" rather than just "Smart & IOT Routers".
+    hostGroupHeading(g) {
+      if (!g) return '';
+      const name = String(g.name || '');
+      const num = (g.number != null && +g.number > 0) ? +g.number : null;
+      return num != null ? `${num} ${name}` : name;
+    },
+
     topLevelGroupNames(excludeIdx) {
       return (this.hostGroups || [])
         .map((g, i) => ({ g, i }))
@@ -6179,11 +6236,27 @@ function app() {
         const sPw = String(sshIn.password || '').trim();
         if (sPw) ssh.password = sPw;
         if (sshIn.clear_password) ssh.clear_password = true;
+        // Optional display-prefix number. Validated as a positive
+        // integer when set; uniqueness check fires later (after every
+        // row is parsed so we can name the conflicting group).
+        let numberVal = null;
+        const numberRaw = g.number;
+        if (numberRaw !== '' && numberRaw != null) {
+          const n = parseInt(numberRaw, 10);
+          if (!Number.isFinite(n) || n <= 0) {
+            this.setFieldError('group_' + gi + '_number',
+              this.t('admin_hosts.groups.invalid_number') || 'Number must be a positive integer.');
+            hadError = true;
+            return;
+          }
+          numberVal = n;
+        }
         clean.push({
           name, range_start: rs, range_end: re_,
           order: Number.isFinite(+g.order) ? +g.order : clean.length,
           parent_name: parent_name || null,
           ip_range,
+          number: numberVal,
           ssh,
         });
         indexMap.push(gi);
@@ -6192,6 +6265,27 @@ function app() {
         this.focusFirstFieldError();
         return;
       }
+
+      // Number uniqueness — when set, no two groups may share the
+      // same prefix. Reports both names so the operator knows where
+      // the conflict is without scrolling.
+      const seenNumbers = new Map();
+      for (let j = 0; j < clean.length; j++) {
+        const g = clean[j];
+        if (g.number == null) continue;
+        const prior = seenNumbers.get(g.number);
+        if (prior !== undefined) {
+          const gi = indexMap[j];
+          this.setFieldError('group_' + gi + '_number',
+            this.t('admin_hosts.groups.err_number_dupe', {
+              other: prior.name,
+            }) || `Number ${g.number} already used by "${prior.name}".`);
+          hadError = true;
+          continue;
+        }
+        seenNumbers.set(g.number, { name: g.name, idx: indexMap[j] });
+      }
+      if (hadError) { this.focusFirstFieldError(); return; }
 
       // Parent existence + self-parent + depth-1 checks.
       const byName = new Map();

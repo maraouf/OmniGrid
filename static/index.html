@@ -837,9 +837,12 @@
                  sum divided by the node's core count, clamped 0-100). -->
             <div>
               <div class="flex items-baseline justify-between mb-1.5">
-                <span class="text-[10.5px] uppercase tracking-wider text-[var(--text-faint)]">CPU</span>
+                <span class="text-[10.5px] uppercase tracking-wider text-[var(--text-faint)]"
+                      x-text="nodeStats(node.name).hasHostCpu ? 'Host CPU' : 'CPU'"></span>
                 <span class="text-[12px] mono"
-                      x-text="nodeStats(node.name).hasStats ? cpuLabel(nodeCpuPercent(node.name)) : '—'"></span>
+                      x-text="(nodeStats(node.name).hasHostCpu || nodeStats(node.name).hasStats)
+                              ? cpuLabel(nodeCpuPercent(node.name))
+                              : '—'"></span>
               </div>
               <div class="stat-bar"
                    :class="barLevel(nodeCpuPercent(node.name))"
@@ -1174,7 +1177,7 @@
                 <polyline points="9 18 15 12 9 6"/>
               </svg>
               <span class="font-semibold text-[12px]"
-                    x-text="bucket.group ? bucket.group.name : t('hosts_extra_groups.ungrouped_label')"></span>
+                    x-text="bucket.group ? hostGroupHeading(bucket.group) : t('hosts_extra_groups.ungrouped_label')"></span>
               <!-- Right-aligned cluster: range + IP chips immediately
                    before the host count so they read as a single
                    metadata strip on the right. -->
@@ -1203,7 +1206,7 @@
                        :style="(h._sub_group && isGroupCollapsed(h._sub_group.name)) ? '' : 'transform: rotate(90deg)'">
                     <polyline points="9 18 15 12 9 6"/>
                   </svg>
-                  <span class="font-semibold text-[11.5px]" x-text="h._sub_group ? h._sub_group.name : ''"></span>
+                  <span class="font-semibold text-[11.5px]" x-text="h._sub_group ? hostGroupHeading(h._sub_group) : ''"></span>
                   <div class="flex items-center gap-2 ms-auto" x-show="h._sub_group">
                     <span class="pill pill-info text-[10px] mono"
                           x-text="h._sub_group ? ('#' + h._sub_group.range_start + '–' + h._sub_group.range_end) : ''"></span>
@@ -1316,7 +1319,7 @@
                 <polyline points="9 18 15 12 9 6"/>
               </svg>
               <span class="font-semibold text-[12px]"
-                    x-text="bucket.group ? bucket.group.name : t('hosts_extra_groups.ungrouped_label')"></span>
+                    x-text="bucket.group ? hostGroupHeading(bucket.group) : t('hosts_extra_groups.ungrouped_label')"></span>
               <div class="flex items-center gap-2 ms-auto">
                 <span x-show="bucket.group" class="pill pill-info text-[10px] mono"
                       x-text="'#' + bucket.group.range_start + '–' + bucket.group.range_end"></span>
@@ -3893,15 +3896,19 @@
                 x-text="oidcStatus ? (oidcStatus.enabled ? t('settings.oidc.enabled') : t('settings.oidc.disabled')) : ''"></span>
         </div>
         <div x-show="oidcStatus" class="space-y-3">
-          <label class="flex items-center gap-2 text-[12.5px] cursor-pointer">
+          <label class="flex items-center gap-2 text-[12.5px] cursor-pointer select-none">
             <input type="checkbox" :checked="oidcForm.enabled"
-                   @change="oidcForm.enabled = $event.target.checked"
+                   @change="oidcForm.enabled = $event.target.checked; markOidcFormDirty()"
                    :disabled="isReadonly()">
-            <span x-text="t('settings.oidc.enable_toggle')"></span>
+            <span class="font-medium" x-text="t('settings.oidc.enable_toggle')"></span>
+            <span class="text-[11px] text-[var(--text-faint)]"
+                  x-text="oidcForm.enabled ? '' : t('admin_integrations.disabled_hint')"></span>
           </label>
           <div>
             <label class="block text-[11px] text-[var(--text-dim)] mb-1" x-text="t('settings.oidc.issuer_url')"></label>
-            <input x-model="oidcForm.issuer_url" type="url" :disabled="isReadonly()"
+            <input x-model="oidcForm.issuer_url" type="url"
+                   @input="markOidcFormDirty()"
+                   :disabled="isReadonly() || !oidcForm.enabled"
                    :placeholder="t('settings.oidc.issuer_placeholder')"
                    class="w-full mono text-[12px]">
             <p class="text-[11px] text-[var(--text-faint)] mt-1" x-html="t('settings.oidc.issuer_hint')"></p>
@@ -3909,7 +3916,9 @@
           <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
               <label class="block text-[11px] text-[var(--text-dim)] mb-1" x-text="t('settings.oidc.client_id')"></label>
-              <input x-model="oidcForm.client_id" type="text" :disabled="isReadonly()"
+              <input x-model="oidcForm.client_id" type="text"
+                     @input="markOidcFormDirty()"
+                     :disabled="isReadonly() || !oidcForm.enabled"
                      :placeholder="t('settings.oidc.client_id_placeholder')"
                      class="w-full mono text-[12px]">
             </div>
@@ -3919,7 +3928,9 @@
                 <span class="text-[var(--text-faint)]"
                       x-text="oidcStatus && oidcStatus.client_secret_set ? t('settings.oidc.client_secret_set') : t('settings.oidc.client_secret_not_set')"></span>
               </label>
-              <input x-model="oidcForm.client_secret" type="password" :disabled="isReadonly()"
+              <input x-model="oidcForm.client_secret" type="password"
+                     @input="markOidcFormDirty()"
+                     :disabled="isReadonly() || !oidcForm.enabled"
                      :placeholder="t('settings.oidc.client_secret_placeholder')"
                      autocomplete="new-password"
                      class="w-full mono text-[12px]">
@@ -3941,14 +3952,18 @@
           <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
               <label class="block text-[11px] text-[var(--text-dim)] mb-1" x-text="t('settings.oidc.scopes')"></label>
-              <input x-model="oidcForm.scopes" type="text" :disabled="isReadonly()"
+              <input x-model="oidcForm.scopes" type="text"
+                     @input="markOidcFormDirty()"
+                     :disabled="isReadonly() || !oidcForm.enabled"
                      :placeholder="t('settings.oidc.scopes_placeholder')"
                      class="w-full mono text-[12px]">
               <p class="text-[11px] text-[var(--text-faint)] mt-1" x-html="t('settings.oidc.scopes_hint')"></p>
             </div>
             <div>
               <label class="block text-[11px] text-[var(--text-dim)] mb-1" x-text="t('settings.oidc.admin_group')"></label>
-              <input x-model="oidcForm.admin_group" type="text" :disabled="isReadonly()"
+              <input x-model="oidcForm.admin_group" type="text"
+                     @input="markOidcFormDirty()"
+                     :disabled="isReadonly() || !oidcForm.enabled"
                      :placeholder="t('settings.oidc.admin_group_placeholder')"
                      class="w-full mono text-[12.5px]">
               <p class="text-[11px] text-[var(--text-faint)] mt-1" x-html="t('settings.oidc.admin_group_hint')"></p>
@@ -3956,16 +3971,25 @@
           </div>
           <label class="flex items-start gap-2 text-[12.5px] cursor-pointer">
             <input type="checkbox" :checked="oidcForm.verify_tls"
-                   @change="oidcForm.verify_tls = $event.target.checked"
-                   :disabled="isReadonly()" class="mt-0.5">
+                   @change="oidcForm.verify_tls = $event.target.checked; markOidcFormDirty()"
+                   :disabled="isReadonly() || !oidcForm.enabled" class="mt-0.5">
             <span>
               <span class="font-medium" x-text="t('settings.oidc.verify_tls_title')"></span>
               <span class="block text-[11px] text-[var(--text-faint)] mt-0.5" x-html="t('settings.oidc.verify_tls_hint')"></span>
             </span>
           </label>
-          <div x-show="isAdmin()" class="flex gap-2 pt-1 flex-wrap">
-            <button @click="saveOidcSettings()" class="btn btn-primary text-[12px]" x-text="t('settings.oidc.save_button')"></button>
-            <button @click="testOidcConnection()" class="btn btn-soft text-[12px]" x-text="t('settings.oidc.test_button')"></button>
+          <div x-show="isAdmin()" class="flex items-center gap-3 pt-1 flex-wrap">
+            <button @click="saveOidcSettings()"
+                    :class="oidcDirty ? 'ring-2 ring-[var(--warning)]' : ''"
+                    class="btn btn-primary text-[12px]" x-text="t('settings.oidc.save_button')"></button>
+            <button @click="testOidcConnection()"
+                    :disabled="!oidcForm.enabled"
+                    class="btn btn-soft text-[12px]" x-text="t('settings.oidc.test_button')"></button>
+            <span x-show="oidcDirty"
+                  class="text-[11.5px] text-[var(--warning)] flex items-center gap-1.5">
+              <span class="w-1.5 h-1.5 rounded-full bg-[var(--warning)] animate-pulse"></span>
+              <span x-text="t('hosts_actions.unsaved_label')"></span>
+            </span>
           </div>
           <div x-show="oidcTestResult" class="text-[12px] rounded-md px-3 py-2"
                :class="oidcTestResult && oidcTestResult.ok ? 'bg-[var(--pill-ok-bg)] text-[var(--pill-ok-fg)] border border-[var(--pill-ok-br)]' : 'bg-[var(--pill-error-bg)] text-[var(--pill-error-fg)] border border-[var(--pill-error-br)]'">
@@ -4898,6 +4922,9 @@
                          :class="hasFieldError('group_' + origIdx + '_range') ? 'field-invalid' : ''"
                          min="0" step="1">
                 </div>
+                <div x-show="hasFieldError('group_' + origIdx + '_range')"
+                     class="field-error-msg col-span-2 md:col-span-5"
+                     x-text="fieldError('group_' + origIdx + '_range')"></div>
                 <div class="flex items-center gap-1 pb-1.5">
                   <button x-show="isAdmin()" @click="moveHostGroupByListIdx(listIdx, -1)"
                           :disabled="listIdx === 0"
@@ -4918,15 +4945,33 @@
                           :title="t('admin_hosts.groups.remove_title')">✕</button>
                 </div>
               </div>
-              <!-- Row 2: IP range (free text, display only today). -->
-              <div class="mt-2">
-                <label class="block text-[10.5px] uppercase tracking-wider text-[var(--text-faint)] mb-1"
-                       x-text="t('admin_hosts.groups.ip_range_label')"></label>
-                <input type="text" x-model.lazy="g.ip_range"
-                       :disabled="isReadonly()"
-                       @input="markHostGroupDirty()"
-                       class="w-full mono text-[12.5px] py-1.5"
-                       :placeholder="t('admin_hosts.groups.ip_range_placeholder')">
+              <!-- Row 2: number prefix (optional) + IP range. -->
+              <div class="mt-2 grid grid-cols-1 md:grid-cols-[140px_1fr] gap-3 items-start">
+                <div>
+                  <label class="block text-[10.5px] uppercase tracking-wider text-[var(--text-faint)] mb-1"
+                         x-text="t('admin_hosts.groups.number_label')"></label>
+                  <input type="number" x-model.lazy.number="g.number"
+                         :disabled="isReadonly()"
+                         @input="markHostGroupDirty(); clearFieldError('group_' + origIdx + '_number')"
+                         class="w-full mono text-[12.5px] py-1.5"
+                         :class="hasFieldError('group_' + origIdx + '_number') ? 'field-invalid' : ''"
+                         min="1" step="1"
+                         :placeholder="t('admin_hosts.groups.number_placeholder')">
+                  <div x-show="hasFieldError('group_' + origIdx + '_number')"
+                       class="field-error-msg"
+                       x-text="fieldError('group_' + origIdx + '_number')"></div>
+                  <p class="text-[10px] text-[var(--text-faint)] mt-1"
+                     x-text="t('admin_hosts.groups.number_hint')"></p>
+                </div>
+                <div>
+                  <label class="block text-[10.5px] uppercase tracking-wider text-[var(--text-faint)] mb-1"
+                         x-text="t('admin_hosts.groups.ip_range_label')"></label>
+                  <input type="text" x-model.lazy="g.ip_range"
+                         :disabled="isReadonly()"
+                         @input="markHostGroupDirty()"
+                         class="w-full mono text-[12.5px] py-1.5"
+                         :placeholder="t('admin_hosts.groups.ip_range_placeholder')">
+                </div>
               </div>
               <!-- Row 3: SSH credentials (user / port / password).
                    Optional. Resolves at runtime in this priority
@@ -5257,7 +5302,7 @@
                    x-text="t('admin_ssh.user_label')"></label>
             <input x-model="sshSettings.user" type="text"
                    @input="markSshSettingsDirty()"
-                   :disabled="isReadonly()"
+                   :disabled="isReadonly() || !settings.ssh_enabled"
                    class="w-full mono text-[12.5px] py-1.5"
                    :placeholder="t('admin_ssh.user_placeholder')">
           </div>
@@ -5266,7 +5311,7 @@
                    x-text="t('admin_ssh.port_label')"></label>
             <input x-model.number="sshSettings.port" type="number"
                    @input="markSshSettingsDirty()"
-                   :disabled="isReadonly()"
+                   :disabled="isReadonly() || !settings.ssh_enabled"
                    min="1" max="65535"
                    class="w-full mono text-[12.5px] py-1.5">
           </div>
@@ -5286,7 +5331,7 @@
           </label>
           <textarea x-model="sshSettings.private_key"
                     @input="markSshSettingsDirty()"
-                    :disabled="isReadonly()"
+                    :disabled="isReadonly() || !settings.ssh_enabled"
                     rows="6"
                     class="w-full mono text-[11px] py-1.5 scrollbar"
                     :placeholder="sshSettings.private_key_set ? '••••••••' : t('admin_ssh.key_placeholder')"></textarea>
@@ -5308,7 +5353,7 @@
           </label>
           <input x-model="sshSettings.passphrase" type="password"
                  @input="markSshSettingsDirty()"
-                 :disabled="isReadonly()"
+                 :disabled="isReadonly() || !settings.ssh_enabled"
                  class="w-full text-[12.5px]"
                  :placeholder="sshSettings.passphrase_set ? '••••••••' : t('admin_ssh.passphrase_placeholder')">
         </div>
@@ -5329,7 +5374,7 @@
           </label>
           <input x-model="sshSettings.password" type="password"
                  @input="markSshSettingsDirty()"
-                 :disabled="isReadonly()"
+                 :disabled="isReadonly() || !settings.ssh_enabled"
                  class="w-full text-[12.5px]"
                  :placeholder="sshSettings.password_set ? '••••••••' : 'Alternative to private key'">
           <p class="text-[10.5px] text-[var(--text-faint)] mt-1">
@@ -5349,7 +5394,7 @@
           </label>
           <input x-model="sshSettings.fqdn_suffix" type="text"
                  @input="markSshSettingsDirty()"
-                 :disabled="isReadonly()"
+                 :disabled="isReadonly() || !settings.ssh_enabled"
                  placeholder="e.g. .example.com"
                  class="w-full mono text-[12.5px] py-1.5">
           <p class="text-[10.5px] text-[var(--text-faint)] mt-1">
@@ -5363,7 +5408,7 @@
                  x-text="t('admin_ssh.known_hosts_label')"></label>
           <textarea x-model="sshSettings.known_hosts"
                     @input="markSshSettingsDirty()"
-                    :disabled="isReadonly()"
+                    :disabled="isReadonly() || !settings.ssh_enabled"
                     rows="3"
                     class="w-full mono text-[11px] py-1.5 scrollbar"
                     :placeholder="t('admin_ssh.known_hosts_placeholder')"></textarea>
@@ -5385,7 +5430,7 @@
                   <input type="text"
                          :value="action.title"
                          @input="action.title = $event.target.value; markSshSettingsDirty()"
-                         :disabled="isReadonly()"
+                         :disabled="isReadonly() || !settings.ssh_enabled"
                          :placeholder="t('admin_ssh.custom_action_title_placeholder')"
                          class="w-full text-[12px] py-1">
                 </div>
@@ -5394,7 +5439,7 @@
                          x-text="t('admin_ssh.custom_action_command_label')"></label>
                   <textarea :value="action.command"
                             @input="action.command = $event.target.value; markSshSettingsDirty()"
-                            :disabled="isReadonly()"
+                            :disabled="isReadonly() || !settings.ssh_enabled"
                             rows="9"
                             class="w-full mono text-[11.5px] py-2 scrollbar"
                             style="min-height: 11rem; resize: vertical;"
@@ -5404,17 +5449,18 @@
                   <button type="button" class="btn btn-ghost text-[11px] px-1.5"
                           x-show="isAdmin()"
                           @click="moveSshCustomAction(idx, -1)"
-                          :disabled="idx === 0"
+                          :disabled="idx === 0 || !settings.ssh_enabled"
                           :title="t('admin_ssh.custom_action_move_up')">↑</button>
                   <button type="button" class="btn btn-ghost text-[11px] px-1.5"
                           x-show="isAdmin()"
                           @click="moveSshCustomAction(idx, 1)"
-                          :disabled="idx === (sshSettings.custom_actions || []).length - 1"
+                          :disabled="idx === (sshSettings.custom_actions || []).length - 1 || !settings.ssh_enabled"
                           :title="t('admin_ssh.custom_action_move_down')">↓</button>
                   <button type="button"
                           class="btn btn-ghost text-[11px] text-[var(--danger)] px-1.5"
                           x-show="isAdmin()"
                           @click="removeSshCustomAction(idx)"
+                          :disabled="!settings.ssh_enabled"
                           :title="t('admin_ssh.custom_action_remove')">✕</button>
                 </div>
               </div>
@@ -5426,6 +5472,7 @@
           <button type="button"
                   x-show="isAdmin()"
                   @click="addSshCustomAction()"
+                  :disabled="!settings.ssh_enabled"
                   class="btn btn-soft text-[11.5px] mt-2"
                   x-text="t('admin_ssh.custom_action_add')"></button>
         </div>
@@ -5434,7 +5481,7 @@
                  x-text="t('admin_ssh.destructive_label')"></label>
           <textarea x-model="sshSettings.destructive_patterns"
                     @input="markSshSettingsDirty()"
-                    :disabled="isReadonly()"
+                    :disabled="isReadonly() || !settings.ssh_enabled"
                     rows="4"
                     class="w-full mono text-[11px] py-1.5 scrollbar"
                     :placeholder="t('admin_ssh.destructive_placeholder')"></textarea>
@@ -5461,6 +5508,7 @@
           <div class="flex items-center gap-2 flex-wrap">
             <label class="text-[11px] text-[var(--text-faint)]" x-text="t('admin_ssh.test_host_label')"></label>
             <select x-model="sshTestOnHost.host_id"
+                    :disabled="!settings.ssh_enabled"
                     class="text-[12px] py-1 min-w-[240px]">
               <option value="">—</option>
               <template x-for="h in hostsConfig" :key="h.id">
@@ -5468,7 +5516,7 @@
               </template>
             </select>
             <button x-show="isAdmin()" @click="runSshAdminTest()"
-                    :disabled="sshTestOnHost.pending || !sshTestOnHost.host_id"
+                    :disabled="sshTestOnHost.pending || !sshTestOnHost.host_id || !settings.ssh_enabled"
                     class="btn btn-soft text-[12px]">
               <span x-show="!sshTestOnHost.pending" x-text="t('admin_ssh.test_button')"></span>
               <span x-show="sshTestOnHost.pending" class="flex items-center gap-1"><span class="spin"></span><span x-text="t('admin_ssh.testing')"></span></span>
