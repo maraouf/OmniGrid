@@ -324,6 +324,18 @@ def resolve_ssh_params(host_id: str, hosts_config: list[dict]) -> dict:
         return resolved
 
     main_group, sub_group = _groups_for_host(record)
+    # Diagnostic — operators reported "Not configured" even after
+    # saving group SSH creds. Logs which groups matched and what SSH
+    # fields were on each, so root cause (custom_number missing /
+    # group range mismatch / password not persisted) is visible in
+    # Admin → Logs without further code changes.
+    print(
+        f"[ssh] groups_for_host id={host_id!r} cn={record.get('custom_number')!r} "
+        f"main={(main_group or {}).get('name')!r} "
+        f"main_ssh_keys={list((main_group or {}).get('ssh', {}).keys()) if isinstance((main_group or {}).get('ssh'), dict) else None} "
+        f"sub={(sub_group or {}).get('name')!r} "
+        f"sub_ssh_keys={list((sub_group or {}).get('ssh', {}).keys()) if isinstance((sub_group or {}).get('ssh'), dict) else None}"
+    )
     # Walk layers least-specific → most-specific so later overrides win.
     layer_specs = [
         ("main_group", _group_ssh(main_group)),

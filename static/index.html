@@ -3017,11 +3017,18 @@
               <input type="checkbox" x-model="headerClockEnabled" @change="saveHeaderPrefs()">
               <span x-text="t('topbar_widgets.show_clock')"></span>
             </label>
-            <label class="flex items-center gap-2 text-[12.5px]">
+            <!-- Weather toggle hidden entirely when the admin
+                 hasn't configured Open-Meteo upstream — there's no
+                 endpoint to call, so the feature isn't available
+                 to opt into. Becomes visible the moment the admin
+                 sets the URL in Settings → Notifications. -->
+            <label class="flex items-center gap-2 text-[12.5px]"
+                   x-show="settings && (settings.open_meteo_url || '').trim()">
               <input type="checkbox" x-model="headerWeatherEnabled" @change="saveHeaderPrefs()">
               <span x-text="t('topbar_widgets.show_weather')"></span>
             </label>
-            <div class="grid grid-cols-1 sm:grid-cols-3 gap-3" x-show="headerWeatherEnabled">
+            <div class="grid grid-cols-1 sm:grid-cols-3 gap-3"
+                 x-show="headerWeatherEnabled && settings && (settings.open_meteo_url || '').trim()">
               <div>
                 <label class="block text-[11px] text-[var(--text-dim)] mb-1" x-text="t('topbar_widgets.city_label')"></label>
                 <input type="text" x-model="headerWeatherLabel"
@@ -4180,8 +4187,8 @@
         </div>
 
         <div x-show="!hostsConfigLoading" class="space-y-3">
-          <template x-for="{ row, idx } in filteredHostsConfig()" :key="idx">
-            <div class="border border-[var(--border)] rounded-md bg-[var(--surface-2)] p-3">
+          <template x-for="{ row, idx } in filteredHostsConfig()" :key="row._uid || ('r-' + idx)">
+            <div class="border border-[var(--border)] rounded-md bg-[var(--surface-2)] p-3" data-host-card>
               <!-- One-line collapsed summary. Click the header to
                    toggle the full field grid. Empty-id rows (fresh
                    +Add) always stay expanded so the operator can
@@ -4324,8 +4331,13 @@
                 </div>
               </div>
               <!-- Row 2 — per-provider name mappings -->
+              <!-- Provider mapping fields — each one hides when the
+                   global provider is disabled in Settings → Host
+                   stats (no point configuring a name OmniGrid will
+                   never probe). Visible mapping shrinks the editor
+                   for operators who run a single-provider setup. -->
               <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
-                <div>
+                <div x-show="hostStatsSourceEnabled('node_exporter')">
                   <label class="block text-[10.5px] uppercase tracking-wider text-[var(--text-faint)] mb-1">
                     node-exporter URL
                     <span class="text-[10px] normal-case text-[var(--text-faint)] ms-1">(blank = skip)</span>
@@ -4335,7 +4347,7 @@
                          class="w-full mono text-[12.5px] py-1.5"
                          placeholder="http://10.0.0.1:9100/metrics">
                 </div>
-                <div>
+                <div x-show="hostStatsSourceEnabled('beszel')">
                   <label class="block text-[10.5px] uppercase tracking-wider text-[var(--text-faint)] mb-1">
                     Beszel host
                     <span class="text-[10px] normal-case text-[var(--text-faint)] ms-1" x-show="hostsDiscovery.beszel.length">(autocomplete)</span>
@@ -4346,7 +4358,7 @@
                          class="w-full mono text-[12.5px] py-1.5"
                          :placeholder="t('admin_hosts.row.beszel_name_placeholder')">
                 </div>
-                <div>
+                <div x-show="hostStatsSourceEnabled('pulse')">
                   <label class="block text-[10.5px] uppercase tracking-wider text-[var(--text-faint)] mb-1">
                     Pulse name
                     <span class="text-[10px] normal-case text-[var(--text-faint)] ms-1" x-show="hostsDiscovery.pulse.length">(autocomplete)</span>
@@ -4361,8 +4373,8 @@
               <!-- Row 2a — Webmin mapping. URL is per-host (every box
                    has its own Miniserv), so it's stored in the
                    webmin_aliases map using this row's ID as the key.
-                   Blank URL = silently skip this host for Webmin. -->
-              <div class="grid grid-cols-1 md:grid-cols-[2fr_1fr] gap-3">
+                   Hidden entirely when Webmin is globally disabled. -->
+              <div class="grid grid-cols-1 md:grid-cols-[2fr_1fr] gap-3" x-show="hostStatsSourceEnabled('webmin')">
                 <div>
                   <label class="block text-[10.5px] uppercase tracking-wider text-[var(--text-faint)] mb-1">
                     Webmin URL

@@ -446,7 +446,13 @@ function app() {
         if (v === 'hosts') {
           this.loadHosts();
           if (this._hostsTimer) clearInterval(this._hostsTimer);
-          this._hostsTimer = setInterval(() => this.loadHosts(), 15000);
+          // Honour the "stats off" master switch — when the
+          // operator picked Off, the host poll's 15s rebuild cycle
+          // (with its brief loading-spinner flash on every row)
+          // is part of the "live updates" they wanted to silence.
+          if (this.statsInterval > 0) {
+            this._hostsTimer = setInterval(() => this.loadHosts(), 15000);
+          }
         } else if (this._hostsTimer) {
           clearInterval(this._hostsTimer);
           this._hostsTimer = null;
@@ -513,7 +519,10 @@ function app() {
       // view-watcher does on manual switch.
       if (this.view === 'hosts') {
         this.loadHosts();
-        this._hostsTimer = setInterval(() => this.loadHosts(), 15000);
+        // Same off-honoring rule as the view-watcher above.
+        if (this.statsInterval > 0) {
+          this._hostsTimer = setInterval(() => this.loadHosts(), 15000);
+        }
       }
       setInterval(() => this.updateCacheLabel(), 1000);
     },
@@ -2287,6 +2296,18 @@ function app() {
         clearTimeout(this._statsTimer);
         this._statsTimer = null;
       }
+      // Statss interval is the master "live updates" switch — when
+      // the operator picks Off (0), kill the hosts-poll timer too
+      // (its 15s rebuild causes the row's loading-spinner flash).
+      // When they re-enable, restart it for the hosts view.
+      if (seconds > 0) {
+        if (this.view === 'hosts' && !this._hostsTimer) {
+          this._hostsTimer = setInterval(() => this.loadHosts(), 15000);
+        }
+      } else if (this._hostsTimer) {
+        clearInterval(this._hostsTimer);
+        this._hostsTimer = null;
+      }
       this.pollStats();
     },
 
@@ -2357,7 +2378,11 @@ function app() {
         this.nodesInfo = d.nodes_info || {};
         // Non-UI label; stays English since it's diagnostic-adjacent.
         this.cacheLabel = d.cached ? `cached ${d.age}s ago` : 'fresh';
-        if (force) this.loadStats(true);  // fire-and-forget, don't block UI
+        // Only fire stats alongside a forced refresh when stats
+        // polling is actually enabled. With statsInterval=0 the
+        // operator explicitly chose "off", so auto-refresh
+        // shouldn't sneak a /api/stats call in via the back door.
+        if (force && this.statsInterval > 0) this.loadStats(true);
       } catch (e) { this.showToast(this.t('toasts.load_failed', { error: e.message }), 'error'); }
       this.loading = false;
     },
@@ -4084,6 +4109,16 @@ function app() {
           // doesn't reactively create it piecemeal (which would break
           // the dirty tracker).
           if (!row.ssh || typeof row.ssh !== 'object') row.ssh = {};
+          // Stamp a stable per-row uid the first time we see this
+          // row. Used as the x-for :key so DOM elements never tear
+          // down + re-mount mid-typing (which loses input focus and
+          // triggers the "still typing in ID is causing refresh"
+          // symptom). Persisted into hostsConfig so subsequent
+          // reconciliation passes preserve identity even when the
+          // sort order changes.
+          if (!row._uid) {
+            row._uid = 'r' + Math.random().toString(36).slice(2, 10) + Date.now().toString(36);
+          }
         }
         this.hostsConfigDirty = false;
         this.rebuildHostsConfigOrder();
@@ -4475,6 +4510,16 @@ function app() {
       const active = all.filter(m => (+m.dp || 0) >= 0.5);
       return Math.max(0, all.length - active.length);
     },
+    // True when the named provider is enabled in
+    // settings.host_stats_sources. The host editor uses this to
+    // hide per-row Beszel / Pulse / Webmin / NE fields whose global
+    // provider is disabled — operators don't waste time configuring
+    // mappings that won't be probed.
+    hostStatsSourceEnabled(name) {
+      const sources = (this.settings && this.settings.host_stats_sources) || [];
+      if (!Array.isArray(sources)) return true;  // unknown → show
+      return sources.includes(name);
+    },
     addHostRow() {
       // Pre-fill custom_number with the next unused integer so a fresh
       // row slots into the catalogue sequence without manual thought.
@@ -4499,9 +4544,28 @@ function app() {
         // Per-host SSH overrides — empty object = use global defaults.
         ssh: {},
         enabled: true,
+        // Stable identity for x-for keying (matches the loadHostsConfig
+        // hydration path).
+        _uid: 'r' + Math.random().toString(36).slice(2, 10) + Date.now().toString(36),
       });
       this.hostsConfigDirty = true;
       this.rebuildHostsConfigOrder();
+      // Scroll to the new (last) host card so the operator sees it
+      // immediately — useful when the editor list is long enough to
+      // require scrolling. A short delay lets Alpine finish rendering
+      // the new row before we try to find + scroll to it.
+      this.$nextTick(() => {
+        setTimeout(() => {
+          const cards = document.querySelectorAll('[data-host-card]');
+          const last = cards[cards.length - 1];
+          if (last && typeof last.scrollIntoView === 'function') {
+            last.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            // Focus the ID input for immediate typing.
+            const idInput = last.querySelector('input[placeholder*="host01"], input[placeholder*="example"]');
+            if (idInput && typeof idInput.focus === 'function') idInput.focus();
+          }
+        }, 50);
+      });
     },
     // Dirty-tracking: any input change flips the unsaved-changes
     // flag (so the Save button can flash the warning + beforeunload
