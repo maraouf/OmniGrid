@@ -4290,14 +4290,14 @@
                 </template>
                 <span x-show="!row.enabled" class="chip text-[9.5px] px-1 py-0 pill-warning" x-text="t('states.disabled')"></span>
                 <span class="ms-auto"></span>
-                <!-- Asset-inventory autofill — surfaced in the row header
-                     so operators see at a glance which rows have a cached
-                     asset waiting. Visible even when the row is collapsed;
-                     click triggers autofill without expanding (stopPropagation
-                     keeps the click from toggling the row). Hidden when no
-                     match, so rows without an asset stay quiet. -->
+                <!-- Asset-inventory autofill — shown in the expanded-row
+                     header only. Collapsed rows stay visually quiet; once
+                     the operator opens a row to edit it, the chip appears
+                     when the row's custom_number has a cached asset match.
+                     @click.stop keeps the click from toggling the row
+                     back to collapsed. -->
                 <button type="button"
-                        x-show="!isReadonly() && hostRowHasAssetMatch(row)"
+                        x-show="!isReadonly() && isHostConfigExpanded(row) && hostRowHasAssetMatch(row)"
                         @click.stop="autofillHostRowFromAsset(idx)"
                         class="host-row-autofill-chip"
                         :title="t('admin_hosts.autofill.button_title')">
