@@ -4289,7 +4289,26 @@
                   <span class="chip text-[9.5px] px-1 py-0 pill-muted mono" x-text="p"></span>
                 </template>
                 <span x-show="!row.enabled" class="chip text-[9.5px] px-1 py-0 pill-warning" x-text="t('states.disabled')"></span>
-                <span class="ms-auto text-[10.5px] text-[var(--text-faint)]"
+                <span class="ms-auto"></span>
+                <!-- Asset-inventory autofill — surfaced in the row header
+                     so operators see at a glance which rows have a cached
+                     asset waiting. Visible even when the row is collapsed;
+                     click triggers autofill without expanding (stopPropagation
+                     keeps the click from toggling the row). Hidden when no
+                     match, so rows without an asset stay quiet. -->
+                <button type="button"
+                        x-show="!isReadonly() && hostRowHasAssetMatch(row)"
+                        @click.stop="autofillHostRowFromAsset(idx)"
+                        class="host-row-autofill-chip"
+                        :title="t('admin_hosts.autofill.button_title')">
+                  <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <path d="M12 2v14"/>
+                    <polyline points="7 11 12 16 17 11"/>
+                    <line x1="5" y1="21" x2="19" y2="21"/>
+                  </svg>
+                  <span x-text="t('admin_hosts.autofill.button')"></span>
+                </button>
+                <span class="text-[10.5px] text-[var(--text-faint)]"
                       x-show="!isHostConfigExpanded(row)">Click to edit</span>
               </div>
 
