@@ -23,7 +23,7 @@ function app() {
       } catch (e) {
         // Language fetch failed — surface a fallback message that doesn't
         // require the new dict to have loaded.
-        this.showToast('Language load failed', 'error');
+        this.showToast(this.t('toasts_extra.language_load_failed'), 'error');
       }
     },
     items: [], stacks: [], nodes: {}, nodesInfo: {},
@@ -2730,6 +2730,11 @@ function app() {
         portainer_url:         (this.portainerForm.url || '').trim(),
         portainer_endpoint_id: parseInt(this.portainerForm.endpoint_id) || 1,
         portainer_verify_tls:  !!this.portainerForm.verify_tls,
+        // Public URL — folded into this Save button so the operator
+        // doesn't have to hit two Save buttons after editing the
+        // Portainer admin tab. Backend treats it as keep-current-if-
+        // missing, so sending an empty string is a deliberate clear.
+        portainer_public_url:  (this.settings.portainer_public_url || '').trim(),
       };
       if (this.portainerForm.api_key && this.portainerForm.api_key.trim()) {
         body.portainer_api_key = this.portainerForm.api_key;
@@ -2771,7 +2776,7 @@ function app() {
         const j = await r.json().catch(() => ({}));
         this.portainerTestResult = { ok: !!j.ok, status: j.status || 0, detail: j.detail || '' };
       } catch (e) {
-        this.portainerTestResult = { ok: false, status: 0, detail: 'Network error' };
+        this.portainerTestResult = { ok: false, status: 0, detail: this.t('toasts.network_error') };
       }
     },
 
@@ -2796,11 +2801,11 @@ function app() {
         this.beszelTestResult = {
           pending: false,
           ok: !!j.ok,
-          detail: j.detail || (j.ok ? 'OK' : 'Failed'),
+          detail: j.detail || this.t(j.ok ? 'toasts_extra.test_result_ok' : 'toasts_extra.test_result_failed'),
           systems: j.systems || [],
         };
       } catch (e) {
-        this.beszelTestResult = { pending: false, ok: false, detail: 'Network error' };
+        this.beszelTestResult = { pending: false, ok: false, detail: this.t('toasts.network_error') };
       }
     },
     async testPulseConnection() {
@@ -2821,11 +2826,11 @@ function app() {
         this.pulseTestResult = {
           pending: false,
           ok: !!j.ok,
-          detail: j.detail || (j.ok ? 'OK' : 'Failed'),
+          detail: j.detail || this.t(j.ok ? 'toasts_extra.test_result_ok' : 'toasts_extra.test_result_failed'),
           nodes: j.nodes || [],
         };
       } catch (e) {
-        this.pulseTestResult = { pending: false, ok: false, detail: 'Network error' };
+        this.pulseTestResult = { pending: false, ok: false, detail: this.t('toasts.network_error') };
       }
     },
     async testWebminConnection() {
@@ -2853,10 +2858,10 @@ function app() {
         this.webminTestResult = {
           pending: false,
           ok: !!j.ok,
-          detail: j.detail || (j.ok ? 'OK' : 'Failed'),
+          detail: j.detail || this.t(j.ok ? 'toasts_extra.test_result_ok' : 'toasts_extra.test_result_failed'),
         };
       } catch (e) {
-        this.webminTestResult = { pending: false, ok: false, detail: 'Network error' };
+        this.webminTestResult = { pending: false, ok: false, detail: this.t('toasts.network_error') };
       }
     },
     // -------- SSH console ----------------------------------------------
@@ -4718,7 +4723,7 @@ function app() {
       for (const n of (this.hostsDiscovery.webmin || [])) addOrMerge(n, 'webmin_name');
       const rows = Object.values(added);
       if (!rows.length) {
-        this.showToast('Nothing new to import — every discovered name is already configured.', 'success');
+        this.showToast(this.t('admin_hosts.import.nothing_new'), 'success');
         return;
       }
       this.hostsConfig.push(...rows);
@@ -4781,7 +4786,7 @@ function app() {
       const incoming = Array.isArray(payload.hosts) ? payload.hosts
                      : (Array.isArray(payload) ? payload : []);
       if (!incoming.length) {
-        this.showToast('No hosts found in file.', 'error');
+        this.showToast(this.t('admin_hosts.import.no_hosts_in_file'), 'error');
         return;
       }
       const existing = this.hostsConfig || [];
@@ -4831,7 +4836,7 @@ function app() {
            (row.ne_url || '').trim())
         );
       if (!rows.length) {
-        this.showToast('No enabled hosts with provider mappings to test.', 'error');
+        this.showToast(this.t('admin_hosts.test.no_eligible'), 'error');
         return;
       }
       this.hostsTestingAll = true;
@@ -5306,6 +5311,13 @@ function app() {
           'fire-tv':          'firetv',
           'fire_tv':          'firetv',
           'firestick':        'firetv',
+          // Amazon Echo / Alexa — Echo product variants all use
+          // alexa.svg (the canonical Alexa-blue swirl mark).
+          'echo':             'alexa',
+          'echo-dot':         'alexa',
+          'echo-show':        'alexa',
+          'echo-studio':      'alexa',
+          'amazon-echo':      'alexa',
         };
         const slug = aliases[h.icon.toLowerCase()] || h.icon;
         return '/img/icons/' + slug + '.svg';
@@ -5647,6 +5659,21 @@ function app() {
         ['firetv',                'firetv'],
         ['firestick',             'firetv'],
         ['fire stick',            'firetv'],
+        // Amazon Echo / Alexa — smart speakers, Echo Dot / Show / Studio.
+        // The dashboard-icons repo's `alexa.svg` is the canonical
+        // Alexa-blue swirl mark that Echo devices ship with, so all
+        // Echo product variants resolve to it.
+        ['amazon echo',           'alexa'],
+        ['echo dot',              'alexa'],
+        ['echo show',             'alexa'],
+        ['echo studio',           'alexa'],
+        [' echo ',                'alexa'],
+        ['alexa',                 'alexa'],
+        // Amazon parent brand — distinct from Alexa/Echo. Order
+        // matters: matches AFTER the more-specific Alexa/Echo /
+        // Fire-TV phrases so a host labelled "Amazon Echo Dot"
+        // resolves to alexa.svg, not amazon.svg.
+        ['amazon',                'amazon'],
       ];
       for (const [needle, slug] of tokens) {
         if (hay.includes(needle)) return '/img/icons/' + slug + '.svg';
@@ -6685,7 +6712,7 @@ function app() {
           showCancelButton: true,
           confirmButtonText: this.t('actions.confirm'),
           cancelButtonText:  this.t('actions.cancel'),
-        }).then(r => !!r.isConfirmed) : confirm('Clear asset inventory client secret?'));
+        }).then(r => !!r.isConfirmed) : confirm(this.t('toasts_extra.asset_clear_secret_prompt')));
         if (!ok) return;
         const r = await fetch('/api/settings', {
           method: 'POST',
@@ -6708,7 +6735,7 @@ function app() {
           showCancelButton: true,
           confirmButtonText: this.t('actions.confirm'),
           cancelButtonText:  this.t('actions.cancel'),
-        }).then(r => !!r.isConfirmed) : confirm('Clear asset inventory lifetime token?'));
+        }).then(r => !!r.isConfirmed) : confirm(this.t('toasts_extra.asset_clear_token_prompt')));
         if (!ok) return;
         const r = await fetch('/api/settings', {
           method: 'POST',

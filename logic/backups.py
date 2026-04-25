@@ -47,7 +47,15 @@ from logic.version import APP_VERSION
 #   <data_dir>/omnigrid.db             SQLite file
 #   <data_dir>/avatars/                user-uploaded images
 #   <data_dir>/backups/                zip archives (owned by this module)
-_DATA_DIR = os.path.dirname(DB_PATH) or "."
+#
+# When DB_PATH is unset (config-error mode — see logic/db.py), main.py's
+# lifespan installs a config-error middleware so backups never gets
+# called. But `from logic import backups` still happens at import time,
+# so this module must NOT crash when DB_PATH is None. Default to a
+# safe placeholder (`/tmp`); ensure_dirs() is gated behind DB_PATH at
+# startup, and every public function in this module is admin-only via
+# main.py's route deps so the placeholder never gets used in practice.
+_DATA_DIR = os.path.dirname(DB_PATH) or "." if DB_PATH else "/tmp"
 BACKUP_DIR = os.path.join(_DATA_DIR, "backups")
 AVATAR_DIR = os.path.join(_DATA_DIR, "avatars")
 

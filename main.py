@@ -55,7 +55,7 @@ from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 
 from logic import auth, backups, metrics, oidc, schedules
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 
 # ============================================================================
 # Version
@@ -746,6 +746,19 @@ class IgnoreIn(BaseModel):
     pattern: str
     kind: str
     reason: Optional[str] = ""
+
+    @field_validator("kind")
+    @classmethod
+    def _kind_must_be_known(cls, v: str) -> str:
+        # ``logic.gather.is_ignored`` only honours these two values; a
+        # typo silently inserted a no-op row before this validator.
+        # Reject early with a clear 422 from FastAPI so the operator
+        # learns the typo at edit time rather than wondering why their
+        # ignore rule isn't taking effect.
+        normalised = (v or "").strip().lower()
+        if normalised not in ("image", "stack"):
+            raise ValueError("kind must be 'image' or 'stack'")
+        return normalised
 
 
 @app.get("/api/ignores")
@@ -1690,6 +1703,13 @@ async def api_set_settings(
             auth_changed = True
         if s.oidc_admin_group is not None:
             auth.set_auth_setting(c, "oidc_admin_group", s.oidc_admin_group.strip())
+            # Without flipping auth_changed here, the cached
+            # admin-group claim survives until restart even though
+            # the DB has the new value. `auto_provision_authentik`
+            # would keep matching incoming OIDC logins against the
+            # OLD group and route the wrong users to admin/readonly.
+            # See BUG-001 in notes/code_review_2026-04-25.md.
+            auth_changed = True
         if s.oidc_verify_tls is not None:
             auth.set_auth_setting(c, "oidc_verify_tls",
                                   "true" if s.oidc_verify_tls else "false")

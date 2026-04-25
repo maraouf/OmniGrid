@@ -137,14 +137,23 @@ def _next_fixed_time_run(
 ) -> int:
     """Next epoch-seconds moment at which a daily HH:MM schedule should fire.
 
-    Due-check contract: ``next <= now`` → fire. Three cases:
+    Due-check contract: ``next <= now`` → fire. Four cases:
       1. Today's anchor is still in the future → next = today's anchor.
-      2. Today's anchor already passed WITH a run recorded → next =
+      2. We're inside the grace window past today's anchor AND there's
+         no recorded run for it → next = today's anchor (fire now).
+         Grace = ``TICK_INTERVAL_SECONDS * 2`` (≈120s by default) so a
+         scheduler tick that lands ~30 seconds after the anchor still
+         catches today's fire window. See note_todo #211 — without
+         the grace window, daily / weekly / monthly schedules never
+         fired because the strictly-less-than check skipped the
+         anchor on every tick that landed after it.
+      3. Today's anchor already passed AND we're past the grace
+         window → next = tomorrow's anchor. We DON'T catch up on missed
+         runs beyond the grace window; an operator who creates a
+         "nightly 01:00" schedule at noon shouldn't have it fire
+         immediately — they can click Run now to backfill.
+      4. Today's anchor already passed AND a run is recorded → next =
          tomorrow's anchor.
-      3. Today's anchor already passed WITHOUT a run → next = tomorrow's
-         anchor (we DON'T catch up on missed runs). An operator who
-         creates a "nightly 01:00" schedule at noon shouldn't have it
-         fire immediately; they can click Run now to backfill.
 
     Uses calendar-date arithmetic (not ``+ 86400`` seconds) so DST
     transitions in the host timezone don't drift the wall-clock anchor.
