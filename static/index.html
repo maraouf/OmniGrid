@@ -1111,7 +1111,13 @@
                 · merged from
                 <span x-text="(hostsActiveSources || []).map(s => s === 'node_exporter' ? 'node-exporter' : s).join(' + ')"></span>
               </span>
-              · polled every 15s
+              <!-- Polling-cadence label gated on the actual `statsInterval`
+                   (which the Hosts poll piggybacks on — see setStatsInterval
+                   at app.js:2693+: when stats picker is OFF the hosts
+                   timer is killed too). Hardcoded "polled every 15s" was
+                   misleading when the operator had stats turned off. -->
+              <span x-show="statsInterval > 0"> · polled every 15s</span>
+              <span x-show="statsInterval === 0" class="text-[var(--warning)]"> · polling off</span>
             </span>
           </span>
           <span class="flex items-center gap-1.5 flex-wrap"
