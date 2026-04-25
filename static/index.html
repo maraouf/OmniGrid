@@ -1444,7 +1444,7 @@
                        rendered when an asset matched. -->
                   <template x-if="assetForHost(h) && assetForHost(h).location">
                     <div class="text-[10.5px] text-[var(--text-faint)] truncate"
-                         :title="t('asset.location_title')"
+                         :title="t('host_drawer.asset.location_title')"
                          x-text="assetForHost(h).location"></div>
                   </template>
                   <div class="text-[10.5px] text-[var(--text-faint)]">
@@ -6545,7 +6545,7 @@
             </span>
             <span x-show="terminalResolved && terminalResolved.user"
                   class="host-debug-tag mono text-[10.5px]"
-                  x-text="(terminalResolved.user || '?') + '@' + (terminalResolved.host || '') + ':' + (terminalResolved.port || 22)"></span>
+                  x-text="terminalResolved ? ((terminalResolved.user || '?') + '@' + (terminalResolved.host || '') + ':' + (terminalResolved.port || 22)) : ''"></span>
           </div>
           <div class="flex items-center gap-2">
             <button type="button" class="btn btn-ghost text-[11px]"

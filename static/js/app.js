@@ -5759,6 +5759,18 @@ function app() {
         ['gigabyte',              'gigabyte'],
         ['aorus',                 'gigabyte'],
         ['b550 aorus',            'gigabyte'],
+        // Roku — streaming sticks. simple-icons.org source.
+        ['roku',                  'roku'],
+        // Alienware (Dell sub-brand) — gaming laptops / desktops.
+        ['alienware',             'alienware'],
+        // Amazon Kindle (e-reader) — no dedicated icon in either
+        // dashboard-icons or simple-icons; falls back to amazon.svg
+        // via the parent-brand keyword above.
+        ['kindle',                'amazon'],
+        // WD TV Live Hub — Western Digital's media-streamer line;
+        // reuses the existing wd.svg parent brand mark.
+        ['wd tv',                 'wd'],
+        ['wd-tv',                 'wd'],
       ];
       for (const [needle, slug] of tokens) {
         if (hay.includes(needle)) return '/img/icons/' + slug + '.svg';
