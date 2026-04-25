@@ -1,21 +1,18 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 96">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128">
   <title>Cisco</title>
-  <!-- Stylised "bridge" glyph above the wordmark — seven vertical bars
-       of varying heights, evoking a signal-strength / equaliser look
-       that's long been a Cisco motif. -->
-  <g fill="#049FD9">
-    <rect x="30"  y="28" width="5" height="18" rx="1"/>
-    <rect x="45"  y="18" width="5" height="28" rx="1"/>
-    <rect x="60"  y="6"  width="5" height="40" rx="1"/>
-    <rect x="75"  y="18" width="5" height="28" rx="1"/>
-    <rect x="90"  y="6"  width="5" height="40" rx="1"/>
-    <rect x="105" y="18" width="5" height="28" rx="1"/>
-    <rect x="120" y="28" width="5" height="18" rx="1"/>
+  <!-- Iconic Cisco "Golden Gate Bridge" mark — eleven vertical bars
+       in a symmetric pyramid arc. More recognisable than the wordmark
+       variant at small icon sizes. Classic Cisco blue #1BA0D7. -->
+  <g fill="#1BA0D7">
+    <rect x="10"  y="56" width="6" height="16" rx="2"/>
+    <rect x="22"  y="48" width="6" height="32" rx="2"/>
+    <rect x="34"  y="36" width="6" height="56" rx="2"/>
+    <rect x="46"  y="24" width="6" height="80" rx="2"/>
+    <rect x="58"  y="16" width="6" height="96" rx="2"/>
+    <rect x="70"  y="16" width="6" height="96" rx="2"/>
+    <rect x="82"  y="24" width="6" height="80" rx="2"/>
+    <rect x="94"  y="36" width="6" height="56" rx="2"/>
+    <rect x="106" y="48" width="6" height="32" rx="2"/>
+    <rect x="118" y="56" width="6" height="16" rx="2"/>
   </g>
-  <text x="160" y="84" text-anchor="middle"
-        font-family="Helvetica, Arial, sans-serif"
-        font-weight="500"
-        font-size="38"
-        letter-spacing="1"
-        fill="#049FD9">cisco</text>
 </svg>

@@ -5556,10 +5556,25 @@ function app() {
     // collapsible sections in the Hosts view. Supports 2-level
     // nesting via `parent_name` + a free-text `ip_range`.
     addHostGroup() {
+      // Smart range pre-fill — look at every existing top-level group's
+      // range_end and start the new group at `max(range_end) + 1`.
+      // Spans 10 by default (same as before), so a fresh deploy with
+      // zero groups still gets 1–10; a deploy with "ISP Routers 1–4",
+      // "Gateways 5–8", "Switches 9–16" lands the new group at 17–26
+      // rather than colliding at 1–10. Sub-groups don't influence the
+      // top-level walk — they live inside a parent's range. Operator
+      // is always free to overwrite; this just removes the busywork.
+      const tops = (this.hostGroups || []).filter(g => !(g && g.parent_name));
+      const ends = tops.map(g => {
+        const n = parseInt(g && g.range_end, 10);
+        return Number.isFinite(n) && n >= 0 ? n : null;
+      }).filter(n => n != null);
+      const startAt = ends.length ? Math.max(...ends) + 1 : 1;
+      const SPAN = 10;
       const next = {
         name: '',
-        range_start: 1,
-        range_end: 10,
+        range_start: startAt,
+        range_end:   startAt + SPAN - 1,
         order: (this.hostGroups || []).length,
         parent_name: '',
         ip_range: '',
