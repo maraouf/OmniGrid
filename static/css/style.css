@@ -2803,6 +2803,100 @@ select.field-invalid {
 }
 
 /* ---------------------------------------------------------------------------
+   Host-group editor chips — the small pill buttons + preview badge that
+   sit at the top of each top-level group card in Admin → Host Groups.
+   Three accent flavours so operators can tell their actions apart at
+   a glance: neutral (Hide/show children), success (Add sub-group),
+   info (Live preview). All token-driven, hover/active/disabled tuned
+   to match the rest of the chip family.
+   --------------------------------------------------------------------------- */
+.host-group-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 3px 9px;
+    font-size: 10.5px;
+    font-weight: 600;
+    line-height: 1.2;
+    border-radius: 999px;
+    border: 1px solid var(--border);
+    background: var(--surface);
+    color: var(--text-dim);
+    cursor: pointer;
+    white-space: nowrap;
+    transition: background 120ms ease, border-color 120ms ease, color 120ms ease, transform 120ms ease;
+}
+.host-group-chip:hover {
+    border-color: var(--border-bright);
+    color: var(--text);
+}
+.host-group-chip:active { transform: translateY(1px); }
+.host-group-chip[disabled] {
+    cursor: not-allowed;
+    opacity: 0.5;
+}
+.host-group-chip--neutral {
+    /* default look already matches; alias kept for template clarity */
+}
+.host-group-chip--success {
+    border-color: color-mix(in srgb, var(--success) 50%, transparent);
+    background: color-mix(in srgb, var(--success) 14%, transparent);
+    color: var(--success);
+}
+.host-group-chip--success:hover {
+    border-color: color-mix(in srgb, var(--success) 70%, transparent);
+    background: color-mix(in srgb, var(--success) 22%, transparent);
+    color: var(--success);
+}
+.host-group-chip--preview {
+    border-color: color-mix(in srgb, var(--info) 50%, transparent);
+    background: color-mix(in srgb, var(--info) 12%, transparent);
+    color: var(--info);
+    cursor: default;
+    pointer-events: auto;
+}
+.host-group-chip--preview:hover {
+    border-color: color-mix(in srgb, var(--info) 70%, transparent);
+    background: color-mix(in srgb, var(--info) 18%, transparent);
+}
+
+/* Top-level vs sub-group cards get a subtle left-edge accent so the
+   hierarchy reads at a glance — top-level uses the primary accent in
+   a soft tint, sub-groups stay neutral (they're already indented). */
+.host-group-card--top {
+    border-left: 3px solid color-mix(in srgb, var(--primary) 60%, transparent);
+}
+.host-group-card--sub {
+    border-left: 3px solid color-mix(in srgb, var(--text-faint) 30%, transparent);
+}
+
+/* Inline `?` help-icon for tight form labels — replaces verbose hint
+   paragraphs that ate vertical space in the host-group card. The full
+   explanation lives in the native `title=` tooltip; the icon itself
+   is just a visual cue that hover-help is available. */
+.host-group-help-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    border: 1px solid var(--border);
+    background: var(--surface);
+    color: var(--text-faint);
+    font-size: 9px;
+    font-weight: 700;
+    line-height: 1;
+    cursor: help;
+    user-select: none;
+    transition: color 120ms ease, border-color 120ms ease;
+}
+.host-group-help-icon:hover {
+    color: var(--text);
+    border-color: var(--border-bright);
+}
+
+/* ---------------------------------------------------------------------------
    Brand icon shown on the COLLAPSED host-row header in Admin → Hosts so
    operators can scan the list visually. Resolved via hostIconUrl(row)
    — same logic as the Hosts view + drawer. Subtle ring + soft surface

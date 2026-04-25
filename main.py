@@ -139,6 +139,26 @@ async def _lifespan(app: FastAPI):
             schedules.seed_default_schedules(c, node_names)
     except Exception as e:
         print(f"[scheduler] seed_default_schedules failed: {e}")
+    # Pre-seed in-memory caches from the persisted snapshot tables so the
+    # first /api/items + /api/stats after a restart serve the previous
+    # gather's values immediately, marked _stale=True. Without this the
+    # bars are blank for ~10s while providers re-fetch — which is exactly
+    # the empty-page complaint operators reported. See logic/stats.py and
+    # logic/gather.py for the table contracts.
+    try:
+        from logic import stats as _stats_mod
+        n_stats = _stats_mod.seed_stats_cache_from_db()
+        if n_stats:
+            print(f"[boot] seeded {n_stats} stats entries from stats_samples")
+    except Exception as e:
+        print(f"[boot] seed_stats_cache_from_db failed: {e}")
+    try:
+        from logic import gather as _gather_mod
+        n_hosts = _gather_mod.seed_nodes_info_from_snapshots()
+        if n_hosts:
+            print(f"[boot] seeded {n_hosts} host snapshots from host_snapshots")
+    except Exception as e:
+        print(f"[boot] seed_nodes_info_from_snapshots failed: {e}")
     sampler = asyncio.create_task(_stats_sampler_loop(), name="stats-sampler")
     scheduler = asyncio.create_task(schedules.scheduler_loop(), name="scheduler")
     # Net-I/O fallback sampler — scrapes node-exporter directly for any
@@ -308,6 +328,19 @@ def init_db():
         );
         CREATE INDEX IF NOT EXISTS idx_host_net_samples_host_ts
             ON host_net_samples(host_id, ts DESC);
+
+        -- Last-known per-host nodes_info blob (Beszel / Pulse /
+        -- node-exporter / Webmin merged). Written at the end of every
+        -- successful gather, read at startup AND on every gather to
+        -- fill in missing host_* fields when a provider is down.
+        -- Operators see "stale" data instead of empty bars when a
+        -- provider goes offline. One row per host (PK = host); the
+        -- ``data`` column carries the JSON blob.
+        CREATE TABLE IF NOT EXISTS host_snapshots (
+            host TEXT PRIMARY KEY,
+            ts REAL NOT NULL,
+            data TEXT NOT NULL
+        );
         """)
         # Idempotent column additions for existing deployments. SQLite pre-3.35
         # has no "ADD COLUMN IF NOT EXISTS", so we catch the OperationalError

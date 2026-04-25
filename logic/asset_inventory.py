@@ -862,6 +862,29 @@ def shape_asset(a: dict) -> Optional[dict]:
     location_obj = a.get("Location") if isinstance(a.get("Location"), dict) else None
     status_obj = a.get("Status") if isinstance(a.get("Status"), dict) else None
 
+    # Type sub-object — walk every plausible "short form" key the
+    # team has surfaced on oufa.co payloads. Mirrors the JS frontend's
+    # type_short logic so backend-injected /api/hosts* responses carry
+    # the abbreviation directly (Virtual Machine → "VM", Physical →
+    # "PHY", etc.) without the SPA having to fall back to acronym
+    # derivation. First non-blank wins.
+    type_obj = a.get("Type") if isinstance(a.get("Type"), dict) else (
+        a.get("type") if isinstance(a.get("type"), dict) else None
+    )
+    type_short = ""
+    if type_obj:
+        for key in (
+            "Shortname", "ShortName", "shortname", "shortName", "short_name",
+            "Short", "short", "Code", "code", "Abbr", "abbr",
+            "Abbreviation", "abbreviation", "Acronym", "acronym",
+            "Symbol", "symbol", "Tag", "tag", "Slug", "slug",
+            "Alias", "alias",
+        ):
+            v = type_obj.get(key)
+            if isinstance(v, str) and v.strip():
+                type_short = v.strip()
+                break
+
     return {
         "id":                a.get("ID") or a.get("id"),
         "custom_number":     a.get("CustomNumber") or a.get("custom_number"),
@@ -877,6 +900,7 @@ def shape_asset(a: dict) -> Optional[dict]:
         "location_details":  (str((location_obj or {}).get("Details") or "").strip()
                               if location_obj else ""),
         "type":              _pick_named(a.get("Type"), a.get("type")),
+        "type_short":        type_short,
         "name":              _pick_named(a.get("Name"), a.get("name")),
         "hostnames":         hostnames,
         "primary_ip":        primary_ip,

@@ -38,6 +38,61 @@ def get_stats_cache() -> dict:
     return _stats_cache
 
 
+def seed_stats_cache_from_db() -> int:
+    """Pre-populate ``_stats_cache`` with the most recent persisted
+    sample per item_id so ``/api/stats`` has data to serve before the
+    first live ``gather_stats()`` completes after a restart.
+
+    Marks every seeded entry with ``_stale=True`` so the UI can dim
+    the bar / sparkline until fresh values land. Sets ``_stats_cache``
+    timestamp to 0 so the next ``/api/stats`` call still sees the TTL
+    as expired and triggers an immediate live refresh — the seeded
+    values are a placeholder, not authoritative.
+
+    Returns the number of items seeded.
+    """
+    try:
+        with db_conn() as c:
+            # SQLite 3.25+ supports ROW_NUMBER OVER PARTITION BY — every
+            # bundled python on a recent OS has it. The window pulls the
+            # latest row per item_id in one query rather than N+1.
+            rows = c.execute("""
+                SELECT item_id, ts, cpu, mem_used, mem_limit FROM (
+                    SELECT item_id, ts, cpu, mem_used, mem_limit,
+                           ROW_NUMBER() OVER (
+                               PARTITION BY item_id ORDER BY ts DESC
+                           ) rn
+                    FROM stats_samples
+                ) WHERE rn = 1
+            """).fetchall()
+    except Exception as e:
+        print(f"[sampler] seed_stats_cache_from_db failed: {e}")
+        return 0
+    if not rows:
+        return 0
+    seeded: dict[str, dict] = {}
+    for r in rows:
+        seeded[r["item_id"]] = {
+            "cpu_percent": float(r["cpu"] or 0.0),
+            "mem_usage":   int(r["mem_used"] or 0),
+            "mem_limit":   int(r["mem_limit"] or 0),
+            # size_root / size_rw aren't sampled into stats_samples (it's
+            # a CPU/memory time-series table), so we report has_size=False
+            # which lets the UI show "—" until the first live gather.
+            "size_root":   0,
+            "size_rw":     0,
+            "has_stats":   True,
+            "has_size":    False,
+            "_stale":      True,
+            "_stale_ts":   float(r["ts"] or 0.0),
+        }
+    _stats_cache["stats"] = seeded
+    # Force the next gather_stats() to refresh — we don't want the TTL
+    # to suppress a live poll just because we seeded the cache.
+    _stats_cache["ts"] = 0.0
+    return len(seeded)
+
+
 # ---------------------------------------------------------------------
 # Time-series sampler — writes `_stats_cache` into `stats_samples` on
 # STATS_SAMPLE_INTERVAL, prunes old rows hourly. Runs as a lifespan task.

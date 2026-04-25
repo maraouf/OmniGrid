@@ -124,6 +124,197 @@ def invalidate_cache() -> None:
     _cache["ts"] = 0
 
 
+# ---------------------------------------------------------------------
+# Host snapshot persistence — last-known nodes_info[host] blob in DB.
+#
+# Goal: when a provider (Beszel / Pulse / node-exporter / Webmin) goes
+# offline, OmniGrid keeps showing its previous values flagged as stale
+# instead of silently dropping CPU / memory / disk bars to empty. Same
+# idea as ``stats_samples`` but for host-level data.
+#
+# Wire-up:
+#   - End of every successful gather → ``save_host_snapshots(nodes_info)``
+#     persists the merged blob (JSON column on a single row per host).
+#   - Inside ``_gather_impl``, AFTER providers run AND BEFORE we publish
+#     to ``_cache`` → ``apply_host_snapshot_fallback`` fills missing
+#     ``host_*`` fields from the persisted blob and tags the entry with
+#     ``_stale_fields=[...]`` so the UI can dim those bars.
+#   - At lifespan startup → ``load_host_snapshots()`` seeds
+#     ``_cache["nodes_info"]`` so the very first ``/api/items`` after a
+#     restart has data while the live gather is still running.
+# ---------------------------------------------------------------------
+# Field families that are RUNTIME provider data (not Swarm-level
+# inventory). Snapshot fallback only fills these — Swarm fields like
+# `cpu_cores` / `mem_bytes` / `role` come from the Portainer node
+# list every gather and don't need a fallback.
+_HOST_SNAPSHOT_KEYS = (
+    "host_cpu_percent", "host_mem_total", "host_mem_used",
+    "host_disk_total", "host_disk_used",
+    "host_boot_ts", "host_uptime_s",
+    "host_platform", "host_os", "host_kernel", "host_arch",
+    "host_cpu_cores", "host_cpu_model",
+    "mounts", "network", "interfaces",
+    "package_updates_count", "package_updates",
+    "load_1m", "load_5m", "load_15m",
+)
+
+
+def save_host_snapshots(nodes_info: dict) -> int:
+    """Upsert one row per host into ``host_snapshots``.
+
+    JSON-encodes the merged ``nodes_info[host]`` dict. Strips fields
+    starting with ``_`` (the stale-marker bookkeeping) so a restart
+    doesn't read its own marker noise back as canonical data.
+    Returns the number of rows written.
+    """
+    if not nodes_info:
+        return 0
+    ts = time.time()
+    rows = []
+    for host, info in nodes_info.items():
+        if not isinstance(info, dict) or not info:
+            continue
+        clean = {k: v for k, v in info.items() if not str(k).startswith("_")}
+        try:
+            blob = json.dumps(clean, default=str)
+        except (TypeError, ValueError):
+            continue
+        rows.append((host, ts, blob))
+    if not rows:
+        return 0
+    try:
+        with db_conn() as c:
+            c.executemany(
+                "INSERT OR REPLACE INTO host_snapshots(host, ts, data) "
+                "VALUES (?, ?, ?)",
+                rows,
+            )
+    except Exception as e:
+        print(f"[gather] save_host_snapshots failed: {e}")
+        return 0
+    return len(rows)
+
+
+def load_host_snapshots() -> dict[str, dict]:
+    """Read every persisted host snapshot.
+
+    Returns ``{host: {"ts": float, "data": {...}}}`` — JSON parse
+    errors are skipped per-row so a single malformed blob doesn't
+    poison the lookup. Empty dict on table-missing (first boot before
+    init_db has run) or any other DB failure.
+    """
+    out: dict[str, dict] = {}
+    try:
+        with db_conn() as c:
+            rows = c.execute(
+                "SELECT host, ts, data FROM host_snapshots"
+            ).fetchall()
+    except Exception as e:
+        print(f"[gather] load_host_snapshots failed: {e}")
+        return out
+    for r in rows:
+        try:
+            data = json.loads(r["data"]) if r["data"] else {}
+        except (TypeError, ValueError):
+            continue
+        if isinstance(data, dict):
+            out[r["host"]] = {"ts": float(r["ts"] or 0.0), "data": data}
+    return out
+
+
+def apply_host_snapshot_fallback(
+    nodes_info: dict, snapshots: Optional[dict[str, dict]] = None,
+) -> None:
+    """Fill missing host_* fields from the persisted snapshot.
+
+    For each known host, when the live ``nodes_info[host]`` is missing
+    a runtime field we have a snapshot of, copy it over and tag the
+    field name in ``_stale_fields`` (a list). Also stamps
+    ``_stale_ts`` with the snapshot's persistence timestamp so the
+    UI can show "last known X minutes ago" if it wants.
+
+    Mutates ``nodes_info`` in place. Loads snapshots itself when the
+    caller doesn't pass one (e.g. lifespan seeding) so we read once
+    per gather not once per host.
+    """
+    if not nodes_info:
+        return
+    if snapshots is None:
+        snapshots = load_host_snapshots()
+    if not snapshots:
+        return
+
+    def _is_meaningful(v) -> bool:
+        if v is None or v == "":
+            return False
+        if isinstance(v, (list, dict)) and len(v) == 0:
+            return False
+        if isinstance(v, (int, float)) and v == 0:
+            return False
+        return True
+
+    for host, info in nodes_info.items():
+        if not isinstance(info, dict):
+            continue
+        snap = snapshots.get(host)
+        if not snap:
+            # Try short-hostname match — Docker reports `docker.home.lan`
+            # but the snapshot might have been keyed under `docker`.
+            short = str(host).split(".", 1)[0]
+            for k, v in snapshots.items():
+                if k == short or str(k).split(".", 1)[0] == short:
+                    snap = v
+                    break
+        if not snap:
+            continue
+        snap_data = snap.get("data") or {}
+        snap_ts = snap.get("ts") or 0.0
+        stale_fields: list[str] = []
+        for key in _HOST_SNAPSHOT_KEYS:
+            if not _is_meaningful(info.get(key)):
+                v = snap_data.get(key)
+                if _is_meaningful(v):
+                    info[key] = v
+                    stale_fields.append(key)
+        if stale_fields:
+            info["_stale_fields"] = stale_fields
+            info["_stale_ts"] = snap_ts
+
+
+def seed_nodes_info_from_snapshots() -> int:
+    """Populate ``_cache["nodes_info"]`` from persisted snapshots.
+
+    Called at lifespan startup so the first ``/api/items`` after a
+    restart shows the previous gather's host stats while the live one
+    runs in parallel. Every seeded entry is tagged with
+    ``_stale_fields`` listing every field present so the UI can dim
+    the corresponding bar / value until the live gather overwrites.
+
+    Returns the number of hosts seeded.
+    """
+    snapshots = load_host_snapshots()
+    if not snapshots:
+        return 0
+    seeded: dict[str, dict] = {}
+    for host, snap in snapshots.items():
+        data = dict(snap.get("data") or {})
+        if not data:
+            continue
+        # Tag every host_* field present so the UI can show every
+        # seeded value as stale. The next gather's
+        # apply_host_snapshot_fallback recomputes this list against
+        # the live state.
+        stale = [k for k in data.keys()
+                 if k in _HOST_SNAPSHOT_KEYS or str(k).startswith("host_")]
+        if stale:
+            data["_stale_fields"] = stale
+            data["_stale_ts"] = float(snap.get("ts") or 0.0)
+        seeded[host] = data
+    if seeded:
+        _cache["nodes_info"] = seeded
+    return len(seeded)
+
+
 def _parse_docker_ts(ts) -> Optional[float]:
     """Parse a Docker API timestamp (ISO 8601 with nanos, e.g.
     '2026-04-22T13:40:16.123456789Z') to epoch seconds.
@@ -1062,6 +1253,27 @@ async def _gather_impl() -> None:
             g["degraded"] = sum(1 for i in its if i.get("health") == "degraded")
 
         items.sort(key=lambda i: (i.get("name") or "").lower())
+        # Snapshot fallback — fill missing host_* fields from the
+        # previous gather's persisted state so a single provider going
+        # down doesn't blank the whole row. The fallback marks each
+        # filled field in `_stale_fields` so the UI can dim the
+        # corresponding bar / value. Live values from this gather take
+        # precedence (only MISSING fields are filled).
+        try:
+            apply_host_snapshot_fallback(nodes_info)
+        except Exception as e:
+            print(f"[gather] snapshot fallback failed: {e}")
+        # Persist the just-built nodes_info so the NEXT gather (or a
+        # restart) has a fresh fallback target. We snapshot the full
+        # merged blob, including any field that was itself a fallback —
+        # successive provider failures shouldn't cause the snapshot to
+        # decay.
+        try:
+            n_snap = save_host_snapshots(nodes_info)
+            if n_snap:
+                print(f"[gather] snapshot wrote {n_snap} host rows")
+        except Exception as e:
+            print(f"[gather] save_host_snapshots failed: {e}")
         _cache["items"] = items
         _cache["nodes"] = node_map
         _cache["nodes_info"] = nodes_info

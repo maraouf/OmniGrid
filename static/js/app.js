@@ -6818,12 +6818,74 @@ function app() {
             '[asset] type has no recognised short-name field; available keys:',
             Object.keys(a._raw.Type || {}),
             '— type:', a.type,
-            '— share these keys to wire short-name resolution.',
+            '— full Type object:', a._raw.Type,
+            '— falling back to derived acronym.',
           );
         }
       }
-      const label = (a.type_short || a.type || '').trim();
+      const label = (a.type_short || this._deriveTypeShort(a.type) || a.type || '').trim();
       return label ? '[' + label + '] ' : '';
+    },
+
+    // Deterministic short-form for common asset-type names when the
+    // upstream Type object doesn't expose a shortname field. Operators
+    // already mentally use these abbreviations ("VM" for Virtual
+    // Machine, "PHY" for Physical) — applying them here removes the
+    // visual noise of a long bracket prefix without requiring any
+    // upstream API change. Falls back to a word-initials acronym
+    // (e.g. "Bare Metal" → "BM") for one/two-word types not in the
+    // explicit map. Returns '' for empty input or types so long that
+    // an acronym would be misleading (4+ words).
+    _deriveTypeShort(longType) {
+      if (!longType) return '';
+      const t = String(longType).trim().toLowerCase();
+      const aliases = {
+        'virtual machine':       'VM',
+        'virtual server':        'VM',
+        'vm':                    'VM',
+        'physical server':       'PHY',
+        'physical machine':      'PHY',
+        'physical':              'PHY',
+        'bare metal':            'BM',
+        'baremetal':             'BM',
+        'container':             'CT',
+        'lxc container':         'CT',
+        'docker container':      'CT',
+        'kubernetes pod':        'POD',
+        'pod':                   'POD',
+        'router':                'RTR',
+        'switch':                'SW',
+        'firewall':              'FW',
+        'access point':          'AP',
+        'wifi access point':     'AP',
+        'access-point':          'AP',
+        'nas':                   'NAS',
+        'san':                   'SAN',
+        'network attached storage': 'NAS',
+        'storage':               'STG',
+        'ups':                   'UPS',
+        'pdu':                   'PDU',
+        'server':                'SRV',
+        'workstation':           'WS',
+        'laptop':                'LT',
+        'desktop':               'DT',
+        'mobile':                'MOB',
+        'phone':                 'PHN',
+        'tablet':                'TAB',
+        'printer':               'PRN',
+        'camera':                'CAM',
+        'iot device':            'IOT',
+        'iot':                   'IOT',
+      };
+      if (aliases[t]) return aliases[t];
+      // Word-initials fallback: capital letter of each word, max 3 chars.
+      // Only kicks in for 2-3 word types — single-word unknowns return
+      // "" so we don't strip "OPNsense" → "O" which adds no value.
+      const words = t.split(/\s+/).filter(Boolean);
+      if (words.length >= 2 && words.length <= 3) {
+        return words.map(w => w[0]).join('').toUpperCase();
+      }
+      return '';
     },
     // Raw asset row from the cached snapshot — for the debug panel.
     // The shaped resolver (`assetForHost`) drops fields the drawer

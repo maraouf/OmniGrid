@@ -1347,7 +1347,7 @@
                        :style="(h._sub_group && isGroupCollapsed(h._sub_group.name)) ? '' : 'transform: rotate(90deg)'">
                     <polyline points="9 18 15 12 9 6"/>
                   </svg>
-                  <span class="font-semibold text-[12px]" x-text="h._sub_group ? h._sub_group.name : ''"></span>
+                  <span class="font-semibold text-[12px]" x-text="h._sub_group ? hostGroupHeading(h._sub_group) : ''"></span>
                   <div class="flex items-center gap-2 ms-auto" x-show="h._sub_group">
                     <span class="pill pill-info text-[10px] mono"
                           x-text="h._sub_group ? ('#' + h._sub_group.range_start + '–' + h._sub_group.range_end) : ''"></span>
@@ -3724,18 +3724,17 @@
         </p>
         <input x-model="settings.apprise_url" type="url"
                @input="markAppriseDirty()"
-               :disabled="isReadonly() || !settings.apprise_enabled"
+               :disabled="isReadonly()"
                :placeholder="t('settings.notifications.url_placeholder')" class="w-full">
         <input x-model="settings.apprise_tag" type="text"
                @input="markAppriseDirty()"
-               :disabled="isReadonly() || !settings.apprise_enabled"
+               :disabled="isReadonly()"
                :placeholder="t('settings.notifications.tag_placeholder')" class="w-full mt-2">
         <div class="flex items-center gap-3 mt-3 flex-wrap" x-show="isAdmin()">
           <button @click="saveSettings()"
                   :class="appriseDirty ? 'ring-2 ring-[var(--warning)]' : ''"
                   class="btn btn-primary text-[12px]" x-text="t('actions.save')"></button>
           <button @click="testNotify()"
-                  :disabled="!settings.apprise_enabled"
                   class="btn btn-soft text-[12px]" x-text="t('actions.send_test')"></button>
           <span x-show="appriseDirty"
                 class="text-[11.5px] text-[var(--warning)] flex items-center gap-1.5">
@@ -3766,7 +3765,7 @@
           <div class="flex items-end gap-2 flex-wrap">
             <input x-model="settings.open_meteo_url" type="url"
                    @input="markOpenMeteoDirty()"
-                   :disabled="isReadonly() || !settings.open_meteo_enabled"
+                   :disabled="isReadonly()"
                    :placeholder="t('admin_integrations.open_meteo_placeholder')"
                    class="flex-1 min-w-[260px] mono text-[12px]">
             <button x-show="isAdmin()" @click="saveOpenMeteoUrl()"
@@ -3817,7 +3816,7 @@
               <label class="block text-[11px] text-[var(--text-dim)] mb-1" x-text="t('settings.portainer.url_label')"></label>
               <input x-model="portainerForm.url" type="url"
                      @input="markPortainerFormDirty()"
-                     :disabled="isReadonly() || !settings.portainer_enabled"
+                     :disabled="isReadonly()"
                      :placeholder="t('settings.portainer.url_placeholder')" class="w-full mono text-[12.5px]">
             </div>
             <div>
@@ -3828,7 +3827,7 @@
               </label>
               <input x-model="portainerForm.api_key" type="password"
                      @input="markPortainerFormDirty()"
-                     :disabled="isReadonly() || !settings.portainer_enabled"
+                     :disabled="isReadonly()"
                      :placeholder="t('settings.portainer.api_key_placeholder')"
                      autocomplete="new-password"
                      class="w-full mono text-[12px]">
@@ -3839,13 +3838,13 @@
                 <label class="block text-[11px] text-[var(--text-dim)] mb-1" x-text="t('settings.portainer.endpoint_id')"></label>
                 <input x-model.number="portainerForm.endpoint_id" type="number" min="1"
                        @input="markPortainerFormDirty()"
-                       :disabled="isReadonly() || !settings.portainer_enabled"
+                       :disabled="isReadonly()"
                        class="w-full mono text-[12.5px]">
               </div>
               <label class="flex items-center gap-2 text-[12.5px] cursor-pointer mt-5">
                 <input type="checkbox" :checked="portainerForm.verify_tls"
                        @change="portainerForm.verify_tls = $event.target.checked; markPortainerFormDirty()"
-                       :disabled="isReadonly() || !settings.portainer_enabled">
+                       :disabled="isReadonly()">
                 <span x-text="t('settings.portainer.verify_tls')"></span>
               </label>
             </div>
@@ -3908,7 +3907,7 @@
             <label class="block text-[11px] text-[var(--text-dim)] mb-1" x-text="t('settings.oidc.issuer_url')"></label>
             <input x-model="oidcForm.issuer_url" type="url"
                    @input="markOidcFormDirty()"
-                   :disabled="isReadonly() || !oidcForm.enabled"
+                   :disabled="isReadonly()"
                    :placeholder="t('settings.oidc.issuer_placeholder')"
                    class="w-full mono text-[12px]">
             <p class="text-[11px] text-[var(--text-faint)] mt-1" x-html="t('settings.oidc.issuer_hint')"></p>
@@ -3918,7 +3917,7 @@
               <label class="block text-[11px] text-[var(--text-dim)] mb-1" x-text="t('settings.oidc.client_id')"></label>
               <input x-model="oidcForm.client_id" type="text"
                      @input="markOidcFormDirty()"
-                     :disabled="isReadonly() || !oidcForm.enabled"
+                     :disabled="isReadonly()"
                      :placeholder="t('settings.oidc.client_id_placeholder')"
                      class="w-full mono text-[12px]">
             </div>
@@ -3930,7 +3929,7 @@
               </label>
               <input x-model="oidcForm.client_secret" type="password"
                      @input="markOidcFormDirty()"
-                     :disabled="isReadonly() || !oidcForm.enabled"
+                     :disabled="isReadonly()"
                      :placeholder="t('settings.oidc.client_secret_placeholder')"
                      autocomplete="new-password"
                      class="w-full mono text-[12px]">
@@ -3954,7 +3953,7 @@
               <label class="block text-[11px] text-[var(--text-dim)] mb-1" x-text="t('settings.oidc.scopes')"></label>
               <input x-model="oidcForm.scopes" type="text"
                      @input="markOidcFormDirty()"
-                     :disabled="isReadonly() || !oidcForm.enabled"
+                     :disabled="isReadonly()"
                      :placeholder="t('settings.oidc.scopes_placeholder')"
                      class="w-full mono text-[12px]">
               <p class="text-[11px] text-[var(--text-faint)] mt-1" x-html="t('settings.oidc.scopes_hint')"></p>
@@ -3963,7 +3962,7 @@
               <label class="block text-[11px] text-[var(--text-dim)] mb-1" x-text="t('settings.oidc.admin_group')"></label>
               <input x-model="oidcForm.admin_group" type="text"
                      @input="markOidcFormDirty()"
-                     :disabled="isReadonly() || !oidcForm.enabled"
+                     :disabled="isReadonly()"
                      :placeholder="t('settings.oidc.admin_group_placeholder')"
                      class="w-full mono text-[12.5px]">
               <p class="text-[11px] text-[var(--text-faint)] mt-1" x-html="t('settings.oidc.admin_group_hint')"></p>
@@ -3972,7 +3971,7 @@
           <label class="flex items-start gap-2 text-[12.5px] cursor-pointer">
             <input type="checkbox" :checked="oidcForm.verify_tls"
                    @change="oidcForm.verify_tls = $event.target.checked; markOidcFormDirty()"
-                   :disabled="isReadonly() || !oidcForm.enabled" class="mt-0.5">
+                   :disabled="isReadonly()" class="mt-0.5">
             <span>
               <span class="font-medium" x-text="t('settings.oidc.verify_tls_title')"></span>
               <span class="block text-[11px] text-[var(--text-faint)] mt-0.5" x-html="t('settings.oidc.verify_tls_hint')"></span>
@@ -3983,7 +3982,6 @@
                     :class="oidcDirty ? 'ring-2 ring-[var(--warning)]' : ''"
                     class="btn btn-primary text-[12px]" x-text="t('settings.oidc.save_button')"></button>
             <button @click="testOidcConnection()"
-                    :disabled="!oidcForm.enabled"
                     class="btn btn-soft text-[12px]" x-text="t('settings.oidc.test_button')"></button>
             <span x-show="oidcDirty"
                   class="text-[11.5px] text-[var(--warning)] flex items-center gap-1.5">
@@ -4817,8 +4815,10 @@
 
         <div class="space-y-2">
           <template x-for="({g, origIdx}, listIdx) in sortedGroupsForEditor()" :key="'g' + origIdx">
-            <div class="border border-[var(--border)] rounded-md p-3"
-                 :class="g.parent_name ? 'bg-[var(--surface)] ms-6' : 'bg-[var(--surface-2)]'">
+            <div class="host-group-card border rounded-md p-3 transition-colors"
+                 :class="g.parent_name
+                          ? 'host-group-card--sub bg-[var(--surface)] ms-6 border-[var(--border)]'
+                          : 'host-group-card--top bg-[var(--surface-2)] border-[var(--border-bright)]'">
               <!-- Children-collapse toggle + add-sub-group button on
                    top-level groups. The toggle hides every sub-group
                    row under this parent so the editor stays compact
@@ -4830,11 +4830,11 @@
                    top-level row (the toggle is hidden when there are
                    no children yet, but the "+" stays visible). -->
               <div x-show="!g.parent_name && (g.name || '').trim()"
-                   class="flex items-center gap-2 mb-2 -mt-1">
+                   class="flex items-center gap-2 mb-2 -mt-1 flex-wrap">
                 <button type="button"
                         x-show="hostGroupChildCount(g.name) > 0"
                         @click="toggleHostGroupChildrenCollapsed(g.name)"
-                        class="btn btn-ghost text-[11px] px-2 py-0.5"
+                        class="host-group-chip host-group-chip--neutral"
                         :title="t('admin_hosts.groups.children_toggle_title')">
                   <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" class="flip-rtl"
                        :style="!isHostGroupChildrenCollapsed(g.name) ? 'transform: rotate(90deg)' : ''">
@@ -4848,7 +4848,7 @@
                 <button type="button"
                         x-show="isAdmin()"
                         @click="addHostSubGroup(g.name)"
-                        class="btn btn-ghost text-[11px] px-2 py-0.5 text-[var(--success)]"
+                        class="host-group-chip host-group-chip--success"
                         :title="t('admin_hosts.groups.add_subgroup_title', { parent: g.name })">
                   <svg width="11" height="11" viewBox="0 0 24 24" fill="none"
                        stroke="currentColor" stroke-width="2.6"
@@ -4858,6 +4858,19 @@
                   </svg>
                   <span x-text="t('admin_hosts.groups.add_subgroup')"></span>
                 </button>
+                <!-- Live preview of how the group will render in the
+                     Hosts view: "<number> <name>" when number is set,
+                     plain "<name>" otherwise. Operator can confirm the
+                     prefix before saving. -->
+                <span x-show="(g.name || '').trim()"
+                      class="host-group-chip host-group-chip--preview ms-auto"
+                      :title="t('admin_hosts.groups.preview_title') || 'Preview — how this group will render in the Hosts view'">
+                  <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
+                    <circle cx="12" cy="12" r="3"/>
+                    <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7z"/>
+                  </svg>
+                  <span x-text="hostGroupHeading(g)"></span>
+                </span>
               </div>
               <!-- Row 1: name, parent picker, range, controls.
                    Text inputs use `x-model.lazy` so the bound model
@@ -4945,11 +4958,19 @@
                           :title="t('admin_hosts.groups.remove_title')">✕</button>
                 </div>
               </div>
-              <!-- Row 2: number prefix (optional) + IP range. -->
-              <div class="mt-2 grid grid-cols-1 md:grid-cols-[140px_1fr] gap-3 items-start">
+              <!-- Row 2: number prefix (optional) + IP range. The
+                   number's verbose explanation now hides behind a
+                   `?` tooltip so the form stays compact — the live
+                   preview chip in the header already shows operators
+                   what the number does without reading paragraph text. -->
+              <div class="mt-2 grid grid-cols-1 md:grid-cols-[110px_1fr] gap-3 items-start">
                 <div>
-                  <label class="block text-[10.5px] uppercase tracking-wider text-[var(--text-faint)] mb-1"
-                         x-text="t('admin_hosts.groups.number_label')"></label>
+                  <label class="text-[10.5px] uppercase tracking-wider text-[var(--text-faint)] mb-1 flex items-center gap-1">
+                    <span x-text="t('admin_hosts.groups.number_label')"></span>
+                    <span class="host-group-help-icon"
+                          :title="t('admin_hosts.groups.number_hint')"
+                          aria-hidden="true">?</span>
+                  </label>
                   <input type="number" x-model.lazy.number="g.number"
                          :disabled="isReadonly()"
                          @input="markHostGroupDirty(); clearFieldError('group_' + origIdx + '_number')"
@@ -4960,8 +4981,6 @@
                   <div x-show="hasFieldError('group_' + origIdx + '_number')"
                        class="field-error-msg"
                        x-text="fieldError('group_' + origIdx + '_number')"></div>
-                  <p class="text-[10px] text-[var(--text-faint)] mt-1"
-                     x-text="t('admin_hosts.groups.number_hint')"></p>
                 </div>
                 <div>
                   <label class="block text-[10.5px] uppercase tracking-wider text-[var(--text-faint)] mb-1"
@@ -5302,7 +5321,7 @@
                    x-text="t('admin_ssh.user_label')"></label>
             <input x-model="sshSettings.user" type="text"
                    @input="markSshSettingsDirty()"
-                   :disabled="isReadonly() || !settings.ssh_enabled"
+                   :disabled="isReadonly()"
                    class="w-full mono text-[12.5px] py-1.5"
                    :placeholder="t('admin_ssh.user_placeholder')">
           </div>
@@ -5311,7 +5330,7 @@
                    x-text="t('admin_ssh.port_label')"></label>
             <input x-model.number="sshSettings.port" type="number"
                    @input="markSshSettingsDirty()"
-                   :disabled="isReadonly() || !settings.ssh_enabled"
+                   :disabled="isReadonly()"
                    min="1" max="65535"
                    class="w-full mono text-[12.5px] py-1.5">
           </div>
@@ -5331,7 +5350,7 @@
           </label>
           <textarea x-model="sshSettings.private_key"
                     @input="markSshSettingsDirty()"
-                    :disabled="isReadonly() || !settings.ssh_enabled"
+                    :disabled="isReadonly()"
                     rows="6"
                     class="w-full mono text-[11px] py-1.5 scrollbar"
                     :placeholder="sshSettings.private_key_set ? '••••••••' : t('admin_ssh.key_placeholder')"></textarea>
@@ -5353,7 +5372,7 @@
           </label>
           <input x-model="sshSettings.passphrase" type="password"
                  @input="markSshSettingsDirty()"
-                 :disabled="isReadonly() || !settings.ssh_enabled"
+                 :disabled="isReadonly()"
                  class="w-full text-[12.5px]"
                  :placeholder="sshSettings.passphrase_set ? '••••••••' : t('admin_ssh.passphrase_placeholder')">
         </div>
@@ -5374,7 +5393,7 @@
           </label>
           <input x-model="sshSettings.password" type="password"
                  @input="markSshSettingsDirty()"
-                 :disabled="isReadonly() || !settings.ssh_enabled"
+                 :disabled="isReadonly()"
                  class="w-full text-[12.5px]"
                  :placeholder="sshSettings.password_set ? '••••••••' : 'Alternative to private key'">
           <p class="text-[10.5px] text-[var(--text-faint)] mt-1">
@@ -5394,7 +5413,7 @@
           </label>
           <input x-model="sshSettings.fqdn_suffix" type="text"
                  @input="markSshSettingsDirty()"
-                 :disabled="isReadonly() || !settings.ssh_enabled"
+                 :disabled="isReadonly()"
                  placeholder="e.g. .example.com"
                  class="w-full mono text-[12.5px] py-1.5">
           <p class="text-[10.5px] text-[var(--text-faint)] mt-1">
@@ -5408,7 +5427,7 @@
                  x-text="t('admin_ssh.known_hosts_label')"></label>
           <textarea x-model="sshSettings.known_hosts"
                     @input="markSshSettingsDirty()"
-                    :disabled="isReadonly() || !settings.ssh_enabled"
+                    :disabled="isReadonly()"
                     rows="3"
                     class="w-full mono text-[11px] py-1.5 scrollbar"
                     :placeholder="t('admin_ssh.known_hosts_placeholder')"></textarea>
@@ -5430,7 +5449,7 @@
                   <input type="text"
                          :value="action.title"
                          @input="action.title = $event.target.value; markSshSettingsDirty()"
-                         :disabled="isReadonly() || !settings.ssh_enabled"
+                         :disabled="isReadonly()"
                          :placeholder="t('admin_ssh.custom_action_title_placeholder')"
                          class="w-full text-[12px] py-1">
                 </div>
@@ -5439,7 +5458,7 @@
                          x-text="t('admin_ssh.custom_action_command_label')"></label>
                   <textarea :value="action.command"
                             @input="action.command = $event.target.value; markSshSettingsDirty()"
-                            :disabled="isReadonly() || !settings.ssh_enabled"
+                            :disabled="isReadonly()"
                             rows="9"
                             class="w-full mono text-[11.5px] py-2 scrollbar"
                             style="min-height: 11rem; resize: vertical;"
@@ -5449,18 +5468,17 @@
                   <button type="button" class="btn btn-ghost text-[11px] px-1.5"
                           x-show="isAdmin()"
                           @click="moveSshCustomAction(idx, -1)"
-                          :disabled="idx === 0 || !settings.ssh_enabled"
+                          :disabled="idx === 0"
                           :title="t('admin_ssh.custom_action_move_up')">↑</button>
                   <button type="button" class="btn btn-ghost text-[11px] px-1.5"
                           x-show="isAdmin()"
                           @click="moveSshCustomAction(idx, 1)"
-                          :disabled="idx === (sshSettings.custom_actions || []).length - 1 || !settings.ssh_enabled"
+                          :disabled="idx === (sshSettings.custom_actions || []).length - 1"
                           :title="t('admin_ssh.custom_action_move_down')">↓</button>
                   <button type="button"
                           class="btn btn-ghost text-[11px] text-[var(--danger)] px-1.5"
                           x-show="isAdmin()"
                           @click="removeSshCustomAction(idx)"
-                          :disabled="!settings.ssh_enabled"
                           :title="t('admin_ssh.custom_action_remove')">✕</button>
                 </div>
               </div>
@@ -5472,7 +5490,6 @@
           <button type="button"
                   x-show="isAdmin()"
                   @click="addSshCustomAction()"
-                  :disabled="!settings.ssh_enabled"
                   class="btn btn-soft text-[11.5px] mt-2"
                   x-text="t('admin_ssh.custom_action_add')"></button>
         </div>
@@ -5481,7 +5498,7 @@
                  x-text="t('admin_ssh.destructive_label')"></label>
           <textarea x-model="sshSettings.destructive_patterns"
                     @input="markSshSettingsDirty()"
-                    :disabled="isReadonly() || !settings.ssh_enabled"
+                    :disabled="isReadonly()"
                     rows="4"
                     class="w-full mono text-[11px] py-1.5 scrollbar"
                     :placeholder="t('admin_ssh.destructive_placeholder')"></textarea>
@@ -5508,7 +5525,6 @@
           <div class="flex items-center gap-2 flex-wrap">
             <label class="text-[11px] text-[var(--text-faint)]" x-text="t('admin_ssh.test_host_label')"></label>
             <select x-model="sshTestOnHost.host_id"
-                    :disabled="!settings.ssh_enabled"
                     class="text-[12px] py-1 min-w-[240px]">
               <option value="">—</option>
               <template x-for="h in hostsConfig" :key="h.id">
@@ -5516,7 +5532,7 @@
               </template>
             </select>
             <button x-show="isAdmin()" @click="runSshAdminTest()"
-                    :disabled="sshTestOnHost.pending || !sshTestOnHost.host_id || !settings.ssh_enabled"
+                    :disabled="sshTestOnHost.pending || !sshTestOnHost.host_id"
                     class="btn btn-soft text-[12px]">
               <span x-show="!sshTestOnHost.pending" x-text="t('admin_ssh.test_button')"></span>
               <span x-show="sshTestOnHost.pending" class="flex items-center gap-1"><span class="spin"></span><span x-text="t('admin_ssh.testing')"></span></span>
