@@ -2725,13 +2725,15 @@
                   x-text="settings.open_meteo_enabled ? '' : t('admin_integrations.disabled_hint')"></span>
           </label>
           <p class="text-[11px] text-[var(--text-faint)] mb-2" x-text="t('admin_integrations.open_meteo_desc')"></p>
-          <div class="flex items-end gap-2 flex-wrap">
-            <input x-model="settings.open_meteo_url" type="url"
-                   @input="markOpenMeteoDirty()"
-                   :disabled="isReadonly() || !settings.open_meteo_enabled"
-                   :placeholder="t('admin_integrations.open_meteo_placeholder')"
-                   class="flex-1 min-w-[260px] mono text-[12px]">
-            <button x-show="isAdmin()" @click="saveOpenMeteoUrl()"
+          <input x-model="settings.open_meteo_url" type="url"
+                 @input="markOpenMeteoDirty()"
+                 :disabled="isReadonly() || !settings.open_meteo_enabled"
+                 :placeholder="t('admin_integrations.open_meteo_placeholder')"
+                 class="w-full mono text-[12px]">
+          <!-- Save action row below the input — matches the Apprise
+               panel above it for visual consistency (operator request). -->
+          <div class="flex items-center gap-3 mt-3 flex-wrap" x-show="isAdmin()">
+            <button @click="saveOpenMeteoUrl()"
                     :disabled="openMeteoSaving"
                     :class="openMeteoDirty() ? 'ring-2 ring-[var(--warning)]' : ''"
                     class="btn btn-primary text-[12px]">
