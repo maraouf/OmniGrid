@@ -109,6 +109,16 @@
     --debug-webmin:   #ec4899;   /* pink — Webmin's own accent */
     --debug-merged:   #a78bfa;   /* violet — merged best-of */
     --debug-rendered: #22c55e;   /* emerald — what ships to UI */
+
+    /* Interactive SSH terminal modal (TODO #170) */
+    --terminal-bg:    #000000;
+    --terminal-fg:    #e2e8f0;
+    --terminal-status-ok-bg:   rgba(34, 197, 94, .12);
+    --terminal-status-ok-fg:   #4ade80;
+    --terminal-status-warn-bg: rgba(245, 158, 11, .14);
+    --terminal-status-warn-fg: #fbbf24;
+    --terminal-status-err-bg:  rgba(239, 68, 68, .14);
+    --terminal-status-err-fg:  #f87171;
     --pill-degraded-bg: rgba(245, 158, 11, .12);
     --pill-degraded-br: rgba(245, 158, 11, .25);
     --pill-degraded-fg: #fbbf24;
@@ -236,6 +246,18 @@
     --debug-webmin:   #be185d;
     --debug-merged:   #7c3aed;
     --debug-rendered: #16a34a;
+
+    /* Interactive SSH terminal modal (TODO #170) — keep the viewport
+       black-on-light even in light mode so xterm-256color sequences land
+       on the contrast they expect (most palettes assume a dark bg). */
+    --terminal-bg:    #0b1220;
+    --terminal-fg:    #e2e8f0;
+    --terminal-status-ok-bg:   rgba(22, 163, 74, .14);
+    --terminal-status-ok-fg:   #15803d;
+    --terminal-status-warn-bg: rgba(217, 119, 6, .14);
+    --terminal-status-warn-fg: #b45309;
+    --terminal-status-err-bg:  rgba(220, 38, 38, .14);
+    --terminal-status-err-fg:  #b91c1c;
 }
 
 /* ---------------------------------------------------------------------------
@@ -2747,4 +2769,46 @@ select.field-invalid {
     font-size: 10.5px;
     margin-top: 3px;
     line-height: 1.35;
+}
+
+/* ---------------------------------------------------------------------------
+   Interactive SSH terminal modal (TODO #170)
+   --------------------------------------------------------------------------- */
+.terminal-host {
+    width: 100%;
+    overflow: hidden;
+    border-radius: var(--r-sm);
+    border: 1px solid var(--border);
+}
+/* xterm.js inserts its own .xterm wrapper — make sure it fills the host
+   div so the FitAddon's proposed size matches reality. */
+.terminal-host .xterm,
+.terminal-host .xterm-viewport,
+.terminal-host .xterm-screen {
+    width: 100% !important;
+    height: 100% !important;
+}
+.ssh-term-status {
+    display: inline-flex;
+    align-items: center;
+    padding: 2px 8px;
+    border-radius: var(--r-sm);
+    font-size: 10.5px;
+    font-family: var(--font-mono, monospace);
+    line-height: 1.5;
+    background: var(--surface-3);
+    color: var(--text-dim);
+    white-space: nowrap;
+}
+.ssh-term-status--ok {
+    background: var(--terminal-status-ok-bg);
+    color: var(--terminal-status-ok-fg);
+}
+.ssh-term-status--warn {
+    background: var(--terminal-status-warn-bg);
+    color: var(--terminal-status-warn-fg);
+}
+.ssh-term-status--err {
+    background: var(--terminal-status-err-bg);
+    color: var(--terminal-status-err-fg);
 }

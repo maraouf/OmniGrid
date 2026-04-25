@@ -33,6 +33,12 @@
 <script src="/node_modules/@tailwindcss/browser/dist/index.global.js"></script>
 <script src="/js/alpine-gate.js?v=__APP_VERSION__"></script>
 <script src="/node_modules/sweetalert2/dist/sweetalert2.all.min.js"></script>
+<!-- xterm.js — interactive SSH terminal modal (TODO #170). UMD bundles
+     expose window.Terminal + window.FitAddon + window.WebLinksAddon. -->
+<link rel="stylesheet" href="/node_modules/@xterm/xterm/css/xterm.css">
+<script src="/node_modules/@xterm/xterm/lib/xterm.js"></script>
+<script src="/node_modules/@xterm/addon-fit/lib/addon-fit.js"></script>
+<script src="/node_modules/@xterm/addon-web-links/lib/addon-web-links.js"></script>
 <link rel="stylesheet" href="/css/style.css">
 <script src="/js/auth-fetch.js?v=__APP_VERSION__"></script>
 </head>
@@ -2368,8 +2374,10 @@
                    the merged best-of dict, and the rendered API payload
                    the UI consumes. Collapsed by default; first open
                    triggers a lazy fetch. Useful for spotting dropped
-                   fields / shape mismatches without grepping logs. -->
-              <template x-if="me && me.role === 'admin'">
+                   fields / shape mismatches without grepping logs.
+                   Operator-toggled in Admin → Hosts (settings.debug_panel_enabled);
+                   default true preserves legacy visibility. -->
+              <template x-if="me && me.role === 'admin' && (settings && settings.debug_panel_enabled !== false)">
                 <div class="host-debug-panel">
                   <button type="button"
                           class="host-debug-toggle"
@@ -2607,10 +2615,21 @@
                               class="host-debug-tag host-debug-tag--warn"
                               x-text="t('hosts_extra_ssh.fingerprint_empty')"></span>
                       </div>
-                      <button type="button" class="btn btn-ghost text-[11px]"
-                              @click="testSshConnection(h.id)"
-                              :disabled="!!sshTestBusy[h.id]"
-                              x-text="sshTestBusy[h.id] ? t('hosts_extra_ssh.running') : t('hosts_extra_ssh.test_button')"></button>
+                      <div class="flex items-center gap-2">
+                        <button type="button" class="btn btn-ghost text-[11px]"
+                                @click="testSshConnection(h.id)"
+                                :disabled="!!sshTestBusy[h.id]"
+                                x-text="sshTestBusy[h.id] ? t('hosts_extra_ssh.running') : t('hosts_extra_ssh.test_button')"></button>
+                        <!-- Interactive PTY terminal modal (TODO #170). Admin-only,
+                             same gating as the rest of the SSH card. Disabled until
+                             SSH is configured + the host is up — same rules as the
+                             one-shot Run button. -->
+                        <button type="button" class="btn btn-secondary text-[11px]"
+                                @click="openHostTerminal(h)"
+                                :disabled="!(sshStatus[h.id] && sshStatus[h.id].configured) || !isSshAllowed(h)"
+                                :title="!isSshAllowed(h) ? sshDisabledReason(h) : t('hosts_extra_ssh.terminal.open_button_hint')"
+                                x-text="t('hosts_extra_ssh.terminal.open_button')"></button>
+                      </div>
                     </div>
 
                     <!-- Common actions — ALL driven by Admin → SSH
@@ -4159,6 +4178,21 @@
               <span x-show="hostsConfigSaving" class="flex items-center gap-1"><span class="spin"></span>Saving…</span>
             </button>
           </div>
+          <!-- Admin display options — small toggles that affect how
+               admin tooling renders elsewhere in the SPA. Persisted
+               server-side so a flip on one browser propagates to
+               every other admin's drawer. -->
+          <div class="flex items-center gap-2 flex-wrap mt-3 pt-3 border-t border-[var(--border)]">
+            <label class="flex items-center gap-2 text-[12px] text-[var(--text-dim)] cursor-pointer">
+              <input type="checkbox"
+                     x-model="settings.debug_panel_enabled"
+                     @change="saveDebugPanelEnabled()"
+                     :disabled="!isAdmin()">
+              <span x-text="t('admin_hosts.debug_panel_toggle_label')"></span>
+            </label>
+            <span class="text-[11px] text-[var(--text-faint)]"
+                  x-text="t('admin_hosts.debug_panel_toggle_hint')"></span>
+          </div>
         </div>
 
         <div x-show="hostsConfigLoading" class="loading-state py-8">
@@ -4607,6 +4641,27 @@
           <template x-for="({g, origIdx}, listIdx) in sortedGroupsForEditor()" :key="'g' + origIdx">
             <div class="border border-[var(--border)] rounded-md p-3"
                  :class="g.parent_name ? 'bg-[var(--surface)] ms-6' : 'bg-[var(--surface-2)]'">
+              <!-- Children-collapse toggle on top-level groups that
+                   have at least one child. Hides every sub-group row
+                   under this parent so the editor stays compact when
+                   adding new items further down the page. State is
+                   persisted by parent name in localStorage. -->
+              <div x-show="!g.parent_name && hostGroupChildCount(g.name) > 0"
+                   class="flex items-center gap-2 mb-2 -mt-1">
+                <button type="button"
+                        @click="toggleHostGroupChildrenCollapsed(g.name)"
+                        class="btn btn-ghost text-[11px] px-2 py-0.5"
+                        :title="t('admin_hosts.groups.children_toggle_title')">
+                  <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" class="flip-rtl"
+                       :style="!isHostGroupChildrenCollapsed(g.name) ? 'transform: rotate(90deg)' : ''">
+                    <polyline points="9 18 15 12 9 6"/>
+                  </svg>
+                  <span x-text="(isHostGroupChildrenCollapsed(g.name)
+                                  ? t('admin_hosts.groups.children_show')
+                                  : t('admin_hosts.groups.children_hide'))
+                                + ' (' + hostGroupChildCount(g.name) + ')'"></span>
+                </button>
+              </div>
               <!-- Row 1: name, parent picker, range, controls. -->
               <div class="grid grid-cols-1 md:grid-cols-[2fr_1.3fr_110px_110px_auto] gap-3 items-end">
                 <div>
@@ -6022,6 +6077,55 @@
             </section>
           </template>
         </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ================== INTERACTIVE SSH TERMINAL MODAL (TODO #170) ==================
+       Live PTY-backed shell. Browser <-WSS-> backend <-asyncssh-> target.
+       Cookie-authed; admin-only. Audit row written at session OPEN + CLOSE
+       (start/end events only — keystrokes never logged). Esc / X to close.
+       The xterm.js viewport renders into the .terminal-host div via Alpine
+       lifecycle hooks (openHostTerminal / closeHostTerminal). -->
+  <div x-show="terminalModalOpen" class="fixed inset-0 z-50 fade-in" x-cloak>
+    <div @click="closeHostTerminal()" class="absolute inset-0 backdrop-strong"></div>
+    <div class="relative flex items-center justify-center p-4 h-full overflow-auto">
+      <div class="bg-[var(--surface)] border border-[var(--border)] rounded-md max-w-5xl w-full flex flex-col"
+           style="height: min(85vh, 720px);">
+        <header class="p-3 border-b border-[var(--border)] flex justify-between items-center bg-[var(--surface)] z-10 flex-shrink-0">
+          <div class="flex items-center gap-3 min-w-0">
+            <h2 class="text-[14px] font-semibold truncate"
+                x-text="t('hosts_extra_ssh.terminal.modal_title', { host: terminalHost && (terminalHost.label || terminalHost.id) || '' })"></h2>
+            <span class="ssh-term-status mono text-[11px]"
+                  :class="{
+                    'ssh-term-status--ok': terminalState === 'connected',
+                    'ssh-term-status--warn': terminalState === 'connecting',
+                    'ssh-term-status--err': terminalState === 'disconnected' || terminalState === 'error',
+                  }">
+              <span x-show="terminalState === 'connecting'" x-text="t('hosts_extra_ssh.terminal.connecting')"></span>
+              <span x-show="terminalState === 'connected'" x-text="t('hosts_extra_ssh.terminal.connected')"></span>
+              <span x-show="terminalState === 'disconnected'"
+                    x-text="t('hosts_extra_ssh.terminal.disconnected') + (terminalCloseReason ? ' · ' + terminalCloseReason : '')"></span>
+              <span x-show="terminalState === 'error'"
+                    x-text="t('hosts_extra_ssh.terminal.connection_failed') + (terminalCloseReason ? ' · ' + terminalCloseReason : '')"></span>
+            </span>
+            <span x-show="terminalResolved && terminalResolved.user"
+                  class="host-debug-tag mono text-[10.5px]"
+                  x-text="(terminalResolved.user || '?') + '@' + (terminalResolved.host || '') + ':' + (terminalResolved.port || 22)"></span>
+          </div>
+          <div class="flex items-center gap-2">
+            <button type="button" class="btn btn-ghost text-[11px]"
+                    x-show="terminalState === 'disconnected' || terminalState === 'error'"
+                    @click="reconnectHostTerminal()"
+                    x-text="t('hosts_extra_ssh.terminal.reconnect')"></button>
+            <button @click="closeHostTerminal()" class="btn btn-ghost"
+                    :title="t('hosts_extra_ssh.terminal.close_hint')">✕</button>
+          </div>
+        </header>
+        <div class="terminal-host scrollbar"
+             x-ref="terminalHost"
+             :dir="'ltr'"
+             style="flex: 1 1 auto; min-height: 0; background: var(--terminal-bg); padding: var(--s-2);"></div>
       </div>
     </div>
   </div>

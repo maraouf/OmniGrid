@@ -887,3 +887,250 @@ def sanitize_command_for_audit(command: str) -> str:
     if len(out) > 512:
         out = out[:509] + "…"
     return out
+
+
+# ---------------------------------------------------------------------------
+# Interactive shell — TODO #170
+# ---------------------------------------------------------------------------
+# Live PTY-backed shell for the host-drawer Terminal modal. Bridges a
+# WebSocket coming from the SPA (binary frames = shell I/O, JSON text
+# frames = control messages) to an asyncssh interactive process.
+#
+# Reuses every safety rail the one-shot ``run_command`` already enforces:
+#   - ``request_pty="force"`` so sudo behaves correctly (CLAUDE.md
+#     "SSH runs need ``request_pty='force'``" rule).
+#   - per-(host_id, user) ``_arm_cooldown`` on auth failure.
+#   - same credential-resolution ladder + ``password_source`` lookup.
+#
+# Out of scope here: keystroke logging (privacy + audit volume — see
+# the route handler in main.py for the start/end-only history rows),
+# multi-host fan-out (one shell per WebSocket only), and SFTP.
+# ---------------------------------------------------------------------------
+class TerminalAuthError(Exception):
+    """Raised by :func:`open_shell` when the connection is rejected for
+    auth reasons (bad key / bad password / cool-down). The route layer
+    surfaces a localised reason via the WS close-frame and still writes
+    an audit row before the socket goes away.
+    """
+    def __init__(self, message: str, *, code: str = "auth_failed", cooldown_armed: bool = False):
+        super().__init__(message)
+        self.code = code
+        self.cooldown_armed = cooldown_armed
+
+
+class TerminalConfigError(Exception):
+    """Raised when the resolved SSH params are insufficient (no host,
+    no user, no credentials, host disabled, ...). Distinct from
+    :class:`TerminalAuthError` so the route can return a different
+    close code + close reason.
+    """
+    def __init__(self, message: str, *, code: str = "not_configured"):
+        super().__init__(message)
+        self.code = code
+
+
+async def open_shell(
+    host_id: str,
+    hosts_config: list[dict],
+    *,
+    term_cols: int = 80,
+    term_rows: int = 24,
+):
+    """Open an interactive PTY-backed shell on the host resolved from
+    ``host_id``.
+
+    Returns a tuple ``(connection, process, resolved)``:
+      - ``connection`` — the live ``asyncssh.SSHClientConnection``. The
+        caller MUST close it (``connection.close()`` + ``await
+        connection.wait_closed()``) when the WebSocket goes away.
+      - ``process`` — an ``asyncssh.SSHClientProcess`` running an
+        interactive login shell. ``stdin.write(bytes)`` /
+        ``stdout.read(...)`` for I/O,
+        ``connection.change_terminal_size(cols, rows, ...)`` is hidden
+        behind :func:`resize_shell` for the route layer.
+      - ``resolved`` — the same dict :func:`resolve_ssh_params` returns,
+        for the caller to stamp on the audit row + status footer.
+
+    Raises :class:`TerminalConfigError` when nothing was tried (missing
+    host, missing creds, ssh disabled, cool-down active).
+    Raises :class:`TerminalAuthError` when asyncssh rejected the auth
+    handshake (cool-down is armed in this case).
+    Bubbles every other ``asyncssh`` / ``OSError`` straight through —
+    the caller's ``try/finally`` must still close the WS gracefully.
+    """
+    resolved = resolve_ssh_params(host_id, hosts_config)
+    if resolved.get("error"):
+        raise TerminalConfigError(resolved["error"], code="resolve_error")
+    if resolved.get("disabled"):
+        raise TerminalConfigError(
+            "SSH is disabled for this host (per-host override)",
+            code="disabled",
+        )
+    if not resolved.get("host") or not resolved.get("user"):
+        raise TerminalConfigError(
+            "SSH not configured (host + user both required)",
+            code="not_configured",
+        )
+    if not resolved.get("key_set") and not resolved.get("password_set"):
+        raise TerminalConfigError(
+            "No SSH credentials configured — set a key or password in "
+            "Admin → SSH",
+            code="no_credentials",
+        )
+
+    cd = _in_cooldown(host_id, resolved["user"])
+    if cd is not None:
+        raise TerminalConfigError(
+            f"auth cool-down ({int(cd)}s remaining) — fix credentials "
+            f"and wait before retrying",
+            code="cooldown",
+        )
+
+    g = get_global_ssh_settings()
+    client_keys_arg: Any = None
+    if g["private_key"]:
+        try:
+            client_keys_arg = [asyncssh.import_private_key(
+                g["private_key"], passphrase=g["passphrase"] or None,
+            )]
+        except Exception as e:
+            if not resolved.get("password_set"):
+                raise TerminalConfigError(
+                    f"bad SSH key: {type(e).__name__}: {e}",
+                    code="bad_key",
+                )
+            client_keys_arg = None
+
+    # Mirror run_command's password-source lookup so per-host /
+    # per-group / global passwords are honoured.
+    ssh_password: Optional[str] = None
+    record = _find_host_record(host_id, hosts_config)
+    src = resolved.get("password_source") or ""
+    if src == "per_host":
+        if record and isinstance(record.get("ssh"), dict):
+            ssh_password = (record["ssh"].get("password") or "").strip() or None
+    elif src in ("sub_group", "main_group"):
+        main_group, sub_group = _groups_for_host(record)
+        target = sub_group if src == "sub_group" else main_group
+        if target and isinstance(target.get("ssh"), dict):
+            ssh_password = (target["ssh"].get("password") or "").strip() or None
+    if ssh_password is None and g["password"]:
+        ssh_password = g["password"]
+
+    known_hosts_arg: Any = None
+    if g["known_hosts"]:
+        try:
+            known_hosts_arg = asyncssh.import_known_hosts(g["known_hosts"])
+        except Exception as e:
+            raise TerminalConfigError(
+                f"bad known_hosts blob: {type(e).__name__}: {e}",
+                code="bad_known_hosts",
+            )
+
+    preferred: list[str] = []
+    if client_keys_arg:
+        preferred.append("publickey")
+    if ssh_password:
+        preferred.append("password")
+    if not preferred:
+        raise TerminalConfigError(
+            "No SSH credentials available at connect time",
+            code="no_credentials",
+        )
+
+    # Bound the requested terminal size — operators have been seen
+    # passing wildly large numbers from scripted callers; clamp here so
+    # asyncssh's PTY allocation doesn't refuse the request and tear the
+    # whole connection down.
+    cols = max(1, min(int(term_cols or 80), 500))
+    rows = max(1, min(int(term_rows or 24), 200))
+
+    print(
+        f"[ssh] terminal OPEN host_id={host_id!r} "
+        f"target={resolved.get('user')}@{resolved.get('host')}:{resolved.get('port')} "
+        f"preferred_auth={preferred!r} term_size={cols}x{rows}"
+    )
+    try:
+        conn = await asyncssh.connect(
+            host=resolved["host"],
+            port=resolved["port"],
+            username=resolved["user"],
+            client_keys=client_keys_arg,
+            known_hosts=known_hosts_arg,
+            agent_path=None,
+            password=ssh_password,
+            preferred_auth=",".join(preferred),
+            connect_timeout=20.0,
+            login_timeout=20.0,
+            # Keepalive on the SSH side mirrors the WS-ping cadence in
+            # the route handler. Keeps idle proxies + NATs from killing
+            # an otherwise-healthy session.
+            keepalive_interval=15,
+        )
+    except asyncssh.PermissionDenied as e:
+        _arm_cooldown(host_id, resolved["user"])
+        print(f"[ssh] terminal ERROR PermissionDenied host={resolved.get('host')!r}: {e} — cool-down armed")
+        raise TerminalAuthError(
+            f"permission denied: {e}",
+            code="permission_denied",
+            cooldown_armed=True,
+        )
+    except asyncssh.HostKeyNotVerifiable as e:
+        print(f"[ssh] terminal ERROR HostKeyNotVerifiable host={resolved.get('host')!r}: {e}")
+        raise TerminalConfigError(
+            f"host key not trusted: {e}. Paste the expected line into "
+            f"Admin → SSH → Known hosts.",
+            code="host_key",
+        )
+
+    try:
+        # Server host-key fingerprint — surface the same way run_command
+        # does so the audit row / drawer status footer stays consistent.
+        try:
+            server_key = conn.get_server_host_key()
+            fp = server_key.get_fingerprint("sha256") if server_key else ""
+            if fp and ":" in fp:
+                fp = fp.split(":", 1)[1]
+            resolved["server_key_fingerprint"] = fp[:16]
+        except Exception:
+            resolved["server_key_fingerprint"] = ""
+        # request_pty='force' — same reasoning as run_command. sudo
+        # without a TTY behaves badly in piped contexts.
+        proc = await conn.create_process(
+            request_pty="force",
+            term_type="xterm-256color",
+            term_size=(cols, rows),
+            encoding=None,  # raw bytes both ways — don't transcode
+        )
+        return conn, proc, resolved
+    except Exception:
+        # If the shell open failed AFTER auth, drop the connection so
+        # we don't leak a TCP socket. Re-raise so the route layer can
+        # report it.
+        try:
+            conn.close()
+            await conn.wait_closed()
+        except Exception:
+            pass
+        raise
+
+
+def resize_shell(proc: Any, cols: int, rows: int) -> None:
+    """Forward an xterm.js resize event to the live SSH PTY.
+
+    Wraps asyncssh's ``change_terminal_size``. Bounded the same way
+    :func:`open_shell` clamps the initial size so a runaway client
+    can't push an unsupported geometry. Silently no-ops on a closed
+    process so the route handler doesn't have to special-case the race
+    between "client sends resize" and "shell already exited."
+    """
+    try:
+        c = max(1, min(int(cols or 0), 500))
+        r = max(1, min(int(rows or 0), 200))
+    except (TypeError, ValueError):
+        return
+    try:
+        proc.change_terminal_size(c, r)
+    except Exception as e:
+        # Don't let a bad resize tear the session down. Log + continue.
+        print(f"[ssh] terminal resize ignored ({type(e).__name__}: {e})")

@@ -41,7 +41,16 @@ from logic import logs as _logs  # noqa: E402
 _logs.install()
 
 import httpx
-from fastapi import BackgroundTasks, Depends, FastAPI, Form, HTTPException, Request
+from fastapi import (
+    BackgroundTasks,
+    Depends,
+    FastAPI,
+    Form,
+    HTTPException,
+    Request,
+    WebSocket,
+    WebSocketDisconnect,
+)
 from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 
@@ -915,6 +924,11 @@ class SettingsIn(BaseModel):
     # action list in the drawer (same 5 presets). {host} placeholder
     # in the command template is substituted at run time.
     ssh_custom_actions: Optional[list] = None
+    # Show the host-drawer admin debug panel (raw provider JSON +
+    # merged shape). Default ``true`` preserves the legacy behaviour.
+    # When false, the panel is hidden for everyone (including admins);
+    # other admin tools on the drawer remain visible.
+    debug_panel_enabled: Optional[bool] = None
 
 
 @app.get("/api/settings")
@@ -965,6 +979,14 @@ async def api_get_settings(request: Request):
         "portainer_public_url": get_setting("portainer_public_url", str(p.get("portainer_url") or "")),
         "backup_retention_count": int(get_setting("backup_retention_count", "0") or "0"),
         "scheduler_timezone": get_setting("scheduler_timezone", "") or "",
+        # Host-drawer admin debug panel visibility (Admin → Hosts toggle).
+        # Default true — preserves the legacy behaviour for existing
+        # deploys that haven't touched the setting. Operators who don't
+        # use the raw-JSON dump can flip to false to declutter the
+        # drawer without losing other admin-only affordances.
+        "debug_panel_enabled": (
+            (get_setting("debug_panel_enabled", "true") or "true").lower() == "true"
+        ),
         "node_exporter": {
             "enabled": (get_setting("node_exporter_enabled", "false") or "false").lower() == "true",
             "url_template": get_setting("node_exporter_url_template", "http://{host}:9100/metrics"),
@@ -1289,6 +1311,11 @@ async def api_set_settings(
     # Custom SSH actions — JSON array replaces the whole list wholesale.
     # Full-replace semantics match how Admin → Hosts saves hosts_config.
     # Shape validation lives here so the runner can trust what it reads.
+    # Admin → Hosts: show / hide the per-host drawer debug panel.
+    # Persisted as the string "true" / "false" (matches every other
+    # boolean toggle in this table — see node_exporter_enabled etc.).
+    if s.debug_panel_enabled is not None:
+        set_setting("debug_panel_enabled", "true" if s.debug_panel_enabled else "false")
     if s.ssh_custom_actions is not None:
         if not isinstance(s.ssh_custom_actions, list):
             raise HTTPException(400, "ssh_custom_actions must be a list")
@@ -3712,6 +3739,413 @@ async def api_ssh_run(
         result=result,
     )
     return result
+
+
+# ----------------------------------------------------------------------------
+# Interactive SSH terminal — TODO #170
+# Browser <—WSS—> OmniGrid backend <—asyncssh shell—> target host.
+#
+# Auth: same og_session cookie as every other admin-only API path. The WS
+# upgrade is rejected with code=4401 when the cookie is missing / invalid /
+# the user isn't admin. Bearer-token auth is intentionally NOT supported
+# here — interactive shells are operator workflows; machine clients use
+# /api/hosts/{id}/ssh/run.
+#
+# Audit: a row is written to ``history`` at session-OPEN with status
+# ``running`` and updated to ``success`` / ``failed`` at session-CLOSE.
+# Keystrokes / shell I/O are NEVER logged (privacy + audit volume) — only
+# the open / close events.
+#
+# Keep-alive: the route pings the WS every ~25s so NPM / Cloudflare idle
+# timeouts don't drop a quiet shell. ``open_shell`` already passes
+# ``keepalive_interval=15`` to asyncssh on the upstream side.
+# ----------------------------------------------------------------------------
+def _ssh_terminal_audit_open(
+    *,
+    host_id: str,
+    actor: str,
+    resolved: dict,
+) -> Optional[int]:
+    """Insert the session-OPEN history row. Returns the new rowid or
+    ``None`` if the insert failed (audit-log breakage must never block
+    the session itself — operator visibility is best-effort by design).
+    """
+    from logic import ssh as _ssh
+    try:
+        with db_conn() as c:
+            cur = c.execute(
+                "INSERT INTO history "
+                "(ts, op_type, target_name, target_id, target_stack, "
+                " status, duration, events, error, actor) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (
+                    time.time(),
+                    "ssh_terminal",
+                    f"{resolved.get('user') or '?'}@{resolved.get('host') or host_id}",
+                    f"{host_id}",
+                    None,
+                    "running",
+                    0.0,
+                    json.dumps([{
+                        "ts":    time.time(),
+                        "level": "info",
+                        "msg": (
+                            f"ssh_terminal start "
+                            f"target={resolved.get('user')}@{resolved.get('host')}:{resolved.get('port')}"
+                        ),
+                    }]),
+                    None,
+                    actor,
+                ),
+            )
+            return cur.lastrowid
+    except Exception as e:
+        print(f"[ssh] terminal audit-open insert failed: {e}")
+        return None
+
+
+def _ssh_terminal_audit_close(
+    *,
+    row_id: Optional[int],
+    started_at: float,
+    status: str,
+    error: Optional[str],
+    bytes_in: int,
+    bytes_out: int,
+) -> None:
+    """Update the session-OPEN row to its final state. Fire-and-forget;
+    failures are logged but never raised.
+    """
+    if not row_id:
+        return
+    duration = max(0.0, time.time() - started_at)
+    events = [{
+        "ts": time.time(),
+        "level": "info" if status == "success" else "error",
+        "msg": (
+            f"ssh_terminal end status={status} "
+            f"bytes_in={bytes_in} bytes_out={bytes_out} "
+            f"duration={duration:.1f}s"
+        ),
+    }]
+    try:
+        with db_conn() as c:
+            c.execute(
+                "UPDATE history SET status=?, duration=?, events=?, error=? "
+                "WHERE id=?",
+                (status, duration, json.dumps(events), error, row_id),
+            )
+    except Exception as e:
+        print(f"[ssh] terminal audit-close update failed: {e}")
+
+
+# Registered BEFORE the StaticFiles "/" catch-all per CLAUDE.md mount-order
+# rule — the catch-all responds to every path and would shadow the
+# WebSocket route otherwise.
+@app.websocket("/api/hosts/{host_id}/ssh/terminal")
+async def ws_ssh_terminal(websocket: WebSocket, host_id: str):
+    """Bridge a browser WebSocket to a live PTY-backed SSH shell.
+
+    Frame protocol (browser → backend):
+      - **binary**     — raw stdin bytes (forwarded verbatim to the shell).
+      - **text JSON**  — control message:
+            ``{"type": "resize", "cols": N, "rows": M}``
+            ``{"type": "ping"}``  (no-op; server pings are separate)
+
+    Frame protocol (backend → browser):
+      - **binary**     — raw stdout bytes from the shell.
+      - **text JSON**  — control message:
+            ``{"type": "ready", "resolved": {...}}``  on shell open.
+            ``{"type": "error", "code": "...", "message": "..."}``  fatal.
+            ``{"type": "exit",  "code": N}``  shell exited cleanly.
+
+    Cookie auth is enforced at the upgrade — the route REJECTS the
+    handshake before ``accept()`` if the caller isn't an admin. Bearer
+    tokens are not supported.
+    """
+    from logic import ssh as _ssh
+    # ---- 1) Cookie auth — manual because Depends(require_admin) doesn't
+    #         apply to WebSocket routes.
+    user = None
+    cookie = websocket.cookies.get(auth.COOKIE_NAME)
+    if cookie:
+        token_id = auth.parse_session_cookie(cookie)
+        if token_id:
+            try:
+                with db_conn() as c:
+                    sess = auth.get_active_session(c, token_id)
+                    if sess:
+                        u = auth.get_user(c, sess["user_id"])
+                        if u and not u.disabled:
+                            user = u
+            except Exception as e:
+                print(f"[ssh] terminal auth lookup failed: {e}")
+    if user is None:
+        # 4401 — RFC-6455 application close-code (4xxx is private use).
+        # The browser surfaces this as the close.code on the WS; the SPA
+        # maps it to the "session expired, please reload" toast.
+        await websocket.close(code=4401, reason="auth required")
+        return
+    if user.role != "admin":
+        await websocket.close(code=4403, reason="admin required")
+        return
+
+    actor = user.username
+
+    # ---- 2) Resolve SSH params + open the shell.
+    hosts_config = _load_hosts_config()
+    # Optional initial geometry from the upgrade query string. xterm.js
+    # ships a saner first-frame with "actual cols/rows" once it mounts,
+    # so this is just a best-guess so the prompt isn't 80x24 for the
+    # first redraw on widescreen monitors.
+    try:
+        init_cols = int(websocket.query_params.get("cols") or 80)
+    except (TypeError, ValueError):
+        init_cols = 80
+    try:
+        init_rows = int(websocket.query_params.get("rows") or 24)
+    except (TypeError, ValueError):
+        init_rows = 24
+
+    await websocket.accept()
+    started_at = time.time()
+    audit_row_id: Optional[int] = None
+    bytes_in = 0   # browser -> shell
+    bytes_out = 0  # shell -> browser
+    final_status = "success"
+    final_error: Optional[str] = None
+    conn = None
+    proc = None
+
+    try:
+        try:
+            conn, proc, resolved = await _ssh.open_shell(
+                host_id, hosts_config,
+                term_cols=init_cols, term_rows=init_rows,
+            )
+        except _ssh.TerminalConfigError as e:
+            await websocket.send_json({
+                "type": "error",
+                "code": getattr(e, "code", "config"),
+                "message": str(e),
+            })
+            await websocket.close(code=4400, reason=getattr(e, "code", "config"))
+            return
+        except _ssh.TerminalAuthError as e:
+            await websocket.send_json({
+                "type": "error",
+                "code": getattr(e, "code", "auth_failed"),
+                "message": str(e),
+            })
+            await websocket.close(code=4401, reason="auth_failed")
+            return
+        except (asyncio.TimeoutError, TimeoutError):
+            await websocket.send_json({
+                "type": "error", "code": "timeout",
+                "message": "SSH connection timed out",
+            })
+            await websocket.close(code=4500, reason="timeout")
+            return
+        except Exception as e:
+            await websocket.send_json({
+                "type": "error",
+                "code": "connect_failed",
+                "message": f"{type(e).__name__}: {e}",
+            })
+            await websocket.close(code=4500, reason="connect_failed")
+            return
+
+        audit_row_id = _ssh_terminal_audit_open(
+            host_id=host_id, actor=actor, resolved=resolved,
+        )
+
+        # Surface the resolved target back to the SPA so the modal
+        # footer can render "user@host:port · SHA256:abc..."
+        await websocket.send_json({
+            "type": "ready",
+            "resolved": {
+                "user": resolved.get("user"),
+                "host": resolved.get("host"),
+                "port": resolved.get("port"),
+                "key_fingerprint": resolved.get("key_fingerprint", ""),
+                "server_key_fingerprint": resolved.get("server_key_fingerprint", ""),
+            },
+        })
+
+        # ---- 3) Pump bytes both ways + heartbeat ping. ----
+        loop = asyncio.get_event_loop()
+        stop_event = asyncio.Event()
+
+        async def upstream_to_ws():
+            """Read shell stdout, send as binary WS frames."""
+            nonlocal bytes_out
+            try:
+                while True:
+                    chunk = await proc.stdout.read(4096)
+                    if not chunk:
+                        # EOF — shell exited.
+                        break
+                    if isinstance(chunk, str):
+                        chunk = chunk.encode("utf-8", errors="replace")
+                    bytes_out += len(chunk)
+                    await websocket.send_bytes(chunk)
+            except (asyncio.CancelledError, asyncssh.ConnectionLost,
+                    asyncssh.DisconnectError):
+                pass
+            except Exception as e:
+                print(f"[ssh] terminal upstream_to_ws error: {type(e).__name__}: {e}")
+            finally:
+                stop_event.set()
+
+        async def ws_to_upstream():
+            """Read WS frames, write to shell stdin or handle controls."""
+            nonlocal bytes_in
+            try:
+                while True:
+                    msg = await websocket.receive()
+                    if msg.get("type") == "websocket.disconnect":
+                        break
+                    if "bytes" in msg and msg["bytes"] is not None:
+                        data: bytes = msg["bytes"]
+                        bytes_in += len(data)
+                        try:
+                            proc.stdin.write(data)
+                        except (BrokenPipeError, ConnectionResetError):
+                            break
+                    elif "text" in msg and msg["text"] is not None:
+                        # Control message — JSON-decoded.
+                        try:
+                            ctl = json.loads(msg["text"])
+                        except (TypeError, ValueError):
+                            continue
+                        kind = (ctl or {}).get("type")
+                        if kind == "resize":
+                            _ssh.resize_shell(
+                                proc,
+                                ctl.get("cols", 80),
+                                ctl.get("rows", 24),
+                            )
+                        elif kind == "ping":
+                            # No-op — server pings are separate.
+                            continue
+                        elif kind == "stdin":
+                            # Optional text-mode stdin (some clients
+                            # prefer encoding via JSON). Keys "data".
+                            data_s = (ctl or {}).get("data") or ""
+                            data_b = data_s.encode("utf-8", errors="replace")
+                            bytes_in += len(data_b)
+                            try:
+                                proc.stdin.write(data_b)
+                            except (BrokenPipeError, ConnectionResetError):
+                                break
+            except WebSocketDisconnect:
+                pass
+            except (asyncio.CancelledError, asyncssh.ConnectionLost,
+                    asyncssh.DisconnectError):
+                pass
+            except Exception as e:
+                print(f"[ssh] terminal ws_to_upstream error: {type(e).__name__}: {e}")
+            finally:
+                stop_event.set()
+
+        async def heartbeat():
+            """WS ping every 25s so idle proxies don't drop us."""
+            try:
+                while not stop_event.is_set():
+                    await asyncio.sleep(25)
+                    if stop_event.is_set():
+                        break
+                    try:
+                        # Starlette's WebSocket doesn't expose a public
+                        # ping; fall back to a JSON keepalive frame the
+                        # client can ignore. Keeps any L7 proxy from
+                        # dropping the idle TCP socket.
+                        await websocket.send_json({"type": "keepalive", "ts": time.time()})
+                    except Exception:
+                        break
+            except asyncio.CancelledError:
+                pass
+
+        t1 = asyncio.create_task(upstream_to_ws(), name="ssh-term-up")
+        t2 = asyncio.create_task(ws_to_upstream(), name="ssh-term-dn")
+        t3 = asyncio.create_task(heartbeat(),       name="ssh-term-hb")
+        try:
+            await stop_event.wait()
+        finally:
+            for t in (t1, t2, t3):
+                if not t.done():
+                    t.cancel()
+            # Drain cancellations.
+            for t in (t1, t2, t3):
+                try:
+                    await t
+                except (asyncio.CancelledError, Exception):
+                    pass
+
+        # Try to harvest the shell's exit code so the close frame can
+        # surface "exit 0" vs "exit 1". asyncssh exposes this on the
+        # process once the channel closes.
+        exit_code = None
+        try:
+            exit_code = proc.exit_status
+        except Exception:
+            exit_code = None
+        if exit_code not in (None, 0):
+            final_error = f"shell exited with code {exit_code}"
+        try:
+            await websocket.send_json({"type": "exit", "code": exit_code})
+        except Exception:
+            pass
+        try:
+            await websocket.close(code=1000, reason="shell exited")
+        except Exception:
+            pass
+    except WebSocketDisconnect:
+        # Normal browser-side close (tab closed / network blip). Not an
+        # error; final_status stays "success".
+        pass
+    except Exception as e:
+        final_status = "failed"
+        final_error = f"{type(e).__name__}: {e}"
+        print(f"[ssh] terminal session ERROR host={host_id!r}: {e}")
+        try:
+            await websocket.close(code=4500, reason="internal_error")
+        except Exception:
+            pass
+    finally:
+        # Always close the upstream SSH connection.
+        if proc is not None:
+            try:
+                proc.close()
+            except Exception:
+                pass
+        if conn is not None:
+            try:
+                conn.close()
+            except Exception:
+                pass
+            try:
+                await asyncio.wait_for(conn.wait_closed(), timeout=5.0)
+            except Exception:
+                pass
+        _ssh_terminal_audit_close(
+            row_id=audit_row_id,
+            started_at=started_at,
+            status=final_status,
+            error=final_error,
+            bytes_in=bytes_in,
+            bytes_out=bytes_out,
+        )
+        print(
+            f"[ssh] terminal CLOSE host_id={host_id!r} actor={actor!r} "
+            f"status={final_status} bytes_in={bytes_in} bytes_out={bytes_out} "
+            f"duration={time.time() - started_at:.1f}s"
+        )
+
+
+# Re-export asyncssh for the WS handler's exception handling without
+# forcing every other module to import the whole package.
+import asyncssh  # noqa: E402,F401  (used inside ws_ssh_terminal handlers)
 
 
 @app.get("/api/hosts/history")

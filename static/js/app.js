@@ -157,6 +157,19 @@ function app() {
         return Array.isArray(parsed) ? parsed.filter(x => typeof x === 'string') : [];
       } catch { return []; }
     })(),
+    // Editor-side collapse for parent rows in Admin → Host Groups —
+    // distinct from `hostGroupsCollapsed` (which is the Hosts-view
+    // bucket collapse). When a parent name is in this set, the editor
+    // hides its child rows so the page doesn't grow to 50+ cards on
+    // deep nesting. Persisted by parent_name so it survives reloads.
+    hostGroupsEditorChildrenCollapsed: (() => {
+      try {
+        const raw = typeof localStorage !== 'undefined'
+          ? localStorage.getItem('hostGroupsEditorChildrenCollapsed') : null;
+        const parsed = raw ? JSON.parse(raw) : [];
+        return Array.isArray(parsed) ? parsed.filter(x => typeof x === 'string') : [];
+      } catch { return []; }
+    })(),
     // Asset inventory (ticket #78). `assetForm` is the editable form
     // state; `assetStatus` mirrors the server snapshot (secret `_set`
     // flag etc.). `assetCache` is the loaded /api/asset-inventory
@@ -193,7 +206,7 @@ function app() {
     })(),
     _autoTimer: null, _opsTimer: null,
     cacheLabel: '',
-    settings: { apprise_url: '', apprise_tag: '', portainer_public_url: '' },
+    settings: { apprise_url: '', apprise_tag: '', portainer_public_url: '', debug_panel_enabled: true },
     schedulerSaving: false,
     openMeteoSaving: false,
     // Admin → Hosts per-row collapse state. Keyed by host id so
@@ -272,6 +285,25 @@ function app() {
     sshBusy: {},
     sshTestBusy: {},
     sshLastTested: {},
+    // ---- Interactive SSH terminal modal state (TODO #170) ----
+    // terminalModalOpen     bool     visibility flag (drives the modal x-show).
+    // terminalHost          object   the host row currently being driven.
+    // terminalState         string   'connecting' | 'connected' | 'disconnected' | 'error'
+    // terminalCloseReason   string   short message shown alongside the status pill.
+    // terminalResolved      object   { user, host, port, ... } from the ws "ready" frame.
+    // terminal              xterm.js Terminal instance — assigned after $nextTick.
+    // terminalFit           FitAddon instance for window-resize handling.
+    // terminalSocket        WebSocket — null when no session active.
+    // terminalResizeBound   bound resize listener — kept so close() can detach it.
+    terminalModalOpen: false,
+    terminalHost: null,
+    terminalState: 'connecting',
+    terminalCloseReason: '',
+    terminalResolved: null,
+    terminal: null,
+    terminalFit: null,
+    terminalSocket: null,
+    terminalResizeBound: null,
     sshSettings: {
       user: '', port: 22, private_key: '', passphrase: '',
       password: '', fqdn_suffix: '',
@@ -1692,6 +1724,29 @@ function app() {
     // toast so the operator knows to fix the typo.
     // Persist the Open-Meteo upstream URL (Admin → Notifications).
     // Blank = clear override, fall back to the baked-in default.
+    // Admin → Hosts toggle: show / hide the host-drawer debug panel
+    // (raw-JSON dump for each provider). Persists immediately on
+    // change so the admin doesn't have to hunt for a Save button.
+    async saveDebugPanelEnabled() {
+      try {
+        const r = await fetch('/api/settings', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            debug_panel_enabled: !!this.settings.debug_panel_enabled,
+          }),
+        });
+        if (r.ok) {
+          this.showToast(this.t('admin_hosts.debug_panel_toggle_saved'), 'success');
+        } else {
+          const j = await r.json().catch(() => ({}));
+          this.showToast(j.detail || this.t('toasts_extra.save_failed_generic'), 'error');
+        }
+      } catch (_) {
+        this.showToast(this.t('toasts_extra.network_error_generic'), 'error');
+      }
+    },
+
     async saveOpenMeteoUrl() {
       if (this.openMeteoSaving) return;
       this.openMeteoSaving = true;
@@ -2452,6 +2507,11 @@ function app() {
           scheduler_timezone: d.scheduler_timezone || '',
           // Open-Meteo upstream (weather widget). Blank = default.
           open_meteo_url: d.open_meteo_url || '',
+          // Admin → Hosts toggle that controls visibility of the
+          // host-drawer debug-data panel. Default true keeps the
+          // legacy admin behaviour for fresh installs / pre-toggle
+          // databases. Persisted via /api/settings on every flip.
+          debug_panel_enabled: d.debug_panel_enabled !== false,
         };
         // Capture baseline for the host-stats dirty indicator.
         // Passwords/tokens are always blank in the live form (write-
@@ -3109,6 +3169,205 @@ function app() {
       } catch (_) {
         window.prompt('Copy output', blob);
       }
+    },
+
+    // ---- Interactive SSH terminal modal (TODO #170) ----
+    // Browser <-WSS-> backend <-asyncssh shell-> target host. Uses
+    // xterm.js for the viewport (UMD bundles preloaded in <head>).
+    // The modal lives at top-level so its WS survives drawer-state
+    // transitions; closing drops the socket cleanly.
+    openHostTerminal(host) {
+      if (!host || !host.id) return;
+      // Admin-only is also enforced server-side; this UI gate just
+      // avoids "click button → 4403" friction.
+      if (!this.me || this.me.role !== 'admin') {
+        this.showToast(this.t('hosts_extra_ssh.terminal.not_admin'), 'error');
+        return;
+      }
+      if (typeof window.Terminal !== 'function') {
+        // xterm.js failed to load (older cached HTML, blocked by CSP, etc.)
+        this.showToast(this.t('hosts_extra_ssh.terminal.xterm_missing'), 'error');
+        return;
+      }
+      // Tear down any existing session before opening a new one — prevents
+      // resource leaks if the operator switches hosts mid-session.
+      this._teardownTerminalSession();
+      this.terminalHost = host;
+      this.terminalResolved = null;
+      this.terminalCloseReason = '';
+      this.terminalState = 'connecting';
+      this.terminalModalOpen = true;
+      // $nextTick so x-ref="terminalHost" exists in the DOM.
+      this.$nextTick(() => {
+        try {
+          this._spawnTerminal(host);
+        } catch (e) {
+          this.terminalState = 'error';
+          this.terminalCloseReason = (e && e.message) || String(e);
+        }
+      });
+    },
+    _spawnTerminal(host) {
+      const container = this.$refs.terminalHost;
+      if (!container) return;
+      // ---- 1) xterm.js setup ----
+      const term = new window.Terminal({
+        fontFamily: 'Menlo, Consolas, "DejaVu Sans Mono", monospace',
+        fontSize: 13,
+        cursorBlink: true,
+        scrollback: 5000,
+        // Background pulled from a CSS token so it tracks the theme.
+        // xterm.js renders directly to canvas / DOM so we have to read
+        // the resolved colour at instantiation time.
+        theme: this._terminalTheme(),
+        // Convert paste to bracketed paste so the shell knows what's
+        // happening; remote programs that don't grok it still work.
+        macOptionIsMeta: true,
+      });
+      const fit = (typeof window.FitAddon === 'function')
+        ? new window.FitAddon()
+        : null;
+      const wlAddon = (typeof window.WebLinksAddon === 'function')
+        ? new window.WebLinksAddon()
+        : null;
+      if (fit) term.loadAddon(fit);
+      if (wlAddon) term.loadAddon(wlAddon);
+      term.open(container);
+      try { if (fit) fit.fit(); } catch (_) {}
+      this.terminal = term;
+      this.terminalFit = fit;
+
+      // ---- 2) WebSocket to /api/hosts/{id}/ssh/terminal ----
+      const proto = (location.protocol === 'https:') ? 'wss://' : 'ws://';
+      const cols = term.cols || 80;
+      const rows = term.rows || 24;
+      const url = proto + location.host
+        + '/api/hosts/' + encodeURIComponent(host.id) + '/ssh/terminal'
+        + '?cols=' + cols + '&rows=' + rows;
+      let ws;
+      try {
+        ws = new WebSocket(url);
+      } catch (e) {
+        this.terminalState = 'error';
+        this.terminalCloseReason = (e && e.message) || String(e);
+        return;
+      }
+      ws.binaryType = 'arraybuffer';
+      this.terminalSocket = ws;
+
+      ws.addEventListener('open', () => {
+        // Send an explicit resize so the backend's PTY matches the
+        // viewport (the query-string size is just a first-frame hint).
+        try {
+          ws.send(JSON.stringify({ type: 'resize', cols: term.cols, rows: term.rows }));
+        } catch (_) {}
+      });
+      ws.addEventListener('message', (ev) => {
+        if (typeof ev.data === 'string') {
+          // Control frame — JSON.
+          let ctl = null;
+          try { ctl = JSON.parse(ev.data); } catch (_) { return; }
+          if (!ctl || typeof ctl !== 'object') return;
+          if (ctl.type === 'ready') {
+            this.terminalState = 'connected';
+            this.terminalResolved = ctl.resolved || null;
+            term.focus();
+          } else if (ctl.type === 'error') {
+            this.terminalState = 'error';
+            this.terminalCloseReason = ctl.message || ctl.code || 'error';
+          } else if (ctl.type === 'exit') {
+            this.terminalCloseReason = this.t('hosts_extra_ssh.terminal.exit_code', {
+              code: (ctl.code == null ? '?' : ctl.code),
+            });
+          }
+          // 'keepalive' frames — ignored; their job is done at the proxy layer.
+        } else if (ev.data instanceof ArrayBuffer) {
+          // Binary frame — raw shell output.
+          const bytes = new Uint8Array(ev.data);
+          term.write(bytes);
+        }
+      });
+      ws.addEventListener('close', (ev) => {
+        if (this.terminalState === 'connecting') {
+          this.terminalState = 'error';
+        } else if (this.terminalState !== 'error') {
+          this.terminalState = 'disconnected';
+        }
+        // Map close codes to user-friendly reasons.
+        if (ev.code === 4401) {
+          this.terminalCloseReason = this.t('hosts_extra_ssh.terminal.cookie_expired');
+        } else if (ev.code === 4403) {
+          this.terminalCloseReason = this.t('hosts_extra_ssh.terminal.not_admin');
+        } else if (!this.terminalCloseReason && ev.reason) {
+          this.terminalCloseReason = String(ev.reason);
+        }
+      });
+      ws.addEventListener('error', () => {
+        if (this.terminalState !== 'error' && this.terminalState !== 'disconnected') {
+          this.terminalState = 'error';
+        }
+      });
+
+      // ---- 3) Keystrokes -> WS (binary frames). xterm emits utf-8
+      //         strings via onData; encode + send. ----
+      const enc = new TextEncoder();
+      term.onData((data) => {
+        if (!ws || ws.readyState !== 1) return;
+        try { ws.send(enc.encode(data)); } catch (_) {}
+      });
+      term.onResize(({ cols, rows }) => {
+        if (!ws || ws.readyState !== 1) return;
+        try { ws.send(JSON.stringify({ type: 'resize', cols, rows })); } catch (_) {}
+      });
+
+      // ---- 4) Window-resize -> FitAddon -> xterm onResize -> WS resize ----
+      const onWinResize = () => {
+        if (this.terminalFit) {
+          try { this.terminalFit.fit(); } catch (_) {}
+        }
+      };
+      window.addEventListener('resize', onWinResize);
+      this.terminalResizeBound = onWinResize;
+    },
+    _terminalTheme() {
+      // Read tokens from the live theme so light vs dark match.
+      const cs = getComputedStyle(document.documentElement);
+      const bg = (cs.getPropertyValue('--terminal-bg') || '').trim() || '#000000';
+      const fg = (cs.getPropertyValue('--terminal-fg') || '').trim() || '#e2e8f0';
+      return { background: bg, foreground: fg };
+    },
+    _teardownTerminalSession() {
+      // Idempotent — safe to call from multiple paths (close button,
+      // Esc key, modal-backdrop click, openHostTerminal switching hosts,
+      // beforeunload).
+      if (this.terminalResizeBound) {
+        try { window.removeEventListener('resize', this.terminalResizeBound); } catch (_) {}
+        this.terminalResizeBound = null;
+      }
+      if (this.terminalSocket) {
+        try { this.terminalSocket.close(1000, 'client closed'); } catch (_) {}
+        this.terminalSocket = null;
+      }
+      if (this.terminal) {
+        try { this.terminal.dispose(); } catch (_) {}
+        this.terminal = null;
+      }
+      this.terminalFit = null;
+    },
+    closeHostTerminal() {
+      this._teardownTerminalSession();
+      this.terminalModalOpen = false;
+      this.terminalHost = null;
+      this.terminalResolved = null;
+      this.terminalState = 'connecting';
+      this.terminalCloseReason = '';
+    },
+    reconnectHostTerminal() {
+      const host = this.terminalHost;
+      if (!host) return;
+      // Re-spawn against the same host. _teardownTerminalSession in
+      // openHostTerminal handles the cleanup of the previous session.
+      this.openHostTerminal(host);
     },
     // Admin → SSH "Test on a host" widget — picks a curated host,
     // runs /ssh/test (whoami), surfaces the result inline.
@@ -4682,6 +4941,11 @@ function app() {
           'postfix':         'mail',
           'mailu':           'mail',
           'maddy':           'mail',
+          'asus-router':     'asus',
+          'asus-vpn':        'asus',
+          'asuswrt':         'asus',
+          'rt-ax':           'asus',
+          'rt-ac':           'asus',
         };
         const slug = aliases[h.icon.toLowerCase()] || h.icon;
         return '/img/icons/' + slug + '.svg';
@@ -4744,6 +5008,20 @@ function app() {
         ['pfsense',               'pfsense'],
         ['mikrotik',              'mikrotik'],
         ['unifi',                 'unifi'],
+        // ASUS routers — typical model strings: "RT-AX88U",
+        // "RT-AC68U", "GT-AX11000", "ZenWiFi". "asuswrt" / "merlin"
+        // are the firmware names operators sometimes label hosts
+        // with. Phrases ordered before the generic "router" fallback
+        // above (firewalls/routers/gateways block) so the brand wins.
+        ['asus router',           'asus'],
+        ['asus vpn',              'asus'],
+        ['asuswrt',               'asus'],
+        ['merlin',                'asus'],
+        ['zenwifi',               'asus'],
+        ['rt-ax',                 'asus'],
+        ['rt-ac',                 'asus'],
+        ['gt-ax',                 'asus'],
+        ['asus',                  'asus'],
         // ISP / access-technology routers — longer phrases first so
         // "ftth router" hits ftth (not the bare "router" fallback).
         ['ftth',                  'ftth'],
@@ -5203,12 +5481,15 @@ function app() {
         if (!subs.has(key)) subs.set(key, []);
         subs.get(key).push(e);
       }
-      // Weave: each top-level row followed by its children.
+      // Weave: each top-level row followed by its children — but
+      // skip the children when their parent is collapsed via the
+      // editor-side toggle. Operator can still expand to edit them.
+      const collapsed = new Set(this.hostGroupsEditorChildrenCollapsed || []);
       const out = [];
       for (const t of tops) {
         out.push(t);
         const kids = subs.get(t.g.name);
-        if (kids) out.push(...kids);
+        if (kids && !collapsed.has(t.g.name)) out.push(...kids);
       }
       // Orphaned sub-groups (parent_name set but not found) sink to
       // the bottom so they stay visible for repair rather than
@@ -5219,6 +5500,42 @@ function app() {
         if (!seen.has(e.origIdx)) out.push(e);
       }
       return out;
+    },
+    // Number of sub-group rows under a given top-level group name.
+    // Used by the editor's collapse toggle so the operator sees
+    // "(N children)" before deciding whether to expand.
+    hostGroupChildCount(parentName) {
+      const name = (parentName || '').trim();
+      if (!name) return 0;
+      return (this.hostGroups || [])
+        .filter(g => (g.parent_name || '').trim() === name)
+        .length;
+    },
+    // Editor-side collapse predicate. Top-level groups whose name is
+    // in `hostGroupsEditorChildrenCollapsed` hide their sub-rows.
+    isHostGroupChildrenCollapsed(parentName) {
+      return (this.hostGroupsEditorChildrenCollapsed || [])
+        .includes(parentName || '');
+    },
+    // Toggle the editor-side collapse for one top-level group +
+    // persist to localStorage so it survives reloads. The Hosts
+    // VIEW collapse (hostGroupsCollapsed) is intentionally separate
+    // — operators may want to keep the sidebar compact without
+    // affecting the editor, or vice versa.
+    toggleHostGroupChildrenCollapsed(parentName) {
+      const name = (parentName || '').trim();
+      if (!name) return;
+      const set = new Set(this.hostGroupsEditorChildrenCollapsed || []);
+      if (set.has(name)) set.delete(name); else set.add(name);
+      this.hostGroupsEditorChildrenCollapsed = [...set];
+      try {
+        if (typeof localStorage !== 'undefined') {
+          localStorage.setItem(
+            'hostGroupsEditorChildrenCollapsed',
+            JSON.stringify(this.hostGroupsEditorChildrenCollapsed),
+          );
+        }
+      } catch (_) {}
     },
     // Move a row up/down in the VISIBLE order. Translates to a raw-
     // array swap so sub-groups stick next to their parent after the

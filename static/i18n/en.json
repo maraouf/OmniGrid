@@ -988,6 +988,9 @@
     "open_meteo_saved": "Open-Meteo URL saved"
   },
   "admin_hosts": {
+    "debug_panel_toggle_label": "Show host-drawer debug panel",
+    "debug_panel_toggle_hint": "When off, hides the per-host raw-JSON / merged-shape diagnostic panel for every admin.",
+    "debug_panel_toggle_saved": "Debug panel preference saved",
     "row": {
       "id_placeholder": "e.g. host01",
       "url_placeholder": "https://app.example.com",
@@ -1036,7 +1039,10 @@
       "ssh_clear_label": "Clear",
       "ssh_clear_armed": "Clear armed (save to apply)",
       "ssh_clear_title": "Erase the stored password on save",
-      "ssh_hint": "Resolution order: per-host override → this sub-group / parent → global default. Most-specific value wins."
+      "ssh_hint": "Resolution order: per-host override → this sub-group / parent → global default. Most-specific value wins.",
+      "children_show": "Show children",
+      "children_hide": "Hide children",
+      "children_toggle_title": "Collapse this parent group's sub-rows so the editor stays compact while you add more items."
     }
   },
   "admin_assets": {
