@@ -996,6 +996,13 @@
     "debug_panel_toggle_label": "Show host-drawer debug panel",
     "debug_panel_toggle_hint": "When off, hides the per-host raw-JSON / merged-shape diagnostic panel for every admin.",
     "debug_panel_toggle_saved": "Debug panel preference saved",
+    "autofill": {
+      "button": "Load from asset",
+      "button_title": "Fill empty fields (hostname, label, URL, IP) from the matching asset-inventory record. Never overwrites values you've already typed.",
+      "filled": "Asset details loaded: {fields}",
+      "nothing_to_fill": "Asset matched, but every field you'd fill is already typed.",
+      "no_match": "No asset-inventory record matches custom_number={n}."
+    },
     "row": {
       "id_placeholder": "e.g. host01",
       "url_placeholder": "https://app.example.com",
