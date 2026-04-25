@@ -5769,7 +5769,15 @@ function app() {
         range_start: startAt,
         range_end:   endAt,
         order: groups.length,
-        parent_name: name,
+        // parent_name is intentionally empty here — set inside
+        // $nextTick below so the <select>'s <option> list (populated
+        // by an x-for over `topLevelGroupNames`) finishes rendering
+        // BEFORE x-model tries to find a match. Without the defer,
+        // browsers showed the dropdown falling back to "— top-level —"
+        // even though `g.parent_name` was set in state, because the
+        // matching <option value="Switches"> didn't exist yet at the
+        // moment the select committed its initial value.
+        parent_name: '',
         ip_range: '',
         ssh: { user: '', port: '', password: '', password_set: false, clear_password: false },
       };
@@ -5791,6 +5799,17 @@ function app() {
           }
         } catch (_) {}
       }
+      // Now that the new row is in the DOM and its <option> elements
+      // exist, set parent_name. The select's x-model picks up the
+      // new value, the matching <option> is in place, and the
+      // dropdown displays "<parentName>" correctly.
+      this.$nextTick(() => {
+        // Re-find the row by reference — the array spread above kept
+        // the same `next` object, but use a defensive lookup in case
+        // a future refactor changes the array shape.
+        const row = (this.hostGroups || []).find(g => g === next);
+        if (row) row.parent_name = name;
+      });
     },
 
     addHostGroup() {

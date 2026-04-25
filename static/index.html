@@ -4342,18 +4342,6 @@
                      class="host-row-header-icon"
                      loading="lazy"
                      @error="$event.target.style.display='none'">
-                <!-- SSH state dot — only on the collapsed-row header.
-                     Reuses the existing `.dot` token system: green
-                     (.dot-healthy) when SSH is enabled for this host,
-                     muted (.dot-offline) when explicitly disabled via
-                     `row.ssh.disabled = true`. Title gives the
-                     hover tooltip in plain English. -->
-                <span x-show="!isHostConfigExpanded(row)"
-                      class="dot"
-                      :class="(row.ssh && row.ssh.disabled) ? 'dot-offline' : 'dot-healthy'"
-                      :title="(row.ssh && row.ssh.disabled)
-                                ? t('admin_hosts.ssh_state.disabled')
-                                : t('admin_hosts.ssh_state.enabled')"></span>
                 <span x-show="row.custom_number != null && row.custom_number !== ''"
                       class="chip text-[10px] px-1.5 py-0 mono pill-muted"
                       x-text="'#' + row.custom_number"></span>
@@ -4391,6 +4379,21 @@
                 </button>
                 <span class="text-[10.5px] text-[var(--text-faint)]"
                       x-show="!isHostConfigExpanded(row)">Click to edit</span>
+                <!-- SSH state dot — sits at the RIGHT edge of the row
+                     header, AFTER the "Click to edit" hint. Reuses
+                     the existing `.dot` token system: green
+                     (.dot-healthy) when SSH is enabled, muted
+                     (.dot-offline) when explicitly disabled via
+                     `row.ssh.disabled = true`. Visible only on the
+                     collapsed view; once expanded, the SSH-disabled
+                     checkbox in the field grid below is the canonical
+                     edit surface. -->
+                <span x-show="!isHostConfigExpanded(row)"
+                      class="dot"
+                      :class="(row.ssh && row.ssh.disabled) ? 'dot-offline' : 'dot-healthy'"
+                      :title="(row.ssh && row.ssh.disabled)
+                                ? t('admin_hosts.ssh_state.disabled')
+                                : t('admin_hosts.ssh_state.enabled')"></span>
               </div>
 
               <!-- Everything below hides when the row is collapsed.
