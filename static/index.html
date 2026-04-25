@@ -186,7 +186,7 @@
              the avatar; `justify-center` centers the clock+weather pair
              so they don't hug the left edge awkwardly. -->
         <div x-show="headerClockEnabled || (headerWeatherEnabled && weather && !weather.error && weather.temp_c != null)"
-             class="flex items-center gap-2 pe-1 text-[11.5px] text-[var(--text-dim)] order-3 w-full justify-center sm:order-none sm:w-auto sm:justify-start">
+             class="flex items-center gap-2 pe-1 text-[11.5px] text-[var(--text-dim)] order-3 w-full justify-end sm:order-none sm:w-auto sm:justify-start">
           <span x-show="headerClockEnabled" class="mono font-semibold tracking-wide"
                 x-text="currentClock"></span>
           <template x-if="headerWeatherEnabled && weather && !weather.error && weather.temp_c != null">
