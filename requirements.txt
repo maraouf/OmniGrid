@@ -17,6 +17,15 @@ PyJWT[crypto]>=2.8.0
 # to the OpenSSH CLI. Pulls in `cryptography` transitively (already a
 # PyJWT[crypto] dep) so no new heavy dependency is introduced.
 asyncssh==2.22.0
+# TOTP-based 2FA for local-auth users (#345). pyotp implements RFC 6238
+# (~150 lines, no native deps); cryptography supplies Fernet for at-rest
+# encryption of TOTP secrets + backup codes (key derived via HKDF-SHA256
+# from SESSION_SECRET so rotating that env var rotates every stored
+# secret). cryptography is already pulled in transitively by PyJWT[crypto]
+# / asyncssh, so this is a no-op for the wheel size; pinned explicitly so
+# logic/totp.py has a hard contract on the Fernet API.
+pyotp>=2.9.0
+cryptography>=42.0.0
 # Webmin 2.x HTML-scrape fallback. Webmin's ``?xml=1`` and ``?json=1``
 # query params are honoured on different modules by different builds —
 # on 2.630 in particular package-updates / mount / net return the

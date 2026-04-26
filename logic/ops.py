@@ -29,6 +29,26 @@ from logic.db import db_conn, get_setting, get_setting_bool
 MAX_OPS = 50
 
 
+def _human_bytes(n: int) -> str:
+    """Format a byte count for operator-facing notification copy.
+
+    Picks the largest unit that keeps the number readable (≥1 of that
+    unit, < 1024 of it). Uses powers of 1024 (binary) since these are
+    storage-side numbers; matches the convention already used by the
+    Hosts view's disk / mem cards. Returns e.g. ``"61.1 MB"`` for
+    64,049,314 bytes — the human-readable form of what was previously
+    rendered as ``"64,049,314 B"`` in prune notifications.
+    """
+    n = int(n or 0)
+    if n < 1024:
+        return f"{n} B"
+    for unit in ("KB", "MB", "GB", "TB", "PB"):
+        n /= 1024.0
+        if n < 1024:
+            return f"{n:.1f} {unit}"
+    return f"{n:.1f} EB"
+
+
 class Operation:
     __slots__ = ("id", "op_type", "target_id", "target_name", "target_stack",
                  "started", "ended", "status", "events", "error", "actor")
@@ -111,7 +131,8 @@ def persist_history(op: Operation) -> None:
 # Apprise URL/tag live without restart.
 # ---------------------------------------------------------------------
 async def notify(title: str, body: str, status: str = "info", *,
-                 event: Optional[str] = None) -> None:
+                 event: Optional[str] = None,
+                 actor_username: Optional[str] = None) -> None:
     # Honour the per-service master switch (#204). When apprise is
     # disabled in Admin → Notifications, short-circuit BEFORE the
     # configured-url check so an operator with a stored URL but the
@@ -132,6 +153,30 @@ async def notify(title: str, body: str, status: str = "info", *,
         if get_setting_bool(f"notify_event_{event}", default=True) is False:
             print(f"[notify] skipped — event '{event}' disabled by operator")
             return
+    # Per-user opt-out (#357). Only consulted when an actor is supplied
+    # AND the admin gate above passed. A user who hasn't touched their
+    # prefs defaults to the admin state (i.e. send) — meaningful to
+    # opt-out of an event the admin allows. Token "actors" (negative
+    # ids in the User model — username "token:NAME") and unknown users
+    # don't carry per-user prefs and fall through to the legacy path.
+    if event and actor_username:
+        try:
+            from logic import auth as _auth
+            with db_conn() as _c:
+                _u = _auth.get_user_by_username(_c, actor_username)
+                if _u and _u.id >= 0:
+                    user_prefs = _auth.get_user_notify_prefs(_c, _u.id)
+                    if user_prefs and user_prefs.get(event, True) is False:
+                        print(
+                            f"[notify] skipped — user '{actor_username}' "
+                            f"opted out of '{event}'"
+                        )
+                        return
+        except Exception as _e:
+            # Defensive: never let a pref lookup failure break the
+            # admin-gate decision. Falls through to the legacy
+            # admin-only path.
+            print(f"[notify] user-pref lookup failed for '{actor_username}': {_e}")
     tag = get_setting("apprise_tag", "")
     # Apprise requires a non-empty body. If our ops didn't produce one, echo
     # the title so the notification isn't rejected as malformed.
@@ -189,13 +234,13 @@ async def do_update_stack(op: Operation, stack_id: int) -> None:
         await notify(
             f"✅ Stack updated: {op.target_name}",
             f"Duration: {op.to_dict()['duration']:.1f}s", "success",
-            event="stack_update_success",
+            event="stack_update_success", actor_username=op.actor,
         )
     except Exception as e:
         op.log(str(e), "error")
         op.done("error", str(e))
         await notify(f"❌ Stack update failed: {op.target_name}", str(e)[:500], "error",
-                     event="stack_update_failure")
+                     event="stack_update_failure", actor_username=op.actor)
     finally:
         persist_history(op)
         gather.invalidate_cache()
@@ -217,12 +262,12 @@ async def do_update_container(op: Operation, container_id: str) -> None:
             op.log("Container recreated", "success")
         op.done("success")
         await notify(f"✅ Container updated: {op.target_name}", "", "success",
-                     event="container_update_success")
+                     event="container_update_success", actor_username=op.actor)
     except Exception as e:
         op.log(str(e), "error")
         op.done("error", str(e))
         await notify(f"❌ Container update failed: {op.target_name}", str(e)[:500], "error",
-                     event="container_update_failure")
+                     event="container_update_failure", actor_username=op.actor)
     finally:
         persist_history(op)
         gather.invalidate_cache()
@@ -243,12 +288,12 @@ async def do_restart_container(op: Operation, container_id: str) -> None:
             op.log("Container restarted", "success")
         op.done("success")
         await notify(f"🔄 Container restarted: {op.target_name}", "", "success",
-                     event="container_restart_success")
+                     event="container_restart_success", actor_username=op.actor)
     except Exception as e:
         op.log(str(e), "error")
         op.done("error", str(e))
         await notify(f"❌ Container restart failed: {op.target_name}", str(e)[:500], "error",
-                     event="container_restart_failure")
+                     event="container_restart_failure", actor_username=op.actor)
     finally:
         persist_history(op)
         gather.invalidate_cache()
@@ -282,12 +327,12 @@ async def do_remove_container(op: Operation, container_id: str) -> None:
                 op.log("Container removed", "success")
         op.done("success")
         await notify(f"🗑 Container removed: {op.target_name}", "", "success",
-                     event="container_remove_success")
+                     event="container_remove_success", actor_username=op.actor)
     except Exception as e:
         op.log(str(e), "error")
         op.done("error", str(e))
         await notify(f"❌ Container remove failed: {op.target_name}", str(e)[:500], "error",
-                     event="container_remove_failure")
+                     event="container_remove_failure", actor_username=op.actor)
     finally:
         persist_history(op)
         gather.invalidate_cache()
@@ -316,12 +361,12 @@ async def do_restart_service(op: Operation, service_id: str) -> None:
             op.log("Service restart triggered", "success")
         op.done("success")
         await notify(f"🔄 Service restarted: {op.target_name}", "", "success",
-                     event="service_restart_success")
+                     event="service_restart_success", actor_username=op.actor)
     except Exception as e:
         op.log(str(e), "error")
         op.done("error", str(e))
         await notify(f"❌ Service restart failed: {op.target_name}", str(e)[:500], "error",
-                     event="service_restart_failure")
+                     event="service_restart_failure", actor_username=op.actor)
     finally:
         persist_history(op)
         gather.invalidate_cache()
@@ -392,20 +437,20 @@ async def do_prune_node(op: Operation, hostname: str) -> dict:
         op.done("success")
         await notify(
             f"🧹 Prune complete on {hostname}",
-            f"Reclaimed {totals['space_reclaimed']:,} B across "
+            f"Reclaimed {_human_bytes(totals['space_reclaimed'])} across "
             f"{totals['containers']} containers / "
             f"{totals['images']} images / "
             f"{totals['networks']} networks / "
             f"{totals['volumes']} volumes",
             "success",
-            event="prune_success",
+            event="prune_success", actor_username=op.actor,
         )
         return totals
     except Exception as e:
         op.log(str(e), "error")
         op.done("error", str(e))
         await notify(f"❌ Prune failed on {hostname}", str(e)[:500], "error",
-                     event="prune_failure")
+                     event="prune_failure", actor_username=op.actor)
         return totals
     finally:
         persist_history(op)

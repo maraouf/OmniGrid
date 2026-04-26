@@ -19,6 +19,7 @@ import asyncio
 import json
 import os
 import re
+import secrets
 import sqlite3
 import tempfile
 import time
@@ -55,7 +56,7 @@ from fastapi import (
 from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 
-from logic import auth, backups, metrics, oidc, schedules
+from logic import auth, backups, metrics, oidc, schedules, totp
 from pydantic import BaseModel, field_validator
 
 # ============================================================================
@@ -88,6 +89,89 @@ DOCKERHUB_TOKEN = os.getenv("DOCKERHUB_TOKEN", "")
 # the users table is empty at startup — safe to leave set or unset afterward.
 BOOTSTRAP_ADMIN_USER = os.getenv("BOOTSTRAP_ADMIN_USER", "")
 BOOTSTRAP_ADMIN_PASSWORD = os.getenv("BOOTSTRAP_ADMIN_PASSWORD", "")
+
+# 13 notification event names. Single source of truth — used by the admin
+# settings validator (with the ``notify_event_`` prefix) AND by the per-
+# user prefs path (#357 — bare event name as the key inside
+# ``users.ui_prefs.notify_events``). Keep in lock-step with logic/ops.py
+# notify(event=...) call sites and the SettingsIn fields below.
+_NOTIFY_EVENT_NAMES = (
+    "stack_update_success",
+    "stack_update_failure",
+    "container_update_success",
+    "container_update_failure",
+    "container_restart_success",
+    "container_restart_failure",
+    "container_remove_success",
+    "container_remove_failure",
+    "service_restart_success",
+    "service_restart_failure",
+    "prune_success",
+    "prune_failure",
+    "user_login",
+)
+# Defaults match api_get_settings — every event ships ON except
+# user_login (login traffic is noisy; opt-in).
+_NOTIFY_EVENT_DEFAULTS = {
+    name: (False if name == "user_login" else True)
+    for name in _NOTIFY_EVENT_NAMES
+}
+
+
+# TOTP / 2FA policy defaults (#345). DB > default. Same shape as the
+# notify_event_* defaults map above so api_get_settings reads through
+# get_setting / get_setting_bool with these as the fallbacks.
+_TOTP_POLICY_DEFAULTS = {
+    "totp_allowed":               True,
+    "totp_required_for_admins":   False,
+    "totp_required_for_users":    False,
+    "totp_lockout_max_failures":  5,
+    "totp_lockout_minutes":       15,
+}
+
+
+def _resolve_totp_policy() -> dict:
+    """Return the resolved TOTP policy as a dict with concrete types.
+
+    Caller (login flow + admin override + Profile guards) only needs to
+    read scalar booleans / ints. No env vars are consulted -- this is
+    purely DB-backed (Admin -> Config edits the values).
+    """
+    return {
+        "totp_allowed":              get_setting_bool(
+            "totp_allowed", _TOTP_POLICY_DEFAULTS["totp_allowed"],
+        ),
+        "totp_required_for_admins":  get_setting_bool(
+            "totp_required_for_admins",
+            _TOTP_POLICY_DEFAULTS["totp_required_for_admins"],
+        ),
+        "totp_required_for_users":   get_setting_bool(
+            "totp_required_for_users",
+            _TOTP_POLICY_DEFAULTS["totp_required_for_users"],
+        ),
+        "totp_lockout_max_failures": int(
+            get_setting(
+                "totp_lockout_max_failures",
+                str(_TOTP_POLICY_DEFAULTS["totp_lockout_max_failures"]),
+            ) or _TOTP_POLICY_DEFAULTS["totp_lockout_max_failures"]
+        ),
+        "totp_lockout_minutes":      int(
+            get_setting(
+                "totp_lockout_minutes",
+                str(_TOTP_POLICY_DEFAULTS["totp_lockout_minutes"]),
+            ) or _TOTP_POLICY_DEFAULTS["totp_lockout_minutes"]
+        ),
+    }
+
+
+def _totp_required_for(role: str, policy: Optional[dict] = None) -> bool:
+    """Is TOTP required for the given role under current policy?"""
+    p = policy or _resolve_totp_policy()
+    if not p["totp_allowed"]:
+        return False
+    if role == "admin":
+        return bool(p["totp_required_for_admins"])
+    return bool(p["totp_required_for_users"])
 
 @asynccontextmanager
 async def _lifespan(app: FastAPI):
@@ -1080,6 +1164,16 @@ class SettingsIn(BaseModel):
     notify_event_prune_failure: Optional[str] = None
     # Security event — defaults to OFF (login traffic is noisy).
     notify_event_user_login: Optional[str] = None
+    # -----------------------------------------------------------------
+    # TOTP / 2FA policies (#345). Master toggle plus role-scoped
+    # required-flags plus lockout knobs. Authentik users are excluded
+    # from every TOTP path -- their IdP handles MFA.
+    # -----------------------------------------------------------------
+    totp_allowed: Optional[bool] = None
+    totp_required_for_admins: Optional[bool] = None
+    totp_required_for_users: Optional[bool] = None
+    totp_lockout_max_failures: Optional[int] = None
+    totp_lockout_minutes: Optional[int] = None
 
 
 @app.get("/api/settings")
@@ -1116,6 +1210,29 @@ async def api_get_settings(request: Request):
         "notify_event_prune_failure":             get_setting_bool("notify_event_prune_failure", True),
         # Security event — default OFF (login spam is noisy; opt-in).
         "notify_event_user_login":                get_setting_bool("notify_event_user_login", False),
+        # TOTP / 2FA policy (#345). Five fields driving the multi-step
+        # login flow + Profile enrolment guards + Admin -> Users action
+        # enablement. Defaults preserve "no 2FA required" semantics so
+        # an upgrade is a no-op until the operator opts in.
+        "totp_allowed":              get_setting_bool(
+            "totp_allowed", _TOTP_POLICY_DEFAULTS["totp_allowed"],
+        ),
+        "totp_required_for_admins":  get_setting_bool(
+            "totp_required_for_admins",
+            _TOTP_POLICY_DEFAULTS["totp_required_for_admins"],
+        ),
+        "totp_required_for_users":   get_setting_bool(
+            "totp_required_for_users",
+            _TOTP_POLICY_DEFAULTS["totp_required_for_users"],
+        ),
+        "totp_lockout_max_failures": int(get_setting(
+            "totp_lockout_max_failures",
+            str(_TOTP_POLICY_DEFAULTS["totp_lockout_max_failures"]),
+        ) or _TOTP_POLICY_DEFAULTS["totp_lockout_max_failures"]),
+        "totp_lockout_minutes":      int(get_setting(
+            "totp_lockout_minutes",
+            str(_TOTP_POLICY_DEFAULTS["totp_lockout_minutes"]),
+        ) or _TOTP_POLICY_DEFAULTS["totp_lockout_minutes"]),
         # Open-Meteo upstream (Admin → General). Returned in the
         # clear so the input round-trips and reloads persisted. Blank
         # disables the topbar weather widget (see _open_meteo_url).
@@ -1279,21 +1396,9 @@ async def api_set_settings(
     # the default-true via get_setting_bool). Anything else is a
     # 400 so a typo can't silently disable a category. The notify()
     # gate in logic/ops.py honours these per-event keys.
-    _NOTIFY_EVENT_KEYS = (
-        "notify_event_stack_update_success",
-        "notify_event_stack_update_failure",
-        "notify_event_container_update_success",
-        "notify_event_container_update_failure",
-        "notify_event_container_restart_success",
-        "notify_event_container_restart_failure",
-        "notify_event_container_remove_success",
-        "notify_event_container_remove_failure",
-        "notify_event_service_restart_success",
-        "notify_event_service_restart_failure",
-        "notify_event_prune_success",
-        "notify_event_prune_failure",
-        "notify_event_user_login",
-    )
+    # Derived from the module-level _NOTIFY_EVENT_NAMES tuple (#357 —
+    # single source of truth for both admin gates and per-user opt-in).
+    _NOTIFY_EVENT_KEYS = tuple(f"notify_event_{n}" for n in _NOTIFY_EVENT_NAMES)
     for _ek in _NOTIFY_EVENT_KEYS:
         _v = getattr(s, _ek, None)
         if _v is None:
@@ -1305,6 +1410,38 @@ async def api_set_settings(
                 detail=f"{_ek} must be 'true', 'false', or '' (clear).",
             )
         set_setting(_ek, _norm)
+    # TOTP / 2FA policy (#345). Booleans persisted as "true" / "false";
+    # ints bounds-checked then stored as decimal strings (matches the
+    # tuning_* shape from #337). Same dirty + Save UI pattern as the
+    # other admin-tab toggles.
+    if s.totp_allowed is not None:
+        set_setting("totp_allowed", "true" if s.totp_allowed else "false")
+    if s.totp_required_for_admins is not None:
+        set_setting(
+            "totp_required_for_admins",
+            "true" if s.totp_required_for_admins else "false",
+        )
+    if s.totp_required_for_users is not None:
+        set_setting(
+            "totp_required_for_users",
+            "true" if s.totp_required_for_users else "false",
+        )
+    if s.totp_lockout_max_failures is not None:
+        n = int(s.totp_lockout_max_failures)
+        if n < 3 or n > 20:
+            raise HTTPException(
+                status_code=400,
+                detail="totp_lockout_max_failures must be in the range 3..20.",
+            )
+        set_setting("totp_lockout_max_failures", str(n))
+    if s.totp_lockout_minutes is not None:
+        n = int(s.totp_lockout_minutes)
+        if n < 1 or n > 1440:
+            raise HTTPException(
+                status_code=400,
+                detail="totp_lockout_minutes must be in the range 1..1440.",
+            )
+        set_setting("totp_lockout_minutes", str(n))
     # Open-Meteo upstream — strips trailing slashes so `<base>/v1/...`
     # composition in api_weather stays stable whether the operator
     # typed a trailing slash or not.
@@ -5073,6 +5210,45 @@ async def api_logs_clear(_admin: auth.User = Depends(auth.require_admin)):
 # Auth routes (step 1: local login, logout, one-shot bootstrap, /api/me).
 # Registered here — above the StaticFiles catch-all — per CLAUDE.md.
 # ============================================================================
+# ----------------------------------------------------------------------------
+# TOTP / 2FA challenge store (#345). In-memory dict mapping
+# challenge_id -> {user_id, kind, secret?, issued_at, expires_at}. Lifespan-
+# scoped because the matching cookie isn't issued until the second step
+# completes. Single-replica pinning (CLAUDE.md) makes this safe.
+# ``kind`` is one of:
+#   "totp_required"      — user has TOTP enrolled; verifying a code
+#   "totp_setup_required" — policy forces enrolment; user must set up
+#                            TOTP before the cookie is issued.
+# ----------------------------------------------------------------------------
+_TOTP_CHALLENGE_TTL_SECONDS = 5 * 60
+_totp_challenges: dict[str, dict] = {}
+
+
+def _prune_totp_challenges() -> None:
+    now = time.time()
+    stale = [k for k, v in _totp_challenges.items() if v.get("expires_at", 0) <= now]
+    for k in stale:
+        _totp_challenges.pop(k, None)
+
+
+def _create_totp_challenge(payload: dict) -> tuple[str, int]:
+    _prune_totp_challenges()
+    cid = secrets.token_urlsafe(24)
+    expires_at = int(time.time()) + _TOTP_CHALLENGE_TTL_SECONDS
+    _totp_challenges[cid] = {**payload, "expires_at": expires_at}
+    return cid, expires_at
+
+
+def _consume_totp_challenge(cid: str) -> Optional[dict]:
+    _prune_totp_challenges()
+    return _totp_challenges.pop(cid, None)
+
+
+def _peek_totp_challenge(cid: str) -> Optional[dict]:
+    _prune_totp_challenges()
+    return _totp_challenges.get(cid)
+
+
 @app.post("/api/local-auth/login")
 async def api_local_login(
     request: Request,
@@ -5086,6 +5262,65 @@ async def api_local_login(
         if not u or u.auth_source != "local" or u.disabled or not auth.verify_password(password, _get_user_password_hash(c, u.id)):
             auth.rate_limit_record_failure(ip)
             raise HTTPException(status_code=401, detail="Invalid credentials")
+        # ----------------------------------------------------------------
+        # TOTP gate (#345). Three branches before any session cookie is
+        # issued:
+        #   (a) user has TOTP enabled -> respond 200 with step="totp_required"
+        #   (b) policy requires TOTP for this role AND user has none ->
+        #       generate a fresh secret + provisioning_uri and respond
+        #       step="totp_setup_required" so the SPA can render the QR
+        #   (c) no TOTP, no requirement -> issue cookie (legacy path)
+        # ----------------------------------------------------------------
+        policy = _resolve_totp_policy()
+        state = auth.get_user_totp_state(c, u.id)
+        # Lockout check happens BEFORE we mint a challenge so a locked
+        # user gets a clear 423 rather than a stale challenge_id.
+        if state["enabled"] and state["locked_until"]:
+            if state["locked_until"] > int(time.time()):
+                retry = state["locked_until"] - int(time.time())
+                raise HTTPException(
+                    status_code=423,
+                    detail=(
+                        "Account locked due to too many failed 2FA attempts. "
+                        f"Try again in {max(1, retry // 60)} minute(s)."
+                    ),
+                    headers={"Retry-After": str(retry)},
+                )
+            # Lockout expired -- clear the state so the next failure
+            # starts a fresh counter.
+            auth.clear_totp_lockout(c, u.id)
+        if state["enabled"]:
+            cid, exp = _create_totp_challenge({
+                "user_id": u.id,
+                "kind": "totp_required",
+                "ip": ip,
+            })
+            auth.rate_limit_clear(ip)
+            return JSONResponse({
+                "step": "totp_required",
+                "challenge_id": cid,
+                "expires_at": exp,
+                "username": u.username,
+            })
+        if policy["totp_allowed"] and _totp_required_for(u.role, policy):
+            secret_plain = totp.generate_secret()
+            uri = totp.provisioning_uri(secret_plain, u.username)
+            cid, exp = _create_totp_challenge({
+                "user_id": u.id,
+                "kind": "totp_setup_required",
+                "secret": secret_plain,
+                "ip": ip,
+            })
+            auth.rate_limit_clear(ip)
+            return JSONResponse({
+                "step": "totp_setup_required",
+                "challenge_id": cid,
+                "expires_at": exp,
+                "username": u.username,
+                "secret": secret_plain,
+                "provisioning_uri": uri,
+            })
+        # Legacy single-factor path.
         auth.rate_limit_clear(ip)
         auth.touch_last_login(c, u.id)
         cookie_value, expires_at = auth.create_session(
@@ -5103,9 +5338,182 @@ async def api_local_login(
             f"via local from {ip}",
             "info",
             event="user_login",
+            actor_username=u.username,
         )
     except Exception as _e:
         print(f"[notify] user_login (local) failed: {_e}")
+    return resp
+
+
+@app.post("/api/local-auth/totp")
+async def api_local_login_totp(
+    request: Request,
+    challenge_id: str = Form(...),
+    code: str = Form(...),
+):
+    """Step 2 of the multi-step login for users with TOTP enrolled.
+
+    Verifies the 6-digit TOTP (or a backup code) against the user's
+    stored secret, increments the per-user failure counter on miss,
+    locks on threshold, and issues the og_session cookie on success.
+    """
+    ip = auth._client_ip(request)
+    auth.rate_limit_check(ip)
+    challenge = _peek_totp_challenge(challenge_id)
+    if not challenge or challenge.get("kind") != "totp_required":
+        auth.rate_limit_record_failure(ip)
+        raise HTTPException(
+            status_code=400, detail="Invalid or expired challenge.",
+        )
+    user_id = challenge["user_id"]
+    policy = _resolve_totp_policy()
+    with db_conn() as c:
+        u = auth.get_user(c, user_id)
+        if not u or u.disabled or u.auth_source != "local":
+            _consume_totp_challenge(challenge_id)
+            auth.rate_limit_record_failure(ip)
+            raise HTTPException(status_code=400, detail="User not eligible.")
+        state = auth.get_user_totp_state(c, user_id)
+        if state["locked_until"] and state["locked_until"] > int(time.time()):
+            retry = state["locked_until"] - int(time.time())
+            raise HTTPException(
+                status_code=423,
+                detail=(
+                    "Account locked due to too many failed 2FA attempts. "
+                    f"Try again in {max(1, retry // 60)} minute(s)."
+                ),
+                headers={"Retry-After": str(retry)},
+            )
+        secret_ct = auth.get_user_totp_secret(c, user_id)
+        if not secret_ct:
+            _consume_totp_challenge(challenge_id)
+            raise HTTPException(status_code=400, detail="TOTP not enrolled.")
+        try:
+            secret_plain = totp.decrypt_secret(secret_ct)
+        except Exception as e:
+            print(f"[totp] decrypt secret FAILED for user {u.username}: {e}")
+            raise HTTPException(status_code=500, detail="TOTP decrypt failed.")
+        verified = False
+        used_backup = False
+        if totp.verify_code(secret_plain, code):
+            verified = True
+        else:
+            matched, new_blob = totp.consume_backup_code(
+                state["backup_codes_json"], code,
+            )
+            if matched:
+                verified = True
+                used_backup = True
+                auth.update_user_totp_backup_codes(c, user_id, new_blob)
+        if not verified:
+            n, locked = auth.record_totp_failure(
+                c, user_id,
+                policy["totp_lockout_max_failures"],
+                policy["totp_lockout_minutes"] * 60,
+            )
+            auth.rate_limit_record_failure(ip)
+            print(f"[totp] {u.username} verify FAILED ({n}/{policy['totp_lockout_max_failures']})")
+            if locked:
+                print(f"[totp] {u.username} locked out for {policy['totp_lockout_minutes']}m")
+                raise HTTPException(
+                    status_code=423,
+                    detail=(
+                        "Account locked due to too many failed 2FA attempts. "
+                        f"Try again in {policy['totp_lockout_minutes']} minute(s)."
+                    ),
+                )
+            raise HTTPException(status_code=401, detail="Invalid code.")
+        # Success path -- consume the challenge, clear lockout, issue cookie.
+        _consume_totp_challenge(challenge_id)
+        auth.clear_totp_lockout(c, user_id)
+        auth.rate_limit_clear(ip)
+        auth.touch_last_login(c, user_id)
+        cookie_value, expires_at = auth.create_session(
+            c, user_id, ip, request.headers.get("user-agent"),
+        )
+    if used_backup:
+        print(f"[totp] {u.username} used backup code")
+    else:
+        print(f"[totp] {u.username} verified successfully")
+    csrf = auth.generate_csrf_token()
+    resp = JSONResponse({
+        "username": u.username, "role": u.role, "source": u.auth_source,
+    })
+    auth.set_session_cookie(resp, cookie_value, expires_at, request)
+    auth.set_csrf_cookie(resp, csrf, expires_at, request)
+    try:
+        await notify(
+            f"🔓 {u.username} signed in",
+            f"via local (2FA) from {ip}",
+            "info",
+            event="user_login",
+            actor_username=u.username,
+        )
+    except Exception as _e:
+        print(f"[notify] user_login (totp) failed: {_e}")
+    return resp
+
+
+@app.post("/api/local-auth/totp-setup-confirm")
+async def api_local_login_totp_setup_confirm(
+    request: Request,
+    challenge_id: str = Form(...),
+    code: str = Form(...),
+):
+    """Step 2 of the multi-step login when policy is forcing enrolment.
+
+    Verifies the freshly-typed 6-digit code against the secret we
+    issued in step 1, persists the secret + backup codes, then issues
+    the cookie. Returns the 10 plaintext backup codes (one-time reveal).
+    """
+    ip = auth._client_ip(request)
+    auth.rate_limit_check(ip)
+    challenge = _peek_totp_challenge(challenge_id)
+    if not challenge or challenge.get("kind") != "totp_setup_required":
+        auth.rate_limit_record_failure(ip)
+        raise HTTPException(
+            status_code=400, detail="Invalid or expired challenge.",
+        )
+    user_id = challenge["user_id"]
+    secret_plain = challenge.get("secret") or ""
+    if not totp.verify_code(secret_plain, code):
+        auth.rate_limit_record_failure(ip)
+        raise HTTPException(status_code=401, detail="Invalid code.")
+    backup_plain = totp.generate_backup_codes(10)
+    encrypted_secret = totp.encrypt_secret(secret_plain)
+    encrypted_codes_json = totp.encrypt_backup_codes(backup_plain)
+    with db_conn() as c:
+        u = auth.get_user(c, user_id)
+        if not u or u.disabled or u.auth_source != "local":
+            _consume_totp_challenge(challenge_id)
+            raise HTTPException(status_code=400, detail="User not eligible.")
+        auth.set_user_totp_secret(
+            c, user_id, encrypted_secret, encrypted_codes_json,
+        )
+        _consume_totp_challenge(challenge_id)
+        auth.rate_limit_clear(ip)
+        auth.touch_last_login(c, user_id)
+        cookie_value, expires_at = auth.create_session(
+            c, user_id, ip, request.headers.get("user-agent"),
+        )
+    print(f"[totp] {u.username} enrolled (forced by policy)")
+    csrf = auth.generate_csrf_token()
+    resp = JSONResponse({
+        "username": u.username, "role": u.role, "source": u.auth_source,
+        "backup_codes": backup_plain,
+    })
+    auth.set_session_cookie(resp, cookie_value, expires_at, request)
+    auth.set_csrf_cookie(resp, csrf, expires_at, request)
+    try:
+        await notify(
+            f"🔓 {u.username} signed in",
+            f"via local (2FA enrolled) from {ip}",
+            "info",
+            event="user_login",
+            actor_username=u.username,
+        )
+    except Exception as _e:
+        print(f"[notify] user_login (totp setup) failed: {_e}")
     return resp
 
 
@@ -5272,6 +5680,40 @@ async def api_me(request: Request):
             # defaults in that case.
             "ui_prefs":     profile.get("ui_prefs") or {},
         })
+        # Per-user notification opt-in map (#357). Two-layer scoping:
+        # the admin gate is shared via ``notify_events_admin`` so the
+        # SPA can grey out toggles for events admin has globally
+        # disabled; ``notify_events`` is the user's own resolved map
+        # (defaults to admin state until the user opts out).
+        admin_map = {
+            name: get_setting_bool(
+                f"notify_event_{name}", _NOTIFY_EVENT_DEFAULTS[name],
+            )
+            for name in _NOTIFY_EVENT_NAMES
+        }
+        with db_conn() as _c:
+            user_prefs = auth.get_user_notify_prefs(_c, profile["id"])
+        resolved = {
+            name: bool(user_prefs[name]) if name in user_prefs else admin_map[name]
+            for name in _NOTIFY_EVENT_NAMES
+        }
+        out["notify_events"] = resolved
+        out["notify_events_admin"] = admin_map
+        # TOTP / 2FA summary (#345). Surfaced on /api/me so the SPA can
+        # render the Profile section + the "Required by policy" banner
+        # without a follow-up round-trip on every page load. Detailed
+        # backup-codes payload still ships separately via /api/me/totp.
+        _totp_policy = _resolve_totp_policy()
+        with db_conn() as _c2:
+            _totp_state = auth.get_user_totp_state(_c2, profile["id"])
+        out["totp"] = {
+            "enabled":  bool(_totp_state["enabled"]),
+            "allowed":  bool(_totp_policy["totp_allowed"]),
+            "required": (
+                user.auth_source == "local"
+                and _totp_required_for(user.role, _totp_policy)
+            ),
+        }
     return out
 
 
@@ -5301,6 +5743,87 @@ async def api_me_ui_prefs(body: UiPrefsIn, request: Request):
     with db_conn() as c:
         merged = auth.update_ui_prefs(c, user.id, body.prefs)
     return {"ui_prefs": merged}
+
+
+class UserNotifyPrefsIn(BaseModel):
+    """Partial-update payload for PATCH /api/me/notify-prefs (#357).
+
+    Each of the 13 fields is Optional[bool]; ``None`` means "leave
+    unchanged", ``True`` / ``False`` set the per-user opt-in state.
+    The backend rejects any attempt to opt INTO an event the admin
+    has globally disabled (the data model only meaningfully scopes
+    DOWN from the admin layer).
+    """
+    stack_update_success: Optional[bool] = None
+    stack_update_failure: Optional[bool] = None
+    container_update_success: Optional[bool] = None
+    container_update_failure: Optional[bool] = None
+    container_restart_success: Optional[bool] = None
+    container_restart_failure: Optional[bool] = None
+    container_remove_success: Optional[bool] = None
+    container_remove_failure: Optional[bool] = None
+    service_restart_success: Optional[bool] = None
+    service_restart_failure: Optional[bool] = None
+    prune_success: Optional[bool] = None
+    prune_failure: Optional[bool] = None
+    user_login: Optional[bool] = None
+
+
+@app.patch("/api/me/notify-prefs")
+async def api_me_notify_prefs(
+    body: UserNotifyPrefsIn,
+    user: auth.User = Depends(auth.current_user),
+):
+    """Per-user opt-in/out for the 13 notification events (#357).
+
+    Layered ON TOP of the admin-side ``notify_event_*`` gates: a
+    notification fires only when (admin enabled) AND (user opted-in,
+    or hasn't expressed a pref → defaults to admin state). Refuses to
+    set a pref to True for an event admin has disabled — the model
+    only narrows DOWN from the admin layer.
+
+    API-token "users" (negative ids) can't store prefs.
+    """
+    if user.id < 0:
+        raise HTTPException(400, "API tokens cannot store notify prefs")
+    payload = body.dict(exclude_unset=True)
+    # Admin gate snapshot — refuse opt-IN for admin-disabled events.
+    admin_map = {
+        name: get_setting_bool(
+            f"notify_event_{name}", _NOTIFY_EVENT_DEFAULTS[name],
+        )
+        for name in _NOTIFY_EVENT_NAMES
+    }
+    for name, value in payload.items():
+        if value is True and admin_map.get(name) is False:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f"Event '{name}' is disabled by admin; "
+                    "cannot enable per-user."
+                ),
+            )
+    # Read-modify-write so unspecified events keep their stored value.
+    with db_conn() as c:
+        current = auth.get_user_notify_prefs(c, user.id)
+        merged = dict(current)
+        for name, value in payload.items():
+            if value is None:
+                continue
+            merged[name] = bool(value)
+        auth.set_user_notify_prefs(c, user.id, merged)
+    # Resolved response shape mirrors api_get_me's ``notify_events``
+    # block so the SPA can drop it straight into state.
+    resolved = {
+        name: (
+            bool(merged[name]) if name in merged else admin_map[name]
+        )
+        for name in _NOTIFY_EVENT_NAMES
+    }
+    return {
+        "notify_events": resolved,
+        "notify_events_admin": admin_map,
+    }
 
 
 class ProfileIn(BaseModel):
@@ -5421,6 +5944,179 @@ async def api_serve_avatar(fname: str, _user: auth.User = Depends(auth.current_u
     ext = fname.rsplit(".", 1)[-1].lower()
     ct = next((k for k, v in _AVATAR_EXT.items() if v == ext), "application/octet-stream")
     return FileResponse(full, media_type=ct)
+
+
+# ============================================================================
+# Profile -> Two-factor authentication (TOTP) — #345.
+# ============================================================================
+class TotpEnrollConfirmIn(BaseModel):
+    secret: str
+    code: str
+
+
+class TotpDisableIn(BaseModel):
+    password: str
+
+
+def _totp_authentik_guard(user: auth.User) -> None:
+    if user.auth_source == "authentik":
+        raise HTTPException(
+            status_code=400,
+            detail="Authentik users manage 2FA in their IdP.",
+        )
+
+
+def _totp_required_for_user(user: auth.User) -> bool:
+    """Convenience wrapper around _totp_required_for() given a User."""
+    return _totp_required_for(user.role)
+
+
+@app.get("/api/me/totp")
+async def api_me_totp_status(user: auth.User = Depends(auth.current_user)):
+    """Return the caller's 2FA status + decrypted backup codes.
+
+    Backup codes are returned in plaintext (with a ``used_at`` flag per
+    code) so the Profile page can render them under a hide/unhide
+    eye toggle. Authentik users get a short-circuited reply that the
+    SPA renders as "managed by IdP". API tokens (negative id) get 400.
+    """
+    if user.id < 0:
+        raise HTTPException(400, "API tokens cannot manage 2FA")
+    policy = _resolve_totp_policy()
+    if user.auth_source == "authentik":
+        return {
+            "auth_source": user.auth_source,
+            "allowed": False,
+            "enabled": False,
+            "required": False,
+            "backup_codes": [],
+            "policy": policy,
+        }
+    with db_conn() as c:
+        state = auth.get_user_totp_state(c, user.id)
+    codes = totp.decrypt_backup_codes(state["backup_codes_json"])
+    return {
+        "auth_source": user.auth_source,
+        "allowed": bool(policy["totp_allowed"]),
+        "enabled": bool(state["enabled"]),
+        "required": _totp_required_for_user(user),
+        "backup_codes": codes,
+        "policy": policy,
+    }
+
+
+@app.post("/api/me/totp/enroll-start")
+async def api_me_totp_enroll_start(user: auth.User = Depends(auth.current_user)):
+    """Generate a fresh secret + provisioning_uri for the caller.
+
+    The secret is NOT persisted at this stage -- the SPA echoes it back
+    via /api/me/totp/enroll-confirm so the user proves they captured
+    it correctly before we lock it in.
+    """
+    if user.id < 0:
+        raise HTTPException(400, "API tokens cannot manage 2FA")
+    _totp_authentik_guard(user)
+    policy = _resolve_totp_policy()
+    if not policy["totp_allowed"]:
+        raise HTTPException(
+            403, "Two-factor authentication is disabled by admin policy.",
+        )
+    secret_plain = totp.generate_secret()
+    uri = totp.provisioning_uri(secret_plain, user.username)
+    print(f"[totp] {user.username} enroll-start (secret prepared, awaiting confirm)")
+    return {
+        "secret": secret_plain,
+        "provisioning_uri": uri,
+        "username": user.username,
+        "issuer": "OmniGrid",
+    }
+
+
+@app.post("/api/me/totp/enroll-confirm")
+async def api_me_totp_enroll_confirm(
+    body: TotpEnrollConfirmIn,
+    user: auth.User = Depends(auth.current_user),
+):
+    """Persist the secret + generate backup codes after a successful
+    verification.
+
+    Returns the 10 plaintext backup codes ONCE in this response. The
+    Profile page also keeps them recoverable via /api/me/totp afterwards
+    (encrypted at rest with the same Fernet key).
+    """
+    if user.id < 0:
+        raise HTTPException(400, "API tokens cannot manage 2FA")
+    _totp_authentik_guard(user)
+    policy = _resolve_totp_policy()
+    if not policy["totp_allowed"]:
+        raise HTTPException(
+            403, "Two-factor authentication is disabled by admin policy.",
+        )
+    if not body.secret or len(body.secret) < 16:
+        raise HTTPException(400, "Missing or malformed secret.")
+    if not totp.verify_code(body.secret, body.code):
+        raise HTTPException(401, "Invalid verification code.")
+    backup_plain = totp.generate_backup_codes(10)
+    encrypted_secret = totp.encrypt_secret(body.secret)
+    encrypted_codes_json = totp.encrypt_backup_codes(backup_plain)
+    with db_conn() as c:
+        auth.set_user_totp_secret(
+            c, user.id, encrypted_secret, encrypted_codes_json,
+        )
+    print(f"[totp] {user.username} enrolled")
+    return {
+        "ok": True,
+        "backup_codes": backup_plain,
+    }
+
+
+@app.post("/api/me/totp/regenerate-codes")
+async def api_me_totp_regenerate_codes(
+    user: auth.User = Depends(auth.current_user),
+):
+    """Replace the backup codes with a fresh batch of 10. Existing
+    codes are discarded (used + unused alike). One-time reveal of the
+    new plaintext list."""
+    if user.id < 0:
+        raise HTTPException(400, "API tokens cannot manage 2FA")
+    _totp_authentik_guard(user)
+    with db_conn() as c:
+        state = auth.get_user_totp_state(c, user.id)
+        if not state["enabled"]:
+            raise HTTPException(400, "Two-factor authentication is not enabled.")
+        backup_plain = totp.generate_backup_codes(10)
+        encrypted = totp.encrypt_backup_codes(backup_plain)
+        auth.update_user_totp_backup_codes(c, user.id, encrypted)
+    print(f"[totp] {user.username} regenerated backup codes")
+    return {"ok": True, "backup_codes": backup_plain}
+
+
+@app.post("/api/me/totp/disable")
+async def api_me_totp_disable(
+    body: TotpDisableIn,
+    user: auth.User = Depends(auth.current_user),
+):
+    """Self-disable 2FA after re-confirming the password.
+
+    Refused when the admin policy currently requires TOTP for the
+    user's role -- the operator must lift the policy first OR an
+    admin must override. Authentik users 400.
+    """
+    if user.id < 0:
+        raise HTTPException(400, "API tokens cannot manage 2FA")
+    _totp_authentik_guard(user)
+    if _totp_required_for_user(user):
+        raise HTTPException(
+            403,
+            "Admin policy requires 2FA for your role; cannot self-disable.",
+        )
+    with db_conn() as c:
+        stored = _get_user_password_hash(c, user.id)
+        if not auth.verify_password(body.password, stored):
+            raise HTTPException(401, "Current password is incorrect.")
+        auth.clear_user_totp(c, user.id)
+    print(f"[totp] {user.username} disabled")
+    return {"ok": True}
 
 
 # ============================================================================
@@ -5551,6 +6247,13 @@ async def api_reset_password(
     r: PasswordResetIn,
     _admin: auth.User = Depends(auth.require_admin),
 ):
+    """Admin password-reset for a local user.
+
+    Note: this ALSO clears any TOTP enrolment (#345). Operators reset
+    passwords when a user has lost access; that usually means their
+    authenticator device is gone too. The user re-enrols via Profile
+    after the next login if 2FA is still required by policy.
+    """
     if not r.new_password or len(r.new_password) < 8:
         raise HTTPException(status_code=400, detail="Password must be 8+ characters.")
     with db_conn() as c:
@@ -5563,6 +6266,56 @@ async def api_reset_password(
                 detail="Authentik-managed users must change their password in Authentik.",
             )
         auth.admin_reset_password(c, user_id, r.new_password)
+    return {"ok": True}
+
+
+@app.post("/api/users/{user_id}/disable-totp")
+async def api_admin_disable_totp(
+    user_id: int,
+    request: Request,
+    admin: auth.User = Depends(auth.require_admin),
+):
+    """Admin override: clear a user's TOTP enrolment + lockout state.
+
+    Useful when a user has lost their authenticator device. The user
+    re-enrols via Profile on the next login if policy still requires
+    2FA for their role. Audited via the history table with
+    op_type='totp_admin_disabled'.
+    """
+    with db_conn() as c:
+        target = auth.get_user(c, user_id)
+        if not target:
+            raise HTTPException(status_code=404, detail="User not found.")
+        if target.auth_source != "local":
+            raise HTTPException(
+                status_code=400,
+                detail="Authentik users manage 2FA in their IdP.",
+            )
+        state = auth.get_user_totp_state(c, user_id)
+        if not state["enabled"]:
+            return {"ok": True, "already_disabled": True}
+        auth.clear_user_totp(c, user_id)
+        # Audit row -- mirrors the ssh_run pattern above.
+        try:
+            c.execute(
+                "INSERT INTO history "
+                "(ts, op_type, target_name, target_id, target_stack, "
+                " status, duration, events, error, actor) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (
+                    time.time(), "totp_admin_disabled",
+                    target.username, str(user_id), None,
+                    "success", 0.0,
+                    json.dumps([{
+                        "ts": time.time(), "level": "info",
+                        "msg": f"2FA disabled for {target.username} by {admin.username}",
+                    }]),
+                    None, admin.username,
+                ),
+            )
+        except Exception as e:
+            print(f"[totp] audit-log insert failed: {e}")
+    print(f"[totp] {target.username} disabled BY ADMIN ({admin.username})")
     return {"ok": True}
 
 

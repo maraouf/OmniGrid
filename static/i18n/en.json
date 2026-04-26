@@ -72,6 +72,13 @@
     "hotkeys": "Keyboard shortcuts",
     "sign_out": "Sign out"
   },
+  "profile": {
+    "notifications": {
+      "title": "Notifications",
+      "subtitle": "Choose which event notifications you receive. Toggles greyed out have been disabled globally by an admin.",
+      "disabled_by_admin": "Disabled globally by admin"
+    }
+  },
   "filters": {
     "all": "All",
     "online": "Online",
@@ -120,6 +127,7 @@
     "role": "Role",
     "last_login": "Last login",
     "actions": "Actions",
+    "totp": "2FA",
     "ip": "IP",
     "user_agent": "User-agent",
     "last_seen": "Last seen",
@@ -343,7 +351,41 @@
       "new_password": "New password",
       "confirm_new_password": "Confirm new password",
       "authentik_hint": "Your account is managed by Authentik. Change your password there — OmniGrid doesn't store one for SSO users.",
-      "api_token_hint": "API-token sessions can't change a password. Sign in with the underlying user account to manage credentials."
+      "api_token_hint": "API-token sessions can't change a password. Sign in with the underlying user account to manage credentials.",
+      "totp": {
+        "title": "Two-factor authentication",
+        "intro": "Add a 6-digit code from your authenticator app (Aegis / Authy / 1Password / Bitwarden / Google Authenticator) on top of your password.",
+        "required_pill": "Required",
+        "disabled_by_admin": "Two-factor authentication is currently disabled by an admin policy.",
+        "authentik_hint": "Authentik manages your second factor. Enable / disable it in your Authentik account settings.",
+        "not_enabled_status": "Two-factor authentication is not enabled for your account.",
+        "enable_button": "Enable 2FA",
+        "qr_hint": "Scan this QR with your authenticator app, then type the generated code below to confirm.",
+        "secret_label": "Or enter manually:",
+        "verify_label": "Verification code",
+        "verify_placeholder": "123456",
+        "confirm_button": "Verify and enable",
+        "reveal_title": "Save these backup codes",
+        "reveal_warning": "Each code can be used once if you lose access to your authenticator app. Store them somewhere safe — you won't see them masked here.",
+        "download_codes": "Download as .txt",
+        "reveal_done": "I've saved them",
+        "enabled_pill": "Enabled",
+        "enabled_status": "Two-factor authentication is active for your account.",
+        "backup_codes_title": "Backup codes",
+        "backup_codes_hint": "Single-use codes for when your authenticator app isn't available. Used codes are crossed out.",
+        "show": "Show",
+        "hide": "Hide",
+        "regenerate_button": "Regenerate backup codes",
+        "regen_confirm_title": "Regenerate backup codes?",
+        "regen_confirm_body": "Any unused codes will be discarded. You'll be shown a fresh batch of 10.",
+        "regen_confirm_button": "Regenerate",
+        "disable_button": "Disable 2FA",
+        "disable_blocked_title": "Admin policy requires 2FA for your role.",
+        "disable_confirm_title": "Disable 2FA?",
+        "disable_confirm_body": "Your account will be protected by password only. Re-confirm with your current password to continue.",
+        "disable_password_label": "Current password",
+        "disable_confirm_button": "Disable"
+      }
     },
     "notifications": {
       "title": "Apprise notifications",
@@ -504,6 +546,19 @@
           "label": "Sampler interval (seconds)",
           "help": "Cadence for the lifespan samplers — _stats_cache snapshot into stats_samples, node-exporter scrape into host_net_samples and host_metrics_samples."
         }
+      },
+      "totp": {
+        "title": "Two-factor authentication (TOTP)",
+        "subtitle": "Policy controls for local-auth users. Authentik users skip every TOTP path — their IdP handles MFA. Each enrolled user keeps their own QR / backup codes; admins can disable a user's 2FA from the Users tab when a device is lost.",
+        "allowed_label": "Allow users to enrol in 2FA",
+        "allowed_hint": "Master switch. When off, nobody can enable 2FA from Profile (existing enrolments stay active until each user disables — or an admin clears them per-user).",
+        "required_admins_label": "Require 2FA for admin accounts",
+        "required_users_label": "Require 2FA for read-only accounts",
+        "required_hint": "Forced enrolment runs at login: a user without 2FA gets the QR + verification step before the cookie is issued.",
+        "max_failures_label": "Lockout after N failed codes",
+        "max_failures_hint": "3 to 20.",
+        "lockout_minutes_label": "Lockout duration (minutes)",
+        "lockout_minutes_hint": "1 to 1440 (24h)."
       }
     },
     "debug": {
@@ -663,7 +718,15 @@
       "delete_self_title": "Can't delete yourself",
       "delete_title": "Delete user",
       "make_readonly": "Make readonly",
-      "make_admin": "Make admin"
+      "make_admin": "Make admin",
+      "totp_on": "On",
+      "totp_off": "Off",
+      "totp_na": "—",
+      "totp_disable": "Disable 2FA",
+      "totp_disable_title": "Clear this user's TOTP enrolment (use when they've lost their authenticator device).",
+      "totp_disable_confirm_title": "Disable 2FA for {name}?",
+      "totp_disable_confirm_body": "Their stored secret + backup codes will be erased. They re-enrol on next login if policy still requires 2FA.",
+      "totp_disable_confirm_button": "Disable"
     },
     "sessions": {
       "active_title": "Active sessions",
@@ -825,7 +888,16 @@
     "nothing_to_update": "Nothing to update",
     "already_running": "All {count} already running",
     "op_result": "{icon} {op}: {name}",
-    "language_changed": "Language changed"
+    "language_changed": "Language changed",
+    "totp_enabled": "Two-factor authentication enabled",
+    "totp_disabled": "Two-factor authentication disabled",
+    "totp_admin_disabled": "Cleared user's 2FA enrolment",
+    "totp_invalid_code": "Enter a 6-digit code",
+    "totp_enroll_failed": "Could not enable 2FA",
+    "totp_disable_failed": "Could not disable 2FA",
+    "totp_regen_ok": "New backup codes generated",
+    "totp_regen_failed": "Could not regenerate backup codes",
+    "totp_required_no_disable": "Admin policy requires 2FA for your role"
   },
   "dialogs": {
     "update_stack_title": "Update stack",
@@ -880,7 +952,25 @@
     "too_many_attempts": "Too many attempts. Try again shortly.",
     "invalid_credentials": "Invalid username or password.",
     "sign_in_failed": "Sign-in failed ({status}). Try again.",
-    "network_error": "Network error. Try again."
+    "network_error": "Network error. Try again.",
+    "verify": "Verify",
+    "verifying": "Verifying…",
+    "verify_and_enable": "Verify and enable",
+    "totp_required_hint": "Enter the 6-digit code from your authenticator app.",
+    "totp_code_label": "Authenticator code",
+    "totp_use_backup": "Use a backup code instead",
+    "totp_use_code": "Use authenticator code instead",
+    "totp_backup_placeholder": "XXXX YYYY",
+    "totp_backup_hint": "Enter one of your saved backup codes.",
+    "totp_invalid_code": "Invalid code. Try again.",
+    "totp_locked": "Account locked due to too many failed 2FA attempts.",
+    "totp_expired": "Verification expired. Sign in again.",
+    "totp_setup_hint": "Two-factor authentication is required. Scan the QR with your authenticator app, then enter the generated code below.",
+    "totp_secret_label": "Or enter manually:",
+    "totp_backup_title": "Save these backup codes",
+    "totp_backup_warning": "Store these somewhere safe. Each code can be used once if you lose access to your authenticator app.",
+    "totp_backup_download": "Download as .txt",
+    "totp_continue": "Continue"
   },
   "new_token_modal": {
     "title": "New API token — copy it now",

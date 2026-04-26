@@ -472,6 +472,7 @@ async def callback(request: Request):
             f"via authentik from {ip}",
             "info",
             event="user_login",
+            actor_username=u.username,
         )
     except Exception as _e:
         print(f"[notify] user_login (oidc) failed: {_e}")

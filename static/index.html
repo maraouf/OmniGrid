@@ -51,10 +51,65 @@
 <script src="/node_modules/@xterm/xterm/lib/xterm.js"></script>
 <script src="/node_modules/@xterm/addon-fit/lib/addon-fit.js"></script>
 <script src="/node_modules/@xterm/addon-web-links/lib/addon-web-links.js"></script>
+<!-- qrcode-generator — pure-JS QR rendering used by the Profile -> Two-
+     factor authentication enrolment flow (#345). UMD bundle exposes
+     a global `qrcode(typeNumber, errorCorrectionLevel)` factory. -->
+<script src="/node_modules/qrcode-generator/qrcode.js"></script>
 <link rel="stylesheet" href="/css/style.css">
 <script src="/js/auth-fetch.js?v=__APP_VERSION__"></script>
 </head>
 <body class="min-h-screen">
+
+<!-- ================== ICON SYMBOL LIBRARY ==================
+     Reused via <use href="#icon-..."/>. Keeping them here rather than
+     inlined per-call shrinks index.html by hundreds of lines and ensures
+     every "edit"/"copy"/"chevron" icon stays visually consistent.
+     Hidden via inline display:none on the wrapper — symbols never render
+     directly, only via <use>. Each symbol declares only viewBox; the
+     calling <svg> wrapper supplies width/height/class and any stroke /
+     stroke-width overrides (which inherit through <use> into the symbol's
+     children, since the children carry no stroke-* attrs of their own). -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <defs>
+    <!-- Each symbol bakes the canonical Lucide presentation attrs
+         (fill="none", stroke="currentColor", stroke-width="2",
+         stroke-linecap="round", stroke-linejoin="round") so callers
+         only need width/height/class on the <svg> wrapper. To override
+         stroke-width (e.g. 2.2 / 2.4 / 3) the caller sets it on the
+         wrapper — presentation attrs inherit through <use> into the
+         symbol's children, which carry no stroke-* attrs of their own. -->
+    <!-- Lucide: copy -->
+    <symbol id="icon-copy" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></symbol>
+    <!-- Lucide: chevron-right (RTL-flippable via .flip-rtl on caller) -->
+    <symbol id="icon-chevron-right" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></symbol>
+    <!-- Lucide: chevron-down -->
+    <symbol id="icon-chevron-down" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></symbol>
+    <!-- Lucide: chevron-up -->
+    <symbol id="icon-chevron-up" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="18 15 12 9 6 15"/></symbol>
+    <!-- Lucide: refresh-ccw (rotated arrows around clockwise loop) -->
+    <symbol id="icon-refresh-ccw" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></symbol>
+    <!-- Lucide: rotate-cw (single arrow looping clockwise) -->
+    <symbol id="icon-rotate-cw" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 0 1 15.5-6.36L22 8"/><path d="M22 3v5h-5"/><path d="M22 12a9 9 0 0 1-15.5 6.36L3 16"/><path d="M2 21v-5h5"/></symbol>
+    <!-- Lucide: trash -->
+    <symbol id="icon-trash" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m3 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6h14z"/></symbol>
+    <!-- Lucide: info (circle with i) -->
+    <symbol id="icon-info" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></symbol>
+    <!-- Lucide: clock -->
+    <symbol id="icon-clock" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></symbol>
+    <!-- Lucide: help-circle -->
+    <symbol id="icon-help-circle" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><path d="M12 17h.01"/></symbol>
+    <!-- Lucide: alert-triangle -->
+    <symbol id="icon-alert-triangle" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></symbol>
+    <!-- Lucide: search -->
+    <symbol id="icon-search" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></symbol>
+    <!-- Lucide: lock -->
+    <symbol id="icon-lock" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></symbol>
+    <!-- Lucide: arrow-up-right (small "open in new tab" hint, no surrounding box) -->
+    <symbol id="icon-arrow-up-right" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></symbol>
+    <!-- Lucide: loader (8-spoke spinner — animated by .collecting-block svg in style.css) -->
+    <symbol id="icon-loader" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/></symbol>
+  </defs>
+</svg>
 
 <div x-data="app()" x-init="init()" x-cloak class="flex flex-col min-h-screen">
 
@@ -166,7 +221,7 @@
                 @click="bulkRemoveAll()"
                 class="btn btn-danger-outline"
                 :title="t('topbar.cleanup_title', { count: removableAll().length })">
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m3 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6h14z"/></svg>
+          <svg width="13" height="13" stroke-width="2.2" aria-hidden="true"><use href="#icon-trash"/></svg>
           <span class="text-[11px]"><span x-text="t('actions.cleanup')"></span> <span x-text="removableAll().length"></span></span>
         </button>
         <!-- Refresh button hidden on mobile — auto-refresh + browser
@@ -175,7 +230,7 @@
              flag). The user-menu's Settings / Admin / etc. covers
              other navigation. -->
         <button @click="refresh(true)" :disabled="loading" class="btn btn-soft hidden sm:inline-flex" :title="t('topbar.refresh_title')">
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" :class="loading && 'animate-spin'"><path d="M3 12a9 9 0 0 1 15.5-6.36L22 8"/><path d="M22 3v5h-5"/><path d="M22 12a9 9 0 0 1-15.5 6.36L3 16"/><path d="M2 21v-5h5"/></svg>
+          <svg width="13" height="13" aria-hidden="true" :class="loading && 'animate-spin'"><use href="#icon-rotate-cw"/></svg>
         </button>
         <!-- Deploy watcher — only visible when /api/version returns a
              string different from the one captured at page boot.
@@ -185,7 +240,7 @@
                 @click="reloadForNewVersion()"
                 class="btn btn-primary text-[11px] flex items-center gap-1.5 animate-pulse"
                 :title="t('topbar_extra.new_version_title', { version: newVersionString })">
-          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+          <svg width="12" height="12" aria-hidden="true"><use href="#icon-refresh-ccw"/></svg>
           <span x-text="t('topbar_extra.new_version')"></span>
         </button>
       </div>
@@ -261,8 +316,8 @@
               <span x-text="initial()"></span>
             </template>
           </span>
-          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"
-               class="text-[var(--text-dim)]" :class="userMenuOpen && 'rotate-180'"><polyline points="6 9 12 15 18 9"/></svg>
+          <svg width="10" height="10" stroke-width="2.5" aria-hidden="true"
+               class="text-[var(--text-dim)]" :class="userMenuOpen && 'rotate-180'"><use href="#icon-chevron-down"/></svg>
         </button>
 
         <!-- Dropdown -->
@@ -286,7 +341,7 @@
             <span x-text="t('user_menu.admin')"></span>
           </button>
           <button @click="userMenuOpen=false; showHotkeys=true" class="user-menu-item">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><path d="M12 17h.01"/></svg>
+            <svg width="14" height="14" aria-hidden="true"><use href="#icon-help-circle"/></svg>
             <span x-text="t('user_menu.hotkeys')"></span>
           </button>
           <div class="border-t border-[var(--border)]"></div>
@@ -362,7 +417,7 @@
         </template>
       </button>
       <button @click="showHotkeys=true" class="btn btn-soft order-4 sm:order-none" :title="t('topbar.hotkeys_title')">
-        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><path d="M12 17h.01"/></svg>
+        <svg width="13" height="13" aria-hidden="true"><use href="#icon-help-circle"/></svg>
       </button>
       <!-- Language picker. Compact <select> — the richer UI lives in
            Settings → Language. Rendered from I18N.languages which is
@@ -437,12 +492,12 @@
            :title="t('filters.expand_collapse_title')">
         <button @click="view==='stacks' ? expandAllStacks() : view==='nodes' ? expandAllNodes() : expandAllHosts()"
                 class="px-2.5 py-1 rounded text-[11px] font-medium text-[var(--text-dim)] hover:text-[var(--text)] transition flex items-center gap-1.5">
-          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+          <svg width="10" height="10" stroke-width="2.4" aria-hidden="true"><use href="#icon-chevron-down"/></svg>
           <span x-text="t('filters.expand_all')"></span>
         </button>
         <button @click="view==='stacks' ? collapseAllStacks() : view==='nodes' ? collapseAllNodes() : collapseAllHosts()"
                 class="px-2.5 py-1 rounded text-[11px] font-medium text-[var(--text-dim)] hover:text-[var(--text)] transition flex items-center gap-1.5">
-          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="18 15 12 9 6 15"/></svg>
+          <svg width="10" height="10" stroke-width="2.4" aria-hidden="true"><use href="#icon-chevron-up"/></svg>
           <span x-text="t('filters.collapse_all')"></span>
         </button>
       </div>
@@ -475,7 +530,7 @@
          operators should be reminded each restart that sessions died. -->
     <div x-show="me && me.role === 'admin' && me.session_secret_auto && !sessionSecretWarningDismissed"
          class="rounded-md border border-[var(--warning)] bg-[color-mix(in_srgb,var(--warning)_10%,var(--surface))] px-4 py-2.5 mb-3 flex items-start gap-3 text-[12.5px]">
-      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-[var(--warning)] flex-shrink-0 mt-0.5"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+      <svg width="16" height="16" class="text-[var(--warning)] flex-shrink-0 mt-0.5" aria-hidden="true"><use href="#icon-alert-triangle"/></svg>
       <div class="flex-1 min-w-0">
         <div class="font-semibold text-[var(--text)]" x-text="t('warnings.session_secret_auto.title')"></div>
         <div class="text-[var(--text-dim)] mt-0.5" x-text="t('warnings.session_secret_auto.body')"></div>
@@ -492,7 +547,7 @@
          disk. Same dismissable shape as the SESSION_SECRET banner. -->
     <div x-show="me && me.role === 'admin' && me.bootstrap_env_still_set && !bootstrapEnvWarningDismissed"
          class="rounded-md border border-[var(--warning)] bg-[color-mix(in_srgb,var(--warning)_10%,var(--surface))] px-4 py-2.5 mb-3 flex items-start gap-3 text-[12.5px]">
-      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-[var(--warning)] flex-shrink-0 mt-0.5"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+      <svg width="16" height="16" class="text-[var(--warning)] flex-shrink-0 mt-0.5" aria-hidden="true"><use href="#icon-alert-triangle"/></svg>
       <div class="flex-1 min-w-0">
         <div class="font-semibold text-[var(--text)]" x-text="t('warnings.bootstrap_env_still_set.title')"></div>
         <div class="text-[var(--text-dim)] mt-0.5" x-text="t('warnings.bootstrap_env_still_set.body')"></div>
@@ -514,11 +569,11 @@
         <span x-text="t('bulk.update')"></span> (<span x-text="selectionUpdatable().length"></span>)
       </button>
       <button x-show="selectionRestartable().length > 0" @click="bulkRestart()" class="btn btn-soft text-[12px]">
-        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M3 12a9 9 0 0 1 15.5-6.36L22 8"/><path d="M22 3v5h-5"/><path d="M22 12a9 9 0 0 1-15.5 6.36L3 16"/><path d="M2 21v-5h5"/></svg>
+        <svg width="11" height="11" stroke-width="2.2" aria-hidden="true"><use href="#icon-rotate-cw"/></svg>
         <span x-text="t('bulk.restart')"></span> (<span x-text="selectionRestartable().length"></span>)
       </button>
       <button x-show="selectionRemovable().length > 0" @click="bulkRemove()" class="btn btn-danger-outline text-[12px]">
-        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m3 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6h14z"/></svg>
+        <svg width="11" height="11" stroke-width="2.2" aria-hidden="true"><use href="#icon-trash"/></svg>
         <span x-text="t('bulk.remove')"></span> (<span x-text="selectionRemovable().length"></span>)
       </button>
       <button @click="selected=[]" class="btn btn-ghost text-[12px]" x-text="t('bulk.clear')"></button>
@@ -717,7 +772,7 @@
                               :title="t('actions.restart_force_title')">
                         <template x-if="isRestartBusy(item)"><span class="spin"></span></template>
                         <template x-if="!isRestartBusy(item)">
-                          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M3 12a9 9 0 0 1 15.5-6.36L22 8"/><path d="M22 3v5h-5"/><path d="M22 12a9 9 0 0 1-15.5 6.36L3 16"/><path d="M2 21v-5h5"/></svg>
+                          <svg width="11" height="11" stroke-width="2.2" aria-hidden="true"><use href="#icon-rotate-cw"/></svg>
                         </template>
                       </button>
                       <button x-show="isAdmin() && item.removable"
@@ -725,7 +780,7 @@
                               :disabled="isItemBusy(item)"
                               class="btn btn-danger-outline text-[11px]"
                               :title="t('actions.remove_container_title')">
-                        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m3 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6h14z"/></svg>
+                        <svg width="11" height="11" stroke-width="2.2" aria-hidden="true"><use href="#icon-trash"/></svg>
                       </button>
                     </div>
                   </td>
@@ -749,7 +804,7 @@
       </div>
       <div x-show="!loading && items.length === 0 && portainerConfigured === false"
            class="rounded border border-[var(--warning)] bg-[var(--surface-2)] px-4 py-3 text-[12.5px] text-[var(--text-dim)] flex items-start gap-3">
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-[var(--warning)] flex-shrink-0 mt-0.5"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+        <svg width="18" height="18" class="text-[var(--warning)] flex-shrink-0 mt-0.5" aria-hidden="true"><use href="#icon-info"/></svg>
         <div class="min-w-0 flex-1">
           <div class="font-semibold text-[var(--text)]" x-text="t('empty.portainer_not_configured.title')"></div>
           <div class="mt-1" x-text="t('empty.portainer_not_configured.body')"></div>
@@ -874,7 +929,7 @@
                             :title="t('actions.restart_force_title')">
                       <template x-if="isRestartBusy(item)"><span class="spin"></span></template>
                       <template x-if="!isRestartBusy(item)">
-                        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M3 12a9 9 0 0 1 15.5-6.36L22 8"/><path d="M22 3v5h-5"/><path d="M22 12a9 9 0 0 1-15.5 6.36L3 16"/><path d="M2 21v-5h5"/></svg>
+                        <svg width="11" height="11" stroke-width="2.2" aria-hidden="true"><use href="#icon-rotate-cw"/></svg>
                       </template>
                     </button>
                     <button x-show="isAdmin() && item.removable"
@@ -882,7 +937,7 @@
                             :disabled="isItemBusy(item)"
                             class="btn btn-danger-outline text-[11px]"
                             :title="t('actions.remove_container_title')">
-                      <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m3 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6h14z"/></svg>
+                      <svg width="11" height="11" stroke-width="2.2" aria-hidden="true"><use href="#icon-trash"/></svg>
                     </button>
                   </div>
                 </td>
@@ -905,7 +960,7 @@
       </div>
       <div x-show="!loading && items.length === 0 && portainerConfigured === false"
            class="rounded border border-[var(--warning)] bg-[var(--surface-2)] px-4 py-3 text-[12.5px] text-[var(--text-dim)] flex items-start gap-3">
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-[var(--warning)] flex-shrink-0 mt-0.5"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+        <svg width="18" height="18" class="text-[var(--warning)] flex-shrink-0 mt-0.5" aria-hidden="true"><use href="#icon-info"/></svg>
         <div class="min-w-0 flex-1">
           <div class="font-semibold text-[var(--text)]" x-text="t('empty.portainer_not_configured.title')"></div>
           <div class="mt-1" x-text="t('empty.portainer_not_configured.body')"></div>
@@ -941,11 +996,7 @@
                  space — name on its own line, subtitle below it. -->
             <div @click="toggleNode(node.name)"
                  class="flex items-center gap-3 flex-1 min-w-0 cursor-pointer">
-              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
-                   :class="isNodeExpanded(node.name) ? 'rotate-90' : ''"
-                   class="text-[var(--text-dim)] transition-transform flex-shrink-0">
-                <polyline points="9 18 15 12 9 6"/>
-              </svg>
+              <svg width="13" height="13" aria-hidden="true" class="text-[var(--text-dim)] transition-transform flex-shrink-0" :class="isNodeExpanded(node.name) ? 'rotate-90' : ''"><use href="#icon-chevron-right"/></svg>
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-[var(--text-dim)] flex-shrink-0">
                 <rect x="2" y="2" width="20" height="8" rx="2"/>
                 <rect x="2" y="14" width="20" height="8" rx="2"/>
@@ -1017,7 +1068,7 @@
                       :title="'Run docker system prune on ' + node.name">
                 <template x-if="isPruneBusy(node.name)"><span class="flex items-center gap-1"><span class="spin"></span>Pruning…</span></template>
                 <template x-if="!isPruneBusy(node.name)"><span class="flex items-center gap-1">
-                  <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m3 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6h14z"/></svg>
+                  <svg width="11" height="11" aria-hidden="true"><use href="#icon-trash"/></svg>
                   Prune
                 </span></template>
               </button>
@@ -1198,7 +1249,7 @@
       </div>
       <div x-show="!loading && items.length === 0 && portainerConfigured === false"
            class="rounded border border-[var(--warning)] bg-[var(--surface-2)] px-4 py-3 text-[12.5px] text-[var(--text-dim)] flex items-start gap-3">
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-[var(--warning)] flex-shrink-0 mt-0.5"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+        <svg width="18" height="18" class="text-[var(--warning)] flex-shrink-0 mt-0.5" aria-hidden="true"><use href="#icon-info"/></svg>
         <div class="min-w-0 flex-1">
           <div class="font-semibold text-[var(--text)]" x-text="t('empty.portainer_not_configured.title')"></div>
           <div class="mt-1" x-text="t('empty.portainer_not_configured.body')"></div>
@@ -1285,12 +1336,12 @@
                class="flex items-center gap-1 bg-[var(--surface-2)] rounded-md p-0.5 border border-[var(--border)]">
             <button @click="expandAllHosts()"
                     class="px-2.5 py-1 rounded text-[11px] font-medium text-[var(--text-dim)] hover:text-[var(--text)] transition flex items-center gap-1.5">
-              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+              <svg width="10" height="10" stroke-width="2.4" aria-hidden="true"><use href="#icon-chevron-down"/></svg>
               <span x-text="t('filters.expand_all')"></span>
             </button>
             <button @click="collapseAllHosts()"
                     class="px-2.5 py-1 rounded text-[11px] font-medium text-[var(--text-dim)] hover:text-[var(--text)] transition flex items-center gap-1.5">
-              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="18 15 12 9 6 15"/></svg>
+              <svg width="10" height="10" stroke-width="2.4" aria-hidden="true"><use href="#icon-chevron-up"/></svg>
               <span x-text="t('filters.collapse_all')"></span>
             </button>
           </div>
@@ -1301,13 +1352,13 @@
             <button @click="expandAllGroups()"
                     :title="t('hosts_extra_groups.expand_all_title')"
                     class="px-2.5 py-1 rounded text-[11px] font-medium text-[var(--text-dim)] hover:text-[var(--text)] transition flex items-center gap-1.5">
-              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+              <svg width="10" height="10" stroke-width="2.4" aria-hidden="true"><use href="#icon-chevron-down"/></svg>
               <span x-text="t('hosts_extra_groups.expand_all')"></span>
             </button>
             <button @click="collapseAllGroups()"
                     :title="t('hosts_extra_groups.collapse_all_title')"
                     class="px-2.5 py-1 rounded text-[11px] font-medium text-[var(--text-dim)] hover:text-[var(--text)] transition flex items-center gap-1.5">
-              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="18 15 12 9 6 15"/></svg>
+              <svg width="10" height="10" stroke-width="2.4" aria-hidden="true"><use href="#icon-chevron-up"/></svg>
               <span x-text="t('hosts_extra_groups.collapse_all')"></span>
             </button>
           </div>
@@ -1319,12 +1370,7 @@
                   :disabled="hostsLoading"
                   class="btn btn-ghost text-[12px] flex items-center gap-1.5"
                   :title="t('hosts_extra.refresh_title')">
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
-                 :class="hostsLoading ? 'animate-spin' : ''">
-              <polyline points="23 4 23 10 17 10"/>
-              <polyline points="1 20 1 14 7 14"/>
-              <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>
-            </svg>
+            <svg width="12" height="12" aria-hidden="true" :class="hostsLoading ? 'animate-spin' : ''"><use href="#icon-refresh-ccw"/></svg>
             <span x-show="!hostsLoading" x-text="t('actions.refresh')"></span>
             <span x-show="hostsLoading" x-text="t('actions.refreshing')"></span>
           </button>
@@ -1334,7 +1380,7 @@
              :title="t('hosts_extra.open_beszel_title')">
             <img src="/img/icons/beszel.svg" alt="" width="14" height="14" class="rounded-sm">
             <span x-text="t('hosts_extra.open_beszel')"></span>
-            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="opacity-60"><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+            <svg width="10" height="10" class="opacity-60" aria-hidden="true"><use href="#icon-arrow-up-right"/></svg>
           </a>
           <a :href="settings.pulse_url || '#'" target="_blank" rel="noopener"
              x-show="settings.pulse_url"
@@ -1342,7 +1388,7 @@
              :title="t('hosts_extra.open_pulse_title')">
             <img src="/img/icons/pulse.svg" alt="" width="14" height="14" class="rounded-sm">
             <span x-text="t('hosts_extra.open_pulse')"></span>
-            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="opacity-60"><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+            <svg width="10" height="10" class="opacity-60" aria-hidden="true"><use href="#icon-arrow-up-right"/></svg>
           </a>
         </div>
       </div>
@@ -1369,7 +1415,7 @@
            dropdown off-screen. `min-w-[180px]` on the search keeps it
            usable when the row wraps. -->
       <div x-show="hostsConfigured && hosts.length > 0" class="flex items-center gap-2 flex-wrap">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-[var(--text-faint)]"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+        <svg width="14" height="14" class="text-[var(--text-faint)]" aria-hidden="true"><use href="#icon-search"/></svg>
         <input type="search" x-model="hostsSearch"
                class="flex-1 min-w-[180px] text-[12.5px] py-1.5"
                :placeholder="t('hosts_extra.filter_placeholder')">
@@ -1423,11 +1469,7 @@
             <div x-show="hostGroups.length > 0"
                  @click="toggleGroup(bucket.group ? bucket.group.name : '')"
                  class="host-group-heading flex items-center gap-2 mt-3 mb-1 px-2 py-1.5 rounded cursor-pointer select-none bg-[var(--surface-2)] border border-[var(--border)]">
-              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
-                   class="text-[var(--text-dim)] transition-transform flip-rtl"
-                   :style="isGroupCollapsed(bucket.group ? bucket.group.name : '') ? '' : 'transform: rotate(90deg)'">
-                <polyline points="9 18 15 12 9 6"/>
-              </svg>
+              <svg width="11" height="11" aria-hidden="true" class="text-[var(--text-dim)] transition-transform flip-rtl" :style="isGroupCollapsed(bucket.group ? bucket.group.name : '') ? '' : 'transform: rotate(90deg)'"><use href="#icon-chevron-right"/></svg>
               <span class="font-semibold text-[12px]"
                     x-text="bucket.group ? hostGroupHeading(bucket.group) : t('hosts_extra_groups.ungrouped_label')"></span>
               <!-- Right-aligned cluster: range + IP chips immediately
@@ -1453,11 +1495,7 @@
                 <div x-show="h._sub_heading && !isGroupCollapsed(bucket.group ? bucket.group.name : '')"
                      @click="toggleGroup(h._sub_group ? h._sub_group.name : '')"
                      class="host-group-heading flex items-center gap-2 mt-2 mb-1 ms-4 px-2 py-1.5 rounded cursor-pointer select-none bg-[var(--surface)] border border-[var(--border)]">
-                  <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
-                       class="text-[var(--text-dim)] transition-transform flip-rtl"
-                       :style="(h._sub_group && isGroupCollapsed(h._sub_group.name)) ? '' : 'transform: rotate(90deg)'">
-                    <polyline points="9 18 15 12 9 6"/>
-                  </svg>
+                  <svg width="11" height="11" aria-hidden="true" class="text-[var(--text-dim)] transition-transform flip-rtl" :style="(h._sub_group && isGroupCollapsed(h._sub_group.name)) ? '' : 'transform: rotate(90deg)'"><use href="#icon-chevron-right"/></svg>
                   <span class="font-semibold text-[11.5px]" x-text="h._sub_group ? hostGroupHeading(h._sub_group) : ''"></span>
                   <div class="flex items-center gap-2 ms-auto" x-show="h._sub_group">
                     <span class="pill pill-info text-[10px] mono"
@@ -1576,11 +1614,7 @@
             <div x-show="hostGroups.length > 0"
                  @click="toggleGroup(bucket.group ? bucket.group.name : '')"
                  class="host-group-heading flex items-center gap-2 px-4 py-2 border-b border-[var(--border)] bg-[var(--surface-2)] cursor-pointer select-none">
-              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
-                   class="text-[var(--text-dim)] transition-transform flip-rtl"
-                   :style="isGroupCollapsed(bucket.group ? bucket.group.name : '') ? '' : 'transform: rotate(90deg)'">
-                <polyline points="9 18 15 12 9 6"/>
-              </svg>
+              <svg width="11" height="11" aria-hidden="true" class="text-[var(--text-dim)] transition-transform flip-rtl" :style="isGroupCollapsed(bucket.group ? bucket.group.name : '') ? '' : 'transform: rotate(90deg)'"><use href="#icon-chevron-right"/></svg>
               <span class="font-semibold text-[12px]"
                     x-text="bucket.group ? hostGroupHeading(bucket.group) : t('hosts_extra_groups.ungrouped_label')"></span>
               <div class="flex items-center gap-2 ms-auto">
@@ -1605,11 +1639,7 @@
                 <div x-show="h._sub_heading && !isGroupCollapsed(bucket.group ? bucket.group.name : '')"
                      @click="toggleGroup(h._sub_group ? h._sub_group.name : '')"
                      class="host-group-heading flex items-center gap-2 px-4 py-2 ps-10 border-b border-[var(--border)] bg-[var(--surface)] cursor-pointer select-none">
-                  <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
-                       class="text-[var(--text-dim)] transition-transform flip-rtl"
-                       :style="(h._sub_group && isGroupCollapsed(h._sub_group.name)) ? '' : 'transform: rotate(90deg)'">
-                    <polyline points="9 18 15 12 9 6"/>
-                  </svg>
+                  <svg width="11" height="11" aria-hidden="true" class="text-[var(--text-dim)] transition-transform flip-rtl" :style="(h._sub_group && isGroupCollapsed(h._sub_group.name)) ? '' : 'transform: rotate(90deg)'"><use href="#icon-chevron-right"/></svg>
                   <span class="font-semibold text-[12px]" x-text="h._sub_group ? hostGroupHeading(h._sub_group) : ''"></span>
                   <div class="flex items-center gap-2 ms-auto" x-show="h._sub_group">
                     <span class="pill pill-info text-[10px] mono"
@@ -1633,11 +1663,7 @@
                  @click="toggleHost(h.host)">
               <!-- Chevron + status dot -->
               <div class="flex items-center gap-1.5">
-                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
-                     :class="isHostExpanded(h.host) ? 'rotate-90' : (isHostExpandable(h) ? '' : 'opacity-30')"
-                     class="text-[var(--text-dim)] transition-transform">
-                  <polyline points="9 18 15 12 9 6"/>
-                </svg>
+                <svg width="11" height="11" aria-hidden="true" class="text-[var(--text-dim)] transition-transform" :class="isHostExpanded(h.host) ? 'rotate-90' : (isHostExpandable(h) ? '' : 'opacity-30')"><use href="#icon-chevron-right"/></svg>
                 <template x-if="h._loading">
                   <span class="host-loading-spinner" aria-hidden="true"></span>
                 </template>
@@ -2073,7 +2099,7 @@
         <!-- Readonly banner — clarifies why save buttons are missing. -->
         <div x-show="isReadonly()"
              class="bg-[var(--surface-2)] border border-[var(--border-bright)] rounded-md px-4 py-2 text-[12px] text-[var(--text-dim)] flex items-center gap-2">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+          <svg width="14" height="14" aria-hidden="true"><use href="#icon-lock"/></svg>
           <span x-text="t('settings.readonly_banner')"></span>
         </div>
 
@@ -2178,12 +2204,78 @@
           </div>
         </section>
 
+        <!-- Notifications card — per-user opt-in/out (#357). Layered ON
+             TOP of the admin-side global gates: a notification fires
+             only when (admin enabled) AND (user opted-in). Toggles for
+             admin-disabled events grey out with a "disabled by admin"
+             tooltip; the backend also refuses an opt-in attempt for
+             those events with a 400. Saves alongside the About-card
+             form via the same Save button -> single dirty indicator. -->
+        <section class="bg-[var(--surface)] border border-[var(--border)] rounded-md p-5 lg:col-span-2">
+          <div class="flex items-center gap-2 mb-1">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-[var(--text-dim)]"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
+            <h3 class="font-semibold text-[13px]" x-text="t('profile.notifications.title')"></h3>
+          </div>
+          <p class="text-[11.5px] text-[var(--text-faint)] mb-3" x-text="t('profile.notifications.subtitle')"></p>
+
+          <!-- Operations events - success/failure pair per category. -->
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-1.5 mb-3">
+            <template x-for="g in notifyEventGroups" :key="g.label">
+              <div class="flex items-center justify-between gap-3 py-1">
+                <span class="text-[12px] text-[var(--text)]"
+                      x-text="t('admin.notifications.events.' + g.label)"></span>
+                <div class="flex items-center gap-3">
+                  <label class="flex items-center gap-1.5 text-[11.5px] cursor-pointer select-none"
+                         :class="userNotifyEventDisabledByAdmin(g.success) ? 'opacity-50' : ''"
+                         :title="userNotifyEventDisabledByAdmin(g.success) ? t('profile.notifications.disabled_by_admin') : ''">
+                    <input type="checkbox"
+                           :checked="profileForm.notify_events[g.success.replace(/^notify_event_/, '')]"
+                           @change="profileForm.notify_events[g.success.replace(/^notify_event_/, '')] = $event.target.checked"
+                           :disabled="userNotifyEventDisabledByAdmin(g.success)">
+                    <span class="text-[var(--text-dim)]" x-text="t('admin.notifications.events.success')"></span>
+                  </label>
+                  <label class="flex items-center gap-1.5 text-[11.5px] cursor-pointer select-none"
+                         :class="userNotifyEventDisabledByAdmin(g.failure) ? 'opacity-50' : ''"
+                         :title="userNotifyEventDisabledByAdmin(g.failure) ? t('profile.notifications.disabled_by_admin') : ''">
+                    <input type="checkbox"
+                           :checked="profileForm.notify_events[g.failure.replace(/^notify_event_/, '')]"
+                           @change="profileForm.notify_events[g.failure.replace(/^notify_event_/, '')] = $event.target.checked"
+                           :disabled="userNotifyEventDisabledByAdmin(g.failure)">
+                    <span class="text-[var(--text-dim)]" x-text="t('admin.notifications.events.failure')"></span>
+                  </label>
+                </div>
+              </div>
+            </template>
+          </div>
+
+          <!-- Security events - single-toggle row mirrors the admin tab. -->
+          <div class="border-t border-[var(--border)] pt-3">
+            <div class="text-[10.5px] text-[var(--text-faint)] uppercase tracking-wider mb-2"
+                 x-text="t('admin.notifications.events.security_section')"></div>
+            <template x-for="e in notifySecurityEvents" :key="e.key">
+              <div class="flex items-center justify-between gap-3 py-1">
+                <span class="text-[12px] text-[var(--text)]"
+                      x-text="t('admin.notifications.events.' + e.label)"></span>
+                <label class="flex items-center gap-1.5 text-[11.5px] cursor-pointer select-none"
+                       :class="userNotifyEventDisabledByAdmin(e.key) ? 'opacity-50' : ''"
+                       :title="userNotifyEventDisabledByAdmin(e.key) ? t('profile.notifications.disabled_by_admin') : ''">
+                  <input type="checkbox"
+                         :checked="profileForm.notify_events[e.key.replace(/^notify_event_/, '')]"
+                         @change="profileForm.notify_events[e.key.replace(/^notify_event_/, '')] = $event.target.checked"
+                         :disabled="userNotifyEventDisabledByAdmin(e.key)">
+                  <span class="text-[var(--text-dim)]" x-text="t('admin.notifications.events.enabled')"></span>
+                </label>
+              </div>
+            </template>
+          </div>
+        </section>
+
         <!-- Topbar widgets — per-browser preferences stored in
              localStorage (no backend persistence; each device is
              independent). Changes take effect immediately on blur. -->
         <section class="bg-[var(--surface)] border border-[var(--border)] rounded-md p-5 lg:col-span-2">
           <div class="flex items-center gap-2 mb-4">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-[var(--text-dim)]"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+            <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true"><use href="#icon-clock"/></svg>
             <h3 class="font-semibold text-[13px]" x-text="t('topbar_widgets.title')"></h3>
           </div>
           <p class="text-[11.5px] text-[var(--text-faint)] mb-4">
@@ -2257,7 +2349,7 @@
         <!-- Security card — change password (local users only) -->
         <section class="bg-[var(--surface)] border border-[var(--border)] rounded-md p-5 lg:col-span-2">
           <div class="flex items-center gap-2 mb-4">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-[var(--text-dim)]"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+            <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true"><use href="#icon-lock"/></svg>
             <h3 class="font-semibold text-[13px]" x-text="t('settings.profile.security')"></h3>
           </div>
           <template x-if="me && me.source === 'local'">
@@ -2330,6 +2422,147 @@
           <template x-if="me && me.source !== 'local' && me.source !== 'authentik'">
             <div class="text-[12.5px] text-[var(--text-dim)]" x-text="t('settings.profile.api_token_hint')"></div>
           </template>
+        </section>
+
+        <!-- Two-factor authentication card (#345). Local users only —
+             Authentik users see an i18n hint pointing at their IdP.
+             Three Alpine sub-states gated on totpEnrolStage:
+               idle    -> show status + Enable / Disable / Regenerate
+               qr      -> show provisioning QR + verification input
+               reveal  -> show one-time backup-codes list -->
+        <section class="bg-[var(--surface)] border border-[var(--border)] rounded-md p-5 lg:col-span-2"
+                 x-show="me && me.source === 'local'">
+          <div class="flex items-center gap-2 mb-4">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-[var(--text-dim)]"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+            <h3 class="font-semibold text-[13px]" x-text="t('settings.profile.totp.title')"></h3>
+            <span x-show="totp.required" class="totp-required-pill" x-text="t('settings.profile.totp.required_pill')"></span>
+          </div>
+
+          <p class="text-[11.5px] text-[var(--text-faint)] leading-relaxed mb-3"
+             x-text="t('settings.profile.totp.intro')"></p>
+
+          <!-- Disabled by admin policy -->
+          <template x-if="totp.loaded && !totp.allowed">
+            <div class="text-[12.5px] text-[var(--text-dim)] bg-[var(--surface-2)] border border-[var(--border)] rounded-md p-3"
+                 x-text="t('settings.profile.totp.disabled_by_admin')"></div>
+          </template>
+
+          <!-- IDLE — not enrolled -->
+          <template x-if="totp.loaded && totp.allowed && !totp.enabled && totpEnrolStage === 'idle'">
+            <div class="space-y-3">
+              <div class="text-[12.5px] text-[var(--text-dim)]"
+                   x-text="t('settings.profile.totp.not_enabled_status')"></div>
+              <button @click="startTotpEnrol()" class="btn btn-primary text-[12px]"
+                      :disabled="totpEnrolBusy"
+                      x-text="totpEnrolBusy ? t('actions.saving') : t('settings.profile.totp.enable_button')"></button>
+            </div>
+          </template>
+
+          <!-- QR — verify code to confirm enrolment -->
+          <template x-if="totp.loaded && totp.allowed && totpEnrolStage === 'qr'">
+            <div class="space-y-3">
+              <p class="text-[12px] text-[var(--text-dim)]"
+                 x-text="t('settings.profile.totp.qr_hint')"></p>
+              <div id="totp-enrol-qr" class="totp-qr"></div>
+              <div class="totp-secret-row">
+                <span x-text="t('settings.profile.totp.secret_label')"></span>
+                <code class="mono" x-text="totpEnrol.secret"></code>
+              </div>
+              <label class="block text-[11px] text-[var(--text-dim)] mb-1"
+                     x-text="t('settings.profile.totp.verify_label')"></label>
+              <input x-model="totpEnrol.code" type="text" inputmode="numeric"
+                     autocomplete="one-time-code" maxlength="6"
+                     class="w-40 mono text-[13px]"
+                     :placeholder="t('settings.profile.totp.verify_placeholder')">
+              <div class="flex items-center gap-2">
+                <button @click="confirmTotpEnrol()" class="btn btn-primary text-[12px]"
+                        :disabled="totpEnrolBusy"
+                        x-text="totpEnrolBusy ? t('actions.saving') : t('settings.profile.totp.confirm_button')"></button>
+                <button @click="cancelTotpEnrol()" class="btn btn-ghost text-[12px]"
+                        :disabled="totpEnrolBusy"
+                        x-text="t('actions.cancel')"></button>
+              </div>
+            </div>
+          </template>
+
+          <!-- REVEAL — one-time backup-codes display -->
+          <template x-if="totpEnrolStage === 'reveal'">
+            <div class="space-y-3">
+              <h4 class="font-semibold text-[12.5px]"
+                  x-text="t('settings.profile.totp.reveal_title')"></h4>
+              <p class="text-[11.5px] text-[var(--warning)]"
+                 x-text="t('settings.profile.totp.reveal_warning')"></p>
+              <div class="totp-codes-grid">
+                <template x-for="code in totpRevealCodes" :key="code">
+                  <div class="totp-codes-grid__item" x-text="code"></div>
+                </template>
+              </div>
+              <div class="flex items-center gap-2 flex-wrap">
+                <button @click="downloadBackupCodes()" class="btn btn-soft text-[12px]"
+                        x-text="t('settings.profile.totp.download_codes')"></button>
+                <button @click="closeTotpReveal()" class="btn btn-primary text-[12px]"
+                        x-text="t('settings.profile.totp.reveal_done')"></button>
+              </div>
+            </div>
+          </template>
+
+          <!-- IDLE — already enrolled. Backup codes display + actions -->
+          <template x-if="totp.loaded && totp.allowed && totp.enabled && totpEnrolStage === 'idle'">
+            <div class="space-y-4">
+              <div class="text-[12.5px] flex items-center gap-2">
+                <span class="pill pill-success"
+                      x-text="t('settings.profile.totp.enabled_pill')"></span>
+                <span class="text-[var(--text-dim)]"
+                      x-text="t('settings.profile.totp.enabled_status')"></span>
+              </div>
+
+              <!-- Backup-codes panel with hide/unhide eye -->
+              <div>
+                <div class="flex items-center justify-between gap-2 mb-2">
+                  <h4 class="font-semibold text-[12.5px]"
+                      x-text="t('settings.profile.totp.backup_codes_title')"></h4>
+                  <button type="button" class="btn btn-ghost text-[11px]"
+                          @click="totpCodesRevealed = !totpCodesRevealed"
+                          x-text="totpCodesRevealed ? t('settings.profile.totp.hide') : t('settings.profile.totp.show')"></button>
+                </div>
+                <p class="text-[11px] text-[var(--text-faint)] mb-2"
+                   x-text="t('settings.profile.totp.backup_codes_hint')"></p>
+                <div class="totp-codes-grid">
+                  <template x-for="(c, i) in (totp.backup_codes || [])" :key="i">
+                    <div :class="['totp-codes-grid__item',
+                                  c.used_at ? 'totp-codes-grid__item--used' : '',
+                                  totpCodesRevealed ? '' : 'totp-codes-grid__item--masked']"
+                         x-text="totpDisplayCode(c)"></div>
+                  </template>
+                </div>
+              </div>
+
+              <div class="flex flex-wrap items-center gap-2 pt-2 border-t border-[var(--border)]">
+                <button @click="regenerateTotpCodes()" class="btn btn-soft text-[12px]"
+                        x-text="t('settings.profile.totp.regenerate_button')"></button>
+                <button @click="disableTotpSelf()"
+                        :disabled="totp.required || totpDisableBusy"
+                        :title="totp.required ? t('settings.profile.totp.disable_blocked_title') : ''"
+                        class="btn btn-ghost text-[12px] text-danger"
+                        x-text="t('settings.profile.totp.disable_button')"></button>
+              </div>
+            </div>
+          </template>
+
+          <!-- Loading -->
+          <template x-if="!totp.loaded">
+            <div class="text-[12px] text-[var(--text-faint)]"
+                 x-text="t('loading.fetching')"></div>
+          </template>
+        </section>
+
+        <!-- Authentik users get a passive note in lieu of the TOTP card. -->
+        <section class="bg-[var(--surface)] border border-[var(--border)] rounded-md p-5 lg:col-span-2"
+                 x-show="me && me.source === 'authentik'">
+          <h3 class="font-semibold text-[13px] mb-2"
+              x-text="t('settings.profile.totp.title')"></h3>
+          <p class="text-[12.5px] text-[var(--text-dim)]"
+             x-text="t('settings.profile.totp.authentik_hint')"></p>
         </section>
       </div>
 
@@ -2674,6 +2907,7 @@
                   <th class="text-start px-4 py-2" x-text="t('columns.source')"></th>
                   <th class="text-start px-4 py-2" x-text="t('columns.role')"></th>
                   <th class="text-start px-4 py-2" x-text="t('columns.status')"></th>
+                  <th class="text-start px-4 py-2" x-text="t('columns.totp')"></th>
                   <th class="text-start px-4 py-2" x-text="t('columns.last_login')"></th>
                   <th class="text-end px-4 py-2" x-text="t('columns.actions')"></th>
                 </tr>
@@ -2695,10 +2929,29 @@
                       <span class="pill" :class="u.disabled ? 'pill-error' : 'pill-success'"
                             x-text="u.disabled ? t('states.disabled') : t('states.active')"></span>
                     </td>
+                    <td class="px-4 py-2">
+                      <!-- 2FA / TOTP column (#345). Possible states:
+                           - On: enrolled (green pill)
+                           - Off: not enrolled, policy not forcing it
+                           - Required: not enrolled but policy will force on next login
+                           - N/A: Authentik-managed user (handled by IdP) -->
+                      <template x-if="u.auth_source !== 'local'">
+                        <span class="text-[11px] text-[var(--text-faint)]"
+                              x-text="t('admin.users.totp_na')"></span>
+                      </template>
+                      <template x-if="u.auth_source === 'local'">
+                        <span>
+                          <span x-show="u.totp_enabled" class="pill pill-success"
+                                x-text="t('admin.users.totp_on')"></span>
+                          <span x-show="!u.totp_enabled" class="pill pill-muted"
+                                x-text="t('admin.users.totp_off')"></span>
+                        </span>
+                      </template>
+                    </td>
                     <td class="px-4 py-2 mono text-[11px] text-[var(--text-dim)]"
                         x-text="fmtDate(u.last_login_at)"></td>
                     <td class="px-4 py-2 text-end">
-                      <div class="inline-flex gap-1">
+                      <div class="inline-flex gap-1 flex-wrap justify-end">
                         <button @click="toggleUserRole(u)" class="btn btn-soft text-[11px]"
                                 :title="u.role==='admin' ? t('admin.users.make_readonly') : t('admin.users.make_admin')"
                                 x-text="u.role==='admin' ? t('admin.users.to_readonly') : t('admin.users.to_admin')"></button>
@@ -2706,6 +2959,15 @@
                                 x-text="u.disabled ? t('admin.users.enable') : t('admin.users.disable')"></button>
                         <button x-show="u.auth_source==='local'" @click="resetUserPassword(u)"
                                 class="btn btn-soft text-[11px]" :title="t('admin.users.reset_pw_title')" x-text="t('admin.users.reset_pw')"></button>
+                        <!-- Disable 2FA — admin override (#345). Visible
+                             only for local users with TOTP currently
+                             enabled. Audited via history.op_type=
+                             totp_admin_disabled. -->
+                        <button x-show="u.auth_source==='local' && u.totp_enabled"
+                                @click="adminDisableTotp(u)"
+                                class="btn btn-soft text-[11px]"
+                                :title="t('admin.users.totp_disable_title')"
+                                x-text="t('admin.users.totp_disable')"></button>
                         <button @click="deleteUser(u)" class="btn btn-ghost text-[11px] text-danger"
                                 :disabled="me && u.id === me.id ? true : false"
                                 :title="me && u.id === me.id ? t('admin.users.delete_self_title') : t('admin.users.delete_title')" x-text="t('actions.delete')"></button>
@@ -2714,7 +2976,7 @@
                   </tr>
                 </template>
                 <tr x-show="users.length===0">
-                  <td colspan="6" class="text-center py-8 text-[var(--text-faint)]" x-text="t('empty.no_users')"></td>
+                  <td colspan="7" class="text-center py-8 text-[var(--text-faint)]" x-text="t('empty.no_users')"></td>
                 </tr>
               </tbody>
             </table>
@@ -3584,7 +3846,7 @@
              visually tedious. Empty input = show all. -->
         <div x-show="!hostsConfigLoading && hostsConfig.length > 3"
              class="flex items-center gap-2 mb-3">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-[var(--text-faint)]"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+          <svg width="14" height="14" class="text-[var(--text-faint)]" aria-hidden="true"><use href="#icon-search"/></svg>
           <input type="search" x-model="hostsConfigFilter"
                  class="flex-1 text-[12.5px] py-1.5"
                  :placeholder="t('admin_hosts.filter_placeholder')">
@@ -3611,11 +3873,7 @@
               <div class="flex items-center gap-2 cursor-pointer select-none flex-wrap"
                    :class="isHostConfigExpanded(row) ? 'mb-3' : ''"
                    @click="toggleHostConfigRow(row)">
-                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
-                     class="text-[var(--text-dim)] transition-transform flip-rtl"
-                     :style="isHostConfigExpanded(row) ? 'transform: rotate(90deg)' : ''">
-                  <polyline points="9 18 15 12 9 6"/>
-                </svg>
+                <svg width="12" height="12" aria-hidden="true" class="text-[var(--text-dim)] transition-transform flip-rtl" :style="isHostConfigExpanded(row) ? 'transform: rotate(90deg)' : ''"><use href="#icon-chevron-right"/></svg>
                 <!-- Brand icon — only on the collapsed-row header so
                      operators can scan the list visually before
                      opening anything. Hidden when the row is expanded
@@ -3746,19 +4004,19 @@
                           class="btn btn-ghost text-[12px] px-2"
                           :class="idx === 0 ? 'opacity-40 cursor-not-allowed' : ''"
                           :title="t('admin_hosts.groups.move_up_title')">
-                    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="18 15 12 9 6 15"/></svg>
+                    <svg width="11" height="11" stroke-width="2.4" aria-hidden="true"><use href="#icon-chevron-up"/></svg>
                   </button>
                   <button x-show="isAdmin()" @click="moveHostRow(idx, +1)"
                           :disabled="idx === hostsConfig.length - 1"
                           class="btn btn-ghost text-[12px] px-2"
                           :class="idx === hostsConfig.length - 1 ? 'opacity-40 cursor-not-allowed' : ''"
                           :title="t('admin_hosts.groups.move_down_title')">
-                    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+                    <svg width="11" height="11" stroke-width="2.4" aria-hidden="true"><use href="#icon-chevron-down"/></svg>
                   </button>
                   <button x-show="isAdmin()" @click="duplicateHostRow(idx)"
                           class="btn btn-ghost text-[12px] px-2"
                           :title="t('admin_hosts.row.duplicate_title')">
-                    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+                    <svg width="11" height="11" aria-hidden="true"><use href="#icon-copy"/></svg>
                   </button>
                   <button x-show="isAdmin()" @click="removeHostRow(idx)"
                           class="btn btn-ghost text-[12px] text-danger px-2"
@@ -4129,9 +4387,7 @@
                   @click="collapseAllHostGroupChildren()"
                   class="host-group-chip host-group-chip--neutral"
                   :title="t('admin_hosts.groups.collapse_all_title') || 'Hide every parent group\'s sub-rows'">
-            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                 stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
-              <polyline points="6 9 12 15 18 9"/>
+            <svg width="10" height="10" stroke-width="2.4" aria-hidden="true"><use href="#icon-chevron-down"/>
             </svg>
             <span x-text="t('admin_hosts.groups.collapse_all') || 'Collapse all children'"></span>
           </button>
@@ -4139,11 +4395,7 @@
                   @click="expandAllHostGroupChildren()"
                   class="host-group-chip host-group-chip--neutral"
                   :title="t('admin_hosts.groups.expand_all_title') || 'Show every parent group\'s sub-rows'">
-            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                 stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" class="flip-rtl"
-                 style="transform: rotate(90deg);">
-              <polyline points="9 18 15 12 9 6"/>
-            </svg>
+            <svg width="10" height="10" stroke-width="2.4" class="flip-rtl" aria-hidden="true" style="transform: rotate(90deg);"><use href="#icon-chevron-right"/></svg>
             <span x-text="t('admin_hosts.groups.expand_all') || 'Expand all children'"></span>
           </button>
         </div>
@@ -4151,6 +4403,7 @@
         <div class="space-y-2 hosts-config-page-bottom-pad">
           <template x-for="{g, origIdx, listIdx} in pagedGroupsForEditor()" :key="'g' + origIdx">
             <div class="host-group-card border rounded-md p-3 transition-colors"
+                 :data-host-group-card="origIdx"
                  :class="g.parent_name
                           ? 'host-group-card--sub bg-[var(--surface)] ms-6 border-[var(--border)]'
                           : 'host-group-card--top bg-[var(--surface-2)] border-[var(--border-bright)]'">
@@ -4171,10 +4424,7 @@
                         @click="toggleHostGroupChildrenCollapsed(g.name)"
                         class="host-group-chip host-group-chip--neutral"
                         :title="t('admin_hosts.groups.children_toggle_title')">
-                  <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" class="flip-rtl"
-                       :style="!isHostGroupChildrenCollapsed(g.name) ? 'transform: rotate(90deg)' : ''">
-                    <polyline points="9 18 15 12 9 6"/>
-                  </svg>
+                  <svg width="10" height="10" stroke-width="2.4" class="flip-rtl" aria-hidden="true" :style="!isHostGroupChildrenCollapsed(g.name) ? 'transform: rotate(90deg)' : ''"><use href="#icon-chevron-right"/></svg>
                   <span x-text="(isHostGroupChildrenCollapsed(g.name)
                                   ? t('admin_hosts.groups.children_show')
                                   : t('admin_hosts.groups.children_hide'))
@@ -4313,7 +4563,7 @@
                           class="btn btn-ghost text-[12px] px-2"
                           :class="listIdx === 0 ? 'opacity-40 cursor-not-allowed' : ''"
                           :title="t('admin_hosts.groups.move_up_title')">
-                    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="18 15 12 9 6 15"/></svg>
+                    <svg width="11" height="11" stroke-width="2.4" aria-hidden="true"><use href="#icon-chevron-up"/></svg>
                   </button>
                   <button x-show="isAdmin()" @click="moveHostGroupByListIdx(listIdx, +1)"
                           tabindex="-1"
@@ -4321,7 +4571,7 @@
                           class="btn btn-ghost text-[12px] px-2"
                           :class="listIdx === sortedGroupsForEditor().length - 1 ? 'opacity-40 cursor-not-allowed' : ''"
                           :title="t('admin_hosts.groups.move_down_title')">
-                    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+                    <svg width="11" height="11" stroke-width="2.4" aria-hidden="true"><use href="#icon-chevron-down"/></svg>
                   </button>
                   <button x-show="isAdmin()" @click="removeHostGroup(origIdx)"
                           tabindex="-1"
@@ -5558,6 +5808,63 @@
             </div>
           </div>
         </section>
+
+        <!-- TOTP / 2FA policy (#345). Master toggle gates the dependent
+             inputs (matches the Apprise / OIDC / Portainer / SSH master-
+             toggle pattern documented in CLAUDE.md). Saving piggy-backs
+             on the existing settings POST + dirty marker. -->
+        <section class="bg-[var(--surface)] border border-[var(--border)] rounded-md p-5">
+          <h3 class="font-semibold text-[13px] mb-1"
+              x-text="t('admin.config.totp.title')"></h3>
+          <p class="text-[11.5px] text-[var(--text-faint)] mb-4 max-w-[820px]"
+             x-text="t('admin.config.totp.subtitle')"></p>
+
+          <div class="space-y-3" x-show="settings">
+            <label class="flex items-center gap-2 text-[12.5px]">
+              <input type="checkbox" x-model="settings.totp_allowed"
+                     :disabled="!isAdmin()">
+              <span x-text="t('admin.config.totp.allowed_label')"></span>
+            </label>
+            <p class="text-[11px] text-[var(--text-faint)] -mt-1 ms-6"
+               x-text="t('admin.config.totp.allowed_hint')"></p>
+
+            <label class="flex items-center gap-2 text-[12.5px]">
+              <input type="checkbox" x-model="settings.totp_required_for_admins"
+                     :disabled="!isAdmin() || !settings.totp_allowed">
+              <span x-text="t('admin.config.totp.required_admins_label')"></span>
+            </label>
+            <label class="flex items-center gap-2 text-[12.5px]">
+              <input type="checkbox" x-model="settings.totp_required_for_users"
+                     :disabled="!isAdmin() || !settings.totp_allowed">
+              <span x-text="t('admin.config.totp.required_users_label')"></span>
+            </label>
+            <p class="text-[11px] text-[var(--text-faint)] -mt-1 ms-6"
+               x-text="t('admin.config.totp.required_hint')"></p>
+
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2">
+              <label class="block">
+                <span class="block text-[11px] text-[var(--text-dim)] mb-1"
+                      x-text="t('admin.config.totp.max_failures_label')"></span>
+                <input type="number" min="3" max="20" step="1"
+                       x-model.number="settings.totp_lockout_max_failures"
+                       :disabled="!isAdmin() || !settings.totp_allowed"
+                       class="w-32 mono text-[12.5px]">
+                <span class="block text-[10.5px] text-[var(--text-faint)] mt-1"
+                      x-text="t('admin.config.totp.max_failures_hint')"></span>
+              </label>
+              <label class="block">
+                <span class="block text-[11px] text-[var(--text-dim)] mb-1"
+                      x-text="t('admin.config.totp.lockout_minutes_label')"></span>
+                <input type="number" min="1" max="1440" step="1"
+                       x-model.number="settings.totp_lockout_minutes"
+                       :disabled="!isAdmin() || !settings.totp_allowed"
+                       class="w-32 mono text-[12.5px]">
+                <span class="block text-[10.5px] text-[var(--text-faint)] mt-1"
+                      x-text="t('admin.config.totp.lockout_minutes_hint')"></span>
+              </label>
+            </div>
+          </div>
+        </section>
       </div>
 
       <!-- VERSION TAB — direct VERSION.txt editor. Form pre-populates
@@ -5774,7 +6081,7 @@
                    tell the story without the extra scary yellow. -->
               <template x-if="(h.providers || []).length === 0 && h.status === 'unknown'">
                 <div class="flex items-start gap-3 bg-[var(--surface-3)] border border-[var(--border)] rounded-md p-4 text-[12.5px] mb-4">
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-[var(--text-dim)] flex-shrink-0 mt-0.5"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+                  <svg width="18" height="18" class="text-[var(--text-dim)] flex-shrink-0 mt-0.5" aria-hidden="true"><use href="#icon-info"/></svg>
                   <div>
                     <div class="font-semibold text-[var(--text)]" x-text="t('hosts_extra.no_data.title')"></div>
                     <div class="text-[var(--text-dim)] mt-1"
@@ -5791,7 +6098,7 @@
                    fields via the `.stale` CSS class via :class binding. -->
               <template x-if="isStale(h)">
                 <div class="flex items-start gap-3 bg-[color-mix(in_srgb,var(--warning)_8%,transparent)] border border-[color-mix(in_srgb,var(--warning)_40%,var(--border))] rounded-md p-3 text-[12px] mb-4">
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-[var(--warning)] flex-shrink-0 mt-0.5"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+                  <svg width="16" height="16" class="text-[var(--warning)] flex-shrink-0 mt-0.5" aria-hidden="true"><use href="#icon-clock"/></svg>
                   <div class="min-w-0">
                     <div class="font-semibold text-[var(--text)]" x-text="t('host_drawer.stale.title')"></div>
                     <div class="text-[var(--text-dim)] mt-0.5"
@@ -6290,9 +6597,7 @@
                         <button @click="toggleNetworkIfacesDocker(h)"
                                 class="text-[11.5px] text-[var(--text-dim)] hover:text-[var(--text)] flex items-center gap-1.5"
                                 :title="t('host_drawer.network.docker_toggle_title')">
-                          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"
-                               :style="networkIfacesShowDocker[h.id] ? 'transform: rotate(90deg)' : ''"
-                               style="transition: transform 120ms ease-out"><polyline points="9 18 15 12 9 6"/></svg>
+                          <svg width="10" height="10" stroke-width="3" aria-hidden="true" :style="networkIfacesShowDocker[h.id] ? 'transform: rotate(90deg)' : ''" style="transition: transform 120ms ease-out"><use href="#icon-chevron-right"/></svg>
                           <span x-text="networkIfacesShowDocker[h.id]
                                         ? t('host_drawer.network.docker_hide', { count: networkIfacesPartition(h).internal.length })
                                         : t('host_drawer.network.docker_show', { count: networkIfacesPartition(h).internal.length })"></span>
@@ -6431,7 +6736,7 @@
                    provider matched — the "No data" banner above +
                    Debug panel below do the talking. -->
               <div class="mt-4 flex items-center gap-2 flex-wrap" x-show="(h.beszel_id || h.ne_url) && h.status === 'up' && (h.providers || []).length > 0">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-[var(--text-dim)]"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+                <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true"><use href="#icon-clock"/></svg>
                 <div class="range-seg">
                   <button type="button" :class="hostHistoryRange === 1 ? 'active' : ''"
                           @click="setHostHistoryRange(1)">1h</button>
@@ -6512,7 +6817,7 @@
                   </template>
                   <template x-if="!hostChart(hostHistoryKey(h), 'cpu', { min: 0, max: 100 })">
                     <div class="collecting-block">
-                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+                      <svg aria-hidden="true"><use href="#icon-refresh-ccw"/></svg>
                       <div>
                         <div x-text="t('loading.collecting_data')"></div>
                         <div class="text-[10.5px] text-[var(--text-faint)] not-italic mt-0.5" x-text="t('loading.history_will_appear')"></div>
@@ -6551,7 +6856,7 @@
                   </template>
                   <template x-if="!hostChart(hostHistoryKey(h), 'mp', { min: 0, max: 100 })">
                     <div class="collecting-block">
-                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+                      <svg aria-hidden="true"><use href="#icon-refresh-ccw"/></svg>
                       <div>
                         <div x-text="t('loading.collecting_data')"></div>
                       </div>
@@ -6589,7 +6894,7 @@
                   </template>
                   <template x-if="!hostChart(hostHistoryKey(h), 'dp', { min: 0, max: 100 })">
                     <div class="collecting-block">
-                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+                      <svg aria-hidden="true"><use href="#icon-refresh-ccw"/></svg>
                       <div>
                         <div x-text="t('loading.collecting_data')"></div>
                       </div>
@@ -6666,7 +6971,7 @@
                        BEFORE the inactive branch so it wins the race. -->
                   <template x-if="hostChart(hostHistoryKey(h), 'nr') && hostChartMax(hostHistoryKey(h), ['nr','ns']) === 0 && hostCollectorMissing(h, 'net')">
                     <div class="collecting-block">
-                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/></svg>
+                      <svg aria-hidden="true"><use href="#icon-loader"/></svg>
                       <div>
                         <div x-text="t('hosts_extra.collectors_missing.net_title')"></div>
                         <div class="text-[10.5px] text-[var(--text-faint)] mt-1"
@@ -6679,7 +6984,7 @@
                   </template>
                   <template x-if="hostChart(hostHistoryKey(h), 'nr') && hostChartMax(hostHistoryKey(h), ['nr','ns']) === 0 && !hostCollectorMissing(h, 'net')">
                     <div class="collecting-block">
-                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+                      <svg aria-hidden="true"><use href="#icon-info"/></svg>
                       <div>
                         <div x-text="t('hosts_extra.net_inactive.title')"></div>
                         <!-- Source-specific guidance:
@@ -6716,7 +7021,7 @@
                   </template>
                   <template x-if="!hostChart(hostHistoryKey(h), 'nr')">
                     <div class="collecting-block">
-                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+                      <svg aria-hidden="true"><use href="#icon-refresh-ccw"/></svg>
                       <div>
                         <div x-text="t('loading.collecting_data')"></div>
                       </div>
@@ -6782,7 +7087,7 @@
                        branch so it wins the race. -->
                   <template x-if="hostChart(hostHistoryKey(h), 'dr') && hostChartMax(hostHistoryKey(h), ['dr','dw']) === 0 && hostCollectorMissing(h, 'disk_io')">
                     <div class="collecting-block">
-                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/></svg>
+                      <svg aria-hidden="true"><use href="#icon-loader"/></svg>
                       <div>
                         <div x-text="t('hosts_extra.collectors_missing.disk_io_title')"></div>
                         <div class="text-[10.5px] text-[var(--text-faint)] mt-1"
@@ -6795,7 +7100,7 @@
                   </template>
                   <template x-if="hostChart(hostHistoryKey(h), 'dr') && hostChartMax(hostHistoryKey(h), ['dr','dw']) === 0 && !hostCollectorMissing(h, 'disk_io')">
                     <div class="collecting-block">
-                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+                      <svg aria-hidden="true"><use href="#icon-info"/></svg>
                       <div>
                         <div x-text="t('hosts_extra.metrics.disk_io_idle')"></div>
                       </div>
@@ -6803,7 +7108,7 @@
                   </template>
                   <template x-if="!hostChart(hostHistoryKey(h), 'dr')">
                     <div class="collecting-block">
-                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+                      <svg aria-hidden="true"><use href="#icon-refresh-ccw"/></svg>
                       <div>
                         <div x-text="t('loading.collecting_data')"></div>
                       </div>
@@ -6964,10 +7269,7 @@
                           class="host-debug-toggle"
                           @click="toggleHostDebug(h.id)"
                           :aria-expanded="hostsDebugOpen[h.id] ? 'true' : 'false'">
-                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="flip-rtl"
-                         :style="hostsDebugOpen[h.id] ? 'transform: rotate(90deg)' : ''">
-                      <polyline points="9 18 15 12 9 6"/>
-                    </svg>
+                    <svg width="12" height="12" class="flip-rtl" aria-hidden="true" :style="hostsDebugOpen[h.id] ? 'transform: rotate(90deg)' : ''"><use href="#icon-chevron-right"/></svg>
                     <span x-text="hostsDebugOpen[h.id] ? t('debug_panel.hide') : t('debug_panel.show')"></span>
                     <span class="host-debug-hint" x-show="!hostsDebugOpen[h.id]" x-text="t('debug_panel.hint')"></span>
                   </button>
@@ -7011,7 +7313,7 @@
                               <button type="button" class="host-debug-copy"
                                       @click="copyDebugJson(hostsDebug[h.id].providers_raw?.pulse, 'Raw · Pulse')"
                                       :title="t('debug_panel.copy_title')">
-                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+                                <svg width="12" height="12" aria-hidden="true"><use href="#icon-copy"/></svg>
                               </button>
                             </header>
                             <pre class="host-debug-json scrollbar" x-text="fmtDebugJson(hostsDebug[h.id].providers_raw?.pulse)"></pre>
@@ -7022,7 +7324,7 @@
                               <button type="button" class="host-debug-copy"
                                       @click="copyDebugJson(hostsDebug[h.id].providers_raw?.beszel, 'Raw · Beszel')"
                                       :title="t('debug_panel.copy_title')">
-                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+                                <svg width="12" height="12" aria-hidden="true"><use href="#icon-copy"/></svg>
                               </button>
                             </header>
                             <pre class="host-debug-json scrollbar" x-text="fmtDebugJson(hostsDebug[h.id].providers_raw?.beszel)"></pre>
@@ -7033,7 +7335,7 @@
                               <button type="button" class="host-debug-copy"
                                       @click="copyDebugJson(hostsDebug[h.id].providers_raw?.node_exporter, 'Raw · node-exporter')"
                                       :title="t('debug_panel.copy_title')">
-                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+                                <svg width="12" height="12" aria-hidden="true"><use href="#icon-copy"/></svg>
                               </button>
                             </header>
                             <pre class="host-debug-json scrollbar" x-text="fmtDebugJson(hostsDebug[h.id].providers_raw?.node_exporter)"></pre>
@@ -7044,7 +7346,7 @@
                               <button type="button" class="host-debug-copy"
                                       @click="copyDebugJson(hostsDebug[h.id].providers_raw?.webmin, 'Raw · Webmin')"
                                       :title="t('debug_panel.copy_title')">
-                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+                                <svg width="12" height="12" aria-hidden="true"><use href="#icon-copy"/></svg>
                               </button>
                             </header>
                             <pre class="host-debug-json scrollbar" x-text="fmtDebugJson(hostsDebug[h.id].providers_raw?.webmin)"></pre>
@@ -7056,7 +7358,7 @@
                               <button type="button" class="host-debug-copy"
                                       @click="copyDebugJson(hostsDebug[h.id].merged, 'Merged')"
                                       :title="t('debug_panel.copy_title')">
-                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+                                <svg width="12" height="12" aria-hidden="true"><use href="#icon-copy"/></svg>
                               </button>
                             </header>
                             <pre class="host-debug-json scrollbar" x-text="fmtDebugJson(hostsDebug[h.id].merged)"></pre>
@@ -7068,7 +7370,7 @@
                               <button type="button" class="host-debug-copy"
                                       @click="copyDebugJson(hostsDebug[h.id].rendered, 'Rendered')"
                                       :title="t('debug_panel.copy_title')">
-                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+                                <svg width="12" height="12" aria-hidden="true"><use href="#icon-copy"/></svg>
                               </button>
                             </header>
                             <pre class="host-debug-json scrollbar" x-text="fmtDebugJson(hostsDebug[h.id].rendered)"></pre>
@@ -7079,7 +7381,7 @@
                               <button type="button" class="host-debug-copy"
                                       @click="copyDebugJson(hostsDebug[h.id].providers_normalized?.pulse, 'Normalized · Pulse')"
                                       :title="t('debug_panel.copy_title')">
-                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+                                <svg width="12" height="12" aria-hidden="true"><use href="#icon-copy"/></svg>
                               </button>
                             </header>
                             <pre class="host-debug-json scrollbar" x-text="fmtDebugJson(hostsDebug[h.id].providers_normalized?.pulse)"></pre>
@@ -7090,7 +7392,7 @@
                               <button type="button" class="host-debug-copy"
                                       @click="copyDebugJson(hostsDebug[h.id].providers_normalized?.beszel, 'Normalized · Beszel')"
                                       :title="t('debug_panel.copy_title')">
-                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+                                <svg width="12" height="12" aria-hidden="true"><use href="#icon-copy"/></svg>
                               </button>
                             </header>
                             <pre class="host-debug-json scrollbar" x-text="fmtDebugJson(hostsDebug[h.id].providers_normalized?.beszel)"></pre>
@@ -7101,7 +7403,7 @@
                               <button type="button" class="host-debug-copy"
                                       @click="copyDebugJson(hostsDebug[h.id].providers_normalized?.node_exporter, 'Normalized · node-exporter')"
                                       :title="t('debug_panel.copy_title')">
-                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+                                <svg width="12" height="12" aria-hidden="true"><use href="#icon-copy"/></svg>
                               </button>
                             </header>
                             <pre class="host-debug-json scrollbar" x-text="fmtDebugJson(hostsDebug[h.id].providers_normalized?.node_exporter)"></pre>
@@ -7112,7 +7414,7 @@
                               <button type="button" class="host-debug-copy"
                                       @click="copyDebugJson(hostsDebug[h.id].providers_normalized?.webmin, 'Normalized · Webmin')"
                                       :title="t('debug_panel.copy_title')">
-                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+                                <svg width="12" height="12" aria-hidden="true"><use href="#icon-copy"/></svg>
                               </button>
                             </header>
                             <pre class="host-debug-json scrollbar" x-text="fmtDebugJson(hostsDebug[h.id].providers_normalized?.webmin)"></pre>
@@ -7129,7 +7431,7 @@
                               <button type="button" class="host-debug-copy"
                                       @click="copyDebugJson(rawAssetForHost(h), 'Asset · Raw')"
                                       :title="t('debug_panel.copy_title')">
-                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+                                <svg width="12" height="12" aria-hidden="true"><use href="#icon-copy"/></svg>
                               </button>
                             </header>
                             <pre class="host-debug-json scrollbar" x-text="fmtDebugJson(rawAssetForHost(h))"></pre>
@@ -7142,7 +7444,7 @@
                               <button type="button" class="host-debug-copy"
                                       @click="copyDebugJson(assetForHost(h), 'Asset · Shape')"
                                       :title="t('debug_panel.copy_title')">
-                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+                                <svg width="12" height="12" aria-hidden="true"><use href="#icon-copy"/></svg>
                               </button>
                             </header>
                             <pre class="host-debug-json scrollbar" x-text="fmtDebugJson(assetForHost(h))"></pre>
@@ -7170,10 +7472,7 @@
                           class="host-debug-toggle"
                           @click="toggleSshCard(h.id)"
                           :aria-expanded="sshOpen[h.id] ? 'true' : 'false'">
-                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="flip-rtl"
-                         :style="sshOpen[h.id] ? 'transform: rotate(90deg)' : ''">
-                      <polyline points="9 18 15 12 9 6"/>
-                    </svg>
+                    <svg width="12" height="12" class="flip-rtl" aria-hidden="true" :style="sshOpen[h.id] ? 'transform: rotate(90deg)' : ''"><use href="#icon-chevron-right"/></svg>
                     <span x-text="t('hosts_extra_ssh.card_title')"></span>
                     <span class="host-debug-hint ms-2"
                           x-text="!sshStatus[h.id] ? t('hosts_extra_ssh.status_checking')
@@ -7291,7 +7590,7 @@
                           <button type="button" class="host-debug-copy"
                                   @click="copySshOutput(h.id)"
                                   :title="t('hosts_extra_ssh.result_copy')">
-                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+                            <svg width="12" height="12" aria-hidden="true"><use href="#icon-copy"/></svg>
                           </button>
                         </header>
                         <div x-show="sshResult[h.id].error" class="host-debug-error"
