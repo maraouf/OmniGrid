@@ -6157,16 +6157,16 @@
                         </template>
                       </div>
                       <svg class="metric-svg" viewBox="0 0 420 120" preserveAspectRatio="none">
-                        <path class="metric-grid" :d="hostChart(h.beszel_id, 'nr', { height: 120, max: hostChartMax(h.beszel_id, ['nr','ns']) }).gridPath" fill="none"/>
+                        <path class="metric-grid" :d="hostChart(h.beszel_id, 'nr', { min: 0, max: hostChartMax(h.beszel_id, ['nr','ns']), height: 120 }).gridPath" fill="none"/>
                         <!-- Two polylines, shared y-scale via the max
                              passed to hostChart for both. The In line
                              uses `metric-net` color; Out uses
                              `metric-net-out` so they're visually
                              distinguishable on the legend. -->
                         <polyline class="metric-line" style="color: var(--metric-net)"
-                                  :points="hostChart(h.beszel_id, 'nr', { height: 120, max: hostChartMax(h.beszel_id, ['nr','ns']) }).points"/>
+                                  :points="hostChart(h.beszel_id, 'nr', { min: 0, max: hostChartMax(h.beszel_id, ['nr','ns']), height: 120 }).points"/>
                         <polyline class="metric-line" style="color: var(--metric-net-out)"
-                                  :points="hostChart(h.beszel_id, 'ns', { height: 120, max: hostChartMax(h.beszel_id, ['nr','ns']) }).points"/>
+                                  :points="hostChart(h.beszel_id, 'ns', { min: 0, max: hostChartMax(h.beszel_id, ['nr','ns']), height: 120 }).points"/>
                       </svg>
                       <div class="metric-x-axis">
                         <template x-for="(l, i) in xAxisFromSeries(h.beszel_id, 5)" :key="i">
@@ -6229,11 +6229,11 @@
                         </template>
                       </div>
                       <svg class="metric-svg" viewBox="0 0 420 120" preserveAspectRatio="none">
-                        <path class="metric-grid" :d="hostChart(h.beszel_id, 'dr', { height: 120, max: hostChartMax(h.beszel_id, ['dr','dw']) }).gridPath" fill="none"/>
+                        <path class="metric-grid" :d="hostChart(h.beszel_id, 'dr', { min: 0, max: hostChartMax(h.beszel_id, ['dr','dw']), height: 120 }).gridPath" fill="none"/>
                         <polyline class="metric-line" style="color: var(--metric-net)"
-                                  :points="hostChart(h.beszel_id, 'dr', { height: 120, max: hostChartMax(h.beszel_id, ['dr','dw']) }).points"/>
+                                  :points="hostChart(h.beszel_id, 'dr', { min: 0, max: hostChartMax(h.beszel_id, ['dr','dw']), height: 120 }).points"/>
                         <polyline class="metric-line" style="color: var(--metric-net-out)"
-                                  :points="hostChart(h.beszel_id, 'dw', { height: 120, max: hostChartMax(h.beszel_id, ['dr','dw']) }).points"/>
+                                  :points="hostChart(h.beszel_id, 'dw', { min: 0, max: hostChartMax(h.beszel_id, ['dr','dw']), height: 120 }).points"/>
                       </svg>
                       <div class="metric-x-axis">
                         <template x-for="(l, i) in xAxisFromSeries(h.beszel_id, 5)" :key="i">
@@ -6268,7 +6268,7 @@
                      reporting). Spans both columns on md+ — load
                      is a single-axis metric where extra width
                      improves readability. -->
-                <div class="metric-card metric-card--cpu md:col-span-2"
+                <div class="metric-card metric-card--cpu"
                      x-show="hostChartMax(h.beszel_id, ['la1','la5','la15']) > 0">
                   <div class="metric-card-head">
                     <div class="metric-card-title">
@@ -6291,14 +6291,64 @@
                   </div>
                   <template x-if="hostChart(h.beszel_id, 'la1')">
                     <div class="metric-card-body">
+                      <!-- Y-axis to match CPU/Mem/Disk card height + alignment.
+                           Without this column-1 cell rendered empty and the
+                           SVG visually shifted, making the chart look shorter. -->
+                      <div class="metric-y-axis">
+                        <template x-for="(l, i) in yAxisAuto(hostChartMax(h.beszel_id, ['la1','la5','la15']), v => Number(v).toFixed(2))" :key="i">
+                          <span x-text="l"></span>
+                        </template>
+                      </div>
                       <svg class="metric-svg" viewBox="0 0 420 120" preserveAspectRatio="none">
-                        <path class="metric-grid" :d="hostChart(h.beszel_id, 'la1', { height: 120, max: hostChartMax(h.beszel_id, ['la1','la5','la15']) }).gridPath" fill="none"/>
+                        <path class="metric-grid" :d="hostChart(h.beszel_id, 'la1', { min: 0, max: hostChartMax(h.beszel_id, ['la1','la5','la15']), height: 120 }).gridPath" fill="none"/>
                         <polyline class="metric-line" style="color: var(--metric-cpu)"
-                                  :points="hostChart(h.beszel_id, 'la1', { height: 120, max: hostChartMax(h.beszel_id, ['la1','la5','la15']) }).points"/>
+                                  :points="hostChart(h.beszel_id, 'la1', { min: 0, max: hostChartMax(h.beszel_id, ['la1','la5','la15']), height: 120 }).points"/>
                         <polyline class="metric-line" style="color: var(--metric-mem)"
-                                  :points="hostChart(h.beszel_id, 'la5', { height: 120, max: hostChartMax(h.beszel_id, ['la1','la5','la15']) }).points"/>
+                                  :points="hostChart(h.beszel_id, 'la5', { min: 0, max: hostChartMax(h.beszel_id, ['la1','la5','la15']), height: 120 }).points"/>
                         <polyline class="metric-line" style="color: var(--metric-disk)"
-                                  :points="hostChart(h.beszel_id, 'la15', { height: 120, max: hostChartMax(h.beszel_id, ['la1','la5','la15']) }).points"/>
+                                  :points="hostChart(h.beszel_id, 'la15', { min: 0, max: hostChartMax(h.beszel_id, ['la1','la5','la15']), height: 120 }).points"/>
+                      </svg>
+                      <div class="metric-x-axis">
+                        <template x-for="(l, i) in xAxisFromSeries(h.beszel_id, 5)" :key="i">
+                          <span x-text="l"></span>
+                        </template>
+                      </div>
+                    </div>
+                  </template>
+                </div>
+
+                <!-- ====== Bandwidth (#322) — single-line aggregate of
+                     in + out bytes/s, mirroring Beszel's "Bandwidth"
+                     chart. Distinct from the Network card above (which
+                     splits In + Out into two lines): this is the
+                     summed total at each point. The `net` field is
+                     pre-computed by `fetch_system_history`
+                     (`nr + ns`, falls back to `b` for older agents
+                     that don't split the directions). Hidden when the
+                     summed peak is zero. -->
+                <div class="metric-card metric-card--net-out"
+                     x-show="hostMetricStats(h.beszel_id, 'net', false) && hostMetricStats(h.beszel_id, 'net', false).maxRaw > 0">
+                  <div class="metric-card-head">
+                    <div class="metric-card-title">
+                      <span x-text="t('hosts_extra.metrics.bandwidth')"></span>
+                      <span class="unit">B/s</span>
+                    </div>
+                    <div class="metric-card-stats"
+                         x-show="hostMetricStats(h.beszel_id, 'net', false)">
+                      <span>Min <span class="min-val" x-text="hostMetricStats(h.beszel_id, 'net', false) ? hostMetricStats(h.beszel_id, 'net', false).min : ''"></span></span>
+                      <span>Max <span class="max-val" x-text="hostMetricStats(h.beszel_id, 'net', false) ? hostMetricStats(h.beszel_id, 'net', false).max : ''"></span></span>
+                    </div>
+                  </div>
+                  <template x-if="hostChart(h.beszel_id, 'net')">
+                    <div class="metric-card-body">
+                      <div class="metric-y-axis">
+                        <template x-for="(l, i) in yAxisAuto(hostChart(h.beszel_id, 'net').max, _fmtAxisBytes)" :key="i">
+                          <span x-text="l"></span>
+                        </template>
+                      </div>
+                      <svg class="metric-svg" viewBox="0 0 420 120" preserveAspectRatio="none">
+                        <path class="metric-area" :d="hostChart(h.beszel_id, 'net', { min: 0, height: 120 }).area"/>
+                        <polyline class="metric-line" :points="hostChart(h.beszel_id, 'net', { min: 0, height: 120 }).points"/>
                       </svg>
                       <div class="metric-x-axis">
                         <template x-for="(l, i) in xAxisFromSeries(h.beszel_id, 5)" :key="i">

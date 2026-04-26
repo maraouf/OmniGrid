@@ -875,7 +875,8 @@
       "disk_io_idle": "No disk I/O activity in this window",
       "read": "Read",
       "write": "Write",
-      "load_avg": "Load average"
+      "load_avg": "Load average",
+      "bandwidth": "Bandwidth"
     },
     "empty": {
       "loading": "Loading hosts from providers…",

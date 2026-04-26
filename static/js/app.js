@@ -8437,8 +8437,18 @@ function app() {
     },
     setHostHistoryRange(hours) {
       this.hostHistoryRange = hours;
-      // Reload every currently-expanded host's history under the new window.
-      for (const name of this.hostsExpanded) {
+      // Reload the open drawer host's history (#323 — the range
+      // buttons did nothing because this only iterated `hostsExpanded`,
+      // which is the legacy inline-expansion state. The actual viewer
+      // is the slide-out drawer keyed on `drawerHost`).
+      if (this.drawerHost && this.drawerHost.beszel_id) {
+        this.loadHostHistory(this.drawerHost.beszel_id, this.drawerHost.id);
+      }
+      // Also handle any legacy expanded rows (kept for back-compat —
+      // the inline-expansion code path is mostly dead but not yet
+      // removed; covering both means the range works wherever the
+      // user clicks it from).
+      for (const name of (this.hostsExpanded || [])) {
         const host = (this.hosts || []).find(h => h.host === name);
         if (host && host.beszel_id) this.loadHostHistory(host.beszel_id, host.id);
       }
