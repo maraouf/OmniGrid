@@ -37,6 +37,23 @@ def is_meaningful(v: Any) -> bool:
     return True
 
 
+def is_positive_number(v: Any) -> bool:
+    """Strict-positive number test for host metrics.
+
+    Used by ``logic.host_metrics_sampler`` to decide whether a CPU /
+    memory / disk reading should be persisted. Differs from
+    :func:`is_meaningful` in two ways: only numerics pass, and
+    negatives are rejected (a negative metric is a buggy provider,
+    not "no signal"). Lives here so the sampler doesn't carry its
+    own duplicate of the same idea.
+    """
+    try:
+        n = float(v)
+    except (TypeError, ValueError):
+        return False
+    return n > 0
+
+
 def merge_best(dst: dict, src: dict) -> None:
     """Fold ``src`` into ``dst``, overwriting only with meaningful values.
 

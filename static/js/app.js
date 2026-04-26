@@ -1112,7 +1112,7 @@ function app() {
         showCancelButton: true,
         confirmButtonText: this.t('actions.prune_now'),
         cancelButtonText: this.t('actions.cancel'),
-        confirmButtonColor: 'var(--danger)',
+        confirmButtonColor: this._cssVar('--danger'),
       });
       if (!res.isConfirmed) return;
       try {
@@ -2196,7 +2196,7 @@ function app() {
         icon: 'warning', showCancelButton: true,
         confirmButtonText: this.t('admin.backups.restore_button'),
         cancelButtonText: this.t('actions.cancel'),
-        confirmButtonColor: 'var(--danger)',
+        confirmButtonColor: this._cssVar('--danger'),
       });
       if (!res.isConfirmed) return;
       try {
@@ -2231,7 +2231,7 @@ function app() {
         icon: 'warning', showCancelButton: true,
         confirmButtonText: this.t('admin.backups.restore_button'),
         cancelButtonText: this.t('actions.cancel'),
-        confirmButtonColor: 'var(--danger)',
+        confirmButtonColor: this._cssVar('--danger'),
       });
       if (!res.isConfirmed) { ev.target.value = ''; return; }
       try {
@@ -2247,7 +2247,7 @@ function app() {
             title: this.t('admin.backups.restore_complete_title'),
             html: this.t('admin.backups.restore_complete_html', {
               from: d.restored_from, count: d.avatar_count, safety,
-            }),
+            }) + this.t('admin.backups.restore_complete_signout'),
             icon: 'success',
           });
           await this.loadBackups();
@@ -2332,7 +2332,7 @@ function app() {
         icon: 'warning', showCancelButton: true,
         confirmButtonText: this.t('actions.delete'),
         cancelButtonText: this.t('actions.cancel'),
-        confirmButtonColor: 'var(--danger)',
+        confirmButtonColor: this._cssVar('--danger'),
       });
       if (!res.isConfirmed) return;
       try {

@@ -244,14 +244,13 @@ def apply_host_snapshot_fallback(
     if not snapshots:
         return
 
-    def _is_meaningful(v) -> bool:
-        if v is None or v == "":
-            return False
-        if isinstance(v, (list, dict)) and len(v) == 0:
-            return False
-        if isinstance(v, (int, float)) and v == 0:
-            return False
-        return True
+    # Single source of truth for "this value carries information" —
+    # the same helper backs the live merge path at the bottom of this
+    # module (logic/merge.py). Importing here instead of redefining
+    # locally keeps the snapshot-fallback semantics byte-identical to
+    # the merge_best path; future tweaks to is_meaningful (e.g. Decimal
+    # support) flow through both call sites automatically.
+    from logic.merge import is_meaningful as _is_meaningful
 
     for host, info in nodes_info.items():
         if not isinstance(info, dict):
@@ -384,6 +383,40 @@ def _node_matches(node: dict, constraints: list[str]) -> bool:
     return True
 
 
+_default_schedules_seeded = False
+
+
+def _seed_default_schedules_after_first_gather() -> None:
+    """One-shot deferred seeding once the cache actually has nodes.
+
+    The lifespan-time call to ``schedules.seed_default_schedules``
+    runs BEFORE any gather has populated ``_cache["nodes"]``, so the
+    "Prune <hostname>" sample schedule never gets created on a fresh
+    install (#BUG-008). This hook fires after the first successful
+    gather that produced a non-empty node list, then sets the flag so
+    we don't re-check on every subsequent gather. The schedules.seed
+    helper is itself idempotent now (gates per-name), so even if this
+    flag were lost the worst case is one extra existence check.
+
+    Imported lazily because logic.schedules imports logic.gather at
+    module load time — a top-level import here would create a cycle.
+    """
+    global _default_schedules_seeded
+    if _default_schedules_seeded:
+        return
+    nodes = _cache.get("nodes") or {}
+    if not nodes:
+        return
+    try:
+        from logic import schedules as _sched
+        node_names = sorted(set(nodes.values()))
+        with db_conn() as c:
+            _sched.seed_default_schedules(c, node_names)
+        _default_schedules_seeded = True
+    except Exception as e:
+        print(f"[scheduler] deferred seed_default_schedules failed: {e}")
+
+
 async def gather() -> None:
     """Rebuild the cache. Timed; errors inside _gather_impl surface but
     don't stop the metrics population step from running."""
@@ -393,6 +426,9 @@ async def gather() -> None:
     finally:
         metrics.GATHER_DURATION.observe(time.monotonic() - _t0)
         metrics.populate_from_cache(_cache)
+        # Idempotent first-success seed for the prune-node sample
+        # schedule. No-op once seeded; cheap when nodes are still empty.
+        _seed_default_schedules_after_first_gather()
 
 
 async def _gather_impl() -> None:

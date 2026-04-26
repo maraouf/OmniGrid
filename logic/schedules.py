@@ -1087,50 +1087,65 @@ async def fire_schedule(schedule: dict) -> str:
 # ----------------------------------------------------------------------------
 # Seed defaults
 # ----------------------------------------------------------------------------
+def _schedule_name_exists(conn: sqlite3.Connection, name: str) -> bool:
+    """Cheap existence check — used to gate idempotent seed calls."""
+    r = conn.execute(
+        "SELECT 1 FROM schedules WHERE name=? LIMIT 1", (name,),
+    ).fetchone()
+    return r is not None
+
+
 def seed_default_schedules(conn: sqlite3.Connection, nodes: list[str]) -> None:
     """Seed reasonable starter schedules on first boot.
 
-    Skipped entirely once any row exists in ``schedules`` — this is a
-    first-install aid, not a migration. Destructive defaults
-    (prune_node) ship disabled; benign defaults (gather_refresh) ship
-    enabled. Operators take it from there via the UI.
-    """
-    count = conn.execute("SELECT COUNT(*) FROM schedules").fetchone()[0]
-    if count > 0:
-        return
+    Each seed gates on its OWN name not already existing — historically
+    this gated on the whole ``schedules`` table being empty, but that
+    meant the deferred call (after the first gather populated nodes)
+    skipped because the lifespan call already created
+    ``Refresh fleet cache``, leaving ``Prune <node>`` permanently
+    unseeded. Per-seed gating fixes that without losing idempotence:
+    repeated calls are no-ops once each row exists.
 
+    Destructive defaults (``prune_node``) ship disabled; benign defaults
+    (``gather_refresh``) ship enabled. Operators take it from there via
+    the UI.
+    """
     # A periodic cache refresh is benign and matches what a curious
     # operator would configure first anyway. Interval lines up with
     # CACHE_TTL's default so it's invisible in steady state.
-    try:
-        create_schedule(
-            conn,
-            name="Refresh fleet cache",
-            kind="gather_refresh",
-            params={},
-            interval_seconds=900,
-            enabled=True,
-        )
-    except sqlite3.IntegrityError:
-        pass
-
-    # Prune the first-known node daily, DISABLED. Operators explicitly
-    # opt in — we don't want a scheduler to start deleting volumes on
-    # first boot without consent. If no nodes are visible yet (empty
-    # cache) we skip this entirely; the UI can always add it later.
-    if nodes:
-        host = nodes[0]
+    if not _schedule_name_exists(conn, "Refresh fleet cache"):
         try:
             create_schedule(
                 conn,
-                name=f"Prune {host}",
-                kind="prune_node",
-                params={"hostname": host},
-                interval_seconds=86400,
-                enabled=False,
+                name="Refresh fleet cache",
+                kind="gather_refresh",
+                params={},
+                interval_seconds=900,
+                enabled=True,
             )
         except sqlite3.IntegrityError:
             pass
+
+    # Prune the first-known node daily, DISABLED. Operators explicitly
+    # opt in — we don't want a scheduler to start deleting volumes on
+    # first boot without consent. Empty `nodes` (first-boot before any
+    # gather has run) is a no-op; the deferred call from gather() picks
+    # this up once the node list is populated.
+    if nodes:
+        host = nodes[0]
+        name = f"Prune {host}"
+        if not _schedule_name_exists(conn, name):
+            try:
+                create_schedule(
+                    conn,
+                    name=name,
+                    kind="prune_node",
+                    params={"hostname": host},
+                    interval_seconds=86400,
+                    enabled=False,
+                )
+            except sqlite3.IntegrityError:
+                pass
 
 
 # ----------------------------------------------------------------------------

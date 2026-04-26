@@ -94,3 +94,31 @@ def set_setting(key: str, value: str) -> None:
             "INSERT OR REPLACE INTO settings(key,value) VALUES (?,?)",
             (key, value),
         )
+
+
+# Truthy strings accepted by :func:`get_setting_bool`. The save path
+# always normalises to literal "true"/"false", but DB-direct edits or
+# restored backups from older schemas may carry "True", "1", "yes"
+# etc. — accept those too so a stray edit doesn't silently flip a
+# master toggle off.
+_TRUTHY_STRINGS = frozenset({"true", "1", "yes", "y", "on"})
+_FALSY_STRINGS = frozenset({"false", "0", "no", "n", "off"})
+
+
+def get_setting_bool(key: str, default: bool = False) -> bool:
+    """Read a boolean settings row tolerantly.
+
+    Falls back to ``default`` for unrecognised values so a typo
+    ("ture") doesn't pretend to be False. Replaces the per-call site
+    `get_setting(...).lower() == "true"` pattern that's case-fragile
+    and silently treats any non-"true" string as False.
+    """
+    raw = get_setting(key, "")
+    if not raw:
+        return default
+    s = str(raw).strip().lower()
+    if s in _TRUTHY_STRINGS:
+        return True
+    if s in _FALSY_STRINGS:
+        return False
+    return default

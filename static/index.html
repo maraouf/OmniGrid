@@ -368,8 +368,14 @@
       </select>
     </div>
 
-    <!-- FILTER BAR -->
-    <div x-show="view==='stacks' || view==='services' || view==='nodes'" class="px-5 pb-3 max-w-full mx-auto w-full flex items-center gap-2 flex-wrap">
+    <!-- FILTER BAR — only on Stacks / Services / Nodes views. On mobile
+         the parent <header> is `flex flex-wrap`, and without an explicit
+         `order-*` class this bar inherits order:0 and interleaves with
+         logo+nav (which also have no order class), pushing the rest of
+         the topbar around. `order-6 w-full` parks it on its own row
+         BELOW the SYNC/STATS pickers (order-5) and ABOVE the search
+         input (order-last). Desktop unchanged via `sm:order-none`. -->
+    <div x-show="view==='stacks' || view==='services' || view==='nodes'" class="px-5 pb-3 max-w-full mx-auto w-full flex items-center gap-2 flex-wrap order-6 sm:order-none">
       <div class="flex items-center gap-1.5 flex-wrap">
         <button @click="healthFilter='';statusFilter=''"
                 :class="(!healthFilter && !statusFilter) ? 'active' : ''"
@@ -5507,8 +5513,7 @@
               <!-- 2-column max (was 4-column with `xl:grid-cols-4`) —
                    the slide-out drawer caps at 760px wide which
                    isn't enough for four side-by-side card columns
-                   without label/value collisions (operator
-                   screenshot in tmp/img_2.png). Two columns gives
+                   without label/value collisions. Two columns gives
                    each card ~360px on desktop and stacks them on
                    mobile. -->
               <div x-show="(h.providers || []).length > 0 || assetForHost(h)"

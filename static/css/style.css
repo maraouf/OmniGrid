@@ -3182,7 +3182,7 @@ select.field-invalid {
    the same shape so the markup can use a single class instead of
    the verbose Tailwind chain. NO container query: `container-type:
    inline-size` made the parent grid (`sm:grid-cols-2`) misbehave on
-   wide viewports per tmp/img_4.png — sections lost their fair
+   wide viewports — sections lost their fair
    share of space and SYSTEM/HARDWARE grew while NETWORK/DISKS got
    squashed to ~70px. The text-compaction fix that survived is
    removing `break-all` from natural-language values like

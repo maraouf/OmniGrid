@@ -102,13 +102,11 @@ def _load_curated_hosts() -> list[dict]:
     return out
 
 
-def _is_meaningful_number(v) -> bool:
-    """Treat None / non-numeric / 0 as 'no signal'."""
-    try:
-        n = float(v)
-    except (TypeError, ValueError):
-        return False
-    return n > 0
+# Canonical strict-positive helper lives in logic/merge.py — alias it
+# locally so existing call sites stay readable. Kept as a thin alias
+# rather than a re-import-everywhere refactor; the behaviour contract
+# is identical.
+from logic.merge import is_positive_number as _is_meaningful_number
 
 
 def _delta_seconds_ok(delta_seconds: float) -> bool:

@@ -293,7 +293,22 @@ def get_user(conn: sqlite3.Connection, user_id: int) -> Optional[User]:
 
 
 def get_user_by_username(conn: sqlite3.Connection, username: str) -> Optional[User]:
-    r = conn.execute("SELECT * FROM users WHERE username=?", (username,)).fetchone()
+    """Case-insensitive username lookup.
+
+    SQLite's default ``=`` is binary, so without ``COLLATE NOCASE`` an
+    operator who created the account as ``Admin`` couldn't log in by
+    typing ``admin``. We compare in a case-insensitive way at the
+    query layer (no schema migration required) — the stored username
+    keeps its original case for display. The UNIQUE constraint on
+    ``users.username`` is still binary, but pre-existing rows are
+    distinct by case in practice; future creates also get folded
+    against existing rows via this same helper, so a duplicate ``ADMIN``
+    can't be created when ``admin`` already exists.
+    """
+    r = conn.execute(
+        "SELECT * FROM users WHERE username = ? COLLATE NOCASE",
+        (username,),
+    ).fetchone()
     return _row_to_user(r) if r else None
 
 

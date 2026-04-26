@@ -1883,6 +1883,22 @@ async def api_set_settings(
         # Force a fresh gather on the next /api/items so the dashboard
         # reflects the new Portainer target without a manual refresh.
         _cache["ts"] = 0
+    # Provider settings touched? Drop the host-provider state cache so
+    # the next /api/hosts/one/{id} re-reads with the new credentials /
+    # source / aliases instead of serving up to 10s of stale auth_failed
+    # rows. Mirrors the auth / portainer invalidation pattern above.
+    _host_provider_fields = {
+        "host_stats_source",
+        "beszel_hub_url", "beszel_identity", "beszel_password",
+        "beszel_verify_tls", "beszel_aliases",
+        "pulse_url", "pulse_token", "pulse_verify_tls", "pulse_aliases",
+        "webmin_url", "webmin_user", "webmin_password",
+        "webmin_verify_tls", "webmin_aliases",
+        "node_exporter_enabled", "node_exporter_url_template",
+        "node_exporter_overrides",
+    }
+    if _host_provider_fields & set(s.model_dump(exclude_unset=True).keys()):
+        invalidate_host_provider_cache()
     return {"status": "ok"}
 
 
@@ -2686,6 +2702,24 @@ _WEBMIN_HOST_CACHE_TTL = 30.0
 _webmin_host_cache: dict[str, tuple[float, dict]] = {}
 
 
+def invalidate_host_provider_cache() -> None:
+    """Drop the cached provider state + per-host Webmin results.
+
+    Called from every settings-write path that would change provider
+    behaviour: host_stats_source / beszel_* / pulse_* / webmin_* /
+    hosts_config. Without this, the SPA's "Save → reload Hosts tab"
+    flow keeps showing stale auth_failed states for up to
+    ``_HOST_PROVIDER_CACHE_TTL`` seconds (10s) — and stale Webmin
+    probe results for up to ``_WEBMIN_HOST_CACHE_TTL`` (30s) — because
+    /api/hosts/one/{id} reuses the cached error map. Mirrors the
+    invalidation pattern already in place for Portainer / auth /
+    OIDC discovery caches.
+    """
+    _host_provider_cache["ts"] = 0.0
+    _host_provider_cache["state"] = None
+    _webmin_host_cache.clear()
+
+
 async def _get_host_provider_state(force: bool = False) -> dict:
     """Fetch + cache the provider state needed to merge any host.
 
@@ -2888,7 +2922,7 @@ def _is_swarm_node(host_id) -> bool:
 # we re-build only when the on-disk snapshot actually changes. Hot
 # path: every `_shape_host_api_row` call. Cold path: refresh adds
 # ~10ms (file read + dict build).
-_asset_idx_cache: dict = {"mtime": -1.0, "index": {}}
+_asset_idx_cache: dict = {"mtime": None, "index": {}}
 
 
 def _resolve_asset_for_host(cn) -> Optional[dict]:
@@ -2899,6 +2933,12 @@ def _resolve_asset_for_host(cn) -> Optional[dict]:
     the indexed map. Resilient to a missing / unreadable cache —
     returns None on any error so `_shape_host_api_row` can still
     build a row for hosts whose asset data isn't available yet.
+
+    Sentinel handling: ``mtime`` is ``None`` for "no readable cache
+    file yet". Comparing a real mtime (any float, including 0.0) to
+    None is always non-equal, so we rebuild on the first successful
+    read; subsequent calls with a missing file stay at ``mtime=None``
+    and DO NOT rebuild the empty index every call.
     """
     if cn is None:
         return None
@@ -2908,9 +2948,9 @@ def _resolve_asset_for_host(cn) -> Optional[dict]:
         return None
     from logic import asset_inventory as _ai
     try:
-        mtime = os.path.getmtime(_ai.DEFAULT_CACHE_PATH)
+        mtime: Optional[float] = os.path.getmtime(_ai.DEFAULT_CACHE_PATH)
     except OSError:
-        mtime = 0.0
+        mtime = None
     if mtime != _asset_idx_cache["mtime"]:
         try:
             cache = _ai.load_cache()
@@ -3366,6 +3406,11 @@ async def api_hosts_config_set(
     hosts = body.get("hosts")
     saved = _save_hosts_config(hosts if isinstance(hosts, list) else [])
     _cache["ts"] = 0  # force next gather to pick up new mappings
+    # Host-config rows feed provider name resolution (beszel_name /
+    # pulse_name / webmin_name aliases). Drop the provider state cache
+    # so /api/hosts/one/{id} doesn't serve up to 10s of stale results
+    # using the old aliases. Same rationale as in api_set_settings.
+    invalidate_host_provider_cache()
     return {"hosts": saved, "count": len(saved)}
 
 
@@ -4607,7 +4652,8 @@ def _open_meteo_url() -> str:
     when the operator flips back on, but the weather endpoint cleanly
     reports "not configured" while the switch is off.
     """
-    if (get_setting("open_meteo_enabled", "true") or "true").lower() != "true":
+    from logic.db import get_setting_bool
+    if not get_setting_bool("open_meteo_enabled", default=True):
         return ""
     return (get_setting("open_meteo_url", "") or "").strip().rstrip("/")
 
