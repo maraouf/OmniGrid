@@ -105,6 +105,34 @@ _TRUTHY_STRINGS = frozenset({"true", "1", "yes", "y", "on"})
 _FALSY_STRINGS = frozenset({"false", "0", "no", "n", "off"})
 
 
+def active_host_stats_providers() -> set[str]:
+    """Parse the ``host_stats_source`` setting → set of active providers.
+
+    Single source of truth for "which host-stats providers should
+    OmniGrid probe right now". Returns a set drawn from
+    ``{"beszel", "node_exporter", "pulse", "webmin"}``; empty set means
+    "host-stats globally off". Legacy installs that only ever set the
+    ``node_exporter_enabled`` flag (pre-CSV settings) auto-fall-back to
+    ``{"node_exporter"}``.
+
+    Replaces 6 duplicate copies of the same parse block scattered
+    across main.py + the gather/host_*_sampler modules. New providers
+    only need to update this helper plus the validation list in
+    ``api_set_settings``.
+    """
+    raw = (get_setting("host_stats_source", "") or "").strip()
+    if not raw:
+        if (get_setting("node_exporter_enabled", "false") or "false").lower() == "true":
+            return {"node_exporter"}
+        return set()
+    out: set[str] = set()
+    for token in raw.split(","):
+        t = token.strip().lower()
+        if t and t != "none":
+            out.add(t)
+    return out
+
+
 def get_setting_bool(key: str, default: bool = False) -> bool:
     """Read a boolean settings row tolerantly.
 

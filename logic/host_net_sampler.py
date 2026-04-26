@@ -63,18 +63,9 @@ _MIN_DELTA_BYTES   = 0
 _MAX_DELTA_BYTES   = 10 * 1024 * 1024 * 1024  # 10 GB
 
 
-def _active_providers() -> set[str]:
-    """Which host-stats providers are live? Mirrors ``main.api_hosts``."""
-    raw = (get_setting("host_stats_source", "") or "").strip()
-    if not raw:
-        # Legacy single-toggle fallback — same as api_hosts.
-        enabled = (get_setting("node_exporter_enabled", "false") or "false").lower() == "true"
-        raw = "node_exporter" if enabled else ""
-    return {
-        s.strip().lower()
-        for s in raw.split(",")
-        if s.strip() and s.strip().lower() != "none"
-    }
+# Active-providers parser lives in logic/db.py — single source of
+# truth shared with main.py and gather.py (CONS-004).
+from logic.db import active_host_stats_providers as _active_providers
 
 
 def _load_curated_hosts() -> list[dict]:

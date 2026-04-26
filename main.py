@@ -78,7 +78,7 @@ from logic.version import APP_VERSION, read_version
 # (cache TTLs, concurrency caps, sample interval, history days) resolve
 # via logic.tuning (DB > env > default) — see #337.
 from logic import db as _db  # noqa: E402
-from logic.db import DB_PATH, db_conn, get_setting, set_setting  # noqa: E402,F401
+from logic.db import DB_PATH, db_conn, get_setting, set_setting, active_host_stats_providers  # noqa: E402,F401
 from logic import tuning  # noqa: E402
 DOCKERHUB_USER = os.getenv("DOCKERHUB_USER", "")
 DOCKERHUB_TOKEN = os.getenv("DOCKERHUB_TOKEN", "")
@@ -1132,20 +1132,12 @@ async def api_get_settings(request: Request):
         # keeps single-value legacy rows ("beszel" / "node_exporter")
         # working without a migration; upgrades with only
         # ``node_exporter_enabled`` set default to that one source.
-        "host_stats_source": (
-            get_setting("host_stats_source", "")
-            or ("node_exporter"
-                if (get_setting("node_exporter_enabled", "false") or "false").lower() == "true"
-                else "none")
-        ),
-        "host_stats_sources": [
-            s.strip() for s in (
-                get_setting("host_stats_source", "")
-                or ("node_exporter"
-                    if (get_setting("node_exporter_enabled", "false") or "false").lower() == "true"
-                    else "")
-            ).split(",") if s.strip() and s.strip().lower() != "none"
-        ],
+        # Both fields derive from the single helper (CONS-004). The
+        # legacy string form is kept for back-compat with older SPA
+        # bundles that read ``host_stats_source`` instead of the list.
+        "host_stats_source": (",".join(sorted(active_host_stats_providers()))
+                              or "none"),
+        "host_stats_sources": sorted(active_host_stats_providers()),
         # Beszel Hub — password is write-only. UI only learns "is it set".
         "beszel": {
             "hub_url": get_setting("beszel_hub_url", ""),
@@ -1952,7 +1944,10 @@ async def api_portainer_test(
     from logic import portainer as _portainer
     body = await request.json()
     url = (body.get("url") or "").strip().rstrip("/")
-    endpoint_id = int(body.get("endpoint_id") or 1)
+    # Note: the SPA also sends `endpoint_id` in the body. We don't use
+    # it — /api/status is endpoint-agnostic — and the frontend never
+    # reads it back from the response, so we silently drop it instead
+    # of echoing an ignored field.
     verify_tls = bool(body.get("verify_tls", True))
     # Portainer's API key isn't in the `settings` table — it lives in
     # the Portainer-specific settings dict — so this one keeps a
@@ -1979,7 +1974,7 @@ async def api_portainer_test(
                     detail = f"OK — Portainer {version}"
             except Exception:
                 pass
-            return {"ok": True, "status": 200, "detail": detail, "endpoint_id": endpoint_id}
+            return {"ok": True, "status": 200, "detail": detail}
         return {"ok": False, "status": r.status_code, "detail": f"HTTP {r.status_code}: {r.text[:200]}"}
     except Exception as e:
         return {"ok": False, "status": 0, "detail": f"{type(e).__name__}: {e}"}
@@ -2317,17 +2312,9 @@ async def api_hosts():
     from logic import pulse as _pulse
     from logic import node_exporter as _ne
 
-    # Which providers are live?
-    raw_source = (get_setting("host_stats_source", "") or "").strip()
-    if not raw_source:
-        raw_source = ("node_exporter"
-                      if (get_setting("node_exporter_enabled", "false") or "false").lower() == "true"
-                      else "")
-    active = {
-        s.strip().lower()
-        for s in raw_source.split(",")
-        if s.strip() and s.strip().lower() != "none"
-    }
+    # Which providers are live? Single helper parses the CSV setting
+    # with the legacy node_exporter_enabled fallback (see CONS-004).
+    active = active_host_stats_providers()
 
     curated = _load_hosts_config()
     errors: dict[str, str] = {}
@@ -2738,16 +2725,7 @@ async def _get_host_provider_state(force: bool = False) -> dict:
             and (now - _host_provider_cache.get("ts", 0.0)) < _HOST_PROVIDER_CACHE_TTL):
         return cached
 
-    raw_source = (get_setting("host_stats_source", "") or "").strip()
-    if not raw_source:
-        raw_source = ("node_exporter"
-                      if (get_setting("node_exporter_enabled", "false") or "false").lower() == "true"
-                      else "")
-    active = {
-        s.strip().lower()
-        for s in raw_source.split(",")
-        if s.strip() and s.strip().lower() != "none"
-    }
+    active = active_host_stats_providers()
 
     errors: dict[str, str] = {}
     beszel_map: dict[str, dict] = {}
@@ -3697,17 +3675,8 @@ async def api_hosts_debug(
     if record is None:
         raise HTTPException(404, f"no curated host with id={id!r}")
 
-    # Which providers are live? Same derivation as api_hosts.
-    raw_source = (get_setting("host_stats_source", "") or "").strip()
-    if not raw_source:
-        raw_source = ("node_exporter"
-                      if (get_setting("node_exporter_enabled", "false") or "false").lower() == "true"
-                      else "")
-    active = {
-        s.strip().lower()
-        for s in raw_source.split(",")
-        if s.strip() and s.strip().lower() != "none"
-    }
+    # Which providers are live? Same derivation as api_hosts (CONS-004).
+    active = active_host_stats_providers()
 
     providers_raw: dict[str, Any] = {
         "pulse": None, "beszel": None, "node_exporter": None, "webmin": None,
