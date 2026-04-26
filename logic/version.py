@@ -1,38 +1,39 @@
-"""App version reading.
+"""App version reading + writing.
 
-Components are layered: each of MAJOR / MINOR / PATCH can be
-operator-overridden via the Admin → Version UI (settings keys
-``version_major`` / ``version_minor`` / ``version_patch``). Anything
-not overridden falls back to ``/app/VERSION.txt`` on the server (which
-the deployment pipeline manages — it bumps PATCH on every successful
-deploy and rsync excludes the file so deploys can't overwrite it).
+The single source of truth is ``/app/VERSION.txt`` on the server. The
+deployment pipeline bumps PATCH on every successful deploy. The
+Admin → Version UI also writes the same file directly when the
+operator wants to reset PATCH after cutting a MINOR release. Both
+writers (CI + UI) target the same path; whoever writes last wins.
 
-So the rendered string is built component-by-component: each piece is
-the DB override when present, otherwise the matching component from
-the file. For local dev, the repo-root ``VERSION.txt`` is used.
-Missing file → ``"0.0.0-dev"`` as a visible signal.
+For local dev, the repo-root ``VERSION.txt`` is used. Missing file →
+``"0.0.0-dev"`` as a visible signal.
 
 Rendered in the UI footer and returned by GET /api/version /
 GET /api/healthz / GET /api/admin/version.
 """
 import os
-from typing import Optional, Tuple
+from typing import Tuple
 
 
-def _read_version_file() -> str:
-    """Read the raw ``VERSION.txt`` content (CI-managed PATCH counter).
-
-    Tries the dev-side repo-root file first, falls back to the prod
-    bind-mounted path. Returns ``"0.0.0-dev"`` when nothing's readable.
-    """
-    candidates = (
+def _candidate_paths() -> Tuple[str, ...]:
+    """Search order for VERSION.txt — dev-side first, then prod."""
+    return (
         # Dev: repo-root VERSION.txt, relative to the project (logic/
         # version.py sits inside logic/ which sits at the repo root).
         os.path.join(os.path.dirname(os.path.dirname(__file__)), "VERSION.txt"),
         # Prod: bind-mounted file the CI pipeline writes on every deploy.
         "/app/VERSION.txt",
     )
-    for p in candidates:
+
+
+def _read_version_file() -> str:
+    """Read the raw ``VERSION.txt`` content.
+
+    Tries the dev-side repo-root file first, falls back to the prod
+    bind-mounted path. Returns ``"0.0.0-dev"`` when nothing's readable.
+    """
+    for p in _candidate_paths():
         try:
             with open(p, "r", encoding="utf-8") as f:
                 v = f.read().strip().splitlines()[0].strip()
@@ -61,46 +62,34 @@ def _split_version(raw: str) -> Tuple[int, int, int]:
     return nums[0], nums[1], nums[2]
 
 
-def _db_version_overrides() -> Tuple[Optional[int], Optional[int], Optional[int]]:
-    """Read per-component operator overrides from the settings table.
+def write_version(major: int, minor: int, patch: int) -> str:
+    """Overwrite the first writable VERSION.txt with ``M.N.P``.
 
-    Returns ``(major, minor, patch)`` where each entry is the parsed
-    int when set, or ``None`` to fall back to the file value for that
-    component. Lazy-imports ``logic.db`` to avoid a circular at module-
-    import time (``main.py`` imports ``APP_VERSION`` very early, before
-    db setup). Any error → ``(None, None, None)`` (safe fallback).
+    Open-and-truncate (``open(path, "w")``) keeps the existing inode
+    and ownership intact, so the deploy pipeline's pi-user SSH writes
+    can still update the file after a container-side write. Returns
+    the value written. Raises ``OSError`` (the last seen error) when
+    none of the candidate paths is writable — a missing writable
+    bind-mount in compose surfaces here as ``Read-only file system``
+    or ``Permission denied``, which the API caller propagates to the
+    UI as a save-failed toast.
     """
-    try:
-        from logic.db import get_setting
-        def _read(key: str) -> Optional[int]:
-            v = get_setting(key, "")
-            if not v:
-                return None
-            try:
-                return int(v)
-            except (ValueError, TypeError):
-                return None
-        return _read("version_major"), _read("version_minor"), _read("version_patch")
-    except Exception:
-        return None, None, None
+    raw = f"{int(major)}.{int(minor)}.{int(patch)}"
+    last_err: Exception = OSError("no candidate paths")
+    for p in _candidate_paths():
+        try:
+            with open(p, "w", encoding="utf-8") as f:
+                f.write(raw + "\n")
+            return raw
+        except OSError as e:
+            last_err = e
+            continue
+    raise last_err
 
 
 def read_version() -> str:
-    """Public version-string accessor. Called once at import via
-    APP_VERSION + on demand by the API routes that need a fresh value
-    (the DB override can change at runtime via the Admin → Version
-    page; APP_VERSION is captured at startup, so that constant is a
-    snapshot, not a live read).
-    """
-    raw = _read_version_file()
-    o_major, o_minor, o_patch = _db_version_overrides()
-    if o_major is None and o_minor is None and o_patch is None:
-        return raw
-    f_major, f_minor, f_patch = _split_version(raw)
-    major = o_major if o_major is not None else f_major
-    minor = o_minor if o_minor is not None else f_minor
-    patch = o_patch if o_patch is not None else f_patch
-    return f"{major}.{minor}.{patch}"
+    """Public version-string accessor."""
+    return _read_version_file()
 
 
 APP_VERSION = read_version()

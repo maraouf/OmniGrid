@@ -34,7 +34,15 @@ services:
 
     volumes:
       - /opt/omnigrid/app:/app:ro             # source code (read-only, hot-reload with a container restart)
-      - /opt/omnigrid/data:/app/data          # SQLite for history / ignores / settings / users / sessions
+      # Per-file writable bind for VERSION.txt — Docker layers nested binds
+      # path-most-specific-wins, so this stays writable even though the
+      # parent /app mount is :ro. The deploy pipeline writes here from
+      # the host (pi-user SSH); Admin → Version writes here from inside
+      # the container. Both writers target the same path; whoever writes
+      # last wins. open()-and-truncate preserves the inode + host owner
+      # so cross-writer permission flips don't strand either side.
+      - /opt/omnigrid/app/VERSION.txt:/app/VERSION.txt
+      - /opt/omnigrid/data:/app/data          # database for history / ignores / settings / users / sessions (SQLite today; more backends planned)
       - /opt/omnigrid/pip-cache:/pip-cache    # persistent pip cache across restarts
       - /etc/ssl/certs:/etc/ssl/certs:ro      # trust your internal CA so HTTPS calls to portainer.example.com work
       - /etc/localtime:/etc/localtime:ro      # belt-and-braces for TZ — libc functions that bypass $TZ still see the right zone

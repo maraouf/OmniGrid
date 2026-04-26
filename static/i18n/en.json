@@ -486,24 +486,18 @@
     },
     "version": {
       "title": "App version",
-      "intro": "Edit any of MAJOR / MINOR / PATCH from this page instead of SSH-ing the server to change <code>/app/VERSION.txt</code>. Save and the next /api/version response (and the SPA footer) reflects the new value immediately.",
+      "intro": "Edit the live version. Save writes <code>VERSION.txt</code> directly.",
       "live_label": "Currently rendering as",
-      "override_active": "DB override active",
-      "override_inactive": "Using raw VERSION.txt",
       "major_label": "MAJOR",
       "minor_label": "MINOR",
       "patch_label": "PATCH",
       "patch_hint": "Managed by the deployment pipeline.",
       "save": "Save version",
       "unsaved": "Unsaved",
-      "saved_toast": "Version pinned to {version}",
-      "cleared_toast": "Override cleared — version reset to {version} (raw VERSION.txt)",
+      "saved_toast": "Version saved as {version}",
       "load_failed": "Failed to load version: {error}",
       "save_failed": "Failed to save version: {error}",
-      "clear_override": "Clear override",
-      "clear_confirm_title": "Clear DB override?",
-      "clear_confirm_body": "Drop every operator-set component and fall back to whatever's in <code>/app/VERSION.txt</code> on the server.",
-      "cadence_note": "PATCH is normally managed by the deployment pipeline — bumped by 1 on every successful deploy. Override it here when you need to reset or align it; the pipeline keeps counting from whatever value lands on disk."
+      "cadence_note": "The deployment pipeline bumps PATCH by 1 on every successful deploy. Reset PATCH here when cutting a MINOR release."
     },
     "logs": {
       "title": "Application logs",

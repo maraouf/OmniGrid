@@ -472,12 +472,10 @@ function app() {
     tuningLoaded: false,
     tuningSaving: false,
     _tuningBaseline: '',
-    // Admin → Each of MAJOR / MINOR / PATCH is operator-
-    // editable; pre-populates from /api/admin/version on load.
+    // Admin → Version — direct VERSION.txt editor; Save writes the
+    // file. Pre-populates from /api/admin/version on load.
     versionForm: { major: 0, minor: 0, patch: 0 },
-    versionState: { current: '', major: 0, minor: 0, patch: 0,
-                    db_override: false,
-                    file_major: 0, file_minor: 0, file_patch: 0 },
+    versionState: { current: '', major: 0, minor: 0, patch: 0 },
     versionLoaded: false,
     versionSaving: false,
     _versionBaseline: '',
@@ -4314,9 +4312,10 @@ function app() {
         this.tuningSaving = false;
       }
     },
-    // Admin → Version (#371). All three components (MAJOR / MINOR / PATCH)
-    // are operator-editable; the deployment pipeline still bumps the
-    // on-disk counter, but any override here wins on read.
+    // Admin → Version — direct VERSION.txt editor. All three
+    // components (MAJOR / MINOR / PATCH) are operator-editable; Save
+    // writes the file. The deployment pipeline keeps bumping the same
+    // file's PATCH on every successful deploy.
     async loadVersionAdmin() {
       try {
         const r = await fetch('/api/admin/version');
@@ -4366,31 +4365,6 @@ function app() {
         // Bump the SPA's footer / cache-bust knob — the running build
         // didn't change, but the rendered version string did.
         this.appVersion = d.current;
-      } catch (e) {
-        this.showToast(this.t('admin.version.save_failed', { error: e.message }), 'error');
-      } finally {
-        this.versionSaving = false;
-      }
-    },
-    async clearVersionAdmin() {
-      // Drop every component override → fall back to the raw
-      // VERSION.txt content as written by the deployment pipeline.
-      if (this.versionSaving) return;
-      const ok = await this.confirmDialog({
-        title: this.t('admin.version.clear_confirm_title'),
-        html: this.t('admin.version.clear_confirm_body'),
-      });
-      if (!ok) return;
-      this.versionSaving = true;
-      try {
-        const r = await fetch('/api/admin/version', { method: 'DELETE' });
-        if (!r.ok) throw new Error(await r.text());
-        const d = await r.json();
-        this.versionState = d || {};
-        this.versionForm = { major: d.major, minor: d.minor, patch: d.patch };
-        this._versionBaseline = this._versionSnapshot();
-        this.appVersion = d.current;
-        this.showToast(this.t('admin.version.cleared_toast', { version: d.current }));
       } catch (e) {
         this.showToast(this.t('admin.version.save_failed', { error: e.message }), 'error');
       } finally {

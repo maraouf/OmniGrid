@@ -5465,15 +5465,12 @@
         </section>
       </div>
 
-      <!-- VERSION TAB (#371) — operator-controlled MAJOR.MINOR;
-           CI-controlled PATCH. Replaces the SSH-and-edit-VERSION.txt
-           workflow for MINOR bumps. Form pre-populates with the live
-           values; Save persists each component (MAJOR / MINOR / PATCH)
-           to the settings table and the rendered version updates
-           immediately (the SPA's footer reflects the new value via
-           `appVersion`). The deployment pipeline keeps bumping the
-           on-disk counter regardless; an override here wins on every
-           read until the operator clears it. -->
+      <!-- VERSION TAB — direct VERSION.txt editor. Form pre-populates
+           with the live values; Save writes the values directly to
+           VERSION.txt and the rendered version updates immediately
+           (the SPA's footer reflects the new value via `appVersion`).
+           The deployment pipeline keeps bumping the same file's PATCH
+           on every successful deploy. -->
       <div x-show="adminTab==='version'" class="space-y-4">
         <section class="bg-[var(--surface)] border border-[var(--border)] rounded-md p-5">
           <h3 class="font-semibold text-[13px] mb-1" x-text="t('admin.version.title')"></h3>
@@ -5491,12 +5488,6 @@
                 <span class="text-[11.5px] text-[var(--text-faint)] uppercase tracking-wide"
                       x-text="t('admin.version.live_label')"></span>
                 <span class="mono text-[14px] font-semibold" x-text="versionState.current"></span>
-                <span x-show="versionState.db_override"
-                      class="host-debug-tag mono text-[10.5px]"
-                      x-text="t('admin.version.override_active')"></span>
-                <span x-show="!versionState.db_override"
-                      class="host-debug-tag mono text-[10.5px]"
-                      x-text="t('admin.version.override_inactive')"></span>
               </div>
 
               <!-- MAJOR / MINOR / PATCH editors, three columns -->
@@ -5539,11 +5530,6 @@
                   <span x-show="!versionSaving" x-text="t('admin.version.save')"></span>
                   <span x-show="versionSaving" class="flex items-center gap-1"><span class="spin"></span><span x-text="t('actions.saving')"></span></span>
                 </button>
-                <button class="btn btn-ghost text-[11.5px]"
-                        x-show="versionState.db_override"
-                        :disabled="versionSaving"
-                        @click="clearVersionAdmin()"
-                        x-text="t('admin.version.clear_override')"></button>
                 <span x-show="versionDirty()"
                       class="text-[11.5px] text-[var(--warning)] flex items-center gap-1.5">
                   <span class="w-1.5 h-1.5 rounded-full bg-[var(--warning)] animate-pulse"></span>
