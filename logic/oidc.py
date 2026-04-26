@@ -463,6 +463,18 @@ async def callback(request: Request):
     auth.set_csrf_cookie(resp, auth.generate_csrf_token(), expires_at, request)
     # Clear the flow cookie — one-shot.
     resp.delete_cookie(FLOW_COOKIE, path="/api/oidc/")
+    # Security event — opt-in via Admin → Notifications. Fire-and-forget;
+    # never let a notify exception break the redirect.
+    try:
+        from logic.ops import notify as _notify
+        await _notify(
+            f"🔓 {u.username} signed in",
+            f"via authentik from {ip}",
+            "info",
+            event="user_login",
+        )
+    except Exception as _e:
+        print(f"[notify] user_login (oidc) failed: {_e}")
     return resp
 
 

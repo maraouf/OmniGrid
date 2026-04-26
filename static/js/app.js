@@ -508,10 +508,10 @@ function app() {
     avatarBusy: false,
     adminSections: [
       { id: 'users',          label: 'Users' },
+      { id: 'general',        label: 'General' },
       { id: 'sessions',       label: 'Sessions' },
       { id: 'tokens',         label: 'API tokens' },
       { id: 'notifications',  label: 'Notifications' },
-      { id: 'general',        label: 'General' },
       { id: 'portainer',      label: 'Portainer' },
       { id: 'oidc',           label: 'Authentik OIDC' },
       { id: 'host_stats',     label: 'Host stats' },
@@ -3129,6 +3129,16 @@ function app() {
           // databases. Persisted via /api/settings on every flip.
           debug_panel_enabled: d.debug_panel_enabled !== false,
         };
+        // Hydrate per-event notification toggles from the GET response.
+        // The api_get_settings handler resolves each through
+        // get_setting_bool (default true) so we get clean booleans
+        // here. Without this hydration the events grid loads unchecked
+        // and every Save blindly POSTs all 12 keys as 'false' (since
+        // saveSettings normalises `payload[k] ? 'true' : 'false'`),
+        // wiping the operator's intended state on every save.
+        for (const k of (this.notifyEventKeys || [])) {
+          this.settings[k] = !!d[k];
+        }
         // Capture baseline for the host-stats dirty indicator.
         // Passwords/tokens are always blank in the live form (write-
         // only on the wire) so any typed value flips dirty.
@@ -4163,7 +4173,7 @@ function app() {
     },
     async saveSettings() {
       try {
-        // Per-event notification toggles (#375) are stored on
+        // Per-event notification toggles are stored on
         // `settings` as JS booleans (resolved server-side by
         // get_setting_bool) but the SettingsIn validator expects
         // "true"/"false"/""(=clear) strings. Normalise on the way out
@@ -4195,7 +4205,7 @@ function app() {
     // baseline captured by loadSettings / saveX, so reverting a typed
     // edit clears the indicator. Mirror of profileDirty / assetDirty /
     // hostStatsDirty.
-    // The 12 per-event notification keys (#375). Single source of
+    // The 12 per-event notification keys. Single source of
     // truth for the snapshot, the markup, and the convenience-button
     // helpers — keep in lock-step with logic/ops.py:notify(event=...)
     // and the SettingsIn _NOTIFY_EVENT_KEYS tuple in main.py.
@@ -4212,6 +4222,7 @@ function app() {
       'notify_event_service_restart_failure',
       'notify_event_prune_success',
       'notify_event_prune_failure',
+      'notify_event_user_login',
     ],
     // Group rows for the events grid — label key + (success_key,
     // failure_key) pair. Drives the markup render so the table stays
@@ -4223,6 +4234,12 @@ function app() {
       { label: 'container_remove',   success: 'notify_event_container_remove_success',   failure: 'notify_event_container_remove_failure' },
       { label: 'service_restart',    success: 'notify_event_service_restart_success',    failure: 'notify_event_service_restart_failure' },
       { label: 'prune',              success: 'notify_event_prune_success',              failure: 'notify_event_prune_failure' },
+    ],
+    // Security events — single-toggle per event (no success/failure
+    // pair like ops events). Rendered as a separate row beneath the
+    // ops-events grid.
+    notifySecurityEvents: [
+      { label: 'user_login', key: 'notify_event_user_login' },
     ],
     _appriseSnapshot() {
       const s = this.settings || {};

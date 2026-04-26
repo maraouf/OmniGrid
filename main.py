@@ -1058,7 +1058,7 @@ class SettingsIn(BaseModel):
     tuning_stats_history_days: Optional[str] = None
     tuning_stats_sample_interval_seconds: Optional[str] = None
     # -----------------------------------------------------------------
-    # Per-event notification toggles (#375). Each maps to one of the
+    # Per-event notification toggles. Each maps to one of the
     # 12 (event group × success/failure) notify() call sites in
     # logic/ops.py; gated inside notify() via the event= kwarg. Default
     # behaviour is "send" so existing deploys keep all notifications on.
@@ -1078,6 +1078,8 @@ class SettingsIn(BaseModel):
     notify_event_service_restart_failure: Optional[str] = None
     notify_event_prune_success: Optional[str] = None
     notify_event_prune_failure: Optional[str] = None
+    # Security event — defaults to OFF (login traffic is noisy).
+    notify_event_user_login: Optional[str] = None
 
 
 @app.get("/api/settings")
@@ -1096,7 +1098,7 @@ async def api_get_settings(request: Request):
         "ssh_enabled":        (get_setting("ssh_enabled",        "true") or "true").lower() == "true",
         "apprise_url": get_setting("apprise_url", ""),
         "apprise_tag": get_setting("apprise_tag", ""),
-        # Per-event notification toggles (#375). Resolved through
+        # Per-event notification toggles. Resolved through
         # get_setting_bool so the frontend gets clean booleans (no
         # client-side string parsing). Default true preserves the
         # legacy "send everything" behaviour for existing deploys.
@@ -1112,6 +1114,8 @@ async def api_get_settings(request: Request):
         "notify_event_service_restart_failure":   get_setting_bool("notify_event_service_restart_failure", True),
         "notify_event_prune_success":             get_setting_bool("notify_event_prune_success", True),
         "notify_event_prune_failure":             get_setting_bool("notify_event_prune_failure", True),
+        # Security event — default OFF (login spam is noisy; opt-in).
+        "notify_event_user_login":                get_setting_bool("notify_event_user_login", False),
         # Open-Meteo upstream (Admin → General). Returned in the
         # clear so the input round-trips and reloads persisted. Blank
         # disables the topbar weather widget (see _open_meteo_url).
@@ -1270,7 +1274,7 @@ async def api_set_settings(
         set_setting("ssh_enabled", "true" if s.ssh_enabled else "false")
     if s.apprise_url is not None: set_setting("apprise_url", s.apprise_url)
     if s.apprise_tag is not None: set_setting("apprise_tag", s.apprise_tag)
-    # Per-event notification toggles (#375). Each value MUST be
+    # Per-event notification toggles. Each value MUST be
     # "true" / "false" / "" (empty clears → read-side falls back to
     # the default-true via get_setting_bool). Anything else is a
     # 400 so a typo can't silently disable a category. The notify()
@@ -1288,6 +1292,7 @@ async def api_set_settings(
         "notify_event_service_restart_failure",
         "notify_event_prune_success",
         "notify_event_prune_failure",
+        "notify_event_user_login",
     )
     for _ek in _NOTIFY_EVENT_KEYS:
         _v = getattr(s, _ek, None)
@@ -5090,6 +5095,17 @@ async def api_local_login(
     resp = JSONResponse({"username": u.username, "role": u.role, "source": u.auth_source})
     auth.set_session_cookie(resp, cookie_value, expires_at, request)
     auth.set_csrf_cookie(resp, csrf, expires_at, request)
+    # Security event — opt-in via Admin → Notifications. Fire-and-
+    # forget; never let a notify exception break the login response.
+    try:
+        await notify(
+            f"🔓 {u.username} signed in",
+            f"via local from {ip}",
+            "info",
+            event="user_login",
+        )
+    except Exception as _e:
+        print(f"[notify] user_login (local) failed: {_e}")
     return resp
 
 

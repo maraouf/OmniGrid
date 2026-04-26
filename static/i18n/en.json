@@ -461,7 +461,10 @@
         "prune": "Prune operations",
         "enable_all": "Enable all",
         "disable_all": "Disable all",
-        "errors_only": "Errors only"
+        "errors_only": "Errors only",
+        "security_section": "Security events",
+        "user_login": "User signed in",
+        "enabled": "Enabled"
       }
     },
     "config": {
