@@ -38,7 +38,13 @@ Items that have shipped to the live deploy as a PATCH bump but haven't
 yet been rolled into a numbered `MINOR` release. When the operator cuts
 the next release, this whole block becomes the `[X.Y.0]` entry below.
 
+### Fixed
+
+- SSH terminal modal: xterm cols/rows now match the modal's actual dimensions on first open (#353). The initial `fit()` was running before the flex-1 `.terminal-host` had its layout committed, so xterm fell back to the default 80×24 and the shell wrapped mid-line. Initial fit now runs after a double `requestAnimationFrame`; a `ResizeObserver` on the host element refits on subsequent box changes (modal animation commit, font-size changes, sidebar toggles).
+
 ### Changed
+
+- Host drawer "No NIC activity" hint now branches on whether node-exporter is in play, not on whether Beszel is mapped (#341). Hybrids that run BOTH a Beszel agent (reporting zero NICs) AND an NE exporter (with real net data) — opnsense was the canonical example — now see the NE-flavoured wording (loopback / Docker bridges / veth pairs excluded from totals) instead of the Beszel "set NICS=eth0" hint, which was misleading because NE was the source the operator expected to fix. Pure Beszel hosts still see the NICS hint.
 
 - NE-only host drawer: Disk I/O + Network charts now distinguish "no activity in window" from "node-exporter doesn't expose this collector" (#347). Backend `/api/hosts/history` (NE path) now returns a `collectors` dict — `{disk_io, net, fs, mem, cpu}` booleans recording whether any sample in the window held a non-null value for each metric. Frontend gates a new "Enable the diskstats / netstats collector" empty-state ahead of the existing idle copy so hosts whose exporter is permanently missing the collector get remediation guidance instead of a wait-and-see message. New `hosts_extra.collectors_missing.*` i18n family.
 

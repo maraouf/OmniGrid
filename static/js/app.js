@@ -406,6 +406,11 @@ function app() {
     // terminalFit           FitAddon instance for window-resize handling.
     // terminalSocket        WebSocket — null when no session active.
     // terminalResizeBound   bound resize listener — kept so close() can detach it.
+    // terminalResizeObs     ResizeObserver on the .terminal-host element — refits
+    //                       whenever the container's box changes (modal animation
+    //                       commit, parent reflow). The window-resize listener
+    //                       alone misses the initial open because the modal has
+    //                       no resize event of its own.
     terminalModalOpen: false,
     terminalHost: null,
     terminalState: 'connecting',
@@ -415,6 +420,7 @@ function app() {
     terminalFit: null,
     terminalSocket: null,
     terminalResizeBound: null,
+    terminalResizeObs: null,
     sshSettings: {
       user: '', port: 22, private_key: '', passphrase: '',
       password: '', fqdn_suffix: '',
@@ -3839,7 +3845,15 @@ function app() {
       if (fit) term.loadAddon(fit);
       if (wlAddon) term.loadAddon(wlAddon);
       term.open(container);
-      try { if (fit) fit.fit(); } catch (_) {}
+      // Defer the first fit() to the NEXT animation frame — when
+      // term.open() runs, the modal's flex-1 .terminal-host has just
+      // been mounted but its computed dimensions aren't committed
+      // yet, so an immediate fit() reads zero / placeholder size and
+      // xterm falls back to the default 80×24. Without this defer the
+      // shell wraps mid-line until the first window resize. A double
+      // rAF guarantees the layout has been painted before we measure.
+      const safeFit = () => { try { if (fit) fit.fit(); } catch (_) {} };
+      requestAnimationFrame(() => requestAnimationFrame(safeFit));
       this.terminal = term;
       this.terminalFit = fit;
 
@@ -3934,6 +3948,22 @@ function app() {
       };
       window.addEventListener('resize', onWinResize);
       this.terminalResizeBound = onWinResize;
+      // ---- 5) ResizeObserver on the host element -> FitAddon ----
+      // Catches dimension changes the window-resize listener misses:
+      // the initial modal open (when our deferred rAF fit might still
+      // race against in-flight CSS transitions), font-size changes,
+      // sidebar / drawer toggles, etc. xterm's onResize callback
+      // already pipes the new cols/rows down the WS, so we only need
+      // to call fit() — the chain handles the rest.
+      if (typeof window.ResizeObserver === 'function') {
+        const obs = new window.ResizeObserver(() => {
+          if (this.terminalFit) {
+            try { this.terminalFit.fit(); } catch (_) {}
+          }
+        });
+        try { obs.observe(container); } catch (_) {}
+        this.terminalResizeObs = obs;
+      }
     },
     _terminalTheme() {
       // Read tokens from the live theme so light vs dark match. No
@@ -3953,6 +3983,10 @@ function app() {
       if (this.terminalResizeBound) {
         try { window.removeEventListener('resize', this.terminalResizeBound); } catch (_) {}
         this.terminalResizeBound = null;
+      }
+      if (this.terminalResizeObs) {
+        try { this.terminalResizeObs.disconnect(); } catch (_) {}
+        this.terminalResizeObs = null;
       }
       if (this.terminalSocket) {
         try { this.terminalSocket.close(1000, 'client closed'); } catch (_) {}
