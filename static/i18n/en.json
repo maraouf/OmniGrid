@@ -1238,7 +1238,9 @@
       "expand_all_title": "Show every parent group's sub-rows.",
       "preview_title": "Preview — how this group will render in the Hosts view.",
       "add_subgroup": "Add sub-group",
-      "add_subgroup_title": "Add a sub-group nested under \"{parent}\". Range pre-fills inside the parent's range so you don't trip the containment validator."
+      "add_subgroup_title": "Add a sub-group nested under \"{parent}\". Range pre-fills inside the parent's range so you don't trip the containment validator.",
+      "count_one": "group",
+      "count_many": "groups"
     }
   },
   "admin_assets": {

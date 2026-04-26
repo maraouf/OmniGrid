@@ -4021,7 +4021,7 @@
         </div>
 
         <div class="space-y-2">
-          <template x-for="({g, origIdx}, listIdx) in sortedGroupsForEditor()" :key="'g' + origIdx">
+          <template x-for="{g, origIdx, listIdx} in pagedGroupsForEditor()" :key="'g' + origIdx">
             <div class="host-group-card border rounded-md p-3 transition-colors"
                  :class="g.parent_name
                           ? 'host-group-card--sub bg-[var(--surface)] ms-6 border-[var(--border)]'
@@ -4272,22 +4272,95 @@
           </template>
         </div>
 
-        <div class="flex items-center gap-2 mt-3 flex-wrap">
+        <!-- Pagination controls (#348) — only render when the list
+             spans more than one page. Mirrors the Hosts editor block
+             at line 3866 so the two surfaces feel uniform. The full
+             group list stays in memory; only the rendered slice is
+             windowed, so dirty tracking + parent/child cross-page
+             relationships are unaffected. -->
+        <div x-show="sortedGroupsForEditor().length > hostGroupsPerPage"
+             class="flex items-center justify-between gap-3 flex-wrap mt-3 pt-3 border-t border-[var(--border)] text-[11.5px]">
+          <div class="flex items-center gap-2 text-[var(--text-dim)]">
+            <span x-text="'Page ' + Math.min(hostGroupsPage, hostGroupsTotalPages()) + ' of ' + hostGroupsTotalPages()"></span>
+            <span class="text-[var(--text-faint)]"
+                  x-text="'· ' + sortedGroupsForEditor().length + ' total'"></span>
+          </div>
+          <div class="flex items-center gap-1.5">
+            <button @click="hostGroupsGoToPage(1)"
+                    :disabled="hostGroupsPage <= 1"
+                    :class="hostGroupsPage <= 1 ? 'opacity-40 cursor-not-allowed' : ''"
+                    class="btn btn-ghost text-[11px] px-2"
+                    :title="t('pagination.first_page_title')">«</button>
+            <button @click="hostGroupsPrevPage()"
+                    :disabled="hostGroupsPage <= 1"
+                    :class="hostGroupsPage <= 1 ? 'opacity-40 cursor-not-allowed' : ''"
+                    class="btn btn-soft text-[11px] px-2.5">‹ Prev</button>
+            <input type="number" min="1" :max="hostGroupsTotalPages()"
+                   :value="Math.min(hostGroupsPage, hostGroupsTotalPages())"
+                   @change="hostGroupsGoToPage($event.target.value)"
+                   class="w-14 text-center text-[11.5px] py-1"
+                   :title="t('pagination.jump_to_page_title')">
+            <button @click="hostGroupsNextPage()"
+                    :disabled="hostGroupsPage >= hostGroupsTotalPages()"
+                    :class="hostGroupsPage >= hostGroupsTotalPages() ? 'opacity-40 cursor-not-allowed' : ''"
+                    class="btn btn-soft text-[11px] px-2.5">Next ›</button>
+            <button @click="hostGroupsGoToPage(hostGroupsTotalPages())"
+                    :disabled="hostGroupsPage >= hostGroupsTotalPages()"
+                    :class="hostGroupsPage >= hostGroupsTotalPages() ? 'opacity-40 cursor-not-allowed' : ''"
+                    class="btn btn-ghost text-[11px] px-2"
+                    :title="t('pagination.last_page_title')">»</button>
+            <select :value="hostGroupsPerPage"
+                    @change="hostGroupsSetPerPage($event.target.value)"
+                    class="text-[11.5px] py-1 ms-2"
+                    :title="t('pagination.rows_per_page_title')">
+              <option value="10">10 / page</option>
+              <option value="25">25 / page</option>
+              <option value="50">50 / page</option>
+              <option value="100">100 / page</option>
+              <option value="200">200 / page</option>
+            </select>
+          </div>
+        </div>
+
+        <!-- Sticky action bar (#348) — same pattern as
+             `.hosts-config-actionbar` so the two admin surfaces
+             behave identically. Add / Collapse-all / Save / count /
+             scroll-to-top with the existing dirty-ring pattern. -->
+        <div class="hosts-config-actionbar flex items-center gap-2 flex-wrap">
           <button x-show="isAdmin()" @click="addHostGroup()"
-                  class="btn btn-soft text-[12px]"
+                  class="btn btn-soft text-[12.5px]"
                   x-text="t('admin_hosts.groups.add')"></button>
+          <button x-show="isAdmin() && (hostGroups || []).filter(g => g && !g.parent_name && hostGroupChildCount(g.name) > 0).length > 0"
+                  @click="collapseAllHostGroupChildren()"
+                  class="btn btn-soft text-[12px]"
+                  :title="t('admin_hosts.groups.collapse_all_title') || 'Hide every parent group\'s sub-rows'"
+                  x-text="t('admin_hosts.groups.collapse_all') || 'Collapse all'"></button>
           <button x-show="isAdmin()" @click="saveHostGroups()"
-                  class="btn btn-primary text-[12px]"
+                  class="btn btn-primary text-[12.5px]"
                   :disabled="hostGroupsSaving"
                   :class="hostGroupsDirty ? 'ring-2 ring-[var(--warning)]' : ''">
             <span x-show="!hostGroupsSaving" x-text="t('admin_hosts.groups.save')"></span>
             <span x-show="hostGroupsSaving" class="flex items-center gap-1"><span class="spin"></span><span x-text="t('actions.saving')"></span></span>
           </button>
+          <!-- Row count — matches the host editor's "138 hosts" hint. -->
+          <span class="text-[11px] text-[var(--text-faint)] mono"
+                x-show="(hostGroups || []).length > 0">
+            <span x-text="(hostGroups || []).length"></span>
+            <span x-text="(hostGroups || []).length === 1
+                          ? (t('admin_hosts.groups.count_one') || 'group')
+                          : (t('admin_hosts.groups.count_many') || 'groups')"></span>
+          </span>
           <span x-show="hostGroupsDirty"
                 class="text-[11.5px] text-[var(--warning)] flex items-center gap-1.5">
             <span class="w-1.5 h-1.5 rounded-full bg-[var(--warning)] animate-pulse"></span>
             <span x-text="t('admin_hosts.groups.unsaved')"></span>
           </span>
+          <span class="ms-auto"></span>
+          <button x-show="(hostGroups || []).length > 5"
+                  @click="scrollToHostGroupsTop()"
+                  class="btn btn-soft text-[11.5px]"
+                  :title="t('hosts_actions.top_title')"
+                  x-text="t('hosts_actions.top')"></button>
         </div>
       </section>
 
