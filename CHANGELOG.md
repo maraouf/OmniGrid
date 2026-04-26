@@ -316,7 +316,7 @@ internal cleanup — see the Internal section.
 
 - Topbar split into two rows (Option A) (#175).
 
-## [1.0.0] — 2026-04-26
+## [1.0.0] — 2026-03-21
 
 Baseline release — first version under the SemVer + `CHANGELOG.md`
 cadence (see `docs/RELEASE_PROCESS.md`). The changelog story starts
