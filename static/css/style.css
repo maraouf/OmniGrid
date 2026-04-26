@@ -2776,7 +2776,12 @@ body.login {
     border-radius: var(--r-md);
     min-height: 180px;
 }
-.totp-qr svg { display: block; max-width: 100%; height: auto; }
+/* Clamp the rendered QR to 220px square — qrcode-generator's
+   SVG output has no intrinsic CSS size, so an unconstrained
+   `max-width: 100%` previously let it stretch to the parent
+   card's full width on desktop. 220px is enough for any phone
+   camera to scan reliably without filling the screen. */
+.totp-qr svg { display: block; width: 220px; max-width: 100%; height: auto; }
 .totp-qr-fallback {
     word-break: break-all;
     font-size: 11px;

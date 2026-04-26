@@ -494,6 +494,7 @@ function app() {
     // only admins can change them.
     settingsSections: [
       { id: 'profile',       label: 'Profile' },
+      { id: 'notifications', label: 'Notifications' },
       { id: 'ignores',       label: 'Ignore list' },
       { id: 'language',      label: 'Language' },
       { id: 'shortcuts',     label: 'Keyboard shortcuts' },
@@ -508,13 +509,6 @@ function app() {
     // Profile form state — mirrors the `me` snapshot but held separately
     // so the user can edit without losing unsaved changes across refetches.
     profileForm: { display_name: '', bio: '', email: '', notify_events: {} },
-    // Sub-tab for the Profile page (#378). 'profile' = identity +
-    // about + topbar widgets + 2FA cards; 'notifications' = the
-    // per-user notify-event grid + bulk action buttons. Avatar
-    // sidebar stays visible on both. Default 'profile' so existing
-    // entry-points (avatar dropdown → Profile) land where they
-    // always have.
-    profileTab: 'profile',
     // Baseline snapshot string of the profile form, captured by
     // syncProfileForm() and refreshed by saveProfile(). Drives
     // profileDirty() so reverting an edit clears the amber ring.
