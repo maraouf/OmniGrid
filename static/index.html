@@ -134,7 +134,14 @@
            "utility belt" (sync / stats / theme / hotkeys / lang) moved
            to the second row below so the primary row stays readable at
            narrow desktop widths (was 14 controls; now 4 + widget). -->
-      <div class="flex items-center gap-2">
+      <!-- Action cluster (cleanup / refresh / deploy-watcher). On
+           mobile, `order-4` pushes this below the avatar (order-2)
+           and clock+weather (order-3) so the avatar stays anchored on
+           row 1 with logo + nav. Without this the cluster's variable
+           width (especially the wide "New version — reload" pill)
+           kept dragging the avatar down to a later row. Desktop keeps
+           default order via `sm:order-none`. -->
+      <div class="flex items-center gap-2 order-4 sm:order-none">
         <button x-show="isAdmin() && removableAll().length > 0"
                 @click="bulkRemoveAll()"
                 class="btn btn-danger-outline"
@@ -5745,6 +5752,26 @@
                               x-text="h.status"></span>
                       </dd>
                     </template>
+                    <!-- Services summary (#321). Row appears only when the
+                         host's Beszel agent is reporting services (total > 0).
+                         Always shows "{N} services"; appends "· {F} failed"
+                         in red when failures exist; lists failed names
+                         underneath. Hosts whose agent doesn't track services
+                         skip this row entirely (the gate). -->
+                    <template x-if="(h.services || {}).total > 0">
+                      <dt class="text-[var(--text-dim)]" x-text="t('host_drawer.hardware.services')"></dt>
+                    </template>
+                    <template x-if="(h.services || {}).total > 0">
+                      <dd class="text-end">
+                        <span class="mono"
+                              x-text="h.services.total + ' ' + t('host_drawer.hardware.services_unit')"></span>
+                        <span x-show="h.services.failed > 0" class="text-[var(--danger)] ms-1"
+                              x-text="'· ' + h.services.failed + ' ' + t('host_drawer.hardware.services_failed')"></span>
+                        <div x-show="h.services.failed > 0"
+                             class="text-[10.5px] text-[var(--danger)] mt-1 mono break-all"
+                             x-text="(h.services.failed_names || []).join(', ')"></div>
+                      </dd>
+                    </template>
                   </dl>
                 </section>
 
@@ -6089,41 +6116,57 @@
                 </div>
               </div>
 
-              <!-- Net In / Net Out — split into two cards, each auto-
-                   ranged against its own peak. Newer Beszel emits
-                   ``nr`` (recv) / ``ns`` (send) separately; older
-                   versions fold both into ``b`` so the second card
-                   stays empty with a "collecting…" placeholder if only
-                   ``b`` is present. Whole grid hidden for hosts
-                   without Beszel (same gate as the main CPU/Mem/Disk
-                   grid above — the Beszel-only chart source has
-                   nothing to chart for NE-only hosts). -->
+              <!-- Combined Net In/Out + Disk I/O + Load Average grid.
+                   #318 / #319 / #320 — was 2 separate Net cards; now
+                   one Network card with both lines on a shared y-axis,
+                   plus new Disk I/O and Load Average cards. Same gate
+                   as the main grid above. -->
               <div class="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4"
                    x-show="h.beszel_id && h.status === 'up' && (h.providers || []).length > 0">
-                <!-- Net In — collapses to a single-line "no activity"
-                     state when the peak is zero (most homelab hosts
-                     sit near zero between bursts), so the card
-                     doesn't take up a full panel showing nothing. -->
+
+                <!-- ====== Network (combined In + Out, #318) ======
+                     Two polylines on one SVG, shared y-axis via
+                     `hostChartMax(['nr','ns'])` so the lines are
+                     directly comparable. Legend at top shows both
+                     metrics with their min/max from `hostMetricStats`. -->
                 <div class="metric-card metric-card--net"
-                     :class="(hostMetricStats(h.beszel_id, 'nr', false) && hostMetricStats(h.beszel_id, 'nr', false).maxRaw === 0) ? 'metric-card--flat' : ''">
+                     :class="hostChartMax(h.beszel_id, ['nr','ns']) === 0 ? 'metric-card--flat' : ''">
                   <div class="metric-card-head">
-                    <div class="metric-card-title"><span x-text="t('hosts_extra.metrics.net_in')"></span><span class="unit">B/s</span></div>
-                    <div class="metric-card-stats"
-                         x-show="hostMetricStats(h.beszel_id, 'nr', false)">
-                      <span>Min <span class="min-val" x-text="hostMetricStats(h.beszel_id, 'nr', false) ? hostMetricStats(h.beszel_id, 'nr', false).min : ''"></span></span>
-                      <span>Max <span class="max-val" x-text="hostMetricStats(h.beszel_id, 'nr', false) ? hostMetricStats(h.beszel_id, 'nr', false).max : ''"></span></span>
+                    <div class="metric-card-title">
+                      <span x-text="t('hosts_extra.metrics.network')"></span>
+                      <span class="unit">B/s</span>
+                    </div>
+                    <div class="metric-card-stats" style="gap:8px">
+                      <span x-show="hostMetricStats(h.beszel_id, 'nr', false)">
+                        <span class="metric-legend-dot" style="background: var(--metric-net)"></span>
+                        <span x-text="t('hosts_extra.metrics.net_in')"></span>
+                        <span class="max-val" x-text="hostMetricStats(h.beszel_id, 'nr', false) ? hostMetricStats(h.beszel_id, 'nr', false).max : ''"></span>
+                      </span>
+                      <span x-show="hostMetricStats(h.beszel_id, 'ns', false)">
+                        <span class="metric-legend-dot" style="background: var(--metric-net-out)"></span>
+                        <span x-text="t('hosts_extra.metrics.net_out')"></span>
+                        <span class="max-val" x-text="hostMetricStats(h.beszel_id, 'ns', false) ? hostMetricStats(h.beszel_id, 'ns', false).max : ''"></span>
+                      </span>
                     </div>
                   </div>
-                  <template x-if="hostChart(h.beszel_id, 'nr') && !isNetSeriesFlat(h.beszel_id, 'nr')">
+                  <template x-if="hostChart(h.beszel_id, 'nr') && hostChartMax(h.beszel_id, ['nr','ns']) > 0">
                     <div class="metric-card-body">
                       <div class="metric-y-axis">
-                        <template x-for="(l, i) in yAxisAuto(hostChart(h.beszel_id, 'nr').max, _fmtAxisBytes)" :key="i">
+                        <template x-for="(l, i) in yAxisAuto(hostChartMax(h.beszel_id, ['nr','ns']), _fmtAxisBytes)" :key="i">
                           <span x-text="l"></span>
                         </template>
                       </div>
                       <svg class="metric-svg" viewBox="0 0 420 120" preserveAspectRatio="none">
-                        <path class="metric-area" :d="hostChart(h.beszel_id, 'nr', { height: 120 }).area"/>
-                        <polyline class="metric-line" :points="hostChart(h.beszel_id, 'nr', { height: 120 }).points"/>
+                        <path class="metric-grid" :d="hostChart(h.beszel_id, 'nr', { height: 120, max: hostChartMax(h.beszel_id, ['nr','ns']) }).gridPath" fill="none"/>
+                        <!-- Two polylines, shared y-scale via the max
+                             passed to hostChart for both. The In line
+                             uses `metric-net` color; Out uses
+                             `metric-net-out` so they're visually
+                             distinguishable on the legend. -->
+                        <polyline class="metric-line" style="color: var(--metric-net)"
+                                  :points="hostChart(h.beszel_id, 'nr', { height: 120, max: hostChartMax(h.beszel_id, ['nr','ns']) }).points"/>
+                        <polyline class="metric-line" style="color: var(--metric-net-out)"
+                                  :points="hostChart(h.beszel_id, 'ns', { height: 120, max: hostChartMax(h.beszel_id, ['nr','ns']) }).points"/>
                       </svg>
                       <div class="metric-x-axis">
                         <template x-for="(l, i) in xAxisFromSeries(h.beszel_id, 5)" :key="i">
@@ -6132,11 +6175,7 @@
                       </div>
                     </div>
                   </template>
-                  <!-- Agent-not-tracking-NICs hint. Fires when the series
-                       IS populated but every point is 0 — almost always
-                       means the Beszel agent lacks NICS=<iface> in env.
-                       Actionable copy beats a flat grey card. -->
-                  <template x-if="hostChart(h.beszel_id, 'nr') && isNetSeriesFlat(h.beszel_id, 'nr')">
+                  <template x-if="hostChart(h.beszel_id, 'nr') && hostChartMax(h.beszel_id, ['nr','ns']) === 0">
                     <div class="collecting-block">
                       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
                       <div>
@@ -6159,27 +6198,42 @@
                   </template>
                 </div>
 
-                <!-- Net Out — same flat-signal collapse as Net In. -->
-                <div class="metric-card metric-card--net-out"
-                     :class="(hostMetricStats(h.beszel_id, 'ns', false) && hostMetricStats(h.beszel_id, 'ns', false).maxRaw === 0) ? 'metric-card--flat' : ''">
+                <!-- ====== Disk I/O (#319) — same dual-line pattern as
+                     the combined Network card. Read/write summed across
+                     mounts in `logic/beszel.py:fetch_system_history`. -->
+                <div class="metric-card metric-card--disk"
+                     :class="hostChartMax(h.beszel_id, ['dr','dw']) === 0 ? 'metric-card--flat' : ''">
                   <div class="metric-card-head">
-                    <div class="metric-card-title"><span x-text="t('hosts_extra.metrics.net_out')"></span><span class="unit">B/s</span></div>
-                    <div class="metric-card-stats"
-                         x-show="hostMetricStats(h.beszel_id, 'ns', false)">
-                      <span>Min <span class="min-val" x-text="hostMetricStats(h.beszel_id, 'ns', false) ? hostMetricStats(h.beszel_id, 'ns', false).min : ''"></span></span>
-                      <span>Max <span class="max-val" x-text="hostMetricStats(h.beszel_id, 'ns', false) ? hostMetricStats(h.beszel_id, 'ns', false).max : ''"></span></span>
+                    <div class="metric-card-title">
+                      <span x-text="t('hosts_extra.metrics.disk_io')"></span>
+                      <span class="unit">B/s</span>
+                    </div>
+                    <div class="metric-card-stats" style="gap:8px">
+                      <span x-show="hostMetricStats(h.beszel_id, 'dr', false)">
+                        <span class="metric-legend-dot" style="background: var(--metric-net)"></span>
+                        <span x-text="t('hosts_extra.metrics.read')"></span>
+                        <span class="max-val" x-text="hostMetricStats(h.beszel_id, 'dr', false) ? hostMetricStats(h.beszel_id, 'dr', false).max : ''"></span>
+                      </span>
+                      <span x-show="hostMetricStats(h.beszel_id, 'dw', false)">
+                        <span class="metric-legend-dot" style="background: var(--metric-net-out)"></span>
+                        <span x-text="t('hosts_extra.metrics.write')"></span>
+                        <span class="max-val" x-text="hostMetricStats(h.beszel_id, 'dw', false) ? hostMetricStats(h.beszel_id, 'dw', false).max : ''"></span>
+                      </span>
                     </div>
                   </div>
-                  <template x-if="hostChart(h.beszel_id, 'ns') && !isNetSeriesFlat(h.beszel_id, 'ns')">
+                  <template x-if="hostChart(h.beszel_id, 'dr') && hostChartMax(h.beszel_id, ['dr','dw']) > 0">
                     <div class="metric-card-body">
                       <div class="metric-y-axis">
-                        <template x-for="(l, i) in yAxisAuto(hostChart(h.beszel_id, 'ns').max, _fmtAxisBytes)" :key="i">
+                        <template x-for="(l, i) in yAxisAuto(hostChartMax(h.beszel_id, ['dr','dw']), _fmtAxisBytes)" :key="i">
                           <span x-text="l"></span>
                         </template>
                       </div>
                       <svg class="metric-svg" viewBox="0 0 420 120" preserveAspectRatio="none">
-                        <path class="metric-area" :d="hostChart(h.beszel_id, 'ns', { height: 120 }).area"/>
-                        <polyline class="metric-line" :points="hostChart(h.beszel_id, 'ns', { height: 120 }).points"/>
+                        <path class="metric-grid" :d="hostChart(h.beszel_id, 'dr', { height: 120, max: hostChartMax(h.beszel_id, ['dr','dw']) }).gridPath" fill="none"/>
+                        <polyline class="metric-line" style="color: var(--metric-net)"
+                                  :points="hostChart(h.beszel_id, 'dr', { height: 120, max: hostChartMax(h.beszel_id, ['dr','dw']) }).points"/>
+                        <polyline class="metric-line" style="color: var(--metric-net-out)"
+                                  :points="hostChart(h.beszel_id, 'dw', { height: 120, max: hostChartMax(h.beszel_id, ['dr','dw']) }).points"/>
                       </svg>
                       <div class="metric-x-axis">
                         <template x-for="(l, i) in xAxisFromSeries(h.beszel_id, 5)" :key="i">
@@ -6188,23 +6242,68 @@
                       </div>
                     </div>
                   </template>
-                  <template x-if="hostChart(h.beszel_id, 'ns') && isNetSeriesFlat(h.beszel_id, 'ns')">
+                  <template x-if="hostChart(h.beszel_id, 'dr') && hostChartMax(h.beszel_id, ['dr','dw']) === 0">
                     <div class="collecting-block">
-                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
                       <div>
-                        <div x-text="t('hosts_extra.net_inactive.title')"></div>
-                        <div class="text-[10.5px] text-[var(--text-faint)] mt-1"
-                             x-html="t('hosts_extra.net_inactive.body_out', {
-                               code: '<code class=\'mono text-[var(--text-dim)]\'>NICS=eth0</code>'
-                             })"></div>
+                        <div x-text="t('hosts_extra.metrics.disk_io_idle')"></div>
                       </div>
                     </div>
                   </template>
-                  <template x-if="!hostChart(h.beszel_id, 'ns')">
+                  <template x-if="!hostChart(h.beszel_id, 'dr')">
                     <div class="collecting-block">
                       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
                       <div>
                         <div x-text="t('loading.collecting_data')"></div>
+                      </div>
+                    </div>
+                  </template>
+                </div>
+
+                <!-- ====== Load Average (#320) — three polylines for
+                     1m / 5m / 15m on a shared y-axis. Beszel's `la`
+                     field is parsed in fetch_system_history into
+                     `la1` / `la5` / `la15`. Hidden when all three
+                     are zero (containers / agents without load
+                     reporting). Spans both columns on md+ — load
+                     is a single-axis metric where extra width
+                     improves readability. -->
+                <div class="metric-card metric-card--cpu md:col-span-2"
+                     x-show="hostChartMax(h.beszel_id, ['la1','la5','la15']) > 0">
+                  <div class="metric-card-head">
+                    <div class="metric-card-title">
+                      <span x-text="t('hosts_extra.metrics.load_avg')"></span>
+                    </div>
+                    <div class="metric-card-stats" style="gap:8px">
+                      <span x-show="hostMetricStats(h.beszel_id, 'la1', false)">
+                        <span class="metric-legend-dot" style="background: var(--metric-cpu)"></span>1m
+                        <span class="max-val" x-text="hostMetricStats(h.beszel_id, 'la1', false) ? Number(hostMetricStats(h.beszel_id, 'la1', false).maxRaw).toFixed(2) : ''"></span>
+                      </span>
+                      <span x-show="hostMetricStats(h.beszel_id, 'la5', false)">
+                        <span class="metric-legend-dot" style="background: var(--metric-mem)"></span>5m
+                        <span class="max-val" x-text="hostMetricStats(h.beszel_id, 'la5', false) ? Number(hostMetricStats(h.beszel_id, 'la5', false).maxRaw).toFixed(2) : ''"></span>
+                      </span>
+                      <span x-show="hostMetricStats(h.beszel_id, 'la15', false)">
+                        <span class="metric-legend-dot" style="background: var(--metric-disk)"></span>15m
+                        <span class="max-val" x-text="hostMetricStats(h.beszel_id, 'la15', false) ? Number(hostMetricStats(h.beszel_id, 'la15', false).maxRaw).toFixed(2) : ''"></span>
+                      </span>
+                    </div>
+                  </div>
+                  <template x-if="hostChart(h.beszel_id, 'la1')">
+                    <div class="metric-card-body">
+                      <svg class="metric-svg" viewBox="0 0 420 120" preserveAspectRatio="none">
+                        <path class="metric-grid" :d="hostChart(h.beszel_id, 'la1', { height: 120, max: hostChartMax(h.beszel_id, ['la1','la5','la15']) }).gridPath" fill="none"/>
+                        <polyline class="metric-line" style="color: var(--metric-cpu)"
+                                  :points="hostChart(h.beszel_id, 'la1', { height: 120, max: hostChartMax(h.beszel_id, ['la1','la5','la15']) }).points"/>
+                        <polyline class="metric-line" style="color: var(--metric-mem)"
+                                  :points="hostChart(h.beszel_id, 'la5', { height: 120, max: hostChartMax(h.beszel_id, ['la1','la5','la15']) }).points"/>
+                        <polyline class="metric-line" style="color: var(--metric-disk)"
+                                  :points="hostChart(h.beszel_id, 'la15', { height: 120, max: hostChartMax(h.beszel_id, ['la1','la5','la15']) }).points"/>
+                      </svg>
+                      <div class="metric-x-axis">
+                        <template x-for="(l, i) in xAxisFromSeries(h.beszel_id, 5)" :key="i">
+                          <span x-text="l"></span>
+                        </template>
                       </div>
                     </div>
                   </template>

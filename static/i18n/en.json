@@ -869,7 +869,13 @@
     "open_pulse_title": "Open Pulse in a new tab.",
     "metrics": {
       "net_in": "Net In",
-      "net_out": "Net Out"
+      "net_out": "Net Out",
+      "network": "Network",
+      "disk_io": "Disk I/O",
+      "disk_io_idle": "No disk I/O activity in this window",
+      "read": "Read",
+      "write": "Write",
+      "load_avg": "Load average"
     },
     "empty": {
       "loading": "Loading hosts from providers…",
@@ -914,6 +920,9 @@
       "beszel_agent": "Beszel agent",
       "beszel_agent_title": "Version reported by the Beszel agent on this host",
       "status": "Status",
+      "services": "Services",
+      "services_unit": "services",
+      "services_failed": "failed",
       "load": "Load",
       "load_title": "Average CPU saturation over the last 1, 5, and 15 minutes (load ÷ cores × 100). 100% means the run-queue averaged one runnable process per core; >100% means processes were waiting for CPU.",
       "asset_vendor": "Vendor (asset)",

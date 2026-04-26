@@ -278,6 +278,30 @@ async def fetch_system_history(
                 ns = b / 2
         else:
             net = 0
+        # Disk I/O — Beszel agents emit `dr` (read bytes/s) + `dw`
+        # (write bytes/s). Newer agents may emit aggregates at the
+        # top of stats; older ones nest per-mount under `efs`. Walk
+        # both shapes and sum across mounts for a host-wide rate.
+        # See `_efs_mounts` for the per-mount extraction shape.
+        dr = _num(stats.get("dr"))
+        dw = _num(stats.get("dw"))
+        if not dr and not dw:
+            efs = stats.get("efs") if isinstance(stats.get("efs"), dict) else {}
+            for _name, mstats in efs.items():
+                if isinstance(mstats, dict):
+                    dr += _num(mstats.get("dr"))
+                    dw += _num(mstats.get("dw"))
+        # Load average — Beszel emits `la` as a 3-element list
+        # `[1m, 5m, 15m]`. Some builds use `loadavg` instead. Default
+        # to zeros so the chart can render even when the agent doesn't
+        # populate it (containers, embedded systems).
+        la = stats.get("la") or stats.get("loadavg") or []
+        if isinstance(la, list):
+            la1  = _num(la[0]) if len(la) > 0 else 0.0
+            la5  = _num(la[1]) if len(la) > 1 else 0.0
+            la15 = _num(la[2]) if len(la) > 2 else 0.0
+        else:
+            la1 = la5 = la15 = 0.0
         series.append({
             "t":   ts,
             "cpu": _num(stats.get("cpu")),
@@ -289,6 +313,11 @@ async def fetch_system_history(
             "nr":  nr,   # net recv bytes/s (newer)
             "ns":  ns,   # net send bytes/s (newer)
             "net": net,  # preferred aggregate for the net chart
+            "dr":  dr,   # disk read bytes/s (host-wide, summed across mounts)
+            "dw":  dw,   # disk write bytes/s
+            "la1":  la1,  # load avg 1m
+            "la5":  la5,  # load avg 5m
+            "la15": la15, # load avg 15m
         })
 
     # ---- Net I/O fallback from node-exporter samples --------------------
@@ -459,6 +488,56 @@ def _flatten_network(ni) -> list[dict]:
     return out
 
 
+def _load_window(la, idx: int) -> float:
+    """Pull a load-average window value (1m / 5m / 15m) from Beszel's
+    `la` field. Beszel emits a list `[1m, 5m, 15m]` when the agent has
+    load reporting; missing / non-list → 0.0 so the field is always
+    numeric for the frontend.
+    """
+    if not isinstance(la, list) or idx >= len(la):
+        return 0.0
+    try:
+        return float(la[idx])
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _services_summary(services) -> dict:
+    """Normalize Beszel's `services` field into a stable summary shape:
+
+        {"total": N, "failed": F, "failed_names": ["nginx", "redis"]}
+
+    Beszel's optional systemd extension emits a list of
+    `{name, status}` objects. Status values seen in the wild include:
+    "active", "running" (healthy); "failed" (the one we count);
+    "inactive", "deactivating" (transitional, NOT counted as failed).
+
+    Anything else (missing list, malformed entries) → empty summary
+    `{"total": 0, "failed": 0, "failed_names": []}` so the drawer
+    badge gates on `total > 0` and gracefully hides for hosts whose
+    agent doesn't track services.
+    """
+    if not isinstance(services, list):
+        return {"total": 0, "failed": 0, "failed_names": []}
+    total = 0
+    failed_names: list = []
+    for s in services:
+        if not isinstance(s, dict):
+            continue
+        name = str(s.get("name") or s.get("n") or "").strip()
+        if not name:
+            continue
+        total += 1
+        status = str(s.get("status") or s.get("s") or "").lower().strip()
+        if status == "failed":
+            failed_names.append(name)
+    return {
+        "total":         total,
+        "failed":        len(failed_names),
+        "failed_names":  failed_names,
+    }
+
+
 def _derive_arch(kernel: str) -> str:
     """Pull an architecture suffix (``amd64`` / ``arm64`` / ...) out of a
     kernel string. Returns ``""`` on no match. Matches Beszel's own
@@ -573,6 +652,21 @@ def extract_stats(info: dict, stats: Optional[dict] = None) -> dict:
         "host_bandwidth":   _num(info.get("b")),
         # Container count — homelab-relevant when a host runs Docker.
         "host_containers":  int(_num(info.get("ct"))),
+        # Load average — Beszel agents emit `la` as `[1m, 5m, 15m]` in
+        # `stats`. Surfaced as 3 separate fields so the SPA can render
+        # the chart (#320) and the SYSTEM card. Empty / missing →
+        # zeros (containers and embedded systems often skip this).
+        "host_load_1m":     _load_window(stats.get("la"), 0),
+        "host_load_5m":     _load_window(stats.get("la"), 1),
+        "host_load_15m":    _load_window(stats.get("la"), 2),
+        # Service info (#321). Beszel agents that run with the optional
+        # systemd extension emit `services` as a list of objects with
+        # `{name, status}` (status: "active" / "failed" / "inactive").
+        # We surface the raw count + the failed names so the drawer can
+        # render the "{N} services · {F} failed" badge + the failed
+        # names list. Hosts whose agent doesn't have the extension get
+        # an empty list (badge hides).
+        "host_services":         _services_summary(stats.get("services") or info.get("services")),
         "exporter_error":   None,
     }
 

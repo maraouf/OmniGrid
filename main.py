@@ -2963,12 +2963,20 @@ def _shape_host_api_row(
         # loaded. Reads the hosts_config `ssh.disabled` field — if the
         # operator explicitly opted out, the card never renders.
         "ssh_disabled":     bool((h.get("ssh") or {}).get("disabled", False)),
-        # Load averages (primarily node-exporter; Beszel doesn't emit
-        # these). Frontend only renders the row when any of the three
-        # is > 0.
+        # Load averages (node-exporter primary, Beszel agents emit
+        # `la=[1m,5m,15m]` which `extract_stats` now also surfaces here
+        # so the load-average chart works for Beszel-only hosts too).
+        # Frontend only renders the row when any of the three is > 0.
         "load_1m":          float(s.get("host_load_1m") or 0),
         "load_5m":          float(s.get("host_load_5m") or 0),
         "load_15m":         float(s.get("host_load_15m") or 0),
+        # Service summary (#321) — Beszel agents that run with the
+        # systemd extension emit a list of service objects. The
+        # extractor normalises into `{total, failed, failed_names}`.
+        # Hosts whose agent doesn't track services get
+        # `{total: 0, failed: 0, failed_names: []}` and the drawer
+        # badge gates on `services.total > 0` to hide cleanly.
+        "services":         (s.get("host_services") or {"total": 0, "failed": 0, "failed_names": []}),
         # DMI / hardware identity (node-exporter only — Linux /
         # FreeBSD with the DMI collector). Empty strings = no DMI.
         "dmi_vendor":       (s.get("host_dmi_vendor") or ""),

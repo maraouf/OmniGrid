@@ -8573,6 +8573,22 @@ function app() {
     // Min/Max label helper — returns both pre-formatted strings
     // (used directly in the chart header) and raw numeric values
     // (used by templates to decide flat-signal collapsing).
+    // Shared peak across multiple keys — used by the combined Net I/O
+    // and Disk I/O charts (#318 / #319) so the two polylines render
+    // against the same y-axis and are visually comparable.
+    // Returns 0 when no data so the caller can short-circuit the chart.
+    hostChartMax(systemId, keys) {
+      const entry = this.hostHistory[systemId];
+      if (!entry || !entry.series) return 0;
+      let m = 0;
+      for (const k of keys) {
+        for (const r of entry.series) {
+          const n = Number(r[k]) || 0;
+          if (n > m) m = n;
+        }
+      }
+      return m;
+    },
     hostMetricStats(systemId, key, asPct = true) {
       const entry = this.hostHistory[systemId];
       if (!entry || !entry.series || entry.series.length === 0) return null;
