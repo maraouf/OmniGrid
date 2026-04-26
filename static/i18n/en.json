@@ -73,10 +73,6 @@
     "sign_out": "Sign out"
   },
   "profile": {
-    "tabs": {
-      "profile": "Profile",
-      "notifications": "Notifications"
-    },
     "notifications": {
       "title": "Notifications",
       "subtitle": "Choose which event notifications you receive. Toggles greyed out have been disabled globally by an admin.",
