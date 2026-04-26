@@ -192,7 +192,7 @@ function app() {
       try {
         const raw = localStorage.getItem('hostsConfigPerPage');
         const n = parseInt(raw, 10);
-        if (Number.isFinite(n) && [25, 50, 100, 200].includes(n)) return n;
+        if (Number.isFinite(n) && [10, 25, 50, 100, 200].includes(n)) return n;
       } catch {}
       return 50;
     })(),
