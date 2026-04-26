@@ -186,8 +186,19 @@ function app() {
     // card) becomes heavy; slicing the rendered list to one page at
     // a time keeps tab switches + filter typing snappy. Full array
     // still lives in `hostsConfig`, so dirty tracking + duplicate-id
-    // validator + save-path are untouched.
-    hostsConfigPage: 1,
+    // validator + save-path are untouched. Page index persists across
+    // reloads (#340) so the operator returns to the same page after
+    // tab navigation, full reload, or browser restart. A `$watch` in
+    // `init()` writes the value back; a clamp in `loadHostsConfig`
+    // catches the case where the stored page is now beyond the data.
+    hostsConfigPage: (() => {
+      try {
+        const raw = localStorage.getItem('hostsConfigPage');
+        const n = parseInt(raw, 10);
+        if (Number.isFinite(n) && n >= 1) return n;
+      } catch {}
+      return 1;
+    })(),
     hostsConfigPerPage: (() => {
       try {
         const raw = localStorage.getItem('hostsConfigPerPage');
@@ -644,6 +655,11 @@ function app() {
       // filter and sees an empty page because they were on page 4 of
       // the unfiltered list).
       this.$watch('hostsConfigFilter', () => { this.hostsConfigPage = 1; });
+      // Persist page index so reload / tab navigation lands on the same
+      // page (#340). Pairs with the localStorage initialiser above.
+      this.$watch('hostsConfigPage', v => {
+        try { localStorage.setItem('hostsConfigPage', String(v)); } catch {}
+      });
       this.$watch('hostsExpanded', v => {
         try { localStorage.setItem('hostsExpanded', JSON.stringify(v || [])); } catch {}
       });
@@ -5315,9 +5331,14 @@ function app() {
         }
         this.hostsConfigDirty = false;
         this.rebuildHostsConfigOrder();
-        // Reset paging on every load — operator expects to start at
-        // page 1 when reopening the editor.
-        this.hostsConfigPage = 1;
+        // Clamp paging to the loaded data — preserves the persisted
+        // page (#340) when valid, and falls back to the new last page
+        // when the data has shrunk. Don't unconditionally reset to 1:
+        // the operator expects to return to the same page after reload.
+        this.hostsConfigPage = Math.min(
+          Math.max(1, this.hostsConfigPage),
+          this.hostsConfigTotalPages(),
+        );
       } catch (e) {
         this.showToast(`Load hosts failed: ${e.message}`, 'error');
       } finally {
