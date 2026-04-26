@@ -62,36 +62,13 @@ _last_counters: dict[str, tuple[float, int, int, int, int]] = {}  # host_id → 
 _PROBE_CONCURRENCY = 8
 
 
-# Active-providers parser lives in logic/db.py — single source of
-# truth shared with main.py and gather.py (CONS-004).
-from logic.db import active_host_stats_providers as _active_providers
-
-
-def _load_curated_hosts() -> list[dict]:
-    """Curated hosts with a usable ``ne_url`` and ``enabled=True``."""
-    raw = get_setting("hosts_config", "") or ""
-    if not raw.strip():
-        return []
-    try:
-        parsed = json.loads(raw)
-    except ValueError:
-        return []
-    if not isinstance(parsed, list):
-        return []
-    out: list[dict] = []
-    for row in parsed:
-        if not isinstance(row, dict):
-            continue
-        if not row.get("enabled", True):
-            continue
-        ne_url = (row.get("ne_url") or "").strip()
-        if not ne_url:
-            continue
-        hid = (row.get("id") or "").strip()
-        if not hid:
-            continue
-        out.append({"id": hid, "ne_url": ne_url})
-    return out
+# Active-providers parser + curated-hosts walker live in logic/db.py —
+# single source of truth shared with main.py / gather.py / both
+# samplers (CONS-001 + CONS-004).
+from logic.db import (
+    active_host_stats_providers as _active_providers,
+    curated_ne_hosts as _load_curated_hosts,
+)
 
 
 # Canonical strict-positive helper lives in logic/merge.py — alias it

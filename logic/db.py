@@ -133,6 +133,48 @@ def active_host_stats_providers() -> set[str]:
     return out
 
 
+def curated_ne_hosts() -> list[dict]:
+    """Curated ``hosts_config`` rows that the NE samplers can probe.
+
+    Single source of truth for "which hosts have a usable node-exporter
+    URL right now". Walks the JSON ``hosts_config`` setting, returns
+    one ``{id, ne_url}`` row per ENABLED entry with a non-empty
+    ``ne_url`` and ``id``. Replaces the byte-for-byte duplicate
+    ``_load_curated_hosts`` helpers that lived in
+    ``logic/host_net_sampler.py`` and ``logic/host_metrics_sampler.py``
+    (CONS-001).
+
+    Malformed rows (non-dict, missing id, blank ne_url) are silently
+    skipped — same forgiving contract the samplers had before, so a
+    stale settings blob can't crash the lifespan task.
+    """
+    import json as _json
+
+    raw = get_setting("hosts_config", "") or ""
+    if not raw.strip():
+        return []
+    try:
+        parsed = _json.loads(raw)
+    except ValueError:
+        return []
+    if not isinstance(parsed, list):
+        return []
+    out: list[dict] = []
+    for row in parsed:
+        if not isinstance(row, dict):
+            continue
+        if not row.get("enabled", True):
+            continue
+        ne_url = (row.get("ne_url") or "").strip()
+        if not ne_url:
+            continue
+        hid = (row.get("id") or "").strip()
+        if not hid:
+            continue
+        out.append({"id": hid, "ne_url": ne_url})
+    return out
+
+
 def get_setting_bool(key: str, default: bool = False) -> bool:
     """Read a boolean settings row tolerantly.
 

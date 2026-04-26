@@ -38,6 +38,16 @@ Items that have shipped to the live deploy as a PATCH bump but haven't
 yet been rolled into a numbered `MINOR` release. When the operator cuts
 the next release, this whole block becomes the `[X.Y.0]` entry below.
 
+### Internal
+
+- Consolidated `_load_curated_hosts` between the two NE samplers — both now import the canonical `curated_ne_hosts()` from `logic/db.py` (#357 / CONS-001). Drops ~30 duplicated lines and means a future NE-aware sampler (e.g. ping / SNMP) only adds to the canonical helper.
+- New `_format_provider_test_summary()` in `main.py` keeps the Pulse + Beszel test-connection response shape identical (#359 / CONS-003). Webmin and Portainer keep their bespoke summaries; future `{hosts: {...}}`-shaped providers should reuse the helper.
+- `README.md` ref updated from `notes/note_authentik.txt` to `notes/guidelines/authentik.md` (#360 / DEAD-001).
+
+### Changed
+
+- `Settings → Portainer → Test` now validates the configured endpoint id, not just `/api/status` (#360 / DEAD-002). Test now probes `/api/endpoints/{endpoint_id}` after the status check; success message reads `OK — Portainer X.Y.Z, endpoint <Name> reachable`, and a misconfigured endpoint id surfaces as `endpoint X not found on this Portainer` instead of failing silently until the next gather. Falls back to the saved `endpoint_id` when the form's value is blank.
+
 ### Fixed
 
 - SSH terminal modal: xterm cols/rows now match the modal's actual dimensions on first open (#353). The initial `fit()` was running before the flex-1 `.terminal-host` had its layout committed, so xterm fell back to the default 80×24 and the shell wrapped mid-line. Fit now fires through a belt-and-braces staircase — double `requestAnimationFrame` + `setTimeout` retries at 50 / 250 / 600 ms + a `ResizeObserver` on the host element + a final refit when the WS `ready` control frame lands. `fit.fit()` is idempotent so the overlap is a no-op when an earlier pass already produced the right size.

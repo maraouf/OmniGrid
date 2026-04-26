@@ -63,40 +63,13 @@ _MIN_DELTA_BYTES   = 0
 _MAX_DELTA_BYTES   = 10 * 1024 * 1024 * 1024  # 10 GB
 
 
-# Active-providers parser lives in logic/db.py — single source of
-# truth shared with main.py and gather.py (CONS-004).
-from logic.db import active_host_stats_providers as _active_providers
-
-
-def _load_curated_hosts() -> list[dict]:
-    """Parse ``hosts_config`` for hosts with a usable ``ne_url``.
-
-    Only returns enabled rows with a non-empty ``ne_url`` — the sampler
-    has nothing to do for rows Beszel or Pulse alone would cover.
-    """
-    raw = get_setting("hosts_config", "") or ""
-    if not raw.strip():
-        return []
-    try:
-        parsed = json.loads(raw)
-    except ValueError:
-        return []
-    if not isinstance(parsed, list):
-        return []
-    out: list[dict] = []
-    for row in parsed:
-        if not isinstance(row, dict):
-            continue
-        if not row.get("enabled", True):
-            continue
-        ne_url = (row.get("ne_url") or "").strip()
-        if not ne_url:
-            continue
-        hid = (row.get("id") or "").strip()
-        if not hid:
-            continue
-        out.append({"id": hid, "ne_url": ne_url})
-    return out
+# Active-providers parser + curated-hosts walker live in logic/db.py —
+# single source of truth shared with main.py / gather.py / both
+# samplers (CONS-001 + CONS-004).
+from logic.db import (
+    active_host_stats_providers as _active_providers,
+    curated_ne_hosts as _load_curated_hosts,
+)
 
 
 def _previous_sample(host_id: str) -> Optional[dict]:
