@@ -79,7 +79,7 @@ from logic.version import APP_VERSION, read_version
 # (cache TTLs, concurrency caps, sample interval, history days) resolve
 # via logic.tuning (DB > env > default) — see #337.
 from logic import db as _db  # noqa: E402
-from logic.db import DB_PATH, db_conn, get_setting, set_setting, active_host_stats_providers  # noqa: E402,F401
+from logic.db import DB_PATH, db_conn, get_setting, get_setting_bool, set_setting, active_host_stats_providers  # noqa: E402,F401
 from logic import tuning  # noqa: E402
 DOCKERHUB_USER = os.getenv("DOCKERHUB_USER", "")
 DOCKERHUB_TOKEN = os.getenv("DOCKERHUB_TOKEN", "")
@@ -1057,6 +1057,27 @@ class SettingsIn(BaseModel):
     tuning_stats_concurrency: Optional[str] = None
     tuning_stats_history_days: Optional[str] = None
     tuning_stats_sample_interval_seconds: Optional[str] = None
+    # -----------------------------------------------------------------
+    # Per-event notification toggles (#375). Each maps to one of the
+    # 12 (event group × success/failure) notify() call sites in
+    # logic/ops.py; gated inside notify() via the event= kwarg. Default
+    # behaviour is "send" so existing deploys keep all notifications on.
+    # Stored as "true"/"false" strings; "" clears (read-side falls back
+    # to the default-true). The /api/notify-test endpoint always sends
+    # regardless of these toggles.
+    # -----------------------------------------------------------------
+    notify_event_stack_update_success: Optional[str] = None
+    notify_event_stack_update_failure: Optional[str] = None
+    notify_event_container_update_success: Optional[str] = None
+    notify_event_container_update_failure: Optional[str] = None
+    notify_event_container_restart_success: Optional[str] = None
+    notify_event_container_restart_failure: Optional[str] = None
+    notify_event_container_remove_success: Optional[str] = None
+    notify_event_container_remove_failure: Optional[str] = None
+    notify_event_service_restart_success: Optional[str] = None
+    notify_event_service_restart_failure: Optional[str] = None
+    notify_event_prune_success: Optional[str] = None
+    notify_event_prune_failure: Optional[str] = None
 
 
 @app.get("/api/settings")
@@ -1075,7 +1096,23 @@ async def api_get_settings(request: Request):
         "ssh_enabled":        (get_setting("ssh_enabled",        "true") or "true").lower() == "true",
         "apprise_url": get_setting("apprise_url", ""),
         "apprise_tag": get_setting("apprise_tag", ""),
-        # Open-Meteo upstream (Admin → Notifications). Returned in the
+        # Per-event notification toggles (#375). Resolved through
+        # get_setting_bool so the frontend gets clean booleans (no
+        # client-side string parsing). Default true preserves the
+        # legacy "send everything" behaviour for existing deploys.
+        "notify_event_stack_update_success":      get_setting_bool("notify_event_stack_update_success", True),
+        "notify_event_stack_update_failure":      get_setting_bool("notify_event_stack_update_failure", True),
+        "notify_event_container_update_success":  get_setting_bool("notify_event_container_update_success", True),
+        "notify_event_container_update_failure":  get_setting_bool("notify_event_container_update_failure", True),
+        "notify_event_container_restart_success": get_setting_bool("notify_event_container_restart_success", True),
+        "notify_event_container_restart_failure": get_setting_bool("notify_event_container_restart_failure", True),
+        "notify_event_container_remove_success":  get_setting_bool("notify_event_container_remove_success", True),
+        "notify_event_container_remove_failure":  get_setting_bool("notify_event_container_remove_failure", True),
+        "notify_event_service_restart_success":   get_setting_bool("notify_event_service_restart_success", True),
+        "notify_event_service_restart_failure":   get_setting_bool("notify_event_service_restart_failure", True),
+        "notify_event_prune_success":             get_setting_bool("notify_event_prune_success", True),
+        "notify_event_prune_failure":             get_setting_bool("notify_event_prune_failure", True),
+        # Open-Meteo upstream (Admin → General). Returned in the
         # clear so the input round-trips and reloads persisted. Blank
         # disables the topbar weather widget (see _open_meteo_url).
         "open_meteo_url": get_setting("open_meteo_url", "") or "",
@@ -1233,6 +1270,36 @@ async def api_set_settings(
         set_setting("ssh_enabled", "true" if s.ssh_enabled else "false")
     if s.apprise_url is not None: set_setting("apprise_url", s.apprise_url)
     if s.apprise_tag is not None: set_setting("apprise_tag", s.apprise_tag)
+    # Per-event notification toggles (#375). Each value MUST be
+    # "true" / "false" / "" (empty clears → read-side falls back to
+    # the default-true via get_setting_bool). Anything else is a
+    # 400 so a typo can't silently disable a category. The notify()
+    # gate in logic/ops.py honours these per-event keys.
+    _NOTIFY_EVENT_KEYS = (
+        "notify_event_stack_update_success",
+        "notify_event_stack_update_failure",
+        "notify_event_container_update_success",
+        "notify_event_container_update_failure",
+        "notify_event_container_restart_success",
+        "notify_event_container_restart_failure",
+        "notify_event_container_remove_success",
+        "notify_event_container_remove_failure",
+        "notify_event_service_restart_success",
+        "notify_event_service_restart_failure",
+        "notify_event_prune_success",
+        "notify_event_prune_failure",
+    )
+    for _ek in _NOTIFY_EVENT_KEYS:
+        _v = getattr(s, _ek, None)
+        if _v is None:
+            continue
+        _norm = (_v or "").strip().lower()
+        if _norm not in ("", "true", "false"):
+            raise HTTPException(
+                status_code=400,
+                detail=f"{_ek} must be 'true', 'false', or '' (clear).",
+            )
+        set_setting(_ek, _norm)
     # Open-Meteo upstream — strips trailing slashes so `<base>/v1/...`
     # composition in api_weather stays stable whether the operator
     # typed a trailing slash or not.

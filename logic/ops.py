@@ -23,7 +23,7 @@ from typing import Optional
 import httpx
 
 from logic import gather, metrics, portainer
-from logic.db import db_conn, get_setting
+from logic.db import db_conn, get_setting, get_setting_bool
 
 
 MAX_OPS = 50
@@ -110,7 +110,8 @@ def persist_history(op: Operation) -> None:
 # Settings come from the DB (get_setting) so operators can change the
 # Apprise URL/tag live without restart.
 # ---------------------------------------------------------------------
-async def notify(title: str, body: str, status: str = "info") -> None:
+async def notify(title: str, body: str, status: str = "info", *,
+                 event: Optional[str] = None) -> None:
     # Honour the per-service master switch (#204). When apprise is
     # disabled in Admin → Notifications, short-circuit BEFORE the
     # configured-url check so an operator with a stored URL but the
@@ -124,6 +125,13 @@ async def notify(title: str, body: str, status: str = "info") -> None:
     if not url:
         print("[notify] skipped — no apprise_url configured")
         return
+    # Per-event opt-out (#375). When event is provided AND the matching
+    # setting is "false", short-circuit. None = always-send (legacy
+    # callers + the test button).
+    if event:
+        if get_setting_bool(f"notify_event_{event}", default=True) is False:
+            print(f"[notify] skipped — event '{event}' disabled by operator")
+            return
     tag = get_setting("apprise_tag", "")
     # Apprise requires a non-empty body. If our ops didn't produce one, echo
     # the title so the notification isn't rejected as malformed.
@@ -181,11 +189,13 @@ async def do_update_stack(op: Operation, stack_id: int) -> None:
         await notify(
             f"✅ Stack updated: {op.target_name}",
             f"Duration: {op.to_dict()['duration']:.1f}s", "success",
+            event="stack_update_success",
         )
     except Exception as e:
         op.log(str(e), "error")
         op.done("error", str(e))
-        await notify(f"❌ Stack update failed: {op.target_name}", str(e)[:500], "error")
+        await notify(f"❌ Stack update failed: {op.target_name}", str(e)[:500], "error",
+                     event="stack_update_failure")
     finally:
         persist_history(op)
         gather.invalidate_cache()
@@ -206,11 +216,13 @@ async def do_update_container(op: Operation, container_id: str) -> None:
                 raise RuntimeError(f"HTTP {r.status_code}: {r.text[:300]}")
             op.log("Container recreated", "success")
         op.done("success")
-        await notify(f"✅ Container updated: {op.target_name}", "", "success")
+        await notify(f"✅ Container updated: {op.target_name}", "", "success",
+                     event="container_update_success")
     except Exception as e:
         op.log(str(e), "error")
         op.done("error", str(e))
-        await notify(f"❌ Container update failed: {op.target_name}", str(e)[:500], "error")
+        await notify(f"❌ Container update failed: {op.target_name}", str(e)[:500], "error",
+                     event="container_update_failure")
     finally:
         persist_history(op)
         gather.invalidate_cache()
@@ -230,11 +242,13 @@ async def do_restart_container(op: Operation, container_id: str) -> None:
                 raise RuntimeError(f"HTTP {r.status_code}: {r.text[:300]}")
             op.log("Container restarted", "success")
         op.done("success")
-        await notify(f"🔄 Container restarted: {op.target_name}", "", "success")
+        await notify(f"🔄 Container restarted: {op.target_name}", "", "success",
+                     event="container_restart_success")
     except Exception as e:
         op.log(str(e), "error")
         op.done("error", str(e))
-        await notify(f"❌ Container restart failed: {op.target_name}", str(e)[:500], "error")
+        await notify(f"❌ Container restart failed: {op.target_name}", str(e)[:500], "error",
+                     event="container_restart_failure")
     finally:
         persist_history(op)
         gather.invalidate_cache()
@@ -267,11 +281,13 @@ async def do_remove_container(op: Operation, container_id: str) -> None:
             else:
                 op.log("Container removed", "success")
         op.done("success")
-        await notify(f"🗑 Container removed: {op.target_name}", "", "success")
+        await notify(f"🗑 Container removed: {op.target_name}", "", "success",
+                     event="container_remove_success")
     except Exception as e:
         op.log(str(e), "error")
         op.done("error", str(e))
-        await notify(f"❌ Container remove failed: {op.target_name}", str(e)[:500], "error")
+        await notify(f"❌ Container remove failed: {op.target_name}", str(e)[:500], "error",
+                     event="container_remove_failure")
     finally:
         persist_history(op)
         gather.invalidate_cache()
@@ -299,11 +315,13 @@ async def do_restart_service(op: Operation, service_id: str) -> None:
                 raise RuntimeError(f"HTTP {r.status_code}: {r.text[:300]}")
             op.log("Service restart triggered", "success")
         op.done("success")
-        await notify(f"🔄 Service restarted: {op.target_name}", "", "success")
+        await notify(f"🔄 Service restarted: {op.target_name}", "", "success",
+                     event="service_restart_success")
     except Exception as e:
         op.log(str(e), "error")
         op.done("error", str(e))
-        await notify(f"❌ Service restart failed: {op.target_name}", str(e)[:500], "error")
+        await notify(f"❌ Service restart failed: {op.target_name}", str(e)[:500], "error",
+                     event="service_restart_failure")
     finally:
         persist_history(op)
         gather.invalidate_cache()
@@ -380,12 +398,14 @@ async def do_prune_node(op: Operation, hostname: str) -> dict:
             f"{totals['networks']} networks / "
             f"{totals['volumes']} volumes",
             "success",
+            event="prune_success",
         )
         return totals
     except Exception as e:
         op.log(str(e), "error")
         op.done("error", str(e))
-        await notify(f"❌ Prune failed on {hostname}", str(e)[:500], "error")
+        await notify(f"❌ Prune failed on {hostname}", str(e)[:500], "error",
+                     event="prune_failure")
         return totals
     finally:
         persist_history(op)
