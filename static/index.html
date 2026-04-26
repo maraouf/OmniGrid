@@ -6783,7 +6783,11 @@
                 <!-- CPU % -->
                 <div class="metric-card metric-card--cpu">
                   <div class="metric-card-head">
-                    <div class="metric-card-title">CPU<span class="unit">%</span></div>
+                    <div class="metric-card-title">
+                      <span>CPU</span><span class="unit">%</span>
+                      <svg width="12" height="12" class="metric-source-help" aria-hidden="true"
+                           :title="t('hosts_extra.metrics.source_cpu')"><use href="#icon-help-circle"/></svg>
+                    </div>
                     <div class="metric-card-stats"
                          x-show="hostMetricStats(hostHistoryKey(h), 'cpu')">
                       <span>Min <span class="min-val" x-text="hostMetricStats(hostHistoryKey(h), 'cpu') ? hostMetricStats(hostHistoryKey(h), 'cpu').min : ''"></span></span>

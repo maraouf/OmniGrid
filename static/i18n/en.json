@@ -1075,7 +1075,15 @@
       "write": "Write",
       "load_avg": "Load average",
       "bandwidth": "Bandwidth",
-      "swap": "Swap"
+      "swap": "Swap",
+      "source_cpu": "CPU usage (0–100%). Source: Beszel agent (system_stats.cpu) when configured. The node-exporter sampler doesn't track CPU yet, so NE-only hosts show no data here.",
+      "source_memory": "Memory usage. Source: Beszel agent (system_stats.mp / mu) for Beszel-monitored hosts; node-exporter (host_mem_used / host_mem_total from host_metrics_samples) for NE-only hosts.",
+      "source_disk": "Root-filesystem usage. Source: Beszel (system_stats.dp) or node-exporter (host_disk_used / host_disk_total).",
+      "source_network": "Per-NIC throughput, excluding loopback / Docker bridges / veth pairs. Source: Beszel agent (system_stats.nr / .ns) when the agent has NICS=eth0 configured. Falls back to node-exporter rates from host_net_samples when Beszel returns zeros AND the host has ne_url set. Pure node-exporter for NE-only hosts.",
+      "source_disk_io": "Block-device read/write rates. Source: Beszel (system_stats.dr / .dw) or node-exporter (host_disk_read_bps / host_disk_write_bps from host_metrics_samples). Excludes loop / ram / fd / sr / zram devices; keeps dm-* / md* (NAS volumes).",
+      "source_load_avg": "1m / 5m / 15m load averages. Source: Beszel agent only (system_stats.la). Not surfaced by the node-exporter sampler today.",
+      "source_bandwidth": "Combined bandwidth (rx + tx). Same source as Network — Beszel or node-exporter.",
+      "source_swap": "Swap usage % and used GiB. Source: Beszel agent only (system_stats.s / .su). Not surfaced by the node-exporter sampler today."
     },
     "empty": {
       "loading": "Loading hosts from providers…",
