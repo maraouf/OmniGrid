@@ -50,6 +50,8 @@ the next release, this whole block becomes the `[X.Y.0]` entry below.
 
 ### Fixed
 
+- Login-page logo no longer shows a white halo at the rounded corners (#361). `static/login.html` swapped from the rasterised `icon-512.png` to `omnigrid.svg`, and `.login-logo` lost its redundant `background: var(--surface)` fill. The SVG renders with crisp anti-aliasing at any zoom level; favicon keeps the PNG for universal browser compat.
+
 - SSH terminal modal: xterm cols/rows now match the modal's actual dimensions on first open (#353). The initial `fit()` was running before the flex-1 `.terminal-host` had its layout committed, so xterm fell back to the default 80×24 and the shell wrapped mid-line. Fit now fires through a belt-and-braces staircase — double `requestAnimationFrame` + `setTimeout` retries at 50 / 250 / 600 ms + a `ResizeObserver` on the host element + a final refit when the WS `ready` control frame lands. `fit.fit()` is idempotent so the overlap is a no-op when an earlier pass already produced the right size.
 
 ### Changed

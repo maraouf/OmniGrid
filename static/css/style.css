@@ -2535,7 +2535,6 @@ body.login {
     border-radius: var(--r-xl);
     display: block;
     box-shadow: 0 6px 24px var(--backdrop-strong);
-    background: var(--surface);
 }
 
 .login-card {
