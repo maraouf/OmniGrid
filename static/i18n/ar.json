@@ -110,6 +110,16 @@
     "unknown_short": "?",
     "ok_suffix": "تمام"
   },
+  "tooltips": {
+    "cpu_24h": "المعالج — آخر 24 ساعة",
+    "mem_24h": "الذاكرة — آخر 24 ساعة"
+  },
+  "pagination": {
+    "first_page_title": "الصفحة الأولى",
+    "last_page_title": "الصفحة الأخيرة",
+    "jump_to_page_title": "الانتقال إلى صفحة",
+    "rows_per_page_title": "صفوف لكل صفحة"
+  },
   "actions": {
     "update_stack": "تحديث المكدس",
     "updating": "جارٍ التحديث…",
