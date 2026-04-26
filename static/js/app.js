@@ -472,6 +472,14 @@ function app() {
     tuningLoaded: false,
     tuningSaving: false,
     _tuningBaseline: '',
+    // Admin → Version (#371). Operator-controlled MAJOR.MINOR; CI-controlled
+    // PATCH. Pre-populates from /api/admin/version on load.
+    versionForm: { major: 0, minor: 0 },
+    versionState: { current: '', major: 0, minor: 0, patch: 0,
+                    db_override: false, file_major: 0, file_minor: 0 },
+    versionLoaded: false,
+    versionSaving: false,
+    _versionBaseline: '',
     sshTestOnHost: { host_id: '', result: null, pending: false },
     // Settings / Admin sidebar layout. Arrays drive the nav — adding a
     // section is one entry here + one <section> in the markup.
@@ -515,6 +523,7 @@ function app() {
       { id: 'backups',        label: 'Backups' },
       { id: 'logs',           label: 'Logs' },
       { id: 'config',         label: 'Config' },
+      { id: 'version',        label: 'Version' },
       { id: 'debug',          label: 'Debug' },
     ],
     // App-logs viewer state. Polled when the Logs tab is visible.
@@ -1310,6 +1319,9 @@ function app() {
       }
       else if (tab === 'config') {
         await this.loadTuning();
+      }
+      else if (tab === 'version') {
+        await this.loadVersionAdmin();
       }
     },
 
@@ -4299,6 +4311,81 @@ function app() {
         this.showToast(this.t('admin.config.save_failed', { error: e.message }), 'error');
       } finally {
         this.tuningSaving = false;
+      }
+    },
+    // Admin → Version (#371). MAJOR.MINOR is operator-controlled here;
+    // PATCH is read-only — the deploy CI auto-increments it.
+    async loadVersionAdmin() {
+      try {
+        const r = await fetch('/api/admin/version');
+        if (!r.ok) throw new Error(await r.text());
+        const d = await r.json();
+        this.versionState = d || {};
+        this.versionForm = { major: d.major, minor: d.minor };
+        this._versionBaseline = this._versionSnapshot();
+        this.versionLoaded = true;
+      } catch (e) {
+        this.showToast(this.t('admin.version.load_failed', { error: e.message }), 'error');
+      }
+    },
+    _versionSnapshot() {
+      const f = this.versionForm || {};
+      return JSON.stringify({ major: Number(f.major) || 0, minor: Number(f.minor) || 0 });
+    },
+    versionDirty() { return this._versionBaseline !== this._versionSnapshot(); },
+    async saveVersionAdmin() {
+      if (this.versionSaving) return;
+      this.versionSaving = true;
+      try {
+        const f = this.versionForm || {};
+        const body = { major: Number(f.major) || 0, minor: Number(f.minor) || 0 };
+        const r = await fetch('/api/admin/version', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        });
+        if (!r.ok) {
+          const j = await r.json().catch(() => ({}));
+          throw new Error(j.detail || `HTTP ${r.status}`);
+        }
+        const d = await r.json();
+        this.versionState = d || {};
+        this.versionForm = { major: d.major, minor: d.minor };
+        this._versionBaseline = this._versionSnapshot();
+        this.showToast(this.t('admin.version.saved_toast', { version: d.current }));
+        // Bump the SPA's footer / cache-bust knob — the running build
+        // didn't change, but the rendered version string did.
+        this.appVersion = d.current;
+      } catch (e) {
+        this.showToast(this.t('admin.version.save_failed', { error: e.message }), 'error');
+      } finally {
+        this.versionSaving = false;
+      }
+    },
+    async clearVersionAdmin() {
+      // Drop the DB override → fall back to the raw VERSION.txt content
+      // (whatever PATCH the CI has currently bumped to, with whatever
+      // MAJOR.MINOR happens to be on disk).
+      if (this.versionSaving) return;
+      const ok = await this.confirmDialog({
+        title: this.t('admin.version.clear_confirm_title'),
+        html: this.t('admin.version.clear_confirm_body'),
+      });
+      if (!ok) return;
+      this.versionSaving = true;
+      try {
+        const r = await fetch('/api/admin/version', { method: 'DELETE' });
+        if (!r.ok) throw new Error(await r.text());
+        const d = await r.json();
+        this.versionState = d || {};
+        this.versionForm = { major: d.major, minor: d.minor };
+        this._versionBaseline = this._versionSnapshot();
+        this.appVersion = d.current;
+        this.showToast(this.t('admin.version.cleared_toast', { version: d.current }));
+      } catch (e) {
+        this.showToast(this.t('admin.version.save_failed', { error: e.message }), 'error');
+      } finally {
+        this.versionSaving = false;
       }
     },
     // No-op stubs kept so any existing @input / @change bindings that
