@@ -900,7 +900,7 @@ async def _gather_impl() -> None:
                         continue
                 return cid, None
 
-            sem = asyncio.Semaphore(portainer.STATS_CONCURRENCY)
+            sem = asyncio.Semaphore(portainer.stats_concurrency())
 
             async def _probe_bounded(cid: str):
                 async with sem:
@@ -1195,7 +1195,7 @@ async def _gather_impl() -> None:
             })
 
         # --- Enrich with remote digests ---
-        sem = asyncio.Semaphore(portainer.REGISTRY_CONCURRENCY)
+        sem = asyncio.Semaphore(portainer.registry_concurrency())
 
         async def enrich(it):
             async with sem:

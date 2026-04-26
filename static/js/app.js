@@ -404,6 +404,23 @@ function app() {
     _openMeteoBaseline: '',
     _portainerBaseline: '',
     _oidcBaseline: '',
+    // Admin → Config (#337). DB-overridable process tunables. `tuningForm`
+    // holds string values (blank = clear / fall back to env). `tuningEffective`
+    // mirrors the GET /api/admin/tuning response so the form can render
+    // env-fallback / default placeholders + the resolved current value.
+    tuningKeys: [
+      'tuning_cache_ttl_seconds',
+      'tuning_stats_cache_ttl_seconds',
+      'tuning_registry_concurrency',
+      'tuning_stats_concurrency',
+      'tuning_stats_history_days',
+      'tuning_stats_sample_interval_seconds',
+    ],
+    tuningForm: {},
+    tuningEffective: {},
+    tuningLoaded: false,
+    tuningSaving: false,
+    _tuningBaseline: '',
     sshTestOnHost: { host_id: '', result: null, pending: false },
     // Settings / Admin sidebar layout. Arrays drive the nav — adding a
     // section is one entry here + one <section> in the markup.
@@ -446,6 +463,7 @@ function app() {
       { id: 'schedules',      label: 'Schedules' },
       { id: 'backups',        label: 'Backups' },
       { id: 'logs',           label: 'Logs' },
+      { id: 'config',         label: 'Config' },
       { id: 'debug',          label: 'Debug' },
     ],
     // App-logs viewer state. Polled when the Logs tab is visible.
@@ -1211,6 +1229,9 @@ function app() {
       else if (tab === 'assets') {
         await this.loadSettings();
         await this.loadAssetCache();
+      }
+      else if (tab === 'config') {
+        await this.loadTuning();
       }
     },
 
@@ -4004,6 +4025,68 @@ function app() {
       });
     },
     oidcDirty()      { return this._oidcBaseline      !== this._oidcSnapshot(); },
+    // Admin → Config (#337). Load DB / env / default state from the
+    // dedicated endpoint so the form can render placeholders for the
+    // env-fallback behind each input. `tuningForm[k]` is always a
+    // string — blank means "clear the override", non-blank means
+    // "store this number".
+    async loadTuning() {
+      try {
+        const r = await fetch('/api/admin/tuning');
+        if (!r.ok) throw new Error(await r.text());
+        const d = await r.json();
+        this.tuningEffective = d || {};
+        const form = {};
+        for (const k of this.tuningKeys) {
+          const row = (d || {})[k] || {};
+          form[k] = (row.db == null || row.db === '') ? '' : String(row.db);
+        }
+        this.tuningForm = form;
+        this._tuningBaseline = this._tuningSnapshot();
+        this.tuningLoaded = true;
+      } catch (e) {
+        this.showToast(this.t('admin.config.load_failed', { error: e.message }), 'error');
+      }
+    },
+    _tuningSnapshot() {
+      const f = this.tuningForm || {};
+      const out = {};
+      for (const k of this.tuningKeys) out[k] = (f[k] == null ? '' : String(f[k]).trim());
+      return JSON.stringify(out);
+    },
+    tuningDirty() { return this._tuningBaseline !== this._tuningSnapshot(); },
+    tuningPlaceholder(key) {
+      const row = (this.tuningEffective || {})[key] || {};
+      const env = row.env;
+      const def = (row.default == null ? '' : String(row.default));
+      if (env != null && String(env).trim() !== '') {
+        return this.t('admin.config.placeholder_env', { value: env, default: def });
+      }
+      return this.t('admin.config.placeholder_default', { default: def });
+    },
+    async saveTuning() {
+      if (this.tuningSaving) return;
+      this.tuningSaving = true;
+      try {
+        const body = {};
+        for (const k of this.tuningKeys) {
+          const v = (this.tuningForm || {})[k];
+          body[k] = (v == null ? '' : String(v).trim());
+        }
+        const r = await fetch('/api/settings', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        });
+        if (!r.ok) throw new Error(await r.text());
+        await this.loadTuning();
+        this.showToast(this.t('admin.config.saved_toast'));
+      } catch (e) {
+        this.showToast(this.t('admin.config.save_failed', { error: e.message }), 'error');
+      } finally {
+        this.tuningSaving = false;
+      }
+    },
     // No-op stubs kept so any existing @input / @change bindings that
     // call mark<X>Dirty() don't throw. The smart getters re-evaluate
     // automatically on form changes via Alpine reactivity, so these

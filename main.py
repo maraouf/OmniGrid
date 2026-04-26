@@ -74,22 +74,14 @@ from logic.version import APP_VERSION, read_version
 # Config
 # ============================================================================
 # Portainer connection config is DB-backed / UI-managed — see
-# logic.portainer.get_portainer_settings(). The module still exposes
-# PORTAINER_URL etc. as read-through module attributes for legacy call
-# sites, so no other file needs to change. Concurrency tunables stay
-# env-only.
-from logic.portainer import (  # noqa: E402
-    REGISTRY_CONCURRENCY as CONCURRENCY,
-    STATS_CONCURRENCY,
-)
-CACHE_TTL = int(os.getenv("CACHE_TTL_SECONDS", "900"))
-STATS_CACHE_TTL = int(os.getenv("STATS_CACHE_TTL_SECONDS", "30"))
+# logic.portainer.get_portainer_settings(). Process-level tunables
+# (cache TTLs, concurrency caps, sample interval, history days) resolve
+# via logic.tuning (DB > env > default) — see #337.
 from logic import db as _db  # noqa: E402
 from logic.db import DB_PATH, db_conn, get_setting, set_setting  # noqa: E402,F401
+from logic import tuning  # noqa: E402
 DOCKERHUB_USER = os.getenv("DOCKERHUB_USER", "")
 DOCKERHUB_TOKEN = os.getenv("DOCKERHUB_TOKEN", "")
-STATS_HISTORY_DAYS = int(os.getenv("STATS_HISTORY_DAYS", "7"))
-STATS_SAMPLE_INTERVAL = int(os.getenv("STATS_SAMPLE_INTERVAL_SECONDS", "300"))  # 5 min
 
 # Bootstrap-only env vars for seeding the first admin. Only consulted when
 # the users table is empty at startup — safe to leave set or unset afterward.
@@ -493,7 +485,7 @@ _stats_sampler_loop = _stats_mod.stats_sampler_loop
 @app.get("/api/stats")
 async def api_stats(force: bool = False):
     now = time.time()
-    if force or not _stats_cache["stats"] or (now - _stats_cache["ts"] > STATS_CACHE_TTL):
+    if force or not _stats_cache["stats"] or (now - _stats_cache["ts"] > tuning.tuning_int("tuning_stats_cache_ttl_seconds")):
         await _gather_stats()
     return {
         "stats": _stats_cache["stats"],
@@ -509,7 +501,7 @@ async def api_stats_history(item_id: str, hours: int = 24):
     `item_id` may be comma-separated to fetch multiple in one round-trip
     (the UI batches all visible stacks so it's not N requests per refresh).
     """
-    hours = max(1, min(hours, STATS_HISTORY_DAYS * 24))
+    hours = max(1, min(hours, tuning.tuning_int("tuning_stats_history_days") * 24))
     ids = [s.strip() for s in item_id.split(",") if s.strip()]
     since = time.time() - hours * 3600
     return {
@@ -522,7 +514,7 @@ async def api_stats_history(item_id: str, hours: int = 24):
 @app.get("/api/items")
 async def api_items(force: bool = False):
     now = time.time()
-    if force or not _cache["items"] or (now - _cache["ts"] > CACHE_TTL):
+    if force or not _cache["items"] or (now - _cache["ts"] > tuning.tuning_int("tuning_cache_ttl_seconds")):
         await _gather()
     return {
         "items": _cache["items"],
@@ -1044,6 +1036,18 @@ class SettingsIn(BaseModel):
     # When false, the panel is hidden for everyone (including admins);
     # other admin tools on the drawer remain visible.
     debug_panel_enabled: Optional[bool] = None
+    # -----------------------------------------------------------------
+    # Process-level tunables (#337). DB > env > default — see
+    # logic/tuning.py:TUNABLES. Every field is Optional[str] so blank
+    # ("") clears the override and falls back to the env var; missing
+    # = "leave alone". Bounds-checked at write time against TUNABLES.
+    # -----------------------------------------------------------------
+    tuning_cache_ttl_seconds: Optional[str] = None
+    tuning_stats_cache_ttl_seconds: Optional[str] = None
+    tuning_registry_concurrency: Optional[str] = None
+    tuning_stats_concurrency: Optional[str] = None
+    tuning_stats_history_days: Optional[str] = None
+    tuning_stats_sample_interval_seconds: Optional[str] = None
 
 
 @app.get("/api/settings")
@@ -1834,6 +1838,33 @@ async def api_set_settings(
             auth.set_auth_setting(c, "oidc_client_secret", s.oidc_client_secret)
             auth_changed = True
 
+    # Tuning knobs (#337). Each field is keep-if-None / clear-if-blank /
+    # bounds-check-and-store-if-provided. Bounds come from
+    # logic.tuning.TUNABLES so the resolver, the editor, and the
+    # validator share one source of truth. Stored as plain strings —
+    # the resolver int-casts on read.
+    for _k, (_env, _default, _lo, _hi) in tuning.TUNABLES.items():
+        _val = getattr(s, _k, None)
+        if _val is None:
+            continue
+        _raw = _val.strip()
+        if _raw == "":
+            set_setting(_k, "")
+            continue
+        try:
+            _n = int(_raw)
+        except (TypeError, ValueError):
+            raise HTTPException(
+                status_code=400,
+                detail=f"{_k} must be an integer (got {_val!r})",
+            )
+        if _n < _lo or _n > _hi:
+            raise HTTPException(
+                status_code=400,
+                detail=f"{_k} must be between {_lo} and {_hi} (got {_n})",
+            )
+        set_setting(_k, str(_n))
+
     if auth_changed:
         auth.invalidate_auth_settings_cache()
         # Discovery / JWKS cache also drops so the next flow picks up the
@@ -1845,6 +1876,18 @@ async def api_set_settings(
         # reflects the new Portainer target without a manual refresh.
         _cache["ts"] = 0
     return {"status": "ok"}
+
+
+# ----------------------------------------------------------------------------
+# Process-level tunables (#337). Admin-only read endpoint that surfaces
+# the DB / env / default tier per knob plus the resolved effective value.
+# Writes go through the existing POST /api/settings (additive pattern —
+# no new POST per provider). The UI reads this once on tab open to
+# render placeholders for the env-fallback / default behind each input.
+# ----------------------------------------------------------------------------
+@app.get("/api/admin/tuning")
+async def api_admin_tuning(_admin: auth.User = Depends(auth.require_admin)):
+    return tuning.effective_state()
 
 
 # ----------------------------------------------------------------------------

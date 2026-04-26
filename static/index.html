@@ -5278,6 +5278,63 @@
         </section>
       </div>
 
+      <!-- CONFIG TAB — process-level tunables (#337). Six knobs that
+           previously required an env-var change + restart now resolve
+           via DB > env > code default. Blank input = clear DB override
+           and fall back to env / default (placeholder reflects the
+           live fallback). Each input is bounds-checked client-side
+           via min/max + server-side via TUNABLES. UI changes take
+           effect on the next consumer read; samplers see one tick lag. -->
+      <div x-show="adminTab==='config'" class="space-y-4">
+        <section class="bg-[var(--surface)] border border-[var(--border)] rounded-md p-5">
+          <h3 class="font-semibold text-[13px] mb-1" x-text="t('admin.config.title')"></h3>
+          <p class="text-[11.5px] text-[var(--text-faint)] mb-4 max-w-[820px]"
+             x-text="t('admin.config.subtitle')"></p>
+
+          <div class="space-y-4" x-show="tuningLoaded">
+            <template x-for="key in tuningKeys" :key="key">
+              <div class="border border-[var(--border)] rounded-md bg-[var(--surface-2)] p-3">
+                <label class="block text-[12.5px] font-medium mb-1"
+                       x-text="t('admin.config.fields.' + key + '.label')"></label>
+                <p class="text-[11px] text-[var(--text-faint)] mb-2 leading-snug"
+                   x-text="t('admin.config.fields.' + key + '.help')"></p>
+                <div class="flex flex-wrap items-center gap-2">
+                  <input type="number"
+                         x-model="tuningForm[key]"
+                         :placeholder="tuningPlaceholder(key)"
+                         :min="(tuningEffective[key] || {}).min"
+                         :max="(tuningEffective[key] || {}).max"
+                         :disabled="!isAdmin() || tuningSaving"
+                         class="w-44 mono text-[12.5px]">
+                  <span class="text-[11px] text-[var(--text-faint)]"
+                        x-text="t('admin.config.bounds_hint', { min: (tuningEffective[key] || {}).min, max: (tuningEffective[key] || {}).max })"></span>
+                  <span class="text-[11px] text-[var(--text-dim)] ms-auto"
+                        x-text="t('admin.config.effective_label', { value: (tuningEffective[key] || {}).effective })"></span>
+                </div>
+                <p class="text-[10.5px] text-[var(--text-faint)] mt-1 mono">
+                  <span x-text="(tuningEffective[key] || {}).env_var"></span>
+                </p>
+              </div>
+            </template>
+
+            <div class="flex items-center gap-3 pt-1 flex-wrap" x-show="isAdmin()">
+              <button @click="saveTuning()"
+                      :disabled="tuningSaving"
+                      :class="tuningDirty() ? 'ring-2 ring-[var(--warning)]' : ''"
+                      class="btn btn-primary text-[12px]">
+                <span x-show="!tuningSaving" x-text="t('admin.config.save')"></span>
+                <span x-show="tuningSaving" class="flex items-center gap-1"><span class="spin"></span><span x-text="t('actions.saving')"></span></span>
+              </button>
+              <span x-show="tuningDirty()"
+                    class="text-[11.5px] text-[var(--warning)] flex items-center gap-1.5">
+                <span class="w-1.5 h-1.5 rounded-full bg-[var(--warning)] animate-pulse"></span>
+                <span x-text="t('admin.config.unsaved')"></span>
+              </span>
+            </div>
+          </div>
+        </section>
+      </div>
+
       <!-- DEBUG TAB — admin-wide debug / diagnostic preferences. One
            home for every "show me internals" toggle so they're easy
            to find + easy to turn off. First item is the host-drawer

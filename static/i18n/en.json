@@ -421,7 +421,47 @@
       "schedules": "Schedules",
       "backups": "Backups",
       "logs": "Logs",
+      "config": "Config",
       "debug": "Debug"
+    },
+    "config": {
+      "title": "Process tunables",
+      "subtitle": "Override the six runtime knobs that previously required an env-var change + restart. Each value resolves via DB setting → env var → code default. Leave a field blank to clear the override and fall back to the env / default shown in the placeholder. UI changes take effect on the next consumer read — TTLs immediate, samplers on the next tick.",
+      "placeholder_env": "env: {value} (default: {default})",
+      "placeholder_default": "default: {default}",
+      "bounds_hint": "min {min}, max {max}",
+      "effective_label": "Effective: {value}",
+      "save": "Save tunables",
+      "unsaved": "Unsaved",
+      "load_failed": "Failed to load tunables: {error}",
+      "save_failed": "Failed to save tunables: {error}",
+      "saved_toast": "Tunables saved",
+      "fields": {
+        "tuning_cache_ttl_seconds": {
+          "label": "Items cache TTL (seconds)",
+          "help": "How long /api/items results stay valid before the next caller triggers a refresh."
+        },
+        "tuning_stats_cache_ttl_seconds": {
+          "label": "Stats cache TTL (seconds)",
+          "help": "Fresh CPU / Memory / size polling without refetching all registry digests."
+        },
+        "tuning_registry_concurrency": {
+          "label": "Registry digest concurrency",
+          "help": "Parallel remote-registry digest fetches per gather."
+        },
+        "tuning_stats_concurrency": {
+          "label": "Container stats concurrency",
+          "help": "Parallel /containers/{id}/stats calls during a stats gather."
+        },
+        "tuning_stats_history_days": {
+          "label": "Stats history (days)",
+          "help": "Retention window for every time-series table (stats_samples, host_net_samples, host_metrics_samples). Pruned hourly."
+        },
+        "tuning_stats_sample_interval_seconds": {
+          "label": "Sampler interval (seconds)",
+          "help": "Cadence for the lifespan samplers — _stats_cache snapshot into stats_samples, node-exporter scrape into host_net_samples and host_metrics_samples."
+        }
+      }
     },
     "debug": {
       "title": "Debug & diagnostics",

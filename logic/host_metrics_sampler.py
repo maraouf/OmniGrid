@@ -30,18 +30,14 @@ from __future__ import annotations
 
 import asyncio
 import json
-import os
 import time
 from typing import Optional
 
 import httpx
 
 from logic import node_exporter as _ne
+from logic import tuning
 from logic.db import db_conn, get_setting
-
-
-STATS_HISTORY_DAYS = int(os.getenv("STATS_HISTORY_DAYS", "7"))
-STATS_SAMPLE_INTERVAL = int(os.getenv("STATS_SAMPLE_INTERVAL_SECONDS", "300"))  # 5 min
 
 
 # Sanity bounds — same values, same rationale as host_net_sampler.
@@ -280,7 +276,8 @@ async def _probe_one(
 
 
 def _prune_old_samples() -> int:
-    cutoff = int(time.time() - STATS_HISTORY_DAYS * 86400)
+    days = tuning.tuning_int("tuning_stats_history_days")
+    cutoff = int(time.time() - days * 86400)
     try:
         with db_conn() as c:
             cur = c.execute("DELETE FROM host_metrics_samples WHERE ts < ?", (cutoff,))
@@ -291,11 +288,13 @@ def _prune_old_samples() -> int:
 
 
 async def host_metrics_sampler_loop() -> None:
-    """Lifespan-managed sampler. One tick per ``STATS_SAMPLE_INTERVAL``."""
+    """Lifespan-managed sampler. One tick per
+    ``tuning_stats_sample_interval_seconds`` (DB > env > default)."""
     _last_counters.clear()
     # Wait a beat so DB tables exist + hosts_config is loaded before the
     # first probe. Same pattern as host_net_sampler / stats_sampler.
-    await asyncio.sleep(min(60, STATS_SAMPLE_INTERVAL))
+    interval = tuning.tuning_int("tuning_stats_sample_interval_seconds")
+    await asyncio.sleep(min(60, interval))
     tick = 0
     while True:
         try:
@@ -311,16 +310,18 @@ async def host_metrics_sampler_loop() -> None:
                             *(_probe_one(client, h, sem) for h in hosts),
                             return_exceptions=True,
                         )
-            if tick % max(1, 3600 // STATS_SAMPLE_INTERVAL) == 0:
+            interval = tuning.tuning_int("tuning_stats_sample_interval_seconds")
+            days = tuning.tuning_int("tuning_stats_history_days")
+            if tick % max(1, 3600 // interval) == 0:
                 n = _prune_old_samples()
                 if n:
                     print(f"[host_metrics_sampler] pruned {n} rows older than "
-                          f"{STATS_HISTORY_DAYS}d")
+                          f"{days}d")
         except Exception as e:
             print(f"[host_metrics_sampler] tick error: {e}")
         tick += 1
         try:
-            await asyncio.sleep(STATS_SAMPLE_INTERVAL)
+            await asyncio.sleep(interval)
         except asyncio.CancelledError:
             raise
 

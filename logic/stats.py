@@ -12,7 +12,6 @@ trigger the expensive registry-digest pass. Driven by:
 Cache dict is exposed as ``_stats_cache`` for main.py's /api/stats route.
 """
 import asyncio
-import os
 import time
 from typing import Optional
 
@@ -20,11 +19,8 @@ import httpx
 
 from logic import gather as _gather_mod
 from logic import portainer
+from logic import tuning
 from logic.db import db_conn
-
-
-STATS_HISTORY_DAYS = int(os.getenv("STATS_HISTORY_DAYS", "7"))
-STATS_SAMPLE_INTERVAL = int(os.getenv("STATS_SAMPLE_INTERVAL_SECONDS", "300"))  # 5 min
 
 
 # The cache main.py's /api/stats route reads. Structure:
@@ -94,8 +90,9 @@ def seed_stats_cache_from_db() -> int:
 
 
 # ---------------------------------------------------------------------
-# Time-series sampler — writes `_stats_cache` into `stats_samples` on
-# STATS_SAMPLE_INTERVAL, prunes old rows hourly. Runs as a lifespan task.
+# Time-series sampler — writes `_stats_cache` into `stats_samples` every
+# tuning_stats_sample_interval_seconds (DB > env > default), prunes old
+# rows hourly. Runs as a lifespan task.
 # ---------------------------------------------------------------------
 def _snapshot_stats_to_db() -> int:
     """Write the current _stats_cache into stats_samples. Returns row count."""
@@ -121,8 +118,9 @@ def _snapshot_stats_to_db() -> int:
 
 
 def _prune_old_samples() -> int:
-    """Delete rows older than STATS_HISTORY_DAYS. Returns rows removed."""
-    cutoff = time.time() - STATS_HISTORY_DAYS * 86400
+    """Delete rows older than the current history-days setting. Returns rows removed."""
+    days = tuning.tuning_int("tuning_stats_history_days")
+    cutoff = time.time() - days * 86400
     with db_conn() as c:
         cur = c.execute("DELETE FROM stats_samples WHERE ts < ?", (cutoff,))
         return cur.rowcount or 0
@@ -131,24 +129,27 @@ def _prune_old_samples() -> int:
 async def stats_sampler_loop() -> None:
     # Wait a beat so the first gather_stats() has a chance to populate
     # _stats_cache before we write a row of zeros.
-    await asyncio.sleep(min(60, STATS_SAMPLE_INTERVAL))
+    interval = tuning.tuning_int("tuning_stats_sample_interval_seconds")
+    await asyncio.sleep(min(60, interval))
     tick = 0
     while True:
         try:
             n = _snapshot_stats_to_db()
+            interval = tuning.tuning_int("tuning_stats_sample_interval_seconds")
+            days = tuning.tuning_int("tuning_stats_history_days")
             # Prune hourly rather than every tick — single cheap DELETE,
             # but no need to churn on every 5-minute cycle.
-            if tick % max(1, 3600 // STATS_SAMPLE_INTERVAL) == 0:
+            if tick % max(1, 3600 // interval) == 0:
                 pruned = _prune_old_samples()
                 if pruned:
-                    print(f"[sampler] pruned {pruned} rows older than {STATS_HISTORY_DAYS}d")
+                    print(f"[sampler] pruned {pruned} rows older than {days}d")
             if n:
                 print(f"[sampler] wrote {n} samples")
         except Exception as e:
             print(f"[sampler] error: {e}")
         tick += 1
         try:
-            await asyncio.sleep(STATS_SAMPLE_INTERVAL)
+            await asyncio.sleep(interval)
         except asyncio.CancelledError:
             raise
 
@@ -314,7 +315,7 @@ async def gather_stats() -> None:
             if (c.get("State") or "").lower() == "running":
                 running_cids.append(cid)
 
-        sem = asyncio.Semaphore(portainer.STATS_CONCURRENCY)
+        sem = asyncio.Semaphore(portainer.stats_concurrency())
 
         async def fetch(cid: str):
             async with sem:

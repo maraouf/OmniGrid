@@ -12,8 +12,11 @@ and UI-managed via ``get_portainer_settings()``. Env vars
 first boot with an empty settings row, they're seeded in once. After
 that the DB wins and env is ignored. See ``note_env_example.txt``.
 
-Concurrency caps (``REGISTRY_CONCURRENCY`` / ``STATS_CONCURRENCY``) stay
-as env-only tunables — they're process-level knobs not worth an admin UI.
+Concurrency caps (``REGISTRY_CONCURRENCY`` / ``STATS_CONCURRENCY``)
+resolve via :mod:`logic.tuning` — DB setting > env var > code default.
+Call sites use ``portainer.registry_concurrency()`` /
+``portainer.stats_concurrency()`` so each gather sees the current value
+without restart (#337).
 """
 import os
 import sqlite3
@@ -21,12 +24,19 @@ from typing import Optional
 
 import httpx
 
+from logic import tuning
+
 
 # ----------------------------------------------------------------------------
-# Tunables — env-only, unchanged from before the UI-managed refactor.
+# Tunables — three-tier (DB > env > default) resolution. Functions, not
+# constants, so the live UI override takes effect on the next call.
 # ----------------------------------------------------------------------------
-REGISTRY_CONCURRENCY = int(os.getenv("REGISTRY_CONCURRENCY", "8"))
-STATS_CONCURRENCY = int(os.getenv("STATS_CONCURRENCY", "16"))
+def registry_concurrency() -> int:
+    return tuning.tuning_int("tuning_registry_concurrency")
+
+
+def stats_concurrency() -> int:
+    return tuning.tuning_int("tuning_stats_concurrency")
 
 
 # ----------------------------------------------------------------------------

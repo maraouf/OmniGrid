@@ -38,18 +38,14 @@ from __future__ import annotations
 
 import asyncio
 import json
-import os
 import time
 from typing import Optional
 
 import httpx
 
 from logic import node_exporter as _ne
+from logic import tuning
 from logic.db import db_conn, get_setting
-
-
-STATS_HISTORY_DAYS = int(os.getenv("STATS_HISTORY_DAYS", "7"))
-STATS_SAMPLE_INTERVAL = int(os.getenv("STATS_SAMPLE_INTERVAL_SECONDS", "300"))  # 5 min
 
 
 # Sanity bounds for accepting a counter delta as a valid rate.
@@ -207,7 +203,8 @@ async def _probe_one(client: httpx.AsyncClient, host: dict) -> None:
 
 
 def _prune_old_samples() -> int:
-    cutoff = int(time.time() - STATS_HISTORY_DAYS * 86400)
+    days = tuning.tuning_int("tuning_stats_history_days")
+    cutoff = int(time.time() - days * 86400)
     try:
         with db_conn() as c:
             cur = c.execute("DELETE FROM host_net_samples WHERE ts < ?", (cutoff,))
@@ -218,7 +215,8 @@ def _prune_old_samples() -> int:
 
 
 async def host_net_sampler_loop() -> None:
-    """Lifespan-managed sampler. One tick per ``STATS_SAMPLE_INTERVAL``.
+    """Lifespan-managed sampler. One tick per
+    ``tuning_stats_sample_interval_seconds`` (DB > env > default).
 
     Cadence matches the stats sampler so a ``hostHistory[]`` chart backed
     by NE fallback samples the same way the Beszel-native path does.
@@ -234,7 +232,8 @@ async def host_net_sampler_loop() -> None:
     _last_counters.clear()
     # Wait a beat so the DB tables are created + hosts_config is loaded
     # before the first probe. Same pattern as stats_sampler_loop.
-    await asyncio.sleep(min(60, STATS_SAMPLE_INTERVAL))
+    interval = tuning.tuning_int("tuning_stats_sample_interval_seconds")
+    await asyncio.sleep(min(60, interval))
     tick = 0
     while True:
         try:
@@ -255,15 +254,17 @@ async def host_net_sampler_loop() -> None:
                                 await _probe_one(client, host)
                             except Exception as e:
                                 print(f"[host_net_sampler] {host.get('id')!r} unexpected: {e}")
-            if tick % max(1, 3600 // STATS_SAMPLE_INTERVAL) == 0:
+            interval = tuning.tuning_int("tuning_stats_sample_interval_seconds")
+            days = tuning.tuning_int("tuning_stats_history_days")
+            if tick % max(1, 3600 // interval) == 0:
                 n = _prune_old_samples()
                 if n:
-                    print(f"[host_net_sampler] pruned {n} rows older than {STATS_HISTORY_DAYS}d")
+                    print(f"[host_net_sampler] pruned {n} rows older than {days}d")
         except Exception as e:
             print(f"[host_net_sampler] tick error: {e}")
         tick += 1
         try:
-            await asyncio.sleep(STATS_SAMPLE_INTERVAL)
+            await asyncio.sleep(interval)
         except asyncio.CancelledError:
             raise
 
