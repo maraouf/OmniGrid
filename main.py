@@ -4757,41 +4757,26 @@ async def api_version():
 
 
 # ----------------------------------------------------------------------------
-# Admin → Version page (#371). Each of MAJOR / MINOR / PATCH can be
-# operator-overridden via the UI; anything not overridden falls back to
-# /app/VERSION.txt (the deployment pipeline manages that file, bumping
-# PATCH on every successful deploy; rsync excludes it so deploys can't
-# overwrite the bumped value).
+# Admin → Version page. Direct VERSION.txt editor — Save writes the
+# file. The deployment pipeline keeps bumping PATCH on every successful
+# deploy; both writers target the same path. Operator uses this page
+# to reset PATCH after cutting a MINOR release.
 # ----------------------------------------------------------------------------
 @app.get("/api/admin/version")
 async def api_admin_version(_admin: auth.User = Depends(auth.require_admin)):
     """Return the live version split into its components for the
-    Admin → Version form to pre-populate.
-
-    `db_override` is true when ANY of major/minor/patch is currently
-    sourced from the settings table; false means the version reflects
-    the raw VERSION.txt content unchanged (legacy / fresh-deploy state).
+    Admin → Version form to pre-populate. Values come straight from
+    VERSION.txt.
     """
-    from logic.version import _read_version_file, _db_version_overrides, _split_version
+    from logic.version import _read_version_file, _split_version
     raw = _read_version_file()
-    file_major, file_minor, file_patch = _split_version(raw)
-    o_major, o_minor, o_patch = _db_version_overrides()
-    major = o_major if o_major is not None else file_major
-    minor = o_minor if o_minor is not None else file_minor
-    patch = o_patch if o_patch is not None else file_patch
-    db_override = (o_major is not None) or (o_minor is not None) or (o_patch is not None)
+    major, minor, patch = _split_version(raw)
     return {
         "current": read_version(),
         "raw_file": raw,
         "major": major,
         "minor": minor,
         "patch": patch,
-        "db_override": db_override,
-        # File-level components for the "reset to file" affordance, so
-        # the UI can show the raw on-disk value next to the override.
-        "file_major": file_major,
-        "file_minor": file_minor,
-        "file_patch": file_patch,
     }
 
 
@@ -4806,11 +4791,13 @@ async def api_admin_version_set(
     body: VersionPin,
     _admin: auth.User = Depends(auth.require_admin),
 ):
-    """Pin MAJOR / MINOR / PATCH to the values the operator typed in the UI.
+    """Write MAJOR.MINOR.PATCH directly to VERSION.txt.
 
-    Persists each to the settings table. The deploy pipeline keeps
-    bumping the on-disk counter in VERSION.txt regardless; the override
-    here wins on every read until the operator clears it.
+    The file is the single source of truth — the deploy pipeline keeps
+    bumping the same path on every successful deploy. Open-and-truncate
+    keeps the file's inode and host-side ownership intact, so the
+    pi-user SSH writes from CI continue to work after a container
+    write.
 
     Returns the same shape as GET so the UI can re-baseline its form.
     """
@@ -4820,29 +4807,28 @@ async def api_admin_version_set(
             content={"detail": "major, minor and patch must be non-negative integers"},
         )
     if body.major > 99 or body.minor > 999 or body.patch > 99999:
-        # Sanity bounds — reject obvious typos.
         return JSONResponse(
             status_code=400,
             content={"detail": "major must be ≤99, minor must be ≤999, patch must be ≤99999"},
         )
-    set_setting("version_major", str(body.major))
-    set_setting("version_minor", str(body.minor))
-    set_setting("version_patch", str(body.patch))
-    return await api_admin_version(_admin)
-
-
-@app.delete("/api/admin/version")
-async def api_admin_version_clear(
-    _admin: auth.User = Depends(auth.require_admin),
-):
-    """Drop every component override → fall back to the raw VERSION.txt
-    content. Useful when the operator wants to temporarily pin then
-    revert; or when a deploy is supposed to roll the version back to
-    whatever counter is on disk without manual edits.
-    """
-    set_setting("version_major", "")
-    set_setting("version_minor", "")
-    set_setting("version_patch", "")
+    from logic.version import write_version
+    try:
+        write_version(body.major, body.minor, body.patch)
+    except OSError as e:
+        # Most common cause: docker-compose still has /app:ro without
+        # the per-file writable bind mount for VERSION.txt. Surface a
+        # readable hint instead of the raw "Read-only file system" so
+        # the operator knows what to fix.
+        return JSONResponse(
+            status_code=500,
+            content={
+                "detail": (
+                    f"Could not write VERSION.txt: {e}. "
+                    "Add a writable bind for /opt/omnigrid/app/VERSION.txt:/app/VERSION.txt "
+                    "to docker-compose.yml and redeploy the stack."
+                ),
+            },
+        )
     return await api_admin_version(_admin)
 
 

@@ -38,8 +38,14 @@ Items that have shipped to the live deploy as a PATCH bump but haven't
 yet been rolled into a numbered `MINOR` release. When the operator cuts
 the next release, this whole block becomes the `[X.Y.0]` entry below.
 
-_(no items yet — `1.1.0` was just cut. Next PATCH-shipped item lands its
-entry here.)_
+### Added
+
+- Pending-updates badge on the Stacks nav button — small pill showing the count of items with `status === 'update'`. Only renders on Stacks (Services / Nodes are alternate views over the same items, so a duplicate badge would just repeat the same number). Wired off the existing `counts.update` getter; the existing op-polling loop already calls `refresh(true)` on every op completion, so the badge falls back to 0 once an update lands without any extra wiring (#372).
+
+### Changed
+
+- Admin → Version page now edits every component (MAJOR / MINOR / PATCH) and writes the values straight to `VERSION.txt`. Replaces the original DB-override model from earlier in the cycle. Compose now layers a writable per-file bind for `VERSION.txt` on top of the read-only `/app` mount; the deployment pipeline keeps bumping the same file on every deploy. Use case: reset PATCH to 0 from the UI when cutting a MINOR release. Operators must redeploy the stack once for the new compose bind to take effect (#374).
+- Simplified Admin → Version copy + the deploy.yml bump-step note. `patch_label` drops the "(CI-managed)" suffix; `patch_hint` is now "Managed by the deployment pipeline."; `cadence_note` rewritten to reflect the new editability; `.forgejo/workflows/deploy.yml`'s 32-line bump-step doc-comment block collapsed to a single `# Managed by the deployment pipeline.` line (script logic untouched) (#373).
 
 ## [1.1.0] — 2026-04-26
 
