@@ -172,27 +172,60 @@ _EXCLUDED_DISK_PREFIXES = (
     "zram",     # in-memory swap
 )
 
+# FreeBSD's `node_devstat_*` family uses different device naming. md*
+# is FreeBSD's memory disk (synthetic) — exclude here even though Linux
+# md0 (RAID) is now KEPT (#344 loosening). pass* is the SCSI passthrough
+# device — synthetic, exclude. cd* is cd-rom — exclude. Real FreeBSD
+# storage devices come through as ada0 / ada1 (SATA), da0 / da1 (USB /
+# SCSI), nvd0 / nvme0 (NVMe), mfid0 (MFI RAID), zfs* — none match.
+# Linux md0 isn't reachable via this fallback because the Linux pass
+# always wins when `node_disk_*` is present, so md exclusion here only
+# applies to FreeBSD output.
+_EXCLUDED_DEVSTAT_PREFIXES = (
+    "pass",     # SCSI passthrough (pass0, pass1)
+    "md",       # FreeBSD memory disk (md98, md99 are stock)
+    "cd",       # cd-rom (cd0)
+)
+
 
 def _is_excluded_disk(name: str) -> bool:
     return any(name.startswith(p) for p in _EXCLUDED_DISK_PREFIXES)
 
 
+def _is_excluded_devstat(name: str) -> bool:
+    return any(name.startswith(p) for p in _EXCLUDED_DEVSTAT_PREFIXES)
+
+
 def parse_disk_counters(text: str) -> dict:
-    """Extract ``node_disk_{read,written}_bytes_total`` counters per device.
+    """Extract per-device read/write byte counters.
 
-    Parses the pairs:
+    Tries two metric families in order:
 
-        node_disk_read_bytes_total{device="sda"}    1234567
-        node_disk_written_bytes_total{device="sda"} 2345678
+    1. Linux ``node_disk_{read,written}_bytes_total`` (the diskstats
+       collector — present on every modern Linux node-exporter):
 
-    Excludes loop / dm / ram / floppy / cd-rom / zram / mdadm devices so
-    the totals reflect the host's "real" storage activity. Per-partition
-    rows (``sda1``, ``sda2``, etc.) are KEPT — node-exporter emits both
-    parent and partition counters and they should match for a single-
-    partition device; summing both would double-count, so the parser
-    keeps only PARENT block devices (no trailing digit) when we can
-    detect them. Logic: skip ``device`` entries whose name is a prefix of
-    another ``device`` we've already seen (i.e., partitions of a parent).
+           node_disk_read_bytes_total{device="sda"}    1234567
+           node_disk_written_bytes_total{device="sda"} 2345678
+
+    2. FreeBSD ``node_devstat_bytes_total`` (the devstat collector —
+       opnsense / pfSense / TrueNAS / FreeBSD; #352):
+
+           node_devstat_bytes_total{device="ada0",type="read"}  4119181824
+           node_devstat_bytes_total{device="ada0",type="write"} 14823682183168
+
+       The FreeBSD pass runs ONLY when the Linux pass produced no
+       eligible devices, so a Linux host that legitimately has no
+       diskstats (rare — collector disabled) doesn't get accidentally
+       fed devstat data from an unrelated source. Different exclusion
+       list: ``pass*`` (SCSI passthrough), ``md*`` (FreeBSD memory
+       disk — distinct from Linux RAID md0 which the Linux pass
+       handles upstream), ``cd*`` (cd-rom).
+
+    Excludes loop / ram / floppy / cd-rom / zram synthetic devices on
+    Linux so totals reflect the host's "real" storage activity.
+    Per-partition rows (``sda1``, ``sda2``, etc.) are KEPT only as
+    parents — node-exporter emits both and summing would double-count,
+    so children whose name is parent + digits are dropped.
 
     Returns:
         {"devices": [{"name": "sda", "read_bytes": int, "written_bytes": int}],
@@ -245,6 +278,42 @@ def parse_disk_counters(text: str) -> dict:
         (per_dev[n] for n in per_dev if n not in dropped),
         key=lambda r: r["name"],
     )
+
+    # FreeBSD fallback (#352): Linux pass found nothing → try the
+    # `node_devstat_bytes_total{device,type}` family. Same shape out
+    # so the caller (`probe_node` → sampler) doesn't care which family
+    # produced the bytes.
+    if not devices:
+        bsd_per_dev: dict[str, dict] = {}
+        for raw_line in text.splitlines():
+            line = raw_line.strip()
+            if not line or line.startswith("#"):
+                continue
+            if not line.startswith("node_devstat_bytes_total"):
+                continue
+            m = _LINE_RE.match(line)
+            if not m:
+                continue
+            try:
+                value = float(m.group("value"))
+            except ValueError:
+                continue
+            labels = _parse_labels(m.group("labels") or "")
+            device = (labels.get("device") or "").strip()
+            kind = (labels.get("type") or "").strip().lower()
+            if not device or _is_excluded_devstat(device):
+                continue
+            if kind not in ("read", "write"):
+                continue
+            entry = bsd_per_dev.setdefault(
+                device, {"name": device, "read_bytes": 0, "written_bytes": 0},
+            )
+            if kind == "read":
+                entry["read_bytes"] = int(value)
+            else:
+                entry["written_bytes"] = int(value)
+        devices = sorted(bsd_per_dev.values(), key=lambda r: r["name"])
+
     if not devices:
         # Distinguish "exporter doesn't expose the diskstats collector"
         # (no matching lines at all) from "exporter exposes them but the
