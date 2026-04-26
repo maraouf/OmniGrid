@@ -4,11 +4,11 @@ A Portainer-native update dashboard for Docker Swarm clusters. Scans every servi
 
 Built as a friendlier replacement for Diun Dash: Diun only **observes**; OmniGrid **acts**.
 
-<!-- Screenshots live under `docs/screenshots/`. Drop a PNG there and
-     reference it below — the file ships with the repo so the README
-     renders the same on any clone / fork / mirror. -->
+<!-- Screenshots live under `docs/screenshots/` — see the gallery below
+     for the full set. The hero shot is the Nodes view (Stacks grouped
+     by host node + live HOST CPU/MEM/DISK bars). -->
 <p align="center">
-  <img src="docs/screenshots/hosts-view.png" alt="OmniGrid Hosts view" width="900" />
+  <img src="docs/screenshots/nodes-view.png" alt="OmniGrid Nodes view — stacks grouped by host with live CPU / Memory / Disk bars" width="960" />
 </p>
 
 ## Features
@@ -145,3 +145,41 @@ Or, of course, use OmniGrid itself to update… itself. Fun thought.
   per convention so git hosts and packagers auto-detect it).
 - [`docs/RELEASE_PROCESS.md`](docs/RELEASE_PROCESS.md) — SemVer cadence,
   PATCH auto-bump on deploy, periodic MINOR cuts, MAJOR breaking-change ritual.
+
+## Screenshots
+
+The Nodes view at the top of this README is the dashboard's most-used surface.
+The full gallery lives under [`docs/screenshots/`](docs/screenshots/) — a quick
+tour:
+
+### Cluster overview
+
+| | |
+| --- | --- |
+| ![Stacks](docs/screenshots/stacks-view-light.png) | **Stacks view** — grouped table, expand-per-stack, the default landing surface. |
+| ![Services](docs/screenshots/services-view-light.png) | **Services view** — flat sortable list of every Swarm service. |
+| ![Service detail](docs/screenshots/service-detail-drawer.png) | **Service detail drawer** — image / digest / actions (Restart / Recreate / Ignore). |
+| ![Nodes](docs/screenshots/nodes-view.png) | **Nodes view** — stacks grouped by Swarm node with live HOST CPU / MEM / DISK / UPTIME bars. |
+| ![History](docs/screenshots/history-audit-log.png) | **History (audit log)** — every operation persisted with filterable when / op / target columns. |
+
+### Hosts
+
+| | |
+| --- | --- |
+| ![Hosts (light)](docs/screenshots/hosts-view-light.png) | **Hosts view (light)** — curated host inventory grouped by `custom_number` ranges. |
+| ![Hosts (dark)](docs/screenshots/hosts-view-dark.png) | **Hosts view (dark)** — same data, dark theme. |
+| ![Hardware drawer](docs/screenshots/host-drawer-hardware.png) | **Host drawer — hardware** — vendor / model / serial / OS / kernel / network details. |
+| ![Charts drawer](docs/screenshots/host-drawer-charts.png) | **Host drawer — charts** — CPU / Mem / Disk / Net In/Out / Load / Bandwidth time-series. |
+| ![Charts drawer (bottom)](docs/screenshots/host-drawer-charts-bottom.png) | **Host drawer — bandwidth + swap** — scrolled view of the chart grid. |
+
+### Admin / operations
+
+| | |
+| --- | --- |
+| ![SSH run](docs/screenshots/host-drawer-ssh-run.png) | **Host drawer — SSH-run** — admin one-shot command runner with dry-run, destructive-pattern guard, full audit. |
+| ![SSH terminal](docs/screenshots/host-drawer-ssh-terminal.png) | **Host drawer — SSH terminal** — interactive xterm.js session via WSS to the backend's asyncssh PTY. |
+| ![Hosts editor](docs/screenshots/admin-hosts-editor.png) | **Admin → Hosts editor** — paginated curated-host CRUD with live discovery from each provider. |
+| ![Schedules](docs/screenshots/admin-schedules.png) | **Admin → Schedules** — cron-like recurring jobs (gather refresh / prune / backup / asset refresh). |
+| ![Backups](docs/screenshots/admin-backups.png) | **Admin → Backups** — DB + avatars snapshot zips with download / restore. |
+| ![Profile](docs/screenshots/settings-profile.png) | **Settings → Profile** — account info, display name / email / avatar, password change. |
+| ![Debug drawer](docs/screenshots/host-drawer-debug.png) | **Host drawer — debug** — raw provider-payload view (Beszel / Pulse / NE / Webmin) for troubleshooting empty rows. |
