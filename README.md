@@ -4,7 +4,12 @@ A Portainer-native update dashboard for Docker Swarm clusters. Scans every servi
 
 Built as a friendlier replacement for Diun Dash: Diun only **observes**; OmniGrid **acts**.
 
-![screenshot placeholder — deploy it and see for yourself]
+<!-- Screenshots live under `docs/screenshots/`. Drop a PNG there and
+     reference it below — the file ships with the repo so the README
+     renders the same on any clone / fork / mirror. -->
+<p align="center">
+  <img src="docs/screenshots/hosts-view.png" alt="OmniGrid Hosts view" width="900" />
+</p>
 
 ## Features
 
@@ -64,7 +69,7 @@ Portainer UI → profile menu → *My account* → *Access tokens* → add a new
 Portainer → *Stacks* → *Add stack* → paste `docker-compose.yml`, fill in `PORTAINER_API_KEY` / `PORTAINER_URL` / `PORTAINER_ENDPOINT_ID` in the environment fields → Deploy.
 
 **5. Point NPM at it**:
-Proxy host: `omnigrid.w.<asset-api-host>` (external) / `omnigrid.example.com` (internal) → `http://<manager>:8088`. The app has its own local login + optional Authentik OIDC SSO; no reverse-proxy auth gymnastics required. See `notes/guidelines/authentik.md` to wire up SSO.
+Proxy host: `omnigrid.w.<asset-api-host>` (external) / `omnigrid.example.com` (internal) → `http://<manager>:8088`. The app has its own local login + optional Authentik OIDC SSO; no reverse-proxy auth gymnastics required. See `docs/guidelines/authentik.md` to wire up SSO.
 
 **6. Open it up**, hit ⚙️ Settings, configure:
 - Apprise URL: e.g. `http://apprise.example.com:8005/notify/OmniGrid` (or with a tag)
@@ -131,3 +136,12 @@ docker service update --force omnigrid_omnigrid
 ```
 
 Or, of course, use OmniGrid itself to update… itself. Fun thought.
+
+## Documentation
+
+- [`docs/README.md`](docs/README.md) — index of operator runbooks (auth, OIDC,
+  deploy, env reference, scheduler, metrics, npm updates, Beszel agent setup).
+- [`CHANGELOG.md`](CHANGELOG.md) — release notes per Keep a Changelog (root
+  per convention so git hosts and packagers auto-detect it).
+- [`docs/RELEASE_PROCESS.md`](docs/RELEASE_PROCESS.md) — SemVer cadence,
+  PATCH auto-bump on deploy, periodic MINOR cuts, MAJOR breaking-change ritual.

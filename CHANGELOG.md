@@ -4,7 +4,7 @@ All notable changes to OmniGrid land here. Format adheres to
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project
 follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-Cadence (see `notes/RELEASE_PROCESS.md` for the full operator runbook):
+Cadence (see `docs/RELEASE_PROCESS.md` for the full operator runbook):
 
 - **`PATCH`** — CI bumps automatically on every successful deploy
   (one per shipped TODO item). The accumulating count between releases
@@ -40,6 +40,8 @@ the next release, this whole block becomes the `[X.Y.0]` entry below.
 
 ### Internal
 
+- Documentation moved from `notes/guidelines/` and `notes/RELEASE_PROCESS.md` to a new `docs/` directory; new `docs/screenshots/` for README images; new `docs/README.md` index. Operator-private files (`note_todo.txt`, `notes.txt`, `forgejo_runner_config.yml`, the live Grafana dashboard, `.claude/agent-memory/**`) stay in `notes/`. `CHANGELOG.md` and the root `README.md` keep their root-level positions per convention. CLAUDE.md / code docstrings / cross-references updated to the new paths.
+
 - Consolidated `_load_curated_hosts` between the two NE samplers — both now import the canonical `curated_ne_hosts()` from `logic/db.py` (#357 / CONS-001). Drops ~30 duplicated lines and means a future NE-aware sampler (e.g. ping / SNMP) only adds to the canonical helper.
 - New `_format_provider_test_summary()` in `main.py` keeps the Pulse + Beszel test-connection response shape identical (#359 / CONS-003). Webmin and Portainer keep their bespoke summaries; future `{hosts: {...}}`-shaped providers should reuse the helper.
 - `README.md` ref updated from `notes/note_authentik.txt` to `notes/guidelines/authentik.md` (#360 / DEAD-001).
@@ -59,7 +61,7 @@ the next release, this whole block becomes the `[X.Y.0]` entry below.
 
 ### Fixed
 
-- Admin → Hosts / Host groups action bar now matches the editor section's width and clears the version footer (#366). Switched `.hosts-config-actionbar` from `position: fixed` (which overshot the section by hundreds of pixels because the admin layout puts the section inside a 1100px-max-width `.page-layout` with a 220px sidebar) to `position: sticky; bottom: var(--app-footer-clearance)` (new 48px token) so the bar inherits the section's natural in-flow width. The bar still pins to viewport-bottom + clearance the moment the operator scrolls — same always-reachable behaviour, container-aligned width.
+- Admin → Hosts / Host groups action bar now matches the editor section's width AND pins correctly to the viewport bottom while scrolling (#366). Three-iteration fix: introduced `--app-footer-clearance: 48px` token to clear the sticky footer, then switched `.hosts-config-actionbar` from `position: fixed` (which overshot the section because the admin layout nests it inside a 1100px-max-width `.page-layout` with a 220px sidebar) to `position: sticky; bottom: var(--app-footer-clearance)` so the bar inherits the section's natural in-flow width. Sticky was silently broken by `html, body { overflow-x: hidden }` — that property promotes html/body to a scroll container, which sticky descendants pin to instead of the viewport. Swapped to `overflow-x: clip` (clips overflow without establishing a scroll container) so sticky operates against the viewport as expected.
 
 - SSH terminal modal: xterm cols/rows now match the modal's actual dimensions on first open even when xterm's `FitAddon.proposeDimensions()` silently returns `undefined` (#353 followup). New `measureAndResize` helper tries FitAddon first; if `term.cols` stays at the default 80, falls back to a manual `getBoundingClientRect()` measurement using known cell metrics (~7.85px × ~17.5px per cell at 13px Menlo / Consolas / DejaVu Mono) and calls `term.resize()` directly. Helper runs on rAF + 50/250/600/1200ms `setTimeout`s + a `ResizeObserver` + the WS `ready` control frame.
 
@@ -426,7 +428,7 @@ the next release, this whole block becomes the `[X.Y.0]` entry below.
 ## [1.0.0] — 2026-04-26
 
 Baseline release — first MAJOR.MINOR.PATCH version under the new
-SemVer + `CHANGELOG.md` cadence (see `notes/RELEASE_PROCESS.md`).
+SemVer + `CHANGELOG.md` cadence (see `docs/RELEASE_PROCESS.md`).
 Existing deployments running an earlier `2.0.X` (legacy 3-part) or
 `2.X` (interim 2-part) version are migrated forward by the bump logic
 in `.forgejo/workflows/deploy.yml`, but the changelog story restarts

@@ -385,8 +385,15 @@ body {
        breaking the whole-page layout. Inner scrollers (`.scrollbar`
        wrappers, table containers) still get their own horizontal
        scroll where they need it — this only catches "the page itself
-       is wider than the screen" bugs. */
-    overflow-x: hidden;
+       is wider than the screen" bugs.
+       NB: `overflow-x: clip` (not `hidden`) — `hidden` would promote
+       html/body to a scroll container, which breaks `position: sticky`
+       descendants (the admin action bars in #366 didn't pin to the
+       viewport bottom). `clip` clips overflow without establishing a
+       scroll container, so sticky still works. Supported in Chrome
+       90+, Firefox 81+, Safari 16+ — covers every browser this app
+       targets. */
+    overflow-x: clip;
     max-width: 100vw;
 }
 

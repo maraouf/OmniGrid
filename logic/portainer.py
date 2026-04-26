@@ -10,7 +10,7 @@ and UI-managed via ``get_portainer_settings()``. Env vars
 (``PORTAINER_URL`` / ``PORTAINER_API_KEY`` / ``PORTAINER_ENDPOINT_ID``
 / ``VERIFY_TLS``) are consulted ONLY as a transitional bootstrap — on
 first boot with an empty settings row, they're seeded in once. After
-that the DB wins and env is ignored. See ``notes/guidelines/env_example.md``.
+that the DB wins and env is ignored. See ``docs/guidelines/env_example.md``.
 
 Concurrency caps (``REGISTRY_CONCURRENCY`` / ``STATS_CONCURRENCY``)
 resolve via :mod:`logic.tuning` — DB setting > env var > code default.
@@ -72,7 +72,7 @@ def bootstrap_portainer_settings(conn: sqlite3.Connection) -> None:
     for existing deployments that had Portainer config in .env — admins
     can migrate at their own pace, env stays ignored after the DB row
     exists. Documented as "transitional; will be removed in a future
-    release" in notes/guidelines/env_example.md.
+    release" in docs/guidelines/env_example.md.
     """
     env_map = {
         "portainer_url":         os.getenv("PORTAINER_URL", "").rstrip("/"),
