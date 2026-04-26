@@ -208,147 +208,22 @@ internal cleanup — see the Internal section.
 
 - Open-Meteo Save button moved below the URL input — matches Apprise layout (#307).
 
-- UX-002: skeleton placeholders during initial fetch (#276).
-
-- UX-003: empty-state hint when Portainer not configured (#277).
-
-- UX-008: Admin sidebar collapses to <select> below 768px (#280).
-
-- Empty sub-group headings (REVERSED — see #301) (#298).
-
-- Net In / Net Out chart heights match CPU/Memory/Disk (#286).
-
-- Beszel "paused" status now maps to "down" (#285).
-
-- Host drawer: explicit 12-col grid with col-span-6 on each card (#283).
-
-- Stats-graphs diagnostic resolved the issue — confirmed working by operator (#273).
-
-- Stacks/Services view stats graphs — RESOLVED via #273 diagnostics (#250).
-
-- CSS palette tokenization complete — every CSS-001 to CSS-032 violation closed (#270).
-
-- `gather_stats()` diagnostic logging — pinpoints why stats are empty in operator's #250 (#269).
-
-- Host drawer slide animation finally working — switched from Alpine x-transition to plain CSS keyframe (#268).
-
-- Icon-resolver registry — kills the `<unknown-slug>.svg` 404 noise (#266).
-
-- Closed every remaining I18N-* violation from `notes/code_review_2026-04-25.md` (#265).
-
-- Three runtime errors from operator's deployed-page console (#263).
-
-- Brand icons batch 3 — Roku + Alienware (simple-icons), Kindle + WD-TV fallbacks (#256 closed) (#262).
-
-- Brand icons batch 2 — 5 more from Wikimedia Commons (Samsung / Bose / Gigabyte / Nest / Chromecast) (#260).
-
-- Page-load Alpine errors after the new-version banner reload — `app.js` was racing Alpine (#258).
-
-- Host Groups editor: Tab skips Move ↑ / Move ↓ / Delete ✕ buttons (#257).
-
-- Re-applied disable-when-master-off across all admin tabs (operator's final answer on #238) (#249).
-
-- Amazon Fire TV brand icon (#248).
-
+- **Code-review compliance batches** (closed all of: UX-001 stale-data markers + UX-002 skeleton placeholders + UX-003 empty-state hints + UX-005 / UX-008, every CSS-001 to CSS-032 palette tokenization violation, every remaining I18N-* violation from the 2026-04-25 review, plus a sweep of bugs BUG-002 / 003 / 004 / 005 / 007 / 008 / 009 / 011) (#261, #265, #270, #271, #275–#281).
+- Interactive SSH terminal modal — admin-only xterm.js viewport over WSS to a backend asyncssh PTY (#170).
+- Asset-inventory integration — host rows joined against an external asset API for model / serial / location, with autofill button + dirty-pill UX (#171, #178, #186, #202, #217).
+- Cross-provider snapshot fallback — provider outages no longer blank the page; cached `nodes_info` survives, stamped with `_stale_fields` so the SPA can age values out (#236).
+- Hosts page — row expansion converted to slide-out drawer; collapsed-row headers gain SSH state dot + brand icon; provider chips suppress globally-broken providers and turn red when an enabled+mapped provider fails (#231, #239, #245, #290, #297, #299, #314).
+- Host Groups editor — collapsible children, NUMBER input moved to the natural Tab-order column, group heading rendered as `<number>. <name>`, optional `number` field for display-prefix labelling, Tab skips Move ↑/↓ + Delete fixed, duplicate-id check (#173, #199, #233, #241, #246, #257, #284).
+- Admin → all tabs — master-toggle treatment unified: child controls disable when the master is off; Apprise / OIDC / Portainer / SSH / Open-Meteo / Asset Inventory all share the same dirty pill + disabled-form behaviour (#215, #228, #229, #238, #249, #304, #307).
+- Topbar — clock + weather repositioned LEFT of the user avatar; copy-filtered-logs button on Admin → Logs; one-shot "no EFS" warnings to cut Beszel log spam (#180, #181, #191, #193).
+- Brand-icon library expansion — ~30 new vendor icons added across multiple batches (Aqara, ASUS, Alienware, Amazon Fire TV, Bose, Chromecast, Cisco, Gigabyte, GL.iNet, Hisense, HP family, IKEA, Kindle, Lubelogger, Motorola, Nest, Rachio, Reolink, Roku, Samsung, SanDisk, Sensibo, Somfy + typo aliases, Squid, Synology, Ubiquiti family, WD, WD-TV, Xiaomi). Plus an icon-resolver registry that kills the noisy `<unknown-slug>.svg` 404 spam from missing icons (#174, #177, #184, #185, #187, #188, #190, #194–#198, #201, #210, #216, #222, #224, #225, #226, #234, #242, #243, #244, #248, #260, #262, #266).
+- Host drawer polish — explicit 12-col grid with `col-span-6` cards, slide animation switched from Alpine x-transition to a CSS keyframe, Net In / Net Out chart heights match CPU / Memory / Disk, debug panel widths normalized (#264, #268, #283, #286, #343).
+- Schedules — daily / weekly / monthly schedules now actually fire (grace window added — they were silently no-ops near the day-boundary) (#211).
+- Sub-group filter behaviour — empty groups + sub-groups hide when "Hide hosts without agents" is on (#298 / #301 — preference reversed once mid-cycle, final state matches operator intent).
+- Hidden-hosts count badge on the "Hide hosts without agents" filter (#288).
+- Beszel `"paused"` status now correctly maps to `"down"` (#285).
+- Asset Inventory autofill strips FQDN domain suffix from id so `ssh_fqdn_suffix` still applies cleanly at SSH-resolve time (#217).
 - Removed the `_deriveTypeShort` JS acronym fallback — asset ShortName is the only source of truth (#247).
-
-- Host group heading format: `<number>. <name>` (dot separator) (#246).
-
-- Hosts page: row expansion converted to slide-out drawer (#239 finished) (#245).
-
-- Brand icons: SanDisk + HP-family completion (#244).
-
-- Somfy typo aliases — `smofy` resolves to somfy.svg (#243).
-
-- HP brand-icon resolver wiring (#242).
-
-- Host Groups editor: NUMBER input moved to first column for natural Tab order (#241).
-
-- Reverted #228 + #229's "disable form when master switch is off" treatment (#238).
-
-- Cross-provider snapshot fallback so providers going down don't blank the page (#236).
-
-- Brand icons: Rachio + GL.iNet + Somfy (#234).
-
-- CPU bar empty in Nodes view when only host-stats providers report (#231).
-
-- Admin → SSH child controls now disable when master switch is off (#229).
-
-- Admin → OIDC: same dirty + disabled treatment as the other admin tabs (#228).
-
-- Squid PNG → SVG wrapper (#226).
-
-- Lubelogger PNG → SVG wrapper (#225).
-
-- Sensibo brand icon (#224).
-
-- Hisense brand icon (#222).
-
-- Hosts view: skip the loading state for unconfigured hosts (#221).
-
-- SSH state dot moved to right side of host-row header (#218).
-
-- Motorola brand icon (#216).
-
-- Portainer Service-disabled toggle now also greys endpoint_id, verify_tls checkbox, Save + Test buttons (#215).
-
-- Host Stats per-provider blocks: hide → disable (#213).
-
-- Aqara + IKEA + Xiaomi brand icons (#210).
-
-- SSH state dot on Admin → Hosts collapsed-row headers (#203).
-
-- Brand icon on Admin → Hosts collapsed-row headers (#201).
-
-- After save, no host rows can expand (#200).
-
-- Synology icon — replaced with the Wikimedia Commons SVG (#198).
-
-- Reolink icon — replaced with logowik.com WebP (#197).
-
-- Reolink icon — operator-supplied PNG embedded in SVG wrapper (#196).
-
-- WD icon — replaced with the canonical Wikimedia Commons SVG (#195).
-
-- Reolink brand icon (#194).
-
-- Copy filtered logs to clipboard (#193).
-
-- Beszel log spam — one-shot "no EFS" warnings (#191).
-
-- Ubiquiti icon replaced with the canonical svgrepo "U-in-a-circle" mark (#190).
-
-- Autofill chip hidden when host row is collapsed (#189).
-
-- Cisco icon replaced with the actual Wikimedia Commons SVG (#188).
-
-- Ubiquiti icon redo + Cisco icon restored with wordmark (#187).
-
-- Asset-autofill button promoted to row header (#186).
-
-- Brand icons for Ubiquiti + UI (#185).
-
-- Cisco icon replaced with iconic bridge-only variant (#184).
-
-- Topbar clock + weather repositioned to the LEFT of the user avatar (#180).
-
-- Asset-inventory autofill in Admin → Hosts row (#178).
-
-- Cisco brand icon (#177).
-
-- "Open Terminal" button styling (#176).
-
-- Interactive SSH terminal modal (#170).
-
-- Brand icon for ASUS routers (#174).
-
-- Collapsible children in Host Groups editor (#173).
-
-- Asset card hidden when no inventory match (#171).
-
-- Real root cause finally found (#169).
-
-- Root cause: typing in host editor's ID field collapses the row (#166).
 
 
 ### Fixed
@@ -443,15 +318,11 @@ internal cleanup — see the Internal section.
 
 ## [1.0.0] — 2026-04-26
 
-Baseline release — first MAJOR.MINOR.PATCH version under the new
-SemVer + `CHANGELOG.md` cadence (see `docs/RELEASE_PROCESS.md`).
-Existing deployments running an earlier `2.0.X` (legacy 3-part) or
-`2.X` (interim 2-part) version are migrated forward by the bump logic
-in `.forgejo/workflows/deploy.yml`, but the changelog story restarts
-here so future readers have a clean starting point. Implementation
-detail for everything that shipped before this baseline lives in
-`notes/note_todo.txt` under the `## Done` block — keyed by stable
-`#NNN` TODO IDs that survive across the format transition.
+Baseline release — first version under the SemVer + `CHANGELOG.md`
+cadence (see `docs/RELEASE_PROCESS.md`). The changelog story starts
+here; implementation detail for everything that shipped before this
+baseline lives in `notes/note_todo.txt` under the `## Done` block,
+keyed by stable `#NNN` TODO IDs.
 
 [Unreleased]: https://git.www.home.lan/m.a.raouf/OmniGrid/compare/v1.1.0...HEAD
 [1.1.0]: https://git.www.home.lan/m.a.raouf/OmniGrid/compare/v1.0.0...v1.1.0
