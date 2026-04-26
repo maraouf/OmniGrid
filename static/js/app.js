@@ -8921,6 +8921,25 @@ function app() {
       if (drawerKey && (host.beszel_id || host.ne_url) && !this.hostHistory[drawerKey]) {
         this.loadHostHistory(host.beszel_id || '', host.id);
       }
+      // Dedicated drawer-history poll (#365) — keeps the chart series +
+      // the `Updated Xs ago` freshness label in sync regardless of
+      // whether the operator has the host-list poll enabled (when
+      // `statsInterval=0` the loadHosts setInterval never fires, so a
+      // hook inside loadHosts doesn't reach the drawer). 30s is a
+      // sensible default for a drawer the operator is actively
+      // watching; clears on closeHostDrawer.
+      if (this._drawerHistoryTimer) {
+        clearInterval(this._drawerHistoryTimer);
+      }
+      if (host.beszel_id || host.ne_url) {
+        this._drawerHistoryTimer = setInterval(() => {
+          if (!this.drawerHost) return;
+          this.loadHostHistory(
+            this.drawerHost.beszel_id || '',
+            this.drawerHost.id,
+          );
+        }, 30 * 1000);
+      }
       // Preload SSH status — admin only, and only when the host
       // didn't opt out. Without this the SSH card header shows
       // "Not configured" until the operator clicks to expand it —
@@ -8931,6 +8950,10 @@ function app() {
     },
     closeHostDrawer() {
       this.drawerHost = null;
+      if (this._drawerHistoryTimer) {
+        clearInterval(this._drawerHistoryTimer);
+        this._drawerHistoryTimer = null;
+      }
     },
     async loadHostHistory(systemId, hostId) {
       // Preserve whatever series we already have so the chart doesn't
@@ -8975,13 +8998,19 @@ function app() {
         }
         const d = await r.json();
         const next = Array.isArray(d.series) ? d.series : [];
-        // Stamp loadedAt only when a NON-EMPTY series actually landed —
-        // a transient empty reply (hub rebooting / rate-limit) doesn't
-        // refresh data, so it shouldn't refresh the "last updated"
-        // ticker either. Falls through to the previous timestamp on
-        // empty so the operator still sees how stale the displayed
-        // chart is. (#363)
-        const stamp = next.length ? Date.now() : (prev.loadedAt || 0);
+        // Stamp loadedAt on every successful HTTP 2xx, regardless of
+        // whether the series came back populated. Operator expectation
+        // is "when did we last poll the backend" (matching their
+        // statsInterval cadence) — an occasional empty-series reply
+        // (hub briefly returning [] during a restart, or a host with
+        // no samples in the selected window) shouldn't make the
+        // freshness label drift past one poll cycle. The chart
+        // VALUES still preserve `prev.series` on empty so the visible
+        // line doesn't blank, but the timestamp follows fetches.
+        // (#365 followup — was previously gated on `next.length`,
+        // which made the label appear stuck whenever a tick happened
+        // to land an empty reply.)
+        const stamp = Date.now();
         this.hostHistory[cacheKey] = {
           loading: false,
           error: d.error || '',

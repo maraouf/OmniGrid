@@ -59,7 +59,7 @@ the next release, this whole block becomes the `[X.Y.0]` entry below.
 
 ### Fixed
 
-- Admin → Hosts / Host groups floating action bar no longer overlaps the version footer (#366). New `--app-footer-clearance: 48px` token; `.hosts-config-actionbar` uses it as `bottom`; `.hosts-config-page-bottom-pad` bumped to 120px so the last row clears the higher bar.
+- Admin → Hosts / Host groups action bar now matches the editor section's width and clears the version footer (#366). Switched `.hosts-config-actionbar` from `position: fixed` (which overshot the section by hundreds of pixels because the admin layout puts the section inside a 1100px-max-width `.page-layout` with a 220px sidebar) to `position: sticky; bottom: var(--app-footer-clearance)` (new 48px token) so the bar inherits the section's natural in-flow width. The bar still pins to viewport-bottom + clearance the moment the operator scrolls — same always-reachable behaviour, container-aligned width.
 
 - SSH terminal modal: xterm cols/rows now match the modal's actual dimensions on first open even when xterm's `FitAddon.proposeDimensions()` silently returns `undefined` (#353 followup). New `measureAndResize` helper tries FitAddon first; if `term.cols` stays at the default 80, falls back to a manual `getBoundingClientRect()` measurement using known cell metrics (~7.85px × ~17.5px per cell at 13px Menlo / Consolas / DejaVu Mono) and calls `term.resize()` directly. Helper runs on rAF + 50/250/600/1200ms `setTimeout`s + a `ResizeObserver` + the WS `ready` control frame.
 
