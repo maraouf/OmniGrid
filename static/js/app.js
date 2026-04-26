@@ -181,6 +181,21 @@ function app() {
     hostsConfigSaving: false,
     hostsConfigDirty: false,
     hostsConfigFilter: '',
+    // Client-side pagination for the Admin → Hosts editor (#331). At
+    // ~200 hosts the rendered DOM (each row is a multi-input form
+    // card) becomes heavy; slicing the rendered list to one page at
+    // a time keeps tab switches + filter typing snappy. Full array
+    // still lives in `hostsConfig`, so dirty tracking + duplicate-id
+    // validator + save-path are untouched.
+    hostsConfigPage: 1,
+    hostsConfigPerPage: (() => {
+      try {
+        const raw = localStorage.getItem('hostsConfigPerPage');
+        const n = parseInt(raw, 10);
+        if (Number.isFinite(n) && [25, 50, 100, 200].includes(n)) return n;
+      } catch {}
+      return 50;
+    })(),
     // Datalist-backed autocomplete source for the Hosts editor.
     // Filled by discoverHosts() on demand; stays empty until the
     // operator asks.
@@ -606,6 +621,11 @@ function app() {
       this.$watch('hostsConfigExpanded', v => {
         try { localStorage.setItem('hostsConfigExpanded', JSON.stringify(v || {})); } catch {}
       }, { deep: true });
+      // Filter typing collapses the result set — jumping back to page 1
+      // is the only sensible default (otherwise the operator types a
+      // filter and sees an empty page because they were on page 4 of
+      // the unfiltered list).
+      this.$watch('hostsConfigFilter', () => { this.hostsConfigPage = 1; });
       this.$watch('hostsExpanded', v => {
         try { localStorage.setItem('hostsExpanded', JSON.stringify(v || [])); } catch {}
       });
@@ -5211,6 +5231,9 @@ function app() {
         }
         this.hostsConfigDirty = false;
         this.rebuildHostsConfigOrder();
+        // Reset paging on every load — operator expects to start at
+        // page 1 when reopening the editor.
+        this.hostsConfigPage = 1;
       } catch (e) {
         this.showToast(`Load hosts failed: ${e.message}`, 'error');
       } finally {
@@ -5297,6 +5320,53 @@ function app() {
         ].filter(Boolean).join(' ').toLowerCase();
         return hay.includes(q);
       });
+    },
+
+    // Page-of-N slice of `filteredHostsConfig()` for rendering.
+    // Returns a *windowed* `[{row, idx}, ...]` array — the same shape
+    // as `filteredHostsConfig` so the template iterator is unchanged
+    // (still has the original `idx` for move/remove/test actions).
+    // Page is clamped to the valid range so removing the last row
+    // on page N doesn't leave the user staring at an empty list —
+    // they auto-fall back to the new last page.
+    pagedHostsConfig() {
+      const all = this.filteredHostsConfig();
+      const per = this.hostsConfigPerPage || 50;
+      const total = all.length;
+      const totalPages = Math.max(1, Math.ceil(total / per));
+      // Clamp lazily — mutating state inside a getter would break
+      // Alpine reactivity, so we just compute the safe page.
+      const page = Math.min(Math.max(1, this.hostsConfigPage), totalPages);
+      const start = (page - 1) * per;
+      return all.slice(start, start + per);
+    },
+
+    // Total page count given the current filter + per-page.
+    // Returns at least 1 so the "Page 1 of 1" indicator renders even
+    // with an empty list (matches the empty-state cards' tone).
+    hostsConfigTotalPages() {
+      const total = this.filteredHostsConfig().length;
+      const per = this.hostsConfigPerPage || 50;
+      return Math.max(1, Math.ceil(total / per));
+    },
+
+    // Pagination actions. Goto/clamps internally; a no-op call (e.g.
+    // Next on the last page) leaves the page unchanged so the button
+    // can be safely visible-but-disabled rather than hidden.
+    hostsConfigGoToPage(n) {
+      const tp = this.hostsConfigTotalPages();
+      this.hostsConfigPage = Math.min(Math.max(1, parseInt(n, 10) || 1), tp);
+    },
+    hostsConfigPrevPage() { this.hostsConfigGoToPage(this.hostsConfigPage - 1); },
+    hostsConfigNextPage() { this.hostsConfigGoToPage(this.hostsConfigPage + 1); },
+    hostsConfigSetPerPage(n) {
+      const v = parseInt(n, 10);
+      if (!Number.isFinite(v) || v < 1) return;
+      this.hostsConfigPerPage = v;
+      try { localStorage.setItem('hostsConfigPerPage', String(v)); } catch {}
+      // Clamp page to the new layout so a 100→25 switch from page 2
+      // doesn't leave us on a stale page index.
+      this.hostsConfigPage = Math.min(this.hostsConfigPage, this.hostsConfigTotalPages());
     },
 
     // Recompute the hostsConfig display-order snapshot. Called on
@@ -5779,6 +5849,19 @@ function app() {
       });
       this.hostsConfigDirty = true;
       this.rebuildHostsConfigOrder();
+      // Jump to whichever page the new row landed on. After the
+      // sort, the new row's display position depends on its
+      // custom_number; without this jump, an "+ Add" on page 1
+      // could push focus to a row only visible on page 4.
+      this.$nextTick(() => {
+        const newUid = this.hostsConfig[this.hostsConfig.length - 1]._uid;
+        const all = this.filteredHostsConfig();
+        const pos = all.findIndex(({ row }) => row._uid === newUid);
+        if (pos >= 0) {
+          const per = this.hostsConfigPerPage || 50;
+          this.hostsConfigGoToPage(Math.floor(pos / per) + 1);
+        }
+      });
       // Scroll to the new (last) host card so the operator sees it
       // immediately — useful when the editor list is long enough to
       // require scrolling. A short delay lets Alpine finish rendering
@@ -6459,6 +6542,9 @@ function app() {
       this.hostsConfig.splice(idx, 1);
       this.rebuildHostsConfigOrder();
       this.hostsConfigDirty = true;
+      // Clamp page after delete — removing the last row on page N
+      // would otherwise leave the operator on an empty page.
+      this.hostsConfigPage = Math.min(this.hostsConfigPage, this.hostsConfigTotalPages());
     },
     // Manual reorder — simpler than drag-and-drop and works on
     // touch. Wraps around at the ends so the buttons stay useful
@@ -7145,10 +7231,27 @@ function app() {
     focusFirstFieldError() {
       const first = Object.keys(this.fieldErrors || {})[0];
       if (!first) return;
+      // If the first error is keyed against a hostsConfig row that
+      // lives on a different page (#331 paginates the editor),
+      // navigate to that page BEFORE the DOM query — otherwise the
+      // .field-invalid element doesn't exist and focus silently
+      // no-ops, leaving the operator confused about why save failed.
+      const m = first.match(/^host_(\d+)_/);
+      if (m) {
+        const rowIdx = parseInt(m[1], 10);
+        const all = this.filteredHostsConfig();
+        const pos = all.findIndex(({ idx }) => idx === rowIdx);
+        if (pos >= 0) {
+          const per = this.hostsConfigPerPage || 50;
+          this.hostsConfigGoToPage(Math.floor(pos / per) + 1);
+        }
+      }
       // Best-effort DOM lookup — errors are keyed by a stable id and
       // the templates bind `:class="hasFieldError('...')"` on the
       // input. A short delay lets Alpine finish rendering the error
-      // state before we try to scroll into view.
+      // state before we try to scroll into view. Bumped from 30 → 80
+      // ms because we may have just changed the page above and Alpine
+      // needs an extra tick to mount the new slice.
       setTimeout(() => {
         const el = document.querySelector('.field-invalid');
         if (el && typeof el.focus === 'function') {
@@ -7157,7 +7260,7 @@ function app() {
             el.scrollIntoView({ block: 'center', behavior: 'smooth' });
           }
         }
-      }, 30);
+      }, 80);
     },
 
     async saveHostGroups() {

@@ -298,7 +298,13 @@
          between clock+weather and the search input). On desktop:
          restores the flex row with border-top divider. -->
     <div class="contents sm:flex sm:items-center sm:gap-2 sm:px-5 sm:py-1.5 sm:max-w-full sm:mx-auto sm:border-t sm:border-[var(--border)] sm:flex-wrap">
-      <div class="flex items-center gap-0 bg-[var(--surface-2)] rounded-md p-0.5 border border-[var(--border)] order-5 sm:order-none" :title="t('topbar.sync_title')">
+      <!-- SYNC + STATS pickers are the widest pill in the topbar (4-6
+           buttons each); on mobile they wrap into the theme/hotkeys
+           row and push those small icons down. Forcing each to
+           `w-full sm:w-auto` gives them their own line on phones so
+           the smaller items (language / theme / hotkeys) stay grouped
+           at order-4. Desktop unchanged via `sm:order-none sm:w-auto`. -->
+      <div class="flex items-center gap-0 bg-[var(--surface-2)] rounded-md p-0.5 border border-[var(--border)] order-5 sm:order-none w-full sm:w-auto" :title="t('topbar.sync_title')">
         <span class="px-1.5 text-[10px] text-faint uppercase tracking-wider" x-text="t('topbar.sync_label')"></span>
         <template x-for="p in [[t('topbar.off'),0],['30s',30],['1m',60],['5m',300]]" :key="p[1]">
           <button @click="setAutoRefresh(p[1])"
@@ -307,10 +313,9 @@
         </template>
       </div>
       <!-- Stats picker — was hidden below lg: as a desktop-only feature.
-           Now visible on all viewports per operator (it wraps cleanly
-           with the rest of the utility belt thanks to the parent
-           flex-wrap). -->
-      <div class="flex items-center gap-0 bg-[var(--surface-2)] rounded-md p-0.5 border border-[var(--border)] order-5 sm:order-none" :title="t('topbar.stats_title')">
+           Now visible on all viewports per operator (its own row on
+           mobile via w-full). -->
+      <div class="flex items-center gap-0 bg-[var(--surface-2)] rounded-md p-0.5 border border-[var(--border)] order-5 sm:order-none w-full sm:w-auto" :title="t('topbar.stats_title')">
         <span class="px-1.5 text-[10px] text-faint uppercase tracking-wider" x-text="t('topbar.stats_label')"></span>
         <template x-for="p in [[t('topbar.off'),0],['5s',5],['15s',15],['30s',30],['1m',60],['5m',300]]" :key="p[1]">
           <button @click="setStatsInterval(p[1])"
@@ -320,7 +325,10 @@
       </div>
       <span class="text-[11px] text-[var(--text-faint)] hidden xl:inline order-5 sm:order-none" x-text="cacheLabel"></span>
       <span class="hidden sm:inline flex-1"></span>
-      <button @click="cycleTheme()" :title="t('topbar.theme_title', { pref: themePref })" class="btn btn-soft order-5 sm:order-none">
+      <!-- Theme + Hotkeys — small icon buttons. On mobile they live at
+           order-4 alongside the language picker so they don't get
+           shoved to a new row by the wide SYNC/STATS pills below. -->
+      <button @click="cycleTheme()" :title="t('topbar.theme_title', { pref: themePref })" class="btn btn-soft order-4 sm:order-none">
         <!-- Moon for dark, sun for light, sun+moon split (crescent over sun) for auto. -->
         <template x-if="themePref==='dark'">
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
@@ -342,7 +350,7 @@
           </svg>
         </template>
       </button>
-      <button @click="showHotkeys=true" class="btn btn-soft order-5 sm:order-none" :title="t('topbar.hotkeys_title')">
+      <button @click="showHotkeys=true" class="btn btn-soft order-4 sm:order-none" :title="t('topbar.hotkeys_title')">
         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><path d="M12 17h.01"/></svg>
       </button>
       <!-- Language picker. Compact <select> — the richer UI lives in
@@ -3455,7 +3463,7 @@
         </div>
 
         <div x-show="!hostsConfigLoading" class="space-y-3">
-          <template x-for="{ row, idx } in filteredHostsConfig()" :key="row._uid || ('r-' + idx)">
+          <template x-for="{ row, idx } in pagedHostsConfig()" :key="row._uid || ('r-' + idx)">
             <div class="border border-[var(--border)] rounded-md bg-[var(--surface-2)] p-3" data-host-card>
               <!-- One-line collapsed summary. Click the header to
                    toggle the full field grid. Empty-id rows (fresh
@@ -3841,6 +3849,53 @@
             No hosts match your filter.
             <button @click="hostsConfigFilter=''"
                     class="text-[var(--primary)] hover:underline not-italic ms-2">Clear</button>
+          </div>
+
+          <!-- Pagination controls (#331) — only visible when the
+               filtered list spans more than one page. The full array
+               stays in memory; only the rendered slice changes per
+               page, so dirty tracking + duplicate-id validation across
+               pages are unaffected. Per-page selector persists to
+               localStorage. -->
+          <div x-show="filteredHostsConfig().length > hostsConfigPerPage"
+               class="flex items-center justify-between gap-3 flex-wrap mt-3 pt-3 border-t border-[var(--border)] text-[11.5px]">
+            <div class="flex items-center gap-2 text-[var(--text-dim)]">
+              <span x-text="'Page ' + Math.min(hostsConfigPage, hostsConfigTotalPages()) + ' of ' + hostsConfigTotalPages()"></span>
+              <span class="text-[var(--text-faint)]"
+                    x-text="'· ' + filteredHostsConfig().length + ' total'"></span>
+            </div>
+            <div class="flex items-center gap-1.5">
+              <button @click="hostsConfigGoToPage(1)"
+                      :disabled="hostsConfigPage <= 1"
+                      :class="hostsConfigPage <= 1 ? 'opacity-40 cursor-not-allowed' : ''"
+                      class="btn btn-ghost text-[11px] px-2" title="First page">«</button>
+              <button @click="hostsConfigPrevPage()"
+                      :disabled="hostsConfigPage <= 1"
+                      :class="hostsConfigPage <= 1 ? 'opacity-40 cursor-not-allowed' : ''"
+                      class="btn btn-soft text-[11px] px-2.5">‹ Prev</button>
+              <input type="number" min="1" :max="hostsConfigTotalPages()"
+                     :value="Math.min(hostsConfigPage, hostsConfigTotalPages())"
+                     @change="hostsConfigGoToPage($event.target.value)"
+                     class="w-14 text-center text-[11.5px] py-1"
+                     title="Jump to page">
+              <button @click="hostsConfigNextPage()"
+                      :disabled="hostsConfigPage >= hostsConfigTotalPages()"
+                      :class="hostsConfigPage >= hostsConfigTotalPages() ? 'opacity-40 cursor-not-allowed' : ''"
+                      class="btn btn-soft text-[11px] px-2.5">Next ›</button>
+              <button @click="hostsConfigGoToPage(hostsConfigTotalPages())"
+                      :disabled="hostsConfigPage >= hostsConfigTotalPages()"
+                      :class="hostsConfigPage >= hostsConfigTotalPages() ? 'opacity-40 cursor-not-allowed' : ''"
+                      class="btn btn-ghost text-[11px] px-2" title="Last page">»</button>
+              <select :value="hostsConfigPerPage"
+                      @change="hostsConfigSetPerPage($event.target.value)"
+                      class="text-[11.5px] py-1 ms-2"
+                      title="Rows per page">
+                <option value="25">25 / page</option>
+                <option value="50">50 / page</option>
+                <option value="100">100 / page</option>
+                <option value="200">200 / page</option>
+              </select>
+            </div>
           </div>
         </div>
 
@@ -5786,9 +5841,20 @@
                     </template>
                     <template x-if="(h.services || {}).total > 0">
                       <dd class="text-end">
+                        <!-- Count colour: green when no failures (positive
+                             "all good" signal so the operator can scan
+                             at a glance), neutral mono otherwise — the
+                             ·N failed in red carries the alarm in that
+                             case so the count itself shouldn't compete. -->
                         <span class="mono"
+                              :class="h.services.failed === 0 ? 'text-[var(--success)]' : ''"
                               x-text="h.services.total + ' ' + t('host_drawer.hardware.services_unit')"></span>
-                        <span x-show="h.services.failed > 0" class="text-[var(--danger)] ms-1"
+                        <!-- Always render "· N failed" — green "0 failed"
+                             when N=0 reassures the operator that
+                             monitoring is live AND clean (vs. silent =
+                             ambiguous "not tracked OR no failures?"). -->
+                        <span class="ms-1"
+                              :class="h.services.failed > 0 ? 'text-[var(--danger)]' : 'text-[var(--success)]'"
                               x-text="'· ' + h.services.failed + ' ' + t('host_drawer.hardware.services_failed')"></span>
                         <div x-show="h.services.failed > 0"
                              class="text-[10.5px] text-[var(--danger)] mt-1 mono break-all"
