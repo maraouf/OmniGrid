@@ -2318,6 +2318,59 @@ def _resolve_field(body: dict, body_key: str,
     return get_setting(setting_key, default) or default
 
 
+def _humanise_probe_error(raw: str, target_label: str) -> str:
+    """Pattern-match common upstream-failure shapes into operator-readable
+    one-liners (#369 / UX-003).
+
+    Probes (Beszel / Pulse / Webmin) catch exceptions internally and return
+    a stringified error in their ``error`` field. The raw text is sometimes
+    a multi-line JSON dump from PocketBase, a bare ``EOF`` from an
+    unreachable host, or an httpx repr — none of which the operator can act
+    on. This helper compresses the common cases into a short
+    "what-happened + what-to-do" summary, keeping the original tail in
+    parentheses so the diagnostic is still discoverable.
+
+    Falls through to the original string when no pattern matches.
+    """
+    if not raw:
+        return raw
+    text = str(raw).strip()
+    if not text:
+        return raw
+    low = text.lower()
+    # Multi-line dumps — keep first line, hint where the rest is.
+    if "\n" in text:
+        first = text.splitlines()[0].strip()
+        text = f"{first} (see Admin → Logs for the full upstream payload)"
+        low = first.lower()
+
+    # HTTP-status patterns.
+    if "401" in low or "unauthorized" in low or "unauthorised" in low:
+        return f"{target_label} rejected the credentials (HTTP 401 — token / password expired or missing required scope)"
+    if "403" in low or "forbidden" in low:
+        return f"{target_label} returned HTTP 403 — credentials lack the required scope or the user is disabled"
+    if "404" in low or "not found" in low:
+        return f"{target_label} returned HTTP 404 — URL path / endpoint id may be wrong"
+    if "500" in low or "internal server error" in low:
+        return f"{target_label} returned HTTP 500 — upstream is broken; check the {target_label} logs ({text})"
+    if "503" in low or "unavailable" in low:
+        return f"{target_label} returned HTTP 503 — upstream is starting / overloaded; retry shortly"
+    # Network-level failures (httpx wraps these in ConnectError / ReadTimeout).
+    if "name or service not known" in low or "nodename nor servname" in low or "getaddrinfo" in low:
+        return f"DNS resolution failed for the {target_label} URL — check the hostname"
+    if "connection refused" in low:
+        return f"{target_label} refused the connection — host unreachable or wrong port"
+    if "connection reset" in low:
+        return f"{target_label} reset the connection mid-request — TLS / network issue"
+    if "timeout" in low or "timed out" in low:
+        return f"{target_label} did not respond in time — host slow or unreachable"
+    if "certificate" in low or "ssl" in low or "tls" in low:
+        return f"TLS handshake failed against {target_label} — disable verify_tls if the cert is self-signed"
+    if low == "eof" or "eof " in low or low.endswith(" eof"):
+        return f"{target_label} closed the connection unexpectedly (EOF) — host crashed mid-request or wrong port"
+    return text
+
+
 def _format_provider_test_summary(
     probe_result: dict,
     *,
@@ -2342,7 +2395,7 @@ def _format_provider_test_summary(
     """
     err = probe_result.get("error")
     if err:
-        return {"ok": False, "detail": err}
+        return {"ok": False, "detail": _humanise_probe_error(err, target_label)}
     hosts = probe_result.get("hosts") or {}
     names = sorted(hosts.keys())
     label = item_singular if len(hosts) == 1 else item_plural
@@ -3151,14 +3204,19 @@ def _shape_host_api_row(
 
 
 @app.get("/api/hosts/list")
-async def api_hosts_list():
+async def api_hosts_list(force: bool = False):
     """Skeleton endpoint — curated host list + global state, NO
     per-host probes. Paired with /api/hosts/one/{id} for progressive
     loading: the SPA paints rows immediately from this response, then
     fans out per-host fetches to fill in the stats.
+
+    `force=true` bypasses the 10s `_host_provider_cache` memo. Used
+    by the SPA right after a successful host-stats settings save so
+    the operator sees the new provider state without waiting up to
+    10s for the next natural cache miss (#367 / UX-001).
     """
     curated = _load_hosts_config()
-    state = await _get_host_provider_state()
+    state = await _get_host_provider_state(force=force)
     any_enabled = bool(state["active"])
 
     hosts = [
@@ -4993,6 +5051,19 @@ async def api_me(request: Request):
     # Always included so the SPA can also clear a stale "dismissed" flag
     # once SESSION_SECRET is finally set in the env.
     out["session_secret_auto"] = (auth.auto_secret_warning() is not None)
+    # UX-004 / #370 — bootstrap admin env vars still set in `.env` AFTER the
+    # users table has been seeded. The bootstrap path is then a harmless
+    # no-op on every restart, but two operational risks remain: (a) wiping
+    # the DB and restarting would silently re-seed an admin from the env
+    # values (surprise), (b) the password is sitting plaintext in `.env`.
+    # Surfacing this boolean lets the SPA show a dismissible banner so
+    # the operator clears the env vars before the next deploy.
+    if BOOTSTRAP_ADMIN_USER and BOOTSTRAP_ADMIN_PASSWORD:
+        with db_conn() as _bc:
+            _user_n = auth.count_users(_bc)
+        out["bootstrap_env_still_set"] = (_user_n > 0)
+    else:
+        out["bootstrap_env_still_set"] = False
     if profile:
         out.update({
             "id":           profile["id"],
