@@ -391,7 +391,11 @@
                 class="filter-chip"><span class="dot dot-offline inline-block me-1.5"></span><span x-text="t('filters.offline')"></span> <span class="count" x-text="counts.offline"></span></button>
       </div>
 
-      <span class="w-px h-5 bg-[var(--border)] mx-1"></span>
+      <!-- Vertical divider between health-group and status-group filter
+           chips. Hidden below sm: because when chips wrap to multiple
+           rows on mobile, the divider gets stranded on its own line.
+           Natural row break already separates the two groups visually. -->
+      <span class="hidden sm:inline-block w-px h-5 bg-[var(--border)] mx-1"></span>
 
       <div class="flex items-center gap-1.5 flex-wrap">
         <button @click="statusFilter='update';healthFilter=''"
