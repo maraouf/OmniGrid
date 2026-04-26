@@ -247,6 +247,27 @@ function app() {
         return Array.isArray(parsed) ? parsed.filter(x => typeof x === 'string') : [];
       } catch { return []; }
     })(),
+    // Pagination state for the Admin → Host groups editor. Mirrors the
+    // hostsConfigPage / hostsConfigPerPage pattern from #331 so the
+    // admin tab can scale past ~50 groups without a 100-card scroll.
+    // Persisted to localStorage so a refresh / tab nav lands the
+    // operator on the same page they left.
+    hostGroupsPage: (() => {
+      try {
+        const raw = localStorage.getItem('hostGroupsPage');
+        const n = parseInt(raw, 10);
+        if (Number.isFinite(n) && n >= 1) return n;
+      } catch {}
+      return 1;
+    })(),
+    hostGroupsPerPage: (() => {
+      try {
+        const raw = localStorage.getItem('hostGroupsPerPage');
+        const n = parseInt(raw, 10);
+        if (Number.isFinite(n) && [10, 25, 50, 100, 200].includes(n)) return n;
+      } catch {}
+      return 50;
+    })(),
     // Asset inventory (ticket #78). `assetForm` is the editable form
     // state; `assetStatus` mirrors the server snapshot (secret `_set`
     // flag etc.). `assetCache` is the loaded /api/asset-inventory
@@ -660,6 +681,10 @@ function app() {
       // page (#340). Pairs with the localStorage initialiser above.
       this.$watch('hostsConfigPage', v => {
         try { localStorage.setItem('hostsConfigPage', String(v)); } catch {}
+      });
+      // Same persistence for the host-groups editor (#348).
+      this.$watch('hostGroupsPage', v => {
+        try { localStorage.setItem('hostGroupsPage', String(v)); } catch {}
       });
       this.$watch('hostsExpanded', v => {
         try { localStorage.setItem('hostsExpanded', JSON.stringify(v || [])); } catch {}
@@ -6984,6 +7009,16 @@ function app() {
       this.$nextTick(() => {
         const list = this.hostGroups || [];
         if (list[newIdx]) list[newIdx].parent_name = name;
+        // Then page-jump to the new sub-group's row so it scrolls
+        // into view alongside its parent. Same calculation as
+        // addHostGroup — done after the parent_name set so the
+        // sortedGroupsForEditor() output reflects the updated hierarchy.
+        const sorted = this.sortedGroupsForEditor();
+        const pos = sorted.findIndex(e => e.origIdx === newIdx);
+        if (pos >= 0) {
+          const per = this.hostGroupsPerPage || 50;
+          this.hostGroupsGoToPage(Math.floor(pos / per) + 1);
+        }
       });
     },
 
@@ -7014,6 +7049,18 @@ function app() {
       };
       this.hostGroups = [...(this.hostGroups || []), next];
       this.hostGroupsDirty = true;
+      // Jump to whichever page the new top-level row landed on so
+      // the operator's focus follows the click. Mirrors the
+      // addHostRow → page-jump pattern in the Hosts editor.
+      this.$nextTick(() => {
+        const sorted = this.sortedGroupsForEditor();
+        const newOrigIdx = (this.hostGroups || []).length - 1;
+        const pos = sorted.findIndex(e => e.origIdx === newOrigIdx);
+        if (pos >= 0) {
+          const per = this.hostGroupsPerPage || 50;
+          this.hostGroupsGoToPage(Math.floor(pos / per) + 1);
+        }
+      });
     },
     // Top-level group names (for the parent <select> options). The
     // current row is excluded — a group cannot be its own parent. A
@@ -7144,6 +7191,61 @@ function app() {
         if (!seen.has(e.origIdx)) out.push(e);
       }
       return out;
+    },
+
+    // Page slice of `sortedGroupsForEditor()` — keeps the same
+    // `{g, origIdx, listIdx}` shape so the per-row buttons (move /
+    // delete / sub-group add) reach back to the unsliced list with
+    // their original indices intact. Page is clamped lazily so a
+    // delete that drops the total below the current page falls back
+    // to the new last page rather than rendering empty.
+    pagedGroupsForEditor() {
+      const all = this.sortedGroupsForEditor();
+      const per = this.hostGroupsPerPage || 50;
+      const totalPages = Math.max(1, Math.ceil(all.length / per));
+      const page = Math.min(Math.max(1, this.hostGroupsPage), totalPages);
+      const start = (page - 1) * per;
+      // Re-emit as {g, origIdx, listIdx} so the template's existing
+      // destructure pattern continues to work — listIdx points at the
+      // ABSOLUTE position in the unpaged list, not the slice, so
+      // move-up / move-down arithmetic stays correct.
+      return all
+        .slice(start, start + per)
+        .map((entry, sliceIdx) => ({
+          g: entry.g,
+          origIdx: entry.origIdx,
+          listIdx: start + sliceIdx,
+        }));
+    },
+    hostGroupsTotalPages() {
+      const total = this.sortedGroupsForEditor().length;
+      const per = this.hostGroupsPerPage || 50;
+      return Math.max(1, Math.ceil(total / per));
+    },
+    hostGroupsGoToPage(n) {
+      const tp = this.hostGroupsTotalPages();
+      this.hostGroupsPage = Math.min(Math.max(1, parseInt(n, 10) || 1), tp);
+    },
+    hostGroupsPrevPage() { this.hostGroupsGoToPage(this.hostGroupsPage - 1); },
+    hostGroupsNextPage() { this.hostGroupsGoToPage(this.hostGroupsPage + 1); },
+    hostGroupsSetPerPage(n) {
+      const v = parseInt(n, 10);
+      if (!Number.isFinite(v) || v < 1) return;
+      this.hostGroupsPerPage = v;
+      try { localStorage.setItem('hostGroupsPerPage', String(v)); } catch {}
+      this.hostGroupsPage = Math.min(this.hostGroupsPage, this.hostGroupsTotalPages());
+    },
+    // Bulk-collapse + scroll-to-top for the sticky action bar — the
+    // groups editor has its own collapse state (per parent name)
+    // separate from the Hosts editor; reuse the existing
+    // collapseAllHostGroupChildren handler for the action bar's
+    // "Collapse all" button.
+    scrollToHostGroupsTop() {
+      try {
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+      } catch {
+        window.scrollTo(0, 0);
+      }
     },
     // Number of sub-group rows under a given top-level group name.
     // Used by the editor's collapse toggle so the operator sees
