@@ -189,7 +189,7 @@ class OGError:
     The frontend looks up ``t('errors.' + code)`` for the localised
     message, falling back to ``message`` when the translation is
     missing. ``params`` carries interpolation data for the i18n
-    template (e.g. ``{"host": "oufa.co"}`` for the DNS-failed case).
+    template (e.g. ``{"host": "<asset-api-host>"}`` for the DNS-failed case).
     """
     code: str
     message: str

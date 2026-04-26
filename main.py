@@ -962,7 +962,7 @@ class SettingsIn(BaseModel):
     # that buckets curated hosts into collapsible sections in the Hosts
     # view by their custom_number. Operator-managed under Admin → Hosts.
     host_groups: Optional[list] = None
-    # Asset inventory V1 — OAuth2 client_credentials against oufa.co.
+    # Asset inventory V1 — OAuth2 client_credentials against <asset-api-host>.
     # Secret is write-only (see api_set_settings keep-if-blank rule);
     # admin clears via clear_asset_inventory_client_secret flag.
     asset_inventory_base_url: Optional[str] = None
@@ -981,7 +981,7 @@ class SettingsIn(BaseModel):
     asset_inventory_lifetime_token: Optional[str] = None
     clear_asset_inventory_lifetime_token: Optional[bool] = None
     # Mandatory `service` and `action` form parameters for the
-    # lifetime-token flavour. oufa.co's services.php routes by these
+    # lifetime-token flavour. <asset-api-host>'s services.php routes by these
     # ("service=scheduler&action=run_schedule" is the documented pair
     # for asset fetch). Plain text — these are routing keys, not
     # credentials.
@@ -995,10 +995,10 @@ class SettingsIn(BaseModel):
     asset_inventory_min_value: Optional[str] = None
     asset_inventory_max_value: Optional[str] = None
     # Edit-on-upstream URL template used by the host drawer's
-    # "Edit on oufa.co" link. Placeholders: {id} (asset DB id),
+    # "Edit on <asset-api-host>" link. Placeholders: {id} (asset DB id),
     # {custom_number} (asset CustomNumber), {base} (the configured
     # base_url). Blank → no link rendered. Operator-configured
-    # because oufa.co's URL scheme isn't part of the API guide.
+    # because <asset-api-host>'s URL scheme isn't part of the API guide.
     asset_inventory_edit_url_template: Optional[str] = None
     # -----------------------------------------------------------------
     # SSH console — admin-only remote command runner wired into the
@@ -1092,7 +1092,7 @@ async def api_get_settings(request: Request):
                 for g in groups if isinstance(g, dict)
             ])(json.loads(raw) if (raw or "").strip() else [])
         ))(get_setting("host_groups", "") or ""),
-        # Asset inventory (oufa.co). Secret is write-only — UI sees
+        # Asset inventory (<asset-api-host>). Secret is write-only — UI sees
         # a `_set` flag only. Other fields round-trip in the clear.
         "asset_inventory": {
             "auth_mode":          (get_setting("asset_inventory_auth_mode", "") or "oauth2"),
@@ -2093,7 +2093,7 @@ async def api_beszel_test(
 
 
 # ----------------------------------------------------------------------------
-# Asset inventory (ticket #78) — oufa.co OAuth2 client_credentials. Manual
+# Asset inventory (ticket #78) — <asset-api-host> OAuth2 client_credentials. Manual
 # refresh only; reads go through the file cache at /app/data/asset_inventory.json.
 # ----------------------------------------------------------------------------
 @app.get("/api/asset-inventory")
@@ -2621,7 +2621,7 @@ async def api_hosts():
             "updates_security": int(s.get("host_updates_security") or 0),
             # Operator-assigned catalogue number from hosts_config — feeds
             # the "Custom #" sort option in the Hosts view and is the
-            # eventual key for Asset-inventory lookups at oufa.co.
+            # eventual key for Asset-inventory lookups at <asset-api-host>.
             "custom_number":    h.get("custom_number"),
             # Asset-inventory snapshot — null when no match. External
             # API consumers can read vendor/model/serial/interfaces/

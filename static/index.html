@@ -1632,7 +1632,7 @@
                     <!-- Custom # badge — operator-assigned catalogue
                          number. Helps operators with many hosts orient
                          at a glance + ties to the Asset inventory
-                         lookups at oufa.co. Hidden when no number is
+                         lookups at <asset-api-host>. Hidden when no number is
                          set so unnumbered hosts don't show "#—". -->
                     <span x-show="h.custom_number != null && h.custom_number !== ''"
                           class="chip text-[10px] px-1.5 py-0 mono"
@@ -3479,7 +3479,7 @@
                   class="btn btn-ghost text-[11px]" :title="t('hosts_extra.empty.clear_filter')">✕</button>
         </div>
 
-        <div x-show="!hostsConfigLoading" class="space-y-3">
+        <div x-show="!hostsConfigLoading" class="space-y-3 hosts-config-page-bottom-pad">
           <template x-for="{ row, idx } in pagedHostsConfig()" :key="row._uid || ('r-' + idx)">
             <div class="border border-[var(--border)] rounded-md bg-[var(--surface-2)] p-3" data-host-card>
               <!-- One-line collapsed summary. Click the header to
@@ -4025,7 +4025,7 @@
           </button>
         </div>
 
-        <div class="space-y-2">
+        <div class="space-y-2 hosts-config-page-bottom-pad">
           <template x-for="{g, origIdx, listIdx} in pagedGroupsForEditor()" :key="'g' + origIdx">
             <div class="host-group-card border rounded-md p-3 transition-colors"
                  :class="g.parent_name
@@ -5885,7 +5885,7 @@
                      Status are always emitted, so they always render.
                      Card visible when EITHER the host is up (live
                      metrics) OR an asset-inventory match exists
-                     (vendor / model / serial from oufa.co — useful
+                     (vendor / model / serial from <asset-api-host> — useful
                      even for hosts with no live providers like FTTH
                      routers / 5G modems). Each row inside is gated
                      on its own field so cards stay tidy when only
@@ -5960,7 +5960,7 @@
                     </template>
                     <!-- Asset inventory rows (ticket #78 follow-up).
                          Matched by h.custom_number against the cached
-                         oufa.co asset list. Each row gated on its own
+                         <asset-api-host> asset list. Each row gated on its own
                          field so hosts without that data stay tidy.
                          Distinct from DMI so operators can spot when
                          the DB record ≠ what node-exporter reports

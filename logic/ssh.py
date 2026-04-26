@@ -363,7 +363,7 @@ def _asset_fqdn_for_record(record: Optional[dict]) -> str:
         hostname_str = str(raw.get("Hostname") or raw.get("hostname") or "").strip()
         if not hostname_str:
             return ""
-        # Pick the LAST entry — by oufa.co convention the CSV is
+        # Pick the LAST entry — by <asset-api-host> convention the CSV is
         # ordered least-specific → most-specific (raw IP first,
         # canonical FQDN last). Skip any entry that looks like an
         # IP address — those aren't valid SSH targets.
