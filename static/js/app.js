@@ -315,7 +315,11 @@ function app() {
     })(),
     _autoTimer: null, _opsTimer: null,
     cacheLabel: '',
-    settings: { apprise_url: '', apprise_tag: '', portainer_public_url: '', debug_panel_enabled: true },
+    settings: { apprise_url: '', apprise_tag: '', portainer_public_url: '', debug_panel_enabled: true,
+                // TOTP / 2FA policy defaults so the Admin -> Config inputs
+                // bind cleanly before the first /api/settings response.
+                totp_allowed: true, totp_required_for_admins: false, totp_required_for_users: false,
+                totp_lockout_max_failures: 5, totp_lockout_minutes: 15 },
     schedulerSaving: false,
     openMeteoSaving: false,
     // Admin → Hosts per-row collapse state. Keyed by host id so
