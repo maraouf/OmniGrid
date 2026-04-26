@@ -12,6 +12,7 @@
     "@xterm/addon-web-links": "*",
     "@xterm/xterm": "*",
     "alpinejs": "*",
+    "qrcode-generator": "*",
     "sweetalert2": "*"
   }
 }

@@ -58,6 +58,11 @@
   </form>
  </div>
 
+<!-- qrcode-generator: pure-JS QR rendering (no DOM dep, ~30 KB). Used by
+     the TOTP setup step to render the otpauth:// URI as an SVG. Loaded
+     unconditionally so the script is cached and ready when the user's
+     account hits the totp_setup_required path. -->
+<script src="/node_modules/qrcode-generator/qrcode.js"></script>
 <script src="/js/login.js?v=__APP_VERSION__" defer></script>
 </body>
 </html>

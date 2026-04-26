@@ -243,6 +243,15 @@ def init_auth_schema(conn: sqlite3.Connection) -> None:
         # Default '{}' so existing rows hydrate to "no overrides" and
         # the SPA falls back to its own per-toggle defaults.
         "ALTER TABLE users ADD COLUMN ui_prefs TEXT DEFAULT '{}'",
+        # TOTP-based 2FA (#345). Five additive columns; secret + backup
+        # codes are Fernet-encrypted at rest (see logic/totp.py). Authentik
+        # users never set these fields -- their IdP handles MFA. Lockout
+        # state mirrors the per-IP rate-limit pattern but is per-user.
+        "ALTER TABLE users ADD COLUMN totp_secret_encrypted TEXT",
+        "ALTER TABLE users ADD COLUMN totp_enabled INTEGER NOT NULL DEFAULT 0",
+        "ALTER TABLE users ADD COLUMN totp_backup_codes_json TEXT",
+        "ALTER TABLE users ADD COLUMN totp_failed_attempts INTEGER NOT NULL DEFAULT 0",
+        "ALTER TABLE users ADD COLUMN totp_locked_until INTEGER",
     ):
         try:
             conn.execute(ddl)
@@ -261,12 +270,24 @@ class User:
     role: str
     auth_source: str
     disabled: bool
+    # TOTP-based 2FA (#345). ``totp_enabled`` is the canonical "is 2FA
+    # active for this user" flag. The encrypted secret is NEVER on the
+    # User dataclass -- callers fetch via get_user_totp_secret to reduce
+    # the surface where it could leak into a serialised payload.
+    totp_enabled: bool = False
 
 
 def _row_to_user(r: sqlite3.Row) -> User:
+    # Older rows (pre-#345) won't have totp_enabled; sqlite3.Row's keys
+    # work like dict keys, so probe via Index lookup with a try/except.
+    try:
+        totp_on = bool(r["totp_enabled"])
+    except (KeyError, IndexError):
+        totp_on = False
     return User(
         id=r["id"], username=r["username"], email=r["email"],
         role=r["role"], auth_source=r["auth_source"], disabled=bool(r["disabled"]),
+        totp_enabled=totp_on,
     )
 
 
@@ -374,10 +395,15 @@ def change_password(
 
 def list_users(conn: sqlite3.Connection) -> list[dict]:
     """Return every user as a dict (id, username, email, role, auth_source,
-    disabled, created_at, last_login_at) for the admin UI."""
+    disabled, created_at, last_login_at, totp_enabled) for the admin UI.
+
+    ``totp_enabled`` is exposed so Admin -> Users can render the 2FA
+    column + the "Disable 2FA" action without an extra round-trip.
+    The encrypted secret + backup codes are deliberately NOT returned.
+    """
     rows = conn.execute("""
         SELECT id, username, email, role, auth_source, disabled,
-               created_at, last_login_at
+               created_at, last_login_at, totp_enabled
         FROM users
         ORDER BY username COLLATE NOCASE
     """).fetchall()
@@ -432,7 +458,7 @@ def get_user_profile(conn: sqlite3.Connection, user_id: int) -> Optional[dict]:
     r = conn.execute("""
         SELECT id, username, email, role, auth_source, disabled,
                created_at, last_login_at, display_name, bio, avatar_path,
-               ui_prefs
+               ui_prefs, totp_enabled
         FROM users WHERE id=?
     """, (user_id,)).fetchone()
     if not r:
@@ -490,6 +516,64 @@ def update_ui_prefs(
     return merged
 
 
+def get_user_notify_prefs(conn: sqlite3.Connection, user_id: int) -> dict:
+    """Return the per-user notification opt-in map (#357).
+
+    Stored as a top-level ``notify_events`` key inside ``users.ui_prefs``
+    (no new column — keeps the schema-migration footprint zero). Returns
+    an empty dict when the user has never made a per-event choice; the
+    caller resolves missing keys against the admin defaults.
+    """
+    import json as _json
+    row = conn.execute(
+        "SELECT ui_prefs FROM users WHERE id=?", (user_id,),
+    ).fetchone()
+    if not row:
+        return {}
+    try:
+        prefs = _json.loads(row["ui_prefs"]) if row["ui_prefs"] else {}
+        if not isinstance(prefs, dict):
+            return {}
+    except (ValueError, TypeError):
+        return {}
+    raw = prefs.get("notify_events")
+    if not isinstance(raw, dict):
+        return {}
+    return {str(k): bool(v) for k, v in raw.items()}
+
+
+def set_user_notify_prefs(
+    conn: sqlite3.Connection, user_id: int, prefs: dict,
+) -> dict:
+    """Replace the user's ``notify_events`` map with ``prefs`` (read-
+    modify-write that preserves every other key in ``ui_prefs``).
+
+    ``prefs`` is a flat ``{event_name: bool}`` dict. Returns the merged
+    map after persistence so the caller can echo it in the response.
+    """
+    import json as _json
+    if not isinstance(prefs, dict):
+        raise ValueError("notify prefs payload must be a dict")
+    row = conn.execute(
+        "SELECT ui_prefs FROM users WHERE id=?", (user_id,),
+    ).fetchone()
+    if not row:
+        raise LookupError(f"user {user_id} not found")
+    try:
+        cur = _json.loads(row["ui_prefs"]) if row["ui_prefs"] else {}
+        if not isinstance(cur, dict):
+            cur = {}
+    except (ValueError, TypeError):
+        cur = {}
+    clean = {str(k): bool(v) for k, v in prefs.items()}
+    cur["notify_events"] = clean
+    conn.execute(
+        "UPDATE users SET ui_prefs=? WHERE id=?",
+        (_json.dumps(cur), user_id),
+    )
+    return clean
+
+
 def update_user_profile(
     conn: sqlite3.Connection,
     user_id: int,
@@ -534,12 +618,149 @@ def admin_reset_password(
     """Overwrite a local user's password from the admin UI. Unlike
     change_password, no current-password check — the acting admin already
     has that authority. Invalidates every session for the target user.
+
+    ALSO clears any TOTP enrolment (#345): operators reset passwords when
+    a user has lost access; that usually means their authenticator
+    device is gone too. The user re-enrols via Profile after the next
+    login if 2FA is still required by policy.
     """
     conn.execute(
         "UPDATE users SET password_hash=? WHERE id=?",
         (hash_password(new_password), user_id),
     )
+    clear_user_totp(conn, user_id)
     delete_user_sessions(conn, user_id)
+
+
+# ----------------------------------------------------------------------------
+# TOTP (2FA) helpers (#345)
+# ----------------------------------------------------------------------------
+def get_user_totp_secret(
+    conn: sqlite3.Connection, user_id: int,
+) -> Optional[str]:
+    """Return the at-rest-encrypted secret blob (or None).
+
+    Decryption happens at the call site via logic.totp.decrypt_secret —
+    this helper deliberately returns the raw ciphertext so a leaky log
+    or accidental serialisation can't expose plaintext.
+    """
+    r = conn.execute(
+        "SELECT totp_secret_encrypted FROM users WHERE id=?", (user_id,),
+    ).fetchone()
+    if not r:
+        return None
+    return r["totp_secret_encrypted"]
+
+
+def get_user_totp_state(
+    conn: sqlite3.Connection, user_id: int,
+) -> dict:
+    """Return per-user 2FA state for login + admin views.
+
+    Shape: ``{enabled, has_backup_codes, failed_attempts, locked_until,
+    backup_codes_json}``. ``backup_codes_json`` is the raw stored blob
+    (encrypted). Caller decrypts via logic.totp.decrypt_backup_codes.
+    """
+    r = conn.execute(
+        "SELECT totp_enabled, totp_backup_codes_json, "
+        "totp_failed_attempts, totp_locked_until "
+        "FROM users WHERE id=?",
+        (user_id,),
+    ).fetchone()
+    if not r:
+        return {
+            "enabled": False, "has_backup_codes": False,
+            "failed_attempts": 0, "locked_until": None,
+            "backup_codes_json": None,
+        }
+    raw = r["totp_backup_codes_json"]
+    return {
+        "enabled": bool(r["totp_enabled"]),
+        "has_backup_codes": bool(raw),
+        "failed_attempts": int(r["totp_failed_attempts"] or 0),
+        "locked_until": r["totp_locked_until"],
+        "backup_codes_json": raw,
+    }
+
+
+def set_user_totp_secret(
+    conn: sqlite3.Connection,
+    user_id: int,
+    encrypted_secret: str,
+    encrypted_backup_codes_json: str,
+) -> None:
+    """Persist a fresh enrolment. Resets lockout state."""
+    conn.execute(
+        "UPDATE users SET "
+        "  totp_secret_encrypted=?, "
+        "  totp_enabled=1, "
+        "  totp_backup_codes_json=?, "
+        "  totp_failed_attempts=0, "
+        "  totp_locked_until=NULL "
+        "WHERE id=?",
+        (encrypted_secret, encrypted_backup_codes_json, user_id),
+    )
+
+
+def update_user_totp_backup_codes(
+    conn: sqlite3.Connection, user_id: int, encrypted_backup_codes_json: str,
+) -> None:
+    """Replace just the backup-codes blob (used after consuming one OR
+    when the user regenerates the set)."""
+    conn.execute(
+        "UPDATE users SET totp_backup_codes_json=? WHERE id=?",
+        (encrypted_backup_codes_json, user_id),
+    )
+
+
+def clear_user_totp(conn: sqlite3.Connection, user_id: int) -> None:
+    """Blank every TOTP column. Used by self-disable + admin override +
+    the password-reset cascade."""
+    conn.execute(
+        "UPDATE users SET "
+        "  totp_secret_encrypted=NULL, "
+        "  totp_enabled=0, "
+        "  totp_backup_codes_json=NULL, "
+        "  totp_failed_attempts=0, "
+        "  totp_locked_until=NULL "
+        "WHERE id=?",
+        (user_id,),
+    )
+
+
+def record_totp_failure(
+    conn: sqlite3.Connection,
+    user_id: int,
+    max_failures: int,
+    lockout_seconds: int,
+) -> tuple[int, Optional[int]]:
+    """Increment failure counter, lock if threshold hit.
+
+    Returns ``(new_failure_count, locked_until_or_None)``. Caller
+    surfaces the lockout in a 423 response so the SPA can render
+    a "try again in N minutes" message.
+    """
+    state = get_user_totp_state(conn, user_id)
+    n = (state["failed_attempts"] or 0) + 1
+    locked_until = None
+    if n >= max(1, max_failures):
+        locked_until = int(time.time()) + max(60, lockout_seconds)
+    conn.execute(
+        "UPDATE users SET "
+        "  totp_failed_attempts=?, "
+        "  totp_locked_until=? "
+        "WHERE id=?",
+        (n, locked_until, user_id),
+    )
+    return (n, locked_until)
+
+
+def clear_totp_lockout(conn: sqlite3.Connection, user_id: int) -> None:
+    conn.execute(
+        "UPDATE users SET totp_failed_attempts=0, totp_locked_until=NULL "
+        "WHERE id=?",
+        (user_id,),
+    )
 
 
 def list_sessions(conn: sqlite3.Connection) -> list[dict]:

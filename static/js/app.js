@@ -28,7 +28,7 @@ const KNOWN_ICONS = new Set([
   'portainer', 'portainer-dark', 'postgresql', 'poweredge', 'proliant', 'prometheus',
   'prowlarr', 'proxmox', 'pulse', 'qbittorrent', 'rachio', 'radarr',
   'reolink', 'roku', 'roundcube', 'rundeck', 'rustdesk', 'sabnzbd',
-  'samsung', 'samsung-electronics', 'sandisk', 'sensibo', 'smtp', 'somfy', 'sonarr',
+  'samsung', 'samsung-electronics', 'sandisk', 'seeedstudio', 'sensibo', 'smtp', 'somfy', 'sonarr',
   'speedtest-tracker', 'squid', 'stalwart', 'synology', 'tailscale', 'tautulli',
   'tracearr', 'traefik', 'transmission', 'truenas', 'truenas-core', 'truenas-scale',
   'ubiquiti', 'ubuntu', 'ui', 'unifi', 'ups', 'uptime-kuma',
@@ -503,9 +503,28 @@ function app() {
     })(),
     // Profile form state — mirrors the `me` snapshot but held separately
     // so the user can edit without losing unsaved changes across refetches.
-    profileForm: { display_name: '', bio: '', email: '' },
+    profileForm: { display_name: '', bio: '', email: '', notify_events: {} },
+    // Baseline snapshot string of the profile form, captured by
+    // syncProfileForm() and refreshed by saveProfile(). Drives
+    // profileDirty() so reverting an edit clears the amber ring.
+    _profileBaseline: '',
     profileBusy: false,
     avatarBusy: false,
+    // TOTP / 2FA enrolment state (#345). Mirrors the /api/me/totp shape
+    // plus a few transient enrolment fields used during the QR -> verify
+    // step. backup_codes is `[{code, used_at}]` plain after the GET; the
+    // hide/unhide eye is purely client-side (`totpCodesRevealed`).
+    totp: {
+      loaded: false, allowed: true, enabled: false, required: false,
+      auth_source: 'local', backup_codes: [], policy: {},
+    },
+    totpCodesRevealed: false,
+    totpEnrol: { secret: '', uri: '', code: '' },
+    totpEnrolStage: 'idle',  // idle | qr | reveal
+    totpEnrolBusy: false,
+    totpRevealCodes: [],     // one-time plaintext list right after enrol/regen
+    totpDisableForm: { password: '' },
+    totpDisableBusy: false,
     adminSections: [
       { id: 'users',          label: 'Users' },
       { id: 'general',        label: 'General' },
@@ -650,6 +669,13 @@ function app() {
           // can read this.me.ui_prefs.
           if (typeof this.applyServerUiPrefs === 'function') {
             this.applyServerUiPrefs();
+          }
+          // #345 — fetch TOTP status alongside /api/me so the Profile
+          // section can render its 2FA card without a click-induced
+          // round-trip. Authentik users (no local password) skip the
+          // call; the server short-circuits its response either way.
+          if (typeof this.loadTotpStatus === 'function') {
+            this.loadTotpStatus();
           }
         }
       } catch (_) { /* network hiccup — next fetch will trip the wrapper */ }
@@ -881,28 +907,55 @@ function app() {
     syncProfileForm() {
       // Called after /api/me loads to populate the editable form. Kept
       // separate from `me` so unsaved edits aren't clobbered on refresh.
+      // Hydrates per-user notification opt-in state (#357) from the
+      // resolved `notify_events` map; rebuilds the baseline snapshot so
+      // the dirty-getter compares against the freshly-loaded values.
+      const events = {};
+      const src = (this.me && this.me.notify_events) || {};
+      for (const k of (this.notifyEventKeys || [])) {
+        // notifyEventKeys carries `notify_event_<name>`; the per-user
+        // map keys are the bare names (matching the data model).
+        const bare = k.replace(/^notify_event_/, '');
+        events[bare] = !!src[bare];
+      }
       this.profileForm = {
         display_name: (this.me && this.me.display_name) || '',
         bio:          (this.me && this.me.bio)          || '',
         email:        (this.me && this.me.email)        || '',
+        notify_events: events,
       };
+      this._profileBaseline = this._profileSnapshot();
+    },
+    // Snapshot helper — JSON-serialises the editable shape of the
+    // profile form. Used by both saveProfile() and profileDirty() so
+    // the comparison stays in lock-step.
+    _profileSnapshot() {
+      const f = this.profileForm || {};
+      return JSON.stringify({
+        display_name: f.display_name || '',
+        bio:          f.bio || '',
+        email:        f.email || '',
+        notify_events: f.notify_events || {},
+      });
     },
     // Dirty-tracker for the Profile form. Compares the live form
-    // against the baseline pulled from `me`. Any string divergence
-    // in display_name / bio / email flips the Save button to its
-    // "unsaved changes" visual treatment — same as Admin → Hosts
-    // and the host-stats Save button.
+    // against the baseline captured on load + each save. Any string
+    // divergence in display_name / bio / email / notify_events flips
+    // the Save button to its "unsaved changes" treatment.
     profileDirty() {
       if (!this.me) return false;
-      const f = this.profileForm || {};
-      const base = {
-        display_name: this.me.display_name || '',
-        bio:          this.me.bio          || '',
-        email:        this.me.email        || '',
-      };
-      return (f.display_name || '') !== base.display_name
-          || (f.bio          || '') !== base.bio
-          || (f.email        || '') !== base.email;
+      return this._profileBaseline !== this._profileSnapshot();
+    },
+    // Per-user notification toggle disable gate (#357). Returns true
+    // when the admin has globally disabled this event — UI greys out
+    // the user-side checkbox and shows a "disabled by admin" tooltip.
+    // The data model only narrows DOWN from the admin layer, so the
+    // backend also rejects an opt-IN attempt for a globally-disabled
+    // event with a 400.
+    userNotifyEventDisabledByAdmin(eventKey) {
+      if (!this.me || !this.me.notify_events_admin) return false;
+      const bare = (eventKey || '').replace(/^notify_event_/, '');
+      return this.me.notify_events_admin[bare] === false;
     },
 
     // UX-005: Asset Inventory dirty tracker — same shape as
@@ -942,20 +995,46 @@ function app() {
       if (this.profileBusy) return;
       this.profileBusy = true;
       try {
+        // Profile (display_name / bio / email) — same payload as before;
+        // /api/me/profile ignores extra fields so we strip the notify
+        // map for clarity rather than relying on the route to drop it.
+        const profilePayload = {
+          display_name: this.profileForm.display_name,
+          bio:          this.profileForm.bio,
+          email:        this.profileForm.email,
+        };
         const r = await fetch('/api/me/profile', {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(this.profileForm),
+          body: JSON.stringify(profilePayload),
         });
-        if (r.ok) {
-          this.showToast(this.t('toasts.profile_saved'));
-          // Refresh `me` so the avatar badge / dropdown header use the new name.
-          const rm = await fetch('/api/me');
-          if (rm.ok) { this.me = await rm.json(); this.syncProfileForm(); }
-        } else {
+        if (!r.ok) {
           const j = await r.json().catch(() => ({}));
           this.showToast(j.detail || this.t('toasts.save_failed'), 'error');
+          return;
         }
+        // Per-user notification opt-in (#357). Sent as a separate PATCH
+        // so the admin-gate refusal (400 with detail "Event 'X' is
+        // disabled by admin") surfaces a useful message without rolling
+        // back the profile edit. Backend payload keys are the bare
+        // event names (matching the storage shape inside ui_prefs).
+        const events = this.profileForm.notify_events || {};
+        const r2 = await fetch('/api/me/notify-prefs', {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(events),
+        });
+        if (!r2.ok) {
+          const j = await r2.json().catch(() => ({}));
+          this.showToast(j.detail || this.t('toasts.save_failed'), 'error');
+          return;
+        }
+        this.showToast(this.t('toasts.profile_saved'));
+        // Refresh `me` so the avatar badge / dropdown header / resolved
+        // notify_events all reflect the persisted state. syncProfileForm
+        // re-baselines so the amber ring + Unsaved indicator clear.
+        const rm = await fetch('/api/me');
+        if (rm.ok) { this.me = await rm.json(); this.syncProfileForm(); }
       } catch (_) {
         this.showToast(this.t('toasts.network_error'), 'error');
       } finally {
@@ -2244,6 +2323,9 @@ function app() {
         'ssh', 'portainer', 'i18n', 'ops', 'schedules', 'gather',
         'node_exporter', 'ne', 'oidc', 'auth', 'backup', 'stats',
         'deploy', 'version',
+        // #345 — TOTP / 2FA state changes (enrol / verify / lockout
+        // / admin-disable). Shares the OIDC accent token via CSS.
+        'totp',
       ]);
       // Replace [xxx] at the start of (or inside) the line. Allow
       // underscores / hyphens for tag names like [host_net_sampler].
@@ -2444,12 +2526,253 @@ function app() {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ new_password: res.value }),
         });
-        if (r.ok) this.showToast(this.t('toasts.password_reset'));
+        if (r.ok) {
+          this.showToast(this.t('toasts.password_reset'));
+          // Server also clears any TOTP enrolment for the target. Refresh
+          // the user list so the 2FA column reflects the new state.
+          await this.loadUsers();
+        }
         else {
           const j = await r.json().catch(() => ({}));
           this.showToast(j.detail || this.t('toasts.reset_failed'), 'error');
         }
       } catch (_) { this.showToast(this.t('toasts.network_error'), 'error'); }
+    },
+
+    // ----------------------------------------------------------------
+    // TOTP / 2FA management (#345). Three call sites:
+    //   - Profile (self): loadTotpStatus / startTotpEnrol / confirmTotpEnrol
+    //                     / disableTotpSelf / regenerateTotpCodes
+    //   - Admin -> Users: adminDisableTotp(u)
+    //   - Login page does its own thing in /js/login.js
+    // The /api/me/totp call returns plaintext backup codes; the
+    // hide/unhide eye is purely client-side.
+    // ----------------------------------------------------------------
+    async loadTotpStatus() {
+      try {
+        const r = await fetch('/api/me/totp');
+        if (!r.ok) {
+          this.totp.loaded = true;
+          return;
+        }
+        const j = await r.json();
+        this.totp = {
+          loaded: true,
+          allowed: !!j.allowed,
+          enabled: !!j.enabled,
+          required: !!j.required,
+          auth_source: j.auth_source || 'local',
+          backup_codes: Array.isArray(j.backup_codes) ? j.backup_codes : [],
+          policy: j.policy || {},
+        };
+      } catch (_) {
+        this.totp.loaded = true;
+      }
+    },
+
+    totpDisplayCode(c) {
+      if (!c || !c.code) return '';
+      if (this.totpCodesRevealed) return c.code;
+      // Same character count + the space, masked.
+      const len = String(c.code).replace(/\s/g, '').length;
+      const half = Math.floor(len / 2);
+      return ('•'.repeat(half)) + ' ' + ('•'.repeat(len - half));
+    },
+
+    async startTotpEnrol() {
+      this.totpEnrolBusy = true;
+      try {
+        const r = await fetch('/api/me/totp/enroll-start', { method: 'POST' });
+        if (!r.ok) {
+          const j = await r.json().catch(() => ({}));
+          this.showToast(j.detail || this.t('toasts.totp_enroll_failed'), 'error');
+          return;
+        }
+        const j = await r.json();
+        this.totpEnrol = { secret: j.secret, uri: j.provisioning_uri, code: '' };
+        this.totpEnrolStage = 'qr';
+        // Defer to the next tick so the <div id="totp-enrol-qr"> exists.
+        this.$nextTick(() => this._renderTotpQr());
+      } catch (_) {
+        this.showToast(this.t('toasts.network_error'), 'error');
+      } finally {
+        this.totpEnrolBusy = false;
+      }
+    },
+
+    _renderTotpQr() {
+      const el = document.getElementById('totp-enrol-qr');
+      if (!el) return;
+      el.textContent = '';
+      const uri = this.totpEnrol.uri;
+      if (!uri) return;
+      if (!window.qrcode) {
+        const code = document.createElement('code');
+        code.className = 'mono totp-qr-fallback';
+        code.textContent = uri;
+        el.appendChild(code);
+        return;
+      }
+      try {
+        const qr = window.qrcode(0, 'M');
+        qr.addData(uri);
+        qr.make();
+        el.innerHTML = qr.createSvgTag({ cellSize: 6, margin: 4, scalable: true });
+      } catch (_) {
+        const code = document.createElement('code');
+        code.className = 'mono totp-qr-fallback';
+        code.textContent = uri;
+        el.appendChild(code);
+      }
+    },
+
+    cancelTotpEnrol() {
+      this.totpEnrol = { secret: '', uri: '', code: '' };
+      this.totpEnrolStage = 'idle';
+    },
+
+    async confirmTotpEnrol() {
+      const code = (this.totpEnrol.code || '').replace(/\s/g, '').trim();
+      if (!/^\d{6}$/.test(code)) {
+        this.showToast(this.t('toasts.totp_invalid_code'), 'error');
+        return;
+      }
+      this.totpEnrolBusy = true;
+      try {
+        const r = await fetch('/api/me/totp/enroll-confirm', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ secret: this.totpEnrol.secret, code }),
+        });
+        if (!r.ok) {
+          const j = await r.json().catch(() => ({}));
+          this.showToast(j.detail || this.t('toasts.totp_enroll_failed'), 'error');
+          return;
+        }
+        const j = await r.json();
+        this.totpRevealCodes = j.backup_codes || [];
+        this.totpEnrolStage = 'reveal';
+        this.totpEnrol = { secret: '', uri: '', code: '' };
+        await this.loadTotpStatus();
+        if (this.me) this.me.totp = { ...(this.me.totp || {}), enabled: true };
+        this.showToast(this.t('toasts.totp_enabled'));
+      } catch (_) {
+        this.showToast(this.t('toasts.network_error'), 'error');
+      } finally {
+        this.totpEnrolBusy = false;
+      }
+    },
+
+    closeTotpReveal() {
+      this.totpRevealCodes = [];
+      this.totpEnrolStage = 'idle';
+    },
+
+    downloadBackupCodes(codes) {
+      const list = (codes && codes.length) ? codes : this.totpRevealCodes;
+      if (!list || !list.length) return;
+      const blob = new Blob([list.join('\n') + '\n'], { type: 'text/plain' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'omnigrid-backup-codes.txt';
+      a.click();
+      URL.revokeObjectURL(url);
+    },
+
+    async regenerateTotpCodes() {
+      const res = await Swal.fire({
+        title: this.t('settings.profile.totp.regen_confirm_title'),
+        text: this.t('settings.profile.totp.regen_confirm_body'),
+        icon: 'warning', showCancelButton: true,
+        confirmButtonText: this.t('settings.profile.totp.regen_confirm_button'),
+        cancelButtonText: this.t('actions.cancel'),
+      });
+      if (!res.isConfirmed) return;
+      try {
+        const r = await fetch('/api/me/totp/regenerate-codes', { method: 'POST' });
+        if (!r.ok) {
+          const j = await r.json().catch(() => ({}));
+          this.showToast(j.detail || this.t('toasts.totp_regen_failed'), 'error');
+          return;
+        }
+        const j = await r.json();
+        this.totpRevealCodes = j.backup_codes || [];
+        this.totpEnrolStage = 'reveal';
+        await this.loadTotpStatus();
+        this.showToast(this.t('toasts.totp_regen_ok'));
+      } catch (_) {
+        this.showToast(this.t('toasts.network_error'), 'error');
+      }
+    },
+
+    async disableTotpSelf() {
+      if (this.totp.required) {
+        this.showToast(this.t('toasts.totp_required_no_disable'), 'error');
+        return;
+      }
+      const res = await Swal.fire({
+        title: this.t('settings.profile.totp.disable_confirm_title'),
+        text: this.t('settings.profile.totp.disable_confirm_body'),
+        icon: 'warning',
+        input: 'password',
+        inputLabel: this.t('settings.profile.totp.disable_password_label'),
+        inputAttributes: { autocapitalize: 'off', autocorrect: 'off' },
+        showCancelButton: true,
+        confirmButtonText: this.t('settings.profile.totp.disable_confirm_button'),
+        cancelButtonText: this.t('actions.cancel'),
+      });
+      if (!res.isConfirmed || !res.value) return;
+      this.totpDisableBusy = true;
+      try {
+        const r = await fetch('/api/me/totp/disable', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ password: res.value }),
+        });
+        if (!r.ok) {
+          const j = await r.json().catch(() => ({}));
+          this.showToast(j.detail || this.t('toasts.totp_disable_failed'), 'error');
+          return;
+        }
+        await this.loadTotpStatus();
+        if (this.me) this.me.totp = { ...(this.me.totp || {}), enabled: false };
+        this.showToast(this.t('toasts.totp_disabled'));
+      } catch (_) {
+        this.showToast(this.t('toasts.network_error'), 'error');
+      } finally {
+        this.totpDisableBusy = false;
+      }
+    },
+
+    async adminDisableTotp(u) {
+      if (u.auth_source !== 'local') {
+        this.showToast(this.t('toasts.authentik_change_pw_here'), 'error');
+        return;
+      }
+      const res = await Swal.fire({
+        title: this.t('admin.users.totp_disable_confirm_title', { name: u.username }),
+        text: this.t('admin.users.totp_disable_confirm_body'),
+        icon: 'warning', showCancelButton: true,
+        confirmButtonText: this.t('admin.users.totp_disable_confirm_button'),
+        cancelButtonText: this.t('actions.cancel'),
+        confirmButtonColor: this._cssVar('--danger'),
+      });
+      if (!res.isConfirmed) return;
+      try {
+        const r = await fetch('/api/users/' + u.id + '/disable-totp', {
+          method: 'POST',
+        });
+        if (!r.ok) {
+          const j = await r.json().catch(() => ({}));
+          this.showToast(j.detail || this.t('toasts.totp_disable_failed'), 'error');
+          return;
+        }
+        this.showToast(this.t('toasts.totp_admin_disabled'));
+        await this.loadUsers();
+      } catch (_) {
+        this.showToast(this.t('toasts.network_error'), 'error');
+      }
     },
 
     async loadSessions() {
@@ -3139,6 +3462,16 @@ function app() {
         for (const k of (this.notifyEventKeys || [])) {
           this.settings[k] = !!d[k];
         }
+        // TOTP / 2FA policy (#345). Hydrate the five fields so the
+        // Admin -> Config tab can render the inputs + the existing
+        // saveSettings flow can ship the values back.
+        this.settings.totp_allowed              = (d.totp_allowed !== false);
+        this.settings.totp_required_for_admins  = !!d.totp_required_for_admins;
+        this.settings.totp_required_for_users   = !!d.totp_required_for_users;
+        this.settings.totp_lockout_max_failures =
+          Number.isFinite(d.totp_lockout_max_failures) ? d.totp_lockout_max_failures : 5;
+        this.settings.totp_lockout_minutes      =
+          Number.isFinite(d.totp_lockout_minutes) ? d.totp_lockout_minutes : 15;
         // Capture baseline for the host-stats dirty indicator.
         // Passwords/tokens are always blank in the live form (write-
         // only on the wire) so any typed value flips dirty.
@@ -6453,6 +6786,8 @@ function app() {
           'rt-ax':           'asus',
           'rt-ac':           'asus',
           'western-digital': 'wd',
+          'seeed':           'seeedstudio',
+          'seeed-studio':    'seeedstudio',
           'western digital': 'wd',
           'wdc':             'wd',
           'mycloud':         'wd',
@@ -6982,6 +7317,12 @@ function app() {
         ['j tech',                'jtech'],
         // Nixplay — digital photo frames.
         ['nixplay',               'nixplay'],
+        // Seeed Studio — open-source hardware (Raspberry Pi accessories,
+        // ReSpeaker, ReComputer, ReTerminal, XIAO boards). Long-form
+        // first so "seeedstudio" matches before the bare "seeed" pad.
+        ['seeed studio',          'seeedstudio'],
+        ['seeedstudio',           'seeedstudio'],
+        [' seeed ',               'seeedstudio'],
         // Samsung — separate slugs for the parent brand (`samsung`,
         // clean wordmark) vs. the corporate / B2B entity (`samsung-
         // electronics`, the older "Samsung Electronics" mark with the
@@ -7354,6 +7695,18 @@ function app() {
           const per = this.hostGroupsPerPage || 50;
           this.hostGroupsGoToPage(Math.floor(pos / per) + 1);
         }
+        // Scroll the new sub-group card into view + focus its name
+        // input. setTimeout(0) waits for Alpine's $nextTick after the
+        // page-jump to mount the row's DOM element on the new page;
+        // querying immediately would miss the freshly-rendered card.
+        setTimeout(() => {
+          const card = document.querySelector(`[data-host-group-card="${newIdx}"]`);
+          if (card && typeof card.scrollIntoView === 'function') {
+            card.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            const nameInput = card.querySelector('input[type="text"]');
+            if (nameInput && typeof nameInput.focus === 'function') nameInput.focus();
+          }
+        }, 50);
       });
     },
 
