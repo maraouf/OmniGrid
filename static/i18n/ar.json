@@ -243,13 +243,13 @@
       "source_beszel": "Beszel Hub (استدعاء واحد)",
       "source_invalid": "يجب أن يكون المصدر 'none' أو 'node_exporter' أو 'beszel'.",
       "url_label": "قالب عنوان URL",
-      "url_hint": "العناصر النائبة: {host} = اسم مضيف Docker (استخدم لاحقة مثل .home.lan لاسم FQDN)، {ip} = عنوان IP المُعلَن في Swarm (لتجاوز DNS). غيّر المنفذ هنا إذا كان المُصدّر يستمع على منفذ آخر غير :9100.",
+      "url_hint": "العناصر النائبة: {host} = اسم مضيف Docker (استخدم لاحقة مثل .example.com لاسم FQDN)، {ip} = عنوان IP المُعلَن في Swarm (لتجاوز DNS). غيّر المنفذ هنا إذا كان المُصدّر يستمع على منفذ آخر غير :9100.",
       "placeholder_required": "يجب أن يحتوي قالب URL على {host}.",
       "overrides_label": "استبدالات URL لكل عقدة (JSON)",
       "overrides_hint": "استخدم هذا عندما لا يمكن لحاوية OmniGrid حل اسم مضيف Docker للعقدة. المفاتيح هي أسماء المضيفين؛ القيم هي روابط URL كاملة. الاستبدالات تُقدَّم على القالب.",
       "overrides_invalid": "يجب أن تكون الاستبدالات كائن JSON مثل {\"host\": \"http://…\"}.",
       "beszel_url_label": "رابط Beszel Hub",
-      "beszel_url_hint": "مثال: http://monitoring.home.lan:8090 — عنوان واجهة Hub. بدون شرطة نهائية.",
+      "beszel_url_hint": "مثال: http://beszel.example.com:8090 — عنوان واجهة Hub. بدون شرطة نهائية.",
       "beszel_identity_label": "المُعرّف (البريد الإلكتروني)",
       "beszel_password_label": "كلمة المرور",
       "beszel_password_set": "(محفوظة — اتركها فارغة للإبقاء عليها)",
@@ -301,7 +301,7 @@
       "title": "إشعارات Apprise",
       "url_format_prefix": "صيغة الرابط:",
       "url_format_suffix": "هو اسم الحزمة الذي حفظته في واجهة Apprise (وليس وسماً). استجابة <b>404</b> تعني أنه لا يوجد إعداد بهذا المفتاح على الخادم.",
-      "url_placeholder": "http://apprise.home.lan:8005/notify/<config-key>",
+      "url_placeholder": "http://apprise.example.com:8005/notify/<config-key>",
       "tag_placeholder": "اختياري: تصفية الروابط بالوسم داخل الإعداد"
     },
     "portainer": {
@@ -310,7 +310,7 @@
       "configured": "مُعدّ",
       "not_configured": "غير مُعدّ",
       "url_label": "رابط Portainer",
-      "url_placeholder": "https://portainer.home.lan:8443",
+      "url_placeholder": "https://portainer.example.com:9443",
       "api_key_label": "مفتاح API",
       "api_key_set": "(معيّن حالياً — اتركه فارغاً للإبقاء عليه)",
       "api_key_not_set": "(غير معيّن)",
@@ -322,7 +322,7 @@
       "test_button": "اختبار الاتصال",
       "public_title": "الرابط العام لـ Portainer",
       "public_desc": "الرابط الذي يراه المتصفح لروابط «فتح في Portainer». قد يختلف عن رابط API عندما يكون Portainer خلف وكيل عكسي.",
-      "public_placeholder": "https://portainer.home.lan"
+      "public_placeholder": "https://portainer.example.com"
     },
     "ignores": {
       "title": "قائمة التجاهل",
@@ -339,7 +339,7 @@
       "disabled": "معطّل",
       "enable_toggle": "تفعيل تسجيل الدخول عبر OIDC (يُظهر زر «تسجيل الدخول بـ Authentik» في /login)",
       "issuer_url": "رابط المصدر",
-      "issuer_placeholder": "https://authentik.www.home.lan/application/o/omnigrid/",
+      "issuer_placeholder": "https://authentik.example.com/application/o/omnigrid/",
       "issuer_hint": "الصق رابط «OpenID Configuration Issuer» من تبويبة <b>Metadata</b> لمزوّد Authentik. نُلحق <code class=\"mono\">/.well-known/openid-configuration</code> تلقائياً.",
       "client_id": "معرّف العميل",
       "client_id_placeholder": "معرّف العميل المُولَّد من Authentik",
@@ -359,7 +359,7 @@
       "admin_group_placeholder": "omnigrid-admins",
       "admin_group_hint": "يُعاد فحص العضوية في المجموعة عند كل تسجيل دخول OIDC. المستخدمون خارج هذه المجموعة يحصلون على دور <code class=\"mono\">قراءة فقط</code>.",
       "verify_tls_title": "التحقق من TLS في استدعاءات الاكتشاف / الرمز / JWKS",
-      "verify_tls_hint": "اتركه مُفعّلاً عندما يكون لدى المُصدر شهادة موثوقة عمومياً. أوقفه لمُصدري المختبر المنزلي خلف جهة إصدار CA داخلية غير موجودة في مخزن الثقة بالحاوية (مثل <code class=\"mono\">*.home.lan</code> مع PKI موقّع ذاتياً). يعكس سلوك زر «التحقق من TLS» في Portainer.",
+      "verify_tls_hint": "اتركه مُفعّلاً عندما يكون لدى المُصدر شهادة موثوقة عمومياً. أوقفه لمُصدري المختبر المنزلي خلف جهة إصدار CA داخلية غير موجودة في مخزن الثقة بالحاوية (مثل <code class=\"mono\">*.example.com</code> مع PKI موقّع ذاتياً). يعكس سلوك زر «التحقق من TLS» في Portainer.",
       "save_button": "حفظ إعدادات OIDC",
       "test_button": "اختبار الاتصال"
     },
