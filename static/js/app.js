@@ -3904,10 +3904,14 @@ function app() {
       this.terminalResizeBound = onWinResize;
     },
     _terminalTheme() {
-      // Read tokens from the live theme so light vs dark match.
+      // Read tokens from the live theme so light vs dark match. No
+      // hex fallback — both --terminal-bg and --terminal-fg are
+      // declared in BOTH :root blocks; an empty value here would be
+      // a token-definition bug we want to see immediately rather
+      // than silently mask with a literal that diverges from theme.
       const cs = getComputedStyle(document.documentElement);
-      const bg = (cs.getPropertyValue('--terminal-bg') || '').trim() || '#000000';
-      const fg = (cs.getPropertyValue('--terminal-fg') || '').trim() || '#e2e8f0';
+      const bg = cs.getPropertyValue('--terminal-bg').trim();
+      const fg = cs.getPropertyValue('--terminal-fg').trim();
       return { background: bg, foreground: fg };
     },
     _teardownTerminalSession() {
@@ -9046,8 +9050,12 @@ function app() {
       this.showToast(this.t('toasts.copied'));
     },
     async confirmDialog({ title, html, icon = 'warning', confirmText, confirmColor }) {
-      const isLight = document.documentElement.getAttribute('data-theme') === 'light';
-      const warn = this._cssVar('--warning') || '#f59e0b';
+      // No hex fallbacks — every token below is declared in BOTH :root
+      // blocks. If `_cssVar` returns "" something is genuinely broken
+      // at the token level and we want it to surface visibly rather
+      // than be silently papered over by a literal that diverges from
+      // the rest of the theme. Per CLAUDE.md's "no fallback literals"
+      // rule (extended to JS-side reads).
       const r = await Swal.fire({
         title, html, icon,
         showCancelButton: true,
@@ -9057,8 +9065,8 @@ function app() {
         focusCancel: true,
         background: this._cssVar('--surface'),
         color: this._cssVar('--text'),
-        confirmButtonColor: confirmColor || warn,
-        cancelButtonColor: isLight ? '#9ca3af' : '#374151',
+        confirmButtonColor: confirmColor || this._cssVar('--warning'),
+        cancelButtonColor: this._cssVar('--btn-cancel-bg'),
       });
       return r.isConfirmed;
     },
