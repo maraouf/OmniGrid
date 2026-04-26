@@ -50,7 +50,8 @@
     "hosts": "Hosts",
     "history": "History",
     "settings": "Settings",
-    "admin": "Admin"
+    "admin": "Admin",
+    "stacks_updates_title": "{count} pending update(s)"
   },
   "topbar": {
     "search_placeholder": "Search resources, stacks, images…  (/)",

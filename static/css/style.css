@@ -2465,6 +2465,31 @@ details summary::-webkit-details-marker {
 }
 
 /* ==========================================================================
+   Top-nav pending-updates badge. Sits to the right of the nav button's
+   label and only renders on the Stacks entry (Services / Nodes are
+   alternate views over the same items, so a duplicate badge would just
+   repeat the same number). Uses the existing pill-update token family
+   so the colour matches the row-level update pills the operator already
+   recognises.
+   ========================================================================== */
+.nav-update-badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 18px;
+    height: 18px;
+    padding: 0 6px;
+    border-radius: var(--r-md);
+    background: var(--pill-update-bg);
+    color: var(--pill-update-fg);
+    border: 1px solid var(--pill-update-br);
+    font-size: 10.5px;
+    font-weight: 700;
+    line-height: 1;
+    margin-inline-start: var(--s-1);
+}
+
+/* ==========================================================================
    Top-right user-menu avatar + dropdown popup. Avatar hue is a runtime
    variable (--avatar-hue, set inline per user) so each username renders
    deterministically. hsl() saturation/lightness stay token-ish by using
