@@ -1826,8 +1826,13 @@
         </template>
       </div>
 
-      <!-- Empty-state ladder — loading, no hosts, providers broken. -->
-      <div x-show="hostsConfigured && hostsLoading && hosts.length === 0" class="skeleton-table" :aria-label="t('hosts_extra.empty.loading')">
+      <!-- Empty-state ladder — loading, no hosts, providers broken.
+           Skeleton fires while either (a) the first /api/hosts/list is
+           still in flight (hostsInitialLoaded=false), or (b) a refresh
+           re-set hostsLoading=true after the initial load. The "no host
+           data" branches below all gate on hostsInitialLoaded so they
+           never flash before the first response lands. -->
+      <div x-show="hostsConfigured && (!hostsInitialLoaded || hostsLoading) && hosts.length === 0" class="skeleton-table" :aria-label="t('hosts_extra.empty.loading')">
         <template x-for="i in 6" :key="i">
           <div class="skeleton-row">
             <div class="skeleton-cell tall"></div>
@@ -1843,7 +1848,7 @@
            the current search query. Distinct from the "no hosts at
            all" ladder below so the operator gets a clearer "nothing
            matches, clear the filter" action. -->
-      <div x-show="hostsConfigured && !hostsLoading && hosts.length > 0 && filteredHosts().length === 0"
+      <div x-show="hostsInitialLoaded && hostsConfigured && !hostsLoading && hosts.length > 0 && filteredHosts().length === 0"
            class="text-center py-12 text-[var(--text-faint)] text-sm">
         <div>
           <span x-text="t('hosts_extra.empty.no_match')"></span>
@@ -1861,7 +1866,7 @@
            works even when they're absent. -->
 
       <!-- Case: server sent curated_count > 0 but every row disabled. -->
-      <div x-show="hostsConfigured && !hostsLoading && !hostsError && hosts.length === 0 && hostsCuratedCount > 0 && hostsEnabledCount === 0"
+      <div x-show="hostsInitialLoaded && hostsConfigured && !hostsLoading && !hostsError && hosts.length === 0 && hostsCuratedCount > 0 && hostsEnabledCount === 0"
            class="text-center py-16 text-[var(--text-faint)] text-sm">
         <div>
           <span x-text="hostsCuratedCount"></span>
@@ -1878,7 +1883,7 @@
 
       <!-- Case: server sent curated_count > 0 with enabled rows but
            no provider matched any of them. -->
-      <div x-show="hostsConfigured && !hostsLoading && !hostsError && hosts.length === 0 && hostsEnabledCount > 0"
+      <div x-show="hostsInitialLoaded && hostsConfigured && !hostsLoading && !hostsError && hosts.length === 0 && hostsEnabledCount > 0"
            class="text-center py-16 text-[var(--text-faint)] text-sm">
         <div>
           <span x-text="hostsEnabledCount"></span>
@@ -1901,7 +1906,7 @@
            the assumption "no providers" would be wrong in that
            case (the old build could have providers enabled, just
            not reporting the field). -->
-      <div x-show="!hostsConfigured && !hostsLoading && !hostsError && hosts.length === 0 && (hostsActiveSources || []).length === 0"
+      <div x-show="hostsInitialLoaded && !hostsConfigured && !hostsLoading && !hostsError && hosts.length === 0 && (hostsActiveSources || []).length === 0"
            class="text-center py-16 text-[var(--text-faint)] text-sm">
         <div>No host-stats provider enabled.</div>
         <div class="mt-2">
@@ -1917,7 +1922,7 @@
            providers are enabled but returned no data. The copy
            points at the most likely fix (Test providers) rather
            than the misleading "no hosts yet". -->
-      <div x-show="hostsConfigured && !hostsLoading && !hostsError && hosts.length === 0 && hostsCuratedCount === 0"
+      <div x-show="hostsInitialLoaded && hostsConfigured && !hostsLoading && !hostsError && hosts.length === 0 && hostsCuratedCount === 0"
            class="text-center py-16 text-[var(--text-faint)] text-sm">
         <div>No host data to show.</div>
         <div class="mt-2 text-[13px] leading-relaxed">

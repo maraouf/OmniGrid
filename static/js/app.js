@@ -118,6 +118,13 @@ function app() {
     hostsActiveSources: [],   // list of "beszel" / "pulse" / "node_exporter"
     hostsConfigured: true,
     hostsLoading: false,
+    // True only AFTER the first loadHosts() response has landed. The
+    // "no host data" empty-state ladder gates on this so a fresh page
+    // load (where hosts=[] / hostsCuratedCount=0 / hostsLoading=false
+    // are all true initial values) doesn't flash "No host data to show"
+    // before the first /api/hosts/list call resolves. Skeleton renders
+    // until this flips, then the real empty states take over.
+    hostsInitialLoaded: false,
     // Persisted across browser refresh — mirrors the 'expanded' state
     // that the Stacks view already stores. Parsing tolerates stale /
     // invalid JSON so a corrupt entry doesn't break the whole view.
@@ -8367,6 +8374,10 @@ function app() {
         return;
       } finally {
         this.hostsLoading = false;
+        // First /api/hosts/list response landed (success OR error path).
+        // Empty-state ladder is now allowed to render — see hostsInitialLoaded
+        // gate in static/index.html.
+        this.hostsInitialLoaded = true;
       }
 
       // Fan out per-host fetches. Concurrency cap prevents a 30-host
