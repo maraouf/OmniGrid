@@ -623,20 +623,12 @@ async def _gather_impl() -> None:
         # so the Hosts endpoint and the gather flow stay byte-
         # identical. See #271 / CONS-003 for the dedup rationale.
         from logic.merge import is_meaningful as _meaningful, merge_best as _merge_best
-        from logic.db import get_setting
+        from logic.db import get_setting, active_host_stats_providers
         from logic import beszel as _beszel
         from logic import node_exporter as _ne
-        raw_source = (get_setting("host_stats_source", "") or "").strip()
-        if not raw_source:
-            # Legacy bootstrap: only the node_exporter_enabled bool existed.
-            raw_source = ("node_exporter"
-                          if (get_setting("node_exporter_enabled", "false") or "false").lower() == "true"
-                          else "none")
-        active_sources = {
-            s.strip().lower()
-            for s in raw_source.split(",")
-            if s.strip() and s.strip().lower() != "none"
-        }
+        # Single helper covers the CSV-with-legacy-fallback parse —
+        # see logic/db.py:active_host_stats_providers (CONS-004).
+        active_sources = active_host_stats_providers()
 
         if "beszel" in active_sources and df_hosts:
             # One HTTP call to the hub fetches every system's latest
