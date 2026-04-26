@@ -553,6 +553,39 @@ node_boot_time_seconds 1700000000
     dev_names = [d["name"] for d in disk["devices"]]
     assert dev_names == ["sda"], f"expected only sda, got {dev_names}"
 
+    # dm-* / md* are NO LONGER excluded after #343 (Synology / NAS use
+    # them as the user-facing volumes). Verify they're counted now.
+    nas_fixture = """\
+node_disk_read_bytes_total{device="dm-0"} 1000000
+node_disk_written_bytes_total{device="dm-0"} 500000
+node_disk_read_bytes_total{device="md0"}  2000000
+node_disk_written_bytes_total{device="md0"} 1000000
+node_disk_read_bytes_total{device="loop0"} 99999999
+node_disk_written_bytes_total{device="loop0"} 99999999
+"""
+    nas_disk = _ne.parse_disk_counters(nas_fixture)
+    assert nas_disk["total_read"]    == 3000000, f"NAS dm+md should be counted: {nas_disk}"
+    assert nas_disk["total_written"] == 1500000
+    nas_names = [d["name"] for d in nas_disk["devices"]]
+    assert "dm-0" in nas_names and "md0" in nas_names and "loop0" not in nas_names
+
+    # No-devices case (#343 follow-up): exporter without the diskstats
+    # collector returns no node_disk_* lines → parser returns None
+    # totals → probe_node leaves the host_disk_*_total keys absent →
+    # sampler stores NULL rate (not 0). Critical: distinguishing
+    # "missing data" from "zero activity" so the chart correctly
+    # displays "no data" instead of a flat zero line.
+    no_disk_fixture = """\
+node_memtotal_bytes 8589934592
+node_filesystem_size_bytes{mountpoint="/",device="/dev/sda1"} 100
+node_filesystem_avail_bytes{mountpoint="/",device="/dev/sda1"} 50
+node_network_receive_bytes_total{device="eth0"} 1000
+node_network_transmit_bytes_total{device="eth0"} 500
+"""
+    no_disk_parsed = _ne.parse_disk_counters(no_disk_fixture)
+    assert no_disk_parsed["total_read"]    is None, "no-devices must return None"
+    assert no_disk_parsed["total_written"] is None
+
     # Tick 1 — no previous counter, should establish baseline. Gauges
     # are meaningful so a row IS produced; rates simply absent.
     t0 = 1700000000.0
@@ -647,6 +680,22 @@ node_boot_time_seconds 1700000000
     # Empty probe — no fields at all.
     row7, next7 = _compute_row("h3", time.time(), {}, None)
     assert row7 is None and next7 is None
+
+    # No-disk probe with a previous-tick anchor (#343 follow-up): the
+    # current probe lacks host_disk_*_total entirely. Disk rates MUST
+    # stay null even though prev had disk anchors. Other fields keep
+    # working (net rate computes normally).
+    no_disk_stats = _ne.parse_exporter_text(no_disk_fixture)
+    no_disk_net_x = _ne.parse_network_counters(no_disk_fixture)
+    no_disk_stats["host_net_rx_total"] = no_disk_net_x["total_rx"]
+    no_disk_stats["host_net_tx_total"] = no_disk_net_x["total_tx"]
+    # Deliberately NOT setting host_disk_*_total — mirrors what
+    # probe_node does when parse_disk_counters returns None totals.
+    fake_prev = (t0, 1, 1, 100, 50)  # has disk anchor from previous tick
+    nd_row, _ = _compute_row("hno", t0 + 300, no_disk_stats, fake_prev)
+    assert nd_row is not None
+    assert nd_row["disk_read_bps"]  is None, "missing disk metrics → null rate"
+    assert nd_row["disk_write_bps"] is None
 
     print("[host_metrics_sampler] smoke test passed")
     return 0

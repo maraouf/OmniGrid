@@ -153,21 +153,23 @@ def parse_network_counters(text: str) -> dict:
     }
 
 
-# Block devices we don't want to count toward host disk I/O. Pattern is the
-# same shape as the NIC list: prefix unless an exact-match entry. Loops
-# (`loopN`), device-mapper synthetic devices (`dm-N`), RAM disks (`ram*`),
-# floppy / CD-ROM noise (`fd*`, `sr*`), and per-partition rows (suffix
-# digit on a known parent — handled in _is_excluded_disk by the
-# "device != devicepartial" check) all drop out so the totals match the
-# bytes the host's "real" storage moved.
+# Block devices we don't want to count toward host disk I/O. We exclude
+# only TRULY synthetic devices: ramdisks, loop mounts, floppy / CD-ROM
+# noise, zram. We deliberately KEEP `dm-*` (LVM / encryption) and `md*`
+# (mdadm RAID) because on NAS / appliance hosts (Synology, TrueNAS,
+# OPNsense) the user-facing volume IS the dm/md device — excluding them
+# left those hosts with zero "real" devices and a perpetual 0 disk I/O
+# rate (#343 follow-up; the operator's Synology box at 10.0.0.1 was
+# returning all 0s exactly for this reason). Trade-off: hosts that
+# expose BOTH the underlying physical disks AND the dm/md layer on top
+# will double-count. That's a known limitation; better to over-report
+# than to silently report zero.
 _EXCLUDED_DISK_PREFIXES = (
-    "loop",     # loop0, loop1, ...
-    "dm-",      # device-mapper crypt/lvm devices (parent shows up too)
-    "ram",      # ram0, ram1
+    "loop",     # loop0, loop1, ... (virtual loop mounts)
+    "ram",      # ram0, ram1 (kernel ramdisks)
     "fd",       # legacy floppy
     "sr",       # cd-rom (sr0)
     "zram",     # in-memory swap
-    "md",       # md0 (mdadm parents — children sd* counted instead)
 )
 
 
@@ -243,6 +245,17 @@ def parse_disk_counters(text: str) -> dict:
         (per_dev[n] for n in per_dev if n not in dropped),
         key=lambda r: r["name"],
     )
+    if not devices:
+        # Distinguish "exporter doesn't expose the diskstats collector"
+        # (no matching lines at all) from "exporter exposes them but the
+        # host happened to do zero I/O" (devices present but with 0
+        # values). Returning None totals lets the caller surface NULL
+        # downstream so the chart renders as "no data" rather than a
+        # flat 0 line. Numeric 0 here would be ambiguous and produce
+        # exactly the "always-zero rate" footgun #343 hit on the
+        # Synology box at 10.0.0.1 before #_EXCLUDED_DISK_PREFIXES was
+        # loosened.
+        return {"devices": [], "total_read": None, "total_written": None}
     total_read    = sum(r["read_bytes"]    for r in devices)
     total_written = sum(r["written_bytes"] for r in devices)
     return {
@@ -620,10 +633,16 @@ async def probe_node(
     # Disk counter pass — same contract as the network pass: ABSOLUTE
     # counter bytes; the host_metrics_sampler computes rates across two
     # ticks. Single-probe callers cannot turn these into bytes/s.
+    # Only set host_disk_*_total when the parser ACTUALLY found
+    # eligible devices — None totals (no diskstats collector / all
+    # devices excluded) leave the keys absent so the sampler treats
+    # the metric as missing (NULL row) instead of a flat-zero rate.
     try:
         disk = parse_disk_counters(text)
-        stats["host_disk_read_total"]    = int(disk.get("total_read") or 0)
-        stats["host_disk_write_total"]   = int(disk.get("total_written") or 0)
+        if disk.get("total_read") is not None:
+            stats["host_disk_read_total"] = int(disk["total_read"])
+        if disk.get("total_written") is not None:
+            stats["host_disk_write_total"] = int(disk["total_written"])
         stats["ne_disk_devices"] = disk.get("devices") or []
     except Exception as e:
         print(f"[node_exporter] disk counter parse failed: {e}")
