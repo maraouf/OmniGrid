@@ -125,7 +125,7 @@ async def notify(title: str, body: str, status: str = "info", *,
     if not url:
         print("[notify] skipped — no apprise_url configured")
         return
-    # Per-event opt-out (#375). When event is provided AND the matching
+    # Per-event opt-out. When event is provided AND the matching
     # setting is "false", short-circuit. None = always-send (legacy
     # callers + the test button).
     if event:

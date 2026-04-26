@@ -2823,9 +2823,9 @@
         </section>
       </div>
 
-      <!-- NOTIFICATIONS TAB (moved from Settings — admin-only global config).
-           #375: split — Open-Meteo moved to the new General tab, per-event
-           toggle grid added below the Apprise panel. -->
+      <!-- NOTIFICATIONS TAB (admin-only global config). Open-Meteo
+           lives in its own General tab below; per-event toggle grid
+           sits below the Apprise panel. -->
       <section x-show="adminTab==='notifications'" class="bg-[var(--surface)] border border-[var(--border)] rounded-md p-5">
         <h3 class="font-semibold text-[13px] mb-2" x-text="t('settings.notifications.title')"></h3>
         <!-- Master switch (#204). Disables `notify()` in the backend
@@ -2853,7 +2853,7 @@
                :disabled="isReadonly() || !settings.apprise_enabled"
                :placeholder="t('settings.notifications.tag_placeholder')" class="w-full mt-2">
 
-        <!-- Per-event toggles (#375). Same Save button as the Apprise
+        <!-- Per-event toggles. Same Save button as the Apprise
              panel above — every event toggle joins the Apprise dirty
              snapshot so a single Save POST covers everything in this
              tab. The /api/notify-test endpoint always sends, so a
@@ -2883,6 +2883,27 @@
                     <span class="text-[var(--text-dim)]" x-text="t('admin.notifications.events.failure')"></span>
                   </label>
                 </div>
+              </div>
+            </template>
+          </div>
+
+          <!-- Security events — single-toggle per event (no
+               success/failure pair). Default OFF for opt-in — login
+               traffic gets noisy on multi-user deployments. -->
+          <div class="border-t border-[var(--border)] pt-3 mb-3">
+            <div class="text-[10.5px] text-[var(--text-faint)] uppercase tracking-wider mb-2"
+                 x-text="t('admin.notifications.events.security_section')"></div>
+            <template x-for="e in notifySecurityEvents" :key="e.key">
+              <div class="flex items-center justify-between gap-3 py-1">
+                <span class="text-[12px] text-[var(--text)]"
+                      x-text="t('admin.notifications.events.' + e.label)"></span>
+                <label class="flex items-center gap-1.5 text-[11.5px] cursor-pointer select-none">
+                  <input type="checkbox"
+                         :checked="settings[e.key]"
+                         @change="settings[e.key] = $event.target.checked"
+                         :disabled="isReadonly() || !settings.apprise_enabled">
+                  <span class="text-[var(--text-dim)]" x-text="t('admin.notifications.events.enabled')"></span>
+                </label>
               </div>
             </template>
           </div>
@@ -2919,7 +2940,7 @@
         </div>
       </section>
 
-      <!-- GENERAL TAB (#375) — Open-Meteo (weather widget) lives here.
+      <!-- GENERAL TAB — Open-Meteo (weather widget) lives here.
            Future home for any other ambient/UI service settings that
            don't belong under auth, hosts, scheduling, or notifications. -->
       <section x-show="adminTab==='general'" class="bg-[var(--surface)] border border-[var(--border)] rounded-md p-5">
