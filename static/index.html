@@ -628,7 +628,7 @@
                         </div>
                         <svg x-show="sparkPoints(item, 'cpu')" class="spark" :class="sparkClass(item, 'cpu')"
                              viewBox="0 0 60 10" preserveAspectRatio="none"
-                             aria-hidden="true" title="CPU — last 24h">
+                             aria-hidden="true" :title="t('tooltips.cpu_24h')">
                           <polyline fill="none" stroke="currentColor" stroke-width="1" :points="sparkPoints(item, 'cpu')"></polyline>
                         </svg>
                         <div x-show="!sparkPoints(item, 'cpu')" class="collecting-inline" x-text="t('loading.collecting_data')"></div>
@@ -648,7 +648,7 @@
                         <div class="stat-sub" x-text="fmtBytes(statsFor(item).mem_usage) + ' / ' + fmtBytes(statsFor(item).mem_limit)"></div>
                         <svg x-show="sparkPoints(item, 'mem')" class="spark" :class="sparkClass(item, 'mem')"
                              viewBox="0 0 60 10" preserveAspectRatio="none"
-                             aria-hidden="true" title="Memory — last 24h">
+                             aria-hidden="true" :title="t('tooltips.mem_24h')">
                           <polyline fill="none" stroke="currentColor" stroke-width="1" :points="sparkPoints(item, 'mem')"></polyline>
                         </svg>
                         <div x-show="!sparkPoints(item, 'mem')" class="collecting-inline" x-text="t('loading.collecting_data')"></div>
@@ -843,7 +843,7 @@
                             @click="restartItem(item)"
                             :disabled="isRestartBusy(item)"
                             class="btn btn-soft text-[11px]"
-                            title="Restart (force)">
+                            :title="t('actions.restart_force_title')">
                       <template x-if="isRestartBusy(item)"><span class="spin"></span></template>
                       <template x-if="!isRestartBusy(item)">
                         <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M3 12a9 9 0 0 1 15.5-6.36L22 8"/><path d="M22 3v5h-5"/><path d="M22 12a9 9 0 0 1-15.5 6.36L3 16"/><path d="M2 21v-5h5"/></svg>
@@ -853,7 +853,7 @@
                             @click="removeContainer(item)"
                             :disabled="isItemBusy(item)"
                             class="btn btn-danger-outline text-[11px]"
-                            title="Remove container">
+                            :title="t('actions.remove_container_title')">
                       <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m3 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6h14z"/></svg>
                     </button>
                   </div>
@@ -1344,7 +1344,7 @@
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-[var(--text-faint)]"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
         <input type="search" x-model="hostsSearch"
                class="flex-1 min-w-[180px] text-[12.5px] py-1.5"
-               placeholder="Filter hosts by name, platform, OS, provider…">
+               :placeholder="t('hosts_extra.filter_placeholder')">
         <span class="text-[10.5px] text-[var(--text-faint)]"
               x-show="hostsSearch"
               x-text="filteredHosts().length + ' of ' + hosts.length"></span>
@@ -2060,7 +2060,7 @@
             </template>
             <label class="absolute bottom-1 right-1 w-8 h-8 rounded-full bg-[var(--surface-3)] border border-[var(--border-bright)] flex items-center justify-center cursor-pointer hover:bg-[var(--surface-2)]"
                    :class="avatarBusy && 'opacity-60'"
-                   title="Upload a new avatar">
+                   :title="t('settings.profile.avatar_upload_title')">
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
               <input type="file" accept="image/*" class="hidden" @change="uploadAvatar($event)" :disabled="avatarBusy">
             </label>
@@ -3406,11 +3406,13 @@
             <button x-show="isAdmin() && hostsConfig.length > 0"
                     @click="exportHostsConfig()"
                     class="btn btn-ghost text-[12px]"
-                    title="Download the curated hosts list as a JSON file.">Export</button>
+                    :title="t('admin_hosts.export_title')"
+                    x-text="t('admin_hosts.export')"></button>
             <button x-show="isAdmin()"
                     @click="$refs.hostsImportFile.click()"
                     class="btn btn-ghost text-[12px]"
-                    title="Load a hosts JSON file — merge or replace the current list.">Import</button>
+                    :title="t('admin_hosts.import_title')"
+                    x-text="t('admin_hosts.import')"></button>
             <input type="file" x-ref="hostsImportFile" accept="application/json,.json"
                    class="hidden"
                    @change="importHostsConfig($event)">
@@ -3464,12 +3466,12 @@
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-[var(--text-faint)]"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
           <input type="search" x-model="hostsConfigFilter"
                  class="flex-1 text-[12.5px] py-1.5"
-                 placeholder="Filter hosts by id, label, provider name, URL…">
+                 :placeholder="t('admin_hosts.filter_placeholder')">
           <span class="text-[10.5px] text-[var(--text-faint)]"
                 x-show="hostsConfigFilter"
                 x-text="filteredHostsConfig().length + ' of ' + hostsConfig.length"></span>
           <button x-show="hostsConfigFilter" @click="hostsConfigFilter=''"
-                  class="btn btn-ghost text-[11px]" title="Clear filter">✕</button>
+                  class="btn btn-ghost text-[11px]" :title="t('hosts_extra.empty.clear_filter')">✕</button>
         </div>
 
         <div x-show="!hostsConfigLoading" class="space-y-3">
@@ -3593,17 +3595,18 @@
                        x-text="fieldError('host_' + idx + '_id')"></div>
                 </div>
                 <div>
-                  <label class="block text-[10.5px] uppercase tracking-wider text-[var(--text-faint)] mb-1">Display label</label>
+                  <label class="block text-[10.5px] uppercase tracking-wider text-[var(--text-faint)] mb-1"
+                         x-text="t('admin_hosts.row.display_label')"></label>
                   <input type="text" x-model="row.label" :disabled="isReadonly()"
                          @input="markHostRowDirty(idx)"
                          class="w-full text-[13px] py-1.5"
-                         placeholder="e.g. Docker VM">
+                         :placeholder="t('admin_hosts.row.label_placeholder')">
                 </div>
                 <label class="inline-flex items-center gap-2 text-[12px] text-[var(--text-dim)] pb-1.5">
                   <input type="checkbox" x-model="row.enabled"
                          @change="markHostRowDirty(idx)"
                          :disabled="isReadonly()">
-                  <span>Enabled</span>
+                  <span x-text="t('admin_hosts.row.enabled')"></span>
                 </label>
                 <!-- Row-level actions. Reorder pairs wrap when the
                      card is narrow on mobile. Duplicate and Remove
@@ -3626,20 +3629,22 @@
                   </button>
                   <button x-show="isAdmin()" @click="duplicateHostRow(idx)"
                           class="btn btn-ghost text-[12px] px-2"
-                          title="Duplicate this host (inserts a disabled clone below)">
+                          :title="t('admin_hosts.row.duplicate_title')">
                     <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
                   </button>
                   <button x-show="isAdmin()" @click="removeHostRow(idx)"
                           class="btn btn-ghost text-[12px] text-danger px-2"
-                          title="Remove this host">Remove</button>
+                          :title="t('admin_hosts.row.remove_title')"
+                          x-text="t('admin_hosts.row.remove')"></button>
                 </div>
               </div>
               <!-- Row 1a — optional external URL + icon override. -->
               <div class="grid grid-cols-1 md:grid-cols-[2fr_1fr] gap-3">
                 <div>
                   <label class="block text-[10.5px] uppercase tracking-wider text-[var(--text-faint)] mb-1">
-                    External URL
-                    <span class="text-[10px] normal-case text-[var(--text-faint)] ms-1">(optional — host's web UI or dashboard)</span>
+                    <span x-text="t('admin_hosts.row.external_url')"></span>
+                    <span class="text-[10px] normal-case text-[var(--text-faint)] ms-1"
+                          x-text="t('admin_hosts.row.external_url_hint')"></span>
                   </label>
                   <input type="url" x-model="row.url" :disabled="isReadonly()"
                          @input="markHostRowDirty(idx)"
@@ -3648,8 +3653,9 @@
                 </div>
                 <div>
                   <label class="block text-[10.5px] uppercase tracking-wider text-[var(--text-faint)] mb-1">
-                    Icon
-                    <span class="text-[10px] normal-case text-[var(--text-faint)] ms-1">(optional — auto-matched from ID if blank)</span>
+                    <span x-text="t('admin_hosts.row.icon')"></span>
+                    <span class="text-[10px] normal-case text-[var(--text-faint)] ms-1"
+                          x-text="t('admin_hosts.row.icon_hint')"></span>
                   </label>
                   <div class="flex items-center gap-2">
                     <!-- Preview — runs through the same hostIconUrl()
@@ -3665,7 +3671,7 @@
                     <input type="text" x-model="row.icon" :disabled="isReadonly()"
                            @input="markHostRowDirty(idx)"
                            class="flex-1 mono text-[12.5px] py-1.5"
-                           placeholder="opnsense · pfsense · ghcr.io/…">
+                           :placeholder="t('admin_hosts.row.icon_placeholder')">
                   </div>
                 </div>
               </div>
@@ -3678,18 +3684,21 @@
               <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
                 <div x-show="hostStatsSourceEnabled('node_exporter')">
                   <label class="block text-[10.5px] uppercase tracking-wider text-[var(--text-faint)] mb-1">
-                    node-exporter URL
-                    <span class="text-[10px] normal-case text-[var(--text-faint)] ms-1">(blank = skip)</span>
+                    <span x-text="t('admin_hosts.provider.ne_url_label')"></span>
+                    <span class="text-[10px] normal-case text-[var(--text-faint)] ms-1"
+                          x-text="t('admin_hosts.provider.blank_skip')"></span>
                   </label>
                   <input type="url" x-model="row.ne_url" :disabled="isReadonly()"
                          @input="markHostRowDirty(idx)"
                          class="w-full mono text-[12.5px] py-1.5"
-                         placeholder="http://10.0.0.1:9100/metrics">
+                         :placeholder="t('admin_hosts.row.ne_url_placeholder')">
                 </div>
                 <div x-show="hostStatsSourceEnabled('beszel')">
                   <label class="block text-[10.5px] uppercase tracking-wider text-[var(--text-faint)] mb-1">
-                    Beszel host
-                    <span class="text-[10px] normal-case text-[var(--text-faint)] ms-1" x-show="hostsDiscovery.beszel.length">(autocomplete)</span>
+                    <span x-text="t('admin_hosts.provider.beszel_host_label')"></span>
+                    <span class="text-[10px] normal-case text-[var(--text-faint)] ms-1"
+                          x-show="hostsDiscovery.beszel.length"
+                          x-text="t('admin_hosts.provider.autocomplete')"></span>
                   </label>
                   <input type="text" x-model="row.beszel_name" :disabled="isReadonly()"
                          list="beszel-names"
@@ -3699,8 +3708,10 @@
                 </div>
                 <div x-show="hostStatsSourceEnabled('pulse')">
                   <label class="block text-[10.5px] uppercase tracking-wider text-[var(--text-faint)] mb-1">
-                    Pulse name
-                    <span class="text-[10px] normal-case text-[var(--text-faint)] ms-1" x-show="hostsDiscovery.pulse.length">(autocomplete)</span>
+                    <span x-text="t('admin_hosts.provider.pulse_name_label')"></span>
+                    <span class="text-[10px] normal-case text-[var(--text-faint)] ms-1"
+                          x-show="hostsDiscovery.pulse.length"
+                          x-text="t('admin_hosts.provider.autocomplete')"></span>
                   </label>
                   <input type="text" x-model="row.pulse_name" :disabled="isReadonly()"
                          list="pulse-names"
@@ -3716,8 +3727,9 @@
               <div class="grid grid-cols-1 md:grid-cols-[2fr_1fr] gap-3" x-show="hostStatsSourceEnabled('webmin')">
                 <div>
                   <label class="block text-[10.5px] uppercase tracking-wider text-[var(--text-faint)] mb-1">
-                    Webmin URL
-                    <span class="text-[10px] normal-case text-[var(--text-faint)] ms-1">(blank = skip — hosts without Webmin keep working)</span>
+                    <span x-text="t('admin_hosts.provider.webmin_url_label')"></span>
+                    <span class="text-[10px] normal-case text-[var(--text-faint)] ms-1"
+                          x-text="t('admin_hosts.provider.webmin_blank_skip')"></span>
                   </label>
                   <input type="url" x-model="row.webmin_url" :disabled="isReadonly()"
                          @input="markHostRowDirty(idx)"
@@ -3726,15 +3738,17 @@
                 </div>
                 <div>
                   <label class="block text-[10.5px] uppercase tracking-wider text-[var(--text-faint)] mb-1">
-                    Webmin hostname
-                    <span class="text-[10px] normal-case text-[var(--text-faint)] ms-1" x-show="hostsDiscovery.webmin && hostsDiscovery.webmin.length">(autocomplete)</span>
+                    <span x-text="t('admin_hosts.provider.webmin_hostname_label')"></span>
+                    <span class="text-[10px] normal-case text-[var(--text-faint)] ms-1"
+                          x-show="hostsDiscovery.webmin && hostsDiscovery.webmin.length"
+                          x-text="t('admin_hosts.provider.autocomplete')"></span>
                   </label>
                   <input type="text" x-model="row.webmin_name" :disabled="isReadonly()"
                          list="webmin-names"
                          @input="markHostRowDirty(idx); clearFieldError('host_' + idx + '_webmin_name')"
                          class="w-full mono text-[12.5px] py-1.5"
                          :class="hasFieldError('host_' + idx + '_webmin_name') ? 'field-invalid' : ''"
-                         placeholder="host reported by Webmin">
+                         :placeholder="t('admin_hosts.provider.webmin_name_placeholder')">
                   <div x-show="hasFieldError('host_' + idx + '_webmin_name')"
                        class="field-error-msg"
                        x-text="fieldError('host_' + idx + '_webmin_name')"></div>
@@ -3878,7 +3892,7 @@
               <button @click="hostsConfigGoToPage(1)"
                       :disabled="hostsConfigPage <= 1"
                       :class="hostsConfigPage <= 1 ? 'opacity-40 cursor-not-allowed' : ''"
-                      class="btn btn-ghost text-[11px] px-2" title="First page">«</button>
+                      class="btn btn-ghost text-[11px] px-2" :title="t('pagination.first_page_title')">«</button>
               <button @click="hostsConfigPrevPage()"
                       :disabled="hostsConfigPage <= 1"
                       :class="hostsConfigPage <= 1 ? 'opacity-40 cursor-not-allowed' : ''"
@@ -3887,7 +3901,7 @@
                      :value="Math.min(hostsConfigPage, hostsConfigTotalPages())"
                      @change="hostsConfigGoToPage($event.target.value)"
                      class="w-14 text-center text-[11.5px] py-1"
-                     title="Jump to page">
+                     :title="t('pagination.jump_to_page_title')">
               <button @click="hostsConfigNextPage()"
                       :disabled="hostsConfigPage >= hostsConfigTotalPages()"
                       :class="hostsConfigPage >= hostsConfigTotalPages() ? 'opacity-40 cursor-not-allowed' : ''"
@@ -3895,11 +3909,11 @@
               <button @click="hostsConfigGoToPage(hostsConfigTotalPages())"
                       :disabled="hostsConfigPage >= hostsConfigTotalPages()"
                       :class="hostsConfigPage >= hostsConfigTotalPages() ? 'opacity-40 cursor-not-allowed' : ''"
-                      class="btn btn-ghost text-[11px] px-2" title="Last page">»</button>
+                      class="btn btn-ghost text-[11px] px-2" :title="t('pagination.last_page_title')">»</button>
               <select :value="hostsConfigPerPage"
                       @change="hostsConfigSetPerPage($event.target.value)"
                       class="text-[11.5px] py-1 ms-2"
-                      title="Rows per page">
+                      :title="t('pagination.rows_per_page_title')">
                 <option value="10">10 / page</option>
                 <option value="25">25 / page</option>
                 <option value="50">50 / page</option>
@@ -4563,7 +4577,7 @@
                     x-show="sshSettings.private_key_set && isAdmin()"
                     @click="clearSshSecret('private_key')"
                     class="ms-auto text-[10.5px] text-[var(--danger)] hover:underline"
-                    title="Erase the stored SSH private key (and its passphrase). Cannot be undone — paste a new key after to restore access.">
+                    :title="t('admin_ssh.clear_key_title')">
               Clear
             </button>
           </label>
@@ -4585,7 +4599,7 @@
                     x-show="sshSettings.passphrase_set && isAdmin()"
                     @click="clearSshSecret('passphrase')"
                     class="ms-auto text-[10.5px] text-[var(--danger)] hover:underline"
-                    title="Erase the stored passphrase. The private key stays; the runner will try to parse it unprotected.">
+                    :title="t('admin_ssh.clear_passphrase_title')">
               Clear
             </button>
           </label>
@@ -4607,7 +4621,7 @@
                     x-show="sshSettings.password_set && isAdmin()"
                     @click="clearSshSecret('password')"
                     class="ms-auto text-[10.5px] text-[var(--danger)] hover:underline"
-                    title="Erase the stored default password. Per-host password overrides still apply.">
+                    :title="t('admin_ssh.clear_password_title')">
               Clear
             </button>
           </label>
@@ -4989,7 +5003,7 @@
                      :placeholder="t('admin.schedules.queue_search_placeholder')"
                      class="text-[12px] py-1 min-w-[220px]">
               <button x-show="scheduleQueueSearch" @click="clearScheduleQueueSearch()"
-                      class="btn btn-ghost text-[11px]" title="Clear search">✕</button>
+                      class="btn btn-ghost text-[11px]" :title="t('hosts_extra.empty.clear_filter')">✕</button>
               <button @click="loadScheduleQueue()" class="btn btn-ghost text-[11px]" x-text="t('actions.reload')"></button>
             </div>
           </div>

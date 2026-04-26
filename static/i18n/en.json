@@ -138,6 +138,16 @@
     "unknown_short": "?",
     "ok_suffix": "ok"
   },
+  "tooltips": {
+    "cpu_24h": "CPU — last 24h",
+    "mem_24h": "Memory — last 24h"
+  },
+  "pagination": {
+    "first_page_title": "First page",
+    "last_page_title": "Last page",
+    "jump_to_page_title": "Jump to page",
+    "rows_per_page_title": "Rows per page"
+  },
   "actions": {
     "update_stack": "Update Stack",
     "updating": "Updating…",
@@ -926,7 +936,8 @@
       "clear_filter": "Clear filter",
       "no_provider_enabled": "No host-stats provider is enabled.",
       "test_providers": "Test providers"
-    }
+    },
+    "filter_placeholder": "Filter hosts by name, platform, OS, provider…"
   },
   "stale_marker": {
     "tooltip": "Last live data {age} ago — value restored from cache snapshot"
@@ -1142,7 +1153,35 @@
       "beszel_name_placeholder": "host01.example.com",
       "pulse_name_placeholder": "node · vm · ct",
       "webmin_url_placeholder": "https://host.example.com:10000",
-      "webmin_name_placeholder": "e.g. webserver.example.com"
+      "webmin_name_placeholder": "e.g. webserver.example.com",
+      "display_label": "Display label",
+      "label_placeholder": "e.g. Docker VM",
+      "enabled": "Enabled",
+      "external_url": "External URL",
+      "external_url_hint": "(optional — host's web UI or dashboard)",
+      "icon": "Icon",
+      "icon_hint": "(optional — auto-matched from ID if blank)",
+      "icon_placeholder": "opnsense · pfsense · ghcr.io/…",
+      "ne_url_placeholder": "http://10.0.0.1:9100/metrics",
+      "duplicate_title": "Duplicate this host (inserts a disabled clone below)",
+      "remove_title": "Remove this host",
+      "remove": "Remove"
+    },
+    "filter_placeholder": "Filter hosts by id, label, provider name, URL…",
+    "export": "Export",
+    "import": "Import",
+    "export_title": "Download the curated hosts list as a JSON file.",
+    "import_title": "Load a hosts JSON file — merge or replace the current list.",
+    "provider": {
+      "ne_url_label": "node-exporter URL",
+      "beszel_host_label": "Beszel host",
+      "pulse_name_label": "Pulse name",
+      "webmin_url_label": "Webmin URL",
+      "webmin_hostname_label": "Webmin hostname",
+      "blank_skip": "(blank = skip)",
+      "autocomplete": "(autocomplete)",
+      "webmin_blank_skip": "(blank = skip — hosts without Webmin keep working)",
+      "webmin_name_placeholder": "host reported by Webmin"
     },
     "groups": {
       "heading": "Host groups",
@@ -1312,6 +1351,9 @@
   "admin_ssh": {
     "title": "SSH",
     "intro": "Global SSH credentials OmniGrid uses to run one-shot commands on a host from its drawer. Admin-only, dry-run-first, audit-logged. Per-host overrides (user / port / disabled) live in Admin → Hosts under each row's SSH section.",
+    "clear_key_title": "Erase the stored SSH private key (and its passphrase). Cannot be undone — paste a new key after to restore access.",
+    "clear_passphrase_title": "Erase the stored passphrase. The private key stays; the runner will try to parse it unprotected.",
+    "clear_password_title": "Erase the stored default password. Per-host password overrides still apply.",
     "user_label": "Default user",
     "user_placeholder": "e.g. root · omnigrid · ubuntu",
     "port_label": "Default port",
