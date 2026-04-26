@@ -41,6 +41,7 @@ the next release, this whole block becomes the `[X.Y.0]` entry below.
 ### Added
 
 - Admin → Host groups tab: pagination + sticky action bar mirroring the Hosts editor (#348). Page size persists to localStorage; Add / Collapse all / Save / scroll-to-Top stay pinned to the viewport on long lists. Action bar repositioned `position: fixed; bottom` so it's visible from page entry instead of only after scrolling past its natural position; new `.hosts-config-page-bottom-pad` class gives both editors a 80px bottom gutter so the fixed bar can never obscure the last row.
+- NE-only host Disk I/O chart now populates from `node_disk_{read,written}_bytes_total` counters (#339). New `parse_disk_counters` in `logic/node_exporter.py`, `host_metrics_samples` table gained `disk_read_bps` / `disk_write_bps` columns, sampler tracks rates independently from net (a disk subsystem reboot doesn't drop net rates and vice-versa). Hosts whose exporter has the diskstats collector enabled show real I/O after ~10 minutes (two sampler ticks).
 - `CHANGELOG.md` (this file) at the repo root, in Keep-a-Changelog format, with `[Unreleased]` + `[1.0.0]` baseline blocks. Operator-facing release notes now live here instead of being scattered across `notes/note_todo.txt` (#350).
 
 - `notes/RELEASE_PROCESS.md` — operator runbook covering per-digit SemVer semantics, daily PATCH cadence, periodic MINOR cuts, rare MAJOR breaking-change ritual (#350).
@@ -97,10 +98,6 @@ the next release, this whole block becomes the `[X.Y.0]` entry below.
 ### Changed
 
 - Version model switched back to SemVer `MAJOR.MINOR.PATCH` after a brief stint with the `MAJOR.MINOR`-only model. CI auto-bumps PATCH on every deploy; MINOR/MAJOR remain operator-controlled (#349).
-
-- Mobile header polish — stranded divider + filter-chip density (#346).
-
-- Version model — switch back to MAJOR.MINOR.PATCH (SemVer) (#349).
 
 - Fresh full-code-review pass — `notes/code_review_2026-04-26.txt` written (#345).
 
@@ -305,8 +302,6 @@ the next release, this whole block becomes the `[X.Y.0]` entry below.
 
 - Mobile filter bar (Stacks / Services / Nodes views): the divider between the health and status filter groups no longer strands on its own row mid-wrap — `hidden sm:inline-block` drops it on phones. `.filter-chip` padding tightens to `4px / 11px` font under `max-width: 640px`, recouping one to two wrapped rows on iPhone-width screens (#346).
 - NE-only host Disk I/O chart was stuck on perpetual `0 B/s` for NAS / RAID boxes (Synology, TrueNAS, OPNsense). `dm-*` and `md*` devices are no longer excluded from `parse_disk_counters` totals — they ARE the user-facing volumes on those hosts. Empty-device-list now returns `None` totals (instead of `0`), so the sampler stores NULL rates and the chart shows "no data" instead of a misleading flat-zero line (#344).
-
-- Release notes / changelog discipline + `notes/RELEASE_PROCESS.md` runbook (#350).
 
 - Host drawer debug panel — consistent panel widths (#343).
 
