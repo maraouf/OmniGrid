@@ -174,6 +174,58 @@ async def _fetch_systems(
     return list(data.get("items") or [])
 
 
+async def _fetch_systemd_services(client, base_url: str, token: str) -> list:
+    """Fetch every record from the `systemd_services` PocketBase collection.
+
+    Beszel agents that have systemd-tracking enabled emit one record per
+    monitored unit, with shape:
+
+        {
+          "id": ..., "name": "nginx",
+          "system": "<system_record_id>",
+          "state": <int>,        # systemd ActiveState enum
+          "sub":   <int>,        # systemd SubState enum
+          "cpu":   <float>,
+          "memory":<int>,
+          ...
+        }
+
+    The `state` enum is what we care about for failure detection. Per
+    sd-bus / Beszel agent code:
+        0 = active
+        1 = reloading
+        2 = inactive
+        3 = failed         ← what we count as "failed"
+        4 = activating
+        5 = deactivating
+
+    We treat state == 3 as failed; everything else (including
+    "inactive" disabled units the operator deliberately stopped) is
+    considered non-failed so the badge doesn't flag intentional state.
+
+    Returns the raw list of records. Caller groups by `system` field
+    to attach per-host. Empty list on a 401/4xx/network error — the
+    caller treats "no systemd_services" as "agent doesn't track them"
+    and the drawer row hides cleanly.
+    """
+    url = (base_url.rstrip("/")
+           + "/api/collections/systemd_services/records?perPage=500")
+    try:
+        r = await client.get(url, headers={"Authorization": token})
+        if r.status_code == 401:
+            raise PermissionError("401")
+        if r.status_code == 404:
+            # Beszel hub without the systemd_services collection (older
+            # version, or feature not enabled). Treat as "no services."
+            return []
+        if r.status_code >= 400:
+            return []
+        return list((r.json() or {}).get("items") or [])
+    except Exception:
+        # Network hiccup → empty. Same treatment as 4xx — silent.
+        return []
+
+
 async def fetch_system_history(
     base_url: str,
     identity: str,
@@ -503,19 +555,27 @@ def _load_window(la, idx: int) -> float:
 
 
 def _services_summary(services) -> dict:
-    """Normalize Beszel's `services` field into a stable summary shape:
+    """Normalize Beszel's services data into a stable summary shape:
 
         {"total": N, "failed": F, "failed_names": ["nginx", "redis"]}
 
-    Beszel's optional systemd extension emits a list of
-    `{name, status}` objects. Status values seen in the wild include:
-    "active", "running" (healthy); "failed" (the one we count);
-    "inactive", "deactivating" (transitional, NOT counted as failed).
+    Beszel exposes services through the `systemd_services` PocketBase
+    collection (one record per unit). Per-record shape:
+        {"name": "nginx", "system": "<system_id>",
+         "state": <int>, "sub": <int>, ...}
 
-    Anything else (missing list, malformed entries) → empty summary
-    `{"total": 0, "failed": 0, "failed_names": []}` so the drawer
-    badge gates on `total > 0` and gracefully hides for hosts whose
-    agent doesn't track services.
+    The `state` enum (systemd ActiveState):
+        0=active, 1=reloading, 2=inactive, 3=failed,
+        4=activating, 5=deactivating
+    We count `state == 3` as failed. Everything else is healthy or
+    transitional (including operator-disabled units sitting at
+    `inactive`).
+
+    Also accepts the legacy/string shape `{name, status: "failed"}`
+    that some forks may use, so the function is robust to either.
+
+    Anything else (missing list, malformed) → empty summary so the
+    drawer badge gates on `total > 0` and hides cleanly.
     """
     if not isinstance(services, list):
         return {"total": 0, "failed": 0, "failed_names": []}
@@ -528,8 +588,18 @@ def _services_summary(services) -> dict:
         if not name:
             continue
         total += 1
-        status = str(s.get("status") or s.get("s") or "").lower().strip()
-        if status == "failed":
+        # Two ways the failed flag can land:
+        # (a) Beszel canonical: integer `state` field == 3
+        # (b) Legacy/fork: string `status` == "failed"
+        is_failed = False
+        state = s.get("state")
+        if isinstance(state, (int, float)) and int(state) == 3:
+            is_failed = True
+        else:
+            status = str(s.get("status") or s.get("s") or "").lower().strip()
+            if status == "failed":
+                is_failed = True
+        if is_failed:
             failed_names.append(name)
     return {
         "total":         total,
@@ -659,14 +729,21 @@ def extract_stats(info: dict, stats: Optional[dict] = None) -> dict:
         "host_load_1m":     _load_window(stats.get("la"), 0),
         "host_load_5m":     _load_window(stats.get("la"), 1),
         "host_load_15m":    _load_window(stats.get("la"), 2),
-        # Service info (#321). Beszel agents that run with the optional
-        # systemd extension emit `services` as a list of objects with
-        # `{name, status}` (status: "active" / "failed" / "inactive").
-        # We surface the raw count + the failed names so the drawer can
-        # render the "{N} services · {F} failed" badge + the failed
-        # names list. Hosts whose agent doesn't have the extension get
-        # an empty list (badge hides).
-        "host_services":         _services_summary(stats.get("services") or info.get("services")),
+        # Service info (#321). Beszel agents emit the systemd-services
+        # data under the field name `systemd_services` (operator
+        # confirmed by inspecting the PocketBase admin — initial
+        # implementation guessed `services` and got nothing back).
+        # Try both names so legacy / fork agents that DO use `services`
+        # still work, but prefer the canonical Beszel name first.
+        # `_services_summary` normalises into `{total, failed, failed_names}`.
+        # Hosts whose agent doesn't track services get the empty
+        # summary `{total: 0, ...}` and the drawer row hides cleanly.
+        "host_services":         _services_summary(
+            stats.get("systemd_services")
+            or info.get("systemd_services")
+            or stats.get("services")
+            or info.get("services")
+        ),
         "exporter_error":   None,
     }
 

@@ -59,14 +59,25 @@
 <div x-data="app()" x-init="init()" x-cloak class="flex flex-col min-h-screen">
 
   <!-- ================== TOPBAR ================== -->
-  <header class="sticky top-0 z-30 bg-[var(--surface)]/95 backdrop-blur border-b border-[var(--border)]">
+  <!-- On mobile (<sm), the <header> itself becomes a flex-wrap container
+       so the utility-belt items (SYNC picker, theme, hotkeys, language)
+       can be reordered via Tailwind `order-` classes alongside row 1's
+       items. The two row wrappers below get `display: contents` on
+       mobile so their children flow directly into the <header> flex
+       (otherwise row 2 stacks below row 1 visually with the page
+       search bar between them — operator's specific complaint). On
+       desktop (sm+), <header> reverts to block + each row is its
+       own flex-wrap container with the original border-top divider. -->
+  <header class="sticky top-0 z-30 bg-[var(--surface)]/95 backdrop-blur border-b border-[var(--border)] flex flex-wrap items-center gap-3 px-3 py-2.5 sm:block sm:gap-0 sm:p-0">
     <!-- Row 1 — primary nav. Wraps on narrow viewports (was a single
          no-wrap row that pushed the page horizontally on phones, per
          operator's iPhone 17 Pro screenshot). flex-wrap + min-w-0 on
          every flexible child means nothing overflows; tablet+ still
          renders single-row because there's room. The search input
-         drops to its own row on mobile via order classes. -->
-    <div class="topbar-row1 flex items-center gap-3 sm:gap-4 px-3 sm:px-5 py-2.5 max-w-full mx-auto flex-wrap">
+         drops to its own row on mobile via order classes. On mobile,
+         this wrapper is `display: contents` so its children flow into
+         the <header> flex above. -->
+    <div class="topbar-row1 contents sm:flex sm:items-center sm:gap-4 sm:px-5 sm:py-2.5 sm:max-w-full sm:mx-auto sm:flex-wrap">
       <div class="flex items-center gap-2 sm:pr-4 sm:mr-1 sm:border-r sm:border-[var(--border)] min-w-0">
         <div class="app-logo">
           <!-- OmniGrid hub-and-spokes mark. Mirrors the favicon + icon-512.png
@@ -284,10 +295,12 @@
          intervals on the left, cache-age label + theme + hotkeys +
          language picker on the right. Clock + weather stay on row 1
          (always-visible status per operator preference, 2026-04-25).
-         Same horizontal padding as row 1, shorter vertical padding,
-         subtle top border so the two rows read as distinct layers. -->
-    <div class="flex items-center gap-2 px-5 py-1.5 max-w-full mx-auto border-t border-[var(--border)] flex-wrap">
-      <div class="flex items-center gap-0 bg-[var(--surface-2)] rounded-md p-0.5 border border-[var(--border)]" :title="t('topbar.sync_title')">
+         On mobile: `display: contents` so children flow into the
+         <header> flex (each child carries `order-5` so they slot
+         between clock+weather and the search input). On desktop:
+         restores the flex row with border-top divider. -->
+    <div class="contents sm:flex sm:items-center sm:gap-2 sm:px-5 sm:py-1.5 sm:max-w-full sm:mx-auto sm:border-t sm:border-[var(--border)] sm:flex-wrap">
+      <div class="flex items-center gap-0 bg-[var(--surface-2)] rounded-md p-0.5 border border-[var(--border)] order-5 sm:order-none" :title="t('topbar.sync_title')">
         <span class="px-1.5 text-[10px] text-faint uppercase tracking-wider" x-text="t('topbar.sync_label')"></span>
         <template x-for="p in [[t('topbar.off'),0],['30s',30],['1m',60],['5m',300]]" :key="p[1]">
           <button @click="setAutoRefresh(p[1])"
@@ -295,7 +308,7 @@
                   class="px-2 py-0.5 rounded text-[11px] font-medium transition" x-text="p[0]"></button>
         </template>
       </div>
-      <div class="flex items-center gap-0 bg-[var(--surface-2)] rounded-md p-0.5 border border-[var(--border)] hidden lg:flex" :title="t('topbar.stats_title')">
+      <div class="flex items-center gap-0 bg-[var(--surface-2)] rounded-md p-0.5 border border-[var(--border)] hidden lg:flex order-5 sm:order-none" :title="t('topbar.stats_title')">
         <span class="px-1.5 text-[10px] text-faint uppercase tracking-wider" x-text="t('topbar.stats_label')"></span>
         <template x-for="p in [[t('topbar.off'),0],['5s',5],['15s',15],['30s',30],['1m',60],['5m',300]]" :key="p[1]">
           <button @click="setStatsInterval(p[1])"
@@ -303,9 +316,9 @@
                   class="px-2 py-0.5 rounded text-[11px] font-medium transition" x-text="p[0]"></button>
         </template>
       </div>
-      <span class="text-[11px] text-[var(--text-faint)] hidden xl:inline" x-text="cacheLabel"></span>
-      <span class="flex-1"></span>
-      <button @click="cycleTheme()" :title="t('topbar.theme_title', { pref: themePref })" class="btn btn-soft">
+      <span class="text-[11px] text-[var(--text-faint)] hidden xl:inline order-5 sm:order-none" x-text="cacheLabel"></span>
+      <span class="hidden sm:inline flex-1"></span>
+      <button @click="cycleTheme()" :title="t('topbar.theme_title', { pref: themePref })" class="btn btn-soft order-5 sm:order-none">
         <!-- Moon for dark, sun for light, sun+moon split (crescent over sun) for auto. -->
         <template x-if="themePref==='dark'">
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
@@ -327,14 +340,14 @@
           </svg>
         </template>
       </button>
-      <button @click="showHotkeys=true" class="btn btn-soft" :title="t('topbar.hotkeys_title')">
+      <button @click="showHotkeys=true" class="btn btn-soft order-5 sm:order-none" :title="t('topbar.hotkeys_title')">
         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><path d="M12 17h.01"/></svg>
       </button>
       <!-- Language picker. Compact <select> — the richer UI lives in
            Settings → Language. Rendered from I18N.languages which is
            populated from /i18n/index.json at boot. -->
       <select :value="lang" @change="setLang($event.target.value)"
-              class="lang-picker text-[11px]"
+              class="lang-picker text-[11px] order-5 sm:order-none"
               :title="t('settings.language.label')">
         <template x-for="l in availableLanguages" :key="l.code">
           <option :value="l.code" x-text="l.name"></option>
