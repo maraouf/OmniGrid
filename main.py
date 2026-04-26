@@ -346,15 +346,17 @@ def init_db():
         -- and stored verbatim (NULL when the probe didn't return a
         -- meaningful value).
         CREATE TABLE IF NOT EXISTS host_metrics_samples (
-            ts            INTEGER NOT NULL,
-            host_id       TEXT    NOT NULL,
-            cpu_percent   REAL,
-            mem_used      INTEGER,
-            mem_total     INTEGER,
-            disk_used     INTEGER,
-            disk_total    INTEGER,
-            net_rx_bps    REAL,
-            net_tx_bps    REAL,
+            ts             INTEGER NOT NULL,
+            host_id        TEXT    NOT NULL,
+            cpu_percent    REAL,
+            mem_used       INTEGER,
+            mem_total      INTEGER,
+            disk_used      INTEGER,
+            disk_total     INTEGER,
+            net_rx_bps     REAL,
+            net_tx_bps     REAL,
+            disk_read_bps  REAL,
+            disk_write_bps REAL,
             PRIMARY KEY (ts, host_id)
         );
         CREATE INDEX IF NOT EXISTS idx_host_metrics_samples_host_ts
@@ -381,6 +383,12 @@ def init_db():
         for ddl in (
             "ALTER TABLE history ADD COLUMN actor TEXT DEFAULT 'ui'",
             "ALTER TABLE history ADD COLUMN target_stack TEXT",
+            # #339 — disk I/O rates, derived per-tick by
+            # host_metrics_sampler from node_disk_{read,written}_bytes_total.
+            # Same skip-don't-synthesize discipline as the net rate columns;
+            # NULL when the delta is out of bounds.
+            "ALTER TABLE host_metrics_samples ADD COLUMN disk_read_bps REAL",
+            "ALTER TABLE host_metrics_samples ADD COLUMN disk_write_bps REAL",
         ):
             try:
                 c.execute(ddl)

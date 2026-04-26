@@ -153,6 +153,105 @@ def parse_network_counters(text: str) -> dict:
     }
 
 
+# Block devices we don't want to count toward host disk I/O. Pattern is the
+# same shape as the NIC list: prefix unless an exact-match entry. Loops
+# (`loopN`), device-mapper synthetic devices (`dm-N`), RAM disks (`ram*`),
+# floppy / CD-ROM noise (`fd*`, `sr*`), and per-partition rows (suffix
+# digit on a known parent — handled in _is_excluded_disk by the
+# "device != devicepartial" check) all drop out so the totals match the
+# bytes the host's "real" storage moved.
+_EXCLUDED_DISK_PREFIXES = (
+    "loop",     # loop0, loop1, ...
+    "dm-",      # device-mapper crypt/lvm devices (parent shows up too)
+    "ram",      # ram0, ram1
+    "fd",       # legacy floppy
+    "sr",       # cd-rom (sr0)
+    "zram",     # in-memory swap
+    "md",       # md0 (mdadm parents — children sd* counted instead)
+)
+
+
+def _is_excluded_disk(name: str) -> bool:
+    return any(name.startswith(p) for p in _EXCLUDED_DISK_PREFIXES)
+
+
+def parse_disk_counters(text: str) -> dict:
+    """Extract ``node_disk_{read,written}_bytes_total`` counters per device.
+
+    Parses the pairs:
+
+        node_disk_read_bytes_total{device="sda"}    1234567
+        node_disk_written_bytes_total{device="sda"} 2345678
+
+    Excludes loop / dm / ram / floppy / cd-rom / zram / mdadm devices so
+    the totals reflect the host's "real" storage activity. Per-partition
+    rows (``sda1``, ``sda2``, etc.) are KEPT — node-exporter emits both
+    parent and partition counters and they should match for a single-
+    partition device; summing both would double-count, so the parser
+    keeps only PARENT block devices (no trailing digit) when we can
+    detect them. Logic: skip ``device`` entries whose name is a prefix of
+    another ``device`` we've already seen (i.e., partitions of a parent).
+
+    Returns:
+        {"devices": [{"name": "sda", "read_bytes": int, "written_bytes": int}],
+         "total_read": int, "total_written": int}
+
+    Absolute counter bytes — same contract as parse_network_counters.
+    Callers (`host_metrics_sampler`) compute rates across consecutive
+    samples; a single probe cannot.
+    """
+    per_dev: dict[str, dict] = {}
+    for raw_line in text.splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#"):
+            continue
+        if not (line.startswith("node_disk_read_bytes_total")
+                or line.startswith("node_disk_written_bytes_total")):
+            continue
+        m = _LINE_RE.match(line)
+        if not m:
+            continue
+        name = m.group("name")
+        try:
+            value = float(m.group("value"))
+        except ValueError:
+            continue
+        labels = _parse_labels(m.group("labels") or "")
+        device = (labels.get("device") or "").strip()
+        if not device or _is_excluded_disk(device):
+            continue
+        entry = per_dev.setdefault(device, {"name": device, "read_bytes": 0, "written_bytes": 0})
+        if name.endswith("read_bytes_total"):
+            entry["read_bytes"] = int(value)
+        else:
+            entry["written_bytes"] = int(value)
+
+    # Parent/partition de-duplication: drop any device whose name is the
+    # prefix of another device + at least one trailing digit (sda → sda1).
+    # Keep parent (sda) and exclude partitions (sda1, sda2). Without this
+    # totals double-count the same bytes.
+    names = sorted(per_dev.keys())
+    dropped: set[str] = set()
+    for parent in names:
+        for child in names:
+            if child == parent or child in dropped:
+                continue
+            # child looks like parent + digits → it's a partition of parent.
+            if child.startswith(parent) and child[len(parent):].isdigit():
+                dropped.add(child)
+    devices = sorted(
+        (per_dev[n] for n in per_dev if n not in dropped),
+        key=lambda r: r["name"],
+    )
+    total_read    = sum(r["read_bytes"]    for r in devices)
+    total_written = sum(r["written_bytes"] for r in devices)
+    return {
+        "devices":       devices,
+        "total_read":    total_read,
+        "total_written": total_written,
+    }
+
+
 def _parse_labels(raw: str) -> dict[str, str]:
     """Parse a ``k="v",k2="v2"`` label blob into a dict."""
     out: dict[str, str] = {}
@@ -518,5 +617,15 @@ async def probe_node(
         # Non-fatal — a malformed exporter line shouldn't blank the rest
         # of the dict. Log once so operators can find it in Admin → Logs.
         print(f"[node_exporter] network counter parse failed: {e}")
+    # Disk counter pass — same contract as the network pass: ABSOLUTE
+    # counter bytes; the host_metrics_sampler computes rates across two
+    # ticks. Single-probe callers cannot turn these into bytes/s.
+    try:
+        disk = parse_disk_counters(text)
+        stats["host_disk_read_total"]    = int(disk.get("total_read") or 0)
+        stats["host_disk_write_total"]   = int(disk.get("total_written") or 0)
+        stats["ne_disk_devices"] = disk.get("devices") or []
+    except Exception as e:
+        print(f"[node_exporter] disk counter parse failed: {e}")
     stats["exporter_error"] = None
     return stats

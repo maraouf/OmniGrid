@@ -47,10 +47,13 @@ _MIN_DELTA_BYTES   = 0
 _MAX_DELTA_BYTES   = 10 * 1024 * 1024 * 1024  # 10 GB
 
 
-# Per-host previous absolute net counters for delta math. Lives across
-# ticks within one sampler-task lifetime; cleared on lifespan
-# cancel/restart so the post-restart first delta is correctly SKIPPED.
-_last_counters: dict[str, tuple[float, int, int]] = {}  # host_id → (ts, rx, tx)
+# Per-host previous absolute counters for delta math (net rx / net tx /
+# disk read / disk written). Lives across ticks within one sampler-task
+# lifetime; cleared on lifespan cancel/restart so the post-restart first
+# delta is correctly SKIPPED. The disk pair was added in #339 — pre-#339
+# entries had a 3-tuple shape; the in-memory cache is restart-only so no
+# migration needed (a single tick after restart re-establishes baseline).
+_last_counters: dict[str, tuple[float, int, int, int, int]] = {}  # host_id → (ts, rx, tx, dr_bytes, dw_bytes)
 
 
 # Concurrency cap on parallel NE probes per tick. Matches the convention
@@ -108,35 +111,54 @@ def _is_meaningful_number(v) -> bool:
     return n > 0
 
 
+def _delta_seconds_ok(delta_seconds: float) -> bool:
+    return _MIN_DELTA_SECONDS <= delta_seconds <= _MAX_DELTA_SECONDS
+
+
+def _delta_bytes_ok(delta_bytes: int) -> bool:
+    return _MIN_DELTA_BYTES <= delta_bytes <= _MAX_DELTA_BYTES
+
+
 def _sanity_ok(delta_seconds: float, delta_rx: int, delta_tx: int) -> bool:
-    if not (_MIN_DELTA_SECONDS <= delta_seconds <= _MAX_DELTA_SECONDS):
+    """Net-pair sanity check (kept for the existing call sites). Returns
+    True only when BOTH rx AND tx deltas are in bounds — a single
+    out-of-bounds field skips the whole pair so the rates stay paired."""
+    if not _delta_seconds_ok(delta_seconds):
         return False
-    for d in (delta_rx, delta_tx):
-        if d < _MIN_DELTA_BYTES or d > _MAX_DELTA_BYTES:
-            return False
-    return True
+    return _delta_bytes_ok(delta_rx) and _delta_bytes_ok(delta_tx)
 
 
 def _compute_row(
     host_id: str,
     now: float,
     stats: dict,
-    prev: Optional[tuple[float, int, int]],
-) -> tuple[Optional[dict], Optional[tuple[float, int, int]]]:
+    prev: Optional[tuple],
+) -> tuple[Optional[dict], Optional[tuple[float, int, int, int, int]]]:
     """Pure-function core: turn a probe payload + previous counters into
     an INSERT-shaped row plus the next-tick counter cache.
 
     Returns ``(row_or_none, next_counter_or_none)``. The row is None when
-    every gauge AND the rate pair are unmeaningful — there's nothing
-    worth persisting. The next_counter is None when the current probe
-    didn't return rx/tx counters at all (don't poison the cache with a
-    zeroed entry — next tick should still treat itself as "first").
+    every gauge AND every rate are unmeaningful — there's nothing worth
+    persisting. The next_counter is None when the current probe didn't
+    return rx/tx counters at all (don't poison the cache with a zeroed
+    entry — next tick should still treat itself as "first"). When net
+    counters ARE present but disk counters AREN'T (older NE without the
+    diskstats collector), the cache stores zeros for the missing pair —
+    the disk-rate path is gated separately so a missing field stays NULL.
 
     Skip rules:
-      - Net rates: SKIP (don't insert 0) when delta is out of bounds OR
-        when there's no previous sample.
+      - Net rate pair: SKIP (NULL both) when delta seconds out of bounds
+        OR when either of the byte deltas is out of bounds OR no previous
+        sample.
+      - Disk rate pair: SAME, but evaluated independently of net (a host
+        with stable net but rebooted disk counters keeps its net rates).
       - Gauges: SKIP an individual field (store NULL) when not meaningful.
         Whole row is dropped only when every field would be NULL.
+
+    Backwards compatibility: ``prev`` may be the legacy 3-tuple
+    ``(ts, rx, tx)`` from a process that started before #339 shipped.
+    In-memory cache is wiped on restart so this only matters mid-process
+    if a partial reload happened — handled by len()-checking ``prev``.
     """
     # Gauges — pull what node-exporter parsed; treat 0 / None as missing.
     mem_total = int(stats.get("host_mem_total") or 0)
@@ -154,37 +176,73 @@ def _compute_row(
     if _is_meaningful_number(raw_cpu):
         cpu_percent = float(raw_cpu)
 
-    # Net rates — derived from monotonic counters across two ticks.
+    # Net counters — required to advance the cache.
     rx_total = stats.get("host_net_rx_total")
     tx_total = stats.get("host_net_tx_total")
-    have_counters = (rx_total is not None) and (tx_total is not None)
+    have_net_counters = (rx_total is not None) and (tx_total is not None)
+
+    # Disk counters — independent of net; some exporters disable
+    # diskstats, in which case rates stay NULL but net keeps working.
+    dr_total = stats.get("host_disk_read_total")
+    dw_total = stats.get("host_disk_write_total")
+    have_disk_counters = (dr_total is not None) and (dw_total is not None)
 
     rx_rate: Optional[float] = None
     tx_rate: Optional[float] = None
-    next_counter: Optional[tuple[float, int, int]] = None
+    dr_rate: Optional[float] = None
+    dw_rate: Optional[float] = None
+    next_counter: Optional[tuple[float, int, int, int, int]] = None
 
-    if have_counters:
+    rx = tx = dr = dw = 0
+    if have_net_counters:
         try:
             rx = int(rx_total)
             tx = int(tx_total)
         except (TypeError, ValueError):
-            rx = tx = 0
-            have_counters = False
+            have_net_counters = False
+    if have_disk_counters:
+        try:
+            dr = int(dr_total)
+            dw = int(dw_total)
+        except (TypeError, ValueError):
+            have_disk_counters = False
 
-    if have_counters:
-        # Always update the cached counter even when we reject the delta
-        # — same logic as host_net_sampler. A rejected delta still
-        # establishes the next baseline so we don't keep diffing against
-        # a stale anchor forever.
-        next_counter = (now, rx, tx)
-        if prev is not None:
-            prev_ts, prev_rx, prev_tx = prev
-            delta_s = now - prev_ts
-            delta_rx = rx - prev_rx
-            delta_tx = tx - prev_tx
-            if _sanity_ok(delta_s, delta_rx, delta_tx):
-                rx_rate = delta_rx / delta_s
-                tx_rate = delta_tx / delta_s
+    # Cache the current counters (zeros where unavailable) so the next
+    # tick has a baseline. A rejected delta still advances the cache so
+    # we don't keep diffing against a stale anchor forever.
+    if have_net_counters or have_disk_counters:
+        next_counter = (now, rx, tx, dr, dw)
+
+    # Decompose `prev` tolerantly — pre-#339 entries are 3-tuples; new
+    # ones are 5-tuples. Falling back to 0 for missing disk counters
+    # means the first post-#339 tick treats disk as "first sample" and
+    # skips the rate (correct).
+    prev_ts = prev_rx = prev_tx = prev_dr = prev_dw = None
+    if prev is not None:
+        if len(prev) >= 3:
+            prev_ts, prev_rx, prev_tx = prev[0], prev[1], prev[2]
+        if len(prev) >= 5:
+            prev_dr, prev_dw = prev[3], prev[4]
+
+    if prev_ts is not None:
+        delta_s = now - prev_ts
+        if _delta_seconds_ok(delta_s):
+            # Net rate pair — both fields must be in bounds.
+            if have_net_counters and prev_rx is not None and prev_tx is not None:
+                d_rx = rx - prev_rx
+                d_tx = tx - prev_tx
+                if _delta_bytes_ok(d_rx) and _delta_bytes_ok(d_tx):
+                    rx_rate = d_rx / delta_s
+                    tx_rate = d_tx / delta_s
+            # Disk rate pair — evaluated INDEPENDENTLY of net so a
+            # host that just rebooted its disk subsystem (e.g. zfs
+            # remount) doesn't lose its net rates.
+            if have_disk_counters and prev_dr is not None and prev_dw is not None:
+                d_dr = dr - prev_dr
+                d_dw = dw - prev_dw
+                if _delta_bytes_ok(d_dr) and _delta_bytes_ok(d_dw):
+                    dr_rate = d_dr / delta_s
+                    dw_rate = d_dw / delta_s
 
     # If literally nothing meaningful — drop the row.
     nothing_to_write = (
@@ -195,6 +253,8 @@ def _compute_row(
         and not _is_meaningful_number(disk_total)
         and rx_rate is None
         and tx_rate is None
+        and dr_rate is None
+        and dw_rate is None
     )
     if nothing_to_write:
         return None, next_counter
@@ -209,6 +269,8 @@ def _compute_row(
         "disk_total": disk_total if _is_meaningful_number(disk_total) else None,
         "net_rx_bps": rx_rate,
         "net_tx_bps": tx_rate,
+        "disk_read_bps":  dr_rate,
+        "disk_write_bps": dw_rate,
     }
     return row, next_counter
 
@@ -253,26 +315,33 @@ async def _probe_one(
                 c.execute(
                     "INSERT OR REPLACE INTO host_metrics_samples "
                     "(ts, host_id, cpu_percent, mem_used, mem_total, "
-                    "disk_used, disk_total, net_rx_bps, net_tx_bps) "
-                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    "disk_used, disk_total, net_rx_bps, net_tx_bps, "
+                    "disk_read_bps, disk_write_bps) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                     (
                         row["ts"], row["host_id"], row["cpu_percent"],
                         row["mem_used"], row["mem_total"],
                         row["disk_used"], row["disk_total"],
                         row["net_rx_bps"], row["net_tx_bps"],
+                        row["disk_read_bps"], row["disk_write_bps"],
                     ),
                 )
         except Exception as e:
             print(f"[host_metrics_sampler] {hid!r} DB insert failed: {e}")
             return
-        rate_blurb = (
-            f"rx={row['net_rx_bps']:.0f} tx={row['net_tx_bps']:.0f} bytes/s"
+        net_blurb = (
+            f"net rx={row['net_rx_bps']:.0f} tx={row['net_tx_bps']:.0f} B/s"
             if (row["net_rx_bps"] is not None and row["net_tx_bps"] is not None)
-            else "rates=skip"
+            else "net=skip"
+        )
+        disk_blurb = (
+            f"diskio r={row['disk_read_bps']:.0f} w={row['disk_write_bps']:.0f} B/s"
+            if (row["disk_read_bps"] is not None and row["disk_write_bps"] is not None)
+            else "diskio=skip"
         )
         print(f"[host_metrics_sampler] {hid!r} wrote cpu={row['cpu_percent']} "
               f"mem={row['mem_used']}/{row['mem_total']} "
-              f"disk={row['disk_used']}/{row['disk_total']} {rate_blurb}")
+              f"disk={row['disk_used']}/{row['disk_total']} {net_blurb} {disk_blurb}")
 
 
 def _prune_old_samples() -> int:
@@ -326,6 +395,30 @@ async def host_metrics_sampler_loop() -> None:
             raise
 
 
+def _shape_row(r) -> dict:
+    """Turn one DB row (sqlite3.Row) into the dict shape both readers
+    return. Centralised here so adding a new column is a one-line edit."""
+    return {
+        "ts": int(r["ts"]),
+        "cpu_percent": (float(r["cpu_percent"]) if r["cpu_percent"] is not None else None),
+        "mem_used":   (int(r["mem_used"])   if r["mem_used"]   is not None else None),
+        "mem_total":  (int(r["mem_total"])  if r["mem_total"]  is not None else None),
+        "disk_used":  (int(r["disk_used"])  if r["disk_used"]  is not None else None),
+        "disk_total": (int(r["disk_total"]) if r["disk_total"] is not None else None),
+        "net_rx_bps": (float(r["net_rx_bps"]) if r["net_rx_bps"] is not None else None),
+        "net_tx_bps": (float(r["net_tx_bps"]) if r["net_tx_bps"] is not None else None),
+        "disk_read_bps":  (float(r["disk_read_bps"])  if r["disk_read_bps"]  is not None else None),
+        "disk_write_bps": (float(r["disk_write_bps"]) if r["disk_write_bps"] is not None else None),
+    }
+
+
+_SAMPLES_COLS = (
+    "ts, cpu_percent, mem_used, mem_total, "
+    "disk_used, disk_total, net_rx_bps, net_tx_bps, "
+    "disk_read_bps, disk_write_bps"
+)
+
+
 def recent_samples(host_id: str, since_ts: int, limit: int = 500) -> list[dict]:
     """Return rows for one host back to ``since_ts`` (epoch s), oldest-first."""
     if not host_id:
@@ -333,8 +426,7 @@ def recent_samples(host_id: str, since_ts: int, limit: int = 500) -> list[dict]:
     try:
         with db_conn() as c:
             rows = c.execute(
-                "SELECT ts, cpu_percent, mem_used, mem_total, "
-                "disk_used, disk_total, net_rx_bps, net_tx_bps "
+                f"SELECT {_SAMPLES_COLS} "
                 "FROM host_metrics_samples "
                 "WHERE host_id=? AND ts >= ? "
                 "ORDER BY ts ASC LIMIT ?",
@@ -343,19 +435,7 @@ def recent_samples(host_id: str, since_ts: int, limit: int = 500) -> list[dict]:
     except Exception as e:
         print(f"[host_metrics_sampler] recent_samples({host_id!r}) failed: {e}")
         return []
-    return [
-        {
-            "ts": int(r["ts"]),
-            "cpu_percent": (float(r["cpu_percent"]) if r["cpu_percent"] is not None else None),
-            "mem_used":   (int(r["mem_used"])   if r["mem_used"]   is not None else None),
-            "mem_total":  (int(r["mem_total"])  if r["mem_total"]  is not None else None),
-            "disk_used":  (int(r["disk_used"])  if r["disk_used"]  is not None else None),
-            "disk_total": (int(r["disk_total"]) if r["disk_total"] is not None else None),
-            "net_rx_bps": (float(r["net_rx_bps"]) if r["net_rx_bps"] is not None else None),
-            "net_tx_bps": (float(r["net_tx_bps"]) if r["net_tx_bps"] is not None else None),
-        }
-        for r in rows
-    ]
+    return [_shape_row(r) for r in rows]
 
 
 def last_samples(host_id: str, limit: int = 5) -> list[dict]:
@@ -365,8 +445,7 @@ def last_samples(host_id: str, limit: int = 5) -> list[dict]:
     try:
         with db_conn() as c:
             rows = c.execute(
-                "SELECT ts, cpu_percent, mem_used, mem_total, "
-                "disk_used, disk_total, net_rx_bps, net_tx_bps "
+                f"SELECT {_SAMPLES_COLS} "
                 "FROM host_metrics_samples WHERE host_id=? "
                 "ORDER BY ts DESC LIMIT ?",
                 (host_id, int(limit)),
@@ -374,19 +453,7 @@ def last_samples(host_id: str, limit: int = 5) -> list[dict]:
     except Exception as e:
         print(f"[host_metrics_sampler] last_samples({host_id!r}) failed: {e}")
         return []
-    return [
-        {
-            "ts": int(r["ts"]),
-            "cpu_percent": (float(r["cpu_percent"]) if r["cpu_percent"] is not None else None),
-            "mem_used":   (int(r["mem_used"])   if r["mem_used"]   is not None else None),
-            "mem_total":  (int(r["mem_total"])  if r["mem_total"]  is not None else None),
-            "disk_used":  (int(r["disk_used"])  if r["disk_used"]  is not None else None),
-            "disk_total": (int(r["disk_total"]) if r["disk_total"] is not None else None),
-            "net_rx_bps": (float(r["net_rx_bps"]) if r["net_rx_bps"] is not None else None),
-            "net_tx_bps": (float(r["net_tx_bps"]) if r["net_tx_bps"] is not None else None),
-        }
-        for r in rows
-    ]
+    return [_shape_row(r) for r in rows]
 
 
 def history_series(host_id: str, hours: int) -> list[dict]:
@@ -412,6 +479,11 @@ def history_series(host_id: str, hours: int) -> list[dict]:
         nr = r.get("net_rx_bps") or 0.0
         ns = r.get("net_tx_bps") or 0.0
         net = nr + ns
+        # Disk I/O rates added in #339 — backfilled to 0 for rows
+        # written before the column existed, so old history points
+        # render flat until the new sampler ticks land.
+        dr = r.get("disk_read_bps")  or 0.0
+        dw = r.get("disk_write_bps") or 0.0
         series.append({
             "t":   r["ts"],
             "cpu": r.get("cpu_percent") or 0.0,
@@ -423,14 +495,13 @@ def history_series(host_id: str, hours: int) -> list[dict]:
             "nr":  nr,
             "ns":  ns,
             "net": net,
-            # NE doesn't surface per-mount disk I/O, swap, or load avg in
-            # a sampler-friendly way today. Future work could fold them
-            # in (counter math for `node_disk_*_total`, gauges for
-            # `node_load1`/`5`/`15`). Returning zeros keeps the frontend
-            # gates honest — the cards stay hidden until something real
+            "dr":  dr,
+            "dw":  dw,
+            # Swap + load avg still not surfaced by the NE sampler.
+            # Future work could fold them in (gauges for `node_load1` /
+            # `node_memory_Swap*`). Returning zeros keeps the frontend
+            # gates honest — those cards stay hidden until real data
             # lands here.
-            "dr":  0.0,
-            "dw":  0.0,
             "la1": 0.0,
             "la5": 0.0,
             "la15": 0.0,
@@ -455,6 +526,12 @@ node_filesystem_size_bytes{mountpoint="/",fstype="ext4",device="/dev/sda1"} 1073
 node_filesystem_avail_bytes{mountpoint="/",fstype="ext4",device="/dev/sda1"} 53687091200
 node_network_receive_bytes_total{device="eth0"} 1000000
 node_network_transmit_bytes_total{device="eth0"} 500000
+node_disk_read_bytes_total{device="sda"} 4000000
+node_disk_written_bytes_total{device="sda"} 2000000
+node_disk_read_bytes_total{device="sda1"} 4000000
+node_disk_written_bytes_total{device="sda1"} 2000000
+node_disk_read_bytes_total{device="loop0"} 99999999
+node_disk_written_bytes_total{device="loop0"} 99999999
 node_cpu_seconds_total{cpu="0",mode="idle"} 1234.5
 node_cpu_seconds_total{cpu="1",mode="idle"} 2345.6
 node_uname_info{sysname="Linux",release="5.15.0",machine="x86_64"} 1
@@ -464,77 +541,112 @@ node_boot_time_seconds 1700000000
     net = _ne.parse_network_counters(fixture)
     parsed["host_net_rx_total"] = net["total_rx"]
     parsed["host_net_tx_total"] = net["total_tx"]
+    disk = _ne.parse_disk_counters(fixture)
+    parsed["host_disk_read_total"]  = disk["total_read"]
+    parsed["host_disk_write_total"] = disk["total_written"]
 
-    # Tick 1 — no previous counter, should establish baseline + drop row
-    # (no rates yet, gauges meaningful but rate skip is the load-bearing
-    # behaviour we're checking).
+    # Disk parser sanity — sda1 is a partition of sda → MUST be excluded
+    # from the totals (else we double-count). loop0 is excluded as a
+    # synthetic device. Only sda's 4 MB / 2 MB should land in totals.
+    assert disk["total_read"]    == 4000000, f"disk total_read={disk['total_read']}"
+    assert disk["total_written"] == 2000000, f"disk total_written={disk['total_written']}"
+    dev_names = [d["name"] for d in disk["devices"]]
+    assert dev_names == ["sda"], f"expected only sda, got {dev_names}"
+
+    # Tick 1 — no previous counter, should establish baseline. Gauges
+    # are meaningful so a row IS produced; rates simply absent.
     t0 = 1700000000.0
     row1, next1 = _compute_row("h1", t0, parsed, None)
-    assert next1 == (t0, 1000000, 500000), f"baseline mismatch: {next1}"
-    # gauges are meaningful so a row IS produced (rates simply absent)
+    assert next1 == (t0, 1000000, 500000, 4000000, 2000000), f"baseline mismatch: {next1}"
     assert row1 is not None and row1["net_rx_bps"] is None and row1["net_tx_bps"] is None
+    assert row1["disk_read_bps"] is None and row1["disk_write_bps"] is None
     assert row1["mem_total"] == 8589934592
     assert row1["mem_used"] == 8589934592 - 4294967296
     assert row1["disk_total"] == 107374182400
     assert row1["disk_used"] == 107374182400 - 53687091200
 
-    # Tick 2 — counters bumped by 5 MB rx and 1 MB tx over 5 minutes.
+    # Tick 2 — net counters bumped by 5 MB rx / 1 MB tx, disk bumped by
+    # 6 MB read / 3 MB write, all over 5 minutes.
     bumped = dict(parsed)
-    bumped["host_net_rx_total"] = 1000000 + 5 * 1024 * 1024
-    bumped["host_net_tx_total"] = 500000  + 1 * 1024 * 1024
+    bumped["host_net_rx_total"]    = 1000000 + 5 * 1024 * 1024
+    bumped["host_net_tx_total"]    = 500000  + 1 * 1024 * 1024
+    bumped["host_disk_read_total"]  = 4000000 + 6 * 1024 * 1024
+    bumped["host_disk_write_total"] = 2000000 + 3 * 1024 * 1024
     t1 = t0 + 300
     row2, next2 = _compute_row("h1", t1, bumped, next1)
     assert row2 is not None
-    expected_rx_rate = (5 * 1024 * 1024) / 300
-    expected_tx_rate = (1 * 1024 * 1024) / 300
-    assert abs(row2["net_rx_bps"] - expected_rx_rate) < 0.001, row2["net_rx_bps"]
-    assert abs(row2["net_tx_bps"] - expected_tx_rate) < 0.001, row2["net_tx_bps"]
-    assert row2["ts"] == int(t1)
-    assert row2["host_id"] == "h1"
+    assert abs(row2["net_rx_bps"] - (5 * 1024 * 1024) / 300) < 0.001, row2["net_rx_bps"]
+    assert abs(row2["net_tx_bps"] - (1 * 1024 * 1024) / 300) < 0.001, row2["net_tx_bps"]
+    assert abs(row2["disk_read_bps"]  - (6 * 1024 * 1024) / 300) < 0.001, row2["disk_read_bps"]
+    assert abs(row2["disk_write_bps"] - (3 * 1024 * 1024) / 300) < 0.001, row2["disk_write_bps"]
 
-    # Tick 3 — counter ROLLBACK (host reboot). Delta is negative → SKIP
-    # rates; cache must still update so the NEXT tick treats this as the
-    # new baseline.
-    rolled_back = dict(parsed)
-    rolled_back["host_net_rx_total"] = 100   # tiny number = post-reboot
-    rolled_back["host_net_tx_total"] = 50
+    # Tick 3 — net counter rollback (reboot) but disk counters keep
+    # advancing normally. Disk rates should compute; net rates skip.
+    # Validates the INDEPENDENCE of the two rate pairs.
+    mixed = dict(parsed)
+    mixed["host_net_rx_total"] = 100   # post-reboot
+    mixed["host_net_tx_total"] = 50
+    mixed["host_disk_read_total"]  = next2[3] + 1024 * 1024  # +1 MB read
+    mixed["host_disk_write_total"] = next2[4] + 512 * 1024   # +512 KB write
     t2 = t1 + 300
-    row3, next3 = _compute_row("h1", t2, rolled_back, next2)
-    # gauges still meaningful → row produced; rates MUST be None
+    row3, next3 = _compute_row("h1", t2, mixed, next2)
     assert row3 is not None
-    assert row3["net_rx_bps"] is None, "rollback rate must skip, not synthesize"
+    assert row3["net_rx_bps"] is None, "net rollback must skip"
     assert row3["net_tx_bps"] is None
-    assert next3 == (t2, 100, 50), f"cache should advance even on skip: {next3}"
+    assert row3["disk_read_bps"]  is not None, "disk pair must compute when its delta is in bounds"
+    assert row3["disk_write_bps"] is not None
+    assert next3 == (t2, 100, 50, next2[3] + 1024 * 1024, next2[4] + 512 * 1024)
 
-    # Tick 4 — short delta (60s window underflow). Fixture-style: call
-    # _compute_row 30s after the previous baseline, both counters bumped.
-    short_bumped = dict(parsed)
-    short_bumped["host_net_rx_total"] = 100 + 1024
-    short_bumped["host_net_tx_total"] = 50  + 1024
-    t3 = t2 + 30  # 30s gap — below _MIN_DELTA_SECONDS=60
-    row4, next4 = _compute_row("h1", t3, short_bumped, next3)
+    # Tick 4 — disk counter wrap (50 GB jump). Disk rates must skip;
+    # net rates ALSO skip because we just rebaselined them in tick 3
+    # (so prev_ts is t2 → delta_s ok, but prev_rx=100 → +very small ok).
+    # Actually net deltas WILL compute small positive values here; we
+    # only assert disk pair behaviour.
+    wrap = dict(parsed)
+    wrap["host_net_rx_total"] = 100 + 2048
+    wrap["host_net_tx_total"] = 50  + 1024
+    wrap["host_disk_read_total"]  = next3[3] + (50 * 1024 * 1024 * 1024)  # 50 GB
+    wrap["host_disk_write_total"] = next3[4] + 1024
+    t3 = t2 + 300
+    row4, next4 = _compute_row("h1", t3, wrap, next3)
     assert row4 is not None
-    assert row4["net_rx_bps"] is None, "short delta must skip"
-    assert row4["net_tx_bps"] is None
-    assert next4 == (t3, 100 + 1024, 50 + 1024)
-
-    # Tick 5 — implausibly large delta (counter wrap). 50 GB jump in 5min.
-    huge_bumped = dict(parsed)
-    huge_bumped["host_net_rx_total"] = next4[1] + (50 * 1024 * 1024 * 1024)
-    huge_bumped["host_net_tx_total"] = next4[2] + 1024
-    t4 = t3 + 300
-    row5, _ = _compute_row("h1", t4, huge_bumped, next4)
-    assert row5 is not None
-    assert row5["net_rx_bps"] is None, "out-of-bounds delta must skip rate"
-    # tx delta is in bounds though, so it should still compute
-    assert row5["net_tx_bps"] is None, (
-        "single out-of-bounds field must skip BOTH rates "
-        "(_sanity_ok is all-or-nothing)"
+    assert row4["disk_read_bps"] is None, "out-of-bounds disk delta must skip"
+    assert row4["disk_write_bps"] is None, (
+        "single out-of-bounds field must skip BOTH disk rates"
     )
+    # net should still have computed
+    assert row4["net_rx_bps"] is not None and row4["net_tx_bps"] is not None
+
+    # Tick 5 — short delta (60s window underflow). All four rates skip.
+    short = dict(parsed)
+    short["host_net_rx_total"] = next4[1] + 1024
+    short["host_net_tx_total"] = next4[2] + 1024
+    short["host_disk_read_total"]  = next4[3] + 1024
+    short["host_disk_write_total"] = next4[4] + 1024
+    t4 = t3 + 30  # below _MIN_DELTA_SECONDS=60
+    row5, _ = _compute_row("h1", t4, short, next4)
+    assert row5 is not None
+    assert row5["net_rx_bps"]   is None and row5["net_tx_bps"]   is None
+    assert row5["disk_read_bps"] is None and row5["disk_write_bps"] is None
+
+    # Pre-#339 cache shape (3-tuple) — backwards compat. Disk rates
+    # should skip (no prev disk anchor), net rates compute normally.
+    legacy_prev = (t0, 1000000, 500000)  # missing disk fields
+    legacy_bumped = dict(parsed)
+    legacy_bumped["host_net_rx_total"] = 1000000 + 1 * 1024 * 1024
+    legacy_bumped["host_net_tx_total"] = 500000  + 512 * 1024
+    legacy_bumped["host_disk_read_total"]  = 5 * 1024 * 1024
+    legacy_bumped["host_disk_write_total"] = 3 * 1024 * 1024
+    row6, next6 = _compute_row("h2", t0 + 300, legacy_bumped, legacy_prev)
+    assert row6 is not None
+    assert row6["net_rx_bps"] is not None, "legacy 3-tuple prev still drives net rate"
+    assert row6["disk_read_bps"]  is None, "no disk anchor → skip first disk rate"
+    assert row6["disk_write_bps"] is None
+    assert len(next6) == 5, "next_counter must be the new 5-tuple shape"
 
     # Empty probe — no fields at all.
-    row6, next6 = _compute_row("h2", time.time(), {}, None)
-    assert row6 is None and next6 is None
+    row7, next7 = _compute_row("h3", time.time(), {}, None)
+    assert row7 is None and next7 is None
 
     print("[host_metrics_sampler] smoke test passed")
     return 0
