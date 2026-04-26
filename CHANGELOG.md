@@ -38,6 +38,22 @@ Items that have shipped to the live deploy as a PATCH bump but haven't
 yet been rolled into a numbered `MINOR` release. When the operator cuts
 the next release, this whole block becomes the `[X.Y.0]` entry below.
 
+_(no items yet — `1.1.0` was just cut. Next PATCH-shipped item lands its
+entry here.)_
+
+## [1.1.0] — 2026-04-26
+
+First MINOR cut after the `1.0.0` baseline. Every entry below shipped to
+the live deploy as a PATCH bump (the daily CI auto-bump cadence) and is
+now rolled into this MINOR release. Highlights: NE-only host charts now
+populate Disk I/O on Linux (`node_disk_*`) AND FreeBSD (`node_devstat_*`),
+distinguish "host is idle" from "exporter doesn't expose this collector"
+(#347), pull cross-provider snapshots so existing data survives a provider
+outage (#236 series), and fold a refreshed pile of UX polish (host-drawer
+freshness label, scroll-on-expand, action-bar sticky behaviour, login-page
+logo, SSH terminal cols/rows). Backend / docs / refactor work was largely
+internal cleanup — see the Internal section.
+
 ### Internal
 
 - Documentation moved from `notes/guidelines/` and `notes/RELEASE_PROCESS.md` to a new `docs/` directory; new `docs/screenshots/` for README images; new `docs/README.md` index. Operator-private files (`note_todo.txt`, `notes.txt`, `forgejo_runner_config.yml`, the live Grafana dashboard, `.claude/agent-memory/**`) stay in `notes/`. `CHANGELOG.md` and the root `README.md` keep their root-level positions per convention. CLAUDE.md / code docstrings / cross-references updated to the new paths.
@@ -437,5 +453,6 @@ detail for everything that shipped before this baseline lives in
 `notes/note_todo.txt` under the `## Done` block — keyed by stable
 `#NNN` TODO IDs that survive across the format transition.
 
-[Unreleased]: https://git.www.home.lan/m.a.raouf/OmniGrid/compare/v1.0.0...HEAD
+[Unreleased]: https://git.www.home.lan/m.a.raouf/OmniGrid/compare/v1.1.0...HEAD
+[1.1.0]: https://git.www.home.lan/m.a.raouf/OmniGrid/compare/v1.0.0...v1.1.0
 [1.0.0]: https://git.www.home.lan/m.a.raouf/OmniGrid/releases/tag/v1.0.0
