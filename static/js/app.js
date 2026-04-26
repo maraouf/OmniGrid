@@ -297,6 +297,10 @@ function app() {
     // Shape: { [system_id]: { loading, error, series: [{t,cpu,mp,dp,b,...}] } }
     hostHistory: {},
     hostHistoryRange: 1,  // hours — matches img_8's "Last 1 hour" default
+    // Wall-clock millis ticked every 30s by init() — drives the
+    // "Updated Xm ago" freshness hint in the host-drawer chart-grid
+    // header (#363). Reactive so Alpine re-evaluates the helper.
+    hostHistoryNow: 0,
     showHotkeys: false,
     opsExpanded: true,
     toast: '', toastType: 'success', _tt: null,
@@ -752,6 +756,13 @@ function app() {
         }
       }
       setInterval(() => this.updateCacheLabel(), 1000);
+      // Tick `hostHistoryNow` every 30s so the host-drawer charts'
+      // "Updated Xm ago" label re-evaluates without re-fetching data
+      // (#363). Re-using a single shared int instead of a per-host
+      // timer keeps the work O(1) regardless of how many drawers the
+      // operator has cycled through.
+      this.hostHistoryNow = Date.now();
+      setInterval(() => { this.hostHistoryNow = Date.now(); }, 30 * 1000);
     },
 
     async logout() {
@@ -3846,27 +3857,64 @@ function app() {
       if (fit) term.loadAddon(fit);
       if (wlAddon) term.loadAddon(wlAddon);
       term.open(container);
-      // Resize the terminal as soon as the modal's .terminal-host has
-      // committed its real flex-1 dimensions. The naive
-      // `fit.fit()` directly after `term.open()` reads zero / stale
-      // size and xterm falls back to the default 80×24, so we schedule
-      // a *staircase* of retries: rAF (next paint), 50ms (after Alpine
-      // micro-batch), 250ms (after the .fade-in animation has settled),
-      // and 600ms (long-tail safety net for slow first-paint).
-      // FitAddon.fit() is idempotent — calling repeatedly with the same
-      // container dimensions is a no-op, so we don't worry about the
-      // overlap. Combined with the ResizeObserver below, this catches
-      // every realistic timing path.
-      const safeFit = () => { try { if (fit) fit.fit(); } catch (_) {} };
-      requestAnimationFrame(() => requestAnimationFrame(safeFit));
+      // ---- Resize-to-container helper. ----
+      // The earlier "staircase of fit()" approach kept failing because
+      // xterm's FitAddon.proposeDimensions() returns `undefined` when
+      // the parent's computed style isn't a clean px value (which can
+      // happen briefly with `flex: 1 1 auto; min-height: 0`), and
+      // fit.fit() silently no-ops on undefined. Result: cols stuck at
+      // the default 80 and the shell wraps mid-line forever. The fix:
+      // try FitAddon first (it's the most accurate when it works),
+      // then if `term.cols` is still the default 80 after a short
+      // wait, MANUALLY measure the container and call term.resize()
+      // directly. xterm's onResize handler pipes the new size down
+      // the WS so the backend PTY follows.
+      //
+      // Manual cell metrics for the configured Menlo / Consolas /
+      // DejaVu Mono 13px font: ~7.85px wide × ~17.5px tall (Chromium
+      // / WebKit / Firefox all within ±0.2px). Slight over-estimation
+      // is fine — xterm tolerates one-cell rounding error and the
+      // first WS resize callback will correct it.
+      const _MANUAL_CELL_W = 7.85;
+      const _MANUAL_CELL_H = 17.5;
+      const measureAndResize = () => {
+        if (!term || !container || !container.isConnected) return false;
+        // Try FitAddon first.
+        try {
+          if (fit) fit.fit();
+        } catch (_) {}
+        // Did fit.fit() actually resize past the default? If yes, done.
+        if (term.cols !== 80 || term.rows !== 24) return true;
+        // Fallback: manual measurement. Bypass FitAddon entirely.
+        const rect = container.getBoundingClientRect();
+        if (rect.width < 100 || rect.height < 50) return false;
+        const cs = window.getComputedStyle(container);
+        const padX = (parseFloat(cs.paddingLeft) || 0)
+                   + (parseFloat(cs.paddingRight) || 0);
+        const padY = (parseFloat(cs.paddingTop) || 0)
+                   + (parseFloat(cs.paddingBottom) || 0);
+        const cols = Math.max(20, Math.floor((rect.width  - padX) / _MANUAL_CELL_W));
+        const rows = Math.max(5,  Math.floor((rect.height - padY) / _MANUAL_CELL_H));
+        if (cols !== term.cols || rows !== term.rows) {
+          try { term.resize(cols, rows); } catch (_) {}
+        }
+        return true;
+      };
+      // Run the helper on a staircase + ResizeObserver. First successful
+      // measurement halts the polling. The 50/250/600/1200ms retries
+      // cover Alpine micro-batch, .fade-in animation completion, and a
+      // long-tail safety net for slow first-paint.
+      requestAnimationFrame(() => requestAnimationFrame(measureAndResize));
       const fitTimers = [
-        setTimeout(safeFit, 50),
-        setTimeout(safeFit, 250),
-        setTimeout(safeFit, 600),
+        setTimeout(measureAndResize, 50),
+        setTimeout(measureAndResize, 250),
+        setTimeout(measureAndResize, 600),
+        setTimeout(measureAndResize, 1200),
       ];
       this.terminalFitTimers = fitTimers;
       this.terminal = term;
       this.terminalFit = fit;
+      this.terminalMeasureAndResize = measureAndResize;
 
       // ---- 2) WebSocket to /api/hosts/{id}/ssh/terminal ----
       const proto = (location.protocol === 'https:') ? 'wss://' : 'ws://';
@@ -3902,14 +3950,14 @@ function app() {
           if (ctl.type === 'ready') {
             this.terminalState = 'connected';
             this.terminalResolved = ctl.resolved || null;
-            // Refit on the 'ready' control frame — the modal has been
+            // Resize on the 'ready' control frame — the modal has been
             // visible for at least one round-trip by now, so the
-            // .terminal-host's box is definitely committed. If the
-            // earlier rAF/setTimeout passes already produced the right
-            // cols/rows this is a no-op; otherwise the WS resize is
-            // sent through xterm's onResize handler and the backend
-            // PTY follows.
-            try { if (fit) fit.fit(); } catch (_) {}
+            // .terminal-host's box is definitely committed. The helper
+            // tries FitAddon first and falls back to a manual
+            // getBoundingClientRect() measurement if fit silently
+            // no-ops; either way the new cols/rows pipe down the WS
+            // via xterm's onResize handler.
+            try { measureAndResize(); } catch (_) {}
             term.focus();
           } else if (ctl.type === 'error') {
             this.terminalState = 'error';
@@ -3959,26 +4007,20 @@ function app() {
         try { ws.send(JSON.stringify({ type: 'resize', cols, rows })); } catch (_) {}
       });
 
-      // ---- 4) Window-resize -> FitAddon -> xterm onResize -> WS resize ----
+      // ---- 4) Window-resize -> measure-and-resize -> WS resize ----
       const onWinResize = () => {
-        if (this.terminalFit) {
-          try { this.terminalFit.fit(); } catch (_) {}
-        }
+        try { measureAndResize(); } catch (_) {}
       };
       window.addEventListener('resize', onWinResize);
       this.terminalResizeBound = onWinResize;
-      // ---- 5) ResizeObserver on the host element -> FitAddon ----
+      // ---- 5) ResizeObserver on the host element ----
       // Catches dimension changes the window-resize listener misses:
-      // the initial modal open (when our deferred rAF fit might still
-      // race against in-flight CSS transitions), font-size changes,
-      // sidebar / drawer toggles, etc. xterm's onResize callback
-      // already pipes the new cols/rows down the WS, so we only need
-      // to call fit() — the chain handles the rest.
+      // the initial modal open (when the deferred rAF retries might
+      // still race against in-flight CSS transitions), font-size
+      // changes, sidebar / drawer toggles, etc.
       if (typeof window.ResizeObserver === 'function') {
         const obs = new window.ResizeObserver(() => {
-          if (this.terminalFit) {
-            try { this.terminalFit.fit(); } catch (_) {}
-          }
+          try { measureAndResize(); } catch (_) {}
         });
         try { obs.observe(container); } catch (_) {}
         this.terminalResizeObs = obs;
@@ -8587,8 +8629,25 @@ function app() {
       if (!hostId) return;
       const open = !this.hostsDebugOpen[hostId];
       this.hostsDebugOpen = { ...this.hostsDebugOpen, [hostId]: open };
-      if (open && !this.hostsDebug[hostId] && !this.hostsDebugLoading[hostId]) {
-        await this.loadHostDebug(hostId);
+      if (open) {
+        // Scroll the just-expanded body to the top of the drawer
+        // viewport so the operator doesn't have to hunt for it on a
+        // long drawer (#364). $nextTick lets x-show flip display
+        // before we measure; querying by data-host-section keeps the
+        // selector tied to the row's stable host id.
+        this.$nextTick(() => {
+          const el = document.querySelector(
+            `[data-host-section="debug-${hostId}"]`,
+          );
+          if (el) {
+            try {
+              el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            } catch (_) {}
+          }
+        });
+        if (!this.hostsDebug[hostId] && !this.hostsDebugLoading[hostId]) {
+          await this.loadHostDebug(hostId);
+        }
       }
     },
     async loadHostDebug(hostId) {
@@ -8821,6 +8880,7 @@ function app() {
         error: prev.error || '',
         series: Array.isArray(prev.series) ? prev.series : [],
         collectors: prev.collectors || null,
+        loadedAt: prev.loadedAt || 0,
       };
       try {
         const qs = {
@@ -8836,11 +8896,19 @@ function app() {
             error: `HTTP ${r.status}`,
             series: prev.series || [],  // keep previous on HTTP error
             collectors: prev.collectors || null,
+            loadedAt: prev.loadedAt || 0,
           };
           return;
         }
         const d = await r.json();
         const next = Array.isArray(d.series) ? d.series : [];
+        // Stamp loadedAt only when a NON-EMPTY series actually landed —
+        // a transient empty reply (hub rebooting / rate-limit) doesn't
+        // refresh data, so it shouldn't refresh the "last updated"
+        // ticker either. Falls through to the previous timestamp on
+        // empty so the operator still sees how stale the displayed
+        // chart is. (#363)
+        const stamp = next.length ? Date.now() : (prev.loadedAt || 0);
         this.hostHistory[cacheKey] = {
           loading: false,
           error: d.error || '',
@@ -8852,6 +8920,7 @@ function app() {
           // us whether each metric ever produced a non-null sample in
           // the window. Beszel path doesn't include it; null = unknown.
           collectors: d.collectors || null,
+          loadedAt: stamp,
         };
       } catch (e) {
         this.hostHistory[cacheKey] = {
@@ -8859,8 +8928,36 @@ function app() {
           error: e.message,
           series: prev.series || [],
           collectors: prev.collectors || null,
+          loadedAt: prev.loadedAt || 0,
         };
       }
+    },
+    // Subtle freshness label for the host-drawer chart-grid header
+    // (#363). Returns a short translated string like "Updated 2m ago"
+    // or empty when the cache hasn't seen a successful fetch yet
+    // (caller hides the line). Reads `hostHistoryNow` (ticked every
+    // 30s) so the label stays current without re-fetching the data.
+    hostHistoryFreshness(h) {
+      if (!h) return '';
+      const key = this.hostHistoryKey(h);
+      const entry = this.hostHistory[key];
+      if (!entry || !entry.loadedAt) return '';
+      // `hostHistoryNow` is bumped on a 30s timer; touching it inside
+      // the getter means Alpine re-evaluates whenever it ticks.
+      const now = this.hostHistoryNow || Date.now();
+      const ageMs = Math.max(0, now - entry.loadedAt);
+      const ageS = Math.floor(ageMs / 1000);
+      if (ageS < 60) {
+        return this.t('hosts_extra.metrics.last_updated_seconds', { count: ageS });
+      }
+      if (ageS < 3600) {
+        return this.t('hosts_extra.metrics.last_updated_minutes', {
+          count: Math.floor(ageS / 60),
+        });
+      }
+      return this.t('hosts_extra.metrics.last_updated_hours', {
+        count: Math.floor(ageS / 3600),
+      });
     },
     // True only when we KNOW the named NE collector is missing for this
     // host (sampler walked the window and never saw a non-null value).

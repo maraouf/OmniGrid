@@ -4716,8 +4716,8 @@
           </p>
         </div>
         <!-- FQDN suffix — appended to bare host IDs during SSH resolve.
-             Example: ssh_fqdn_suffix=".home.lan", host id="webserver"
-             → SSH target becomes "webserver.home.lan". Host IDs that
+             Example: ssh_fqdn_suffix=".example.com", host id="webserver"
+             → SSH target becomes "webserver.example.com". Host IDs that
              already contain a dot are used as-is. Per-host ssh.host
              / ssh.fqdn override wins over the suffix rule. -->
         <div class="mb-3">
@@ -6226,7 +6226,7 @@
                    note in that case. Whole section hides when no
                    provider matched — the "No data" banner above +
                    Debug panel below do the talking. -->
-              <div class="mt-4 flex items-center gap-2" x-show="(h.beszel_id || h.ne_url) && h.status === 'up' && (h.providers || []).length > 0">
+              <div class="mt-4 flex items-center gap-2 flex-wrap" x-show="(h.beszel_id || h.ne_url) && h.status === 'up' && (h.providers || []).length > 0">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-[var(--text-dim)]"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
                 <div class="range-seg">
                   <button type="button" :class="hostHistoryRange === 1 ? 'active' : ''"
@@ -6238,6 +6238,13 @@
                   <button type="button" :class="hostHistoryRange === 168 ? 'active' : ''"
                           @click="setHostHistoryRange(168)">7d</button>
                 </div>
+                <!-- Subtle data-freshness hint (#363) — only shows after
+                     the first successful fetch. Ticks every 30s via the
+                     shared `hostHistoryNow` timer in init() so the
+                     "Xm ago" label stays current without re-fetching. -->
+                <span class="text-[10.5px] italic text-[var(--text-faint)]"
+                      x-show="hostHistoryFreshness(h)"
+                      x-text="hostHistoryFreshness(h)"></span>
               </div>
               <div x-show="!h.beszel_id && !h.ne_url && h.status === 'up' && (h.providers || []).length > 0" class="mt-4 text-[11.5px] text-[var(--text-faint)] italic">
                 Time-series charts are sourced from Beszel or
@@ -6760,7 +6767,8 @@
                     <span x-text="hostsDebugOpen[h.id] ? t('debug_panel.hide') : t('debug_panel.show')"></span>
                     <span class="host-debug-hint" x-show="!hostsDebugOpen[h.id]" x-text="t('debug_panel.hint')"></span>
                   </button>
-                  <div x-show="hostsDebugOpen[h.id]" class="host-debug-body">
+                  <div x-show="hostsDebugOpen[h.id]" class="host-debug-body"
+                       :data-host-section="'debug-' + h.id">
                     <template x-if="hostsDebugLoading[h.id]">
                       <div class="host-debug-loading">
                         <span class="spin-lg" aria-hidden="true"></span>
@@ -6968,7 +6976,8 @@
                                    : sshStatus[h.id].configured ? t('hosts_extra_ssh.status_ready')
                                    : t('hosts_extra_ssh.status_not_configured')"></span>
                   </button>
-                  <div x-show="sshOpen[h.id]" class="host-debug-body">
+                  <div x-show="sshOpen[h.id]" class="host-debug-body"
+                       :data-host-section="'ssh-' + h.id">
                     <!-- Resolved target summary -->
                     <div class="host-debug-toolbar">
                       <div class="host-debug-meta">

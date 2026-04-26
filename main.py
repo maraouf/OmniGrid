@@ -917,7 +917,7 @@ class SettingsIn(BaseModel):
     # Per-node name aliases — Docker hostname → Beszel system name. Use
     # when the name the operator gave a system in Beszel doesn't match
     # the Docker Swarm hostname. Example:
-    #   {"debian13docker": "docker.home.lan"}
+    #   {"docker01": "docker.example.com"}
     # Nodes not listed here fall back to identity mapping.
     beszel_aliases: Optional[dict] = None
     # Pulse (rcourtman/Pulse) — third host-stats provider. PVE-only.
@@ -932,7 +932,7 @@ class SettingsIn(BaseModel):
     # Webmin — fourth host-stats provider. Each target host runs its
     # own Miniserv instance so the probe URL is per-host, not a hub.
     # ``webmin_aliases`` maps Docker hostname → full Miniserv base URL
-    # (e.g. ``{"debian13docker": "https://docker.home.lan:10000"}``).
+    # (e.g. ``{"docker01": "https://docker.example.com:10000"}``).
     # ``webmin_url`` is retained as an optional default/template for
     # future use. Password is write-only like every other secret.
     webmin_url: Optional[str] = None
@@ -1018,7 +1018,7 @@ class SettingsIn(BaseModel):
     ssh_default_password: Optional[str] = None
     # FQDN suffix appended to bare hostnames (hosts_config[].id) when
     # SSH resolves the target. Example: id="webserver" +
-    # ssh_fqdn_suffix=".home.lan" → "webserver.home.lan". Host IDs that
+    # ssh_fqdn_suffix=".example.com" → "webserver.example.com". Host IDs that
     # already contain a dot are used as-is. Blank = no suffix.
     ssh_fqdn_suffix: Optional[str] = None
     ssh_default_known_hosts: Optional[str] = None

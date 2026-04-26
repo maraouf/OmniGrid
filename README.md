@@ -14,7 +14,7 @@ Built as a friendlier replacement for Diun Dash: Diun only **observes**; OmniGri
 - **Bulk operations** — checkbox multi-select, dedupes by stack so one stack = one update call
 - **Live operations panel** — watches running updates with a streaming event log, floats bottom-right
 - **Update history** — every op persisted to SQLite, browseable with expandable event logs
-- **Ignore list** — pin certain images or stacks to skip (e.g. pinned `:v2.1.0` tags you don't want bumped)
+- **Ignore list** — pin certain images or stacks to skip (e.g. pinned `:v1.2.3` tags you don't want bumped)
 - **Apprise notifications** — success/failure push to your existing Apprise hub
 - **Node placement & replica health** — see exactly which Swarm node each task runs on, in the detail drawer
 - **Auto-refresh** (Off / 30s / 1m / 5m), global search (`/`), keyboard shortcuts
@@ -64,11 +64,11 @@ Portainer UI → profile menu → *My account* → *Access tokens* → add a new
 Portainer → *Stacks* → *Add stack* → paste `docker-compose.yml`, fill in `PORTAINER_API_KEY` / `PORTAINER_URL` / `PORTAINER_ENDPOINT_ID` in the environment fields → Deploy.
 
 **5. Point NPM at it**:
-Proxy host: `omnigrid.w.<asset-api-host>` (external) / `omnigrid.www.home.lan` (internal) → `http://<manager>:8088`. The app has its own local login + optional Authentik OIDC SSO; no reverse-proxy auth gymnastics required. See `notes/guidelines/authentik.md` to wire up SSO.
+Proxy host: `omnigrid.w.<asset-api-host>` (external) / `omnigrid.example.com` (internal) → `http://<manager>:8088`. The app has its own local login + optional Authentik OIDC SSO; no reverse-proxy auth gymnastics required. See `notes/guidelines/authentik.md` to wire up SSO.
 
 **6. Open it up**, hit ⚙️ Settings, configure:
-- Apprise URL: e.g. `http://apprise.home.lan:8005/notify/OmniGrid` (or with a tag)
-- Portainer public URL: e.g. `https://portainer.home.lan` (for the "Open in Portainer" deep links)
+- Apprise URL: e.g. `http://apprise.example.com:8005/notify/OmniGrid` (or with a tag)
+- Portainer public URL: e.g. `https://portainer.example.com` (for the "Open in Portainer" deep links)
 
 ## How updates work
 
@@ -83,7 +83,7 @@ Proxy host: `omnigrid.w.<asset-api-host>` (external) / `omnigrid.www.home.lan` (
 
 | Var | Default | Notes |
 |---|---|---|
-| `PORTAINER_URL` | — | Required. E.g. `https://portainer.home.lan` |
+| `PORTAINER_URL` | — | Required. E.g. `https://portainer.example.com` |
 | `PORTAINER_API_KEY` | — | Required. Starts with `ptr_` |
 | `PORTAINER_ENDPOINT_ID` | `1` | The Swarm endpoint id |
 | `CACHE_TTL_SECONDS` | `900` | How long to trust a digest poll |

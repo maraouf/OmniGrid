@@ -86,7 +86,7 @@ def _match_hosts_row(host: str, hosts_cfg: list[dict]) -> Optional[dict]:
            (``beszel_name`` / ``pulse_name`` / ``webmin_name``) equals
            the Docker hostname short form. Useful when the Docker
            hostname differs from the operator's chosen `id` (e.g.
-           `id="docker"`, `beszel_name="docker.home.lan"`).
+           `id="docker"`, `beszel_name="docker.example.com"`).
 
     Returns the matched row, or ``None`` when nothing matches.
     Callers decide whether to use the row's provider fields.
@@ -257,7 +257,7 @@ def apply_host_snapshot_fallback(
             continue
         snap = snapshots.get(host)
         if not snap:
-            # Try short-hostname match — Docker reports `docker.home.lan`
+            # Try short-hostname match — Docker reports `docker.example.com`
             # but the snapshot might have been keyed under `docker`.
             short = str(host).split(".", 1)[0]
             for k, v in snapshots.items():
@@ -636,7 +636,7 @@ async def _gather_impl() -> None:
             # ``beszel_aliases`` (JSON map in the settings table) so
             # operators don't have to rename a host on either side when
             # the two naturally differ (e.g. Swarm hostname
-            # ``debian13docker`` but Beszel host ``docker.home.lan``).
+            # ``docker01`` but Beszel host ``docker.example.com``).
             # Nodes absent from the alias map fall back to identity.
             # NOTE: we match against Beszel's ``host`` (agent hostname),
             # not ``name`` (user-editable label), because ``host`` is
@@ -763,7 +763,7 @@ async def _gather_impl() -> None:
                     #      without touching the global template)
                     #   3. template with {host} + {ip} substitution
                     # The template supports both placeholders so mixed
-                    # strings like "http://{host}.home.lan:9100/metrics"
+                    # strings like "http://{host}.example.com:9100/metrics"
                     # still work when we fall through.
                     info = nodes_info.get(h) or {}
                     ip = info.get("ip") or ""
