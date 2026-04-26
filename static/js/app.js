@@ -421,6 +421,7 @@ function app() {
     terminalSocket: null,
     terminalResizeBound: null,
     terminalResizeObs: null,
+    terminalFitTimers: null,
     sshSettings: {
       user: '', port: 22, private_key: '', passphrase: '',
       password: '', fqdn_suffix: '',
@@ -3845,15 +3846,25 @@ function app() {
       if (fit) term.loadAddon(fit);
       if (wlAddon) term.loadAddon(wlAddon);
       term.open(container);
-      // Defer the first fit() to the NEXT animation frame — when
-      // term.open() runs, the modal's flex-1 .terminal-host has just
-      // been mounted but its computed dimensions aren't committed
-      // yet, so an immediate fit() reads zero / placeholder size and
-      // xterm falls back to the default 80×24. Without this defer the
-      // shell wraps mid-line until the first window resize. A double
-      // rAF guarantees the layout has been painted before we measure.
+      // Resize the terminal as soon as the modal's .terminal-host has
+      // committed its real flex-1 dimensions. The naive
+      // `fit.fit()` directly after `term.open()` reads zero / stale
+      // size and xterm falls back to the default 80×24, so we schedule
+      // a *staircase* of retries: rAF (next paint), 50ms (after Alpine
+      // micro-batch), 250ms (after the .fade-in animation has settled),
+      // and 600ms (long-tail safety net for slow first-paint).
+      // FitAddon.fit() is idempotent — calling repeatedly with the same
+      // container dimensions is a no-op, so we don't worry about the
+      // overlap. Combined with the ResizeObserver below, this catches
+      // every realistic timing path.
       const safeFit = () => { try { if (fit) fit.fit(); } catch (_) {} };
       requestAnimationFrame(() => requestAnimationFrame(safeFit));
+      const fitTimers = [
+        setTimeout(safeFit, 50),
+        setTimeout(safeFit, 250),
+        setTimeout(safeFit, 600),
+      ];
+      this.terminalFitTimers = fitTimers;
       this.terminal = term;
       this.terminalFit = fit;
 
@@ -3891,6 +3902,14 @@ function app() {
           if (ctl.type === 'ready') {
             this.terminalState = 'connected';
             this.terminalResolved = ctl.resolved || null;
+            // Refit on the 'ready' control frame — the modal has been
+            // visible for at least one round-trip by now, so the
+            // .terminal-host's box is definitely committed. If the
+            // earlier rAF/setTimeout passes already produced the right
+            // cols/rows this is a no-op; otherwise the WS resize is
+            // sent through xterm's onResize handler and the backend
+            // PTY follows.
+            try { if (fit) fit.fit(); } catch (_) {}
             term.focus();
           } else if (ctl.type === 'error') {
             this.terminalState = 'error';
@@ -3987,6 +4006,12 @@ function app() {
       if (this.terminalResizeObs) {
         try { this.terminalResizeObs.disconnect(); } catch (_) {}
         this.terminalResizeObs = null;
+      }
+      if (this.terminalFitTimers) {
+        for (const id of this.terminalFitTimers) {
+          try { clearTimeout(id); } catch (_) {}
+        }
+        this.terminalFitTimers = null;
       }
       if (this.terminalSocket) {
         try { this.terminalSocket.close(1000, 'client closed'); } catch (_) {}

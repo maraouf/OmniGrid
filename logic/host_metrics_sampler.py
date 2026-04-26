@@ -619,6 +619,67 @@ node_network_transmit_bytes_total{device="eth0"} 500
     assert no_disk_parsed["total_read"]    is None, "no-devices must return None"
     assert no_disk_parsed["total_written"] is None
 
+    # FreeBSD fallback (#352): hosts running the FreeBSD node-exporter
+    # port emit `node_devstat_bytes_total{device,type}` instead of
+    # `node_disk_*`. Real opnsense scrape from 10.0.0.1: ada0 = 4.12 GB
+    # read / 14.82 TB write totals, plus a synthetic md98 (memdisk) and
+    # pass0 (SCSI passthrough) that MUST be excluded. Verifies the
+    # parser falls through to the FreeBSD branch when the Linux family
+    # returns no devices, AND that the correct synthetic-device
+    # exclusion list is applied (pass*/md*/cd*).
+    bsd_fixture = """\
+node_devstat_bytes_total{device="ada0",type="read"} 4119181824
+node_devstat_bytes_total{device="ada0",type="write"} 14823682183168
+node_devstat_bytes_total{device="md98",type="read"} 76800
+node_devstat_bytes_total{device="md98",type="write"} 0
+node_devstat_bytes_total{device="pass0",type="read"} 0
+node_devstat_bytes_total{device="pass0",type="write"} 0
+"""
+    bsd_disk = _ne.parse_disk_counters(bsd_fixture)
+    assert bsd_disk["total_read"]    == 4119181824, f"BSD read mismatch: {bsd_disk}"
+    assert bsd_disk["total_written"] == 14823682183168, f"BSD write mismatch: {bsd_disk}"
+    bsd_names = [d["name"] for d in bsd_disk["devices"]]
+    assert bsd_names == ["ada0"], f"only ada0 should pass BSD exclusion, got {bsd_names}"
+
+    # FreeBSD-fallback hand-off into the sampler: rate calc must work
+    # the same way regardless of which metric family produced the
+    # totals — `probe_node` writes `host_disk_*_total` keys identically
+    # for both, so the sampler's `_compute_row` is family-agnostic. We
+    # exercise that here with synthetic before/after BSD totals.
+    bsd_t0 = 1700000000.0
+    bsd_stats_before = _ne.parse_exporter_text(bsd_fixture)
+    bsd_stats_before["host_net_rx_total"] = 0
+    bsd_stats_before["host_net_tx_total"] = 0
+    bsd_stats_before["host_disk_read_total"]  = bsd_disk["total_read"]
+    bsd_stats_before["host_disk_write_total"] = bsd_disk["total_written"]
+    bsd_baseline_row, bsd_prev = _compute_row(
+        "bsd_host", bsd_t0, bsd_stats_before, None,
+    )
+    assert bsd_prev[3] == 4119181824 and bsd_prev[4] == 14823682183168, bsd_prev
+    bsd_stats_after = dict(bsd_stats_before)
+    bsd_stats_after["host_disk_read_total"]  += 6 * 1024 * 1024
+    bsd_stats_after["host_disk_write_total"] += 3 * 1024 * 1024
+    bsd_row, _ = _compute_row("bsd_host", bsd_t0 + 300, bsd_stats_after, bsd_prev)
+    assert bsd_row is not None
+    assert abs(bsd_row["disk_read_bps"]  - (6 * 1024 * 1024) / 300) < 0.001, bsd_row
+    assert abs(bsd_row["disk_write_bps"] - (3 * 1024 * 1024) / 300) < 0.001, bsd_row
+
+    # Linux pass takes precedence: a host that emits BOTH families
+    # (rare — would have to be a hand-written exporter) must NOT
+    # double-count. The FreeBSD branch only runs when the Linux pass
+    # produces zero devices.
+    mixed_fixture = """\
+node_disk_read_bytes_total{device="sda"} 1000
+node_disk_written_bytes_total{device="sda"} 500
+node_devstat_bytes_total{device="ada0",type="read"}  9999999
+node_devstat_bytes_total{device="ada0",type="write"} 9999999
+"""
+    mixed_disk = _ne.parse_disk_counters(mixed_fixture)
+    assert mixed_disk["total_read"]    == 1000, f"Linux pass must win: {mixed_disk}"
+    assert mixed_disk["total_written"] == 500
+    mixed_names = [d["name"] for d in mixed_disk["devices"]]
+    assert mixed_names == ["sda"], f"BSD branch must not run: {mixed_names}"
+
     # Tick 1 — no previous counter, should establish baseline. Gauges
     # are meaningful so a row IS produced; rates simply absent.
     t0 = 1700000000.0
