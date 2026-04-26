@@ -6049,7 +6049,7 @@
                    note in that case. Whole section hides when no
                    provider matched — the "No data" banner above +
                    Debug panel below do the talking. -->
-              <div class="mt-4 flex items-center gap-2" x-show="h.beszel_id && h.status === 'up' && (h.providers || []).length > 0">
+              <div class="mt-4 flex items-center gap-2" x-show="(h.beszel_id || h.ne_url) && h.status === 'up' && (h.providers || []).length > 0">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-[var(--text-dim)]"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
                 <div class="range-seg">
                   <button type="button" :class="hostHistoryRange === 1 ? 'active' : ''"
@@ -6062,9 +6062,10 @@
                           @click="setHostHistoryRange(168)">7d</button>
                 </div>
               </div>
-              <div x-show="!h.beszel_id && h.status === 'up' && (h.providers || []).length > 0" class="mt-4 text-[11.5px] text-[var(--text-faint)] italic">
-                Time-series charts are sourced from Beszel. Link this
-                host to a Beszel system in
+              <div x-show="!h.beszel_id && !h.ne_url && h.status === 'up' && (h.providers || []).length > 0" class="mt-4 text-[11.5px] text-[var(--text-faint)] italic">
+                Time-series charts are sourced from Beszel or
+                node-exporter. Link this host to a Beszel system OR
+                set its node-exporter URL in
                 <a href="/admin/hosts" class="text-[var(--primary)] hover:underline">Admin → Hosts</a>
                 to see CPU / Memory / Disk / Net history here.
               </div>
@@ -6077,23 +6078,26 @@
                    when no provider matched — the "Collecting data…"
                    placeholders are misleading for hosts that never had
                    a provider mapping. -->
-              <!-- Chart grid: only renders when Beszel matched AND
-                   returned history. Hosts that have ONLY node-exporter
-                   (no beszel_id) get the "link to Beszel" hint above
-                   instead of an empty "Collecting data…" grid. -->
+              <!-- Chart grid: renders when Beszel matched AND
+                   returned history, OR when the host has a node-exporter
+                   URL configured (#289 — host_metrics_sampler writes
+                   per-host gauges + net rates into host_metrics_samples
+                   so NE-only hosts also get historical charts). Hosts
+                   with neither show the "link to Beszel / set NE URL"
+                   hint above instead of an empty "Collecting data…" grid. -->
               <div class="mt-3 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4"
-                   x-show="h.beszel_id && h.status === 'up' && (h.providers || []).length > 0">
+                   x-show="(h.beszel_id || h.ne_url) && h.status === 'up' && (h.providers || []).length > 0">
                 <!-- CPU % -->
                 <div class="metric-card metric-card--cpu">
                   <div class="metric-card-head">
                     <div class="metric-card-title">CPU<span class="unit">%</span></div>
                     <div class="metric-card-stats"
-                         x-show="hostMetricStats(h.beszel_id, 'cpu')">
-                      <span>Min <span class="min-val" x-text="hostMetricStats(h.beszel_id, 'cpu') ? hostMetricStats(h.beszel_id, 'cpu').min : ''"></span></span>
-                      <span>Max <span class="max-val" x-text="hostMetricStats(h.beszel_id, 'cpu') ? hostMetricStats(h.beszel_id, 'cpu').max : ''"></span></span>
+                         x-show="hostMetricStats(hostHistoryKey(h), 'cpu')">
+                      <span>Min <span class="min-val" x-text="hostMetricStats(hostHistoryKey(h), 'cpu') ? hostMetricStats(hostHistoryKey(h), 'cpu').min : ''"></span></span>
+                      <span>Max <span class="max-val" x-text="hostMetricStats(hostHistoryKey(h), 'cpu') ? hostMetricStats(hostHistoryKey(h), 'cpu').max : ''"></span></span>
                     </div>
                   </div>
-                  <template x-if="hostChart(h.beszel_id, 'cpu', { min: 0, max: 100 })">
+                  <template x-if="hostChart(hostHistoryKey(h), 'cpu', { min: 0, max: 100 })">
                     <div class="metric-card-body">
                       <div class="metric-y-axis">
                         <template x-for="(l, i) in yAxisPercent()" :key="i">
@@ -6107,18 +6111,18 @@
                              real HTMLTemplateElement, so .content is
                              undefined and Alpine throws). hostChart()
                              precomputes `gridPath` to avoid the issue. -->
-                        <path class="metric-grid" :d="hostChart(h.beszel_id, 'cpu', { min: 0, max: 100, height: 120 }).gridPath" fill="none"/>
-                        <path class="metric-area" :d="hostChart(h.beszel_id, 'cpu', { min: 0, max: 100, height: 120 }).area"/>
-                        <polyline class="metric-line" :points="hostChart(h.beszel_id, 'cpu', { min: 0, max: 100, height: 120 }).points"/>
+                        <path class="metric-grid" :d="hostChart(hostHistoryKey(h), 'cpu', { min: 0, max: 100, height: 120 }).gridPath" fill="none"/>
+                        <path class="metric-area" :d="hostChart(hostHistoryKey(h), 'cpu', { min: 0, max: 100, height: 120 }).area"/>
+                        <polyline class="metric-line" :points="hostChart(hostHistoryKey(h), 'cpu', { min: 0, max: 100, height: 120 }).points"/>
                       </svg>
                       <div class="metric-x-axis">
-                        <template x-for="(l, i) in xAxisFromSeries(h.beszel_id, 5)" :key="i">
+                        <template x-for="(l, i) in xAxisFromSeries(hostHistoryKey(h), 5)" :key="i">
                           <span x-text="l"></span>
                         </template>
                       </div>
                     </div>
                   </template>
-                  <template x-if="!hostChart(h.beszel_id, 'cpu', { min: 0, max: 100 })">
+                  <template x-if="!hostChart(hostHistoryKey(h), 'cpu', { min: 0, max: 100 })">
                     <div class="collecting-block">
                       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
                       <div>
@@ -6134,12 +6138,12 @@
                   <div class="metric-card-head">
                     <div class="metric-card-title">Memory<span class="unit">%</span></div>
                     <div class="metric-card-stats"
-                         x-show="hostMetricStats(h.beszel_id, 'mp')">
-                      <span>Min <span class="min-val" x-text="hostMetricStats(h.beszel_id, 'mp') ? hostMetricStats(h.beszel_id, 'mp').min : ''"></span></span>
-                      <span>Max <span class="max-val" x-text="hostMetricStats(h.beszel_id, 'mp') ? hostMetricStats(h.beszel_id, 'mp').max : ''"></span></span>
+                         x-show="hostMetricStats(hostHistoryKey(h), 'mp')">
+                      <span>Min <span class="min-val" x-text="hostMetricStats(hostHistoryKey(h), 'mp') ? hostMetricStats(hostHistoryKey(h), 'mp').min : ''"></span></span>
+                      <span>Max <span class="max-val" x-text="hostMetricStats(hostHistoryKey(h), 'mp') ? hostMetricStats(hostHistoryKey(h), 'mp').max : ''"></span></span>
                     </div>
                   </div>
-                  <template x-if="hostChart(h.beszel_id, 'mp', { min: 0, max: 100 })">
+                  <template x-if="hostChart(hostHistoryKey(h), 'mp', { min: 0, max: 100 })">
                     <div class="metric-card-body">
                       <div class="metric-y-axis">
                         <template x-for="(l, i) in yAxisPercent()" :key="i">
@@ -6147,17 +6151,17 @@
                         </template>
                       </div>
                       <svg class="metric-svg" viewBox="0 0 420 120" preserveAspectRatio="none">
-                        <path class="metric-area" :d="hostChart(h.beszel_id, 'mp', { min: 0, max: 100, height: 120 }).area"/>
-                        <polyline class="metric-line" :points="hostChart(h.beszel_id, 'mp', { min: 0, max: 100, height: 120 }).points"/>
+                        <path class="metric-area" :d="hostChart(hostHistoryKey(h), 'mp', { min: 0, max: 100, height: 120 }).area"/>
+                        <polyline class="metric-line" :points="hostChart(hostHistoryKey(h), 'mp', { min: 0, max: 100, height: 120 }).points"/>
                       </svg>
                       <div class="metric-x-axis">
-                        <template x-for="(l, i) in xAxisFromSeries(h.beszel_id, 5)" :key="i">
+                        <template x-for="(l, i) in xAxisFromSeries(hostHistoryKey(h), 5)" :key="i">
                           <span x-text="l"></span>
                         </template>
                       </div>
                     </div>
                   </template>
-                  <template x-if="!hostChart(h.beszel_id, 'mp', { min: 0, max: 100 })">
+                  <template x-if="!hostChart(hostHistoryKey(h), 'mp', { min: 0, max: 100 })">
                     <div class="collecting-block">
                       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
                       <div>
@@ -6172,12 +6176,12 @@
                   <div class="metric-card-head">
                     <div class="metric-card-title">Disk<span class="unit">%</span></div>
                     <div class="metric-card-stats"
-                         x-show="hostMetricStats(h.beszel_id, 'dp')">
-                      <span>Min <span class="min-val" x-text="hostMetricStats(h.beszel_id, 'dp') ? hostMetricStats(h.beszel_id, 'dp').min : ''"></span></span>
-                      <span>Max <span class="max-val" x-text="hostMetricStats(h.beszel_id, 'dp') ? hostMetricStats(h.beszel_id, 'dp').max : ''"></span></span>
+                         x-show="hostMetricStats(hostHistoryKey(h), 'dp')">
+                      <span>Min <span class="min-val" x-text="hostMetricStats(hostHistoryKey(h), 'dp') ? hostMetricStats(hostHistoryKey(h), 'dp').min : ''"></span></span>
+                      <span>Max <span class="max-val" x-text="hostMetricStats(hostHistoryKey(h), 'dp') ? hostMetricStats(hostHistoryKey(h), 'dp').max : ''"></span></span>
                     </div>
                   </div>
-                  <template x-if="hostChart(h.beszel_id, 'dp', { min: 0, max: 100 })">
+                  <template x-if="hostChart(hostHistoryKey(h), 'dp', { min: 0, max: 100 })">
                     <div class="metric-card-body">
                       <div class="metric-y-axis">
                         <template x-for="(l, i) in yAxisPercent()" :key="i">
@@ -6185,17 +6189,17 @@
                         </template>
                       </div>
                       <svg class="metric-svg" viewBox="0 0 420 120" preserveAspectRatio="none">
-                        <path class="metric-area" :d="hostChart(h.beszel_id, 'dp', { min: 0, max: 100, height: 120 }).area"/>
-                        <polyline class="metric-line" :points="hostChart(h.beszel_id, 'dp', { min: 0, max: 100, height: 120 }).points"/>
+                        <path class="metric-area" :d="hostChart(hostHistoryKey(h), 'dp', { min: 0, max: 100, height: 120 }).area"/>
+                        <polyline class="metric-line" :points="hostChart(hostHistoryKey(h), 'dp', { min: 0, max: 100, height: 120 }).points"/>
                       </svg>
                       <div class="metric-x-axis">
-                        <template x-for="(l, i) in xAxisFromSeries(h.beszel_id, 5)" :key="i">
+                        <template x-for="(l, i) in xAxisFromSeries(hostHistoryKey(h), 5)" :key="i">
                           <span x-text="l"></span>
                         </template>
                       </div>
                     </div>
                   </template>
-                  <template x-if="!hostChart(h.beszel_id, 'dp', { min: 0, max: 100 })">
+                  <template x-if="!hostChart(hostHistoryKey(h), 'dp', { min: 0, max: 100 })">
                     <div class="collecting-block">
                       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
                       <div>
@@ -6212,7 +6216,7 @@
                    plus new Disk I/O and Load Average cards. Same gate
                    as the main grid above. -->
               <div class="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4"
-                   x-show="h.beszel_id && h.status === 'up' && (h.providers || []).length > 0">
+                   x-show="(h.beszel_id || h.ne_url) && h.status === 'up' && (h.providers || []).length > 0">
 
                 <!-- ====== Network (combined In + Out, #318) ======
                      Two polylines on one SVG, shared y-axis via
@@ -6220,52 +6224,52 @@
                      directly comparable. Legend at top shows both
                      metrics with their min/max from `hostMetricStats`. -->
                 <div class="metric-card metric-card--net"
-                     :class="hostChartMax(h.beszel_id, ['nr','ns']) === 0 ? 'metric-card--flat' : ''">
+                     :class="hostChartMax(hostHistoryKey(h), ['nr','ns']) === 0 ? 'metric-card--flat' : ''">
                   <div class="metric-card-head">
                     <div class="metric-card-title">
                       <span x-text="t('hosts_extra.metrics.network')"></span>
                       <span class="unit">B/s</span>
                     </div>
                     <div class="metric-card-stats" style="gap:8px">
-                      <span x-show="hostMetricStats(h.beszel_id, 'nr', false)">
+                      <span x-show="hostMetricStats(hostHistoryKey(h), 'nr', false)">
                         <span class="metric-legend-dot" style="background: var(--metric-net)"></span>
                         <span x-text="t('hosts_extra.metrics.net_in')"></span>
-                        <span class="legend-val" x-text="hostMetricStats(h.beszel_id, 'nr', false) ? hostMetricStats(h.beszel_id, 'nr', false).max : ''"></span>
+                        <span class="legend-val" x-text="hostMetricStats(hostHistoryKey(h), 'nr', false) ? hostMetricStats(hostHistoryKey(h), 'nr', false).max : ''"></span>
                       </span>
-                      <span x-show="hostMetricStats(h.beszel_id, 'ns', false)">
+                      <span x-show="hostMetricStats(hostHistoryKey(h), 'ns', false)">
                         <span class="metric-legend-dot" style="background: var(--metric-net-out)"></span>
                         <span x-text="t('hosts_extra.metrics.net_out')"></span>
-                        <span class="legend-val" x-text="hostMetricStats(h.beszel_id, 'ns', false) ? hostMetricStats(h.beszel_id, 'ns', false).max : ''"></span>
+                        <span class="legend-val" x-text="hostMetricStats(hostHistoryKey(h), 'ns', false) ? hostMetricStats(hostHistoryKey(h), 'ns', false).max : ''"></span>
                       </span>
                     </div>
                   </div>
-                  <template x-if="hostChart(h.beszel_id, 'nr') && hostChartMax(h.beszel_id, ['nr','ns']) > 0">
+                  <template x-if="hostChart(hostHistoryKey(h), 'nr') && hostChartMax(hostHistoryKey(h), ['nr','ns']) > 0">
                     <div class="metric-card-body">
                       <div class="metric-y-axis">
-                        <template x-for="(l, i) in yAxisAuto(hostChartMax(h.beszel_id, ['nr','ns']), _fmtAxisBytes)" :key="i">
+                        <template x-for="(l, i) in yAxisAuto(hostChartMax(hostHistoryKey(h), ['nr','ns']), _fmtAxisBytes)" :key="i">
                           <span x-text="l"></span>
                         </template>
                       </div>
                       <svg class="metric-svg" viewBox="0 0 420 120" preserveAspectRatio="none">
-                        <path class="metric-grid" :d="hostChart(h.beszel_id, 'nr', { min: 0, max: hostChartMax(h.beszel_id, ['nr','ns']), height: 120 }).gridPath" fill="none"/>
+                        <path class="metric-grid" :d="hostChart(hostHistoryKey(h), 'nr', { min: 0, max: hostChartMax(hostHistoryKey(h), ['nr','ns']), height: 120 }).gridPath" fill="none"/>
                         <!-- Two polylines, shared y-scale via the max
                              passed to hostChart for both. The In line
                              uses `metric-net` color; Out uses
                              `metric-net-out` so they're visually
                              distinguishable on the legend. -->
                         <polyline class="metric-line" style="color: var(--metric-net)"
-                                  :points="hostChart(h.beszel_id, 'nr', { min: 0, max: hostChartMax(h.beszel_id, ['nr','ns']), height: 120 }).points"/>
+                                  :points="hostChart(hostHistoryKey(h), 'nr', { min: 0, max: hostChartMax(hostHistoryKey(h), ['nr','ns']), height: 120 }).points"/>
                         <polyline class="metric-line" style="color: var(--metric-net-out)"
-                                  :points="hostChart(h.beszel_id, 'ns', { min: 0, max: hostChartMax(h.beszel_id, ['nr','ns']), height: 120 }).points"/>
+                                  :points="hostChart(hostHistoryKey(h), 'ns', { min: 0, max: hostChartMax(hostHistoryKey(h), ['nr','ns']), height: 120 }).points"/>
                       </svg>
                       <div class="metric-x-axis">
-                        <template x-for="(l, i) in xAxisFromSeries(h.beszel_id, 5)" :key="i">
+                        <template x-for="(l, i) in xAxisFromSeries(hostHistoryKey(h), 5)" :key="i">
                           <span x-text="l"></span>
                         </template>
                       </div>
                     </div>
                   </template>
-                  <template x-if="hostChart(h.beszel_id, 'nr') && hostChartMax(h.beszel_id, ['nr','ns']) === 0">
+                  <template x-if="hostChart(hostHistoryKey(h), 'nr') && hostChartMax(hostHistoryKey(h), ['nr','ns']) === 0">
                     <div class="collecting-block">
                       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
                       <div>
@@ -6278,7 +6282,7 @@
                       </div>
                     </div>
                   </template>
-                  <template x-if="!hostChart(h.beszel_id, 'nr')">
+                  <template x-if="!hostChart(hostHistoryKey(h), 'nr')">
                     <div class="collecting-block">
                       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
                       <div>
@@ -6292,47 +6296,47 @@
                      the combined Network card. Read/write summed across
                      mounts in `logic/beszel.py:fetch_system_history`. -->
                 <div class="metric-card metric-card--disk"
-                     :class="hostChartMax(h.beszel_id, ['dr','dw']) === 0 ? 'metric-card--flat' : ''">
+                     :class="hostChartMax(hostHistoryKey(h), ['dr','dw']) === 0 ? 'metric-card--flat' : ''">
                   <div class="metric-card-head">
                     <div class="metric-card-title">
                       <span x-text="t('hosts_extra.metrics.disk_io')"></span>
                       <span class="unit">B/s</span>
                     </div>
                     <div class="metric-card-stats" style="gap:8px">
-                      <span x-show="hostMetricStats(h.beszel_id, 'dr', false)">
+                      <span x-show="hostMetricStats(hostHistoryKey(h), 'dr', false)">
                         <span class="metric-legend-dot" style="background: var(--metric-net)"></span>
                         <span x-text="t('hosts_extra.metrics.read')"></span>
-                        <span class="legend-val" x-text="hostMetricStats(h.beszel_id, 'dr', false) ? hostMetricStats(h.beszel_id, 'dr', false).max : ''"></span>
+                        <span class="legend-val" x-text="hostMetricStats(hostHistoryKey(h), 'dr', false) ? hostMetricStats(hostHistoryKey(h), 'dr', false).max : ''"></span>
                       </span>
-                      <span x-show="hostMetricStats(h.beszel_id, 'dw', false)">
+                      <span x-show="hostMetricStats(hostHistoryKey(h), 'dw', false)">
                         <span class="metric-legend-dot" style="background: var(--metric-net-out)"></span>
                         <span x-text="t('hosts_extra.metrics.write')"></span>
-                        <span class="legend-val" x-text="hostMetricStats(h.beszel_id, 'dw', false) ? hostMetricStats(h.beszel_id, 'dw', false).max : ''"></span>
+                        <span class="legend-val" x-text="hostMetricStats(hostHistoryKey(h), 'dw', false) ? hostMetricStats(hostHistoryKey(h), 'dw', false).max : ''"></span>
                       </span>
                     </div>
                   </div>
-                  <template x-if="hostChart(h.beszel_id, 'dr') && hostChartMax(h.beszel_id, ['dr','dw']) > 0">
+                  <template x-if="hostChart(hostHistoryKey(h), 'dr') && hostChartMax(hostHistoryKey(h), ['dr','dw']) > 0">
                     <div class="metric-card-body">
                       <div class="metric-y-axis">
-                        <template x-for="(l, i) in yAxisAuto(hostChartMax(h.beszel_id, ['dr','dw']), _fmtAxisBytes)" :key="i">
+                        <template x-for="(l, i) in yAxisAuto(hostChartMax(hostHistoryKey(h), ['dr','dw']), _fmtAxisBytes)" :key="i">
                           <span x-text="l"></span>
                         </template>
                       </div>
                       <svg class="metric-svg" viewBox="0 0 420 120" preserveAspectRatio="none">
-                        <path class="metric-grid" :d="hostChart(h.beszel_id, 'dr', { min: 0, max: hostChartMax(h.beszel_id, ['dr','dw']), height: 120 }).gridPath" fill="none"/>
+                        <path class="metric-grid" :d="hostChart(hostHistoryKey(h), 'dr', { min: 0, max: hostChartMax(hostHistoryKey(h), ['dr','dw']), height: 120 }).gridPath" fill="none"/>
                         <polyline class="metric-line" style="color: var(--metric-net)"
-                                  :points="hostChart(h.beszel_id, 'dr', { min: 0, max: hostChartMax(h.beszel_id, ['dr','dw']), height: 120 }).points"/>
+                                  :points="hostChart(hostHistoryKey(h), 'dr', { min: 0, max: hostChartMax(hostHistoryKey(h), ['dr','dw']), height: 120 }).points"/>
                         <polyline class="metric-line" style="color: var(--metric-net-out)"
-                                  :points="hostChart(h.beszel_id, 'dw', { min: 0, max: hostChartMax(h.beszel_id, ['dr','dw']), height: 120 }).points"/>
+                                  :points="hostChart(hostHistoryKey(h), 'dw', { min: 0, max: hostChartMax(hostHistoryKey(h), ['dr','dw']), height: 120 }).points"/>
                       </svg>
                       <div class="metric-x-axis">
-                        <template x-for="(l, i) in xAxisFromSeries(h.beszel_id, 5)" :key="i">
+                        <template x-for="(l, i) in xAxisFromSeries(hostHistoryKey(h), 5)" :key="i">
                           <span x-text="l"></span>
                         </template>
                       </div>
                     </div>
                   </template>
-                  <template x-if="hostChart(h.beszel_id, 'dr') && hostChartMax(h.beszel_id, ['dr','dw']) === 0">
+                  <template x-if="hostChart(hostHistoryKey(h), 'dr') && hostChartMax(hostHistoryKey(h), ['dr','dw']) === 0">
                     <div class="collecting-block">
                       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
                       <div>
@@ -6340,7 +6344,7 @@
                       </div>
                     </div>
                   </template>
-                  <template x-if="!hostChart(h.beszel_id, 'dr')">
+                  <template x-if="!hostChart(hostHistoryKey(h), 'dr')">
                     <div class="collecting-block">
                       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
                       <div>
@@ -6359,47 +6363,47 @@
                      is a single-axis metric where extra width
                      improves readability. -->
                 <div class="metric-card metric-card--cpu"
-                     x-show="hostChartMax(h.beszel_id, ['la1','la5','la15']) > 0">
+                     x-show="hostChartMax(hostHistoryKey(h), ['la1','la5','la15']) > 0">
                   <div class="metric-card-head">
                     <div class="metric-card-title">
                       <span x-text="t('hosts_extra.metrics.load_avg')"></span>
                     </div>
                     <div class="metric-card-stats" style="gap:8px">
-                      <span x-show="hostMetricStats(h.beszel_id, 'la1', false)">
+                      <span x-show="hostMetricStats(hostHistoryKey(h), 'la1', false)">
                         <span class="metric-legend-dot" style="background: var(--metric-cpu)"></span>1m
-                        <span class="legend-val" x-text="hostMetricStats(h.beszel_id, 'la1', false) ? Number(hostMetricStats(h.beszel_id, 'la1', false).maxRaw).toFixed(2) : ''"></span>
+                        <span class="legend-val" x-text="hostMetricStats(hostHistoryKey(h), 'la1', false) ? Number(hostMetricStats(hostHistoryKey(h), 'la1', false).maxRaw).toFixed(2) : ''"></span>
                       </span>
-                      <span x-show="hostMetricStats(h.beszel_id, 'la5', false)">
+                      <span x-show="hostMetricStats(hostHistoryKey(h), 'la5', false)">
                         <span class="metric-legend-dot" style="background: var(--metric-mem)"></span>5m
-                        <span class="legend-val" x-text="hostMetricStats(h.beszel_id, 'la5', false) ? Number(hostMetricStats(h.beszel_id, 'la5', false).maxRaw).toFixed(2) : ''"></span>
+                        <span class="legend-val" x-text="hostMetricStats(hostHistoryKey(h), 'la5', false) ? Number(hostMetricStats(hostHistoryKey(h), 'la5', false).maxRaw).toFixed(2) : ''"></span>
                       </span>
-                      <span x-show="hostMetricStats(h.beszel_id, 'la15', false)">
+                      <span x-show="hostMetricStats(hostHistoryKey(h), 'la15', false)">
                         <span class="metric-legend-dot" style="background: var(--metric-disk)"></span>15m
-                        <span class="legend-val" x-text="hostMetricStats(h.beszel_id, 'la15', false) ? Number(hostMetricStats(h.beszel_id, 'la15', false).maxRaw).toFixed(2) : ''"></span>
+                        <span class="legend-val" x-text="hostMetricStats(hostHistoryKey(h), 'la15', false) ? Number(hostMetricStats(hostHistoryKey(h), 'la15', false).maxRaw).toFixed(2) : ''"></span>
                       </span>
                     </div>
                   </div>
-                  <template x-if="hostChart(h.beszel_id, 'la1')">
+                  <template x-if="hostChart(hostHistoryKey(h), 'la1')">
                     <div class="metric-card-body">
                       <!-- Y-axis to match CPU/Mem/Disk card height + alignment.
                            Without this column-1 cell rendered empty and the
                            SVG visually shifted, making the chart look shorter. -->
                       <div class="metric-y-axis">
-                        <template x-for="(l, i) in yAxisAuto(hostChartMax(h.beszel_id, ['la1','la5','la15']), v => Number(v).toFixed(2))" :key="i">
+                        <template x-for="(l, i) in yAxisAuto(hostChartMax(hostHistoryKey(h), ['la1','la5','la15']), v => Number(v).toFixed(2))" :key="i">
                           <span x-text="l"></span>
                         </template>
                       </div>
                       <svg class="metric-svg" viewBox="0 0 420 120" preserveAspectRatio="none">
-                        <path class="metric-grid" :d="hostChart(h.beszel_id, 'la1', { min: 0, max: hostChartMax(h.beszel_id, ['la1','la5','la15']), height: 120 }).gridPath" fill="none"/>
+                        <path class="metric-grid" :d="hostChart(hostHistoryKey(h), 'la1', { min: 0, max: hostChartMax(hostHistoryKey(h), ['la1','la5','la15']), height: 120 }).gridPath" fill="none"/>
                         <polyline class="metric-line" style="color: var(--metric-cpu)"
-                                  :points="hostChart(h.beszel_id, 'la1', { min: 0, max: hostChartMax(h.beszel_id, ['la1','la5','la15']), height: 120 }).points"/>
+                                  :points="hostChart(hostHistoryKey(h), 'la1', { min: 0, max: hostChartMax(hostHistoryKey(h), ['la1','la5','la15']), height: 120 }).points"/>
                         <polyline class="metric-line" style="color: var(--metric-mem)"
-                                  :points="hostChart(h.beszel_id, 'la5', { min: 0, max: hostChartMax(h.beszel_id, ['la1','la5','la15']), height: 120 }).points"/>
+                                  :points="hostChart(hostHistoryKey(h), 'la5', { min: 0, max: hostChartMax(hostHistoryKey(h), ['la1','la5','la15']), height: 120 }).points"/>
                         <polyline class="metric-line" style="color: var(--metric-disk)"
-                                  :points="hostChart(h.beszel_id, 'la15', { min: 0, max: hostChartMax(h.beszel_id, ['la1','la5','la15']), height: 120 }).points"/>
+                                  :points="hostChart(hostHistoryKey(h), 'la15', { min: 0, max: hostChartMax(hostHistoryKey(h), ['la1','la5','la15']), height: 120 }).points"/>
                       </svg>
                       <div class="metric-x-axis">
-                        <template x-for="(l, i) in xAxisFromSeries(h.beszel_id, 5)" :key="i">
+                        <template x-for="(l, i) in xAxisFromSeries(hostHistoryKey(h), 5)" :key="i">
                           <span x-text="l"></span>
                         </template>
                       </div>
@@ -6417,31 +6421,31 @@
                      that don't split the directions). Hidden when the
                      summed peak is zero. -->
                 <div class="metric-card metric-card--net-out"
-                     x-show="hostMetricStats(h.beszel_id, 'net', false) && hostMetricStats(h.beszel_id, 'net', false).maxRaw > 0">
+                     x-show="hostMetricStats(hostHistoryKey(h), 'net', false) && hostMetricStats(hostHistoryKey(h), 'net', false).maxRaw > 0">
                   <div class="metric-card-head">
                     <div class="metric-card-title">
                       <span x-text="t('hosts_extra.metrics.bandwidth')"></span>
                       <span class="unit">B/s</span>
                     </div>
                     <div class="metric-card-stats"
-                         x-show="hostMetricStats(h.beszel_id, 'net', false)">
-                      <span>Min <span class="min-val" x-text="hostMetricStats(h.beszel_id, 'net', false) ? hostMetricStats(h.beszel_id, 'net', false).min : ''"></span></span>
-                      <span>Max <span class="max-val" x-text="hostMetricStats(h.beszel_id, 'net', false) ? hostMetricStats(h.beszel_id, 'net', false).max : ''"></span></span>
+                         x-show="hostMetricStats(hostHistoryKey(h), 'net', false)">
+                      <span>Min <span class="min-val" x-text="hostMetricStats(hostHistoryKey(h), 'net', false) ? hostMetricStats(hostHistoryKey(h), 'net', false).min : ''"></span></span>
+                      <span>Max <span class="max-val" x-text="hostMetricStats(hostHistoryKey(h), 'net', false) ? hostMetricStats(hostHistoryKey(h), 'net', false).max : ''"></span></span>
                     </div>
                   </div>
-                  <template x-if="hostChart(h.beszel_id, 'net')">
+                  <template x-if="hostChart(hostHistoryKey(h), 'net')">
                     <div class="metric-card-body">
                       <div class="metric-y-axis">
-                        <template x-for="(l, i) in yAxisAuto(hostChart(h.beszel_id, 'net').max, _fmtAxisBytes)" :key="i">
+                        <template x-for="(l, i) in yAxisAuto(hostChart(hostHistoryKey(h), 'net').max, _fmtAxisBytes)" :key="i">
                           <span x-text="l"></span>
                         </template>
                       </div>
                       <svg class="metric-svg" viewBox="0 0 420 120" preserveAspectRatio="none">
-                        <path class="metric-area" :d="hostChart(h.beszel_id, 'net', { min: 0, height: 120 }).area"/>
-                        <polyline class="metric-line" :points="hostChart(h.beszel_id, 'net', { min: 0, height: 120 }).points"/>
+                        <path class="metric-area" :d="hostChart(hostHistoryKey(h), 'net', { min: 0, height: 120 }).area"/>
+                        <polyline class="metric-line" :points="hostChart(hostHistoryKey(h), 'net', { min: 0, height: 120 }).points"/>
                       </svg>
                       <div class="metric-x-axis">
-                        <template x-for="(l, i) in xAxisFromSeries(h.beszel_id, 5)" :key="i">
+                        <template x-for="(l, i) in xAxisFromSeries(hostHistoryKey(h), 5)" :key="i">
                           <span x-text="l"></span>
                         </template>
                       </div>
@@ -6456,19 +6460,19 @@
                      `su` for absolute GiB. We chart the percent so
                      the y-axis maps cleanly to 0..100. -->
                 <div class="metric-card metric-card--mem"
-                     x-show="hostMetricStats(h.beszel_id, 's') && hostMetricStats(h.beszel_id, 's').maxRaw > 0">
+                     x-show="hostMetricStats(hostHistoryKey(h), 's') && hostMetricStats(hostHistoryKey(h), 's').maxRaw > 0">
                   <div class="metric-card-head">
                     <div class="metric-card-title">
                       <span x-text="t('hosts_extra.metrics.swap')"></span>
                       <span class="unit">%</span>
                     </div>
                     <div class="metric-card-stats"
-                         x-show="hostMetricStats(h.beszel_id, 's')">
-                      <span>Min <span class="min-val" x-text="hostMetricStats(h.beszel_id, 's') ? hostMetricStats(h.beszel_id, 's').min : ''"></span></span>
-                      <span>Max <span class="max-val" x-text="hostMetricStats(h.beszel_id, 's') ? hostMetricStats(h.beszel_id, 's').max : ''"></span></span>
+                         x-show="hostMetricStats(hostHistoryKey(h), 's')">
+                      <span>Min <span class="min-val" x-text="hostMetricStats(hostHistoryKey(h), 's') ? hostMetricStats(hostHistoryKey(h), 's').min : ''"></span></span>
+                      <span>Max <span class="max-val" x-text="hostMetricStats(hostHistoryKey(h), 's') ? hostMetricStats(hostHistoryKey(h), 's').max : ''"></span></span>
                     </div>
                   </div>
-                  <template x-if="hostChart(h.beszel_id, 's', { min: 0, max: 100 })">
+                  <template x-if="hostChart(hostHistoryKey(h), 's', { min: 0, max: 100 })">
                     <div class="metric-card-body">
                       <div class="metric-y-axis">
                         <template x-for="(l, i) in yAxisPercent()" :key="i">
@@ -6476,11 +6480,11 @@
                         </template>
                       </div>
                       <svg class="metric-svg" viewBox="0 0 420 120" preserveAspectRatio="none">
-                        <path class="metric-area" :d="hostChart(h.beszel_id, 's', { min: 0, max: 100, height: 120 }).area"/>
-                        <polyline class="metric-line" :points="hostChart(h.beszel_id, 's', { min: 0, max: 100, height: 120 }).points"/>
+                        <path class="metric-area" :d="hostChart(hostHistoryKey(h), 's', { min: 0, max: 100, height: 120 }).area"/>
+                        <polyline class="metric-line" :points="hostChart(hostHistoryKey(h), 's', { min: 0, max: 100, height: 120 }).points"/>
                       </svg>
                       <div class="metric-x-axis">
-                        <template x-for="(l, i) in xAxisFromSeries(h.beszel_id, 5)" :key="i">
+                        <template x-for="(l, i) in xAxisFromSeries(hostHistoryKey(h), 5)" :key="i">
                           <span x-text="l"></span>
                         </template>
                       </div>

@@ -14,6 +14,11 @@ we expose ``DB_PATH_ERROR`` so main.py can install a config-error
 middleware that keeps the app up and shows a diagnostic page to the
 operator. Any caller that opens ``db_conn()`` without a configured path
 still raises loudly, so silent-default drift is not possible.
+
+``DB_TYPE`` selects the backend; today only ``sqlite`` is supported.
+Adding a new adapter means: extend ``_SUPPORTED_DB_TYPES``, branch on
+``DB_TYPE`` in ``db_conn``, and (likely) split the table-create
+statements in main.py:init_db() to handle dialect differences.
 """
 import os
 import sqlite3
@@ -21,9 +26,19 @@ from contextlib import contextmanager
 from typing import Optional
 
 
+_SUPPORTED_DB_TYPES = frozenset({"sqlite"})
+
+DB_TYPE: str = (os.getenv("DB_TYPE") or "sqlite").strip().lower()
+
 DB_PATH: Optional[str] = os.getenv("DB_PATH") or None
 DB_PATH_ERROR: Optional[str] = None
-if not DB_PATH:
+
+if DB_TYPE not in _SUPPORTED_DB_TYPES:
+    DB_PATH_ERROR = (
+        f"DB_TYPE={DB_TYPE!r} is not supported. "
+        f"Set DB_TYPE to one of: {', '.join(sorted(_SUPPORTED_DB_TYPES))}."
+    )
+elif not DB_PATH:
     DB_PATH_ERROR = (
         "DB_PATH is not set. Define it in /app/.env "
         "(e.g. DB_PATH=/app/data/omnigrid.db) and redeploy."
@@ -47,8 +62,13 @@ def db_conn():
     short-circuit with a readable message instead of surfacing a raw
     SQLite error on every request.
     """
-    if not DB_PATH:
-        raise RuntimeError(DB_PATH_ERROR or "DB_PATH is not configured")
+    if DB_PATH_ERROR:
+        raise RuntimeError(DB_PATH_ERROR)
+    if DB_TYPE != "sqlite":
+        # Defensive — _SUPPORTED_DB_TYPES gate at import should have
+        # caught this. If it didn't, refuse to silently open SQLite for
+        # a caller that asked for something else.
+        raise RuntimeError(f"db_conn(): no adapter for DB_TYPE={DB_TYPE!r}")
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
     try:

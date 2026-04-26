@@ -169,12 +169,20 @@ async def _lifespan(app: FastAPI):
     host_net_sampler = asyncio.create_task(
         _host_net_sampler.host_net_sampler_loop(), name="host-net-sampler",
     )
+    # Per-host historical metrics sampler — feeds the host drawer charts
+    # for nodes that don't have a Beszel agent. Same lifespan-only +
+    # skip-don't-synthesize discipline as host_net_sampler.
+    from logic import host_metrics_sampler as _host_metrics_sampler
+    host_metrics_sampler = asyncio.create_task(
+        _host_metrics_sampler.host_metrics_sampler_loop(),
+        name="host-metrics-sampler",
+    )
     try:
         yield
     finally:
         # Cancel in reverse-start order. Each cancel + await is wrapped so
         # one failing shutdown step can't starve the next one.
-        for task in (host_net_sampler, scheduler, sampler):
+        for task in (host_metrics_sampler, host_net_sampler, scheduler, sampler):
             task.cancel()
             try:
                 await task
@@ -336,6 +344,29 @@ def init_db():
         );
         CREATE INDEX IF NOT EXISTS idx_host_net_samples_host_ts
             ON host_net_samples(host_id, ts DESC);
+
+        -- Per-host historical CPU/memory/disk/network samples for
+        -- node-exporter-only hosts (no Beszel agent). Populated by
+        -- logic/host_metrics_sampler.py at STATS_SAMPLE_INTERVAL_SECONDS
+        -- cadence; pruned to STATS_HISTORY_DAYS. Sibling table to
+        -- host_net_samples — same skip-don't-synthesize discipline for
+        -- the net rate columns. CPU/mem/disk are point-in-time gauges
+        -- and stored verbatim (NULL when the probe didn't return a
+        -- meaningful value).
+        CREATE TABLE IF NOT EXISTS host_metrics_samples (
+            ts            INTEGER NOT NULL,
+            host_id       TEXT    NOT NULL,
+            cpu_percent   REAL,
+            mem_used      INTEGER,
+            mem_total     INTEGER,
+            disk_used     INTEGER,
+            disk_total    INTEGER,
+            net_rx_bps    REAL,
+            net_tx_bps    REAL,
+            PRIMARY KEY (ts, host_id)
+        );
+        CREATE INDEX IF NOT EXISTS idx_host_metrics_samples_host_ts
+            ON host_metrics_samples(host_id, ts DESC);
 
         -- Last-known per-host nodes_info blob (Beszel / Pulse /
         -- node-exporter / Webmin merged). Written at the end of every
@@ -3563,6 +3594,7 @@ async def api_hosts_debug(
     from logic import pulse as _pulse
     from logic import node_exporter as _ne
     from logic import host_net_sampler as _host_net_sampler
+    from logic import host_metrics_sampler as _host_metrics_sampler
 
     curated = _load_hosts_config()
     record = next((h for h in curated if h["id"] == id), None)
@@ -3738,6 +3770,12 @@ async def api_hosts_debug(
                 # totals, the sampler hasn't run yet (first 5-min tick)
                 # or every delta has been rejected by sanity bounds.
                 "recent_net_samples": _host_net_sampler.last_samples(record["id"], limit=5),
+                # Last 5 host_metrics_samples rows for this host. The
+                # sampler writes one row per STATS_SAMPLE_INTERVAL
+                # (default 5 min) when NE returns meaningful gauges or
+                # sane-bounded counter deltas; see
+                # logic.host_metrics_sampler._compute_row.
+                "recent_metrics_samples": _host_metrics_sampler.last_samples(record["id"], limit=5),
             }
             providers_normalized["node_exporter"] = stats
         except Exception as e:
@@ -4400,20 +4438,44 @@ import asyncssh  # noqa: E402,F401  (used inside ws_ssh_terminal handlers)
 
 
 @app.get("/api/hosts/history")
-async def api_hosts_history(system_id: str, hours: int = 1, host_id: str = ""):
-    """Return time-series stats for one Beszel system.
+async def api_hosts_history(system_id: str = "", hours: int = 1, host_id: str = ""):
+    """Return time-series stats for one host.
 
     Powers the Hosts tab's per-row charts (CPU / Memory / Disk / Net).
-    The system_id is Beszel's PocketBase record id — the frontend pulls
-    it off the host row returned by :func:`api_hosts`.
+    Two paths:
 
-    ``host_id`` is the OmniGrid curated hosts_config id for the same
-    machine. When supplied, the Beszel history layer uses it as a
-    fallback key to fill in ``nr`` / ``ns`` from ``host_net_samples``
-    (populated by ``logic.host_net_sampler``) when the Beszel agent's
-    NIC tracking is disabled and every point's nr/ns is zero. Optional;
-    omitting it keeps the legacy Beszel-only behaviour.
+    1. ``system_id`` non-empty → BESZEL path. The system_id is Beszel's
+       PocketBase record id — the frontend pulls it off the host row
+       returned by :func:`api_hosts`. ``host_id`` (the curated
+       hosts_config id) is used as a fallback key to layer in
+       ``nr``/``ns`` from ``host_net_samples`` when Beszel's nr/ns are
+       all zero (operator forgot ``NICS=eth0`` on the agent).
+
+    2. ``system_id`` empty AND ``host_id`` non-empty → NODE-EXPORTER
+       path. Reads pre-sampled rows from ``host_metrics_samples``
+       (populated by ``logic.host_metrics_sampler``) and shapes them
+       into the same series envelope Beszel returns, so the SPA's chart
+       helpers work unchanged. Lets node-exporter-only hosts (no Beszel
+       agent at all) get historical CPU / Memory / Disk / Network
+       charts in the host drawer.
     """
+    h = max(1, min(168, int(hours)))
+    sid = (system_id or "").strip()
+    hid = (host_id or "").strip()
+
+    if not sid and hid:
+        # NE-only path — read from host_metrics_samples and shape it
+        # into the same envelope Beszel returns.
+        from logic import host_metrics_sampler as _hms
+        try:
+            series = _hms.history_series(hid, h)
+        except Exception as e:
+            return {"series": [], "error": f"host_metrics_sampler: {e}"}
+        return {"series": series, "error": None}
+
+    if not sid:
+        return {"series": [], "error": "system_id or host_id required"}
+
     from logic import beszel as _beszel
     hub_url = get_setting("beszel_hub_url", "") or ""
     ident = get_setting("beszel_identity", "") or ""
@@ -4421,10 +4483,9 @@ async def api_hosts_history(system_id: str, hours: int = 1, host_id: str = ""):
     verify = (get_setting("beszel_verify_tls", "true") or "true").lower() == "true"
     if not (hub_url and ident and passw):
         return {"series": [], "error": "Beszel not configured"}
-    h = max(1, min(168, int(hours)))
     return await _beszel.fetch_system_history(
-        hub_url, ident, passw, system_id, hours=h, verify_tls=verify,
-        host_id=(host_id.strip() or None),
+        hub_url, ident, passw, sid, hours=h, verify_tls=verify,
+        host_id=(hid or None),
     )
 
 

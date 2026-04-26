@@ -1049,8 +1049,9 @@ function app() {
       this.hostsExpanded = alive.map(h => h.host);
       // Warm history for every expanded host on bulk-open.
       for (const h of alive) {
-        if (h.beszel_id && !this.hostHistory[h.beszel_id]) {
-          this.loadHostHistory(h.beszel_id, h.id);
+        const key = this.hostHistoryKey(h);
+        if (key && (h.beszel_id || h.ne_url) && !this.hostHistory[key]) {
+          this.loadHostHistory(h.beszel_id || '', h.id);
         }
       }
     },
@@ -8171,8 +8172,14 @@ function app() {
       // stat fetches.
       for (const name of this.hostsExpanded || []) {
         const host = this.hosts.find(h => h.host === name);
-        if (host && host.beszel_id && !this.hostHistory[host.beszel_id]) {
-          this.loadHostHistory(host.beszel_id, host.id);
+        if (!host) continue;
+        const key = this.hostHistoryKey(host);
+        // Fire on Beszel-mapped hosts OR NE-only hosts (ne_url set).
+        // Skipping NE-only hosts here was the bug that left the new
+        // historical-charts path unreachable from the bulk-expand
+        // entry point.
+        if (key && (host.beszel_id || host.ne_url) && !this.hostHistory[key]) {
+          this.loadHostHistory(host.beszel_id || '', host.id);
         }
       }
     },
@@ -8482,8 +8489,9 @@ function app() {
       // Load history once per (host, range). Subsequent re-opens of
       // the same host reuse the cached series until the range picker
       // forces a refetch. Same logic the legacy inline-expansion used.
-      if (host.beszel_id && !this.hostHistory[host.beszel_id]) {
-        this.loadHostHistory(host.beszel_id, host.id);
+      const drawerKey = this.hostHistoryKey(host);
+      if (drawerKey && (host.beszel_id || host.ne_url) && !this.hostHistory[drawerKey]) {
+        this.loadHostHistory(host.beszel_id || '', host.id);
       }
       // Preload SSH status — admin only, and only when the host
       // didn't opt out. Without this the SSH card header shows
@@ -8501,31 +8509,32 @@ function app() {
       // flicker back to "Collecting data…" between range-picker
       // clicks. Only the ``loading`` flag flips; the visible line
       // stays put until fresh data lands, then swaps in place.
-      const prev = this.hostHistory[systemId] || {};
-      this.hostHistory[systemId] = {
-        loading: true,
-        error: prev.error || '',
-        series: Array.isArray(prev.series) ? prev.series : [],
-      };
-      // Fall back to looking up the curated hosts_config id from the
-      // live hosts list when the caller didn't pass one — keeps legacy
-      // call sites working without rewriting every invocation. The
-      // server uses host_id as the key to layer in NE-sampled rx/tx
-      // rates (host_net_samples) when Beszel's nr/ns are all zero.
+      // Cache key: prefer beszel_id when present (Beszel path), else
+      // fall back to the curated host_id (NE-only path). Every chart
+      // helper looks up by this same key, so the templates pass
+      // `hostHistoryKey(h)` instead of bare `h.beszel_id`.
       if (!hostId) {
         const host = (this.hosts || []).find(h => h.beszel_id === systemId);
         hostId = host ? host.id : '';
       }
+      const cacheKey = systemId || hostId;
+      if (!cacheKey) return;
+      const prev = this.hostHistory[cacheKey] || {};
+      this.hostHistory[cacheKey] = {
+        loading: true,
+        error: prev.error || '',
+        series: Array.isArray(prev.series) ? prev.series : [],
+      };
       try {
         const qs = {
-          system_id: systemId,
+          system_id: systemId || '',
           hours: String(this.hostHistoryRange),
         };
         if (hostId) qs.host_id = hostId;
         const params = new URLSearchParams(qs);
         const r = await fetch('/api/hosts/history?' + params.toString());
         if (!r.ok) {
-          this.hostHistory[systemId] = {
+          this.hostHistory[cacheKey] = {
             loading: false,
             error: `HTTP ${r.status}`,
             series: prev.series || [],  // keep previous on HTTP error
@@ -8534,7 +8543,7 @@ function app() {
         }
         const d = await r.json();
         const next = Array.isArray(d.series) ? d.series : [];
-        this.hostHistory[systemId] = {
+        this.hostHistory[cacheKey] = {
           loading: false,
           error: d.error || '',
           // Only overwrite on a non-empty response. A transient empty
@@ -8543,12 +8552,21 @@ function app() {
           series: next.length ? next : (prev.series || []),
         };
       } catch (e) {
-        this.hostHistory[systemId] = {
+        this.hostHistory[cacheKey] = {
           loading: false,
           error: e.message,
           series: prev.series || [],
         };
       }
+    },
+    // Resolve the right hostHistory[] key for one host. Beszel-mapped
+    // hosts use the Beszel system id (legacy behaviour); NE-only hosts
+    // fall back to the curated hosts_config id (the same id the
+    // host_metrics_sampler keys its rows on). Returns '' when neither
+    // path is available — chart helpers short-circuit on falsy keys.
+    hostHistoryKey(h) {
+      if (!h) return '';
+      return h.beszel_id || h.id || '';
     },
     setHostHistoryRange(hours) {
       this.hostHistoryRange = hours;
@@ -8556,8 +8574,8 @@ function app() {
       // buttons did nothing because this only iterated `hostsExpanded`,
       // which is the legacy inline-expansion state. The actual viewer
       // is the slide-out drawer keyed on `drawerHost`).
-      if (this.drawerHost && this.drawerHost.beszel_id) {
-        this.loadHostHistory(this.drawerHost.beszel_id, this.drawerHost.id);
+      if (this.drawerHost && (this.drawerHost.beszel_id || this.drawerHost.ne_url)) {
+        this.loadHostHistory(this.drawerHost.beszel_id || '', this.drawerHost.id);
       }
       // Also handle any legacy expanded rows (kept for back-compat —
       // the inline-expansion code path is mostly dead but not yet
@@ -8565,7 +8583,9 @@ function app() {
       // user clicks it from).
       for (const name of (this.hostsExpanded || [])) {
         const host = (this.hosts || []).find(h => h.host === name);
-        if (host && host.beszel_id) this.loadHostHistory(host.beszel_id, host.id);
+        if (host && (host.beszel_id || host.ne_url)) {
+          this.loadHostHistory(host.beszel_id || '', host.id);
+        }
       }
     },
     // --- Axis-label helpers used by the metric-card template ---
