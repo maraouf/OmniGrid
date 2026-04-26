@@ -485,14 +485,14 @@
     },
     "version": {
       "title": "App version",
-      "intro": "Pin the MAJOR.MINOR portion of the app version from this page instead of SSH-ing the server to edit `/app/VERSION.txt`. The PATCH counter is read-only here — the deploy CI auto-increments it on every successful deploy. Set MAJOR.MINOR + Save and the next /api/version response (and the SPA footer) reflects the new value immediately.",
+      "intro": "Edit any of MAJOR / MINOR / PATCH from this page instead of SSH-ing the server to change <code>/app/VERSION.txt</code>. Save and the next /api/version response (and the SPA footer) reflects the new value immediately.",
       "live_label": "Currently rendering as",
       "override_active": "DB override active",
       "override_inactive": "Using raw VERSION.txt",
       "major_label": "MAJOR",
       "minor_label": "MINOR",
-      "patch_label": "PATCH (CI-managed)",
-      "patch_hint": "Auto-incremented on every deploy via .forgejo/workflows/deploy.yml's bump step.",
+      "patch_label": "PATCH",
+      "patch_hint": "Managed by the deployment pipeline.",
       "save": "Save version",
       "unsaved": "Unsaved",
       "saved_toast": "Version pinned to {version}",
@@ -501,8 +501,8 @@
       "save_failed": "Failed to save version: {error}",
       "clear_override": "Clear override",
       "clear_confirm_title": "Clear DB override?",
-      "clear_confirm_body": "Drop the operator-set MAJOR.MINOR and fall back to whatever's in <code>/app/VERSION.txt</code> on the server. The PATCH counter is unaffected.",
-      "cadence_note": "PATCH is a continuous deploy counter — it does NOT reset to 0 on a MINOR bump. Setting MINOR from 1 to 2 with the counter at 1.1.265 produces 1.2.265 on the next deploy, NOT 1.2.0. This keeps the deploy counter monotonically increasing across the life of the project (operator-friendly: 'how many deploys since the start' stays a single integer)."
+      "clear_confirm_body": "Drop every operator-set component and fall back to whatever's in <code>/app/VERSION.txt</code> on the server.",
+      "cadence_note": "PATCH is normally managed by the deployment pipeline — bumped by 1 on every successful deploy. Override it here when you need to reset or align it; the pipeline keeps counting from whatever value lands on disk."
     },
     "logs": {
       "title": "Application logs",
