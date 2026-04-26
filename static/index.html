@@ -6451,20 +6451,32 @@
                       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
                       <div>
                         <div x-text="t('hosts_extra.net_inactive.title')"></div>
-                        <!-- Source-specific guidance: Beszel hosts get the
-                             "set NICS=" hint (the NIC list is opt-in per
-                             agent); NE hosts get the "virtual interfaces
-                             excluded" hint (NICs are auto-discovered but
-                             loopback / Docker bridges / veth are filtered
-                             out of totals). #341. -->
-                        <template x-if="h.beszel_id">
+                        <!-- Source-specific guidance:
+                              - Pure Beszel host (no NE configured): Beszel
+                                "set NICS=eth0" hint — that agent's NIC list
+                                is opt-in and operator can fix it.
+                              - Any host with NE configured (NE-only OR
+                                Beszel + NE both): NE wording. The earlier
+                                gate on `h.beszel_id` mis-fired when the
+                                operator ran BOTH agents on the same host
+                                (e.g. opnsense at 10.0.0.1) and Beszel
+                                reported zero NICs while NE had real net
+                                data — the operator wants the NE-flavoured
+                                empty-state because that's the source they
+                                expect to fix. Gating on `h.ne_url` instead
+                                of `h.beszel_id` makes the rule "if NE is
+                                in play, show NE copy" regardless of
+                                whether Beszel is also configured. (#341
+                                follow-up.)
+                        -->
+                        <template x-if="!h.ne_url">
                           <div class="text-[10.5px] text-[var(--text-faint)] mt-1"
                                x-html="t('hosts_extra.net_inactive.body_in', {
                                  code: '<code class=\'mono text-[var(--text-dim)]\'>NICS=eth0</code>',
                                  ipcmd: '<code class=\'mono text-[var(--text-dim)]\'>ip a</code>'
                                })"></div>
                         </template>
-                        <template x-if="!h.beszel_id">
+                        <template x-if="h.ne_url">
                           <div class="text-[10.5px] text-[var(--text-faint)] mt-1"
                                x-text="t('hosts_extra.net_inactive.body_in_ne')"></div>
                         </template>
