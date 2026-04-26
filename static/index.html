@@ -149,7 +149,12 @@
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m3 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6h14z"/></svg>
           <span class="text-[11px]"><span x-text="t('actions.cleanup')"></span> <span x-text="removableAll().length"></span></span>
         </button>
-        <button @click="refresh(true)" :disabled="loading" class="btn btn-soft" :title="t('topbar.refresh_title')">
+        <!-- Refresh button hidden on mobile — auto-refresh + browser
+             pull-to-refresh handle the manual case, and showing it
+             alone on its own wrap-row read as orphaned (operator
+             flag). The user-menu's Settings / Admin / etc. covers
+             other navigation. -->
+        <button @click="refresh(true)" :disabled="loading" class="btn btn-soft hidden sm:inline-flex" :title="t('topbar.refresh_title')">
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" :class="loading && 'animate-spin'"><path d="M3 12a9 9 0 0 1 15.5-6.36L22 8"/><path d="M22 3v5h-5"/><path d="M22 12a9 9 0 0 1-15.5 6.36L3 16"/><path d="M2 21v-5h5"/></svg>
         </button>
         <!-- Deploy watcher — only visible when /api/version returns a
@@ -6140,12 +6145,12 @@
                       <span x-show="hostMetricStats(h.beszel_id, 'nr', false)">
                         <span class="metric-legend-dot" style="background: var(--metric-net)"></span>
                         <span x-text="t('hosts_extra.metrics.net_in')"></span>
-                        <span class="max-val" x-text="hostMetricStats(h.beszel_id, 'nr', false) ? hostMetricStats(h.beszel_id, 'nr', false).max : ''"></span>
+                        <span class="legend-val" x-text="hostMetricStats(h.beszel_id, 'nr', false) ? hostMetricStats(h.beszel_id, 'nr', false).max : ''"></span>
                       </span>
                       <span x-show="hostMetricStats(h.beszel_id, 'ns', false)">
                         <span class="metric-legend-dot" style="background: var(--metric-net-out)"></span>
                         <span x-text="t('hosts_extra.metrics.net_out')"></span>
-                        <span class="max-val" x-text="hostMetricStats(h.beszel_id, 'ns', false) ? hostMetricStats(h.beszel_id, 'ns', false).max : ''"></span>
+                        <span class="legend-val" x-text="hostMetricStats(h.beszel_id, 'ns', false) ? hostMetricStats(h.beszel_id, 'ns', false).max : ''"></span>
                       </span>
                     </div>
                   </div>
@@ -6212,12 +6217,12 @@
                       <span x-show="hostMetricStats(h.beszel_id, 'dr', false)">
                         <span class="metric-legend-dot" style="background: var(--metric-net)"></span>
                         <span x-text="t('hosts_extra.metrics.read')"></span>
-                        <span class="max-val" x-text="hostMetricStats(h.beszel_id, 'dr', false) ? hostMetricStats(h.beszel_id, 'dr', false).max : ''"></span>
+                        <span class="legend-val" x-text="hostMetricStats(h.beszel_id, 'dr', false) ? hostMetricStats(h.beszel_id, 'dr', false).max : ''"></span>
                       </span>
                       <span x-show="hostMetricStats(h.beszel_id, 'dw', false)">
                         <span class="metric-legend-dot" style="background: var(--metric-net-out)"></span>
                         <span x-text="t('hosts_extra.metrics.write')"></span>
-                        <span class="max-val" x-text="hostMetricStats(h.beszel_id, 'dw', false) ? hostMetricStats(h.beszel_id, 'dw', false).max : ''"></span>
+                        <span class="legend-val" x-text="hostMetricStats(h.beszel_id, 'dw', false) ? hostMetricStats(h.beszel_id, 'dw', false).max : ''"></span>
                       </span>
                     </div>
                   </div>
@@ -6277,15 +6282,15 @@
                     <div class="metric-card-stats" style="gap:8px">
                       <span x-show="hostMetricStats(h.beszel_id, 'la1', false)">
                         <span class="metric-legend-dot" style="background: var(--metric-cpu)"></span>1m
-                        <span class="max-val" x-text="hostMetricStats(h.beszel_id, 'la1', false) ? Number(hostMetricStats(h.beszel_id, 'la1', false).maxRaw).toFixed(2) : ''"></span>
+                        <span class="legend-val" x-text="hostMetricStats(h.beszel_id, 'la1', false) ? Number(hostMetricStats(h.beszel_id, 'la1', false).maxRaw).toFixed(2) : ''"></span>
                       </span>
                       <span x-show="hostMetricStats(h.beszel_id, 'la5', false)">
                         <span class="metric-legend-dot" style="background: var(--metric-mem)"></span>5m
-                        <span class="max-val" x-text="hostMetricStats(h.beszel_id, 'la5', false) ? Number(hostMetricStats(h.beszel_id, 'la5', false).maxRaw).toFixed(2) : ''"></span>
+                        <span class="legend-val" x-text="hostMetricStats(h.beszel_id, 'la5', false) ? Number(hostMetricStats(h.beszel_id, 'la5', false).maxRaw).toFixed(2) : ''"></span>
                       </span>
                       <span x-show="hostMetricStats(h.beszel_id, 'la15', false)">
                         <span class="metric-legend-dot" style="background: var(--metric-disk)"></span>15m
-                        <span class="max-val" x-text="hostMetricStats(h.beszel_id, 'la15', false) ? Number(hostMetricStats(h.beszel_id, 'la15', false).maxRaw).toFixed(2) : ''"></span>
+                        <span class="legend-val" x-text="hostMetricStats(h.beszel_id, 'la15', false) ? Number(hostMetricStats(h.beszel_id, 'la15', false).maxRaw).toFixed(2) : ''"></span>
                       </span>
                     </div>
                   </div>

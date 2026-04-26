@@ -1269,6 +1269,18 @@ details summary::-webkit-details-marker {
     font-weight: 600;
 }
 
+/* Legend value for multi-line charts (combined Network In/Out,
+   Disk I/O Read/Write, Load Average 1m/5m/15m). The value sits
+   next to a color-coded `.metric-legend-dot` which already conveys
+   which line it belongs to — so the value itself stays neutral
+   (var(--text)) instead of using `.max-val`'s red, which would
+   be misleading on a 2-or-3-line chart where each line has its
+   own brand color. Bolded for readability. */
+.metric-card-stats .legend-val {
+    color: var(--text);
+    font-weight: 600;
+}
+
 /* Legend swatch — small color dot inline with the metric label in
    multi-line charts (combined Network In/Out, Disk I/O, Load Average).
    Inline-block + tight margin so it sits inside a `<span>` without
