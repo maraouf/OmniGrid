@@ -211,13 +211,6 @@
        48px gives a small breathing gap and keeps both bars off the
        version label that lives in the footer's right column. */
     --app-footer-clearance: 48px;
-    /* Horizontal inset matching `<main>`'s Tailwind `px-5` padding so a
-       `position: fixed` element pinned to the viewport edges still
-       lines up with the admin section's left/right edges (which are
-       flush to main's content area). If you ever change the main
-       element's padding, update this token to match so the floating
-       action bars don't drift relative to their parent rectangles. */
-    --main-content-x-pad: 20px;
 
     /* Fonts — Poppins is vendored under /fonts/. Fallbacks cover the tiny
        window before the woff2 loads (font-display: swap). */
@@ -2949,31 +2942,28 @@ body.login {
    buttons inset from the card's rounded corners.
    --------------------------------------------------------------------------- */
 .hosts-config-actionbar {
-    /* Pinned to the viewport bottom — the previous `position: sticky;
-       bottom: 48px` only engaged once the operator scrolled past the
-       bar's natural position deep in the section, so on long lists you
-       could enter the page and the Save / Add buttons were several
-       screens away with no easy way to reach them.
-       `position: fixed; bottom: var(--s-3)` keeps the bar visible
-       across the whole admin tab regardless of scroll position.
-       `inset-inline` confines it to the same horizontal gutter the
-       rest of the admin section uses; z-index 30 lifts it above
-       routine content (filter chips / row hover) but below the
-       floating ops panel (z-40), toast notifications (z-50+), and
-       SweetAlert dialogs (z-100+). Visibility is gated by Alpine's
-       parent x-show — when the admin tab hides, the bar's offsetParent
-       collapses with it and it disappears too. Pages render with
-       extra bottom padding (see `.hosts-config-page-bottom-pad`) so
-       the bar doesn't obscure the last row of content.
+    /* Sticks to the viewport bottom while inheriting the parent
+       section's width — operator wants the bar aligned with the host
+       editor's rectangle, not spanning the full viewport. The earlier
+       `position: fixed` approach assumed the section was flush to
+       `<main>`'s padding, but the admin layout puts the section inside
+       a 1100px-max-width `.page-layout` flex container with a 220px
+       sidebar, so a viewport-pinned bar always overshoots the
+       container by hundreds of pixels.
+       `position: sticky; bottom: var(--app-footer-clearance)` lets
+       the bar take its natural in-flow width (= the section's content
+       box) and pin to viewport-bottom + clearance once the rows
+       above scroll past it. On long lists (the original #348
+       motivation) the bar still becomes visible the moment the
+       operator scrolls into the section.
+       z-index 30 lifts it above routine content (filter chips / row
+       hover) but below the floating ops panel (z-40), toast
+       notifications (z-50+), and SweetAlert dialogs (z-100+). When
+       the admin tab hides, the bar's offsetParent collapses with it
+       and it disappears with the section.
     */
-    position: fixed;
+    position: sticky;
     bottom: var(--app-footer-clearance);
-    /* Match the admin section's horizontal edges (which are flush to
-       `<main>`'s `px-5` content area) so the bar visually aligns with
-       its parent rectangle rather than spilling 12px past it on each
-       side via the old `var(--s-4)` (8px) inset. Operator wants the
-       bar width = container width, not full viewport. */
-    inset-inline: var(--main-content-x-pad);
     z-index: 30;
     display: flex;
     align-items: center;
@@ -2988,13 +2978,12 @@ body.login {
     box-shadow: 0 6px 18px var(--backdrop);
 }
 
-/* Bottom-pad the rows wrapper so the fixed action bar can never
-   cover the last row of content. Bar lives at `var(--app-footer-clearance)`
-   (48px) above the viewport floor and is ~52px tall, so 120px reserves
-   bar + footer + a small safety gap regardless of where the operator
-   has scrolled. */
+/* Bottom-pad the rows wrapper for visual breathing room between the
+   last row and the now-sticky action bar that follows in document
+   flow. Sticky positioning means the bar takes natural in-flow space
+   (no overlay clearance needed), so this is purely cosmetic. */
 .hosts-config-page-bottom-pad {
-    padding-bottom: 120px;
+    padding-bottom: var(--s-5);
 }
 
 /* ---------------------------------------------------------------------------
