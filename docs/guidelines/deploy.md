@@ -5,11 +5,11 @@ Forgejo Actions deployment setup.
 | Field     | Value                                             |
 | --------- | ------------------------------------------------- |
 | Workflow  | `.forgejo/workflows/deploy.yml`                    |
-| Target    | `pi@docker.home.lan:/opt/omnigrid/app`             |
-| Runner    | `home-runner` on `git.home.lan` (shared, INSTANCE scope) |
+| Target    | `pi@docker.example.com:/opt/omnigrid/app`             |
+| Runner    | `home-runner` on `git.example.com` (shared, INSTANCE scope) |
 | Restart   | `docker service update --force omnigrid_omnigrid`  |
 
-The deploy target is a Debian 13 VM (amd64, 16 GB / 100 GB) reachable at `pi@docker.home.lan`.
+The deploy target is a Debian 13 VM (amd64, 16 GB / 100 GB) reachable at `pi@docker.example.com`.
 The username `pi` is just a unix account name — it is NOT a Raspberry Pi. Bind mounts on the
 host:
 
@@ -23,7 +23,7 @@ it's at `/app/data/omnigrid.db` (which is the `DB_PATH` default).
 ## 0. One runner, many repos (the preference for this homelab)
 
 We deliberately do NOT create a second forgejo-runner. The existing `home-runner` service on
-`git.home.lan` is shared across projects. Only its registration scope matters:
+`git.example.com` is shared across projects. Only its registration scope matters:
 
 | Scope     | Reach                                                                                        |
 | --------- | -------------------------------------------------------------------------------------------- |
@@ -53,7 +53,7 @@ TelegramHomeBot), re-register it at instance scope.
    | Field       | Value                                                                                                                                                                                                                                                             |
    | ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
    | Name        | `home-runner` (keep the same name).                                                                                                                                                                                                                                |
-   | Description | Shared self-hosted runner on `git.home.lan` (Debian 13, amd64). Instance-level; used by every repo on this Forgejo for rsync+ssh deploys to home-lab hosts (TelegramHomeBot → `automation.home.lan`, OmniGrid → `docker.home.lan`, etc). |
+   | Description | Shared self-hosted runner on `git.example.com` (Debian 13, amd64). Instance-level; used by every repo on this Forgejo for rsync+ssh deploys to home-lab hosts (TelegramHomeBot → `automation.example.com`, OmniGrid → `docker.example.com`, etc). |
 
    Copy the entire `server:` YAML block.
 
@@ -74,9 +74,9 @@ TelegramHomeBot), re-register it at instance scope.
    `runs-on: home-runner` matches `home-runner:host` (runtime suffix implicit).
 
    (The user-level route is still available but we're NOT taking it for this homelab:
-   [https://git.www.home.lan/-/user/settings/actions/runners](https://git.www.home.lan/-/user/settings/actions/runners).)
+   [https://git.www.example.com/-/user/settings/actions/runners](https://git.www.example.com/-/user/settings/actions/runners).)
 
-3. **Re-register on `git.home.lan`**:
+3. **Re-register on `git.example.com`**:
 
    ```bash
    sudo systemctl stop forgejo-runner
@@ -94,7 +94,7 @@ TelegramHomeBot), re-register it at instance scope.
 
    ```bash
    scp notes/forgejo_runner_config.yml \
-       forgejo-runner@git.home.lan:/opt/forgejo-runner/config.yml
+       forgejo-runner@git.example.com:/opt/forgejo-runner/config.yml
    ```
 
    Otherwise edit in place:
@@ -122,14 +122,14 @@ deploys are fine; actually parallel deploys to different hosts rarely matter.
 
 ## Deploy SSH keys — one per target host
 
-Both original deploy keys (for `automation.home.lan` and `docker.home.lan`) were `shred`'d on
+Both original deploy keys (for `automation.example.com` and `docker.example.com`) were `shred`'d on
 disk right after being pasted into their Forgejo secrets. We now rebuild with cleaner isolation:
 one key per target, private half living only inside that project's `DEPLOY_SSH_KEY` secret.
 
 | Key                          | Target                     | Project         |
 | ---------------------------- | -------------------------- | --------------- |
-| `forgejo_deploy_docker`      | `pi@docker.home.lan`       | OmniGrid        |
-| `forgejo_deploy_automation`  | `pi@automation.home.lan`   | TelegramHomeBot |
+| `forgejo_deploy_docker`      | `pi@docker.example.com`       | OmniGrid        |
+| `forgejo_deploy_automation`  | `pi@automation.example.com`   | TelegramHomeBot |
 
 If one project's key leaks, rotating it doesn't touch the other.
 
@@ -140,7 +140,7 @@ filename and target host differ.
 ### A) OmniGrid key (required now)
 
 ```bash
-# On git.home.lan, as forgejo-runner:
+# On git.example.com, as forgejo-runner:
 sudo -iu forgejo-runner
 cd /opt/forgejo-runner
 mkdir -p .ssh && chmod 700 .ssh
@@ -149,15 +149,15 @@ mkdir -p .ssh && chmod 700 .ssh
 ssh-keygen -t ed25519 -N '' -C 'forgejo-deploy-docker' \
     -f .ssh/forgejo_deploy_docker
 
-# 2) Install public half on docker.home.lan. Prompts for pi's password
+# 2) Install public half on docker.example.com. Prompts for pi's password
 #    (or falls through whatever SSH auth you already have to that box).
 HOME=/opt/forgejo-runner ssh-copy-id \
-    -i .ssh/forgejo_deploy_docker.pub pi@docker.home.lan
+    -i .ssh/forgejo_deploy_docker.pub pi@docker.example.com
 
 # 3) Sanity-check key-only login works
 ssh -i .ssh/forgejo_deploy_docker \
     -o PasswordAuthentication=no -o PreferredAuthentications=publickey \
-    pi@docker.home.lan 'echo OK'
+    pi@docker.example.com 'echo OK'
 
 # 4) Capture the private key — paste this entire blob (incl. the
 #    BEGIN/END lines) into the OmniGrid DEPLOY_SSH_KEY secret
@@ -172,12 +172,12 @@ exit
 
 ### B) TelegramHomeBot key rotation
 
-Required — the original private key for `automation.home.lan` was also `shred`'d and is no
+Required — the original private key for `automation.example.com` was also `shred`'d and is no
 longer recoverable from disk, same situation as the docker key above. Same five-step sequence;
 different key + target.
 
 ```bash
-# On git.home.lan, as forgejo-runner:
+# On git.example.com, as forgejo-runner:
 sudo -iu forgejo-runner
 cd /opt/forgejo-runner
 mkdir -p .ssh && chmod 700 .ssh
@@ -186,19 +186,19 @@ mkdir -p .ssh && chmod 700 .ssh
 ssh-keygen -t ed25519 -N '' -C 'forgejo-deploy-automation' \
     -f .ssh/forgejo_deploy_automation
 
-# 2) Install public half on automation.home.lan (prompts for pi's
+# 2) Install public half on automation.example.com (prompts for pi's
 #    password or uses whatever SSH auth you already have to that box).
 HOME=/opt/forgejo-runner ssh-copy-id \
-    -i .ssh/forgejo_deploy_automation.pub pi@automation.home.lan
+    -i .ssh/forgejo_deploy_automation.pub pi@automation.example.com
 
 # 3) Sanity-check key-only login works
 ssh -i .ssh/forgejo_deploy_automation \
     -o PasswordAuthentication=no -o PreferredAuthentications=publickey \
-    pi@automation.home.lan 'echo OK'
+    pi@automation.example.com 'echo OK'
 
 # 4) Capture the private key — paste this entire blob into the
 #    TelegramHomeBot repo's DEPLOY_SSH_KEY secret
-#    (Forgejo UI -> m.a.raouf/TelegramHomeBot -> Settings -> Actions
+#    (Forgejo UI -> <owner>/TelegramHomeBot -> Settings -> Actions
 #     -> Secrets -> DEPLOY_SSH_KEY -> edit/replace value) BEFORE step 5.
 cat .ssh/forgejo_deploy_automation
 
@@ -210,7 +210,7 @@ shred -u .ssh/forgejo_deploy_automation
 #    new one is 'forgejo-deploy-automation'). Only do this AFTER
 #    confirming step 3 works and the TelegramHomeBot deploy pipeline
 #    runs green with the new secret:
-# ssh pi@automation.home.lan \
+# ssh pi@automation.example.com \
 #     "sed -i '/ forgejo-deploy$/d' ~/.ssh/authorized_keys"
 
 exit
@@ -226,7 +226,7 @@ either key to user scope — that re-couples the two projects.
 **Prerequisites** (from the [Deploy SSH keys](#deploy-ssh-keys--one-per-target-host) section
 above):
 
-- Section A completed: `forgejo_deploy_docker` installed on `docker.home.lan`, the key-only
+- Section A completed: `forgejo_deploy_docker` installed on `docker.example.com`, the key-only
   sanity check printed `OK`. The private key must still be on disk (don't `shred -u` it until
   [step 1.6](#16-shred-the-on-disk-private-keys)).
 - Section B completed: same for `forgejo_deploy_automation`, needed if you're also rotating
@@ -258,7 +258,7 @@ The `deploy.yml` workflow reads:
 
 ```yaml
 ${{ secrets.DEPLOY_SSH_KEY }}
-${{ vars.DEPLOY_HOST   || 'docker.home.lan' }}
+${{ vars.DEPLOY_HOST   || 'docker.example.com' }}
 ${{ vars.DEPLOY_USER   || 'pi' }}
 ${{ vars.DEPLOY_PATH   || '/opt/omnigrid/app' }}
 ${{ vars.SERVICE_NAME  || '' }}
@@ -279,7 +279,7 @@ untouched; they live on that repo and the TelegramHomeBot workflow still needs t
 
 UI path:
 
-- Browser → `https://git.www.home.lan/m.a.raouf/OmniGrid`.
+- Browser → `https://git.www.example.com/<owner>/OmniGrid`.
 - Top tab → Settings.
 - Left nav → Actions → Secrets.
 - Button → "Add Secret" (or "Create new secret").
@@ -313,7 +313,7 @@ Create each variable:
 
 | Name          | Value                  |
 | ------------- | ---------------------- |
-| `DEPLOY_HOST` | `docker.home.lan`      |
+| `DEPLOY_HOST` | `docker.example.com`      |
 | `DEPLOY_USER` | `pi`                   |
 | `DEPLOY_PATH` | `/opt/omnigrid/app`    |
 
@@ -338,7 +338,7 @@ Secrets tab should list:
 
 Variables tab should list:
 
-- `DEPLOY_HOST` → `docker.home.lan`
+- `DEPLOY_HOST` → `docker.example.com`
 - `DEPLOY_USER` → `pi`
 - `DEPLOY_PATH` → `/opt/omnigrid/app`
 - (`SERVICE_NAME`) not set — dynamically resolved at run time.
@@ -348,9 +348,9 @@ your home-lab, so skip unless you want to override):
 
 | Name          | Default                                             |
 | ------------- | --------------------------------------------------- |
-| `APPRISE_URL` | `http://apprise.home.lan:8005/notify/apprise`       |
+| `APPRISE_URL` | `http://apprise.example.com:8005/notify/apprise`       |
 | `APPRISE_TAG` | `omnigrid`                                          |
-| `PROBE_URL`   | `http://docker.home.lan:9500/api/healthz`           |
+| `PROBE_URL`   | `http://docker.example.com:9500/api/healthz`           |
 
 If any required name is missing or misspelled, fix it before running the workflow — a typo'd
 `DEPLOY_USER` would fall through to the `|| 'pi'` default silently, but a typo'd
@@ -360,7 +360,7 @@ If any required name is missing or misspelled, fix it before running the workflo
 
 Only if you ran section B above:
 
-- Browser → `https://git.www.home.lan/m.a.raouf/TelegramHomeBot`.
+- Browser → `https://git.www.example.com/<owner>/TelegramHomeBot`.
 - Settings → Actions → Secrets.
 - `DEPLOY_SSH_KEY` → "Edit".
   - **Value**: paste output of `cat .ssh/forgejo_deploy_automation` from section B.
@@ -374,7 +374,7 @@ only the secret changes.
 If you previously had `DEPLOY_SSH_KEY` or other entries at USER scope (from an earlier plan that
 promoted them), DELETE those now:
 
-- `git.www.home.lan` → avatar → Settings → Actions → Secrets/Variables.
+- `git.www.example.com` → avatar → Settings → Actions → Secrets/Variables.
 - Delete any leftover `DEPLOY_*` entries at this scope.
 
 Repo-scoped entries take precedence anyway, but removing the user-scope copies avoids ambiguity
@@ -386,7 +386,7 @@ Only once steps 1.1 and 1.4 are done — if you do this too early you lose the p
 forever and have to regenerate both from scratch.
 
 ```bash
-# On git.home.lan, as forgejo-runner:
+# On git.example.com, as forgejo-runner:
 sudo -iu forgejo-runner
 cd /opt/forgejo-runner
 shred -u .ssh/forgejo_deploy_docker     2>/dev/null || true
@@ -398,14 +398,14 @@ exit
 (If you already ran `shred -u` in section A step 5 / section B step 5, this is a no-op and just
 confirms the .pub-only state.)
 
-## 2. Target host (`docker.home.lan`) — one-time
+## 2. Target host (`docker.example.com`) — one-time
 
 ### 2.1 Check what's already installed
 
 Skip the install line for anything that's present:
 
 ```bash
-ssh pi@docker.home.lan '
+ssh pi@docker.example.com '
     for p in rsync docker ssh sudo; do
         if command -v "$p" >/dev/null; then
             printf "%-8s  OK    (%s)\n" "$p" "$(command -v $p)"
@@ -428,10 +428,10 @@ Typical result on a Swarm manager: `rsync` MISSING, `docker` + `ssh` + `sudo` pr
 ### 2.2 Install rsync (and anything else flagged missing)
 
 ```bash
-ssh pi@docker.home.lan 'sudo apt update && sudo apt install -y rsync'
+ssh pi@docker.example.com 'sudo apt update && sudo apt install -y rsync'
 
 # Add more packages to the install line as needed:
-#   ssh pi@docker.home.lan 'sudo apt install -y rsync curl ca-certificates'
+#   ssh pi@docker.example.com 'sudo apt install -y rsync curl ca-certificates'
 ```
 
 ### 2.3 Directory ownership
@@ -440,7 +440,7 @@ ssh pi@docker.home.lan 'sudo apt update && sudo apt install -y rsync'
 (SQLite store) has the same requirement so the running container can update it:
 
 ```bash
-ssh pi@docker.home.lan '
+ssh pi@docker.example.com '
     sudo mkdir -p /opt/omnigrid/app /opt/omnigrid/data &&
     sudo chown -R pi:pi /opt/omnigrid &&
     ls -la /opt/omnigrid
@@ -454,15 +454,15 @@ Two choices — pick one.
 **Option A — add pi to docker group** (simplest, no sudo in workflow):
 
 ```bash
-ssh pi@docker.home.lan 'sudo usermod -aG docker pi'
+ssh pi@docker.example.com 'sudo usermod -aG docker pi'
 # pi must log out and back in for the new group to take effect
-ssh pi@docker.home.lan 'docker info >/dev/null && echo OK'
+ssh pi@docker.example.com 'docker info >/dev/null && echo OK'
 ```
 
 **Option B — passwordless sudo for just the one restart command**:
 
 ```bash
-ssh pi@docker.home.lan "
+ssh pi@docker.example.com "
     sudo tee /etc/sudoers.d/forgejo-omnigrid > /dev/null <<'EOF'
 pi ALL=(root) NOPASSWD: /usr/bin/docker service update --force omnigrid_omnigrid
 EOF
@@ -482,7 +482,7 @@ Holds the SQLite db (`omnigrid.db` — history / ignores / settings / users / se
 wiping it. Confirm it's present and owned by pi:
 
 ```bash
-ssh pi@docker.home.lan 'ls -la /opt/omnigrid/data 2>/dev/null || echo "NOT CREATED YET — will be made on first run"'
+ssh pi@docker.example.com 'ls -la /opt/omnigrid/data 2>/dev/null || echo "NOT CREATED YET — will be made on first run"'
 ```
 
 ## 3. First run
@@ -571,7 +571,7 @@ repo doesn't propagate until the stack is redeployed.
 Quick one-shot to apply the same settings to the running service without touching Portainer:
 
 ```bash
-ssh pi@docker.home.lan "
+ssh pi@docker.example.com "
   docker service update \
     --update-parallelism 1 \
     --update-delay 0s \
@@ -588,7 +588,7 @@ ssh pi@docker.home.lan "
 Confirm it stuck:
 
 ```bash
-ssh pi@docker.home.lan \
+ssh pi@docker.example.com \
   "docker service inspect omnigrid_omnigrid \
      --format '{{json .Spec.UpdateConfig}}'" | jq
 ```
@@ -602,8 +602,8 @@ healthcheck warmup (~10–15 s).
 UI sometimes has no delete button. Use the API:
 
 ```bash
-FJ=https://git.www.home.lan
-OWNER=m.a.raouf
+FJ=https://git.www.example.com
+OWNER=<owner>
 REPO=OmniGrid
 TOK=<token from User Settings -> Applications (scope: write:repository)>
 
