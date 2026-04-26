@@ -18,6 +18,7 @@ Endpoints:
 import asyncio
 import json
 import os
+import re
 import sqlite3
 import tempfile
 import time
@@ -1973,8 +1974,13 @@ async def api_portainer_test(
             headers = {"X-API-Key": api_key}
             r = await client.get(f"{url}/api/status", headers=headers)
             if r.status_code != 200:
+                # Route the upstream failure through the humaniser
+                # (#369 / UX-003 follow-up) so the operator sees
+                # "Portainer rejected the credentials (HTTP 401 — ...)"
+                # instead of a bare body dump.
+                raw = f"HTTP {r.status_code}: {r.text[:200]}"
                 return {"ok": False, "status": r.status_code,
-                        "detail": f"HTTP {r.status_code}: {r.text[:200]}"}
+                        "detail": _humanise_probe_error(raw, "Portainer")}
             version = ""
             try:
                 data = r.json()
@@ -1997,14 +2003,23 @@ async def api_portainer_test(
                     "detail": f"{prefix}, endpoint {name} reachable",
                     "endpoint_id": endpoint_id}
         if ep.status_code == 404:
+            # Specific Portainer-shaped message — keep the bespoke copy
+            # rather than humanising. Operators recognise this exact
+            # phrasing from the related #360 / DEAD-002 fix.
             return {"ok": False, "status": 404,
                     "detail": f"endpoint {endpoint_id} not found on this Portainer",
                     "endpoint_id": endpoint_id}
+        raw = f"endpoint probe HTTP {ep.status_code}: {ep.text[:200]}"
         return {"ok": False, "status": ep.status_code,
-                "detail": f"endpoint probe HTTP {ep.status_code}: {ep.text[:200]}",
+                "detail": _humanise_probe_error(raw, "Portainer"),
                 "endpoint_id": endpoint_id}
     except Exception as e:
-        return {"ok": False, "status": 0, "detail": f"{type(e).__name__}: {e}"}
+        # Network-level failures (DNS / refused / TLS / timeout) are
+        # the cases the humaniser was designed for — let them flow
+        # through it instead of surfacing the raw exception repr.
+        raw = f"{type(e).__name__}: {e}"
+        return {"ok": False, "status": 0,
+                "detail": _humanise_probe_error(raw, "Portainer")}
 
 
 @app.post("/api/pulse/test")
@@ -2060,7 +2075,11 @@ async def api_webmin_test(
         url, user, password, verify_tls=verify_tls, timeout=10.0,
     )
     if result.get("error") and not result.get("hosts"):
-        return {"ok": False, "detail": result["error"]}
+        # #369 / UX-003 follow-up: route Webmin's verbatim probe error
+        # through the humaniser too. Common Webmin failure modes (auth
+        # cool-down / module timeout / TLS handshake) all map cleanly.
+        return {"ok": False,
+                "detail": _humanise_probe_error(result["error"], "Webmin")}
     hosts = result.get("hosts") or {}
     if not hosts:
         return {"ok": False,
@@ -2368,6 +2387,19 @@ def _humanise_probe_error(raw: str, target_label: str) -> str:
         return f"TLS handshake failed against {target_label} — disable verify_tls if the cert is self-signed"
     if low == "eof" or "eof " in low or low.endswith(" eof"):
         return f"{target_label} closed the connection unexpectedly (EOF) — host crashed mid-request or wrong port"
+    # Webmin-specific patterns the probe surfaces verbatim. Catch them
+    # so the operator gets actionable copy ("locked out for X seconds")
+    # instead of a `webmin: ...` raw prefix.
+    if "auth cool-down" in low or "auth cooldown" in low:
+        # Try to pull the seconds-remaining; fall through to a generic
+        # message when the probe didn't include it.
+        m = re.search(r"(\d+)s remaining", low)
+        if m:
+            return (f"{target_label} auth is in cool-down ({m.group(1)}s remaining) — "
+                    f"a previous Test failed; wait it out before retrying")
+        return f"{target_label} auth is in cool-down — wait a few minutes before retrying"
+    if "all modules failed" in low:
+        return f"{target_label} reached the host but every probed module ({target_label} system-status / package-updates / mount / net) failed — likely module-permission misconfig on the upstream"
     return text
 
 
@@ -4722,6 +4754,97 @@ async def healthz():
 @app.get("/api/version")
 async def api_version():
     return {"version": read_version()}
+
+
+# ----------------------------------------------------------------------------
+# Admin → Version page (#371). Operator-controlled MAJOR.MINOR via the UI;
+# CI-controlled PATCH via the deploy pipeline. Backed by `version_major` /
+# `version_minor` rows in the settings table; PATCH is read from the raw
+# VERSION.txt file (CI-managed, rsync-excluded).
+# ----------------------------------------------------------------------------
+@app.get("/api/admin/version")
+async def api_admin_version(_admin: auth.User = Depends(auth.require_admin)):
+    """Return the live version split into its components for the
+    Admin → Version form to pre-populate.
+
+    `db_override` is true when MAJOR/MINOR is currently sourced from the
+    settings table; false means the version reflects the raw VERSION.txt
+    content unchanged (legacy / fresh-deploy state).
+    """
+    from logic.version import _read_version_file, _db_version_override, _split_version
+    raw = _read_version_file()
+    file_major, file_minor, file_patch = _split_version(raw)
+    override = _db_version_override()
+    if override is None:
+        major, minor = file_major, file_minor
+        db_override = False
+    else:
+        major, minor = override
+        db_override = True
+    return {
+        "current": read_version(),
+        "raw_file": raw,
+        "major": major,
+        "minor": minor,
+        "patch": file_patch,
+        "db_override": db_override,
+        # Hint to the UI: file-level MAJOR.MINOR for the "reset to file"
+        # affordance (so the operator can drop the override and let the
+        # raw VERSION.txt content drive again).
+        "file_major": file_major,
+        "file_minor": file_minor,
+    }
+
+
+class VersionPin(BaseModel):
+    major: int
+    minor: int
+
+
+@app.post("/api/admin/version")
+async def api_admin_version_set(
+    body: VersionPin,
+    _admin: auth.User = Depends(auth.require_admin),
+):
+    """Pin MAJOR.MINOR to the values the operator typed in the UI.
+
+    Persists to the settings table; the PATCH counter (in VERSION.txt)
+    is unaffected — it remains a monotonic deploy counter that CI bumps
+    on every successful deploy. The next `read_version()` call returns
+    `f"{major}.{minor}.{patch}"`.
+
+    Returns the same shape as GET so the UI can re-baseline its form.
+    """
+    if body.major < 0 or body.minor < 0:
+        return JSONResponse(
+            status_code=400,
+            content={"detail": "major and minor must be non-negative integers"},
+        )
+    if body.major > 99 or body.minor > 999:
+        # Sanity bound — version numbers shouldn't be 4-digit. Reject
+        # obvious typos rather than silently persisting them.
+        return JSONResponse(
+            status_code=400,
+            content={"detail": "major must be ≤99, minor must be ≤999"},
+        )
+    set_setting("version_major", str(body.major))
+    set_setting("version_minor", str(body.minor))
+    return await api_admin_version(_admin)
+
+
+@app.delete("/api/admin/version")
+async def api_admin_version_clear(
+    _admin: auth.User = Depends(auth.require_admin),
+):
+    """Drop the DB override → fall back to the raw VERSION.txt content.
+
+    Useful when the operator wants to temporarily pin then revert; or
+    when a deploy is supposed to roll the version back to whatever
+    PATCH counter is on disk without manual MAJOR/MINOR edits.
+    """
+    set_setting("version_major", "")
+    set_setting("version_minor", "")
+    return await api_admin_version(_admin)
 
 
 # ----------------------------------------------------------------------------
