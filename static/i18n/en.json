@@ -898,6 +898,7 @@
     "net_inactive": {
       "title": "No NIC activity reported",
       "body_in": "The Beszel agent on this host isn't tracking any NIC. Add {code} (or your NIC name from {ipcmd}) to the agent's env, then restart it.",
+      "body_in_ne": "No traffic on this host's physical NICs in the selected window. node-exporter excludes loopback, Docker bridges, veth pairs, and other virtual interfaces from totals — a host whose only activity is on those won't register here.",
       "body_out": "Add {code} to the Beszel agent's env (see Net In card for details)."
     },
     "custom_number_label": "Custom #",
