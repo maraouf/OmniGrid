@@ -207,23 +207,39 @@ async def _fetch_systemd_services(client, base_url: str, token: str) -> list:
     to attach per-host. Empty list on a 401/4xx/network error — the
     caller treats "no systemd_services" as "agent doesn't track them"
     and the drawer row hides cleanly.
+
+    Paginates through every page so a fleet with > 500 services across
+    many hosts doesn't get truncated to whichever ones happen to land
+    on PocketBase's first page. PB uses 1-based page index and returns
+    `totalPages` in the envelope; we walk pages until exhausted, with
+    a hard cap of 20 pages (10000 records) as a safety net against a
+    runaway fleet or a malformed response.
     """
-    url = (base_url.rstrip("/")
-           + "/api/collections/systemd_services/records?perPage=500")
-    try:
-        r = await client.get(url, headers={"Authorization": token})
+    base = (base_url.rstrip("/")
+            + "/api/collections/systemd_services/records")
+    out: list = []
+    page = 1
+    max_pages = 20  # 20 * 500 = 10000-record safety ceiling
+    while page <= max_pages:
+        url = f"{base}?perPage=500&page={page}"
+        try:
+            r = await client.get(url, headers={"Authorization": token})
+        except Exception:
+            return out
         if r.status_code == 401:
             raise PermissionError("401")
         if r.status_code == 404:
-            # Beszel hub without the systemd_services collection (older
-            # version, or feature not enabled). Treat as "no services."
             return []
         if r.status_code >= 400:
-            return []
-        return list((r.json() or {}).get("items") or [])
-    except Exception:
-        # Network hiccup → empty. Same treatment as 4xx — silent.
-        return []
+            return out
+        env = r.json() or {}
+        items = list(env.get("items") or [])
+        out.extend(items)
+        total_pages = int(env.get("totalPages") or 1)
+        if page >= total_pages or not items:
+            break
+        page += 1
+    return out
 
 
 async def fetch_system_history(
@@ -812,8 +828,14 @@ async def probe_hub(
                         continue
                     services_by_system.setdefault(sid, []).append(svc)
                 if svc_records:
+                    sample = svc_records[0]
+                    sample_keys = sorted(sample.keys()) if isinstance(sample, dict) else []
                     print(f"[beszel] systemd_services: {len(svc_records)} records "
-                          f"across {len(services_by_system)} systems")
+                          f"across {len(services_by_system)} systems; "
+                          f"sample_keys={sample_keys}; "
+                          f"sample_system_fk={sample.get('system')!r}; "
+                          f"sample_name={sample.get('name')!r}; "
+                          f"sample_state={sample.get('state')!r}")
             except Exception as e:
                 print(f"[beszel] warn: fetch systemd_services failed: {e}")
                 services_by_system = {}
@@ -848,6 +870,7 @@ async def probe_hub(
             _warned_sample_no_efs = True
 
     out: dict[str, dict] = {}
+    services_match_count = 0
     for rec in records:
         # Match against ``host`` first (the hostname the Beszel agent
         # reports from the machine itself — stable and typically what
@@ -878,6 +901,7 @@ async def probe_hub(
         svc_records_for_system = services_by_system.get(rec_id) or []
         if svc_records_for_system:
             stats["host_services"] = _services_summary(svc_records_for_system)
+            services_match_count += 1
         mounts = stats.get("mounts") or []
         if mounts:
             # Positive mount line ALSO used to fire every cycle — kept
@@ -913,4 +937,18 @@ async def probe_hub(
         stats["beszel_name"] = (rec.get("name") or "").strip()
         stats["beszel_host"] = host_key
         out[host_key] = stats
+    # Diagnostic — when systemd_services were fetched but didn't
+    # match any system, the most likely cause is that the `system`
+    # field on the service records doesn't equal the system records'
+    # `id`. Print the first few service-keys vs system-ids so the
+    # operator can see the mismatch shape.
+    if services_by_system:
+        sys_ids = [r.get("id") for r in records if r.get("id")]
+        if services_match_count == 0:
+            print(f"[beszel] systemd_services attached to 0/{len(out)} hosts — "
+                  f"system_ids[:5]={sys_ids[:5]} vs "
+                  f"service_system_fks[:5]={list(services_by_system.keys())[:5]}")
+        else:
+            print(f"[beszel] systemd_services attached to "
+                  f"{services_match_count}/{len(out)} hosts")
     return {"systems": out, "error": None}

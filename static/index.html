@@ -306,7 +306,11 @@
                   class="px-2 py-0.5 rounded text-[11px] font-medium transition" x-text="p[0]"></button>
         </template>
       </div>
-      <div class="flex items-center gap-0 bg-[var(--surface-2)] rounded-md p-0.5 border border-[var(--border)] hidden lg:flex order-5 sm:order-none" :title="t('topbar.stats_title')">
+      <!-- Stats picker — was hidden below lg: as a desktop-only feature.
+           Now visible on all viewports per operator (it wraps cleanly
+           with the rest of the utility belt thanks to the parent
+           flex-wrap). -->
+      <div class="flex items-center gap-0 bg-[var(--surface-2)] rounded-md p-0.5 border border-[var(--border)] order-5 sm:order-none" :title="t('topbar.stats_title')">
         <span class="px-1.5 text-[10px] text-faint uppercase tracking-wider" x-text="t('topbar.stats_label')"></span>
         <template x-for="p in [[t('topbar.off'),0],['5s',5],['15s',15],['30s',30],['1m',60],['5m',300]]" :key="p[1]">
           <button @click="setStatsInterval(p[1])"
