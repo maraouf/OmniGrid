@@ -1290,6 +1290,22 @@ details summary::-webkit-details-marker {
     margin-inline-start: 6px;
 }
 
+/* Per-chart "data source" hint icon — sits next to the title with a
+   `:title=` native tooltip explaining where each chart pulls from
+   (Beszel / node-exporter fallback / etc). cursor:help signals the
+   hover affordance; subdued colour keeps it from competing with the
+   title typography. */
+.metric-card-title .metric-source-help {
+    color: var(--text-faint);
+    margin-inline-start: var(--s-2);
+    cursor: help;
+    flex-shrink: 0;
+    vertical-align: middle;
+}
+.metric-card-title .metric-source-help:hover {
+    color: var(--text-dim);
+}
+
 .metric-card-stats {
     font-size: 11.5px;
     color: var(--text-faint);

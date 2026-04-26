@@ -530,8 +530,9 @@ function app() {
     totpDisableForm: { password: '' },
     totpDisableBusy: false,
     adminSections: [
-      { id: 'users',          label: 'Users' },
       { id: 'general',        label: 'General' },
+      { id: 'users',          label: 'Users' },
+      { id: 'authentication', label: 'Authentication' },
       { id: 'sessions',       label: 'Sessions' },
       { id: 'tokens',         label: 'API tokens' },
       { id: 'notifications',  label: 'Notifications' },

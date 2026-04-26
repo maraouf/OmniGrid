@@ -466,6 +466,7 @@
     },
     "sections": {
       "users": "Users",
+      "authentication": "Authentication",
       "sessions": "Sessions",
       "tokens": "API tokens",
       "notifications": "Notifications",

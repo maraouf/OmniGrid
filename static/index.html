@@ -5809,10 +5809,16 @@
           </div>
         </section>
 
-        <!-- TOTP / 2FA policy (#345). Master toggle gates the dependent
-             inputs (matches the Apprise / OIDC / Portainer / SSH master-
-             toggle pattern documented in CLAUDE.md). Saving piggy-backs
-             on the existing settings POST + dirty marker. -->
+      </div>
+
+      <!-- AUTHENTICATION TAB — TOTP / 2FA policy lives here (moved out
+           of Admin → Config). Master toggle gates the dependent inputs
+           (Apprise / OIDC / Portainer / SSH master-toggle pattern per
+           CLAUDE.md). Saves via the existing settings POST + dirty
+           marker. Future home for any other auth-related admin
+           settings (forced-OIDC-only mode, session-cookie tunables,
+           bearer-token rotation policy). -->
+      <div x-show="adminTab==='authentication'" class="space-y-4">
         <section class="bg-[var(--surface)] border border-[var(--border)] rounded-md p-5">
           <h3 class="font-semibold text-[13px] mb-1"
               x-text="t('admin.config.totp.title')"></h3>
@@ -6833,7 +6839,11 @@
                 <!-- Memory % -->
                 <div class="metric-card metric-card--mem">
                   <div class="metric-card-head">
-                    <div class="metric-card-title">Memory<span class="unit">%</span></div>
+                    <div class="metric-card-title">
+                      <span>Memory</span><span class="unit">%</span>
+                      <svg width="12" height="12" class="metric-source-help" aria-hidden="true"
+                           :title="t('hosts_extra.metrics.source_memory')"><use href="#icon-help-circle"/></svg>
+                    </div>
                     <div class="metric-card-stats"
                          x-show="hostMetricStats(hostHistoryKey(h), 'mp')">
                       <span>Min <span class="min-val" x-text="hostMetricStats(hostHistoryKey(h), 'mp') ? hostMetricStats(hostHistoryKey(h), 'mp').min : ''"></span></span>
@@ -6871,7 +6881,11 @@
                 <!-- Disk % -->
                 <div class="metric-card metric-card--disk">
                   <div class="metric-card-head">
-                    <div class="metric-card-title">Disk<span class="unit">%</span></div>
+                    <div class="metric-card-title">
+                      <span>Disk</span><span class="unit">%</span>
+                      <svg width="12" height="12" class="metric-source-help" aria-hidden="true"
+                           :title="t('hosts_extra.metrics.source_disk')"><use href="#icon-help-circle"/></svg>
+                    </div>
                     <div class="metric-card-stats"
                          x-show="hostMetricStats(hostHistoryKey(h), 'dp')">
                       <span>Min <span class="min-val" x-text="hostMetricStats(hostHistoryKey(h), 'dp') ? hostMetricStats(hostHistoryKey(h), 'dp').min : ''"></span></span>
@@ -6926,6 +6940,8 @@
                     <div class="metric-card-title">
                       <span x-text="t('hosts_extra.metrics.network')"></span>
                       <span class="unit">B/s</span>
+                      <svg width="12" height="12" class="metric-source-help" aria-hidden="true"
+                           :title="t('hosts_extra.metrics.source_network')"><use href="#icon-help-circle"/></svg>
                     </div>
                     <div class="metric-card-stats" style="gap:8px">
                       <span x-show="hostMetricStats(hostHistoryKey(h), 'nr', false)">
@@ -7046,6 +7062,8 @@
                   <div class="metric-card-head">
                     <div class="metric-card-title">
                       <span x-text="t('hosts_extra.metrics.disk_io')"></span>
+                      <svg width="12" height="12" class="metric-source-help" aria-hidden="true"
+                           :title="t('hosts_extra.metrics.source_disk_io')"><use href="#icon-help-circle"/></svg>
                       <span class="unit">B/s</span>
                     </div>
                     <div class="metric-card-stats" style="gap:8px">
@@ -7133,6 +7151,8 @@
                   <div class="metric-card-head">
                     <div class="metric-card-title">
                       <span x-text="t('hosts_extra.metrics.load_avg')"></span>
+                      <svg width="12" height="12" class="metric-source-help" aria-hidden="true"
+                           :title="t('hosts_extra.metrics.source_load_avg')"><use href="#icon-help-circle"/></svg>
                     </div>
                     <div class="metric-card-stats" style="gap:8px">
                       <span x-show="hostMetricStats(hostHistoryKey(h), 'la1', false)">
@@ -7191,6 +7211,8 @@
                   <div class="metric-card-head">
                     <div class="metric-card-title">
                       <span x-text="t('hosts_extra.metrics.bandwidth')"></span>
+                      <svg width="12" height="12" class="metric-source-help" aria-hidden="true"
+                           :title="t('hosts_extra.metrics.source_bandwidth')"><use href="#icon-help-circle"/></svg>
                       <span class="unit">B/s</span>
                     </div>
                     <div class="metric-card-stats"
@@ -7230,6 +7252,8 @@
                   <div class="metric-card-head">
                     <div class="metric-card-title">
                       <span x-text="t('hosts_extra.metrics.swap')"></span>
+                      <svg width="12" height="12" class="metric-source-help" aria-hidden="true"
+                           :title="t('hosts_extra.metrics.source_swap')"><use href="#icon-help-circle"/></svg>
                       <span class="unit">%</span>
                     </div>
                     <div class="metric-card-stats"
