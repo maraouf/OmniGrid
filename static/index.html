@@ -6351,8 +6351,14 @@
 
                 <!-- ====== Disk I/O (#319) — same dual-line pattern as
                      the combined Network card. Read/write summed across
-                     mounts in `logic/beszel.py:fetch_system_history`. -->
+                     mounts in `logic/beszel.py:fetch_system_history`.
+                     The NE-only sampler doesn't capture disk I/O
+                     counters today (#289), so for hosts without a
+                     Beszel agent we HIDE the card entirely rather than
+                     showing the "Disk I/O idle" hint — the data is
+                     structurally absent, not just zero. -->
                 <div class="metric-card metric-card--disk"
+                     x-show="h.beszel_id || hostChartMax(hostHistoryKey(h), ['dr','dw']) > 0"
                      :class="hostChartMax(hostHistoryKey(h), ['dr','dw']) === 0 ? 'metric-card--flat' : ''">
                   <div class="metric-card-head">
                     <div class="metric-card-title">
