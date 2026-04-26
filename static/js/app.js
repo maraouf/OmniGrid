@@ -5836,6 +5836,43 @@ function app() {
       this.hostsConfigSortedOrder = idxs;
     },
 
+    // #359 — fired on `@focusout` of the host-card wrapper. Defers
+    // the cn-driven sort/page-jump until the operator has fully left
+    // the row card (not just blurred the cn input mid-edit).
+    //
+    // Without this, the previous behaviour was: type a new cn, tab to
+    // the next field → the row immediately re-sorts into its numeric
+    // position → on a paged editor the row may have moved to a
+    // DIFFERENT page → operator has to find it again to keep editing
+    // label / ne_url / beszel_name. Now: cn `@input` sets
+    // `row._cnDirty = true`; the rebuild + page-jump happens here
+    // ONLY when focus genuinely leaves the entire card.
+    onHostCardFocusOut(idx, event, cardEl) {
+      const newFocus = event && event.relatedTarget;
+      // Focus moved within the same card → still editing → no-op.
+      if (newFocus && cardEl && cardEl.contains(newFocus)) return;
+      const row = (this.hostsConfig || [])[idx];
+      if (!row || !row._cnDirty) return;
+      row._cnDirty = false;
+      const uid = row._uid;
+      this.rebuildHostsConfigOrder();
+      // Keep the row visible after the sort lands. Without this, a
+      // cn that pushed the row to another page would silently move it
+      // off-screen — exactly the bug we're fixing for the inline-cn
+      // case, but for the post-edit case too.
+      this.$nextTick(() => {
+        const all = this.filteredHostsConfig();
+        const pos = all.findIndex(({ row: r }) => r._uid === uid);
+        if (pos >= 0) {
+          const per = this.hostsConfigPerPage || 50;
+          const targetPage = Math.floor(pos / per) + 1;
+          if (targetPage !== this.hostsConfigPage) {
+            this.hostsConfigGoToPage(targetPage);
+          }
+        }
+      });
+    },
+
     // Count of discovered names not already present in hostsConfig —
     // drives the "Import N discovered" button label / visibility so
     // the operator doesn't import duplicates by accident.

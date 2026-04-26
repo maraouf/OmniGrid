@@ -3592,7 +3592,8 @@
 
         <div x-show="!hostsConfigLoading" class="space-y-3 hosts-config-page-bottom-pad">
           <template x-for="{ row, idx } in pagedHostsConfig()" :key="row._uid || ('r-' + idx)">
-            <div class="border border-[var(--border)] rounded-md bg-[var(--surface-2)] p-3" data-host-card>
+            <div class="border border-[var(--border)] rounded-md bg-[var(--surface-2)] p-3" data-host-card
+                 @focusout="onHostCardFocusOut(idx, $event, $el)">
               <!-- One-line collapsed summary. Click the header to
                    toggle the full field grid. Empty-id rows (fresh
                    +Add) always stay expanded so the operator can
@@ -3689,9 +3690,15 @@
                   <label class="block text-[10.5px] uppercase tracking-wider text-[var(--text-faint)] mb-1"
                          :title="t('hosts_extra.custom_number_title')"
                          x-text="t('hosts_extra.custom_number_label')"></label>
+                  <!-- #359 — DON'T rebuild the sort on cn blur. Tabbing
+                       out of cn used to instantly re-sort the row into
+                       its numeric position, which on a paged editor
+                       (#331) could move the row to a DIFFERENT page
+                       mid-edit. Instead, mark the row dirty here and
+                       let the parent card's @focusout fire the sort
+                       only when focus actually leaves the entire row. -->
                   <input type="number" x-model.number="row.custom_number" :disabled="isReadonly()"
-                         @input="markHostRowDirty(idx); clearFieldError('host_' + idx + '_cn')"
-                         @blur="rebuildHostsConfigOrder()"
+                         @input="markHostRowDirty(idx); clearFieldError('host_' + idx + '_cn'); row._cnDirty = true"
                          class="w-full mono text-[13px] py-1.5"
                          :class="hasFieldError('host_' + idx + '_cn') ? 'field-invalid' : ''"
                          min="1" step="1" placeholder="—">
