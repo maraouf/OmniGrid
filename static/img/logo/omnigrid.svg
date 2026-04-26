@@ -8,6 +8,12 @@
   references (Homarr tiles, README screenshots, etc.).
 -->
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="512" height="512">
+  <!-- Background rounded rect — rx 7 on a 32-unit viewBox is the
+       canonical OmniGrid tile shape (favicon / app-launcher tile).
+       CSS consumers must clip with the r-app-logo token (22%) so the
+       CSS border-radius aligns exactly with this SVG corner radius;
+       any other value leaves a halo where the transparent SVG
+       corners show through a wider/tighter CSS clip (#361). -->
   <rect width="32" height="32" rx="7" fill="#3b82f6"/>
   <g stroke="white" stroke-opacity="0.45" stroke-width="1.2" stroke-linecap="round">
     <line x1="8"  y1="16" x2="24" y2="16"/>

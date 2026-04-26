@@ -198,6 +198,13 @@
        layout; desktop interactions can ignore it. */
     --touch-target-min: 2.75rem;
     --r-xl: 10px;
+    /* Percentage radius matching the SVG logo's intrinsic 7/32 ≈ 22%
+       corner ratio. Used by `.login-logo` (and any future consumer of
+       `omnigrid.svg`) so the CSS clip and the SVG's baked-in rounded
+       corner align exactly — any other radius leaves a halo where the
+       transparent SVG corners reveal the page background through a
+       wider clip (#361). */
+    --r-app-logo: 22%;
 
     /* Fonts — Poppins is vendored under /fonts/. Fallbacks cover the tiny
        window before the woff2 loads (font-display: swap). */
@@ -2532,7 +2539,12 @@ body.login {
 .login-logo {
     width: 88px;
     height: 88px;
-    border-radius: var(--r-xl);
+    /* Match the SVG's intrinsic 7/32 ≈ 22% corner radius — see the
+       `--r-app-logo` token comment. Using `var(--r-xl)` (10px on an
+       88px box) clips tighter than the SVG fills and leaves a halo
+       where the SVG's transparent corners show the page background
+       (#361). */
+    border-radius: var(--r-app-logo);
     display: block;
     box-shadow: 0 6px 24px var(--backdrop-strong);
 }
