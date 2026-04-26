@@ -6446,7 +6446,27 @@
                       </div>
                     </div>
                   </template>
-                  <template x-if="hostChart(hostHistoryKey(h), 'nr') && hostChartMax(hostHistoryKey(h), ['nr','ns']) === 0">
+                  <!-- #347 — node-exporter on this host never produced a
+                       non-null `node_network_*` sample in the window. The
+                       generic "no NIC activity" branch below would tell
+                       the operator to wait for activity, but the metric
+                       is permanently missing — surface remediation copy
+                       (enable `--collector.netstats`) instead. Fires
+                       BEFORE the inactive branch so it wins the race. -->
+                  <template x-if="hostChart(hostHistoryKey(h), 'nr') && hostChartMax(hostHistoryKey(h), ['nr','ns']) === 0 && hostCollectorMissing(h, 'net')">
+                    <div class="collecting-block">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/></svg>
+                      <div>
+                        <div x-text="t('hosts_extra.collectors_missing.net_title')"></div>
+                        <div class="text-[10.5px] text-[var(--text-faint)] mt-1"
+                             x-html="t('hosts_extra.collectors_missing.net_body', {
+                               metric: '<code class=\'mono text-[var(--text-dim)]\'>node_network_*</code>',
+                               flag: '<code class=\'mono text-[var(--text-dim)]\'>--collector.netstats</code>'
+                             })"></div>
+                      </div>
+                    </div>
+                  </template>
+                  <template x-if="hostChart(hostHistoryKey(h), 'nr') && hostChartMax(hostHistoryKey(h), ['nr','ns']) === 0 && !hostCollectorMissing(h, 'net')">
                     <div class="collecting-block">
                       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
                       <div>
@@ -6542,7 +6562,27 @@
                       </div>
                     </div>
                   </template>
-                  <template x-if="hostChart(hostHistoryKey(h), 'dr') && hostChartMax(hostHistoryKey(h), ['dr','dw']) === 0">
+                  <!-- #347 — node-exporter on this host never produced a
+                       non-null `node_disk_*` sample in the window. The
+                       generic "no disk I/O activity" branch below would
+                       suggest waiting; the metric is permanently
+                       missing instead. Show remediation copy (enable
+                       `--collector.diskstats`). Fires BEFORE the idle
+                       branch so it wins the race. -->
+                  <template x-if="hostChart(hostHistoryKey(h), 'dr') && hostChartMax(hostHistoryKey(h), ['dr','dw']) === 0 && hostCollectorMissing(h, 'disk_io')">
+                    <div class="collecting-block">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/></svg>
+                      <div>
+                        <div x-text="t('hosts_extra.collectors_missing.disk_io_title')"></div>
+                        <div class="text-[10.5px] text-[var(--text-faint)] mt-1"
+                             x-html="t('hosts_extra.collectors_missing.disk_io_body', {
+                               metric: '<code class=\'mono text-[var(--text-dim)]\'>node_disk_*</code>',
+                               flag: '<code class=\'mono text-[var(--text-dim)]\'>--collector.diskstats</code>'
+                             })"></div>
+                      </div>
+                    </div>
+                  </template>
+                  <template x-if="hostChart(hostHistoryKey(h), 'dr') && hostChartMax(hostHistoryKey(h), ['dr','dw']) === 0 && !hostCollectorMissing(h, 'disk_io')">
                     <div class="collecting-block">
                       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
                       <div>

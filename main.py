@@ -4534,9 +4534,14 @@ async def api_hosts_history(system_id: str = "", hours: int = 1, host_id: str = 
         from logic import host_metrics_sampler as _hms
         try:
             series = _hms.history_series(hid, h)
+            # Per-metric "did the collector ever report?" diagnostic
+            # (#347). Lets the SPA tell "host is just idle" from
+            # "exporter doesn't expose node_disk_* / node_network_*"
+            # — different empty-state copy + different remediation.
+            collectors = _hms.series_collectors_present(hid, h)
         except Exception as e:
             return {"series": [], "error": f"host_metrics_sampler: {e}"}
-        return {"series": series, "error": None}
+        return {"series": series, "collectors": collectors, "error": None}
 
     if not sid:
         return {"series": [], "error": "system_id or host_id required"}

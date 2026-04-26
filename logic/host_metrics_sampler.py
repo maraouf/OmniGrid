@@ -446,6 +446,49 @@ def last_samples(host_id: str, limit: int = 5) -> list[dict]:
     return [_shape_row(r) for r in rows]
 
 
+def series_collectors_present(host_id: str, hours: int) -> dict:
+    """Did the sampler EVER record a non-null disk-I/O / net rate for
+    this host in the given window?
+
+    Used by the host drawer's empty-state copy to distinguish:
+      - "No activity in this window" — collector IS reporting, just idle.
+      - "Exporter doesn't expose `node_disk_*`" — collector is permanently
+        missing on this host's node-exporter (operator needs to enable
+        ``--collector.diskstats`` / ``--collector.netstats``).
+
+    ``history_series`` masks NULL → 0 to keep the chart math simple, so
+    the SPA can't tell the two cases apart from the series alone. This
+    helper walks the raw rows and reports per-metric whether any
+    non-null value exists. The frontend gates collector-missing copy on
+    the result. False here means "every sample had NULL for that key" —
+    a strong signal the collector isn't enabled (the alternative
+    explanation is "two-tick window too short to compute any rate",
+    but two ticks at 60–300s cadence is enough to rule that out).
+
+    Filesystem and memory keys (`mem_total`, `disk_total`) round out
+    the diagnostic: an exporter with ONLY the meminfo + filesystem
+    collectors enabled produces a row where mem/disk gauges are set
+    but rate fields are NULL — that's the canonical "stripped exporter"
+    signal we want to surface.
+    """
+    hours = max(1, min(168, int(hours or 1)))
+    since = int(time.time() - hours * 3600)
+    raw = recent_samples(host_id, since, limit=hours * 60)
+    has = {"disk_io": False, "net": False, "fs": False, "mem": False, "cpu": False}
+    for r in raw:
+        if r.get("disk_read_bps") is not None or r.get("disk_write_bps") is not None:
+            has["disk_io"] = True
+        if r.get("net_rx_bps") is not None or r.get("net_tx_bps") is not None:
+            has["net"] = True
+        if r.get("disk_total"):
+            has["fs"] = True
+        if r.get("mem_total"):
+            has["mem"] = True
+        if r.get("cpu_percent") is not None:
+            has["cpu"] = True
+    return has
+
+
 def history_series(host_id: str, hours: int) -> list[dict]:
     """Read rows from the table and shape them as a Beszel-compatible series.
 
