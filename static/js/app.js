@@ -595,6 +595,11 @@ function app() {
     // setting `me.session_secret_auto` so the banner disappears.
     sessionSecretWarningDismissed: (typeof sessionStorage !== 'undefined' &&
                                     sessionStorage.getItem('sessionSecretWarningDismissed') === '1') || false,
+    // Same dismissal pattern as the SESSION_SECRET banner — per-session,
+    // re-appears after a restart so the operator sees the reminder until
+    // they actually clear the env vars (#370 / UX-004).
+    bootstrapEnvWarningDismissed: (typeof sessionStorage !== 'undefined' &&
+                                    sessionStorage.getItem('bootstrapEnvWarningDismissed') === '1') || false,
 
     async init() {
       // Expose the live Alpine component instance globally for the
@@ -782,6 +787,10 @@ function app() {
     dismissSessionSecretWarning() {
       this.sessionSecretWarningDismissed = true;
       try { sessionStorage.setItem('sessionSecretWarningDismissed', '1'); } catch (_) {}
+    },
+    dismissBootstrapEnvWarning() {
+      this.bootstrapEnvWarningDismissed = true;
+      try { sessionStorage.setItem('bootstrapEnvWarningDismissed', '1'); } catch (_) {}
     },
 
     // --- Profile: password strength meter -------------------------------
@@ -1938,6 +1947,12 @@ function app() {
           this._hostStatsBaseline = this._hostStatsSnapshot();
           // Refresh items so the new nodes_info fields land immediately.
           this.refresh(true);
+          // ALSO re-fetch /api/hosts/list with force=true so the next
+          // host-data render bypasses the 10s `_host_provider_cache`
+          // memo (#367 / UX-001). Without this, host rows could show
+          // "Refreshing host data…" or stale provider state for up to
+          // 10s after the save toast.
+          this.loadHosts(true);
         } else {
           const j = await r.json().catch(() => ({}));
           this.showToast(j.detail || this.t('toasts.save_failed'), 'error');
@@ -7609,6 +7624,33 @@ function app() {
         if (pos >= 0) {
           const per = this.hostsConfigPerPage || 50;
           this.hostsConfigGoToPage(Math.floor(pos / per) + 1);
+        } else if ((this.hostsConfigFilter || '').trim()) {
+          // Field error lives on a row that's been filtered out — the
+          // page-jump above silently fails and the operator sees a
+          // generic "Save failed" toast with no actionable target. Show
+          // a SweetAlert with a one-click "Clear filter" action so they
+          // can reach the offending row (#368 / UX-002).
+          if (typeof Swal !== 'undefined') {
+            Swal.fire({
+              icon: 'warning',
+              title: this.t('admin_hosts.errors.filtered_title'),
+              text: this.t('admin_hosts.errors.filtered_body'),
+              confirmButtonText: this.t('admin_hosts.errors.filtered_clear'),
+              showCancelButton: true,
+              cancelButtonText: this.t('actions.cancel'),
+            }).then((result) => {
+              if (result.isConfirmed) {
+                this.hostsConfigFilter = '';
+                this.$nextTick(() => this.focusFirstFieldError());
+              }
+            });
+            return;
+          }
+          this.showToast(
+            this.t('admin_hosts.errors.filtered_body'),
+            'error',
+          );
+          return;
         }
       }
       // Best-effort DOM lookup — errors are keyed by a stable id and
@@ -8413,10 +8455,15 @@ function app() {
     //      simultaneous Webmin+NE probes). Each response splices its
     //      row back into `this.hosts`, flipping _loading false and
     //      filling in stats. Alpine's proxy picks up the mutation.
-    async loadHosts() {
+    async loadHosts(force = false) {
       this.hostsLoading = true;
       try {
-        const r = await fetch('/api/hosts/list');
+        // `force=true` bypasses the backend's 10s `_host_provider_cache`
+        // memo so a settings save → next loadHosts immediately reflects
+        // the new provider state (#367 / UX-001). Default polling path
+        // stays cached.
+        const url = force ? '/api/hosts/list?force=true' : '/api/hosts/list';
+        const r = await fetch(url);
         if (!r.ok) {
           this.hostsError = `HTTP ${r.status}`;
           this.hosts = [];

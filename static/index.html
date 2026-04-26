@@ -474,6 +474,23 @@
               :title="t('warnings.session_secret_auto.dismiss_title')">✕</button>
     </div>
 
+    <!-- #370 / UX-004: Bootstrap-admin env vars still set in .env even
+         though the users table is non-empty. Bootstrap path is now a
+         no-op on every restart, but a wiped DB would silently re-seed
+         from the env values + the password is sitting plaintext on
+         disk. Same dismissable shape as the SESSION_SECRET banner. -->
+    <div x-show="me && me.role === 'admin' && me.bootstrap_env_still_set && !bootstrapEnvWarningDismissed"
+         class="rounded-md border border-[var(--warning)] bg-[color-mix(in_srgb,var(--warning)_10%,var(--surface))] px-4 py-2.5 mb-3 flex items-start gap-3 text-[12.5px]">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-[var(--warning)] flex-shrink-0 mt-0.5"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+      <div class="flex-1 min-w-0">
+        <div class="font-semibold text-[var(--text)]" x-text="t('warnings.bootstrap_env_still_set.title')"></div>
+        <div class="text-[var(--text-dim)] mt-0.5" x-text="t('warnings.bootstrap_env_still_set.body')"></div>
+      </div>
+      <button @click="dismissBootstrapEnvWarning()"
+              class="btn btn-ghost text-[11px] flex-shrink-0"
+              :title="t('warnings.bootstrap_env_still_set.dismiss_title')">✕</button>
+    </div>
+
     <!-- BULK BAR — only shown to admins (readonly can select for inspection but not act). -->
     <div x-show="selected.length>0 && isAdmin()"
          class="sticky top-[108px] z-20 bg-[var(--surface)] border border-[var(--border-bright)] rounded-md px-4 py-2 flex items-center gap-3 mb-3 shadow-lg fade-in">

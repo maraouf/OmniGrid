@@ -13,6 +13,11 @@
       "title": "SESSION_SECRET not set — sessions will not survive a restart",
       "body": "OmniGrid generated an ephemeral session-signing key at boot because the SESSION_SECRET env var is unset. Every container restart invalidates every active session (yours included), forcing all users to log in again. Set SESSION_SECRET in /app/.env to a stable random value to fix this.",
       "dismiss_title": "Dismiss for this browser session (will reappear after the next OmniGrid restart)"
+    },
+    "bootstrap_env_still_set": {
+      "title": "Bootstrap admin credentials still in /app/.env",
+      "body": "BOOTSTRAP_ADMIN_USER and BOOTSTRAP_ADMIN_PASSWORD are still set in your .env file. The seed path is now a no-op (users already exist), but a wiped DB would silently re-seed an admin from these values, AND the password is sitting plaintext on disk. Blank both vars in /app/.env and redeploy.",
+      "dismiss_title": "Dismiss for this browser session (will reappear after the next OmniGrid restart until the env vars are cleared)"
     }
   },
   "errors": {
@@ -1142,6 +1147,11 @@
     },
     "test": {
       "no_eligible": "No enabled hosts with provider mappings to test."
+    },
+    "errors": {
+      "filtered_title": "Validation errors on filtered-out rows",
+      "filtered_body": "One or more rows have validation errors but live on rows hidden by the current filter. Clear the filter to reach them.",
+      "filtered_clear": "Clear filter"
     },
     "webmin_test_url_required": "Enter a Webmin URL to test.",
     "autofill": {
