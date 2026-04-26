@@ -511,6 +511,7 @@ function app() {
       { id: 'sessions',       label: 'Sessions' },
       { id: 'tokens',         label: 'API tokens' },
       { id: 'notifications',  label: 'Notifications' },
+      { id: 'general',        label: 'General' },
       { id: 'portainer',      label: 'Portainer' },
       { id: 'oidc',           label: 'Authentik OIDC' },
       { id: 'host_stats',     label: 'Host stats' },
@@ -1303,7 +1304,7 @@ function app() {
       // The four ex-Settings sections all read from the same /api/settings
       // payload, so a single load covers all of them. Load on every
       // open so edits from another tab don't go stale.
-      else if (['notifications', 'portainer', 'oidc', 'host_stats'].includes(tab)) {
+      else if (['notifications', 'general', 'portainer', 'oidc', 'host_stats'].includes(tab)) {
         await this.loadSettings();
       }
       else if (tab === 'hosts') {
@@ -4162,9 +4163,19 @@ function app() {
     },
     async saveSettings() {
       try {
+        // Per-event notification toggles (#375) are stored on
+        // `settings` as JS booleans (resolved server-side by
+        // get_setting_bool) but the SettingsIn validator expects
+        // "true"/"false"/""(=clear) strings. Normalise on the way out
+        // so the round-trip stays clean and a single Save POST covers
+        // BOTH the Apprise URL/tag AND the event grid in this tab.
+        const payload = { ...this.settings };
+        for (const k of (this.notifyEventKeys || [])) {
+          if (k in payload) payload[k] = payload[k] ? 'true' : 'false';
+        }
         const r = await fetch('/api/settings', {
           method: 'POST', headers: {'Content-Type':'application/json'},
-          body: JSON.stringify(this.settings),
+          body: JSON.stringify(payload),
         });
         if (!r.ok) throw new Error(await r.text());
         // Re-capture per-tab baselines under the unified dirty-tracking
@@ -4184,15 +4195,62 @@ function app() {
     // baseline captured by loadSettings / saveX, so reverting a typed
     // edit clears the indicator. Mirror of profileDirty / assetDirty /
     // hostStatsDirty.
+    // The 12 per-event notification keys (#375). Single source of
+    // truth for the snapshot, the markup, and the convenience-button
+    // helpers — keep in lock-step with logic/ops.py:notify(event=...)
+    // and the SettingsIn _NOTIFY_EVENT_KEYS tuple in main.py.
+    notifyEventKeys: [
+      'notify_event_stack_update_success',
+      'notify_event_stack_update_failure',
+      'notify_event_container_update_success',
+      'notify_event_container_update_failure',
+      'notify_event_container_restart_success',
+      'notify_event_container_restart_failure',
+      'notify_event_container_remove_success',
+      'notify_event_container_remove_failure',
+      'notify_event_service_restart_success',
+      'notify_event_service_restart_failure',
+      'notify_event_prune_success',
+      'notify_event_prune_failure',
+    ],
+    // Group rows for the events grid — label key + (success_key,
+    // failure_key) pair. Drives the markup render so the table stays
+    // declarative.
+    notifyEventGroups: [
+      { label: 'stack_update',       success: 'notify_event_stack_update_success',       failure: 'notify_event_stack_update_failure' },
+      { label: 'container_update',   success: 'notify_event_container_update_success',   failure: 'notify_event_container_update_failure' },
+      { label: 'container_restart',  success: 'notify_event_container_restart_success',  failure: 'notify_event_container_restart_failure' },
+      { label: 'container_remove',   success: 'notify_event_container_remove_success',   failure: 'notify_event_container_remove_failure' },
+      { label: 'service_restart',    success: 'notify_event_service_restart_success',    failure: 'notify_event_service_restart_failure' },
+      { label: 'prune',              success: 'notify_event_prune_success',              failure: 'notify_event_prune_failure' },
+    ],
     _appriseSnapshot() {
       const s = this.settings || {};
+      const events = {};
+      for (const k of this.notifyEventKeys) events[k] = !!s[k];
       return JSON.stringify({
         enabled: !!s.apprise_enabled,
         url:     s.apprise_url || '',
         tag:     s.apprise_tag || '',
+        events,
       });
     },
     appriseDirty()   { return this._appriseBaseline   !== this._appriseSnapshot(); },
+    // Convenience-button handlers for the per-event grid. They mutate
+    // settings in-place; the smart-getter dirty pattern picks the
+    // change up automatically. Save still goes through the existing
+    // Apprise Save button (saveSettings).
+    setAllNotifyEvents(value) {
+      const v = !!value;
+      for (const k of this.notifyEventKeys) this.settings[k] = v;
+    },
+    setNotifyEventsErrorsOnly() {
+      // Errors-only = failure true, success false for every group.
+      for (const g of this.notifyEventGroups) {
+        this.settings[g.success] = false;
+        this.settings[g.failure] = true;
+      }
+    },
     _debugSnapshot() {
       const s = this.settings || {};
       return JSON.stringify({

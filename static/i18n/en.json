@@ -427,6 +427,7 @@
       "sessions": "Sessions",
       "tokens": "API tokens",
       "notifications": "Notifications",
+      "general": "General",
       "portainer": "Portainer",
       "oidc": "Authentik OIDC",
       "host_stats": "Host Stats",
@@ -440,6 +441,28 @@
       "config": "Config",
       "version": "Version",
       "debug": "Debug"
+    },
+    "general": {
+      "title": "General",
+      "subtitle": "UI-side service settings that don't fit auth, hosts, scheduling, or notifications. Today: Open-Meteo (topbar weather widget). Future home for any other ambient/UI integrations."
+    },
+    "notifications": {
+      "events": {
+        "title": "Per-event notifications",
+        "subtitle": "Enable / disable specific notification events. Test notifications always send regardless of these toggles.",
+        "test_always_sends": "Test notifications always send regardless of these toggles.",
+        "success": "Success",
+        "failure": "Failure",
+        "stack_update": "Stack updates",
+        "container_update": "Container updates",
+        "container_restart": "Container restarts",
+        "container_remove": "Container removals",
+        "service_restart": "Service restarts",
+        "prune": "Prune operations",
+        "enable_all": "Enable all",
+        "disable_all": "Disable all",
+        "errors_only": "Errors only"
+      }
     },
     "config": {
       "title": "Process tunables",
