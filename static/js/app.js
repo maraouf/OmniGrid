@@ -508,6 +508,13 @@ function app() {
     // Profile form state — mirrors the `me` snapshot but held separately
     // so the user can edit without losing unsaved changes across refetches.
     profileForm: { display_name: '', bio: '', email: '', notify_events: {} },
+    // Sub-tab for the Profile page (#378). 'profile' = identity +
+    // about + topbar widgets + 2FA cards; 'notifications' = the
+    // per-user notify-event grid + bulk action buttons. Avatar
+    // sidebar stays visible on both. Default 'profile' so existing
+    // entry-points (avatar dropdown → Profile) land where they
+    // always have.
+    profileTab: 'profile',
     // Baseline snapshot string of the profile form, captured by
     // syncProfileForm() and refreshed by saveProfile(). Drives
     // profileDirty() so reverting an edit clears the amber ring.
@@ -674,6 +681,15 @@ function app() {
           // can read this.me.ui_prefs.
           if (typeof this.applyServerUiPrefs === 'function') {
             this.applyServerUiPrefs();
+          }
+          // Capture the header-prefs dirty baseline AFTER hydration
+          // (#379). The baseline initialiser is `''` (the empty
+          // string sentinel set on the data() block) and the
+          // snapshot helper returns a populated JSON string, so
+          // without this re-baseline the form always reads dirty
+          // until the first Save click.
+          if (typeof this._headerPrefsSnapshot === 'function') {
+            this._headerPrefsBaseline = this._headerPrefsSnapshot();
           }
           // #345 — fetch TOTP status alongside /api/me so the Profile
           // section can render its 2FA card without a click-induced
@@ -2780,6 +2796,48 @@ function app() {
       }
     },
 
+    // Per-user force-2FA toggle (#376). Admin flips this flag to make
+    // a specific user MUST have 2FA on regardless of the global
+    // role-policy. Forcing on a user who hasn't enrolled yet causes
+    // their next login to land in the forced-enrolment QR flow.
+    async adminForceTotp(u, force) {
+      if (u.auth_source !== 'local') {
+        this.showToast(this.t('toasts.authentik_change_pw_here'), 'error');
+        return;
+      }
+      const titleKey = force
+        ? 'admin.users.totp_force_confirm_title'
+        : 'admin.users.totp_unforce_confirm_title';
+      const bodyKey = force
+        ? 'admin.users.totp_force_confirm_body'
+        : 'admin.users.totp_unforce_confirm_body';
+      const res = await Swal.fire({
+        title: this.t(titleKey, { name: u.username }),
+        text: this.t(bodyKey),
+        icon: 'question', showCancelButton: true,
+        confirmButtonText: this.t('actions.confirm'),
+        cancelButtonText: this.t('actions.cancel'),
+        confirmButtonColor: this._cssVar('--primary'),
+      });
+      if (!res.isConfirmed) return;
+      try {
+        const r = await fetch('/api/users/' + u.id + '/totp-force', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ force: !!force }),
+        });
+        if (!r.ok) {
+          const j = await r.json().catch(() => ({}));
+          this.showToast(j.detail || this.t('toasts.totp_force_failed'), 'error');
+          return;
+        }
+        this.showToast(this.t(force ? 'toasts.totp_forced_on' : 'toasts.totp_force_cleared'));
+        await this.loadUsers();
+      } catch (_) {
+        this.showToast(this.t('toasts.network_error'), 'error');
+      }
+    },
+
     async loadSessions() {
       try {
         const r = await fetch('/api/sessions');
@@ -4604,6 +4662,33 @@ function app() {
       for (const g of this.notifyEventGroups) {
         this.settings[g.success] = false;
         this.settings[g.failure] = true;
+      }
+    },
+    // User-side convenience handlers (#378). Mutate profileForm.notify_events
+    // (the per-user opt-in map keyed by BARE event name — no
+    // notify_event_ prefix) and respect the admin-disabled gate so
+    // the user can't bulk-enable an event the admin has globally
+    // turned off (the backend would 400 such an attempt anyway).
+    _bareEventName(k) { return String(k || '').replace(/^notify_event_/, ''); },
+    setAllUserNotifyEvents(value) {
+      const v = !!value;
+      const f = this.profileForm || {};
+      if (!f.notify_events) f.notify_events = {};
+      for (const k of this.notifyEventKeys) {
+        if (this.userNotifyEventDisabledByAdmin(k)) continue;
+        f.notify_events[this._bareEventName(k)] = v;
+      }
+    },
+    setUserNotifyEventsErrorsOnly() {
+      const f = this.profileForm || {};
+      if (!f.notify_events) f.notify_events = {};
+      for (const g of this.notifyEventGroups) {
+        if (!this.userNotifyEventDisabledByAdmin(g.success)) {
+          f.notify_events[this._bareEventName(g.success)] = false;
+        }
+        if (!this.userNotifyEventDisabledByAdmin(g.failure)) {
+          f.notify_events[this._bareEventName(g.failure)] = true;
+        }
       }
     },
     _debugSnapshot() {

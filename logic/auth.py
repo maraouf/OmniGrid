@@ -252,6 +252,13 @@ def init_auth_schema(conn: sqlite3.Connection) -> None:
         "ALTER TABLE users ADD COLUMN totp_backup_codes_json TEXT",
         "ALTER TABLE users ADD COLUMN totp_failed_attempts INTEGER NOT NULL DEFAULT 0",
         "ALTER TABLE users ADD COLUMN totp_locked_until INTEGER",
+        # Per-user force-2FA override (#376). Admin-only flag that
+        # overrides the global totp_required_for_admins / _users
+        # policy: when 1, this specific user MUST have 2FA on, even
+        # if the global policy doesn't require it for their role.
+        # Authentik users still skip — auth_source='local' gate
+        # short-circuits TOTP everywhere.
+        "ALTER TABLE users ADD COLUMN totp_force_required INTEGER NOT NULL DEFAULT 0",
     ):
         try:
             conn.execute(ddl)
@@ -275,19 +282,27 @@ class User:
     # User dataclass -- callers fetch via get_user_totp_secret to reduce
     # the surface where it could leak into a serialised payload.
     totp_enabled: bool = False
+    # Per-user force-2FA override (#376). Defaults False so existing
+    # User constructions don't need updating.
+    totp_force_required: bool = False
 
 
 def _row_to_user(r: sqlite3.Row) -> User:
-    # Older rows (pre-#345) won't have totp_enabled; sqlite3.Row's keys
-    # work like dict keys, so probe via Index lookup with a try/except.
+    # Older rows (pre-#345 / pre-#376) won't have these columns; sqlite3.Row's
+    # keys work like dict keys, so probe via Index lookup with a try/except.
     try:
         totp_on = bool(r["totp_enabled"])
     except (KeyError, IndexError):
         totp_on = False
+    try:
+        totp_forced = bool(r["totp_force_required"])
+    except (KeyError, IndexError):
+        totp_forced = False
     return User(
         id=r["id"], username=r["username"], email=r["email"],
         role=r["role"], auth_source=r["auth_source"], disabled=bool(r["disabled"]),
         totp_enabled=totp_on,
+        totp_force_required=totp_forced,
     )
 
 
@@ -394,20 +409,35 @@ def change_password(
 
 
 def list_users(conn: sqlite3.Connection) -> list[dict]:
-    """Return every user as a dict (id, username, email, role, auth_source,
-    disabled, created_at, last_login_at, totp_enabled) for the admin UI.
+    """Return every user as a dict for the admin UI.
 
-    ``totp_enabled`` is exposed so Admin -> Users can render the 2FA
-    column + the "Disable 2FA" action without an extra round-trip.
-    The encrypted secret + backup codes are deliberately NOT returned.
+    Includes ``totp_enabled`` (rendered as the 2FA column's on/off pill)
+    and ``totp_force_required`` (the per-user policy override from #376
+    that flips the pill to "Required" + enables the Force/Unforce
+    button). The encrypted secret + backup codes are deliberately NOT
+    returned — they never need to leave the server.
     """
     rows = conn.execute("""
         SELECT id, username, email, role, auth_source, disabled,
-               created_at, last_login_at, totp_enabled
+               created_at, last_login_at, totp_enabled, totp_force_required
         FROM users
         ORDER BY username COLLATE NOCASE
     """).fetchall()
     return [dict(r) for r in rows]
+
+
+def set_user_totp_force_required(conn: sqlite3.Connection, user_id: int, force: bool) -> None:
+    """Admin-only: flip the per-user force-2FA flag (#376).
+
+    No effect on Authentik users — the call sites guard on auth_source
+    upstream so we don't need to re-check here. Doesn't touch any other
+    TOTP state; the user's existing secret / backup codes stay intact
+    when the force is toggled OFF.
+    """
+    conn.execute(
+        "UPDATE users SET totp_force_required=? WHERE id=?",
+        (1 if force else 0, user_id),
+    )
 
 
 def count_active_admins(conn: sqlite3.Connection) -> int:
