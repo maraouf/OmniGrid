@@ -923,7 +923,7 @@ async def _run_backup(params: dict) -> tuple[str, Awaitable[tuple[int, str]]]:
 async def _run_asset_inventory_refresh(
     params: dict,
 ) -> tuple[str, Awaitable[tuple[int, str]]]:
-    """Refresh the oufa.co asset inventory cache.
+    """Refresh the <asset-api-host> asset inventory cache.
 
     No ops.py Operation — like :func:`_run_gather_refresh` and
     :func:`_run_backup`, this kind writes a ``history`` row directly

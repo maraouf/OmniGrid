@@ -7935,7 +7935,7 @@ function app() {
     // scan avoids the staleness risk of a memoised index when the
     // cache reloads. Returns `null` when no match or no cache.
     //
-    // Field-name strategy: oufa.co's MDI ships CamelCase + nested
+    // Field-name strategy: <asset-api-host>'s MDI ships CamelCase + nested
     // (`Brand: {Name}`, `Location: {CalculatedName}`, `Type: {Name}`,
     // `SerialNumber`, `Model`, `CustomNumber`, `Hostname` (CSV string),
     // `Interfaces[].IP`). We also accept the snake_case aliases
@@ -8050,7 +8050,7 @@ function app() {
           type:      pick(a.Type, a.type),
           // Type SHORT-form — render a compact `[VM]` / `[PHY]` / etc.
           // badge when the upstream Type object carries any short-form
-          // alias. oufa.co's payloads have surfaced multiple casings
+          // alias. <asset-api-host>'s payloads have surfaced multiple casings
           // for this field across asset rows ("Virtual Machine" with
           // shortname "VM", "Physical Server" with code "PHY"), so we
           // walk every plausible naming the team has used. Returns ''
@@ -8141,7 +8141,7 @@ function app() {
           );
         }
       }
-      // Source of truth is the asset's `ShortName` (oufa.co MDI
+      // Source of truth is the asset's `ShortName` (<asset-api-host> MDI
       // §5.2.4, exposed by `shape_asset` as `type_short`). When the
       // operator hasn't set a ShortName upstream, fall back to the
       // long Type.Name verbatim — never invent an abbreviation,
@@ -8171,7 +8171,7 @@ function app() {
     //      operator-configured prefix or template. If it contains
     //      a `{id}` placeholder we substitute; otherwise we append
     //      the asset id to the end (so a bare prefix like
-    //      "https://www.oufa.co/admin/pages/assets/asset_management.php?s=edit&si="
+    //      "https://<asset-api-host>/admin/pages/assets/asset_management.php?s=edit&si="
     //      produces "...&si=42" with no extra plumbing).
     //   2. Fallback: derive from `assetCache.upstream` by stripping
     //      `/api` and appending `?asset=<id>` — a reasonable guess
@@ -8508,7 +8508,7 @@ function app() {
       if (this.me && this.me.role === 'admin') return true;
       // Asset-inventory match → expandable even without live data.
       // The drawer surfaces vendor / model / serial / interfaces /
-      // ports from the cached oufa.co row, so a host with NO live
+      // ports from the cached <asset-api-host> row, so a host with NO live
       // providers (FTTH routers / 5G modems / etc. that nothing
       // scrapes) still has something worth opening.
       if (this.assetForHost(h)) return true;

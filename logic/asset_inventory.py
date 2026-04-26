@@ -1,4 +1,4 @@
-"""Asset inventory consumer — OAuth2 client_credentials against oufa.co.
+"""Asset inventory consumer — OAuth2 client_credentials against <asset-api-host>.
 
 V1 contract (see notes/research/notes_personal_site_integration.txt):
 
@@ -29,7 +29,7 @@ from logic import errors as _err
 
 DEFAULT_CACHE_PATH = "/app/data/asset_inventory.json"
 DEFAULT_LIST_PATH = "/assets"
-# Lifetime-token auth mode (oufa.co's `services.php` endpoint). POST
+# Lifetime-token auth mode (<asset-api-host>'s `services.php` endpoint). POST
 # form-encoded with `X-Authorization: Bearer <key>` — no token exchange,
 # one request per refresh. Operator pastes the static key into Admin.
 DEFAULT_LIFETIME_LIST_PATH = "/services.php"
@@ -61,7 +61,7 @@ async def probe_token(
         base_data["scope"] = scope
     # RFC 6749 §2.3.1 allows client authentication via EITHER Basic
     # header OR form body parameters; servers pick one. Keycloak /
-    # Authentik accept both; Oracle APEX (oufa.co's flavour) REJECTS
+    # Authentik accept both; Oracle APEX (<asset-api-host>'s flavour) REJECTS
     # Basic with "missing username or password in client_credentials
     # grant Ex3552" and requires body params. So: try Basic first
     # (standards-preferred), fall back to body params on 400/401 so
@@ -75,7 +75,7 @@ async def probe_token(
           - "basic"    — RFC 6749 §2.3.1 Basic auth header (default).
           - "body"     — RFC-allowed body params `client_id` +
                          `client_secret`.
-          - "userpass" — oufa.co / Oracle APEX flavour: body params
+          - "userpass" — <asset-api-host> / Oracle APEX flavour: body params
                          named `username` + `password` (token
                          selector goes in username, secret in
                          password). Documented in the upstream's
@@ -98,7 +98,7 @@ async def probe_token(
             body = dict(base_data)
             body["client_id"] = client_id
             body["client_secret"] = client_secret
-        else:  # "userpass" — oufa.co / APEX style
+        else:  # "userpass" — <asset-api-host> / APEX style
             headers = {
                 "Content-Type": "application/x-www-form-urlencoded",
                 "Accept": "application/json",
@@ -135,7 +135,7 @@ async def probe_token(
                   f"retrying with body-param credentials. preview={preview[:160]!r}")
             status, preview, payload = await _post("body")
             attempts.append(("body", status, preview))
-        # Fallback 2: oufa.co / APEX non-standard `username`+`password`
+        # Fallback 2: <asset-api-host> / APEX non-standard `username`+`password`
         # body fields. Only triggered when the server literally says
         # "missing username or password" — we don't want to leak the
         # secret into an arbitrary server's form-fields blindly.
@@ -224,12 +224,12 @@ async def fetch_assets(
     return {"ok": True, "assets": assets, "error": ""}
 
 
-_PAGE_SIZE = 50   # ASSET_SERVICES_DATABASE_RECORDS_LIMITS default (see oufa.co API guide §4.1.3)
+_PAGE_SIZE = 50   # ASSET_SERVICES_DATABASE_RECORDS_LIMITS default (see <asset-api-host> API guide §4.1.3)
 _ERR_NO_RECORDS = "1686"  # ERROR_1686 "no matching records" — tolerated as empty batch
 
 
 def _normalize_code(raw: Any) -> str:
-    """Strip oufa.co's ``Ex`` prefix from a response ``code`` field.
+    """Strip <asset-api-host>'s ``Ex`` prefix from a response ``code`` field.
 
     Upstream returns codes either as ``"Ex1686"`` or as bare ``"1686"``
     depending on the action / version. Normalising to the bare numeric
@@ -256,7 +256,7 @@ _ASSET_ENVELOPE_KEYS = {
 def _extract_assets_from_payload(payload: Any) -> list:
     """Pull a list of assets out of the upstream JSON response.
 
-    oufa.co's response envelope puts the data under an action-specific
+    <asset-api-host>'s response envelope puts the data under an action-specific
     key. The asset-range action uses ``result``; the single-row
     actions use ``asset`` (see §5 of the API guide — "<payload-key>:
     { … } varies per action"). The extractor handles three shapes
@@ -336,7 +336,7 @@ def _extract_assets_from_payload(payload: Any) -> list:
     return []
 
 
-async def _post_oufa(
+async def _post_asset_api(
     endpoint_url: str,
     token: str,
     body: dict,
@@ -466,7 +466,7 @@ async def fetch_assets_lifetime_token(
     verify_tls: bool = True,
     timeout: float = 15.0,
 ) -> dict:
-    """Fetch assets via oufa.co's lifetime-token auth flavour.
+    """Fetch assets via <asset-api-host>'s lifetime-token auth flavour.
 
     POST form-encoded to ``endpoint_url`` (full URL — already includes
     the list path) with ``X-Authorization: Bearer <token>`` plus two
@@ -483,7 +483,7 @@ async def fetch_assets_lifetime_token(
     range — are tolerated; other errors bail the whole batch.
 
     Returns ``{"ok", "assets", "error"}``. Envelope parsing is in
-    :func:`_post_oufa` — see §5 of the oufa.co API guide for the full
+    :func:`_post_asset_api` — see §5 of the <asset-api-host> API guide for the full
     contract: ``return == 1`` is success, 0 is failure (with
     ``details`` + ``code`` + ``reference_id``), 2/3 are the
     Processing/Stalled states.
@@ -516,7 +516,7 @@ async def fetch_assets_lifetime_token(
             body["min_value"] = str(int(min_value))
         if max_value is not None:
             body["max_value"] = str(int(max_value))
-        res = await _post_oufa(endpoint_url, token, body, verify_tls, timeout)
+        res = await _post_asset_api(endpoint_url, token, body, verify_tls, timeout)
         out = {"ok": res["ok"], "assets": res["assets"], "error": res["error"]}
         if not res["ok"]:
             out["error_code"] = res.get("error_code", _err.NETWORK_ERROR)
@@ -544,7 +544,7 @@ async def fetch_assets_lifetime_token(
         body = dict(base)
         body["min_value"] = str(cursor)
         body["max_value"] = str(win_hi)
-        res = await _post_oufa(endpoint_url, token, body, verify_tls, timeout)
+        res = await _post_asset_api(endpoint_url, token, body, verify_tls, timeout)
         if not res["ok"]:
             # Tolerate "no matching records" in a window — gaps in the
             # CN range are the norm (deleted assets leave holes).
@@ -663,7 +663,7 @@ async def refresh_cache(
       - ``lifetime_token``: single POST to ``{base_url}{list_path}``
         with ``X-Authorization: Bearer <lifetime_token>`` — no token
         exchange. ``list_path`` defaults to ``/services.php`` in this
-        mode (operators pointing at oufa.co's flavour) but can be
+        mode (operators pointing at <asset-api-host>'s flavour) but can be
         overridden.
 
     Returns a summary dict:
@@ -863,7 +863,7 @@ def shape_asset(a: dict) -> Optional[dict]:
     status_obj = a.get("Status") if isinstance(a.get("Status"), dict) else None
 
     # Type sub-object — walk every plausible "short form" key the
-    # team has surfaced on oufa.co payloads. Mirrors the JS frontend's
+    # team has surfaced on <asset-api-host> payloads. Mirrors the JS frontend's
     # type_short logic so backend-injected /api/hosts* responses carry
     # the abbreviation directly (Virtual Machine → "VM", Physical →
     # "PHY", etc.) without the SPA having to fall back to acronym
