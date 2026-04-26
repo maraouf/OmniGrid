@@ -756,13 +756,15 @@ function app() {
         }
       }
       setInterval(() => this.updateCacheLabel(), 1000);
-      // Tick `hostHistoryNow` every 30s so the host-drawer charts'
-      // "Updated Xm ago" label re-evaluates without re-fetching data
-      // (#363). Re-using a single shared int instead of a per-host
-      // timer keeps the work O(1) regardless of how many drawers the
-      // operator has cycled through.
+      // Tick `hostHistoryNow` every second so the host-drawer charts'
+      // "Updated Xs/Xm/Xh ago" label counts in real time (#363).
+      // Operator needs the seconds digit to tick visibly — a 30s
+      // cadence made the label feel frozen. One int assignment per
+      // second is a negligible cost; Alpine only re-evaluates the
+      // freshness helper on bound elements (the small span near the
+      // time-range picker), so most renders are skipped.
       this.hostHistoryNow = Date.now();
-      setInterval(() => { this.hostHistoryNow = Date.now(); }, 30 * 1000);
+      setInterval(() => { this.hostHistoryNow = Date.now(); }, 1000);
     },
 
     async logout() {
@@ -3639,6 +3641,21 @@ function app() {
         if (!(hostId in this.sshDryRun)) {
           this.sshDryRun = { ...this.sshDryRun, [hostId]: false };
         }
+        // Scroll the just-expanded SSH-run body to the top of the
+        // drawer viewport so the operator doesn't have to scroll
+        // down on a long drawer (#364). $nextTick lets x-show flip
+        // before we measure; data-host-section keeps the selector
+        // stable across host changes.
+        this.$nextTick(() => {
+          const el = document.querySelector(
+            `[data-host-section="ssh-${hostId}"]`,
+          );
+          if (el) {
+            try {
+              el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            } catch (_) {}
+          }
+        });
         await this.loadSshStatus(hostId);
       }
     },
@@ -3877,15 +3894,26 @@ function app() {
       // first WS resize callback will correct it.
       const _MANUAL_CELL_W = 7.85;
       const _MANUAL_CELL_H = 17.5;
+      // Reserve room for xterm's vertical scrollbar so the rightmost
+      // glyph cell never tucks behind the scrollbar gutter when the
+      // pty has filled past the visible rows. 18px is generous enough
+      // to cover all default-styled scrollbars (Chromium ~15px,
+      // Firefox ~12px, Safari ~14px) without making the gap visible.
+      const _MANUAL_SCROLLBAR_RESERVE = 18;
       const measureAndResize = () => {
         if (!term || !container || !container.isConnected) return false;
-        // Try FitAddon first.
-        try {
-          if (fit) fit.fit();
-        } catch (_) {}
-        // Did fit.fit() actually resize past the default? If yes, done.
-        if (term.cols !== 80 || term.rows !== 24) return true;
-        // Fallback: manual measurement. Bypass FitAddon entirely.
+        // Manual measurement path (canonical). FitAddon was the
+        // original approach but its `proposeDimensions()` silently
+        // returns `undefined` on flex children with `min-height: 0`,
+        // AND when it does work it doesn't reserve room for xterm's
+        // own vertical scrollbar — so the rightmost glyph tucks
+        // behind the scrollbar gutter. Manual measurement reads the
+        // container's bounding rect, subtracts CSS padding + the
+        // scrollbar reserve, and divides by known cell metrics for
+        // the configured 13px monospace font. Idempotent: only calls
+        // term.resize() when the computed cols/rows actually differ
+        // from the current value, so ResizeObserver re-fires don't
+        // ratchet the size down.
         const rect = container.getBoundingClientRect();
         if (rect.width < 100 || rect.height < 50) return false;
         const cs = window.getComputedStyle(container);
@@ -3893,8 +3921,10 @@ function app() {
                    + (parseFloat(cs.paddingRight) || 0);
         const padY = (parseFloat(cs.paddingTop) || 0)
                    + (parseFloat(cs.paddingBottom) || 0);
-        const cols = Math.max(20, Math.floor((rect.width  - padX) / _MANUAL_CELL_W));
-        const rows = Math.max(5,  Math.floor((rect.height - padY) / _MANUAL_CELL_H));
+        const usableW = rect.width  - padX - _MANUAL_SCROLLBAR_RESERVE;
+        const usableH = rect.height - padY;
+        const cols = Math.max(20, Math.floor(usableW / _MANUAL_CELL_W));
+        const rows = Math.max(5,  Math.floor(usableH / _MANUAL_CELL_H));
         if (cols !== term.cols || rows !== term.rows) {
           try { term.resize(cols, rows); } catch (_) {}
         }
@@ -8630,25 +8660,50 @@ function app() {
       const open = !this.hostsDebugOpen[hostId];
       this.hostsDebugOpen = { ...this.hostsDebugOpen, [hostId]: open };
       if (open) {
-        // Scroll the just-expanded body to the top of the drawer
-        // viewport so the operator doesn't have to hunt for it on a
-        // long drawer (#364). $nextTick lets x-show flip display
-        // before we measure; querying by data-host-section keeps the
-        // selector tied to the row's stable host id.
-        this.$nextTick(() => {
-          const el = document.querySelector(
-            `[data-host-section="debug-${hostId}"]`,
-          );
-          if (el) {
-            try {
-              el.scrollIntoView({ behavior: 'smooth', block: 'start' });
-            } catch (_) {}
-          }
-        });
+        this._scrollHostSectionIntoView(`debug-${hostId}`);
         if (!this.hostsDebug[hostId] && !this.hostsDebugLoading[hostId]) {
           await this.loadHostDebug(hostId);
         }
       }
+    },
+    // Smooth-scrolls the host-drawer's inner scroller so the named
+    // section (`data-host-section="<kind>-<host_id>"`) lands near the
+    // top (#364). Plain `scrollIntoView({block:'start'})` worked in
+    // Chrome but Safari was scrolling the page instead of the drawer
+    // — so this helper finds the drawer's scrollable ancestor
+    // explicitly and sets `scrollTop` directly. Two rAFs after the
+    // x-show flip ensure layout has been painted before we measure.
+    _scrollHostSectionIntoView(sectionKey) {
+      const sel = `[data-host-section="${sectionKey}"]`;
+      this.$nextTick(() => {
+        requestAnimationFrame(() => requestAnimationFrame(() => {
+          const el = document.querySelector(sel);
+          if (!el) return;
+          // Walk up to the nearest scrollable ancestor — the
+          // host-drawer panel itself in practice.
+          let scroller = el.parentElement;
+          while (scroller) {
+            const cs = window.getComputedStyle(scroller);
+            if ((cs.overflowY === 'auto' || cs.overflowY === 'scroll')
+                && scroller.scrollHeight > scroller.clientHeight) {
+              break;
+            }
+            scroller = scroller.parentElement;
+          }
+          if (scroller) {
+            const rect = el.getBoundingClientRect();
+            const srect = scroller.getBoundingClientRect();
+            const target = scroller.scrollTop + (rect.top - srect.top) - 12;
+            try {
+              scroller.scrollTo({ top: target, behavior: 'smooth' });
+            } catch (_) {
+              scroller.scrollTop = target;
+            }
+          } else {
+            try { el.scrollIntoView({ behavior: 'smooth', block: 'start' }); } catch (_) {}
+          }
+        }));
+      });
     },
     async loadHostDebug(hostId) {
       if (!hostId) return;
