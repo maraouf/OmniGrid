@@ -232,7 +232,7 @@ curl -sS -b /tmp/c https://omnigrid.<host>/api/settings | jq '.oidc'
 
 # Portainer connection status (api_key is never returned)
 curl -sS -b /tmp/c https://omnigrid.<host>/api/settings | jq '.portainer'
-# → {"url":"https://portainer.home.lan:8443",
+# → {"url":"https://portainer.example.com:8443",
 #    "endpoint_id":19,"verify_tls":false,
 #    "api_key_set":true,"configured":true}
 
@@ -307,7 +307,7 @@ curl -sS -b /tmp/c -H "X-CSRF-Token: $CSRF" -X POST \
   -H 'Content-Type: application/json' \
   -d '{
     "oidc_enabled": true,
-    "oidc_issuer_url": "https://authentik.www.home.lan/application/o/omnigrid/",
+    "oidc_issuer_url": "https://authentik.example.com/application/o/omnigrid/",
     "oidc_client_id": "REPLACE-ME",
     "oidc_client_secret": "REPLACE-ME",
     "oidc_admin_group": "omnigrid-admins"
@@ -322,7 +322,7 @@ curl -sS https://omnigrid.<host>/api/auth/providers
 curl -sS -b /tmp/c -H "X-CSRF-Token: $CSRF" -X POST \
   https://omnigrid.<host>/api/oidc/test \
   -H 'Content-Type: application/json' \
-  -d '{"issuer_url":"https://authentik.www.home.lan/application/o/omnigrid/"}'
+  -d '{"issuer_url":"https://authentik.example.com/application/o/omnigrid/"}'
 # → {"ok":true,"status":200,"detail":"OK — issuer: https://..."}
 
 # Configure Portainer from the UI (Settings → Portainer connection).
@@ -331,7 +331,7 @@ curl -sS -b /tmp/c -H "X-CSRF-Token: $CSRF" -X POST \
   https://omnigrid.<host>/api/settings \
   -H 'Content-Type: application/json' \
   -d '{
-    "portainer_url": "https://portainer.home.lan:8443",
+    "portainer_url": "https://portainer.example.com:8443",
     "portainer_api_key": "ptr_REPLACE-ME",
     "portainer_endpoint_id": 19,
     "portainer_verify_tls": false
@@ -397,11 +397,11 @@ longer empty.
 ### 3. Direct SQL (true break-glass)
 
 Use only if `SESSION_SECRET` was lost and sessions can't be minted, or the API is unreachable.
-The deploy target is a Debian 13 VM (hostname `docker.home.lan`, user `pi` — just a unix
+The deploy target is a Debian 13 VM (hostname `docker.example.com`, user `pi` — just a unix
 username, not a Raspberry Pi).
 
 ```bash
-ssh pi@docker.home.lan
+ssh pi@docker.example.com
 # Hash inside the container — bcrypt ships with the app.
 CID=$(docker ps -qf name=omnigrid_omnigrid)
 HASH=$(docker exec -it $CID python3 -c \
@@ -485,12 +485,12 @@ Paste the output into `.env`, commit, push. Users re-authenticate.
 
 ## Initial server setup (do once)
 
-The deploy target is a Debian 13 VM (amd64, 16 GB / 100 GB) reachable at `pi@docker.home.lan`.
+The deploy target is a Debian 13 VM (amd64, 16 GB / 100 GB) reachable at `pi@docker.example.com`.
 The operator creates `/opt/omnigrid/docker-compose.yml` and the `/opt/omnigrid/{app,data,pip-cache}`
 directories once; every subsequent change ships via CI.
 
 ```bash
-ssh pi@docker.home.lan
+ssh pi@docker.example.com
 sudo mkdir -p /opt/omnigrid/{app,data,pip-cache}
 sudo chown -R pi:pi /opt/omnigrid
 # Copy docker-compose.yml from the repo (not synced by CI — operator-owned).

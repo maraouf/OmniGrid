@@ -24,7 +24,7 @@ the DB. After that, Settings → Portainer wins and env changes are ignored. Mar
 — will be removed in a future release once every deploy is UI-managed.
 
 ```ini
-PORTAINER_URL=https://portainer.home.lan:8443
+PORTAINER_URL=https://portainer.example.com:9443
 # Create in Portainer → My account → Access tokens.
 PORTAINER_API_KEY=
 # Usually 1 for the local Swarm endpoint; adjust for multi-endpoint setups.
@@ -129,7 +129,7 @@ The `node_exporter_url_template` validator accepts either `{host}` OR `{ip}` as 
   passwords are write-only (`_set` flag pattern); the API exposes only
   `ssh_default_private_key_set` / `ssh_default_password_set` etc. The `SettingsIn` model accepts
   `clear_ssh_private_key` / `clear_ssh_passphrase` / `clear_ssh_password` flags to explicitly
-  unset a secret. `ssh_fqdn_suffix` (e.g. `.home.lan`) is auto-appended — leading-dot normalised
+  unset a secret. `ssh_fqdn_suffix` (e.g. `.example.com`) is auto-appended — leading-dot normalised
   — to bare host IDs that don't contain a dot.
 - **Scheduler** (`scheduler_timezone` — IANA name).
 

@@ -9,7 +9,7 @@ The `/metrics` endpoint is **implemented** (see `main.py`). It serves Prometheus
 metrics at:
 
 ```
-http://docker.home.lan:9500/metrics
+http://docker.example.com:9500/metrics
 ```
 
 Backend wiring shipped with this endpoint:
@@ -40,8 +40,8 @@ Full URLs you will actually type:
 
 - Local dev → `http://localhost:8088/metrics`
 - Inside Swarm → `http://omnigrid:8088/metrics` (service-name DNS)
-- From the host → `http://docker.home.lan:9500/metrics`
-- Through NPM → `https://omnigrid.home.lan/metrics` (if exposed publicly)
+- From the host → `http://docker.example.com:9500/metrics`
+- Through NPM → `https://omnigrid.example.com/metrics` (if exposed publicly)
 
 Pick ONE of these for Prometheus — whichever shares a network with your Prometheus instance. If
 Prometheus runs on the same Swarm, prefer the service-name form (port 8088); otherwise use the
@@ -202,9 +202,9 @@ scrape_configs:
           # Same Swarm overlay network:
           - omnigrid:8088
           # OR — Prometheus outside the Swarm, host-port form:
-          # - docker.home.lan:9500
+          # - docker.example.com:9500
           # OR — behind NPM (HTTPS):
-          # - omnigrid.home.lan
+          # - omnigrid.example.com
         labels:
           env: home-lab
           app: omnigrid
@@ -219,7 +219,7 @@ Alternate job name used in the homelab deploy:
     scrape_timeout: 10s
     static_configs:
       - targets:
-          - docker.home.lan:9500
+          - docker.example.com:9500
         labels:
           env: home-lab
           app: omnigrid
@@ -249,7 +249,7 @@ http://<prometheus-host>:9090/targets
 Also sanity-check the metrics parse:
 
 ```bash
-curl http://docker.home.lan:9500/metrics | head -40
+curl http://docker.example.com:9500/metrics | head -40
 ```
 
 You should see `HELP` / `TYPE` lines for the metrics listed above.
