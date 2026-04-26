@@ -4757,48 +4757,48 @@ async def api_version():
 
 
 # ----------------------------------------------------------------------------
-# Admin → Version page (#371). Operator-controlled MAJOR.MINOR via the UI;
-# CI-controlled PATCH via the deploy pipeline. Backed by `version_major` /
-# `version_minor` rows in the settings table; PATCH is read from the raw
-# VERSION.txt file (CI-managed, rsync-excluded).
+# Admin → Version page (#371). Each of MAJOR / MINOR / PATCH can be
+# operator-overridden via the UI; anything not overridden falls back to
+# /app/VERSION.txt (the deployment pipeline manages that file, bumping
+# PATCH on every successful deploy; rsync excludes it so deploys can't
+# overwrite the bumped value).
 # ----------------------------------------------------------------------------
 @app.get("/api/admin/version")
 async def api_admin_version(_admin: auth.User = Depends(auth.require_admin)):
     """Return the live version split into its components for the
     Admin → Version form to pre-populate.
 
-    `db_override` is true when MAJOR/MINOR is currently sourced from the
-    settings table; false means the version reflects the raw VERSION.txt
-    content unchanged (legacy / fresh-deploy state).
+    `db_override` is true when ANY of major/minor/patch is currently
+    sourced from the settings table; false means the version reflects
+    the raw VERSION.txt content unchanged (legacy / fresh-deploy state).
     """
-    from logic.version import _read_version_file, _db_version_override, _split_version
+    from logic.version import _read_version_file, _db_version_overrides, _split_version
     raw = _read_version_file()
     file_major, file_minor, file_patch = _split_version(raw)
-    override = _db_version_override()
-    if override is None:
-        major, minor = file_major, file_minor
-        db_override = False
-    else:
-        major, minor = override
-        db_override = True
+    o_major, o_minor, o_patch = _db_version_overrides()
+    major = o_major if o_major is not None else file_major
+    minor = o_minor if o_minor is not None else file_minor
+    patch = o_patch if o_patch is not None else file_patch
+    db_override = (o_major is not None) or (o_minor is not None) or (o_patch is not None)
     return {
         "current": read_version(),
         "raw_file": raw,
         "major": major,
         "minor": minor,
-        "patch": file_patch,
+        "patch": patch,
         "db_override": db_override,
-        # Hint to the UI: file-level MAJOR.MINOR for the "reset to file"
-        # affordance (so the operator can drop the override and let the
-        # raw VERSION.txt content drive again).
+        # File-level components for the "reset to file" affordance, so
+        # the UI can show the raw on-disk value next to the override.
         "file_major": file_major,
         "file_minor": file_minor,
+        "file_patch": file_patch,
     }
 
 
 class VersionPin(BaseModel):
     major: int
     minor: int
+    patch: int
 
 
 @app.post("/api/admin/version")
@@ -4806,29 +4806,28 @@ async def api_admin_version_set(
     body: VersionPin,
     _admin: auth.User = Depends(auth.require_admin),
 ):
-    """Pin MAJOR.MINOR to the values the operator typed in the UI.
+    """Pin MAJOR / MINOR / PATCH to the values the operator typed in the UI.
 
-    Persists to the settings table; the PATCH counter (in VERSION.txt)
-    is unaffected — it remains a monotonic deploy counter that CI bumps
-    on every successful deploy. The next `read_version()` call returns
-    `f"{major}.{minor}.{patch}"`.
+    Persists each to the settings table. The deploy pipeline keeps
+    bumping the on-disk counter in VERSION.txt regardless; the override
+    here wins on every read until the operator clears it.
 
     Returns the same shape as GET so the UI can re-baseline its form.
     """
-    if body.major < 0 or body.minor < 0:
+    if body.major < 0 or body.minor < 0 or body.patch < 0:
         return JSONResponse(
             status_code=400,
-            content={"detail": "major and minor must be non-negative integers"},
+            content={"detail": "major, minor and patch must be non-negative integers"},
         )
-    if body.major > 99 or body.minor > 999:
-        # Sanity bound — version numbers shouldn't be 4-digit. Reject
-        # obvious typos rather than silently persisting them.
+    if body.major > 99 or body.minor > 999 or body.patch > 99999:
+        # Sanity bounds — reject obvious typos.
         return JSONResponse(
             status_code=400,
-            content={"detail": "major must be ≤99, minor must be ≤999"},
+            content={"detail": "major must be ≤99, minor must be ≤999, patch must be ≤99999"},
         )
     set_setting("version_major", str(body.major))
     set_setting("version_minor", str(body.minor))
+    set_setting("version_patch", str(body.patch))
     return await api_admin_version(_admin)
 
 
@@ -4836,14 +4835,14 @@ async def api_admin_version_set(
 async def api_admin_version_clear(
     _admin: auth.User = Depends(auth.require_admin),
 ):
-    """Drop the DB override → fall back to the raw VERSION.txt content.
-
-    Useful when the operator wants to temporarily pin then revert; or
-    when a deploy is supposed to roll the version back to whatever
-    PATCH counter is on disk without manual MAJOR/MINOR edits.
+    """Drop every component override → fall back to the raw VERSION.txt
+    content. Useful when the operator wants to temporarily pin then
+    revert; or when a deploy is supposed to roll the version back to
+    whatever counter is on disk without manual edits.
     """
     set_setting("version_major", "")
     set_setting("version_minor", "")
+    set_setting("version_patch", "")
     return await api_admin_version(_admin)
 
 

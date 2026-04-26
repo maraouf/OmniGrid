@@ -115,14 +115,25 @@
         <template x-for="t in navItems()" :key="t[0]">
           <button @click="view=t[0]"
                   :class="view===t[0] ? 'text-[var(--text)] bg-[var(--surface-2)]' : 'text-[var(--text-dim)] hover:text-[var(--text)]'"
-                  :title="t[1]"
-                  class="px-2 sm:px-3 py-1.5 rounded-md text-[13px] font-medium transition flex items-center gap-1.5">
+                  :title="t[0]==='stacks' && counts.update > 0 ? t('nav.stacks_updates_title', { count: counts.update }) : t[1]"
+                  class="px-2 sm:px-3 py-1.5 rounded-md text-[13px] font-medium transition flex items-center gap-1.5 relative">
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor"
                  stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
                  x-html="navIcon(t[0])"></svg>
             <!-- Label hidden on mobile (icon-only nav). Tooltip via :title
                  still surfaces the name on long-press. -->
             <span x-text="t[1]" class="hidden sm:inline"></span>
+            <!-- Pending-updates badge — only on the Stacks nav so it's
+                 not redundant with Services / Nodes (they're alternate
+                 views over the same items, the count would just repeat).
+                 Wired off `counts.update` which is recomputed on every
+                 /api/items refresh; the ops-polling loop calls
+                 refresh(true) when an update op completes, so the badge
+                 falls back to 0 once the deploy lands without any
+                 manual wiring here. -->
+            <span x-show="t[0]==='stacks' && counts.update > 0"
+                  class="nav-update-badge"
+                  x-text="counts.update"></span>
           </button>
         </template>
       </nav>
@@ -5457,11 +5468,12 @@
       <!-- VERSION TAB (#371) — operator-controlled MAJOR.MINOR;
            CI-controlled PATCH. Replaces the SSH-and-edit-VERSION.txt
            workflow for MINOR bumps. Form pre-populates with the live
-           values; Save persists MAJOR/MINOR to the settings table and
-           the rendered version updates immediately (the SPA's footer
-           reflects the new value via `appVersion`). PATCH is shown
-           read-only — the deploy CI's bump step keeps incrementing
-           it on every successful deploy regardless. -->
+           values; Save persists each component (MAJOR / MINOR / PATCH)
+           to the settings table and the rendered version updates
+           immediately (the SPA's footer reflects the new value via
+           `appVersion`). The deployment pipeline keeps bumping the
+           on-disk counter regardless; an override here wins on every
+           read until the operator clears it. -->
       <div x-show="adminTab==='version'" class="space-y-4">
         <section class="bg-[var(--surface)] border border-[var(--border)] rounded-md p-5">
           <h3 class="font-semibold text-[13px] mb-1" x-text="t('admin.version.title')"></h3>
@@ -5505,10 +5517,10 @@
                 </label>
                 <label class="block">
                   <span class="text-[11.5px] text-[var(--text-faint)]" x-text="t('admin.version.patch_label')"></span>
-                  <input type="number"
-                         class="w-full mt-1 px-2 py-1.5 rounded-md border border-[var(--border)] bg-[var(--surface-3)] mono text-[var(--text-faint)] cursor-not-allowed"
-                         :value="versionState.patch"
-                         disabled />
+                  <input type="number" min="0" max="99999" step="1"
+                         class="w-full mt-1 px-2 py-1.5 rounded-md border border-[var(--border)] bg-[var(--surface-2)] mono"
+                         x-model.number="versionForm.patch"
+                         :disabled="isReadonly() || versionSaving" />
                   <span class="block text-[10px] text-[var(--text-faint)] mt-1 italic"
                         x-text="t('admin.version.patch_hint')"></span>
                 </label>

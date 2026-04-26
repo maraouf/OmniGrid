@@ -472,11 +472,12 @@ function app() {
     tuningLoaded: false,
     tuningSaving: false,
     _tuningBaseline: '',
-    // Admin → Version (#371). Operator-controlled MAJOR.MINOR; CI-controlled
-    // PATCH. Pre-populates from /api/admin/version on load.
-    versionForm: { major: 0, minor: 0 },
+    // Admin → Each of MAJOR / MINOR / PATCH is operator-
+    // editable; pre-populates from /api/admin/version on load.
+    versionForm: { major: 0, minor: 0, patch: 0 },
     versionState: { current: '', major: 0, minor: 0, patch: 0,
-                    db_override: false, file_major: 0, file_minor: 0 },
+                    db_override: false,
+                    file_major: 0, file_minor: 0, file_patch: 0 },
     versionLoaded: false,
     versionSaving: false,
     _versionBaseline: '',
@@ -4313,15 +4314,16 @@ function app() {
         this.tuningSaving = false;
       }
     },
-    // Admin → Version (#371). MAJOR.MINOR is operator-controlled here;
-    // PATCH is read-only — the deploy CI auto-increments it.
+    // Admin → Version (#371). All three components (MAJOR / MINOR / PATCH)
+    // are operator-editable; the deployment pipeline still bumps the
+    // on-disk counter, but any override here wins on read.
     async loadVersionAdmin() {
       try {
         const r = await fetch('/api/admin/version');
         if (!r.ok) throw new Error(await r.text());
         const d = await r.json();
         this.versionState = d || {};
-        this.versionForm = { major: d.major, minor: d.minor };
+        this.versionForm = { major: d.major, minor: d.minor, patch: d.patch };
         this._versionBaseline = this._versionSnapshot();
         this.versionLoaded = true;
       } catch (e) {
@@ -4330,7 +4332,11 @@ function app() {
     },
     _versionSnapshot() {
       const f = this.versionForm || {};
-      return JSON.stringify({ major: Number(f.major) || 0, minor: Number(f.minor) || 0 });
+      return JSON.stringify({
+        major: Number(f.major) || 0,
+        minor: Number(f.minor) || 0,
+        patch: Number(f.patch) || 0,
+      });
     },
     versionDirty() { return this._versionBaseline !== this._versionSnapshot(); },
     async saveVersionAdmin() {
@@ -4338,7 +4344,11 @@ function app() {
       this.versionSaving = true;
       try {
         const f = this.versionForm || {};
-        const body = { major: Number(f.major) || 0, minor: Number(f.minor) || 0 };
+        const body = {
+          major: Number(f.major) || 0,
+          minor: Number(f.minor) || 0,
+          patch: Number(f.patch) || 0,
+        };
         const r = await fetch('/api/admin/version', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -4350,7 +4360,7 @@ function app() {
         }
         const d = await r.json();
         this.versionState = d || {};
-        this.versionForm = { major: d.major, minor: d.minor };
+        this.versionForm = { major: d.major, minor: d.minor, patch: d.patch };
         this._versionBaseline = this._versionSnapshot();
         this.showToast(this.t('admin.version.saved_toast', { version: d.current }));
         // Bump the SPA's footer / cache-bust knob — the running build
@@ -4363,9 +4373,8 @@ function app() {
       }
     },
     async clearVersionAdmin() {
-      // Drop the DB override → fall back to the raw VERSION.txt content
-      // (whatever PATCH the CI has currently bumped to, with whatever
-      // MAJOR.MINOR happens to be on disk).
+      // Drop every component override → fall back to the raw
+      // VERSION.txt content as written by the deployment pipeline.
       if (this.versionSaving) return;
       const ok = await this.confirmDialog({
         title: this.t('admin.version.clear_confirm_title'),
@@ -4378,7 +4387,7 @@ function app() {
         if (!r.ok) throw new Error(await r.text());
         const d = await r.json();
         this.versionState = d || {};
-        this.versionForm = { major: d.major, minor: d.minor };
+        this.versionForm = { major: d.major, minor: d.minor, patch: d.patch };
         this._versionBaseline = this._versionSnapshot();
         this.appVersion = d.current;
         this.showToast(this.t('admin.version.cleared_toast', { version: d.current }));
