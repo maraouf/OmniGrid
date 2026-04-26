@@ -119,6 +119,11 @@
     --terminal-status-warn-fg: #fbbf24;
     --terminal-status-err-bg:  rgba(239, 68, 68, .14);
     --terminal-status-err-fg:  #f87171;
+    /* Neutral cancel-button background for SweetAlert dialogs.
+       Distinct from --surface-3 (panel chrome) and --border-bright
+       (separator lines) so the cancel pill reads as a button rather
+       than chrome. Used by confirmDialog() in app.js. */
+    --btn-cancel-bg:  #374151;
     --pill-degraded-bg: rgba(245, 158, 11, .12);
     --pill-degraded-br: rgba(245, 158, 11, .25);
     --pill-degraded-fg: #fbbf24;
@@ -300,6 +305,10 @@
     --terminal-status-warn-fg: #b45309;
     --terminal-status-err-bg:  rgba(220, 38, 38, .14);
     --terminal-status-err-fg:  #b91c1c;
+    /* Neutral cancel-button background for SweetAlert dialogs —
+       light-mode value (lighter slate than the dark-mode #374151).
+       Used by confirmDialog() in app.js. */
+    --btn-cancel-bg:  #9ca3af;
 
     /* Admin → Logs accent palette — light-theme variants. The hues
        are slightly darker / more saturated than the dark-theme set
