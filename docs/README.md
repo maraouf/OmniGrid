@@ -22,6 +22,7 @@ Step-by-step runbooks for each integration / subsystem.
 | [`guidelines/metrics_guide.md`](guidelines/metrics_guide.md) | Prometheus `/metrics` schema + Grafana dashboard import notes. |
 | [`guidelines/scheduler.md`](guidelines/scheduler.md) | Scheduler kinds (`gather_refresh` / `prune_node` / `prune_all_nodes` / `backup` / `asset_inventory_refresh`), endpoints, safety properties. |
 | [`guidelines/beszel_agent.md`](guidelines/beszel_agent.md) | Beszel agent install + the `EXTRA_FILESYSTEMS` / `NICS` env knobs OmniGrid relies on. |
+| [`guidelines/api.md`](guidelines/api.md) | **OmniGrid HTTP API** — auth modes, common workflows, error shapes, stability contract. |
 | [`guidelines/api_services.md`](guidelines/api_services.md) | OmniGrid's outbound integrations (Asset API, Apprise, Open-Meteo). |
 | [`guidelines/npm_updates.md`](guidelines/npm_updates.md) | Front-end dependency bump workflow — npm install, what gets committed, allowlist additions. |
 
