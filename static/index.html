@@ -145,14 +145,12 @@
            "utility belt" (sync / stats / theme / hotkeys / lang) moved
            to the second row below so the primary row stays readable at
            narrow desktop widths (was 14 controls; now 4 + widget). -->
-      <!-- Action cluster (cleanup / refresh / deploy-watcher). On
-           mobile, `order-4` pushes this below the avatar (order-2)
-           and clock+weather (order-3) so the avatar stays anchored on
-           row 1 with logo + nav. Without this the cluster's variable
-           width (especially the wide "New version — reload" pill)
-           kept dragging the avatar down to a later row. Desktop keeps
-           default order via `sm:order-none`. -->
-      <div class="flex items-center gap-2 order-4 sm:order-none">
+      <!-- Action cluster (cleanup / refresh / deploy-watcher). Hidden
+           entirely on mobile — these buttons are admin-rare or covered
+           by auto-refresh + user-menu nav, and on a phone they kept
+           orphaning to their own wrap-row regardless of order class.
+           Desktop unchanged. -->
+      <div class="hidden sm:flex items-center gap-2 sm:order-none">
         <button x-show="isAdmin() && removableAll().length > 0"
                 @click="bulkRemoveAll()"
                 class="btn btn-danger-outline"
@@ -346,8 +344,11 @@
       <!-- Language picker. Compact <select> — the richer UI lives in
            Settings → Language. Rendered from I18N.languages which is
            populated from /i18n/index.json at boot. -->
+      <!-- Language picker — `order-4` on mobile so it appears BEFORE
+           the SYNC range row (order-5), per operator preference.
+           Desktop unchanged. -->
       <select :value="lang" @change="setLang($event.target.value)"
-              class="lang-picker text-[11px] order-5 sm:order-none"
+              class="lang-picker text-[11px] order-4 sm:order-none"
               :title="t('settings.language.label')">
         <template x-for="l in availableLanguages" :key="l.code">
           <option :value="l.code" x-text="l.name"></option>
@@ -6367,6 +6368,45 @@
                       <svg class="metric-svg" viewBox="0 0 420 120" preserveAspectRatio="none">
                         <path class="metric-area" :d="hostChart(h.beszel_id, 'net', { min: 0, height: 120 }).area"/>
                         <polyline class="metric-line" :points="hostChart(h.beszel_id, 'net', { min: 0, height: 120 }).points"/>
+                      </svg>
+                      <div class="metric-x-axis">
+                        <template x-for="(l, i) in xAxisFromSeries(h.beszel_id, 5)" :key="i">
+                          <span x-text="l"></span>
+                        </template>
+                      </div>
+                    </div>
+                  </template>
+                </div>
+
+                <!-- ====== Swap usage (#327) — single-line plot of
+                     swap-percent (`s`) over time. Hidden when the
+                     host doesn't have swap configured (every point
+                     is 0). Beszel's source field: `s` for percent,
+                     `su` for absolute GiB. We chart the percent so
+                     the y-axis maps cleanly to 0..100. -->
+                <div class="metric-card metric-card--mem"
+                     x-show="hostMetricStats(h.beszel_id, 's') && hostMetricStats(h.beszel_id, 's').maxRaw > 0">
+                  <div class="metric-card-head">
+                    <div class="metric-card-title">
+                      <span x-text="t('hosts_extra.metrics.swap')"></span>
+                      <span class="unit">%</span>
+                    </div>
+                    <div class="metric-card-stats"
+                         x-show="hostMetricStats(h.beszel_id, 's')">
+                      <span>Min <span class="min-val" x-text="hostMetricStats(h.beszel_id, 's') ? hostMetricStats(h.beszel_id, 's').min : ''"></span></span>
+                      <span>Max <span class="max-val" x-text="hostMetricStats(h.beszel_id, 's') ? hostMetricStats(h.beszel_id, 's').max : ''"></span></span>
+                    </div>
+                  </div>
+                  <template x-if="hostChart(h.beszel_id, 's', { min: 0, max: 100 })">
+                    <div class="metric-card-body">
+                      <div class="metric-y-axis">
+                        <template x-for="(l, i) in yAxisPercent()" :key="i">
+                          <span x-text="l"></span>
+                        </template>
+                      </div>
+                      <svg class="metric-svg" viewBox="0 0 420 120" preserveAspectRatio="none">
+                        <path class="metric-area" :d="hostChart(h.beszel_id, 's', { min: 0, max: 100, height: 120 }).area"/>
+                        <polyline class="metric-line" :points="hostChart(h.beszel_id, 's', { min: 0, max: 100, height: 120 }).points"/>
                       </svg>
                       <div class="metric-x-axis">
                         <template x-for="(l, i) in xAxisFromSeries(h.beszel_id, 5)" :key="i">

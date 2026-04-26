@@ -370,6 +370,12 @@ async def fetch_system_history(
             "la1":  la1,  # load avg 1m
             "la5":  la5,  # load avg 5m
             "la15": la15, # load avg 15m
+            # Swap usage % — Beszel agents emit `s` for swap percent
+            # used (0..100). Hosts without a swap configured emit 0
+            # consistently → chart hides on the frontend gate.
+            "s":   _num(stats.get("s")),
+            # Swap used in GiB — `su` field. Pair with `s` for the chart.
+            "su":  _num(stats.get("su")),
         })
 
     # ---- Net I/O fallback from node-exporter samples --------------------
@@ -729,6 +735,11 @@ def extract_stats(info: dict, stats: Optional[dict] = None) -> dict:
         "host_load_1m":     _load_window(stats.get("la"), 0),
         "host_load_5m":     _load_window(stats.get("la"), 1),
         "host_load_15m":    _load_window(stats.get("la"), 2),
+        # Swap — Beszel agents emit `s` (swap percent 0..100) and `su`
+        # (swap used GiB). Hosts with no swap configured emit 0 and
+        # the swap chart hides on the frontend gate.
+        "host_swap_percent": _num(stats.get("s")),
+        "host_swap_used":    _num(stats.get("su")),
         # Service info (#321). Beszel agents emit the systemd-services
         # data under the field name `systemd_services` (operator
         # confirmed by inspecting the PocketBase admin — initial
@@ -788,6 +799,24 @@ async def probe_hub(
             except Exception as e:
                 print(f"[beszel] warn: fetch stats failed: {e}")
                 latest_stats = {}
+            # systemd_services collection (#321). One record per
+            # monitored unit, related to a system via the `system`
+            # field. Group here so the per-system loop below can
+            # attach a summary in O(1).
+            services_by_system: dict[str, list] = {}
+            try:
+                svc_records = await _fetch_systemd_services(client, base_url, token)
+                for svc in svc_records:
+                    sid = str(svc.get("system") or "").strip()
+                    if not sid:
+                        continue
+                    services_by_system.setdefault(sid, []).append(svc)
+                if svc_records:
+                    print(f"[beszel] systemd_services: {len(svc_records)} records "
+                          f"across {len(services_by_system)} systems")
+            except Exception as e:
+                print(f"[beszel] warn: fetch systemd_services failed: {e}")
+                services_by_system = {}
     except Exception as e:
         return {"systems": {}, "error": str(e)}
 
@@ -839,6 +868,16 @@ async def probe_hub(
         # alone doesn't carry.
         rec_id = rec.get("id") or ""
         stats = extract_stats(info, latest_stats.get(rec_id))
+        # Override `host_services` with cross-collection data from
+        # `systemd_services`. extract_stats only sees this system's
+        # row; the services live in a separate collection that we
+        # fetched + grouped in probe_hub. Hosts whose systemd_services
+        # collection is empty (Beszel agent not tracking units) keep
+        # the empty `{total: 0, ...}` summary from extract_stats —
+        # frontend gates on `total > 0` and hides cleanly.
+        svc_records_for_system = services_by_system.get(rec_id) or []
+        if svc_records_for_system:
+            stats["host_services"] = _services_summary(svc_records_for_system)
         mounts = stats.get("mounts") or []
         if mounts:
             # Positive mount line ALSO used to fire every cycle — kept

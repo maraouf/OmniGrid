@@ -876,7 +876,8 @@
       "read": "Read",
       "write": "Write",
       "load_avg": "Load average",
-      "bandwidth": "Bandwidth"
+      "bandwidth": "Bandwidth",
+      "swap": "Swap"
     },
     "empty": {
       "loading": "Loading hosts from providers…",

@@ -18,11 +18,11 @@ const KNOWN_ICONS = new Set([
   'dozzle', 'esxi', 'fing', 'firetv', 'flaresolverr', 'forgejo',
   'freenas', 'ftth', 'gigabyte', 'glinet', 'glinet-dark', 'google',
   'google-home', 'grafana', 'hisense', 'homarr', 'home-assistant', 'homebridge',
-  'homepage', 'hp', 'huawei', 'humax', 'idrac', 'ikea', 'ilo',
-  'influxdb', 'jellyfin', 'jellyseerr', 'kali', 'kaonmedia', 'kavita', 'keycloak',
+  'hdhomerun', 'homepage', 'hp', 'huawei', 'humax', 'idrac', 'ikea', 'ilo',
+  'influxdb', 'jellyfin', 'jellyseerr', 'jtech', 'kali', 'kaonmedia', 'kavita', 'keycloak',
   'komodo', 'kubernetes', 'lenovo', 'linuxmint', 'lubelogger', 'mail',
   'mailcow', 'meta', 'microsoft', 'mikrotik', 'mongodb', 'motorola',
-  'myspeed', 'n8n', 'nest', 'netboot-xyz', 'netdata', 'nginx',
+  'myspeed', 'n8n', 'nest', 'netboot-xyz', 'netdata', 'nginx', 'nixplay',
   'nginx-proxy-manager', 'nintendo-switch', 'nzbget', 'oculus', 'openvpn', 'opnsense',
   'pfsense', 'pi-hole', 'pihole', 'pivpn', 'playstation', 'plex',
   'portainer', 'portainer-dark', 'postgresql', 'poweredge', 'proliant', 'prometheus',
@@ -6402,6 +6402,18 @@ function app() {
         ['kaonmedia',             'kaonmedia'],
         ['kaon media',            'kaonmedia'],
         ['kaon',                  'kaonmedia'],
+        // HDHomeRun — SiliconDust network TV tuner.
+        ['hdhomerun',             'hdhomerun'],
+        ['hd homerun',            'hdhomerun'],
+        ['hd home run',           'hdhomerun'],
+        ['silicondust',           'hdhomerun'],
+        // J-Tech Digital — HDMI matrix / video distribution gear.
+        ['jtech digital',         'jtech'],
+        ['jtech',                 'jtech'],
+        ['j-tech',                'jtech'],
+        ['j tech',                'jtech'],
+        // Nixplay — digital photo frames.
+        ['nixplay',               'nixplay'],
         // Samsung — separate slugs for the parent brand (`samsung`,
         // clean wordmark) vs. the corporate / B2B entity (`samsung-
         // electronics`, the older "Samsung Electronics" mark with the
