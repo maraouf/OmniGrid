@@ -43,6 +43,7 @@ the next release, this whole block becomes the `[X.Y.0]` entry below.
 - Consolidated `_load_curated_hosts` between the two NE samplers — both now import the canonical `curated_ne_hosts()` from `logic/db.py` (#357 / CONS-001). Drops ~30 duplicated lines and means a future NE-aware sampler (e.g. ping / SNMP) only adds to the canonical helper.
 - New `_format_provider_test_summary()` in `main.py` keeps the Pulse + Beszel test-connection response shape identical (#359 / CONS-003). Webmin and Portainer keep their bespoke summaries; future `{hosts: {...}}`-shaped providers should reuse the helper.
 - `README.md` ref updated from `notes/note_authentik.txt` to `notes/guidelines/authentik.md` (#360 / DEAD-001).
+- Replaced operator-private hostnames in shipped docs and code comments with example.com placeholders (#362).
 
 ### Changed
 

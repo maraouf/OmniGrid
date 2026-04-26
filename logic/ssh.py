@@ -510,8 +510,8 @@ def resolve_ssh_params(host_id: str, hosts_config: list[dict]) -> dict:
     # Target hostname resolution priority:
     #   1. per-host ssh.host override (operator pasted the full FQDN)
     #   2. per-host ssh.fqdn (alias for 1)
-    #   3. record.id + ssh_fqdn_suffix (global suffix; ".home.lan" →
-    #      "webserver" becomes "webserver.home.lan")
+    #   3. record.id + ssh_fqdn_suffix (global suffix; ".example.com" →
+    #      "webserver" becomes "webserver.example.com")
     #   4. record.id as-is
     # We only append the suffix when the id has no dot — ids that
     # already contain a dot are treated as already-fully-qualified.

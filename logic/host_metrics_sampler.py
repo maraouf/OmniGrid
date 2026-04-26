@@ -598,7 +598,7 @@ node_network_transmit_bytes_total{device="eth0"} 500
 
     # FreeBSD fallback (#352): hosts running the FreeBSD node-exporter
     # port emit `node_devstat_bytes_total{device,type}` instead of
-    # `node_disk_*`. Real opnsense scrape from 10.0.0.1: ada0 = 4.12 GB
+    # `node_disk_*`. Real opnsense scrape sample: ada0 = 4.12 GB
     # read / 14.82 TB write totals, plus a synthetic md98 (memdisk) and
     # pass0 (SCSI passthrough) that MUST be excluded. Verifies the
     # parser falls through to the FreeBSD branch when the Linux family

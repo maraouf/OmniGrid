@@ -159,7 +159,7 @@ def parse_network_counters(text: str) -> dict:
 # (mdadm RAID) because on NAS / appliance hosts (Synology, TrueNAS,
 # OPNsense) the user-facing volume IS the dm/md device — excluding them
 # left those hosts with zero "real" devices and a perpetual 0 disk I/O
-# rate (#343 follow-up; the operator's Synology box at 10.0.0.1 was
+# rate (#343 follow-up; an operator's Synology / RAID box was
 # returning all 0s exactly for this reason). Trade-off: hosts that
 # expose BOTH the underlying physical disks AND the dm/md layer on top
 # will double-count. That's a known limitation; better to over-report
@@ -322,7 +322,7 @@ def parse_disk_counters(text: str) -> dict:
         # downstream so the chart renders as "no data" rather than a
         # flat 0 line. Numeric 0 here would be ambiguous and produce
         # exactly the "always-zero rate" footgun #343 hit on the
-        # Synology box at 10.0.0.1 before #_EXCLUDED_DISK_PREFIXES was
+        # Synology / RAID hosts before #_EXCLUDED_DISK_PREFIXES was
         # loosened.
         return {"devices": [], "total_read": None, "total_written": None}
     total_read    = sum(r["read_bytes"]    for r in devices)
