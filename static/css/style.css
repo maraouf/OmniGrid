@@ -959,6 +959,20 @@ select:focus {
     color: var(--text-dim);
 }
 
+/* Mobile density (#346) — chips wrap aggressively at iPhone width;
+   tighter padding + smaller font shaves a row or two from the filter
+   bar so content reaches the fold sooner. Desktop unaffected. */
+@media (max-width: 640px) {
+    .filter-chip {
+        padding: 4px var(--s-4);
+        font-size: 11px;
+    }
+    .filter-chip .count {
+        font-size: 10px;
+        margin-inline-start: var(--s-1);
+    }
+}
+
 /* ---------------------------------------------------------------------------
    Animations & shared effects
    --------------------------------------------------------------------------- */
