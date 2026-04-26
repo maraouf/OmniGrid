@@ -1944,10 +1944,6 @@ async def api_portainer_test(
     from logic import portainer as _portainer
     body = await request.json()
     url = (body.get("url") or "").strip().rstrip("/")
-    # Note: the SPA also sends `endpoint_id` in the body. We don't use
-    # it — /api/status is endpoint-agnostic — and the frontend never
-    # reads it back from the response, so we silently drop it instead
-    # of echoing an ignored field.
     verify_tls = bool(body.get("verify_tls", True))
     # Portainer's API key isn't in the `settings` table — it lives in
     # the Portainer-specific settings dict — so this one keeps a
@@ -1958,24 +1954,55 @@ async def api_portainer_test(
         api_key = str(_portainer.get_portainer_settings().get("portainer_api_key") or "")
     if not url or not api_key:
         return {"ok": False, "status": 0, "detail": "URL and API key are both required"}
+    # Endpoint id (#360 / DEAD-002): probe `/api/endpoints/{id}` after
+    # /api/status to surface a misconfigured endpoint id at Test time
+    # rather than have it 404 on the next gather. Falls back to the
+    # saved value so an operator who hits Test before re-typing still
+    # validates the live config.
+    raw_eid = body.get("endpoint_id")
+    if raw_eid in (None, ""):
+        raw_eid = _portainer.get_portainer_settings().get("portainer_endpoint_id") or 1
+    try:
+        endpoint_id = int(raw_eid)
+    except (TypeError, ValueError):
+        return {"ok": False, "status": 0,
+                "detail": f"endpoint_id must be an integer, got {raw_eid!r}"}
     try:
         import httpx as _httpx
         async with _httpx.AsyncClient(verify=verify_tls, timeout=10.0) as client:
-            r = await client.get(
-                f"{url}/api/status",
-                headers={"X-API-Key": api_key},
-            )
-        if r.status_code == 200:
-            detail = "OK"
+            headers = {"X-API-Key": api_key}
+            r = await client.get(f"{url}/api/status", headers=headers)
+            if r.status_code != 200:
+                return {"ok": False, "status": r.status_code,
+                        "detail": f"HTTP {r.status_code}: {r.text[:200]}"}
+            version = ""
             try:
                 data = r.json()
-                version = data.get("Version") or data.get("version")
-                if version:
-                    detail = f"OK — Portainer {version}"
+                version = data.get("Version") or data.get("version") or ""
             except Exception:
                 pass
-            return {"ok": True, "status": 200, "detail": detail}
-        return {"ok": False, "status": r.status_code, "detail": f"HTTP {r.status_code}: {r.text[:200]}"}
+            # Endpoint probe — best-effort; only fails the test if the
+            # specific id is missing. Non-200/404 responses surface as
+            # diagnostic detail without blocking the success path.
+            ep = await client.get(
+                f"{url}/api/endpoints/{endpoint_id}", headers=headers,
+            )
+        prefix = f"OK — Portainer {version}" if version else "OK"
+        if ep.status_code == 200:
+            try:
+                name = ep.json().get("Name") or f"#{endpoint_id}"
+            except Exception:
+                name = f"#{endpoint_id}"
+            return {"ok": True, "status": 200,
+                    "detail": f"{prefix}, endpoint {name} reachable",
+                    "endpoint_id": endpoint_id}
+        if ep.status_code == 404:
+            return {"ok": False, "status": 404,
+                    "detail": f"endpoint {endpoint_id} not found on this Portainer",
+                    "endpoint_id": endpoint_id}
+        return {"ok": False, "status": ep.status_code,
+                "detail": f"endpoint probe HTTP {ep.status_code}: {ep.text[:200]}",
+                "endpoint_id": endpoint_id}
     except Exception as e:
         return {"ok": False, "status": 0, "detail": f"{type(e).__name__}: {e}"}
 
@@ -1999,16 +2026,14 @@ async def api_pulse_test(
     result = await _pulse.probe_pulse(
         url, token, verify_tls=verify_tls, timeout=10.0,
     )
-    if result.get("error"):
-        return {"ok": False, "detail": result["error"]}
-    hosts = result.get("hosts") or {}
-    names = sorted(hosts.keys())
-    detail = (f"OK — reached Pulse, {len(hosts)} node(s) visible: "
-              + (", ".join(names[:5]) or "none"))
-    if len(names) > 5:
-        detail += f" (+{len(names) - 5} more)"
-    return {"ok": True, "detail": detail, "node_count": len(hosts),
-            "nodes": names}
+    return _format_provider_test_summary(
+        result,
+        target_label="Pulse",
+        item_singular="node",
+        item_plural="node(s)",
+        count_key="node_count",
+        items_key="nodes",
+    )
 
 
 @app.post("/api/webmin/test")
@@ -2081,15 +2106,18 @@ async def api_beszel_test(
     result = await _beszel.probe_hub(
         hub_url, identity, password, verify_tls=verify_tls, timeout=10.0,
     )
-    if result.get("error"):
-        return {"ok": False, "detail": result["error"]}
-    systems = result.get("systems") or {}
-    detail = (f"OK — reached hub, {len(systems)} system(s) visible: "
-              + (", ".join(sorted(systems.keys())[:5]) or "none"))
-    if len(systems) > 5:
-        detail += f" (+{len(systems) - 5} more)"
-    return {"ok": True, "detail": detail, "system_count": len(systems),
-            "systems": sorted(systems.keys())}
+    # `probe_hub` returns ``{systems: {...}}`` — adapt to the shared
+    # ``hosts`` shape so the helper can produce the standard summary.
+    adapted = {"hosts": result.get("systems") or {},
+               "error": result.get("error")}
+    return _format_provider_test_summary(
+        adapted,
+        target_label="hub",
+        item_singular="system",
+        item_plural="system(s)",
+        count_key="system_count",
+        items_key="systems",
+    )
 
 
 # ----------------------------------------------------------------------------
@@ -2288,6 +2316,42 @@ def _resolve_field(body: dict, body_key: str,
         if s:
             return s
     return get_setting(setting_key, default) or default
+
+
+def _format_provider_test_summary(
+    probe_result: dict,
+    *,
+    target_label: str,
+    item_singular: str,
+    item_plural: str,
+    count_key: str,
+    items_key: str,
+) -> dict:
+    """Standard ``{ok, detail, ...}`` shape for the provider test
+    endpoints whose ``probe_*`` helpers return ``{hosts: {key: stats}, error}``.
+
+    Pulse + Beszel both produce identical "OK — reached <X>, N
+    <thing>(s) visible: a, b, c (+rest)" summaries from the same
+    ``hosts`` map (CONS-003). One helper keeps the wording, truncation
+    threshold, and key ordering identical so a future copy-paste isn't
+    needed; Webmin and Portainer keep their bespoke shapes because
+    their probe contracts are different (Webmin returns a single
+    host_key; Portainer inspects ``Version``).
+
+    Returns the exact dict the route should return.
+    """
+    err = probe_result.get("error")
+    if err:
+        return {"ok": False, "detail": err}
+    hosts = probe_result.get("hosts") or {}
+    names = sorted(hosts.keys())
+    label = item_singular if len(hosts) == 1 else item_plural
+    detail = (f"OK — reached {target_label}, {len(hosts)} {label} visible: "
+              + (", ".join(names[:5]) or "none"))
+    if len(names) > 5:
+        detail += f" (+{len(names) - 5} more)"
+    return {"ok": True, "detail": detail,
+            count_key: len(hosts), items_key: names}
 
 
 @app.get("/api/hosts")
