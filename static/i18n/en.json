@@ -73,6 +73,10 @@
     "sign_out": "Sign out"
   },
   "profile": {
+    "tabs": {
+      "profile": "Profile",
+      "notifications": "Notifications"
+    },
     "notifications": {
       "title": "Notifications",
       "subtitle": "Choose which event notifications you receive. Toggles greyed out have been disabled globally by an admin.",
@@ -727,7 +731,17 @@
       "totp_disable_title": "Clear this user's TOTP enrolment (use when they've lost their authenticator device).",
       "totp_disable_confirm_title": "Disable 2FA for {name}?",
       "totp_disable_confirm_body": "Their stored secret + backup codes will be erased. They re-enrol on next login if policy still requires 2FA.",
-      "totp_disable_confirm_button": "Disable"
+      "totp_disable_confirm_button": "Disable",
+      "totp_required": "Required",
+      "totp_required_title": "2FA is required for this user (per-user override). They will be forced to enrol on next login.",
+      "totp_force": "Force 2FA",
+      "totp_force_title": "Require this user to set up 2FA regardless of the global policy.",
+      "totp_unforce": "Unforce 2FA",
+      "totp_unforce_title": "Drop the per-user 2FA requirement. Global policy still applies.",
+      "totp_force_confirm_title": "Require 2FA for {name}?",
+      "totp_force_confirm_body": "This user will be forced to enrol in 2FA on their next login, even if the global policy doesn't require it for their role.",
+      "totp_unforce_confirm_title": "Drop 2FA requirement for {name}?",
+      "totp_unforce_confirm_body": "Their existing 2FA stays enrolled (use Disable 2FA if you also want to clear it). The global role policy still applies."
     },
     "sessions": {
       "active_title": "Active sessions",
@@ -893,6 +907,9 @@
     "totp_enabled": "Two-factor authentication enabled",
     "totp_disabled": "Two-factor authentication disabled",
     "totp_admin_disabled": "Cleared user's 2FA enrolment",
+    "totp_forced_on": "2FA is now required for this user",
+    "totp_force_cleared": "Per-user 2FA requirement cleared",
+    "totp_force_failed": "Could not change the per-user 2FA requirement",
     "totp_invalid_code": "Enter a 6-digit code",
     "totp_enroll_failed": "Could not enable 2FA",
     "totp_disable_failed": "Could not disable 2FA",

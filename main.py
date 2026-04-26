@@ -5967,7 +5967,17 @@ def _totp_authentik_guard(user: auth.User) -> None:
 
 
 def _totp_required_for_user(user: auth.User) -> bool:
-    """Convenience wrapper around _totp_required_for() given a User."""
+    """Convenience wrapper around _totp_required_for() given a User.
+
+    Honours the global role-based policy (#345) AND the per-user
+    `totp_force_required` admin override (#376). Either one is enough
+    to require 2FA for this user. Authentik users always return False
+    here — their auth_source short-circuits TOTP at the call sites.
+    """
+    if getattr(user, "auth_source", "local") != "local":
+        return False
+    if getattr(user, "totp_force_required", False):
+        return True
     return _totp_required_for(user.role)
 
 
@@ -6317,6 +6327,71 @@ async def api_admin_disable_totp(
             print(f"[totp] audit-log insert failed: {e}")
     print(f"[totp] {target.username} disabled BY ADMIN ({admin.username})")
     return {"ok": True}
+
+
+class TotpForceIn(BaseModel):
+    force: bool
+
+
+@app.post("/api/users/{user_id}/totp-force")
+async def api_admin_totp_force(
+    user_id: int,
+    body: TotpForceIn,
+    admin: auth.User = Depends(auth.require_admin),
+):
+    """Admin override: per-user force-2FA flag (#376).
+
+    Layers ON TOP of the global totp_required_for_admins / _users
+    policy — flipping this ON forces 2FA for THIS user even when
+    the global policy doesn't require it for their role. Forcing
+    OFF reverts to whatever the global policy says (if global policy
+    requires 2FA for the role, the user still has to use it).
+
+    Forcing 2FA on a user who hasn't enrolled yet causes their next
+    login to land in the forced-enrolment QR flow — already handled
+    by api_local_login's multi-step path.
+
+    Audited via the history table with op_type='totp_force_set'.
+    """
+    with db_conn() as c:
+        target = auth.get_user(c, user_id)
+        if not target:
+            raise HTTPException(status_code=404, detail="User not found.")
+        if target.auth_source != "local":
+            raise HTTPException(
+                status_code=400,
+                detail="Authentik users manage 2FA in their IdP.",
+            )
+        if bool(target.totp_force_required) == bool(body.force):
+            return {"ok": True, "force_required": bool(body.force), "no_change": True}
+        auth.set_user_totp_force_required(c, user_id, bool(body.force))
+        try:
+            c.execute(
+                "INSERT INTO history "
+                "(ts, op_type, target_name, target_id, target_stack, "
+                " status, duration, events, error, actor) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (
+                    time.time(), "totp_force_set",
+                    target.username, str(user_id), None,
+                    "success", 0.0,
+                    json.dumps([{
+                        "ts": time.time(), "level": "info",
+                        "msg": (
+                            f"2FA force-required {'enabled' if body.force else 'cleared'} "
+                            f"for {target.username} by {admin.username}"
+                        ),
+                    }]),
+                    None, admin.username,
+                ),
+            )
+        except Exception as e:
+            print(f"[totp] audit-log insert failed: {e}")
+    print(
+        f"[totp] {target.username} force-2FA "
+        f"{'ENABLED' if body.force else 'CLEARED'} BY ADMIN ({admin.username})"
+    )
+    return {"ok": True, "force_required": bool(body.force)}
 
 
 @app.get("/api/sessions")
@@ -6821,6 +6896,7 @@ _NPM_ALLOWED: Set[str] = {
     "@xterm/xterm/lib/xterm.js",
     "@xterm/addon-fit/lib/addon-fit.js",
     "@xterm/addon-web-links/lib/addon-web-links.js",
+    "qrcode-generator/dist/qrcode.js",
 }
 
 

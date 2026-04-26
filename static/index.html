@@ -54,7 +54,7 @@
 <!-- qrcode-generator — pure-JS QR rendering used by the Profile -> Two-
      factor authentication enrolment flow (#345). UMD bundle exposes
      a global `qrcode(typeNumber, errorCorrectionLevel)` factory. -->
-<script src="/node_modules/qrcode-generator/qrcode.js"></script>
+<script src="/node_modules/qrcode-generator/dist/qrcode.js"></script>
 <link rel="stylesheet" href="/css/style.css">
 <script src="/js/auth-fetch.js?v=__APP_VERSION__"></script>
 </head>
@@ -2104,8 +2104,26 @@
         </div>
 
       <!-- ===== PROFILE section ===== -->
-      <!-- Two-column card: avatar + identity on the left, account info on the right -->
-      <div x-show="settingsSection === 'profile'" class="grid grid-cols-1 lg:grid-cols-[260px_1fr] gap-5">
+      <!-- Profile sub-tab strip (#378). Operator-requested split so the
+           per-user notification opt-in grid lives behind its own tab
+           rather than sharing scroll-space with identity / about /
+           topbar-widgets cards. Avatar sidebar stays visible on both
+           tabs (it's the user-identity context). Tab-strip + grid
+           share `settingsSection === 'profile'` gate. -->
+      <div x-show="settingsSection === 'profile'" class="space-y-4">
+        <div class="flex items-center gap-1 bg-[var(--surface-2)] rounded-md p-1 border border-[var(--border)] w-fit">
+          <button type="button"
+                  @click="profileTab='profile'"
+                  :class="profileTab==='profile' ? 'bg-[var(--primary)] text-white' : 'text-[var(--text-dim)] hover:text-[var(--text)]'"
+                  class="px-3 py-1.5 rounded text-[12px] font-medium transition"
+                  x-text="t('profile.tabs.profile')"></button>
+          <button type="button"
+                  @click="profileTab='notifications'"
+                  :class="profileTab==='notifications' ? 'bg-[var(--primary)] text-white' : 'text-[var(--text-dim)] hover:text-[var(--text)]'"
+                  class="px-3 py-1.5 rounded text-[12px] font-medium transition"
+                  x-text="t('profile.tabs.notifications')"></button>
+        </div>
+      <div class="grid grid-cols-1 lg:grid-cols-[260px_1fr] gap-5">
         <!-- Avatar / identity card -->
         <section class="bg-[var(--surface)] border border-[var(--border)] rounded-md p-5 flex flex-col items-center text-center">
           <div class="relative mb-4">
@@ -2135,7 +2153,7 @@
         </section>
 
         <!-- Identity + account info card -->
-        <section class="bg-[var(--surface)] border border-[var(--border)] rounded-md p-5">
+        <section x-show="profileTab==='profile'" class="bg-[var(--surface)] border border-[var(--border)] rounded-md p-5">
           <h3 class="font-semibold text-[13px] mb-4" x-text="t('settings.profile.account')"></h3>
           <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
@@ -2164,7 +2182,7 @@
         </section>
 
         <!-- About card — editable display name + bio + email -->
-        <section class="bg-[var(--surface)] border border-[var(--border)] rounded-md p-5 lg:col-span-2">
+        <section x-show="profileTab==='profile'" class="bg-[var(--surface)] border border-[var(--border)] rounded-md p-5 lg:col-span-2">
           <h3 class="font-semibold text-[13px] mb-4" x-text="t('settings.profile.about')"></h3>
           <div class="space-y-3">
             <div>
@@ -2211,7 +2229,7 @@
              tooltip; the backend also refuses an opt-in attempt for
              those events with a 400. Saves alongside the About-card
              form via the same Save button -> single dirty indicator. -->
-        <section class="bg-[var(--surface)] border border-[var(--border)] rounded-md p-5 lg:col-span-2">
+        <section x-show="profileTab==='notifications'" class="bg-[var(--surface)] border border-[var(--border)] rounded-md p-5 lg:col-span-2">
           <div class="flex items-center gap-2 mb-1">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-[var(--text-dim)]"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
             <h3 class="font-semibold text-[13px]" x-text="t('profile.notifications.title')"></h3>
@@ -2268,12 +2286,30 @@
               </div>
             </template>
           </div>
+
+          <!-- User-side convenience buttons (#378). Mirror the admin
+               tab's Enable all / Disable all / Errors only — but
+               operate on profileForm.notify_events (per-user opt-in
+               state) AND skip events the admin has globally
+               disabled (the backend would 400 such an opt-in
+               anyway). -->
+          <div class="flex items-center gap-2 flex-wrap mt-3 pt-3 border-t border-[var(--border)]">
+            <button type="button" @click="setAllUserNotifyEvents(true)"
+                    class="btn btn-soft text-[11.5px]"
+                    x-text="t('admin.notifications.events.enable_all')"></button>
+            <button type="button" @click="setAllUserNotifyEvents(false)"
+                    class="btn btn-soft text-[11.5px]"
+                    x-text="t('admin.notifications.events.disable_all')"></button>
+            <button type="button" @click="setUserNotifyEventsErrorsOnly()"
+                    class="btn btn-soft text-[11.5px]"
+                    x-text="t('admin.notifications.events.errors_only')"></button>
+          </div>
         </section>
 
         <!-- Topbar widgets — per-browser preferences stored in
              localStorage (no backend persistence; each device is
              independent). Changes take effect immediately on blur. -->
-        <section class="bg-[var(--surface)] border border-[var(--border)] rounded-md p-5 lg:col-span-2">
+        <section x-show="profileTab==='profile'" class="bg-[var(--surface)] border border-[var(--border)] rounded-md p-5 lg:col-span-2">
           <div class="flex items-center gap-2 mb-4">
             <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true"><use href="#icon-clock"/></svg>
             <h3 class="font-semibold text-[13px]" x-text="t('topbar_widgets.title')"></h3>
@@ -2347,7 +2383,7 @@
         </section>
 
         <!-- Security card — change password (local users only) -->
-        <section class="bg-[var(--surface)] border border-[var(--border)] rounded-md p-5 lg:col-span-2">
+        <section x-show="profileTab==='profile'" class="bg-[var(--surface)] border border-[var(--border)] rounded-md p-5 lg:col-span-2">
           <div class="flex items-center gap-2 mb-4">
             <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true"><use href="#icon-lock"/></svg>
             <h3 class="font-semibold text-[13px]" x-text="t('settings.profile.security')"></h3>
@@ -2431,7 +2467,7 @@
                qr      -> show provisioning QR + verification input
                reveal  -> show one-time backup-codes list -->
         <section class="bg-[var(--surface)] border border-[var(--border)] rounded-md p-5 lg:col-span-2"
-                 x-show="me && me.source === 'local'">
+                 x-show="profileTab==='profile' && me && me.source === 'local'">
           <div class="flex items-center gap-2 mb-4">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-[var(--text-dim)]"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
             <h3 class="font-semibold text-[13px]" x-text="t('settings.profile.totp.title')"></h3>
@@ -2558,13 +2594,14 @@
 
         <!-- Authentik users get a passive note in lieu of the TOTP card. -->
         <section class="bg-[var(--surface)] border border-[var(--border)] rounded-md p-5 lg:col-span-2"
-                 x-show="me && me.source === 'authentik'">
+                 x-show="profileTab==='profile' && me && me.source === 'authentik'">
           <h3 class="font-semibold text-[13px] mb-2"
               x-text="t('settings.profile.totp.title')"></h3>
           <p class="text-[12.5px] text-[var(--text-dim)]"
              x-text="t('settings.profile.totp.authentik_hint')"></p>
         </section>
       </div>
+      </div><!-- /Profile sub-tab outer wrapper (#378) -->
 
       <!-- Portainer / Host stats / OIDC / Notifications moved to Admin. -->
       <section x-show="false" style="display:none">
@@ -2941,9 +2978,18 @@
                       </template>
                       <template x-if="u.auth_source === 'local'">
                         <span>
+                          <!-- Pill priority: enrolled (green) > forced-but-not-yet (warning)
+                               > off (muted). The forced-but-not-yet state surfaces the per-
+                               user policy override (#376) so admins can see at a glance who
+                               is required to enrol. -->
                           <span x-show="u.totp_enabled" class="pill pill-success"
                                 x-text="t('admin.users.totp_on')"></span>
-                          <span x-show="!u.totp_enabled" class="pill pill-muted"
+                          <span x-show="!u.totp_enabled && u.totp_force_required"
+                                class="pill pill-warning"
+                                :title="t('admin.users.totp_required_title')"
+                                x-text="t('admin.users.totp_required')"></span>
+                          <span x-show="!u.totp_enabled && !u.totp_force_required"
+                                class="pill pill-muted"
                                 x-text="t('admin.users.totp_off')"></span>
                         </span>
                       </template>
@@ -2968,6 +3014,20 @@
                                 class="btn btn-soft text-[11px]"
                                 :title="t('admin.users.totp_disable_title')"
                                 x-text="t('admin.users.totp_disable')"></button>
+                        <!-- Force / Unforce 2FA — per-user policy
+                             override (#376). Audited via history.
+                             op_type=totp_force_set. Hidden for
+                             Authentik users (TOTP doesn't apply). -->
+                        <button x-show="u.auth_source==='local' && !u.totp_force_required"
+                                @click="adminForceTotp(u, true)"
+                                class="btn btn-soft text-[11px]"
+                                :title="t('admin.users.totp_force_title')"
+                                x-text="t('admin.users.totp_force')"></button>
+                        <button x-show="u.auth_source==='local' && u.totp_force_required"
+                                @click="adminForceTotp(u, false)"
+                                class="btn btn-soft text-[11px]"
+                                :title="t('admin.users.totp_unforce_title')"
+                                x-text="t('admin.users.totp_unforce')"></button>
                         <button @click="deleteUser(u)" class="btn btn-ghost text-[11px] text-danger"
                                 :disabled="me && u.id === me.id ? true : false"
                                 :title="me && u.id === me.id ? t('admin.users.delete_self_title') : t('admin.users.delete_title')" x-text="t('actions.delete')"></button>
