@@ -8550,6 +8550,24 @@ function app() {
           this.loadHostHistory(host.beszel_id || '', host.id);
         }
       }
+      // Refresh the open drawer's chart history on every host-poll
+      // tick (#363 followup). The `Updated Xs/m/h ago` freshness label
+      // tracks the last successful chart fetch — without this hook
+      // the label could read older than the user's host-poll cadence
+      // because `loadHostHistory` was only invoked on drawer open
+      // and on time-range button clicks. Skipped for the
+      // `hostsExpanded` path above because that gate has a
+      // `!this.hostHistory[key]` check (only fires the first time);
+      // the drawer needs an UNCONDITIONAL re-fetch each tick so the
+      // chart values + the freshness stamp stay in sync with the
+      // host-list refresh interval.
+      if (this.drawerHost
+          && (this.drawerHost.beszel_id || this.drawerHost.ne_url)) {
+        this.loadHostHistory(
+          this.drawerHost.beszel_id || '',
+          this.drawerHost.id,
+        );
+      }
     },
 
     // Fetch one host's merged stats and splice it back into the

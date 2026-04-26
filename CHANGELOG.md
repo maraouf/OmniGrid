@@ -59,6 +59,8 @@ the next release, this whole block becomes the `[X.Y.0]` entry below.
 
 ### Fixed
 
+- Admin → Hosts / Host groups floating action bar no longer overlaps the version footer (#366). New `--app-footer-clearance: 48px` token; `.hosts-config-actionbar` uses it as `bottom`; `.hosts-config-page-bottom-pad` bumped to 120px so the last row clears the higher bar.
+
 - SSH terminal modal: xterm cols/rows now match the modal's actual dimensions on first open even when xterm's `FitAddon.proposeDimensions()` silently returns `undefined` (#353 followup). New `measureAndResize` helper tries FitAddon first; if `term.cols` stays at the default 80, falls back to a manual `getBoundingClientRect()` measurement using known cell metrics (~7.85px × ~17.5px per cell at 13px Menlo / Consolas / DejaVu Mono) and calls `term.resize()` directly. Helper runs on rAF + 50/250/600/1200ms `setTimeout`s + a `ResizeObserver` + the WS `ready` control frame.
 
 - Login-page logo no longer shows a white halo at the rounded corners (#361). `static/login.html` swapped from the rasterised `icon-512.png` to `omnigrid.svg`, and `.login-logo` lost its redundant `background: var(--surface)` fill. The SVG renders with crisp anti-aliasing at any zoom level; favicon keeps the PNG for universal browser compat.

@@ -205,6 +205,12 @@
        transparent SVG corners reveal the page background through a
        wider clip (#361). */
     --r-app-logo: 22%;
+    /* Vertical clearance for the floating action bars (Hosts editor /
+       Host groups editor) above the sticky `.app-footer`. Footer is
+       ~36px tall (var(--s-3) padding × 2 + 14px content + 1px border);
+       48px gives a small breathing gap and keeps both bars off the
+       version label that lives in the footer's right column. */
+    --app-footer-clearance: 48px;
 
     /* Fonts — Poppins is vendored under /fonts/. Fallbacks cover the tiny
        window before the woff2 loads (font-display: swap). */
@@ -2954,7 +2960,7 @@ body.login {
        the bar doesn't obscure the last row of content.
     */
     position: fixed;
-    bottom: var(--s-3);
+    bottom: var(--app-footer-clearance);
     inset-inline: var(--s-4);
     z-index: 30;
     display: flex;
@@ -2971,9 +2977,12 @@ body.login {
 }
 
 /* Bottom-pad the rows wrapper so the fixed action bar can never
-   cover the last row of content. ~80px ≈ bar height + spacing. */
+   cover the last row of content. Bar lives at `var(--app-footer-clearance)`
+   (48px) above the viewport floor and is ~52px tall, so 120px reserves
+   bar + footer + a small safety gap regardless of where the operator
+   has scrolled. */
 .hosts-config-page-bottom-pad {
-    padding-bottom: 80px;
+    padding-bottom: 120px;
 }
 
 /* ---------------------------------------------------------------------------
