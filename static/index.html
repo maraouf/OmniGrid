@@ -2908,6 +2908,11 @@
             </template>
           </div>
 
+          <!-- Visual separator between the per-event grid (events +
+               security row) and the bulk-action buttons (Enable all /
+               Disable all / Errors only). -->
+          <hr class="border-0 border-t border-[var(--border)] my-3">
+
           <div class="flex items-center gap-2 flex-wrap" x-show="isAdmin()">
             <button @click="setAllNotifyEvents(true)"
                     :disabled="isReadonly() || !settings.apprise_enabled"
