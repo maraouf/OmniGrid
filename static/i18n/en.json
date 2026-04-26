@@ -911,6 +911,12 @@
       "body_in_ne": "No traffic on this host's physical NICs in the selected window. node-exporter excludes loopback, Docker bridges, veth pairs, and other virtual interfaces from totals — a host whose only activity is on those won't register here.",
       "body_out": "Add {code} to the Beszel agent's env (see Net In card for details)."
     },
+    "collectors_missing": {
+      "disk_io_title": "Disk I/O collector not enabled",
+      "disk_io_body": "node-exporter on this host isn't exposing {metric}. Enable the diskstats collector (e.g. {flag}) and restart node-exporter to populate this chart.",
+      "net_title": "Network collector not enabled",
+      "net_body": "node-exporter on this host isn't exposing {metric}. Enable the netstats collector (e.g. {flag}) and restart node-exporter to populate this chart."
+    },
     "custom_number_label": "Custom #",
     "custom_number_title": "Operator-assigned catalogue number — used for sort/group in Hosts view and as the key for Asset-inventory lookups",
     "refresh_title": "Force refresh now — normally polls every 15s.",

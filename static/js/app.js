@@ -8761,6 +8761,7 @@ function app() {
         loading: true,
         error: prev.error || '',
         series: Array.isArray(prev.series) ? prev.series : [],
+        collectors: prev.collectors || null,
       };
       try {
         const qs = {
@@ -8775,6 +8776,7 @@ function app() {
             loading: false,
             error: `HTTP ${r.status}`,
             series: prev.series || [],  // keep previous on HTTP error
+            collectors: prev.collectors || null,
           };
           return;
         }
@@ -8787,14 +8789,33 @@ function app() {
           // reply (hub rebooting, rate-limit) shouldn't blank a chart
           // that was already populated.
           series: next.length ? next : (prev.series || []),
+          // NE-only path returns a `collectors` dict per #347 telling
+          // us whether each metric ever produced a non-null sample in
+          // the window. Beszel path doesn't include it; null = unknown.
+          collectors: d.collectors || null,
         };
       } catch (e) {
         this.hostHistory[cacheKey] = {
           loading: false,
           error: e.message,
           series: prev.series || [],
+          collectors: prev.collectors || null,
         };
       }
+    },
+    // True only when we KNOW the named NE collector is missing for this
+    // host (sampler walked the window and never saw a non-null value).
+    // Returns false for Beszel hosts (no `ne_url`), Beszel+NE hybrids
+    // (history fetched via Beszel path → no collectors dict), and
+    // freshly-loaded hosts whose first /api/hosts/history reply hasn't
+    // landed yet. Drives the Disk I/O / Network "enable the collector"
+    // empty-state branches in the host drawer (#347).
+    hostCollectorMissing(h, name) {
+      if (!h || !h.ne_url) return false;
+      const key = this.hostHistoryKey(h);
+      const c = this.hostHistory[key] && this.hostHistory[key].collectors;
+      if (!c) return false;
+      return c[name] === false;
     },
     // Resolve the right hostHistory[] key for one host. Beszel-mapped
     // hosts use the Beszel system id (legacy behaviour); NE-only hosts
