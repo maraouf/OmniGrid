@@ -415,6 +415,7 @@ function app() {
     _openMeteoBaseline: '',
     _portainerBaseline: '',
     _oidcBaseline: '',
+    _debugBaseline: '',
     // Admin → Config (#337). DB-overridable process tunables. `tuningForm`
     // holds string values (blank = clear / fall back to env). `tuningEffective`
     // mirrors the GET /api/admin/tuning response so the form can render
@@ -1920,9 +1921,13 @@ function app() {
     // Persist the Open-Meteo upstream URL (Admin → Notifications).
     // Blank = clear override, fall back to the baked-in default.
     // Admin → Hosts toggle: show / hide the host-drawer debug panel
-    // (raw-JSON dump for each provider). Persists immediately on
-    // change so the admin doesn't have to hunt for a Save button.
-    async saveDebugPanelEnabled() {
+    // Save the Debug-tab settings via the smart-getter dirty pattern
+    // (#342) — POSTs the toggle, re-baselines on success so the amber
+    // "Unsaved" indicator clears, and reports failure via toast.
+    debugSaving: false,
+    async saveDebugSettings() {
+      if (this.debugSaving) return;
+      this.debugSaving = true;
       try {
         const r = await fetch('/api/settings', {
           method: 'POST',
@@ -1932,6 +1937,7 @@ function app() {
           }),
         });
         if (r.ok) {
+          this._debugBaseline = this._debugSnapshot();
           this.showToast(this.t('admin_hosts.debug_panel_toggle_saved'), 'success');
         } else {
           const j = await r.json().catch(() => ({}));
@@ -1939,6 +1945,8 @@ function app() {
         }
       } catch (_) {
         this.showToast(this.t('toasts_extra.network_error_generic'), 'error');
+      } finally {
+        this.debugSaving = false;
       }
     },
 
@@ -3079,12 +3087,13 @@ function app() {
         // (separate from portainerForm because the public URL lives on
         // the broader `settings` object, not the form).
         this._portainerPublicBaseline = (this.settings || {}).portainer_public_url || '';
-        // Capture all 4 unified-pattern baselines AFTER the form/settings
+        // Capture all 5 unified-pattern baselines AFTER the form/settings
         // are fully populated. Subsequent edits compare against these.
         this._appriseBaseline   = this._appriseSnapshot();
         this._openMeteoBaseline = this._openMeteoSnapshot();
         this._portainerBaseline = this._portainerSnapshot();
         this._oidcBaseline      = this._oidcSnapshot();
+        this._debugBaseline     = this._debugSnapshot();
 
         // --- Admin → SSH panel state ---
         this.hydrateSshSettings(d);
@@ -3991,6 +4000,13 @@ function app() {
       });
     },
     appriseDirty()   { return this._appriseBaseline   !== this._appriseSnapshot(); },
+    _debugSnapshot() {
+      const s = this.settings || {};
+      return JSON.stringify({
+        enabled: !!s.debug_panel_enabled,
+      });
+    },
+    debugDirty()     { return this._debugBaseline     !== this._debugSnapshot(); },
     _openMeteoSnapshot() {
       const s = this.settings || {};
       return JSON.stringify({

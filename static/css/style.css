@@ -2796,7 +2796,11 @@ body.login {
 
 .host-debug-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    /* `auto-fill` (not `auto-fit`) keeps trailing-row gaps so a final
+       single card doesn't stretch to the full grid width — every card
+       stays the same width regardless of how many provider blocks
+       hasDebugData() includes. */
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
     gap: var(--s-3);
 }
 
@@ -2810,13 +2814,11 @@ body.login {
 }
 
 .host-debug-box--wide {
-    /* The rendered block holds the broadest payload (full API shape)
-       so give it a two-column span when the grid has room for it. */
-    grid-column: span 2;
-}
-
-@media (max-width: 768px) {
-    .host-debug-box--wide { grid-column: span 1; }
+    /* Modifier kept as a hook for future use, but the spans were
+       producing inconsistent panel widths when mixed with single-span
+       cards (#342 follow-up). Inner <pre class="host-debug-json"> has
+       overflow:auto so wider payloads scroll horizontally without
+       stretching the card. */
 }
 
 .host-debug-box-head {
