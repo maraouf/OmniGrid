@@ -2236,10 +2236,18 @@ async def api_oidc_test(
 ):
     """Admin-only: probe the issuer's discovery endpoint. Used by the
     "Test connection" button in the Settings panel. No state changes.
+
+    Honours an in-flight ``verify_tls`` from the form when supplied so
+    an admin can flip the checkbox OFF and Test a self-signed issuer
+    before saving (BUG-005). Missing key falls back to the saved DB
+    value via ``oidc._verify_tls()``.
     """
     body = await request.json()
     issuer = (body.get("issuer_url") or "").strip()
-    return await oidc.test_discovery(issuer)
+    verify_tls = body.get("verify_tls")
+    if verify_tls is not None:
+        verify_tls = bool(verify_tls)
+    return await oidc.test_discovery(issuer, verify_tls=verify_tls)
 
 
 @app.post("/api/portainer/test")
