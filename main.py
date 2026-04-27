@@ -94,7 +94,7 @@ BOOTSTRAP_ADMIN_PASSWORD = os.getenv("BOOTSTRAP_ADMIN_PASSWORD", "")
 
 # Notification event names + per-event default state — single source of
 # truth lives in ``logic.ops`` so ``notify()`` and ``api_get_settings``
-# read the same map. BUG-002 from notes/code_review_2026-04-27.txt:
+# read the same map.
 # previously these were defined here AND duplicated as a hardcoded
 # ``default=True`` inside ``notify()`` — fresh deploys fired user_login
 # notifications even though the admin form claimed the toggle was off.
@@ -3031,6 +3031,26 @@ async def api_hosts():
                 entry["_providers"].append("webmin")
 
     # ---- Shape the response ---------------------------------------
+    # Snapshot fallback (#449) — apply ONCE for every entry whose probes
+    # left holes. Loads snapshots in a single DB read, then mutates each
+    # entry's merged dict in place, stamping `_stale_fields` /
+    # `_stale_ts` on whichever entries had missing fields filled from
+    # the snapshot. Same call shape `_merge_one_host` uses for the
+    # /api/hosts/one path so both endpoints honour the fallback
+    # uniformly.
+    try:
+        from logic.gather import (
+            apply_host_snapshot_fallback as _fallback,
+            load_host_snapshots as _load_snaps,
+        )
+        snaps = _load_snaps()
+        if snaps:
+            _fallback(
+                {entry["_host_record"]["id"]: entry["_merged"] for entry in out},
+                snapshots=snaps,
+            )
+    except Exception as e:  # noqa: BLE001
+        print(f"[hosts] snapshot fallback failed: {e}")
     # Short debug spew for core/arch/kernel only — helps diagnose the
     # common "all three columns are empty" complaint by showing each
     # curated host's merged values + which providers contributed.
@@ -3129,6 +3149,13 @@ async def api_hosts():
             # separately. Shared resolver with `_shape_host_api_row`
             # via the module-level mtime-keyed cache.
             "asset":            _resolve_asset_for_host(h.get("custom_number")),
+            # Stale-marker bookkeeping (#449) — same plumbing as
+            # `_shape_host_api_row`. List of backend host_* keys whose
+            # current value came from the persisted snapshot rather
+            # than a live provider, plus the snapshot's persistence
+            # timestamp. Frontend dims the corresponding bars / fields.
+            "_stale_fields":   list(s.get("_stale_fields") or []),
+            "_stale_ts":       float(s.get("_stale_ts") or 0.0),
         })
 
     # Aggregate error — non-fatal; UI shows the first one per provider.
@@ -3224,8 +3251,7 @@ async def _get_host_provider_state(force: bool = False) -> dict:
     # Include the active-sources tuple in the cache key so a settings
     # change like flipping `host_stats_source` from "beszel" to
     # "beszel,pulse" mid-window auto-busts the cache instead of serving
-    # stale Pulse-less state for up to TTL seconds (ENH-009 from
-    # notes/code_review_2026-04-27.txt). Save paths still call
+    # stale Pulse-less state for up to TTL seconds. Save paths still call
     # `invalidate_host_provider_cache()` directly for instant feedback;
     # the key match is defence-in-depth for the case where a save
     # happens via a path that doesn't run the invalidator (e.g. an
@@ -3403,6 +3429,18 @@ async def _merge_one_host(h: dict, state: dict) -> tuple[dict, list[str]]:
                 stats = next(iter(hosts_map.values()))
                 _merge_best(merged, stats)
                 providers_hit.append("webmin")
+
+    # Snapshot fallback (#449) — when a provider went down mid-session,
+    # fill missing host_* fields from the previous gather's persisted
+    # snapshot and tag them in `_stale_fields` so the SPA can dim those
+    # values. Only fills MISSING fields — live values from this run
+    # always win. `apply_host_snapshot_fallback` is a no-op when no
+    # snapshot exists for this host.
+    try:
+        from logic.gather import apply_host_snapshot_fallback as _fallback
+        _fallback({h["id"]: merged})
+    except Exception as e:  # noqa: BLE001
+        print(f"[hosts] snapshot fallback failed for {h.get('id')!r}: {e}")
 
     return merged, providers_hit
 
@@ -3627,6 +3665,16 @@ def _shape_host_api_row(
         "dmi_product":      (s.get("host_dmi_product") or ""),
         "dmi_serial":       (s.get("host_dmi_serial") or ""),
         "dmi_bios_version": (s.get("host_dmi_bios_version") or ""),
+        # Stale-marker bookkeeping (#449). Populated by
+        # apply_host_snapshot_fallback when a provider went down and we
+        # filled missing host_* fields from the persisted snapshot.
+        # SPA's isStale / isStaleField / staleAge helpers consult these
+        # to dim the corresponding bars / fields and surface the
+        # "Showing cached data" drawer banner. Empty list / 0 when
+        # everything is live so the frontend's reconcile clears the
+        # markers cleanly when a provider recovers.
+        "_stale_fields":   list(s.get("_stale_fields") or []),
+        "_stale_ts":       float(s.get("_stale_ts") or 0.0),
         # Permanent-fail tracking (#383). All four fields are non-zero
         # only when the host_metrics_sampler has recorded consecutive
         # failures for this host. `sampling_paused: true` triggers the
@@ -3729,8 +3777,7 @@ async def api_hosts_one(host_id: str, force: bool = False):
     ``force=true`` mirrors the parallel param on ``/api/hosts/list``
     (#347) and bypasses the 10s provider-state cache so a host drawer
     re-opened immediately after Admin → Hosts Save sees fresh provider
-    data instead of waiting out the TTL (ENH-003 from
-    notes/code_review_2026-04-27.txt).
+    data instead of waiting out the TTL
     """
     curated = _load_hosts_config()
     h = next((x for x in curated if x.get("id") == host_id), None)
@@ -4014,7 +4061,7 @@ async def api_hosts_resume_sampling(
 
     Validates ``host_id`` against the curated ``hosts_config`` list
     so the endpoint behaves consistently with `/api/hosts/one/{host_id}`
-    (BUG-005 from notes/code_review_2026-04-27.txt — admin previously
+    — admin previously
     could DELETE a stale failure-state row for a host_id that wasn't
     even in the curated list, which is harmless but inconsistent with
     the parallel endpoint's 404).
@@ -4952,8 +4999,7 @@ async def ws_ssh_terminal(websocket: WebSocket, host_id: str):
         await websocket.close(code=4403, reason="admin required")
         return
 
-    # ---- 1.5) Origin gate — defence-in-depth against CSWSH (BUG-003
-    #          from notes/code_review_2026-04-27.txt). FastAPI's
+    # ---- 1.5) Origin gate — defence-in-depth against CSWSH. FastAPI's
     #          WebSocket upgrades skip the HTTP middleware's CSRF path,
     #          so admin-only WS routes can't rely on the same
     #          double-submit cookie protection HTTP routes get. The
@@ -6454,8 +6500,7 @@ async def api_me(request: Request):
             # an invalid IANA name. ``configured`` = raw setting,
             # ``resolved`` = active TZ (None on blank or invalid),
             # ``fallback`` = True only when configured was non-empty
-            # but ZoneInfo rejected it. ENH-017 from
-            # notes/code_review_2026-04-27.txt.
+            # but ZoneInfo rejected it.
             "scheduler_tz": schedules.scheduler_tz_state(),
         },
     }

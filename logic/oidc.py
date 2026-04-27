@@ -180,8 +180,7 @@ async def test_discovery(issuer_url: str, verify_tls: Optional[bool] = None) -> 
 
     ``verify_tls`` overrides the saved DB value when supplied — the form
     sends the in-flight checkbox state so an admin can flip "Verify TLS"
-    OFF, paste a self-signed issuer, and Test before saving (BUG-005
-    from notes/code_review_2026-04-27.txt). Default ``None`` falls back
+    OFF, paste a self-signed issuer, and Test before saving. Default ``None`` falls back
     to the saved value via ``_verify_tls()``.
     """
     if not issuer_url:
@@ -526,8 +525,7 @@ async def _validate_id_token(
     alg = header.get("alg")
     if not alg:
         raise jwt.InvalidTokenError("id_token missing 'alg' in header")
-    # Whitelist asymmetric signing algorithms (BUG-008 from
-    # notes/code_review_2026-04-27.txt). The unverified header is
+    # Whitelist asymmetric signing algorithms . The unverified header is
     # attacker-controlled — feeding it straight into PyJWT's
     # ``algorithms=[alg]`` kwarg is fragile: modern PyJWT (>=2.0)
     # refuses ``none`` even when listed, but a regression or pinned
@@ -548,8 +546,7 @@ async def _validate_id_token(
     if key is None:
         # Key rotation — bypass cache once. Log the refresh so operators
         # can see in Admin → Logs that key rotation actually hit this
-        # path; without the line the cache-bypass is invisible (ENH-016
-        # from notes/code_review_2026-04-27.txt).
+        # path; without the line the cache-bypass is invisible
         print(f"[oidc] kid={kid!r} not in cached jwks — bypassing cache to refresh")
         jwks = await _fetch_jwks(issuer, jwks_uri, force=True)
         key = _find_key(jwks, kid)

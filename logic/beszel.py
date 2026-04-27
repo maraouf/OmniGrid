@@ -299,8 +299,8 @@ async def fetch_system_history(
     # Limit to a sane number — 1h * 60 = 60 rows for type=1m, etc.
     per_page = max(10, min(500, hours * 60))
     # Escape single quotes in user-controlled values before interpolating
-    # into the PocketBase filter string (BUG-002 from
-    # notes/code_review_2026-04-27.txt). Beszel record IDs and the four
+    # into the PocketBase filter string
+    # Beszel record IDs and the four
     # known stat_type values are alphanumeric in practice, but a malformed
     # paste OR a future PB schema change with operator-controlled fields
     # would break the query and return an empty series silently. PB
@@ -411,8 +411,7 @@ async def fetch_system_history(
         # Compute per-sensor temperatures ONCE per point. Earlier ship
         # called ``_flatten_temperatures(stats.get("t"))`` three times
         # (one for ``temps``, two for ``temp_max``). On a 168h history
-        # at 1-minute granularity that's 30k+ wasted parses (ENH-014
-        # from notes/code_review_2026-04-27.txt).
+        # at 1-minute granularity that's 30k+ wasted parses
         temps = _flatten_temperatures(stats.get("t"))
         series.append({
             "t":   ts,
@@ -718,7 +717,7 @@ def _derive_arch(kernel: str) -> str:
     ``logic.merge.normalize_arch`` so callers always see the canonical
     spelling (e.g. ``amd64`` → ``x86_64``); without that, NE-only hosts
     saw ``x86_64`` while Beszel-only hosts saw ``amd64`` for the same
-    physical CPU. BUG-007 from notes/code_review_2026-04-27.txt.
+    physical CPU.
     """
     if not kernel:
         return ""

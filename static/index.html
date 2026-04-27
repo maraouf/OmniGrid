@@ -1641,7 +1641,23 @@
                    x-show="hostIconUrl(h)" alt="" loading="lazy"
                    @error="$event.target.style.display='none'">
               <div class="host-mobile-card-title">
-                <span class="label" x-text="hostTypePrefix(h) + (h.label || h.host)"></span>
+                <div class="flex items-center gap-1.5 min-w-0">
+                  <span class="label" x-text="hostTypePrefix(h) + (h.label || h.host)"></span>
+                  <!-- Permanent-fail + stale badges — same priority
+                       order as the desktop table (#383, #449). Paused
+                       is more severe (red) so it wins; stale falls
+                       through with amber when not paused. -->
+                  <svg x-show="h.sampling_paused"
+                       width="13" height="13"
+                       class="text-[var(--danger)] flex-shrink-0"
+                       :title="t('hosts_extra.permanent_fail.badge_title', { minutes: hostFailureMinutes(h) })"
+                       aria-hidden="true"><use href="#icon-alert-triangle"/></svg>
+                  <svg x-show="!h.sampling_paused && isStale(h)"
+                       width="12" height="12"
+                       class="text-[var(--warning)] flex-shrink-0"
+                       :title="t('hosts_extra.stale_marker.badge_title', { age: staleAge(h) })"
+                       aria-hidden="true"><use href="#icon-clock"/></svg>
+                </div>
                 <span class="sub" x-text="h.host + ' · ' + (h.os || h.platform || '—')"></span>
               </div>
               <div class="host-mobile-providers">
@@ -1824,6 +1840,19 @@
                          class="text-[var(--danger)] flex-shrink-0"
                          :title="t('hosts_extra.permanent_fail.badge_title', { minutes: hostFailureMinutes(h) })"
                          aria-hidden="true"><use href="#icon-alert-triangle"/></svg>
+                    <!-- Stale-data badge (#449). Fires when one or
+                         more provider went down and the row is
+                         showing values restored from the persisted
+                         snapshot. Lower visual priority than the
+                         permanent-fail icon — uses --warning amber
+                         (paused = --danger red) — so a host that's
+                         BOTH paused and stale leads with the more
+                         severe state. -->
+                    <svg x-show="!h.sampling_paused && isStale(h)"
+                         width="13" height="13"
+                         class="text-[var(--warning)] flex-shrink-0"
+                         :title="t('hosts_extra.stale_marker.badge_title', { age: staleAge(h) })"
+                         aria-hidden="true"><use href="#icon-clock"/></svg>
                     <!-- Per-host provider chips. Red when provider is
                          globally enabled AND mapped to this host but
                          didn't return data (paused / unreachable / 401).
@@ -6978,25 +7007,33 @@
                       <dt class="text-[var(--text-dim)]" x-text="t('host_drawer.system.platform')"></dt>
                     </template>
                     <template x-if="h.platform && !(h.os && h.os.toLowerCase().startsWith(h.platform.toLowerCase()))">
-                      <dd class="text-end" x-text="h.platform"></dd>
+                      <dd class="text-end" :class="isStaleField(h, 'host_platform') ? 'stale' : ''"
+                          :title="isStaleField(h, 'host_platform') ? staleAge(h) : ''"
+                          x-text="h.platform"></dd>
                     </template>
                     <template x-if="h.os">
                       <dt class="text-[var(--text-dim)]" x-text="t('host_drawer.system.os')"></dt>
                     </template>
                     <template x-if="h.os">
-                      <dd class="text-end" x-text="h.os"></dd>
+                      <dd class="text-end" :class="isStaleField(h, 'host_os') ? 'stale' : ''"
+                          :title="isStaleField(h, 'host_os') ? staleAge(h) : ''"
+                          x-text="h.os"></dd>
                     </template>
                     <template x-if="h.kernel">
                       <dt class="text-[var(--text-dim)]" x-text="t('host_drawer.system.kernel')"></dt>
                     </template>
                     <template x-if="h.kernel">
-                      <dd class="mono text-end break-all" x-text="h.kernel"></dd>
+                      <dd class="mono text-end break-all" :class="isStaleField(h, 'host_kernel') ? 'stale' : ''"
+                          :title="isStaleField(h, 'host_kernel') ? staleAge(h) : ''"
+                          x-text="h.kernel"></dd>
                     </template>
                     <template x-if="h.arch">
                       <dt class="text-[var(--text-dim)]" x-text="t('host_drawer.system.arch')"></dt>
                     </template>
                     <template x-if="h.arch">
-                      <dd class="mono text-end" x-text="h.arch"></dd>
+                      <dd class="mono text-end" :class="isStaleField(h, 'host_arch') ? 'stale' : ''"
+                          :title="isStaleField(h, 'host_arch') ? staleAge(h) : ''"
+                          x-text="h.arch"></dd>
                     </template>
                     <!-- Uptime row only renders when a provider actually
                          reported uptime_s. Inventory-only / no-agent hosts
@@ -7007,7 +7044,9 @@
                       <dt class="text-[var(--text-dim)]" x-text="t('host_drawer.system.uptime')"></dt>
                     </template>
                     <template x-if="h.uptime_s != null && h.uptime_s > 0">
-                      <dd class="mono text-end" x-text="fmtUptimeShort(h.uptime_s)"></dd>
+                      <dd class="mono text-end" :class="isStaleField(h, 'host_uptime_s') ? 'stale' : ''"
+                          :title="isStaleField(h, 'host_uptime_s') ? staleAge(h) : ''"
+                          x-text="fmtUptimeShort(h.uptime_s)"></dd>
                     </template>
                     <template x-if="h.docker_node">
                       <dt class="text-[var(--text-dim)]" x-text="t('host_drawer.system.docker_node')"></dt>
@@ -7097,31 +7136,41 @@
                       <dt class="text-[var(--text-dim)]" x-text="t('host_drawer.hardware.cpu')"></dt>
                     </template>
                     <template x-if="h.cpu_model">
-                      <dd class="text-end mono break-all" x-text="h.cpu_model"></dd>
+                      <dd class="text-end mono break-all" :class="isStaleField(h, 'host_cpu_model') ? 'stale' : ''"
+                          :title="isStaleField(h, 'host_cpu_model') ? staleAge(h) : ''"
+                          x-text="h.cpu_model"></dd>
                     </template>
                     <template x-if="h.cores">
                       <dt class="text-[var(--text-dim)]" x-text="t('host_drawer.hardware.cores')"></dt>
                     </template>
                     <template x-if="h.cores">
-                      <dd class="mono text-end" x-text="h.cores"></dd>
+                      <dd class="mono text-end" :class="(isStaleField(h, 'host_cores') || isStaleField(h, 'host_threads')) ? 'stale' : ''"
+                          :title="(isStaleField(h, 'host_cores') || isStaleField(h, 'host_threads')) ? staleAge(h) : ''"
+                          x-text="h.cores"></dd>
                     </template>
                     <template x-if="h.threads">
                       <dt class="text-[var(--text-dim)]" x-text="t('host_drawer.hardware.threads')"></dt>
                     </template>
                     <template x-if="h.threads">
-                      <dd class="mono text-end" x-text="h.threads"></dd>
+                      <dd class="mono text-end" :class="isStaleField(h, 'host_threads') ? 'stale' : ''"
+                          :title="isStaleField(h, 'host_threads') ? staleAge(h) : ''"
+                          x-text="h.threads"></dd>
                     </template>
                     <template x-if="h.mem_total">
                       <dt class="text-[var(--text-dim)]" x-text="t('host_drawer.hardware.memory')"></dt>
                     </template>
                     <template x-if="h.mem_total">
-                      <dd class="mono text-end" x-text="fmtBytes(h.mem_total)"></dd>
+                      <dd class="mono text-end" :class="isStaleField(h, 'host_mem_total') ? 'stale' : ''"
+                          :title="isStaleField(h, 'host_mem_total') ? staleAge(h) : ''"
+                          x-text="fmtBytes(h.mem_total)"></dd>
                     </template>
                     <template x-if="h.disk_total">
                       <dt class="text-[var(--text-dim)]" x-text="t('host_drawer.hardware.disk')"></dt>
                     </template>
                     <template x-if="h.disk_total">
-                      <dd class="mono text-end" x-text="fmtBytes(h.disk_total)"></dd>
+                      <dd class="mono text-end" :class="isStaleField(h, 'host_disk_total') ? 'stale' : ''"
+                          :title="isStaleField(h, 'host_disk_total') ? staleAge(h) : ''"
+                          x-text="fmtBytes(h.disk_total)"></dd>
                     </template>
                     <template x-if="h.agent">
                       <dt class="text-[var(--text-dim)]"
@@ -7147,6 +7196,7 @@
                     </template>
                     <template x-if="(h.load_1m || 0) > 0 || (h.load_5m || 0) > 0 || (h.load_15m || 0) > 0">
                       <dd class="mono text-end whitespace-nowrap"
+                          :class="(isStaleField(h, 'host_load_1m') || isStaleField(h, 'host_load_5m') || isStaleField(h, 'host_load_15m')) ? 'stale' : ''"
                           x-text="(h.cores && h.cores > 0)
                             ? ((((h.load_1m || 0) / h.cores) * 100).toFixed(0) + '% · '
                                + (((h.load_5m || 0) / h.cores) * 100).toFixed(0) + '% · '
@@ -7154,9 +7204,11 @@
                             : ((h.load_1m || 0).toFixed(2) + ' · '
                                + (h.load_5m || 0).toFixed(2) + ' · '
                                + (h.load_15m || 0).toFixed(2))"
-                          :title="(h.cores && h.cores > 0)
-                            ? ('1m / 5m / 15m load (% of total CPU capacity, ' + h.cores + ' cores)')
-                            : '1m / 5m / 15m load average'"></dd>
+                          :title="(isStaleField(h, 'host_load_1m') || isStaleField(h, 'host_load_5m') || isStaleField(h, 'host_load_15m'))
+                            ? staleAge(h)
+                            : ((h.cores && h.cores > 0)
+                               ? ('1m / 5m / 15m load (% of total CPU capacity, ' + h.cores + ' cores)')
+                               : '1m / 5m / 15m load average')"></dd>
                     </template>
                     <!-- Asset inventory rows (ticket #78 follow-up).
                          Matched by h.custom_number against the cached

@@ -163,7 +163,7 @@ def invalidate_cache() -> None:
 # `cpu_cores` / `mem_bytes` / `role` come from the Portainer node
 # list every gather and don't need a fallback.
 #
-# ENH-020 from notes/code_review_2026-04-27.txt: previously a hand-
+# previously a hand-
 # maintained tuple that silently drifted from extract_stats every time
 # a provider sprouted a new ``host_*`` field (root cause of BUG-001 —
 # load_*, swap, temperatures all blanked on snapshot fallback because

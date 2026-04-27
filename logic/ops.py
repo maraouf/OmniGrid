@@ -33,8 +33,7 @@ MAX_OPS = 50
 # state. Mirrored into the DB by `api_get_settings` so the admin form has
 # a value to render; consulted directly here so a fresh deploy (where the
 # row doesn't exist yet) honours the same default the form would. Mismatch
-# between this map and `notify()`'s default was BUG-002 from
-# `notes/code_review_2026-04-27.txt` — every event was firing on first
+# between this map and `notify()`'s default — every event was firing on first
 # boot regardless of operator preference.
 NOTIFY_EVENT_NAMES = (
     "stack_update_success",

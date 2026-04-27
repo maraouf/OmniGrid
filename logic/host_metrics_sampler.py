@@ -317,15 +317,13 @@ async def _record_failure(host_id: str, now: float, error: str) -> None:
     a running event loop in scope, which we get for free inside an
     async function. The previous sync-wrapper grabbed the loop via
     ``asyncio.get_event_loop()`` which Python 3.12+ deprecates outside
-    a running coroutine and 3.14 removes (BUG-010 from
-    notes/code_review_2026-04-27.txt). The DB writes themselves are
+    a running coroutine and 3.14 removes. The DB writes themselves are
     sqlite3-sync but the surrounding contract makes the function
     awaitable so the notification dispatch can use the supported API.
     """
     # Three-tier lookup via the unified Tuning Config (#410): DB > env >
     # default. ``tuning.tuning_int`` always returns at least the code
-    # default, so a fallback here is dead code (BUG-006 from
-    # ``notes/code_review_2026-04-27.txt``).
+    # default, so a fallback here is dead code
     try:
         window = int(tuning.tuning_int("tuning_host_permanent_fail_window_seconds"))
     except Exception:
