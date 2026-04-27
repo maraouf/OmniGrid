@@ -1232,6 +1232,34 @@ def seed_default_schedules(conn: sqlite3.Connection, nodes: list[str]) -> None:
     if (get_setting("default_schedules_seeded", "") or "").lower() == "true":
         return
 
+    # ENH-014 (#429) — `seed_default_schedules` is called from BOTH
+    # `_lifespan` (with empty nodes) AND the first `gather()` (with
+    # nodes). On a fast-booting Swarm both calls can pass the gate
+    # check above and double-INSERT before either reaches
+    # `set_setting("default_schedules_seeded", "true")`. Wrap the
+    # entire seed sequence in `BEGIN IMMEDIATE` so SQLite serialises
+    # the second caller — when it eventually acquires the lock the
+    # gate-check above will already have run inside the previous
+    # transaction's commit-visible snapshot, so it short-circuits and
+    # the duplicate INSERT never fires. Falls through silently when
+    # BEGIN IMMEDIATE fails (some test fixtures use a connection in
+    # autocommit-only mode); in that case the legacy unique-name
+    # check inside `create_schedule` is the safety net.
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+    except sqlite3.OperationalError:
+        # Either already in a transaction, or autocommit isn't honored
+        # — the per-row IntegrityError catch below handles the race.
+        pass
+    # Re-check inside the transaction in case the other caller won the
+    # serialisation race + flipped the flag mid-flight.
+    if (get_setting("default_schedules_seeded", "") or "").lower() == "true":
+        try:
+            conn.commit()
+        except Exception:
+            pass
+        return
+
     seeded = False
     # A periodic cache refresh is benign and matches what a curious
     # operator would configure first anyway. Interval lines up with
@@ -1286,6 +1314,14 @@ def seed_default_schedules(conn: sqlite3.Connection, nodes: list[str]) -> None:
             set_setting("default_schedules_seeded", "true")
             if seeded:
                 print("[scheduler] default schedules seeded; flag latched")
+
+    # ENH-014 (#429) — close the BEGIN IMMEDIATE transaction. Commit
+    # whether seeded or not so the flag write (if any) lands and the
+    # write lock is released for the other concurrent caller.
+    try:
+        conn.commit()
+    except Exception:
+        pass
 
 
 # ----------------------------------------------------------------------------

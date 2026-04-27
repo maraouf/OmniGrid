@@ -4023,8 +4023,72 @@ async def api_hosts_resume_sampling(
             cleared = cur.rowcount or 0
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"resume-sampling failed: {e}")
+    # ENH-012 (#427) — also clear the SSH + Webmin auth cooldowns for
+    # this host so a single resume click recovers from the
+    # all-three-providers-paused-on-same-host case (sampler is paused,
+    # SSH cooldown still arming, Webmin cooldown still arming). Each
+    # cooldown is keyed differently — SSH on (host_id, user); Webmin
+    # on (base_url, user). For Webmin we walk the per-host alias map +
+    # the global URL since either could be the cooldown target. Both
+    # provider modules expose `_auth_cooldown_timer` per CLAUDE.md's
+    # "Add a host-stats provider" canonical checklist (CONS-004).
+    cooldown_cleared: list[str] = []
+    try:
+        from logic import ssh as _ssh
+        # SSH cooldowns are keyed on (host_id, user); we don't know the
+        # user here, so wipe the entire cooldown map for this host_id
+        # by iterating known users from the cooldown's internal store.
+        # Cooldown.clear(*key) takes the same key tuple as arm/remaining
+        # so we walk and clear known (host_id, *) pairs. Implementation
+        # detail: Cooldown stores keys as a tuple in `._timers`.
+        timers = getattr(_ssh._auth_cooldown_timer, "_armed", None)
+        if timers:
+            doomed = [k for k in list(timers.keys())
+                      if isinstance(k, tuple) and k and k[0] == (host_id or "")]
+            for k in doomed:
+                _ssh._auth_cooldown_timer.clear(*k)
+                cooldown_cleared.append(f"ssh:{k}")
+    except Exception as e:
+        print(f"[hosts] resume-sampling: ssh cooldown clear failed: {e}")
+    try:
+        from logic import webmin as _webmin
+        # Webmin cooldowns key on (base_url, user). The host's base_url
+        # could come from `webmin_url` field or the alias map; walk the
+        # cooldown's `_timers` dict and drop any entry whose first key
+        # element matches one of the candidate URLs.
+        candidates: set[str] = set()
+        wurl = (h.get("webmin_url") or "").strip().rstrip("/")
+        if wurl:
+            candidates.add(wurl)
+        # Resolved URL via the alias map — Webmin module's helper
+        webmin_name = (h.get("webmin_name") or "").strip()
+        if webmin_name:
+            try:
+                aliases_raw = get_setting("webmin_aliases", "") or ""
+                aliases = json.loads(aliases_raw) if aliases_raw else {}
+                if isinstance(aliases, dict):
+                    aliased = (aliases.get(webmin_name) or "").strip().rstrip("/")
+                    if aliased:
+                        candidates.add(aliased)
+            except Exception:
+                pass
+        timers = getattr(_webmin._auth_cooldown_timer, "_armed", None)
+        if timers and candidates:
+            doomed = [k for k in list(timers.keys())
+                      if isinstance(k, tuple) and k and k[0] in candidates]
+            for k in doomed:
+                _webmin._auth_cooldown_timer.clear(*k)
+                cooldown_cleared.append(f"webmin:{k}")
+    except Exception as e:
+        print(f"[hosts] resume-sampling: webmin cooldown clear failed: {e}")
+    if cooldown_cleared:
+        print(f"[hosts] {host_id!r} resume-sampling cleared cooldowns: {cooldown_cleared}")
     invalidate_host_provider_cache()
-    return {"host_id": host_id, "cleared": bool(cleared)}
+    return {
+        "host_id": host_id,
+        "cleared": bool(cleared),
+        "cooldowns_cleared": len(cooldown_cleared),
+    }
 
 
 @app.post("/api/hosts/test")

@@ -22,6 +22,21 @@ from logic import metrics, portainer, registry
 from logic.db import db_conn
 
 
+# Canonical label-value sets for `omnigrid_items_total{status, type}`
+# (#434). Single source of truth for the label cartesian product so
+# `metrics.populate_from_cache` can pre-seed every known combination
+# at zero — Grafana queries against any specific combination always
+# match a series. Adding a new value (e.g. `swarm-task` for raw task
+# rows) is one edit here; the metrics pre-seeding picks it up
+# automatically without churn at the consumer.
+ITEM_STATUSES: tuple[str, ...] = (
+    "up-to-date", "update", "error", "unknown", "ignored",
+)
+ITEM_TYPES: tuple[str, ...] = (
+    "service", "container", "orphan",
+)
+
+
 # Module-level cache. Keys:
 #   items             — list of item dicts (services + orphans + standalones)
 #   stacks            — list of stack groups, sorted alphabetically

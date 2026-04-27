@@ -3967,8 +3967,10 @@ function app() {
       return this.barLevel(v);
     },
 
-    // Generic in-place reconcile helper (#418 / ENH-003). Updates
-    // `target` to match `incoming` row-by-row keyed on `id`:
+    // Generic in-place reconcile helper (#418). Updates `target` to
+    // match `incoming` row-by-row, keyed on the named field
+    // (default `id`; stacks pass `'name'` since they don't carry an
+    // id). Operations:
     //   - existing rows: copy every field from `incoming[i]` onto the
     //     proxied entry (Alpine tracks each assignment individually so
     //     the row's DOM stays mounted),
@@ -3977,36 +3979,42 @@ function app() {
     // The order of `target` is finally rewritten to match `incoming`'s
     // order via swap-in-place so the row sequence the operator sees
     // tracks server-side ordering without tearing the array down.
-    // Used by `refresh()` for `this.items` + `this.stacks`; matches the
-    // reconcile pattern `loadHosts` uses for `this.hosts`.
-    _reconcileById(target, incoming) {
-      const incomingIds = new Set(incoming.map(r => r && r.id));
-      // Drop rows whose id disappeared. Iterate from the tail so
+    // Used by `refresh()` for `this.items` (key=id) and `this.stacks`
+    // (key=name); matches the reconcile pattern `loadHosts` uses for
+    // `this.hosts`.
+    _reconcileById(target, incoming, keyField = 'id') {
+      const keyOf = (r) => (r && r[keyField] != null) ? r[keyField] : null;
+      const incomingKeys = new Set(incoming.map(keyOf).filter(k => k != null));
+      // Drop rows whose key disappeared. Iterate from the tail so
       // splice indices stay valid.
       for (let i = target.length - 1; i >= 0; i--) {
-        if (!incomingIds.has(target[i].id)) {
+        if (!incomingKeys.has(keyOf(target[i]))) {
           target.splice(i, 1);
         }
       }
       // Update / insert. After this loop `target` has the right rows
       // but possibly in the wrong order.
-      const byId = new Map();
-      for (const row of target) byId.set(row.id, row);
+      const byKey = new Map();
+      for (const row of target) {
+        const k = keyOf(row);
+        if (k != null) byKey.set(k, row);
+      }
       for (const inc of incoming) {
-        if (!inc || inc.id == null) continue;
-        const existing = byId.get(inc.id);
+        const k = keyOf(inc);
+        if (k == null) continue;
+        const existing = byKey.get(k);
         if (existing) {
-          for (const k of Object.keys(inc)) existing[k] = inc[k];
+          for (const f of Object.keys(inc)) existing[f] = inc[f];
         } else {
           target.push({ ...inc });
-          byId.set(inc.id, target[target.length - 1]);
+          byKey.set(k, target[target.length - 1]);
         }
       }
       // Reorder `target` to match `incoming`'s sequence. Build the
       // final order array and copy elements back into `target` in
       // place — avoids a full reassignment that would re-proxy the
       // array and tear down Alpine's row mounts.
-      const ordered = incoming.map(inc => byId.get(inc.id)).filter(Boolean);
+      const ordered = incoming.map(inc => byKey.get(keyOf(inc))).filter(Boolean);
       for (let i = 0; i < ordered.length; i++) {
         if (target[i] !== ordered[i]) {
           target[i] = ordered[i];
@@ -4022,14 +4030,15 @@ function app() {
         const r = await fetch('/api/items' + (force ? '?force=true' : ''));
         if (!r.ok) throw new Error(await r.text());
         const d = await r.json();
-        // ENH-003 (#418) — in-place reconcile for items + stacks
-        // instead of wholesale array reassignment. Keeps Alpine from
-        // tearing down each row's checkbox state, <details> open/closed
-        // state, and inline-style nodes on every poll. Same
-        // .find()-by-id + field-by-field assignment pattern that
-        // `loadHosts` uses.
+        // #418 — in-place reconcile for items + stacks instead of
+        // wholesale array reassignment. Keeps Alpine from tearing
+        // down each row's checkbox state, <details> open/closed
+        // state, and inline-style nodes on every poll. Items are
+        // keyed by `id` (the default); stacks have no id field so
+        // we key on `name` (the operator-facing stack name is
+        // unique within a Swarm).
         this._reconcileById(this.items, d.items || []);
-        this._reconcileById(this.stacks, d.stacks || []);
+        this._reconcileById(this.stacks, d.stacks || [], 'name');
         this.nodes = d.nodes || {};
         // Per-node capacity + uptime proxy — see logic/gather.py's nodes_info.
         // Drives the Nodes view's normalized CPU/mem bars.

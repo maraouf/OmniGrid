@@ -127,12 +127,15 @@ def populate_from_cache(cache: dict) -> None:
     STACK_OUTDATED.clear()
     STACK_OFFLINE.clear()
 
-    # Pre-seed every known (status, type) at 0 so queries against specific
-    # label combinations always have a series to match. The backend's set of
-    # valid statuses / types is small and stable — see main.py item-building
-    # code. Keep this list in sync if new values are introduced.
-    for status in ("up-to-date", "update", "error", "unknown", "ignored"):
-        for typ in ("service", "container", "orphan"):
+    # Pre-seed every known (status, type) at 0 so queries against
+    # specific label combinations always have a series to match. The
+    # canonical sets live in `logic.gather` (#434) — adding a new
+    # status / type there pre-seeds the new combinations here without
+    # touching this function. Imported lazily to avoid an import cycle
+    # at module-load time (gather imports metrics directly).
+    from logic.gather import ITEM_STATUSES, ITEM_TYPES
+    for status in ITEM_STATUSES:
+        for typ in ITEM_TYPES:
             ITEMS_TOTAL.labels(status=status, type=typ).set(0)
 
     counts = _C(

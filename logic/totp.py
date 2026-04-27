@@ -29,6 +29,7 @@ rejected even if the value matches.
 from __future__ import annotations
 
 import base64
+import hashlib
 import json
 import secrets
 import time
@@ -154,16 +155,33 @@ def generate_backup_codes(n: int = 10) -> list[str]:
     return codes
 
 
+def _backup_code_hash(plain: str) -> str:
+    """SHA-256 hex of the canonical 8-digit form. ENH-011 (#426) — used
+    for O(1) consume-time lookup so we no longer decrypt every code on
+    every attempt. Hash-only access is safe: the hash is the proof the
+    user knew the plaintext, and the encrypted blob still backs the
+    Profile-side reveal flow."""
+    canonical = _normalise_for_compare(plain)
+    return hashlib.sha256(canonical.encode("ascii")).hexdigest()
+
+
 def encrypt_backup_codes(plain_codes: list[str]) -> str:
     """Encrypt + JSON-pack a fresh list of backup codes for storage.
 
-    Each entry has shape ``{"code_encrypted": "<fernet>", "used_at": null}``.
+    Each entry has shape
+    ``{"code_encrypted": "<fernet>", "code_hash": "<sha256>", "used_at": null}``.
+    The ``code_hash`` field (added in #426) lets ``consume_backup_code``
+    look up by hash in O(1) instead of decrypting every entry on every
+    attempt; the encrypted blob is still the source for the Profile-side
+    reveal flow.
     """
     out = []
     for c in plain_codes:
         normalised = format_backup_code_for_display(c)
+        canonical = normalised.replace(" ", "")
         out.append({
-            "code_encrypted": encrypt_secret(normalised.replace(" ", "")),
+            "code_encrypted": encrypt_secret(canonical),
+            "code_hash": _backup_code_hash(canonical),
             "used_at": None,
         })
     return json.dumps(out)
@@ -207,6 +225,14 @@ def consume_backup_code(stored_json: Optional[str], attempt: str) -> tuple[bool,
     On match, the entry's ``used_at`` is set to the current epoch second
     and a new JSON blob is returned. On no-match (or all entries already
     used), returns ``(False, None)``.
+
+    ENH-011 (#426): preferred path is O(1) lookup by ``code_hash``
+    (SHA-256 of the canonical 8-digit form). Pre-#426 entries lack
+    the hash field — for those we fall back to the legacy decrypt-
+    and-compare loop. Backfill happens lazily: a successful legacy-
+    path match also writes the missing ``code_hash`` for the OTHER
+    not-yet-hashed entries before returning, so the second consume
+    on the same record is fast even without a schema migration.
     """
     if not stored_json:
         return (False, None)
@@ -219,11 +245,28 @@ def consume_backup_code(stored_json: Optional[str], attempt: str) -> tuple[bool,
     target = _normalise_for_compare(attempt)
     if len(target) != 8 or not target.isdigit():
         return (False, None)
+    target_hash = hashlib.sha256(target.encode("ascii")).hexdigest()
+
+    # Fast path — O(1) hash equality. Skips decrypt entirely.
+    legacy_entries: list[dict] = []
     for entry in raw:
         if not isinstance(entry, dict):
             continue
         if entry.get("used_at"):
             continue
+        h = entry.get("code_hash")
+        if h:
+            if h == target_hash:
+                entry["used_at"] = int(time.time())
+                return (True, json.dumps(raw))
+            continue  # hash present but no match — skip without decrypt
+        legacy_entries.append(entry)
+
+    # Legacy path — decrypt-and-compare for entries that pre-date #426.
+    # Backfill code_hash on every entry we touch so the next consume
+    # takes the fast path.
+    matched = False
+    for entry in legacy_entries:
         ct = entry.get("code_encrypted")
         if not ct:
             continue
@@ -231,7 +274,17 @@ def consume_backup_code(stored_json: Optional[str], attempt: str) -> tuple[bool,
             plain = decrypt_secret(ct)
         except InvalidToken:
             continue
-        if _normalise_for_compare(plain) == target:
+        canonical = _normalise_for_compare(plain)
+        # Backfill the hash regardless of match so subsequent attempts
+        # of OTHER codes go through the fast path too.
+        entry["code_hash"] = hashlib.sha256(canonical.encode("ascii")).hexdigest()
+        if not matched and canonical == target:
             entry["used_at"] = int(time.time())
-            return (True, json.dumps(raw))
+            matched = True
+    if matched:
+        return (True, json.dumps(raw))
+    # Persist any backfilled hashes even on no-match so the legacy
+    # decrypt loop runs only once per code lifetime.
+    if any("code_hash" in e for e in legacy_entries):
+        return (False, json.dumps(raw))
     return (False, None)
