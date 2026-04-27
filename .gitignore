@@ -33,4 +33,4 @@ tmp/
 # Only the npm-metadata lockfile that lives INSIDE node_modules is noise.
 .package-lock.json
 
-.claude/
+
