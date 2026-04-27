@@ -280,12 +280,16 @@ async def _lifespan(app: FastAPI):
         _host_metrics_sampler.host_metrics_sampler_loop(),
         name="host-metrics-sampler",
     )
+    # Persistent-log pruner (#424) — sweeps /app/data/logs/ once per
+    # hour, deletes any omnigrid-YYYY-MM-DD.log older than the
+    # operator-tunable retention window.
+    log_pruner = asyncio.create_task(_log_pruner_loop(), name="log-pruner")
     try:
         yield
     finally:
         # Cancel in reverse-start order. Each cancel + await is wrapped so
         # one failing shutdown step can't starve the next one.
-        for task in (host_metrics_sampler, host_net_sampler, scheduler, sampler, seed_task):
+        for task in (log_pruner, host_metrics_sampler, host_net_sampler, scheduler, sampler, seed_task):
             task.cancel()
             try:
                 await task
@@ -612,6 +616,27 @@ _stats_cache = _stats_mod.get_stats_cache()
 _gather_stats = _stats_mod.gather_stats
 _stats_history = _stats_mod.stats_history
 _stats_sampler_loop = _stats_mod.stats_sampler_loop
+
+
+# ============================================================================
+# Persistent-log pruner (#424). Once per hour, walks /app/data/logs/ and
+# drops any daily file older than `tuning_log_retention_days`. The first
+# tick is delayed 60s after boot so the lifespan startup has finished
+# emitting its banner lines before the sweep runs (cosmetic).
+# ============================================================================
+async def _log_pruner_loop() -> None:
+    import asyncio
+    from logic import logs as _logs_mod
+    await asyncio.sleep(60)
+    while True:
+        try:
+            days = tuning.tuning_int("tuning_log_retention_days")
+            removed = _logs_mod.prune_old_logs(days)
+            if removed:
+                print(f"[logs] pruned {removed} log file(s) older than {days}d")
+        except Exception as e:
+            print(f"[logs] pruner tick error: {e}")
+        await asyncio.sleep(3600)
 
 
 # ============================================================================
@@ -1196,6 +1221,10 @@ class SettingsIn(BaseModel):
     # reads the effective value via /api/me and uses it as the
     # setTimeout delay between consecutive ops polls.
     tuning_ops_poll_interval_ms: Optional[str] = None
+    # #424 — persistent-log retention in days. Daily files under
+    # /app/data/logs/ older than this get deleted by the lifespan
+    # _log_pruner_loop().
+    tuning_log_retention_days: Optional[str] = None
     # -----------------------------------------------------------------
     # Per-event notification toggles. Each maps to one of the
     # 12 (event group × success/failure) notify() call sites in

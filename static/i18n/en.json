@@ -557,6 +557,10 @@
         "tuning_ops_poll_interval_ms": {
           "label": "Ops poll cadence (ms)",
           "help": "How often the SPA polls /api/ops to detect when background operations finish. Lower = snappier UI feedback, higher = less idle traffic. Default 1500 ms. Takes effect on the next /api/me round-trip."
+        },
+        "tuning_log_retention_days": {
+          "label": "Log retention (days)",
+          "help": "How long to keep persistent log files in /app/data/logs/. Daily files older than this are deleted by an hourly sweep. The in-memory ring buffer (Admin → Logs viewer) is unaffected — it always shows the last 2000 lines from this process. Default 7 days."
         }
       },
       "totp": {

@@ -38,6 +38,12 @@ TUNABLES: dict[str, tuple[str, int, int, int]] = {
     # without a page reload (it takes effect on the next pollOps
     # iteration after a Save).
     "tuning_ops_poll_interval_ms": ("OPS_POLL_INTERVAL_MS", 1500, 250, 60000),
+    # Persistent-log retention window in days. Daily log files under
+    # /app/data/logs/ older than this get deleted by the pruner loop
+    # in main.py. Default 7d matches the stats-history retention
+    # convention. Min 1d (a sweep that's run every hour wouldn't have
+    # time to produce older files anyway); max 365d.
+    "tuning_log_retention_days": ("LOG_RETENTION_DAYS", 7, 1, 365),
 }
 
 
