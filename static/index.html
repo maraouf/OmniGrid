@@ -1159,12 +1159,12 @@
                    sources are off. -->
               <span x-show="nodeStats(node.name).exporterStatus === 'ok'"
                     class="pill pill-ok text-[10.5px]"
-                    :title="'Stats merged from: ' + nodeProviderList(node.name)">
+                    :title="t('nodes.stats_merged_from_title', { sources: nodeProviderList(node.name) })">
                 <span x-text="nodeProviderChip(node.name)"></span> ✓
               </span>
               <span x-show="nodeStats(node.name).exporterStatus === 'error'"
                     class="pill pill-error text-[10.5px] cursor-help"
-                    :title="nodeStats(node.name).exporterError || 'All configured host-stats sources failed — falling back to Docker-only signals.'">
+                    :title="nodeStats(node.name).exporterError || t('nodes.stats_all_failed_title')">
                 <span x-text="nodeProviderChip(node.name)"></span> ✗
               </span>
               <span class="text-[11px] text-[var(--text-dim)] mx-1">
@@ -1176,7 +1176,7 @@
                       @click="pruneNode(node.name)"
                       :disabled="isPruneBusy(node.name)"
                       class="btn btn-danger-outline text-[11px]"
-                      :title="'Run docker system prune on ' + node.name">
+                      :title="t('nodes.prune_button_title', { node: node.name })">
                 <template x-if="isPruneBusy(node.name)"><span class="flex items-center gap-1"><span class="spin"></span>Pruning…</span></template>
                 <template x-if="!isPruneBusy(node.name)"><span class="flex items-center gap-1">
                   <svg width="11" height="11" aria-hidden="true"><use href="#icon-trash"/></svg>
@@ -1660,7 +1660,7 @@
                  bars don't imply "loading" on a host that's down. -->
             <div class="host-mobile-card-metrics" x-show="h.status === 'up'">
               <div class="host-mobile-card-metric">
-                <span class="name">CPU</span>
+                <span class="name" x-text="t('columns.cpu')"></span>
                 <span class="value" x-text="(h.cpu_percent || 0).toFixed(1) + '%'"></span>
                 <div class="stat-bar"
                      :class="[barLevel(h.cpu_percent), isStaleField(h, 'host_cpu_percent') ? 'stale' : '']"
@@ -1670,7 +1670,7 @@
                 </div>
               </div>
               <div class="host-mobile-card-metric">
-                <span class="name">Memory</span>
+                <span class="name" x-text="t('columns.memory')"></span>
                 <span class="value"
                       x-text="(h.mem_percent || memPercentOf(h)) + '%'"></span>
                 <div class="stat-bar"
@@ -1681,7 +1681,7 @@
                 </div>
               </div>
               <div class="host-mobile-card-metric">
-                <span class="name">Disk</span>
+                <span class="name" x-text="t('columns.disk')"></span>
                 <span class="value"
                       x-text="(h.disk_percent || diskPercentOf(h)) + '%'"></span>
                 <div class="stat-bar"
@@ -1703,15 +1703,15 @@
         <!-- Header row — mirrors Beszel's columns. -->
         <div class="grid grid-cols-[26px_minmax(320px,1.8fr)_140px_140px_140px_minmax(160px,1fr)_80px_60px_72px_84px_40px] gap-3 px-4 py-2 border-b border-[var(--border)] bg-[var(--surface-2)] text-[10.5px] uppercase tracking-wider text-[var(--text-faint)]">
           <div></div>
-          <div>Host</div>
-          <div>Platform</div>
-          <div>CPU</div>
-          <div>Memory</div>
-          <div>Disk</div>
-          <div class="text-center">Uptime</div>
-          <div class="text-center">Cores</div>
-          <div class="text-center">Arch</div>
-          <div class="text-center">Kernel</div>
+          <div x-text="t('columns.host')"></div>
+          <div x-text="t('columns.platform')"></div>
+          <div x-text="t('columns.cpu')"></div>
+          <div x-text="t('columns.memory')"></div>
+          <div x-text="t('columns.disk')"></div>
+          <div class="text-center" x-text="t('columns.uptime')"></div>
+          <div class="text-center" x-text="t('columns.cores')"></div>
+          <div class="text-center" x-text="t('columns.arch')"></div>
+          <div class="text-center" x-text="t('columns.kernel')"></div>
           <div></div>
         </div>
 
@@ -1985,7 +1985,7 @@
                    target="_blank" rel="noopener"
                    @click.stop
                    class="inline-flex items-center justify-center text-[var(--text-dim)] hover:text-[var(--primary)]"
-                   :title="'Open ' + (h.label || h.host)">
+                   :title="t('hosts_extra.open_link_title', { label: h.label || h.host })">
                   <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
                 </a>
               </div>
@@ -2041,36 +2041,14 @@
 
       <!-- Case: server sent curated_count > 0 but every row disabled. -->
       <div x-show="hostsInitialLoaded && hostsConfigured && !hostsLoading && !hostsError && hosts.length === 0 && hostsCuratedCount > 0 && hostsEnabledCount === 0"
-           class="text-center py-16 text-[var(--text-faint)] text-sm">
-        <div>
-          <span x-text="hostsCuratedCount"></span>
-          host<span x-show="hostsCuratedCount !== 1">s</span> defined
-          but all disabled.
-        </div>
-        <div class="mt-2">
-          Open
-          <a href="/admin/hosts" class="text-[var(--primary)] hover:underline">Admin → Hosts</a>
-          and tick <strong>Enabled</strong> on the rows you want to
-          see here.
-        </div>
-      </div>
+           class="text-center py-16 text-[var(--text-faint)] text-sm"
+           x-html="t('hosts_extra.empty.all_disabled_html', { count: hostsCuratedCount })"></div>
 
       <!-- Case: server sent curated_count > 0 with enabled rows but
            no provider matched any of them. -->
       <div x-show="hostsInitialLoaded && hostsConfigured && !hostsLoading && !hostsError && hosts.length === 0 && hostsEnabledCount > 0"
-           class="text-center py-16 text-[var(--text-faint)] text-sm">
-        <div>
-          <span x-text="hostsEnabledCount"></span>
-          enabled host<span x-show="hostsEnabledCount !== 1">s</span>,
-          but no provider returned data for any of them.
-        </div>
-        <div class="mt-2 text-[13px] leading-relaxed">
-          Check the per-row <strong>Test providers</strong> button in
-          <a href="/admin/hosts" class="text-[var(--primary)] hover:underline">Admin → Hosts</a>
-          — the mapped provider names probably don't match what
-          Beszel / Pulse / node-exporter actually report.
-        </div>
-      </div>
+           class="text-center py-16 text-[var(--text-faint)] text-sm"
+           x-html="t('hosts_extra.empty.no_provider_match_html', { count: hostsEnabledCount })"></div>
 
       <!-- Case: positively confirmed no provider enabled. Only
            fires when the backend explicitly says configured=false
@@ -2081,15 +2059,8 @@
            case (the old build could have providers enabled, just
            not reporting the field). -->
       <div x-show="hostsInitialLoaded && !hostsConfigured && !hostsLoading && !hostsError && hosts.length === 0 && (hostsActiveSources || []).length === 0"
-           class="text-center py-16 text-[var(--text-faint)] text-sm">
-        <div>No host-stats provider enabled.</div>
-        <div class="mt-2">
-          Enable Beszel / Pulse / node-exporter in
-          <a href="/admin/host_stats" class="text-[var(--primary)] hover:underline">Admin → Host stats</a>,
-          then define the hosts you want to monitor in
-          <a href="/admin/hosts" class="text-[var(--primary)] hover:underline">Admin → Hosts</a>.
-        </div>
-      </div>
+           class="text-center py-16 text-[var(--text-faint)] text-sm"
+           x-html="t('hosts_extra.empty.no_provider_enabled_html')"></div>
 
       <!-- Fallback — servers on builds that don't return
            curated_count / enabled_count, OR any case where the
@@ -2097,20 +2068,8 @@
            points at the most likely fix (Test providers) rather
            than the misleading "no hosts yet". -->
       <div x-show="hostsInitialLoaded && hostsConfigured && !hostsLoading && !hostsError && hosts.length === 0 && hostsCuratedCount === 0"
-           class="text-center py-16 text-[var(--text-faint)] text-sm">
-        <div>No host data to show.</div>
-        <div class="mt-2 text-[13px] leading-relaxed">
-          If you've defined hosts in
-          <a href="/admin/hosts" class="text-[var(--primary)] hover:underline">Admin → Hosts</a>,
-          the configured provider names probably don't match what
-          <span class="mono" x-show="(hostsActiveSources || []).length"
-                x-text="(hostsActiveSources || []).join(' / ')"></span><span
-                x-show="!(hostsActiveSources || []).length">the enabled providers</span>
-          are reporting — use the per-row <strong>Test providers</strong>
-          button to see what each provider knows about, then fix the
-          mapping.
-        </div>
-      </div>
+           class="text-center py-16 text-[var(--text-faint)] text-sm"
+           x-html="t('hosts_extra.empty.no_data_html', { sources: (hostsActiveSources || []).length ? '<span class=\'mono\'>' + ((hostsActiveSources || []).join(' / ')) + '</span>' : t('hosts_extra.empty.fallback_sources_label') })"></div>
     </div>
 
     <!-- ===== HISTORY VIEW ===== -->
@@ -2118,7 +2077,7 @@
       <div class="flex justify-between items-center">
         <div>
           <h2 class="font-semibold text-[15px]" x-text="t('history.title')"></h2>
-          <div class="text-[11px] text-[var(--text-faint)]" x-text="t('history.entries', { count: history.length })"></div>
+          <div class="text-[11px] text-[var(--text-faint)]" x-text="t('history.entries', { count: historyTotal })"></div>
         </div>
         <div class="flex gap-2">
           <a :href="historyExportUrl('csv')" class="btn btn-soft text-[12px]" :title="t('history.csv_title')" x-text="t('history.csv')"></a>
@@ -2130,18 +2089,18 @@
 
       <!-- HISTORY FILTER BAR -->
       <div class="flex flex-wrap items-center gap-2">
-        <input type="search" x-model.debounce.300ms="historyFilters.q" @input="loadHistory()"
+        <input type="search" x-model.debounce.300ms="historyFilters.q" @input="historyApplyFilter()"
                :placeholder="t('history.search_placeholder')"
                class="text-[12px] min-w-[220px] flex-1 max-w-[340px]">
         <div class="flex items-center gap-1.5 flex-wrap">
-          <button @click="historyFilters.status=''; loadHistory()"
+          <button @click="historyApplyFilter(() => historyFilters.status = '')"
                   :class="!historyFilters.status ? 'active' : ''" class="filter-chip" x-text="t('history.status_all')"></button>
-          <button @click="historyFilters.status='success'; loadHistory()"
+          <button @click="historyApplyFilter(() => historyFilters.status = 'success')"
                   :class="historyFilters.status==='success' ? 'active' : ''" class="filter-chip" x-text="t('history.status_success')"></button>
-          <button @click="historyFilters.status='error'; loadHistory()"
+          <button @click="historyApplyFilter(() => historyFilters.status = 'error')"
                   :class="historyFilters.status==='error' ? 'active' : ''" class="filter-chip" x-text="t('history.status_error')"></button>
         </div>
-        <select x-model="historyFilters.op_type" @change="loadHistory()" class="text-[12px] min-w-[150px]">
+        <select x-model="historyFilters.op_type" @change="historyApplyFilter()" class="text-[12px] min-w-[150px]">
           <option value="" x-text="t('history.all_op_types')"></option>
           <option value="update_stack">update_stack</option>
           <option value="update_container">update_container</option>
@@ -2153,17 +2112,17 @@
           <option value="gather_refresh">gather_refresh</option>
           <option value="asset_inventory_refresh">asset_inventory_refresh</option>
         </select>
-        <select x-model="historyFilters.stack" @change="loadHistory()" class="text-[12px] min-w-[150px]">
+        <select x-model="historyFilters.stack" @change="historyApplyFilter()" class="text-[12px] min-w-[150px]">
           <option value="" x-text="t('history.all_stacks')"></option>
           <template x-for="s in historyStackOptions" :key="s">
             <option :value="s" x-text="s"></option>
           </template>
         </select>
-        <input type="date" x-model="historyFilters.fromDate" @change="loadHistory()"
+        <input type="date" x-model="historyFilters.fromDate" @change="historyApplyFilter()"
                class="text-[12px]" :title="t('history.from_date_title')">
-        <input type="date" x-model="historyFilters.toDate" @change="loadHistory()"
+        <input type="date" x-model="historyFilters.toDate" @change="historyApplyFilter()"
                class="text-[12px]" :title="t('history.to_date_title')">
-        <button x-show="hasHistoryFilter()" @click="resetHistoryFilters(); loadHistory()"
+        <button x-show="hasHistoryFilter()" @click="historyApplyFilter(() => resetHistoryFilters())"
                 class="btn btn-ghost text-[11px]" x-text="t('history.clear_filters')"></button>
       </div>
 
@@ -2199,7 +2158,60 @@
             </tbody>
           </table>
         </div>
-        <div x-show="history.length===0" class="text-center py-16 text-[var(--text-faint)] text-sm" x-text="t('empty.no_history')">
+        <div x-show="historyTotal === 0" class="text-center py-16 text-[var(--text-faint)] text-sm" x-text="t('empty.no_history')">
+        </div>
+        <!-- Server-side paging — backend returns one slice per request
+             plus the total, so this control set drives every page
+             change through a fresh /api/history fetch. Hidden when the
+             full filtered set fits on one page (no point in showing
+             '1 / 1'). Pattern + i18n keys mirror the Hosts editor
+             pager (CLAUDE.md "Admin-editor pagination pattern"). -->
+        <div x-show="historyTotal > historyPerPage"
+             class="flex items-center justify-between gap-3 flex-wrap px-4 py-2 border-t border-[var(--border)] text-[11.5px]">
+          <div class="flex items-center gap-2 text-[var(--text-dim)]">
+            <span x-text="t('pagination.page_n_of_m', { page: Math.min(historyPage, historyTotalPages()), total: historyTotalPages() })"></span>
+            <span class="text-[var(--text-faint)]"
+                  x-text="t('pagination.total_count', { count: historyTotal })"></span>
+          </div>
+          <div class="flex items-center gap-1.5">
+            <button @click="historyGoToPage(1)"
+                    :disabled="historyPage <= 1"
+                    :class="historyPage <= 1 ? 'opacity-40 cursor-not-allowed' : ''"
+                    class="btn btn-ghost text-[11px] px-2"
+                    :title="t('pagination.first_page_title')"
+                    x-text="t('pagination.first_glyph')"></button>
+            <button @click="historyPrevPage()"
+                    :disabled="historyPage <= 1"
+                    :class="historyPage <= 1 ? 'opacity-40 cursor-not-allowed' : ''"
+                    class="btn btn-soft text-[11px] px-2.5"
+                    x-text="t('pagination.prev')"></button>
+            <input type="number" min="1" :max="historyTotalPages()"
+                   :value="Math.min(historyPage, historyTotalPages())"
+                   @change="historyGoToPage($event.target.value)"
+                   class="w-14 text-center text-[11.5px] py-1"
+                   :title="t('pagination.jump_to_page_title')">
+            <button @click="historyNextPage()"
+                    :disabled="historyPage >= historyTotalPages()"
+                    :class="historyPage >= historyTotalPages() ? 'opacity-40 cursor-not-allowed' : ''"
+                    class="btn btn-soft text-[11px] px-2.5"
+                    x-text="t('pagination.next')"></button>
+            <button @click="historyGoToPage(historyTotalPages())"
+                    :disabled="historyPage >= historyTotalPages()"
+                    :class="historyPage >= historyTotalPages() ? 'opacity-40 cursor-not-allowed' : ''"
+                    class="btn btn-ghost text-[11px] px-2"
+                    :title="t('pagination.last_page_title')"
+                    x-text="t('pagination.last_glyph')"></button>
+            <select :value="historyPerPage"
+                    @change="historySetPerPage($event.target.value)"
+                    class="text-[11.5px] py-1 ms-2"
+                    :title="t('pagination.rows_per_page_title')">
+              <option value="25" x-text="t('pagination.per_page_option', { count: 25 })"></option>
+              <option value="50" x-text="t('pagination.per_page_option', { count: 50 })"></option>
+              <option value="100" x-text="t('pagination.per_page_option', { count: 100 })"></option>
+              <option value="200" x-text="t('pagination.per_page_option', { count: 200 })"></option>
+              <option value="500" x-text="t('pagination.per_page_option', { count: 500 })"></option>
+            </select>
+          </div>
         </div>
       </div>
     </div>
@@ -4047,47 +4059,41 @@
              Token is write-only like Beszel's password. -->
         <div class="space-y-3 mt-4" :class="!hasHostStatsSource('pulse') ? 'opacity-60' : ''">
           <div>
-            <label class="block text-[11px] text-[var(--text-faint)] mb-1">Pulse URL</label>
+            <label class="block text-[11px] text-[var(--text-faint)] mb-1" x-text="t('settings.host_stats.pulse_url_label')"></label>
             <input x-model="settings.pulse_url" type="url"
                    :disabled="isReadonly() || !hasHostStatsSource('pulse')"
                    class="w-full mono text-[11.5px]"
-                   placeholder="http://pulse.example.com:7655">
-            <p class="text-[10.5px] text-[var(--text-faint)] mt-1">
-              Base URL of your Pulse instance. OmniGrid will call
-              <code class="mono">{URL}/api/state</code> with the token below.
-            </p>
+                   :placeholder="t('settings.host_stats.pulse_url_placeholder')">
+            <p class="text-[10.5px] text-[var(--text-faint)] mt-1"
+               x-html="t('settings.host_stats.pulse_url_hint_html', { URL_PLACEHOLDER: '{URL}' })"></p>
           </div>
           <div>
             <label class="block text-[11px] text-[var(--text-faint)] mb-1">
-              <span>API token</span>
-              <span x-show="settings.pulse_token_set" class="text-[var(--success)]"> · set</span>
+              <span x-text="t('settings.host_stats.pulse_token_label')"></span>
+              <span x-show="settings.pulse_token_set" class="text-[var(--success)]" x-text="t('settings.host_stats.pulse_token_set_suffix')"></span>
             </label>
             <input x-model="settings.pulse_token" type="password"
                    autocomplete="new-password"
                    :disabled="isReadonly() || !hasHostStatsSource('pulse')"
                    class="w-full text-[11.5px]"
-                   :placeholder="settings.pulse_token_set ? '••••••••' : 'Create a read-only token in Pulse → Settings'">
+                   :placeholder="settings.pulse_token_set ? t('settings.host_stats.pulse_token_set_placeholder') : t('settings.host_stats.pulse_token_placeholder')">
           </div>
           <label class="inline-flex items-center gap-2 text-[12px] text-[var(--text-dim)]">
             <input type="checkbox" x-model="settings.pulse_verify_tls"
                    :disabled="isReadonly() || !hasHostStatsSource('pulse')">
-            <span>Verify TLS certificate</span>
+            <span x-text="t('settings.host_stats.pulse_verify_tls')"></span>
           </label>
           <div class="flex items-center gap-2 flex-wrap">
             <button x-show="isAdmin()" @click="testPulseConnection()"
                     :disabled="(pulseTestResult && pulseTestResult.pending) || !hasHostStatsSource('pulse')"
                     class="btn btn-soft text-[12px]"
-                    x-text="(pulseTestResult && pulseTestResult.pending) ? 'Testing…' : 'Test connection'"></button>
+                    x-text="(pulseTestResult && pulseTestResult.pending) ? t('settings.host_stats.pulse_testing') : t('settings.host_stats.pulse_test_button')"></button>
             <span x-show="pulseTestResult && !pulseTestResult.pending"
                   :class="pulseTestResult && pulseTestResult.ok ? 'text-[var(--success)]' : 'text-[var(--danger)]'"
                   class="text-[11.5px]"
                   x-text="(pulseTestResult && pulseTestResult.ok ? '✓ ' : '✗ ') + (pulseTestResult && pulseTestResult.detail || '')"></span>
           </div>
-          <p class="text-[10.5px] text-[var(--text-faint)]">
-            Per-node aliases (Docker hostname → PVE node name) are edited
-            from the Nodes view; Pulse and Beszel keep independent maps
-            since their naming conventions diverge.
-          </p>
+          <p class="text-[10.5px] text-[var(--text-faint)]" x-text="t('settings.host_stats.pulse_aliases_hint')"></p>
         </div>
 
         <!-- Webmin config — fourth provider. Each target host runs its
@@ -4098,39 +4104,36 @@
         <div class="space-y-3 mt-4" :class="!hasHostStatsSource('webmin') ? 'opacity-60' : ''">
           <div class="grid grid-cols-1 md:grid-cols-2 gap-2">
             <div>
-              <label class="block text-[11px] text-[var(--text-faint)] mb-1">Webmin user</label>
+              <label class="block text-[11px] text-[var(--text-faint)] mb-1" x-text="t('settings.host_stats.webmin_user_label')"></label>
               <input x-model="settings.webmin_user" type="text"
                      :disabled="isReadonly() || !hasHostStatsSource('webmin')"
                      class="w-full text-[11.5px]"
-                     placeholder="omnigrid-ro">
-              <p class="text-[10.5px] text-[var(--text-faint)] mt-1">
-                A dedicated read-only Webmin user. See
-                <code class="mono">notes/notes_agent_research.txt</code> for the
-                recommended ACL + <code class="mono">no_session</code> directive.
-              </p>
+                     :placeholder="t('settings.host_stats.webmin_user_placeholder')">
+              <p class="text-[10.5px] text-[var(--text-faint)] mt-1"
+                 x-html="t('settings.host_stats.webmin_user_hint_html')"></p>
             </div>
             <div>
               <label class="block text-[11px] text-[var(--text-faint)] mb-1">
-                <span>Password</span>
-                <span x-show="settings.webmin_password_set" class="text-[var(--success)]"> · set</span>
+                <span x-text="t('settings.host_stats.webmin_password_label')"></span>
+                <span x-show="settings.webmin_password_set" class="text-[var(--success)]" x-text="t('settings.host_stats.webmin_password_set_suffix')"></span>
               </label>
               <input x-model="settings.webmin_password" type="password"
                      autocomplete="new-password"
                      :disabled="isReadonly() || !hasHostStatsSource('webmin')"
                      class="w-full text-[11.5px]"
-                     :placeholder="settings.webmin_password_set ? '••••••••' : 'read-only user password'">
+                     :placeholder="settings.webmin_password_set ? t('settings.host_stats.webmin_password_set_placeholder') : t('settings.host_stats.webmin_password_placeholder')">
             </div>
           </div>
           <label class="inline-flex items-center gap-2 text-[12px] text-[var(--text-dim)]">
             <input type="checkbox" x-model="settings.webmin_verify_tls"
                    :disabled="isReadonly() || !hasHostStatsSource('webmin')">
-            <span>Verify TLS certificate (Webmin's default cert is self-signed — leave off for homelab)</span>
+            <span x-text="t('settings.host_stats.webmin_verify_tls_label')"></span>
           </label>
           <div class="flex items-center gap-2 flex-wrap">
             <button x-show="isAdmin()" @click="testWebminConnection()"
                     :disabled="(webminTestResult && webminTestResult.pending) || !hasHostStatsSource('webmin')"
                     class="btn btn-soft text-[12px]"
-                    x-text="(webminTestResult && webminTestResult.pending) ? 'Testing…' : 'Test one Webmin URL'"></button>
+                    x-text="(webminTestResult && webminTestResult.pending) ? t('settings.host_stats.webmin_testing') : t('settings.host_stats.webmin_test_button')"></button>
             <input x-model="webminTestUrl" type="url" class="flex-1 text-[11.5px] mono"
                    :placeholder="t('admin_hosts.row.webmin_url_placeholder')">
             <span x-show="webminTestResult && !webminTestResult.pending"
@@ -4138,13 +4141,8 @@
                   class="text-[11.5px]"
                   x-text="(webminTestResult && webminTestResult.ok ? '✓ ' : '✗ ') + (webminTestResult && webminTestResult.detail || '')"></span>
           </div>
-          <p class="text-[10.5px] text-[var(--text-faint)]">
-            Per-host Webmin URLs are configured in
-            <a href="/admin/hosts" class="text-[var(--primary)] hover:underline">Admin → Hosts</a>
-            — add a <code class="mono">webmin_name</code> + <code class="mono">webmin_url</code>
-            on any row whose box runs Webmin. Hosts without a mapping are silently
-            skipped by the Webmin probe.
-          </p>
+          <p class="text-[10.5px] text-[var(--text-faint)]"
+             x-html="t('settings.host_stats.webmin_aliases_hint_html')"></p>
         </div>
 
         <!-- Save + unsaved-changes indicator. Same visual treatment as
@@ -4178,7 +4176,7 @@
         <div class="mb-3">
           <div class="flex items-center gap-2">
             <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true"><use href="#icon-server"/></svg>
-            <h3 class="font-semibold text-[14px]">Hosts</h3>
+            <h3 class="font-semibold text-[14px]" x-text="t('admin_hosts.heading')"></h3>
           </div>
           <p class="text-[12px] text-[var(--text-faint)] mt-1 leading-snug max-w-[720px]">
             Define the machines you want to monitor and map each to the
@@ -4191,15 +4189,15 @@
             <button x-show="isAdmin()" @click="discoverHosts()"
                     class="btn btn-ghost text-[12px]"
                     :disabled="hostsDiscovering"
-                    :title="'Fetch the list of names known to every enabled provider so you can autocomplete the fields below'">
-              <span x-show="!hostsDiscovering">Discover from providers</span>
-              <span x-show="hostsDiscovering" class="flex items-center gap-1"><span class="spin"></span>Fetching…</span>
+                    :title="t('admin_hosts.discover_title')">
+              <span x-show="!hostsDiscovering" x-text="t('admin_hosts.discover_button')"></span>
+              <span x-show="hostsDiscovering" class="flex items-center gap-1"><span class="spin"></span><span x-text="t('admin_hosts.discover_busy')"></span></span>
             </button>
             <button x-show="isAdmin() && discoveredMissingCount() > 0"
                     @click="importDiscoveredHosts()"
                     class="btn btn-primary text-[12px]"
-                    :title="'Create a row for every discovered name that isn\'t already configured. Duplicates are skipped.'">
-              <span>Import</span>
+                    :title="t('admin_hosts.import_discovered_title')">
+              <span x-text="t('admin_hosts.import_discovered_button')"></span>
               <span class="ms-1 text-[10.5px] opacity-80"
                     x-text="'(' + discoveredMissingCount() + ')'"></span>
             </button>
@@ -4211,7 +4209,7 @@
                     @click="testAllHostRows()"
                     :disabled="hostsTestingAll"
                     class="btn btn-ghost text-[12px]"
-                    :title="'Probe every enabled host against all its configured providers and show the results per row.'">
+                    :title="t('admin_hosts.test_all_title')">
               <span x-show="!hostsTestingAll" x-text="t('actions.test_all')"></span>
               <span x-show="hostsTestingAll" class="flex items-center gap-1"><span class="spin"></span><span x-text="t('actions.testing')"></span></span>
             </button>
@@ -4670,27 +4668,24 @@
                 </div>
                 <div x-show="hostsTestResults[idx] && hostsTestResults[idx].error"
                      class="text-[11px] text-[var(--danger)]"
-                     x-text="'Test failed: ' + (hostsTestResults[idx] && hostsTestResults[idx].error)"></div>
+                     x-text="t('admin_hosts.test.test_failed', { error: (hostsTestResults[idx] && hostsTestResults[idx].error) || '' })"></div>
               </div>
               </div><!-- /expanded field grid -->
             </div>
           </template>
 
           <div x-show="hostsConfig.length === 0"
-               class="text-center py-12 text-[var(--text-faint)] text-[12.5px] italic rounded-md border border-dashed border-[var(--border)]">
-            No hosts configured yet.<br>
-            Click <strong>+ Add host</strong> below to define one, or
-            <strong>Discover from providers</strong> to pull every name
-            the enabled providers know about.
-          </div>
+               class="text-center py-12 text-[var(--text-faint)] text-[12.5px] italic rounded-md border border-dashed border-[var(--border)]"
+               x-html="t('admin_hosts.empty_html')"></div>
           <!-- Filter-out-everything state — distinct from the
                no-hosts state so the operator knows the rows exist,
                they're just filtered. -->
           <div x-show="hostsConfig.length > 0 && filteredHostsConfig().length === 0"
                class="text-center py-8 text-[var(--text-faint)] text-[12.5px] italic">
-            No hosts match your filter.
+            <span x-text="t('admin_hosts.filter_no_match')"></span>
             <button @click="hostsConfigFilter=''"
-                    class="text-[var(--primary)] hover:underline not-italic ms-2">Clear</button>
+                    class="text-[var(--primary)] hover:underline not-italic ms-2"
+                    x-text="t('admin_hosts.filter_clear')"></button>
           </div>
 
           <!-- Pagination controls (#331) — only visible when the
@@ -8077,23 +8072,36 @@
                           <span x-text="l"></span>
                         </template>
                       </div>
+                      <!-- Alpine `<template x-for>` does NOT work inside
+                           <svg> (the SVG-namespace template element
+                           isn't a real HTMLTemplateElement; .content
+                           is undefined and Alpine throws). The chart
+                           returns a `dByColor` dict that pre-joins
+                           every sensor's path data per palette token,
+                           so we render five fixed <path>s and the
+                           chart helper assigns each sensor to one of
+                           them. Each path uses `class="metric-line"`
+                           which sets `stroke: currentColor`, then
+                           `style="color: var(--token)"` resolves the
+                           CSS variable and paints the lines. Hidden
+                           when the slug has no data so an empty `d`
+                           doesn't render an invisible glyph. -->
                       <svg class="metric-svg" viewBox="0 0 420 120" preserveAspectRatio="none">
-                        <template x-for="line in hostTempChart(hostHistoryKey(h)).lines" :key="line.name">
-                          <!-- :stroke="…" as an SVG presentation
-                               attribute does NOT evaluate CSS
-                               variables, so a literal `var(--primary)`
-                               string lands in the DOM unevaluated and
-                               the browser draws nothing (#443). The
-                               inline `style` attribute DOES evaluate
-                               them, so we set the stroke colour via
-                               style; same goes for any other token-
-                               valued SVG style. -->
-                          <path :d="line.d"
-                                fill="none"
-                                stroke-width="1.5"
-                                vector-effect="non-scaling-stroke"
-                                :style="'stroke: ' + line.color"></path>
-                        </template>
+                        <path class="metric-line" style="color: var(--primary)"
+                              :d="(hostTempChart(hostHistoryKey(h)).dByColor || {}).primary || ''"
+                              fill="none"></path>
+                        <path class="metric-line" style="color: var(--warning)"
+                              :d="(hostTempChart(hostHistoryKey(h)).dByColor || {}).warning || ''"
+                              fill="none"></path>
+                        <path class="metric-line" style="color: var(--danger)"
+                              :d="(hostTempChart(hostHistoryKey(h)).dByColor || {}).danger || ''"
+                              fill="none"></path>
+                        <path class="metric-line" style="color: var(--success)"
+                              :d="(hostTempChart(hostHistoryKey(h)).dByColor || {}).success || ''"
+                              fill="none"></path>
+                        <path class="metric-line" style="color: var(--info)"
+                              :d="(hostTempChart(hostHistoryKey(h)).dByColor || {}).info || ''"
+                              fill="none"></path>
                       </svg>
                       <div class="metric-x-axis">
                         <template x-for="(l, i) in xAxisFromSeries(hostHistoryKey(h), 5)" :key="i">

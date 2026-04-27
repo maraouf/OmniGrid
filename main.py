@@ -828,9 +828,19 @@ def _history_query(
     actor: Optional[str], q: Optional[str],
     since: Optional[float], until: Optional[float],
     limit: int,
+    offset: int = 0,
+    *,
+    with_total: bool = False,
 ):
     """Shared builder for filterable history queries. All filters are
-    optional; missing ones degrade gracefully to an unfiltered scan."""
+    optional; missing ones degrade gracefully to an unfiltered scan.
+
+    When ``with_total=True`` the return value is ``(rows, total)`` —
+    ``total`` is the unpaginated COUNT(*) for the same WHERE clause,
+    used by the SPA's server-side pager. Default ``with_total=False``
+    preserves the legacy list-only return shape so the export endpoints
+    don't pay the extra query.
+    """
     where, params = [], []
     if stack:
         # Match ops whose recorded target_stack is this stack, plus historical
@@ -856,19 +866,27 @@ def _history_query(
     if until is not None:
         where.append("ts <= ?")
         params.append(until)
-    sql = "SELECT * FROM history"
-    if where:
-        sql += " WHERE " + " AND ".join(where)
-    sql += " ORDER BY ts DESC LIMIT ?"
-    params.append(max(1, min(limit, 5000)))
+    where_sql = (" WHERE " + " AND ".join(where)) if where else ""
+    eff_limit = max(1, min(limit, 5000))
+    eff_offset = max(0, int(offset or 0))
+    data_sql = f"SELECT * FROM history{where_sql} ORDER BY ts DESC LIMIT ? OFFSET ?"
+    data_params = list(params) + [eff_limit, eff_offset]
     with db_conn() as c:
-        rows = c.execute(sql, params).fetchall()
-    return [dict(r) for r in rows]
+        rows = c.execute(data_sql, data_params).fetchall()
+        if with_total:
+            count_sql = f"SELECT COUNT(*) AS n FROM history{where_sql}"
+            total_row = c.execute(count_sql, params).fetchone()
+            total = int(total_row["n"] if total_row else 0)
+    rows_out = [dict(r) for r in rows]
+    if with_total:
+        return rows_out, total
+    return rows_out
 
 
 @app.get("/api/history")
 async def api_history(
     limit: int = 100,
+    offset: int = 0,
     stack: Optional[str] = None,
     op_type: Optional[str] = None,
     status: Optional[str] = None,
@@ -877,8 +895,15 @@ async def api_history(
     since: Optional[float] = None,
     until: Optional[float] = None,
 ):
+    rows, total = _history_query(
+        stack, op_type, status, actor, q, since, until,
+        limit, offset=offset, with_total=True,
+    )
     return {
-        "history": _history_query(stack, op_type, status, actor, q, since, until, limit),
+        "history": rows,
+        "total":   total,
+        "offset":  max(0, int(offset or 0)),
+        "limit":   max(1, min(int(limit or 100), 5000)),
     }
 
 

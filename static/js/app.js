@@ -67,6 +67,19 @@ function app() {
     },
     items: [], stacks: [], nodes: {}, nodesInfo: {},
     history: [], ignores: [],
+    // Server-side paging for the audit log (history). Backend's
+    // /api/history accepts ?offset=&limit= and returns {history, total,
+    // offset, limit}. Per-page + page persist to localStorage so the
+    // operator returns to the same view on refresh; filter changes
+    // reset to page 1 (large jumps within the same dataset stay where
+    // the operator was).
+    historyTotal: 0,
+    historyPage: (typeof localStorage !== 'undefined'
+                    ? Math.max(1, parseInt(localStorage.getItem('historyPage') || '1', 10) || 1)
+                    : 1),
+    historyPerPage: (typeof localStorage !== 'undefined'
+                    ? Math.max(10, Math.min(500, parseInt(localStorage.getItem('historyPerPage') || '50', 10) || 50))
+                    : 50),
     stats: {}, _statsTimer: null, _maxSize: 1,
     sparks: {}, _sparksTimer: null,
     version: '',
@@ -5450,9 +5463,13 @@ function app() {
       }
       this.drawerItem = null;
     },
-    _historyQueryParams() {
+    _historyQueryParams(opts = {}) {
       // Build the shared ?stack=&op_type=...&since=... query string used by
       // loadHistory() and the CSV/JSON export links, so filters stay in sync.
+      // Pass `{ paging: true }` to include offset+limit derived from the
+      // current page state — used by the live view. Exports omit paging
+      // and request a high cap (5000) so the operator gets the full
+      // filtered result, not just one page.
       const f = this.historyFilters;
       const p = new URLSearchParams();
       if (f.q)        p.set('q', f.q);
@@ -5466,7 +5483,14 @@ function app() {
         const end = new Date(f.toDate); end.setHours(23, 59, 59, 999);
         p.set('until', String(end.getTime() / 1000));
       }
-      p.set('limit', '500');
+      if (opts.paging) {
+        const per = Math.max(10, Math.min(500, this.historyPerPage || 50));
+        const page = Math.max(1, this.historyPage || 1);
+        p.set('limit', String(per));
+        p.set('offset', String((page - 1) * per));
+      } else {
+        p.set('limit', '5000');
+      }
       return p;
     },
     hasHistoryFilter() {
@@ -5477,7 +5501,46 @@ function app() {
       this.historyFilters = { q: '', stack: '', op_type: '', status: '', actor: '', fromDate: '', toDate: '' };
     },
     historyExportUrl(fmt) {
+      // Exports never page — the operator wants the full filtered
+      // dataset in the file, not whichever page is on screen.
       return `/api/history.${fmt}?` + this._historyQueryParams().toString();
+    },
+    // --- History server-side paging (#446) ---
+    historyTotalPages() {
+      const per = Math.max(1, this.historyPerPage || 50);
+      return Math.max(1, Math.ceil((this.historyTotal || 0) / per));
+    },
+    _persistHistoryPaging() {
+      try {
+        localStorage.setItem('historyPage',    String(this.historyPage));
+        localStorage.setItem('historyPerPage', String(this.historyPerPage));
+      } catch (_) {}
+    },
+    historyGoToPage(n) {
+      const page = Math.max(1, Math.min(parseInt(n, 10) || 1, this.historyTotalPages()));
+      if (page === this.historyPage) return;
+      this.historyPage = page;
+      this._persistHistoryPaging();
+      this.loadHistory();
+    },
+    historyPrevPage() { this.historyGoToPage(this.historyPage - 1); },
+    historyNextPage() { this.historyGoToPage(this.historyPage + 1); },
+    historySetPerPage(n) {
+      const per = Math.max(10, Math.min(500, parseInt(n, 10) || 50));
+      if (per === this.historyPerPage) return;
+      this.historyPerPage = per;
+      this.historyPage = 1;
+      this._persistHistoryPaging();
+      this.loadHistory();
+    },
+    // Filter changes reset to page 1 — staying on page 7 of an old
+    // result set when the new filtered set has 2 pages would land the
+    // operator on a blank page.
+    historyApplyFilter(fn) {
+      if (typeof fn === 'function') fn();
+      this.historyPage = 1;
+      this._persistHistoryPaging();
+      this.loadHistory();
     },
     get historyStackOptions() {
       // Populate the stack dropdown from whatever stacks we currently see
@@ -5486,8 +5549,20 @@ function app() {
     },
     async loadHistory() {
       try {
-        const r = await fetch('/api/history?' + this._historyQueryParams().toString());
-        this.history = (await r.json()).history || [];
+        const r = await fetch('/api/history?' + this._historyQueryParams({ paging: true }).toString());
+        const d = await r.json();
+        this.history = Array.isArray(d.history) ? d.history : [];
+        this.historyTotal = Number.isFinite(+d.total) ? +d.total : this.history.length;
+        // If the operator's persisted page is past the new filtered
+        // total (e.g. they had a wide filter on page 7, narrowed it,
+        // and the result is 1 page), clamp + reload.
+        const max = this.historyTotalPages();
+        if (this.historyPage > max) {
+          this.historyPage = max;
+          this._persistHistoryPaging();
+          // Don't recurse forever — only one re-fetch on clamp.
+          if (this.historyTotal > 0) this.loadHistory();
+        }
       } catch (e) { console.error(e); }
     },
     openHistoryDetail(h) {
@@ -6567,15 +6642,25 @@ function app() {
     // --- Admin → Hosts: curated host list editor ---
     async loadHostsConfig() {
       // Guard against clobbering unsaved edits. The operator can hit
-      // Reload deliberately (confirms) or bypass when clean.
-      if (this.hostsConfigDirty && !confirm(
-        'You have unsaved changes in the Hosts list. Discard them and reload from the server?'
-      )) return;
+      // Reload deliberately (confirms via SweetAlert) or bypass when
+      // clean. Native confirm() was the original implementation but
+      // it doesn't translate / RTL-flip and can't theme to the dark
+      // surface tokens (#445).
+      if (this.hostsConfigDirty) {
+        const ok = await this.confirmDialog({
+          title: this.t('admin_hosts.unsaved_confirm_title'),
+          html:  this.t('admin_hosts.unsaved_confirm_html'),
+          icon:  'warning',
+          confirmText: this.t('admin_hosts.unsaved_confirm_button'),
+          confirmColor: this._cssVar('--danger'),
+        });
+        if (!ok) return;
+      }
       this.hostsConfigLoading = true;
       try {
         const r = await fetch('/api/hosts/config');
         if (!r.ok) {
-          this.showToast(`Load hosts failed: HTTP ${r.status}`, 'error');
+          this.showToast(this.t('admin_hosts.load_failed_status', { status: r.status }), 'error');
           return;
         }
         const d = await r.json();
@@ -6615,7 +6700,7 @@ function app() {
           this.hostsConfigTotalPages(),
         );
       } catch (e) {
-        this.showToast(`Load hosts failed: ${e.message}`, 'error');
+        this.showToast(this.t('admin_hosts.load_failed', { error: e.message }), 'error');
       } finally {
         this.hostsConfigLoading = false;
       }
@@ -6629,7 +6714,7 @@ function app() {
       try {
         const r = await fetch('/api/hosts/discover');
         if (!r.ok) {
-          this.showToast(`Discover failed: HTTP ${r.status}`, 'error');
+          this.showToast(this.t('admin_hosts.discover.failed_status', { status: r.status }), 'error');
           return;
         }
         const d = await r.json();
@@ -6644,7 +6729,10 @@ function app() {
         const pTotal = this.hostsDiscovery.pulse.length;
         const wTotal = this.hostsDiscovery.webmin.length;
         if (errKeys.length && (bTotal + pTotal + wTotal) === 0) {
-          this.showToast(`No provider responded: ${errKeys.map(k => k + '=' + errs[k]).join(' · ')}`, 'error');
+          this.showToast(
+            this.t('admin_hosts.discover.no_response', { detail: errKeys.map(k => k + '=' + errs[k]).join(' · ') }),
+            'error',
+          );
         } else {
           const parts = [];
           if (bTotal)  parts.push(`${bTotal} Beszel`);
@@ -6652,13 +6740,13 @@ function app() {
           if (wTotal)  parts.push(`${wTotal} Webmin`);
           this.showToast(
             parts.length
-              ? `Discovered ${parts.join(', ')} name(s) — autocomplete is live`
-              : 'No enabled provider returned any hosts — check connection settings',
+              ? this.t('admin_hosts.discover.found', { detail: parts.join(', ') })
+              : this.t('admin_hosts.discover.no_results'),
             parts.length ? 'success' : 'error',
           );
         }
       } catch (e) {
-        this.showToast(`Discover failed: ${e.message}`, 'error');
+        this.showToast(this.t('admin_hosts.discover.failed', { error: e.message }), 'error');
       } finally {
         this.hostsDiscovering = false;
       }
@@ -6864,7 +6952,7 @@ function app() {
       }
       this.hostsConfig.push(...rows);
       this.hostsConfigDirty = true;
-      this.showToast(`Added ${rows.length} host(s) — review and Save to persist.`, 'success');
+      this.showToast(this.t('admin_hosts.added_n', { count: rows.length }), 'success');
     },
     // Bulk "test every host" — fires testHostRow for each enabled
     // row in parallel. Skips rows without any provider mapping
@@ -6896,7 +6984,7 @@ function app() {
         a.remove();
       }, 500);
       this.showToast(
-        `Exported ${(this.hostsConfig || []).length} host(s) to file.`,
+        this.t('admin_hosts.exported_n', { count: (this.hostsConfig || []).length }),
         'success'
       );
     },
@@ -6916,7 +7004,7 @@ function app() {
         const text = await file.text();
         payload = JSON.parse(text);
       } catch (e) {
-        this.showToast(`Invalid JSON: ${e.message}`, 'error');
+        this.showToast(this.t('admin_hosts.import_invalid_json', { error: e.message }), 'error');
         return;
       }
       const incoming = Array.isArray(payload.hosts) ? payload.hosts
@@ -6928,13 +7016,18 @@ function app() {
       const existing = this.hostsConfig || [];
       let mode = 'merge';
       if (existing.length) {
-        // Let the user pick — ``confirm()`` only offers OK / Cancel,
-        // so we use it as merge-vs-replace via "OK to replace?".
-        mode = confirm(
-          `Replace all ${existing.length} current hosts with ${incoming.length} from the file?\n\n` +
-          `OK   → replace\n` +
-          `Cancel → merge (update existing IDs, add new ones)`
-        ) ? 'replace' : 'merge';
+        // SweetAlert with two buttons — OK = replace, Cancel = merge.
+        // Replaces the original native confirm() so the dialog
+        // theme-matches the dark surface tokens and i18n's
+        // (#445).
+        const replace = await this.confirmDialog({
+          title: this.t('admin_hosts.import_replace_confirm_title') || this.t('actions.confirm'),
+          html:  this.t('admin_hosts.import_replace_confirm_html', { existing: existing.length, incoming: incoming.length }),
+          icon:  'warning',
+          confirmText: this.t('admin_hosts.import_replace_confirm_replace'),
+          confirmColor: this._cssVar('--danger'),
+        });
+        mode = replace ? 'replace' : 'merge';
       }
       const norm = (h) => ({
         id:          String(h.id || h.name || '').trim(),
@@ -6957,7 +7050,7 @@ function app() {
       }
       this.hostsConfigDirty = true;
       this.showToast(
-        `Imported ${cleanIncoming.length} host(s) — review and Save to persist.`,
+        this.t('admin_hosts.imported_n', { count: cleanIncoming.length }),
         'success'
       );
     },
@@ -6978,7 +7071,7 @@ function app() {
       this.hostsTestingAll = true;
       try {
         await Promise.all(rows.map(({ idx }) => this.testHostRow(idx)));
-        this.showToast(`Tested ${rows.length} host(s) — see per-row results.`, 'success');
+        this.showToast(this.t('admin_hosts.test.tested_n', { count: rows.length }), 'success');
       } finally {
         this.hostsTestingAll = false;
       }
@@ -8186,12 +8279,12 @@ function app() {
         }).catch(() => {});
         if (this.settings) this.settings.webmin_aliases = webminAliases;
         this.hostsConfigDirty = false;
-        this.showToast(`Saved ${d.count} host(s)`, 'success');
+        this.showToast(this.t('admin_hosts.saved_n', { count: d.count }), 'success');
         // The Hosts tab consumes this list — refresh it so the new
         // mapping takes effect without a full page reload.
         if (this.view === 'hosts') this.loadHosts();
       } catch (e) {
-        this.showToast(`Save failed: ${e.message}`, 'error');
+        this.showToast(this.t('admin_hosts.save_failed', { error: e.message }), 'error');
       } finally {
         this.hostsConfigSaving = false;
       }
@@ -10696,7 +10789,13 @@ function app() {
       const sortedNames = Array.from(sensorNames).sort();
       const step = (W - PAD_X * 2) / (entry.series.length - 1);
       const usableH = H - PAD_T - PAD_B;
-      const lines = sortedNames.map(name => {
+      // Five-token palette, matched to the slug list returned in
+      // dByColor below. Index = sensor's position in sortedNames; %5
+      // wraps when a host has more sensors than colours.
+      const slugs = ['primary', 'warning', 'danger', 'success', 'info'];
+      const dByColor = { primary: '', warning: '', danger: '', success: '', info: '' };
+      const lines = [];
+      sortedNames.forEach((name, idx) => {
         const segs = [];   // SVG path data — handles missing samples
         let cur = '';
         for (let i = 0; i < entry.series.length; i++) {
@@ -10714,19 +10813,22 @@ function app() {
           cur += (cur ? ' L' : 'M') + x.toFixed(1) + ',' + y.toFixed(1);
         }
         if (cur) segs.push(cur);
-        return {
-          name,
-          d: segs.join(' '),
-          color: this.hostTempLineColor(name, sortedNames),
-        };
-      }).filter(l => l.d);
+        const d = segs.join(' ');
+        if (!d) return;
+        const slug = slugs[idx % slugs.length];
+        dByColor[slug] = dByColor[slug] ? dByColor[slug] + ' ' + d : d;
+        lines.push({ name, d, color: 'var(--' + slug + ')' });
+      });
       if (lines.length === 0) return null;
-      // Y-axis ticks: 4 evenly spaced labels (top → bottom). Match
-      // the .metric-y-axis layout the percentage charts already use.
-      const yAxis = [hi, lo + (hi - lo) * 2 / 3, lo + (hi - lo) / 3, lo].map(
-        v => Math.round(v) + '°',
-      );
-      return { lines, yAxis, min: lo, max: hi, sortedNames };
+      // Y-axis ticks: 3 labels (top / mid / bottom) so the .metric-y-axis
+      // flex `justify-content: space-between` lands them at the same
+      // visual rhythm as `yAxisPercent()` (`100% / 50% / 0%`). Earlier
+      // ship used 4 labels which made the inner two land at 33%/66%
+      // of the y-axis div — visually offset from anything meaningful
+      // on the chart and read as "labels out of bounds" (#443).
+      const mid = lo + (hi - lo) / 2;
+      const yAxis = [hi, mid, lo].map(v => Math.round(v) + '°');
+      return { lines, dByColor, yAxis, min: lo, max: hi, sortedNames };
     },
     hostMetricStats(systemId, key, asPct = true) {
       const entry = this.hostHistory[systemId];
