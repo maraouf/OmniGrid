@@ -3642,18 +3642,24 @@ async def api_hosts_list(force: bool = False):
 
 
 @app.get("/api/hosts/one/{host_id}")
-async def api_hosts_one(host_id: str):
+async def api_hosts_one(host_id: str, force: bool = False):
     """Merge ONE curated host with provider data.
 
     Called N times in parallel by the SPA after /api/hosts/list
     returns the skeleton. The shared Beszel/Pulse cache ensures the
     batch probes run at most once per TTL window.
+
+    ``force=true`` mirrors the parallel param on ``/api/hosts/list``
+    (#347) and bypasses the 10s provider-state cache so a host drawer
+    re-opened immediately after Admin → Hosts Save sees fresh provider
+    data instead of waiting out the TTL (ENH-003 from
+    notes/code_review_2026-04-27.txt).
     """
     curated = _load_hosts_config()
     h = next((x for x in curated if x.get("id") == host_id), None)
     if h is None or not h.get("enabled", True):
         raise HTTPException(404, f"Host not found: {host_id}")
-    state = await _get_host_provider_state()
+    state = await _get_host_provider_state(force=force)
     merged, providers = await _merge_one_host(h, state)
     any_enabled = bool(state["active"])
     return {

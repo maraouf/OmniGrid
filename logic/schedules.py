@@ -1054,6 +1054,15 @@ async def _run_prune_logs(params: dict) -> tuple[str, Awaitable[tuple[int, str]]
         err: Optional[str] = None
         removed = 0
         try:
+            # Match the unified Tuning Config bounds for log retention so
+            # an admin-supplied schedule param can't silently disable the
+            # prune (huge days = effectively never), starve the disk
+            # (days=0 / negative = same-as-no-op which masks intent), or
+            # crash on a non-int (BUG-009 from
+            # notes/code_review_2026-04-27.txt). Clamping to the same
+            # [1, 365] range as TUNABLES["tuning_log_retention_days"]
+            # keeps the schedule UI consistent with Admin → Config.
+            _, _default, _lo, _hi = _tuning_mod.TUNABLES["tuning_log_retention_days"]
             override = params.get("days") if isinstance(params, dict) else None
             if override is not None and str(override).strip():
                 try:
@@ -1062,6 +1071,7 @@ async def _run_prune_logs(params: dict) -> tuple[str, Awaitable[tuple[int, str]]
                     days = _tuning_mod.tuning_int("tuning_log_retention_days")
             else:
                 days = _tuning_mod.tuning_int("tuning_log_retention_days")
+            days = max(_lo, min(_hi, days))
             removed = _logs_mod.prune_old_logs(days)
         except Exception as e:
             status = "error"

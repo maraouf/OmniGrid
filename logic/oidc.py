@@ -68,6 +68,21 @@ JWKS_TTL = 3600     # Same rationale. Unknown `kid` on a token forces a refresh
                     # mid-flow, so key rotation takes effect immediately
                     # without waiting out the TTL.
 
+# Asymmetric signing algorithms allowed for id_token verification
+# (BUG-008). Listed in the OIDC core spec as the set providers may use
+# for id_tokens. Symmetric algorithms (HS256/HS384/HS512) are NOT in
+# this set: they'd require the operator to share the client_secret as
+# the verification key, and the spec prefers asymmetric so the JWKS
+# remains the public source of truth. ``alg=none`` is never on the
+# whitelist — even if PyJWT regresses, ``_validate_id_token`` rejects
+# the token before reaching ``jwt.decode``.
+_ALLOWED_ID_TOKEN_ALGORITHMS = frozenset({
+    "RS256", "RS384", "RS512",
+    "ES256", "ES384", "ES512",
+    "PS256", "PS384", "PS512",
+    "EdDSA",
+})
+
 
 def invalidate_cache() -> None:
     """Drop both the discovery and JWKS caches — call from POST /api/settings
@@ -511,6 +526,22 @@ async def _validate_id_token(
     alg = header.get("alg")
     if not alg:
         raise jwt.InvalidTokenError("id_token missing 'alg' in header")
+    # Whitelist asymmetric signing algorithms (BUG-008 from
+    # notes/code_review_2026-04-27.txt). The unverified header is
+    # attacker-controlled — feeding it straight into PyJWT's
+    # ``algorithms=[alg]`` kwarg is fragile: modern PyJWT (>=2.0)
+    # refuses ``none`` even when listed, but a regression or pinned
+    # pre-2.0 install would silently accept an unsigned token. Reject
+    # anything outside the OIDC-spec asymmetric set BEFORE the decode
+    # call so the contract holds independent of PyJWT's defaults.
+    # Symmetric algorithms (HS256/HS384/HS512) deliberately excluded —
+    # OIDC providers MUST sign id_tokens with their JWKS-published
+    # asymmetric key, never the operator-side client_secret.
+    if alg not in _ALLOWED_ID_TOKEN_ALGORITHMS:
+        raise jwt.InvalidTokenError(
+            f"id_token uses disallowed alg {alg!r}; expected one of "
+            f"{sorted(_ALLOWED_ID_TOKEN_ALGORITHMS)}"
+        )
 
     jwks = await _fetch_jwks(issuer, jwks_uri)
     key = _find_key(jwks, kid)

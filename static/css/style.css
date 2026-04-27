@@ -1375,6 +1375,11 @@ details summary::-webkit-details-marker {
     align-items: baseline;
     justify-content: space-between;
     gap: var(--s-2);
+    /* On hosts with many sensors (Temperature card with N>3 cores), the
+       stats container can run out of horizontal space next to the title.
+       Allow the head to wrap so the legend drops to a new line below the
+       title instead of bleeding past the card's right edge. */
+    flex-wrap: wrap;
 }
 
 .metric-card-title {
@@ -1470,9 +1475,16 @@ details summary::-webkit-details-marker {
     font-size: 11.5px;
     color: var(--text-faint);
     font-variant-numeric: tabular-nums;
-    display: inline-flex;
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: flex-end;
     gap: var(--s-2);
     align-items: baseline;
+    /* min-width:0 lets this flex child shrink past its intrinsic
+       content width when the head wraps; without it Chromium / Safari
+       keep the container at its full unwrapped width and the chips
+       overflow horizontally even when flex-wrap is set. */
+    min-width: 0;
 }
 
 /* Colour-coded Min / Max values — mirrors Beszel's accent on the two
