@@ -105,6 +105,35 @@ def _scheduler_tz():
 _tz_warn_logged = False
 
 
+def scheduler_tz_state() -> dict:
+    """Structured snapshot of the scheduler-timezone resolution.
+
+    Returns ``{configured, resolved, fallback}``. ``configured`` is the
+    raw setting string (empty when unset), ``resolved`` is the IANA
+    name actually used (None when blank or invalid), ``fallback`` is
+    True when the operator typed something but ZoneInfo rejected it
+    (so the scheduler is running on container-local time despite the
+    operator's intent). Surfaced in ``/api/me``'s ``client_config``
+    so the admin Schedules tab can badge the mismatch (ENH-017 from
+    notes/code_review_2026-04-27.txt) — without it, the once-per-
+    process invalid-TZ log line is invisible unless the operator
+    grep's Admin → Logs at the right moment.
+    """
+    try:
+        from logic.db import get_setting
+        configured = (get_setting("scheduler_timezone", "") or "").strip()
+    except Exception:
+        return {"configured": "", "resolved": None, "fallback": False}
+    if not configured:
+        return {"configured": "", "resolved": None, "fallback": False}
+    try:
+        from zoneinfo import ZoneInfo
+        ZoneInfo(configured)
+    except Exception:
+        return {"configured": configured, "resolved": None, "fallback": True}
+    return {"configured": configured, "resolved": configured, "fallback": False}
+
+
 def _today_anchor_ts(hh: int, mm: int, now: Optional[float] = None) -> float:
     """Epoch seconds for today's HH:MM.
 
@@ -1053,6 +1082,7 @@ async def _run_prune_logs(params: dict) -> tuple[str, Awaitable[tuple[int, str]]
         status = "success"
         err: Optional[str] = None
         removed = 0
+        days: Optional[int] = None
         try:
             # Match the unified Tuning Config bounds for log retention so
             # an admin-supplied schedule param can't silently disable the
@@ -1079,6 +1109,15 @@ async def _run_prune_logs(params: dict) -> tuple[str, Awaitable[tuple[int, str]]
             print(f"[scheduler] prune_logs failed: {e}")
 
         duration = int(time.time() - started)
+        # Surface the resolved retention window in the history row's
+        # target_name so the operator can audit which `days` value
+        # actually fired (param vs tuning fallback vs clamped) without
+        # cross-referencing settings + the schedule row (ENH-015 from
+        # notes/code_review_2026-04-27.txt). Format `(days=N)` only when
+        # the resolution succeeded — exception path before the clamp
+        # leaves `days=None`, in which case the suffix drops cleanly.
+        target_suffix = f" (days={days})" if days is not None else ""
+        target_name = f"{removed} log file(s){target_suffix}"
         try:
             with db_conn() as c:
                 c.execute(
@@ -1088,7 +1127,7 @@ async def _run_prune_logs(params: dict) -> tuple[str, Awaitable[tuple[int, str]]
                     "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                     (
                         started, "prune_logs",
-                        f"{removed} log file(s)",
+                        target_name,
                         op_id, None,
                         status, duration,
                         "[]", err, SCHEDULER_ACTOR,

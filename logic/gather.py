@@ -147,27 +147,52 @@ def invalidate_cache() -> None:
 # inventory). Snapshot fallback only fills these — Swarm fields like
 # `cpu_cores` / `mem_bytes` / `role` come from the Portainer node
 # list every gather and don't need a fallback.
+#
+# ENH-020 from notes/code_review_2026-04-27.txt: previously a hand-
+# maintained tuple that silently drifted from extract_stats every time
+# a provider sprouted a new ``host_*`` field (root cause of BUG-001 —
+# load_*, swap, temperatures all blanked on snapshot fallback because
+# they were missing from the whitelist). Replaced with a prefix +
+# bare-exception predicate so any ``host_*`` field the providers emit
+# gets snapshotted AND restored automatically. Bare-key exceptions
+# stay as a small frozenset (mounts / interfaces / package_updates*)
+# because those are emitted without the prefix for legacy reasons.
+_BARE_SNAPSHOT_KEYS = frozenset({
+    "mounts", "interfaces",
+    "package_updates_count", "package_updates",
+})
+
+
+def _is_snapshot_key(key) -> bool:
+    """True when ``key`` is a runtime provider field that should be
+    snapshotted + restored on provider outage. ``host_*`` prefix
+    auto-qualifies; the small ``_BARE_SNAPSHOT_KEYS`` set covers the
+    legacy un-prefixed exceptions emitted by node-exporter / providers.
+    Underscore-prefixed keys (``_stale_fields`` / ``_stale_ts``) are
+    bookkeeping and intentionally excluded.
+    """
+    if not isinstance(key, str) or not key:
+        return False
+    if key.startswith("_"):
+        return False
+    if key.startswith("host_"):
+        return True
+    return key in _BARE_SNAPSHOT_KEYS
+
+
+# Backwards-compat alias — preserved for any external import path that
+# may have grown a reference to ``_HOST_SNAPSHOT_KEYS``. The frontend's
+# ``CURATED_REFRESH_FIELDS`` and CLAUDE.md still document the canonical
+# set; callers should prefer ``_is_snapshot_key`` for new code.
 _HOST_SNAPSHOT_KEYS = (
     "host_cpu_percent", "host_mem_total", "host_mem_used",
     "host_disk_total", "host_disk_used",
     "host_boot_ts", "host_uptime_s",
     "host_platform", "host_os", "host_kernel", "host_arch",
     "host_cpu_cores", "host_cpu_model",
-    # Per-mount + per-NIC detail. Both are bare keys (no `host_`
-    # prefix) — extract_stats emits them this way historically.
-    # `interfaces` is the NE shape; `mounts` is shared. There is no
-    # provider-emitted top-level `network` key (the previous tuple
-    # listed it but no caller writes it; bug from #440 / BUG-001).
     "mounts", "interfaces",
     "package_updates_count", "package_updates",
-    # Load average — provider extracts emit prefixed keys
-    # (`host_load_*`). The previous tuple had bare `load_*` which
-    # silently dropped during snapshot reload (#440 / BUG-001).
     "host_load_1m", "host_load_5m", "host_load_15m",
-    # Swap + thermal sensors — Beszel-emitted, must survive a
-    # provider outage same as the rest of the host_* family
-    # (#440 / BUG-001 — these were missing entirely from the
-    # whitelist so they blanked instead of going stale).
     "host_swap_used", "host_swap_percent",
     "host_temperatures",
 )
@@ -283,12 +308,22 @@ def apply_host_snapshot_fallback(
         snap_data = snap.get("data") or {}
         snap_ts = snap.get("ts") or 0.0
         stale_fields: list[str] = []
-        for key in _HOST_SNAPSHOT_KEYS:
-            if not _is_meaningful(info.get(key)):
-                v = snap_data.get(key)
-                if _is_meaningful(v):
-                    info[key] = v
-                    stale_fields.append(key)
+        # Iterate the SNAPSHOT's keys instead of a hand-maintained
+        # whitelist (ENH-020). Any ``host_*`` field — plus the small
+        # bare-exception set — auto-qualifies, so a provider that
+        # sprouts a new field (e.g. ``host_temperatures`` from #437)
+        # gets restored on provider outage without a parallel edit
+        # to a whitelist tuple. Operator-config fields written
+        # alongside (label / icon / etc.) are excluded by the prefix
+        # gate.
+        for key, v in snap_data.items():
+            if not _is_snapshot_key(key):
+                continue
+            if _is_meaningful(info.get(key)):
+                continue
+            if _is_meaningful(v):
+                info[key] = v
+                stale_fields.append(key)
         if stale_fields:
             info["_stale_fields"] = stale_fields
             info["_stale_ts"] = snap_ts
@@ -313,12 +348,13 @@ def seed_nodes_info_from_snapshots() -> int:
         data = dict(snap.get("data") or {})
         if not data:
             continue
-        # Tag every host_* field present so the UI can show every
-        # seeded value as stale. The next gather's
+        # Tag every snapshot-eligible field present so the UI can show
+        # every seeded value as stale. The next gather's
         # apply_host_snapshot_fallback recomputes this list against
-        # the live state.
-        stale = [k for k in data.keys()
-                 if k in _HOST_SNAPSHOT_KEYS or str(k).startswith("host_")]
+        # the live state. Same prefix + bare-exception predicate as
+        # the apply path so seed and restore stay in lock-step
+        # (ENH-020).
+        stale = [k for k in data.keys() if _is_snapshot_key(k)]
         if stale:
             data["_stale_fields"] = stale
             data["_stale_ts"] = float(snap.get("ts") or 0.0)

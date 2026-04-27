@@ -54,6 +54,7 @@ const CURATED_REFRESH_FIELDS = new Set([
   'status', 'providers', 'provider_errors',
   'sampling_paused', 'failure_window_started_at',
   'consecutive_failures', 'last_error', 'paused_at',
+  'last_failure_ts',
   // CPU / memory / disk / swap rollups.
   'cpu_percent', 'mem_percent', 'disk_percent',
   'host_cpu_percent', 'host_mem_total', 'host_mem_used',
@@ -10453,6 +10454,24 @@ function app() {
       if (!h || !h.failure_window_started_at) return 0;
       const elapsed = (Date.now() / 1000) - h.failure_window_started_at;
       return Math.max(0, Math.floor(elapsed / 60));
+    },
+    // ENH-018 — render "last probe N seconds/minutes/hours ago" so the
+    // operator can decide whether to wait or hit Resume on a paused
+    // host whose actual outage may have already cleared. Reads
+    // ``last_failure_ts`` populated by the sampler on every
+    // _record_failure tick. Returns null when the host has no
+    // failure-state row (host has never failed) so the banner copy
+    // is omitted entirely.
+    hostLastFailureAge(h) {
+      if (!h || !h.last_failure_ts) return null;
+      const elapsed = Math.max(0, Math.floor((Date.now() / 1000) - h.last_failure_ts));
+      if (elapsed < 60) {
+        return this.t('hosts_extra.permanent_fail.last_error_age_seconds', { seconds: elapsed });
+      }
+      if (elapsed < 3600) {
+        return this.t('hosts_extra.permanent_fail.last_error_age_minutes', { minutes: Math.floor(elapsed / 60) });
+      }
+      return this.t('hosts_extra.permanent_fail.last_error_age_hours', { hours: Math.floor(elapsed / 3600) });
     },
     async resumeHostSampling(h) {
       if (!h || !h.id || h._resumeBusy) return;

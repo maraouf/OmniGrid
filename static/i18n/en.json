@@ -1161,6 +1161,9 @@
     "permanent_fail": {
       "badge_title": "Sampling paused — host has been unreachable for {minutes}m",
       "drawer_banner": "Sampling paused: this host has been unreachable for {minutes} min. Last error: {error}",
+      "last_error_age_seconds": "Last probe attempt {seconds}s ago — not yet retried since pause.",
+      "last_error_age_minutes": "Last probe attempt {minutes}m ago — not yet retried since pause.",
+      "last_error_age_hours": "Last probe attempt {hours}h ago — not yet retried since pause.",
       "resume_button": "Resume sampling",
       "resume_busy": "Resuming…",
       "resumed_toast": "Sampling resumed for {host}",
@@ -1403,7 +1406,8 @@
     "tz_hint_link": "IANA tz database",
     "tz_hint_suffix": ". Invalid names fail the save with a 400.",
     "saved_set": "Scheduler timezone set to {tz}",
-    "saved_cleared": "Scheduler timezone cleared (using container local time)"
+    "saved_cleared": "Scheduler timezone cleared (using container local time)",
+    "tz_fallback_warning": "Configured timezone {tz} is not a valid IANA name — scheduler is falling back to container-local time. Edit the value above and Save to fix."
   },
   "hosts_actions": {
     "add": "+ Add host",

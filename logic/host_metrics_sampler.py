@@ -327,13 +327,17 @@ async def _record_failure(host_id: str, now: float, error: str) -> None:
             )
             row = cur.fetchone()
             if row is None:
-                # First failure of a new streak.
+                # First failure of a new streak. ``last_failure_ts``
+                # equals ``first_failure_ts`` for a single-tick streak;
+                # subsequent failures advance ``last_failure_ts`` only
+                # so the drawer can render "last error N seconds ago"
+                # without losing the streak start (ENH-018).
                 c.execute(
                     "INSERT INTO host_failure_state "
-                    "(host_id, first_failure_ts, consecutive_failures, "
-                    "paused, paused_at, last_error) "
-                    "VALUES (?, ?, 1, 0, NULL, ?)",
-                    (host_id, now, err_short),
+                    "(host_id, first_failure_ts, last_failure_ts, "
+                    "consecutive_failures, paused, paused_at, last_error) "
+                    "VALUES (?, ?, ?, 1, 0, NULL, ?)",
+                    (host_id, now, now, err_short),
                 )
                 return
             first_ts, fails, paused = row[0], row[1], bool(row[2])
@@ -342,8 +346,9 @@ async def _record_failure(host_id: str, now: float, error: str) -> None:
             if should_pause:
                 c.execute(
                     "UPDATE host_failure_state SET consecutive_failures = ?, "
-                    "paused = 1, paused_at = ?, last_error = ? WHERE host_id = ?",
-                    (new_fails, now, err_short, host_id),
+                    "paused = 1, paused_at = ?, last_failure_ts = ?, "
+                    "last_error = ? WHERE host_id = ?",
+                    (new_fails, now, now, err_short, host_id),
                 )
                 paused_minutes = max(1, int((now - first_ts) // 60))
                 print(f"[host_metrics_sampler] {host_id!r} AUTO-PAUSED after "
@@ -374,8 +379,8 @@ async def _record_failure(host_id: str, now: float, error: str) -> None:
             else:
                 c.execute(
                     "UPDATE host_failure_state SET consecutive_failures = ?, "
-                    "last_error = ? WHERE host_id = ?",
-                    (new_fails, err_short, host_id),
+                    "last_failure_ts = ?, last_error = ? WHERE host_id = ?",
+                    (new_fails, now, err_short, host_id),
                 )
     except Exception as e:
         print(f"[host_metrics_sampler] {host_id!r} failure-state write error: {e}")

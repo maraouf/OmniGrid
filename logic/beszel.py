@@ -370,6 +370,12 @@ async def fetch_system_history(
             la15 = _num(la[2]) if len(la) > 2 else 0.0
         else:
             la1 = la5 = la15 = 0.0
+        # Compute per-sensor temperatures ONCE per point. Earlier ship
+        # called ``_flatten_temperatures(stats.get("t"))`` three times
+        # (one for ``temps``, two for ``temp_max``). On a 168h history
+        # at 1-minute granularity that's 30k+ wasted parses (ENH-014
+        # from notes/code_review_2026-04-27.txt).
+        temps = _flatten_temperatures(stats.get("t"))
         series.append({
             "t":   ts,
             "cpu": _num(stats.get("cpu")),
@@ -402,9 +408,8 @@ async def fetch_system_history(
             # operator can see which sensor is hottest. Missing →
             # empty dict + None scalar; the frontend chart card hides
             # on `Object.keys(temps).length > 0` (#437).
-            "temps":    _flatten_temperatures(stats.get("t")),
-            "temp_max": (max(_flatten_temperatures(stats.get("t")).values())
-                         if _flatten_temperatures(stats.get("t")) else 0.0),
+            "temps":    temps,
+            "temp_max": max(temps.values()) if temps else 0.0,
         })
 
     # ---- Net I/O fallback from node-exporter samples --------------------
