@@ -623,6 +623,53 @@ select:focus {
     color: var(--text-on-primary);
 }
 
+/* Iconified per-row action buttons (#400). Square, no chrome at rest;
+   subtle hover bg keeps the affordance now that text labels are gone.
+   Used in Admin → Users actions column (and any future dense action
+   row). `--warning` and `--danger` modifiers tint the icon for the
+   2FA toggle and Delete respectively. */
+.user-actions {
+    color: var(--text-dim);
+}
+.user-action-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 26px;
+    height: 26px;
+    background: transparent;
+    color: inherit;
+    border: 0;
+    border-radius: var(--r-sm);
+    cursor: pointer;
+    transition: background-color 0.12s, color 0.12s;
+}
+.user-action-btn:hover:not(:disabled) {
+    background: var(--row-hover);
+    color: var(--text);
+}
+.user-action-btn:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+}
+.user-action-btn--warning {
+    color: var(--warning);
+}
+.user-action-btn--danger {
+    color: var(--danger);
+}
+.user-action-btn--danger:hover:not(:disabled) {
+    color: var(--danger);
+    background: color-mix(in srgb, var(--danger) 14%, transparent);
+}
+.user-action-sep {
+    display: inline-block;
+    width: 1px;
+    height: 18px;
+    background: var(--border);
+    margin: 0 var(--s-2);
+}
+
 .btn-danger:hover {
     filter: brightness(1.08);
 }

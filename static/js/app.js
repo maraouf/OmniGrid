@@ -6676,7 +6676,7 @@ function app() {
       }
       const filled = [];
       // Strip the FQDN's domain suffix when populating the host id.
-      // The global `ssh_fqdn_suffix` setting (e.g. ".home.lan") is
+      // The global `ssh_fqdn_suffix` setting (e.g. ".example.com") is
       // appended at SSH-resolve time, so storing the SHORT hostname
       // here keeps the global suffix authoritative — different deploys
       // can swap suffixes without re-typing every host. IPs and
