@@ -777,6 +777,13 @@ function app() {
         document.title = this.t('app.name');
       });
       window.addEventListener('keydown', (e) => this.handleHotkey(e));
+      // Click-outside listener for the chart `?` tap-driven tooltip
+      // (#413). The trigger spans + tooltip body each call
+      // `@click.stop` so they're EXCLUDED from this handler — taps
+      // anywhere else dismiss whatever's open.
+      document.addEventListener('click', () => {
+        if (this.metricTooltipOpen) this.metricTooltipOpen = null;
+      });
       // Warn when closing / reloading the tab with unsaved Hosts
       // edits. Browsers ignore a custom string (Chrome shows their
       // own generic dialog), but the presence of returnValue still
@@ -9850,6 +9857,20 @@ function app() {
       } finally {
         h._resumeBusy = false;
       }
+    },
+
+    // Tap-driven tooltip state for the chart `?` icons (#413). Holds
+    // a `<host_id>:<metric_key>` string when a tooltip is open, null
+    // when nothing is showing. Mobile lacks hover so the native :title
+    // never fires; this Alpine state powers a click-to-toggle tooltip
+    // body that ALSO works on desktop. ESC + click-outside close.
+    metricTooltipOpen: null,
+    toggleMetricTooltip(h, key) {
+      const slot = (h && h.id ? h.id : '') + ':' + key;
+      this.metricTooltipOpen = (this.metricTooltipOpen === slot) ? null : slot;
+    },
+    metricTooltipKey(h, key) {
+      return (h && h.id ? h.id : '') + ':' + key;
     },
 
     // Per-host definitive source label for the chart-help tooltips

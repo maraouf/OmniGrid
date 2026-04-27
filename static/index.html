@@ -5525,7 +5525,10 @@
 
         <!-- Create schedule card -->
         <section class="bg-[var(--surface)] border border-[var(--border)] rounded-md p-5">
-          <h3 class="font-semibold text-[13px] mb-2" x-text="t('admin.schedules.create_title')"></h3>
+          <div class="flex items-center gap-2 mb-2">
+            <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true"><use href="#icon-calendar"/></svg>
+            <h3 class="font-semibold text-[13px]" x-text="t('admin.schedules.create_title')"></h3>
+          </div>
           <p class="text-[11.5px] text-[var(--text-faint)] mb-3" x-text="t('admin.schedules.create_hint')"></p>
           <div class="grid grid-cols-1 md:grid-cols-2 gap-2">
             <input x-model="newSchedule.name" type="text"
@@ -7094,7 +7097,17 @@
                   <div class="metric-card-head">
                     <div class="metric-card-title">
                       <span>CPU</span><span class="unit">%</span>
-                      <span class="metric-source-help" :title="metricSource(h, 'cpu')"><svg width="12" height="12" aria-hidden="true"><use href="#icon-help-circle"/></svg></span>
+                      <span class="metric-source-help" :title="metricSource(h, 'cpu')"
+                            @click.stop="toggleMetricTooltip(h, 'cpu')"
+                            @keydown.escape.window="metricTooltipOpen = null">
+                        <svg width="12" height="12" aria-hidden="true"><use href="#icon-help-circle"/></svg>
+                        <span class="metric-source-tooltip"
+                              x-show="metricTooltipOpen === metricTooltipKey(h, 'cpu')"
+                              x-cloak
+                              @click.stop
+                              x-transition.opacity.duration.120ms
+                              x-text="metricSource(h, 'cpu')"></span>
+                      </span>
                     </div>
                     <div class="metric-card-stats"
                          x-show="hostMetricStats(hostHistoryKey(h), 'cpu')">
@@ -7143,7 +7156,17 @@
                   <div class="metric-card-head">
                     <div class="metric-card-title">
                       <span>Memory</span><span class="unit">%</span>
-                      <span class="metric-source-help" :title="metricSource(h, 'memory')"><svg width="12" height="12" aria-hidden="true"><use href="#icon-help-circle"/></svg></span>
+                      <span class="metric-source-help" :title="metricSource(h, 'memory')"
+                            @click.stop="toggleMetricTooltip(h, 'memory')"
+                            @keydown.escape.window="metricTooltipOpen = null">
+                        <svg width="12" height="12" aria-hidden="true"><use href="#icon-help-circle"/></svg>
+                        <span class="metric-source-tooltip"
+                              x-show="metricTooltipOpen === metricTooltipKey(h, 'memory')"
+                              x-cloak
+                              @click.stop
+                              x-transition.opacity.duration.120ms
+                              x-text="metricSource(h, 'memory')"></span>
+                      </span>
                     </div>
                     <div class="metric-card-stats"
                          x-show="hostMetricStats(hostHistoryKey(h), 'mp')">
@@ -7184,7 +7207,17 @@
                   <div class="metric-card-head">
                     <div class="metric-card-title">
                       <span>Disk</span><span class="unit">%</span>
-                      <span class="metric-source-help" :title="metricSource(h, 'disk')"><svg width="12" height="12" aria-hidden="true"><use href="#icon-help-circle"/></svg></span>
+                      <span class="metric-source-help" :title="metricSource(h, 'disk')"
+                            @click.stop="toggleMetricTooltip(h, 'disk')"
+                            @keydown.escape.window="metricTooltipOpen = null">
+                        <svg width="12" height="12" aria-hidden="true"><use href="#icon-help-circle"/></svg>
+                        <span class="metric-source-tooltip"
+                              x-show="metricTooltipOpen === metricTooltipKey(h, 'disk')"
+                              x-cloak
+                              @click.stop
+                              x-transition.opacity.duration.120ms
+                              x-text="metricSource(h, 'disk')"></span>
+                      </span>
                     </div>
                     <div class="metric-card-stats"
                          x-show="hostMetricStats(hostHistoryKey(h), 'dp')">
@@ -7240,7 +7273,17 @@
                     <div class="metric-card-title">
                       <span x-text="t('hosts_extra.metrics.network')"></span>
                       <span class="unit">B/s</span>
-                      <span class="metric-source-help" :title="metricSource(h, 'network')"><svg width="12" height="12" aria-hidden="true"><use href="#icon-help-circle"/></svg></span>
+                      <span class="metric-source-help" :title="metricSource(h, 'network')"
+                            @click.stop="toggleMetricTooltip(h, 'network')"
+                            @keydown.escape.window="metricTooltipOpen = null">
+                        <svg width="12" height="12" aria-hidden="true"><use href="#icon-help-circle"/></svg>
+                        <span class="metric-source-tooltip"
+                              x-show="metricTooltipOpen === metricTooltipKey(h, 'network')"
+                              x-cloak
+                              @click.stop
+                              x-transition.opacity.duration.120ms
+                              x-text="metricSource(h, 'network')"></span>
+                      </span>
                     </div>
                     <div class="metric-card-stats" style="gap:8px">
                       <span x-show="hostMetricStats(hostHistoryKey(h), 'nr', false)">
@@ -7361,7 +7404,17 @@
                   <div class="metric-card-head">
                     <div class="metric-card-title">
                       <span x-text="t('hosts_extra.metrics.disk_io')"></span>
-                      <span class="metric-source-help" :title="metricSource(h, 'disk_io')"><svg width="12" height="12" aria-hidden="true"><use href="#icon-help-circle"/></svg></span>
+                      <span class="metric-source-help" :title="metricSource(h, 'disk_io')"
+                            @click.stop="toggleMetricTooltip(h, 'disk_io')"
+                            @keydown.escape.window="metricTooltipOpen = null">
+                        <svg width="12" height="12" aria-hidden="true"><use href="#icon-help-circle"/></svg>
+                        <span class="metric-source-tooltip"
+                              x-show="metricTooltipOpen === metricTooltipKey(h, 'disk_io')"
+                              x-cloak
+                              @click.stop
+                              x-transition.opacity.duration.120ms
+                              x-text="metricSource(h, 'disk_io')"></span>
+                      </span>
                       <span class="unit">B/s</span>
                     </div>
                     <div class="metric-card-stats" style="gap:8px">
@@ -7449,7 +7502,17 @@
                   <div class="metric-card-head">
                     <div class="metric-card-title">
                       <span x-text="t('hosts_extra.metrics.load_avg')"></span>
-                      <span class="metric-source-help" :title="metricSource(h, 'load_avg')"><svg width="12" height="12" aria-hidden="true"><use href="#icon-help-circle"/></svg></span>
+                      <span class="metric-source-help" :title="metricSource(h, 'load_avg')"
+                            @click.stop="toggleMetricTooltip(h, 'load_avg')"
+                            @keydown.escape.window="metricTooltipOpen = null">
+                        <svg width="12" height="12" aria-hidden="true"><use href="#icon-help-circle"/></svg>
+                        <span class="metric-source-tooltip"
+                              x-show="metricTooltipOpen === metricTooltipKey(h, 'load_avg')"
+                              x-cloak
+                              @click.stop
+                              x-transition.opacity.duration.120ms
+                              x-text="metricSource(h, 'load_avg')"></span>
+                      </span>
                     </div>
                     <div class="metric-card-stats" style="gap:8px">
                       <span x-show="hostMetricStats(hostHistoryKey(h), 'la1', false)">
@@ -7508,7 +7571,17 @@
                   <div class="metric-card-head">
                     <div class="metric-card-title">
                       <span x-text="t('hosts_extra.metrics.bandwidth')"></span>
-                      <span class="metric-source-help" :title="metricSource(h, 'bandwidth')"><svg width="12" height="12" aria-hidden="true"><use href="#icon-help-circle"/></svg></span>
+                      <span class="metric-source-help" :title="metricSource(h, 'bandwidth')"
+                            @click.stop="toggleMetricTooltip(h, 'bandwidth')"
+                            @keydown.escape.window="metricTooltipOpen = null">
+                        <svg width="12" height="12" aria-hidden="true"><use href="#icon-help-circle"/></svg>
+                        <span class="metric-source-tooltip"
+                              x-show="metricTooltipOpen === metricTooltipKey(h, 'bandwidth')"
+                              x-cloak
+                              @click.stop
+                              x-transition.opacity.duration.120ms
+                              x-text="metricSource(h, 'bandwidth')"></span>
+                      </span>
                       <span class="unit">B/s</span>
                     </div>
                     <div class="metric-card-stats"
@@ -7548,7 +7621,17 @@
                   <div class="metric-card-head">
                     <div class="metric-card-title">
                       <span x-text="t('hosts_extra.metrics.swap')"></span>
-                      <span class="metric-source-help" :title="metricSource(h, 'swap')"><svg width="12" height="12" aria-hidden="true"><use href="#icon-help-circle"/></svg></span>
+                      <span class="metric-source-help" :title="metricSource(h, 'swap')"
+                            @click.stop="toggleMetricTooltip(h, 'swap')"
+                            @keydown.escape.window="metricTooltipOpen = null">
+                        <svg width="12" height="12" aria-hidden="true"><use href="#icon-help-circle"/></svg>
+                        <span class="metric-source-tooltip"
+                              x-show="metricTooltipOpen === metricTooltipKey(h, 'swap')"
+                              x-cloak
+                              @click.stop
+                              x-transition.opacity.duration.120ms
+                              x-text="metricSource(h, 'swap')"></span>
+                      </span>
                       <span class="unit">%</span>
                     </div>
                     <div class="metric-card-stats"
