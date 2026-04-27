@@ -9868,9 +9868,47 @@ function app() {
     toggleMetricTooltip(h, key) {
       const slot = (h && h.id ? h.id : '') + ':' + key;
       this.metricTooltipOpen = (this.metricTooltipOpen === slot) ? null : slot;
+      // After Alpine renders the visible tooltip, smart-place it so a
+      // left-column chart card doesn't crop the body off the drawer's
+      // start edge. The helper measures and applies an --align-start
+      // or --align-center modifier when the default end-anchor would
+      // overflow.
+      if (this.metricTooltipOpen) {
+        this.$nextTick(() => this._adjustMetricTooltipPlacement());
+      }
     },
     metricTooltipKey(h, key) {
       return (h && h.id ? h.id : '') + ':' + key;
+    },
+    _adjustMetricTooltipPlacement() {
+      // Find the just-opened tooltip body. Alpine renders x-show via
+      // display:none, so the visible one is whichever has computed
+      // display !== 'none'.
+      const all = document.querySelectorAll('.metric-source-tooltip');
+      for (const el of all) {
+        // Reset any previous modifier so the measurement reflects the
+        // default end-anchored placement, then re-apply if needed.
+        el.classList.remove('metric-source-tooltip--align-start');
+        el.classList.remove('metric-source-tooltip--align-center');
+        if (getComputedStyle(el).display === 'none') continue;
+        // Use the host drawer as the clipping reference when present;
+        // fall back to the viewport. 8px breathing room on each side.
+        const drawer = el.closest('.host-drawer');
+        const bounds = drawer ? drawer.getBoundingClientRect() : { left: 0, right: window.innerWidth };
+        const PAD = 8;
+        let rect = el.getBoundingClientRect();
+        if (rect.left < bounds.left + PAD) {
+          // Overflowing the start edge — flip to start-anchored.
+          el.classList.add('metric-source-tooltip--align-start');
+          rect = el.getBoundingClientRect();
+          if (rect.right > bounds.right - PAD) {
+            // Flipped overflow on the opposite side too — centre it as
+            // a final fallback (rare; only on very narrow drawers).
+            el.classList.remove('metric-source-tooltip--align-start');
+            el.classList.add('metric-source-tooltip--align-center');
+          }
+        }
+      }
     },
 
     // Per-host definitive source label for the chart-help tooltips
