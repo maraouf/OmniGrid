@@ -116,6 +116,7 @@ function applyI18nDom() {
               kind: 'totp_required',
               challenge_id: j.challenge_id,
               username: j.username,
+              methods: Array.isArray(j.methods) ? j.methods : ['totp'],
             };
             renderTotpForm();
             return;
@@ -175,16 +176,137 @@ function applyI18nDom() {
   }
 
   function hideEl(el) { if (el) el.style.display = 'none'; }
+  function showEl(el) { if (el) el.style.display = ''; }
+
+  // ----------------------------------------------------------------
+  // WebAuthn / passkey helpers (#381). The wire shape uses base64url
+  // strings for every byte field so JSON-over-fetch round-trips
+  // cleanly. Browsers expose the underlying buffers as ArrayBuffer;
+  // these helpers hide the conversion at the API boundary.
+  // ----------------------------------------------------------------
+  function b64uEncode(buf) {
+    const b = new Uint8Array(buf);
+    let s = '';
+    for (let i = 0; i < b.length; i++) s += String.fromCharCode(b[i]);
+    return btoa(s).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  }
+  function b64uDecode(s) {
+    s = (s || '').replace(/-/g, '+').replace(/_/g, '/');
+    while (s.length % 4) s += '=';
+    const bin = atob(s);
+    const out = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+    return out.buffer;
+  }
+  function webauthnSupported() {
+    return !!(window.PublicKeyCredential && navigator.credentials);
+  }
+  function buildPublicKeyOptions(opts) {
+    // Convert the JSON options we got from the server (base64url strings)
+    // into the ArrayBuffer fields navigator.credentials.get expects.
+    const out = Object.assign({}, opts);
+    out.challenge = b64uDecode(opts.challenge);
+    if (Array.isArray(opts.allowCredentials)) {
+      out.allowCredentials = opts.allowCredentials.map(c => ({
+        type: c.type,
+        id: b64uDecode(c.id),
+        transports: c.transports,
+      }));
+    }
+    return out;
+  }
+  function buildAssertionResponse(cred) {
+    return {
+      id: cred.id,
+      rawId: b64uEncode(cred.rawId),
+      type: cred.type,
+      authenticatorAttachment: cred.authenticatorAttachment || null,
+      clientExtensionResults: cred.getClientExtensionResults
+        ? cred.getClientExtensionResults() : {},
+      response: {
+        authenticatorData: b64uEncode(cred.response.authenticatorData),
+        clientDataJSON:    b64uEncode(cred.response.clientDataJSON),
+        signature:         b64uEncode(cred.response.signature),
+        userHandle: cred.response.userHandle
+          ? b64uEncode(cred.response.userHandle) : null,
+      },
+    };
+  }
+
+  async function attemptPasskeyLogin() {
+    clearErr();
+    if (!webauthnSupported()) {
+      showErr(tx('login.passkey_browser_unsupported', "This browser doesn't support passkeys."));
+      return;
+    }
+    const passkeyBtn = document.getElementById('login-passkey-btn');
+    if (passkeyBtn) {
+      passkeyBtn.disabled = true;
+      passkeyBtn.textContent = tx('login.passkey_prompting', 'Confirm on your device…');
+    }
+    try {
+      const startResp = await fetch('/api/local-auth/webauthn-start', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ challenge_id: totpState.challenge_id }),
+        credentials: 'same-origin',
+      });
+      if (!startResp.ok) {
+        const j = await startResp.json().catch(() => ({}));
+        showErr(j.detail || tx('login.passkey_failed', 'Passkey sign-in failed.'));
+        return;
+      }
+      const startJ = await startResp.json();
+      const publicKey = buildPublicKeyOptions(startJ.options);
+      let cred;
+      try {
+        cred = await navigator.credentials.get({ publicKey });
+      } catch (_) {
+        showErr(tx('login.passkey_failed', 'Passkey sign-in failed.'));
+        return;
+      }
+      if (!cred) {
+        showErr(tx('login.passkey_failed', 'Passkey sign-in failed.'));
+        return;
+      }
+      const finishResp = await fetch('/api/local-auth/webauthn-finish', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          challenge_id: startJ.login_id,
+          credential: buildAssertionResponse(cred),
+        }),
+        credentials: 'same-origin',
+      });
+      if (finishResp.ok) {
+        location.href = nextPath();
+        return;
+      }
+      const j = await finishResp.json().catch(() => ({}));
+      showErr(j.detail || tx('login.passkey_failed', 'Passkey sign-in failed.'));
+    } catch (_) {
+      showErr(tx('login.network_error', 'Network error.'));
+    } finally {
+      if (passkeyBtn) {
+        passkeyBtn.disabled = false;
+        passkeyBtn.textContent = tx('login.passkey_use_button', 'Use a passkey');
+      }
+    }
+  }
 
   function renderTotpForm() {
     swapForm(async () => {
+      // No code input rendered → submit was triggered by Enter on a
+      // disabled / hidden Verify button. Bail without erroring.
+      const codeEl = document.getElementById('totp-code');
+      if (!codeEl) return;
       clearErr();
       refs.btn.disabled = true;
       refs.btn.textContent = tx('login.verifying', 'Verifying…');
       try {
         const body = new URLSearchParams({
           challenge_id: totpState.challenge_id,
-          code: document.getElementById('totp-code').value,
+          code: codeEl.value,
         });
         const r = await fetch('/api/local-auth/totp', {
           method: 'POST',
@@ -225,41 +347,96 @@ function applyI18nDom() {
     hideEl(refs.form.querySelector('#p'));
     hideEl(refs.form.querySelector('#ssoWrap'));
 
+    const methods = (totpState && totpState.methods) || ['totp'];
+    const hasTotp = methods.indexOf('totp') >= 0;
+    const hasPasskey = methods.indexOf('webauthn') >= 0 && webauthnSupported();
+    const onlyPasskey = !hasTotp && hasPasskey;
+
     const block = document.createElement('div');
     block.id = 'totp-block';
-    block.innerHTML =
-      '<p class="sub" id="totp-hint"></p>' +
-      '<label for="totp-code" id="totp-code-label"></label>' +
-      '<input id="totp-code" name="code" type="text" inputmode="numeric" autocomplete="one-time-code" maxlength="6" autofocus required />' +
-      '<a href="#" id="totp-toggle-mode" class="totp-link"></a>';
+
+    if (hasPasskey) {
+      // Passkey button rendered FIRST so it's the dominant affordance —
+      // the operator wants the password-manager / hardware-key path
+      // ahead of typed codes when both are available.
+      const pkWrap = document.createElement('div');
+      pkWrap.id = 'login-passkey-wrap';
+      pkWrap.className = 'login-passkey-wrap';
+      const pkBtn = document.createElement('button');
+      pkBtn.type = 'button';
+      pkBtn.id = 'login-passkey-btn';
+      pkBtn.className = 'btn-passkey';
+      pkBtn.textContent = tx('login.passkey_use_button', 'Use a passkey');
+      pkBtn.addEventListener('click', (e) => {
+        e.preventDefault();
+        attemptPasskeyLogin();
+      });
+      pkWrap.appendChild(pkBtn);
+      block.appendChild(pkWrap);
+
+      if (hasTotp) {
+        const sep = document.createElement('div');
+        sep.className = 'sso-divider';
+        sep.innerHTML = '<span>' + tx('login.or', 'or') + '</span>';
+        block.appendChild(sep);
+      }
+    }
+
+    if (hasTotp) {
+      const codeBlock = document.createElement('div');
+      codeBlock.innerHTML =
+        '<p class="sub" id="totp-hint"></p>' +
+        '<label for="totp-code" id="totp-code-label"></label>' +
+        '<input id="totp-code" name="code" type="text" inputmode="numeric" autocomplete="one-time-code" maxlength="6" required />' +
+        '<a href="#" id="totp-toggle-mode" class="totp-link"></a>';
+      block.appendChild(codeBlock);
+    }
     refs.form.insertBefore(block, refs.btn);
 
-    document.getElementById('totp-hint').textContent = tx('login.totp_required_hint', 'Enter the 6-digit code from your authenticator app.');
-    document.getElementById('totp-code-label').textContent = tx('login.totp_code_label', 'Authenticator code');
-    document.getElementById('totp-toggle-mode').textContent = tx('login.totp_use_backup', 'Use a backup code instead');
-    refs.btn.textContent = tx('login.verify', 'Verify');
+    if (hasTotp) {
+      document.getElementById('totp-hint').textContent = tx('login.totp_required_hint', 'Enter the 6-digit code from your authenticator app.');
+      document.getElementById('totp-code-label').textContent = tx('login.totp_code_label', 'Authenticator code');
+      document.getElementById('totp-toggle-mode').textContent = tx('login.totp_use_backup', 'Use a backup code instead');
+      const codeInp = document.getElementById('totp-code');
+      if (codeInp && !hasPasskey) codeInp.focus();
+      refs.btn.textContent = tx('login.verify', 'Verify');
+    } else if (onlyPasskey) {
+      // No code path -- hide the Verify submit, kick the passkey
+      // ceremony immediately so the operator just needs to confirm
+      // on their device.
+      hideEl(refs.btn);
+      const hint = document.createElement('p');
+      hint.className = 'sub';
+      hint.id = 'passkey-only-hint';
+      hint.textContent = tx('login.passkey_only_hint', 'Sign in with the passkey you registered.');
+      refs.form.insertBefore(hint, block);
+      // Auto-trigger after a tick so any browser focus race settles.
+      setTimeout(attemptPasskeyLogin, 50);
+    }
 
-    let useBackup = false;
-    document.getElementById('totp-toggle-mode').addEventListener('click', (ev) => {
-      ev.preventDefault();
-      useBackup = !useBackup;
-      const inp = document.getElementById('totp-code');
-      if (useBackup) {
-        inp.maxLength = 20;
-        inp.removeAttribute('inputmode');
-        inp.placeholder = tx('login.totp_backup_placeholder', 'XXXX YYYY');
-        document.getElementById('totp-hint').textContent = tx('login.totp_backup_hint', 'Enter one of your saved backup codes.');
-        document.getElementById('totp-toggle-mode').textContent = tx('login.totp_use_code', 'Use authenticator code instead');
-      } else {
-        inp.maxLength = 6;
-        inp.setAttribute('inputmode', 'numeric');
-        inp.placeholder = '';
-        document.getElementById('totp-hint').textContent = tx('login.totp_required_hint', 'Enter the 6-digit code from your authenticator app.');
-        document.getElementById('totp-toggle-mode').textContent = tx('login.totp_use_backup', 'Use a backup code instead');
-      }
-      inp.value = '';
-      inp.focus();
-    });
+    if (hasTotp) {
+      let useBackup = false;
+      document.getElementById('totp-toggle-mode').addEventListener('click', (ev) => {
+        ev.preventDefault();
+        useBackup = !useBackup;
+        const inp = document.getElementById('totp-code');
+        if (useBackup) {
+          inp.maxLength = 20;
+          inp.removeAttribute('inputmode');
+          inp.placeholder = tx('login.totp_backup_placeholder', 'XXXX YYYY');
+          document.getElementById('totp-hint').textContent = tx('login.totp_backup_hint', 'Enter one of your saved backup codes.');
+          document.getElementById('totp-toggle-mode').textContent = tx('login.totp_use_code', 'Use authenticator code instead');
+        } else {
+          inp.maxLength = 6;
+          inp.setAttribute('inputmode', 'numeric');
+          inp.placeholder = '';
+          document.getElementById('totp-hint').textContent = tx('login.totp_required_hint', 'Enter the 6-digit code from your authenticator app.');
+          document.getElementById('totp-toggle-mode').textContent = tx('login.totp_use_backup', 'Use a backup code instead');
+        }
+        inp.value = '';
+        inp.focus();
+      });
+    }
   }
 
   function renderTotpSetupForm() {

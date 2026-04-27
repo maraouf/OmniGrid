@@ -228,6 +228,32 @@ def init_auth_schema(conn: sqlite3.Connection) -> None:
         last_used_at INTEGER,
         created_by INTEGER REFERENCES users(id)
     );
+
+    -- WebAuthn / FIDO2 passkey credentials (#381). One row per
+    -- enrolled key; users can have multiple. credential_id is the
+    -- raw bytes returned by the authenticator (NOT base64-encoded
+    -- here; the API layer encodes for the wire). public_key is the
+    -- COSE-encoded public-key blob that verify_authentication_response
+    -- needs as input. sign_count is monotonic per-key (cloned
+    -- authenticator detection).  transports is a CSV of WebAuthn
+    -- transport hints (`usb`, `nfc`, `ble`, `internal`, `hybrid`).
+    -- friendly_name is operator-supplied (e.g. "YubiKey 5C"); empty
+    -- means the SPA renders a default. last_used_at is wallclock of
+    -- the most recent successful login assertion -- powers the
+    -- Profile UI's "last used 3h ago" hint. CASCADE on user delete.
+    CREATE TABLE IF NOT EXISTS user_credentials (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER NOT NULL REFERENCES users(id),
+        credential_id BLOB NOT NULL UNIQUE,
+        public_key BLOB NOT NULL,
+        sign_count INTEGER NOT NULL DEFAULT 0,
+        transports TEXT NOT NULL DEFAULT '',
+        friendly_name TEXT NOT NULL DEFAULT '',
+        created_at INTEGER NOT NULL,
+        last_used_at INTEGER
+    );
+    CREATE INDEX IF NOT EXISTS idx_user_credentials_user
+        ON user_credentials(user_id);
     """)
     # Idempotent column additions for existing deployments. SQLite pre-3.35
     # has no "ADD COLUMN IF NOT EXISTS", so we catch the OperationalError
@@ -416,12 +442,19 @@ def list_users(conn: sqlite3.Connection) -> list[dict]:
     that flips the pill to "Required" + enables the Force/Unforce
     button). The encrypted secret + backup codes are deliberately NOT
     returned — they never need to leave the server.
+
+    Adds ``passkey_count`` (#381) so the admin view shows how many
+    WebAuthn credentials each user has enrolled. Cheap aggregate join
+    -- single SQL statement, indexed on ``user_credentials(user_id)``.
     """
     rows = conn.execute("""
-        SELECT id, username, email, role, auth_source, disabled,
-               created_at, last_login_at, totp_enabled, totp_force_required
-        FROM users
-        ORDER BY username COLLATE NOCASE
+        SELECT u.id, u.username, u.email, u.role, u.auth_source, u.disabled,
+               u.created_at, u.last_login_at, u.totp_enabled,
+               u.totp_force_required,
+               (SELECT COUNT(*) FROM user_credentials c
+                WHERE c.user_id = u.id) AS passkey_count
+        FROM users u
+        ORDER BY u.username COLLATE NOCASE
     """).fetchall()
     return [dict(r) for r in rows]
 
@@ -470,10 +503,13 @@ def delete_user(conn: sqlite3.Connection, user_id: int) -> None:
     SQLite doesn't enforce the REFERENCES clause without PRAGMA
     foreign_keys=ON, so we do the cascade manually. api_tokens keep
     working (just lose the "created_by" backpointer) — revoking the
-    token is a separate admin action.
+    token is a separate admin action. Passkeys (#381) cascade because
+    they're identity material — leaving them dangling would let a
+    recycled user_id silently inherit them.
     """
     delete_user_sessions(conn, user_id)
     conn.execute("UPDATE api_tokens SET created_by=NULL WHERE created_by=?", (user_id,))
+    delete_all_user_credentials(conn, user_id)
     conn.execute("DELETE FROM users WHERE id=?", (user_id,))
 
 
@@ -649,16 +685,18 @@ def admin_reset_password(
     change_password, no current-password check — the acting admin already
     has that authority. Invalidates every session for the target user.
 
-    ALSO clears any TOTP enrolment (#345): operators reset passwords when
-    a user has lost access; that usually means their authenticator
-    device is gone too. The user re-enrols via Profile after the next
-    login if 2FA is still required by policy.
+    ALSO clears any TOTP enrolment (#345) AND every passkey (#381):
+    operators reset passwords when a user has lost access; that
+    usually means their authenticator device is gone too. The user
+    re-enrols via Profile after the next login if 2FA is still
+    required by policy.
     """
     conn.execute(
         "UPDATE users SET password_hash=? WHERE id=?",
         (hash_password(new_password), user_id),
     )
     clear_user_totp(conn, user_id)
+    delete_all_user_credentials(conn, user_id)
     delete_user_sessions(conn, user_id)
 
 
@@ -791,6 +829,173 @@ def clear_totp_lockout(conn: sqlite3.Connection, user_id: int) -> None:
         "WHERE id=?",
         (user_id,),
     )
+
+
+# ----------------------------------------------------------------------------
+# WebAuthn / FIDO2 passkey credentials (#381)
+# ----------------------------------------------------------------------------
+def list_user_credentials(
+    conn: sqlite3.Connection, user_id: int,
+) -> list[dict]:
+    """Return every passkey enrolled for ``user_id``.
+
+    Each row is shaped ``{id, credential_id (bytes), transports
+    (list[str]), friendly_name, created_at, last_used_at, sign_count}``.
+    The public_key is omitted -- it never leaves the server. The login
+    flow fetches the public_key separately via
+    ``get_credential_by_credential_id`` after a verified assertion.
+    """
+    rows = conn.execute(
+        "SELECT id, credential_id, transports, friendly_name, "
+        "created_at, last_used_at, sign_count "
+        "FROM user_credentials WHERE user_id=? "
+        "ORDER BY created_at DESC",
+        (user_id,),
+    ).fetchall()
+    out: list[dict] = []
+    for r in rows:
+        ts = (r["transports"] or "").strip()
+        out.append({
+            "id": r["id"],
+            "credential_id": bytes(r["credential_id"]),
+            "transports": [t for t in ts.split(",") if t],
+            "friendly_name": r["friendly_name"] or "",
+            "created_at": r["created_at"],
+            "last_used_at": r["last_used_at"],
+            "sign_count": int(r["sign_count"] or 0),
+        })
+    return out
+
+
+def count_user_credentials(
+    conn: sqlite3.Connection, user_id: int,
+) -> int:
+    """Cheap "does the user have any passkey?" check used by the login
+    multi-step gate to decide whether to advertise the webauthn method.
+    """
+    r = conn.execute(
+        "SELECT COUNT(*) FROM user_credentials WHERE user_id=?",
+        (user_id,),
+    ).fetchone()
+    return int(r[0] if r else 0)
+
+
+def get_credential_by_credential_id(
+    conn: sqlite3.Connection, credential_id: bytes,
+) -> Optional[dict]:
+    """Look up a credential row by the authenticator-supplied
+    credential_id (bytes).
+
+    Returns the full row including ``public_key`` and ``sign_count``
+    so the caller can run ``verify_authentication_response`` against
+    the stored key. Returns None when no row matches (the caller
+    surfaces this as "credential unknown" -> 401).
+    """
+    r = conn.execute(
+        "SELECT id, user_id, credential_id, public_key, sign_count, "
+        "transports, friendly_name, created_at, last_used_at "
+        "FROM user_credentials WHERE credential_id=?",
+        (credential_id,),
+    ).fetchone()
+    if not r:
+        return None
+    ts = (r["transports"] or "").strip()
+    return {
+        "id": r["id"],
+        "user_id": r["user_id"],
+        "credential_id": bytes(r["credential_id"]),
+        "public_key": bytes(r["public_key"]),
+        "sign_count": int(r["sign_count"] or 0),
+        "transports": [t for t in ts.split(",") if t],
+        "friendly_name": r["friendly_name"] or "",
+        "created_at": r["created_at"],
+        "last_used_at": r["last_used_at"],
+    }
+
+
+def add_user_credential(
+    conn: sqlite3.Connection,
+    *,
+    user_id: int,
+    credential_id: bytes,
+    public_key: bytes,
+    sign_count: int,
+    transports: list[str],
+    friendly_name: str,
+) -> int:
+    """Persist a new passkey.
+
+    Returns the inserted row id. Raises ``sqlite3.IntegrityError`` on
+    duplicate ``credential_id`` (covered by the UNIQUE constraint --
+    the WebAuthn excludeCredentials list ALSO catches this in the
+    browser, but a malicious / quirky client could still POST a
+    duplicate). The caller maps this to 409 Conflict.
+    """
+    transports_csv = ",".join(
+        sorted({(t or "").strip().lower() for t in transports if t})
+    )
+    cur = conn.execute(
+        "INSERT INTO user_credentials("
+        "  user_id, credential_id, public_key, sign_count, "
+        "  transports, friendly_name, created_at"
+        ") VALUES (?,?,?,?,?,?,?)",
+        (
+            user_id, credential_id, public_key, int(sign_count),
+            transports_csv, friendly_name or "",
+            int(time.time()),
+        ),
+    )
+    return int(cur.lastrowid or 0)
+
+
+def update_credential_after_use(
+    conn: sqlite3.Connection,
+    credential_row_id: int,
+    new_sign_count: int,
+) -> None:
+    """Bump ``sign_count`` + stamp ``last_used_at`` after a successful
+    authentication assertion.
+    """
+    conn.execute(
+        "UPDATE user_credentials SET sign_count=?, last_used_at=? "
+        "WHERE id=?",
+        (int(new_sign_count), int(time.time()), credential_row_id),
+    )
+
+
+def delete_user_credential(
+    conn: sqlite3.Connection, user_id: int, credential_row_id: int,
+) -> bool:
+    """Revoke ONE passkey. Returns True if a row was deleted, False if
+    the (user_id, credential_row_id) pair didn't match (404 path at
+    the route layer).
+
+    The user_id filter prevents user A from revoking user B's keys via
+    ID guessing -- routes resolve credential_row_id from the URL but
+    the user_id from the session.
+    """
+    cur = conn.execute(
+        "DELETE FROM user_credentials WHERE id=? AND user_id=?",
+        (credential_row_id, user_id),
+    )
+    return (cur.rowcount or 0) > 0
+
+
+def delete_all_user_credentials(
+    conn: sqlite3.Connection, user_id: int,
+) -> int:
+    """Wipe every passkey for a user. Used by the user-delete cascade
+    AND by the admin password-reset path (which already cascades TOTP
+    -- a lost device usually means lost passkey too).
+
+    Returns the number of rows removed (callers may want to surface
+    "N keys revoked" in audit logs).
+    """
+    cur = conn.execute(
+        "DELETE FROM user_credentials WHERE user_id=?",
+        (user_id,),
+    )
+    return cur.rowcount or 0
 
 
 def list_sessions(conn: sqlite3.Connection) -> list[dict]:
