@@ -810,7 +810,14 @@
       "active_title": "Active sessions",
       "hint": "Bearer-token calls are not shown here — revoke those from the API tokens tab.",
       "revoke": "Revoke",
-      "deleted_user": "(deleted user)"
+      "deleted_user": "(deleted user)",
+      "method_label": "Method",
+      "login_at_label": "Login time",
+      "method_password": "Password",
+      "method_totp": "Password + TOTP",
+      "method_passkey": "Passkey",
+      "method_oidc": "OIDC (Authentik)",
+      "method_bootstrap": "Bootstrap admin"
     },
     "tokens": {
       "create_title": "Create API token",
@@ -1178,6 +1185,8 @@
       "load_avg": "Load average",
       "bandwidth": "Bandwidth",
       "swap": "Swap",
+      "temperature": "Temperature",
+      "source_temperature": "Per-sensor thermal readings (°C). Source: Beszel agent (system_stats.t — a {sensor: celsius} dict). Hosts whose agent doesn't expose any thermal sensor (most VMs, some hardware lacking a hwmon driver) hide this chart entirely. Chart line is the peak across all sensors at each tick; the live header lists every sensor with its current reading.",
       "source_cpu": "CPU usage (0–100%). Source: Beszel agent (system_stats.cpu) when configured. The node-exporter sampler doesn't track CPU yet, so NE-only hosts show no data here.",
       "source_memory": "Memory usage. Source: Beszel agent (system_stats.mp / mu) for Beszel-monitored hosts; node-exporter (host_mem_used / host_mem_total from host_metrics_samples) for NE-only hosts.",
       "source_disk": "Root-filesystem usage. Source: Beszel (system_stats.dp) or node-exporter (host_disk_used / host_disk_total).",

@@ -3664,7 +3664,7 @@ select.field-invalid {
    `min-width: 0` on every dt/dd lets the value column clamp to its
    share of width, and `overflow-wrap: anywhere` lets long mono values
    (kernel strings, FQDNs, serials, asset IDs) wrap mid-string instead
-   of truncating to "op" / "F" the way the operator's tmp/img_1.png
+   of truncating to "op" / "F" the way the
    showed when the drawer width was tighter. */
 .host-drawer dl > dt,
 .host-drawer dl > dd {

@@ -5711,6 +5711,7 @@ async def api_local_login(
         auth.touch_last_login(c, u.id)
         cookie_value, expires_at = auth.create_session(
             c, u.id, ip, request.headers.get("user-agent"),
+            auth_method="password",
         )
     csrf = auth.generate_csrf_token()
     resp = JSONResponse({"username": u.username, "role": u.role, "source": u.auth_source})
@@ -5827,6 +5828,7 @@ async def api_local_login_totp(
         auth.touch_last_login(c, user_id)
         cookie_value, expires_at = auth.create_session(
             c, user_id, ip, request.headers.get("user-agent"),
+            auth_method="totp",
         )
     if used_backup:
         print(f"[totp] {u.username} used backup code")
@@ -5892,6 +5894,7 @@ async def api_local_login_totp_setup_confirm(
         auth.touch_last_login(c, user_id)
         cookie_value, expires_at = auth.create_session(
             c, user_id, ip, request.headers.get("user-agent"),
+            auth_method="totp",
         )
     print(f"[totp] {u.username} enrolled (forced by policy)")
     csrf = auth.generate_csrf_token()
@@ -6096,6 +6099,7 @@ async def api_local_login_webauthn_finish(
         auth.touch_last_login(c, user_id)
         cookie_value, expires_at = auth.create_session(
             c, user_id, ip, request.headers.get("user-agent"),
+            auth_method="passkey",
         )
     print(f"[webauthn] {u.username} verified successfully (cred {stored['id']})")
     csrf = auth.generate_csrf_token()
@@ -6206,6 +6210,7 @@ async def api_local_bootstrap(
         auth.touch_last_login(c, u.id)
         cookie_value, expires_at = auth.create_session(
             c, u.id, ip, request.headers.get("user-agent"),
+            auth_method="bootstrap",
         )
     csrf = auth.generate_csrf_token()
     resp = JSONResponse(

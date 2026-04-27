@@ -2674,7 +2674,10 @@
                   </template>
                 </ul>
               </template>
-              <div class="flex items-center gap-2 flex-wrap">
+              <!-- Top margin gives breathing room above the action row
+                   so the "Add a passkey" button doesn't sit flush
+                   against the bottom of the passkey-list card (#435). -->
+              <div class="flex items-center gap-2 flex-wrap mt-3">
                 <!-- Admin can disable passkey enrolment globally via
                      the Authentication tab (#432). Existing enrolments
                      stay listed + revocable; only the Add button hides
@@ -3353,8 +3356,10 @@
               <thead class="bg-[var(--surface-2)] text-[10.5px] uppercase tracking-wider text-[var(--text-faint)]">
                 <tr>
                   <th class="text-start px-4 py-2" x-text="t('columns.user')"></th>
+                  <th class="text-start px-4 py-2" x-text="t('admin.sessions.method_label')"></th>
                   <th class="text-start px-4 py-2" x-text="t('columns.ip')"></th>
                   <th class="text-start px-4 py-2" x-text="t('columns.user_agent')"></th>
+                  <th class="text-start px-4 py-2" x-text="t('admin.sessions.login_at_label')"></th>
                   <th class="text-start px-4 py-2" x-text="t('columns.last_seen')"></th>
                   <th class="text-start px-4 py-2" x-text="t('columns.expires')"></th>
                   <th class="text-end px-4 py-2" x-text="t('columns.action')"></th>
@@ -3364,8 +3369,26 @@
                 <template x-for="s in sessions" :key="s.token_id">
                   <tr class="border-t border-[var(--border)]">
                     <td class="px-4 py-2 font-medium" x-text="s.username || t('admin.sessions.deleted_user')"></td>
+                    <!-- Auth method pill (#436). Colour family follows
+                         the project's pill-* tokens: passkey / totp /
+                         oidc are "secured" → pill-success / pill-info;
+                         password / bootstrap are "single-factor" →
+                         pill-muted. Unknown methods (legacy rows or
+                         a future kind not in the map) fall through to
+                         pill-muted with the raw value. -->
+                    <td class="px-4 py-2">
+                      <span class="pill"
+                            :class="(s.auth_method === 'passkey' ? 'pill-success'
+                                   : s.auth_method === 'totp' ? 'pill-success'
+                                   : s.auth_method === 'oidc' ? 'pill-info'
+                                   : 'pill-muted')"
+                            x-text="t('admin.sessions.method_' + (s.auth_method || 'password'))"></span>
+                    </td>
                     <td class="px-4 py-2 mono text-[11px]" x-text="s.ip || '—'"></td>
                     <td class="px-4 py-2 text-[11.5px] text-[var(--text-dim)] truncate max-w-[280px]" x-text="s.user_agent || '—'" :title="s.user_agent || ''"></td>
+                    <td class="px-4 py-2 mono text-[11px] text-[var(--text-dim)]"
+                        :title="s.issued_at ? fmtDate(s.issued_at) : ''"
+                        x-text="s.issued_at ? fmtDate(s.issued_at) : '—'"></td>
                     <td class="px-4 py-2 mono text-[11px] text-[var(--text-dim)]"
                         x-text="fmtDate(s.last_seen_at)"></td>
                     <td class="px-4 py-2 mono text-[11px] text-[var(--text-dim)]"
@@ -3376,7 +3399,7 @@
                   </tr>
                 </template>
                 <tr x-show="sessions.length===0">
-                  <td colspan="6" class="text-center py-8 text-[var(--text-faint)]" x-text="t('empty.no_sessions')"></td>
+                  <td colspan="8" class="text-center py-8 text-[var(--text-faint)]" x-text="t('empty.no_sessions')"></td>
                 </tr>
               </tbody>
             </table>
@@ -7975,6 +7998,59 @@
                       <svg class="metric-svg" viewBox="0 0 420 120" preserveAspectRatio="none">
                         <path class="metric-area" :d="hostChart(hostHistoryKey(h), 's', { min: 0, max: 100, height: 120 }).area"/>
                         <polyline class="metric-line" :points="hostChart(hostHistoryKey(h), 's', { min: 0, max: 100, height: 120 }).points"/>
+                      </svg>
+                      <div class="metric-x-axis">
+                        <template x-for="(l, i) in xAxisFromSeries(hostHistoryKey(h), 5)" :key="i">
+                          <span x-text="l"></span>
+                        </template>
+                      </div>
+                    </div>
+                  </template>
+                </div>
+
+                <!-- TEMPERATURE chart (#437). Renders only when the
+                     Beszel agent emits at least one thermal sensor in
+                     stats.t (Raspberry Pi → cpu_thermal; Intel/AMD with
+                     coretemp → package_id_0; NVMe SSDs → nvme_composite).
+                     The series carries `temp_max` (peak across all
+                     sensors at each tick) for the line, and `temps`
+                     (full {sensor: °C} dict) for the live header so the
+                     operator can tell which sensor is hottest. Hosts
+                     without any sensor (most VMs) hide this card
+                     entirely via the `host_temperatures` length gate. -->
+                <div class="metric-card metric-card--temp"
+                     x-show="h.host_temperatures && Object.keys(h.host_temperatures).length > 0">
+                  <div class="metric-card-head">
+                    <div class="metric-card-title">
+                      <span x-text="t('hosts_extra.metrics.temperature')"></span>
+                      <span class="metric-source-help" :title="metricSource(h, 'temperature')"
+                            @click.stop="toggleMetricTooltip(h, 'temperature')"
+                            @keydown.escape.window="metricTooltipOpen = null">
+                        <svg width="12" height="12" aria-hidden="true"><use href="#icon-help-circle"/></svg>
+                        <span class="metric-source-tooltip"
+                              x-show="metricTooltipOpen === metricTooltipKey(h, 'temperature')"
+                              x-cloak
+                              @click.stop
+                              x-transition.opacity.duration.120ms
+                              x-text="metricSource(h, 'temperature')"></span>
+                      </span>
+                      <span class="unit">°C</span>
+                    </div>
+                    <!-- Live per-sensor readout — sorted hottest-first
+                         so the operator's eye lands on the worst
+                         offender. -->
+                    <div class="metric-card-stats"
+                         x-show="h.host_temperatures && Object.keys(h.host_temperatures).length > 0">
+                      <template x-for="[name, c] in hostTemperatureRows(h)" :key="name">
+                        <span><span x-text="name"></span> <span class="max-val" x-text="(c).toFixed(1) + '°'"></span></span>
+                      </template>
+                    </div>
+                  </div>
+                  <template x-if="hostChart(hostHistoryKey(h), 'temp_max')">
+                    <div class="metric-card-body">
+                      <svg class="metric-svg" viewBox="0 0 420 120" preserveAspectRatio="none">
+                        <path class="metric-area" :d="hostChart(hostHistoryKey(h), 'temp_max', { height: 120 }).area"/>
+                        <polyline class="metric-line" :points="hostChart(hostHistoryKey(h), 'temp_max', { height: 120 }).points"/>
                       </svg>
                       <div class="metric-x-axis">
                         <template x-for="(l, i) in xAxisFromSeries(hostHistoryKey(h), 5)" :key="i">

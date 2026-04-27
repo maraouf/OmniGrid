@@ -10405,6 +10405,11 @@ function app() {
         disk_io:    ['beszel', 'ne'],
         load_avg:   ['beszel', 'ne'],
         swap:       ['beszel'],
+        // Temperature comes from Beszel only today (#437) — node-
+        // exporter exposes thermal via `node_hwmon_temp_celsius` but
+        // OmniGrid's NE sampler doesn't extract those yet. Add 'ne'
+        // to the precedence list when that work lands.
+        temperature: ['beszel'],
         // Network + Bandwidth share the same upstream + the NE-fallback
         // when both are present.
         network:    ['beszel', 'ne'],
@@ -10613,6 +10618,17 @@ function app() {
         }
       }
       return m;
+    },
+    // Per-sensor temperature readout for the chart card stats line
+    // (#437). Returns [[sensor_name, celsius], ...] sorted hottest-
+    // first so the operator's eye lands on the worst offender. Empty
+    // when the host has no thermal data, which causes the surrounding
+    // chart card to hide via the dict-length gate.
+    hostTemperatureRows(h) {
+      const t = (h && h.host_temperatures) || {};
+      const rows = Object.entries(t).filter(([, c]) => Number.isFinite(Number(c)));
+      rows.sort((a, b) => Number(b[1]) - Number(a[1]));
+      return rows;
     },
     hostMetricStats(systemId, key, asPct = true) {
       const entry = this.hostHistory[systemId];

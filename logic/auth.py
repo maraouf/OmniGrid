@@ -285,6 +285,15 @@ def init_auth_schema(conn: sqlite3.Connection) -> None:
         # Authentik users still skip — auth_source='local' gate
         # short-circuits TOTP everywhere.
         "ALTER TABLE users ADD COLUMN totp_force_required INTEGER NOT NULL DEFAULT 0",
+        # Per-session auth-method tag (#436). Surfaces in Admin → Sessions
+        # so the operator can see at a glance which factor each active
+        # session was authenticated with: 'password' (single-factor
+        # local), 'totp' (local + TOTP code), 'passkey' (local +
+        # WebAuthn assertion), 'oidc' (Authentik SSO), 'bootstrap'
+        # (one-shot first-admin seed). Existing rows keep the default
+        # 'password' which is the right behaviour for any session
+        # minted before this column existed (pre-2FA era).
+        "ALTER TABLE sessions ADD COLUMN auth_method TEXT NOT NULL DEFAULT 'password'",
     ):
         try:
             conn.execute(ddl)
@@ -1002,7 +1011,7 @@ def list_sessions(conn: sqlite3.Connection) -> list[dict]:
     """Active (non-expired) sessions with usernames resolved for display."""
     rows = conn.execute("""
         SELECT s.token_id, s.user_id, u.username, s.issued_at, s.last_seen_at,
-               s.expires_at, s.ip, s.user_agent
+               s.expires_at, s.ip, s.user_agent, s.auth_method
         FROM sessions s
         LEFT JOIN users u ON u.id = s.user_id
         WHERE s.expires_at > ?
@@ -1119,15 +1128,23 @@ def create_session(
     user_id: int,
     ip: Optional[str],
     user_agent: Optional[str],
+    auth_method: str = "password",
 ) -> tuple[str, int]:
-    """Create a new session row and return (cookie_value, expires_at)."""
+    """Create a new session row and return (cookie_value, expires_at).
+
+    ``auth_method`` tags the session with the factor used to authenticate
+    so Admin → Sessions can show "password" / "totp" / "passkey" /
+    "oidc" / "bootstrap" per row (#436). Default is "password" so
+    callers that don't care (legacy paths) get the safe value without
+    needing to be touched.
+    """
     token_id = secrets.token_urlsafe(24)
     now = int(time.time())
     expires_at = now + SESSION_LIFETIME
     conn.execute(
-        "INSERT INTO sessions(token_id,user_id,issued_at,last_seen_at,expires_at,ip,user_agent) "
-        "VALUES (?,?,?,?,?,?,?)",
-        (token_id, user_id, now, now, expires_at, ip, user_agent),
+        "INSERT INTO sessions(token_id,user_id,issued_at,last_seen_at,expires_at,ip,user_agent,auth_method) "
+        "VALUES (?,?,?,?,?,?,?,?)",
+        (token_id, user_id, now, now, expires_at, ip, user_agent, auth_method),
     )
     return issue_session_cookie(token_id, expires_at), expires_at
 
