@@ -392,6 +392,19 @@ async def fetch_system_history(
             "s":   _num(stats.get("s")),
             # Swap used in GiB — `su` field. Pair with `s` for the chart.
             "su":  _num(stats.get("su")),
+            # Per-sensor temperatures — Beszel agents emit `stats.t` as
+            # a flat ``{sensor_name: celsius}`` dict (e.g. cpu_thermal /
+            # core_0 / nvme_composite). The frontend's hostChart helper
+            # only knows how to render single-key series, so we ALSO
+            # synthesise a `temp_max` scalar (peak across all sensors
+            # at this tick) for the chart line. The full `temps` dict
+            # rides alongside for the metric-card stats display so the
+            # operator can see which sensor is hottest. Missing →
+            # empty dict + None scalar; the frontend chart card hides
+            # on `Object.keys(temps).length > 0` (#437).
+            "temps":    _flatten_temperatures(stats.get("t")),
+            "temp_max": (max(_flatten_temperatures(stats.get("t")).values())
+                         if _flatten_temperatures(stats.get("t")) else 0.0),
         })
 
     # ---- Net I/O fallback from node-exporter samples --------------------
@@ -559,6 +572,30 @@ def _flatten_network(ni) -> list[dict]:
             "mac":   mac,
             "addrs": [str(a) for a in addrs if a],
         })
+    return out
+
+
+def _flatten_temperatures(t) -> dict[str, float]:
+    """Normalise Beszel's ``stats.t`` into a clean ``{sensor: celsius}``
+    dict (#437). Beszel agents emit ``t`` as a flat dict keyed by
+    sensor name (e.g. ``{"cpu_thermal": 48.2}`` on Raspberry Pi or any
+    Linux host with the `node_thermal_zone_temp` collector). Hosts
+    whose agent doesn't expose thermal data omit the field entirely;
+    we return an empty dict in that case so the frontend chart card
+    hides via `Object.keys(...).length > 0`. Filters non-numeric values
+    so a malformed reading can't crash the chart renderer downstream.
+    """
+    if not isinstance(t, dict):
+        return {}
+    out: dict[str, float] = {}
+    for k, v in t.items():
+        try:
+            celsius = float(v)
+        except (TypeError, ValueError):
+            continue
+        if celsius != celsius:  # NaN guard
+            continue
+        out[str(k)] = celsius
     return out
 
 
@@ -756,6 +793,12 @@ def extract_stats(info: dict, stats: Optional[dict] = None) -> dict:
         # the swap chart hides on the frontend gate.
         "host_swap_percent": _num(stats.get("s")),
         "host_swap_used":    _num(stats.get("su")),
+        # Temperature sensors (#437). Beszel agents emit `stats.t` as a
+        # dict of `<sensor_name>: <celsius>` (e.g. {"cpu_thermal": 48.2}
+        # on a Pi 4 / `node_thermal_zone_temp` on Linux). Hosts whose
+        # agent doesn't expose any thermal sensor get an empty dict and
+        # the frontend chart card hides cleanly.
+        "host_temperatures": _flatten_temperatures(stats.get("t")),
         # Service info (#321). Beszel agents emit the systemd-services
         # data under the field name `systemd_services` (operator
         # confirmed by inspecting the PocketBase admin — initial

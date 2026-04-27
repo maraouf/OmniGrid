@@ -59,9 +59,15 @@ the next release, this whole block becomes the `[X.Y.0]` entry below.
 
 ### Added
 
+- Temperature chart in the host drawer for hosts whose Beszel agent emits thermal sensors (e.g. Raspberry Pi `cpu_thermal`, Intel/AMD `package_id_0`, NVMe `nvme_composite`). Backend: `extract_stats` exposes a new `host_temperatures: {sensor: celsius}` dict; the per-point history shape gains `temps` (full sensor dict) and `temp_max` (peak across all sensors — the chart line). Frontend: new chart card after Swap, gated on the dict being non-empty; live header lists every sensor sorted hottest-first. Hosts without thermal data hide the card entirely. node-exporter `node_hwmon_temp_celsius` integration deferred (#437).
+
+- Admin → Sessions table now shows the 2FA method each session was authenticated with (Password / Password + TOTP / Passkey / OIDC (Authentik) / Bootstrap admin) plus the login time. Schema ALTER adds `sessions.auth_method TEXT NOT NULL DEFAULT 'password'`; `issued_at` was already on the row. Every cookie-issuing call site now passes the right method tag (#436).
+
 - Admin master toggle for passkey enrolment + login (`passkeys_allowed`, default true) — mirrors the existing `totp_allowed` toggle. Surfaced in Admin → Authentication as "Allow users to enrol passkeys". When OFF: Profile hides the "Add a passkey" button, login flow drops `webauthn` from the second-factor `methods` list (already-enrolled passkeys are NOT offered for login), and `register-start` / `webauthn-start` routes return 403 as defence-in-depth. Existing rows stay in the DB so flipping the toggle back on restores login. Same gate semantics applied to TOTP — disabling `totp_allowed` now also blocks login-with-TOTP for already-enrolled users (the previous "existing enrolments stay active" behaviour was misleading and is no longer accurate). i18n `admin.config.totp.passkeys_allowed_label/_hint` + `settings.profile.passkeys.disabled_by_admin` (#432).
 
 ### Fixed
+
+- Profile → Passkeys card: "Add a passkey" button sat flush against the bottom of the enrolled-keys list with no breathing room. Added a top margin to the action row so the button has visible separation (#435).
 
 - Passkey assertion verifier rejected with "Unexpected client data origin" when NPM rewrites the `Host` header to its internal upstream while keeping the public hostname in `X-Forwarded-Host`. `_request_origin` was reading only the `Host` header — now uses the same `X-Forwarded-Host` → `Host` → `request.url.netloc/.hostname` chain as `_request_rp_id` so origin and RP ID stay in lock-step (#434).
 

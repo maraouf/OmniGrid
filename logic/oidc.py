@@ -455,6 +455,7 @@ async def callback(request: Request):
         auth.touch_last_login(c, u.id)
         cookie_value, expires_at = auth.create_session(
             c, u.id, ip, request.headers.get("user-agent"),
+            auth_method="oidc",
         )
 
     next_path = _safe_next(flow.get("next"))
