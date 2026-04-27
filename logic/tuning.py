@@ -57,7 +57,6 @@ def tuning_int(db_key: str) -> int:
     disable a sampler (e.g. a 0 sample interval) or panic the OPS poll
     cadence (e.g. negative ms). Clamping at READ time means every
     consumer sees a value within bounds without each having to re-clamp
-    (BUG-004 from notes/code_review_2026-04-27.txt).
     """
     if db_key not in TUNABLES:
         raise KeyError(f"unknown tunable: {db_key}")
