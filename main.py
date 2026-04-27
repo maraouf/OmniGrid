@@ -2514,6 +2514,15 @@ async def api_asset_inventory_test(
         or (get_setting("asset_inventory_auth_mode", "") or "oauth2")
     if auth_mode not in ("oauth2", "lifetime_token"):
         auth_mode = "oauth2"
+    # #445 — honour the `asset_inventory_verify_tls` toggle here too.
+    # Body wins (so admins can flip the form's checkbox OFF and Test
+    # a self-signed asset API before saving); otherwise the persisted
+    # setting (default True) applies. Mirrors the OIDC-test shape.
+    body_verify_tls = body.get("verify_tls")
+    if body_verify_tls is None:
+        verify_tls = _asset_inventory_verify_tls()
+    else:
+        verify_tls = bool(body_verify_tls)
     if auth_mode == "lifetime_token":
         base_url = (body.get("base_url") or "").strip().rstrip("/") \
             or (get_setting("asset_inventory_base_url", "") or "").strip().rstrip("/")
@@ -2545,7 +2554,7 @@ async def api_asset_inventory_test(
             endpoint, lifetime_token,
             service=service, action=action,
             min_value=min_value, max_value=max_value,
-            verify_tls=True,
+            verify_tls=verify_tls,
         )
         if result.get("ok"):
             count = len(result.get("assets") or [])
@@ -2570,7 +2579,7 @@ async def api_asset_inventory_test(
         return {"ok": False,
                 "detail": "token_url, client_id and client_secret are all required"}
     result = await _ai.probe_token(
-        token_url, client_id, client_secret, scope=scope, verify_tls=True,
+        token_url, client_id, client_secret, scope=scope, verify_tls=verify_tls,
     )
     if result.get("ok"):
         expires_in = result.get("expires_in") or 0
