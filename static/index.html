@@ -8079,11 +8079,20 @@
                       </div>
                       <svg class="metric-svg" viewBox="0 0 420 120" preserveAspectRatio="none">
                         <template x-for="line in hostTempChart(hostHistoryKey(h)).lines" :key="line.name">
+                          <!-- :stroke="…" as an SVG presentation
+                               attribute does NOT evaluate CSS
+                               variables, so a literal `var(--primary)`
+                               string lands in the DOM unevaluated and
+                               the browser draws nothing (#443). The
+                               inline `style` attribute DOES evaluate
+                               them, so we set the stroke colour via
+                               style; same goes for any other token-
+                               valued SVG style. -->
                           <path :d="line.d"
                                 fill="none"
                                 stroke-width="1.5"
                                 vector-effect="non-scaling-stroke"
-                                :stroke="line.color"></path>
+                                :style="'stroke: ' + line.color"></path>
                         </template>
                       </svg>
                       <div class="metric-x-axis">
