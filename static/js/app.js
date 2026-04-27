@@ -9840,10 +9840,19 @@ function app() {
       const order = precedence[key] || ['beszel', 'pulse', 'ne', 'webmin'];
       const active = order.filter(p => providers[p]);
 
+      // No provider in this metric's precedence is mapped on the host.
+      // Two sub-cases:
+      //   (a) Host has NO providers at all → use the generic i18n hint
+      //       so the operator sees what could populate this metric.
+      //   (b) Host has SOME providers but none that supply THIS metric
+      //       (e.g. NE-only host viewing the CPU chart, since the NE
+      //       sampler doesn't track CPU yet) → name the providers it
+      //       DOES have and explain why this chart will be empty.
       if (active.length === 0) {
-        // Host has no provider configured for this metric — show the
-        // generic "what could populate this" hint.
-        return fallback;
+        const mapped = Object.values(providers).filter(p => p);
+        if (mapped.length === 0) return fallback;
+        const summary = mapped.join(', ');
+        return `This host is mapped to ${summary}, but ${key} is not surfaced by any of those providers — chart will stay empty until you add a provider that tracks it.`;
       }
 
       const primary = providers[active[0]];
@@ -9852,12 +9861,6 @@ function app() {
       // host_net_samples. When both providers are mapped, name both.
       if ((key === 'network' || key === 'bandwidth') && active.includes('beszel') && active.includes('ne')) {
         return `${primary}; node-exporter (${ne}) fills Net I/O when Beszel returns zero`;
-      }
-
-      // CPU / Load Avg / Swap aren't surfaced by the NE sampler today —
-      // call that out explicitly when the host is NE-only.
-      if (active[0] === 'ne' && (key === 'cpu' || key === 'load_avg' || key === 'swap')) {
-        return `node-exporter (${ne}) — but the NE sampler doesn't track ${key} yet, so this chart will be empty for this host`;
       }
 
       if (active.length === 1) return primary;
