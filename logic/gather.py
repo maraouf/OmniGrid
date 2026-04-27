@@ -788,7 +788,11 @@ async def _gather_impl() -> None:
         # NIC list via node_network_info, detailed kernel / arch from
         # node_uname_info) overwrite the earlier providers where they
         # overlap. Fields only provided by Beszel/Pulse (e.g. their
-        # status strings) are preserved by the dict.update.
+        # status strings) are preserved by ``_merge_best``'s
+        # _meaningful() guard — empty / zero / missing values from a
+        # later provider don't clobber a meaningful earlier value.
+        # (Comment previously said "the dict.update" but the actual
+        # call is `_merge_best`; same merge semantics, accurate name.)
         if "node_exporter" in active_sources and df_hosts:
             tpl = get_setting("node_exporter_url_template", "http://{host}:9100/metrics") \
                   or "http://{host}:9100/metrics"
