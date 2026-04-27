@@ -291,11 +291,22 @@ def _get_failure_state(host_id: str) -> Optional[dict]:
     }
 
 
-def _record_failure(host_id: str, now: float, error: str) -> None:
+async def _record_failure(host_id: str, now: float, error: str) -> None:
     """Increment the failure counter, stamp first_failure_ts on the
     first failure of a new streak, auto-pause when the window is
     exceeded. Called from `_probe_one` whenever a probe attempt fails
-    (network error OR exporter_error response)."""
+    (network error OR exporter_error response).
+
+    Async because the auto-pause transition fires an Apprise
+    notification via ``asyncio.create_task`` — ``create_task`` requires
+    a running event loop in scope, which we get for free inside an
+    async function. The previous sync-wrapper grabbed the loop via
+    ``asyncio.get_event_loop()`` which Python 3.12+ deprecates outside
+    a running coroutine and 3.14 removes (BUG-010 from
+    notes/code_review_2026-04-27.txt). The DB writes themselves are
+    sqlite3-sync but the surrounding contract makes the function
+    awaitable so the notification dispatch can use the supported API.
+    """
     # Three-tier lookup via the unified Tuning Config (#410): DB > env >
     # default. ``tuning.tuning_int`` always returns at least the code
     # default, so a fallback here is dead code (BUG-006 from
@@ -340,15 +351,14 @@ def _record_failure(host_id: str, now: float, error: str) -> None:
                       f"({new_fails} attempts) — operator must POST "
                       f"/api/hosts/{host_id}/resume-sampling to resume")
                 # #411 — fire-and-forget Apprise notification on the
-                # pause transition. Lazy import + asyncio.create_task
-                # so this sync helper doesn't block on the HTTP call;
-                # fallback to silent-skip if notify() ever raises (the
-                # pause itself is the load-bearing side effect; the
-                # notification is best-effort).
+                # pause transition. ``asyncio.create_task`` is the
+                # supported API since 3.7; it requires a running loop
+                # in scope which we're guaranteed inside this async
+                # function (BUG-010). Best-effort: a notify failure
+                # logs and moves on — the pause itself is the load-
+                # bearing side effect.
                 try:
-                    import asyncio as _asyncio
                     from logic.ops import notify as _notify
-                    loop = _asyncio.get_event_loop()
                     title = f"⚠ Host sampling paused: {host_id}"
                     body = (
                         f"{host_id} has been unreachable for {paused_minutes} min "
@@ -356,9 +366,8 @@ def _record_failure(host_id: str, now: float, error: str) -> None:
                         f"Last error: {err_short or '—'}. "
                         f"Resume manually from the host drawer's banner."
                     )
-                    _asyncio.ensure_future(
-                        _notify(title, body, "error", event="host_paused"),
-                        loop=loop,
+                    asyncio.create_task(
+                        _notify(title, body, "error", event="host_paused")
                     )
                 except Exception as e:
                     print(f"[host_metrics_sampler] {host_id!r} notify dispatch failed: {e}")
@@ -406,12 +415,12 @@ async def _probe_one(
             stats = await _ne.probe_node(client, ne_url, timeout=10.0)
         except Exception as e:
             print(f"[host_metrics_sampler] {hid!r} probe error: {e}")
-            _record_failure(hid, now, str(e))
+            await _record_failure(hid, now, str(e))
             return
         if stats.get("exporter_error"):
             err = stats["exporter_error"]
             print(f"[host_metrics_sampler] {hid!r} exporter_error: {err}")
-            _record_failure(hid, now, str(err))
+            await _record_failure(hid, now, str(err))
             return
 
         prev = _last_counters.get(hid)

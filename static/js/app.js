@@ -37,6 +37,48 @@ const KNOWN_ICONS = new Set([
   'zabbix',
 ]);
 
+// Probe-derived fields that ``refreshHostRow`` writes EXPLICITLY from
+// ``/api/hosts/one/{id}``'s payload — when the backend omits a key the
+// row collapses it to ``null`` instead of letting the previous value
+// stick (BUG-007 from notes/code_review_2026-04-27.txt). Curated config
+// fields (``label`` / ``icon`` / ``ssh_disabled`` / ``ne_url`` /
+// ``beszel_name`` / ``pulse_name`` / ``webmin_name`` / ``url`` /
+// ``custom_number`` / ``asset``) are NOT in this list — ``loadHosts``
+// owns them via ``CURATED_FIELDS`` and ``api/hosts/one`` does not edit
+// them. When a provider extracts a new probe-derived ``host_*`` field,
+// add the key here OR ship the matching backend snapshot whitelist
+// entry — same hand-maintained pattern as ``_HOST_SNAPSHOT_KEYS`` in
+// ``logic/gather.py``.
+const CURATED_REFRESH_FIELDS = new Set([
+  // Status / failure-state surface.
+  'status', 'providers', 'provider_errors',
+  'sampling_paused', 'failure_window_started_at',
+  'consecutive_failures', 'last_error', 'paused_at',
+  // CPU / memory / disk / swap rollups.
+  'cpu_percent', 'mem_percent', 'disk_percent',
+  'host_cpu_percent', 'host_mem_total', 'host_mem_used',
+  'host_disk_total', 'host_disk_used',
+  'host_swap_used', 'host_swap_percent',
+  'host_temperatures',
+  // Network / disk-IO rates.
+  'host_net_rx', 'host_net_tx',
+  'host_disk_read_bps', 'host_disk_write_bps',
+  // Identity / runtime.
+  'host_platform', 'host_os', 'host_kernel', 'host_arch',
+  'host_cpu_cores', 'host_cpu_model',
+  'host_uptime_s', 'host_boot_ts',
+  // Per-mount + per-NIC detail.
+  'mounts', 'interfaces',
+  // Package updates.
+  'package_updates_count', 'package_updates',
+  // Load average.
+  'host_load_1m', 'host_load_5m', 'host_load_15m',
+  // Stale-marker bookkeeping.
+  '_stale_fields', '_stale_ts',
+  // Service-summary surface (Beszel systemd_services rollup).
+  'host_services',
+]);
+
 function app() {
   return {
     // i18n reactive state. `lang` is watched to trigger Alpine re-renders
@@ -8288,8 +8330,11 @@ function app() {
         this.hostsConfigDirty = false;
         this.showToast(this.t('admin_hosts.saved_n', { count: d.count }), 'success');
         // The Hosts tab consumes this list — refresh it so the new
-        // mapping takes effect without a full page reload.
-        if (this.view === 'hosts') this.loadHosts();
+        // mapping takes effect without a full page reload. ``force=true``
+        // busts the backend's 10s provider-state cache so the new
+        // aliases / SSH config produce a fresh probe immediately
+        // (ENH-003).
+        if (this.view === 'hosts') this.loadHosts(true);
       } catch (e) {
         this.showToast(this.t('admin_hosts.save_failed', { error: e.message }), 'error');
       } finally {
@@ -9862,9 +9907,16 @@ function app() {
     // Fetch one host's merged stats and splice it back into the
     // hosts array. Preserves _seq and _loading handling so the UI
     // can distinguish "not yet loaded" from "probed but empty".
-    async refreshHostRow(id) {
+    async refreshHostRow(id, opts = {}) {
+      // ``opts.force`` propagates to ``/api/hosts/one/{id}?force=true``
+      // (ENH-003). Used after a Save in Admin → Hosts / Host stats so a
+      // re-opened drawer sees fresh provider data without waiting out
+      // the 10s provider-state cache. Default false keeps the polling
+      // path cheap.
       try {
-        const r = await fetch('/api/hosts/one/' + encodeURIComponent(id));
+        const url = '/api/hosts/one/' + encodeURIComponent(id)
+                  + (opts && opts.force ? '?force=true' : '');
+        const r = await fetch(url);
         if (!r.ok) {
           // Mark the row as probed but errored so the operator can
           // spot it. MUTATE in place (not splice) so Alpine doesn't
@@ -9887,8 +9939,26 @@ function app() {
         // changed — the template DOESN'T re-render from scratch,
         // which means embedded chart SVGs and provider pill rows
         // stay mounted. No flicker.
+        //
+        // BUG-007 from notes/code_review_2026-04-27.txt: the original
+        // ``for (k of Object.keys(host)) row[k] = host[k]`` loop only
+        // ASSIGNED keys present in the incoming dict, never deleted
+        // keys absent from it. So any backend-side omission (provider
+        // returns empty `host_temperatures` mid-session, transient DB
+        // error trims a key from the response, etc.) left the previous
+        // value sticky on the row. Fix: a CURATED_REFRESH_FIELDS
+        // whitelist of probe-derived keys gets explicitly written —
+        // missing keys in `host` collapse to ``null`` so the row
+        // clears cleanly. CURATED_FIELDS-style flow (config / asset)
+        // still uses the simple assign loop for whatever else the
+        // backend chose to include.
+        for (const k of CURATED_REFRESH_FIELDS) {
+          row[k] = (host[k] === undefined) ? null : host[k];
+        }
         for (const k of Object.keys(host)) {
-          row[k] = host[k];
+          if (!CURATED_REFRESH_FIELDS.has(k)) {
+            row[k] = host[k];
+          }
         }
         row._loading = false;
       } catch (_) {
@@ -10401,8 +10471,11 @@ function app() {
           this.showToast(this.t('hosts_extra.permanent_fail.resumed_toast', { host: h.label || h.id }), 'success');
           // Refresh the host record to pick up backend's view + any
           // new probe results that landed during the API roundtrip.
+          // ``force: true`` busts the 10s provider-state cache so the
+          // operator sees the post-resume probe immediately instead
+          // of waiting out the TTL (ENH-003).
           if (typeof this.refreshHostRow === 'function') {
-            this.refreshHostRow(h.id).catch(() => {});
+            this.refreshHostRow(h.id, { force: true }).catch(() => {});
           }
         } else {
           const j = await r.json().catch(() => ({}));
