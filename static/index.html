@@ -43,25 +43,34 @@
   // zoom. Combined with `touch-action: pan-x pan-y` on body (in
   // style.css), preventing the relevant touch + gesture events here
   // closes the remaining paths. The `gesturestart` family covers
-  // desktop Safari + macOS trackpads; the `touchmove`-when-multi-touch
-  // path covers iOS Safari (which fires touch events, not gesture
-  // events, for pinch on the page). The 300ms double-tap detector
-  // blocks the iOS double-tap-to-zoom shortcut. Operator-requested
-  // behaviour (#385). Listeners use `{passive: false}` because
-  // preventDefault() requires it.
+  // desktop Safari + macOS trackpads; the `touchstart` / `touchmove`
+  // multi-touch path covers iOS Safari (which fires touch events for
+  // pinch on the page). `e.scale !== 1` detects iOS-specific
+  // pinch-scale events. The 300ms double-tap detector blocks the
+  // iOS double-tap-to-zoom shortcut. Operator-requested behaviour
+  // (#385). Listeners use `{passive: false}` because preventDefault()
+  // requires it. Attached to BOTH document and window so iOS Safari
+  // can't bypass via either path.
   (function () {
+    var pd = function (e) {
+      try { e.preventDefault(); } catch (_) {}
+    };
     ['gesturestart', 'gesturechange', 'gestureend'].forEach(function (evt) {
-      document.addEventListener(evt, function (e) { e.preventDefault(); }, { passive: false });
+      document.addEventListener(evt, pd, { passive: false });
+      window.addEventListener(evt, pd, { passive: false });
     });
-    document.addEventListener('touchmove', function (e) {
-      if (e.touches && e.touches.length > 1) {
-        e.preventDefault();
-      }
-    }, { passive: false });
+    var blockMultiTouch = function (e) {
+      if (e.touches && e.touches.length > 1) { pd(e); return; }
+      // iOS-specific: e.scale != 1 means a pinch is in progress
+      // (independent of touches.length on certain iOS versions).
+      if (typeof e.scale === 'number' && e.scale !== 1) { pd(e); }
+    };
+    document.addEventListener('touchstart', blockMultiTouch, { passive: false });
+    document.addEventListener('touchmove',  blockMultiTouch, { passive: false });
     var lastTouchEnd = 0;
     document.addEventListener('touchend', function (e) {
       var now = Date.now();
-      if (now - lastTouchEnd < 300) { e.preventDefault(); }
+      if (now - lastTouchEnd < 300) { pd(e); }
       lastTouchEnd = now;
     }, { passive: false });
   })();
@@ -1763,6 +1772,15 @@
                           x-text="'#' + h.custom_number"></span>
                     <span class="font-semibold text-[13px] mono truncate"
                           x-text="hostTypePrefix(h) + (h.label || h.host)"></span>
+                    <!-- Permanent-fail badge (#383). Renders only when
+                         the host_metrics_sampler has auto-paused the
+                         host after consecutive probe failures. Title
+                         spells out the elapsed window in minutes. -->
+                    <svg x-show="h.sampling_paused"
+                         width="14" height="14"
+                         class="text-[var(--danger)] flex-shrink-0"
+                         :title="t('hosts_extra.permanent_fail.badge_title', { minutes: hostFailureMinutes(h) })"
+                         aria-hidden="true"><use href="#icon-alert-triangle"/></svg>
                     <!-- Per-host provider chips. Red when provider is
                          globally enabled AND mapped to this host but
                          didn't return data (paused / unreachable / 401).
@@ -3000,7 +3018,10 @@
       <!-- USERS TAB -->
       <div x-show="adminTab==='users'" class="space-y-4">
         <section class="bg-[var(--surface)] border border-[var(--border)] rounded-md p-5">
-          <h3 class="font-semibold text-[13px] mb-3" x-text="t('admin.users.create_title')"></h3>
+          <div class="flex items-center gap-2 mb-3">
+            <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true"><use href="#icon-user"/></svg>
+            <h3 class="font-semibold text-[13px]" x-text="t('admin.users.create_title')"></h3>
+          </div>
           <div class="grid grid-cols-1 md:grid-cols-2 gap-2">
             <input x-model="newUser.username" type="text" :placeholder="t('admin.users.username_placeholder')" class="w-full">
             <input x-model="newUser.email" type="email" :placeholder="t('admin.users.email_placeholder')" class="w-full">
@@ -3218,7 +3239,10 @@
       <!-- API TOKENS TAB -->
       <div x-show="adminTab==='tokens'" class="space-y-4">
         <section class="bg-[var(--surface)] border border-[var(--border)] rounded-md p-5">
-          <h3 class="font-semibold text-[13px] mb-2" x-text="t('admin.tokens.create_title')"></h3>
+          <div class="flex items-center gap-2 mb-2">
+            <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true"><use href="#icon-key"/></svg>
+            <h3 class="font-semibold text-[13px]" x-text="t('admin.tokens.create_title')"></h3>
+          </div>
           <p class="text-[11.5px] text-[var(--text-faint)] mb-3" x-text="t('admin.tokens.create_hint')"></p>
           <div class="grid grid-cols-1 md:grid-cols-3 gap-2">
             <input x-model="newToken.name" type="text" :placeholder="t('admin.tokens.name_placeholder')" class="w-full md:col-span-2">
@@ -3464,7 +3488,7 @@
               <p class="text-[11.5px] text-[var(--text-faint)] mb-3" x-text="t('settings.portainer.connection_desc')"></p>
             </div>
             <span x-show="portainerStatus" class="chip"
-                  :class="portainerStatus && portainerStatus.configured ? 'pill-success' : 'pill-muted'"
+                  :class="portainerStatus && portainerStatus.configured ? 'pill-ok' : 'pill-muted'"
                   x-text="portainerStatus ? (portainerStatus.configured ? t('settings.portainer.configured') : t('settings.portainer.not_configured')) : ''"></span>
           </div>
           <div x-show="portainerStatus" class="space-y-3">
@@ -3578,7 +3602,7 @@
           </div>
           <span x-show="oidcStatus"
                 class="chip"
-                :class="oidcStatus && oidcStatus.enabled ? 'pill-success' : 'pill-muted'"
+                :class="oidcStatus && oidcStatus.enabled ? 'pill-ok' : 'pill-muted'"
                 x-text="oidcStatus ? (oidcStatus.enabled ? t('settings.oidc.enabled') : t('settings.oidc.disabled')) : ''"></span>
         </div>
         <div x-show="oidcStatus" class="space-y-3">
@@ -6326,6 +6350,25 @@
                         class="btn btn-ghost text-base leading-none"
                         :title="t('actions.close') || 'Close'">✕</button>
               </div>
+              <!-- Permanent-fail banner (#383) — fires when the
+                   host_metrics_sampler has auto-paused this host after
+                   the configured failure window. Shows last error +
+                   minutes since the streak started + a Resume button
+                   that clears the marker via POST /api/hosts/{id}/
+                   resume-sampling. -->
+              <template x-if="h.sampling_paused">
+                <div class="flex items-start gap-3 bg-[color-mix(in_srgb,var(--danger)_10%,transparent)] border border-[color-mix(in_srgb,var(--danger)_40%,var(--border))] rounded-md p-3 text-[12px] mb-4">
+                  <svg width="16" height="16" class="text-[var(--danger)] flex-shrink-0 mt-0.5" aria-hidden="true"><use href="#icon-alert-triangle"/></svg>
+                  <div class="min-w-0 flex-1">
+                    <div class="text-[var(--text)]"
+                         x-text="t('hosts_extra.permanent_fail.drawer_banner', { minutes: hostFailureMinutes(h), error: (h.last_error || '—') })"></div>
+                  </div>
+                  <button @click="resumeHostSampling(h)"
+                          :disabled="h._resumeBusy"
+                          class="btn btn-soft text-[11.5px] flex-shrink-0"
+                          x-text="h._resumeBusy ? t('hosts_extra.permanent_fail.resume_busy') : t('hosts_extra.permanent_fail.resume_button')"></button>
+                </div>
+              </template>
               <!-- "No data yet" banner — shows only for hosts with
                    a provider MAPPED but probes returning nothing
                    (status='unknown' — a real "agent running, but

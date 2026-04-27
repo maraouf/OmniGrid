@@ -1034,6 +1034,14 @@
     "new_version_title": "New version {version} deployed — click to reload and use the updated UI"
   },
   "hosts_extra": {
+    "permanent_fail": {
+      "badge_title": "Sampling paused — host has been unreachable for {minutes}m",
+      "drawer_banner": "Sampling paused: this host has been unreachable for {minutes} min. Last error: {error}",
+      "resume_button": "Resume sampling",
+      "resume_busy": "Resuming…",
+      "resumed_toast": "Sampling resumed for {host}",
+      "resume_failed_toast": "Failed to resume sampling for {host}: {error}"
+    },
     "sort_label": "Sort",
     "sort_title": "Sort hosts — persisted in this browser",
     "hide_unconfigured_label": "Hide hosts without agents",

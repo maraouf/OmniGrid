@@ -9797,6 +9797,48 @@ function app() {
       return h.beszel_id || h.id || '';
     },
 
+    // Permanent-fail tracking helpers (#383). Backend sets
+    // `h.sampling_paused: true` on the host record once consecutive
+    // probe failures exceed the configured window
+    // (`host_permanent_fail_window_seconds`). Frontend renders an icon
+    // in the table + a banner in the drawer with a Resume button.
+    hostFailureMinutes(h) {
+      if (!h || !h.failure_window_started_at) return 0;
+      const elapsed = (Date.now() / 1000) - h.failure_window_started_at;
+      return Math.max(0, Math.floor(elapsed / 60));
+    },
+    async resumeHostSampling(h) {
+      if (!h || !h.id || h._resumeBusy) return;
+      h._resumeBusy = true;
+      try {
+        const r = await fetch('/api/hosts/' + encodeURIComponent(h.id) + '/resume-sampling', {
+          method: 'POST',
+        });
+        if (r.ok) {
+          // Optimistic: clear the marker locally so the banner /
+          // table icon disappear before the next host-list poll.
+          h.sampling_paused = false;
+          h.failure_window_started_at = 0;
+          h.consecutive_failures = 0;
+          h.last_error = '';
+          this.showToast(this.t('hosts_extra.permanent_fail.resumed_toast', { host: h.label || h.id }), 'success');
+          // Refresh the host record to pick up backend's view + any
+          // new probe results that landed during the API roundtrip.
+          if (typeof this.refreshHostRow === 'function') {
+            this.refreshHostRow(h.id).catch(() => {});
+          }
+        } else {
+          const j = await r.json().catch(() => ({}));
+          const detail = j.detail || ('HTTP ' + r.status);
+          this.showToast(this.t('hosts_extra.permanent_fail.resume_failed_toast', { host: h.label || h.id, error: detail }), 'error');
+        }
+      } catch (err) {
+        this.showToast(this.t('hosts_extra.permanent_fail.resume_failed_toast', { host: h.label || h.id, error: String(err) }), 'error');
+      } finally {
+        h._resumeBusy = false;
+      }
+    },
+
     // Per-host definitive source label for the chart-help tooltips
     // (#390). Resolves the actual provider that populates a given
     // metric for THIS host, considering what's mapped on the host
