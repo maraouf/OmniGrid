@@ -153,9 +153,23 @@ _HOST_SNAPSHOT_KEYS = (
     "host_boot_ts", "host_uptime_s",
     "host_platform", "host_os", "host_kernel", "host_arch",
     "host_cpu_cores", "host_cpu_model",
-    "mounts", "network", "interfaces",
+    # Per-mount + per-NIC detail. Both are bare keys (no `host_`
+    # prefix) — extract_stats emits them this way historically.
+    # `interfaces` is the NE shape; `mounts` is shared. There is no
+    # provider-emitted top-level `network` key (the previous tuple
+    # listed it but no caller writes it; bug from #440 / BUG-001).
+    "mounts", "interfaces",
     "package_updates_count", "package_updates",
-    "load_1m", "load_5m", "load_15m",
+    # Load average — provider extracts emit prefixed keys
+    # (`host_load_*`). The previous tuple had bare `load_*` which
+    # silently dropped during snapshot reload (#440 / BUG-001).
+    "host_load_1m", "host_load_5m", "host_load_15m",
+    # Swap + thermal sensors — Beszel-emitted, must survive a
+    # provider outage same as the rest of the host_* family
+    # (#440 / BUG-001 — these were missing entirely from the
+    # whitelist so they blanked instead of going stale).
+    "host_swap_used", "host_swap_percent",
+    "host_temperatures",
 )
 
 
