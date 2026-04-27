@@ -50,7 +50,13 @@ the next release, this whole block becomes the `[X.Y.0]` entry below.
 
 - `/api/ops` poll cadence is now a tunable (Admin → Config → "Ops poll cadence (ms)"). Backed by `tuning_ops_poll_interval_ms` (default 1500 ms, range 250–60000); surfaced to the SPA via `/api/me`'s `client_config.ops_poll_ms`. `pollOps()` resolves the value per-tick so a Save in Admin → Config takes effect on the next `/api/me` round-trip without a restart. Lower for snappier UI feedback after a button click, higher to cut idle traffic on a long-running SPA tab (#417).
 
+### Changed
+
+- Admin → Logs → Files tab now renders log files with the same colourisation as the Live tab: tinted timestamps, severity-coloured rows (red ERROR / amber WARN / green SUCCESS / default INFO), and `[beszel]` / `[pulse]` / `[hosts]` etc. tag accent chips. Lines are parsed via the canonical `<ISO ts> <LEVEL> <body>` regex matching the file format from `logic/logs.py:_persist_line` (#427).
+
 ### Fixed
+
+- Schedule edit modal: `kind` + `cadence_mode` dropdowns weren't preselecting the saved value (the documented Alpine select-mount race — `x-model` commits before the `<option>` x-for inserts children, so the matching option doesn't exist yet and the select falls back to the first one). `editSchedule()` now sets the bound fields to `''` synchronously, then reassigns the real values in a double-`$nextTick` so the inner x-for has finished rendering first (#426).
 
 - `host_net_sampler` was ignoring the permanent-fail auto-pause. The metrics sampler already skipped paused hosts; the net sampler kept hitting their NE endpoints and emitting `[host_net_sampler] '<host>' exporter_error: All connection attempts failed` log lines. Net sampler now reads `host_failure_state.paused` before each probe and short-circuits when set. Best-effort DB read — transient errors don't accidentally silence ALL polling (#423).
 
