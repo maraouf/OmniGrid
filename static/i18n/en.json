@@ -507,6 +507,7 @@
         "disable_all": "Disable all",
         "errors_only": "Errors only",
         "security_section": "Security events",
+        "sampler_section": "Sampler events",
         "user_login": "User signed in",
         "host_paused": "Host sampling auto-paused",
         "enabled": "Enabled"
@@ -606,7 +607,17 @@
       "copy": "Copy",
       "copy_title": "Copy the currently visible (filtered) log lines to the clipboard as plain text.",
       "copied": "Copied {n} log line(s) to clipboard",
-      "copy_failed": "Couldn't copy to clipboard"
+      "copy_failed": "Couldn't copy to clipboard",
+      "severity_label": "Severity",
+      "severity_all": "All",
+      "severity_none": "None",
+      "severity_errors_only": "Errors only",
+      "severity": {
+        "error": "Error",
+        "warn": "Warning",
+        "ok": "Success",
+        "info": "Info"
+      }
     },
     "schedules": {
       "create_title": "Create schedule",

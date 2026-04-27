@@ -549,8 +549,8 @@ function app() {
       { id: 'sessions',       label: 'Sessions',        icon: 'monitor' },
       { id: 'tokens',         label: 'API tokens',      icon: 'key' },
       { id: 'notifications',  label: 'Notifications',   icon: 'bell' },
-      { id: 'portainer',      label: 'Portainer',       icon: 'box' },
-      { id: 'oidc',           label: 'Authentik OIDC',  icon: 'id-card' },
+      { id: 'portainer',      label: 'Portainer',       icon: 'portainer' },
+      { id: 'oidc',           label: 'Authentik OIDC',  icon: 'authentik' },
       { id: 'host_stats',     label: 'Host stats',      icon: 'activity' },
       { id: 'hosts',          label: 'Hosts',           icon: 'server' },
       { id: 'host_groups',    label: 'Host Groups',     icon: 'layers' },
@@ -570,6 +570,11 @@ function app() {
     logSinceTs: 0,
     logAuto: true,
     logFilter: '',
+    // Severity multi-select filter (#422). Defaults: all four levels
+    // visible. Persists to localStorage so reload preserves the view.
+    // Severity values match the strings `logSeverity()` returns.
+    logSeverityLevels: ['error', 'warn', 'ok', 'info'],
+    logSeverityFilter: { error: true, warn: true, ok: true, info: true },
     logPollHandle: null,
     backups: [],
     backupBusy: false,
@@ -656,6 +661,9 @@ function app() {
       // since boot. Single-replica + single-component-per-page so
       // there's no ambiguity about which instance to expose.
       try { window.omnigrid = this; } catch (_) {}
+      // Restore persisted UI prefs that need to land before the first
+      // render of their dependent views (#422 logs severity filter).
+      this._restoreLogSeverity();
       // i18n is already loaded (Alpine is gated on __i18nReady), but pull
       // the authoritative language list + current code/dir into the
       // reactive Alpine state so pickers and v-bindings track it.
@@ -2305,8 +2313,50 @@ function app() {
 
     filteredLogLines() {
       const q = (this.logFilter || '').toLowerCase();
-      if (!q) return this.logLines;
-      return this.logLines.filter(l => l.text.toLowerCase().includes(q));
+      const sev = this.logSeverityFilter || {};
+      const allSevOn = this.logSeverityLevels.every(k => sev[k]);
+      if (!q && allSevOn) return this.logLines;
+      return this.logLines.filter(l => {
+        if (!allSevOn && !sev[this.logSeverity(l)]) return false;
+        if (q && !l.text.toLowerCase().includes(q)) return false;
+        return true;
+      });
+    },
+    // Multi-select severity controls (#422). Persist to localStorage so
+    // the view survives a reload. setAll/errorsOnly mirror the same
+    // shape as the Notifications event grid's bulk buttons.
+    toggleLogSeverity(level) {
+      this.logSeverityFilter[level] = !this.logSeverityFilter[level];
+      this._persistLogSeverity();
+    },
+    setAllLogSeverity(on) {
+      for (const k of this.logSeverityLevels) this.logSeverityFilter[k] = !!on;
+      this._persistLogSeverity();
+    },
+    setLogSeverityErrorsOnly() {
+      for (const k of this.logSeverityLevels) {
+        this.logSeverityFilter[k] = (k === 'error');
+      }
+      this._persistLogSeverity();
+    },
+    _persistLogSeverity() {
+      try {
+        localStorage.setItem('logSeverityFilter', JSON.stringify(this.logSeverityFilter));
+      } catch (_) {}
+    },
+    _restoreLogSeverity() {
+      try {
+        const raw = localStorage.getItem('logSeverityFilter');
+        if (!raw) return;
+        const parsed = JSON.parse(raw);
+        if (parsed && typeof parsed === 'object') {
+          for (const k of this.logSeverityLevels) {
+            if (typeof parsed[k] === 'boolean') {
+              this.logSeverityFilter[k] = parsed[k];
+            }
+          }
+        }
+      } catch (_) {}
     },
     // Copy the currently-filtered log view to the clipboard as plain
     // text. Format: "YYYY-MM-DD HH:MM:SS [stream] body" per line, so
@@ -3146,9 +3196,13 @@ function app() {
     // sometimes serves the cached HTML; adding a query param forces
     // the server to re-send (and the JS/CSS assets use
     // ?v=<version> bust-tokens so they'll re-fetch too).
+    // URLSearchParams.set replaces any existing `_v` so consecutive
+    // reloads don't append `&_v=...&_v=...&_v=...` (#418).
     reloadForNewVersion() {
-      const sep = location.search ? '&' : '?';
-      location.href = location.pathname + location.search + sep + '_v=' + encodeURIComponent(this.newVersionString || Date.now());
+      const params = new URLSearchParams(location.search);
+      params.set('_v', this.newVersionString || String(Date.now()));
+      const qs = params.toString();
+      location.href = location.pathname + (qs ? '?' + qs : '') + location.hash;
     },
 
     // Console-pasteable snapshot of stats state — operators paste
@@ -4686,9 +4740,12 @@ function app() {
     ],
     // Security events — single-toggle per event (no success/failure
     // pair like ops events). Rendered as a separate row beneath the
-    // ops-events grid.
+    // ops-events grid. Sampler events get their own group below
+    // because "host sampling auto-paused" is not a security signal.
     notifySecurityEvents: [
       { label: 'user_login',  key: 'notify_event_user_login' },
+    ],
+    notifySamplerEvents: [
       { label: 'host_paused', key: 'notify_event_host_paused' },
     ],
     _appriseSnapshot() {
