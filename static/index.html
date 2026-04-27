@@ -2675,10 +2675,19 @@
                 </ul>
               </template>
               <div class="flex items-center gap-2 flex-wrap">
+                <!-- Admin can disable passkey enrolment globally via
+                     the Authentication tab (#432). Existing enrolments
+                     stay listed + revocable; only the Add button hides
+                     so the operator-side "I want to register a new
+                     key" path is the one blocked. -->
                 <button type="button" class="btn btn-primary text-[12px]"
+                        x-show="(me && me.passkeys && me.passkeys.allowed !== false)"
                         :disabled="passkeys.busy || !passkeyBrowserSupported()"
                         @click="addPasskey()"
                         x-text="passkeys.busy ? t('settings.profile.passkeys.adding') : t('settings.profile.passkeys.add_button')"></button>
+                <span x-show="me && me.passkeys && me.passkeys.allowed === false"
+                      class="text-[11px] text-[var(--text-faint)] italic"
+                      x-text="t('settings.profile.passkeys.disabled_by_admin')"></span>
                 <span x-show="passkeys.busy" class="text-[11px] text-[var(--text-faint)]"
                       x-text="t('settings.profile.passkeys.registering_hint')"></span>
               </div>
@@ -6400,6 +6409,20 @@
             </label>
             <p class="text-[11px] text-[var(--text-faint)] -mt-1 ms-6"
                x-text="t('admin.config.totp.allowed_hint')"></p>
+
+            <!-- Passkey master toggle (#432). Mirrors `totp_allowed`
+                 in shape and semantics: when off, register-start
+                 returns 403 + login flow drops 'webauthn' from the
+                 methods list, but existing enrolments stay listed
+                 + revocable from Profile so users aren't locked out
+                 of cleanup. -->
+            <label class="flex items-center gap-2 text-[12.5px] pt-2 border-t border-[var(--border)] mt-2">
+              <input type="checkbox" x-model="settings.passkeys_allowed"
+                     :disabled="!isAdmin()">
+              <span x-text="t('admin.config.totp.passkeys_allowed_label')"></span>
+            </label>
+            <p class="text-[11px] text-[var(--text-faint)] -mt-1 ms-6"
+               x-text="t('admin.config.totp.passkeys_allowed_hint')"></p>
 
             <label class="flex items-center gap-2 text-[12.5px]">
               <input type="checkbox" x-model="settings.totp_required_for_admins"

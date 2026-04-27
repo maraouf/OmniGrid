@@ -410,7 +410,8 @@
         "revoke_confirm_title": "Revoke this passkey?",
         "revoke_confirm_body": "{name} will stop working immediately. You can always add it again later.",
         "revoke_confirm_button": "Revoke",
-        "registering_hint": "Confirm on your device — touch the key, allow the prompt, or unlock with biometrics."
+        "registering_hint": "Confirm on your device — touch the key, allow the prompt, or unlock with biometrics.",
+        "disabled_by_admin": "Passkey enrolment is disabled by an administrator. Existing keys keep working until you revoke them OR the toggle goes back on."
       }
     },
     "notifications": {
@@ -591,7 +592,9 @@
         "title": "Two-factor authentication (TOTP)",
         "subtitle": "Policy controls for local-auth users. Authentik users skip every TOTP path — their IdP handles MFA. Each enrolled user keeps their own QR / backup codes; admins can disable a user's 2FA from the Users tab when a device is lost.",
         "allowed_label": "Allow users to enrol in 2FA",
-        "allowed_hint": "Master switch. When off, nobody can enable 2FA from Profile (existing enrolments stay active until each user disables — or an admin clears them per-user).",
+        "allowed_hint": "Master switch. When off, TOTP enrolment is hidden from Profile AND existing TOTP-enrolled users are NOT prompted for a code at login. Their secret stays in the DB for when you flip it back on.",
+        "passkeys_allowed_label": "Allow users to enrol passkeys",
+        "passkeys_allowed_hint": "Master switch for WebAuthn / FIDO2 passkeys. When off, the passkey \"Add\" button hides in Profile AND already-enrolled passkeys are NOT offered at login. Existing rows stay in the DB so the same user can revoke them, and login resumes when you flip it back on.",
         "required_admins_label": "Require 2FA for admin accounts",
         "required_users_label": "Require 2FA for read-only accounts",
         "required_hint": "Forced enrolment runs at login: a user without 2FA gets the QR + verification step before the cookie is issued.",

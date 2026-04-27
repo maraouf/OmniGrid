@@ -1155,20 +1155,28 @@ def _schedule_name_exists(conn: sqlite3.Connection, name: str) -> bool:
 
 
 def seed_default_schedules(conn: sqlite3.Connection, nodes: list[str]) -> None:
-    """Seed reasonable starter schedules on first boot.
+    """Seed reasonable starter schedules on first boot only.
 
-    Each seed gates on its OWN name not already existing — historically
-    this gated on the whole ``schedules`` table being empty, but that
-    meant the deferred call (after the first gather populated nodes)
-    skipped because the lifespan call already created
-    ``Refresh fleet cache``, leaving ``Prune <node>`` permanently
-    unseeded. Per-seed gating fixes that without losing idempotence:
-    repeated calls are no-ops once each row exists.
+    Gated on the ``default_schedules_seeded`` setting — once true, no
+    re-seeding ever happens, even if the operator has deleted the
+    seeded rows in the meantime (#430). Previously each seed gated on
+    its own name not already existing, which meant deleting the rows
+    just brought them back on the next boot. Operators with their own
+    custom-named equivalents (RefreshCache, ScheduledPruneAllNodes,
+    etc.) found the auto-seeded duplicates regenerating endlessly.
 
     Destructive defaults (``prune_node``) ship disabled; benign defaults
     (``gather_refresh``) ship enabled. Operators take it from there via
-    the UI.
+    the UI. To re-seed (e.g. after wiping the schedules table), the
+    operator clears the ``default_schedules_seeded`` setting via SQL
+    or the settings API.
     """
+    from logic.db import get_setting, set_setting
+
+    if (get_setting("default_schedules_seeded", "") or "").lower() == "true":
+        return
+
+    seeded = False
     # A periodic cache refresh is benign and matches what a curious
     # operator would configure first anyway. Interval lines up with
     # CACHE_TTL's default so it's invisible in steady state.
@@ -1182,6 +1190,7 @@ def seed_default_schedules(conn: sqlite3.Connection, nodes: list[str]) -> None:
                 interval_seconds=900,
                 enabled=True,
             )
+            seeded = True
         except sqlite3.IntegrityError:
             pass
 
@@ -1203,8 +1212,24 @@ def seed_default_schedules(conn: sqlite3.Connection, nodes: list[str]) -> None:
                     interval_seconds=86400,
                     enabled=False,
                 )
+                seeded = True
             except sqlite3.IntegrityError:
                 pass
+
+    # Set the one-shot flag only AFTER the prune-node row exists too,
+    # so the lifespan-time call (when nodes is still empty) doesn't
+    # latch the flag prematurely and prevent the deferred gather-time
+    # call from seeding the prune-node row.
+    if nodes or _schedule_name_exists(conn, "Refresh fleet cache"):
+        # We've at least had a chance to seed the prune row (either it
+        # exists now, or we're past the point where it ever could).
+        # On the lifespan-only path (nodes empty + cache row missing)
+        # we deliberately leave the flag UNSET so the deferred gather
+        # call gets a turn.
+        if nodes:
+            set_setting("default_schedules_seeded", "true")
+            if seeded:
+                print("[scheduler] default schedules seeded; flag latched")
 
 
 # ----------------------------------------------------------------------------

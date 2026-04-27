@@ -133,6 +133,10 @@ _TOTP_POLICY_DEFAULTS = {
     "totp_required_for_users":    False,
     "totp_lockout_max_failures":  5,
     "totp_lockout_minutes":       15,
+    # Passkey master toggle (#432). Mirrors `totp_allowed`. When OFF,
+    # `register-start` returns 403; existing enrolments stay valid for
+    # login until each user revokes (or admin clears via reset).
+    "passkeys_allowed":           True,
 }
 
 
@@ -166,6 +170,9 @@ def _resolve_totp_policy() -> dict:
                 "totp_lockout_minutes",
                 str(_TOTP_POLICY_DEFAULTS["totp_lockout_minutes"]),
             ) or _TOTP_POLICY_DEFAULTS["totp_lockout_minutes"]
+        ),
+        "passkeys_allowed":          get_setting_bool(
+            "passkeys_allowed", _TOTP_POLICY_DEFAULTS["passkeys_allowed"],
         ),
     }
 
@@ -1262,6 +1269,8 @@ class SettingsIn(BaseModel):
     totp_required_for_users: Optional[bool] = None
     totp_lockout_max_failures: Optional[int] = None
     totp_lockout_minutes: Optional[int] = None
+    # Passkey master toggle (#432). Mirrors totp_allowed.
+    passkeys_allowed: Optional[bool] = None
 
 
 @app.get("/api/settings")
@@ -1534,6 +1543,8 @@ async def api_set_settings(
                 detail="totp_lockout_minutes must be in the range 1..1440.",
             )
         set_setting("totp_lockout_minutes", str(n))
+    if s.passkeys_allowed is not None:
+        set_setting("passkeys_allowed", "true" if s.passkeys_allowed else "false")
     # Open-Meteo upstream — strips trailing slashes so `<base>/v1/...`
     # composition in api_weather stays stable whether the operator
     # typed a trailing slash or not.
@@ -5588,12 +5599,27 @@ async def api_local_login(
         policy = _resolve_totp_policy()
         state = auth.get_user_totp_state(c, u.id)
         passkey_count = auth.count_user_credentials(c, u.id)
-        has_2fa = bool(state["enabled"]) or passkey_count > 0
+        # Master-toggle gates (#432). When admin disables a method,
+        # treat enrolled credentials of that type as if they don't
+        # exist for login purposes — the method drops from `methods`
+        # and is skipped in the has_2fa check. The user's enrolment
+        # rows stay in the DB so flipping the toggle back on restores
+        # the login path. If admin disables BOTH and the user has
+        # nothing else, they fall through to single-factor (this is
+        # the admin's explicit choice).
+        totp_login_enabled = bool(state["enabled"]) and policy["totp_allowed"]
+        passkey_login_enabled = (
+            passkey_count > 0
+            and policy["passkeys_allowed"]
+            and webauthn_h.WEBAUTHN_AVAILABLE
+        )
+        has_2fa = totp_login_enabled or passkey_login_enabled
         # Lockout check happens BEFORE we mint a challenge so a locked
         # user gets a clear 423 rather than a stale challenge_id. Lockout
         # state is TOTP-only for now -- passkeys have their own per-IP
-        # rate-limit on webauthn-finish failures.
-        if state["enabled"] and state["locked_until"]:
+        # rate-limit on webauthn-finish failures. Skip when totp_allowed
+        # is off (no point locking out a method we won't honour anyway).
+        if totp_login_enabled and state["locked_until"]:
             if state["locked_until"] > int(time.time()):
                 retry = state["locked_until"] - int(time.time())
                 raise HTTPException(
@@ -5609,9 +5635,9 @@ async def api_local_login(
             auth.clear_totp_lockout(c, u.id)
         if has_2fa:
             methods: list[str] = []
-            if state["enabled"]:
+            if totp_login_enabled:
                 methods.append("totp")
-            if passkey_count > 0 and webauthn_h.WEBAUTHN_AVAILABLE:
+            if passkey_login_enabled:
                 methods.append("webauthn")
             cid, exp = _create_totp_challenge({
                 "user_id": u.id,
@@ -5691,6 +5717,17 @@ async def api_local_login_totp(
         )
     user_id = challenge["user_id"]
     policy = _resolve_totp_policy()
+    # Master toggle (#432). When admin disables TOTP, refuse to verify
+    # codes from already-enrolled users — defence in depth alongside
+    # the api_local_login `methods` filter that already drops 'totp'
+    # from the login response. A stale client could still POST here.
+    if not policy["totp_allowed"]:
+        _consume_totp_challenge(challenge_id)
+        auth.rate_limit_record_failure(ip)
+        raise HTTPException(
+            status_code=403,
+            detail="TOTP login is disabled by an administrator.",
+        )
     with db_conn() as c:
         u = auth.get_user(c, user_id)
         if not u or u.disabled or u.auth_source != "local":
@@ -5880,6 +5917,14 @@ async def api_local_login_webauthn_start(
             status_code=503,
             detail="Passkey support is not available on this server "
                    "(webauthn library missing).",
+        )
+    # Master toggle (#432). Defence-in-depth — the SPA won't offer
+    # the passkey method when this is off (login response omits
+    # 'webauthn' from `methods`), but a stale client could still try.
+    if not _resolve_totp_policy()["passkeys_allowed"]:
+        raise HTTPException(
+            status_code=403,
+            detail="Passkey login is disabled by an administrator.",
         )
     ip = auth._client_ip(request)
     auth.rate_limit_check(ip)
@@ -6254,6 +6299,10 @@ async def api_me(request: Request):
                 user.auth_source == "local"
                 and webauthn_h.WEBAUTHN_AVAILABLE
             ),
+            # Admin master toggle (#432). When false, the SPA hides /
+            # disables the "Add a passkey" button. Existing enrolments
+            # remain visible + login-eligible until each user revokes.
+            "allowed": bool(_totp_policy["passkeys_allowed"]),
         }
     return out
 
@@ -6767,6 +6816,15 @@ async def api_me_webauthn_register_start(
     are per-user and not consumable across users).
     """
     _webauthn_self_guard(user)
+    # Admin master toggle (#432). Only register-start is gated — list /
+    # revoke / login still work for already-enrolled keys, mirroring
+    # the totp_allowed shape (admin can flip enrolment off without
+    # breaking active logins).
+    if not _resolve_totp_policy()["passkeys_allowed"]:
+        raise HTTPException(
+            status_code=403,
+            detail="Passkey enrolment is disabled by an administrator.",
+        )
     rp_id = _request_rp_id(request)
     rp_name = "OmniGrid"
     with db_conn() as c:

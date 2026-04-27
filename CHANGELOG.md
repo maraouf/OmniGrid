@@ -57,7 +57,15 @@ the next release, this whole block becomes the `[X.Y.0]` entry below.
 
 - Admin → Logs → Files tab now renders log files with the same colourisation as the Live tab: tinted timestamps, severity-coloured rows (red ERROR / amber WARN / green SUCCESS / default INFO), and `[beszel]` / `[pulse]` / `[hosts]` etc. tag accent chips. Lines are parsed via the canonical `<ISO ts> <LEVEL> <body>` regex matching the file format from `logic/logs.py:_persist_line` (#427).
 
+### Added
+
+- Admin master toggle for passkey enrolment + login (`passkeys_allowed`, default true) — mirrors the existing `totp_allowed` toggle. Surfaced in Admin → Authentication as "Allow users to enrol passkeys". When OFF: Profile hides the "Add a passkey" button, login flow drops `webauthn` from the second-factor `methods` list (already-enrolled passkeys are NOT offered for login), and `register-start` / `webauthn-start` routes return 403 as defence-in-depth. Existing rows stay in the DB so flipping the toggle back on restores login. Same gate semantics applied to TOTP — disabling `totp_allowed` now also blocks login-with-TOTP for already-enrolled users (the previous "existing enrolments stay active" behaviour was misleading and is no longer accurate). i18n `admin.config.totp.passkeys_allowed_label/_hint` + `settings.profile.passkeys.disabled_by_admin` (#432).
+
 ### Fixed
+
+- Default schedules ("Prune debian13docker", "Refresh fleet cache") were re-seeding on every container boot even after the operator deleted them. `seed_default_schedules` in `logic/schedules.py` now uses a one-shot `default_schedules_seeded` setting flag instead of per-name existence checks — once seeded, no future call recreates the rows regardless of whether the operator deleted them. Operators wanting to re-seed clear the flag from the SQLite shell or `/api/settings` (#430).
+
+- Passkey enrolment didn't reliably surface the password-manager save sheet (1Password / Bitwarden / iCloud Keychain). Added the WebAuthn Level 3 `hints: ["client-device", "hybrid", "security-key"]` field to registration options to nudge browsers toward the cross-platform picker. `addPasskey` in `static/js/app.js` now surfaces the actual `DOMException` name in the failure toast (was silently swallowing — impossible to debug user-cancel vs RP ID mismatch vs extension-blocked) (#431).
 
 - Admin → Users table status pills (Active / Disabled / admin / readonly / 2FA On / Off / Required) were rendering colourless. Markup had been referencing `pill-success`, `pill-warning`, `pill-muted`, `pill-primary` classes that were never defined in CSS, so they all fell back to the base `.pill` rule (border + padding only). Added the four missing variants in `static/css/style.css`, each aliasing an existing token family — no new colour literals (#428).
 
