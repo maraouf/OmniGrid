@@ -9796,6 +9796,75 @@ function app() {
       if (!h) return '';
       return h.beszel_id || h.id || '';
     },
+
+    // Per-host definitive source label for the chart-help tooltips
+    // (#390). Resolves the actual provider that populates a given
+    // metric for THIS host, considering what's mapped on the host
+    // record + each metric's provider precedence. Falls back to the
+    // generic i18n string when nothing is configured. Network has
+    // a special path: when both Beszel and NE are mapped, NE rates
+    // back-fill the chart whenever Beszel returns zero (host_net
+    // sampler) — surface that explicitly.
+    metricSource(h, key) {
+      const fallback = this.t('hosts_extra.metrics.source_' + key);
+      if (!h) return fallback;
+      const beszel = (h.beszel_name || '').trim();
+      const beszelId = (h.beszel_id || '').trim();
+      const pulse = (h.pulse_name || '').trim();
+      const ne = (h.ne_url || '').trim();
+      const webmin = (h.webmin_name || h.webmin_url || '').trim();
+      const beszelLabel = beszel || beszelId;
+
+      // Provider precedence per metric. Order matters: first match wins
+      // for "what populates this for this host". NE-only metrics that
+      // Beszel doesn't track are flagged when Beszel is the only source.
+      const precedence = {
+        cpu:        ['beszel'],
+        memory:     ['pulse', 'beszel', 'ne'],
+        disk:       ['beszel', 'ne'],
+        disk_io:    ['beszel', 'ne'],
+        load_avg:   ['beszel'],
+        swap:       ['beszel'],
+        // Network + Bandwidth share the same upstream + the NE-fallback
+        // when both are present.
+        network:    ['beszel', 'ne'],
+        bandwidth:  ['beszel', 'ne'],
+      };
+      const providers = {
+        beszel: beszelLabel ? `Beszel agent (${beszelLabel})` : '',
+        pulse:  pulse       ? `Pulse (${pulse})`              : '',
+        ne:     ne          ? `node-exporter (${ne})`         : '',
+        webmin: webmin      ? `Webmin (${webmin})`            : '',
+      };
+
+      const order = precedence[key] || ['beszel', 'pulse', 'ne', 'webmin'];
+      const active = order.filter(p => providers[p]);
+
+      if (active.length === 0) {
+        // Host has no provider configured for this metric — show the
+        // generic "what could populate this" hint.
+        return fallback;
+      }
+
+      const primary = providers[active[0]];
+
+      // Special: Network back-fills NE rates onto Beszel zeros via
+      // host_net_samples. When both providers are mapped, name both.
+      if ((key === 'network' || key === 'bandwidth') && active.includes('beszel') && active.includes('ne')) {
+        return `${primary}; node-exporter (${ne}) fills Net I/O when Beszel returns zero`;
+      }
+
+      // CPU / Load Avg / Swap aren't surfaced by the NE sampler today —
+      // call that out explicitly when the host is NE-only.
+      if (active[0] === 'ne' && (key === 'cpu' || key === 'load_avg' || key === 'swap')) {
+        return `node-exporter (${ne}) — but the NE sampler doesn't track ${key} yet, so this chart will be empty for this host`;
+      }
+
+      if (active.length === 1) return primary;
+      const rest = active.slice(1).map(p => providers[p]).join(', ');
+      return `${primary} (fallback chain: ${rest})`;
+    },
+
     setHostHistoryRange(hours) {
       this.hostHistoryRange = hours;
       // Reload the open drawer host's history (#323 — the range

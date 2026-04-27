@@ -2236,7 +2236,10 @@
 
         <!-- About card — editable display name + bio + email -->
         <section class="bg-[var(--surface)] border border-[var(--border)] rounded-md p-5 lg:col-span-2">
-          <h3 class="font-semibold text-[13px] mb-4" x-text="t('settings.profile.about')"></h3>
+          <div class="flex items-center gap-2 mb-4">
+            <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true"><use href="#icon-id-card"/></svg>
+            <h3 class="font-semibold text-[13px]" x-text="t('settings.profile.about')"></h3>
+          </div>
           <div class="space-y-3">
             <div>
               <label class="block text-[11px] text-[var(--text-dim)] mb-1" x-text="t('settings.profile.display_name')"></label>
@@ -2439,7 +2442,7 @@
         <section class="bg-[var(--surface)] border border-[var(--border)] rounded-md p-5"
                  x-show="me && me.source === 'local'">
           <div class="flex items-center gap-2 mb-4">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-[var(--text-dim)]"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+            <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true"><use href="#icon-shield"/></svg>
             <h3 class="font-semibold text-[13px]" x-text="t('settings.profile.totp.title')"></h3>
             <span x-show="totp.required" class="totp-required-pill" x-text="t('settings.profile.totp.required_pill')"></span>
           </div>
@@ -6946,7 +6949,7 @@
                   <div class="metric-card-head">
                     <div class="metric-card-title">
                       <span>CPU</span><span class="unit">%</span>
-                      <span class="metric-source-help" :title="t('hosts_extra.metrics.source_cpu')"><svg width="12" height="12" aria-hidden="true"><use href="#icon-help-circle"/></svg></span>
+                      <span class="metric-source-help" :title="metricSource(h, 'cpu')"><svg width="12" height="12" aria-hidden="true"><use href="#icon-help-circle"/></svg></span>
                     </div>
                     <div class="metric-card-stats"
                          x-show="hostMetricStats(hostHistoryKey(h), 'cpu')">
@@ -6995,7 +6998,7 @@
                   <div class="metric-card-head">
                     <div class="metric-card-title">
                       <span>Memory</span><span class="unit">%</span>
-                      <span class="metric-source-help" :title="t('hosts_extra.metrics.source_memory')"><svg width="12" height="12" aria-hidden="true"><use href="#icon-help-circle"/></svg></span>
+                      <span class="metric-source-help" :title="metricSource(h, 'memory')"><svg width="12" height="12" aria-hidden="true"><use href="#icon-help-circle"/></svg></span>
                     </div>
                     <div class="metric-card-stats"
                          x-show="hostMetricStats(hostHistoryKey(h), 'mp')">
@@ -7036,7 +7039,7 @@
                   <div class="metric-card-head">
                     <div class="metric-card-title">
                       <span>Disk</span><span class="unit">%</span>
-                      <span class="metric-source-help" :title="t('hosts_extra.metrics.source_disk')"><svg width="12" height="12" aria-hidden="true"><use href="#icon-help-circle"/></svg></span>
+                      <span class="metric-source-help" :title="metricSource(h, 'disk')"><svg width="12" height="12" aria-hidden="true"><use href="#icon-help-circle"/></svg></span>
                     </div>
                     <div class="metric-card-stats"
                          x-show="hostMetricStats(hostHistoryKey(h), 'dp')">
@@ -7092,7 +7095,7 @@
                     <div class="metric-card-title">
                       <span x-text="t('hosts_extra.metrics.network')"></span>
                       <span class="unit">B/s</span>
-                      <span class="metric-source-help" :title="t('hosts_extra.metrics.source_network')"><svg width="12" height="12" aria-hidden="true"><use href="#icon-help-circle"/></svg></span>
+                      <span class="metric-source-help" :title="metricSource(h, 'network')"><svg width="12" height="12" aria-hidden="true"><use href="#icon-help-circle"/></svg></span>
                     </div>
                     <div class="metric-card-stats" style="gap:8px">
                       <span x-show="hostMetricStats(hostHistoryKey(h), 'nr', false)">
@@ -7213,7 +7216,7 @@
                   <div class="metric-card-head">
                     <div class="metric-card-title">
                       <span x-text="t('hosts_extra.metrics.disk_io')"></span>
-                      <span class="metric-source-help" :title="t('hosts_extra.metrics.source_disk_io')"><svg width="12" height="12" aria-hidden="true"><use href="#icon-help-circle"/></svg></span>
+                      <span class="metric-source-help" :title="metricSource(h, 'disk_io')"><svg width="12" height="12" aria-hidden="true"><use href="#icon-help-circle"/></svg></span>
                       <span class="unit">B/s</span>
                     </div>
                     <div class="metric-card-stats" style="gap:8px">
@@ -7301,7 +7304,7 @@
                   <div class="metric-card-head">
                     <div class="metric-card-title">
                       <span x-text="t('hosts_extra.metrics.load_avg')"></span>
-                      <span class="metric-source-help" :title="t('hosts_extra.metrics.source_load_avg')"><svg width="12" height="12" aria-hidden="true"><use href="#icon-help-circle"/></svg></span>
+                      <span class="metric-source-help" :title="metricSource(h, 'load_avg')"><svg width="12" height="12" aria-hidden="true"><use href="#icon-help-circle"/></svg></span>
                     </div>
                     <div class="metric-card-stats" style="gap:8px">
                       <span x-show="hostMetricStats(hostHistoryKey(h), 'la1', false)">
@@ -7360,7 +7363,7 @@
                   <div class="metric-card-head">
                     <div class="metric-card-title">
                       <span x-text="t('hosts_extra.metrics.bandwidth')"></span>
-                      <span class="metric-source-help" :title="t('hosts_extra.metrics.source_bandwidth')"><svg width="12" height="12" aria-hidden="true"><use href="#icon-help-circle"/></svg></span>
+                      <span class="metric-source-help" :title="metricSource(h, 'bandwidth')"><svg width="12" height="12" aria-hidden="true"><use href="#icon-help-circle"/></svg></span>
                       <span class="unit">B/s</span>
                     </div>
                     <div class="metric-card-stats"
@@ -7400,7 +7403,7 @@
                   <div class="metric-card-head">
                     <div class="metric-card-title">
                       <span x-text="t('hosts_extra.metrics.swap')"></span>
-                      <span class="metric-source-help" :title="t('hosts_extra.metrics.source_swap')"><svg width="12" height="12" aria-hidden="true"><use href="#icon-help-circle"/></svg></span>
+                      <span class="metric-source-help" :title="metricSource(h, 'swap')"><svg width="12" height="12" aria-hidden="true"><use href="#icon-help-circle"/></svg></span>
                       <span class="unit">%</span>
                     </div>
                     <div class="metric-card-stats"
