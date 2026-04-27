@@ -4286,7 +4286,7 @@
         <div x-show="!hostsConfigLoading && hostsConfig.length > 3"
              class="flex items-center gap-2 mb-3">
           <svg width="14" height="14" class="text-[var(--text-faint)]" aria-hidden="true"><use href="#icon-search"/></svg>
-          <input type="search" x-model="hostsConfigFilter"
+          <input type="search" x-model.debounce.150ms="hostsConfigFilter"
                  class="flex-1 text-[12.5px] py-1.5"
                  :placeholder="t('admin_hosts.filter_placeholder')">
           <span class="text-[10.5px] text-[var(--text-faint)]"

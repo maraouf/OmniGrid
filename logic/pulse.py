@@ -44,6 +44,82 @@ def _num(v) -> float:
         return 0.0
 
 
+# ENH-013 (#428) — Pulse-version-aware unit detection. Older Pulse v3
+# emits memory/disk in GiB; newer versions (v4+) emit them in bytes.
+# The previous "values < 10M are GiB" magnitude sniff misclassified
+# legitimately-tiny volumes (a 9 MiB embedded LXC volume looked like
+# 9 GiB). We now probe `/api/version` once per (base_url, token) pair
+# at probe-time, cache the result, and use the version map below to
+# pick units. The magnitude heuristic remains as a fallback when the
+# version probe fails (older Pulse builds 404 on the endpoint).
+_version_cache: dict[str, str] = {}  # base_url → version string
+# Set by `probe_pulse` at the start of each fetch so the synchronous
+# extract_*_stats helpers (called from `gather.py` AND legacy direct
+# call sites) can consult the version cache without changing every
+# call signature. Single-process; one probe at a time per gather =
+# safe global.
+_current_probe_base_url: str = ""
+
+# Versions whose payload uses bytes for mem/disk fields. Anything not
+# matching this list (including unknown versions) falls through to the
+# magnitude heuristic.
+_PULSE_BYTES_VERSIONS_PREFIX = ("4.", "5.")
+
+
+def _pulse_uses_bytes(base_url: str) -> Optional[bool]:
+    """Resolve the unit-policy for a base_url. Returns True when we
+    KNOW Pulse emits bytes, False when we KNOW it emits GiB, None when
+    we have no version info (caller falls back to magnitude heuristic)."""
+    v = _version_cache.get(base_url or "")
+    if not v:
+        return None
+    if v.startswith(_PULSE_BYTES_VERSIONS_PREFIX):
+        return True
+    if v.startswith("3."):
+        return False
+    return None
+
+
+def _value_is_gib(value: float, base_url: str = "") -> bool:
+    """Decide whether ``value`` is in GiB (vs bytes) for the given Pulse
+    base_url. Version-driven when known; magnitude heuristic otherwise.
+    """
+    pref = _pulse_uses_bytes(base_url)
+    if pref is True:
+        return False
+    if pref is False:
+        return True
+    return 0 < value < 10_000_000
+
+
+async def _fetch_version(client: httpx.AsyncClient, base_url: str, token: str) -> Optional[str]:
+    """Probe `/api/version` once per (base_url) pair. Best-effort —
+    older Pulse builds may 404 here; we silently move on and let the
+    magnitude heuristic kick in. Returns the version string (e.g.
+    ``"4.2.1"``) or ``None``."""
+    cached = _version_cache.get(base_url)
+    if cached is not None:
+        return cached
+    try:
+        url = base_url.rstrip("/") + "/api/version"
+        r = await client.get(url, headers=_headers(token))
+        if r.status_code != 200:
+            return None
+        body = r.json()
+        if isinstance(body, dict):
+            v = (body.get("version") or body.get("pulse")
+                 or body.get("app") or "")
+        else:
+            v = ""
+        v = str(v).strip()
+        if v:
+            _version_cache[base_url] = v
+            return v
+    except Exception:
+        pass
+    return None
+
+
 def _pulse_mounts(guest: dict, gib: float) -> list[dict]:
     """Extract per-mount disk entries from a Pulse guest record.
 
@@ -86,8 +162,9 @@ def _pulse_mounts(guest: dict, gib: float) -> list[dict]:
                 continue
             total = _num(m.get("total") or m.get("max") or m.get("maxdisk") or m.get("size"))
             used = _num(m.get("used") or m.get("disk") or m.get("diskUsed"))
-            # Heuristic: bytes vs GiB — values under 10M are GiB.
-            if 0 < total < 10_000_000:
+            # ENH-013 (#428) — version-driven; magnitude fallback when
+            # Pulse `/api/version` couldn't be reached.
+            if _value_is_gib(total, _current_probe_base_url):
                 total_gib = total
                 used_gib  = used
             else:
@@ -243,9 +320,10 @@ def extract_guest_stats(guest: dict) -> dict:
     mem_max = _num(guest.get("maxmem"))
     disk = _num(guest.get("disk"))
     disk_max = _num(guest.get("maxdisk"))
-    if 0 < mem_max < 10_000_000:
+    # ENH-013 (#428) — version-driven; magnitude fallback.
+    if _value_is_gib(mem_max, _current_probe_base_url):
         mem, mem_max = mem * gib, mem_max * gib
-    if 0 < disk_max < 10_000_000:
+    if _value_is_gib(disk_max, _current_probe_base_url):
         disk, disk_max = disk * gib, disk_max * gib
     uptime = int(_num(guest.get("uptime")))
     host_boot_ts = (time.time() - uptime) if uptime > 0 else None
@@ -420,13 +498,23 @@ def extract_node_stats(node: dict) -> dict:
     mem_max = _num(node.get("maxmem"))
     disk = _num(node.get("disk"))
     disk_max = _num(node.get("maxdisk"))
-    if 0 < mem_max < 10_000_000:  # heuristic: values under 10M are GiB
+    # ENH-013 (#428) — version-driven; magnitude fallback.
+    if _value_is_gib(mem_max, _current_probe_base_url):
         mem, mem_max = mem * gib, mem_max * gib
-    if 0 < disk_max < 10_000_000:
+    if _value_is_gib(disk_max, _current_probe_base_url):
         disk, disk_max = disk * gib, disk_max * gib
     uptime = int(_num(node.get("uptime")))
     host_boot_ts = (time.time() - uptime) if uptime > 0 else None
     cpu_pct = _num(node.get("cpu")) * 100  # Pulse emits 0..1
+    kernel = str(node.get("kernel") or "")
+    # #430 — Pulse's node payload doesn't carry arch, so the extractor
+    # used to return empty. Infer `x86_64` when the kernel ends with
+    # `-pve` (Proxmox stock kernels are almost always x86_64). NE /
+    # Beszel still override when the operator runs an agent on the
+    # hypervisor itself; this is purely the PVE-only-host fallback.
+    inferred_arch = ""
+    if kernel.lower().rstrip().endswith("-pve"):
+        inferred_arch = _normalize_arch("x86_64")
     return {
         "host_mem_total":   int(mem_max),
         "host_mem_used":    int(mem),
@@ -440,10 +528,10 @@ def extract_node_stats(node: dict) -> dict:
         "host_mem_percent": (mem / mem_max * 100) if mem_max > 0 else 0,
         "host_disk_percent": (disk / disk_max * 100) if disk_max > 0 else 0,
         "host_cores":       int(_num(node.get("maxcpu"))),
-        "host_kernel":      str(node.get("kernel") or ""),
+        "host_kernel":      kernel,
         "host_platform":    str(node.get("pveversion") or "Proxmox VE"),
         "host_os":          str(node.get("os") or ""),
-        "host_arch":        "",  # Pulse doesn't surface arch
+        "host_arch":        inferred_arch,
         "host_agent":       str(node.get("pveversion") or ""),
         "mounts":           [],
         "exporter_error":   None,
@@ -465,8 +553,16 @@ async def probe_pulse(
     """
     if not base_url or not token:
         return {"hosts": {}, "error": "pulse: missing url or token"}
+    # ENH-013 (#428) — set the module-level base-url hint BEFORE we
+    # call any extractor so `_value_is_gib(..., base_url)` consults
+    # the right cache entry. Probe `/api/version` once per (base_url)
+    # pair to populate `_version_cache`; the magnitude heuristic is a
+    # silent fallback when the endpoint is unreachable / older Pulse.
+    global _current_probe_base_url
+    _current_probe_base_url = base_url
     try:
         async with httpx.AsyncClient(verify=verify_tls, timeout=timeout) as client:
+            await _fetch_version(client, base_url, token)
             state = await _fetch_state(client, base_url, token)
     except Exception as e:
         return {"hosts": {}, "error": str(e)}

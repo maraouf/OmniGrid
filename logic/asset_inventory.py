@@ -19,6 +19,7 @@ from __future__ import annotations
 import base64
 import json
 import os
+import re
 import tempfile
 import time
 from typing import Any, Optional
@@ -228,18 +229,29 @@ _PAGE_SIZE = 50   # ASSET_SERVICES_DATABASE_RECORDS_LIMITS default (see <asset-a
 _ERR_NO_RECORDS = "1686"  # ERROR_1686 "no matching records" — tolerated as empty batch
 
 
-def _normalize_code(raw: Any) -> str:
-    """Strip <asset-api-host>'s ``Ex`` prefix from a response ``code`` field.
+_CODE_PREFIX_RE = re.compile(r"^(?:Ex|ERR_|Error_)", re.IGNORECASE)
 
-    Upstream returns codes either as ``"Ex1686"`` or as bare ``"1686"``
-    depending on the action / version. Normalising to the bare numeric
-    string here means downstream equality checks (`_ERR_NO_RECORDS`,
-    pagination tolerance) and error formatters (``[Ex{code}]``) work
-    uniformly without double-prefixing into ``[ExEx1686]``.
+
+def _normalize_code(raw: Any) -> str:
+    """Strip the upstream API's code-prefix family from a response
+    ``code`` field.
+
+    Upstream returns codes in any of three shapes depending on the
+    action / version: ``"Ex1686"``, ``"ERR_1686"``, ``"Error_1686"``,
+    or bare ``"1686"``. ENH-010 (#425) — the prefix charset is now
+    `(?i)(?:Ex|ERR_|Error_)` so all three normalise to the bare numeric
+    string. Downstream equality checks (``_ERR_NO_RECORDS``, pagination
+    tolerance) and error formatters (``[Ex{code}]``) work uniformly
+    without double-prefixing into ``[ExEx1686]`` / ``[ExError_1686]``.
     """
     s = str(raw or "").strip()
-    if s.startswith("Ex") and s[2:].lstrip("-").isdigit():
-        return s[2:]
+    m = _CODE_PREFIX_RE.match(s)
+    # #432 — Real upstream codes are positive ints. Don't lstrip a
+    # leading `-`; that would let `Ex-1686` through (`s[m.end():] = "-1686"`,
+    # after lstrip is `"1686"` which would falsely match `_ERR_NO_RECORDS`).
+    # `.isdigit()` alone correctly rejects negatives.
+    if m and s[m.end():].isdigit():
+        return s[m.end():]
     return s
 
 

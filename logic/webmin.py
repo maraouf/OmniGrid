@@ -529,13 +529,19 @@ def _scrape_mounts(soup) -> Optional[ET.Element]:
 def _scrape_net(soup) -> Optional[ET.Element]:
     """Extract the NIC list from Webmin's net/ifconfig HTML UI.
 
-    Same heuristic shape as ``_scrape_mounts`` — find a table whose
+    Same heuristic shape as ``_scrape_mounts`` — find every table whose
     header names "Name"/"Interface"/"Device", then pull the address
-    and MAC columns by header match. The output is a sequence of
+    and MAC columns by header match. Webmin 2.x sometimes splits
+    physical / virtual / VLAN NICs across multiple tables under
+    separate ``<h3>`` sections; ENH-009 (#424) — walk every matching
+    table and de-dup by NIC name (first-seen wins for the IP / MAC
+    columns) so the operator's drawer shows the union, not just the
+    physical list. The output is a sequence of
     ``<interface name="..." address="..." mac="..."/>`` elements that
     the XML extractor can walk unchanged.
     """
     root = ET.Element("root")
+    seen: set[str] = set()
     for table in soup.find_all("table"):
         header = table.find("tr")
         if not header:
@@ -554,14 +560,16 @@ def _scrape_net(soup) -> Optional[ET.Element]:
                       if "address" in h or "ip" in h), None)
         mac_ix = next((i for i, h in enumerate(hcells)
                        if "mac" in h or "hardware" in h or "hwaddr" in h), None)
-        found = 0
         for tr in table.find_all("tr")[1:]:
             cells = tr.find_all("td")
             if name_ix is None or name_ix >= len(cells):
                 continue
             name = cells[name_ix].get_text(" ", strip=True)
-            if not name:
+            if not name or name in seen:
+                # First-seen wins so a later boot-time-NIC table can't
+                # overwrite the runtime IP we already captured.
                 continue
+            seen.add(name)
             ip = (cells[ip_ix].get_text(" ", strip=True)
                   if ip_ix is not None and ip_ix < len(cells) else "")
             mac = (cells[mac_ix].get_text(" ", strip=True)
@@ -572,11 +580,6 @@ def _scrape_net(soup) -> Optional[ET.Element]:
                 iface.set("address", ip)
             if mac:
                 iface.set("mac", mac)
-            found += 1
-        if found > 0:
-            # One interfaces-table is enough — extra tables on the same
-            # page (e.g. boot-time NICs) duplicate the same list.
-            break
     return root
 
 
@@ -953,16 +956,23 @@ def extract_package_updates(root: ET.Element) -> dict:
                 break
             except ValueError:
                 continue
-    # Element-style: walk children and count or tally.
-    if pending == 0:
-        count_from_list = 0
-        security_from_list = 0
-        saw_list = False
-        for child in root.iter():
+    # Element-style: walk children and count or tally. #433 — scope
+    # the walk to the first `<updates>` / `<packages>` / `<pkglist>`
+    # parent's DIRECT children when one exists, so unrelated nested
+    # elements with these tag names (operator's custom theme,
+    # documentation blocks) can't inflate the count. Falls through to
+    # the legacy root.iter() walk when no scoped parent is present —
+    # Webmin variants that put rows directly under `<root>` keep
+    # working unchanged.
+    def _tally(iterable) -> tuple[int, int, bool]:
+        count = 0
+        sec = 0
+        saw = False
+        for child in iterable:
             tag = child.tag.lower()
             if tag in ("update", "package", "pkg"):
-                saw_list = True
-                count_from_list += 1
+                saw = True
+                count += 1
                 sev = (
                     child.get("severity")
                     or child.get("type")
@@ -970,7 +980,19 @@ def extract_package_updates(root: ET.Element) -> dict:
                     or ""
                 ).strip().lower()
                 if "security" in sev:
-                    security_from_list += 1
+                    sec += 1
+        return count, sec, saw
+
+    if pending == 0:
+        scoped_parent = None
+        for parent in root.iter():
+            if parent.tag.lower() in ("updates", "packages", "pkglist"):
+                scoped_parent = parent
+                break
+        if scoped_parent is not None:
+            count_from_list, security_from_list, saw_list = _tally(scoped_parent)
+        else:
+            count_from_list, security_from_list, saw_list = _tally(root.iter())
         if saw_list:
             pending = count_from_list
             if security == 0:

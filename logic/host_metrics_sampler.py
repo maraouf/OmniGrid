@@ -274,11 +274,10 @@ def _get_failure_state(host_id: str) -> Optional[dict]:
     Column-parity with ``main._failure_state_for_host`` so internal
     consumers (auto-pause logic, future "auto-resume after N hours of
     inactivity" features) see the same shape the API surface does.
-    Pre-fix this SELECT lagged the schema after #461 added
-    ``last_failure_ts`` — `_record_failure` populated it but
+    The SELECT used to lag the schema after `last_failure_ts` was
+    added (#461) — `_record_failure` populated it but
     `_get_failure_state` couldn't read it back, so anyone relying on
     "when was the last attempt?" through this helper got nothing.
-    BUG-007 from notes/code_review_2026-04-27.txt.
     """
     try:
         with db_conn() as c:
