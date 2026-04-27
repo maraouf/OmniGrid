@@ -242,6 +242,97 @@ def _compute_row(
     return row, next_counter
 
 
+# Permanent-fail tracking helpers (#383). Single source of truth lives
+# in the host_failure_state table; the sampler reads on entry to
+# short-circuit paused hosts AND writes on every probe outcome to
+# advance the counter / clear-on-success / auto-pause when the failure
+# window is exceeded.
+def _get_failure_state(host_id: str) -> Optional[dict]:
+    try:
+        with db_conn() as c:
+            cur = c.execute(
+                "SELECT first_failure_ts, consecutive_failures, paused, "
+                "paused_at, last_error FROM host_failure_state WHERE host_id = ?",
+                (host_id,),
+            )
+            row = cur.fetchone()
+    except Exception as e:
+        print(f"[host_metrics_sampler] {host_id!r} failure-state read error: {e}")
+        return None
+    if row is None:
+        return None
+    return {
+        "first_failure_ts": row[0],
+        "consecutive_failures": row[1],
+        "paused": bool(row[2]),
+        "paused_at": row[3],
+        "last_error": row[4],
+    }
+
+
+def _record_failure(host_id: str, now: float, error: str) -> None:
+    """Increment the failure counter, stamp first_failure_ts on the
+    first failure of a new streak, auto-pause when the window is
+    exceeded. Called from `_probe_one` whenever a probe attempt fails
+    (network error OR exporter_error response)."""
+    try:
+        window = int(get_setting("host_permanent_fail_window_seconds") or 900)
+    except (TypeError, ValueError):
+        window = 900
+    if window < 60:
+        window = 60
+    err_short = (error or "").strip()[:500]
+    try:
+        with db_conn() as c:
+            cur = c.execute(
+                "SELECT first_failure_ts, consecutive_failures, paused "
+                "FROM host_failure_state WHERE host_id = ?",
+                (host_id,),
+            )
+            row = cur.fetchone()
+            if row is None:
+                # First failure of a new streak.
+                c.execute(
+                    "INSERT INTO host_failure_state "
+                    "(host_id, first_failure_ts, consecutive_failures, "
+                    "paused, paused_at, last_error) "
+                    "VALUES (?, ?, 1, 0, NULL, ?)",
+                    (host_id, now, err_short),
+                )
+                return
+            first_ts, fails, paused = row[0], row[1], bool(row[2])
+            new_fails = fails + 1
+            should_pause = (not paused) and (now - first_ts >= window)
+            if should_pause:
+                c.execute(
+                    "UPDATE host_failure_state SET consecutive_failures = ?, "
+                    "paused = 1, paused_at = ?, last_error = ? WHERE host_id = ?",
+                    (new_fails, now, err_short, host_id),
+                )
+                print(f"[host_metrics_sampler] {host_id!r} AUTO-PAUSED after "
+                      f"{int(now - first_ts)}s of consecutive failures "
+                      f"({new_fails} attempts) — operator must POST "
+                      f"/api/hosts/{host_id}/resume-sampling to resume")
+            else:
+                c.execute(
+                    "UPDATE host_failure_state SET consecutive_failures = ?, "
+                    "last_error = ? WHERE host_id = ?",
+                    (new_fails, err_short, host_id),
+                )
+    except Exception as e:
+        print(f"[host_metrics_sampler] {host_id!r} failure-state write error: {e}")
+
+
+def _clear_failure(host_id: str) -> None:
+    """Clear the failure tracking row on a successful probe. No-op
+    when there's no row to clear (the common case)."""
+    try:
+        with db_conn() as c:
+            c.execute("DELETE FROM host_failure_state WHERE host_id = ?", (host_id,))
+    except Exception as e:
+        print(f"[host_metrics_sampler] {host_id!r} failure-state clear error: {e}")
+
+
 async def _probe_one(
     client: httpx.AsyncClient,
     host: dict,
@@ -249,19 +340,29 @@ async def _probe_one(
 ) -> None:
     """Probe NE for one host; insert a row if there's anything worth
     storing. Per-host failures isolated — one dead exporter doesn't
-    cascade to the rest of the fleet.
+    cascade to the rest of the fleet. Honours the #383 permanent-fail
+    pause flag: if the host is paused, skip the probe entirely (no
+    network attempt, no log spam).
     """
     async with sem:
         hid = host["id"]
         ne_url = host["ne_url"]
+        # Permanent-fail short-circuit (#383). Paused hosts skip the
+        # probe entirely until the operator resumes via the API.
+        state = _get_failure_state(hid)
+        if state and state["paused"]:
+            return
         now = time.time()
         try:
             stats = await _ne.probe_node(client, ne_url, timeout=10.0)
         except Exception as e:
             print(f"[host_metrics_sampler] {hid!r} probe error: {e}")
+            _record_failure(hid, now, str(e))
             return
         if stats.get("exporter_error"):
-            print(f"[host_metrics_sampler] {hid!r} exporter_error: {stats['exporter_error']}")
+            err = stats["exporter_error"]
+            print(f"[host_metrics_sampler] {hid!r} exporter_error: {err}")
+            _record_failure(hid, now, str(err))
             return
 
         prev = _last_counters.get(hid)
@@ -296,6 +397,9 @@ async def _probe_one(
         except Exception as e:
             print(f"[host_metrics_sampler] {hid!r} DB insert failed: {e}")
             return
+        # Successful probe + write — clear any in-flight failure tracking
+        # so a previously-pausing host can recover quietly (#383).
+        _clear_failure(hid)
         net_blurb = (
             f"net rx={row['net_rx_bps']:.0f} tx={row['net_tx_bps']:.0f} B/s"
             if (row["net_rx_bps"] is not None and row["net_tx_bps"] is not None)

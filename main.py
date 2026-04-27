@@ -459,6 +459,22 @@ def init_db():
             ts REAL NOT NULL,
             data TEXT NOT NULL
         );
+        -- Permanent-fail tracking (#383). One row per host whose
+        -- host_metrics_sampler has hit consecutive probe failures. When
+        -- ``paused`` flips to 1, the sampler short-circuits subsequent
+        -- ticks (no probe attempt, no log spam) until the operator
+        -- explicitly resumes via POST /api/hosts/{id}/resume-sampling.
+        -- ``first_failure_ts`` is the wall-clock of the FIRST failure
+        -- in the current streak; the auto-pause fires when
+        -- ``now - first_failure_ts`` exceeds the configured window.
+        CREATE TABLE IF NOT EXISTS host_failure_state (
+            host_id TEXT PRIMARY KEY,
+            first_failure_ts REAL NOT NULL,
+            consecutive_failures INTEGER NOT NULL DEFAULT 0,
+            paused INTEGER NOT NULL DEFAULT 0,
+            paused_at REAL,
+            last_error TEXT
+        );
         COMMIT;
         """)
         # Idempotent column additions for existing deployments. SQLite pre-3.35
@@ -1031,6 +1047,12 @@ class SettingsIn(BaseModel):
     # operators in other zones would otherwise see "Daily @ 01:00" fire
     # at the wrong wall-clock moment. Blank = container-local (legacy).
     scheduler_timezone: Optional[str] = None
+    # Permanent-fail window for host_metrics_sampler (#383). After this
+    # many seconds of consecutive probe failures, the sampler auto-pauses
+    # the host (no more probe attempts) until the operator manually
+    # resumes via POST /api/hosts/{id}/resume-sampling. Default 900 (15
+    # min); validator clamps to [60, 86400] in api_set_settings.
+    host_permanent_fail_window_seconds: Optional[int] = None
     # Topbar widgets — lightweight decorative info in the header.
     # ``weather_label`` is what the UI renders alongside the temp
     # ("Cairo"); lat/lon feed Open-Meteo (no API key required). Clock
@@ -1272,6 +1294,7 @@ async def api_get_settings(request: Request):
         "portainer_public_url": get_setting("portainer_public_url", str(p.get("portainer_url") or "")),
         "backup_retention_count": int(get_setting("backup_retention_count", "0") or "0"),
         "scheduler_timezone": get_setting("scheduler_timezone", "") or "",
+        "host_permanent_fail_window_seconds": int(get_setting("host_permanent_fail_window_seconds", "900") or 900),
         # Host-drawer admin debug panel visibility (Admin → Hosts toggle).
         # Default true — preserves the legacy behaviour for existing
         # deploys that haven't touched the setting. Operators who don't
@@ -1465,6 +1488,14 @@ async def api_set_settings(
                     detail=f"scheduler_timezone {tz_name!r} is not a valid IANA name: {e}",
                 )
         set_setting("scheduler_timezone", tz_name)
+    if s.host_permanent_fail_window_seconds is not None:
+        try:
+            v = int(s.host_permanent_fail_window_seconds)
+        except (TypeError, ValueError):
+            raise HTTPException(status_code=400, detail="host_permanent_fail_window_seconds must be an integer")
+        if v < 60 or v > 86400:
+            raise HTTPException(status_code=400, detail="host_permanent_fail_window_seconds must be between 60 and 86400")
+        set_setting("host_permanent_fail_window_seconds", str(v))
     if s.node_exporter_enabled is not None:
         set_setting("node_exporter_enabled", "true" if s.node_exporter_enabled else "false")
     if s.node_exporter_url_template is not None:
@@ -3441,7 +3472,43 @@ def _shape_host_api_row(
         "dmi_product":      (s.get("host_dmi_product") or ""),
         "dmi_serial":       (s.get("host_dmi_serial") or ""),
         "dmi_bios_version": (s.get("host_dmi_bios_version") or ""),
+        # Permanent-fail tracking (#383). All four fields are non-zero
+        # only when the host_metrics_sampler has recorded consecutive
+        # failures for this host. `sampling_paused: true` triggers the
+        # frontend banner + table icon; the operator clears via POST
+        # /api/hosts/{id}/resume-sampling.
+        **_failure_state_for_host(h["id"]),
     }
+
+
+def _failure_state_for_host(host_id: str) -> dict:
+    """Read the host_failure_state row for a given host (#383). Always
+    returns the four fields; empty values when the row doesn't exist.
+    Kept tolerant of missing tables so first-boot before init_db
+    completes doesn't crash the whole hosts response."""
+    out = {
+        "sampling_paused":            False,
+        "failure_window_started_at":  0,
+        "consecutive_failures":       0,
+        "last_error":                 "",
+    }
+    try:
+        with db_conn() as c:
+            cur = c.execute(
+                "SELECT first_failure_ts, consecutive_failures, paused, last_error "
+                "FROM host_failure_state WHERE host_id = ?",
+                (host_id,),
+            )
+            row = cur.fetchone()
+    except Exception:
+        return out
+    if row is None:
+        return out
+    out["failure_window_started_at"]  = int(row[0] or 0)
+    out["consecutive_failures"]       = int(row[1] or 0)
+    out["sampling_paused"]            = bool(row[2])
+    out["last_error"]                 = row[3] or ""
+    return out
 
 
 @app.get("/api/hosts/list")
@@ -3753,6 +3820,30 @@ async def api_hosts_config_set(
     # using the old aliases. Same rationale as in api_set_settings.
     invalidate_host_provider_cache()
     return {"hosts": saved, "count": len(saved)}
+
+
+@app.post("/api/hosts/{host_id}/resume-sampling")
+async def api_hosts_resume_sampling(
+    host_id: str,
+    _u: auth.User = Depends(auth.require_admin),
+):
+    """Admin-only: clear the auto-pause marker for a host that the
+    host_metrics_sampler has put on hold after consecutive failures
+    (#383). Next sampler tick will re-attempt the probe; if it
+    succeeds the row stays cleared, if it fails the failure-window
+    counter starts again from zero.
+    """
+    try:
+        with db_conn() as c:
+            cur = c.execute(
+                "DELETE FROM host_failure_state WHERE host_id = ?",
+                (host_id,),
+            )
+            cleared = cur.rowcount or 0
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"resume-sampling failed: {e}")
+    invalidate_host_provider_cache()
+    return {"host_id": host_id, "cleared": bool(cleared)}
 
 
 @app.post("/api/hosts/test")
