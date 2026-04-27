@@ -33,10 +33,11 @@ const KNOWN_DARK_ICONS = new Set([
   // "use this on dark theme" regardless of which side the upstream
   // calls "light" or "dark").
   'apple',
-  // Apple TV+ — same inverted-upstream story as Apple. Local
-  // `apple-tv-plus.svg` carries the upstream `apple-tv-plus-light.svg`
-  // content (light-theme default); local `apple-tv-plus-dark.svg`
-  // carries the upstream `apple-tv-plus.svg` content (dark-theme).
+  // Apple TV+ — upstream naming matches our convention: their
+  // `apple-tv-plus.svg` is the light-theme variant, their
+  // `apple-tv-plus-light.svg` is the dark-theme variant (lighter
+  // colours visible on dark bg). Saved locally as `apple-tv-plus.svg`
+  // and `apple-tv-plus-dark.svg` respectively.
   'apple-tv-plus',
   // Synology — homarr-labs' upstream `synology.svg` is the dark-bg
   // variant (light-coloured logo); their `synology-light.svg` is the
