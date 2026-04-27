@@ -1262,6 +1262,39 @@ async def scheduler_loop() -> None:
     process-restart time. Operators who want a "fire on restart"
     behaviour should bump last_run_at down manually, or click Run now.
     """
+    # BUG-004 ghost-clear (notes/code_review_2026-04-27.txt) — fire
+    # records ``(last_op_id, last_duration=NULL)`` synchronously, then
+    # spawns a fire-and-forget waiter that rewrites the row with the
+    # real duration + status when the op finishes. If the lifespan is
+    # cancelled mid-run (container restart, hot reload), the waiter
+    # dies before its second ``record_run`` call and the NULL-duration
+    # sentinel sticks forever. ``_is_previous_run_active`` reads NULL
+    # as "still running" so the tick loop skips the schedule on every
+    # subsequent pass — locked until the operator hand-clears the row.
+    # Sweep at startup: any row whose ``last_op_id`` isn't in
+    # ``_ops.ops`` (the live in-memory dict only carries currently-
+    # running ops; a restart wipes it) is a ghost — stamp ``(0,
+    # "error")`` so the next tick can fire normally.
+    try:
+        live_op_ids = set(_ops.ops.keys())
+        with db_conn() as c:
+            ghosts = c.execute(
+                "SELECT id, name, last_op_id FROM schedules "
+                "WHERE last_op_id IS NOT NULL AND last_duration IS NULL"
+            ).fetchall()
+            for row in ghosts:
+                last_op_id = row["last_op_id"]
+                if last_op_id and last_op_id not in live_op_ids:
+                    record_run(c, int(row["id"]), last_op_id,
+                               duration=0, status="error")
+                    print(
+                        f"[scheduler] cleared ghost run for "
+                        f"'{row['name']}' (op {last_op_id} not live "
+                        f"post-restart)"
+                    )
+    except Exception as e:
+        print(f"[scheduler] ghost-clear sweep failed: {e}")
+
     # Initial sleep BEFORE first check. Mirrors stats_sampler_loop.
     try:
         await asyncio.sleep(TICK_INTERVAL_SECONDS)

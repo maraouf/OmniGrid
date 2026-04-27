@@ -155,19 +155,26 @@ async def _fetch_jwks(issuer: str, jwks_uri: str, force: bool = False) -> dict:
 # ----------------------------------------------------------------------------
 # "Test connection" helper — pure discovery GET, no side effects.
 # ----------------------------------------------------------------------------
-async def test_discovery(issuer_url: str) -> dict:
+async def test_discovery(issuer_url: str, verify_tls: Optional[bool] = None) -> dict:
     """GET the discovery doc and return a compact {ok, status, detail}.
 
     Called by the admin "Test connection" button in the Settings panel.
     Never raises — returns ok=False with the HTTP status / error for the
     admin to read. Bypasses the cache because the admin clicked Test to
     check the live endpoint.
+
+    ``verify_tls`` overrides the saved DB value when supplied — the form
+    sends the in-flight checkbox state so an admin can flip "Verify TLS"
+    OFF, paste a self-signed issuer, and Test before saving (BUG-005
+    from notes/code_review_2026-04-27.txt). Default ``None`` falls back
+    to the saved value via ``_verify_tls()``.
     """
     if not issuer_url:
         return {"ok": False, "status": 0, "detail": "Issuer URL is empty"}
     url = issuer_url.rstrip("/") + "/.well-known/openid-configuration"
+    effective_verify = _verify_tls() if verify_tls is None else bool(verify_tls)
     try:
-        async with httpx.AsyncClient(timeout=10.0, verify=_verify_tls()) as client:
+        async with httpx.AsyncClient(timeout=10.0, verify=effective_verify) as client:
             r = await client.get(url)
         if r.status_code == 200:
             # Basic sanity check: discovery doc must advertise the three

@@ -4174,10 +4174,17 @@ function app() {
     async testOidcConnection() {
       this.oidcTestResult = { pending: true };
       try {
+        // Send the in-flight verify_tls so an admin can flip the
+        // checkbox OFF and Test a self-signed issuer before saving
+        // (BUG-005). Backend falls back to the saved DB value when
+        // the key is missing.
         const r = await fetch('/api/oidc/test', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ issuer_url: (this.oidcForm.issuer_url || '').trim() }),
+          body: JSON.stringify({
+            issuer_url: (this.oidcForm.issuer_url || '').trim(),
+            verify_tls: !!this.oidcForm.verify_tls,
+          }),
         });
         const j = await r.json().catch(() => ({}));
         this.oidcTestResult = { ok: !!j.ok, status: j.status || 0, detail: j.detail || '' };

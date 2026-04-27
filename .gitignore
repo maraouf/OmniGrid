@@ -26,7 +26,7 @@ tmp/
 # deploy. See #252 for the incident this guards against.
 **/static/**/.claude/
 **/static/**/agent-memory/
-.claude/worktrees/*
+.claude/worktrees/
 
 
 # Node — package.json and package-lock.json are committed. node_modules/
