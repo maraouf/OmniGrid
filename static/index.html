@@ -6182,7 +6182,10 @@
 
           <!-- Selected file live-tail viewer. Polls every 5s while
                visible. Tail size is capped to keep the DOM cheap; for
-               full content the operator uses the Download button. -->
+               full content the operator uses the Download button.
+               Reuses the Live tab's per-line template + colourisation
+               (#427) so timestamp + level + [tag] chips render with
+               the same accent classes. -->
           <div x-show="logSelectedFile" class="border-t border-[var(--border)] pt-3 space-y-2">
             <div class="flex flex-wrap items-center gap-2">
               <span class="font-semibold text-[12px] mono" x-text="logSelectedFile"></span>
@@ -6196,8 +6199,21 @@
               <button @click="logSelectedFile=''" class="btn btn-ghost text-[11px]"
                       x-text="t('actions.close')"></button>
             </div>
-            <pre class="mono text-[11px] bg-[var(--bg)] border border-[var(--border)] rounded-md p-2 h-[50vh] overflow-y-auto scrollbar leading-[1.35] whitespace-pre-wrap break-all"
-                 x-text="logFileBody"></pre>
+            <div class="mono text-[11px] bg-[var(--bg)] border border-[var(--border)] rounded-md p-2 h-[50vh] overflow-y-auto scrollbar leading-[1.35]">
+              <template x-for="(l, i) in parsedLogFileLines()" :key="i + '-' + l.ts">
+                <div class="flex gap-2 whitespace-pre-wrap break-all log-line"
+                     :class="'log-line--' + logSeverityFor(l)">
+                  <span class="text-[var(--text-faint)] shrink-0"
+                        x-text="l.ts ? fmtDate(l.ts) : ''"></span>
+                  <span class="log-stream shrink-0 uppercase text-[9.5px] tracking-wider pt-[2px]"
+                        x-text="(l.level || 'info').toUpperCase()"></span>
+                  <span class="log-body" x-html="colorizeLogText(l)"></span>
+                </div>
+              </template>
+              <div x-show="!parsedLogFileLines().length"
+                   class="text-center py-8 text-[var(--text-faint)]"
+                   x-text="t('admin.logs.empty')"></div>
+            </div>
           </div>
         </section>
       </div>

@@ -1616,14 +1616,32 @@ function app() {
     editSchedule(s) {
       // Clone so edits don't mutate the list until Save. `params_text` is
       // a pretty-printed JSON blob for the textarea; we re-parse on save.
+      // The `kind` + `cadence_mode` selects need the documented empty →
+      // $nextTick → reassign dance from CLAUDE.md (#426): the modal's
+      // <select> elements mount alongside their <template x-for>
+      // <option> children, but Alpine commits x-model BEFORE the
+      // options exist — so the matching <option value="X"> is missing
+      // and the select silently falls back to the first option. Empty
+      // first, double-$nextTick, then reassign once the inner x-for
+      // has rendered.
+      const targetKind = s.kind || '';
+      const targetCadence = s.cadence_mode || (s.run_at_hhmm ? 'daily' : 'interval');
       this.editingSchedule = {
         ...s,
+        kind: '',
         params_text: JSON.stringify(s.params || {}, null, 2),
-        cadence_mode: s.cadence_mode || (s.run_at_hhmm ? 'daily' : 'interval'),
+        cadence_mode: '',
         run_at_hhmm: s.run_at_hhmm || '',
         days_of_week: Array.isArray(s.days_of_week) ? [...s.days_of_week] : [],
         day_of_month: s.day_of_month || 1,
       };
+      this.$nextTick(() => {
+        this.$nextTick(() => {
+          if (!this.editingSchedule) return;
+          this.editingSchedule.kind = targetKind;
+          this.editingSchedule.cadence_mode = targetCadence;
+        });
+      });
     },
 
     // Build + validate the payload fields that correspond to the cadence
@@ -2415,6 +2433,49 @@ function app() {
       } catch (e) {
         this.logFileBody = `(network error: ${e.message})`;
       }
+    },
+    // Parse the file body into the same {ts, stream, text} shape the
+    // Live tab uses, so the renderer can reuse `logSeverity` +
+    // `colorizeLogText` + the `log-line--<sev>` class scheme (#427).
+    // File format from `logic/logs.py:_persist_line`:
+    //   `2026-04-27T12:34:56Z LEVEL  message body`
+    // Where LEVEL is one of ERROR / WARN / SUCCESS / INFO. Any line
+    // that doesn't match the regex falls through as raw INFO so a
+    // pre-existing file in some other format still renders, just
+    // without the timestamp tint.
+    parsedLogFileLines() {
+      const body = this.logFileBody || '';
+      if (!body) return [];
+      const lines = body.split('\n');
+      // ISO ts + 1 or more spaces + LEVEL token + space + rest.
+      const RX = /^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z)\s+(ERROR|WARN|SUCCESS|INFO)\s+(.*)$/;
+      const out = [];
+      for (const raw of lines) {
+        if (!raw) continue;
+        const m = RX.exec(raw);
+        if (m) {
+          const epoch = Date.parse(m[1]) / 1000;
+          out.push({
+            ts: Number.isFinite(epoch) ? epoch : 0,
+            stream: 'file',
+            level: m[2].toLowerCase(),  // matches `logSeverity()` output
+            text: m[3],
+          });
+        } else {
+          // Non-conforming line — render as INFO with the raw text.
+          out.push({ ts: 0, stream: 'file', level: 'info', text: raw });
+        }
+      }
+      return out;
+    },
+    // The Live tab's template hands each row to `logSeverity(l)` to
+    // pick the `log-line--<sev>` class. Parsed file rows already
+    // carry an explicit `level` (extracted from the file line) — use
+    // it directly when present so we don't run the regex scan a
+    // second time. Falls back to logSeverity for raw INFO rows that
+    // didn't match the regex.
+    logSeverityFor(l) {
+      return (l && l.level) ? l.level : this.logSeverity(l);
     },
     // Copy the currently-filtered log view to the clipboard as plain
     // text. Format: "YYYY-MM-DD HH:MM:SS [stream] body" per line, so
