@@ -9196,17 +9196,25 @@ function app() {
           const existing = (this.hosts || []).find(r => r.id === h.id);
           const skipProbe = isUnconfigured(h);
           if (existing) {
-            // Existing row — overlay curated fields only and flag
-            // loading (refreshHostRow will patch stats in place).
+            // Existing row — overlay curated fields only. Deliberately
+            // DO NOT flip `_loading` back to true on re-polls: the
+            // previous data stays visible while refreshHostRow patches
+            // stats in place, which is the entire point of the in-
+            // place reconcile. Toggling `_loading = true` here caused
+            // the status-dot template to flash from dot → spinner →
+            // dot on every 15s poll cycle (most visible on paused /
+            // down hosts whose red dot was the visual anchor) (#416).
             for (const k of CURATED_FIELDS) {
               if (k in h) existing[k] = h[k];
             }
             existing._seq = i;
-            // Unconfigured hosts skip the loading flag → grey dot
-            // stays grey across reloads instead of flashing back to
-            // "loading" before the (skipped) probe would have run.
-            existing._loading = !skipProbe;
-            if (skipProbe) existing.status = 'unconfigured';
+            if (skipProbe) {
+              existing.status = 'unconfigured';
+              // Unconfigured rows skip the per-host probe entirely, so
+              // make sure they aren't stuck on a stale spinner from a
+              // previous configured-then-unmapped state.
+              if (existing._loading) existing._loading = false;
+            }
           } else {
             // Brand-new row — push the full skeleton so it renders.
             this.hosts.push({
