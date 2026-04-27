@@ -48,6 +48,8 @@ the next release, this whole block becomes the `[X.Y.0]` entry below.
 
 ### Fixed
 
+- `host_net_sampler` was ignoring the permanent-fail auto-pause. The metrics sampler already skipped paused hosts; the net sampler kept hitting their NE endpoints and emitting `[host_net_sampler] '<host>' exporter_error: All connection attempts failed` log lines. Net sampler now reads `host_failure_state.paused` before each probe and short-circuits when set. Best-effort DB read — transient errors don't accidentally silence ALL polling (#423).
+
 - "New version — reload" banner was appending `_v=` to the URL on every click instead of replacing it (URL grew as `?_v=1.1.31&_v=1.1.32&_v=1.1.33`). `reloadForNewVersion()` now uses `URLSearchParams.set` so consecutive reloads keep exactly one `_v=<latest>` in the search string. Hash is preserved (#418).
 
 - Application logs view gained a severity multi-select filter (Error / Warning / Success / Info). State persists to `localStorage.logSeverityFilter` so reload preserves the view. All / None / Errors-only convenience buttons mirror the Notifications event grid's bulk shape. Backend untouched — fully client-side over the existing log ring buffer (#422).
