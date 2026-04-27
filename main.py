@@ -3539,6 +3539,16 @@ def _shape_host_api_row(
         "load_1m":          float(s.get("host_load_1m") or 0),
         "load_5m":          float(s.get("host_load_5m") or 0),
         "load_15m":         float(s.get("host_load_15m") or 0),
+        # Per-sensor temperatures (#437). `host_temperatures` is a
+        # `{sensor: celsius}` dict from the Beszel agent's `stats.t`
+        # (only present when the agent exposes thermal data — Pi has
+        # `cpu_thermal`, Intel/AMD has `package_id_0`, NVMe has
+        # `nvme_composite`). Hosts without thermal sensors get an
+        # empty dict and the frontend chart card hides via the
+        # length-gate. The whitelist on this row was the reason the
+        # field was being silently dropped before — extract_stats
+        # produced it but it never reached the SPA without this line.
+        "host_temperatures": dict(s.get("host_temperatures") or {}),
         # Service summary (#321) — Beszel agents that run with the
         # systemd extension emit a list of service objects. The
         # extractor normalises into `{total, failed, failed_names}`.
