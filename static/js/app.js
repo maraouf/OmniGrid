@@ -10621,14 +10621,28 @@ function app() {
     },
     // Per-sensor temperature readout for the chart card stats line
     // (#437). Returns [[sensor_name, celsius], ...] sorted hottest-
-    // first so the operator's eye lands on the worst offender. Empty
-    // when the host has no thermal data, which causes the surrounding
-    // chart card to hide via the dict-length gate.
+    // first, capped at 3 — modern hosts can expose 8+ sensors
+    // (coretemp_package + nvme_composite + acpitz + per-core +
+    // hwmon …) and shoving them all into the inline header overflowed
+    // the row in img_1.png so name and value visually decoupled. The
+    // chart line carries `temp_max` (the global peak across ALL
+    // sensors at each tick) so nothing hot gets hidden — only the
+    // verbose readout is trimmed. The full per-sensor dict is
+    // available via `h.host_temperatures` if a future drawer wants
+    // to expose it.
     hostTemperatureRows(h) {
       const t = (h && h.host_temperatures) || {};
       const rows = Object.entries(t).filter(([, c]) => Number.isFinite(Number(c)));
       rows.sort((a, b) => Number(b[1]) - Number(a[1]));
-      return rows;
+      return rows.slice(0, 3);
+    },
+    // True when the host emits more sensors than we show inline (#437).
+    // Drives the "+N more" chip the operator sees when there's a long
+    // tail beyond the top 3.
+    hostTemperatureExtraCount(h) {
+      const t = (h && h.host_temperatures) || {};
+      const n = Object.keys(t).length;
+      return n > 3 ? (n - 3) : 0;
     },
     hostMetricStats(systemId, key, asPct = true) {
       const entry = this.hostHistory[systemId];

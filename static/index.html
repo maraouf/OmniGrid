@@ -8038,12 +8038,25 @@
                     </div>
                     <!-- Live per-sensor readout — sorted hottest-first
                          so the operator's eye lands on the worst
-                         offender. -->
+                         offender. Capped at top-3 (the chart line
+                         covers the full set via `temp_max`); a "+N
+                         more" chip appears when the host has more
+                         sensors than fit inline. Each chip is
+                         `whitespace-nowrap` so the name + value
+                         stay visually paired even when the header
+                         row wraps on a narrow drawer (#437). -->
                     <div class="metric-card-stats"
                          x-show="h.host_temperatures && Object.keys(h.host_temperatures).length > 0">
                       <template x-for="[name, c] in hostTemperatureRows(h)" :key="name">
-                        <span><span x-text="name"></span> <span class="max-val" x-text="(c).toFixed(1) + '°'"></span></span>
+                        <span class="whitespace-nowrap">
+                          <span class="text-[var(--text-faint)]" x-text="name"></span>
+                          <span class="max-val ms-1" x-text="(c).toFixed(1) + '°'"></span>
+                        </span>
                       </template>
+                      <span x-show="hostTemperatureExtraCount(h) > 0"
+                            class="text-[var(--text-faint)] whitespace-nowrap"
+                            :title="Object.keys(h.host_temperatures || {}).slice(3).join(', ')"
+                            x-text="'+' + hostTemperatureExtraCount(h) + ' more'"></span>
                     </div>
                   </div>
                   <template x-if="hostChart(hostHistoryKey(h), 'temp_max')">
