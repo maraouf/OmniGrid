@@ -296,10 +296,21 @@ def _record_failure(host_id: str, now: float, error: str) -> None:
     first failure of a new streak, auto-pause when the window is
     exceeded. Called from `_probe_one` whenever a probe attempt fails
     (network error OR exporter_error response)."""
+    # Three-tier lookup: tuning_host_permanent_fail_window_seconds (#410
+    # rolled this knob into the unified Tuning Config list, so the same
+    # DB > env > default fallback applies as every other tuning_*).
+    # Bare-setting backwards-compat: also honour the legacy
+    # `host_permanent_fail_window_seconds` row from #383's first ship
+    # (operators with a pre-#410 deploy may have the value there).
     try:
-        window = int(get_setting("host_permanent_fail_window_seconds") or 900)
-    except (TypeError, ValueError):
+        window = int(tuning.tuning_int("tuning_host_permanent_fail_window_seconds"))
+    except Exception:
         window = 900
+    if not window:
+        try:
+            window = int(get_setting("host_permanent_fail_window_seconds") or 900)
+        except (TypeError, ValueError):
+            window = 900
     if window < 60:
         window = 60
     err_short = (error or "").strip()[:500]
@@ -330,10 +341,34 @@ def _record_failure(host_id: str, now: float, error: str) -> None:
                     "paused = 1, paused_at = ?, last_error = ? WHERE host_id = ?",
                     (new_fails, now, err_short, host_id),
                 )
+                paused_minutes = max(1, int((now - first_ts) // 60))
                 print(f"[host_metrics_sampler] {host_id!r} AUTO-PAUSED after "
                       f"{int(now - first_ts)}s of consecutive failures "
                       f"({new_fails} attempts) — operator must POST "
                       f"/api/hosts/{host_id}/resume-sampling to resume")
+                # #411 — fire-and-forget Apprise notification on the
+                # pause transition. Lazy import + asyncio.create_task
+                # so this sync helper doesn't block on the HTTP call;
+                # fallback to silent-skip if notify() ever raises (the
+                # pause itself is the load-bearing side effect; the
+                # notification is best-effort).
+                try:
+                    import asyncio as _asyncio
+                    from logic.ops import notify as _notify
+                    loop = _asyncio.get_event_loop()
+                    title = f"⚠ Host sampling paused: {host_id}"
+                    body = (
+                        f"{host_id} has been unreachable for {paused_minutes} min "
+                        f"after {new_fails} consecutive probe failures. "
+                        f"Last error: {err_short or '—'}. "
+                        f"Resume manually from the host drawer's banner."
+                    )
+                    _asyncio.ensure_future(
+                        _notify(title, body, "error", event="host_paused"),
+                        loop=loop,
+                    )
+                except Exception as e:
+                    print(f"[host_metrics_sampler] {host_id!r} notify dispatch failed: {e}")
             else:
                 c.execute(
                     "UPDATE host_failure_state SET consecutive_failures = ?, "
