@@ -1192,6 +1192,10 @@ class SettingsIn(BaseModel):
     # #410 — host_metrics_sampler permanent-fail window. Same DB-key
     # naming + bounds-check via TUNABLES as the others.
     tuning_host_permanent_fail_window_seconds: Optional[str] = None
+    # #417 — frontend /api/ops poll cadence (milliseconds). The SPA
+    # reads the effective value via /api/me and uses it as the
+    # setTimeout delay between consecutive ops polls.
+    tuning_ops_poll_interval_ms: Optional[str] = None
     # -----------------------------------------------------------------
     # Per-event notification toggles. Each maps to one of the
     # 12 (event group × success/failure) notify() call sites in
@@ -5774,6 +5778,14 @@ async def api_me(request: Request):
         "username": user.username,
         "role": user.role,
         "source": user.auth_source,
+        # Client-side runtime knobs — read once on init, applied to the
+        # next poll iteration. Resolved per-request so an Admin → Config
+        # save takes effect on the next /api/me round-trip without a
+        # page reload. Add new client-tunables here rather than via a
+        # separate endpoint.
+        "client_config": {
+            "ops_poll_ms": tuning.tuning_int("tuning_ops_poll_interval_ms"),
+        },
     }
     # ARCH-004: surface the SESSION_SECRET-auto-generated state to admins.
     # When SESSION_SECRET isn't set in the env, logic/auth.py generates an

@@ -42,6 +42,10 @@ the next release, this whole block becomes the `[X.Y.0]` entry below.
 
 - Deploy success notification title now includes the new version number — `✅ OmniGrid deployed v1.X.Y — service back up`. The bump step's `steps.version.outputs.version` is already published earlier in the same job; the "Notify on successful restart" step reads it and builds the title around it. Body shape unchanged (service / commit / branch / reason / run URL). Defensive blank-guard falls back to the previous title shape if the version output is ever empty (#414).
 
+### Added
+
+- `/api/ops` poll cadence is now a tunable (Admin → Config → "Ops poll cadence (ms)"). Backed by `tuning_ops_poll_interval_ms` (default 1500 ms, range 250–60000); surfaced to the SPA via `/api/me`'s `client_config.ops_poll_ms`. `pollOps()` resolves the value per-tick so a Save in Admin → Config takes effect on the next `/api/me` round-trip without a restart. Lower for snappier UI feedback after a button click, higher to cut idle traffic on a long-running SPA tab (#417).
+
 ### Fixed
 
 - Status-dot flicker on the Hosts view's 15s poll cycle — most visible as a red dot disappearing and reappearing on every poll for down / paused hosts. `loadHosts()` was setting `existing._loading = !skipProbe` on every poll, which toggled the dot template from dot → spinner → dot in a tight loop. Now only brand-new rows get the spinner; existing rows keep their previous data visible while `refreshHostRow` patches stats in place. Original `#405` fix targeted a different cause (DB-exception path returning falsy defaults); this addresses the actual flicker source (#416).
