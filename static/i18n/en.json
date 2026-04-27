@@ -1110,6 +1110,7 @@
     "passkey_only_hint": "Sign in with the passkey you registered.",
     "passkey_prompting": "Confirm on your device…",
     "passkey_failed": "Passkey sign-in failed. Try again or use a code.",
+    "passkey_data_error": "Passkey data error: {error}",
     "passkey_browser_unsupported": "This browser doesn't support passkeys."
   },
   "new_token_modal": {

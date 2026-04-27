@@ -202,10 +202,24 @@ function applyI18nDom() {
   // these helpers hide the conversion at the API boundary.
   // ----------------------------------------------------------------
   function b64uEncode(buf) {
+    // #443 — `btoa` rejects bytes whose values are above 0xFF
+    // (`InvalidCharacterError`). Real-world: a future server that
+    // populates `userHandle` with a UTF-8 marker, or a malformed
+    // ArrayBuffer from a non-spec-compliant authenticator. Wrap in
+    // try/catch and re-throw a diagnostic that the WebAuthn submit
+    // handler surfaces via `showErr` instead of dying as "Sign-in
+    // failed" with no hint.
+    if (buf == null) {
+      throw new Error('WebAuthn: encoder received null/undefined buffer');
+    }
     const b = new Uint8Array(buf);
     let s = '';
     for (let i = 0; i < b.length; i++) s += String.fromCharCode(b[i]);
-    return btoa(s).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+    try {
+      return btoa(s).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+    } catch (_) {
+      throw new Error('WebAuthn: cannot encode buffer (non-Latin1 bytes)');
+    }
   }
   function b64uDecode(s) {
     // ENH-005 (#420) — validate the input before handing it to atob so a
@@ -319,8 +333,15 @@ function applyI18nDom() {
       }
       const j = await finishResp.json().catch(() => ({}));
       showErr(j.detail || tx('login.passkey_failed', 'Passkey sign-in failed.'));
-    } catch (_) {
-      showErr(tx('login.network_error', 'Network error.'));
+    } catch (e) {
+      // #443 — surface diagnostic WebAuthn errors from the b64u
+      // helpers (`buildPublicKeyOptions` / `buildAssertionResponse`)
+      // instead of collapsing them into the generic "Network error"
+      // toast. Anything else stays generic.
+      const msg = (e && typeof e.message === 'string' && e.message.startsWith('WebAuthn:'))
+        ? tx('login.passkey_data_error', 'Passkey data error: {error}', { error: e.message })
+        : tx('login.network_error', 'Network error.');
+      showErr(msg);
     } finally {
       if (passkeyBtn) {
         passkeyBtn.disabled = false;
@@ -603,7 +624,19 @@ function applyI18nDom() {
       const qr = window.qrcode(0, 'M');
       qr.addData(uri);
       qr.make();
-      el.innerHTML = qr.createSvgTag({ cellSize: 6, margin: 4, scalable: true });
+      // #438 — parse the SVG via DOMParser + adopt its <svg> root
+      // instead of `innerHTML = ...`. qrcode-generator's output is
+      // trusted local lib data, but `innerHTML` is the documented
+      // red-flag pattern for content-from-data flows. Falls through
+      // to the textContent fallback when DOMParser surfaces a
+      // <parsererror>.
+      const svgText = qr.createSvgTag({ cellSize: 6, margin: 4, scalable: true });
+      const parsed = new DOMParser().parseFromString(svgText, 'image/svg+xml');
+      const root = parsed.documentElement;
+      if (!root || root.tagName.toLowerCase() === 'parsererror') {
+        throw new Error('SVG parse error');
+      }
+      el.replaceChildren(document.adoptNode(root));
     } catch (_) {
       const fallback = document.createElement('code');
       fallback.className = 'mono totp-qr-fallback';
