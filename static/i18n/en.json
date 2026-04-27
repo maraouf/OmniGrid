@@ -288,7 +288,8 @@
       "oidc": "Authentik OIDC",
       "scheduler": "Scheduler",
       "shortcuts": "Keyboard shortcuts",
-      "language": "Language"
+      "language": "Language",
+      "security": "Security"
     },
     "host_stats": {
       "title": "Host Stats",

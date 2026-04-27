@@ -395,6 +395,16 @@ body {
        targets. */
     overflow-x: clip;
     max-width: 100vw;
+    /* Disable pinch-zoom + double-tap-zoom on touch devices. iOS Safari
+       deliberately ignores the viewport `user-scalable=no` hint since
+       iOS 10 (accessibility), so the meta tag alone isn't enough.
+       `touch-action: pan-x pan-y` reserves vertical+horizontal scrolling
+       for the browser but tells it to NOT handle pinch / double-tap
+       gestures — which means our `gesturestart` JS listener (in
+       index.html) can preventDefault them without fighting the browser.
+       Together with the JS handler this kills pinch-zoom on every
+       browser we target (#385). */
+    touch-action: pan-x pan-y;
 }
 
 .mono {
@@ -1056,6 +1066,22 @@ details summary::-webkit-details-marker {
     50% {
         opacity: .35;
     }
+}
+
+/* Subtle "Unsaved" pill text — gentle 3.5s opacity fade so the word
+   breathes without grabbing focus. Pair the dot with Tailwind's
+   animate-pulse and the text with this. (#386) */
+@keyframes subtle-flash {
+    0%, 100% {
+        opacity: 1;
+    }
+    50% {
+        opacity: .55;
+    }
+}
+
+.unsaved-flash {
+    animation: subtle-flash 3.5s ease-in-out infinite;
 }
 
 /* ---------------------------------------------------------------------------

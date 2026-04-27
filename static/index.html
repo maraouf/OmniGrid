@@ -37,6 +37,26 @@
     // from its own _meta.dir once loaded.
     document.documentElement.setAttribute('dir', lang === 'ar' ? 'rtl' : 'ltr');
   })();
+
+  // iOS Safari ignores the viewport `user-scalable=no` hint since iOS
+  // 10 (accessibility), so the meta tag alone doesn't disable pinch
+  // zoom. Combined with `touch-action: pan-x pan-y` on body (in
+  // style.css), preventing `gesturestart` / `gesturechange` /
+  // `gestureend` here gets us pinch-zoom suppression on iOS Safari.
+  // Also block double-tap-zoom by detecting two taps within 300ms on
+  // the same target. Operator-requested behaviour (#385). Listeners
+  // use `{passive: false}` because preventDefault() requires it.
+  (function () {
+    ['gesturestart', 'gesturechange', 'gestureend'].forEach(function (evt) {
+      document.addEventListener(evt, function (e) { e.preventDefault(); }, { passive: false });
+    });
+    var lastTap = 0;
+    document.addEventListener('touchend', function (e) {
+      var now = Date.now();
+      if (now - lastTap < 300) { e.preventDefault(); }
+      lastTap = now;
+    }, { passive: false });
+  })();
 </script>
 <script src="/js/i18n.js?v=__APP_VERSION__"></script>
 <!-- Poppins is vendored under /fonts/ and declared in css/style.css. No
@@ -2240,7 +2260,7 @@
                     class="text-[11.5px] text-[var(--warning)] flex items-center gap-1.5"
                     :title="t('common.unsaved_title')">
                 <span class="w-1.5 h-1.5 rounded-full bg-[var(--warning)] animate-pulse"></span>
-                <span x-text="t('hosts_actions.unsaved_label')"></span>
+                <span class="unsaved-flash" x-text="t('hosts_actions.unsaved_label')"></span>
               </span>
             </div>
           </div>
@@ -2316,14 +2336,23 @@
                     class="text-[11.5px] text-[var(--warning)] flex items-center gap-1.5"
                     :title="t('common.unsaved_title')">
                 <span class="w-1.5 h-1.5 rounded-full bg-[var(--warning)] animate-pulse"></span>
-                <span x-text="t('hosts_actions.unsaved_label')"></span>
+                <span class="unsaved-flash" x-text="t('hosts_actions.unsaved_label')"></span>
               </span>
             </div>
           </div>
         </section>
 
+      </div>
+
+      <!-- ===== SECURITY section (#389) — settings-sidebar peer of
+           Profile / Notifications / Ignore list / Language. Hosts the
+           change-password card AND the TOTP / 2FA enrolment card; the
+           Profile grid stays focused on identity (display name / email
+           / bio / topbar widgets / appearance). The two cards moved
+           verbatim from the Profile grid; bindings unchanged. -->
+      <section x-show="settingsSection === 'security'" class="page-grid space-y-5">
         <!-- Security card — change password (local users only) -->
-        <section class="bg-[var(--surface)] border border-[var(--border)] rounded-md p-5 lg:col-span-2">
+        <section class="bg-[var(--surface)] border border-[var(--border)] rounded-md p-5">
           <div class="flex items-center gap-2 mb-4">
             <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true"><use href="#icon-lock"/></svg>
             <h3 class="font-semibold text-[13px]" x-text="t('settings.profile.security')"></h3>
@@ -2346,10 +2375,6 @@
                   <input x-model="passwordForm.confirm" type="password" required minlength="8" autocomplete="new-password" class="w-full text-[12.5px]">
                 </div>
               </div>
-              <!-- Password strength + requirements. Shown the moment the user
-                   starts typing a new password, so they see the bar move as
-                   they add characters. Criteria are purely advisory — the
-                   backend still enforces the 8-char minimum authoritatively. -->
               <div x-show="passwordForm.next" class="pw-strength">
                 <div class="pw-meter">
                   <div class="pw-bar" :class="'pw-bar-' + passwordStrength.color">
@@ -2401,12 +2426,8 @@
         </section>
 
         <!-- Two-factor authentication card (#345). Local users only —
-             Authentik users see an i18n hint pointing at their IdP.
-             Three Alpine sub-states gated on totpEnrolStage:
-               idle    -> show status + Enable / Disable / Regenerate
-               qr      -> show provisioning QR + verification input
-               reveal  -> show one-time backup-codes list -->
-        <section class="bg-[var(--surface)] border border-[var(--border)] rounded-md p-5 lg:col-span-2"
+             Authentik users see an i18n hint pointing at their IdP. -->
+        <section class="bg-[var(--surface)] border border-[var(--border)] rounded-md p-5"
                  x-show="me && me.source === 'local'">
           <div class="flex items-center gap-2 mb-4">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-[var(--text-dim)]"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
@@ -2417,13 +2438,11 @@
           <p class="text-[11.5px] text-[var(--text-faint)] leading-relaxed mb-3"
              x-text="t('settings.profile.totp.intro')"></p>
 
-          <!-- Disabled by admin policy -->
           <template x-if="totp.loaded && !totp.allowed">
             <div class="text-[12.5px] text-[var(--text-dim)] bg-[var(--surface-2)] border border-[var(--border)] rounded-md p-3"
                  x-text="t('settings.profile.totp.disabled_by_admin')"></div>
           </template>
 
-          <!-- IDLE — not enrolled -->
           <template x-if="totp.loaded && totp.allowed && !totp.enabled && totpEnrolStage === 'idle'">
             <div class="space-y-3">
               <div class="text-[12.5px] text-[var(--text-dim)]"
@@ -2434,7 +2453,6 @@
             </div>
           </template>
 
-          <!-- QR — verify code to confirm enrolment -->
           <template x-if="totp.loaded && totp.allowed && totpEnrolStage === 'qr'">
             <div class="space-y-3">
               <p class="text-[12px] text-[var(--text-dim)]"
@@ -2461,7 +2479,6 @@
             </div>
           </template>
 
-          <!-- REVEAL — one-time backup-codes display -->
           <template x-if="totpEnrolStage === 'reveal'">
             <div class="space-y-3">
               <h4 class="font-semibold text-[12.5px]"
@@ -2482,7 +2499,6 @@
             </div>
           </template>
 
-          <!-- IDLE — already enrolled. Backup codes display + actions -->
           <template x-if="totp.loaded && totp.allowed && totp.enabled && totpEnrolStage === 'idle'">
             <div class="space-y-4">
               <div class="text-[12.5px] flex items-center gap-2">
@@ -2492,7 +2508,6 @@
                       x-text="t('settings.profile.totp.enabled_status')"></span>
               </div>
 
-              <!-- Backup-codes panel with hide/unhide eye -->
               <div>
                 <div class="flex items-center justify-between gap-2 mb-2">
                   <h4 class="font-semibold text-[12.5px]"
@@ -2525,7 +2540,6 @@
             </div>
           </template>
 
-          <!-- Loading -->
           <template x-if="!totp.loaded">
             <div class="text-[12px] text-[var(--text-faint)]"
                  x-text="t('loading.fetching')"></div>
@@ -2533,14 +2547,14 @@
         </section>
 
         <!-- Authentik users get a passive note in lieu of the TOTP card. -->
-        <section class="bg-[var(--surface)] border border-[var(--border)] rounded-md p-5 lg:col-span-2"
+        <section class="bg-[var(--surface)] border border-[var(--border)] rounded-md p-5"
                  x-show="me && me.source === 'authentik'">
           <h3 class="font-semibold text-[13px] mb-2"
               x-text="t('settings.profile.totp.title')"></h3>
           <p class="text-[12.5px] text-[var(--text-dim)]"
              x-text="t('settings.profile.totp.authentik_hint')"></p>
         </section>
-      </div>
+      </section>
 
       <!-- ===== NOTIFICATIONS section (#378) — settings-sidebar peer of
            Profile / Ignore list / Language. Per-user opt-in/out grid
@@ -2633,7 +2647,7 @@
                 class="text-[11.5px] text-[var(--warning)] flex items-center gap-1.5"
                 :title="t('common.unsaved_title')">
             <span class="w-1.5 h-1.5 rounded-full bg-[var(--warning)] animate-pulse"></span>
-            <span x-text="t('hosts_actions.unsaved_label')"></span>
+            <span class="unsaved-flash" x-text="t('hosts_actions.unsaved_label')"></span>
           </span>
         </div>
       </section>
@@ -3299,7 +3313,7 @@
           <span x-show="appriseDirty()"
                 class="text-[11.5px] text-[var(--warning)] flex items-center gap-1.5">
             <span class="w-1.5 h-1.5 rounded-full bg-[var(--warning)] animate-pulse"></span>
-            <span x-text="t('hosts_actions.unsaved_label')"></span>
+            <span class="unsaved-flash" x-text="t('hosts_actions.unsaved_label')"></span>
           </span>
         </div>
       </section>
@@ -3348,7 +3362,7 @@
             <span x-show="openMeteoDirty()"
                   class="text-[11.5px] text-[var(--warning)] flex items-center gap-1.5">
               <span class="w-1.5 h-1.5 rounded-full bg-[var(--warning)] animate-pulse"></span>
-              <span x-text="t('hosts_actions.unsaved_label')"></span>
+              <span class="unsaved-flash" x-text="t('hosts_actions.unsaved_label')"></span>
             </span>
           </div>
           <p class="text-[10.5px] text-[var(--text-faint)] mt-2" x-text="t('admin_integrations.open_meteo_hint')"></p>
@@ -3447,7 +3461,7 @@
               <span x-show="portainerDirty()"
                     class="text-[11.5px] text-[var(--warning)] flex items-center gap-1.5">
                 <span class="w-1.5 h-1.5 rounded-full bg-[var(--warning)] animate-pulse"></span>
-                <span x-text="t('hosts_actions.unsaved_label')"></span>
+                <span class="unsaved-flash" x-text="t('hosts_actions.unsaved_label')"></span>
               </span>
             </div>
             <div x-show="portainerTestResult" class="text-[12px] rounded-md px-3 py-2"
@@ -3571,7 +3585,7 @@
             <span x-show="oidcDirty()"
                   class="text-[11.5px] text-[var(--warning)] flex items-center gap-1.5">
               <span class="w-1.5 h-1.5 rounded-full bg-[var(--warning)] animate-pulse"></span>
-              <span x-text="t('hosts_actions.unsaved_label')"></span>
+              <span class="unsaved-flash" x-text="t('hosts_actions.unsaved_label')"></span>
             </span>
           </div>
           <div x-show="oidcTestResult" class="text-[12px] rounded-md px-3 py-2"
@@ -3829,7 +3843,7 @@
                 class="text-[11.5px] text-[var(--warning)] flex items-center gap-1.5"
                 :title="t('hosts_actions.host_stats_unsaved_title')">
             <span class="w-1.5 h-1.5 rounded-full bg-[var(--warning)] animate-pulse"></span>
-            <span x-text="t('hosts_actions.unsaved_label')"></span>
+            <span class="unsaved-flash" x-text="t('hosts_actions.unsaved_label')"></span>
           </span>
         </div>
       </section>
@@ -4441,7 +4455,7 @@
                 class="text-[11.5px] text-[var(--warning)] flex items-center gap-1.5"
                 :title="t('hosts_actions.unsaved_title')">
             <span class="w-1.5 h-1.5 rounded-full bg-[var(--warning)] animate-pulse"></span>
-            <span x-text="t('hosts_actions.unsaved_label')"></span>
+            <span class="unsaved-flash" x-text="t('hosts_actions.unsaved_label')"></span>
           </span>
           <span x-show="!hostsConfigDirty && hostsConfig.length < 8" class="text-[11.5px] text-[var(--text-faint)] ms-2"
                 x-text="t('hosts_actions.provider_blank_hint')"></span>
@@ -4828,7 +4842,7 @@
           <span x-show="hostGroupsDirty"
                 class="text-[11.5px] text-[var(--warning)] flex items-center gap-1.5">
             <span class="w-1.5 h-1.5 rounded-full bg-[var(--warning)] animate-pulse"></span>
-            <span x-text="t('admin_hosts.groups.unsaved')"></span>
+            <span class="unsaved-flash" x-text="t('admin_hosts.groups.unsaved')"></span>
           </span>
           <span class="ms-auto"></span>
           <button x-show="(hostGroups || []).length > 5"
@@ -5028,7 +5042,7 @@
                 class="text-[11.5px] text-[var(--warning)] flex items-center gap-1.5"
                 :title="t('common.unsaved_title')">
             <span class="w-1.5 h-1.5 rounded-full bg-[var(--warning)] animate-pulse"></span>
-            <span x-text="t('hosts_actions.unsaved_label')"></span>
+            <span class="unsaved-flash" x-text="t('hosts_actions.unsaved_label')"></span>
           </span>
           <button x-show="isAdmin()" @click="refreshAssetCache()"
                   class="btn btn-ghost text-[12px]"
@@ -5299,7 +5313,7 @@
           <span x-show="sshSettingsDirty"
                 class="text-[11.5px] text-[var(--warning)] flex items-center gap-1.5">
             <span class="w-1.5 h-1.5 rounded-full bg-[var(--warning)] animate-pulse"></span>
-            <span x-text="t('hosts_actions.unsaved_label')"></span>
+            <span class="unsaved-flash" x-text="t('hosts_actions.unsaved_label')"></span>
           </span>
         </div>
         <div class="mt-5 pt-4 border-t border-dashed border-[var(--border)]">
@@ -5900,7 +5914,7 @@
               <span x-show="tuningDirty()"
                     class="text-[11.5px] text-[var(--warning)] flex items-center gap-1.5">
                 <span class="w-1.5 h-1.5 rounded-full bg-[var(--warning)] animate-pulse"></span>
-                <span x-text="t('admin.config.unsaved')"></span>
+                <span class="unsaved-flash" x-text="t('admin.config.unsaved')"></span>
               </span>
             </div>
           </div>
@@ -5979,7 +5993,7 @@
                     class="text-[11.5px] text-[var(--warning)] flex items-center gap-1.5"
                     :title="t('common.unsaved_title')">
                 <span class="w-1.5 h-1.5 rounded-full bg-[var(--warning)] animate-pulse"></span>
-                <span x-text="t('common.unsaved')"></span>
+                <span class="unsaved-flash" x-text="t('common.unsaved')"></span>
               </span>
             </div>
           </div>
@@ -6054,7 +6068,7 @@
                 <span x-show="versionDirty()"
                       class="text-[11.5px] text-[var(--warning)] flex items-center gap-1.5">
                   <span class="w-1.5 h-1.5 rounded-full bg-[var(--warning)] animate-pulse"></span>
-                  <span x-text="t('admin.version.unsaved')"></span>
+                  <span class="unsaved-flash" x-text="t('admin.version.unsaved')"></span>
                 </span>
               </div>
 
@@ -6110,7 +6124,7 @@
                   class="text-[11.5px] text-[var(--warning)] flex items-center gap-1.5"
                   :title="t('common.unsaved_title')">
               <span class="w-1.5 h-1.5 rounded-full bg-[var(--warning)] animate-pulse"></span>
-              <span x-text="t('common.unsaved')"></span>
+              <span class="unsaved-flash" x-text="t('common.unsaved')"></span>
             </span>
           </div>
         </section>
@@ -6904,8 +6918,7 @@
                   <div class="metric-card-head">
                     <div class="metric-card-title">
                       <span>CPU</span><span class="unit">%</span>
-                      <svg width="12" height="12" class="metric-source-help" aria-hidden="true"
-                           :title="t('hosts_extra.metrics.source_cpu')"><use href="#icon-help-circle"/></svg>
+                      <span class="metric-source-help" :title="t('hosts_extra.metrics.source_cpu')"><svg width="12" height="12" aria-hidden="true"><use href="#icon-help-circle"/></svg></span>
                     </div>
                     <div class="metric-card-stats"
                          x-show="hostMetricStats(hostHistoryKey(h), 'cpu')">
@@ -6954,8 +6967,7 @@
                   <div class="metric-card-head">
                     <div class="metric-card-title">
                       <span>Memory</span><span class="unit">%</span>
-                      <svg width="12" height="12" class="metric-source-help" aria-hidden="true"
-                           :title="t('hosts_extra.metrics.source_memory')"><use href="#icon-help-circle"/></svg>
+                      <span class="metric-source-help" :title="t('hosts_extra.metrics.source_memory')"><svg width="12" height="12" aria-hidden="true"><use href="#icon-help-circle"/></svg></span>
                     </div>
                     <div class="metric-card-stats"
                          x-show="hostMetricStats(hostHistoryKey(h), 'mp')">
@@ -6996,8 +7008,7 @@
                   <div class="metric-card-head">
                     <div class="metric-card-title">
                       <span>Disk</span><span class="unit">%</span>
-                      <svg width="12" height="12" class="metric-source-help" aria-hidden="true"
-                           :title="t('hosts_extra.metrics.source_disk')"><use href="#icon-help-circle"/></svg>
+                      <span class="metric-source-help" :title="t('hosts_extra.metrics.source_disk')"><svg width="12" height="12" aria-hidden="true"><use href="#icon-help-circle"/></svg></span>
                     </div>
                     <div class="metric-card-stats"
                          x-show="hostMetricStats(hostHistoryKey(h), 'dp')">
@@ -7053,8 +7064,7 @@
                     <div class="metric-card-title">
                       <span x-text="t('hosts_extra.metrics.network')"></span>
                       <span class="unit">B/s</span>
-                      <svg width="12" height="12" class="metric-source-help" aria-hidden="true"
-                           :title="t('hosts_extra.metrics.source_network')"><use href="#icon-help-circle"/></svg>
+                      <span class="metric-source-help" :title="t('hosts_extra.metrics.source_network')"><svg width="12" height="12" aria-hidden="true"><use href="#icon-help-circle"/></svg></span>
                     </div>
                     <div class="metric-card-stats" style="gap:8px">
                       <span x-show="hostMetricStats(hostHistoryKey(h), 'nr', false)">
@@ -7175,8 +7185,7 @@
                   <div class="metric-card-head">
                     <div class="metric-card-title">
                       <span x-text="t('hosts_extra.metrics.disk_io')"></span>
-                      <svg width="12" height="12" class="metric-source-help" aria-hidden="true"
-                           :title="t('hosts_extra.metrics.source_disk_io')"><use href="#icon-help-circle"/></svg>
+                      <span class="metric-source-help" :title="t('hosts_extra.metrics.source_disk_io')"><svg width="12" height="12" aria-hidden="true"><use href="#icon-help-circle"/></svg></span>
                       <span class="unit">B/s</span>
                     </div>
                     <div class="metric-card-stats" style="gap:8px">
@@ -7264,8 +7273,7 @@
                   <div class="metric-card-head">
                     <div class="metric-card-title">
                       <span x-text="t('hosts_extra.metrics.load_avg')"></span>
-                      <svg width="12" height="12" class="metric-source-help" aria-hidden="true"
-                           :title="t('hosts_extra.metrics.source_load_avg')"><use href="#icon-help-circle"/></svg>
+                      <span class="metric-source-help" :title="t('hosts_extra.metrics.source_load_avg')"><svg width="12" height="12" aria-hidden="true"><use href="#icon-help-circle"/></svg></span>
                     </div>
                     <div class="metric-card-stats" style="gap:8px">
                       <span x-show="hostMetricStats(hostHistoryKey(h), 'la1', false)">
@@ -7324,8 +7332,7 @@
                   <div class="metric-card-head">
                     <div class="metric-card-title">
                       <span x-text="t('hosts_extra.metrics.bandwidth')"></span>
-                      <svg width="12" height="12" class="metric-source-help" aria-hidden="true"
-                           :title="t('hosts_extra.metrics.source_bandwidth')"><use href="#icon-help-circle"/></svg>
+                      <span class="metric-source-help" :title="t('hosts_extra.metrics.source_bandwidth')"><svg width="12" height="12" aria-hidden="true"><use href="#icon-help-circle"/></svg></span>
                       <span class="unit">B/s</span>
                     </div>
                     <div class="metric-card-stats"
@@ -7365,8 +7372,7 @@
                   <div class="metric-card-head">
                     <div class="metric-card-title">
                       <span x-text="t('hosts_extra.metrics.swap')"></span>
-                      <svg width="12" height="12" class="metric-source-help" aria-hidden="true"
-                           :title="t('hosts_extra.metrics.source_swap')"><use href="#icon-help-circle"/></svg>
+                      <span class="metric-source-help" :title="t('hosts_extra.metrics.source_swap')"><svg width="12" height="12" aria-hidden="true"><use href="#icon-help-circle"/></svg></span>
                       <span class="unit">%</span>
                     </div>
                     <div class="metric-card-stats"
