@@ -185,6 +185,30 @@
     <symbol id="icon-file-text" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></symbol>
     <symbol id="icon-tag" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/><line x1="7" y1="7" x2="7.01" y2="7"/></symbol>
     <symbol id="icon-bug" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="8" y="6" width="8" height="14" rx="4"/><path d="M19 7l-3 2"/><path d="M5 7l3 2"/><path d="M19 13h-3"/><path d="M5 13h3"/><path d="M19 19l-3-2"/><path d="M5 19l3-2"/><path d="M9 6V3"/><path d="M15 6V3"/></symbol>
+
+    <!-- Brand-shaped mono icons for Admin sidebar tabs (#421). Both
+         mirror their actual brand silhouettes (Portainer's bold "P" +
+         signature accent square; Authentik's stylised "k" + accent
+         dot) but rendered with currentColor so they inherit the same
+         line-icon styling as the other sidebar entries. They live
+         alongside the line-style Lucide icons rather than under
+         /img/icons/ because they're sprites consumed via <use href>. -->
+    <symbol id="icon-portainer" viewBox="0 0 24 24" fill="currentColor" stroke="none">
+      <!-- Bold "P": vertical stem 4-12 wide, with a rounded bowl on top.
+           Matches the silhouette of Portainer's logomark. -->
+      <path d="M4 3 H12 a6 6 0 0 1 0 12 H8 v6 H4 V3 Z M8 7 V11 H12 a2 2 0 0 0 0 -4 H8 Z"/>
+      <!-- Signature accent square (the small magenta box, mono'd). -->
+      <rect x="14.5" y="16.5" width="5" height="5"/>
+    </symbol>
+    <symbol id="icon-authentik" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <!-- Stylised "k": vertical stem + two angled arms meeting at the
+           midpoint. Matches Authentik's letterform. -->
+      <line x1="6" y1="3" x2="6" y2="21"/>
+      <line x1="6" y1="13" x2="14" y2="5"/>
+      <line x1="6" y1="13" x2="14" y2="21"/>
+      <!-- Accent mark (echoes Authentik's red logo dot). -->
+      <circle cx="18" cy="13" r="2" fill="currentColor" stroke="none"/>
+    </symbol>
   </defs>
 </svg>
 
@@ -2662,6 +2686,27 @@
           </template>
         </div>
 
+        <!-- Sampler events — split from Security (#420). -->
+        <div class="border-t border-[var(--border)] pt-3">
+          <div class="text-[10.5px] text-[var(--text-faint)] uppercase tracking-wider mb-2"
+               x-text="t('admin.notifications.events.sampler_section')"></div>
+          <template x-for="e in notifySamplerEvents" :key="e.key">
+            <div class="flex items-center justify-between gap-3 py-1">
+              <span class="text-[12px] text-[var(--text)]"
+                    x-text="t('admin.notifications.events.' + e.label)"></span>
+              <label class="flex items-center gap-1.5 text-[11.5px] cursor-pointer select-none"
+                     :class="userNotifyEventDisabledByAdmin(e.key) ? 'opacity-50' : ''"
+                     :title="userNotifyEventDisabledByAdmin(e.key) ? t('profile.notifications.disabled_by_admin') : ''">
+                <input type="checkbox"
+                       :checked="profileForm.notify_events[e.key.replace(/^notify_event_/, '')]"
+                       @change="profileForm.notify_events[e.key.replace(/^notify_event_/, '')] = $event.target.checked"
+                       :disabled="userNotifyEventDisabledByAdmin(e.key)">
+                <span class="text-[var(--text-dim)]" x-text="t('admin.notifications.events.enabled')"></span>
+              </label>
+            </div>
+          </template>
+        </div>
+
         <!-- User-side convenience buttons — Enable all / Disable all /
              Errors only. Operate on profileForm.notify_events (per-user
              opt-in state) and skip events the admin has globally
@@ -3004,17 +3049,6 @@
         </template>
       </aside>
       <div class="page-content">
-      <!-- Intro line scopes to the user-management tabs where the
-           "User accounts, active sessions, and API tokens" copy is
-           actually accurate. Other tabs (Notifications / Portainer /
-           OIDC / Host Stats / Hosts / Host Groups / SSH / Assets /
-           Schedules / Backups / Logs / Config / Authentication /
-           Version / Debug / General) carry their own section heading
-           + subtitle, so no shared intro is needed there (#395). -->
-      <div x-show="['users','sessions','tokens'].includes(adminTab)">
-        <p class="text-[11px] text-[var(--text-faint)] mt-0.5" x-text="t('admin.intro')"></p>
-      </div>
-
       <!-- USERS TAB -->
       <div x-show="adminTab==='users'" class="space-y-4">
         <section class="bg-[var(--surface)] border border-[var(--border)] rounded-md p-5">
@@ -3297,6 +3331,16 @@
         </section>
       </div>
 
+      <!-- Intro paragraph for the user-management tabs (Users /
+           Sessions / Tokens) — moved here from above the boxes so the
+           start of every Admin tab page is visually consistent
+           (heading area first, copy at the bottom). Renders only on
+           those three tabs; other tabs carry their own per-section
+           subtitle. -->
+      <div x-show="['users','sessions','tokens'].includes(adminTab)">
+        <p class="text-[11px] text-[var(--text-faint)] mt-3" x-text="t('admin.intro')"></p>
+      </div>
+
       <!-- NOTIFICATIONS TAB (admin-only global config). Open-Meteo
            lives in its own General tab below; per-event toggle grid
            sits below the Apprise panel. -->
@@ -3371,6 +3415,27 @@
             <div class="text-[10.5px] text-[var(--text-faint)] uppercase tracking-wider mb-2"
                  x-text="t('admin.notifications.events.security_section')"></div>
             <template x-for="e in notifySecurityEvents" :key="e.key">
+              <div class="flex items-center justify-between gap-3 py-1">
+                <span class="text-[12px] text-[var(--text)]"
+                      x-text="t('admin.notifications.events.' + e.label)"></span>
+                <label class="flex items-center gap-1.5 text-[11.5px] cursor-pointer select-none">
+                  <input type="checkbox"
+                         :checked="settings[e.key]"
+                         @change="settings[e.key] = $event.target.checked"
+                         :disabled="isReadonly() || !settings.apprise_enabled">
+                  <span class="text-[var(--text-dim)]" x-text="t('admin.notifications.events.enabled')"></span>
+                </label>
+              </div>
+            </template>
+          </div>
+
+          <!-- Sampler events — split from Security (#420) because
+               "host sampling auto-paused" is operational signal, not
+               an authentication / login event. -->
+          <div class="border-t border-[var(--border)] pt-3 mb-3">
+            <div class="text-[10.5px] text-[var(--text-faint)] uppercase tracking-wider mb-2"
+                 x-text="t('admin.notifications.events.sampler_section')"></div>
+            <template x-for="e in notifySamplerEvents" :key="e.key">
               <div class="flex items-center justify-between gap-3 py-1">
                 <span class="text-[12px] text-[var(--text)]"
                       x-text="t('admin.notifications.events.' + e.label)"></span>
@@ -3482,7 +3547,7 @@
           <div class="flex items-start justify-between">
             <div>
               <div class="flex items-center gap-2 mb-2">
-                <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true"><use href="#icon-box"/></svg>
+                <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true"><use href="#icon-portainer"/></svg>
                 <h3 class="font-semibold text-[13px]" x-text="t('settings.portainer.connection_title')"></h3>
               </div>
               <p class="text-[11.5px] text-[var(--text-faint)] mb-3" x-text="t('settings.portainer.connection_desc')"></p>
@@ -3595,7 +3660,7 @@
         <div class="flex items-start justify-between">
           <div>
             <div class="flex items-center gap-2 mb-2">
-              <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true"><use href="#icon-id-card"/></svg>
+              <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true"><use href="#icon-authentik"/></svg>
               <h3 class="font-semibold text-[13px]" x-text="t('settings.oidc.title')"></h3>
             </div>
             <p class="text-[11.5px] text-[var(--text-faint)] mb-3" x-text="t('settings.oidc.description')"></p>
@@ -5983,6 +6048,31 @@
                     x-text="t('admin.logs.copy')"></button>
             <button @click="clearLogs()" class="btn btn-ghost text-[11px] text-danger"
                     x-text="t('admin.logs.clear')"></button>
+          </div>
+          <!-- Severity multi-select (#422). One checkbox per level the
+               `logSeverity()` helper emits. Persisted to localStorage
+               so reload preserves the view. "All" / "Errors only"
+               convenience buttons mirror the Notifications event
+               grid's bulk-action shape. -->
+          <div class="flex flex-wrap items-center gap-2 mb-3 pb-3 border-b border-[var(--border)]">
+            <span class="text-[11px] uppercase tracking-wider text-[var(--text-faint)]"
+                  x-text="t('admin.logs.severity_label')"></span>
+            <template x-for="lvl in logSeverityLevels" :key="lvl">
+              <label class="inline-flex items-center gap-1 text-[11.5px] cursor-pointer select-none px-2 py-0.5 rounded border border-[var(--border)] bg-[var(--surface-2)]"
+                     :class="logSeverityFilter[lvl] ? '' : 'opacity-50'">
+                <input type="checkbox"
+                       :checked="logSeverityFilter[lvl]"
+                       @change="toggleLogSeverity(lvl)">
+                <span x-text="t('admin.logs.severity.' + lvl)"></span>
+              </label>
+            </template>
+            <span class="flex-1"></span>
+            <button @click="setAllLogSeverity(true)" class="btn btn-ghost text-[11px]"
+                    x-text="t('admin.logs.severity_all')"></button>
+            <button @click="setAllLogSeverity(false)" class="btn btn-ghost text-[11px]"
+                    x-text="t('admin.logs.severity_none')"></button>
+            <button @click="setLogSeverityErrorsOnly()" class="btn btn-ghost text-[11px]"
+                    x-text="t('admin.logs.severity_errors_only')"></button>
           </div>
           <!-- Line-buffered viewer. Monospace + fixed height = terminal feel.
                Each row is ts + stream label + text. Stderr rows get tinted

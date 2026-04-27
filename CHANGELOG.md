@@ -48,6 +48,19 @@ the next release, this whole block becomes the `[X.Y.0]` entry below.
 
 ### Fixed
 
+- "New version — reload" banner was appending `_v=` to the URL on every click instead of replacing it (URL grew as `?_v=1.1.31&_v=1.1.32&_v=1.1.33`). `reloadForNewVersion()` now uses `URLSearchParams.set` so consecutive reloads keep exactly one `_v=<latest>` in the search string. Hash is preserved (#418).
+
+- Application logs view gained a severity multi-select filter (Error / Warning / Success / Info). State persists to `localStorage.logSeverityFilter` so reload preserves the view. All / None / Errors-only convenience buttons mirror the Notifications event grid's bulk shape. Backend untouched — fully client-side over the existing log ring buffer (#422).
+- Brand-style mono icons for Admin → Portainer + Admin → OIDC (Authentik). New `icon-portainer` ("P" mark + signature accent square) and `icon-authentik` ("k" mark + accent dot) `<symbol>` entries in the sprite block, both rendered in `currentColor` to inherit the sidebar's existing line-icon styling. Sidebar entries + section headings on each tab updated to use them; every other icon left untouched (#421).
+
+### Changed
+
+- Notifications event grid: "Host sampling auto-paused" split out of the Security events group into its own "Sampler events" section. New i18n key `admin.notifications.events.sampler_section`; backend setting key unchanged (`notify_event_host_paused`) so no migration. Visible on both Admin → Notifications and Profile → Notifications (#420).
+
+- Admin → Users / Sessions / Tokens intro paragraph moved from above the section boxes to below them, so the start of every Admin tab renders consistently (heading area first). Other tabs that carry their own per-section subtitle are unchanged (#419).
+
+### Fixed
+
 - Status-dot flicker on the Hosts view's 15s poll cycle — most visible as a red dot disappearing and reappearing on every poll for down / paused hosts. `loadHosts()` was setting `existing._loading = !skipProbe` on every poll, which toggled the dot template from dot → spinner → dot in a tight loop. Now only brand-new rows get the spinner; existing rows keep their previous data visible while `refreshHostRow` patches stats in place. Original `#405` fix targeted a different cause (DB-exception path returning falsy defaults); this addresses the actual flicker source (#416).
 
 - Chart `?` tooltip cropped at the host-drawer start edge on left-column metric cards (regression visible after #413). Smart-placement helper `_adjustMetricTooltipPlacement()` measures the just-opened tooltip after `$nextTick` and applies `.metric-source-tooltip--align-start` when the default end-anchored body would overflow the drawer's start edge, falling back to `.metric-source-tooltip--align-center` when both edges would clip. Default end-anchored behaviour is preserved when the tooltip already fits (#415).
