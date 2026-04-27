@@ -44,6 +44,8 @@ the next release, this whole block becomes the `[X.Y.0]` entry below.
 
 ### Added
 
+- Persistent logs on disk + configurable retention. Every stdout/stderr line that lands in the in-memory ring buffer is now also appended to a daily file at `/app/data/logs/omnigrid-YYYY-MM-DD.log` (host-side: `/opt/omnigrid/data/logs/`). Format follows industry-standard log shape — ISO 8601 UTC timestamp + uppercase fixed-width level (ERROR / WARN / SUCCESS / INFO, classified by content scan matching the SPA's `logSeverity()`) + message. Files are parseable by Promtail / Vector / Fluent Bit / `tail -F` / grep without configuration. New tunable `tuning_log_retention_days` (Admin → Config; default 7 days, range 1–365); lifespan-managed pruner sweeps the directory hourly and deletes any `omnigrid-YYYY-MM-DD.log` whose filename date is older than N days. Best-effort writes — disk-full / permission failures don't break the in-memory tee (#424).
+
 - `/api/ops` poll cadence is now a tunable (Admin → Config → "Ops poll cadence (ms)"). Backed by `tuning_ops_poll_interval_ms` (default 1500 ms, range 250–60000); surfaced to the SPA via `/api/me`'s `client_config.ops_poll_ms`. `pollOps()` resolves the value per-tick so a Save in Admin → Config takes effect on the next `/api/me` round-trip without a restart. Lower for snappier UI feedback after a button click, higher to cut idle traffic on a long-running SPA tab (#417).
 
 ### Fixed
@@ -53,7 +55,7 @@ the next release, this whole block becomes the `[X.Y.0]` entry below.
 - "New version — reload" banner was appending `_v=` to the URL on every click instead of replacing it (URL grew as `?_v=1.1.31&_v=1.1.32&_v=1.1.33`). `reloadForNewVersion()` now uses `URLSearchParams.set` so consecutive reloads keep exactly one `_v=<latest>` in the search string. Hash is preserved (#418).
 
 - Application logs view gained a severity multi-select filter (Error / Warning / Success / Info). State persists to `localStorage.logSeverityFilter` so reload preserves the view. All / None / Errors-only convenience buttons mirror the Notifications event grid's bulk shape. Backend untouched — fully client-side over the existing log ring buffer (#422).
-- Brand-style mono icons for Admin → Portainer + Admin → OIDC (Authentik). New `icon-portainer` ("P" mark + signature accent square) and `icon-authentik` ("k" mark + accent dot) `<symbol>` entries in the sprite block, both rendered in `currentColor` to inherit the sidebar's existing line-icon styling. Sidebar entries + section headings on each tab updated to use them; every other icon left untouched (#421).
+- Brand-style mono icons for Admin → Portainer + Admin → OIDC (Authentik). New `icon-portainer` (solid bold "P" mark + signature accent square) and `icon-authentik` (mono port of the official "key entering a castle" mark — round key eye on the left, body with battlement cutouts at the top and a doorway notch at the bottom) `<symbol>` entries in the sprite block, both rendered in `currentColor` to inherit the sidebar's existing line-icon styling. Sidebar entries + section headings on each tab updated to use them; every other icon left untouched (#421).
 
 ### Changed
 

@@ -481,6 +481,10 @@ function app() {
       // it per-tick so a Save here takes effect on the next cycle
       // after /api/me re-flows.
       'tuning_ops_poll_interval_ms',
+      // #424 — persistent-log retention in days. Daily files under
+      // /app/data/logs/ older than this get deleted by the lifespan
+      // _log_pruner_loop().
+      'tuning_log_retention_days',
     ],
     tuningForm: {},
     tuningEffective: {},
