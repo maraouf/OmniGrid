@@ -2147,7 +2147,10 @@
     <!-- ===== SETTINGS VIEW ===== -->
     <div x-show="view==='settings'" class="page-layout">
       <aside class="page-sidebar">
-        <div class="page-sidebar-header" x-text="t('settings.title')"></div>
+        <div class="page-sidebar-header">
+          <svg width="14" height="14" class="page-sidebar-header-icon" aria-hidden="true"><use href="#icon-settings"/></svg>
+          <span x-text="t('settings.title')"></span>
+        </div>
         <template x-for="s in settingsSections" :key="s.id">
           <button @click="settingsSection = s.id"
                   :class="settingsSection === s.id ? 'page-sidebar-item active' : 'page-sidebar-item'">
@@ -2158,18 +2161,6 @@
       </aside>
 
       <div class="page-content">
-        <!-- Page title bar (#387) — icon + label of the active sub-tab,
-             matching the avatar dropdown + sidebar entry so the operator
-             gets visual continuity from "click Settings in dropdown" →
-             "see Profile sidebar entry" → "see Profile title at the top
-             of the rendered tab". -->
-        <div class="page-title-bar">
-          <svg width="18" height="18" class="page-title-icon" aria-hidden="true">
-            <use :href="'#icon-' + activeSettingsSectionIcon()"/>
-          </svg>
-          <h2 class="page-title-text" x-text="activeSettingsSectionLabel()"></h2>
-        </div>
-
         <!-- Readonly banner — clarifies why save buttons are missing. -->
         <div x-show="isReadonly()"
              class="bg-[var(--surface-2)] border border-[var(--border-bright)] rounded-md px-4 py-2 text-[12px] text-[var(--text-dim)] flex items-center gap-2">
@@ -2202,7 +2193,10 @@
           <div class="text-[11.5px] text-[var(--text-dim)] mt-0.5" x-text="me && me.username"></div>
           <div class="mt-3 flex items-center gap-2">
             <span class="pill" :class="me && me.role === 'admin' ? 'pill-primary' : 'pill-muted'" x-text="me && me.role"></span>
-            <span class="chip" x-text="me && me.source"></span>
+            <span class="chip inline-flex items-center gap-1.5">
+              <img x-show="me && me.source === 'authentik'" src="/img/icons/authentik.svg" alt="" class="w-3 h-3" aria-hidden="true">
+              <span x-text="me && me.source"></span>
+            </span>
           </div>
           <button x-show="me && me.avatar_url" @click="clearAvatar()"
                   class="mt-4 text-[11px] text-[var(--danger)] hover:underline" x-text="t('settings.profile.avatar_remove')"></button>
@@ -2954,7 +2948,10 @@
         </select>
       </div>
       <aside class="page-sidebar">
-        <div class="page-sidebar-header" x-text="t('nav.admin')"></div>
+        <div class="page-sidebar-header">
+          <svg width="14" height="14" class="page-sidebar-header-icon" aria-hidden="true"><use href="#icon-shield"/></svg>
+          <span x-text="t('nav.admin')"></span>
+        </div>
         <template x-for="s in adminSections" :key="s.id">
           <button @click="openAdminTab(s.id)"
                   :class="adminTab === s.id ? 'page-sidebar-item active' : 'page-sidebar-item'">
@@ -2964,17 +2961,6 @@
         </template>
       </aside>
       <div class="page-content">
-      <!-- Page title bar (#387) — icon + label of the active sub-tab,
-           matching the avatar dropdown + sidebar entry so the operator
-           gets visual continuity from "click Admin in dropdown" → "see
-           Users sidebar entry" → "see Users title at the top of the
-           rendered tab". -->
-      <div class="page-title-bar">
-        <svg width="18" height="18" class="page-title-icon" aria-hidden="true">
-          <use :href="'#icon-' + activeAdminSectionIcon()"/>
-        </svg>
-        <h2 class="page-title-text" x-text="activeAdminSectionLabel()"></h2>
-      </div>
       <div>
         <p class="text-[11px] text-[var(--text-faint)] mt-0.5" x-text="t('admin.intro')"></p>
       </div>
@@ -4463,7 +4449,7 @@
                   class="btn btn-primary text-[12.5px]"
                   :disabled="hostsConfigSaving"
                   :class="hostsConfigDirty ? 'ring-2 ring-[var(--warning)]' : ''">
-            <span x-show="!hostsConfigSaving" x-text="t('hosts_actions.save_changes')"></span>
+            <span x-show="!hostsConfigSaving" x-text="t('actions.save')"></span>
             <span x-show="hostsConfigSaving" class="flex items-center gap-1"><span class="spin"></span><span x-text="t('actions.saving')"></span></span>
           </button>
           <!-- Row count — helps operators know where they are in long lists. -->
@@ -4851,7 +4837,7 @@
                   class="btn btn-primary text-[12.5px]"
                   :disabled="hostGroupsSaving"
                   :class="hostGroupsDirty ? 'ring-2 ring-[var(--warning)]' : ''">
-            <span x-show="!hostGroupsSaving" x-text="t('admin_hosts.groups.save')"></span>
+            <span x-show="!hostGroupsSaving" x-text="t('actions.save')"></span>
             <span x-show="hostGroupsSaving" class="flex items-center gap-1"><span class="spin"></span><span x-text="t('actions.saving')"></span></span>
           </button>
           <!-- Row count — matches the host editor's "138 hosts" hint. -->
@@ -5054,7 +5040,7 @@
                   class="btn btn-primary text-[12px]"
                   :class="assetDirty() ? 'ring-2 ring-[var(--warning)]' : ''"
                   :disabled="assetSaving">
-            <span x-show="!assetSaving" x-text="t('admin_assets.save')"></span>
+            <span x-show="!assetSaving" x-text="t('actions.save')"></span>
             <span x-show="assetSaving" class="flex items-center gap-1"><span class="spin"></span><span x-text="t('admin_assets.saving')"></span></span>
           </button>
           <!-- Unified dirty marker — same shape as Profile / Portainer /
@@ -5330,7 +5316,7 @@
                   :disabled="sshSettingsBusy"
                   :class="sshSettingsDirty ? 'ring-2 ring-[var(--warning)]' : ''"
                   class="btn btn-primary text-[12px]">
-            <span x-show="!sshSettingsBusy" x-text="t('admin_ssh.save')"></span>
+            <span x-show="!sshSettingsBusy" x-text="t('actions.save')"></span>
             <span x-show="sshSettingsBusy" class="flex items-center gap-1"><span class="spin"></span>…</span>
           </button>
           <span x-show="sshSettingsDirty"
@@ -5931,7 +5917,7 @@
                       :disabled="tuningSaving"
                       :class="tuningDirty() ? 'ring-2 ring-[var(--warning)]' : ''"
                       class="btn btn-primary text-[12px]">
-                <span x-show="!tuningSaving" x-text="t('admin.config.save')"></span>
+                <span x-show="!tuningSaving" x-text="t('actions.save')"></span>
                 <span x-show="tuningSaving" class="flex items-center gap-1"><span class="spin"></span><span x-text="t('actions.saving')"></span></span>
               </button>
               <span x-show="tuningDirty()"
@@ -6085,7 +6071,7 @@
                         :disabled="versionSaving"
                         :class="versionDirty() ? 'ring-2 ring-[var(--warning)]' : ''"
                         class="btn btn-primary text-[12px]">
-                  <span x-show="!versionSaving" x-text="t('admin.version.save')"></span>
+                  <span x-show="!versionSaving" x-text="t('actions.save')"></span>
                   <span x-show="versionSaving" class="flex items-center gap-1"><span class="spin"></span><span x-text="t('actions.saving')"></span></span>
                 </button>
                 <span x-show="versionDirty()"

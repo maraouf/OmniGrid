@@ -498,7 +498,7 @@ Watch the run. Expected behaviour:
 1. **Checkout** — green, < 5 s.
 2. **Configure SSH** — green, writes `deploy_key` and `ssh-keyscan`.
 3. **Rsync source** — green, transfers only files that changed.
-4. **Bump VERSION.txt on server** — SSHes in, reads `/app/VERSION.txt`, bumps MINOR by 1.
+4. **Bump VERSION.txt on server** — SSHes in, reads `/app/VERSION.txt`, bumps PATCH by 1.
 5. **Resolve Swarm service name** (if restart needed) — auto-discovers the single service in the
    stack.
 6. **Force Swarm update** — green, Swarm replaces the single replica.
@@ -538,28 +538,44 @@ a backend change.
 `force_restart` dropdown. Set it to `true` to restart even on a static-only diff (useful if the
 uvicorn process has drifted for unrelated reasons and you want to bounce it).
 
-## VERSION.txt bump model (MAJOR.MINOR, no PATCH)
+## VERSION.txt bump model (SemVer MAJOR.MINOR.PATCH)
 
 The server owns `/app/VERSION.txt` — rsync deliberately excludes `VERSION.txt` so deploys never
 overwrite a hand-pinned version. `main.py` reads `/app/VERSION.txt` (falls back to the
-repo-local copy for dev); missing file returns `"0.0.0-dev"` as a visible signal.
+repo-local copy for dev); missing file returns `"0.0.0-dev"` as a visible signal. `compose.yml`
+layers a per-file writable bind for `VERSION.txt` on top of the read-only `/app` mount so both
+the deploy pipeline (writing from the host) and Admin → Version (writing from inside the
+container) target the same path.
 
-- **Operator** hand-edits `/app/VERSION.txt` on the server to bump MAJOR for a feature ship
-  (e.g. `2.25` → `3.0`). The committed `VERSION.txt` at repo root is a dev-time reference only
-  — it's never deployed.
-- **CI bumps MINOR on the server** via SSH in the "Bump VERSION.txt on server" step, which runs
-  BEFORE the Swarm restart so the new container reads the bumped file at startup. Fires on every
-  successful rsync (static-only included, because the `?v=__APP_VERSION__` cache-bust on assets
-  needs a fresh value). MAJOR is preserved, only MINOR increments by 1 per deploy.
-- The post-deploy "Verify deployed version matches" step asserts `/api/version` equals what was
-  just written. Catches the situation where the SSH bump succeeded but the container failed to
-  read the new file (e.g. bind-mount stale). Mismatch → ❌ Apprise ping.
+See `docs/RELEASE_PROCESS.md` for the full operator runbook. Quick summary:
+
+- **MAJOR** — operator-controlled. Reserved for breaking changes. Resets MINOR + PATCH to 0.
+- **MINOR** — operator-controlled, periodic. When a batch of PATCH-shipped items feels
+  release-worthy, the operator hand-edits `/app/VERSION.txt` on the server (e.g. `1.0.47` →
+  `1.1.0`) — or uses the Admin → Version page in the UI. Resets PATCH to 0. CI never touches
+  MINOR.
+- **PATCH** — CI-controlled, automatic. Every successful rsync increments PATCH by 1 via the
+  "Bump VERSION.txt on server" step, which runs BEFORE the Swarm restart so the new container
+  reads the bumped file at startup. Fires on every successful rsync (static-only included,
+  because the `?v=__APP_VERSION__` cache-bust on assets needs a fresh value). MAJOR + MINOR
+  are preserved.
+- The post-deploy "Verify deployed version matches" step asserts `/api/version` equals what
+  was just written. Catches the situation where the SSH bump succeeded but the container
+  failed to read the new file (e.g. bind-mount stale). Mismatch → ❌ Apprise ping.
 - **First-deploy bootstrap**: if `/app/VERSION.txt` doesn't exist, the bump step creates it at
-  `1.0` then increments to `1.1`. Operator can also seed the file manually with any
-  MAJOR.MINOR they want before the first deploy.
-- **Legacy 3-part migration** (e.g. `2.0.25`): on the next CI bump, the old PATCH becomes the
-  new MINOR and PATCH is dropped, so `2.0.25` → `2.26`. The counter keeps moving forward rather
-  than resetting to `2.0`.
+  `1.0.0` then increments to `1.0.1`. Operator can also seed the file manually with any
+  SemVer triple before the first deploy.
+- **Legacy migrations** are handled inline in deploy.yml's bump step:
+    - 3-part `2.x.y` (an older flavour we briefly used) one-shot collapses to `1.0.<counter>`
+      — the counter keeps moving forward rather than resetting.
+    - 2-part `M.N` (the brief MAJOR.MINOR-only experiment) backfills PATCH=0 then bumps to
+      `M.N.1`.
+
+Operator UI: **Admin → Version** is a direct VERSION.txt editor — Save writes the values
+straight to the file. Use case: reset PATCH to 0 from the UI when cutting a MINOR release. The
+writable per-file bind in `docker-compose.yml` (`/opt/omnigrid/app/VERSION.txt:/app/VERSION.txt`)
+is what makes this possible — operators upgrading from older deploys must redeploy the stack
+once for the new compose bind to take effect.
 
 ## Apply Swarm update-config without redeploying the stack
 

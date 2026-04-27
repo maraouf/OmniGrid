@@ -2444,12 +2444,20 @@ details summary::-webkit-details-marker {
 }
 
 .page-sidebar-header {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
   padding: var(--s-3) var(--s-5) var(--s-4);
   font-size: 12px;
   font-weight: 600;
   color: var(--text);
   border-bottom: 1px solid var(--border);
   margin-bottom: var(--s-3);
+}
+
+.page-sidebar-header-icon {
+  color: var(--text-dim);
+  flex-shrink: 0;
 }
 
 .page-sidebar-item {
@@ -2500,31 +2508,6 @@ details summary::-webkit-details-marker {
   display: flex;
   flex-direction: column;
   gap: var(--s-5);
-}
-
-/* Page title bar (#387) — Admin / Settings page-content header.
-   Renders the active sub-tab's icon + label so the operator gets
-   visual continuity from avatar dropdown → sidebar entry → page
-   title. Subtle styling: text-dim icon, text-base label, flush
-   with the top edge of the content area, gap matches the sidebar
-   button's icon-to-label spacing for symmetry. */
-.page-title-bar {
-  display: flex;
-  align-items: center;
-  gap: var(--s-2);
-  padding-bottom: var(--s-2);
-  border-bottom: 1px solid var(--border);
-}
-.page-title-icon {
-  color: var(--text-dim);
-  flex-shrink: 0;
-}
-.page-title-text {
-  font-size: 15px;
-  font-weight: 600;
-  color: var(--text);
-  margin: 0;
-  line-height: 1.2;
 }
 
 /* Mobile-only admin/settings nav — replaces the .page-sidebar with a

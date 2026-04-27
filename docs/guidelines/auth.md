@@ -12,18 +12,20 @@ walkthrough.
 - **Tables**: `users`, `sessions`, `api_tokens` (idempotent in `init_db()`).
 - **Auth routes**:
 
-  | Method | Route                              | Purpose                                                              |
-  | ------ | ---------------------------------- | -------------------------------------------------------------------- |
-  | `POST` | `/api/local-auth/login`            | Form login (username, password).                                     |
-  | `POST` | `/api/local-auth/logout`           | Clear cookie + revoke session.                                       |
-  | `POST` | `/api/local-auth/bootstrap`        | One-shot; works only when `users` is empty.                          |
-  | `POST` | `/api/local-auth/change-password`  | Authed; rotates local password, keeps caller session.                |
-  | `GET`  | `/api/me`                          | `{authenticated:false}` or `{username,role,source}`.                 |
-  | `GET`  | `/api/auth/providers`              | Public; login page reads this to decide whether to render SSO button. |
-  | `GET`  | `/api/oidc/login`                  | Begin OIDC Authorization-Code + PKCE flow.                           |
-  | `GET`  | `/api/oidc/callback`               | IdP callback — validates id_token, mints `og_session`.               |
-  | `POST` | `/api/oidc/test`                   | Admin-only; probes `{issuer}/.well-known/openid-configuration`.      |
-  | `GET`  | `/login`                           | Login HTML page (`static/login.html`).                               |
+  | Method | Route                                | Purpose                                                              |
+  | ------ | ------------------------------------ | -------------------------------------------------------------------- |
+  | `POST` | `/api/local-auth/login`              | Step 1: username + password. Returns either `og_session` or `{totp_required, challenge_token}`. |
+  | `POST` | `/api/local-auth/totp`               | Step 2: submit 6-digit code or 8-char backup code against the challenge. |
+  | `POST` | `/api/local-auth/totp-setup-confirm` | First-login forced-enrol path (combined enrol + verify).             |
+  | `POST` | `/api/local-auth/logout`             | Clear cookie + revoke session.                                       |
+  | `POST` | `/api/local-auth/bootstrap`          | One-shot; works only when `users` is empty.                          |
+  | `POST` | `/api/local-auth/change-password`    | Authed; rotates local password, keeps caller session.                |
+  | `GET`  | `/api/me`                            | `{authenticated:false}` or `{username,role,source,...}`.             |
+  | `GET`  | `/api/auth/providers`                | Public; login page reads this to decide whether to render SSO button. |
+  | `GET`  | `/api/oidc/login`                    | Begin OIDC Authorization-Code + PKCE flow.                           |
+  | `GET`  | `/api/oidc/callback`                 | IdP callback — validates id_token, mints `og_session`.               |
+  | `POST` | `/api/oidc/test`                     | Admin-only; probes `{issuer}/.well-known/openid-configuration`.      |
+  | `GET`  | `/login`                             | Login HTML page (`static/login.html`).                               |
 
 - **Admin routes** (all admin-only — step 5):
 
@@ -34,6 +36,8 @@ walkthrough.
   | `PATCH` | `/api/users/{id}`                       | Change role or enable/disable.                                                           |
   | `DELETE`| `/api/users/{id}`                       | Guarded: not self, not last active admin.                                                |
   | `POST`  | `/api/users/{id}/reset-password`        | Admin-reset (local users only); invalidates their sessions.                              |
+  | `POST`  | `/api/users/{id}/disable-totp`          | Admin-side disable of a user's TOTP enrolment.                                           |
+  | `POST`  | `/api/users/{id}/totp-force`            | Admin-side per-user `totp_force_required` flag.                                          |
   | `GET`   | `/api/sessions`                         | List active sessions across every user.                                                  |
   | `DELETE`| `/api/sessions/{token_id}`              | Revoke one session.                                                                      |
   | `GET`   | `/api/tokens`                           | List API tokens (never returns the raw value).                                           |
@@ -69,7 +73,7 @@ walkthrough.
 
 **Auth-optional** (identity resolved but 401 is NOT raised, CSRF NOT enforced):
 
-- `/api/local-auth/*` (login, logout, bootstrap, change-password).
+- `/api/local-auth/*` (login, logout, bootstrap, change-password, totp, totp-setup-confirm).
 - `/api/me` (must be answerable by unauthed callers).
 - `/api/oidc/*` (login, callback).
 - `/api/auth/providers` (public provider discovery).
@@ -141,28 +145,110 @@ aid for existing deploys, then ignored — the DB is authoritative after seeding
 
 ## User-facing UI that already exists
 
-- **Top-nav "Settings"** item (view-based, not a modal) grouping:
-  - Profile • Apprise notifications • Portainer connection + public URL • Ignore list •
-    Authentik OIDC (SSO) • Host-stats providers • Language • Keyboard shortcuts.
-- **Top-nav "Admin"** item (admin role only) with four tabs:
+- **Top-nav "Settings"** item (view-based, not a modal) — personal settings only.
+  Sidebar sections (sub-tabs):
+  - **Profile** — identity (display name / email / bio / avatar / topbar widgets / appearance).
+  - **Notifications** — per-user opt-in/out for the 12 op events + the user-login security
+    event. Admin-disabled events grey out.
+  - **Ignore list** — image / stack ignore patterns.
+  - **Language** — UI language picker (EN / AR with RTL; more by dropping a JSON in
+    `static/i18n/`).
+  - **Security** — change-password card + TOTP enrolment card + Authentik passive-note for
+    SSO users. (Service-wide knobs like Apprise / Portainer / OIDC are admin-only and live
+    under the Admin sidebar.)
+  - **Keyboard shortcuts** — hotkey reference.
+- **Top-nav "Admin"** item (admin role only). Sidebar sections:
+  - **General** — Open-Meteo proxy URL.
   - **Users** — create user (local or authentik), toggle role, enable/disable, admin-reset
-    password, delete. Destructive actions confirm via SweetAlert. Self-delete and
-    last-active-admin demotion blocked.
+    password, force-2FA toggle, disable a user's TOTP, delete. Destructive actions confirm
+    via SweetAlert. Self-delete and last-active-admin demotion blocked.
+  - **Authentication** — TOTP / 2FA policy section (master toggle + per-role required +
+    lockout window). Future home for any other auth-related admin settings.
   - **Sessions** — active session list across every user with IP / UA / last-seen / expiry;
     one-click revoke.
-  - **API tokens** — create named tokens with role; raw value shown ONCE in a reveal modal (we
-    store SHA-256 only); revoke any token.
-  - **Schedules**, **Hosts**, **Backups**, **Logs** — see the dedicated runbooks in
-    `docs/guidelines/`.
-- **Profile modal** opened by clicking the username pill in the top-right:
-  - Local users → current / new / confirm password form.
-  - Authentik users → pointer to Authentik for password changes.
-  - API-token sessions → "not applicable".
-- Password change via profile modal:
+  - **API tokens** — create named tokens with role; raw value shown ONCE in a reveal modal
+    (we store SHA-256 only); revoke any token.
+  - **Notifications** — global Apprise URL + tag + per-event toggles (12 op events + 1
+    security event). Master toggle gates dependent inputs.
+  - **Portainer** — connection settings + public URL. Master toggle.
+  - **Authentik OIDC** — SSO provider config. Master toggle. See `docs/guidelines/authentik.md`.
+  - **Host stats**, **Hosts**, **Host Groups**, **SSH**, **Asset inventory**, **Schedules**,
+    **Backups**, **Logs**, **Debug**, **Config** (process-level tunables — see `docs/guidelines/env_example.md`),
+    **Version** (direct VERSION.txt editor — see `docs/RELEASE_PROCESS.md`).
+- **Profile modal** opened by clicking the username pill in the top-right is now retired —
+  identity / password / TOTP have all moved into the Settings → Profile and Settings → Security
+  sub-sections. The username pill in the topbar opens a small dropdown (avatar, role chip,
+  jump links to Settings + Admin, Logout).
+- Password change (Settings → Security → Change password card):
   - Rate-limited via the same per-IP limiter as `/api/local-auth/login`.
   - Invalidates every session for the user EXCEPT the caller's own `token_id`, so the user
     doesn't need to re-login immediately.
   - Rejects matching-password, <8 char passwords, and mismatched confirm.
+
+## TOTP (2FA) for local accounts
+
+Local-admin TOTP (Authenticator-app codes) is implemented end-to-end (`logic/totp.py`,
+`pyotp` + `cryptography` Fernet for at-rest encryption keyed off `SESSION_SECRET` via HKDF,
+5 additive `users.totp_*` columns).
+
+**User enrolment** (Settings → Security → "Two-factor authentication" card):
+
+1. Click **Enable**. The card shows a QR code + the secret in `otpauth://` form for manual
+   entry into 1Password / Authenticator / etc.
+2. Enter the 6-digit code from the app to confirm. On success, the card flips to "reveal"
+   mode, showing 10 single-use backup codes — **shown ONCE**, store them somewhere safe.
+3. Card shows a **Regenerate codes** action (re-display + invalidate the old set) and a
+   **Disable** action (requires the user's password).
+
+**Admin tools** (Admin → Users):
+
+- 2FA column shows per-row status: `none` / `enabled` / `required` (required = global policy
+  or per-user force flag is on but the user hasn't enrolled yet — the next login WILL be
+  blocked at the TOTP challenge step until they enrol).
+- Per-row **Disable 2FA** (admin-side disable; user retains nothing — the next time they hit
+  the TOTP screen they're back to enrolment). Used when a user loses both their authenticator
+  and their backup codes.
+- Per-row **Force 2FA** / **Unforce** toggles the per-user `totp_force_required` flag. ORs
+  with the global per-role policy.
+
+**Admin policy** (Admin → Authentication):
+
+- **Allow TOTP for local users** — master toggle. Off disables the entire TOTP code path
+  globally; existing enrollments stay in the DB but are bypassed at login.
+- **Require TOTP for admins** / **Require TOTP for users** — per-role policy. Forces enrolment
+  on next login.
+- **Lockout after N failures** + **Lockout window in minutes** — protects against brute-force
+  on the 6-digit space. Defaults: 5 failures / 15 minutes.
+
+**Login flow with TOTP**:
+
+```
+POST /api/local-auth/login {username, password}
+  → 200 {totp_required: true, challenge_token: "..."}
+POST /api/local-auth/totp {challenge_token, code}   // 6-digit OR 8-char backup code
+  → 200 + sets og_session
+```
+
+The `challenge_token` is held in the in-memory `_totp_challenges` cache with a 5-minute TTL.
+A second password-correct call before challenge resolution invalidates the previous challenge.
+Authentik users skip every TOTP path (Authentik handles MFA). Bearer-token requests bypass.
+Every state change (`enable_start` / `enable_confirm` / `disable` / `verify_pass` /
+`verify_fail` / `lockout` / `force_set` / `admin_disable`) writes a `[totp]` log line and a
+`history` row.
+
+**Endpoints** (auth runbook scope; full schema in `main.py`):
+
+| Method  | Route                                  | Purpose                                                          |
+| ------- | -------------------------------------- | ---------------------------------------------------------------- |
+| `POST`  | `/api/local-auth/totp`                 | Submit a TOTP code for the active challenge_token.               |
+| `POST`  | `/api/local-auth/totp-setup-confirm`   | First-login forced-enrol path (enrol + verify in one call).      |
+| `GET`   | `/api/me/totp`                         | Current user's TOTP state (enabled / required / backup-code count). |
+| `POST`  | `/api/me/totp/enroll-start`            | Returns secret + QR `otpauth://` URI.                            |
+| `POST`  | `/api/me/totp/enroll-confirm`          | Verifies the first code; mints backup codes.                     |
+| `POST`  | `/api/me/totp/regenerate-codes`        | Rotates backup codes.                                            |
+| `POST`  | `/api/me/totp/disable`                 | User self-disable (requires password).                           |
+| `POST`  | `/api/users/{id}/disable-totp`         | Admin-side disable.                                              |
+| `POST`  | `/api/users/{id}/totp-force`           | Admin-side per-user force flag.                                  |
 
 ## Password flows
 
@@ -188,15 +274,20 @@ aid for existing deploys, then ignored — the DB is authoritative after seeding
 
 1. A global `fetch()` wrapper is installed BEFORE Alpine init. Any 401 from any API call
    redirects the browser to `/login?next=<current-path>`.
-2. `init()` calls `/api/me` first. If `{authenticated:false}`, redirect; else store the user +
-   role on the Alpine state as `me`.
-3. The header's top-right is a separate flex group (`ml-auto` + left divider) with a username
-   pill (`username · role`) and a logout button. Clicking the pill opens the profile modal;
-   clicking logout posts `/api/local-auth/logout` then goes to `/login`.
-4. "Settings" is a top-nav view (stored in `localStorage`), not a modal. It shows Profile,
-   Apprise, Portainer connection + public URL, Ignore list, the Authentik OIDC panel, and a
-   link to the Hotkeys reference. The filter-chip bar hides on this view (same treatment as
-   History).
+2. `init()` calls `/api/me` first. If `{authenticated:false}`, redirect; else store the user
+   + role on the Alpine state as `me`. The same call also surfaces `bootstrap_env_still_set`
+   (banner-warning when `BOOTSTRAP_ADMIN_USER` / `BOOTSTRAP_ADMIN_PASSWORD` are still in env
+   AND users exist) and `notify_events` / `notify_events_admin` (per-user opt-in/out + admin
+   gate snapshot).
+3. The header's top-right is a username pill (`username · role`) that opens a small
+   dropdown — links to Settings + Admin (admin only) and Logout. Logout posts to
+   `/api/local-auth/logout` then navigates to `/login`. The old "profile modal" is gone;
+   identity / password / TOTP all live as Settings → Profile / Settings → Security cards.
+4. "Settings" and "Admin" are top-nav views (paths `/settings/<section>` and
+   `/admin/<tab>`, persisted via Alpine state). Both render a sidebar (sub-tab list) and a
+   content area that opens with a page-title bar (the active sub-tab's icon + label) so the
+   icon is consistent end-to-end: avatar dropdown → sidebar entry → page-title bar all share
+   the same symbol. The filter-chip bar hides on these views (same treatment as History).
 
 No middleware change is needed for OIDC login — the callback route mints the same `og_session`
 cookie local logins use, so every downstream handler behaves identically for local and OIDC
