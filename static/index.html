@@ -2561,8 +2561,10 @@
         <!-- Authentik users get a passive note in lieu of the TOTP card. -->
         <section class="bg-[var(--surface)] border border-[var(--border)] rounded-md p-5"
                  x-show="me && me.source === 'authentik'">
-          <h3 class="font-semibold text-[13px] mb-2"
-              x-text="t('settings.profile.totp.title')"></h3>
+          <div class="flex items-center gap-2 mb-2">
+            <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true"><use href="#icon-shield"/></svg>
+            <h3 class="font-semibold text-[13px]" x-text="t('settings.profile.totp.title')"></h3>
+          </div>
           <p class="text-[12.5px] text-[var(--text-dim)]"
              x-text="t('settings.profile.totp.authentik_hint')"></p>
         </section>
@@ -3015,7 +3017,10 @@
 
         <section class="bg-[var(--surface)] border border-[var(--border)] rounded-md overflow-hidden">
           <div class="p-4 border-b border-[var(--border)] flex justify-between items-center">
-            <h3 class="font-semibold text-[13px]"><span x-text="t('admin.users.list_title')"></span> <span class="text-[var(--text-faint)] font-normal" x-text="'(' + users.length + ')'"></span></h3>
+            <div class="flex items-center gap-2">
+              <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true"><use href="#icon-user"/></svg>
+              <h3 class="font-semibold text-[13px]"><span x-text="t('admin.users.list_title')"></span> <span class="text-[var(--text-faint)] font-normal" x-text="'(' + users.length + ')'"></span></h3>
+            </div>
             <button @click="loadUsers()" class="btn btn-ghost text-[11px]" x-text="t('actions.reload')"></button>
           </div>
           <div class="overflow-x-auto scrollbar">
@@ -3231,7 +3236,10 @@
            lives in its own General tab below; per-event toggle grid
            sits below the Apprise panel. -->
       <section x-show="adminTab==='notifications'" class="bg-[var(--surface)] border border-[var(--border)] rounded-md p-5">
-        <h3 class="font-semibold text-[13px] mb-2" x-text="t('settings.notifications.title')"></h3>
+        <div class="flex items-center gap-2 mb-2">
+          <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true"><use href="#icon-bell"/></svg>
+          <h3 class="font-semibold text-[13px]" x-text="t('settings.notifications.title')"></h3>
+        </div>
         <!-- Master switch (#204). Disables `notify()` in the backend
              without erasing the URL/tag — flip back on to resume.
              Saves alongside the URL/tag when the operator clicks
@@ -3353,7 +3361,10 @@
            Future home for any other ambient/UI service settings that
            don't belong under auth, hosts, scheduling, or notifications. -->
       <section x-show="adminTab==='general'" class="bg-[var(--surface)] border border-[var(--border)] rounded-md p-5">
-        <h3 class="font-semibold text-[13px] mb-1" x-text="t('admin.general.title')"></h3>
+        <div class="flex items-center gap-2 mb-1">
+          <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true"><use href="#icon-sliders"/></svg>
+          <h3 class="font-semibold text-[13px]" x-text="t('admin.general.title')"></h3>
+        </div>
         <p class="text-[11px] text-[var(--text-faint)] mb-4" x-text="t('admin.general.subtitle')"></p>
 
         <!-- Open-Meteo upstream — where the topbar weather widget
@@ -3405,7 +3416,10 @@
         <section class="bg-[var(--surface)] border border-[var(--border)] rounded-md p-5">
           <div class="flex items-start justify-between">
             <div>
-              <h3 class="font-semibold text-[13px] mb-2" x-text="t('settings.portainer.connection_title')"></h3>
+              <div class="flex items-center gap-2 mb-2">
+                <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true"><use href="#icon-box"/></svg>
+                <h3 class="font-semibold text-[13px]" x-text="t('settings.portainer.connection_title')"></h3>
+              </div>
               <p class="text-[11.5px] text-[var(--text-faint)] mb-3" x-text="t('settings.portainer.connection_desc')"></p>
             </div>
             <span x-show="portainerStatus" class="chip"
@@ -3515,7 +3529,10 @@
       <section x-show="adminTab==='oidc'" class="bg-[var(--surface)] border border-[var(--border)] rounded-md p-5">
         <div class="flex items-start justify-between">
           <div>
-            <h3 class="font-semibold text-[13px] mb-2" x-text="t('settings.oidc.title')"></h3>
+            <div class="flex items-center gap-2 mb-2">
+              <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true"><use href="#icon-id-card"/></svg>
+              <h3 class="font-semibold text-[13px]" x-text="t('settings.oidc.title')"></h3>
+            </div>
             <p class="text-[11.5px] text-[var(--text-faint)] mb-3" x-text="t('settings.oidc.description')"></p>
           </div>
           <span x-show="oidcStatus"
@@ -3636,7 +3653,10 @@
 
       <!-- HOST STATS TAB -->
       <section x-show="adminTab==='host_stats'" class="bg-[var(--surface)] border border-[var(--border)] rounded-md p-5">
-        <h3 class="font-semibold text-[13px] mb-2" x-text="t('settings.host_stats.title')"></h3>
+        <div class="flex items-center gap-2 mb-2">
+          <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true"><use href="#icon-activity"/></svg>
+          <h3 class="font-semibold text-[13px]" x-text="t('settings.host_stats.title')"></h3>
+        </div>
         <p class="text-[11.5px] text-[var(--text-faint)] mb-3" x-text="t('settings.host_stats.desc')"></p>
         <label class="block text-[11px] text-[var(--text-faint)] mb-1"
                x-text="t('settings.host_stats.source_label')"></label>
@@ -3889,7 +3909,10 @@
              row below so the intro doesn't squeeze into a 6-line
              sliver on typical desktops -->
         <div class="mb-3">
-          <h3 class="font-semibold text-[14px]">Hosts</h3>
+          <div class="flex items-center gap-2">
+            <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true"><use href="#icon-server"/></svg>
+            <h3 class="font-semibold text-[14px]">Hosts</h3>
+          </div>
           <p class="text-[12px] text-[var(--text-faint)] mt-1 leading-snug max-w-[720px]">
             Define the machines you want to monitor and map each to the
             names used by every enabled provider. OmniGrid fetches all
@@ -4507,7 +4530,10 @@
            dropdown + IP range text field for 2-level nesting. -->
       <section x-show="adminTab==='host_groups'" class="bg-[var(--surface)] border border-[var(--border)] rounded-md p-5">
         <div class="mb-4">
-          <h3 class="font-semibold text-[13px]" x-text="t('admin_hosts.groups.heading')"></h3>
+          <div class="flex items-center gap-2">
+            <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true"><use href="#icon-layers"/></svg>
+            <h3 class="font-semibold text-[13px]" x-text="t('admin_hosts.groups.heading')"></h3>
+          </div>
           <p class="text-[11.5px] text-[var(--text-faint)] mt-1 leading-snug max-w-[720px]"
              x-text="t('admin_hosts.groups.intro')"></p>
           <p class="text-[11px] text-[var(--text-faint)] mt-2 leading-snug max-w-[720px]"
@@ -4890,7 +4916,10 @@
            cache at /app/data/asset_inventory.json is the source of
            truth that the host drawer reads. -->
       <section x-show="adminTab==='assets'" class="bg-[var(--surface)] border border-[var(--border)] rounded-md p-5">
-        <h3 class="font-semibold text-[13px] mb-2" x-text="t('admin_assets.title')"></h3>
+        <div class="flex items-center gap-2 mb-2">
+          <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true"><use href="#icon-package"/></svg>
+          <h3 class="font-semibold text-[13px]" x-text="t('admin_assets.title')"></h3>
+        </div>
         <p class="text-[11.5px] text-[var(--text-faint)] mb-4 leading-snug max-w-[720px]"
            x-text="t('admin_assets.intro')"></p>
 
@@ -5123,7 +5152,10 @@
       <!-- SSH TAB — global defaults + a "test on a host" widget. Per-host
            overrides live on each row in Admin → Hosts. -->
       <section x-show="adminTab==='ssh'" class="bg-[var(--surface)] border border-[var(--border)] rounded-md p-5">
-        <h3 class="font-semibold text-[13px] mb-2" x-text="t('admin_ssh.title')"></h3>
+        <div class="flex items-center gap-2 mb-2">
+          <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true"><use href="#icon-terminal"/></svg>
+          <h3 class="font-semibold text-[13px]" x-text="t('admin_ssh.title')"></h3>
+        </div>
         <p class="text-[11.5px] text-[var(--text-faint)] mb-3 leading-snug max-w-[720px]"
            x-text="t('admin_ssh.intro')"></p>
         <!-- Master switch (#204). When off, every `resolve_ssh_params`
@@ -5382,7 +5414,10 @@
              Blank = container-local (legacy); any IANA name routes
              cadence anchors through zoneinfo instead. -->
         <section class="bg-[var(--surface)] border border-[var(--border)] rounded-md p-5">
-          <h3 class="font-semibold text-[13px] mb-2" x-text="t('scheduler_settings.title')"></h3>
+          <div class="flex items-center gap-2 mb-2">
+            <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true"><use href="#icon-calendar"/></svg>
+            <h3 class="font-semibold text-[13px]" x-text="t('scheduler_settings.title')"></h3>
+          </div>
           <p class="text-[11.5px] text-[var(--text-faint)] mb-4" x-text="t('scheduler_settings.intro')"></p>
           <div class="flex items-end gap-3 flex-wrap">
             <div class="flex flex-col gap-1">
@@ -5763,7 +5798,10 @@
 
       <div x-show="adminTab==='backups'" class="space-y-4">
         <section class="bg-[var(--surface)] border border-[var(--border)] rounded-md p-5">
-          <h3 class="font-semibold text-[13px] mb-2" x-text="t('admin.backups.create_title')"></h3>
+          <div class="flex items-center gap-2 mb-2">
+            <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true"><use href="#icon-archive"/></svg>
+            <h3 class="font-semibold text-[13px]" x-text="t('admin.backups.create_title')"></h3>
+          </div>
           <p class="text-[11.5px] text-[var(--text-faint)] mb-3" x-html="t('admin.backups.create_desc')"></p>
           <div class="flex items-center gap-2 flex-wrap">
             <button @click="createBackup()" :disabled="backupBusy"
@@ -5843,6 +5881,7 @@
       <div x-show="adminTab==='logs'" class="space-y-3">
         <section class="bg-[var(--surface)] border border-[var(--border)] rounded-md p-4">
           <div class="flex flex-wrap items-center gap-2 mb-3">
+            <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true"><use href="#icon-file-text"/></svg>
             <h3 class="font-semibold text-[13px]" x-text="t('admin.logs.title')"></h3>
             <span class="text-[11px] text-[var(--text-faint)]"
                   x-text="t('admin.logs.count', { n: filteredLogLines().length, total: logLines.length })"></span>
@@ -5904,7 +5943,10 @@
            effect on the next consumer read; samplers see one tick lag. -->
       <div x-show="adminTab==='config'" class="space-y-4">
         <section class="bg-[var(--surface)] border border-[var(--border)] rounded-md p-5">
-          <h3 class="font-semibold text-[13px] mb-1" x-text="t('admin.config.title')"></h3>
+          <div class="flex items-center gap-2 mb-1">
+            <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true"><use href="#icon-settings"/></svg>
+            <h3 class="font-semibold text-[13px]" x-text="t('admin.config.title')"></h3>
+          </div>
           <p class="text-[11.5px] text-[var(--text-faint)] mb-4 max-w-[820px]"
              x-text="t('admin.config.subtitle')"></p>
 
@@ -5962,8 +6004,11 @@
            bearer-token rotation policy). -->
       <div x-show="adminTab==='authentication'" class="space-y-4">
         <section class="bg-[var(--surface)] border border-[var(--border)] rounded-md p-5">
-          <h3 class="font-semibold text-[13px] mb-1"
-              x-text="t('admin.config.totp.title')"></h3>
+          <div class="flex items-center gap-2 mb-1">
+            <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true"><use href="#icon-shield"/></svg>
+            <h3 class="font-semibold text-[13px]"
+                x-text="t('admin.config.totp.title')"></h3>
+          </div>
           <p class="text-[11.5px] text-[var(--text-faint)] mb-4 max-w-[820px]"
              x-text="t('admin.config.totp.subtitle')"></p>
 
@@ -6039,7 +6084,10 @@
            on every successful deploy. -->
       <div x-show="adminTab==='version'" class="space-y-4">
         <section class="bg-[var(--surface)] border border-[var(--border)] rounded-md p-5">
-          <h3 class="font-semibold text-[13px] mb-1" x-text="t('admin.version.title')"></h3>
+          <div class="flex items-center gap-2 mb-1">
+            <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true"><use href="#icon-tag"/></svg>
+            <h3 class="font-semibold text-[13px]" x-text="t('admin.version.title')"></h3>
+          </div>
           <p class="text-[11.5px] text-[var(--text-faint)] mb-4 leading-snug max-w-[720px]"
              x-text="t('admin.version.intro')"></p>
 
@@ -6119,8 +6167,11 @@
            toggles land below it. Each flips on change, no Save. -->
       <div x-show="adminTab==='debug'" class="space-y-4">
         <section class="bg-[var(--surface)] border border-[var(--border)] rounded-md p-5">
-          <h3 class="font-semibold text-[13px] mb-1"
-              x-text="t('admin.debug.title')"></h3>
+          <div class="flex items-center gap-2 mb-1">
+            <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true"><use href="#icon-bug"/></svg>
+            <h3 class="font-semibold text-[13px]"
+                x-text="t('admin.debug.title')"></h3>
+          </div>
           <p class="text-[11.5px] text-[var(--text-faint)] mb-4 max-w-[720px]"
              x-text="t('admin.debug.intro')"></p>
 
