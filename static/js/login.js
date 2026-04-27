@@ -25,6 +25,23 @@ function applyI18nDom() {
     const v = window.t ? window.t(key) : key;
     if (v && v !== key) el.textContent = v;
   }
+  // The <title> element only carries `data-i18n-title` (writing
+  // `data-i18n` on it would clobber the textContent path with the same
+  // string but skip translating the tab title once it's first cached
+  // by the browser). Update both the title element AND `document.title`
+  // so the tab label refreshes immediately on language change.
+  const titleEls = document.querySelectorAll('[data-i18n-title]');
+  for (let i = 0; i < titleEls.length; i++) {
+    const el = titleEls[i];
+    const key = el.getAttribute('data-i18n-title');
+    const v = window.t ? window.t(key) : key;
+    if (v && v !== key) {
+      el.textContent = v;
+      if (el.tagName && el.tagName.toLowerCase() === 'title') {
+        document.title = v;
+      }
+    }
+  }
 }
 
 (async function bootI18nDom() {

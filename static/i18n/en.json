@@ -120,6 +120,11 @@
     "memory": "Memory",
     "disk": "Disk",
     "uptime": "Uptime",
+    "host": "Host",
+    "platform": "Platform",
+    "cores": "Cores",
+    "arch": "Arch",
+    "kernel": "Kernel",
     "node": "Node",
     "action": "Action",
     "user": "User",
@@ -161,7 +166,14 @@
     "first_page_title": "First page",
     "last_page_title": "Last page",
     "jump_to_page_title": "Jump to page",
-    "rows_per_page_title": "Rows per page"
+    "rows_per_page_title": "Rows per page",
+    "page_n_of_m": "Page {page} of {total}",
+    "total_count": "· {count} total",
+    "prev": "‹ Prev",
+    "next": "Next ›",
+    "first_glyph": "«",
+    "last_glyph": "»",
+    "per_page_option": "{count} / page"
   },
   "actions": {
     "update_stack": "Update Stack",
@@ -224,7 +236,10 @@
   "nodes": {
     "docker_disk_tooltip": "Docker daemon footprint: image layers + container writable layers + volumes + build cache",
     "docker_disk_caption": "Docker-only. Enable Host stats (node-exporter) in Settings for real host disk usage.",
-    "host_disk_tooltip": "Real host disk usage across all non-pseudo mounts (node-exporter)."
+    "host_disk_tooltip": "Real host disk usage across all non-pseudo mounts (node-exporter).",
+    "stats_merged_from_title": "Stats merged from: {sources}",
+    "stats_all_failed_title": "All configured host-stats sources failed — falling back to Docker-only signals.",
+    "prune_button_title": "Run docker system prune on {node}"
   },
   "empty": {
     "no_match_filters": "No resources match your filters.",
@@ -318,7 +333,29 @@
       "beszel_naming_hint": "Match each Beszel system's Name to the Docker hostname shown in the Nodes view. Mismatched names produce a per-node 'no system named …' error.",
       "beszel_test_button": "Test connection",
       "beszel_testing": "Testing…",
-      "saved": "Host-stats settings saved"
+      "saved": "Host-stats settings saved",
+      "pulse_url_label": "Pulse URL",
+      "pulse_url_placeholder": "http://pulse.example.com:7655",
+      "pulse_url_hint_html": "Base URL of your Pulse instance. OmniGrid will call <code class=\"mono\">{URL_PLACEHOLDER}/api/state</code> with the token below.",
+      "pulse_token_label": "API token",
+      "pulse_token_set_suffix": " · set",
+      "pulse_token_placeholder": "Create a read-only token in Pulse → Settings",
+      "pulse_token_set_placeholder": "••••••••",
+      "pulse_verify_tls": "Verify TLS certificate",
+      "pulse_test_button": "Test connection",
+      "pulse_testing": "Testing…",
+      "pulse_aliases_hint": "Per-node aliases (Docker hostname → PVE node name) are edited from the Nodes view; Pulse and Beszel keep independent maps since their naming conventions diverge.",
+      "webmin_user_label": "Webmin user",
+      "webmin_user_placeholder": "omnigrid-ro",
+      "webmin_user_hint_html": "A dedicated read-only Webmin user. See <code class=\"mono\">notes/notes_agent_research.txt</code> for the recommended ACL + <code class=\"mono\">no_session</code> directive.",
+      "webmin_password_label": "Password",
+      "webmin_password_set_suffix": " · set",
+      "webmin_password_placeholder": "read-only user password",
+      "webmin_password_set_placeholder": "••••••••",
+      "webmin_verify_tls_label": "Verify TLS certificate (Webmin's default cert is self-signed — leave off for homelab)",
+      "webmin_test_button": "Test one Webmin URL",
+      "webmin_testing": "Testing…",
+      "webmin_aliases_hint_html": "Per-host Webmin URLs are configured in <a href=\"/admin/hosts\" class=\"text-[var(--primary)] hover:underline\">Admin → Hosts</a> — add a <code class=\"mono\">webmin_name</code> + <code class=\"mono\">webmin_url</code> on any row whose box runs Webmin. Hosts without a mapping are silently skipped by the Webmin probe."
     },
     "language": {
       "title": "Language & region",
@@ -1037,6 +1074,7 @@
     }
   },
   "login": {
+    "tab_title": "OmniGrid — Sign in",
     "title": "Sign in to continue.",
     "username": "Username",
     "password": "Password",
@@ -1201,9 +1239,15 @@
       "no_match": "No hosts match the current filter.",
       "clear_filter": "Clear filter",
       "no_provider_enabled": "No host-stats provider is enabled.",
-      "test_providers": "Test providers"
+      "test_providers": "Test providers",
+      "all_disabled_html": "<div>{count} host(s) defined but all disabled.</div><div class=\"mt-2\">Open <a href=\"/admin/hosts\" class=\"text-[var(--primary)] hover:underline\">Admin → Hosts</a> and tick <strong>Enabled</strong> on the rows you want to see here.</div>",
+      "no_provider_match_html": "<div>{count} enabled host(s), but no provider returned data for any of them.</div><div class=\"mt-2 text-[13px] leading-relaxed\">Check the per-row <strong>Test providers</strong> button in <a href=\"/admin/hosts\" class=\"text-[var(--primary)] hover:underline\">Admin → Hosts</a> — the mapped provider names probably don't match what Beszel / Pulse / node-exporter actually report.</div>",
+      "no_provider_enabled_html": "<div>No host-stats provider enabled.</div><div class=\"mt-2\">Enable Beszel / Pulse / node-exporter in <a href=\"/admin/host_stats\" class=\"text-[var(--primary)] hover:underline\">Admin → Host stats</a>, then define the hosts you want to monitor in <a href=\"/admin/hosts\" class=\"text-[var(--primary)] hover:underline\">Admin → Hosts</a>.</div>",
+      "no_data_html": "<div>No host data to show.</div><div class=\"mt-2 text-[13px] leading-relaxed\">If you've defined hosts in <a href=\"/admin/hosts\" class=\"text-[var(--primary)] hover:underline\">Admin → Hosts</a>, the configured provider names probably don't match what {sources} are reporting — use the per-row <strong>Test providers</strong> button to see what each provider knows about, then fix the mapping.</div>",
+      "fallback_sources_label": "the enabled providers"
     },
-    "filter_placeholder": "Filter hosts by name, platform, OS, provider…"
+    "filter_placeholder": "Filter hosts by name, platform, OS, provider…",
+    "open_link_title": "Open {label}"
   },
   "stale_marker": {
     "tooltip": "Last live data {age} ago — value restored from cache snapshot"
@@ -1387,6 +1431,16 @@
     "toggle_disabled_toast": "{name} disabled (settings preserved)"
   },
   "admin_hosts": {
+    "heading": "Hosts",
+    "discover_button": "Discover from providers",
+    "discover_busy": "Fetching…",
+    "discover_title": "Fetch the list of names known to every enabled provider so you can autocomplete the fields below",
+    "import_discovered_button": "Import",
+    "import_discovered_title": "Create a row for every discovered name that isn't already configured. Duplicates are skipped.",
+    "test_all_title": "Probe every enabled host against all its configured providers and show the results per row.",
+    "empty_html": "No hosts configured yet.<br>Click <strong>+ Add host</strong> below to define one, or <strong>Discover from providers</strong> to pull every name the enabled providers know about.",
+    "filter_no_match": "No hosts match your filter.",
+    "filter_clear": "Clear",
     "debug_panel_toggle_label": "Show host-drawer debug panel",
     "debug_panel_toggle_hint": "When off, hides the per-host raw-JSON / merged-shape diagnostic panel for every admin.",
     "debug_panel_toggle_saved": "Debug panel preference saved",
@@ -1398,8 +1452,31 @@
       "no_hosts_in_file": "No hosts found in file."
     },
     "test": {
-      "no_eligible": "No enabled hosts with provider mappings to test."
+      "no_eligible": "No enabled hosts with provider mappings to test.",
+      "tested_n": "Tested {count} host(s) — see per-row results.",
+      "test_failed": "Test failed: {error}"
     },
+    "load_failed_status": "Load hosts failed: HTTP {status}",
+    "load_failed": "Load hosts failed: {error}",
+    "discover": {
+      "no_response": "No provider responded: {detail}",
+      "found": "Discovered {detail} name(s) — autocomplete is live",
+      "no_results": "No enabled provider returned any hosts — check connection settings",
+      "failed_status": "Discover failed: HTTP {status}",
+      "failed": "Discover failed: {error}"
+    },
+    "added_n": "Added {count} host(s) — review and Save to persist.",
+    "exported_n": "Exported {count} host(s) to file.",
+    "imported_n": "Imported {count} host(s) — review and Save to persist.",
+    "import_invalid_json": "Invalid JSON: {error}",
+    "import_replace_confirm_html": "Replace all {existing} current hosts with {incoming} from the file?",
+    "import_replace_confirm_replace": "Replace",
+    "import_replace_confirm_merge": "Merge (update existing IDs, add new ones)",
+    "saved_n": "Saved {count} host(s)",
+    "save_failed": "Save failed: {error}",
+    "unsaved_confirm_title": "Discard unsaved changes?",
+    "unsaved_confirm_html": "You have unsaved changes in the Hosts list. Discard them and reload from the server?",
+    "unsaved_confirm_button": "Discard and reload",
     "errors": {
       "filtered_title": "Validation errors on filtered-out rows",
       "filtered_body": "One or more rows have validation errors but live on rows hidden by the current filter. Clear the filter to reach them.",
