@@ -10644,6 +10644,96 @@ function app() {
       const n = Object.keys(t).length;
       return n > 3 ? (n - 3) : 0;
     },
+    // Deterministic per-sensor colour token (#439). Cycles through the
+    // five existing pill / accent tokens so we don't introduce new
+    // colour literals (CLAUDE.md token discipline). Index comes from
+    // a sorted-name lookup so each sensor always gets the same colour
+    // across renders, regardless of `Object.entries` iteration order.
+    hostTempLineColor(name, sortedNames) {
+      const palette = [
+        'var(--primary)',
+        'var(--warning)',
+        'var(--danger)',
+        'var(--success)',
+        'var(--info)',
+      ];
+      const idx = sortedNames.indexOf(name);
+      return palette[(idx >= 0 ? idx : 0) % palette.length];
+    },
+    // Multi-line chart helper for the Temperature card (#439). Produces
+    // one polyline per sensor with auto-scaled Y axis, padded ±5°C so
+    // tight ranges still render with clear vertical movement. Sensors
+    // are discovered by walking every point's `temps` dict (the union,
+    // since some sensors only appear partway through a session). Each
+    // sensor's missing samples are skipped, not zero-padded — that
+    // matches CLAUDE.md's "skip-don't-synthesize" rule for time series.
+    // Returns null when there's not enough data to draw two points.
+    hostTempChart(systemId, opts = {}) {
+      const entry = this.hostHistory[systemId];
+      if (!entry || !entry.series || entry.series.length < 2) return null;
+      const W = opts.width || 420;
+      const H = opts.height || 120;
+      const PAD_X = 4;
+      const PAD_T = 6;
+      const PAD_B = 4;
+      // Discover the union of sensor names across the whole window
+      // and capture both lo and hi so the Y axis auto-fits.
+      const sensorNames = new Set();
+      let lo = Infinity, hi = -Infinity;
+      for (const r of entry.series) {
+        const t = r && r.temps;
+        if (!t || typeof t !== 'object') continue;
+        for (const [name, c] of Object.entries(t)) {
+          const n = Number(c);
+          if (!Number.isFinite(n)) continue;
+          sensorNames.add(name);
+          if (n < lo) lo = n;
+          if (n > hi) hi = n;
+        }
+      }
+      if (!isFinite(lo) || sensorNames.size === 0) return null;
+      // ±5°C breathing room so flat-ish series don't render as a
+      // single horizontal pixel. Min anchored at >=0 so a freezer
+      // host with subzero readings doesn't leave a Y-axis label
+      // showing negative-zero.
+      lo = Math.max(0, Math.floor(lo - 5));
+      hi = Math.ceil(hi + 5);
+      if (hi - lo < 10) hi = lo + 10;
+      const sortedNames = Array.from(sensorNames).sort();
+      const step = (W - PAD_X * 2) / (entry.series.length - 1);
+      const usableH = H - PAD_T - PAD_B;
+      const lines = sortedNames.map(name => {
+        const segs = [];   // SVG path data — handles missing samples
+        let cur = '';
+        for (let i = 0; i < entry.series.length; i++) {
+          const t = entry.series[i] && entry.series[i].temps;
+          const v = t && Number(t[name]);
+          if (!Number.isFinite(v)) {
+            // Sample missing → break the line; next valid point
+            // starts a new sub-path so we don't synthesise a slope
+            // through a gap.
+            if (cur) { segs.push(cur); cur = ''; }
+            continue;
+          }
+          const x = PAD_X + i * step;
+          const y = PAD_T + usableH - ((v - lo) / (hi - lo || 1)) * usableH;
+          cur += (cur ? ' L' : 'M') + x.toFixed(1) + ',' + y.toFixed(1);
+        }
+        if (cur) segs.push(cur);
+        return {
+          name,
+          d: segs.join(' '),
+          color: this.hostTempLineColor(name, sortedNames),
+        };
+      }).filter(l => l.d);
+      if (lines.length === 0) return null;
+      // Y-axis ticks: 4 evenly spaced labels (top → bottom). Match
+      // the .metric-y-axis layout the percentage charts already use.
+      const yAxis = [hi, lo + (hi - lo) * 2 / 3, lo + (hi - lo) / 3, lo].map(
+        v => Math.round(v) + '°',
+      );
+      return { lines, yAxis, min: lo, max: hi, sortedNames };
+    },
     hostMetricStats(systemId, key, asPct = true) {
       const entry = this.hostHistory[systemId];
       if (!entry || !entry.series || entry.series.length === 0) return null;
