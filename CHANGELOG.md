@@ -41,6 +41,8 @@ the next release, this whole block becomes the `[X.Y.0]` entry below.
 ### Added
 
 - Pending-updates badge on the Stacks nav button — small pill showing the count of items with `status === 'update'`. Only renders on Stacks (Services / Nodes are alternate views over the same items, so a duplicate badge would just repeat the same number). Wired off the existing `counts.update` getter; the existing op-polling loop already calls `refresh(true)` on every op completion, so the badge falls back to 0 once an update lands without any extra wiring (#372).
+- Save button + dirty indicator on Admin → Authentication tab TOTP/2FA section. Mirrors the canonical master-toggle pattern (`_totpPolicyBaseline` slot + `_totpPolicySnapshot()` + `totpPolicyDirty()` + `saveTotpPolicy()` POST to `/api/settings`, baseline captured after `loadSettings()` and after each successful save). Frontend Save row inside the Authentication tab section: amber-ringed `btn-primary` Save button + animated amber-dot "Unsaved" pill, both bound to `totpPolicyDirty()` (#382).
+- New Admin → Authentication tab — the TOTP / 2FA policy section (master toggle + per-role required + lockout window) moves out of Admin → Config into its own sidebar entry directly after Users. Future home for any other auth-related admin settings (forced-OIDC-only mode, session-cookie tunables, bearer-token rotation policy). i18n key `admin.sections.authentication` (#374).
 
 ### Changed
 

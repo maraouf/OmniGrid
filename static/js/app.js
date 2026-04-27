@@ -459,6 +459,7 @@ function app() {
     _portainerBaseline: '',
     _oidcBaseline: '',
     _debugBaseline: '',
+    _totpPolicyBaseline: '',
     // Admin → Config (#337). DB-overridable process tunables. `tuningForm`
     // holds string values (blank = clear / fall back to env). `tuningEffective`
     // mirrors the GET /api/admin/tuning response so the form can render
@@ -493,11 +494,12 @@ function app() {
     // stats) moved under the Admin section since they're global and
     // only admins can change them.
     settingsSections: [
-      { id: 'profile',       label: 'Profile' },
-      { id: 'notifications', label: 'Notifications' },
-      { id: 'ignores',       label: 'Ignore list' },
-      { id: 'language',      label: 'Language' },
-      { id: 'shortcuts',     label: 'Keyboard shortcuts' },
+      { id: 'profile',       label: 'Profile',            icon: 'user' },
+      { id: 'notifications', label: 'Notifications',      icon: 'bell' },
+      { id: 'ignores',       label: 'Ignore list',        icon: 'trash' },
+      { id: 'language',      label: 'Language',           icon: 'info' },
+      { id: 'security',      label: 'Security',           icon: 'shield' },
+      { id: 'shortcuts',     label: 'Keyboard shortcuts', icon: 'help-circle' },
     ],
     settingsSection: (function () {
       // Gracefully migrate users whose localStorage still points at the
@@ -531,25 +533,25 @@ function app() {
     totpDisableForm: { password: '' },
     totpDisableBusy: false,
     adminSections: [
-      { id: 'general',        label: 'General' },
-      { id: 'users',          label: 'Users' },
-      { id: 'authentication', label: 'Authentication' },
-      { id: 'sessions',       label: 'Sessions' },
-      { id: 'tokens',         label: 'API tokens' },
-      { id: 'notifications',  label: 'Notifications' },
-      { id: 'portainer',      label: 'Portainer' },
-      { id: 'oidc',           label: 'Authentik OIDC' },
-      { id: 'host_stats',     label: 'Host stats' },
-      { id: 'hosts',          label: 'Hosts' },
-      { id: 'host_groups',    label: 'Host Groups' },
-      { id: 'ssh',            label: 'SSH' },
-      { id: 'assets',         label: 'Asset inventory' },
-      { id: 'schedules',      label: 'Schedules' },
-      { id: 'backups',        label: 'Backups' },
-      { id: 'logs',           label: 'Logs' },
-      { id: 'config',         label: 'Config' },
-      { id: 'version',        label: 'Version' },
-      { id: 'debug',          label: 'Debug' },
+      { id: 'general',        label: 'General',         icon: 'sliders' },
+      { id: 'users',          label: 'Users',           icon: 'users' },
+      { id: 'authentication', label: 'Authentication',  icon: 'shield' },
+      { id: 'sessions',       label: 'Sessions',        icon: 'monitor' },
+      { id: 'tokens',         label: 'API tokens',      icon: 'key' },
+      { id: 'notifications',  label: 'Notifications',   icon: 'bell' },
+      { id: 'portainer',      label: 'Portainer',       icon: 'box' },
+      { id: 'oidc',           label: 'Authentik OIDC',  icon: 'id-card' },
+      { id: 'host_stats',     label: 'Host stats',      icon: 'activity' },
+      { id: 'hosts',          label: 'Hosts',           icon: 'server' },
+      { id: 'host_groups',    label: 'Host Groups',     icon: 'layers' },
+      { id: 'ssh',            label: 'SSH',             icon: 'terminal' },
+      { id: 'assets',         label: 'Asset inventory', icon: 'package' },
+      { id: 'schedules',      label: 'Schedules',       icon: 'calendar' },
+      { id: 'backups',        label: 'Backups',         icon: 'archive' },
+      { id: 'logs',           label: 'Logs',            icon: 'file-text' },
+      { id: 'config',         label: 'Config',          icon: 'settings' },
+      { id: 'version',        label: 'Version',         icon: 'tag' },
+      { id: 'debug',          label: 'Debug',           icon: 'bug' },
     ],
     // App-logs viewer state. Polled when the Logs tab is visible.
     // `logLines` is append-only during a session; clear() wipes both
@@ -2123,6 +2125,37 @@ function app() {
       }
     },
 
+    totpPolicySaving: false,
+    async saveTotpPolicy() {
+      if (this.totpPolicySaving) return;
+      this.totpPolicySaving = true;
+      try {
+        const s = this.settings || {};
+        const r = await fetch('/api/settings', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            totp_allowed:              !!s.totp_allowed,
+            totp_required_for_admins:  !!s.totp_required_for_admins,
+            totp_required_for_users:   !!s.totp_required_for_users,
+            totp_lockout_max_failures: +s.totp_lockout_max_failures || 5,
+            totp_lockout_minutes:      +s.totp_lockout_minutes || 15,
+          }),
+        });
+        if (r.ok) {
+          this._totpPolicyBaseline = this._totpPolicySnapshot();
+          this.showToast(this.t('toasts.settings_saved'), 'success');
+        } else {
+          const j = await r.json().catch(() => ({}));
+          this.showToast(j.detail || this.t('toasts_extra.save_failed_generic'), 'error');
+        }
+      } catch (_) {
+        this.showToast(this.t('toasts_extra.network_error_generic'), 'error');
+      } finally {
+        this.totpPolicySaving = false;
+      }
+    },
+
     async saveOpenMeteoUrl() {
       if (this.openMeteoSaving) return;
       this.openMeteoSaving = true;
@@ -3568,11 +3601,12 @@ function app() {
         this._portainerPublicBaseline = (this.settings || {}).portainer_public_url || '';
         // Capture all 5 unified-pattern baselines AFTER the form/settings
         // are fully populated. Subsequent edits compare against these.
-        this._appriseBaseline   = this._appriseSnapshot();
-        this._openMeteoBaseline = this._openMeteoSnapshot();
-        this._portainerBaseline = this._portainerSnapshot();
-        this._oidcBaseline      = this._oidcSnapshot();
-        this._debugBaseline     = this._debugSnapshot();
+        this._appriseBaseline    = this._appriseSnapshot();
+        this._openMeteoBaseline  = this._openMeteoSnapshot();
+        this._portainerBaseline  = this._portainerSnapshot();
+        this._oidcBaseline       = this._oidcSnapshot();
+        this._debugBaseline      = this._debugSnapshot();
+        this._totpPolicyBaseline = this._totpPolicySnapshot();
 
         // --- Admin → SSH panel state ---
         this.hydrateSshSettings(d);
@@ -4692,6 +4726,17 @@ function app() {
       });
     },
     debugDirty()     { return this._debugBaseline     !== this._debugSnapshot(); },
+    _totpPolicySnapshot() {
+      const s = this.settings || {};
+      return JSON.stringify({
+        allowed:                 !!s.totp_allowed,
+        required_for_admins:     !!s.totp_required_for_admins,
+        required_for_users:      !!s.totp_required_for_users,
+        lockout_max_failures:    +s.totp_lockout_max_failures || 5,
+        lockout_minutes:         +s.totp_lockout_minutes || 15,
+      });
+    },
+    totpPolicyDirty() { return this._totpPolicyBaseline !== this._totpPolicySnapshot(); },
     _openMeteoSnapshot() {
       const s = this.settings || {};
       return JSON.stringify({
