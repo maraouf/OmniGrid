@@ -5571,17 +5571,37 @@ def _request_rp_id(request: Request) -> str:
 def _request_origin(request: Request) -> str:
     """Full origin used for WebAuthn assertion verification.
 
-    Trusts ``X-Forwarded-Proto`` so HTTPS termination at NPM is
-    visible to the verifier (browsers send the actual origin in the
-    clientDataJSON; mismatch -> reject).
+    Resolution order matches ``_request_rp_id`` — ``X-Forwarded-Host``
+    (what the public-facing reverse proxy sets to convey the original
+    Host), then the ``Host`` header, then ``request.url.netloc /
+    .hostname`` as a final fallback. Some NPM setups rewrite the Host
+    header to the internal upstream hostname while preserving the
+    public hostname in X-Forwarded-Host — if origin disagrees with
+    rp_id, the WebAuthn verifier rejects with "Unexpected client data
+    origin" because the browser-signed clientDataJSON.origin (the
+    public URL) doesn't match the server-computed expected_origin
+    (the internal one). Honouring X-Forwarded-Host on this side keeps
+    rp_id + origin in lock-step (#433).
+
+    Also trusts ``X-Forwarded-Proto`` so HTTPS termination at NPM is
+    visible to the verifier.
     """
     proto = (request.headers.get("x-forwarded-proto", "")
              or request.url.scheme or "http").split(",")[0].strip().lower()
     if proto not in ("http", "https"):
         proto = "https"
-    host_header = request.headers.get("host") or request.url.netloc
-    if not host_header:
-        host_header = request.url.hostname or ""
+    host_candidates = [
+        request.headers.get("x-forwarded-host", ""),
+        request.headers.get("host", ""),
+        request.url.netloc or "",
+        request.url.hostname or "",
+    ]
+    host_header = ""
+    for raw in host_candidates:
+        cand = (raw or "").split(",")[0].strip()
+        if cand:
+            host_header = cand
+            break
     return f"{proto}://{host_header}"
 
 
