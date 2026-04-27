@@ -507,6 +507,13 @@ def init_db():
             # NULL when the delta is out of bounds.
             "ALTER TABLE host_metrics_samples ADD COLUMN disk_read_bps REAL",
             "ALTER TABLE host_metrics_samples ADD COLUMN disk_write_bps REAL",
+            # ENH-018 — wall-clock of the MOST RECENT probe failure.
+            # ``first_failure_ts`` already records the start of the
+            # streak; this is the timestamp of the latest failed
+            # probe so the drawer can render "last error N seconds
+            # ago" instead of leaving the operator wondering whether
+            # the issue may have already cleared.
+            "ALTER TABLE host_failure_state ADD COLUMN last_failure_ts REAL",
         ):
             try:
                 c.execute(ddl)
@@ -3186,12 +3193,22 @@ async def _get_host_provider_state(force: bool = False) -> dict:
     from logic import pulse as _pulse
 
     now = time.time()
+    active = active_host_stats_providers()
+    # Include the active-sources tuple in the cache key so a settings
+    # change like flipping `host_stats_source` from "beszel" to
+    # "beszel,pulse" mid-window auto-busts the cache instead of serving
+    # stale Pulse-less state for up to TTL seconds (ENH-009 from
+    # notes/code_review_2026-04-27.txt). Save paths still call
+    # `invalidate_host_provider_cache()` directly for instant feedback;
+    # the key match is defence-in-depth for the case where a save
+    # happens via a path that doesn't run the invalidator (e.g. an
+    # external SQL update to settings).
+    cache_key = tuple(sorted(active))
     cached = _host_provider_cache.get("state")
-    if (not force and cached
+    cached_key = _host_provider_cache.get("key")
+    if (not force and cached and cached_key == cache_key
             and (now - _host_provider_cache.get("ts", 0.0)) < _HOST_PROVIDER_CACHE_TTL):
         return cached
-
-    active = active_host_stats_providers()
 
     errors: dict[str, str] = {}
     beszel_map: dict[str, dict] = {}
@@ -3258,6 +3275,7 @@ async def _get_host_provider_state(force: bool = False) -> dict:
     }
     _host_provider_cache["ts"] = now
     _host_provider_cache["state"] = state
+    _host_provider_cache["key"] = cache_key
     return state
 
 
@@ -3581,7 +3599,8 @@ def _failure_state_for_host(host_id: str) -> dict:
     try:
         with db_conn() as c:
             cur = c.execute(
-                "SELECT first_failure_ts, consecutive_failures, paused, last_error "
+                "SELECT first_failure_ts, consecutive_failures, paused, "
+                "last_error, last_failure_ts "
                 "FROM host_failure_state WHERE host_id = ?",
                 (host_id,),
             )
@@ -3598,12 +3617,20 @@ def _failure_state_for_host(host_id: str) -> dict:
             "failure_window_started_at":  0,
             "consecutive_failures":       0,
             "last_error":                 "",
+            "last_failure_ts":            0,
         }
+    # ENH-018 — surface ``last_failure_ts`` so the drawer can render
+    # "last error N seconds ago" alongside the existing
+    # "first failure M minutes ago" banner copy. Falls back to
+    # ``first_failure_ts`` for rows that pre-date the column add (the
+    # first probe failure on the new schema overwrites the NULL).
+    last_ts = row[4] if (len(row) > 4 and row[4] is not None) else row[0]
     return {
         "sampling_paused":            bool(row[2]),
         "failure_window_started_at":  int(row[0] or 0),
         "consecutive_failures":       int(row[1] or 0),
         "last_error":                 row[3] or "",
+        "last_failure_ts":            int(last_ts or 0),
     }
 
 
@@ -6264,6 +6291,14 @@ async def api_me(request: Request):
         # separate endpoint.
         "client_config": {
             "ops_poll_ms": tuning.tuning_int("tuning_ops_poll_interval_ms"),
+            # Scheduler-tz state so the admin Schedules tab can badge
+            # "TZ: <name> → falling back to UTC" when the operator typed
+            # an invalid IANA name. ``configured`` = raw setting,
+            # ``resolved`` = active TZ (None on blank or invalid),
+            # ``fallback`` = True only when configured was non-empty
+            # but ZoneInfo rejected it. ENH-017 from
+            # notes/code_review_2026-04-27.txt.
+            "scheduler_tz": schedules.scheduler_tz_state(),
         },
     }
     # ARCH-004: surface the SESSION_SECRET-auto-generated state to admins.
