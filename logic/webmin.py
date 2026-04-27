@@ -834,7 +834,7 @@ def extract_system_status(root: ET.Element) -> dict:
     def pick_with_key(*names: str) -> tuple[str, str]:
         """Like ``pick`` but returns ``(value, matched_key)`` so callers
         can branch on which alias matched. Needed for memory-unit
-        disambiguation (BUG-001 from notes/code_review_2026-04-27.txt
+        disambiguation
         — Webmin's `real_mem` is KiB, but `mem_total`/`memory_total`
         are sometimes already bytes on certain Webmin module variants;
         without the key the unit decision is impossible).
@@ -858,7 +858,7 @@ def extract_system_status(root: ET.Element) -> dict:
         already — well above any plausible KiB report. So: if the
         matched key is the byte-ambiguous alias AND the raw value
         exceeds 2^31, treat it as bytes; otherwise apply the KiB
-        scaling. BUG-001 from notes/code_review_2026-04-27.txt.
+        scaling.
         """
         if value <= 0:
             return 0
