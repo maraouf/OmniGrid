@@ -9,6 +9,8 @@ A Portainer-native operations dashboard for Docker Swarm clusters **and the bare
 
 Built as a friendlier replacement for Diun Dash plus the tab-jumping between Portainer / Beszel / Grafana / SSH that homelab clusters tend to grow. Diun only **observes**; OmniGrid **acts**.
 
+📋 **Releases & changelog:** see [`CHANGELOG.md`](CHANGELOG.md) for the full per-version release notes (Keep a Changelog format). Per-version links jump to the matching Forgejo milestone. The release cadence (PATCH on every deploy, periodic operator-cut MINORs) is documented in [`docs/RELEASE_PROCESS.md`](docs/RELEASE_PROCESS.md).
+
 <!-- Screenshots live under `docs/screenshots/` — see the gallery below
      for the full set. The hero shot is the Nodes view (Stacks grouped
      by host node + live HOST CPU/MEM/DISK bars). -->

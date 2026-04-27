@@ -919,6 +919,33 @@ select:focus {
     border-color: var(--pill-offline-br);
 }
 
+/* Semantic alias variants for status / role pills used across Admin
+   tables (Users / Sessions / Tokens) and the Profile modal. These
+   were referenced in markup before they had CSS rules, so badges
+   silently fell back to the base .pill style with no fill colour
+   (#428). Each one re-uses an existing token family so we don't
+   introduce new colour literals — no :root edits needed. */
+.pill-success {
+    background: var(--pill-ok-bg);
+    color: var(--pill-ok-fg);
+    border-color: var(--pill-ok-br);
+}
+.pill-warning {
+    background: var(--pill-update-bg);
+    color: var(--pill-update-fg);
+    border-color: var(--pill-update-br);
+}
+.pill-muted {
+    background: var(--pill-ignored-bg);
+    color: var(--pill-ignored-fg);
+    border-color: var(--pill-ignored-br);
+}
+.pill-primary {
+    background: color-mix(in srgb, var(--primary) 12%, transparent);
+    color: var(--primary);
+    border-color: color-mix(in srgb, var(--primary) 30%, transparent);
+}
+
 /* ---------------------------------------------------------------------------
    Status dots & chips
    --------------------------------------------------------------------------- */
