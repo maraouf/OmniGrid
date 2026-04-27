@@ -1146,6 +1146,11 @@ def create_session(
         "VALUES (?,?,?,?,?,?,?,?)",
         (token_id, user_id, now, now, expires_at, ip, user_agent, auth_method),
     )
+    # Diagnostic line so the operator can verify auth_method propagation
+    # in Admin → Logs without inspecting the SQLite directly. The
+    # session_method column on Admin → Sessions reads from the same
+    # row this print line attests to (#436).
+    print(f"[auth] session created user_id={user_id} method={auth_method!r} ip={ip!r}")
     return issue_session_cookie(token_id, expires_at), expires_at
 
 
