@@ -128,6 +128,7 @@
     "last_login": "Last login",
     "actions": "Actions",
     "totp": "2FA",
+    "passkeys": "Passkeys",
     "ip": "IP",
     "user_agent": "User-agent",
     "last_seen": "Last seen",
@@ -386,6 +387,30 @@
         "disable_confirm_body": "Your account will be protected by password only. Re-confirm with your current password to continue.",
         "disable_password_label": "Current password",
         "disable_confirm_button": "Disable"
+      },
+      "passkeys": {
+        "title": "Passkeys (security keys)",
+        "subtitle": "Hardware keys (YubiKey, Titan, Solo), platform authenticators (Touch ID, Windows Hello, Android fingerprint), and password managers (1Password, iCloud Keychain, Bitwarden) can sign you in without typing a code.",
+        "list_empty": "No passkeys enrolled yet.",
+        "list_count_one": "1 passkey enrolled.",
+        "list_count_other": "{count} passkeys enrolled.",
+        "add_button": "Add a passkey",
+        "adding": "Setting up…",
+        "browser_unsupported": "This browser doesn't support passkeys. Try Chrome, Firefox, Safari, or Edge.",
+        "server_unsupported": "Passkey support isn't installed on this server.",
+        "name_prompt_title": "Name this passkey",
+        "name_prompt_body": "Pick a label so you can identify it later (e.g. \"YubiKey 5C\", \"iPhone Touch ID\", \"1Password vault\").",
+        "name_placeholder": "YubiKey 5C",
+        "name_default": "Passkey",
+        "transports_label": "Transports:",
+        "added_at": "Added {when}",
+        "last_used_at": "Last used {when}",
+        "last_used_never": "Never used",
+        "revoke_button": "Revoke",
+        "revoke_confirm_title": "Revoke this passkey?",
+        "revoke_confirm_body": "{name} will stop working immediately. You can always add it again later.",
+        "revoke_confirm_button": "Revoke",
+        "registering_hint": "Confirm on your device — touch the key, allow the prompt, or unlock with biometrics."
       }
     },
     "notifications": {
@@ -774,7 +799,10 @@
       "totp_force_confirm_title": "Require 2FA for {name}?",
       "totp_force_confirm_body": "This user will be forced to enrol in 2FA on their next login, even if the global policy doesn't require it for their role.",
       "totp_unforce_confirm_title": "Drop 2FA requirement for {name}?",
-      "totp_unforce_confirm_body": "Their existing 2FA stays enrolled (use Disable 2FA if you also want to clear it). The global role policy still applies."
+      "totp_unforce_confirm_body": "Their existing 2FA stays enrolled (use Disable 2FA if you also want to clear it). The global role policy still applies.",
+      "passkeys_label": "Passkeys",
+      "passkeys_count_title": "{count} passkey(s) enrolled for this user.",
+      "passkeys_none_title": "No passkeys enrolled."
     },
     "sessions": {
       "active_title": "Active sessions",
@@ -948,7 +976,14 @@
     "totp_disable_failed": "Could not disable 2FA",
     "totp_regen_ok": "New backup codes generated",
     "totp_regen_failed": "Could not regenerate backup codes",
-    "totp_required_no_disable": "Admin policy requires 2FA for your role"
+    "totp_required_no_disable": "Admin policy requires 2FA for your role",
+    "passkey_added": "Passkey added",
+    "passkey_revoked": "Passkey revoked",
+    "passkey_register_failed": "Could not enrol passkey",
+    "passkey_revoke_failed": "Could not revoke passkey",
+    "passkey_login_failed": "Passkey sign-in failed",
+    "passkey_browser_unsupported": "This browser doesn't support passkeys",
+    "passkey_server_unsupported": "Passkey support isn't installed on this server"
   },
   "dialogs": {
     "update_stack_title": "Update stack",
@@ -1021,7 +1056,13 @@
     "totp_backup_title": "Save these backup codes",
     "totp_backup_warning": "Store these somewhere safe. Each code can be used once if you lose access to your authenticator app.",
     "totp_backup_download": "Download as .txt",
-    "totp_continue": "Continue"
+    "totp_continue": "Continue",
+    "passkey_use_button": "Use a passkey",
+    "passkey_or_code_hint": "Tap a passkey, or type a code below.",
+    "passkey_only_hint": "Sign in with the passkey you registered.",
+    "passkey_prompting": "Confirm on your device…",
+    "passkey_failed": "Passkey sign-in failed. Try again or use a code.",
+    "passkey_browser_unsupported": "This browser doesn't support passkeys."
   },
   "new_token_modal": {
     "title": "New API token — copy it now",

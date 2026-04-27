@@ -546,6 +546,15 @@ function app() {
     totpRevealCodes: [],     // one-time plaintext list right after enrol/regen
     totpDisableForm: { password: '' },
     totpDisableBusy: false,
+    // WebAuthn / passkeys (#381). Mirrors the /api/me/webauthn shape.
+    // `list` is the array of enrolled credentials; `busy` covers either
+    // the register or revoke ceremony so the operator can't double-tap.
+    // `supported` is the SERVER capability flag (false on builds where
+    // the webauthn library isn't installed); `passkeyBrowserSupported()`
+    // covers the CLIENT side separately.
+    passkeys: {
+      loaded: false, supported: false, list: [], busy: false,
+    },
     adminSections: [
       { id: 'general',        label: 'General',         icon: 'sliders' },
       { id: 'users',          label: 'Users',           icon: 'users' },
@@ -727,6 +736,10 @@ function app() {
           // call; the server short-circuits its response either way.
           if (typeof this.loadTotpStatus === 'function') {
             this.loadTotpStatus();
+          }
+          // #381 — same pattern for the passkeys list.
+          if (typeof this.loadPasskeys === 'function') {
+            this.loadPasskeys();
           }
         }
       } catch (_) { /* network hiccup — next fetch will trip the wrapper */ }
@@ -2500,6 +2513,9 @@ function app() {
         // #345 — TOTP / 2FA state changes (enrol / verify / lockout
         // / admin-disable). Shares the OIDC accent token via CSS.
         'totp',
+        // #381 — WebAuthn / passkey state changes. Same OIDC accent
+        // family — both share the security domain.
+        'webauthn',
       ]);
       // Replace [xxx] at the start of (or inside) the line. Allow
       // underscores / hyphens for tag names like [host_net_sampler].
@@ -2722,6 +2738,213 @@ function app() {
     // The /api/me/totp call returns plaintext backup codes; the
     // hide/unhide eye is purely client-side.
     // ----------------------------------------------------------------
+    // ----------------------------------------------------------------
+    // WebAuthn / passkeys (#381). Mirror the TOTP UX shape: load on
+    // page open, expose register/revoke from the Profile -> Security
+    // card, surface count + browser-support hint in the SPA's state.
+    // ----------------------------------------------------------------
+    passkeyBrowserSupported() {
+      return !!(window.PublicKeyCredential && navigator.credentials);
+    },
+
+    _b64uEncode(buf) {
+      const b = new Uint8Array(buf);
+      let s = '';
+      for (let i = 0; i < b.length; i++) s += String.fromCharCode(b[i]);
+      return btoa(s).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+    },
+
+    _b64uDecode(s) {
+      s = (s || '').replace(/-/g, '+').replace(/_/g, '/');
+      while (s.length % 4) s += '=';
+      const bin = atob(s);
+      const out = new Uint8Array(bin.length);
+      for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+      return out.buffer;
+    },
+
+    _passkeyOptionsForCreate(opts) {
+      const out = Object.assign({}, opts);
+      out.challenge = this._b64uDecode(opts.challenge);
+      if (opts.user && opts.user.id) {
+        out.user = Object.assign({}, opts.user);
+        out.user.id = this._b64uDecode(opts.user.id);
+      }
+      if (Array.isArray(opts.excludeCredentials)) {
+        out.excludeCredentials = opts.excludeCredentials.map(c => ({
+          type: c.type,
+          id: this._b64uDecode(c.id),
+          transports: c.transports,
+        }));
+      }
+      return out;
+    },
+
+    _passkeyAttestationResponse(cred) {
+      return {
+        id: cred.id,
+        rawId: this._b64uEncode(cred.rawId),
+        type: cred.type,
+        authenticatorAttachment: cred.authenticatorAttachment || null,
+        clientExtensionResults: cred.getClientExtensionResults
+          ? cred.getClientExtensionResults() : {},
+        response: {
+          attestationObject: this._b64uEncode(cred.response.attestationObject),
+          clientDataJSON:    this._b64uEncode(cred.response.clientDataJSON),
+          transports: cred.response.getTransports
+            ? cred.response.getTransports() : [],
+        },
+      };
+    },
+
+    async loadPasskeys() {
+      try {
+        const r = await fetch('/api/me/webauthn');
+        if (!r.ok) {
+          this.passkeys = { loaded: true, supported: false, list: [], busy: false };
+          return;
+        }
+        const j = await r.json();
+        this.passkeys = {
+          loaded: true,
+          supported: !!j.supported,
+          list: Array.isArray(j.credentials) ? j.credentials : [],
+          busy: false,
+        };
+      } catch (_) {
+        this.passkeys = { loaded: true, supported: false, list: [], busy: false };
+      }
+    },
+
+    async addPasskey() {
+      if (!this.passkeyBrowserSupported()) {
+        this.showToast(this.t('toasts.passkey_browser_unsupported'), 'error');
+        return;
+      }
+      if (!this.passkeys.supported) {
+        this.showToast(this.t('toasts.passkey_server_unsupported'), 'error');
+        return;
+      }
+      const nameRes = await Swal.fire({
+        title: this.t('settings.profile.passkeys.name_prompt_title'),
+        text: this.t('settings.profile.passkeys.name_prompt_body'),
+        input: 'text',
+        inputPlaceholder: this.t('settings.profile.passkeys.name_placeholder'),
+        showCancelButton: true,
+        confirmButtonText: this.t('settings.profile.passkeys.add_button'),
+        cancelButtonText: this.t('actions.cancel'),
+        inputValidator: (val) => {
+          if (val && val.length > 64) return this.t('settings.profile.passkeys.name_prompt_body');
+          return null;
+        },
+      });
+      if (!nameRes.isConfirmed) return;
+      const friendlyName = (nameRes.value || '').trim();
+      this.passkeys.busy = true;
+      try {
+        const startResp = await fetch('/api/me/webauthn/register-start', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: '{}',
+        });
+        if (!startResp.ok) {
+          const j = await startResp.json().catch(() => ({}));
+          this.showToast(j.detail || this.t('toasts.passkey_register_failed'), 'error');
+          return;
+        }
+        const startJ = await startResp.json();
+        const publicKey = this._passkeyOptionsForCreate(startJ.options);
+        let cred;
+        try {
+          cred = await navigator.credentials.create({ publicKey });
+        } catch (_) {
+          this.showToast(this.t('toasts.passkey_register_failed'), 'error');
+          return;
+        }
+        if (!cred) {
+          this.showToast(this.t('toasts.passkey_register_failed'), 'error');
+          return;
+        }
+        const finishResp = await fetch('/api/me/webauthn/register-finish', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            credential: this._passkeyAttestationResponse(cred),
+            friendly_name: friendlyName,
+          }),
+        });
+        if (!finishResp.ok) {
+          const j = await finishResp.json().catch(() => ({}));
+          this.showToast(j.detail || this.t('toasts.passkey_register_failed'), 'error');
+          return;
+        }
+        await this.loadPasskeys();
+        if (this.me) this.me.passkeys = { ...(this.me.passkeys || {}),
+          count: (this.passkeys.list || []).length,
+          supported: true,
+        };
+        this.showToast(this.t('toasts.passkey_added'));
+      } catch (_) {
+        this.showToast(this.t('toasts.network_error'), 'error');
+      } finally {
+        this.passkeys.busy = false;
+      }
+    },
+
+    async revokePasskey(pk) {
+      const res = await Swal.fire({
+        title: this.t('settings.profile.passkeys.revoke_confirm_title'),
+        text: this.t('settings.profile.passkeys.revoke_confirm_body', {
+          name: pk.friendly_name || this.t('settings.profile.passkeys.name_default'),
+        }),
+        icon: 'warning', showCancelButton: true,
+        confirmButtonText: this.t('settings.profile.passkeys.revoke_confirm_button'),
+        cancelButtonText: this.t('actions.cancel'),
+        confirmButtonColor: this._cssVar('--danger'),
+      });
+      if (!res.isConfirmed) return;
+      this.passkeys.busy = true;
+      try {
+        const r = await fetch('/api/me/webauthn/' + encodeURIComponent(pk.id), {
+          method: 'DELETE',
+        });
+        if (!r.ok) {
+          const j = await r.json().catch(() => ({}));
+          this.showToast(j.detail || this.t('toasts.passkey_revoke_failed'), 'error');
+          return;
+        }
+        await this.loadPasskeys();
+        if (this.me) this.me.passkeys = { ...(this.me.passkeys || {}),
+          count: (this.passkeys.list || []).length,
+        };
+        this.showToast(this.t('toasts.passkey_revoked'));
+      } catch (_) {
+        this.showToast(this.t('toasts.network_error'), 'error');
+      } finally {
+        this.passkeys.busy = false;
+      }
+    },
+
+    relativeWhen(epochSeconds) {
+      if (!epochSeconds) return '';
+      const now = Date.now() / 1000;
+      const diff = Math.max(0, now - Number(epochSeconds));
+      if (diff < 60) {
+        const n = Math.round(diff);
+        return this.t('hosts_extra.metrics.last_updated_seconds', { count: n }) || `${n}s ago`;
+      }
+      if (diff < 3600) {
+        const n = Math.round(diff / 60);
+        return this.t('hosts_extra.metrics.last_updated_minutes', { count: n }) || `${n}m ago`;
+      }
+      if (diff < 86400) {
+        const n = Math.round(diff / 3600);
+        return this.t('hosts_extra.metrics.last_updated_hours', { count: n }) || `${n}h ago`;
+      }
+      const d = new Date(Number(epochSeconds) * 1000);
+      try { return d.toLocaleDateString(); } catch (_) { return d.toISOString().slice(0, 10); }
+    },
+
     async loadTotpStatus() {
       try {
         const r = await fetch('/api/me/totp');

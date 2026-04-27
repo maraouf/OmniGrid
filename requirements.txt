@@ -26,6 +26,15 @@ asyncssh==2.22.0
 # logic/totp.py has a hard contract on the Fernet API.
 pyotp>=2.9.0
 cryptography>=42.0.0
+# WebAuthn / FIDO2 passkeys as a 2FA factor (#381). Duo Security's
+# `webauthn` package wraps the W3C ceremony in a small, dependency-light
+# API: generate_registration_options / verify_registration_response /
+# generate_authentication_options / verify_authentication_response.
+# Pure-Python plus `cryptography` (already pinned) -- no new native
+# deps. Used from logic/webauthn_helper.py; the module gracefully
+# degrades when this package is missing (boot succeeds, every passkey
+# route returns 503 with a "library not installed" hint).
+webauthn>=2.0.0
 # Webmin 2.x HTML-scrape fallback. Webmin's ``?xml=1`` and ``?json=1``
 # query params are honoured on different modules by different builds —
 # on 2.630 in particular package-updates / mount / net return the
