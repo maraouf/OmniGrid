@@ -28,7 +28,19 @@ import httpx
 
 from logic import errors as _err
 
-DEFAULT_CACHE_PATH = "/app/data/asset_inventory.json"
+# #442 — track the operator's `DB_PATH` data dir convention. Reading
+# DB_PATH lazily via os.environ keeps the constant import-time-safe
+# even when the variable is set by docker-compose only. Defaults to
+# the legacy `/app/data/asset_inventory.json` when DB_PATH is unset
+# OR when its dirname is empty (e.g. someone set `DB_PATH=omnigrid.db`
+# with no leading directory — uncommon but possible).
+def _default_cache_path() -> str:
+    db_path = os.environ.get("DB_PATH", "/app/data/omnigrid.db")
+    data_dir = os.path.dirname(db_path) or "/app/data"
+    return os.path.join(data_dir, "asset_inventory.json")
+
+
+DEFAULT_CACHE_PATH = _default_cache_path()
 DEFAULT_LIST_PATH = "/assets"
 # Lifetime-token auth mode (<asset-api-host>'s `services.php` endpoint). POST
 # form-encoded with `X-Authorization: Bearer <key>` — no token exchange,

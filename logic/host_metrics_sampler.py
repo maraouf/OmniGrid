@@ -374,9 +374,18 @@ async def _record_failure(host_id: str, now: float, error: str) -> None:
                 # pause transition. ``asyncio.create_task`` is the
                 # supported API since 3.7; it requires a running loop
                 # in scope which we're guaranteed inside this async
-                # function (BUG-010). Best-effort: a notify failure
-                # logs and moves on — the pause itself is the load-
-                # bearing side effect.
+                # function. Best-effort: a notify failure logs and
+                # moves on — the pause itself is the load-bearing
+                # side effect.
+                #
+                # #441 — emit-once-with-one-retry. If the first
+                # `notify()` raises (Apprise URL down, network blip,
+                # apprise-api 5xx), wait 60s and try again ONCE. We
+                # deliberately don't loop forever (would spam if
+                # Apprise stays down) and we deliberately don't
+                # persist the retry across process restarts (the
+                # pause itself is durable in `host_failure_state`;
+                # the notification is best-effort cake on top).
                 try:
                     from logic.ops import notify as _notify
                     title = f"⚠ Host sampling paused: {host_id}"
@@ -386,9 +395,23 @@ async def _record_failure(host_id: str, now: float, error: str) -> None:
                         f"Last error: {err_short or '—'}. "
                         f"Resume manually from the host drawer's banner."
                     )
-                    asyncio.create_task(
-                        _notify(title, body, "error", event="host_paused")
-                    )
+
+                    async def _notify_with_retry():
+                        try:
+                            await _notify(title, body, "error", event="host_paused")
+                            return
+                        except Exception as e1:
+                            print(f"[host_metrics_sampler] {host_id!r} "
+                                  f"host_paused notify primary failed: {e1} — "
+                                  f"retrying in 60s")
+                        try:
+                            await asyncio.sleep(60)
+                            await _notify(title, body, "error", event="host_paused")
+                        except Exception as e2:
+                            print(f"[host_metrics_sampler] {host_id!r} "
+                                  f"host_paused notify retry failed (giving up): {e2}")
+
+                    asyncio.create_task(_notify_with_retry())
                 except Exception as e:
                     print(f"[host_metrics_sampler] {host_id!r} notify dispatch failed: {e}")
             else:

@@ -861,6 +861,15 @@ function app() {
       this.$watch('hostsConfigPage', v => {
         try { localStorage.setItem('hostsConfigPage', String(v)); } catch {}
       });
+      // #440 — `pagedHostsConfig` clamps lazily inside a getter (can't
+      // mutate state there without breaking Alpine reactivity), which
+      // means `hostsConfigPage` can sit at 5 while the rendered page
+      // is actually 3 of 3 (last filtered row trimmed). Watch the
+      // pagination inputs and normalise `hostsConfigPage` on the next
+      // tick so the visible state matches what the operator sees.
+      this.$watch('hostsConfigSortedOrder', () => this._clampHostsConfigPage());
+      this.$watch('hostsConfigFilter',      () => this._clampHostsConfigPage());
+      this.$watch('hostsConfigPerPage',     () => this._clampHostsConfigPage());
       // Same persistence for the host-groups editor (#348).
       this.$watch('hostGroupsPage', v => {
         try { localStorage.setItem('hostGroupsPage', String(v)); } catch {}
@@ -1543,7 +1552,10 @@ function app() {
         const r = await fetch('/api/schedules');
         if (!r.ok) return;
         const d = await r.json();
-        this.schedules = d.schedules || [];
+        // #439 — in-place reconcile (keyed on id) instead of wholesale
+        // reassignment so any auto-refresh pass doesn't tear down the
+        // row's expanded-detail / inline-edit state.
+        this._reconcileById(this.schedules, d.schedules || []);
         if (Array.isArray(d.kinds) && d.kinds.length) this.scheduleKinds = d.kinds;
         if (typeof d.min_interval_seconds === 'number') {
           this.scheduleMinInterval = d.min_interval_seconds;
@@ -1565,7 +1577,28 @@ function app() {
         const r = await fetch(url);
         if (!r.ok) return;
         const d = await r.json();
-        this.scheduleQueue = d.queue || [];
+        // #439 — in-place reconcile keyed on op_id when present;
+        // synthetic ops (op_id is null on legacy rows / direct
+        // gather-refresh writes) get a stable composite key from
+        // (name + ts) so the reconciler can still match them across
+        // ticks without trashing the row identity.
+        const queue = (d.queue || []).map(row => {
+          if (row && row.op_id != null && row.op_id !== '') return row;
+          // Stamp a synthetic _key so _reconcileById can match it.
+          return { ...row, _key: `${row && row.name || ''}@${row && row.ts || 0}` };
+        });
+        const key = queue.some(r => r && r._key) ? '_key' : 'op_id';
+        // When the page is mixed (some rows have op_id, some _key),
+        // pre-fill _key on every row so the reconciler's keyOf()
+        // stays consistent across the whole array.
+        if (key === '_key') {
+          for (const row of queue) {
+            if (row._key == null) {
+              row._key = `op:${row.op_id}`;
+            }
+          }
+        }
+        this._reconcileById(this.scheduleQueue, queue, key);
         this.scheduleQueueTotal = Number.isFinite(d.total) ? d.total : this.scheduleQueue.length;
         this.scheduleQueueTotalPages = Number.isFinite(d.pages) && d.pages > 0 ? d.pages : 1;
         // Clamp current page if the backend reports fewer pages
@@ -3173,7 +3206,21 @@ function app() {
         const qr = window.qrcode(0, 'M');
         qr.addData(uri);
         qr.make();
-        el.innerHTML = qr.createSvgTag({ cellSize: 6, margin: 4, scalable: true });
+        // #437 — parse the SVG via DOMParser + adopt its <svg> root
+        // instead of `el.innerHTML = ...`. qrcode-generator's output
+        // is trusted local lib data, but `innerHTML` is the
+        // documented red-flag pattern for content-from-data flows;
+        // matches how the rest of the SPA injects DOM.
+        const svgText = qr.createSvgTag({ cellSize: 6, margin: 4, scalable: true });
+        const parsed = new DOMParser().parseFromString(svgText, 'image/svg+xml');
+        const root = parsed.documentElement;
+        // DOMParser surfaces parse errors via a <parsererror> root —
+        // fall back to the textContent-fallback below in that case
+        // so the operator still sees the otpauth URI to type by hand.
+        if (!root || root.tagName.toLowerCase() === 'parsererror') {
+          throw new Error('SVG parse error');
+        }
+        el.replaceChildren(document.adoptNode(root));
       } catch (_) {
         const code = document.createElement('code');
         code.className = 'mono totp-qr-fallback';
@@ -6942,10 +6989,24 @@ function app() {
       const total = all.length;
       const totalPages = Math.max(1, Math.ceil(total / per));
       // Clamp lazily — mutating state inside a getter would break
-      // Alpine reactivity, so we just compute the safe page.
+      // Alpine reactivity, so we just compute the safe page. The
+      // visible state is normalised separately via `_clampHostsConfigPage`
+      // (#440) on a $watch tick so `hostsConfigPage` itself eventually
+      // catches up to the truth.
       const page = Math.min(Math.max(1, this.hostsConfigPage), totalPages);
       const start = (page - 1) * per;
       return all.slice(start, start + per);
+    },
+    // #440 — normaliser invoked from $watch handlers in `init()`.
+    // Reads the same total-pages math `pagedHostsConfig` uses and
+    // resets `hostsConfigPage` if it's out of bounds, so the visible
+    // state (Page X / Y indicator) matches the rendered slice.
+    _clampHostsConfigPage() {
+      const per = this.hostsConfigPerPage || 50;
+      const total = this.filteredHostsConfig().length;
+      const totalPages = Math.max(1, Math.ceil(total / per));
+      const safe = Math.min(Math.max(1, this.hostsConfigPage), totalPages);
+      if (safe !== this.hostsConfigPage) this.hostsConfigPage = safe;
     },
 
     // Total page count given the current filter + per-page.
