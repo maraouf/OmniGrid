@@ -91,37 +91,16 @@ DOCKERHUB_TOKEN = os.getenv("DOCKERHUB_TOKEN", "")
 BOOTSTRAP_ADMIN_USER = os.getenv("BOOTSTRAP_ADMIN_USER", "")
 BOOTSTRAP_ADMIN_PASSWORD = os.getenv("BOOTSTRAP_ADMIN_PASSWORD", "")
 
-# 13 notification event names. Single source of truth — used by the admin
-# settings validator (with the ``notify_event_`` prefix) AND by the per-
-# user prefs path (#357 — bare event name as the key inside
-# ``users.ui_prefs.notify_events``). Keep in lock-step with logic/ops.py
-# notify(event=...) call sites and the SettingsIn fields below.
-_NOTIFY_EVENT_NAMES = (
-    "stack_update_success",
-    "stack_update_failure",
-    "container_update_success",
-    "container_update_failure",
-    "container_restart_success",
-    "container_restart_failure",
-    "container_remove_success",
-    "container_remove_failure",
-    "service_restart_success",
-    "service_restart_failure",
-    "prune_success",
-    "prune_failure",
-    "user_login",
-    # #411 — fires when host_metrics_sampler auto-pauses a host after the
-    # configured failure window. One-shot per pause transition (the
-    # sampler clears the failure-state row on success → next failure
-    # streak starts the window from zero).
-    "host_paused",
+# Notification event names + per-event default state — single source of
+# truth lives in ``logic.ops`` so ``notify()`` and ``api_get_settings``
+# read the same map. BUG-002 from notes/code_review_2026-04-27.txt:
+# previously these were defined here AND duplicated as a hardcoded
+# ``default=True`` inside ``notify()`` — fresh deploys fired user_login
+# notifications even though the admin form claimed the toggle was off.
+from logic.ops import (  # noqa: E402
+    NOTIFY_EVENT_NAMES as _NOTIFY_EVENT_NAMES,
+    NOTIFY_EVENT_DEFAULTS as _NOTIFY_EVENT_DEFAULTS,
 )
-# Defaults match api_get_settings — every event ships ON except
-# user_login (login traffic is noisy; opt-in).
-_NOTIFY_EVENT_DEFAULTS = {
-    name: (False if name == "user_login" else True)
-    for name in _NOTIFY_EVENT_NAMES
-}
 
 
 # TOTP / 2FA policy defaults (#345). DB > default. Same shape as the
@@ -1106,12 +1085,6 @@ class SettingsIn(BaseModel):
     # operators in other zones would otherwise see "Daily @ 01:00" fire
     # at the wrong wall-clock moment. Blank = container-local (legacy).
     scheduler_timezone: Optional[str] = None
-    # Permanent-fail window for host_metrics_sampler (#383). After this
-    # many seconds of consecutive probe failures, the sampler auto-pauses
-    # the host (no more probe attempts) until the operator manually
-    # resumes via POST /api/hosts/{id}/resume-sampling. Default 900 (15
-    # min); validator clamps to [60, 86400] in api_set_settings.
-    host_permanent_fail_window_seconds: Optional[int] = None
     # Topbar widgets — lightweight decorative info in the header.
     # ``weather_label`` is what the UI renders alongside the temp
     # ("Cairo"); lat/lon feed Open-Meteo (no API key required). Clock
@@ -1372,7 +1345,6 @@ async def api_get_settings(request: Request):
         "portainer_public_url": get_setting("portainer_public_url", str(p.get("portainer_url") or "")),
         "backup_retention_count": int(get_setting("backup_retention_count", "0") or "0"),
         "scheduler_timezone": get_setting("scheduler_timezone", "") or "",
-        "host_permanent_fail_window_seconds": int(get_setting("host_permanent_fail_window_seconds", "900") or 900),
         # Host-drawer admin debug panel visibility (Admin → Hosts toggle).
         # Default true — preserves the legacy behaviour for existing
         # deploys that haven't touched the setting. Operators who don't
@@ -1568,14 +1540,6 @@ async def api_set_settings(
                     detail=f"scheduler_timezone {tz_name!r} is not a valid IANA name: {e}",
                 )
         set_setting("scheduler_timezone", tz_name)
-    if s.host_permanent_fail_window_seconds is not None:
-        try:
-            v = int(s.host_permanent_fail_window_seconds)
-        except (TypeError, ValueError):
-            raise HTTPException(status_code=400, detail="host_permanent_fail_window_seconds must be an integer")
-        if v < 60 or v > 86400:
-            raise HTTPException(status_code=400, detail="host_permanent_fail_window_seconds must be between 60 and 86400")
-        set_setting("host_permanent_fail_window_seconds", str(v))
     if s.node_exporter_enabled is not None:
         set_setting("node_exporter_enabled", "true" if s.node_exporter_enabled else "false")
     if s.node_exporter_url_template is not None:

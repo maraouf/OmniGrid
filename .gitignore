@@ -26,11 +26,12 @@ tmp/
 # deploy. See #252 for the incident this guards against.
 **/static/**/.claude/
 **/static/**/agent-memory/
+.claude/worktrees/*
+
 
 # Node — package.json and package-lock.json are committed. node_modules/
 # is ALSO committed + shipped (the server serves Alpine / SweetAlert2
 # directly from /node_modules/…/dist/ via a FastAPI StaticFiles mount).
 # Only the npm-metadata lockfile that lives INSIDE node_modules is noise.
 .package-lock.json
-
 

@@ -37,7 +37,7 @@ import httpx
 
 from logic import node_exporter as _ne
 from logic import tuning
-from logic.db import db_conn, get_setting
+from logic.db import db_conn
 
 
 # Sanity bounds — same values, same rationale as host_net_sampler.
@@ -296,21 +296,14 @@ def _record_failure(host_id: str, now: float, error: str) -> None:
     first failure of a new streak, auto-pause when the window is
     exceeded. Called from `_probe_one` whenever a probe attempt fails
     (network error OR exporter_error response)."""
-    # Three-tier lookup: tuning_host_permanent_fail_window_seconds (#410
-    # rolled this knob into the unified Tuning Config list, so the same
-    # DB > env > default fallback applies as every other tuning_*).
-    # Bare-setting backwards-compat: also honour the legacy
-    # `host_permanent_fail_window_seconds` row from #383's first ship
-    # (operators with a pre-#410 deploy may have the value there).
+    # Three-tier lookup via the unified Tuning Config (#410): DB > env >
+    # default. ``tuning.tuning_int`` always returns at least the code
+    # default, so a fallback here is dead code (BUG-006 from
+    # ``notes/code_review_2026-04-27.txt``).
     try:
         window = int(tuning.tuning_int("tuning_host_permanent_fail_window_seconds"))
     except Exception:
         window = 900
-    if not window:
-        try:
-            window = int(get_setting("host_permanent_fail_window_seconds") or 900)
-        except (TypeError, ValueError):
-            window = 900
     if window < 60:
         window = 60
     err_short = (error or "").strip()[:500]
