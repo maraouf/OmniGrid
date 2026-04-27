@@ -20,6 +20,42 @@ DOCKERHUB_USER = os.getenv("DOCKERHUB_USER", "")
 DOCKERHUB_TOKEN = os.getenv("DOCKERHUB_TOKEN", "")
 
 
+# Bounded set of registry-label values for `omnigrid_registry_errors_total`
+# and `omnigrid_registry_latency_seconds` (#419 / ENH-004). Without this
+# cap the label is the raw registry hostname and unbounded — an operator
+# pulling from 50 private registries would inflate Prometheus cardinality
+# proportionally. Known public registries map to themselves; everything
+# else (private mirrors, self-hosted Harbor, etc.) collapses into a single
+# `private` bucket. Add new public registries by appending to the set.
+_KNOWN_REGISTRIES = frozenset({
+    "registry-1.docker.io",  # canonical Docker Hub host
+    "docker.io",             # also used as a label by some clients
+    "ghcr.io",
+    "gcr.io",
+    "quay.io",
+    "lscr.io",
+    "mcr.microsoft.com",
+    "public.ecr.aws",
+})
+
+
+def _classify_registry(host: str) -> str:
+    """Bucket a registry hostname into one of the known label values.
+
+    Empty / falsy → ``"unknown"``. Hostnames in ``_KNOWN_REGISTRIES`` →
+    themselves (with `registry-1.docker.io` collapsed to `docker.io` for
+    operator readability). Everything else → ``"private"``.
+    """
+    if not host:
+        return "unknown"
+    h = host.strip().lower()
+    if h == "registry-1.docker.io":
+        return "docker.io"
+    if h in _KNOWN_REGISTRIES:
+        return h
+    return "private"
+
+
 # Bearer tokens keyed by (realm | service | scope). Each entry is
 # (token, expires_at_epoch_seconds). Expiry is `expires_in - 30s` so we
 # rotate slightly before the server's clock says they're dead.
@@ -159,11 +195,11 @@ async def get_remote_digest(client: httpx.AsyncClient, image: str) -> Optional[s
             if r.status_code == 200:
                 digest = r.headers.get("docker-content-digest")
         if digest is None:
-            metrics.REGISTRY_ERRORS.labels(registry=reg).inc()
+            metrics.REGISTRY_ERRORS.labels(registry=_classify_registry(reg)).inc()
         return digest
     except Exception as e:
-        metrics.REGISTRY_ERRORS.labels(registry=reg).inc()
+        metrics.REGISTRY_ERRORS.labels(registry=_classify_registry(reg)).inc()
         print(f"[digest] {image}: {e}")
         return None
     finally:
-        metrics.REGISTRY_LATENCY.labels(registry=reg).observe(time.monotonic() - _t0)
+        metrics.REGISTRY_LATENCY.labels(registry=_classify_registry(reg)).observe(time.monotonic() - _t0)

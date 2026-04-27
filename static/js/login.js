@@ -208,9 +208,27 @@ function applyI18nDom() {
     return btoa(s).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
   }
   function b64uDecode(s) {
-    s = (s || '').replace(/-/g, '+').replace(/_/g, '/');
-    while (s.length % 4) s += '=';
-    const bin = atob(s);
+    // ENH-005 (#420) — validate the input before handing it to atob so a
+    // malformed `allowCredentials[i].id` from the server surfaces as a
+    // diagnostic operator-readable error instead of a generic
+    // `InvalidCharacterError`. Empty / non-string is a programming error;
+    // characters outside the base64url charset means the server JSON is
+    // malformed (regression in the credential serializer); a length that
+    // doesn't pad to a multiple of 4 means the same.
+    if (typeof s !== 'string' || s.length === 0) {
+      throw new Error('WebAuthn: server sent empty / non-string credential id');
+    }
+    if (!/^[A-Za-z0-9_\-]+$/.test(s)) {
+      throw new Error('WebAuthn: server sent malformed base64url credential id (charset)');
+    }
+    let padded = s.replace(/-/g, '+').replace(/_/g, '/');
+    while (padded.length % 4) padded += '=';
+    let bin;
+    try {
+      bin = atob(padded);
+    } catch (_) {
+      throw new Error('WebAuthn: server sent malformed base64url credential id (atob)');
+    }
     const out = new Uint8Array(bin.length);
     for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
     return out.buffer;

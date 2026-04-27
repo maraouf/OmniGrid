@@ -1002,9 +1002,14 @@ async def _run_asset_inventory_refresh(
                         "asset_inventory base_url and lifetime_token are required "
                         "for the lifetime-token auth mode"
                     )
+                # #417 / ENH-001 — honour the asset_inventory_verify_tls
+                # setting (default True) so operators with a self-signed
+                # asset API can opt out without monkey-patching.
+                _verify_tls_raw = (get_setting("asset_inventory_verify_tls", "true") or "true").strip().lower()
+                _verify_tls = _verify_tls_raw != "false"
                 result = await _ai.refresh_cache(
                     base_url,
-                    verify_tls=True,
+                    verify_tls=_verify_tls,
                     auth_mode=_ai.AUTH_MODE_LIFETIME_TOKEN,
                     lifetime_token=lifetime_token,
                     service=service,
@@ -1022,13 +1027,15 @@ async def _run_asset_inventory_refresh(
                         "asset_inventory OAuth2 credentials incomplete — "
                         "configure base_url / token_url / client_id / client_secret"
                     )
+                _verify_tls_raw = (get_setting("asset_inventory_verify_tls", "true") or "true").strip().lower()
+                _verify_tls = _verify_tls_raw != "false"
                 result = await _ai.refresh_cache(
                     base_url,
                     token_url=token_url,
                     client_id=client_id,
                     client_secret=client_secret,
                     scope=scope,
-                    verify_tls=True,
+                    verify_tls=_verify_tls,
                 )
             if not result.get("ok"):
                 status = "error"

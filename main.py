@@ -16,6 +16,7 @@ Endpoints:
   GET  /metrics                       - Prometheus scrape endpoint
 """
 import asyncio
+import hashlib
 import json
 import os
 import re
@@ -1142,6 +1143,9 @@ class SettingsIn(BaseModel):
     asset_inventory_client_secret: Optional[str] = None
     asset_inventory_scope: Optional[str] = None
     clear_asset_inventory_client_secret: Optional[bool] = None
+    # #417 / ENH-001 — TLS verification toggle for the asset API.
+    # Default True; flip to False for self-signed homelab endpoints.
+    asset_inventory_verify_tls: Optional[bool] = None
     # Auth mode selector: "oauth2" (existing client_credentials flow)
     # or "lifetime_token" (static key POSTed to services.php with
     # X-Authorization header). Lifetime key follows the secret suffix
@@ -1373,6 +1377,8 @@ async def api_get_settings(request: Request):
             "max_value":          (lambda v: int(v) if (v or "").strip().lstrip("-").isdigit() else None)(
                                      get_setting("asset_inventory_max_value", "")),
             "edit_url_template":  get_setting("asset_inventory_edit_url_template", "") or "",
+            # #417 / ENH-001 — TLS verification toggle. Default True.
+            "verify_tls":         (get_setting("asset_inventory_verify_tls", "true") or "true").strip().lower() != "false",
         },
         "portainer_public_url": get_setting("portainer_public_url", str(p.get("portainer_url") or "")),
         "backup_retention_count": int(get_setting("backup_retention_count", "0") or "0"),
@@ -2057,6 +2063,9 @@ async def api_set_settings(
     if s.asset_inventory_scope is not None:
         set_setting("asset_inventory_scope",
                     (s.asset_inventory_scope or "").strip())
+    if s.asset_inventory_verify_tls is not None:
+        set_setting("asset_inventory_verify_tls",
+                    "true" if s.asset_inventory_verify_tls else "false")
     if s.asset_inventory_client_secret is not None \
             and s.asset_inventory_client_secret.strip() != "":
         set_setting("asset_inventory_client_secret",
@@ -2607,7 +2616,7 @@ async def api_asset_inventory_refresh(
                              "for the lifetime-token auth mode"}
         return await _ai.refresh_cache(
             base_url,
-            verify_tls=True,
+            verify_tls=_asset_inventory_verify_tls(),
             auth_mode=_ai.AUTH_MODE_LIFETIME_TOKEN,
             lifetime_token=lifetime_token,
             service=service,
@@ -2629,8 +2638,17 @@ async def api_asset_inventory_refresh(
         client_id=client_id,
         client_secret=client_secret,
         scope=scope,
-        verify_tls=True,
+        verify_tls=_asset_inventory_verify_tls(),
     )
+
+
+def _asset_inventory_verify_tls() -> bool:
+    """Read the operator-controlled `asset_inventory_verify_tls` setting
+    on every refresh (#417 / ENH-001). Default True so first-boot deploys
+    keep validating TLS — homelab operators with self-signed asset APIs
+    flip the toggle in Admin → Asset Inventory."""
+    raw = (get_setting("asset_inventory_verify_tls", "true") or "true").strip().lower()
+    return raw != "false"
 
 
 # Local aliases for the canonical merge helpers in `logic/merge.py`.
@@ -3203,7 +3221,30 @@ async def _get_host_provider_state(force: bool = False) -> dict:
     # the key match is defence-in-depth for the case where a save
     # happens via a path that doesn't run the invalidator (e.g. an
     # external SQL update to settings).
-    cache_key = tuple(sorted(active))
+    #
+    # BUG-010 fix (#416) — also fold a hash of the credential fields
+    # into the key so changing `beszel_password` (without flipping
+    # `host_stats_source`) busts the cache too. The whitelist in
+    # `api_set_settings` already calls `invalidate_host_provider_cache`
+    # on those writes; this is belt-and-braces for any path that
+    # bypasses the validator (raw SQL update, env-var hot reload, etc.).
+    cred_blob = "|".join((
+        get_setting("beszel_hub_url", "") or "",
+        get_setting("beszel_identity", "") or "",
+        get_setting("beszel_password", "") or "",
+        get_setting("beszel_verify_tls", "true") or "true",
+        get_setting("pulse_url", "") or "",
+        get_setting("pulse_token", "") or "",
+        get_setting("pulse_verify_tls", "true") or "true",
+        get_setting("webmin_url", "") or "",
+        get_setting("webmin_user", "") or "",
+        get_setting("webmin_password", "") or "",
+        get_setting("webmin_verify_tls", "true") or "true",
+        get_setting("node_exporter_url_template", "") or "",
+        get_setting("node_exporter_overrides", "") or "",
+    ))
+    cred_hash = hashlib.sha256(cred_blob.encode("utf-8")).hexdigest()[:16]
+    cache_key = (tuple(sorted(active)), cred_hash)
     cached = _host_provider_cache.get("state")
     cached_key = _host_provider_cache.get("key")
     if (not force and cached and cached_key == cache_key

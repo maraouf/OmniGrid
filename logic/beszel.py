@@ -52,8 +52,33 @@ _token_cache: dict[tuple[str, str], dict] = {}
 # we clear the host's entry so a future regression would re-warn.
 # The "sample system_id has no efs key" line uses its own one-shot
 # guard (`_warned_sample_no_efs`) so it doesn't fire every cycle either.
-_warned_no_mounts: set[str] = set()
+#
+# Cardinality cap (#422 / ENH-007): a fleet with rotating ephemeral
+# hostnames (uncommon but possible — short-lived k8s pods, dev VMs)
+# could grow this set unbounded over the lifetime of the process. Cap
+# at `_WARNED_NO_MOUNTS_CAP` entries with FIFO eviction via an OrderedDict
+# (set has no insertion-ordered eviction). When a NEW host warning is
+# about to push the count over the cap, drop the oldest. The warn-once
+# semantics survive: a host that was evicted simply gets re-warned the
+# next time it shows mounts=0 — fine, since eviction means the process
+# has been up long enough that one duplicate log line in N thousand is
+# acceptable.
+from collections import OrderedDict as _OrderedDict
+_WARNED_NO_MOUNTS_CAP = 1024
+_warned_no_mounts: "_OrderedDict[str, None]" = _OrderedDict()
 _warned_sample_no_efs: bool = False
+
+
+def _warned_no_mounts_add(host_key: str) -> None:
+    """Mark a host as having been warned, evicting the oldest entry
+    when the cap is exceeded. Idempotent on re-add (re-inserts at the
+    tail so it becomes the most-recently-warned)."""
+    if host_key in _warned_no_mounts:
+        _warned_no_mounts.move_to_end(host_key)
+        return
+    _warned_no_mounts[host_key] = None
+    while len(_warned_no_mounts) > _WARNED_NO_MOUNTS_CAP:
+        _warned_no_mounts.popitem(last=False)
 
 
 def _cache_key(base_url: str, identity: str) -> tuple[str, str]:
@@ -979,7 +1004,7 @@ async def probe_hub(
                       f"(previously empty — agent picked up EXTRA_FILESYSTEMS): "
                       + ", ".join(f"{m.get('n')}={m.get('du'):.1f}/{m.get('d'):.1f} GiB"
                                   for m in mounts[:5]))
-                _warned_no_mounts.discard(host_key)
+                _warned_no_mounts.pop(host_key, None)
         else:
             # One-shot warning per host for the lifetime of the process.
             # Keeps the "set EXTRA_FILESYSTEMS" hint visible on first
@@ -988,7 +1013,7 @@ async def probe_hub(
                 print(f"[beszel] host={host_key!r} mounts=0 — agent not reporting efs "
                       f"(set EXTRA_FILESYSTEMS env on the Beszel agent to enable "
                       f"multi-mount; this warning is suppressed on subsequent ticks)")
-                _warned_no_mounts.add(host_key)
+                _warned_no_mounts_add(host_key)
         # Carry the top-level status so callers can tell a paused /
         # down system from one that's actually fresh.
         stats["beszel_status"] = rec.get("status") or "unknown"

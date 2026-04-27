@@ -343,6 +343,7 @@ function app() {
       service: '', action: '',
       min_value: '', max_value: '',
       edit_url_template: '',
+      verify_tls: true,
     },
     assetStatus: null,
     assetTestResult: null,
@@ -3966,14 +3967,69 @@ function app() {
       return this.barLevel(v);
     },
 
+    // Generic in-place reconcile helper (#418 / ENH-003). Updates
+    // `target` to match `incoming` row-by-row keyed on `id`:
+    //   - existing rows: copy every field from `incoming[i]` onto the
+    //     proxied entry (Alpine tracks each assignment individually so
+    //     the row's DOM stays mounted),
+    //   - new rows: push the full incoming dict at the end,
+    //   - gone rows: splice from the tail.
+    // The order of `target` is finally rewritten to match `incoming`'s
+    // order via swap-in-place so the row sequence the operator sees
+    // tracks server-side ordering without tearing the array down.
+    // Used by `refresh()` for `this.items` + `this.stacks`; matches the
+    // reconcile pattern `loadHosts` uses for `this.hosts`.
+    _reconcileById(target, incoming) {
+      const incomingIds = new Set(incoming.map(r => r && r.id));
+      // Drop rows whose id disappeared. Iterate from the tail so
+      // splice indices stay valid.
+      for (let i = target.length - 1; i >= 0; i--) {
+        if (!incomingIds.has(target[i].id)) {
+          target.splice(i, 1);
+        }
+      }
+      // Update / insert. After this loop `target` has the right rows
+      // but possibly in the wrong order.
+      const byId = new Map();
+      for (const row of target) byId.set(row.id, row);
+      for (const inc of incoming) {
+        if (!inc || inc.id == null) continue;
+        const existing = byId.get(inc.id);
+        if (existing) {
+          for (const k of Object.keys(inc)) existing[k] = inc[k];
+        } else {
+          target.push({ ...inc });
+          byId.set(inc.id, target[target.length - 1]);
+        }
+      }
+      // Reorder `target` to match `incoming`'s sequence. Build the
+      // final order array and copy elements back into `target` in
+      // place — avoids a full reassignment that would re-proxy the
+      // array and tear down Alpine's row mounts.
+      const ordered = incoming.map(inc => byId.get(inc.id)).filter(Boolean);
+      for (let i = 0; i < ordered.length; i++) {
+        if (target[i] !== ordered[i]) {
+          target[i] = ordered[i];
+        }
+      }
+      // Trim any trailing slots if the new array is shorter.
+      while (target.length > ordered.length) target.pop();
+    },
+
     async refresh(force=false) {
       this.loading = true;
       try {
         const r = await fetch('/api/items' + (force ? '?force=true' : ''));
         if (!r.ok) throw new Error(await r.text());
         const d = await r.json();
-        this.items = d.items || [];
-        this.stacks = d.stacks || [];
+        // ENH-003 (#418) — in-place reconcile for items + stacks
+        // instead of wholesale array reassignment. Keeps Alpine from
+        // tearing down each row's checkbox state, <details> open/closed
+        // state, and inline-style nodes on every poll. Same
+        // .find()-by-id + field-by-field assignment pattern that
+        // `loadHosts` uses.
+        this._reconcileById(this.items, d.items || []);
+        this._reconcileById(this.stacks, d.stacks || []);
         this.nodes = d.nodes || {};
         // Per-node capacity + uptime proxy — see logic/gather.py's nodes_info.
         // Drives the Nodes view's normalized CPU/mem bars.
@@ -4157,6 +4213,8 @@ function app() {
           order:       Number.isFinite(+g.order) ? +g.order : 0,
         })) : [];
         this.hostGroupsDirty = false;
+        // Bust groupedHosts() cache on every load (#423 / ENH-008).
+        this.hostGroupsRevision = (this.hostGroupsRevision || 0) + 1;
 
         // --- Asset inventory (ticket #78) ---
         this.assetStatus = d.asset_inventory || null;
@@ -4175,6 +4233,9 @@ function app() {
             min_value:      (this.assetStatus.min_value != null) ? String(this.assetStatus.min_value) : '',
             max_value:      (this.assetStatus.max_value != null) ? String(this.assetStatus.max_value) : '',
             edit_url_template: this.assetStatus.edit_url_template || '',
+            // #417 / ENH-001 — default true if backend omits the key
+            // (legacy deploy seeing first read).
+            verify_tls:     (this.assetStatus.verify_tls !== false),
           };
         }
       } catch (e) { console.error(e); }
@@ -6804,8 +6865,22 @@ function app() {
     // Admin-editor view filter. We return a list of ``{row, idx}``
     // tuples so the template can render only matching rows while
     // still having the original index for move/remove/test actions.
+    // Memoised filter result. ENH-006 (#421) — `pagedHostsConfig` and
+    // `hostsConfigTotalPages` both call this getter on every Alpine
+    // re-evaluation. With 500 hosts + a typing-driven filter that's
+    // 1000+ walks per keystroke. Cache the result keyed on
+    // `(filter, hostsConfig.length, hostsConfigSortedOrder.length)`
+    // so repeated access in one tick is O(1). The cache busts naturally
+    // when ANY of those inputs changes (add / remove / sort-rebuild /
+    // typed filter character) so it's always fresh.
+    _filteredHostsConfigCache: { key: '', value: null },
     filteredHostsConfig() {
       const q = (this.hostsConfigFilter || '').trim().toLowerCase();
+      const order = (this.hostsConfigSortedOrder || []);
+      const cfg = this.hostsConfig || [];
+      const cacheKey = q + '|' + cfg.length + '|' + order.length;
+      const cached = this._filteredHostsConfigCache;
+      if (cached.key === cacheKey && cached.value) return cached.value;
       // Display order is a SNAPSHOT rebuilt only by
       // `rebuildHostsConfigOrder()` (called on load / add / remove /
       // blur of custom_number). Sorting reactively on every keystroke
@@ -6815,8 +6890,6 @@ function app() {
       // snapshot means the sort applies on commit (blur), not on
       // keystroke — the operator can type "24" uninterrupted and the
       // row re-sorts when they tab away.
-      const order = (this.hostsConfigSortedOrder || []);
-      const cfg = this.hostsConfig || [];
       const all = [];
       if (order.length === cfg.length && order.every(i => i < cfg.length)) {
         for (const idx of order) all.push({ row: cfg[idx], idx });
@@ -6828,16 +6901,23 @@ function app() {
           all.push({ row: cfg[idx], idx });
         }
       }
-      if (!q) return all;
-      return all.filter(({ row }) => {
-        const hay = [
-          row.id, row.label, row.ne_url,
-          row.beszel_name, row.pulse_name,
-          row.webmin_name, row.webmin_url,
-          row.url, row.icon, row.ip,
-        ].filter(Boolean).join(' ').toLowerCase();
-        return hay.includes(q);
-      });
+      let value;
+      if (!q) {
+        value = all;
+      } else {
+        value = all.filter(({ row }) => {
+          const hay = [
+            row.id, row.label, row.ne_url,
+            row.beszel_name, row.pulse_name,
+            row.webmin_name, row.webmin_url,
+            row.url, row.icon, row.ip,
+          ].filter(Boolean).join(' ').toLowerCase();
+          return hay.includes(q);
+        });
+      }
+      cached.key = cacheKey;
+      cached.value = value;
+      return value;
     },
 
     // Page-of-N slice of `filteredHostsConfig()` for rendering.
@@ -9121,6 +9201,11 @@ function app() {
         }
         // Reload so the server's cleaned / sorted view replaces ours.
         await this.loadSettings();
+        // Bust the groupedHosts() memo (#423 / ENH-008). loadSettings
+        // changes hostGroups in place; bumping the revision counter
+        // forces the next access to recompute even if the array
+        // identity / length didn't change.
+        this.hostGroupsRevision = (this.hostGroupsRevision || 0) + 1;
         this.showToast(this.t('admin_hosts.groups.saved'), 'success');
       } catch (e) {
         this.showToast(this.t('admin_hosts.groups.save_failed') + ': ' + e.message, 'error');
@@ -9184,9 +9269,24 @@ function app() {
     //     },
     //     { group: null, hosts: [h, h] }   // Ungrouped, trailing
     //   ]
+    // Memoised result. ENH-008 (#423) — `groupedHosts()` is called on
+    // every Alpine re-render. With 500 hosts × 30 groups the inner
+    // O(N×M) walk is 15k comparisons per tick. Cache keyed on the
+    // identities of the source arrays + the host list's length and the
+    // groups list's length + a counter that increments on group save
+    // (`hostGroupsRevision`) so a save explicitly busts even when the
+    // length is unchanged.
+    _groupedHostsCache: { key: '', value: null },
+    hostGroupsRevision: 0,
     groupedHosts() {
       const hosts = this.filteredHosts();
-      const all = (this.hostGroups || []).slice().sort(
+      const groups = this.hostGroups || [];
+      const cacheKey = hosts.length + '|' + groups.length + '|' + (this.hostGroupsRevision || 0)
+        + '|' + (this.hostsFilter || '') + '|' + (this.hideUnconfiguredHosts ? '1' : '0');
+      const cached = this._groupedHostsCache;
+      if (cached.key === cacheKey && cached.value) return cached.value;
+
+      const all = groups.slice().sort(
         (a, b) => (a.order || 0) - (b.order || 0) || a.name.localeCompare(b.name),
       );
       const topLevel = all.filter(g => !g.parent_name);
@@ -9205,18 +9305,49 @@ function app() {
       }));
       const ungrouped = { group: null, hosts: [], children: [] };
 
+      // Sorted-by-range-start index for binary search. Each entry is
+      // `[range_start, range_end, bucketIdx]`. With 30 groups the
+      // bisection over a sorted array is O(log N) per host vs the
+      // naive O(N) linear scan; saves ~14k comparisons per render
+      // with 500 hosts × 30 groups (#423 / ENH-008).
+      const ranges = buckets
+        .map((b, idx) => [b.group.range_start | 0, b.group.range_end | 0, idx])
+        .sort((a, b) => a[0] - b[0]);
+      const findBucket = (ci) => {
+        // Binary search for the largest range whose start ≤ ci, then
+        // walk back through any equal-start entries to find one whose
+        // end ≥ ci. Falls back to a linear scan for overlapping ranges
+        // (operator-defined ranges CAN overlap; first-match-wins
+        // matches the prior implementation's iteration order). With
+        // typical non-overlapping range sets the early-exit is hit on
+        // the bisected entry without any walk.
+        let lo = 0, hi = ranges.length;
+        while (lo < hi) {
+          const mid = (lo + hi) >>> 1;
+          if (ranges[mid][0] <= ci) lo = mid + 1; else hi = mid;
+        }
+        // After the loop `lo` is the count of ranges with start ≤ ci.
+        // Walk back through them looking for one whose end ≥ ci.
+        for (let i = lo - 1; i >= 0; i--) {
+          if (ranges[i][1] >= ci) return ranges[i][2];
+        }
+        return -1;
+      };
+
       for (const h of hosts) {
         const cn = h.custom_number;
         const ci = (cn === null || cn === undefined || cn === '') ? null
           : (Number.isFinite(+cn) ? +cn : null);
         let placed = false;
         if (ci !== null) {
-          for (const b of buckets) {
-            const g = b.group;
-            if (ci < g.range_start || ci > g.range_end) continue;
+          const bIdx = findBucket(ci);
+          if (bIdx >= 0) {
+            const b = buckets[bIdx];
             // Parent matched — now try the sub-groups first
             // (most-specific wins). Break on the first sub-group
-            // hit and DON'T also push to the parent's list.
+            // hit and DON'T also push to the parent's list. Children
+            // tend to be a handful per parent so a linear scan here
+            // is cheap (no need for a second bisection layer).
             let placedInChild = false;
             for (const c of b.children) {
               const cg = c.group;
@@ -9228,7 +9359,6 @@ function app() {
             }
             if (!placedInChild) b.hosts.push(h);
             placed = true;
-            break;
           }
         }
         if (!placed) ungrouped.hosts.push(h);
@@ -9245,6 +9375,8 @@ function app() {
         || b.children.some(c => c.hosts.length > 0),
       );
       if (ungrouped.hosts.length > 0) out.push(ungrouped);
+      cached.key = cacheKey;
+      cached.value = out;
       return out;
     },
 
@@ -9262,6 +9394,7 @@ function app() {
         asset_inventory_min_value: String(this.assetForm.min_value ?? '').trim(),
         asset_inventory_max_value: String(this.assetForm.max_value ?? '').trim(),
         asset_inventory_edit_url_template: String(this.assetForm.edit_url_template ?? '').trim(),
+        asset_inventory_verify_tls: !!this.assetForm.verify_tls,
       };
       if (this.assetForm.client_secret && this.assetForm.client_secret.trim()) {
         body.asset_inventory_client_secret = this.assetForm.client_secret;
