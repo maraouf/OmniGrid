@@ -580,6 +580,18 @@ function app() {
     logSeverityLevels: ['error', 'warn', 'ok', 'info'],
     logSeverityFilter: { error: true, warn: true, ok: true, info: true },
     logPollHandle: null,
+    // Sub-tab state for the Logs admin view (#425). 'live' shows the
+    // existing in-memory ring viewer; 'files' shows the persistent
+    // daily log files with a download button + live-tail of a
+    // selected file.
+    logsSubTab: 'live',
+    logFiles: [],
+    logFilesDir: '',
+    logSelectedFile: '',
+    logFileBody: '',
+    logFileAutoTail: true,
+    logFileTailLines: 500,
+    _logFileTimer: null,
     backups: [],
     backupBusy: false,
     // Scheduler state. `schedules` is the list of rows from /api/schedules,
@@ -2361,6 +2373,48 @@ function app() {
           }
         }
       } catch (_) {}
+    },
+    // Persistent log files (#425). Lists / views / live-tails the
+    // daily files under /app/data/logs/. Download URL is the same
+    // route, no streaming — the file is small (one day's logs).
+    async loadLogFiles() {
+      try {
+        const r = await fetch('/api/admin/logs/files');
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        const d = await r.json();
+        this.logFiles = Array.isArray(d.files) ? d.files : [];
+        this.logFilesDir = d.log_dir || '';
+      } catch (e) {
+        this.showToast(this.t('toasts.network_error'), 'error');
+      }
+    },
+    async viewLogFile(name) {
+      this.logSelectedFile = name;
+      await this._fetchLogFileBody();
+      // Restart the auto-tail poll for the newly-selected file.
+      if (this._logFileTimer) clearInterval(this._logFileTimer);
+      this._logFileTimer = setInterval(() => {
+        if (this.logsSubTab !== 'files' || !this.logSelectedFile || !this.logFileAutoTail) {
+          return;
+        }
+        this._fetchLogFileBody();
+      }, 5000);
+    },
+    async _fetchLogFileBody() {
+      if (!this.logSelectedFile) { this.logFileBody = ''; return; }
+      try {
+        const r = await fetch(
+          '/api/admin/logs/files/' + encodeURIComponent(this.logSelectedFile)
+          + '?tail=' + this.logFileTailLines,
+        );
+        if (!r.ok) {
+          this.logFileBody = `(unable to read: HTTP ${r.status})`;
+          return;
+        }
+        this.logFileBody = await r.text();
+      } catch (e) {
+        this.logFileBody = `(network error: ${e.message})`;
+      }
     },
     // Copy the currently-filtered log view to the clipboard as plain
     // text. Format: "YYYY-MM-DD HH:MM:SS [stream] body" per line, so

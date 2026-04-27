@@ -35,7 +35,7 @@ import sys
 import time
 from collections import deque
 from datetime import datetime, timezone
-from typing import Any, Iterable, TextIO
+from typing import Any, Iterable, Optional, TextIO
 
 
 # How many lines to retain in-memory. 2000 at ~150 bytes/line is ~300 KB —
@@ -133,6 +133,70 @@ def _persist_line(record: dict[str, Any]) -> None:
                 sys.__stderr__.write(f"[logs] persistent-log write failed (suppressed): {e}\n")
             except Exception:
                 pass
+
+
+def list_persistent_logs() -> list[dict]:
+    """Return metadata for every persisted daily log file. One entry
+    per ``omnigrid-YYYY-MM-DD.log``: ``{name, size, mtime}``. Sorted
+    newest-first by filename (which is sort-equivalent to mtime since
+    the date is in the name). Used by the Admin → Logs "Files" tab.
+    Files we can't parse against the canonical regex are skipped.
+    """
+    out: list[dict] = []
+    if not os.path.isdir(LOG_DIR):
+        return out
+    try:
+        names = os.listdir(LOG_DIR)
+    except OSError:
+        return out
+    for name in names:
+        if not _LOG_NAME_RE.match(name):
+            continue
+        try:
+            st = os.stat(os.path.join(LOG_DIR, name))
+        except OSError:
+            continue
+        out.append({
+            "name":  name,
+            "size":  int(st.st_size),
+            "mtime": float(st.st_mtime),
+        })
+    out.sort(key=lambda r: r["name"], reverse=True)
+    return out
+
+
+def safe_log_path(name: str) -> Optional[str]:
+    """Validate ``name`` against the canonical filename regex and
+    return its full path. Returns None on any non-match — guards the
+    download / view endpoints against path-traversal attempts (``..``,
+    absolute paths, symlinks). The regex is the only allowed shape so
+    even basename-encoded traversal can't slip through.
+    """
+    if not _LOG_NAME_RE.match(name or ""):
+        return None
+    return os.path.join(LOG_DIR, name)
+
+
+def read_persistent_log(name: str, tail_lines: Optional[int] = None) -> Optional[str]:
+    """Read the file's contents, optionally just the last ``tail_lines``
+    lines. Returns None when the filename is invalid or the file is
+    missing. Errors are propagated for the caller to surface — unlike
+    the write path, the read path doesn't have a "best effort" mode
+    because the operator explicitly asked for this view.
+    """
+    path = safe_log_path(name)
+    if not path or not os.path.isfile(path):
+        return None
+    with open(path, "r", encoding="utf-8", errors="replace") as f:
+        if tail_lines is None or tail_lines <= 0:
+            return f.read()
+        # Lazy tail — grab everything then slice. The biggest log file
+        # we'd ever read is one day's worth at typical OmniGrid log
+        # rates (a few MB max), so a full read is fine.
+        lines = f.readlines()
+    if tail_lines and len(lines) > tail_lines:
+        lines = lines[-tail_lines:]
+    return "".join(lines)
 
 
 def prune_old_logs(retention_days: int) -> int:

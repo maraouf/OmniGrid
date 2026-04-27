@@ -1034,12 +1034,71 @@ async def _run_asset_inventory_refresh(
     return op_id, task  # type: ignore[return-value]
 
 
+async def _run_prune_logs(params: dict) -> tuple[str, Awaitable[tuple[int, str]]]:
+    """Sweep `/app/data/logs/` and delete daily files older than the
+    persisted ``tuning_log_retention_days`` (or ``params.days`` if the
+    schedule row carries an explicit override). Idempotent — running
+    twice in a minute just produces a second history row with 0 files
+    deleted. Mirrors the gather_refresh / asset_inventory_refresh
+    pattern: no Operation, writes a history row directly when done so
+    it shows up in the History tab + the schedules queue. (#425)
+    """
+    op_id = "sched-" + secrets.token_hex(4)
+
+    async def runner() -> tuple[int, str]:
+        from logic import logs as _logs_mod
+        from logic import tuning as _tuning_mod
+
+        started = time.time()
+        status = "success"
+        err: Optional[str] = None
+        removed = 0
+        try:
+            override = params.get("days") if isinstance(params, dict) else None
+            if override is not None and str(override).strip():
+                try:
+                    days = int(str(override).strip())
+                except ValueError:
+                    days = _tuning_mod.tuning_int("tuning_log_retention_days")
+            else:
+                days = _tuning_mod.tuning_int("tuning_log_retention_days")
+            removed = _logs_mod.prune_old_logs(days)
+        except Exception as e:
+            status = "error"
+            err = str(e)
+            print(f"[scheduler] prune_logs failed: {e}")
+
+        duration = int(time.time() - started)
+        try:
+            with db_conn() as c:
+                c.execute(
+                    "INSERT INTO history "
+                    "(ts, op_type, target_name, target_id, target_stack, "
+                    " status, duration, events, error, actor) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    (
+                        started, "prune_logs",
+                        f"{removed} log file(s)",
+                        op_id, None,
+                        status, duration,
+                        "[]", err, SCHEDULER_ACTOR,
+                    ),
+                )
+        except Exception as e:
+            print(f"[scheduler] prune_logs history write failed: {e}")
+        return (duration, status)
+
+    task = asyncio.create_task(runner())
+    return op_id, task  # type: ignore[return-value]
+
+
 SCHEDULE_KINDS: dict[str, KindRunner] = {
     "prune_node":                _run_prune_node,
     "prune_all_nodes":           _run_prune_all_nodes,
     "gather_refresh":            _run_gather_refresh,
     "backup":                    _run_backup,
     "asset_inventory_refresh":   _run_asset_inventory_refresh,
+    "prune_logs":                _run_prune_logs,
 }
 
 

@@ -5374,6 +5374,43 @@ async def api_logs_clear(_admin: auth.User = Depends(auth.require_admin)):
     return {"ok": True}
 
 
+# ----------------------------------------------------------------------------
+# Persistent log files (#424 / #425). Daily files under /app/data/logs/.
+# Admin-only. Three routes:
+#   GET /api/admin/logs/files                      — directory listing
+#   GET /api/admin/logs/files/{name}?tail=N        — text body, last N lines (N optional)
+#   GET /api/admin/logs/files/{name}/download      — full file as attachment
+# Filename is validated against the canonical regex inside `safe_log_path`
+# so path-traversal attempts (../, absolute paths) bounce with 404.
+# ----------------------------------------------------------------------------
+@app.get("/api/admin/logs/files")
+async def api_admin_logs_files(_admin: auth.User = Depends(auth.require_admin)):
+    return {"files": _logs.list_persistent_logs(), "log_dir": _logs.LOG_DIR}
+
+
+@app.get("/api/admin/logs/files/{name}")
+async def api_admin_logs_file_view(
+    name: str,
+    tail: int = 0,
+    _admin: auth.User = Depends(auth.require_admin),
+):
+    body = _logs.read_persistent_log(name, tail_lines=tail if tail > 0 else None)
+    if body is None:
+        return JSONResponse(status_code=404, content={"detail": "log file not found"})
+    return Response(content=body, media_type="text/plain; charset=utf-8")
+
+
+@app.get("/api/admin/logs/files/{name}/download")
+async def api_admin_logs_file_download(
+    name: str,
+    _admin: auth.User = Depends(auth.require_admin),
+):
+    path = _logs.safe_log_path(name)
+    if not path or not os.path.isfile(path):
+        return JSONResponse(status_code=404, content={"detail": "log file not found"})
+    return FileResponse(path, filename=name, media_type="text/plain; charset=utf-8")
+
+
 # ============================================================================
 # Auth routes (step 1: local login, logout, one-shot bootstrap, /api/me).
 # Registered here — above the StaticFiles catch-all — per CLAUDE.md.
