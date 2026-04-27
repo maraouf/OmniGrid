@@ -1324,7 +1324,7 @@
     "row": {
       "id_placeholder": "e.g. host01",
       "url_placeholder": "https://app.example.com",
-      "ip_placeholder": "10.0.0.1",
+      "ip_placeholder": "192.X.X.X",
       "beszel_name_placeholder": "host01.example.com",
       "pulse_name_placeholder": "node · vm · ct",
       "webmin_url_placeholder": "https://host.example.com:10000",
@@ -1337,7 +1337,7 @@
       "icon": "Icon",
       "icon_hint": "(optional — auto-matched from ID if blank)",
       "icon_placeholder": "opnsense · pfsense · ghcr.io/…",
-      "ne_url_placeholder": "http://10.0.0.1:9100/metrics",
+      "ne_url_placeholder": "http://192.X.X.X:9100/metrics",
       "duplicate_title": "Duplicate this host (inserts a disabled clone below)",
       "remove_title": "Remove this host",
       "remove": "Remove"
