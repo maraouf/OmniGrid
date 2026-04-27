@@ -2158,6 +2158,18 @@
       </aside>
 
       <div class="page-content">
+        <!-- Page title bar (#387) — icon + label of the active sub-tab,
+             matching the avatar dropdown + sidebar entry so the operator
+             gets visual continuity from "click Settings in dropdown" →
+             "see Profile sidebar entry" → "see Profile title at the top
+             of the rendered tab". -->
+        <div class="page-title-bar">
+          <svg width="18" height="18" class="page-title-icon" aria-hidden="true">
+            <use :href="'#icon-' + activeSettingsSectionIcon()"/>
+          </svg>
+          <h2 class="page-title-text" x-text="activeSettingsSectionLabel()"></h2>
+        </div>
+
         <!-- Readonly banner — clarifies why save buttons are missing. -->
         <div x-show="isReadonly()"
              class="bg-[var(--surface-2)] border border-[var(--border-bright)] rounded-md px-4 py-2 text-[12px] text-[var(--text-dim)] flex items-center gap-2">
@@ -2952,6 +2964,17 @@
         </template>
       </aside>
       <div class="page-content">
+      <!-- Page title bar (#387) — icon + label of the active sub-tab,
+           matching the avatar dropdown + sidebar entry so the operator
+           gets visual continuity from "click Admin in dropdown" → "see
+           Users sidebar entry" → "see Users title at the top of the
+           rendered tab". -->
+      <div class="page-title-bar">
+        <svg width="18" height="18" class="page-title-icon" aria-hidden="true">
+          <use :href="'#icon-' + activeAdminSectionIcon()"/>
+        </svg>
+        <h2 class="page-title-text" x-text="activeAdminSectionLabel()"></h2>
+      </div>
       <div>
         <p class="text-[11px] text-[var(--text-faint)] mt-0.5" x-text="t('admin.intro')"></p>
       </div>
