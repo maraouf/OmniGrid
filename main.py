@@ -1189,6 +1189,9 @@ class SettingsIn(BaseModel):
     tuning_stats_concurrency: Optional[str] = None
     tuning_stats_history_days: Optional[str] = None
     tuning_stats_sample_interval_seconds: Optional[str] = None
+    # #410 — host_metrics_sampler permanent-fail window. Same DB-key
+    # naming + bounds-check via TUNABLES as the others.
+    tuning_host_permanent_fail_window_seconds: Optional[str] = None
     # -----------------------------------------------------------------
     # Per-event notification toggles. Each maps to one of the
     # 12 (event group × success/failure) notify() call sites in
@@ -1261,6 +1264,9 @@ async def api_get_settings(request: Request):
         "notify_event_prune_failure":             get_setting_bool("notify_event_prune_failure", True),
         # Security event — default OFF (login spam is noisy; opt-in).
         "notify_event_user_login":                get_setting_bool("notify_event_user_login", False),
+        # System event (#411) — fires when host_metrics_sampler auto-
+        # pauses a host after the failure window. Default ON.
+        "notify_event_host_paused":               get_setting_bool("notify_event_host_paused", True),
         # TOTP / 2FA policy (#345). Five fields driving the multi-step
         # login flow + Profile enrolment guards + Admin -> Users action
         # enablement. Defaults preserve "no 2FA required" semantics so
