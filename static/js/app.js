@@ -460,8 +460,6 @@ function app() {
     _oidcBaseline: '',
     _debugBaseline: '',
     _totpPolicyBaseline: '',
-    _permanentFailBaseline: 0,
-    permanentFailSaving: false,
     // Admin → Config (#337). DB-overridable process tunables. `tuningForm`
     // holds string values (blank = clear / fall back to env). `tuningEffective`
     // mirrors the GET /api/admin/tuning response so the form can render
@@ -473,6 +471,11 @@ function app() {
       'tuning_stats_concurrency',
       'tuning_stats_history_days',
       'tuning_stats_sample_interval_seconds',
+      // #410 — permanent-fail window (was a separate card with its own
+      // Save button until the operator asked for it to be a regular
+      // tunable). Backend's `_record_failure` reads it via
+      // `tuning_int("tuning_host_permanent_fail_window_seconds")`.
+      'tuning_host_permanent_fail_window_seconds',
     ],
     tuningForm: {},
     tuningEffective: {},
@@ -2159,34 +2162,6 @@ function app() {
       }
     },
 
-    permanentFailDirty() {
-      const live = +(this.settings || {}).host_permanent_fail_window_seconds || 900;
-      return live !== this._permanentFailBaseline;
-    },
-    async savePermanentFailWindow() {
-      if (this.permanentFailSaving) return;
-      this.permanentFailSaving = true;
-      try {
-        const v = Math.max(60, Math.min(86400, +this.settings.host_permanent_fail_window_seconds || 900));
-        const r = await fetch('/api/settings', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ host_permanent_fail_window_seconds: v }),
-        });
-        if (r.ok) {
-          this._permanentFailBaseline = v;
-          this.showToast(this.t('toasts.settings_saved'), 'success');
-        } else {
-          const j = await r.json().catch(() => ({}));
-          this.showToast(j.detail || this.t('toasts_extra.save_failed_generic'), 'error');
-        }
-      } catch (_) {
-        this.showToast(this.t('toasts_extra.network_error_generic'), 'error');
-      } finally {
-        this.permanentFailSaving = false;
-      }
-    },
-
     async saveOpenMeteoUrl() {
       if (this.openMeteoSaving) return;
       this.openMeteoSaving = true;
@@ -3644,7 +3619,6 @@ function app() {
         this._oidcBaseline       = this._oidcSnapshot();
         this._debugBaseline      = this._debugSnapshot();
         this._totpPolicyBaseline = this._totpPolicySnapshot();
-        this._permanentFailBaseline = +this.settings.host_permanent_fail_window_seconds || 900;
 
         // --- Admin → SSH panel state ---
         this.hydrateSshSettings(d);
@@ -4685,6 +4659,7 @@ function app() {
       'notify_event_prune_success',
       'notify_event_prune_failure',
       'notify_event_user_login',
+      'notify_event_host_paused',
     ],
     // Group rows for the events grid — label key + (success_key,
     // failure_key) pair. Drives the markup render so the table stays
@@ -4701,7 +4676,8 @@ function app() {
     // pair like ops events). Rendered as a separate row beneath the
     // ops-events grid.
     notifySecurityEvents: [
-      { label: 'user_login', key: 'notify_event_user_login' },
+      { label: 'user_login',  key: 'notify_event_user_login' },
+      { label: 'host_paused', key: 'notify_event_host_paused' },
     ],
     _appriseSnapshot() {
       const s = this.settings || {};
@@ -9898,11 +9874,14 @@ function app() {
       // for "what populates this for this host". NE-only metrics that
       // Beszel doesn't track are flagged when Beszel is the only source.
       const precedence = {
-        cpu:        ['beszel'],
+        // CPU is now sampled by NE too (#402) — derived from
+        // node_cpu_seconds_total deltas — so NE qualifies as a
+        // CPU provider alongside Beszel.
+        cpu:        ['beszel', 'ne'],
         memory:     ['pulse', 'beszel', 'ne'],
         disk:       ['beszel', 'ne'],
         disk_io:    ['beszel', 'ne'],
-        load_avg:   ['beszel'],
+        load_avg:   ['beszel', 'ne'],
         swap:       ['beszel'],
         // Network + Bandwidth share the same upstream + the NE-fallback
         // when both are present.

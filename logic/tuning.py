@@ -23,6 +23,13 @@ TUNABLES: dict[str, tuple[str, int, int, int]] = {
     "tuning_stats_concurrency":             ("STATS_CONCURRENCY",             16,  1,  128),
     "tuning_stats_history_days":            ("STATS_HISTORY_DAYS",             7,  1,  365),
     "tuning_stats_sample_interval_seconds": ("STATS_SAMPLE_INTERVAL_SECONDS", 300, 30,  3600),
+    # #383 — host_metrics_sampler permanent-fail window. After this many
+    # seconds of consecutive probe failures the sampler auto-pauses the
+    # host (no more probe attempts) until the operator resumes via
+    # POST /api/hosts/{id}/resume-sampling. Same DB-key naming
+    # convention as the other tunables so the Admin → Config form
+    # auto-renders it.
+    "tuning_host_permanent_fail_window_seconds": ("HOST_PERMANENT_FAIL_WINDOW_SECONDS", 900, 60, 86400),
 }
 
 

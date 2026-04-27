@@ -508,6 +508,7 @@
         "errors_only": "Errors only",
         "security_section": "Security events",
         "user_login": "User signed in",
+        "host_paused": "Host sampling auto-paused",
         "enabled": "Enabled"
       }
     },
@@ -547,6 +548,10 @@
         "tuning_stats_sample_interval_seconds": {
           "label": "Sampler interval (seconds)",
           "help": "Cadence for the lifespan samplers — _stats_cache snapshot into stats_samples, node-exporter scrape into host_net_samples and host_metrics_samples."
+        },
+        "tuning_host_permanent_fail_window_seconds": {
+          "label": "Host sampling pause window (seconds)",
+          "help": "After this many seconds of consecutive probe failures, the host_metrics_sampler auto-pauses the host (no more probe attempts, no log spam). Resume manually from the host drawer's banner."
         }
       },
       "totp": {

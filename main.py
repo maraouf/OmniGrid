@@ -109,6 +109,11 @@ _NOTIFY_EVENT_NAMES = (
     "prune_success",
     "prune_failure",
     "user_login",
+    # #411 — fires when host_metrics_sampler auto-pauses a host after the
+    # configured failure window. One-shot per pause transition (the
+    # sampler clears the failure-state row on success → next failure
+    # streak starts the window from zero).
+    "host_paused",
 )
 # Defaults match api_get_settings — every event ships ON except
 # user_login (login traffic is noisy; opt-in).
@@ -1207,6 +1212,9 @@ class SettingsIn(BaseModel):
     notify_event_prune_failure: Optional[str] = None
     # Security event — defaults to OFF (login traffic is noisy).
     notify_event_user_login: Optional[str] = None
+    # System event (#411) — fires when host_metrics_sampler auto-pauses
+    # a host after the configured failure window. Default ON.
+    notify_event_host_paused: Optional[str] = None
     # -----------------------------------------------------------------
     # TOTP / 2FA policies (#345). Master toggle plus role-scoped
     # required-flags plus lockout knobs. Authentik users are excluded
@@ -3503,16 +3511,15 @@ def _shape_host_api_row(
 
 
 def _failure_state_for_host(host_id: str) -> dict:
-    """Read the host_failure_state row for a given host (#383). Always
-    returns the four fields; empty values when the row doesn't exist.
-    Kept tolerant of missing tables so first-boot before init_db
-    completes doesn't crash the whole hosts response."""
-    out = {
-        "sampling_paused":            False,
-        "failure_window_started_at":  0,
-        "consecutive_failures":       0,
-        "last_error":                 "",
-    }
+    """Read the host_failure_state row for a given host (#383). Returns
+    the four fields when the read succeeds AND the row exists. Returns
+    only the falsy defaults when the row genuinely doesn't exist (host
+    has never failed). Returns an EMPTY dict on any DB error so the
+    spread in `_shape_host_api_row` becomes a no-op — letting the
+    frontend's in-place reconcile preserve the previously-known values
+    instead of momentarily flipping `sampling_paused` to false during
+    a transient SQLite BUSY (which the frontend would render as the
+    icon vanishing and reappearing on every poll cycle — #405)."""
     try:
         with db_conn() as c:
             cur = c.execute(
@@ -3522,14 +3529,24 @@ def _failure_state_for_host(host_id: str) -> dict:
             )
             row = cur.fetchone()
     except Exception:
-        return out
+        # Don't return falsy defaults — that would clobber a previously
+        # paused row's marker on the wire. Empty dict means "no info,
+        # frontend keep what you had". See #405.
+        return {}
     if row is None:
-        return out
-    out["failure_window_started_at"]  = int(row[0] or 0)
-    out["consecutive_failures"]       = int(row[1] or 0)
-    out["sampling_paused"]            = bool(row[2])
-    out["last_error"]                 = row[3] or ""
-    return out
+        # Row genuinely absent — host has never failed.
+        return {
+            "sampling_paused":            False,
+            "failure_window_started_at":  0,
+            "consecutive_failures":       0,
+            "last_error":                 "",
+        }
+    return {
+        "sampling_paused":            bool(row[2]),
+        "failure_window_started_at":  int(row[0] or 0),
+        "consecutive_failures":       int(row[1] or 0),
+        "last_error":                 row[3] or "",
+    }
 
 
 @app.get("/api/hosts/list")
