@@ -67,6 +67,28 @@ curl -sS -c "$COOKIE_JAR" -b "$COOKIE_JAR" \
 
 For SSO users: log in via `/api/oidc/login` and the same cookie+CSRF rules apply.
 
+For local users with TOTP / 2FA enabled, the cookie path is two-step:
+
+```bash
+# Step 1 — username + password. If TOTP is required, returns a challenge token
+# instead of a session cookie:
+RESP=$(curl -sS -c "$COOKIE_JAR" -b "$COOKIE_JAR" \
+  -H 'Content-Type: application/json' \
+  -d '{"username":"admin","password":"..."}' \
+  https://omnigrid.example.com/api/local-auth/login)
+
+CHALLENGE=$(echo "$RESP" | jq -r '.challenge_token // empty')
+if [ -n "$CHALLENGE" ]; then
+  # Step 2 — submit the 6-digit code (or 8-char backup code) within 5 min
+  curl -sS -c "$COOKIE_JAR" -b "$COOKIE_JAR" \
+    -H 'Content-Type: application/json' \
+    -d "{\"challenge_token\":\"$CHALLENGE\",\"code\":\"123456\"}" \
+    https://omnigrid.example.com/api/local-auth/totp
+fi
+```
+
+Bearer-token callers bypass TOTP entirely — the token's role check is the only auth step.
+
 ### Roles
 
 | Role | Reads | Writes |
@@ -240,6 +262,47 @@ curl -sS -H "Authorization: Bearer $TOKEN" -X POST \
 The interactive xterm terminal (`/api/hosts/{id}/ssh/terminal`) is a WebSocket
 endpoint, not a plain `/api` route — same auth (cookie session for browser
 clients only; bearer doesn't work over WebSockets in stock browser APIs).
+
+### Asset inventory
+
+OmniGrid joins host rows against an external asset API (model / serial / location). The
+cached payload is served from a JSON file on disk; refresh is admin-triggered (no
+background sampler).
+
+```bash
+# Serve the cached asset list
+curl -sS -H "Authorization: Bearer $TOKEN" \
+  https://omnigrid.example.com/api/asset-inventory | jq '.assets | length'
+
+# Probe the upstream OAuth client_credentials flow (bool roundtrip)
+curl -sS -H "Authorization: Bearer $TOKEN" -X POST \
+  -H 'Content-Type: application/json' -d '{}' \
+  https://omnigrid.example.com/api/asset-inventory/test | jq
+
+# Force a full reload from the upstream API
+curl -sS -H "Authorization: Bearer $TOKEN" -X POST \
+  https://omnigrid.example.com/api/asset-inventory/refresh | jq
+```
+
+The upstream contract is documented in [`api_services.md`](api_services.md). Configure the
+token in **Admin → Asset inventory** before calling `refresh`.
+
+### Version (admin)
+
+```bash
+# Current MAJOR / MINOR / PATCH
+curl -sS -H "Authorization: Bearer $TOKEN" \
+  https://omnigrid.example.com/api/admin/version | jq
+
+# Direct VERSION.txt write (used by the Admin → Version page)
+curl -sS -H "Authorization: Bearer $TOKEN" -X POST \
+  -H 'Content-Type: application/json' \
+  -d '{"major":1,"minor":2,"patch":0}' \
+  https://omnigrid.example.com/api/admin/version | jq
+```
+
+The compose file layers a writable per-file bind for `VERSION.txt`; without it, POST returns
+a 500 with operator-actionable detail. See `docs/RELEASE_PROCESS.md`.
 
 ### Probe-style "does my settings work?" endpoints
 

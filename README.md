@@ -44,11 +44,12 @@ Built as a friendlier replacement for Diun Dash plus the tab-jumping between Por
 
 ### Auth & UX
 - **Local accounts** — username / password with bcrypt hashes, sliding 8h sessions, server-side revocation, rate-limited login (5 fails / 15 min / IP).
+- **TOTP (2FA)** for local accounts — `pyotp` + Fernet-encrypted secrets at rest, QR enrolment, 10 single-use backup codes, admin-side master toggle + per-role required + per-user force flag, configurable failure lockout. Authentik users skip every TOTP path (Authentik handles MFA upstream).
 - **API tokens** — admin-issued opaque tokens (SHA-256 at rest, raw token surfaced once on create) for machine clients. Tokens carry their own role; bearer-auth bypasses CSRF.
 - **Authentik OIDC SSO** — Authorization-Code + PKCE flow, JWKS validation, group-based admin promotion, fully DB-backed config (no env vars).
 - **Two roles**: `admin` (all ops) · `readonly` (reads only). Write routes enforce server-side; UI hides write buttons for read-only users.
 - **CSRF** double-submit cookie, automatic on every cookie-authed write request.
-- **Self-service** — change password, revoke own sessions, manage avatar / display name / email / bio.
+- **Self-service** — change password, manage TOTP enrolment + backup codes, revoke own sessions, manage avatar / display name / email / bio, opt in/out of individual notification events.
 - **Polish**: dark + light theme, English + Arabic with RTL support (more languages: drop a JSON in `static/i18n/`), global search (`/`), keyboard shortcuts (`?` for the cheat sheet), per-user view persistence.
 
 ### Deploy story
@@ -178,15 +179,21 @@ GET    /api/hosts/config                   GET / POST replace `hosts_config`
 POST   /api/hosts/discover                 probe each provider for available host names
 POST   /api/hosts/test                     per-row validation (provider names + URLs)
 
-# Auth / users / sessions / tokens
-POST   /api/local-auth/login               username + password → og_session
+# Auth / users / sessions / tokens / TOTP
+POST   /api/local-auth/login               username + password → og_session OR {totp_required, challenge_token}
+POST   /api/local-auth/totp                 6-digit TOTP code OR 8-char backup code → og_session
+POST   /api/local-auth/totp-setup-confirm   first-login forced-enrol path (combined enrol+verify)
 POST   /api/local-auth/logout
 POST   /api/local-auth/change-password
 POST   /api/local-auth/bootstrap           one-shot first-admin seed
 GET    /api/oidc/login                     starts the Authorization-Code+PKCE flow
 GET    /api/oidc/callback
-GET    /api/me                             current identity (auth-optional)
+GET    /api/me                             current identity (auth-optional; includes notify-prefs + bootstrap_env_still_set warning)
+GET / PATCH                  /api/me/{ui-prefs,notify-prefs,profile}    self-service profile + per-user notify opt-in/out
+GET                          /api/me/totp
+POST                         /api/me/totp/{enroll-start,enroll-confirm,regenerate-codes,disable}
 GET / POST / PATCH / DELETE  /api/users[/{id}]
+POST                         /api/users/{id}/{reset-password,disable-totp,totp-force}
 GET / DELETE                  /api/sessions[/{token_id}]
 GET / POST / DELETE          /api/tokens[/{id}]
 
@@ -201,17 +208,26 @@ POST   /api/oidc/test                      probe issuer's discovery endpoint
 POST   /api/notify-test                    fire a test Apprise ping
 
 # Schedules / backups / SSH
-GET / POST / PUT / DELETE  /api/schedules[/{id}]
-GET                        /api/schedules/queue?search=...
-GET / POST / DELETE        /api/backups[/{name}]   create / list / remove
-POST                        /api/backups/{name}/restore
-GET                        /api/hosts/{id}/ssh/status
-POST                        /api/hosts/{id}/ssh/run    body: {command, dry_run}
-GET (WSS upgrade)           /api/hosts/{id}/ssh/terminal      interactive xterm
+GET / POST / PATCH / DELETE  /api/schedules[/{id}]
+POST                          /api/schedules/{id}/run     fire immediately → {op_id}
+GET                           /api/schedules/queue?limit=50
+GET / POST / DELETE          /api/backups[/{name}]   create / list / remove
+POST                          /api/backups/{name}/restore
+GET                          /api/hosts/{id}/ssh/status
+POST                          /api/hosts/{id}/ssh/test
+POST                          /api/hosts/{id}/ssh/run    body: {command, dry_run}
+WS                            /api/hosts/{id}/ssh/terminal   interactive xterm (WebSocket; cookie auth only — bearer not supported via stock browser WS APIs)
+
+# Asset inventory
+GET                           /api/asset-inventory                   serve cached asset list
+POST                          /api/asset-inventory/test              probe asset-API token
+POST                          /api/asset-inventory/refresh           force a full reload
 
 # Health / metrics / version
 GET    /api/healthz                        always 200 if alive
-GET    /api/version                        {version, git_sha}
+GET    /api/version                        {version}
+GET    /api/admin/version                  admin-only — current MAJOR/MINOR/PATCH for the editor
+POST   /api/admin/version                  admin-only — write VERSION.txt directly
 GET    /metrics                            Prometheus exposition (no auth)
 ```
 

@@ -552,7 +552,6 @@ function app() {
       { id: 'config',         label: 'Config',          icon: 'settings' },
       { id: 'version',        label: 'Version',         icon: 'tag' },
       { id: 'debug',          label: 'Debug',           icon: 'bug' },
-      // Sentinel — never selected, only used as a fallback by helpers.
     ],
     // App-logs viewer state. Polled when the Logs tab is visible.
     // `logLines` is append-only during a session; clear() wipes both
@@ -1312,34 +1311,6 @@ function app() {
       return !!(this.me && this.me.role === 'readonly');
     },
 
-    // Page-title icon resolvers (#387). Each top-level view (Admin /
-    // Settings) renders a heading at the top of its content area
-    // showing the active sub-tab's icon + label. Same icon symbol the
-    // sidebar consumes (and the avatar dropdown for the parent entry),
-    // so visual continuity holds end-to-end:
-    //   avatar dropdown → sidebar tab → page-title bar.
-    activeAdminSection() {
-      return (this.adminSections || []).find(s => s.id === this.adminTab) || null;
-    },
-    activeAdminSectionIcon() {
-      const s = this.activeAdminSection();
-      return s ? s.icon : 'shield';
-    },
-    activeAdminSectionLabel() {
-      const s = this.activeAdminSection();
-      return s ? this.t('admin.sections.' + s.id) : this.t('nav.admin');
-    },
-    activeSettingsSection() {
-      return (this.settingsSections || []).find(s => s.id === this.settingsSection) || null;
-    },
-    activeSettingsSectionIcon() {
-      const s = this.activeSettingsSection();
-      return s ? s.icon : 'settings';
-    },
-    activeSettingsSectionLabel() {
-      const s = this.activeSettingsSection();
-      return s ? this.t('settings.sections.' + s.id) : this.t('settings.title');
-    },
 
     // Avatar helpers — deterministic colour per username so "alice" always
     // gets the same hue across refreshes. Uses HSL in CSS so the same
