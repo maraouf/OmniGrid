@@ -120,9 +120,20 @@ The `node_exporter_url_template` validator accepts either `{host}` OR `{ip}` as 
 
 ## Other UI-managed settings (NO env vars)
 
-- **Weather proxy** (`open_meteo_url`) — edited from Admin → Notifications. Blank = weather
+- **Weather proxy** (`open_meteo_url`) — edited from Admin → General. Blank = weather
   widget reports `configured: false`; there is NO fallback to `api.open-meteo.com` anymore.
-- **Apprise** (`apprise_url`, `apprise_tag`, `portainer_public_url`).
+- **Apprise** (`apprise_url`, `apprise_tag`, `portainer_public_url`). Edited from
+  Admin → Notifications.
+- **Per-event notification toggles** — 12 op events
+  (`notify_event_{stack_update, container_update, container_restart, container_remove,
+  service_restart, prune}_{success, failure}`) plus one security event
+  (`notify_event_user_login`, default OFF). Admin → Notifications hosts the global gates;
+  Settings → Notifications hosts the per-user opt-in/out (stored in
+  `users.ui_prefs.notify_events`). Two-layer scoping: admin gate first, then per-user.
+- **TOTP / 2FA policy** (`totp_allowed`, `totp_required_for_admins`,
+  `totp_required_for_users`, `totp_lockout_max_failures`, `totp_lockout_minutes`). Edited
+  from Admin → Authentication. Per-user `totp_force_required` flag lives on the `users`
+  table and is toggled from Admin → Users.
 - **SSH** — global defaults (`ssh_default_user`, `ssh_default_port`, `ssh_default_private_key`,
   `ssh_default_private_key_passphrase`, `ssh_default_password`, `ssh_default_known_hosts`,
   `ssh_fqdn_suffix`, `ssh_destructive_patterns`, `ssh_custom_actions`). Key material and
@@ -132,6 +143,13 @@ The `node_exporter_url_template` validator accepts either `{host}` OR `{ip}` as 
   unset a secret. `ssh_fqdn_suffix` (e.g. `.example.com`) is auto-appended — leading-dot normalised
   — to bare host IDs that don't contain a dot.
 - **Scheduler** (`scheduler_timezone` — IANA name).
+- **Asset inventory** — OAuth2 OR static lifetime-token modes against an external asset API
+  (see `docs/guidelines/api_services.md`). `asset_inventory_auth_mode` selects between
+  `oauth2` and `lifetime_token`; secrets follow the same write-only `_set`-flag convention
+  with explicit `clear_*` flags.
+- **Host groups** (`host_groups`) and curated host list (`hosts_config`) — JSON arrays.
+  Optional per-group `number` field for display-prefix labelling, optional per-group SSH
+  credentials, optional `parent_name` for nested sub-groups.
 
 ## Bootstrap first admin (first-boot only — remove once admin exists)
 
@@ -143,6 +161,13 @@ The `node_exporter_url_template` validator accepts either `{host}` OR `{ip}` as 
 BOOTSTRAP_ADMIN_USER=
 BOOTSTRAP_ADMIN_PASSWORD=
 ```
+
+After the first admin lands, blank both values in a follow-up commit. The
+SPA surfaces a yellow warning banner (`bootstrap_env_still_set` field on
+`/api/me`) when both env vars remain populated AND the users table is non-
+empty — the seed code is a no-op at that point but a wiped DB would re-seed
+unexpectedly. The banner is dismissable per browser session and re-appears
+on every restart until the env vars are cleared.
 
 ## Full key reference
 

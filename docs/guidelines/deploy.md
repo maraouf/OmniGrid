@@ -74,7 +74,7 @@ TelegramHomeBot), re-register it at instance scope.
    `runs-on: home-runner` matches `home-runner:host` (runtime suffix implicit).
 
    (The user-level route is still available but we're NOT taking it for this homelab:
-   [https://git.www.example.com/-/user/settings/actions/runners](https://git.www.example.com/-/user/settings/actions/runners).)
+   `https://git.example.com/-/user/settings/actions/runners`.)
 
 3. **Re-register on `git.example.com`**:
 
@@ -279,7 +279,7 @@ untouched; they live on that repo and the TelegramHomeBot workflow still needs t
 
 UI path:
 
-- Browser → `https://git.www.example.com/<owner>/OmniGrid`.
+- Browser → `https://git.example.com/<owner>/OmniGrid`.
 - Top tab → Settings.
 - Left nav → Actions → Secrets.
 - Button → "Add Secret" (or "Create new secret").
@@ -360,7 +360,7 @@ If any required name is missing or misspelled, fix it before running the workflo
 
 Only if you ran section B above:
 
-- Browser → `https://git.www.example.com/<owner>/TelegramHomeBot`.
+- Browser → `https://git.example.com/<owner>/TelegramHomeBot`.
 - Settings → Actions → Secrets.
 - `DEPLOY_SSH_KEY` → "Edit".
   - **Value**: paste output of `cat .ssh/forgejo_deploy_automation` from section B.
@@ -374,7 +374,7 @@ only the secret changes.
 If you previously had `DEPLOY_SSH_KEY` or other entries at USER scope (from an earlier plan that
 promoted them), DELETE those now:
 
-- `git.www.example.com` → avatar → Settings → Actions → Secrets/Variables.
+- `git.example.com` → avatar → Settings → Actions → Secrets/Variables.
 - Delete any leftover `DEPLOY_*` entries at this scope.
 
 Repo-scoped entries take precedence anyway, but removing the user-scope copies avoids ambiguity
@@ -618,7 +618,7 @@ healthcheck warmup (~10–15 s).
 UI sometimes has no delete button. Use the API:
 
 ```bash
-FJ=https://git.www.example.com
+FJ=https://git.example.com
 OWNER=<owner>
 REPO=OmniGrid
 TOK=<token from User Settings -> Applications (scope: write:repository)>

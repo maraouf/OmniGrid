@@ -174,10 +174,10 @@ DELETE /api/history                        clear history (admin)
 # Hosts (curated inventory + telemetry)
 GET    /api/hosts/list                     skeleton list (fast, no per-host probes)
 GET    /api/hosts/one/{host_id}            single curated host merged with provider data
-GET    /api/hosts/history?host_id=...&hours=...   per-host time-series for the drawer charts
-GET    /api/hosts/config                   GET / POST replace `hosts_config`
-POST   /api/hosts/discover                 probe each provider for available host names
-POST   /api/hosts/test                     per-row validation (provider names + URLs)
+GET    /api/hosts/history?system_id=...&host_id=...&hours=...   per-host time-series; system_id (Beszel) OR host_id (NE-only)
+GET / POST                   /api/hosts/config                   list / replace `hosts_config`
+GET                          /api/hosts/discover                 probe each provider for available host names
+POST                         /api/hosts/test                     per-row validation (provider names + URLs)
 
 # Auth / users / sessions / tokens / TOTP
 POST   /api/local-auth/login               username + password → og_session OR {totp_required, challenge_token}
