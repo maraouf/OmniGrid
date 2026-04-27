@@ -132,6 +132,29 @@ AUTH_CREDS_INCOMPLETE = _define(
     "Credentials are incomplete — configure every required field.",
 )
 
+AUTH_TOTP_DISABLED_BY_ADMIN = _define(
+    "OG0103",
+    "TOTP login is disabled by an administrator.",
+)
+
+AUTH_PASSKEYS_DISABLED_BY_ADMIN = _define(
+    "OG0104",
+    "Passkey enrolment / login is disabled by an administrator.",
+)
+
+AUTH_WEBAUTHN_RP_ID_UNRESOLVABLE = _define(
+    "OG0105",
+    "Cannot determine WebAuthn RP ID from the request — neither "
+    "X-Forwarded-Host, Host, nor the parsed URL hostname yielded a "
+    "value. Check the reverse-proxy configuration.",
+)
+
+AUTH_WEBAUTHN_LIBRARY_MISSING = _define(
+    "OG0106",
+    "Passkey support is not available on this server — the webauthn "
+    "library is not installed.",
+)
+
 
 # ============================================================================
 # OG0200..OG0299 — Upstream API envelope / response shape
@@ -174,6 +197,18 @@ ASSET_RANGE_INVALID = _define(
 
 
 # ============================================================================
+# OG0900..OG0999 — Misc
+# ============================================================================
+
+CONFIG_VERSION_FILE_NOT_WRITABLE = _define(
+    "OG0900",
+    "Could not write VERSION.txt — the file is on a read-only mount. "
+    "Add a writable bind for /opt/omnigrid/app/VERSION.txt:/app/VERSION.txt "
+    "to docker-compose.yml and redeploy the stack.",
+)
+
+
+# ============================================================================
 # Public API — dict alias + structured error type + helpers
 # ============================================================================
 
@@ -204,6 +239,22 @@ class OGError:
             "error":        self.message,
             "error_params": self.params,
         }
+
+
+def message_for(code: str) -> str:
+    """Return the canonical English message for an OG#### code.
+
+    Used at HTTPException call sites in main.py that want the central
+    catalog as the source of truth for the message string without
+    going through the full OGError + to_dict() shape (FastAPI's
+    HTTPException detail is rendered as plain text by the SPA's toast
+    layer; the structured shape is for upstream-API result dicts —
+    see logic/ssh.py for the canonical example).
+
+    Unknown ``code`` returns the code itself so the operator sees a
+    bug-shaped value rather than a silent empty string.
+    """
+    return _REGISTRY.get(code, code)
 
 
 def make_error(
