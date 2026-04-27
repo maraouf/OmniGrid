@@ -5718,7 +5718,12 @@ function app() {
       try {
         const r = await fetch('/api/history?' + this._historyQueryParams({ paging: true }).toString());
         const d = await r.json();
-        this.history = Array.isArray(d.history) ? d.history : [];
+        // #444 — in-place reconcile keyed on history row `id` (auto-
+        // increment PK from the `history` table) so each page change
+        // doesn't tear down every row's expanded `<details>` state +
+        // inline-style nodes for the entire table. Same helper as
+        // #418/#436/#439.
+        this._reconcileById(this.history, Array.isArray(d.history) ? d.history : []);
         this.historyTotal = Number.isFinite(+d.total) ? +d.total : this.history.length;
         // If the operator's persisted page is past the new filtered
         // total (e.g. they had a wide filter on page 7, narrowed it,
@@ -9542,7 +9547,10 @@ function app() {
       this.assetTestResult = { pending: true };
       const mode = (this.assetForm.auth_mode === 'lifetime_token')
                      ? 'lifetime_token' : 'oauth2';
-      const body = { auth_mode: mode };
+      // #445 — send the in-flight verify_tls so admins can flip the
+      // form's checkbox OFF and Test a self-signed asset API before
+      // saving (mirrors testOidcConnection's shape).
+      const body = { auth_mode: mode, verify_tls: !!this.assetForm.verify_tls };
       if (mode === 'lifetime_token') {
         body.base_url       = (this.assetForm.base_url || '').trim();
         body.lifetime_token = this.assetForm.lifetime_token || '';

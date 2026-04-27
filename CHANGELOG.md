@@ -67,6 +67,8 @@ the next release, this whole block becomes the `[X.Y.0]` entry below.
 
 ### Fixed
 
+- `/api/asset-inventory/test` now honours `asset_inventory_verify_tls` AND an in-flight `verify_tls` body override (mirrors `/api/oidc/test`). Frontend `testAssetConnection()` sends the form's verify_tls checkbox state so admins can validate a self-signed asset API endpoint before saving (#445).
+- `loadHistory` switched from wholesale array reassignment to in-place `_reconcileById` keyed on the row's `id`. Page-flips keep each row's `<details>` open/closed state + inline-style nodes mounted (#444).
 - TOTP QR rendering (Profile + login) swapped from `el.innerHTML = qr.createSvgTag(...)` to `DOMParser.parseFromString` + `el.replaceChildren(document.adoptNode(root))`. Defence-in-depth against the content-from-data red-flag pattern; matches how the rest of the SPA injects DOM (#437, #438).
 - `this.schedules` and `this.scheduleQueue` now reconcile in place via the shared `_reconcileById(target, incoming, keyField)` helper. Schedules key on `id`; queue rows synthesise a `_key` (`name@ts` for synthetic ops, `op:<op_id>` for real ones) so the reconciler matches across ticks. Auto-refresh on the Queue tab no longer tears down expanded-detail / inline-edit state (#439).
 - `hostsConfigPage` no longer drifts past the rendered last page. New `_clampHostsConfigPage()` runs from `$watch` handlers on `hostsConfigSortedOrder` / `hostsConfigFilter` / `hostsConfigPerPage` so the Page X / Y indicator catches up after a filter trims the result set (#440).
