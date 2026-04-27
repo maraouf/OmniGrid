@@ -45,14 +45,22 @@ const KNOWN_DARK_ICONS = new Set([
   // default) and `synology-dark.svg` (dark-theme variant) so our
   // standard `<slug>-dark.svg` convention holds.
   'synology',
+  // Dell — same upstream-`-light`-means-dark-colour-variant pattern as
+  // Apple / Apple TV+. Local `dell.svg` is upstream `dell.svg`,
+  // local `dell-dark.svg` is upstream `dell-light.svg`.
+  'dell',
+  // Amazon — same `-light`-means-dark-colour pattern. Local
+  // `amazon.svg` from upstream `amazon.svg`; local `amazon-dark.svg`
+  // from upstream `amazon-light.svg`.
+  'amazon',
 ]);
 
 const KNOWN_ICONS = new Set([
-  '5g', 'adguard-home', 'alexa', 'alienware', 'amazon', 'ansible',
+  '5g', 'adguard-home', 'alexa', 'alienware', 'amazon', 'amazon-dark', 'ansible',
   'apache', 'apc', 'apc-ups', 'apple', 'apple-dark', 'apple-light', 'apple-tv-plus',
   'apple-tv-plus-dark', 'apple-tv-plus-light', 'apprise', 'aqara', 'asus', 'authentik', 'bazarr',
   'beszel', 'bose', 'caddy', 'chromecast', 'cisco', 'database',
-  'ddns-updater', 'debian', 'dell', 'deluge', 'docker', 'dovecot',
+  'ddns-updater', 'debian', 'dell', 'dell-dark', 'deluge', 'docker', 'dovecot',
   'dozzle', 'esxi', 'fing', 'firetv', 'flaresolverr', 'forgejo',
   'freenas', 'ftth', 'gigabyte', 'glinet', 'glinet-dark', 'google',
   'google-home', 'grafana', 'hisense', 'homarr', 'home-assistant', 'homebridge',
