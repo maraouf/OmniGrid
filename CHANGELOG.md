@@ -38,6 +38,10 @@ Items that have shipped to the live deploy as a PATCH bump but haven't
 yet been rolled into a numbered `MINOR` release. When the operator cuts
 the next release, this whole block becomes the `[X.Y.0]` entry below.
 
+### Fixed
+
+- Chart `?` tooltip cropped at the host-drawer start edge on left-column metric cards (regression visible after #413). Smart-placement helper `_adjustMetricTooltipPlacement()` measures the just-opened tooltip after `$nextTick` and applies `.metric-source-tooltip--align-start` when the default end-anchored body would overflow the drawer's start edge, falling back to `.metric-source-tooltip--align-center` when both edges would clip. Default end-anchored behaviour is preserved when the tooltip already fits (#415).
+
 ### Added
 
 - Local-admin 2FA (TOTP) for accounts without Authentik SSO. End-to-end TOTP via pyotp + cryptography (Fernet, HKDF-from-SESSION_SECRET); 5 additive `users.*` columns; multi-step `api_local_login` with in-memory `_totp_challenges` (5-min TTL); Profile → Two-factor card (idle/qr/reveal sub-states); Admin → Users 2FA column + per-row Disable; Admin → Config policy section (master + per-role required + lockout); Login page rewritten for multi-step (TOTP code OR backup code OR forced-enrol QR + reveal). Authentik users skip every path; bearer-token requests bypass; `[totp]` audit lines for every state change (#345).

@@ -1411,6 +1411,20 @@ details summary::-webkit-details-marker {
     pointer-events: auto;
 }
 
+/* Smart-placement modifiers applied by `_adjustMetricTooltipPlacement()`
+   when the default end-anchored body would overflow the drawer's start
+   edge (e.g. on a leftmost-column metric card in a narrow drawer). The
+   helper measures after open and adds whichever of these wins. */
+.metric-source-tooltip--align-start {
+    inset-inline-end: auto;
+    inset-inline-start: 0;
+}
+.metric-source-tooltip--align-center {
+    inset-inline-end: auto;
+    inset-inline-start: 50%;
+    transform: translateX(-50%);
+}
+
 .metric-card-stats {
     font-size: 11.5px;
     color: var(--text-faint);
