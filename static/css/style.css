@@ -1395,6 +1395,20 @@ details summary::-webkit-details-marker {
     margin-inline-start: 2px;
 }
 
+/* Per-sensor colour swatch in the Temperature card header (#439).
+   Background is set inline by Alpine to one of the existing palette
+   tokens (--primary / --warning / --danger / --success / --info), so
+   no raw colour literal lives here — only sizing. The swatch ties
+   each named sensor in the header back to its matching line in the
+   multi-line chart below. */
+.metric-temp-swatch {
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    flex-shrink: 0;
+}
+
 /* Per-chart "data source" hint icon — sits next to the title with both
    a hover (`:title`) AND a tap-driven tooltip (#413) so mobile gets
    the hint too. cursor:help signals the affordance; subdued colour

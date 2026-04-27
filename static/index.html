@@ -8038,19 +8038,24 @@
                     </div>
                     <!-- Live per-sensor readout — sorted hottest-first
                          so the operator's eye lands on the worst
-                         offender. Capped at top-3 (the chart line
-                         covers the full set via `temp_max`); a "+N
-                         more" chip appears when the host has more
-                         sensors than fit inline. Each chip is
-                         `whitespace-nowrap` so the name + value
-                         stay visually paired even when the header
-                         row wraps on a narrow drawer (#437). -->
+                         offender. Capped at top-3 (the chart shows
+                         the full set as separate lines); a "+N more"
+                         chip appears when the host has more sensors
+                         than fit inline. Each chip carries a colour
+                         swatch matching its line in the chart so the
+                         operator can map name → line at a glance
+                         (#439). Each chip is `whitespace-nowrap` so
+                         name+swatch+value stay visually paired even
+                         when the header row wraps on a narrow drawer
+                         (#437). -->
                     <div class="metric-card-stats"
                          x-show="h.host_temperatures && Object.keys(h.host_temperatures).length > 0">
                       <template x-for="[name, c] in hostTemperatureRows(h)" :key="name">
-                        <span class="whitespace-nowrap">
+                        <span class="whitespace-nowrap inline-flex items-center gap-1">
+                          <span class="metric-temp-swatch"
+                                :style="'background:' + hostTempLineColor(name, Object.keys(h.host_temperatures || {}).sort())"></span>
                           <span class="text-[var(--text-faint)]" x-text="name"></span>
-                          <span class="max-val ms-1" x-text="(c).toFixed(1) + '°'"></span>
+                          <span class="max-val" x-text="(c).toFixed(1) + '°'"></span>
                         </span>
                       </template>
                       <span x-show="hostTemperatureExtraCount(h) > 0"
@@ -8059,11 +8064,27 @@
                             x-text="'+' + hostTemperatureExtraCount(h) + ' more'"></span>
                     </div>
                   </div>
-                  <template x-if="hostChart(hostHistoryKey(h), 'temp_max')">
+                  <!-- Multi-line chart — one polyline per sensor, with
+                       auto-scaled Y axis padded ±5°C and colour-cycle
+                       matching the header swatches (#439). Y-axis
+                       labels mirror the percentage charts' layout
+                       so the operator can read off °C without
+                       hovering. -->
+                  <template x-if="hostTempChart(hostHistoryKey(h))">
                     <div class="metric-card-body">
+                      <div class="metric-y-axis">
+                        <template x-for="(l, i) in hostTempChart(hostHistoryKey(h)).yAxis" :key="i">
+                          <span x-text="l"></span>
+                        </template>
+                      </div>
                       <svg class="metric-svg" viewBox="0 0 420 120" preserveAspectRatio="none">
-                        <path class="metric-area" :d="hostChart(hostHistoryKey(h), 'temp_max', { height: 120 }).area"/>
-                        <polyline class="metric-line" :points="hostChart(hostHistoryKey(h), 'temp_max', { height: 120 }).points"/>
+                        <template x-for="line in hostTempChart(hostHistoryKey(h)).lines" :key="line.name">
+                          <path :d="line.d"
+                                fill="none"
+                                stroke-width="1.5"
+                                vector-effect="non-scaling-stroke"
+                                :stroke="line.color"></path>
+                        </template>
                       </svg>
                       <div class="metric-x-axis">
                         <template x-for="(l, i) in xAxisFromSeries(hostHistoryKey(h), 5)" :key="i">

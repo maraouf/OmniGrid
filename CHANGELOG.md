@@ -67,6 +67,8 @@ the next release, this whole block becomes the `[X.Y.0]` entry below.
 
 ### Fixed
 
+- Temperature chart upgraded to multi-line + Y-axis scale (#439). Each sensor now gets its own coloured polyline (palette: `--primary` / `--warning` / `--danger` / `--success` / `--info`, deterministic by sorted sensor name). Y axis shows three temperature labels auto-scaled to the min/max across all sensors (±5°C padding). Header chips carry a colour swatch matching their line so the operator can map name → line at a glance. Missing samples break the line at the gap (skip-don't-synthesize, no zero-padding). Replaces the previous single-line `temp_max` rendering which hid per-sensor differentiation and had no axis labels.
+
 - Temperature chart card header overflowed on hosts with 5+ thermal sensors (e.g. an Intel/AMD desktop with `coretemp_package`, `nvme_composite`, `acpitz`, per-core temps). Sensor names ran into the title row while values wrapped to a second row, decoupling the pairing. Capped the inline readout to the top 3 hottest sensors with a "+N more" chip (with full list in its tooltip), and made each chip `whitespace-nowrap` so name+value stay visually paired even when the row wraps. The chart line still uses `temp_max` so nothing hot is hidden (#437 follow-up).
 
 - Profile → Passkeys card: "Add a passkey" button sat flush against the bottom of the enrolled-keys list with no breathing room. Added a top margin to the action row so the button has visible separation (#435).
