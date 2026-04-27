@@ -697,7 +697,11 @@ async def run_command(
     # `resolve_ssh_params` recorded via `password_source`. We re-read
     # the source's actual password value here (not stashed on
     # resolved[] — keeps secrets out of audit logs) and fall through
-    # to global on a miss.
+    # to global on a miss. BUG-009 fix (#415): if the recorded source
+    # has no password (operator deleted the field but didn't flip the
+    # classification), downgrade `password_source` to `"global"` in
+    # both `resolved` and `base_result` so the audit row reflects what
+    # actually authenticated, not the stale classification.
     ssh_password: Optional[str] = None
     record = _find_host_record(host_id, hosts_config)
     src = resolved.get("password_source") or ""
@@ -711,6 +715,16 @@ async def run_command(
             ssh_password = (target["ssh"].get("password") or "").strip() or None
     if ssh_password is None and g["password"]:
         ssh_password = g["password"]
+        # Source classification was per_host / sub_group / main_group but
+        # that record's password was empty — the actual auth credential
+        # came from the global password. Stamp the audit accordingly so
+        # incident review can trust the recorded source.
+        if src and src != "global":
+            print(f"[ssh] {host_id!r} password_source downgraded "
+                  f"from {src!r} to 'global' (no password at recorded source)")
+            resolved["password_source"] = "global"
+            if isinstance(base_result, dict) and "resolved" in base_result and isinstance(base_result["resolved"], dict):
+                base_result["resolved"]["password_source"] = "global"
 
     # Known-hosts handling — see module docstring's "Host-key handling"
     # section. asyncssh accepts:

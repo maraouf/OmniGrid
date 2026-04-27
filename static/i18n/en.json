@@ -1642,6 +1642,7 @@
     "edit_url_help": "Prefix used by the host drawer's \"Edit on upstream\" link. The asset id is appended at the end (e.g. \"…&si=42\"). Placeholders {id} / {custom_number} / {base} are also supported when the URL needs the id mid-path. Leave blank to hide the edit link.",
     "scope_label": "Scope (optional)",
     "scope_placeholder": "read:assets",
+    "verify_tls_label": "Verify TLS certificate (uncheck for self-signed asset API endpoints)",
     "test": "Test connection",
     "testing": "Testing…",
     "save": "Save",

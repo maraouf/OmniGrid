@@ -5274,6 +5274,14 @@
                        class="w-full mono text-[12.5px] py-1.5"
                        :placeholder="t('admin_assets.scope_placeholder')">
               </div>
+              <!-- #417 / ENH-001 — TLS verification toggle for the asset
+                   API. Default checked; flip off for self-signed
+                   homelab endpoints. Mirrors the Portainer / Beszel
+                   verify_tls shape. -->
+              <label class="md:col-span-2 inline-flex items-center gap-2 text-[12px] text-[var(--text-dim)]">
+                <input type="checkbox" x-model="assetForm.verify_tls" :disabled="isReadonly()">
+                <span x-text="t('admin_assets.verify_tls_label')"></span>
+              </label>
             </div>
           </template>
 
