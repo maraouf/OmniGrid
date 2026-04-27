@@ -621,7 +621,18 @@
         "warn": "Warning",
         "ok": "Success",
         "info": "Info"
-      }
+      },
+      "subtab_live": "Live",
+      "subtab_files": "Files",
+      "files_title": "Persistent log files",
+      "files_count": "{n} file(s)",
+      "files_empty": "No log files on disk yet — first activity in this UTC day will create one.",
+      "modified": "Modified",
+      "view": "View",
+      "download": "Download",
+      "download_title": "Download this log file",
+      "live_tail": "Live tail",
+      "tail_lines": "Last {n} lines"
     },
     "schedules": {
       "create_title": "Create schedule",
@@ -670,7 +681,8 @@
         "prune_all_nodes": "Prune all nodes",
         "gather_refresh": "Refresh cache",
         "backup": "Backup database",
-        "asset_inventory_refresh": "Refresh asset inventory"
+        "asset_inventory_refresh": "Refresh asset inventory",
+        "prune_logs": "Prune log files"
       },
       "run_at_label": "Run at (optional)",
       "run_at_placeholder": "HH:MM — leave empty to use interval",
