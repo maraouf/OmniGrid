@@ -64,6 +64,37 @@ def is_positive_number(v: Any) -> bool:
     return n > 0
 
 
+def normalize_arch(arch: str) -> str:
+    """Harmonise architecture labels across providers.
+
+    Different sources spell the same physical CPU architecture
+    differently — FreeBSD's ``uname -m`` returns ``amd64``, Linux
+    distros and most Beszel agents return ``x86_64``. Without
+    normalisation, two providers reporting the same host disagree on
+    the arch label (the merge order means one wins, but on hosts where
+    the winning provider isn't enabled the operator sees the loser's
+    spelling). This helper canonicalises every common alias to the
+    Linux-style label so every provider extractor's `host_arch` is
+    comparable downstream. Empty input passes through. BUG-007 from
+    notes/code_review_2026-04-27.txt.
+    """
+    if not arch:
+        return ""
+    a = str(arch).strip().lower()
+    if not a:
+        return ""
+    # FreeBSD-style → Linux-style. Most other arch labels (arm64,
+    # aarch64, armv7l, riscv64, ppc64le, s390x) are already consistent
+    # across uname / Beszel / NE; only x86_64-vs-amd64 needs unification
+    # in practice today. Add more entries here as new arches arrive.
+    aliases = {
+        "amd64": "x86_64",
+        "i386":  "x86",
+        "i686":  "x86",
+    }
+    return aliases.get(a, a)
+
+
 def merge_best(dst: dict, src: dict) -> None:
     """Fold ``src`` into ``dst``, overwriting only with meaningful values.
 

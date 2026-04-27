@@ -35,6 +35,8 @@ from typing import Optional
 
 import httpx
 
+from logic.merge import normalize_arch as _normalize_arch
+
 
 # In-process token cache so every gather doesn't re-auth. Keyed by
 # (base_url, identity) — an operator changing the Hub URL or identity
@@ -684,10 +686,14 @@ def _services_summary(services) -> dict:
 
 
 def _derive_arch(kernel: str) -> str:
-    """Pull an architecture suffix (``amd64`` / ``arm64`` / ...) out of a
+    """Pull an architecture suffix (``x86_64`` / ``arm64`` / ...) out of a
     kernel string. Returns ``""`` on no match. Matches Beszel's own
     frontend which parses the kernel token for arch because the agent
-    doesn't emit arch as a separate field.
+    doesn't emit arch as a separate field. Pipes the result through
+    ``logic.merge.normalize_arch`` so callers always see the canonical
+    spelling (e.g. ``amd64`` → ``x86_64``); without that, NE-only hosts
+    saw ``x86_64`` while Beszel-only hosts saw ``amd64`` for the same
+    physical CPU. BUG-007 from notes/code_review_2026-04-27.txt.
     """
     if not kernel:
         return ""
@@ -695,12 +701,12 @@ def _derive_arch(kernel: str) -> str:
     known = ("amd64", "x86_64", "arm64", "aarch64", "armv7l", "armv6l",
              "armhf", "i686", "i386", "riscv64", "ppc64le", "s390x")
     if tail in known:
-        return tail
+        return _normalize_arch(tail)
     # Common substring fallback — some distros decorate the kernel with
     # extra tags after the arch (``-pve``, ``-generic``).
     for a in known:
         if a in kernel.lower():
-            return a
+            return _normalize_arch(a)
     return ""
 
 

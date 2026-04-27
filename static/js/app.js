@@ -9745,8 +9745,14 @@ function app() {
         const url = force ? '/api/hosts/list?force=true' : '/api/hosts/list';
         const r = await fetch(url);
         if (!r.ok) {
+          // Set the error flag but DON'T wipe the array — wholesale
+          // replacement violates the in-place reconcile rule and
+          // tears down every row's chart SVG on a transient HTTP
+          // failure (BUG-008 from notes/code_review_2026-04-27.txt).
+          // The next successful poll reconciles the existing rows in
+          // place; until then, operators see the previous data with
+          // a banner instead of a flicker-then-empty page.
           this.hostsError = `HTTP ${r.status}`;
-          this.hosts = [];
           return;
         }
         const d = await r.json();
@@ -9835,8 +9841,13 @@ function app() {
           this.hostsExpanded = cleaned;
         }
       } catch (e) {
+        // Set the error flag but DON'T wipe the array — same rationale
+        // as the HTTP-error branch above (BUG-008). A transient
+        // network blip during the 15s poll shouldn't tear down every
+        // row's mounted DOM; the next successful poll reconciles
+        // in place. Operators see a banner with the existing rows
+        // dimmed (visually) by the error chip instead of a flicker.
         this.hostsError = `Network: ${e.message}`;
-        this.hosts = [];
         return;
       } finally {
         this.hostsLoading = false;

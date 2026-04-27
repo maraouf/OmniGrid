@@ -1274,7 +1274,7 @@
                     <div class="fill"></div>
                   </div>
                   <div class="text-[10px] text-[var(--text-faint)] mt-1"
-                       x-text="'Docker: ' + (nodeStats(node.name).hasSize ? fmtBytes(nodeStats(node.name).dockerDisk) : '—')"></div>
+                       x-text="t('nodes.docker_disk_label', { value: (nodeStats(node.name).hasSize ? fmtBytes(nodeStats(node.name).dockerDisk) : '—') })"></div>
                 </div>
               </template>
               <template x-if="!(nodeStats(node.name).hasHostStats && nodeStats(node.name).hostDiskTotal)">
@@ -1417,8 +1417,9 @@
                    the operator picks in the topbar — and this label
                    reflects that value too via fmtIntervalShort(). -->
               <span x-show="statsInterval > 0"
-                    x-text="' · polled every ' + fmtIntervalShort(statsInterval)"></span>
-              <span x-show="statsInterval === 0" class="text-[var(--warning)]"> · polling off</span>
+                    x-text="t('hosts_extra.polled_every', { interval: fmtIntervalShort(statsInterval) })"></span>
+              <span x-show="statsInterval === 0" class="text-[var(--warning)]"
+                    x-text="t('hosts_extra.polling_off')"></span>
             </span>
           </span>
           <span class="flex items-center gap-1.5 flex-wrap"
@@ -1514,7 +1515,7 @@
            something outside a provider failed. -->
       <div x-show="hostsConfigured && hostsError && Object.keys(hostsProviderErrors || {}).length === 0"
            class="rounded border border-[var(--danger)] bg-[var(--surface-2)] px-4 py-3 text-[12.5px] text-[var(--danger)]">
-        <span x-text="'Host probe error: ' + hostsError"></span>
+        <span x-text="t('hosts_extra.probe_error', { error: hostsError })"></span>
       </div>
 
       <!-- Search + sort row — filters the table by host id / label / OS /
@@ -1581,7 +1582,12 @@
                  @click="toggleGroup(bucket.group ? bucket.group.name : '')"
                  class="host-group-heading flex items-center gap-2 mt-3 mb-1 px-2 py-1.5 rounded cursor-pointer select-none bg-[var(--surface-2)] border border-[var(--border)]">
               <svg width="11" height="11" aria-hidden="true" class="text-[var(--text-dim)] transition-transform flip-rtl" :style="isGroupCollapsed(bucket.group ? bucket.group.name : '') ? '' : 'transform: rotate(90deg)'"><use href="#icon-chevron-right"/></svg>
-              <span class="font-semibold text-[12px]"
+              <!-- Parent label uses --text-dim (slightly faded) so sub-
+                   group labels (which inherit full --text) stand out
+                   as the more specific row. Operator request — visual
+                   distinction between parent + sub-group at a glance
+                   without reading the indent / range chips. -->
+              <span class="font-semibold text-[12px] text-[var(--text-dim)]"
                     x-text="bucket.group ? hostGroupHeading(bucket.group) : t('hosts_extra_groups.ungrouped_label')"></span>
               <!-- Right-aligned cluster: range + IP chips immediately
                    before the host count so they read as a single
@@ -1726,7 +1732,10 @@
                  @click="toggleGroup(bucket.group ? bucket.group.name : '')"
                  class="host-group-heading flex items-center gap-2 px-4 py-2 border-b border-[var(--border)] bg-[var(--surface-2)] cursor-pointer select-none">
               <svg width="11" height="11" aria-hidden="true" class="text-[var(--text-dim)] transition-transform flip-rtl" :style="isGroupCollapsed(bucket.group ? bucket.group.name : '') ? '' : 'transform: rotate(90deg)'"><use href="#icon-chevron-right"/></svg>
-              <span class="font-semibold text-[12px]"
+              <!-- Parent label uses --text-dim (slightly faded) so sub-
+                   group labels (which inherit full --text) stand out
+                   as the more specific row. -->
+              <span class="font-semibold text-[12px] text-[var(--text-dim)]"
                     x-text="bucket.group ? hostGroupHeading(bucket.group) : t('hosts_extra_groups.ungrouped_label')"></span>
               <div class="flex items-center gap-2 ms-auto">
                 <span x-show="bucket.group" class="pill pill-info text-[10px] mono"

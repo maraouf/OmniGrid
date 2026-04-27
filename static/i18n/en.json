@@ -239,7 +239,8 @@
     "host_disk_tooltip": "Real host disk usage across all non-pseudo mounts (node-exporter).",
     "stats_merged_from_title": "Stats merged from: {sources}",
     "stats_all_failed_title": "All configured host-stats sources failed — falling back to Docker-only signals.",
-    "prune_button_title": "Run docker system prune on {node}"
+    "prune_button_title": "Run docker system prune on {node}",
+    "docker_disk_label": "Docker: {value}"
   },
   "empty": {
     "no_match_filters": "No resources match your filters.",
@@ -1250,7 +1251,10 @@
       "fallback_sources_label": "the enabled providers"
     },
     "filter_placeholder": "Filter hosts by name, platform, OS, provider…",
-    "open_link_title": "Open {label}"
+    "open_link_title": "Open {label}",
+    "polled_every": " · polled every {interval}",
+    "polling_off": " · polling off",
+    "probe_error": "Host probe error: {error}"
   },
   "stale_marker": {
     "tooltip": "Last live data {age} ago — value restored from cache snapshot"

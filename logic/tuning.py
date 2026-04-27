@@ -48,10 +48,24 @@ TUNABLES: dict[str, tuple[str, int, int, int]] = {
 
 
 def tuning_int(db_key: str) -> int:
-    """Return the effective value for one tunable. Three-tier: DB > env > default."""
+    """Return the effective value for one tunable. Three-tier: DB > env > default.
+
+    Always clamps the resolved value to ``(_lo, _hi)`` from ``TUNABLES``.
+    The Admin → Config form already validates on save, but a raw SQL
+    ``INSERT INTO settings (...)`` (or an env-var typo) would otherwise
+    flow straight through to the consumer — corrupt DB state could
+    disable a sampler (e.g. a 0 sample interval) or panic the OPS poll
+    cadence (e.g. negative ms). Clamping at READ time means every
+    consumer sees a value within bounds without each having to re-clamp
+    (BUG-004 from notes/code_review_2026-04-27.txt).
+    """
     if db_key not in TUNABLES:
         raise KeyError(f"unknown tunable: {db_key}")
-    env_var, default, _lo, _hi = TUNABLES[db_key]
+    env_var, default, lo, hi = TUNABLES[db_key]
+
+    def _clamp(v: int) -> int:
+        return max(lo, min(hi, v))
+
     try:
         raw = (get_setting(db_key, "") or "").strip()
     except Exception:
@@ -59,16 +73,16 @@ def tuning_int(db_key: str) -> int:
         raw = ""
     if raw:
         try:
-            return int(raw)
+            return _clamp(int(raw))
         except ValueError:
             pass
     env_raw = os.getenv(env_var, "")
     if env_raw:
         try:
-            return int(env_raw)
+            return _clamp(int(env_raw))
         except ValueError:
             pass
-    return default
+    return _clamp(default)
 
 
 def effective_state() -> dict:
