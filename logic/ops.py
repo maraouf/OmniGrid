@@ -29,6 +29,35 @@ from logic.db import db_conn, get_setting, get_setting_bool
 MAX_OPS = 50
 
 
+# Single source of truth for notification event names + per-event default
+# state. Mirrored into the DB by `api_get_settings` so the admin form has
+# a value to render; consulted directly here so a fresh deploy (where the
+# row doesn't exist yet) honours the same default the form would. Mismatch
+# between this map and `notify()`'s default was BUG-002 from
+# `notes/code_review_2026-04-27.txt` — every event was firing on first
+# boot regardless of operator preference.
+NOTIFY_EVENT_NAMES = (
+    "stack_update_success",
+    "stack_update_failure",
+    "container_update_success",
+    "container_update_failure",
+    "container_restart_success",
+    "container_restart_failure",
+    "container_remove_success",
+    "container_remove_failure",
+    "service_restart_success",
+    "service_restart_failure",
+    "prune_success",
+    "prune_failure",
+    "user_login",
+    "host_paused",
+)
+NOTIFY_EVENT_DEFAULTS = {
+    name: (False if name == "user_login" else True)
+    for name in NOTIFY_EVENT_NAMES
+}
+
+
 def _human_bytes(n: int) -> str:
     """Format a byte count for operator-facing notification copy.
 
@@ -150,7 +179,8 @@ async def notify(title: str, body: str, status: str = "info", *,
     # setting is "false", short-circuit. None = always-send (legacy
     # callers + the test button).
     if event:
-        if get_setting_bool(f"notify_event_{event}", default=True) is False:
+        default_on = NOTIFY_EVENT_DEFAULTS.get(event, True)
+        if get_setting_bool(f"notify_event_{event}", default=default_on) is False:
             print(f"[notify] skipped — event '{event}' disabled by operator")
             return
     # Per-user opt-out (#357). Only consulted when an actor is supplied

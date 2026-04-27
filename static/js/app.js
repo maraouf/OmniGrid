@@ -3982,12 +3982,6 @@ function app() {
           webmin_aliases: (d.webmin && d.webmin.aliases) || {},
           // Scheduler — IANA zone. Blank = container-local (legacy).
           scheduler_timezone: d.scheduler_timezone || '',
-          // Permanent-fail window for the host_metrics_sampler (#383).
-          // Stored as seconds; UI shows minutes.
-          host_permanent_fail_window_seconds:
-            Number.isFinite(+d.host_permanent_fail_window_seconds) && +d.host_permanent_fail_window_seconds > 0
-              ? +d.host_permanent_fail_window_seconds
-              : 900,
           // Open-Meteo upstream (weather widget). Blank = default.
           open_meteo_url: d.open_meteo_url || '',
           // Per-service master switches (#204). Default true so legacy
@@ -10283,8 +10277,8 @@ function app() {
     // Permanent-fail tracking helpers (#383). Backend sets
     // `h.sampling_paused: true` on the host record once consecutive
     // probe failures exceed the configured window
-    // (`host_permanent_fail_window_seconds`). Frontend renders an icon
-    // in the table + a banner in the drawer with a Resume button.
+    // (`tuning_host_permanent_fail_window_seconds`). Frontend renders an
+    // icon in the table + a banner in the drawer with a Resume button.
     hostFailureMinutes(h) {
       if (!h || !h.failure_window_started_at) return 0;
       const elapsed = (Date.now() / 1000) - h.failure_window_started_at;
