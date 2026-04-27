@@ -2618,6 +2618,79 @@
           </template>
         </section>
 
+        <!-- Passkeys card (#381). Local users only. WebAuthn / FIDO2
+             credentials sit ALONGSIDE TOTP — either method satisfies
+             the 2FA gate. Both stay in the Security section so the
+             operator has one place to manage second factors. -->
+        <section class="bg-[var(--surface)] border border-[var(--border)] rounded-md p-5"
+                 x-show="me && me.source === 'local'">
+          <div class="flex items-center gap-2 mb-3">
+            <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true"><use href="#icon-key"/></svg>
+            <h3 class="font-semibold text-[13px]" x-text="t('settings.profile.passkeys.title')"></h3>
+          </div>
+          <p class="text-[11.5px] text-[var(--text-faint)] leading-relaxed mb-3"
+             x-text="t('settings.profile.passkeys.subtitle')"></p>
+
+          <template x-if="passkeys.loaded && !passkeys.supported">
+            <div class="text-[12.5px] text-[var(--text-dim)] bg-[var(--surface-2)] border border-[var(--border)] rounded-md p-3"
+                 x-text="t('settings.profile.passkeys.server_unsupported')"></div>
+          </template>
+
+          <template x-if="passkeys.loaded && passkeys.supported && !passkeyBrowserSupported()">
+            <div class="text-[12.5px] text-[var(--text-dim)] bg-[var(--surface-2)] border border-[var(--border)] rounded-md p-3"
+                 x-text="t('settings.profile.passkeys.browser_unsupported')"></div>
+          </template>
+
+          <template x-if="passkeys.loaded && passkeys.supported">
+            <div class="space-y-3">
+              <template x-if="!passkeys.list.length">
+                <div class="text-[12.5px] text-[var(--text-dim)]"
+                     x-text="t('settings.profile.passkeys.list_empty')"></div>
+              </template>
+              <template x-if="passkeys.list.length">
+                <ul class="passkey-list">
+                  <template x-for="pk in passkeys.list" :key="pk.id">
+                    <li class="passkey-item">
+                      <div class="passkey-item__main">
+                        <div class="passkey-item__name" x-text="pk.friendly_name || t('settings.profile.passkeys.name_default')"></div>
+                        <div class="passkey-item__meta text-[var(--text-faint)]">
+                          <span x-text="t('settings.profile.passkeys.added_at', { when: relativeWhen(pk.created_at) })"></span>
+                          <span class="passkey-meta-sep">·</span>
+                          <span x-text="pk.last_used_at ? t('settings.profile.passkeys.last_used_at', { when: relativeWhen(pk.last_used_at) }) : t('settings.profile.passkeys.last_used_never')"></span>
+                          <template x-if="pk.transports && pk.transports.length">
+                            <span>
+                              <span class="passkey-meta-sep">·</span>
+                              <span x-text="t('settings.profile.passkeys.transports_label')"></span>
+                              <span x-text="pk.transports.join(', ')"></span>
+                            </span>
+                          </template>
+                        </div>
+                      </div>
+                      <button type="button" class="btn btn-ghost text-[11.5px] text-danger"
+                              :disabled="passkeys.busy"
+                              @click="revokePasskey(pk)"
+                              x-text="t('settings.profile.passkeys.revoke_button')"></button>
+                    </li>
+                  </template>
+                </ul>
+              </template>
+              <div class="flex items-center gap-2 flex-wrap">
+                <button type="button" class="btn btn-primary text-[12px]"
+                        :disabled="passkeys.busy || !passkeyBrowserSupported()"
+                        @click="addPasskey()"
+                        x-text="passkeys.busy ? t('settings.profile.passkeys.adding') : t('settings.profile.passkeys.add_button')"></button>
+                <span x-show="passkeys.busy" class="text-[11px] text-[var(--text-faint)]"
+                      x-text="t('settings.profile.passkeys.registering_hint')"></span>
+              </div>
+            </div>
+          </template>
+
+          <template x-if="!passkeys.loaded">
+            <div class="text-[12px] text-[var(--text-faint)]"
+                 x-text="t('loading.fetching')"></div>
+          </template>
+        </section>
+
         <!-- Authentik users get a passive note in lieu of the TOTP card. -->
         <section class="bg-[var(--surface)] border border-[var(--border)] rounded-md p-5"
                  x-show="me && me.source === 'authentik'">
@@ -3105,6 +3178,7 @@
                   <th class="text-start px-4 py-2" x-text="t('columns.role')"></th>
                   <th class="text-start px-4 py-2" x-text="t('columns.status')"></th>
                   <th class="text-start px-4 py-2" x-text="t('columns.totp')"></th>
+                  <th class="text-start px-4 py-2" x-text="t('columns.passkeys')"></th>
                   <th class="text-start px-4 py-2" x-text="t('columns.last_login')"></th>
                   <th class="text-end px-4 py-2" x-text="t('columns.actions')"></th>
                 </tr>
@@ -3151,6 +3225,27 @@
                           <span x-show="!u.totp_enabled && !u.totp_force_required"
                                 class="pill pill-muted"
                                 x-text="t('admin.users.totp_off')"></span>
+                        </span>
+                      </template>
+                    </td>
+                    <td class="px-4 py-2">
+                      <!-- Passkeys (#381). Local users only — Authentik
+                           IdPs manage their own MFA. Count includes
+                           every WebAuthn credential the user has
+                           enrolled. Operator-readable hint via :title. -->
+                      <template x-if="u.auth_source !== 'local'">
+                        <span class="text-[11px] text-[var(--text-faint)]"
+                              x-text="t('admin.users.totp_na')"></span>
+                      </template>
+                      <template x-if="u.auth_source === 'local'">
+                        <span class="inline-flex items-center gap-1">
+                          <svg width="12" height="12" aria-hidden="true" class="text-[var(--text-dim)]"><use href="#icon-key"/></svg>
+                          <span class="pill"
+                                :class="(u.passkey_count || 0) > 0 ? 'pill-success' : 'pill-muted'"
+                                :title="(u.passkey_count || 0) > 0
+                                  ? t('admin.users.passkeys_count_title', { count: u.passkey_count })
+                                  : t('admin.users.passkeys_none_title')"
+                                x-text="u.passkey_count || 0"></span>
                         </span>
                       </template>
                     </td>

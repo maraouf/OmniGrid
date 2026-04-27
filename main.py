@@ -57,6 +57,7 @@ from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 
 from logic import auth, backups, metrics, oidc, schedules, totp
+from logic import webauthn_helper as webauthn_h
 from pydantic import BaseModel, field_validator
 
 # ============================================================================
@@ -5454,6 +5455,109 @@ def _peek_totp_challenge(cid: str) -> Optional[dict]:
     return _totp_challenges.get(cid)
 
 
+# ----------------------------------------------------------------------------
+# WebAuthn (passkey) challenge stores (#381). Two flavours, both the same
+# in-memory dict shape as the TOTP store -- single-replica deploy makes it
+# safe. Pruned lazily on every read/write.
+#
+#   _webauthn_login_challenges -- raw challenge bytes pending second-
+#       factor verification. Keyed by challenge_id (opaque token the
+#       SPA echoes back). Created by /api/local-auth/webauthn-start;
+#       consumed by /api/local-auth/webauthn-finish. 5-min TTL.
+#
+#   _webauthn_register_challenges -- raw challenge bytes pending
+#       enrolment. Keyed by user_id (the call sites are authed and we
+#       only allow one in-flight enrolment per user). Created by
+#       /api/me/webauthn/register-start; consumed by register-finish.
+#       5-min TTL.
+#
+# RP ID + origin are derived per-request from the URL the SPA hit
+# (request.url.hostname / .scheme), so dev (localhost:8088) and prod
+# (NPM-fronted domain) both work without a settings entry.
+# ----------------------------------------------------------------------------
+_WEBAUTHN_CHALLENGE_TTL_SECONDS = 5 * 60
+_webauthn_login_challenges: dict[str, dict] = {}
+_webauthn_register_challenges: dict[int, dict] = {}
+
+
+def _prune_webauthn_challenges() -> None:
+    now = time.time()
+    for k in [k for k, v in _webauthn_login_challenges.items()
+              if v.get("expires_at", 0) <= now]:
+        _webauthn_login_challenges.pop(k, None)
+    for k in [k for k, v in _webauthn_register_challenges.items()
+              if v.get("expires_at", 0) <= now]:
+        _webauthn_register_challenges.pop(k, None)
+
+
+def _create_webauthn_login_challenge(payload: dict) -> tuple[str, int]:
+    _prune_webauthn_challenges()
+    cid = secrets.token_urlsafe(24)
+    expires_at = int(time.time()) + _WEBAUTHN_CHALLENGE_TTL_SECONDS
+    _webauthn_login_challenges[cid] = {**payload, "expires_at": expires_at}
+    return cid, expires_at
+
+
+def _consume_webauthn_login_challenge(cid: str) -> Optional[dict]:
+    _prune_webauthn_challenges()
+    return _webauthn_login_challenges.pop(cid, None)
+
+
+def _peek_webauthn_login_challenge(cid: str) -> Optional[dict]:
+    _prune_webauthn_challenges()
+    return _webauthn_login_challenges.get(cid)
+
+
+def _set_webauthn_register_challenge(user_id: int, payload: dict) -> int:
+    _prune_webauthn_challenges()
+    expires_at = int(time.time()) + _WEBAUTHN_CHALLENGE_TTL_SECONDS
+    _webauthn_register_challenges[user_id] = {
+        **payload, "expires_at": expires_at,
+    }
+    return expires_at
+
+
+def _consume_webauthn_register_challenge(user_id: int) -> Optional[dict]:
+    _prune_webauthn_challenges()
+    return _webauthn_register_challenges.pop(user_id, None)
+
+
+def _request_rp_id(request: Request) -> str:
+    """Derive the WebAuthn RP ID from the incoming request.
+
+    RP ID is the hostname (no port, no scheme) the SPA hit. Browsers
+    enforce same-origin: a credential registered against rp_id="A"
+    will refuse to sign for rp_id="B". Pulling it from the request
+    keeps dev (localhost) and prod (omnigrid.example.com) working
+    without a settings entry. NPM forwards the original Host header
+    so this Just Works behind reverse proxies.
+    """
+    host = (request.url.hostname or "").strip().lower()
+    if not host:
+        raise HTTPException(
+            status_code=400,
+            detail="Cannot determine WebAuthn RP ID from request.",
+        )
+    return host
+
+
+def _request_origin(request: Request) -> str:
+    """Full origin used for WebAuthn assertion verification.
+
+    Trusts ``X-Forwarded-Proto`` so HTTPS termination at NPM is
+    visible to the verifier (browsers send the actual origin in the
+    clientDataJSON; mismatch -> reject).
+    """
+    proto = (request.headers.get("x-forwarded-proto", "")
+             or request.url.scheme or "http").split(",")[0].strip().lower()
+    if proto not in ("http", "https"):
+        proto = "https"
+    host_header = request.headers.get("host") or request.url.netloc
+    if not host_header:
+        host_header = request.url.hostname or ""
+    return f"{proto}://{host_header}"
+
+
 @app.post("/api/local-auth/login")
 async def api_local_login(
     request: Request,
@@ -5468,18 +5572,27 @@ async def api_local_login(
             auth.rate_limit_record_failure(ip)
             raise HTTPException(status_code=401, detail="Invalid credentials")
         # ----------------------------------------------------------------
-        # TOTP gate (#345). Three branches before any session cookie is
-        # issued:
-        #   (a) user has TOTP enabled -> respond 200 with step="totp_required"
-        #   (b) policy requires TOTP for this role AND user has none ->
-        #       generate a fresh secret + provisioning_uri and respond
-        #       step="totp_setup_required" so the SPA can render the QR
-        #   (c) no TOTP, no requirement -> issue cookie (legacy path)
+        # 2FA gate (#345 TOTP + #381 passkeys). Branches before any
+        # session cookie is issued:
+        #   (a) user has TOTP enabled OR passkeys enrolled -> respond
+        #       200 with step="totp_required" and methods=[...] so the
+        #       SPA renders one of (or both) "Authenticator code" /
+        #       "Use a passkey" inputs at the second-factor screen.
+        #   (b) policy requires 2FA for this role AND user has neither
+        #       TOTP nor passkeys -> respond step="totp_setup_required"
+        #       (forced TOTP enrolment; passkey-only enrolment-on-login
+        #       isn't offered because it requires a roundtrip the
+        #       legacy login form can't host).
+        #   (c) no 2FA, no requirement -> issue cookie (legacy path).
         # ----------------------------------------------------------------
         policy = _resolve_totp_policy()
         state = auth.get_user_totp_state(c, u.id)
+        passkey_count = auth.count_user_credentials(c, u.id)
+        has_2fa = bool(state["enabled"]) or passkey_count > 0
         # Lockout check happens BEFORE we mint a challenge so a locked
-        # user gets a clear 423 rather than a stale challenge_id.
+        # user gets a clear 423 rather than a stale challenge_id. Lockout
+        # state is TOTP-only for now -- passkeys have their own per-IP
+        # rate-limit on webauthn-finish failures.
         if state["enabled"] and state["locked_until"]:
             if state["locked_until"] > int(time.time()):
                 retry = state["locked_until"] - int(time.time())
@@ -5494,7 +5607,12 @@ async def api_local_login(
             # Lockout expired -- clear the state so the next failure
             # starts a fresh counter.
             auth.clear_totp_lockout(c, u.id)
-        if state["enabled"]:
+        if has_2fa:
+            methods: list[str] = []
+            if state["enabled"]:
+                methods.append("totp")
+            if passkey_count > 0 and webauthn_h.WEBAUTHN_AVAILABLE:
+                methods.append("webauthn")
             cid, exp = _create_totp_challenge({
                 "user_id": u.id,
                 "kind": "totp_required",
@@ -5506,6 +5624,7 @@ async def api_local_login(
                 "challenge_id": cid,
                 "expires_at": exp,
                 "username": u.username,
+                "methods": methods,
             })
         if policy["totp_allowed"] and _totp_required_for(u.role, policy):
             secret_plain = totp.generate_secret()
@@ -5722,6 +5841,202 @@ async def api_local_login_totp_setup_confirm(
     return resp
 
 
+# ============================================================================
+# Login passkey routes (#381). Pair with the existing TOTP routes above —
+# both consume the same challenge-id minted in api_local_login. The login
+# flow's "second factor" pivots on which method the SPA POSTs back:
+# /api/local-auth/totp for a 6-digit code, /api/local-auth/webauthn-* for
+# a passkey assertion. CSRF is exempt because the caller doesn't have a
+# session cookie yet (auth-optional path).
+# ============================================================================
+class WebauthnLoginStartIn(BaseModel):
+    challenge_id: str
+
+
+class WebauthnLoginFinishIn(BaseModel):
+    challenge_id: str
+    credential: dict  # raw PublicKeyCredential JSON from the SPA
+
+
+@app.post("/api/local-auth/webauthn-start")
+async def api_local_login_webauthn_start(
+    body: WebauthnLoginStartIn,
+    request: Request,
+):
+    """Step 2A of the multi-step login: hand the SPA a WebAuthn
+    challenge to feed into ``navigator.credentials.get()``.
+
+    Reads the user_id from the in-memory TOTP challenge (minted by
+    api_local_login). Allows the user to switch between TOTP and
+    passkey on the same screen without re-entering the password --
+    the challenge_id is shared.
+
+    Returns ``{options: <PublicKeyCredentialRequestOptions>, login_id}``.
+    The SPA POSTs the assertion back via webauthn-finish with the
+    same login_id.
+    """
+    if not webauthn_h.WEBAUTHN_AVAILABLE:
+        raise HTTPException(
+            status_code=503,
+            detail="Passkey support is not available on this server "
+                   "(webauthn library missing).",
+        )
+    ip = auth._client_ip(request)
+    auth.rate_limit_check(ip)
+    challenge = _peek_totp_challenge(body.challenge_id)
+    if not challenge or challenge.get("kind") != "totp_required":
+        raise HTTPException(
+            status_code=400, detail="Invalid or expired challenge.",
+        )
+    user_id = challenge["user_id"]
+    with db_conn() as c:
+        u = auth.get_user(c, user_id)
+        if not u or u.disabled or u.auth_source != "local":
+            raise HTTPException(status_code=400, detail="User not eligible.")
+        creds = auth.list_user_credentials(c, user_id)
+    if not creds:
+        raise HTTPException(
+            status_code=400,
+            detail="No passkeys enrolled for this account.",
+        )
+    rp_id = _request_rp_id(request)
+    options, raw_challenge = webauthn_h.make_authentication_options(
+        rp_id=rp_id,
+        allowed_credentials=[
+            {
+                "credential_id": c["credential_id"],
+                "transports": c["transports"],
+            }
+            for c in creds
+        ],
+    )
+    login_id, expires_at = _create_webauthn_login_challenge({
+        "user_id": user_id,
+        "challenge_bytes": raw_challenge,
+        "rp_id": rp_id,
+        "origin": _request_origin(request),
+        "ip": ip,
+    })
+    print(f"[webauthn] {u.username} login-start (rp_id={rp_id})")
+    return JSONResponse({
+        "options": options,
+        "login_id": login_id,
+        "expires_at": expires_at,
+        "username": u.username,
+    })
+
+
+@app.post("/api/local-auth/webauthn-finish")
+async def api_local_login_webauthn_finish(
+    body: WebauthnLoginFinishIn,
+    request: Request,
+):
+    """Step 2B: verify the passkey assertion + mint the session cookie.
+
+    Same success path as ``/api/local-auth/totp``: ``touch_last_login``,
+    ``create_session``, ``set_session_cookie`` + ``set_csrf_cookie``,
+    fire the user_login notification. Failures land in the per-IP
+    rate-limit counter so a stolen credential_id can't be brute-forced.
+    """
+    if not webauthn_h.WEBAUTHN_AVAILABLE:
+        raise HTTPException(
+            status_code=503,
+            detail="Passkey support is not available on this server.",
+        )
+    ip = auth._client_ip(request)
+    auth.rate_limit_check(ip)
+    challenge = _peek_webauthn_login_challenge(body.challenge_id)
+    if not challenge:
+        auth.rate_limit_record_failure(ip)
+        raise HTTPException(
+            status_code=400, detail="Invalid or expired challenge.",
+        )
+    user_id = challenge["user_id"]
+    expected_challenge: bytes = challenge["challenge_bytes"]
+    expected_rp_id: str = challenge["rp_id"]
+    expected_origin: str = challenge["origin"]
+    cred_payload = body.credential or {}
+    raw_id = cred_payload.get("rawId") or cred_payload.get("id") or ""
+    if not raw_id or not isinstance(raw_id, str):
+        auth.rate_limit_record_failure(ip)
+        raise HTTPException(
+            status_code=400,
+            detail="Malformed assertion payload.",
+        )
+    try:
+        credential_id_bytes = webauthn_h.b64u_decode(raw_id)
+    except Exception:
+        auth.rate_limit_record_failure(ip)
+        raise HTTPException(
+            status_code=400, detail="Malformed credential id.",
+        )
+    with db_conn() as c:
+        u = auth.get_user(c, user_id)
+        if not u or u.disabled or u.auth_source != "local":
+            _consume_webauthn_login_challenge(body.challenge_id)
+            auth.rate_limit_record_failure(ip)
+            raise HTTPException(status_code=400, detail="User not eligible.")
+        stored = auth.get_credential_by_credential_id(c, credential_id_bytes)
+        if not stored or stored["user_id"] != user_id:
+            _consume_webauthn_login_challenge(body.challenge_id)
+            auth.rate_limit_record_failure(ip)
+            raise HTTPException(
+                status_code=401, detail="Unknown credential.",
+            )
+        try:
+            verified = webauthn_h.verify_authentication(
+                credential_json=cred_payload,
+                expected_challenge=expected_challenge,
+                expected_origin=expected_origin,
+                expected_rp_id=expected_rp_id,
+                public_key=stored["public_key"],
+                current_sign_count=stored["sign_count"],
+            )
+        except Exception as e:
+            _consume_webauthn_login_challenge(body.challenge_id)
+            auth.rate_limit_record_failure(ip)
+            print(f"[webauthn] {u.username} verify FAILED: {e}")
+            raise HTTPException(
+                status_code=401, detail="Passkey verification failed.",
+            )
+        # Success path -- consume both challenges, bump sign-count, issue cookie.
+        _consume_webauthn_login_challenge(body.challenge_id)
+        # Also drop the paired TOTP challenge so the user can't replay
+        # it via the TOTP path. We don't know the challenge_id used for
+        # webauthn-start (login_id is its own), but the TOTP one was
+        # never consumed in webauthn-start -- prune by user_id.
+        _prune_totp_challenges()
+        for k, v in list(_totp_challenges.items()):
+            if v.get("user_id") == user_id and v.get("kind") == "totp_required":
+                _totp_challenges.pop(k, None)
+        auth.update_credential_after_use(
+            c, stored["id"], verified["new_sign_count"],
+        )
+        auth.rate_limit_clear(ip)
+        auth.touch_last_login(c, user_id)
+        cookie_value, expires_at = auth.create_session(
+            c, user_id, ip, request.headers.get("user-agent"),
+        )
+    print(f"[webauthn] {u.username} verified successfully (cred {stored['id']})")
+    csrf = auth.generate_csrf_token()
+    resp = JSONResponse({
+        "username": u.username, "role": u.role, "source": u.auth_source,
+    })
+    auth.set_session_cookie(resp, cookie_value, expires_at, request)
+    auth.set_csrf_cookie(resp, csrf, expires_at, request)
+    try:
+        await notify(
+            f"🔓 {u.username} signed in",
+            f"via local (passkey) from {ip}",
+            "info",
+            event="user_login",
+            actor_username=u.username,
+        )
+    except Exception as _e:
+        print(f"[notify] user_login (webauthn) failed: {_e}")
+    return resp
+
+
 def _get_user_password_hash(conn, user_id: int):
     """Fetch password_hash directly — not exposed via the User dataclass."""
     r = conn.execute("SELECT password_hash FROM users WHERE id=?", (user_id,)).fetchone()
@@ -5919,12 +6234,25 @@ async def api_me(request: Request):
         _totp_policy = _resolve_totp_policy()
         with db_conn() as _c2:
             _totp_state = auth.get_user_totp_state(_c2, profile["id"])
+            _passkey_count = auth.count_user_credentials(_c2, profile["id"])
         out["totp"] = {
             "enabled":  bool(_totp_state["enabled"]),
             "allowed":  bool(_totp_policy["totp_allowed"]),
             "required": (
                 user.auth_source == "local"
                 and _totp_required_for(user.role, _totp_policy)
+            ),
+        }
+        # Passkeys (#381). The SPA uses ``count`` as a quick hint
+        # (e.g. show "+ Add passkey" when 0; show the list inline when
+        # >0) without the full /api/me/webauthn round-trip. ``supported``
+        # is the server-side capability flag (False when the webauthn
+        # library is missing).
+        out["passkeys"] = {
+            "count": int(_passkey_count),
+            "supported": (
+                user.auth_source == "local"
+                and webauthn_h.WEBAUTHN_AVAILABLE
             ),
         }
     return out
@@ -6328,17 +6656,239 @@ async def api_me_totp_disable(
     if user.id < 0:
         raise HTTPException(400, "API tokens cannot manage 2FA")
     _totp_authentik_guard(user)
+    # 2FA is satisfied if EITHER TOTP OR a passkey is enrolled (#381). So
+    # a user with a passkey can self-disable TOTP even when policy
+    # requires 2FA. Block ONLY when removing TOTP would leave the user
+    # with no 2FA at all under a required-2FA policy.
     if _totp_required_for_user(user):
-        raise HTTPException(
-            403,
-            "Admin policy requires 2FA for your role; cannot self-disable.",
-        )
+        with db_conn() as c:
+            passkeys = auth.count_user_credentials(c, user.id)
+        if passkeys == 0:
+            raise HTTPException(
+                403,
+                "Admin policy requires 2FA for your role; "
+                "enrol a passkey first or ask an admin to lift the policy.",
+            )
     with db_conn() as c:
         stored = _get_user_password_hash(c, user.id)
         if not auth.verify_password(body.password, stored):
             raise HTTPException(401, "Current password is incorrect.")
         auth.clear_user_totp(c, user.id)
     print(f"[totp] {user.username} disabled")
+    return {"ok": True}
+
+
+# ============================================================================
+# Profile -> WebAuthn / passkey management (#381). Cookie-authed; CSRF
+# enforced globally by the middleware. Authentik users 400 (their IdP
+# manages MFA). API-token "users" (negative ids) 400.
+# ============================================================================
+class WebauthnRegisterStartIn(BaseModel):
+    """Empty body -- the route reads username + user_id from the
+    session. Kept as a model for future fields (e.g. preferred
+    transports filter)."""
+    pass
+
+
+class WebauthnRegisterFinishIn(BaseModel):
+    credential: dict
+    friendly_name: Optional[str] = None
+
+
+def _webauthn_self_guard(user: auth.User) -> None:
+    if user.id < 0:
+        raise HTTPException(400, "API tokens cannot manage passkeys")
+    if user.auth_source == "authentik":
+        raise HTTPException(
+            status_code=400,
+            detail="Authentik users manage 2FA in their IdP.",
+        )
+    if not webauthn_h.WEBAUTHN_AVAILABLE:
+        raise HTTPException(
+            status_code=503,
+            detail="Passkey support is not available on this server "
+                   "(webauthn library missing).",
+        )
+
+
+@app.get("/api/me/webauthn")
+async def api_me_webauthn_list(
+    user: auth.User = Depends(auth.current_user),
+):
+    """Return every passkey enrolled for the caller.
+
+    Each row is shaped ``{id, friendly_name, transports, created_at,
+    last_used_at, sign_count, credential_id}`` -- credential_id is
+    base64url for display purposes only (stable identifier for the
+    revoke button). public_key never leaves the server.
+    """
+    if user.id < 0:
+        raise HTTPException(400, "API tokens cannot manage passkeys")
+    if user.auth_source == "authentik":
+        return {"auth_source": user.auth_source, "supported": False, "credentials": []}
+    if not webauthn_h.WEBAUTHN_AVAILABLE:
+        return {
+            "auth_source": user.auth_source,
+            "supported": False,
+            "credentials": [],
+            "error": "webauthn library not installed on the server.",
+        }
+    with db_conn() as c:
+        rows = auth.list_user_credentials(c, user.id)
+    out = []
+    for r in rows:
+        out.append({
+            "id": r["id"],
+            "credential_id": webauthn_h.b64u_encode(r["credential_id"]),
+            "friendly_name": r["friendly_name"],
+            "transports": r["transports"],
+            "created_at": r["created_at"],
+            "last_used_at": r["last_used_at"],
+            "sign_count": r["sign_count"],
+        })
+    return {
+        "auth_source": user.auth_source,
+        "supported": True,
+        "credentials": out,
+    }
+
+
+@app.post("/api/me/webauthn/register-start")
+async def api_me_webauthn_register_start(
+    request: Request,
+    user: auth.User = Depends(auth.current_user),
+):
+    """Hand the SPA ``PublicKeyCredentialCreationOptions``.
+
+    The challenge is stashed in-memory keyed by user_id (5-min TTL).
+    The SPA echoes back the authenticator response via register-finish
+    -- if the user starts a second enrolment without finishing the
+    first, the challenge is overwritten (last-wins; safe -- challenges
+    are per-user and not consumable across users).
+    """
+    _webauthn_self_guard(user)
+    rp_id = _request_rp_id(request)
+    rp_name = "OmniGrid"
+    with db_conn() as c:
+        creds = auth.list_user_credentials(c, user.id)
+    existing_ids = [c["credential_id"] for c in creds]
+    # WebAuthn user-handle: 1..64 bytes, opaque to the RP. Use the
+    # numeric user id as a left-padded 4-byte blob -- stable per user,
+    # never leaks PII.
+    user_handle = f"omnigrid-user-{user.id}".encode("utf-8")
+    options, raw_challenge = webauthn_h.make_registration_options(
+        rp_id=rp_id,
+        rp_name=rp_name,
+        user_id=user_handle,
+        username=user.username,
+        display_name=user.username,
+        existing_credential_ids=existing_ids,
+    )
+    expires_at = _set_webauthn_register_challenge(user.id, {
+        "challenge_bytes": raw_challenge,
+        "rp_id": rp_id,
+        "origin": _request_origin(request),
+    })
+    print(f"[webauthn] {user.username} register-start (rp_id={rp_id})")
+    return {
+        "options": options,
+        "expires_at": expires_at,
+        "rp_id": rp_id,
+    }
+
+
+@app.post("/api/me/webauthn/register-finish")
+async def api_me_webauthn_register_finish(
+    body: WebauthnRegisterFinishIn,
+    request: Request,
+    user: auth.User = Depends(auth.current_user),
+):
+    """Verify the attestation + persist the new credential row.
+
+    Friendly name validation: 0-64 visible chars; empty -> default
+    "Passkey N" where N = (existing count + 1) so the operator gets
+    a sensible label even when the SPA forgot to prompt.
+    """
+    _webauthn_self_guard(user)
+    state = _consume_webauthn_register_challenge(user.id)
+    if not state:
+        raise HTTPException(
+            status_code=400, detail="Invalid or expired challenge.",
+        )
+    cred_payload = body.credential or {}
+    if not isinstance(cred_payload, dict):
+        raise HTTPException(
+            status_code=400, detail="Malformed credential payload.",
+        )
+    try:
+        result = webauthn_h.verify_registration(
+            credential_json=cred_payload,
+            expected_challenge=state["challenge_bytes"],
+            expected_origin=state["origin"],
+            expected_rp_id=state["rp_id"],
+        )
+    except Exception as e:
+        print(f"[webauthn] {user.username} register verify FAILED: {e}")
+        raise HTTPException(
+            status_code=400,
+            detail=f"Could not verify passkey: {e}",
+        )
+    try:
+        friendly = webauthn_h.validate_friendly_name(body.friendly_name or "")
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    with db_conn() as c:
+        existing = auth.list_user_credentials(c, user.id)
+        if not friendly:
+            friendly = f"Passkey {len(existing) + 1}"
+        # Duplicate check (UNIQUE on credential_id catches it too --
+        # mapped to 409 here for the friendlier shape).
+        for r in existing:
+            if r["credential_id"] == result["credential_id"]:
+                raise HTTPException(
+                    status_code=409,
+                    detail="This passkey is already enrolled.",
+                )
+        try:
+            row_id = auth.add_user_credential(
+                c,
+                user_id=user.id,
+                credential_id=result["credential_id"],
+                public_key=result["public_key"],
+                sign_count=result["sign_count"],
+                transports=result["transports"],
+                friendly_name=friendly,
+            )
+        except sqlite3.IntegrityError:
+            raise HTTPException(
+                status_code=409,
+                detail="This passkey is already enrolled.",
+            )
+    print(f"[webauthn] {user.username} enrolled passkey "
+          f"id={row_id} name={friendly!r}")
+    return {
+        "ok": True,
+        "id": row_id,
+        "friendly_name": friendly,
+    }
+
+
+@app.delete("/api/me/webauthn/{credential_row_id}")
+async def api_me_webauthn_delete(
+    credential_row_id: int,
+    user: auth.User = Depends(auth.current_user),
+):
+    """Revoke ONE passkey owned by the caller.
+
+    The DB delete is gated on ``(user_id, id)`` so passing another
+    user's credential id 404s instead of revoking it.
+    """
+    _webauthn_self_guard(user)
+    with db_conn() as c:
+        ok = auth.delete_user_credential(c, user.id, credential_row_id)
+    if not ok:
+        raise HTTPException(status_code=404, detail="Passkey not found.")
+    print(f"[webauthn] {user.username} revoked passkey id={credential_row_id}")
     return {"ok": True}
 
 
