@@ -398,8 +398,8 @@
     "portainer": {
       "connection_title": "Portainer connection",
       "connection_desc": "URL + API key + endpoint ID that OmniGrid talks to. Stored in the database; changes take effect on the next refresh.",
-      "configured": "Configured",
-      "not_configured": "Not configured",
+      "configured": "Enabled",
+      "not_configured": "Disabled",
       "url_label": "Portainer URL",
       "url_placeholder": "https://portainer.example.com:9443",
       "api_key_label": "API key",
