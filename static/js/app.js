@@ -2213,6 +2213,7 @@ function app() {
             totp_required_for_users:   !!s.totp_required_for_users,
             totp_lockout_max_failures: +s.totp_lockout_max_failures || 5,
             totp_lockout_minutes:      +s.totp_lockout_minutes || 15,
+            passkeys_allowed:          !!s.passkeys_allowed,
           }),
         });
         if (r.ok) {
@@ -2886,6 +2887,14 @@ function app() {
         this.showToast(this.t('toasts.passkey_server_unsupported'), 'error');
         return;
       }
+      // Friendly-name first via SweetAlert so the user types it BEFORE
+      // we touch the WebAuthn API. The server-side challenge mint +
+      // navigator.credentials.create() then run back-to-back without
+      // any further user interaction in between, which keeps the
+      // user-gesture chain intact for password-manager extensions
+      // (1Password / Bitwarden / iCloud Keychain) so they get a chance
+      // to offer the "save passkey" sheet alongside the OS-native
+      // picker (#431).
       const nameRes = await Swal.fire({
         title: this.t('settings.profile.passkeys.name_prompt_title'),
         text: this.t('settings.profile.passkeys.name_prompt_body'),
@@ -2918,8 +2927,23 @@ function app() {
         let cred;
         try {
           cred = await navigator.credentials.create({ publicKey });
-        } catch (_) {
-          this.showToast(this.t('toasts.passkey_register_failed'), 'error');
+        } catch (e) {
+          // Surface the real error reason — silent toast made it
+          // impossible to tell apart "user dismissed the picker",
+          // "device declined", "extension blocked", "RP ID mismatch"
+          // (#431). DOMException.name is the canonical key
+          // (NotAllowedError / SecurityError / InvalidStateError /
+          // AbortError); fall through to the generic message when the
+          // browser threw a non-DOMException.
+          const detail = (e && (e.name || e.message)) || '';
+          if (detail) {
+            this.showToast(
+              this.t('toasts.passkey_register_failed') + ' (' + detail + ')',
+              'error',
+            );
+          } else {
+            this.showToast(this.t('toasts.passkey_register_failed'), 'error');
+          }
           return;
         }
         if (!cred) {
@@ -5159,6 +5183,10 @@ function app() {
         required_for_users:      !!s.totp_required_for_users,
         lockout_max_failures:    +s.totp_lockout_max_failures || 5,
         lockout_minutes:         +s.totp_lockout_minutes || 15,
+        // Passkey master toggle joins the same dirty/baseline group
+        // as the TOTP policy fields so a single Save covers both
+        // sub-systems (#432).
+        passkeys_allowed:        !!s.passkeys_allowed,
       });
     },
     totpPolicyDirty() { return this._totpPolicyBaseline !== this._totpPolicySnapshot(); },

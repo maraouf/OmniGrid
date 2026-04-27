@@ -192,6 +192,15 @@ def make_registration_options(
     # the SPA gets an object literal it can unwrap field-by-field.
     import json as _json
     options_dict = _json.loads(options_to_json(options))
+    # WebAuthn Level 3 `hints` field — nudges the browser toward the
+    # cross-platform picker so password managers (1Password / Bitwarden
+    # / iCloud Keychain) get offered alongside platform authenticators
+    # (Touch ID / Windows Hello). Without this, some browsers funnel
+    # straight to the OS-native picker and never give the password-
+    # manager extension a chance to surface its "save passkey" sheet
+    # (#431). The webauthn lib doesn't expose this in its dataclass yet,
+    # so we splice it onto the dict after serialisation.
+    options_dict["hints"] = ["client-device", "hybrid", "security-key"]
     return options_dict, bytes(options.challenge)
 
 
