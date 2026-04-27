@@ -774,7 +774,7 @@ select:focus {
 }
 .pw-requirements li.met      { color: var(--success); }
 .pw-requirements li.mismatch { color: var(--danger); }
-.pw-requirements li > span {
+.pw-requirements li > span:first-child {
     font-family: var(--font-mono);
     width: 14px;
     text-align: center;
@@ -2453,6 +2453,19 @@ details summary::-webkit-details-marker {
   background: var(--primary-soft);
   color: var(--text);
   font-weight: 500;
+}
+
+/* Subtle icon next to each sidebar label (#377). Faint by default so
+   the label still leads visually; hover/active rows let the parent
+   `color` cascade through `currentColor` on the SVG <use>, lifting
+   the icon to match the text colour. */
+.page-sidebar-icon {
+  flex-shrink: 0;
+  color: var(--text-faint);
+}
+.page-sidebar-item:hover .page-sidebar-icon,
+.page-sidebar-item.active .page-sidebar-icon {
+  color: inherit;
 }
 
 .page-content {
