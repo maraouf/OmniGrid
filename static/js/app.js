@@ -2944,6 +2944,23 @@ function app() {
           } else {
             this.showToast(this.t('toasts.passkey_register_failed'), 'error');
           }
+          // POST the failure to the server so it lands in Admin → Logs
+          // alongside the matching register-start line (#433). Fire-
+          // and-forget — a logging endpoint shouldn't be able to
+          // cascade into the user-visible flow.
+          try {
+            fetch('/api/me/webauthn/client-error', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                phase: 'register',
+                error_name: (e && e.name) || '',
+                error_message: (e && e.message) || '',
+                rp_id: (publicKey && publicKey.rp && publicKey.rp.id) || '',
+                origin: window.location.origin,
+              }),
+            }).catch(() => {});
+          } catch (_) {}
           return;
         }
         if (!cred) {

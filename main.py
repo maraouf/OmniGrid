@@ -56,7 +56,7 @@ from fastapi import (
 from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 
-from logic import auth, backups, metrics, oidc, schedules, totp
+from logic import auth, backups, errors as _err, metrics, oidc, schedules, totp
 from logic import webauthn_helper as webauthn_h
 from pydantic import BaseModel, field_validator
 
@@ -5207,14 +5207,14 @@ async def api_admin_version_set(
         # Most common cause: docker-compose still has /app:ro without
         # the per-file writable bind mount for VERSION.txt. Surface a
         # readable hint instead of the raw "Read-only file system" so
-        # the operator knows what to fix.
+        # the operator knows what to fix. Canonical message lives in
+        # logic/errors.py (OG0900); we prepend the OS-level reason so
+        # the operator can tell apart EROFS vs EACCES vs EDQUOT.
         return JSONResponse(
             status_code=500,
             content={
                 "detail": (
-                    f"Could not write VERSION.txt: {e}. "
-                    "Add a writable bind for /opt/omnigrid/app/VERSION.txt:/app/VERSION.txt "
-                    "to docker-compose.yml and redeploy the stack."
+                    f"{e}. " + _err.message_for(_err.CONFIG_VERSION_FILE_NOT_WRITABLE)
                 ),
             },
         )
@@ -5536,20 +5536,36 @@ def _consume_webauthn_register_challenge(user_id: int) -> Optional[dict]:
 def _request_rp_id(request: Request) -> str:
     """Derive the WebAuthn RP ID from the incoming request.
 
-    RP ID is the hostname (no port, no scheme) the SPA hit. Browsers
-    enforce same-origin: a credential registered against rp_id="A"
-    will refuse to sign for rp_id="B". Pulling it from the request
-    keeps dev (localhost) and prod (omnigrid.example.com) working
-    without a settings entry. NPM forwards the original Host header
-    so this Just Works behind reverse proxies.
+    RP ID is the hostname (no port, no scheme) the SPA hit, AS THE
+    BROWSER SEES IT — has to be a registrable suffix of the page's
+    actual origin or `navigator.credentials.create()` rejects with
+    SecurityError. Behind a reverse proxy (NPM in OmniGrid's deploy)
+    the upstream connection's URL has the internal hostname (typically
+    ``localhost`` or the Docker stack name), which would mismatch the
+    public domain the browser sees and break enrolment (#433).
+
+    Resolution order: ``X-Forwarded-Host`` header (what proxies set
+    when they want the backend to know the original Host), then the
+    ``Host`` header (NPM forwards this verbatim), then
+    ``request.url.hostname`` as a last resort for direct (non-proxied)
+    dev runs. Strip the ``:port`` suffix in every case — RP IDs are
+    hostname-only.
     """
-    host = (request.url.hostname or "").strip().lower()
-    if not host:
-        raise HTTPException(
-            status_code=400,
-            detail="Cannot determine WebAuthn RP ID from request.",
-        )
-    return host
+    candidates = [
+        request.headers.get("x-forwarded-host", ""),
+        request.headers.get("host", ""),
+        request.url.hostname or "",
+    ]
+    for raw in candidates:
+        host = (raw or "").split(",")[0].strip().lower()
+        if ":" in host:
+            host = host.split(":", 1)[0]
+        if host:
+            return host
+    raise HTTPException(
+        status_code=400,
+        detail=_err.message_for(_err.AUTH_WEBAUTHN_RP_ID_UNRESOLVABLE),
+    )
 
 
 def _request_origin(request: Request) -> str:
@@ -5726,7 +5742,7 @@ async def api_local_login_totp(
         auth.rate_limit_record_failure(ip)
         raise HTTPException(
             status_code=403,
-            detail="TOTP login is disabled by an administrator.",
+            detail=_err.message_for(_err.AUTH_TOTP_DISABLED_BY_ADMIN),
         )
     with db_conn() as c:
         u = auth.get_user(c, user_id)
@@ -5915,8 +5931,7 @@ async def api_local_login_webauthn_start(
     if not webauthn_h.WEBAUTHN_AVAILABLE:
         raise HTTPException(
             status_code=503,
-            detail="Passkey support is not available on this server "
-                   "(webauthn library missing).",
+            detail=_err.message_for(_err.AUTH_WEBAUTHN_LIBRARY_MISSING),
         )
     # Master toggle (#432). Defence-in-depth — the SPA won't offer
     # the passkey method when this is off (login response omits
@@ -5924,7 +5939,7 @@ async def api_local_login_webauthn_start(
     if not _resolve_totp_policy()["passkeys_allowed"]:
         raise HTTPException(
             status_code=403,
-            detail="Passkey login is disabled by an administrator.",
+            detail=_err.message_for(_err.AUTH_PASSKEYS_DISABLED_BY_ADMIN),
         )
     ip = auth._client_ip(request)
     auth.rate_limit_check(ip)
@@ -6755,9 +6770,55 @@ def _webauthn_self_guard(user: auth.User) -> None:
     if not webauthn_h.WEBAUTHN_AVAILABLE:
         raise HTTPException(
             status_code=503,
-            detail="Passkey support is not available on this server "
-                   "(webauthn library missing).",
+            detail=_err.message_for(_err.AUTH_WEBAUTHN_LIBRARY_MISSING),
         )
+
+
+class WebauthnClientErrorIn(BaseModel):
+    """Body for /api/me/webauthn/client-error — the SPA POSTs this when
+    `navigator.credentials.create()` or `.get()` rejects with a
+    DOMException so the failure reason lands in Admin → Logs (#433).
+    Fields are all best-effort strings; capped server-side to keep a
+    misbehaving client from spamming the buffer.
+    """
+    phase: Optional[str] = None        # "register" | "login"
+    error_name: Optional[str] = None   # DOMException.name
+    error_message: Optional[str] = None
+    rp_id: Optional[str] = None
+    origin: Optional[str] = None
+
+
+@app.post("/api/me/webauthn/client-error")
+async def api_me_webauthn_client_error(
+    body: WebauthnClientErrorIn,
+    request: Request,
+    user: auth.User = Depends(auth.current_user),
+):
+    """Surface a client-side WebAuthn ceremony failure into the server
+    log buffer. Pure logging — no DB write, no state change. Caps each
+    field at 200 chars so a flooding client can't spam the ring."""
+    def _trim(s: Optional[str]) -> str:
+        s = (s or "").strip()
+        return s[:200]
+    phase    = _trim(body.phase) or "?"
+    err_name = _trim(body.error_name) or "?"
+    err_msg  = _trim(body.error_message)
+    rp_id    = _trim(body.rp_id) or _request_rp_id(request)
+    origin   = _trim(body.origin) or _request_origin(request)
+    server_origin = _request_origin(request)
+    server_rp_id  = _request_rp_id(request)
+    msg = (
+        f"[webauthn] CLIENT ERROR — user={user.username} phase={phase} "
+        f"error_name={err_name}"
+    )
+    if err_msg:
+        msg += f" error_message={err_msg!r}"
+    msg += (
+        f" client_rp_id={rp_id} client_origin={origin} "
+        f"server_rp_id={server_rp_id} server_origin={server_origin}"
+    )
+    print(msg)
+    return {"ok": True}
 
 
 @app.get("/api/me/webauthn")
@@ -6823,7 +6884,7 @@ async def api_me_webauthn_register_start(
     if not _resolve_totp_policy()["passkeys_allowed"]:
         raise HTTPException(
             status_code=403,
-            detail="Passkey enrolment is disabled by an administrator.",
+            detail=_err.message_for(_err.AUTH_PASSKEYS_DISABLED_BY_ADMIN),
         )
     rp_id = _request_rp_id(request)
     rp_name = "OmniGrid"
@@ -6847,7 +6908,10 @@ async def api_me_webauthn_register_start(
         "rp_id": rp_id,
         "origin": _request_origin(request),
     })
-    print(f"[webauthn] {user.username} register-start (rp_id={rp_id})")
+    print(
+        f"[webauthn] {user.username} register-start "
+        f"(rp_id={rp_id}, origin={_request_origin(request)})"
+    )
     return {
         "options": options,
         "expires_at": expires_at,
