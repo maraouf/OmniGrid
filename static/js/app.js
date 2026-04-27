@@ -9,10 +9,47 @@
 // Auto-built from `ls static/img/icons/*.svg | sed 's/\.svg$//'`. Re-run that
 // pipeline (or `scripts/sync_icon_registry.sh` if/when added) after adding or
 // removing icons.
+// Slugs that ship a `<slug>-dark.svg` variant alongside the default
+// `<slug>.svg`. The icon resolver consults `_themeIcon(url)` at every
+// emit point and auto-swaps to the `-dark.svg` URL when the document
+// is in dark theme. Slugs NOT in this set get the same URL on both
+// themes — most brand icons render fine on both backgrounds and don't
+// need the second file (#451). Adding a new dark variant: drop the
+// `<slug>-dark.svg` under `static/img/icons/` AND add the slug here.
+// Operators who set `h.icon = '<slug>-dark'` explicitly bypass the
+// auto-swap (the `-dark` suffix is detected and short-circuits).
+const KNOWN_DARK_ICONS = new Set([
+  // Pre-#451 manual variants — also listed in KNOWN_ICONS as separate
+  // slugs (`glinet-dark`, `portainer-dark`) for explicit-override
+  // compatibility, but operators using the bare slug get the auto-swap
+  // here.
+  'glinet',
+  'portainer',
+  // Apple's bare logo is jet-black on the default file (homarr-labs
+  // upstream `apple.svg`). The dark-theme variant `apple-dark.svg`
+  // carries the white logo (sourced from upstream `apple-light.svg`,
+  // re-saved under our standardised `-dark.svg` filename so the
+  // resolver convention stays uniform: `<slug>-dark.svg` is always
+  // "use this on dark theme" regardless of which side the upstream
+  // calls "light" or "dark").
+  'apple',
+  // Apple TV+ — same inverted-upstream story as Apple. Local
+  // `apple-tv-plus.svg` carries the upstream `apple-tv-plus-light.svg`
+  // content (light-theme default); local `apple-tv-plus-dark.svg`
+  // carries the upstream `apple-tv-plus.svg` content (dark-theme).
+  'apple-tv-plus',
+  // Synology — homarr-labs' upstream `synology.svg` is the dark-bg
+  // variant (light-coloured logo); their `synology-light.svg` is the
+  // light-bg variant. Saved locally as `synology.svg` (light-theme
+  // default) and `synology-dark.svg` (dark-theme variant) so our
+  // standard `<slug>-dark.svg` convention holds.
+  'synology',
+]);
+
 const KNOWN_ICONS = new Set([
   '5g', 'adguard-home', 'alexa', 'alienware', 'amazon', 'ansible',
-  'apache', 'apc', 'apc-ups', 'apple', 'apple-light', 'apple-tv-plus',
-  'apple-tv-plus-light', 'apprise', 'aqara', 'asus', 'authentik', 'bazarr',
+  'apache', 'apc', 'apc-ups', 'apple', 'apple-dark', 'apple-light', 'apple-tv-plus',
+  'apple-tv-plus-dark', 'apple-tv-plus-light', 'apprise', 'aqara', 'asus', 'authentik', 'bazarr',
   'beszel', 'bose', 'caddy', 'chromecast', 'cisco', 'database',
   'ddns-updater', 'debian', 'dell', 'deluge', 'docker', 'dovecot',
   'dozzle', 'esxi', 'fing', 'firetv', 'flaresolverr', 'forgejo',
@@ -29,7 +66,7 @@ const KNOWN_ICONS = new Set([
   'prowlarr', 'proxmox', 'pulse', 'qbittorrent', 'rachio', 'radarr',
   'reolink', 'roku', 'roundcube', 'rundeck', 'rustdesk', 'sabnzbd',
   'samsung', 'samsung-electronics', 'sandisk', 'seeedstudio', 'sensibo', 'smtp', 'somfy', 'sonarr',
-  'speedtest-tracker', 'squid', 'stalwart', 'synology', 'tailscale', 'tautulli',
+  'speedtest-tracker', 'squid', 'stalwart', 'synology', 'synology-dark', 'tailscale', 'tautulli',
   'tracearr', 'traefik', 'transmission', 'truenas', 'truenas-core', 'truenas-scale',
   'ubiquiti', 'ubuntu', 'ui', 'unifi', 'ups', 'uptime-kuma',
   'vcenter', 'vdsl', 'veeam', 'vmware', 'vsphere', 'wd',
@@ -6154,6 +6191,36 @@ function app() {
       try { return (window.t && window.t('stale_marker.tooltip', { age: ago })) || ('Last live data ' + ago + ' ago'); }
       catch (_) { return 'Last live data ' + ago + ' ago'; }
     },
+    // Theme-aware icon swap (#451). Wraps every icon-URL emit point so
+    // brands that ship a `<slug>-dark.svg` variant (KNOWN_DARK_ICONS)
+    // get the dark URL when the document is in dark theme. Reads
+    // `this.themePref` reactively so cycling theme via the toolbar
+    // re-evaluates every Alpine `:src` binding without a page reload.
+    // Idempotent — already-`-dark` URLs short-circuit, external / non-
+    // /img/icons/ URLs pass through untouched.
+    _themeIcon(url) {
+      if (!url) return url;
+      // Read themePref so Alpine tracks this as a dependency. The
+      // resolution mirrors `applyTheme()` exactly (auto → matchMedia,
+      // explicit → that value).
+      const pref = this.themePref;
+      let dark;
+      if (pref === 'auto') {
+        const sysLight = window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches;
+        dark = !sysLight;
+      } else {
+        dark = pref !== 'light';
+      }
+      if (!dark) return url;
+      const m = /^\/img\/icons\/([a-z0-9_-]+)\.svg$/i.exec(url);
+      if (!m) return url;
+      const slug = m[1].toLowerCase();
+      // Already a -dark / -light explicit variant — operator picked
+      // this file deliberately, leave it alone.
+      if (slug.endsWith('-dark') || slug.endsWith('-light')) return url;
+      if (!KNOWN_DARK_ICONS.has(slug)) return url;
+      return `/img/icons/${slug}-dark.svg`;
+    },
     iconUrlFor(name) {
       // Resolve an app name to an icon URL. Every icon is local (in
       // static/img/icons/) so the dashboard works offline. Override values
@@ -6165,6 +6232,10 @@ function app() {
       // routes like /nodes, /settings/oidc, /admin/users, and a relative
       // "img/icons/..." would resolve against those paths (→ 404). Any
       // override that looks like "img/..." is auto-prefixed with "/".
+      //
+      // Theme-aware swap: every return point routes through
+      // `_themeIcon(url)` so brands with a `-dark.svg` variant
+      // auto-resolve to the dark URL when in dark theme (#451).
       if (!name) return '';
       // Exact / whole-name overrides (checked first).
       const overrides = {
@@ -6205,11 +6276,12 @@ function app() {
       // If the override looks like a URL or path, return it (guaranteeing
       // a leading "/" so it stays absolute under deep-link routes).
       if (mapped && /[/.]/.test(mapped)) {
-        return mapped.startsWith('/') || /^https?:/i.test(mapped) ? mapped : '/' + mapped;
+        const url = mapped.startsWith('/') || /^https?:/i.test(mapped) ? mapped : '/' + mapped;
+        return this._themeIcon(url);
       }
-      if (mapped) return `/img/icons/${mapped}.svg`;
+      if (mapped) return this._themeIcon(`/img/icons/${mapped}.svg`);
       for (const [prefix, slug] of prefixes) {
-        if (natural.startsWith(prefix)) return `/img/icons/${slug}.svg`;
+        if (natural.startsWith(prefix)) return this._themeIcon(`/img/icons/${slug}.svg`);
       }
       if (!natural) return '';
       // Only return a URL when the slug actually exists on disk —
@@ -6217,7 +6289,7 @@ function app() {
       // that doesn't happen to match a brand. Operator complaint:
       // "this is a stack without an image, why system looking for
       // image" → fixed by gating on KNOWN_ICONS.
-      if (KNOWN_ICONS.has(natural)) return `/img/icons/${natural}.svg`;
+      if (KNOWN_ICONS.has(natural)) return this._themeIcon(`/img/icons/${natural}.svg`);
       return '';
     },
     stackIconUrl(stack) {
@@ -7793,7 +7865,7 @@ function app() {
           'monitoring':         'uptime-kuma',
         };
         const slug = aliases[h.icon.toLowerCase()] || h.icon;
-        return '/img/icons/' + slug + '.svg';
+        return this._themeIcon('/img/icons/' + slug + '.svg');
       }
       // Step 2 — exact-slug match on any field.
       const candidates = [
@@ -8269,7 +8341,7 @@ function app() {
         ['wd-tv',                 'wd'],
       ];
       for (const [needle, slug] of tokens) {
-        if (hay.includes(needle)) return '/img/icons/' + slug + '.svg';
+        if (hay.includes(needle)) return this._themeIcon('/img/icons/' + slug + '.svg');
       }
       return '';
     },
