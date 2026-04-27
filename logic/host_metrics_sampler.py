@@ -48,12 +48,16 @@ _MAX_DELTA_BYTES   = 10 * 1024 * 1024 * 1024  # 10 GB
 
 
 # Per-host previous absolute counters for delta math (net rx / net tx /
-# disk read / disk written). Lives across ticks within one sampler-task
-# lifetime; cleared on lifespan cancel/restart so the post-restart first
-# delta is correctly SKIPPED. The disk pair was added in #339 — pre-#339
-# entries had a 3-tuple shape; the in-memory cache is restart-only so no
-# migration needed (a single tick after restart re-establishes baseline).
-_last_counters: dict[str, tuple[float, int, int, int, int]] = {}  # host_id → (ts, rx, tx, dr_bytes, dw_bytes)
+# disk read / disk written / cpu_total / cpu_idle). Lives across ticks
+# within one sampler-task lifetime; cleared on lifespan cancel/restart
+# so the post-restart first delta is correctly SKIPPED. Tuple grew over
+# time:
+#   pre-#339: (ts, rx, tx) — 3 elements
+#   #339:     (ts, rx, tx, dr, dw) — 5 elements (disk added)
+#   #402:     (ts, rx, tx, dr, dw, cpu_total, cpu_idle) — 7 elements
+# In-memory cache is restart-only so no migration needed; the
+# `_compute_row` decoder tolerantly len()-checks `prev`.
+_last_counters: dict[str, tuple] = {}  # host_id → variable-length tuple
 
 
 # Concurrency cap on parallel NE probes per tick. Matches the convention
@@ -134,14 +138,16 @@ def _compute_row(
     disk_used  = int(stats.get("host_disk_used") or 0)
 
     cpu_percent: Optional[float] = None
-    # node-exporter doesn't surface a single host_cpu_percent because the
-    # raw counter is per-cpu seconds. We don't have load-average-derived
-    # %CPU here either — leaving it None is correct; future work can plug
-    # in a 1m derivation from node_cpu_seconds_total counters across two
-    # ticks (own delta math, separate from net counters).
     raw_cpu = stats.get("host_cpu_percent")
     if _is_meaningful_number(raw_cpu):
         cpu_percent = float(raw_cpu)
+
+    # CPU-seconds counters for delta-derived %CPU on NE-only hosts (#402).
+    # Sum across all CPUs all modes for `total`; only mode=idle for `idle`.
+    # %CPU = 100 * (1 - (delta_idle / delta_total)).
+    cpu_total_secs = stats.get("host_cpu_seconds_total") or 0
+    cpu_idle_secs  = stats.get("host_cpu_seconds_idle") or 0
+    have_cpu_counters = cpu_total_secs > 0
 
     # Net counters — required to advance the cache.
     rx_total = stats.get("host_net_rx_total")
@@ -158,7 +164,7 @@ def _compute_row(
     tx_rate: Optional[float] = None
     dr_rate: Optional[float] = None
     dw_rate: Optional[float] = None
-    next_counter: Optional[tuple[float, int, int, int, int]] = None
+    next_counter: Optional[tuple] = None
 
     rx = tx = dr = dw = 0
     if have_net_counters:
@@ -177,19 +183,22 @@ def _compute_row(
     # Cache the current counters (zeros where unavailable) so the next
     # tick has a baseline. A rejected delta still advances the cache so
     # we don't keep diffing against a stale anchor forever.
-    if have_net_counters or have_disk_counters:
-        next_counter = (now, rx, tx, dr, dw)
+    if have_net_counters or have_disk_counters or have_cpu_counters:
+        next_counter = (now, rx, tx, dr, dw, float(cpu_total_secs), float(cpu_idle_secs))
 
-    # Decompose `prev` tolerantly — pre-#339 entries are 3-tuples; new
-    # ones are 5-tuples. Falling back to 0 for missing disk counters
-    # means the first post-#339 tick treats disk as "first sample" and
-    # skips the rate (correct).
+    # Decompose `prev` tolerantly — pre-#339 entries are 3-tuples; #339
+    # added disk (5-tuple); #402 added CPU seconds (7-tuple). The cache
+    # is restart-only so older shapes only matter mid-process if a
+    # partial reload happened — handled by len()-checking ``prev``.
     prev_ts = prev_rx = prev_tx = prev_dr = prev_dw = None
+    prev_cpu_total = prev_cpu_idle = None
     if prev is not None:
         if len(prev) >= 3:
             prev_ts, prev_rx, prev_tx = prev[0], prev[1], prev[2]
         if len(prev) >= 5:
             prev_dr, prev_dw = prev[3], prev[4]
+        if len(prev) >= 7:
+            prev_cpu_total, prev_cpu_idle = prev[5], prev[6]
 
     if prev_ts is not None:
         delta_s = now - prev_ts
@@ -201,15 +210,27 @@ def _compute_row(
                 if _delta_bytes_ok(d_rx) and _delta_bytes_ok(d_tx):
                     rx_rate = d_rx / delta_s
                     tx_rate = d_tx / delta_s
-            # Disk rate pair — evaluated INDEPENDENTLY of net so a
-            # host that just rebooted its disk subsystem (e.g. zfs
-            # remount) doesn't lose its net rates.
+            # Disk rate pair — evaluated INDEPENDENTLY of net.
             if have_disk_counters and prev_dr is not None and prev_dw is not None:
                 d_dr = dr - prev_dr
                 d_dw = dw - prev_dw
                 if _delta_bytes_ok(d_dr) and _delta_bytes_ok(d_dw):
                     dr_rate = d_dr / delta_s
                     dw_rate = d_dw / delta_s
+            # CPU-seconds delta (#402). Skip when:
+            #   - no previous CPU sample (first tick / restart),
+            #   - delta_total <= 0 (clock skew / counter reset),
+            #   - delta_idle < 0 (counter reset → bogus negative %).
+            # Result clamped to [0, 100] so a mid-tick clock blip
+            # can't surface 137% CPU on the chart.
+            if (have_cpu_counters
+                and prev_cpu_total is not None and prev_cpu_idle is not None
+                and cpu_percent is None):
+                d_total = float(cpu_total_secs) - float(prev_cpu_total)
+                d_idle  = float(cpu_idle_secs)  - float(prev_cpu_idle)
+                if d_total > 0 and d_idle >= 0:
+                    pct = 100.0 * (1.0 - (d_idle / d_total))
+                    cpu_percent = max(0.0, min(100.0, pct))
 
     # If literally nothing meaningful — drop the row.
     nothing_to_write = (

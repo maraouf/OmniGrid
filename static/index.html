@@ -6058,6 +6058,46 @@
           </div>
         </section>
 
+        <!-- Permanent-fail window (#383) — second card under Admin →
+             Config. Sampler auto-pauses a host after this many minutes
+             of consecutive probe failures; operator resumes from the
+             host drawer's banner. Stored as seconds on the wire
+             (host_permanent_fail_window_seconds, 60-86400) but the
+             UI shows minutes (1-1440) for readability. -->
+        <section class="bg-[var(--surface)] border border-[var(--border)] rounded-md p-5">
+          <div class="flex items-center gap-2 mb-1">
+            <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true"><use href="#icon-alert-triangle"/></svg>
+            <h3 class="font-semibold text-[13px]">Sampling pause window</h3>
+          </div>
+          <p class="text-[11.5px] text-[var(--text-faint)] mb-3 leading-snug max-w-[820px]">
+            When a host has been unreachable by the metrics sampler for this many minutes,
+            OmniGrid auto-pauses sampling for that host (no more probe attempts, no log spam).
+            Resume manually from the host drawer's banner. Default 15 minutes.
+          </p>
+          <div class="flex items-end gap-3 flex-wrap">
+            <div class="flex flex-col gap-1">
+              <label class="text-[11px] text-[var(--text-faint)]">Window (minutes)</label>
+              <input type="number" min="1" max="1440" step="1"
+                     :value="Math.round((settings.host_permanent_fail_window_seconds || 900) / 60)"
+                     @input="settings.host_permanent_fail_window_seconds = Math.max(60, Math.min(86400, parseInt($event.target.value, 10) * 60))"
+                     :disabled="!isAdmin()"
+                     class="w-32 mono text-[12.5px]">
+            </div>
+            <button x-show="isAdmin()" @click="savePermanentFailWindow()"
+                    :class="permanentFailDirty() ? 'ring-2 ring-[var(--warning)]' : ''"
+                    :disabled="permanentFailSaving"
+                    class="btn btn-primary text-[12px]">
+              <span x-show="!permanentFailSaving" x-text="t('actions.save')"></span>
+              <span x-show="permanentFailSaving" class="flex items-center gap-1"><span class="spin"></span><span x-text="t('actions.saving')"></span></span>
+            </button>
+            <span x-show="permanentFailDirty()"
+                  class="text-[11.5px] text-[var(--warning)] flex items-center gap-1.5">
+              <span class="w-1.5 h-1.5 rounded-full bg-[var(--warning)] animate-pulse"></span>
+              <span class="unsaved-flash" x-text="t('common.unsaved')"></span>
+            </span>
+          </div>
+        </section>
+
       </div>
 
       <!-- AUTHENTICATION TAB — TOTP / 2FA policy lives here (moved out

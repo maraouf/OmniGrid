@@ -373,6 +373,12 @@ def parse_exporter_text(text: str) -> dict:
     uname_machine = ""
     uname_release = ""
     cpu_labels: set[str] = set()
+    # CPU-seconds counters for %CPU derivation (#402). Sum across all
+    # CPUs, ALL modes for total; only mode=idle for idle. The sampler
+    # delta-maths these against the previous tick to compute %CPU =
+    # 100 * (1 - (delta_idle / delta_total)).
+    cpu_seconds_total = 0.0
+    cpu_seconds_idle  = 0.0
     # Load averages — one gauge each, no labels. FreeBSD + Linux both
     # emit ``node_load1`` / ``node_load5`` / ``node_load15`` from the
     # `loadavg` collector; OPNsense ships this by default.
@@ -476,6 +482,16 @@ def parse_exporter_text(text: str) -> dict:
             cpu = labels.get("cpu")
             if cpu:
                 cpu_labels.add(cpu)
+            # Sum cumulative seconds across all CPUs and ALL modes
+            # for the total; only mode=idle for idle. The sampler
+            # delta-maths these against the previous tick to derive
+            # %CPU = 100 * (1 - (delta_idle / delta_total)). (#402)
+            try:
+                cpu_seconds_total += value
+                if labels.get("mode") == "idle":
+                    cpu_seconds_idle += value
+            except (TypeError, ValueError):
+                pass
         elif name in ("node_filesystem_size_bytes", "node_filesystem_avail_bytes"):
             labels = _parse_labels(m.group("labels") or "")
             mount = labels.get("mountpoint") or ""
@@ -588,6 +604,12 @@ def parse_exporter_text(text: str) -> dict:
         "host_dmi_product":      dmi_product,
         "host_dmi_serial":       dmi_serial,
         "host_dmi_bios_version": dmi_bios_version,
+        # CPU-seconds counters for sampler %CPU derivation (#402).
+        # Zero-values mean "node_cpu_seconds_total absent" — the
+        # sampler skips %CPU computation in that case (chart stays
+        # empty rather than showing nonsense).
+        "host_cpu_seconds_total": cpu_seconds_total,
+        "host_cpu_seconds_idle":  cpu_seconds_idle,
     }
 
 
