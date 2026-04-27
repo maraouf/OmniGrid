@@ -38,7 +38,13 @@ Items that have shipped to the live deploy as a PATCH bump but haven't
 yet been rolled into a numbered `MINOR` release. When the operator cuts
 the next release, this whole block becomes the `[X.Y.0]` entry below.
 
+### Changed
+
+- Deploy success notification title now includes the new version number — `✅ OmniGrid deployed v1.X.Y — service back up`. The bump step's `steps.version.outputs.version` is already published earlier in the same job; the "Notify on successful restart" step reads it and builds the title around it. Body shape unchanged (service / commit / branch / reason / run URL). Defensive blank-guard falls back to the previous title shape if the version output is ever empty (#414).
+
 ### Fixed
+
+- Status-dot flicker on the Hosts view's 15s poll cycle — most visible as a red dot disappearing and reappearing on every poll for down / paused hosts. `loadHosts()` was setting `existing._loading = !skipProbe` on every poll, which toggled the dot template from dot → spinner → dot in a tight loop. Now only brand-new rows get the spinner; existing rows keep their previous data visible while `refreshHostRow` patches stats in place. Original `#405` fix targeted a different cause (DB-exception path returning falsy defaults); this addresses the actual flicker source (#416).
 
 - Chart `?` tooltip cropped at the host-drawer start edge on left-column metric cards (regression visible after #413). Smart-placement helper `_adjustMetricTooltipPlacement()` measures the just-opened tooltip after `$nextTick` and applies `.metric-source-tooltip--align-start` when the default end-anchored body would overflow the drawer's start edge, falling back to `.metric-source-tooltip--align-center` when both edges would clip. Default end-anchored behaviour is preserved when the tooltip already fits (#415).
 
