@@ -30,6 +30,14 @@ TUNABLES: dict[str, tuple[str, int, int, int]] = {
     # convention as the other tunables so the Admin → Config form
     # auto-renders it.
     "tuning_host_permanent_fail_window_seconds": ("HOST_PERMANENT_FAIL_WINDOW_SECONDS", 900, 60, 86400),
+    # Frontend /api/ops poll cadence in milliseconds. The SPA polls this
+    # endpoint to detect when background ops complete (no event bus —
+    # ops run as FastAPI BackgroundTasks). Lowering it makes UI feel
+    # snappier at the cost of more requests; raising it cuts idle
+    # traffic. Read on /api/me so the frontend picks the latest value
+    # without a page reload (it takes effect on the next pollOps
+    # iteration after a Save).
+    "tuning_ops_poll_interval_ms": ("OPS_POLL_INTERVAL_MS", 1500, 250, 60000),
 }
 
 

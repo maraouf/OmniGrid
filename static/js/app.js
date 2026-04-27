@@ -476,6 +476,11 @@ function app() {
       // tunable). Backend's `_record_failure` reads it via
       // `tuning_int("tuning_host_permanent_fail_window_seconds")`.
       'tuning_host_permanent_fail_window_seconds',
+      // #417 — frontend /api/ops poll cadence (milliseconds). Read on
+      // /api/me into `me.client_config.ops_poll_ms`; pollOps() resolves
+      // it per-tick so a Save here takes effect on the next cycle
+      // after /api/me re-flows.
+      'tuning_ops_poll_interval_ms',
     ],
     tuningForm: {},
     tuningEffective: {},
@@ -5167,7 +5172,13 @@ function app() {
               .finally(() => holdKeys.forEach(k => this._clearBusy(k)));
           }
         } catch (e) {}
-        this._opsTimer = setTimeout(tick, 1500);
+        // Cadence is operator-tunable via Admin → Config →
+        // tuning_ops_poll_interval_ms (#417). Resolved per-tick so a
+        // Save in Admin → Config takes effect on the very next cycle
+        // (after /api/me re-flows on the next page load OR is
+        // refreshed elsewhere). Defaults to 1500 if absent.
+        const opsPollMs = (this.me && this.me.client_config && this.me.client_config.ops_poll_ms) || 1500;
+        this._opsTimer = setTimeout(tick, opsPollMs);
       };
       tick();
     },

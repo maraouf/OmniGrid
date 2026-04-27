@@ -552,6 +552,10 @@
         "tuning_host_permanent_fail_window_seconds": {
           "label": "Host sampling pause window (seconds)",
           "help": "After this many seconds of consecutive probe failures, the host_metrics_sampler auto-pauses the host (no more probe attempts, no log spam). Resume manually from the host drawer's banner."
+        },
+        "tuning_ops_poll_interval_ms": {
+          "label": "Ops poll cadence (ms)",
+          "help": "How often the SPA polls /api/ops to detect when background operations finish. Lower = snappier UI feedback, higher = less idle traffic. Default 1500 ms. Takes effect on the next /api/me round-trip."
         }
       },
       "totp": {
