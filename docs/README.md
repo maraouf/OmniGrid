@@ -16,6 +16,7 @@ Step-by-step runbooks for each integration / subsystem.
 | File | Purpose |
 | --- | --- |
 | [`guidelines/auth.md`](guidelines/auth.md) | Local accounts + sessions + API tokens — bootstrap the first admin, manage users, rotate `SESSION_SECRET`. |
+| [`guidelines/passkeys.md`](guidelines/passkeys.md) | WebAuthn / FIDO2 passkeys as a 2FA method — enrolment, login, recovery, troubleshooting. |
 | [`guidelines/authentik.md`](guidelines/authentik.md) | Authentik OIDC SSO setup. Settings live in the DB; this walks the IdP-side configuration end to end. |
 | [`guidelines/deploy.md`](guidelines/deploy.md) | Production deploy via the Forgejo Actions pipeline. Runner setup, deploy-key rotation, smart-restart logic, troubleshooting. |
 | [`guidelines/env_example.md`](guidelines/env_example.md) | Every supported `.env` key with defaults, scope, and migration notes. |

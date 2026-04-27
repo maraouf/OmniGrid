@@ -2895,6 +2895,39 @@ body.login {
     color: var(--text);
 }
 
+/* WebAuthn / passkey button on the login card (#381). Inherits the
+   login-card form-button look but with the primary accent baked in to
+   give the passkey path visual weight over the typed-code input. */
+.login-card .login-passkey-wrap {
+    margin-bottom: var(--s-3);
+}
+.login-card .btn-passkey {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: var(--s-3);
+    width: 100%;
+    padding: 10px;
+    background: var(--primary);
+    color: var(--text-on-primary);
+    border: 1px solid var(--primary);
+    border-radius: var(--r-md);
+    font-size: 14px;
+    font-weight: 600;
+    text-align: center;
+    box-sizing: border-box;
+    cursor: pointer;
+    transition: background .15s, border-color .15s, opacity .15s;
+}
+.login-card .btn-passkey:hover {
+    background: var(--primary-hov);
+    border-color: var(--primary-hov);
+}
+.login-card .btn-passkey:disabled {
+    opacity: .55;
+    cursor: not-allowed;
+}
+
 /* ==========================================================================
    TOTP / 2FA components (#345)
    - `.totp-qr`        — login-page QR canvas wrapper (centred SVG).
@@ -3029,6 +3062,58 @@ body.login {
 .log-tag--totp {
     color: var(--log-tag-oidc);
     background: color-mix(in srgb, var(--log-tag-oidc) 14%, transparent);
+}
+
+/* WebAuthn / passkey log-tag chip — same OIDC-family accent as TOTP. */
+.log-tag--webauthn {
+    color: var(--log-tag-oidc);
+    background: color-mix(in srgb, var(--log-tag-oidc) 14%, transparent);
+}
+
+/* ==========================================================================
+   Passkey list (#381)
+   - `.passkey-list`       — Profile -> Security card list of enrolled keys.
+   - `.passkey-item`       — one row (name + meta + revoke button).
+   - `.passkey-item__main` — left column (stacks name above meta line).
+   Every value is a token; no raw colours / pixel literals.
+   ========================================================================== */
+.passkey-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: var(--s-2);
+}
+.passkey-item {
+    display: flex;
+    align-items: center;
+    gap: var(--s-3);
+    padding: var(--s-2) var(--s-3);
+    border: 1px solid var(--border);
+    background: var(--surface-2);
+    border-radius: var(--r-md);
+}
+.passkey-item__main {
+    flex: 1 1 auto;
+    min-width: 0;
+}
+.passkey-item__name {
+    font-size: 12.5px;
+    font-weight: 600;
+    color: var(--text);
+    word-break: break-word;
+}
+.passkey-item__meta {
+    margin-top: 2px;
+    font-size: 11px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--s-1);
+}
+.passkey-meta-sep {
+    margin-inline: var(--s-1);
+    color: var(--text-faint);
 }
 
 /* ==========================================================================
