@@ -1855,10 +1855,10 @@ async def api_set_settings(
             # Stable group id — UUID minted on first save, persists
             # across renames. Used as the key for password keep-current
             # lookup so a rename + new-group-with-old-name pair can't
-            # leak the old password into a freshly-created row (BUG-003
-            # in notes/code_review_2026-04-25.md). New groups arrive
-            # without an id and get one minted here; existing groups
-            # round-trip whatever the API previously emitted.
+            # leak the old password into a freshly-created row. New
+            # groups arrive without an id and get one minted here;
+            # existing groups round-trip whatever the API previously
+            # emitted.
             row_id = str(g.get("id") or "").strip()
             if not row_id:
                 import uuid
@@ -3957,11 +3957,22 @@ async def api_hosts_resume_sampling(
     _u: auth.User = Depends(auth.require_admin),
 ):
     """Admin-only: clear the auto-pause marker for a host that the
-    host_metrics_sampler has put on hold after consecutive failures
-    (#383). Next sampler tick will re-attempt the probe; if it
-    succeeds the row stays cleared, if it fails the failure-window
-    counter starts again from zero.
+    host_metrics_sampler has put on hold after consecutive failures.
+    Next sampler tick will re-attempt the probe; if it succeeds the
+    row stays cleared, if it fails the failure-window counter starts
+    again from zero.
+
+    Validates ``host_id`` against the curated ``hosts_config`` list
+    so the endpoint behaves consistently with `/api/hosts/one/{host_id}`
+    (BUG-005 from notes/code_review_2026-04-27.txt — admin previously
+    could DELETE a stale failure-state row for a host_id that wasn't
+    even in the curated list, which is harmless but inconsistent with
+    the parallel endpoint's 404).
     """
+    curated = _load_hosts_config()
+    h = next((x for x in curated if x.get("id") == host_id), None)
+    if h is None:
+        raise HTTPException(404, f"Host not found: {host_id}")
     try:
         with db_conn() as c:
             cur = c.execute(
@@ -4827,6 +4838,34 @@ async def ws_ssh_terminal(websocket: WebSocket, host_id: str):
         await websocket.close(code=4403, reason="admin required")
         return
 
+    # ---- 1.5) Origin gate — defence-in-depth against CSWSH (BUG-003
+    #          from notes/code_review_2026-04-27.txt). FastAPI's
+    #          WebSocket upgrades skip the HTTP middleware's CSRF path,
+    #          so admin-only WS routes can't rely on the same
+    #          double-submit cookie protection HTTP routes get. The
+    #          session cookie's ``SameSite=lax`` attribute blocks most
+    #          cross-site WS upgrades on Chromium / Firefox, but
+    #          subdomain attacks and custom proxy setups can still
+    #          leak the cookie. Reject the upgrade when the browser-
+    #          supplied Origin doesn't match the resolved server
+    #          origin. ``Origin`` may be empty for some non-browser
+    #          callers (e.g. command-line tools that explicitly bypass
+    #          it); we treat empty as "no claim made" and accept it
+    #          since the admin cookie + role gate already rejected
+    #          unauthenticated callers — the Origin gate is purely a
+    #          browser-CSWSH defence and a missing header isn't one of
+    #          those attack shapes.
+    browser_origin = (websocket.headers.get("origin") or "").strip().lower()
+    if browser_origin:
+        expected_origin = _request_origin(websocket).strip().lower()
+        if browser_origin != expected_origin:
+            print(
+                f"[ssh] terminal Origin mismatch: browser={browser_origin!r} "
+                f"expected={expected_origin!r} host_id={host_id!r} user={user.username!r}"
+            )
+            await websocket.close(code=4403, reason="origin mismatch")
+            return
+
     actor = user.username
 
     # ---- 2) Resolve SSH params + open the shell.
@@ -5608,8 +5647,13 @@ def _request_rp_id(request: Request) -> str:
     )
 
 
-def _request_origin(request: Request) -> str:
-    """Full origin used for WebAuthn assertion verification.
+def _request_origin(request) -> str:
+    """Full origin used for WebAuthn assertion verification AND for the
+    WebSocket admin-route Origin gate.
+
+    Accepts either a Starlette ``Request`` or a ``WebSocket``; both
+    expose ``.headers`` and ``.url`` with the shape we need so the
+    helper duck-types cleanly.
 
     Resolution order matches ``_request_rp_id`` — ``X-Forwarded-Host``
     (what the public-facing reverse proxy sets to convey the original
@@ -5621,7 +5665,7 @@ def _request_origin(request: Request) -> str:
     origin" because the browser-signed clientDataJSON.origin (the
     public URL) doesn't match the server-computed expected_origin
     (the internal one). Honouring X-Forwarded-Host on this side keeps
-    rp_id + origin in lock-step (#433).
+    rp_id + origin in lock-step.
 
     Also trusts ``X-Forwarded-Proto`` so HTTPS termination at NPM is
     visible to the verifier.

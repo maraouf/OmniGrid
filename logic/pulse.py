@@ -28,6 +28,8 @@ from typing import Optional
 
 import httpx
 
+from logic.merge import normalize_arch as _normalize_arch
+
 
 def _headers(token: str) -> dict:
     if not token:
@@ -372,7 +374,7 @@ def extract_guest_stats(guest: dict) -> dict:
         "host_platform":     platform_hint,
         "host_agent":        "",
         "host_kernel":       kernel_hint,
-        "host_arch":         arch_hint,
+        "host_arch":         _normalize_arch(arch_hint) if arch_hint else "",
         # host_os: only the Pulse guest's osName (when present) as a
         # best-effort hint for Beszel-less hosts; Beszel's real value
         # still wins via _merge_best when both providers match.

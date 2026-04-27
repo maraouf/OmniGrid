@@ -76,6 +76,7 @@ _AUTH_COOLDOWN_SECONDS = 300
 # `logic/cooldown.py` per CONS-004. Per-(base_url, user) key avoids
 # locking out global creds when ONE Miniserv instance has stale auth.
 from logic.cooldown import Cooldown as _Cooldown
+from logic.merge import normalize_arch as _normalize_arch
 _auth_cooldown_timer = _Cooldown(_AUTH_COOLDOWN_SECONDS)
 
 # Plural → singular for _json_to_element's list wrapping. Webmin JSON
@@ -910,7 +911,7 @@ def extract_system_status(root: ET.Element) -> dict:
         "host_kernel":     kernel,
         "host_os":         distro,
         "host_platform":   distro.split()[0] if distro else "",
-        "host_arch":       arch,
+        "host_arch":       _normalize_arch(arch),
         "host_cpu_model":  cpu_type,
         "host_cores":      cores,
         "host_mem_total":  mem_total_bytes,

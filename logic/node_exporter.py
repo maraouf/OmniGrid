@@ -30,6 +30,8 @@ from typing import Optional
 
 import httpx
 
+from logic.merge import normalize_arch as _normalize_arch
+
 
 # Filesystems we don't count toward host disk totals. These are either
 # virtual (procfs, sysfs, tmpfs, overlay) or Docker-internal mounts
@@ -402,11 +404,6 @@ def parse_exporter_text(text: str) -> dict:
     bsd_mem_inactive = 0
     bsd_mem_laundry = 0
     bsd_mem_cache = 0
-    # Device labels seen so we can dedup ZFS subdatasets that share
-    # the same underlying pool (every ``zroot/...`` dataset reports
-    # the pool's size/avail, so naive summing multiplies the real
-    # total by the number of datasets).
-    fs_labels: dict[str, dict] = {}
     boot_ts = 0.0
     for raw_line in text.splitlines():
         line = raw_line.strip()
@@ -560,14 +557,13 @@ def parse_exporter_text(text: str) -> dict:
         total_free += avail
     mounts.sort(key=lambda m: m["n"])
     total_used = max(0, total_size - total_free)
-    # Normalise machine label → common arch name so the UI's
+    # Normalise machine label → canonical arch name so the UI's
     # "Architecture" row reads the same whether the host runs FreeBSD
     # (``amd64``), Linux (``x86_64``), or ARM (``aarch64`` /
-    # ``armv7l``). We keep the source-agreeing labels verbatim; only
-    # map obvious aliases.
-    arch = uname_machine
-    if arch == "amd64":
-        arch = "x86_64"  # harmonise with how Beszel + most Linux tools label it
+    # ``armv7l``). Routed through ``logic.merge.normalize_arch`` —
+    # the same helper Beszel's `_derive_arch` uses — so all providers
+    # converge on a single canonical spelling.
+    arch = _normalize_arch(uname_machine)
     # Derive uptime from boot_ts — callers (and the frontend) expect
     # ``host_uptime_s`` alongside ``host_boot_ts`` because Beszel emits
     # uptime directly; NE only emits boot time.
