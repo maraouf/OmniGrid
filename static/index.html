@@ -2204,7 +2204,10 @@
 
         <!-- Identity + account info card -->
         <section class="bg-[var(--surface)] border border-[var(--border)] rounded-md p-5">
-          <h3 class="font-semibold text-[13px] mb-4" x-text="t('settings.profile.account')"></h3>
+          <div class="flex items-center gap-2 mb-4">
+            <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true"><use href="#icon-user"/></svg>
+            <h3 class="font-semibold text-[13px]" x-text="t('settings.profile.account')"></h3>
+          </div>
           <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
               <label class="block text-[11px] text-[var(--text-dim)] mb-1" x-text="t('settings.profile.username')"></label>
@@ -2771,7 +2774,10 @@
            lives next to the schedules it governs). -->
 
       <section x-show="settingsSection === 'ignores'" class="bg-[var(--surface)] border border-[var(--border)] rounded-md p-5">
-        <h3 class="font-semibold text-[13px] mb-2" x-text="t('settings.ignores.title')"></h3>
+        <div class="flex items-center gap-2 mb-2">
+          <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true"><use href="#icon-trash"/></svg>
+          <h3 class="font-semibold text-[13px]" x-text="t('settings.ignores.title')"></h3>
+        </div>
         <p class="text-[11.5px] text-[var(--text-faint)] mb-3">
           <span x-text="t('settings.ignores.intro_prefix')"></span> <span class="pill pill-ignored" x-text="t('states.ignored')"></span> <span x-text="t('settings.ignores.intro_suffix')"></span>
         </p>
@@ -2913,7 +2919,10 @@
            a new file into static/i18n/ + listing it in index.json makes it
            appear here automatically on next reload. -->
       <section x-show="settingsSection === 'language'" class="bg-[var(--surface)] border border-[var(--border)] rounded-md p-5">
-        <h3 class="font-semibold text-[13px] mb-2" x-text="t('settings.language.title')"></h3>
+        <div class="flex items-center gap-2 mb-2">
+          <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true"><use href="#icon-info"/></svg>
+          <h3 class="font-semibold text-[13px]" x-text="t('settings.language.title')"></h3>
+        </div>
         <p class="text-[11.5px] text-[var(--text-faint)] mb-3" x-text="t('settings.language.description')"></p>
         <label class="block text-[11px] text-[var(--text-dim)] mb-1" x-text="t('settings.language.label')"></label>
         <select :value="lang" @change="setLang($event.target.value)"
@@ -2925,7 +2934,10 @@
       </section>
 
       <section x-show="settingsSection === 'shortcuts'" class="bg-[var(--surface)] border border-[var(--border)] rounded-md p-5">
-        <h3 class="font-semibold text-[13px] mb-2" x-text="t('settings.shortcuts.title')"></h3>
+        <div class="flex items-center gap-2 mb-2">
+          <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true"><use href="#icon-help-circle"/></svg>
+          <h3 class="font-semibold text-[13px]" x-text="t('settings.shortcuts.title')"></h3>
+        </div>
         <p class="text-[11.5px] text-[var(--text-faint)] mb-2" x-html="t('settings.shortcuts.hint')"></p>
         <button @click="showHotkeys=true" class="btn btn-soft text-[12px]" x-text="t('actions.open_shortcut_reference')"></button>
       </section>
@@ -2961,7 +2973,14 @@
         </template>
       </aside>
       <div class="page-content">
-      <div>
+      <!-- Intro line scopes to the user-management tabs where the
+           "User accounts, active sessions, and API tokens" copy is
+           actually accurate. Other tabs (Notifications / Portainer /
+           OIDC / Host Stats / Hosts / Host Groups / SSH / Assets /
+           Schedules / Backups / Logs / Config / Authentication /
+           Version / Debug / General) carry their own section heading
+           + subtitle, so no shared intro is needed there (#395). -->
+      <div x-show="['users','sessions','tokens'].includes(adminTab)">
         <p class="text-[11px] text-[var(--text-faint)] mt-0.5" x-text="t('admin.intro')"></p>
       </div>
 
