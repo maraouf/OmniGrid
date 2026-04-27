@@ -189,7 +189,20 @@ async def _lifespan(app: FastAPI):
               "DB_PATH is set. The app is serving the config-error page.")
         yield
         return
-    init_db()
+    # ARCH-002 — wrap init_db so a failure short-circuits to the same
+    # config-error code path as DB_PATH_ERROR. Background tasks DON'T
+    # spawn on a partial schema; operator sees a readable diagnostic
+    # in the browser instead of the samplers crash-looping against a
+    # half-initialised DB.
+    try:
+        init_db()
+    except Exception as e:
+        _db_mod.DB_PATH_ERROR = f"init_db failed: {e}"
+        print(f"[boot] CONFIG ERROR: init_db failed: {e}")
+        print("[boot] Skipping every background worker until init_db can complete. "
+              "The app is serving the config-error page.")
+        yield
+        return
     warn = auth.auto_secret_warning()
     if warn:
         print(warn)
@@ -216,26 +229,34 @@ async def _lifespan(app: FastAPI):
             schedules.seed_default_schedules(c, node_names)
     except Exception as e:
         print(f"[scheduler] seed_default_schedules failed: {e}")
-    # Pre-seed in-memory caches from the persisted snapshot tables so the
-    # first /api/items + /api/stats after a restart serve the previous
-    # gather's values immediately, marked _stale=True. Without this the
-    # bars are blank for ~10s while providers re-fetch — which is exactly
-    # the empty-page complaint operators reported. See logic/stats.py and
-    # logic/gather.py for the table contracts.
-    try:
-        from logic import stats as _stats_mod
-        n_stats = _stats_mod.seed_stats_cache_from_db()
-        if n_stats:
-            print(f"[boot] seeded {n_stats} stats entries from stats_samples")
-    except Exception as e:
-        print(f"[boot] seed_stats_cache_from_db failed: {e}")
-    try:
-        from logic import gather as _gather_mod
-        n_hosts = _gather_mod.seed_nodes_info_from_snapshots()
-        if n_hosts:
-            print(f"[boot] seeded {n_hosts} host snapshots from host_snapshots")
-    except Exception as e:
-        print(f"[boot] seed_nodes_info_from_snapshots failed: {e}")
+
+    # ARCH-001 — pre-seed caches from the persisted snapshot tables in
+    # the BACKGROUND so a large stats_samples table can't delay the
+    # FastAPI app from accepting connections. The CTE in
+    # seed_stats_cache_from_db (`ROW_NUMBER OVER PARTITION BY item_id`)
+    # can take several seconds with cold cache + months of history;
+    # before this change that delay sat synchronously inside lifespan
+    # startup, eating into Swarm's 60s start_period budget. Caches are
+    # consulted lazily by `/api/items` + `/api/stats` so a brief gap
+    # before they're populated just means the first request after boot
+    # gets fresh data instead of cached — fine.
+    async def _seed_caches_bg():
+        try:
+            from logic import stats as _stats_mod
+            n_stats = _stats_mod.seed_stats_cache_from_db()
+            if n_stats:
+                print(f"[boot] seeded {n_stats} stats entries from stats_samples")
+        except Exception as e:
+            print(f"[boot] seed_stats_cache_from_db failed: {e}")
+        try:
+            from logic import gather as _gather_mod
+            n_hosts = _gather_mod.seed_nodes_info_from_snapshots()
+            if n_hosts:
+                print(f"[boot] seeded {n_hosts} host snapshots from host_snapshots")
+        except Exception as e:
+            print(f"[boot] seed_nodes_info_from_snapshots failed: {e}")
+
+    seed_task = asyncio.create_task(_seed_caches_bg(), name="boot-seed-caches")
     sampler = asyncio.create_task(_stats_sampler_loop(), name="stats-sampler")
     scheduler = asyncio.create_task(schedules.scheduler_loop(), name="scheduler")
     # Net-I/O fallback sampler — scrapes node-exporter directly for any
@@ -259,7 +280,7 @@ async def _lifespan(app: FastAPI):
     finally:
         # Cancel in reverse-start order. Each cancel + await is wrapped so
         # one failing shutdown step can't starve the next one.
-        for task in (host_metrics_sampler, host_net_sampler, scheduler, sampler):
+        for task in (host_metrics_sampler, host_net_sampler, scheduler, sampler, seed_task):
             task.cancel()
             try:
                 await task

@@ -460,6 +460,8 @@ function app() {
     _oidcBaseline: '',
     _debugBaseline: '',
     _totpPolicyBaseline: '',
+    _permanentFailBaseline: 0,
+    permanentFailSaving: false,
     // Admin → Config (#337). DB-overridable process tunables. `tuningForm`
     // holds string values (blank = clear / fall back to env). `tuningEffective`
     // mirrors the GET /api/admin/tuning response so the form can render
@@ -2157,6 +2159,34 @@ function app() {
       }
     },
 
+    permanentFailDirty() {
+      const live = +(this.settings || {}).host_permanent_fail_window_seconds || 900;
+      return live !== this._permanentFailBaseline;
+    },
+    async savePermanentFailWindow() {
+      if (this.permanentFailSaving) return;
+      this.permanentFailSaving = true;
+      try {
+        const v = Math.max(60, Math.min(86400, +this.settings.host_permanent_fail_window_seconds || 900));
+        const r = await fetch('/api/settings', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ host_permanent_fail_window_seconds: v }),
+        });
+        if (r.ok) {
+          this._permanentFailBaseline = v;
+          this.showToast(this.t('toasts.settings_saved'), 'success');
+        } else {
+          const j = await r.json().catch(() => ({}));
+          this.showToast(j.detail || this.t('toasts_extra.save_failed_generic'), 'error');
+        }
+      } catch (_) {
+        this.showToast(this.t('toasts_extra.network_error_generic'), 'error');
+      } finally {
+        this.permanentFailSaving = false;
+      }
+    },
+
     async saveOpenMeteoUrl() {
       if (this.openMeteoSaving) return;
       this.openMeteoSaving = true;
@@ -3528,6 +3558,12 @@ function app() {
           webmin_aliases: (d.webmin && d.webmin.aliases) || {},
           // Scheduler — IANA zone. Blank = container-local (legacy).
           scheduler_timezone: d.scheduler_timezone || '',
+          // Permanent-fail window for the host_metrics_sampler (#383).
+          // Stored as seconds; UI shows minutes.
+          host_permanent_fail_window_seconds:
+            Number.isFinite(+d.host_permanent_fail_window_seconds) && +d.host_permanent_fail_window_seconds > 0
+              ? +d.host_permanent_fail_window_seconds
+              : 900,
           // Open-Meteo upstream (weather widget). Blank = default.
           open_meteo_url: d.open_meteo_url || '',
           // Per-service master switches (#204). Default true so legacy
@@ -3608,6 +3644,7 @@ function app() {
         this._oidcBaseline       = this._oidcSnapshot();
         this._debugBaseline      = this._debugSnapshot();
         this._totpPolicyBaseline = this._totpPolicySnapshot();
+        this._permanentFailBaseline = +this.settings.host_permanent_fail_window_seconds || 900;
 
         // --- Admin → SSH panel state ---
         this.hydrateSshSettings(d);

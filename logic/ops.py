@@ -159,6 +159,15 @@ async def notify(title: str, body: str, status: str = "info", *,
     # opt-out of an event the admin allows. Token "actors" (negative
     # ids in the User model — username "token:NAME") and unknown users
     # don't carry per-user prefs and fall through to the legacy path.
+    # Per-user routing override (#356). When an actor is supplied AND the
+    # user has an `email` set on their record, override the configured
+    # Apprise URL's recipient via the POST body's `to=` field — Apprise's
+    # mailto:// handler treats `to=` as a query-time recipient override
+    # so a single configured `mailto://relay@host` URL can fan out to
+    # different addresses per actor. For non-recipient-aware schemes
+    # (Discord webhook, Slack incoming, Telegram bot) Apprise just
+    # ignores `to=` so this is safe to always send.
+    user_email: Optional[str] = None
     if event and actor_username:
         try:
             from logic import auth as _auth
@@ -172,6 +181,7 @@ async def notify(title: str, body: str, status: str = "info", *,
                             f"opted out of '{event}'"
                         )
                         return
+                    user_email = (getattr(_u, "email", "") or "").strip() or None
         except Exception as _e:
             # Defensive: never let a pref lookup failure break the
             # admin-gate decision. Falls through to the legacy
@@ -191,6 +201,10 @@ async def notify(title: str, body: str, status: str = "info", *,
             if tag:
                 # Apprise-API accepts `tag` (splits on comma/space internally).
                 payload["tag"] = tag
+            if user_email:
+                # Apprise mailto handler honours `to=` as a recipient
+                # override; non-mailto schemes silently ignore it.
+                payload["to"] = user_email
             r = await client.post(url, json=payload)
             if r.status_code >= 400:
                 print(f"[notify] FAILED {r.status_code} → {url} body={r.text[:200]}")
