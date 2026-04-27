@@ -1171,6 +1171,9 @@
       "resumed_toast": "Sampling resumed for {host}",
       "resume_failed_toast": "Failed to resume sampling for {host}: {error}"
     },
+    "stale_marker": {
+      "badge_title": "Showing cached data — provider unavailable. {age}"
+    },
     "sort_label": "Sort",
     "sort_title": "Sort hosts — persisted in this browser",
     "hide_unconfigured_label": "Hide hosts without agents",

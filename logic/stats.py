@@ -104,8 +104,7 @@ def _snapshot_stats_to_db() -> int:
     # they're flagged ``_stale=True`` and have not been overwritten by
     # a live ``gather_stats()`` yet. Persisting them would re-INSERT
     # the most-recent pre-restart sample with ``ts=now``, polluting
-    # the time-series with phantom duplicates (BUG-003 from
-    # ``notes/code_review_2026-04-27.txt``).
+    # the time-series with phantom duplicates.
     rows = [
         (ts, item_id, s.get("cpu_percent") or 0.0,
          s.get("mem_usage") or 0, s.get("mem_limit") or 0)

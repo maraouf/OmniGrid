@@ -61,11 +61,38 @@ _LOG_FAILED_ONCE = False  # latch so a sustained write failure doesn't spam stde
 
 
 def _today_log_path() -> str:
-    """Today's log file path. Daily UTC rotation — the file name
-    advances at 00:00 UTC regardless of container TZ, so a deploy that
-    crosses midnight produces two files cleanly.
+    """Today's log file path. Rotation advances at the operator's
+    local midnight — consults the ``scheduler_timezone`` setting (the
+    canonical "what day is it for OmniGrid?" knob, same as the
+    scheduler's tick anchors). Falls back to the container's local
+    clock when the setting is blank, and to UTC as a last resort if
+    even that fails (e.g. during very-early-boot before the DB exists).
+
+    Pre-#452 this used UTC unconditionally, which was confusing for
+    operators in non-zero offsets: an operator in TZ=Africa/Cairo
+    (UTC+2) sees writes at local 00:00–01:59 land in the previous
+    UTC-day file, even though the local mtime says "today".
     """
-    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    try:
+        from logic.db import get_setting
+        tz_name = (get_setting("scheduler_timezone", "") or "").strip()
+        if tz_name:
+            from zoneinfo import ZoneInfo
+            today = datetime.now(ZoneInfo(tz_name)).strftime("%Y-%m-%d")
+            return os.path.join(LOG_DIR, f"omnigrid-{today}.log")
+    except Exception:
+        # DB not ready / invalid IANA name / zoneinfo missing — fall
+        # through to container-local. Silent: this code runs on every
+        # log line, so any noise here would itself spam the log.
+        pass
+    try:
+        # Container-local — relies on TZ env + /etc/localtime bind
+        # mount that docker-compose.yml sets up.
+        today = datetime.now().strftime("%Y-%m-%d")
+    except Exception:
+        # Last-resort UTC fallback if even the local clock read fails
+        # (vanishingly unlikely but cheap to defend).
+        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
     return os.path.join(LOG_DIR, f"omnigrid-{today}.log")
 
 

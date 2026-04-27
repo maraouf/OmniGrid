@@ -114,8 +114,7 @@ def scheduler_tz_state() -> dict:
     True when the operator typed something but ZoneInfo rejected it
     (so the scheduler is running on container-local time despite the
     operator's intent). Surfaced in ``/api/me``'s ``client_config``
-    so the admin Schedules tab can badge the mismatch (ENH-017 from
-    notes/code_review_2026-04-27.txt) — without it, the once-per-
+    so the admin Schedules tab can badge the mismatch — without it, the once-per-
     process invalid-TZ log line is invisible unless the operator
     grep's Admin → Logs at the right moment.
     """
@@ -1095,8 +1094,7 @@ async def _run_prune_logs(params: dict) -> tuple[str, Awaitable[tuple[int, str]]
             # an admin-supplied schedule param can't silently disable the
             # prune (huge days = effectively never), starve the disk
             # (days=0 / negative = same-as-no-op which masks intent), or
-            # crash on a non-int (BUG-009 from
-            # notes/code_review_2026-04-27.txt). Clamping to the same
+            # crash on a non-int. Clamping to the same
             # [1, 365] range as TUNABLES["tuning_log_retention_days"]
             # keeps the schedule UI consistent with Admin → Config.
             _, _default, _lo, _hi = _tuning_mod.TUNABLES["tuning_log_retention_days"]
@@ -1119,8 +1117,7 @@ async def _run_prune_logs(params: dict) -> tuple[str, Awaitable[tuple[int, str]]
         # Surface the resolved retention window in the history row's
         # target_name so the operator can audit which `days` value
         # actually fired (param vs tuning fallback vs clamped) without
-        # cross-referencing settings + the schedule row (ENH-015 from
-        # notes/code_review_2026-04-27.txt). Format `(days=N)` only when
+        # cross-referencing settings + the schedule row. Format `(days=N)` only when
         # the resolution succeeded — exception path before the clamp
         # leaves `days=None`, in which case the suffix drops cleanly.
         target_suffix = f" (days={days})" if days is not None else ""
@@ -1354,7 +1351,7 @@ async def scheduler_loop() -> None:
     process-restart time. Operators who want a "fire on restart"
     behaviour should bump last_run_at down manually, or click Run now.
     """
-    # BUG-004 ghost-clear (notes/code_review_2026-04-27.txt) — fire
+    # BUG-004 ghost-clear  — fire
     # records ``(last_op_id, last_duration=NULL)`` synchronously, then
     # spawns a fire-and-forget waiter that rewrites the row with the
     # real duration + status when the op finishes. If the lifespan is

@@ -32,7 +32,6 @@ def is_meaningful(v: Any) -> bool:
     `bool ⊂ int` makes `isinstance(False, int)` true, and `False == 0`
     would otherwise route `False` through `v != 0` and report it as
     not-meaningful — exactly the opposite of the intended semantics.
-    BUG-006 from notes/code_review_2026-04-27.txt.
     """
     if v is None:
         return False
@@ -75,8 +74,7 @@ def normalize_arch(arch: str) -> str:
     the winning provider isn't enabled the operator sees the loser's
     spelling). This helper canonicalises every common alias to the
     Linux-style label so every provider extractor's `host_arch` is
-    comparable downstream. Empty input passes through. BUG-007 from
-    notes/code_review_2026-04-27.txt.
+    comparable downstream. Empty input passes through.
     """
     if not arch:
         return ""

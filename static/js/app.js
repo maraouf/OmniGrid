@@ -40,7 +40,7 @@ const KNOWN_ICONS = new Set([
 // Probe-derived fields that ``refreshHostRow`` writes EXPLICITLY from
 // ``/api/hosts/one/{id}``'s payload — when the backend omits a key the
 // row collapses it to ``null`` instead of letting the previous value
-// stick (BUG-007 from notes/code_review_2026-04-27.txt). Curated config
+// stick. Curated config
 // fields (``label`` / ``icon`` / ``ssh_disabled`` / ``ne_url`` /
 // ``beszel_name`` / ``pulse_name`` / ``webmin_name`` / ``url`` /
 // ``custom_number`` / ``asset``) are NOT in this list — ``loadHosts``
@@ -376,7 +376,11 @@ function app() {
                 // TOTP / 2FA policy defaults so the Admin -> Config inputs
                 // bind cleanly before the first /api/settings response.
                 totp_allowed: true, totp_required_for_admins: false, totp_required_for_users: false,
-                totp_lockout_max_failures: 5, totp_lockout_minutes: 15 },
+                totp_lockout_max_failures: 5, totp_lockout_minutes: 15,
+                // Passkey master toggle default — same `true` as the backend's
+                // `_TOTP_POLICY_DEFAULTS["passkeys_allowed"]` so the form
+                // renders the box checked before the first /api/settings hit.
+                passkeys_allowed: true },
     schedulerSaving: false,
     openMeteoSaving: false,
     // Admin → Hosts per-row collapse state. Keyed by host id so
@@ -4185,6 +4189,14 @@ function app() {
           Number.isFinite(d.totp_lockout_max_failures) ? d.totp_lockout_max_failures : 5;
         this.settings.totp_lockout_minutes      =
           Number.isFinite(d.totp_lockout_minutes) ? d.totp_lockout_minutes : 15;
+        // Passkey master toggle (#453). Hydrated alongside the TOTP
+        // group because both Save through the same totpPolicySnapshot
+        // dirty tracker. Pre-fix the checkbox bound to a never-set
+        // `settings.passkeys_allowed`, so on every page load it
+        // appeared unchecked even when the DB value was true. Default
+        // when the backend omits the key matches the backend's own
+        // default (`_TOTP_POLICY_DEFAULTS` → True).
+        this.settings.passkeys_allowed          = (d.passkeys_allowed !== false);
         // Capture baseline for the host-stats dirty indicator.
         // Passwords/tokens are always blank in the live form (write-
         // only on the wire) so any typed value flips dirty.
@@ -9959,7 +9971,7 @@ function app() {
           // Set the error flag but DON'T wipe the array — wholesale
           // replacement violates the in-place reconcile rule and
           // tears down every row's chart SVG on a transient HTTP
-          // failure (BUG-008 from notes/code_review_2026-04-27.txt).
+          // failure.
           // The next successful poll reconciles the existing rows in
           // place; until then, operators see the previous data with
           // a banner instead of a flicker-then-empty page.
@@ -10163,7 +10175,7 @@ function app() {
         // which means embedded chart SVGs and provider pill rows
         // stay mounted. No flicker.
         //
-        // BUG-007 from notes/code_review_2026-04-27.txt: the original
+        // the original
         // ``for (k of Object.keys(host)) row[k] = host[k]`` loop only
         // ASSIGNED keys present in the incoming dict, never deleted
         // keys absent from it. So any backend-side omission (provider
