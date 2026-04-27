@@ -271,7 +271,18 @@ async def fetch_system_history(
         return {"series": [], "error": "missing hub credentials or system id"}
     # Limit to a sane number — 1h * 60 = 60 rows for type=1m, etc.
     per_page = max(10, min(500, hours * 60))
-    filt = f"(system='{system_id}'&&type='{stat_type}')"
+    # Escape single quotes in user-controlled values before interpolating
+    # into the PocketBase filter string (BUG-002 from
+    # notes/code_review_2026-04-27.txt). Beszel record IDs and the four
+    # known stat_type values are alphanumeric in practice, but a malformed
+    # paste OR a future PB schema change with operator-controlled fields
+    # would break the query and return an empty series silently. PB
+    # doesn't support placeholder bind for arbitrary filter expressions,
+    # so escape via doubling — `'` → `''` is the standard SQL-style
+    # escape that PB's filter parser accepts.
+    safe_system  = str(system_id).replace("'", "''")
+    safe_type    = str(stat_type).replace("'", "''")
+    filt = f"(system='{safe_system}'&&type='{safe_type}')"
     url = base_url.rstrip("/") + "/api/collections/system_stats/records"
     params = {"filter": filt, "sort": "created", "perPage": str(per_page)}
     try:

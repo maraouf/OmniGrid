@@ -23,11 +23,21 @@ def is_meaningful(v: Any) -> bool:
     by ``merge_best`` to decide whether to overwrite the destination.
     Treats zero / empty-string / empty-collection / None as
     not-meaningful so a provider that didn't see a metric can't
-    clobber a provider that did. Booleans and other truthy values
-    (datetimes, custom objects) pass through.
+    clobber a provider that did. Booleans (BOTH True AND False) pass
+    through as meaningful — a provider explicitly emitting `False`
+    for a flag like `host_swap_active` is a real signal, not noise.
+    Datetimes and custom objects also pass through.
+
+    Bool short-circuit is BEFORE the int branch because Python's
+    `bool ⊂ int` makes `isinstance(False, int)` true, and `False == 0`
+    would otherwise route `False` through `v != 0` and report it as
+    not-meaningful — exactly the opposite of the intended semantics.
+    BUG-006 from notes/code_review_2026-04-27.txt.
     """
     if v is None:
         return False
+    if isinstance(v, bool):
+        return True
     if isinstance(v, (int, float)):
         return v != 0
     if isinstance(v, str):

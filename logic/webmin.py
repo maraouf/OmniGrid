@@ -827,6 +827,49 @@ def extract_system_status(root: ET.Element) -> dict:
                 return v
         return ""
 
+    def pick_with_key(*names: str) -> tuple[str, str]:
+        """Like ``pick`` but returns ``(value, matched_key)`` so callers
+        can branch on which alias matched. Needed for memory-unit
+        disambiguation (BUG-001 from notes/code_review_2026-04-27.txt
+        — Webmin's `real_mem` is KiB, but `mem_total`/`memory_total`
+        are sometimes already bytes on certain Webmin module variants;
+        without the key the unit decision is impossible).
+        """
+        for sc in scopes:
+            for name in names:
+                v = _findtext(sc, name)
+                if v:
+                    return v, name
+        return "", ""
+
+    def _bytes_or_kib(value: float, key: str) -> int:
+        """Return memory total in BYTES.
+
+        ``real_mem`` is reliably KiB across every Webmin version we've
+        seen — multiply by 1024. The alternate keys ``mem_total`` /
+        ``memory_total`` are KiB on most builds but already bytes on
+        some module variants; we disambiguate by magnitude. A real
+        homelab / server box has at most a few TiB of RAM, which in
+        KiB is at most ~10^10. A byte report of ≥ 2 GiB sits at 2^31
+        already — well above any plausible KiB report. So: if the
+        matched key is the byte-ambiguous alias AND the raw value
+        exceeds 2^31, treat it as bytes; otherwise apply the KiB
+        scaling. BUG-001 from notes/code_review_2026-04-27.txt.
+        """
+        if value <= 0:
+            return 0
+        if key == "real_mem":
+            return int(value * 1024)
+        # Heuristic: 2^31 (≈ 2.15 GiB) catches every realistic byte
+        # report ≥ 2 GiB while staying far above any plausible KiB
+        # report (a 2 TiB host's KiB count is ≈ 2 * 2^30 ≈ 2.15e9 —
+        # right at the threshold, but real 2 TiB hosts running
+        # Webmin are vanishingly rare; the trade-off favours
+        # correctness on the common case).
+        if value > (1 << 31):
+            return int(value)
+        return int(value * 1024)
+
     hostname = pick("hostname", "host", "name")
     kernel   = pick("kernel", "kernel_release", "release", "os_version")
     distro   = pick("distro", "os", "pretty_name", "os_name", "os_release")
@@ -834,7 +877,8 @@ def extract_system_status(root: ET.Element) -> dict:
     cpu_type = pick("cpu_type", "cpu_model", "model", "cpu")
     cpus_raw = pick("cpus", "cores", "ncpus")
     cores    = int(_num(cpus_raw)) if cpus_raw else 0
-    real_mem = _num(pick("real_mem", "mem_total", "memory_total"))
+    real_mem_raw, real_mem_key = pick_with_key("real_mem", "mem_total", "memory_total")
+    real_mem = _num(real_mem_raw)
     free_mem = _num(pick("free_mem", "mem_free", "memory_free"))
     uptime_raw = (
         pick("uptime_seconds", "seconds")
@@ -847,12 +891,18 @@ def extract_system_status(root: ET.Element) -> dict:
     load_5m = _num(load_parts[1]) if len(load_parts) > 1 else 0.0
     load_15 = _num(load_parts[2]) if len(load_parts) > 2 else 0.0
 
-    mem_total_bytes = int(real_mem * 1024) if real_mem > 0 else 0
+    mem_total_bytes = _bytes_or_kib(real_mem, real_mem_key)
     mem_used_bytes = 0
     if real_mem > 0 and free_mem >= 0:
-        mem_used_bytes = int((real_mem - free_mem) * 1024)
-        if mem_used_bytes < 0:
-            mem_used_bytes = 0
+        # Free / used must apply the SAME scaling as total. Use the
+        # total's resolved unit by passing its matched key — when the
+        # operator's Webmin emits both as bytes, we read both as
+        # bytes; when both as KiB, we scale both. Webmin guarantees
+        # the two values use the same unit (they come from the same
+        # module on the same call).
+        free_total_bytes = _bytes_or_kib(free_mem, real_mem_key)
+        if free_total_bytes <= mem_total_bytes:
+            mem_used_bytes = mem_total_bytes - free_total_bytes
 
     host_boot_ts = (time.time() - uptime_s) if uptime_s > 0 else None
     return {

@@ -269,11 +269,23 @@ def _compute_row(
 # advance the counter / clear-on-success / auto-pause when the failure
 # window is exceeded.
 def _get_failure_state(host_id: str) -> Optional[dict]:
+    """Read the host_failure_state row for ``host_id``.
+
+    Column-parity with ``main._failure_state_for_host`` so internal
+    consumers (auto-pause logic, future "auto-resume after N hours of
+    inactivity" features) see the same shape the API surface does.
+    Pre-fix this SELECT lagged the schema after #461 added
+    ``last_failure_ts`` — `_record_failure` populated it but
+    `_get_failure_state` couldn't read it back, so anyone relying on
+    "when was the last attempt?" through this helper got nothing.
+    BUG-007 from notes/code_review_2026-04-27.txt.
+    """
     try:
         with db_conn() as c:
             cur = c.execute(
                 "SELECT first_failure_ts, consecutive_failures, paused, "
-                "paused_at, last_error FROM host_failure_state WHERE host_id = ?",
+                "paused_at, last_error, last_failure_ts "
+                "FROM host_failure_state WHERE host_id = ?",
                 (host_id,),
             )
             row = cur.fetchone()
@@ -288,6 +300,10 @@ def _get_failure_state(host_id: str) -> Optional[dict]:
         "paused": bool(row[2]),
         "paused_at": row[3],
         "last_error": row[4],
+        # Falls back to first_failure_ts on rows that pre-date the
+        # column add (the first probe failure on the new schema
+        # overwrites the NULL via _record_failure).
+        "last_failure_ts": (row[5] if (len(row) > 5 and row[5] is not None) else row[0]),
     }
 
 
