@@ -2981,7 +2981,7 @@
           </label>
 
           <div x-show="isAdmin()" class="flex gap-2 pt-1 flex-wrap">
-            <button @click="saveOidcSettings()" class="btn btn-primary text-[12px]" x-text="t('settings.oidc.save_button')"></button>
+            <button @click="saveOidcSettings()" class="btn btn-primary text-[12px]" x-text="t('actions.save')"></button>
             <button @click="testOidcConnection()" class="btn btn-soft text-[12px]" x-text="t('settings.oidc.test_button')"></button>
           </div>
 
@@ -3766,7 +3766,7 @@
           <div x-show="isAdmin()" class="flex items-center gap-3 pt-1 flex-wrap">
             <button @click="saveOidcSettings()"
                     :class="oidcDirty() ? 'ring-2 ring-[var(--warning)]' : ''"
-                    class="btn btn-primary text-[12px]" x-text="t('settings.oidc.save_button')"></button>
+                    class="btn btn-primary text-[12px]" x-text="t('actions.save')"></button>
             <button @click="testOidcConnection()"
                     :disabled="!oidcForm.enabled"
                     class="btn btn-soft text-[12px]" x-text="t('settings.oidc.test_button')"></button>

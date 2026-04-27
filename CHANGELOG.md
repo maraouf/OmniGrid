@@ -52,9 +52,13 @@ the next release, this whole block becomes the `[X.Y.0]` entry below.
 
 ### Changed
 
+- Admin tab primary action buttons unified — every Save / Create button across Admin tabs now reads "Save" / "Create" instead of the verbose per-tab labels (Save OIDC settings / Save tunables / Save version / Save groups / Save SSH settings / Create schedule / Create token / Save Portainer settings). Cross-tab consistency requested by the operator. Markup keeps the per-tab i18n keys intact; only the English values changed, so translators will update their bundles on the next pass (#429).
+
 - Admin → Logs → Files tab now renders log files with the same colourisation as the Live tab: tinted timestamps, severity-coloured rows (red ERROR / amber WARN / green SUCCESS / default INFO), and `[beszel]` / `[pulse]` / `[hosts]` etc. tag accent chips. Lines are parsed via the canonical `<ISO ts> <LEVEL> <body>` regex matching the file format from `logic/logs.py:_persist_line` (#427).
 
 ### Fixed
+
+- Admin → Users table status pills (Active / Disabled / admin / readonly / 2FA On / Off / Required) were rendering colourless. Markup had been referencing `pill-success`, `pill-warning`, `pill-muted`, `pill-primary` classes that were never defined in CSS, so they all fell back to the base `.pill` rule (border + padding only). Added the four missing variants in `static/css/style.css`, each aliasing an existing token family — no new colour literals (#428).
 
 - Schedule edit modal: `kind` + `cadence_mode` dropdowns weren't preselecting the saved value (the documented Alpine select-mount race — `x-model` commits before the `<option>` x-for inserts children, so the matching option doesn't exist yet and the select falls back to the first one). `editSchedule()` now sets the bound fields to `''` synchronously, then reassigns the real values in a double-`$nextTick` so the inner x-for has finished rendering first (#426).
 
@@ -422,6 +426,15 @@ here; implementation detail for everything that shipped before this
 baseline lives in `notes/note_todo.txt` under the `## Done` block,
 keyed by stable `#NNN` TODO IDs.
 
-[Unreleased]: https://git.example.com/OmniGrid/compare/v1.1.0...HEAD
-[1.1.0]: https://git.example.com/OmniGrid/compare/v1.0.0...v1.1.0
-[1.0.0]: https://git.example.com/OmniGrid/releases/tag/v1.0.0
+<!--
+  Version link references — Forgejo milestone URLs, written as relative
+  paths so the host stays out of the repo and a fork / mirror picks
+  the right links automatically. Path resolves from the CHANGELOG.md
+  URL `<host>/<owner>/<repo>/src/branch/<branch>/CHANGELOG.md` —
+  three `..` segments take us to `<host>/<owner>/<repo>/`, then
+  `milestone/<id>` lands on the right page. We don't have a v1.0.0
+  release tag (no `[1.0.0]` link target on purpose); the heading
+  above renders literally as `## [1.0.0]` text, which is fine.
+-->
+[Unreleased]: ../../../milestone/2
+[1.1.0]: ../../../milestone/1
