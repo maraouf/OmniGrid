@@ -646,9 +646,9 @@
           "label": "Host sampling pause window (seconds)",
           "help": "After this many seconds of CONSECUTIVE probe failures (no successful sample landed in this window), the host_metrics_sampler stops sampling that host entirely — no more probe attempts, no more failure rows in the log. The host shows a paused badge in the Hosts table and an explanatory banner in the drawer. Resume manually via the drawer's \"Resume sampling\" button. Lower it to react faster to dead hosts (less log noise from a host that crashed); raise it to tolerate longer transient outages without auto-pausing (e.g. a host that reboots every Sunday for an hour). Default 900s (15 min)."
         },
-        "tuning_ops_poll_interval_ms": {
-          "label": "Ops poll cadence (ms)",
-          "help": "How often the SPA polls /api/ops while it's open to detect when a background operation (stack update, container restart, prune, etc.) finishes. Drives the live progress chip + auto-refresh after success. When SSE is connected (Live mode), the cadence stretches to a 30s safety-net keepalive because op deltas arrive via push instead. Lower this for snappier feedback on a click → \"Done\" cycle (cost: more idle GET /api/ops requests when no ops are running); raise it to cut idle traffic on a long-open SPA tab. Default 1500ms. Takes effect on the next /api/me round-trip."
+        "tuning_ops_poll_interval_seconds": {
+          "label": "Ops poll cadence (seconds)",
+          "help": "How often the SPA polls /api/ops while it's open to detect when a background operation (stack update, container restart, prune, etc.) finishes. Drives the live progress chip + auto-refresh after success. When SSE is connected (Live mode), the cadence stretches to a 30s safety-net keepalive because op deltas arrive via push instead. Lower this (e.g. 1) for snappier feedback on a click → \"Done\" cycle (cost: more idle GET /api/ops requests when no ops are running); raise it (e.g. 5–10) to cut idle traffic on a long-open SPA tab. Default 2 seconds. Internally stored as seconds and multiplied × 1000 before being delivered to the SPA's setTimeout via `/api/me`'s `client_config.ops_poll_ms`. Takes effect on the next /api/me round-trip."
         },
         "tuning_log_retention_days": {
           "label": "Log retention (days)",

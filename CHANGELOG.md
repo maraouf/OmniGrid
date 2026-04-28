@@ -48,6 +48,7 @@ the next release, this whole block becomes the `[X.Y.0]` entry below.
 
 ### Changed
 
+- Ops poll cadence tunable switched from milliseconds to seconds in the admin UI. `tuning_ops_poll_interval_ms` (env `OPS_POLL_INTERVAL_MS`, default 1500, range 250-60000) became `tuning_ops_poll_interval_seconds` (env `OPS_POLL_INTERVAL_SECONDS`, default 2, range 1-60). Backend multiplies × 1000 in `client_config.ops_poll_ms` so the SPA's `setTimeout` consumer is unchanged. **BREAKING** for operators who had set `OPS_POLL_INTERVAL_MS` in their .env or the DB — the old key is silently ignored after the rename; re-enter the value in seconds (or accept the new default of 2). The trade-off is sub-second precision (old min 0.25s) for an admin form that doesn't force ms→seconds mental math (#514).
 - Admin → Process tunables — per-row bounds rendered as three icon chips (↓ min, ↑ max, ◎ default) instead of a comma-separated text hint. Three Lucide icons added to the sprite (`arrow-down-to-line`, `arrow-up-to-line`, `target`). Default-chip's icon picks up `var(--primary)` so the operator's eye finds "where it lands by default" at a glance; min/max use `var(--text-faint)`. Hover-titles wired via `admin.config.bounds.*_title` i18n keys for accessibility. The default value still flows from `effective_state()` in `logic/tuning.py` so it auto-stays in sync with `TUNABLES` (#510).
 - Admin → Process tunables now self-counts. The subtitle was hardcoded as "Override the six runtime knobs..." but there are now eleven; switched to a `{count}` placeholder driven by `tuningKeys.length` so future additions auto-update. Every tunable's help text was rewritten from a one-line summary into a detailed paragraph covering the value's concrete effect, the trade-off when lowering, the trade-off when raising, the default + any special-value semantics (e.g. set-to-0 disables the snapshot cache), and takes-effect-on-next-X timing. Operators get enough context to make informed changes without reading the source (#509).
 - CLAUDE.md adds the strict "No-static-config rule" — every operator-tunable value must go through `logic/tuning.py:TUNABLES`, never a hardcoded literal in Python / JS / HTML. The existing Process-level tunables bullet was expanded with the full six-step wiring surface (TUNABLES + SettingsIn + `tuningKeys` + i18n + `/api/me`'s `client_config` for frontend consumers + the consumer site itself). `docs/guidelines/env_example.md` and CLAUDE.md's Config-reference table updated with five tunables that had been added since the doc was last touched: `HOST_PERMANENT_FAIL_WINDOW_SECONDS`, `OPS_POLL_INTERVAL_MS`, `LOG_RETENTION_DAYS`, `HOST_SNAPSHOTS_CACHE_TTL_SECONDS`, `HOSTS_PARALLEL_FETCH` (#508).
@@ -55,8 +56,7 @@ the next release, this whole block becomes the `[X.Y.0]` entry below.
 ### Fixed
 
 - Fan-out 504s from `/api/hosts/one/<id>` saturating NPM's upstream connection pool. Two root causes: `_get_host_provider_state` was NOT single-flight, so a parallel SPA fan-out of 6 cold-cache calls fired 6 independent Beszel hub + Pulse probes (15-20s each), starving the event loop and multiplying outbound load 6×; AND `_webmin_host_cache` cached only successes, so an unreachable Webmin burned its full 20s timeout on every parallel call. Fix: added `_host_provider_lock = asyncio.Lock()` + post-lock cache re-check pattern (first caller does the probe, rest await + reuse the populated cache, force=true serialises the same way); added `_webmin_host_fail_cache` (5s TTL) so failed Webmin probes short-circuit the 20s timeout for the duration of a fan-out burst, with recovery felt within one refresh cycle; lowered the outer per-host budget from 45s → 30s so OmniGrid's explicit 504 always fires before NPM's generic gateway 504; `[hosts]` log line on every Webmin probe failure (#506).
-- `CHANGELOG.md` release-page links switched from relative paths to absolute GitHub URLs. Forgejo's markdown renderer strips `..` segments as a security measure (preventing markdown from escaping its directory), so no relative-path combination resolved correctly on both hosts — GitHub needed 2 pops, Forgejo stripped them. Hardcoded absolute GitHub URLs work everywhere; clicking from Forgejo navigates cross-host to GitHub, which is acceptable since the operator keeps the two synced (#512).
-- `CHANGELOG.md` release-page links now resolve correctly on GitHub. Pre-fix `[1.2.0]: ../../../releases/tag/v1.2.0` was tuned for Forgejo's 5-segment URL shape (`/<owner>/<repo>/src/branch/<branch>/CHANGELOG.md`); on GitHub's 4-segment shape (`/<owner>/<repo>/blob/<branch>/CHANGELOG.md`) the same 3-pop relative path climbed one segment too high and landed at `github.com/maraouf/releases/tag/v1.2.0` (404). Dropped one `..` to match GitHub since that's the public-shippable mirror; comment block documents the GitHub-vs-Forgejo trade-off (#507).
+- `CHANGELOG.md` release-page links use root-relative paths (`/releases/tag/v1.2.0`) — both GitHub and Forgejo's markdown renderers rewrite links starting with `/` as repo-relative, so the SAME source line resolves correctly on both hosts without baking an operator-specific domain or username into the public CHANGELOG. Sidesteps the per-host `..`-count tuning that broke earlier attempts (#507 / #512). Comment block updated to document the rewrite contract so future contributors don't re-chase the relative-path approach (#513). Pre-fix `[1.2.0]: ../../../releases/tag/v1.2.0` was tuned for Forgejo's 5-segment URL shape (`/<owner>/<repo>/src/branch/<branch>/CHANGELOG.md`); on GitHub's 4-segment shape (`/<owner>/<repo>/blob/<branch>/CHANGELOG.md`) the same 3-pop relative path climbed one segment too high and landed at `github.com/maraouf/releases/tag/v1.2.0` (404). Dropped one `..` to match GitHub since that's the public-shippable mirror; comment block documents the GitHub-vs-Forgejo trade-off (#507).
 
 ### Internal
 
@@ -600,28 +600,29 @@ baseline lives in `notes/note_todo.txt` under the `## Done` block,
 keyed by stable `#NNN` TODO IDs.
 
 <!--
-  No version link references — by design.
+  Version link references — root-relative paths (start with `/`).
 
-  Markdown link references like `[1.2.0]: ../../releases/tag/v1.2.0`
-  cannot resolve correctly on BOTH GitHub and Forgejo from the same
-  CHANGELOG.md file:
-   - GitHub's URL shape is `<host>/<owner>/<repo>/blob/<branch>/CHANGELOG.md`
-     (4 path segments before the file) — 2 `..` pops climb to the repo
-     root; 3 pops over-climb to the owner page.
-   - Forgejo's shape is `<host>/<owner>/<repo>/src/branch/<branch>/CHANGELOG.md`
-     (5 segments) AND Forgejo's renderer rewrites relative URLs in a
-     non-standard way that can drop `..` traversal when it would
-     escape the file's containing directory.
-  No `..`-count satisfies both, and absolute URLs bake an operator-
-  specific host (or username) into a publicly-shipped surface — which
-  the strict no-static-config rule + privacy rule both reject.
+  Both GitHub and Forgejo's markdown renderers rewrite links starting
+  with `/` as paths relative to the REPO root, not the host root.
+  So `/releases/tag/v1.2.0` resolves to:
+   - `https://github.com/<owner>/<repo>/releases/tag/v1.2.0` on GitHub
+   - `https://<forgejo-host>/<owner>/<repo>/releases/tag/v1.2.0` on Forgejo
+  Same source line works on both hosts — no operator-specific domain
+  or username baked in (privacy rule satisfied), no `..`-count to tune
+  per renderer (the previous fix attempts in #507/#512/#513 chased this
+  for several rounds).
 
-  Resolution: don't link to release pages from CHANGELOG.md at all.
-  `## [X.Y.Z]` renders as a plain heading on every host; operators
-  navigate to release pages via the host's own Releases tab (one click
-  away in both UIs). The `## [Unreleased]` block stays plain too.
+  Why not relative paths: GitHub uses `<host>/<owner>/<repo>/blob/<branch>/`
+  (4 segments before the file) so 2 `..` resolves correctly; Forgejo
+  uses `.../src/branch/<branch>/` (5 segments) AND its renderer can
+  drop `..` traversal that would escape the file's directory. No
+  `..`-count satisfies both. Root-relative sidesteps this entirely.
 
-  If a future release-link source becomes practical (e.g. a build step
-  that emits host-specific CHANGELOG-{github,forgejo}.md, or markdown
-  renderer-side templating), revisit this decision.
+  We don't have a v1.0.0 release tag (no `[1.0.0]` link target on
+  purpose); the heading above renders as `## [1.0.0]` text, which is
+  fine. The `[Unreleased]` link points at the milestones view since
+  no release page exists yet.
 -->
+[Unreleased]: /milestones
+[1.1.0]: /releases/tag/v1.1.0
+[1.2.0]: /releases/tag/v1.2.0

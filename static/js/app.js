@@ -634,11 +634,13 @@ function app() {
       // tunable). Backend's `_record_failure` reads it via
       // `tuning_int("tuning_host_permanent_fail_window_seconds")`.
       'tuning_host_permanent_fail_window_seconds',
-      // #417 — frontend /api/ops poll cadence (milliseconds). Read on
-      // /api/me into `me.client_config.ops_poll_ms`; pollOps() resolves
-      // it per-tick so a Save here takes effect on the next cycle
-      // after /api/me re-flows.
-      'tuning_ops_poll_interval_ms',
+      // #417 — frontend /api/ops poll cadence in SECONDS (#514 — was
+      // `tuning_ops_poll_interval_ms` until the operator pointed out
+      // that ms forced a manual conversion when tuning). Backend
+      // multiplies by 1000 in `client_config.ops_poll_ms` so pollOps()
+      // still consumes ms in its setTimeout. Resolved per-tick so a
+      // Save here takes effect on the next cycle after /api/me re-flows.
+      'tuning_ops_poll_interval_seconds',
       // #424 — persistent-log retention in days. Daily files under
       // /app/data/logs/ older than this get deleted by the lifespan
       // _log_pruner_loop().

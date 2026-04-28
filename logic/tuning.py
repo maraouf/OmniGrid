@@ -30,14 +30,19 @@ TUNABLES: dict[str, tuple[str, int, int, int]] = {
     # convention as the other tunables so the Admin → Config form
     # auto-renders it.
     "tuning_host_permanent_fail_window_seconds": ("HOST_PERMANENT_FAIL_WINDOW_SECONDS", 900, 60, 86400),
-    # Frontend /api/ops poll cadence in milliseconds. The SPA polls this
-    # endpoint to detect when background ops complete (no event bus —
-    # ops run as FastAPI BackgroundTasks). Lowering it makes UI feel
-    # snappier at the cost of more requests; raising it cuts idle
-    # traffic. Read on /api/me so the frontend picks the latest value
-    # without a page reload (it takes effect on the next pollOps
-    # iteration after a Save).
-    "tuning_ops_poll_interval_ms": ("OPS_POLL_INTERVAL_MS", 1500, 250, 60000),
+    # Frontend /api/ops poll cadence in seconds. Stored as integer
+    # seconds for operator-friendly UI (Admin → Process tunables shows
+    # "min 1, max 60, default 2" instead of millisecond figures); the
+    # consumer in `client_config` multiplies by 1000 to feed the SPA's
+    # `setTimeout`. The SPA polls /api/ops to detect when background
+    # ops complete (no event bus — ops run as FastAPI BackgroundTasks).
+    # Lowering it makes UI feel snappier at the cost of more requests;
+    # raising it cuts idle traffic. Read on /api/me so the frontend
+    # picks the latest value without a page reload (takes effect on the
+    # next pollOps iteration after a Save). Renamed from
+    # tuning_ops_poll_interval_ms (and OPS_POLL_INTERVAL_MS) — operators
+    # who had the old env var set need to re-enter the value in seconds.
+    "tuning_ops_poll_interval_seconds": ("OPS_POLL_INTERVAL_SECONDS", 2, 1, 60),
     # Persistent-log retention window in days. Daily log files under
     # /app/data/logs/ older than this get deleted by the pruner loop
     # in main.py. Default 7d matches the stats-history retention
