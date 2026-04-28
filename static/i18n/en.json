@@ -60,7 +60,9 @@
     "sync_title": "Items auto-refresh",
     "stats_title": "Live stats polling cadence",
     "refresh_label": "Refresh",
-    "refresh_title": "How often to poll the backend when the live event stream is unavailable. Drives items, stats, and hosts uniformly. When the live indicator is green, push events update the dashboard and this picker is hidden.",
+    "refresh_title": "How the dashboard stays current. Pick \"Live\" to receive push updates over the event stream (default — every chart updates instantly when something changes server-side). Pick a cadence (30s / 1m / 5m) to fall back to interval-polling at that rate across every chart and indicator. Pick \"Off\" to stop the dashboard from pulling new data automatically — useful for a static snapshot. The chosen mode applies uniformly to items, stats, host charts, sparklines, and every other graph in the SPA.",
+    "refresh_live": "Live",
+    "refresh_live_title": "Push updates via the event stream — every chart updates immediately when something changes server-side. Recommended.",
     "off": "Off",
     "refresh_title": "Refresh (r)",
     "theme_title": "Theme: {pref} (click to cycle)",
@@ -599,6 +601,11 @@
       "load_failed": "Failed to load tunables: {error}",
       "save_failed": "Failed to save tunables: {error}",
       "saved_toast": "Tunables saved",
+      "errors": {
+        "must_be_int": "{field} must be a whole number (no decimals).",
+        "below_min": "{field} must be at least {min}.",
+        "above_max": "{field} must be at most {max}."
+      },
       "fields": {
         "tuning_cache_ttl_seconds": {
           "label": "Items cache TTL (seconds)",
@@ -1822,6 +1829,9 @@
       "connection_failed": "Connection failed",
       "cookie_expired": "Session expired — please reload and sign in again",
       "not_admin": "Admin role required to open a terminal",
+      "bad_request": "Terminal connection rejected (bad request)",
+      "csrf_failed": "Terminal connection rejected (CSRF check failed) — refresh the page and retry",
+      "origin_mismatch": "Terminal connection rejected (Origin mismatch) — your reverse-proxy isn't passing X-Forwarded-Host correctly. Check the NPM advanced configuration for this site.",
       "not_configured": "SSH is not configured for this host",
       "exit_code": "shell exited (code {code})",
       "xterm_missing": "xterm.js failed to load — refresh the page and try again"
