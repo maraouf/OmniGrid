@@ -427,6 +427,28 @@ function app() {
     // Auto-refresh cadence (seconds; 0 = off). Persisted to
     // localStorage so the operator's chosen cadence survives a
     // browser refresh — previously it reset to 0 on every reload.
+    //
+    // #486 — `refreshInterval` is now the canonical operator-set
+    // cadence; legacy `autoRefresh` (items poll) and `statsInterval`
+    // (stats poll) are mirrored to it on every change so the existing
+    // pollers don't need to be rewired. Migration: prefer existing
+    // `refreshInterval`, fall back to `statsInterval` (more granular),
+    // then `autoRefresh`. New state of the world is "Live (SSE) OR
+    // one cadence drives every poll uniformly".
+    refreshInterval: (() => {
+      try {
+        const k = localStorage.getItem('refreshInterval');
+        if (k != null) {
+          const n = parseInt(k, 10);
+          if ([0, 30, 60, 300].includes(n)) return n;
+        }
+        const s = parseInt(localStorage.getItem('statsInterval') || '', 10);
+        if ([0, 30, 60, 300].includes(s)) return s;
+        const a = parseInt(localStorage.getItem('autoRefresh') || '', 10);
+        if (Number.isFinite(a) && a >= 0) return [0, 30, 60, 300].includes(a) ? a : 60;
+        return 0;
+      } catch { return 0; }
+    })(),
     autoRefresh: (() => {
       try {
         const n = parseInt(localStorage.getItem('autoRefresh') || '0', 10);
@@ -990,10 +1012,12 @@ function app() {
       this.startVersionWatcher();
       this.startHeaderClock();
       this.startHeaderWeather();
-      // Restart the persisted auto-refresh timer (if any). The initial
-      // value was read from localStorage at component-construction
-      // time; we only need to kick off the interval here.
-      if (this.autoRefresh > 0) this.setAutoRefresh(this.autoRefresh);
+      // Persisted unified refresh cadence (#486). Mirrors into legacy
+      // `autoRefresh` + `statsInterval` so existing pollers see the
+      // operator's choice through the keys they already read. When
+      // `refreshInterval` is 0 (Off) every poller stays asleep until
+      // SSE handles updates via push events.
+      this.setRefreshInterval(this.refreshInterval || 0);
       this.pollOps();
       this.pollStats();
       this.pollSparks();
@@ -1924,6 +1948,18 @@ function app() {
       let params;
       try { params = this._parseParamsText(e.params_text); }
       catch (err) { this.showToast(err.message, 'error'); return; }
+      // UX-BUG-003 / #488 — prune_logs `days` validator. Backend
+      // clamps to TUNABLES bounds [1, 365] silently; surfacing the
+      // validation here lets the operator see "must be 1..365"
+      // before they hit Save and see a generic "saved" toast on a
+      // value that secretly snapped to the lower bound.
+      if (e.kind === 'prune_logs' && params && 'days' in params) {
+        const d = Number(params.days);
+        if (!Number.isFinite(d) || !Number.isInteger(d) || d < 1 || d > 365) {
+          this.showToast(this.t('admin.schedules.errors.prune_logs_days_range'), 'error');
+          return;
+        }
+      }
       try {
         const r = await fetch('/api/schedules/' + e.id, {
           method: 'PATCH',
@@ -6162,6 +6198,22 @@ function app() {
       if (seconds > 0) this._autoTimer = setInterval(() => this.refresh(true), seconds * 1000);
     },
 
+    // #486 — single canonical cadence-setter. Mirrors the chosen value
+    // into both legacy state vars (`autoRefresh` for items poll +
+    // `statsInterval` for stats / hosts polls) and persists each so a
+    // browser reload preserves the choice. Pollers continue to read the
+    // legacy keys so the unification is purely a UI / config layer
+    // change. SSE-vs-poll handover is unchanged: when SSE is healthy,
+    // the existing `_sseConnected` gate idles every poller; when it
+    // drops the cadence here drives all of them uniformly. Setting
+    // 0 = OFF puts every poller asleep regardless of SSE state.
+    setRefreshInterval(seconds) {
+      this.refreshInterval = seconds;
+      try { localStorage.setItem('refreshInterval', String(seconds)); } catch {}
+      this.setStatsInterval(seconds);
+      this.setAutoRefresh(seconds);
+    },
+
     get counts() {
       const c = { update:0, uptodate:0, unknown:0, error:0, ignored:0, healthy:0, degraded:0, offline:0 };
       for (const i of this.items) {
@@ -6419,9 +6471,17 @@ function app() {
       return Array.isArray(sf) && sf.indexOf(field) !== -1;
     },
     staleAge(obj) {
+      // UX-BUG-002 / #487 — return a clean fallback when `_stale_ts`
+      // is 0 / missing / non-numeric. Pre-fix `fmtAgo` would either
+      // render "Updated NaN ago" or empty string, depending on which
+      // branch hit first; either way it's noise on a tooltip.
       if (!obj) return '';
-      const ts = obj._stale_ts;
-      if (!ts || ts <= 0) return '';
+      const tsRaw = obj._stale_ts;
+      const ts = Number(tsRaw);
+      if (!Number.isFinite(ts) || ts <= 0) {
+        try { return (window.t && window.t('stale_marker.never')) || ''; }
+        catch (_) { return ''; }
+      }
       const ms = ts * 1000;
       const ago = this.fmtAgo(ms);
       // i18n: tooltip surface, not visible label. Translators handle
