@@ -59,6 +59,8 @@
     "stats_label": "Stats",
     "sync_title": "Items auto-refresh",
     "stats_title": "Live stats polling cadence",
+    "refresh_label": "Refresh",
+    "refresh_title": "How often to poll the backend when the live event stream is unavailable. Drives items, stats, and hosts uniformly. When the live indicator is green, push events update the dashboard and this picker is hidden.",
     "off": "Off",
     "refresh_title": "Refresh (r)",
     "theme_title": "Theme: {pref} (click to cycle)",
@@ -729,6 +731,9 @@
       "name_required": "Name is required.",
       "kind_unknown": "Unknown schedule kind.",
       "interval_too_small": "Interval must be at least {min} seconds.",
+      "errors": {
+        "prune_logs_days_range": "Params 'days' must be an integer between 1 and 365."
+      },
       "min_interval_hint": "Minimum interval: {min} seconds.",
       "scheduled_title": "Scheduled",
       "queue_title": "Queue",
@@ -1274,7 +1279,8 @@
     "probe_error": "Host probe error: {error}"
   },
   "stale_marker": {
-    "tooltip": "Last live data {age} ago — value restored from cache snapshot"
+    "tooltip": "Last live data {age} ago — value restored from cache snapshot",
+    "never": "No live data has been seen for this field yet."
   },
   "host_drawer": {
     "stale": {
@@ -1543,7 +1549,7 @@
     },
     "filter_placeholder": "Filter hosts by id, label, provider name, URL…",
     "export": "Export",
-    "import": "Import",
+    "import_button": "Import",
     "export_title": "Download the curated hosts list as a JSON file.",
     "import_title": "Load a hosts JSON file — merge or replace the current list.",
     "provider": {

@@ -475,28 +475,19 @@
          between clock+weather and the search input). On desktop:
          restores the flex row with border-top divider. -->
     <div class="contents sm:flex sm:items-center sm:gap-2 sm:px-5 sm:py-1.5 sm:max-w-full sm:mx-auto sm:border-t sm:border-[var(--border)] sm:flex-wrap">
-      <!-- SYNC + STATS pickers are the widest pill in the topbar (4-6
-           buttons each); on mobile they wrap into the theme/hotkeys
-           row and push those small icons down. Forcing each to
-           `w-full sm:w-auto` gives them their own line on phones so
-           the smaller items (language / theme / hotkeys) stay grouped
-           at order-4. Desktop unchanged via `sm:order-none sm:w-auto`. -->
-      <div class="flex items-center gap-0 bg-[var(--surface-2)] rounded-md p-0.5 border border-[var(--border)] order-5 sm:order-none w-full sm:w-auto" :title="t('topbar.sync_title')">
-        <span class="px-1.5 text-[10px] text-faint uppercase tracking-wider" x-text="t('topbar.sync_label')"></span>
+      <!-- Unified refresh-cadence picker (#486). Replaces the SYNC +
+           STATS pair. ONE cadence drives ALL polling (items + stats +
+           hosts) when SSE is dropped; when SSE is connected the picker
+           is hidden entirely behind the Live pill since push events
+           drive every update. `w-full sm:w-auto` keeps the mobile-row
+           wrap behaviour from the prior pickers. -->
+      <div x-show="!_sseConnected"
+           class="flex items-center gap-0 bg-[var(--surface-2)] rounded-md p-0.5 border border-[var(--border)] order-5 sm:order-none w-full sm:w-auto"
+           :title="t('topbar.refresh_title')">
+        <span class="px-1.5 text-[10px] text-faint uppercase tracking-wider" x-text="t('topbar.refresh_label')"></span>
         <template x-for="p in [[t('topbar.off'),0],['30s',30],['1m',60],['5m',300]]" :key="p[1]">
-          <button @click="setAutoRefresh(p[1])"
-                  :class="autoRefresh===p[1] ? 'bg-[var(--primary)] text-white' : 'text-[var(--text-dim)] hover:text-[var(--text)]'"
-                  class="px-2 py-0.5 rounded text-[11px] font-medium transition" x-text="p[0]"></button>
-        </template>
-      </div>
-      <!-- Stats picker — was hidden below lg: as a desktop-only feature.
-           Now visible on all viewports per operator (its own row on
-           mobile via w-full). -->
-      <div class="flex items-center gap-0 bg-[var(--surface-2)] rounded-md p-0.5 border border-[var(--border)] order-5 sm:order-none w-full sm:w-auto" :title="t('topbar.stats_title')">
-        <span class="px-1.5 text-[10px] text-faint uppercase tracking-wider" x-text="t('topbar.stats_label')"></span>
-        <template x-for="p in [[t('topbar.off'),0],['5s',5],['15s',15],['30s',30],['1m',60],['5m',300]]" :key="p[1]">
-          <button @click="setStatsInterval(p[1])"
-                  :class="statsInterval===p[1] ? 'bg-[var(--primary)] text-white' : 'text-[var(--text-dim)] hover:text-[var(--text)]'"
+          <button @click="setRefreshInterval(p[1])"
+                  :class="refreshInterval===p[1] ? 'bg-[var(--primary)] text-white' : 'text-[var(--text-dim)] hover:text-[var(--text)]'"
                   class="px-2 py-0.5 rounded text-[11px] font-medium transition" x-text="p[0]"></button>
         </template>
       </div>
@@ -4281,7 +4272,7 @@
                     @click="$refs.hostsImportFile.click()"
                     class="btn btn-ghost text-[12px]"
                     :title="t('admin_hosts.import_title')"
-                    x-text="t('admin_hosts.import')"></button>
+                    x-text="t('admin_hosts.import_button')"></button>
             <input type="file" x-ref="hostsImportFile" accept="application/json,.json"
                    class="hidden"
                    @change="importHostsConfig($event)">
