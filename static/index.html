@@ -278,17 +278,22 @@
       </div>
 
       <nav class="flex items-center gap-0.5 flex-wrap">
-        <template x-for="t in navItems()" :key="t[0]">
-          <button @click="view=t[0]"
-                  :class="view===t[0] ? 'text-[var(--text)] bg-[var(--surface-2)]' : 'text-[var(--text-dim)] hover:text-[var(--text)]'"
-                  :title="t[0]==='stacks' && counts.update > 0 ? t('nav.stacks_updates_title', { count: counts.update }) : t[1]"
+        <!-- Loop variable is `nav` not `t` because the global i18n
+             helper is also named `t()` — using `t` as the iteration
+             variable would shadow it inside this scope and the
+             `t('nav.stacks_updates_title', ...)` call below would
+             throw "t is not a function". -->
+        <template x-for="nav in navItems()" :key="nav[0]">
+          <button @click="view=nav[0]"
+                  :class="view===nav[0] ? 'text-[var(--text)] bg-[var(--surface-2)]' : 'text-[var(--text-dim)] hover:text-[var(--text)]'"
+                  :title="nav[0]==='stacks' && counts.update > 0 ? t('nav.stacks_updates_title', { count: counts.update }) : nav[1]"
                   class="px-2 sm:px-3 py-1.5 rounded-md text-[13px] font-medium transition flex items-center gap-1.5 relative cursor-pointer">
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor"
                  stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
-                 x-html="navIcon(t[0])"></svg>
+                 x-html="navIcon(nav[0])"></svg>
             <!-- Label hidden on mobile (icon-only nav). Tooltip via :title
                  still surfaces the name on long-press. -->
-            <span x-text="t[1]" class="hidden sm:inline"></span>
+            <span x-text="nav[1]" class="hidden sm:inline"></span>
             <!-- Pending-updates badge — only on the Stacks nav so it's
                  not redundant with Services / Nodes (they're alternate
                  views over the same items, the count would just repeat).
@@ -297,7 +302,7 @@
                  refresh(true) when an update op completes, so the badge
                  falls back to 0 once the deploy lands without any
                  manual wiring here. -->
-            <span x-show="t[0]==='stacks' && counts.update > 0"
+            <span x-show="nav[0]==='stacks' && counts.update > 0"
                   class="nav-update-badge"
                   x-text="counts.update"></span>
           </button>
@@ -1567,7 +1572,7 @@
            usable when the row wraps. -->
       <div x-show="hostsConfigured && hosts.length > 0" class="flex items-center gap-2 flex-wrap">
         <svg width="14" height="14" class="text-[var(--text-faint)]" aria-hidden="true"><use href="#icon-search"/></svg>
-        <input type="search" x-model="hostsSearch"
+        <input type="search" x-model.debounce.150ms="hostsSearch"
                class="flex-1 min-w-[180px] text-[12.5px] py-1.5"
                :placeholder="t('hosts_extra.filter_placeholder')">
         <span class="text-[10.5px] text-[var(--text-faint)]"
@@ -3274,7 +3279,11 @@
             </div>
             <button @click="loadUsers()" class="btn btn-ghost text-[11px]" x-text="t('actions.reload')"></button>
           </div>
-          <div class="overflow-x-auto scrollbar">
+          <div x-show="!usersLoaded" class="loading-state">
+            <span class="spin-lg" aria-hidden="true"></span>
+            <span x-text="t('loading.section')"></span>
+          </div>
+          <div class="overflow-x-auto scrollbar" x-show="usersLoaded">
             <table class="w-full text-[12.5px]">
               <thead class="bg-[var(--surface-2)] text-[10.5px] uppercase tracking-wider text-[var(--text-faint)]">
                 <tr>
@@ -3444,7 +3453,15 @@
             </div>
             <button @click="loadSessions()" class="btn btn-ghost text-[11px]" x-text="t('actions.reload')"></button>
           </div>
-          <div class="overflow-x-auto scrollbar">
+          <!-- Initial-load placeholder. /api/sessions does a non-trivial
+               JOIN across users + sessions and on a busy backend can take
+               several seconds; without this the operator sees an empty
+               table and assumes "no sessions". Unified loader. -->
+          <div x-show="!sessionsLoaded" class="loading-state">
+            <span class="spin-lg" aria-hidden="true"></span>
+            <span x-text="t('loading.section')"></span>
+          </div>
+          <div class="overflow-x-auto scrollbar" x-show="sessionsLoaded">
             <table class="w-full text-[12.5px]">
               <thead class="bg-[var(--surface-2)] text-[10.5px] uppercase tracking-wider text-[var(--text-faint)]">
                 <tr>
@@ -3534,7 +3551,11 @@
             </div>
             <button @click="loadTokens()" class="btn btn-ghost text-[11px]" x-text="t('actions.reload')"></button>
           </div>
-          <div class="overflow-x-auto scrollbar">
+          <div x-show="!tokensLoaded" class="loading-state">
+            <span class="spin-lg" aria-hidden="true"></span>
+            <span x-text="t('loading.section')"></span>
+          </div>
+          <div class="overflow-x-auto scrollbar" x-show="tokensLoaded">
             <table class="w-full text-[12.5px]">
               <thead class="bg-[var(--surface-2)] text-[10.5px] uppercase tracking-wider text-[var(--text-faint)]">
                 <tr>

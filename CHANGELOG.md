@@ -38,6 +38,10 @@ Items that have shipped to the live deploy as a PATCH bump but haven't
 yet been rolled into a numbered `MINOR` release. When the operator cuts
 the next release, this whole block becomes the `[X.Y.0]` entry below.
 
+### Changed
+
+- Hosts-view filter input is now debounced at 150 ms — typing into the toolbar's `<input type="search" x-model="hostsSearch">` no longer re-runs the full `filteredHosts()` walk + status-weighted sort on every keystroke. Matches the existing debounce convention used elsewhere (`historyFilters.q` 300 ms, `hostsConfigFilter` 150 ms, `logFilter` 200 ms) (#504).
+
 ## [1.2.0] — 2026-04-28
 
 Second MINOR cut after the `1.1.0` baseline. Every entry below shipped to the live deploy as a PATCH bump (the daily CI auto-bump cadence) and is now rolled into this MINOR release. Highlights: WebAuthn / FIDO2 passkeys as a 2FA factor alongside TOTP (#363), a real-time event stream replacing the SPA's polling loops (#494), persistent logs on disk + retention with a two-tab Admin → Logs viewer (#407, #408), theme-aware brand icons (#495), stale-data badges in the Hosts UI (#496), Admin → Sessions table now showing the 2FA method per session (#420), and an `omnigrid-code-reviewer` second-pass review pass folding ~14 bug fixes + ~20 enhancements + ~22 convention violations into the codebase. Backend / docs / refactor work was largely internal cleanup — see the Internal section.

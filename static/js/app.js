@@ -807,7 +807,8 @@ function app() {
     // Admin view state
     adminTab: 'users',
     users: [],
-    sessions: [],
+    sessions: [], sessionsLoaded: false,
+    usersLoaded: false, tokensLoaded: false,
     tokens: [],
     newUser: { username: '', role: 'readonly', auth_source: 'local', password: '', email: '' },
     newToken: { name: '', role: 'readonly' },
@@ -2900,7 +2901,9 @@ function app() {
         if (!r.ok) return;
         const d = await r.json();
         this.users = d.users || [];
-      } catch (_) {}
+      } catch (_) {} finally {
+        this.usersLoaded = true;
+      }
     },
 
     async createUser() {
@@ -3558,7 +3561,9 @@ function app() {
         if (!r.ok) return;
         const d = await r.json();
         this.sessions = d.sessions || [];
-      } catch (_) {}
+      } catch (_) {} finally {
+        this.sessionsLoaded = true;
+      }
     },
 
     async revokeSession(s) {
@@ -3583,7 +3588,9 @@ function app() {
         if (!r.ok) return;
         const d = await r.json();
         this.tokens = d.tokens || [];
-      } catch (_) {}
+      } catch (_) {} finally {
+        this.tokensLoaded = true;
+      }
     },
 
     async createToken() {

@@ -3912,6 +3912,16 @@ async def api_hosts_list(force: bool = False):
     }
 
 
+async def _hosts_one_inner(h: dict, *, force: bool):
+    """Inner helper for `/api/hosts/one/{host_id}` — fetches the
+    provider state then merges this host's row. Split out so the
+    outer endpoint can wrap the whole sequence in `asyncio.wait_for`.
+    """
+    state = await _get_host_provider_state(force=force)
+    merged_pair = await _merge_one_host(h, state)
+    return state, merged_pair
+
+
 @app.get("/api/hosts/one/{host_id}")
 async def api_hosts_one(host_id: str, force: bool = False):
     """Merge ONE curated host with provider data.
@@ -3929,8 +3939,24 @@ async def api_hosts_one(host_id: str, force: bool = False):
     h = next((x for x in curated if x.get("id") == host_id), None)
     if h is None or not h.get("enabled", True):
         raise HTTPException(404, f"Host not found: {host_id}")
-    state = await _get_host_provider_state(force=force)
-    merged, providers = await _merge_one_host(h, state)
+    # Outer per-host budget (45s). Worst-case the per-host probe runs
+    # `_get_host_provider_state` (15s Beszel + 15s Pulse on a cold
+    # cache) + 10s NE + 20s Webmin sequentially — comfortably under
+    # 60s but already past NPM's default `proxy_read_timeout`. Wrap
+    # the whole merge in `asyncio.wait_for` so a hung provider can't
+    # turn into a 504 from the upstream proxy. On timeout we raise
+    # 504 ourselves with a clear message so the SPA can render the
+    # row with the error chip instead of a generic gateway error.
+    try:
+        state, (merged, providers) = await asyncio.wait_for(
+            _hosts_one_inner(h, force=force),
+            timeout=45.0,
+        )
+    except asyncio.TimeoutError:
+        raise HTTPException(
+            status_code=504,
+            detail=f"per-host probe budget exceeded (45s) for {host_id}",
+        )
     any_enabled = bool(state["active"])
     row = _shape_host_api_row(
         h, merged, providers, any_provider_enabled=any_enabled,
