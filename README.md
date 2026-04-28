@@ -158,7 +158,7 @@ Any HTTPS-terminating proxy works — Nginx Proxy Manager, Traefik, Caddy, plain
 | `HOST_SNAPSHOTS_CACHE_TTL_SECONDS` | `5` | Read-side cache TTL on `host_snapshots` to collapse parallel `/api/hosts/one/{id}` reads (set 0 to disable). |
 | `HOSTS_PARALLEL_FETCH` | `6` | Concurrency cap on the SPA's `/api/hosts/one/{id}` fan-out (read on `/api/me` as `client_config.hosts_parallel_fetch`; #508). |
 
-The authoritative table is [`logic/tuning.py:TUNABLES`](logic/tuning.py); the env-var names above are mirrored from there. Strict rule (CLAUDE.md "No-static-config rule"): every operator-tunable value lives in `TUNABLES` — no hardcoded magic numbers in Python / JS / HTML. Add new knobs there, never as code constants.
+The authoritative table is [`logic/tuning.py:TUNABLES`](logic/tuning.py); the env-var names above are mirrored from there. Every operator-tunable value lives in `TUNABLES` — no hardcoded magic numbers in Python / JS / HTML. Add new knobs there, never as code constants.
 
 OIDC has **no env vars** — every OIDC setting (issuer URL, client ID / secret, redirect URI, scopes, admin group, enable toggle) lives in the DB `settings` table and is edited from `Settings → Authentik OIDC`. See [`docs/guidelines/env_example.md`](docs/guidelines/env_example.md) for the full reference and [`docs/guidelines/authentik.md`](docs/guidelines/authentik.md) for the Authentik-side walkthrough.
 
