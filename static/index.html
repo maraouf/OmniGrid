@@ -8087,7 +8087,7 @@
                    with neither show the "link to Beszel / set NE URL"
                    hint above instead of an empty "Collecting data…" grid. -->
               <div class="mt-3 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4"
-                   x-show="(h.beszel_id || h.ne_url || h.ping_enabled) && h.status === 'up' && (h.providers || []).length > 0">
+                   x-show="((h.beszel_id || h.ne_url) && h.status === 'up' && (h.providers || []).length > 0) || h.ping_enabled">
                 <!-- CPU % — hidden for ping-only hosts (#569). The
                      grid wrapper now opens for ping_enabled too so the
                      Ping chart renders, but ping doesn't contribute a
