@@ -672,8 +672,12 @@ function app() {
       // the budget knob ready to hand. Same `tuningForm` /
       // `tuningEffective` / `saveTuning` Alpine state — just rendered
       // in two places only when configured.
-      // #540 — node-exporter per-host probe timeout.
-      'tuning_node_exporter_probe_timeout_seconds',
+      // #540 — node-exporter per-host probe timeout. Rendered in
+      // Settings → Host stats → Node-exporter section instead of
+      // the generic Process tunables form so operators editing NE
+      // config have the timeout knob ready to hand. Same
+      // `tuningForm` / `tuningEffective` / `saveTuning` Alpine
+      // state — just rendered in the domain-specific home (#552).
       // #541 / #542 — frontend SSE knobs delivered via /api/me.
       'tuning_sse_idle_threshold_seconds',
       'tuning_pollops_sse_keepalive_seconds',
@@ -681,14 +685,36 @@ function app() {
       'tuning_rate_limit_max_failures',
       'tuning_rate_limit_window_seconds',
       'tuning_rate_limit_lockout_seconds',
-      // #547 / #546 — outer host-provider cache + per-host Webmin caches.
+      // #547 — outer host-provider cache.
       'tuning_host_provider_cache_ttl_seconds',
-      'tuning_webmin_host_cache_ttl_seconds',
-      'tuning_webmin_host_fail_cache_ttl_seconds',
+      // #546 — per-host Webmin caches MOVED to Settings → Host stats
+      // → Webmin section per operator request (#553). See
+      // `relocatedTuningKeys` below — they keep the same Alpine
+      // state via the union helper, just don't render in the
+      // generic Process tunables form.
       // #548 — host_metrics_sampler per-tick NE probe concurrency.
       'tuning_host_metrics_probe_concurrency',
       // #549 — shared auth-failure cool-down.
       'tuning_auth_failure_cooldown_seconds',
+    ],
+    // Tunables rendered OUTSIDE the generic Process tunables form
+    // (#550, #552, #553). Same `tuningForm` / `tuningEffective` /
+    // `saveTuning` state as the Process tunables form — just rendered
+    // in domain-specific sections (Logs / Webmin / NE) so operators
+    // editing related config have the knob ready to hand. The
+    // `loadTuning` / `_tuningSnapshot` / `saveTuning` iteration sites
+    // walk `_allTuningKeys()` (the union) so save round-trips ALL
+    // tunable keys, not just the ones rendered in the generic form.
+    // Without this list those relocated keys would be invisible to
+    // form-seed + dirty-track + POST — caught by operator after
+    // shipping #550 (Log retention card was reading empty + Save was
+    // a no-op).
+    relocatedTuningKeys: [
+      'tuning_log_retention_days',                // → Admin → Logs (#550)
+      'tuning_webmin_probe_budget_seconds',       // → Settings → Host stats → Webmin (#550)
+      'tuning_node_exporter_probe_timeout_seconds', // → Settings → Host stats → NE (#552)
+      'tuning_webmin_host_cache_ttl_seconds',     // → Settings → Host stats → Webmin (#553)
+      'tuning_webmin_host_fail_cache_ttl_seconds',// → Settings → Host stats → Webmin (#553)
     ],
     tuningForm: {},
     tuningEffective: {},
@@ -5700,6 +5726,13 @@ function app() {
     // env-fallback behind each input. `tuningForm[k]` is always a
     // string — blank means "clear the override", non-blank means
     // "store this number".
+    // Union of in-form `tuningKeys` + relocated-elsewhere
+    // `relocatedTuningKeys`. Every iteration site that touches the
+    // tuning system (form-seed, snapshot, POST builder, validator)
+    // walks THIS list so a relocated tunable still round-trips.
+    _allTuningKeys() {
+      return (this.tuningKeys || []).concat(this.relocatedTuningKeys || []);
+    },
     async loadTuning() {
       try {
         const r = await fetch('/api/admin/tuning');
@@ -5707,7 +5740,7 @@ function app() {
         const d = await r.json();
         this.tuningEffective = d || {};
         const form = {};
-        for (const k of this.tuningKeys) {
+        for (const k of this._allTuningKeys()) {
           const row = (d || {})[k] || {};
           form[k] = (row.db == null || row.db === '') ? '' : String(row.db);
         }
@@ -5721,7 +5754,7 @@ function app() {
     _tuningSnapshot() {
       const f = this.tuningForm || {};
       const out = {};
-      for (const k of this.tuningKeys) out[k] = (f[k] == null ? '' : String(f[k]).trim());
+      for (const k of this._allTuningKeys()) out[k] = (f[k] == null ? '' : String(f[k]).trim());
       return JSON.stringify(out);
     },
     tuningDirty() { return this._tuningBaseline !== this._tuningSnapshot(); },
@@ -5762,7 +5795,7 @@ function app() {
       // explicit Number.isInteger guard surfaces a clean toast naming
       // the field and the bound; the operator's value is preserved
       // until they fix it (no silent clamp).
-      for (const k of this.tuningKeys) {
+      for (const k of this._allTuningKeys()) {
         const raw = (this.tuningForm || {})[k];
         if (raw === '' || raw == null) continue;  // blank = clear override
         const n = Number(raw);
@@ -5791,7 +5824,7 @@ function app() {
       this.tuningSaving = true;
       try {
         const body = {};
-        for (const k of this.tuningKeys) {
+        for (const k of this._allTuningKeys()) {
           const v = (this.tuningForm || {})[k];
           body[k] = (v == null ? '' : String(v).trim());
         }
