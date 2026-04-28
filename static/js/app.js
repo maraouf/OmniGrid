@@ -11936,10 +11936,16 @@ function app() {
         const r = await fetch('/api/hosts/' + encodeURIComponent(hostId) + '/ping/history?hours=' + hours);
         if (!r.ok) return;
         const d = await r.json();
+        // Field name `t` matches the convention `loadHostHistory` uses
+        // (and what `xAxisFromSeries` reads at s[idx].t). Also keep
+        // `ts` for back-compat with any consumer expecting the raw
+        // pocketbase column name. Pre-fix the x-axis was blank because
+        // xAxisFromSeries pulled from `.t` which was undefined.
         const points = (d.points || []).map(p => ({
-          ts: Number(p.ts) || 0,
-          rtt: Number(p.rtt_ms) || 0,
-          alive: !!p.alive,
+          t:        Number(p.ts) || 0,
+          ts:       Number(p.ts) || 0,
+          rtt:      Number(p.rtt_ms) || 0,
+          alive:    !!p.alive,
           loss_pct: Number(p.loss_pct) || 0,
         }));
         if (!this.hostHistory[key]) this.hostHistory[key] = {};
