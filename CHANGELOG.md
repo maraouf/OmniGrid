@@ -42,6 +42,20 @@ the next release, this whole block becomes the `[X.Y.0]` entry below.
 
 - Hosts-view filter input is now debounced at 150 ms — typing into the toolbar's `<input type="search" x-model="hostsSearch">` no longer re-runs the full `filteredHosts()` walk + status-weighted sort on every keystroke. Matches the existing debounce convention used elsewhere (`historyFilters.q` 300 ms, `hostsConfigFilter` 150 ms, `logFilter` 200 ms) (#504).
 
+### Added
+
+- New tunable `tuning_hosts_parallel_fetch` (env `HOSTS_PARALLEL_FETCH`, default 6, range 1-32) — concurrency cap on the SPA's `/api/hosts/one/<id>` fan-out in `loadHosts()`. Lower if NPM's upstream pool is small or slow Webmin / NE probes saturate the loop; raise on a beefy NPM with many hosts. Surfaced in Admin → Config alongside the other tunables; SPA reads via `/api/me`'s `client_config.hosts_parallel_fetch`. Replaces the prior hardcoded `const PARALLEL = 6;` (#508).
+
+### Changed
+
+- Admin → Process tunables now self-counts. The subtitle was hardcoded as "Override the six runtime knobs..." but there are now eleven; switched to a `{count}` placeholder driven by `tuningKeys.length` so future additions auto-update. Every tunable's help text was rewritten from a one-line summary into a detailed paragraph covering the value's concrete effect, the trade-off when lowering, the trade-off when raising, the default + any special-value semantics (e.g. set-to-0 disables the snapshot cache), and takes-effect-on-next-X timing. Operators get enough context to make informed changes without reading the source (#509).
+- CLAUDE.md adds the strict "No-static-config rule" — every operator-tunable value must go through `logic/tuning.py:TUNABLES`, never a hardcoded literal in Python / JS / HTML. The existing Process-level tunables bullet was expanded with the full six-step wiring surface (TUNABLES + SettingsIn + `tuningKeys` + i18n + `/api/me`'s `client_config` for frontend consumers + the consumer site itself). `docs/guidelines/env_example.md` and CLAUDE.md's Config-reference table updated with five tunables that had been added since the doc was last touched: `HOST_PERMANENT_FAIL_WINDOW_SECONDS`, `OPS_POLL_INTERVAL_MS`, `LOG_RETENTION_DAYS`, `HOST_SNAPSHOTS_CACHE_TTL_SECONDS`, `HOSTS_PARALLEL_FETCH` (#508).
+
+### Fixed
+
+- Fan-out 504s from `/api/hosts/one/<id>` saturating NPM's upstream connection pool. Two root causes: `_get_host_provider_state` was NOT single-flight, so a parallel SPA fan-out of 6 cold-cache calls fired 6 independent Beszel hub + Pulse probes (15-20s each), starving the event loop and multiplying outbound load 6×; AND `_webmin_host_cache` cached only successes, so an unreachable Webmin burned its full 20s timeout on every parallel call. Fix: added `_host_provider_lock = asyncio.Lock()` + post-lock cache re-check pattern (first caller does the probe, rest await + reuse the populated cache, force=true serialises the same way); added `_webmin_host_fail_cache` (5s TTL) so failed Webmin probes short-circuit the 20s timeout for the duration of a fan-out burst, with recovery felt within one refresh cycle; lowered the outer per-host budget from 45s → 30s so OmniGrid's explicit 504 always fires before NPM's generic gateway 504; `[hosts]` log line on every Webmin probe failure (#506).
+- `CHANGELOG.md` release-page links now resolve correctly on GitHub. Pre-fix `[1.2.0]: ../../../releases/tag/v1.2.0` was tuned for Forgejo's 5-segment URL shape (`/<owner>/<repo>/src/branch/<branch>/CHANGELOG.md`); on GitHub's 4-segment shape (`/<owner>/<repo>/blob/<branch>/CHANGELOG.md`) the same 3-pop relative path climbed one segment too high and landed at `github.com/maraouf/releases/tag/v1.2.0` (404). Dropped one `..` to match GitHub since that's the public-shippable mirror; comment block documents the GitHub-vs-Forgejo trade-off (#507).
+
 ### Internal
 
 - `[live]`-prefixed tracing console logs throughout the SPA's SSE pipeline (`static/js/app.js`) so operators can see the live-mode data flow in DevTools. Logs at: `_initSSE` open + reconnect counter, `_disconnectSSE` (operator-flip), every event handler (`hello`, `:overflow`, `op:created/updated/completed`, `cache:invalidated`, `stats:refreshed`, `host:row_updated`, `host:failure_state_changed`, `host:history_appended`, `schedule:fired`, `history:appended`) with payload preview, freshness-watchdog flips, `setRefreshInterval` mode changes, and `pollOps`/`pollStats` cadence-decision transitions (only on edge — not every tick). Diagnostic only; filter `[live]` in the console (#505).
@@ -583,17 +597,21 @@ baseline lives in `notes/note_todo.txt` under the `## Done` block,
 keyed by stable `#NNN` TODO IDs.
 
 <!--
-  Version link references — Forgejo release-page URLs, written as
-  relative paths so the host stays out of the repo and a fork / mirror
-  picks the right links automatically. Path resolves from the
-  CHANGELOG.md URL `<host>/<owner>/<repo>/src/branch/<branch>/CHANGELOG.md`
-  — three `..` segments take us to `<host>/<owner>/<repo>/`, then
-  `releases/tag/v<X.Y.Z>` lands on the right page. We don't have a
+  Version link references — release-page URLs as relative paths so the
+  host stays out of the repo and a fork / mirror picks the right links
+  automatically. The path is tuned for GitHub's URL shape
+  `<host>/<owner>/<repo>/blob/<branch>/CHANGELOG.md` (4 segments before
+  the file) — two `..` pops climb past `blob/<branch>/` and land at
+  `<host>/<owner>/<repo>/`, where `releases/tag/v<X.Y.Z>` resolves
+  correctly. NOTE: Forgejo's URL shape is one segment longer
+  (`<host>/<owner>/<repo>/src/branch/<branch>/CHANGELOG.md`, 5 segments)
+  so these links require manual navigation when viewing on Forgejo —
+  the public-shippable surface is GitHub, so it wins. We don't have a
   v1.0.0 release tag (no `[1.0.0]` link target on purpose); the heading
   above renders literally as `## [1.0.0]` text, which is fine. The
   `[Unreleased]` link points at the next-version milestone view since
   no release page exists yet.
 -->
-[Unreleased]: ../../../milestones
-[1.1.0]: ../../../releases/tag/v1.1.0
-[1.2.0]: ../../../releases/tag/v1.2.0
+[Unreleased]: ../../milestones
+[1.1.0]: ../../releases/tag/v1.1.0
+[1.2.0]: ../../releases/tag/v1.2.0

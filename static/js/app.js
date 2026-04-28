@@ -643,6 +643,10 @@ function app() {
       // /app/data/logs/ older than this get deleted by the lifespan
       // _log_pruner_loop().
       'tuning_log_retention_days',
+      // #506 — SPA loadHosts() concurrency cap on per-host
+      // /api/hosts/one/<id> fan-out. Read on /api/me into
+      // `me.client_config.hosts_parallel_fetch`.
+      'tuning_hosts_parallel_fetch',
     ],
     tuningForm: {},
     tuningEffective: {},
@@ -10736,7 +10740,13 @@ function app() {
       const queue = this.hosts
         .filter(h => h.status !== 'unconfigured')
         .map(h => h.id);
-      const PARALLEL = 6;
+      // #506 — concurrency cap is now operator-tunable via Admin →
+      // Config (`tuning_hosts_parallel_fetch`). Resolved per call so a
+      // Save takes effect on the next refresh after /api/me re-flows.
+      // Defensive default falls back to 6 (the historical hardcoded
+      // value) if the field hasn't been hydrated yet.
+      const PARALLEL = (this.me && this.me.client_config
+                        && this.me.client_config.hosts_parallel_fetch) || 6;
       const worker = async () => {
         while (queue.length) {
           const id = queue.shift();
