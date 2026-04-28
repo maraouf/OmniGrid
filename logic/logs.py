@@ -242,10 +242,19 @@ def read_persistent_log(name: str, tail_lines: Optional[int] = None) -> Optional
     return "".join(lines)
 
 
-def prune_old_logs(retention_days: int) -> int:
+def prune_old_logs(retention_days: int, *, tz=None) -> int:
     """Delete log files whose date in the filename is older than
     ``retention_days`` from now. Returns the count of files removed.
     Called from the lifespan-managed pruner loop in main.py.
+
+    ``tz`` (#471 / ENH-004): timezone for the cutoff math + filename-date
+    parse. ``None`` (default) resolves through `_resolved_tz()` — the
+    same chain `_today_log_path` uses, so the rotation, prune, and
+    parser halves all agree on what "today" means. Pass an explicit
+    `ZoneInfo` to pin the behaviour for tests
+    (``prune_old_logs(7, tz=ZoneInfo("UTC"))``) or for callers that
+    have already resolved the zone and want to avoid the second
+    settings round-trip.
 
     Files we can't parse (operator-dropped notes, unrelated `.log`
     files) are LEFT ALONE — only the canonical ``omnigrid-YYYY-MM-DD``
@@ -261,7 +270,8 @@ def prune_old_logs(retention_days: int) -> int:
     # see a one-day-late delete window (BUG-002 / #457). Both halves
     # route through `_resolved_tz()`; None means "fall back to UTC" and
     # both halves reproduce that same fallback.
-    tz = _resolved_tz() or timezone.utc
+    if tz is None:
+        tz = _resolved_tz() or timezone.utc
     cutoff_ts = time.time() - (retention_days * 86400)
     try:
         cutoff_dt = datetime.fromtimestamp(cutoff_ts, tz=tz).date()

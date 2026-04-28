@@ -385,7 +385,7 @@ async def _record_failure(host_id: str, now: float, error: str) -> None:
                 # pause itself is durable in `host_failure_state`;
                 # the notification is best-effort cake on top).
                 try:
-                    from logic.ops import notify as _notify
+                    from logic.ops import notify_with_retry as _notify_with_retry
                     title = f"⚠ Host sampling paused: {host_id}"
                     body = (
                         f"{host_id} has been unreachable for {paused_minutes} min "
@@ -393,23 +393,17 @@ async def _record_failure(host_id: str, now: float, error: str) -> None:
                         f"Last error: {err_short or '—'}. "
                         f"Resume manually from the host drawer's banner."
                     )
-
-                    async def _notify_with_retry():
-                        try:
-                            await _notify(title, body, "error", event="host_paused")
-                            return
-                        except Exception as e1:
-                            print(f"[host_metrics_sampler] {host_id!r} "
-                                  f"host_paused notify primary failed: {e1} — "
-                                  f"retrying in 60s")
-                        try:
-                            await asyncio.sleep(60)
-                            await _notify(title, body, "error", event="host_paused")
-                        except Exception as e2:
-                            print(f"[host_metrics_sampler] {host_id!r} "
-                                  f"host_paused notify retry failed (giving up): {e2}")
-
-                    asyncio.create_task(_notify_with_retry())
+                    # ENH-009 / #475 — uses the shared retry helper in
+                    # logic.ops so login-event / scheduler / anomaly-watcher
+                    # paths get the same semantics. `label` distinguishes
+                    # this chain in Admin → Logs.
+                    asyncio.create_task(_notify_with_retry(
+                        title, body, "error",
+                        event="host_paused",
+                        retries=1,
+                        retry_after=60.0,
+                        label=f"host_metrics_sampler {host_id!r}",
+                    ))
                 except Exception as e:
                     print(f"[host_metrics_sampler] {host_id!r} notify dispatch failed: {e}")
                 # SSE — paused transition. SPA reacts by re-fetching the

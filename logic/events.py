@@ -159,7 +159,21 @@ def publish(
     try:
         bus.publish(type_, payload, ts)
     except Exception as e:
-        print(f"[events] publish({type_!r}) failed: {e}")
+        # ENH-018 / #483 — include a payload identity hint in the
+        # error log so operators can correlate a regressed publish to
+        # which op / host / schedule it referenced. `id` is the most
+        # common identity field across the published event shapes
+        # (op_id, host_id, schedule_id all land there); falling back
+        # to a stringified payload preview when none of them exist.
+        ident = (payload or {}).get("id")
+        if ident is None:
+            ident = (payload or {}).get("host_id") or (payload or {}).get("op_id") \
+                    or (payload or {}).get("schedule_id")
+        if ident is None:
+            preview = str(payload)[:80]
+            print(f"[events] publish({type_!r}) failed: {e} payload={preview!r}")
+        else:
+            print(f"[events] publish({type_!r}, id={ident!r}) failed: {e}")
 
 
 def subscriber_count() -> int:

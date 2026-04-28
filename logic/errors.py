@@ -197,6 +197,44 @@ ASSET_RANGE_INVALID = _define(
 
 
 # ============================================================================
+# OG0800..OG0899 — auth / session / OIDC
+# ============================================================================
+
+AUTH_OIDC_NONCE_MISMATCH = _define(
+    "OG0800",
+    "OIDC id_token nonce did not match the value sent on /api/oidc/login.",
+)
+
+AUTH_OIDC_AUDIENCE_MISMATCH = _define(
+    "OG0801",
+    "OIDC id_token audience does not include this client's ID. Check that the "
+    "OIDC application's allowed-audience list contains the OmniGrid client_id.",
+)
+
+AUTH_OIDC_ISSUER_INVALID = _define(
+    "OG0802",
+    "OIDC id_token issuer does not match what /.well-known/openid-configuration "
+    "advertises. Likely a trailing-slash or hostname mismatch between OmniGrid's "
+    "configured issuer URL and the IdP.",
+)
+
+AUTH_OIDC_SIGNATURE_INVALID = _define(
+    "OG0803",
+    "OIDC id_token signature did not verify against the IdP's JWKS.",
+)
+
+AUTH_OIDC_TOKEN_EXPIRED = _define(
+    "OG0804",
+    "OIDC id_token has expired. Try signing in again.",
+)
+
+AUTH_OIDC_TOKEN_VALIDATION_FAILED = _define(
+    "OG0899",
+    "OIDC id_token validation failed.",
+)
+
+
+# ============================================================================
 # OG0900..OG0999 — Misc
 # ============================================================================
 

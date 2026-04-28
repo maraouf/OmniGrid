@@ -276,6 +276,51 @@ async def notify(title: str, body: str, status: str = "info", *,
         print(f"[notify] ERROR → {url}: {e}")
 
 
+async def notify_with_retry(
+    title: str, body: str, status: str = "info", *,
+    event: Optional[str] = None,
+    actor_username: Optional[str] = None,
+    retries: int = 1,
+    retry_after: float = 60.0,
+    label: str = "notify",
+) -> None:
+    """Fire-and-forget `notify` with bounded retry on dispatch failure.
+
+    ENH-009 / #475 — extracted from `host_metrics_sampler._record_failure`'s
+    inner closure so other callers (login event, future schedule kinds,
+    anomaly watchers) get the same retry semantics without copy-pasting.
+    `label` is a short tag prepended to error logs so the operator can
+    tell two parallel notify chains apart in Admin → Logs.
+
+    Retries on ANY exception from `notify()` after `retry_after` seconds;
+    capped at `retries` extra attempts (default 1 = at most two total
+    dispatches). Caller is expected to spawn this via
+    `asyncio.create_task(...)` — running inline would block the
+    triggering path on the retry sleep.
+    """
+    for attempt in range(retries + 1):
+        try:
+            await notify(
+                title, body, status,
+                event=event, actor_username=actor_username,
+            )
+            if attempt > 0:
+                print(f"[{label}] retry succeeded on attempt {attempt + 1}")
+            return
+        except Exception as e:
+            if attempt >= retries:
+                print(f"[{label}] notify failed (giving up after "
+                      f"{attempt + 1} attempts): {e}")
+                return
+            print(f"[{label}] notify primary failed: {e} — "
+                  f"retrying in {retry_after:.0f}s")
+            try:
+                import asyncio as _asyncio
+                await _asyncio.sleep(retry_after)
+            except Exception:
+                return
+
+
 # ---------------------------------------------------------------------
 # Write ops. Each follows the same pattern: try/except/finally with
 # persist_history + cache invalidation in finally.

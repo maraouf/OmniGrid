@@ -124,10 +124,26 @@ def create_backup(prefix: str = "omnigrid-backup") -> dict:
         db_tmp = os.path.join(tmp, "omnigrid.db")
         _snapshot_db_to(db_tmp)
 
+        # ENH-010 / #476 — record the schema_migrations head so the
+        # restore path (#477) can detect "this backup was taken on a
+        # newer schema; upgrade OmniGrid first" and refuse with a
+        # clear error instead of silently restoring incompatible data.
+        # Best-effort: if the migrations table doesn't exist yet
+        # (very-fresh install pre-init_migrations_schema), we record
+        # 0 — the lowest possible head.
+        try:
+            from logic.db import db_conn as _db_conn
+            from logic.migrations import _current_version as _mig_head
+            with _db_conn() as _c:
+                schema_head = int(_mig_head(_c))
+        except Exception:
+            schema_head = 0
+
         meta = {
             "backup_time": int(time.time()),
             "app_version": APP_VERSION,
             "schema":      "omnigrid-v1",
+            "schema_head": schema_head,
         }
 
         with zipfile.ZipFile(out, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=6) as z:
@@ -246,6 +262,45 @@ def restore_from_file(path: str) -> dict:
     """
     ensure_dirs()
     _validate_zip_entries(path)
+
+    # ENH-011 / #477 — refuse a restore from a backup taken on a NEWER
+    # schema head than the running app. The DB swap itself succeeds
+    # (SQLite reads are forgiving), but the running code expects the
+    # old shape and operators end up debugging "why is the schedules
+    # tab broken" hours later. Read metadata.json's `schema_head`
+    # (added in ENH-010 / #476) BEFORE the swap; compare to live head.
+    # Backups taken pre-#476 have no schema_head and bypass this check
+    # (back-compat — those legacy backups are presumed compatible).
+    try:
+        with zipfile.ZipFile(path, "r") as z:
+            try:
+                raw_meta = z.read("metadata.json").decode("utf-8")
+                backup_meta = json.loads(raw_meta)
+            except (KeyError, json.JSONDecodeError):
+                backup_meta = {}
+        backup_head = backup_meta.get("schema_head")
+        if isinstance(backup_head, int) and backup_head > 0:
+            from logic.db import db_conn as _db_conn
+            from logic.migrations import _current_version as _mig_head
+            try:
+                with _db_conn() as _c:
+                    live_head = int(_mig_head(_c))
+            except Exception:
+                live_head = 0
+            if backup_head > live_head:
+                raise ValueError(
+                    f"Backup was taken on schema head {backup_head}; "
+                    f"this OmniGrid runs schema head {live_head}. Upgrade "
+                    f"OmniGrid to at least the version that shipped "
+                    f"migration {backup_head}, then retry the restore."
+                )
+    except ValueError:
+        raise
+    except Exception as e:
+        # Defensive — never let a metadata-read hiccup block a legitimate
+        # restore. A malformed metadata.json was already permitted by
+        # `_validate_zip_entries`'s tolerant shape check.
+        print(f"[backups] WARN: schema_head pre-check skipped: {e}")
 
     # 1) Safety snapshot of current state — silently continue if it fails
     #    (e.g. brand-new install with almost nothing to snapshot). A restore

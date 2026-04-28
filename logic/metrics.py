@@ -28,7 +28,8 @@ __all__ = [
     "REGISTRY",
     "ITEMS_TOTAL", "STACK_OUTDATED", "STACK_OFFLINE",
     "OPS_TOTAL", "REGISTRY_ERRORS", "REGISTRY_LATENCY", "GATHER_DURATION",
-    "register_cache_age_collector", "populate_from_cache",
+    "register_cache_age_collector", "register_events_collectors",
+    "populate_from_cache",
     "generate_latest", "CONTENT_TYPE_LATEST",
 ]
 
@@ -78,6 +79,42 @@ GATHER_DURATION = Histogram(
     registry=REGISTRY,
     buckets=(0.5, 1, 2, 5, 10, 30, 60, 120),
 )
+# SSE event-bus health (#472 / ENH-005). Subscriber count + dropped
+# count are both surfaced via a single custom collector — same pattern
+# as `_CacheAgeCollector` — so the values reflect the bus's NOW-state
+# at every scrape, no polling task needed. A 2023-vintage bus
+# regression where slow consumers OOM'd would have surfaced here as a
+# steadily-rising dropped count.
+class _EventsCountersCollector:
+    def __init__(self, getters: dict[str, Callable[[], int]]):
+        self._subs = getters["subscriber_count"]
+        self._dropped = getters["dropped_count"]
+
+    def collect(self):
+        sub = GaugeMetricFamily(
+            "omnigrid_events_subscribers",
+            "Active SSE subscribers connected to /api/events",
+        )
+        sub.add_metric([], float(self._subs() or 0))
+        yield sub
+        from prometheus_client.core import CounterMetricFamily
+        cnt = CounterMetricFamily(
+            "omnigrid_events_dropped",
+            "Cumulative count of events dropped due to slow subscribers",
+        )
+        cnt.add_metric([], float(self._dropped() or 0))
+        yield cnt
+
+
+def register_events_collectors(
+    *, subscriber_count: Callable[[], int], dropped_count: Callable[[], int]
+) -> None:
+    """Wire the SSE bus health collectors. Call once at startup from
+    main.py with `_events.bus.subscriber_count` / `.dropped_count`."""
+    REGISTRY.register(_EventsCountersCollector({
+        "subscriber_count": subscriber_count,
+        "dropped_count": dropped_count,
+    }))
 
 
 class _CacheAgeCollector:

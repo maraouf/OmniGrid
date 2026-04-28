@@ -522,6 +522,8 @@
       "admin_group_hint": "Group membership is re-checked on every OIDC login. Users outside this group land as <code class=\"mono\">readonly</code>.",
       "verify_tls_title": "Verify TLS on discovery / token / JWKS calls",
       "verify_tls_hint": "Leave on when the issuer has a publicly-trusted cert. Turn off for homelab issuers behind an internal CA whose root isn't in the container's trust store (e.g. <code class=\"mono\">*.example.com</code> with a self-signed PKI). Mirrors the behaviour of Portainer's Verify TLS toggle.",
+      "group_case_sensitive_title": "Match admin group name exactly (case-sensitive)",
+      "group_case_sensitive_hint": "Leave on (default) for byte-exact matching of the admin group claim. Turn off when the IdP returns mixed-case group names that don't match the value you typed above (e.g. you typed <code class=\"mono\">OmniGrid-Admins</code> but Authentik returns <code class=\"mono\">omnigrid-admins</code>). Off compares both sides lowered.",
       "test_button": "Test connection"
     },
     "shortcuts": {
@@ -1492,6 +1494,7 @@
     "exported_n": "Exported {count} host(s) to file.",
     "imported_n": "Imported {count} host(s) — review and Save to persist.",
     "import_invalid_json": "Invalid JSON: {error}",
+    "import_replace_confirm_title": "Replace or merge?",
     "import_replace_confirm_html": "Replace all {existing} current hosts with {incoming} from the file?",
     "import_replace_confirm_replace": "Replace",
     "import_replace_confirm_merge": "Merge (update existing IDs, add new ones)",

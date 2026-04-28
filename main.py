@@ -120,14 +120,42 @@ _TOTP_POLICY_DEFAULTS = {
 }
 
 
+# TOTP-policy resolution cache (#470 / ENH-003). The login flow calls
+# `_resolve_totp_policy()` 6+ times per typical sign-in, each previously
+# hitting 6 DB rows. A 2-second TTL collapses the burst into one read
+# without making settings changes feel laggy (the Admin -> Config Save
+# explicitly invalidates via `_invalidate_totp_policy_cache()`). The
+# value is process-local and small (a 6-key dict).
+_totp_policy_cache: dict = {"value": None, "ts": 0.0}
+_TOTP_POLICY_CACHE_TTL_SECONDS = 2.0
+
+
+def _invalidate_totp_policy_cache() -> None:
+    """Force `_resolve_totp_policy()` to re-read from DB on the next call.
+    Call from every code path that mutates a `totp_*` or `passkeys_allowed`
+    setting so a Save in the Admin UI takes effect within one tick."""
+    _totp_policy_cache["value"] = None
+    _totp_policy_cache["ts"] = 0.0
+
+
 def _resolve_totp_policy() -> dict:
     """Return the resolved TOTP policy as a dict with concrete types.
 
     Caller (login flow + admin override + Profile guards) only needs to
     read scalar booleans / ints. No env vars are consulted -- this is
     purely DB-backed (Admin -> Config edits the values).
+
+    Cached for `_TOTP_POLICY_CACHE_TTL_SECONDS` (#470 / ENH-003) — every
+    login flow makes 6+ calls in quick succession, each previously
+    hitting the DB. The cache is invalidated on every settings write
+    via `_invalidate_totp_policy_cache()` so admin edits take effect
+    immediately.
     """
-    return {
+    cached_value = _totp_policy_cache.get("value")
+    cached_ts = _totp_policy_cache.get("ts") or 0.0
+    if cached_value is not None and (time.time() - cached_ts) < _TOTP_POLICY_CACHE_TTL_SECONDS:
+        return cached_value
+    resolved = {
         "totp_allowed":              get_setting_bool(
             "totp_allowed", _TOTP_POLICY_DEFAULTS["totp_allowed"],
         ),
@@ -155,6 +183,9 @@ def _resolve_totp_policy() -> dict:
             "passkeys_allowed", _TOTP_POLICY_DEFAULTS["passkeys_allowed"],
         ),
     }
+    _totp_policy_cache["value"] = resolved
+    _totp_policy_cache["ts"] = time.time()
+    return resolved
 
 
 def _totp_required_for(role: str, policy: Optional[dict] = None) -> bool:
@@ -369,6 +400,14 @@ async def _config_error_guard(request: Request, call_next):
 # collector is wired below (once _cache exists), and every remaining
 # metric call site in this file references them via `metrics.NAME`.
 metrics.register_cache_age_collector(lambda: _cache)
+# SSE bus health collectors (#472 / ENH-005). Wires
+# `omnigrid_events_subscribers` + `omnigrid_events_dropped` on the
+# Prometheus registry so /metrics surfaces queue health alongside the
+# cache-age collector.
+metrics.register_events_collectors(
+    subscriber_count=_events.bus.subscriber_count,
+    dropped_count=_events.bus.dropped_count,
+)
 
 
 # ============================================================================
@@ -594,6 +633,7 @@ ops_order = _ops_mod.ops_order
 new_op = _ops_mod.new_op
 persist_history = _ops_mod.persist_history
 notify = _ops_mod.notify
+notify_with_retry = _ops_mod.notify_with_retry
 _do_update_stack = _ops_mod.do_update_stack
 _do_update_container = _ops_mod.do_update_container
 _do_restart_service = _ops_mod.do_restart_service
@@ -1201,6 +1241,9 @@ class SettingsIn(BaseModel):
     oidc_scopes: Optional[str] = None
     oidc_admin_group: Optional[str] = None
     oidc_verify_tls: Optional[bool] = None
+    # ENH-002 / #469 — case-insensitive admin-group claim match. Default
+    # True preserves the legacy exact-match contract.
+    oidc_group_case_sensitive: Optional[bool] = None
     # Backup retention: keep the N newest .zip files in /app/data/backups;
     # 0 disables retention (keep everything). Applied after every successful
     # create, whether user-triggered or scheduled.
@@ -1632,6 +1675,7 @@ async def api_get_settings(request: Request):
             "scopes": a.get("oidc_scopes") or "openid email profile groups",
             "admin_group": a.get("oidc_admin_group") or "",
             "verify_tls": bool(a.get("oidc_verify_tls", True)),
+            "group_case_sensitive": bool(a.get("oidc_group_case_sensitive", True)),
         },
     }
 
@@ -1707,6 +1751,15 @@ async def api_set_settings(
         set_setting("totp_lockout_minutes", str(n))
     if s.passkeys_allowed is not None:
         set_setting("passkeys_allowed", "true" if s.passkeys_allowed else "false")
+    # Invalidate the policy cache (#470 / ENH-003) so a Save in
+    # Admin -> Config takes effect on the next call instead of waiting
+    # out the TTL window. Cheap — just resets the dict.
+    if (s.totp_allowed is not None or s.totp_required_for_admins is not None
+            or s.totp_required_for_users is not None
+            or s.totp_lockout_max_failures is not None
+            or s.totp_lockout_minutes is not None
+            or s.passkeys_allowed is not None):
+        _invalidate_totp_policy_cache()
     # Open-Meteo upstream — strips trailing slashes so `<base>/v1/...`
     # composition in api_weather stays stable whether the operator
     # typed a trailing slash or not.
@@ -2310,6 +2363,10 @@ async def api_set_settings(
         if s.oidc_verify_tls is not None:
             auth.set_auth_setting(c, "oidc_verify_tls",
                                   "true" if s.oidc_verify_tls else "false")
+            auth_changed = True
+        if s.oidc_group_case_sensitive is not None:
+            auth.set_auth_setting(c, "oidc_group_case_sensitive",
+                                  "true" if s.oidc_group_case_sensitive else "false")
             auth_changed = True
         # Client secret: keep-current-if-blank.
         if s.oidc_client_secret is not None and s.oidc_client_secret.strip() != "":
@@ -5885,7 +5942,14 @@ def _request_rp_id(request: Request) -> str:
     ``request.url.hostname`` as a last resort for direct (non-proxied)
     dev runs. Strip the ``:port`` suffix in every case — RP IDs are
     hostname-only.
+
+    ENH-015 / #480 — the WebAuthn register-finish path calls this
+    twice (directly + via `_request_origin`); cache the resolved value
+    on `request.state.rp_id` so the second call is a dict lookup.
     """
+    cached = getattr(request.state, "rp_id", None)
+    if cached is not None:
+        return cached
     candidates = [
         request.headers.get("x-forwarded-host", ""),
         request.headers.get("host", ""),
@@ -5896,6 +5960,12 @@ def _request_rp_id(request: Request) -> str:
         if ":" in host:
             host = host.split(":", 1)[0]
         if host:
+            try:
+                request.state.rp_id = host
+            except Exception:
+                # `WebSocket` doesn't expose `state` like Request — the
+                # cache is best-effort; just skip when unavailable.
+                pass
             return host
     raise HTTPException(
         status_code=400,
@@ -5929,7 +5999,18 @@ def _request_origin(request) -> str:
     proto = (request.headers.get("x-forwarded-proto", "")
              or request.url.scheme or "http").split(",")[0].strip().lower()
     if proto not in ("http", "https"):
-        proto = "https"
+        # ENH-006 / #473 — reject bogus X-Forwarded-Proto values
+        # (e.g. "ftp", "file") instead of silently flipping to https.
+        # Falls back to the actual request scheme; logs once so a
+        # mis-configured proxy is debuggable from Admin → Logs.
+        bad = proto
+        proto = (request.url.scheme or "http").lower()
+        if proto not in ("http", "https"):
+            proto = "http"
+        print(
+            f"[webauthn] rejecting X-Forwarded-Proto={bad!r} "
+            f"(not http/https) — falling back to scheme={proto!r}"
+        )
     host_candidates = [
         request.headers.get("x-forwarded-host", ""),
         request.headers.get("host", ""),
@@ -5952,11 +6033,15 @@ async def api_local_login(
     password: str = Form(...),
 ):
     ip = auth._client_ip(request)
-    auth.rate_limit_check(ip)
+    # ENH-012 / #478 — check both the IP-only bucket AND the
+    # (ip, username) bucket. The latter scopes lockout to the actual
+    # user being typo'd at, so a corporate-NAT'd office isn't
+    # collateral-damaged by one user's bad password.
+    auth.rate_limit_check(ip, username)
     with db_conn() as c:
         u = auth.get_user_by_username(c, username)
         if not u or u.auth_source != "local" or u.disabled or not auth.verify_password(password, _get_user_password_hash(c, u.id)):
-            auth.rate_limit_record_failure(ip)
+            auth.rate_limit_record_failure(ip, username)
             raise HTTPException(status_code=401, detail="Invalid credentials")
         # ----------------------------------------------------------------
         # 2FA gate (#345 TOTP + #381 passkeys). Branches before any
@@ -6020,7 +6105,7 @@ async def api_local_login(
                 "kind": "totp_required",
                 "ip": ip,
             })
-            auth.rate_limit_clear(ip)
+            auth.rate_limit_clear(ip, username)
             return JSONResponse({
                 "step": "totp_required",
                 "challenge_id": cid,
@@ -6037,7 +6122,7 @@ async def api_local_login(
                 "secret": secret_plain,
                 "ip": ip,
             })
-            auth.rate_limit_clear(ip)
+            auth.rate_limit_clear(ip, username)
             return JSONResponse({
                 "step": "totp_setup_required",
                 "challenge_id": cid,
@@ -6047,7 +6132,7 @@ async def api_local_login(
                 "provisioning_uri": uri,
             })
         # Legacy single-factor path.
-        auth.rate_limit_clear(ip)
+        auth.rate_limit_clear(ip, username)
         auth.touch_last_login(c, u.id)
         cookie_value, expires_at = auth.create_session(
             c, u.id, ip, request.headers.get("user-agent"),
@@ -6058,17 +6143,17 @@ async def api_local_login(
     auth.set_session_cookie(resp, cookie_value, expires_at, request)
     auth.set_csrf_cookie(resp, csrf, expires_at, request)
     # Security event — opt-in via Admin → Notifications. Fire-and-
-    # forget; never let a notify exception break the login response.
-    try:
-        await notify(
-            f"🔓 {u.username} signed in",
-            f"via local from {ip}",
-            "info",
-            event="user_login",
-            actor_username=u.username,
-        )
-    except Exception as _e:
-        print(f"[notify] user_login (local) failed: {_e}")
+    # forget via the shared retry helper (#475 / ENH-009) so a
+    # transient Apprise blip doesn't drop the audit notification on
+    # the floor.
+    asyncio.create_task(notify_with_retry(
+        f"🔓 {u.username} signed in",
+        f"via local from {ip}",
+        "info",
+        event="user_login",
+        actor_username=u.username,
+        label=f"user_login (local) {u.username!r}",
+    ))
     return resp
 
 
