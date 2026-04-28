@@ -90,9 +90,12 @@ STATS_SAMPLE_INTERVAL_SECONDS=300
 # the operator resumes via POST /api/hosts/{id}/resume-sampling.
 HOST_PERMANENT_FAIL_WINDOW_SECONDS=900
 
-# Frontend /api/ops poll cadence (milliseconds). Read on /api/me, used as
-# the setTimeout delay between consecutive ops polls in the SPA.
-OPS_POLL_INTERVAL_MS=1500
+# Frontend /api/ops poll cadence in SECONDS (renamed from
+# OPS_POLL_INTERVAL_MS in #514 for operator-friendly UI). Backend
+# multiplies × 1000 before delivering to the SPA's setTimeout via
+# /api/me's `client_config.ops_poll_ms`, so the consumer contract is
+# unchanged.
+OPS_POLL_INTERVAL_SECONDS=2
 
 # Persistent-log retention in days. Daily files under /app/data/logs/
 # older than this are deleted by an hourly sweep.
@@ -216,7 +219,7 @@ Quick index of every env var OmniGrid reads, grouped by scope:
 | `STATS_HISTORY_DAYS`              | Runtime     | `7`                  | Retention window for `stats_samples`.                                           |
 | `STATS_SAMPLE_INTERVAL_SECONDS`   | Runtime     | `300`                | Sampler cadence.                                                                |
 | `HOST_PERMANENT_FAIL_WINDOW_SECONDS` | Runtime  | `900`                | host_metrics_sampler auto-pause window (#410).                                   |
-| `OPS_POLL_INTERVAL_MS`            | Runtime     | `1500`               | SPA's /api/ops poll cadence (#417).                                             |
+| `OPS_POLL_INTERVAL_SECONDS`       | Runtime     | `2`                  | SPA's /api/ops poll cadence in seconds; multiplied × 1000 before delivery via `client_config.ops_poll_ms` (#514, was `OPS_POLL_INTERVAL_MS` pre-#514). |
 | `LOG_RETENTION_DAYS`              | Runtime     | `7`                  | Persistent-log retention (#424).                                                |
 | `HOST_SNAPSHOTS_CACHE_TTL_SECONDS` | Runtime    | `5`                  | host_snapshots read-cache TTL (#467).                                            |
 | `HOSTS_PARALLEL_FETCH`            | Runtime     | `6`                  | SPA fan-out concurrency cap on `/api/hosts/one/{id}` (#506).                    |

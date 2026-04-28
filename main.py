@@ -1422,10 +1422,12 @@ class SettingsIn(BaseModel):
     # #410 — host_metrics_sampler permanent-fail window. Same DB-key
     # naming + bounds-check via TUNABLES as the others.
     tuning_host_permanent_fail_window_seconds: Optional[str] = None
-    # #417 — frontend /api/ops poll cadence (milliseconds). The SPA
-    # reads the effective value via /api/me and uses it as the
-    # setTimeout delay between consecutive ops polls.
-    tuning_ops_poll_interval_ms: Optional[str] = None
+    # #417 — frontend /api/ops poll cadence in SECONDS (#514 — was
+    # `tuning_ops_poll_interval_ms`; renamed for operator-friendly UI).
+    # The SPA reads the effective value (× 1000) via /api/me's
+    # `client_config.ops_poll_ms` and uses it as the setTimeout delay
+    # between consecutive ops polls.
+    tuning_ops_poll_interval_seconds: Optional[str] = None
     # #424 — persistent-log retention in days. Daily files under
     # /app/data/logs/ older than this get deleted by the lifespan
     # _log_pruner_loop().
@@ -6770,7 +6772,11 @@ async def api_me(request: Request):
         # page reload. Add new client-tunables here rather than via a
         # separate endpoint.
         "client_config": {
-            "ops_poll_ms": tuning.tuning_int("tuning_ops_poll_interval_ms"),
+            # Tunable is stored as integer seconds (#514) for operator-
+            # friendly UI; multiply by 1000 here so the SPA's setTimeout
+            # consumer keeps its existing ms-based contract. Renaming
+            # the SPA field would touch every call site for no gain.
+            "ops_poll_ms": tuning.tuning_int("tuning_ops_poll_interval_seconds") * 1000,
             # #506 — SPA's loadHosts() reads this and uses it as the cap on
             # parallel /api/hosts/one/<id> calls during fan-out. Resolved
             # per /api/me round-trip so an Admin → Config save takes
