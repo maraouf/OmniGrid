@@ -4043,6 +4043,13 @@ function app() {
           const intervalMs = this._sseConnected
             ? Math.max(this.statsInterval * 1000, 5 * 60 * 1000)
             : this.statsInterval * 1000;
+          if (this._sseConnected && !this._statsLiveLogged) {
+            console.log('[live] pollStats cadence: SSE up → ' + Math.round(intervalMs / 1000) + 's safety net (push-driven via stats:refreshed)');
+            this._statsLiveLogged = true;
+          } else if (!this._sseConnected && this._statsLiveLogged) {
+            console.log('[live] pollStats cadence: SSE down → ' + this.statsInterval + 's polling');
+            this._statsLiveLogged = false;
+          }
           this._statsTimer = setTimeout(tick, intervalMs);
         } else {
           this._statsTimer = null;
@@ -6116,6 +6123,13 @@ function app() {
           return;
         }
         const opsPollMs = this._sseConnected ? 30000 : fastMs;
+        if (this._sseConnected && !this._opsLiveLogged) {
+          console.log('[live] pollOps cadence: SSE up → 30s keepalive (was ' + fastMs + 'ms)');
+          this._opsLiveLogged = true;
+        } else if (!this._sseConnected && this._opsLiveLogged) {
+          console.log('[live] pollOps cadence: SSE down → ' + fastMs + 'ms fast polling');
+          this._opsLiveLogged = false;
+        }
         this._opsTimer = setTimeout(tick, opsPollMs);
       };
       tick();
@@ -6143,6 +6157,7 @@ function app() {
     // updates at all".
     _disconnectSSE() {
       if (this._sse) {
+        console.log('[live] SSE disconnect: closing stream (operator picked Off/interval)');
         try { this._sse.close(); } catch (_) {}
         this._sse = null;
       }
@@ -6158,6 +6173,7 @@ function app() {
         try { this._sse.close(); } catch (_) {}
         this._sse = null;
       }
+      console.log('[live] SSE init: opening EventSource at /api/events');
       let es;
       try {
         es = new EventSource('/api/events', { withCredentials: true });
@@ -6173,11 +6189,13 @@ function app() {
       es.addEventListener('open', () => {
         onAny();
         this._sseReconnects += 1;
+        console.log('[live] SSE open: connected (reconnect #' + this._sseReconnects + ')');
         // First connect carries _sseReconnects === 1 (baseline). Every
         // bump above 1 represents a recover from a drop — kick a one-
         // shot REST refresh so the SPA catches up on what it missed
         // while disconnected.
         if (this._sseReconnects > 1) {
+          console.log('[live] SSE reconnect: kicking one-shot REST refresh to catch up missed deltas');
           try { this.refresh(true); } catch (_) {}
           try { if (this.view === 'hosts') this.loadHosts(true); } catch (_) {}
           try { this.loadHistory && this.loadHistory(); } catch (_) {}
@@ -6185,36 +6203,43 @@ function app() {
       });
       // ``hello`` is the bus's first frame after upgrade — treat as a
       // confirmation of healthy stream rather than a real event.
-      es.addEventListener('hello', () => onAny());
+      es.addEventListener('hello', () => {
+        onAny();
+        console.log('[live] event=hello (bus upgrade confirmed)');
+      });
       // ``:overflow`` signals the per-subscriber queue dropped events
       // (slow consumer / throttled tab). Backend emits this BEFORE
       // resuming the live stream so we know to reconcile via REST.
       es.addEventListener(':overflow', () => {
         onAny();
+        console.warn('[live] event=:overflow — subscriber queue dropped events; reconciling via REST');
         try { this.refresh(true); } catch (_) {}
         try { this.loadHistory && this.loadHistory(); } catch (_) {}
         if (this.view === 'hosts') {
           try { this.loadHosts(true); } catch (_) {}
         }
       });
-      es.addEventListener('op:created',   (e) => { onAny(); this._handleOpEvent(e, 'created'); });
-      es.addEventListener('op:updated',   (e) => { onAny(); this._handleOpEvent(e, 'updated'); });
-      es.addEventListener('op:completed', (e) => { onAny(); this._handleOpEvent(e, 'completed'); });
-      es.addEventListener('cache:invalidated', () => {
+      es.addEventListener('op:created',   (e) => { onAny(); console.log('[live] event=op:created', e.data ? e.data.slice(0, 200) : ''); this._handleOpEvent(e, 'created'); });
+      es.addEventListener('op:updated',   (e) => { onAny(); console.log('[live] event=op:updated', e.data ? e.data.slice(0, 200) : ''); this._handleOpEvent(e, 'updated'); });
+      es.addEventListener('op:completed', (e) => { onAny(); console.log('[live] event=op:completed', e.data ? e.data.slice(0, 200) : ''); this._handleOpEvent(e, 'completed'); });
+      es.addEventListener('cache:invalidated', (e) => {
         onAny();
+        console.log('[live] event=cache:invalidated → refresh(true)', e.data ? e.data.slice(0, 200) : '');
         // Items dataset is large enough that delta-broadcasting it
         // isn't worth it for V1 — kick a forced refresh instead, and
         // let the existing in-place reconcile in `refresh()` do its
         // work without tearing rows down.
         try { this.refresh(true); } catch (_) {}
       });
-      es.addEventListener('stats:refreshed', () => {
+      es.addEventListener('stats:refreshed', (e) => {
         onAny();
+        const fired = this.statsInterval > 0;
+        console.log('[live] event=stats:refreshed → loadStats=' + fired + (fired ? '' : ' (statsInterval=0, suppressed)'), e.data ? e.data.slice(0, 200) : '');
         // Hint event — the stats payload itself isn't broadcast (cheap
         // to fetch via /api/stats and the existing TTL gate prevents
         // back-to-back pulls). Skip when statsInterval=0 (operator
         // explicitly turned stats off) so the master switch still wins.
-        if (this.statsInterval > 0) {
+        if (fired) {
           try { this.loadStats && this.loadStats(); } catch (_) {}
         }
       });
@@ -6223,6 +6248,7 @@ function app() {
         try {
           const data = JSON.parse(e.data || '{}');
           const id = (data.payload && data.payload.id) || '';
+          console.log('[live] event=host:row_updated id=' + id);
           if (!id) return;
           // Reuse the existing per-host refresher so we go through the
           // same in-place reconcile path (CURATED_REFRESH_FIELDS-style
@@ -6238,6 +6264,7 @@ function app() {
         try {
           const data = JSON.parse(e.data || '{}');
           const id = (data.payload && data.payload.host_id) || '';
+          console.log('[live] event=host:failure_state_changed id=' + id);
           if (!id) return;
           if (typeof this.refreshHostRow === 'function') {
             this.refreshHostRow(id, { force: false }).catch(() => {});
@@ -6263,14 +6290,16 @@ function app() {
           // drawers' history isn't sample-keyed off our DB so this
           // event is irrelevant to them.
           if (!this.drawerHost.ne_url) return;
+          console.log('[live] event=host:history_appended id=' + id + ' → loadHostHistory');
           this._pollWrap(this.loadHostHistory(
             this.drawerHost.beszel_id || '',
             this.drawerHost.id,
           )).catch(() => {});
         } catch (_) {}
       });
-      es.addEventListener('schedule:fired', () => {
+      es.addEventListener('schedule:fired', (e) => {
         onAny();
+        console.log('[live] event=schedule:fired → loadSchedules + loadScheduleQueue', e.data ? e.data.slice(0, 200) : '');
         // Schedule rows + queue rebuild via the same helpers the
         // Schedules tab uses. They reconcile in place via #439's
         // _reconcileById path so re-firing them mid-tab doesn't
@@ -6278,14 +6307,18 @@ function app() {
         try { this.loadSchedules && this.loadSchedules(); } catch (_) {}
         try { this.loadScheduleQueue && this.loadScheduleQueue(); } catch (_) {}
       });
-      es.addEventListener('history:appended', () => {
+      es.addEventListener('history:appended', (e) => {
         onAny();
+        console.log('[live] event=history:appended → loadHistory', e.data ? e.data.slice(0, 200) : '');
         // Reload via the same paginated endpoint — the in-place
         // reconcile (#444) keeps each row's <details> open/closed
         // state intact.
         try { this.loadHistory && this.loadHistory(); } catch (_) {}
       });
       es.onerror = () => {
+        if (this._sseConnected) {
+          console.warn('[live] SSE error: connection dropped — falling back to polling until next open');
+        }
         // EventSource auto-reconnects with its own backoff. We just
         // surface the visible "polling" badge until ``open`` fires
         // again. Belt-and-braces — the freshness watcher below also
@@ -6301,6 +6334,9 @@ function app() {
         if (!this._sseLastEventTs) return;
         const idle = Date.now() - this._sseLastEventTs;
         if (idle > this._sseIdleThresholdMs) {
+          if (this._sseConnected) {
+            console.warn('[live] SSE freshness watchdog: ' + Math.round(idle / 1000) + 's since last event — flipping _sseConnected=false (polling fallback resumes)');
+          }
           this._sseConnected = false;
         }
       }, 1000);
@@ -6393,6 +6429,8 @@ function app() {
     // Live and Off both map to legacy=0; only intervals drive the
     // pollers.
     setRefreshInterval(seconds) {
+      const modeLabel = seconds === -1 ? 'Live (SSE)' : seconds === 0 ? 'Off' : seconds + 's interval';
+      console.log('[live] setRefreshInterval: mode=' + modeLabel + ' (raw=' + seconds + ')');
       this.refreshInterval = seconds;
       try { localStorage.setItem('refreshInterval', String(seconds)); } catch {}
       const legacy = seconds === -1 ? 0 : seconds;
