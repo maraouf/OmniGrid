@@ -210,6 +210,15 @@ function app() {
     _sseConnected: false,
     _sseLastEventTs: 0,
     _sseIdleThresholdMs: 30000,
+    // Pill-flash signal (#486 enhancement). Reactive boolean that
+    // toggles true at the START of each interval-mode poll and back
+    // to false ~600ms later, giving the topbar pill a visible green
+    // pulse on every tick. Lets operators see "the system is polling
+    // right now" without watching the network tab. Independent of
+    // SSE state — only fires under interval modes (Live uses push,
+    // Off doesn't poll).
+    _pollFlashing: false,
+    _pollFlashTimer: null,
     _sseReconnects: 0,
     // Heartbeat window (server emits ``: keepalive`` every 25s). The
     // freshness watch ticks once per second to flip _sseConnected back
@@ -1035,10 +1044,15 @@ function app() {
         this.loadHosts();
         // Same off-honoring rule as the view-watcher above.
         if (this.statsInterval > 0) {
-          this._hostsTimer = setInterval(() => this.loadHosts(), this.statsInterval * 1000);
+          this._hostsTimer = setInterval(() => {
+            this._pollWrap(this.loadHosts());
+          }, this.statsInterval * 1000);
         }
       }
-      setInterval(() => this.updateCacheLabel(), 1000);
+      // `updateCacheLabel` was retired in #486 (the "fresh / cached
+      // Xs ago" topbar text was removed as confusing alongside the
+      // unified picker). The 1s timer that drove it is gone too — no
+      // sense burning a tick per second on a no-op.
       // Tick `hostHistoryNow` every second so the host-drawer charts'
       // "Updated Xs/Xm/Xh ago" label counts in real time (#363).
       // Operator needs the seconds digit to tick visibly — a 30s
@@ -4006,7 +4020,11 @@ function app() {
         return;
       }
       const tick = async () => {
-        await this.loadStats();
+        // Bracket the request so the pill flashes green for the
+        // exact duration of the /api/stats round-trip (#486 flash).
+        this._pollStart();
+        try { await this.loadStats(); }
+        finally { this._pollEnd(); }
         if (this.statsInterval > 0) {
           // #454 — when SSE is healthy the backend pushes a
           // ``stats:refreshed`` hint after every gather_stats() write;
@@ -4041,7 +4059,9 @@ function app() {
       // When they re-enable, restart it for the hosts view.
       if (seconds > 0) {
         if (this.view === 'hosts' && !this._hostsTimer) {
-          this._hostsTimer = setInterval(() => this.loadHosts(), this.statsInterval * 1000);
+          this._hostsTimer = setInterval(() => {
+            this._pollWrap(this.loadHosts());
+          }, this.statsInterval * 1000);
         }
       } else if (this._hostsTimer) {
         clearInterval(this._hostsTimer);
@@ -4247,7 +4267,6 @@ function app() {
       } catch (e) { this.showToast(this.t('toasts.load_failed', { error: e.message }), 'error'); }
       this.loading = false;
     },
-    updateCacheLabel() {},
     async loadSettings() {
       try {
         const r = await fetch('/api/settings');
@@ -6280,11 +6299,42 @@ function app() {
       return 'events.disconnected_title';
     },
 
+    // #486 enhancement — bracket every interval-poll fetch so the
+    // topbar pill flashes green for the EXACT duration of the network
+    // request (start of fetch → response landed). Counter-based so
+    // concurrent polls (e.g. /api/items + /api/stats firing in the
+    // same tick) don't end the flash prematurely on the first one
+    // that returns. Off / Live modes short-circuit — Off shouldn't
+    // poll, Live's green-on-event UX is already implicit in the SSE
+    // pill colour.
+    _pollStart() {
+      if (this.refreshInterval === -1 || this.refreshInterval === 0) return;
+      this._pollFlashCount = (this._pollFlashCount || 0) + 1;
+      this._pollFlashing = true;
+    },
+    _pollEnd() {
+      if (!this._pollFlashCount) return;
+      this._pollFlashCount = Math.max(0, this._pollFlashCount - 1);
+      if (this._pollFlashCount === 0) this._pollFlashing = false;
+    },
+    // Convenience wrapper — `await this._pollWrap(this.refresh(true))`
+    // sets the flash on, awaits the promise, clears the flash in
+    // finally. Returns the promise's resolved value so callers can
+    // chain naturally.
+    _pollWrap(promise) {
+      this._pollStart();
+      return Promise.resolve(promise).finally(() => this._pollEnd());
+    },
+
     setAutoRefresh(seconds) {
       this.autoRefresh = seconds;
       try { localStorage.setItem('autoRefresh', String(seconds)); } catch {}
       if (this._autoTimer) clearInterval(this._autoTimer);
-      if (seconds > 0) this._autoTimer = setInterval(() => this.refresh(true), seconds * 1000);
+      if (seconds > 0) this._autoTimer = setInterval(() => {
+        // Wrap in poll-flash brackets so the topbar pill stays green
+        // for the duration of the actual /api/items round-trip.
+        this._pollWrap(this.refresh(true));
+      }, seconds * 1000);
     },
 
     // #486 — single canonical cadence-setter. Three modes mapped to
@@ -6342,10 +6392,10 @@ function app() {
         const ms = (seconds === -1 ? 30 : seconds) * 1000;
         this._drawerHistoryTimer = setInterval(() => {
           if (!this.drawerHost) return;
-          this.loadHostHistory(
+          this._pollWrap(this.loadHostHistory(
             this.drawerHost.beszel_id || '',
             this.drawerHost.id,
-          );
+          ));
         }, ms);
       }
       // Sparklines (#486) — Off kills the timer; Live / interval
@@ -11054,10 +11104,10 @@ function app() {
         const ms = (this.refreshInterval === -1 ? 30 : this.refreshInterval) * 1000;
         this._drawerHistoryTimer = setInterval(() => {
           if (!this.drawerHost) return;
-          this.loadHostHistory(
+          this._pollWrap(this.loadHostHistory(
             this.drawerHost.beszel_id || '',
             this.drawerHost.id,
-          );
+          ));
         }, ms);
       }
       // Preload SSH status — admin only, and only when the host
