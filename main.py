@@ -3022,6 +3022,17 @@ async def api_hosts():
     where possible) and look up this host's stats by its provider-
     specific name. Fields are merged with the best-of rule — non-zero
     values win over zeros — so flaky providers never erase good data.
+
+    NOTE (#522 / BUG-008) — this endpoint is LEGACY and bypasses #506's
+    `_host_provider_lock` (single-flight on Beszel + Pulse hub probes)
+    and `_webmin_host_fail_cache` (5s negative cache for unreachable
+    Webmin). Bearer-token scrapers (Homarr widget, Grafana, etc.) hitting
+    THIS endpoint can recreate the original 504-storm pattern that #506
+    fixed for the SPA. Prefer ``/api/hosts/list`` + ``/api/hosts/one/{id}``
+    for new integrations — that pair shares the protected helper chain
+    (`_get_host_provider_state` + `_merge_one_host`). A future change
+    will refactor this endpoint to compose the same helpers per row;
+    until then, bearer-token clients should migrate.
     """
     from logic import beszel as _beszel
     from logic import pulse as _pulse
@@ -3415,40 +3426,42 @@ async def _get_host_provider_state(force: bool = False) -> dict:
     calls from the SPA hits the cache; settings changes auto-clear
     after the TTL expires (no explicit invalidation needed).
     """
+    def _compute_cache_key() -> tuple[set[str], tuple]:
+        """Return (active_sources, cache_key) — the active providers as a
+        set + the cache-bust key (sorted-active-tuple + cred-blob-hash).
+        Re-callable so the post-lock path can refresh the key after a
+        settings save during the lock-wait (BUG-004 / #518) without
+        risking the queued caller using a pre-save snapshot.
+        """
+        active_set = active_host_stats_providers()
+        # Cache key includes the active-sources tuple so a settings
+        # change like flipping `host_stats_source` from "beszel" to
+        # "beszel,pulse" auto-busts the cache. Save paths also call
+        # `invalidate_host_provider_cache()` directly for instant
+        # feedback; the key match is defence-in-depth.
+        # BUG-010 fix (#416) — credential-blob hash folded into the key
+        # so changing `beszel_password` (without flipping
+        # `host_stats_source`) busts the cache too.
+        cred_blob = "|".join((
+            get_setting("beszel_hub_url", "") or "",
+            get_setting("beszel_identity", "") or "",
+            get_setting("beszel_password", "") or "",
+            get_setting("beszel_verify_tls", "true") or "true",
+            get_setting("pulse_url", "") or "",
+            get_setting("pulse_token", "") or "",
+            get_setting("pulse_verify_tls", "true") or "true",
+            get_setting("webmin_url", "") or "",
+            get_setting("webmin_user", "") or "",
+            get_setting("webmin_password", "") or "",
+            get_setting("webmin_verify_tls", "true") or "true",
+            get_setting("node_exporter_url_template", "") or "",
+            get_setting("node_exporter_overrides", "") or "",
+        ))
+        cred_hash = hashlib.sha256(cred_blob.encode("utf-8")).hexdigest()[:16]
+        return active_set, (tuple(sorted(active_set)), cred_hash)
+
     now = time.time()
-    active = active_host_stats_providers()
-    # Include the active-sources tuple in the cache key so a settings
-    # change like flipping `host_stats_source` from "beszel" to
-    # "beszel,pulse" mid-window auto-busts the cache instead of serving
-    # stale Pulse-less state for up to TTL seconds. Save paths still call
-    # `invalidate_host_provider_cache()` directly for instant feedback;
-    # the key match is defence-in-depth for the case where a save
-    # happens via a path that doesn't run the invalidator (e.g. an
-    # external SQL update to settings).
-    #
-    # BUG-010 fix (#416) — also fold a hash of the credential fields
-    # into the key so changing `beszel_password` (without flipping
-    # `host_stats_source`) busts the cache too. The whitelist in
-    # `api_set_settings` already calls `invalidate_host_provider_cache`
-    # on those writes; this is belt-and-braces for any path that
-    # bypasses the validator (raw SQL update, env-var hot reload, etc.).
-    cred_blob = "|".join((
-        get_setting("beszel_hub_url", "") or "",
-        get_setting("beszel_identity", "") or "",
-        get_setting("beszel_password", "") or "",
-        get_setting("beszel_verify_tls", "true") or "true",
-        get_setting("pulse_url", "") or "",
-        get_setting("pulse_token", "") or "",
-        get_setting("pulse_verify_tls", "true") or "true",
-        get_setting("webmin_url", "") or "",
-        get_setting("webmin_user", "") or "",
-        get_setting("webmin_password", "") or "",
-        get_setting("webmin_verify_tls", "true") or "true",
-        get_setting("node_exporter_url_template", "") or "",
-        get_setting("node_exporter_overrides", "") or "",
-    ))
-    cred_hash = hashlib.sha256(cred_blob.encode("utf-8")).hexdigest()[:16]
-    cache_key = (tuple(sorted(active)), cred_hash)
+    active, cache_key = _compute_cache_key()
     cached = _host_provider_cache.get("state")
     cached_key = _host_provider_cache.get("key")
     if (not force and cached and cached_key == cache_key
@@ -3463,6 +3476,16 @@ async def _get_host_provider_state(force: bool = False) -> dict:
     # serialise here so a SPA settings-save fan-out doesn't 6× the
     # upstream load either.
     async with _host_provider_lock:
+        # BUG-004 fix (#518) — RE-COMPUTE active + cache_key inside the
+        # lock. A settings save during the lock-wait could have changed
+        # `host_stats_source` or any credential, so the pre-lock values
+        # are stale. Without this re-compute, a queued caller would run
+        # a probe under a snapshot that no longer matches the current
+        # settings (e.g. probing Beszel after the operator turned it
+        # off). Generalisable rule: when single-flighting via lock-then-
+        # recheck, re-COMPUTE the cache key inside the lock, don't just
+        # re-read the cache.
+        active, cache_key = _compute_cache_key()
         # Re-check inside the lock: another caller may have populated
         # the cache while we were waiting. ``force`` requests always
         # re-probe but only the FIRST forced caller pays the cost —
@@ -3478,7 +3501,7 @@ async def _get_host_provider_state(force: bool = False) -> dict:
         return await _do_host_provider_probe(active, cache_key)
 
 
-async def _do_host_provider_probe(active: list, cache_key: tuple) -> dict:
+async def _do_host_provider_probe(active: set[str], cache_key: tuple) -> dict:
     """Inner — runs the Beszel + Pulse probes and writes the result
     cache. Always called under ``_host_provider_lock``. Split from
     the outer function so the lock-acquire path stays narrow.
@@ -3487,32 +3510,45 @@ async def _do_host_provider_probe(active: list, cache_key: tuple) -> dict:
     from logic import pulse as _pulse
 
     errors: dict[str, str] = {}
-    beszel_map: dict[str, dict] = {}
-    if "beszel" in active:
+
+    # Beszel + Pulse hub probes run in PARALLEL (#517). Prior sequential
+    # version made the cold-cache cost Beszel + Pulse = up to 30s alone,
+    # exhausting the 30s `/api/hosts/one/<id>` budget before NE + Webmin
+    # even started. With `asyncio.gather`, cold-cache cost drops to
+    # max(B, P) ≈ 15s — leaving ~15s for the per-host slice. Both are
+    # independent probes hitting different hubs; no shared state, safe
+    # to fan out. Each builds its own (config-fetch + probe) coroutine
+    # so missing credentials short-circuit cleanly.
+    async def _probe_beszel() -> tuple[dict, str | None]:
+        if "beszel" not in active:
+            return {}, None
         hub_url = get_setting("beszel_hub_url", "") or ""
         ident = get_setting("beszel_identity", "") or ""
         passw = get_setting("beszel_password", "") or ""
         verify = (get_setting("beszel_verify_tls", "true") or "true").lower() == "true"
-        if hub_url and ident and passw:
-            r = await _beszel.probe_hub(hub_url, ident, passw, verify_tls=verify)
-            if r.get("error"):
-                errors["beszel"] = r["error"]
-            beszel_map = r.get("systems") or {}
-        else:
-            errors["beszel"] = "missing url / identity / password"
+        if not (hub_url and ident and passw):
+            return {}, "missing url / identity / password"
+        r = await _beszel.probe_hub(hub_url, ident, passw, verify_tls=verify)
+        return r.get("systems") or {}, r.get("error")
 
-    pulse_map: dict[str, dict] = {}
-    if "pulse" in active:
+    async def _probe_pulse() -> tuple[dict, str | None]:
+        if "pulse" not in active:
+            return {}, None
         pulse_url = get_setting("pulse_url", "") or ""
         pulse_token = get_setting("pulse_token", "") or ""
         verify = (get_setting("pulse_verify_tls", "true") or "true").lower() == "true"
-        if pulse_url and pulse_token:
-            r = await _pulse.probe_pulse(pulse_url, pulse_token, verify_tls=verify)
-            if r.get("error"):
-                errors["pulse"] = r["error"]
-            pulse_map = r.get("hosts") or {}
-        else:
-            errors["pulse"] = "missing url / token"
+        if not (pulse_url and pulse_token):
+            return {}, "missing url / token"
+        r = await _pulse.probe_pulse(pulse_url, pulse_token, verify_tls=verify)
+        return r.get("hosts") or {}, r.get("error")
+
+    (beszel_map, beszel_err), (pulse_map, pulse_err) = await asyncio.gather(
+        _probe_beszel(), _probe_pulse(),
+    )
+    if beszel_err:
+        errors["beszel"] = beszel_err
+    if pulse_err:
+        errors["pulse"] = pulse_err
 
     webmin_creds_ok = False
     webmin_user = ""
@@ -3637,6 +3673,17 @@ async def _merge_one_host(h: dict, state: dict) -> tuple[dict, list[str]]:
                         _webmin_host_fail_cache.pop(h["id"], None)
                     else:
                         _webmin_host_fail_cache[h["id"]] = (now, result)
+                        # BUG-007 fix (#521) — also drop any stale
+                        # success entry so the negative-cache's "fast
+                        # failure detection" claim actually holds. Pre-
+                        # fix a host whose success cache was populated
+                        # 25s ago + has just gone down would keep
+                        # serving the stale success for 5 more seconds
+                        # (until the success cache's 30s TTL expired)
+                        # because the success cache lookup at line 3631
+                        # short-circuits before the fail cache is even
+                        # consulted.
+                        _webmin_host_cache.pop(h["id"], None)
                         err = result.get("error") or "empty hosts map"
                         print(f"[hosts] webmin probe failed for {h.get('id')!r}: {err}")
             hosts_map = result.get("hosts") or {}
@@ -4018,6 +4065,11 @@ async def api_hosts_one(host_id: str, force: bool = False):
     # this budget. 30s comfortably under any reasonable NPM
     # `proxy_read_timeout` (default 60s) so OmniGrid's explicit 504
     # always fires first, never NPM's generic gateway timeout.
+    # #528 — capture probe wall-clock so the SPA can hover-title a
+    # "took Xs" hint on the row. Useful when a host shows `unknown`
+    # status: operators can see at a glance whether it was a fast 5xx
+    # or a slow 30s hang, without grepping logs.
+    _probe_start = time.monotonic()
     try:
         state, (merged, providers) = await asyncio.wait_for(
             _hosts_one_inner(h, force=force),
@@ -4028,18 +4080,24 @@ async def api_hosts_one(host_id: str, force: bool = False):
             status_code=504,
             detail=f"per-host probe budget exceeded (30s) for {host_id}",
         )
+    probe_elapsed_ms = int((time.monotonic() - _probe_start) * 1000)
     any_enabled = bool(state["active"])
     row = _shape_host_api_row(
         h, merged, providers, any_provider_enabled=any_enabled,
     )
-    # SSE — fan-out the freshly-merged row so other tabs of the same
-    # SPA see the update without waiting for their next poll. The
-    # caller's response carries the same shape so its UI hydrates
-    # via the HTTP path; the event is for OTHER subscribed tabs.
-    try:
-        _events.publish("host:row_updated", {"id": host_id, "host": row})
-    except Exception as e:
-        print(f"[events] host:row_updated publish failed: {e}")
+    row["_probe_elapsed_ms"] = probe_elapsed_ms
+    # NO SSE publish here (#515). Earlier this endpoint published
+    # `host:row_updated` so other tabs would see the freshly-merged row
+    # — but the SAME tab subscribes to the bus, so the event triggered
+    # the SPA's `host:row_updated` listener, which called
+    # `refreshHostRow(id)`, which hit THIS endpoint again, which
+    # published another event. Self-sustaining infinite loop, amplified
+    # by N hosts × M tabs. Reads aren't a state change; the events that
+    # legitimately need to push host updates (`host:failure_state_changed`,
+    # `host:history_appended`) are still published from
+    # `host_metrics_sampler`. Other tabs catch up on the next poll cycle
+    # (the SPA gracefully degrades to 30s polling when SSE is connected
+    # — see CLAUDE.md's polling-fallback bullet).
     return {"host": row}
 
 

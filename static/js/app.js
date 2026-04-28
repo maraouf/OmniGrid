@@ -122,6 +122,8 @@ const CURATED_REFRESH_FIELDS = new Set([
   'host_load_1m', 'host_load_5m', 'host_load_15m',
   // Stale-marker bookkeeping.
   '_stale_fields', '_stale_ts',
+  // #528 — probe wall-clock for the status-dot hover-title.
+  '_probe_elapsed_ms',
   // Service-summary surface (Beszel systemd_services rollup).
   'host_services',
 ]);
@@ -210,6 +212,11 @@ function app() {
     _sseConnected: false,
     _sseLastEventTs: 0,
     _sseIdleThresholdMs: 30000,
+    // #529 — running tally of `:overflow` events received this session.
+    // Renders a small amber chip alongside the SSE pill when > 0 so
+    // operators can see "events have been dropped" without watching
+    // the console. Reset to 0 only on full page reload (per-tab state).
+    _sseDropped: 0,
     // Pill-flash signal (#486 enhancement). Reactive boolean that
     // toggles true at the START of each interval-mode poll and back
     // to false ~600ms later, giving the topbar pill a visible green
@@ -645,6 +652,10 @@ function app() {
       // /app/data/logs/ older than this get deleted by the lifespan
       // _log_pruner_loop().
       'tuning_log_retention_days',
+      // #467 — host_snapshots read-side cache TTL in seconds. Was
+      // missing from this list (#516) so the Admin → Process tunables
+      // form silently omitted the row.
+      'tuning_host_snapshots_cache_ttl_seconds',
       // #506 — SPA loadHosts() concurrency cap on per-host
       // /api/hosts/one/<id> fan-out. Read on /api/me into
       // `me.client_config.hosts_parallel_fetch`.
@@ -6105,10 +6116,12 @@ function app() {
           }
         } catch (e) {}
         // Cadence is operator-tunable via Admin → Config →
-        // tuning_ops_poll_interval_ms (#417). Resolved per-tick so a
-        // Save in Admin → Config takes effect on the very next cycle
-        // (after /api/me re-flows on the next page load OR is
-        // refreshed elsewhere). Defaults to 1500 if absent.
+        // tuning_ops_poll_interval_seconds (#417, #514). Backend
+        // multiplies × 1000 before delivery as
+        // `me.client_config.ops_poll_ms`, so the setTimeout call below
+        // still consumes ms. Resolved per-tick so a Save in
+        // Admin → Config takes effect on the very next cycle (after
+        // /api/me re-flows). Defaults to 2 seconds (= 2000 ms) if absent.
         // SSE-fallback gate (#454). When the live event stream is
         // healthy, op deltas arrive via /api/events and re-running the
         // poll is wasted work. Stretch the cadence to a slow keepalive
@@ -6218,7 +6231,19 @@ function app() {
       // resuming the live stream so we know to reconcile via REST.
       es.addEventListener(':overflow', () => {
         onAny();
-        console.warn('[live] event=:overflow — subscriber queue dropped events; reconciling via REST');
+        this._sseDropped += 1;
+        console.warn('[live] event=:overflow — subscriber queue dropped events; reconciling via REST (total dropped this session: ' + this._sseDropped + ')');
+        // #527 — operator-visible signal. Pre-fix this lived in
+        // DevTools console only; an overflow means "your tab missed
+        // events; we just reconciled via REST" — worth a non-intrusive
+        // amber toast so the operator sees the flap and can correlate
+        // with whatever caused the burst.
+        try {
+          this.showToast(
+            this.t('toasts_extra.sse_overflow') || 'Live event stream backlogged — refreshed automatically',
+            'warning'
+          );
+        } catch (_) {}
         try { this.refresh(true); } catch (_) {}
         try { this.loadHistory && this.loadHistory(); } catch (_) {}
         if (this.view === 'hosts') {
@@ -6320,6 +6345,31 @@ function app() {
         // reconcile (#444) keeps each row's <details> open/closed
         // state intact.
         try { this.loadHistory && this.loadHistory(); } catch (_) {}
+      });
+      // #523 — session-cookie sliding window. Backend's
+      // `slide_session_if_needed` publishes this when it bumps the
+      // cookie's expiry past the renewal threshold. SPA refreshes
+      // `me.session_expires_at` (if exposed by /api/me) so any UI hint
+      // ("session expires in X minutes") stays current. The event was
+      // documented in api.md and CLAUDE.md but had no consumer pre-fix
+      // — caught by the SSE-publisher-vs-consumer audit recipe.
+      es.addEventListener('session:renewed', (e) => {
+        onAny();
+        try {
+          const data = JSON.parse(e.data || '{}');
+          const exp = (data.payload && data.payload.expires_at) || null;
+          console.log('[live] event=session:renewed expires_at=' + exp);
+          // Belt-and-braces refresh of /api/me so any session-related
+          // hint (expiry pill / countdown) re-hydrates without a full
+          // page reload. Cheap call (cached server-side); skipped if
+          // /api/me hasn't loaded yet (rare race).
+          if (this.me && typeof fetch === 'function') {
+            fetch('/api/me', { cache: 'no-store' })
+              .then(r => r.ok ? r.json() : null)
+              .then(d => { if (d && d.authenticated) this.me = d; })
+              .catch(() => {});
+          }
+        } catch (_) {}
       });
       es.onerror = () => {
         if (this._sseConnected) {
@@ -11949,6 +11999,21 @@ function app() {
       // Red because this IS a real failure to reach the host.
       if (status === 'unknown') return 'var(--danger)';
       return 'var(--text-faint)';
+    },
+
+    // #528 — hover-title for the host status dot. Surfaces the probe
+    // wall-clock so operators can tell whether an `unknown` status
+    // came from a fast 5xx or a slow 30s hang. Backend stamps
+    // `_probe_elapsed_ms` on every `/api/hosts/one/{id}` response;
+    // missing on the legacy `/api/hosts` path (returns empty string).
+    hostProbeTitle(h) {
+      if (!h || typeof h._probe_elapsed_ms !== 'number') return '';
+      const ms = h._probe_elapsed_ms;
+      const status = h.status || '';
+      const human = ms < 1000
+        ? `${ms} ms`
+        : `${(ms / 1000).toFixed(1)} s`;
+      return this.t('hosts_extra.probe_title', { elapsed: human, status }) || `Probe took ${human}`;
     },
 
     // --- Node drawer (Nodes view → click a node) ---

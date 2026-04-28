@@ -153,7 +153,7 @@ Any HTTPS-terminating proxy works — Nginx Proxy Manager, Traefik, Caddy, plain
 | `STATS_HISTORY_DAYS` | `7` | Retention window for the time-series tables (`stats_samples` / `host_metrics_samples` / `host_net_samples`). |
 | `STATS_SAMPLE_INTERVAL_SECONDS` | `300` | How often the lifespan samplers snapshot into the time-series tables. |
 | `HOST_PERMANENT_FAIL_WINDOW_SECONDS` | `900` | `host_metrics_sampler` auto-pause window after consecutive probe failures. |
-| `OPS_POLL_INTERVAL_MS` | `1500` | SPA `/api/ops` poll cadence (read on `/api/me` as `client_config.ops_poll_ms`). |
+| `OPS_POLL_INTERVAL_SECONDS` | `2` | SPA `/api/ops` poll cadence in seconds; multiplied × 1000 before delivery via `/api/me`'s `client_config.ops_poll_ms` (renamed from `OPS_POLL_INTERVAL_MS` in #514 for operator-friendly admin UI). |
 | `LOG_RETENTION_DAYS` | `7` | Persistent-log retention for `/app/data/logs/` (pruned hourly). |
 | `HOST_SNAPSHOTS_CACHE_TTL_SECONDS` | `5` | Read-side cache TTL on `host_snapshots` to collapse parallel `/api/hosts/one/{id}` reads (set 0 to disable). |
 | `HOSTS_PARALLEL_FETCH` | `6` | Concurrency cap on the SPA's `/api/hosts/one/{id}` fan-out (read on `/api/me` as `client_config.hosts_parallel_fetch`; #508). |
