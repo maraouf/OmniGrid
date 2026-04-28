@@ -8253,13 +8253,20 @@
                 </div>
               </div>
 
-              <!-- Combined Net In/Out + Disk I/O + Load Average grid.
+              <!-- Combined Net In/Out + Disk I/O + Load Average + Ping grid.
                    #318 / #319 / #320 — was 2 separate Net cards; now
                    one Network card with both lines on a shared y-axis,
-                   plus new Disk I/O and Load Average cards. Same gate
-                   as the main grid above. -->
+                   plus new Disk I/O / Load Average cards. The Ping
+                   card lives in this 2-col grid too. Gate widened to
+                   include `h.ping_enabled` so ping-only hosts (no
+                   beszel_id / ne_url) actually see the wrapper —
+                   without this the WHOLE second grid is display:none
+                   and the Ping card is invisible regardless of its
+                   own x-show state. The non-ping cards inside have
+                   per-card x-show gates so they don't render for
+                   ping-only hosts. -->
               <div class="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4"
-                   x-show="(h.beszel_id || h.ne_url) && h.status === 'up' && (h.providers || []).length > 0">
+                   x-show="((h.beszel_id || h.ne_url) && h.status === 'up' && (h.providers || []).length > 0) || h.ping_enabled">
 
                 <!-- ====== Network (combined In + Out, #318) ======
                      Two polylines on one SVG, shared y-axis via
@@ -8419,8 +8426,13 @@
                       <span x-show="hostMetricStats(hostPingHistoryKey(h), 'rtt', false)">
                         <span class="metric-legend-dot" style="background: var(--success)"></span>
                         <span x-text="t('hosts_extra.metrics.ping_rtt')"></span>
+                        <!-- Use minRaw/maxRaw and format as ms locally.
+                             hostMetricStats's `.max` is pre-formatted as
+                             "X B/s" (asPct=false branch uses fmtBytes),
+                             so concatenating " ms" produced "8.6 B/s ms".
+                             ms is the right unit for RTT — format here. -->
                         <span class="legend-val"
-                              x-text="hostMetricStats(hostPingHistoryKey(h), 'rtt', false) ? (hostMetricStats(hostPingHistoryKey(h), 'rtt', false).max + ' ms') : ''"></span>
+                              x-text="hostMetricStats(hostPingHistoryKey(h), 'rtt', false) ? (hostMetricStats(hostPingHistoryKey(h), 'rtt', false).minRaw.toFixed(1) + '–' + hostMetricStats(hostPingHistoryKey(h), 'rtt', false).maxRaw.toFixed(1) + ' ms') : ''"></span>
                       </span>
                     </div>
                   </div>
