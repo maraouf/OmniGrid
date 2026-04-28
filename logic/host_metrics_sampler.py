@@ -60,10 +60,10 @@ _MAX_DELTA_BYTES   = 10 * 1024 * 1024 * 1024  # 10 GB
 _last_counters: dict[str, tuple] = {}  # host_id → variable-length tuple
 
 
-# Concurrency cap on parallel NE probes per tick. Matches the convention
-# elsewhere (REGISTRY_CONCURRENCY=8, STATS_CONCURRENCY=16) — host probes
-# are heavier than registry HEADs but lighter than container stats fans.
-_PROBE_CONCURRENCY = 8
+# #548 — concurrency cap is operator-tunable via
+# `tuning_host_metrics_probe_concurrency` (default 8, range 1-64).
+# Resolved per-tick at the consumer below; module-level constant
+# removed so a tunable change takes effect on the very next tick.
 
 
 # Active-providers parser + curated-hosts walker live in logic/db.py —
@@ -583,7 +583,7 @@ async def host_metrics_sampler_loop() -> None:
             else:
                 hosts = _load_curated_hosts()
                 if hosts:
-                    sem = asyncio.Semaphore(_PROBE_CONCURRENCY)
+                    sem = asyncio.Semaphore(tuning.tuning_int("tuning_host_metrics_probe_concurrency"))
                     # #540 — operator-tunable timeout shared with the
                     # other NE consumers in main.py. Pre-fix this was
                     # 15s while the other sites used 10s — drift class.

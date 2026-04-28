@@ -124,6 +124,38 @@ TUNABLES: dict[str, tuple[str, int, int, int]] = {
     "tuning_rate_limit_max_failures": ("RATE_LIMIT_MAX_FAILURES", 5, 1, 100),
     "tuning_rate_limit_window_seconds": ("RATE_LIMIT_WINDOW_SECONDS", 900, 60, 86400),
     "tuning_rate_limit_lockout_seconds": ("RATE_LIMIT_LOCKOUT_SECONDS", 900, 60, 86400),
+    # #547 — outer host-provider cache TTL (seconds). The Beszel +
+    # Pulse hub batch maps + Webmin creds + active-sources tuple are
+    # cached together for this window; settings saves explicitly
+    # invalidate, so this only matters for the rate at which "no save
+    # happened, but something changed upstream" can re-flow through.
+    # Default 10s. Strict-rule category (d) "trades freshness for cost".
+    "tuning_host_provider_cache_ttl_seconds": ("HOST_PROVIDER_CACHE_TTL_SECONDS", 10, 1, 300),
+    # #546 — per-host Webmin success-cache TTL (seconds). Successful
+    # Webmin probes are cached for this window so burst refreshes
+    # (e.g. SPA fan-out) skip the repeat probe. Default 30s. Lower
+    # for live-feeling drawer reopens; raise to cut Miniserv load.
+    "tuning_webmin_host_cache_ttl_seconds": ("WEBMIN_HOST_CACHE_TTL_SECONDS", 30, 1, 3600),
+    # #546 — per-host Webmin failure-cache TTL (seconds). Failed
+    # Webmin probes are cached for this short window so a hung host
+    # doesn't burn 20s × N parallel calls. Default 5s — tight enough
+    # for fast recovery detection (one Hosts-tab refresh cycle), long
+    # enough to dedupe a fan-out burst. Operators with constantly-
+    # flapping Webmin instances may want 30s+ to suppress the spam.
+    "tuning_webmin_host_fail_cache_ttl_seconds": ("WEBMIN_HOST_FAIL_CACHE_TTL_SECONDS", 5, 1, 3600),
+    # #548 — host_metrics_sampler per-tick NE probe concurrency.
+    # Sampler fan-out cap on parallel node-exporter scrapes inside
+    # one sampling tick. Default 8 — fits a 60-host fleet through 8
+    # workers in ~3 batches without saturating the manager. Lower on
+    # a Pi-class manager; raise on a beefy host or a fleet of many
+    # hosts where serialised batches push past the 5-min interval.
+    "tuning_host_metrics_probe_concurrency": ("HOST_METRICS_PROBE_CONCURRENCY", 8, 1, 64),
+    # #549 — shared per-(host, user) cool-down (seconds) on auth
+    # failures (Webmin + SSH). Same value across both modules so a
+    # single Save covers both. Default 300 (5 min) — long enough to
+    # avoid lockout cascades on bad creds, short enough that operators
+    # don't have to wait an hour after fixing a typo.
+    "tuning_auth_failure_cooldown_seconds": ("AUTH_FAILURE_COOLDOWN_SECONDS", 300, 5, 3600),
 }
 
 

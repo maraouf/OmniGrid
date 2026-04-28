@@ -648,10 +648,13 @@ function app() {
       // still consumes ms in its setTimeout. Resolved per-tick so a
       // Save here takes effect on the next cycle after /api/me re-flows.
       'tuning_ops_poll_interval_seconds',
-      // #424 — persistent-log retention in days. Daily files under
-      // /app/data/logs/ older than this get deleted by the lifespan
-      // _log_pruner_loop().
-      'tuning_log_retention_days',
+      // #424 — persistent-log retention in days. Rendered in
+      // Admin → Logs (Files sub-tab) instead of the generic Process
+      // tunables form so operators looking at the daily log files
+      // have the retention knob ready to hand. The tunable is still
+      // wired through TUNABLES + SettingsIn + i18n; just not shown
+      // here. Same `tuningForm` / `tuningEffective` / `saveTuning`
+      // Alpine state, so no separate plumbing needed.
       // #467 — host_snapshots read-side cache TTL in seconds. Was
       // missing from this list (#516) so the Admin → Process tunables
       // form silently omitted the row.
@@ -663,8 +666,12 @@ function app() {
       // #537 / #538 — SSE heartbeat cadence + connection lifetime.
       'tuning_sse_heartbeat_seconds',
       'tuning_sse_max_lifetime_seconds',
-      // #539 — Webmin probe outer budget.
-      'tuning_webmin_probe_budget_seconds',
+      // #539 — Webmin probe outer budget. Rendered in
+      // Settings → Host stats (Webmin section) instead of the generic
+      // Process tunables form so operators editing Webmin creds have
+      // the budget knob ready to hand. Same `tuningForm` /
+      // `tuningEffective` / `saveTuning` Alpine state — just rendered
+      // in two places only when configured.
       // #540 — node-exporter per-host probe timeout.
       'tuning_node_exporter_probe_timeout_seconds',
       // #541 / #542 — frontend SSE knobs delivered via /api/me.
@@ -674,6 +681,14 @@ function app() {
       'tuning_rate_limit_max_failures',
       'tuning_rate_limit_window_seconds',
       'tuning_rate_limit_lockout_seconds',
+      // #547 / #546 — outer host-provider cache + per-host Webmin caches.
+      'tuning_host_provider_cache_ttl_seconds',
+      'tuning_webmin_host_cache_ttl_seconds',
+      'tuning_webmin_host_fail_cache_ttl_seconds',
+      // #548 — host_metrics_sampler per-tick NE probe concurrency.
+      'tuning_host_metrics_probe_concurrency',
+      // #549 — shared auth-failure cool-down.
+      'tuning_auth_failure_cooldown_seconds',
     ],
     tuningForm: {},
     tuningEffective: {},
@@ -1668,6 +1683,12 @@ function app() {
       }
       else if (tab === 'logs') {
         await this.loadLogs(true);
+        // Logs tab also renders the `tuning_log_retention_days`
+        // settings card (moved from Process tunables) so it needs
+        // the tuningForm/tuningEffective state too. Cheap call,
+        // dedupes against `tuningLoaded` so a re-open doesn't double
+        // fetch.
+        if (!this.tuningLoaded) await this.loadTuning();
         this._startLogPoll();
       }
       // The four ex-Settings sections all read from the same /api/settings
@@ -1675,6 +1696,10 @@ function app() {
       // open so edits from another tab don't go stale.
       else if (['notifications', 'general', 'portainer', 'oidc', 'host_stats'].includes(tab)) {
         await this.loadSettings();
+        // Webmin section in host_stats also renders a tunable card
+        // (tuning_webmin_probe_budget_seconds); ensure tuning state
+        // is available the first time the operator visits.
+        if (tab === 'host_stats' && !this.tuningLoaded) await this.loadTuning();
       }
       else if (tab === 'hosts') {
         await this.loadHostsConfig();
@@ -5700,6 +5725,25 @@ function app() {
       return JSON.stringify(out);
     },
     tuningDirty() { return this._tuningBaseline !== this._tuningSnapshot(); },
+    // Operator-readable order: sort the tunable rows alphabetically
+    // by their resolved (translated) label so the form scans like a
+    // glossary instead of a code-defined sequence. Returns a fresh
+    // array per call — Alpine's reactive iteration doesn't memoise
+    // x-for results, but the array is small (~20 entries) so the
+    // sort cost is sub-millisecond. Falls back to the raw key when a
+    // label translation is missing so a partially-translated bundle
+    // still renders deterministically.
+    sortedTuningKeys() {
+      const keys = (this.tuningKeys || []).slice();
+      const labelOf = (k) => {
+        const lbl = this.t('admin.config.fields.' + k + '.label');
+        // Missing-key fallback returns the path itself (per the i18n
+        // helper's contract); detect that and use the bare key so
+        // the sort doesn't bunch every untranslated row at the top.
+        return (lbl && lbl !== 'admin.config.fields.' + k + '.label') ? lbl : k;
+      };
+      return keys.sort((a, b) => labelOf(a).localeCompare(labelOf(b)));
+    },
     tuningPlaceholder(key) {
       const row = (this.tuningEffective || {})[key] || {};
       const env = row.env;
