@@ -54,10 +54,10 @@ from fastapi import (
     WebSocket,
     WebSocketDisconnect,
 )
-from fastapi.responses import FileResponse, JSONResponse, Response
+from fastapi.responses import FileResponse, JSONResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
-from logic import auth, backups, errors as _err, metrics, oidc, schedules, totp
+from logic import auth, backups, errors as _err, events as _events, metrics, oidc, schedules, totp
 from logic import webauthn_helper as webauthn_h
 from pydantic import BaseModel, field_validator
 
@@ -829,6 +829,124 @@ async def api_op(op_id: str):
     if not op:
         raise HTTPException(404, "Op not found")
     return op.to_dict()
+
+
+# ============================================================================
+# Real-time event stream (SSE)
+# ----------------------------------------------------------------------------
+# Replaces the SPA's polling cadence on cookie-authed callers. Bearer-token
+# machine clients can't easily set custom request headers via EventSource so
+# they keep polling — that's documented in `docs/guidelines/api.md`.
+#
+# Auth: middleware enforces 401 on missing identity for every /api/* path
+# except the documented public/auth-optional set, so this route inherits the
+# standard cookie-OR-bearer check just like /api/ops or /api/items.
+#
+# CSRF: SSE is GET-only; no CSRF cookie check applies (the global middleware
+# only runs CSRF on state-changing methods).
+#
+# Heartbeat: emit a ``: keepalive`` comment every 25s so EventSource can
+# detect a dead TCP connection (browsers don't fire `error` reliably on
+# silent half-open sockets — comments keep the stream alive AND give the
+# client an "I'm alive" hint).
+# ============================================================================
+_SSE_HEARTBEAT_SECONDS = 25
+
+
+def _format_sse(evt: dict) -> str:
+    """One SSE record per event. ``event:`` carries the type, ``data:``
+    is JSON.
+
+    Handles the special ``:overflow`` synthetic emitted by
+    ``logic.events`` when a subscriber's queue dropped events — the
+    SPA reacts by doing a one-shot REST refresh to catch up.
+    """
+    ev_type = evt.get("type") or "message"
+    payload = {
+        "type": ev_type,
+        "ts": evt.get("ts"),
+        "payload": evt.get("payload") or {},
+    }
+    return f"event: {ev_type}\ndata: {json.dumps(payload, default=str)}\n\n"
+
+
+@app.get("/api/events")
+async def api_events(request: Request):
+    """Server-sent events stream — one connection per SPA tab.
+
+    The SPA's polling loops idle while this connection is healthy; if
+    the connection drops, polling resumes within ~30s as the fallback
+    safety net (see static/js/app.js:_sseConnected).
+    """
+
+    async def event_stream():
+        # ``hello`` lands as the first frame so the client can confirm
+        # the upgrade succeeded BEFORE waiting for the first organic
+        # event. Carries process-level diagnostics that the connection-
+        # state indicator surfaces in its tooltip.
+        yield _format_sse({
+            "type": "hello",
+            "ts": time.time(),
+            "payload": {
+                "subscriber_count": _events.subscriber_count(),
+                "heartbeat_seconds": _SSE_HEARTBEAT_SECONDS,
+            },
+        })
+
+        async def producer(queue: asyncio.Queue):
+            """Consume the event-bus iterator and forward into a local
+            queue. Runs as a task so we can race it against the
+            heartbeat timer + the disconnect check.
+            """
+            try:
+                async for evt in _events.bus.subscribe():
+                    await queue.put(evt)
+            except asyncio.CancelledError:
+                raise
+            except Exception as e:
+                # Defensive — log and signal end-of-stream so the
+                # outer loop exits cleanly on bus malfunction.
+                print(f"[events] subscribe iterator failed: {e}")
+                await queue.put(None)
+
+        local: asyncio.Queue = asyncio.Queue()
+        task = asyncio.create_task(producer(local))
+        try:
+            while True:
+                if await request.is_disconnected():
+                    break
+                try:
+                    evt = await asyncio.wait_for(
+                        local.get(), timeout=_SSE_HEARTBEAT_SECONDS,
+                    )
+                except asyncio.TimeoutError:
+                    # No traffic for the heartbeat window — keep the
+                    # socket warm and let the client know we're alive.
+                    yield ": keepalive\n\n"
+                    continue
+                if evt is None:
+                    # Bus signalled end-of-stream; propagate cleanly.
+                    break
+                yield _format_sse(evt)
+        finally:
+            task.cancel()
+            try:
+                await task
+            except (asyncio.CancelledError, Exception):
+                pass
+
+    return StreamingResponse(
+        event_stream(),
+        media_type="text/event-stream",
+        headers={
+            # Disable upstream buffering — nginx + NPM both proxy SSE
+            # by default but the X-Accel-Buffering hint guarantees the
+            # bytes flush per event instead of being chunked.
+            "Cache-Control": "no-cache, no-transform",
+            "X-Accel-Buffering": "no",
+            "Connection": "keep-alive",
+        },
+    )
 
 
 def _history_query(
@@ -3786,11 +3904,18 @@ async def api_hosts_one(host_id: str, force: bool = False):
     state = await _get_host_provider_state(force=force)
     merged, providers = await _merge_one_host(h, state)
     any_enabled = bool(state["active"])
-    return {
-        "host": _shape_host_api_row(
-            h, merged, providers, any_provider_enabled=any_enabled,
-        ),
-    }
+    row = _shape_host_api_row(
+        h, merged, providers, any_provider_enabled=any_enabled,
+    )
+    # SSE — fan-out the freshly-merged row so other tabs of the same
+    # SPA see the update without waiting for their next poll. The
+    # caller's response carries the same shape so its UI hydrates
+    # via the HTTP path; the event is for OTHER subscribed tabs.
+    try:
+        _events.publish("host:row_updated", {"id": host_id, "host": row})
+    except Exception as e:
+        print(f"[events] host:row_updated publish failed: {e}")
+    return {"host": row}
 
 
 def _load_hosts_config() -> list[dict]:

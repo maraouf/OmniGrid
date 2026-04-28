@@ -412,6 +412,19 @@ async def _record_failure(host_id: str, now: float, error: str) -> None:
                     asyncio.create_task(_notify_with_retry())
                 except Exception as e:
                     print(f"[host_metrics_sampler] {host_id!r} notify dispatch failed: {e}")
+                # SSE — paused transition. SPA reacts by re-fetching the
+                # one host (banner appears in the drawer immediately
+                # instead of waiting for the next 15s host poll).
+                try:
+                    from logic import events as _events
+                    _events.publish("host:failure_state_changed", {
+                        "host_id": host_id,
+                        "paused": True,
+                        "consecutive_failures": new_fails,
+                        "last_error": err_short,
+                    })
+                except Exception as ee:
+                    print(f"[events] host:failure_state_changed publish failed: {ee}")
             else:
                 c.execute(
                     "UPDATE host_failure_state SET consecutive_failures = ?, "
@@ -425,11 +438,28 @@ async def _record_failure(host_id: str, now: float, error: str) -> None:
 def _clear_failure(host_id: str) -> None:
     """Clear the failure tracking row on a successful probe. No-op
     when there's no row to clear (the common case)."""
+    had_row = False
     try:
         with db_conn() as c:
-            c.execute("DELETE FROM host_failure_state WHERE host_id = ?", (host_id,))
+            cur = c.execute(
+                "DELETE FROM host_failure_state WHERE host_id = ?",
+                (host_id,),
+            )
+            had_row = (cur.rowcount or 0) > 0
     except Exception as e:
         print(f"[host_metrics_sampler] {host_id!r} failure-state clear error: {e}")
+        return
+    if had_row:
+        # SSE — only publish when something actually cleared. Most ticks
+        # are no-ops (no failure row in the first place) so this avoids
+        # one event per host per tick on a healthy fleet.
+        try:
+            from logic import events as _events
+            _events.publish("host:failure_state_changed", {
+                "host_id": host_id, "paused": False, "cleared": True,
+            })
+        except Exception as e:
+            print(f"[events] host:failure_state_changed clear publish failed: {e}")
 
 
 async def _probe_one(

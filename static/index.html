@@ -502,6 +502,15 @@
       </div>
       <span class="text-[11px] text-[var(--text-faint)] hidden xl:inline order-5 sm:order-none" x-text="cacheLabel"></span>
       <span class="hidden sm:inline flex-1"></span>
+      <!-- Real-time event-stream status (#454). Pill flips between
+           "live" (SSE healthy) and "polling" (fallback). Tooltip
+           explains the source via i18n. -->
+      <div class="sse-pill order-4 sm:order-none"
+           :class="_sseConnected ? 'sse-pill--live' : 'sse-pill--fallback'"
+           :title="t(sseStatusKey())">
+        <span class="sse-pill-dot" aria-hidden="true"></span>
+        <span class="sse-pill-label" x-text="_sseConnected ? t('events.live_label') : t('events.polling_label')"></span>
+      </div>
       <!-- Theme + Hotkeys — small icon buttons. On mobile they live at
            order-4 alongside the language picker so they don't get
            shoved to a new row by the wide SYNC/STATS pills below. -->

@@ -202,7 +202,7 @@ GET / POST / DELETE          /api/tokens[/{id}]
 # Settings & integrations (admin)
 GET    /api/settings
 POST   /api/settings                       additive — null = keep current
-POST   /api/portainer/test                 probe Portainer + verify endpoint id (#360)
+POST   /api/portainer/test                 probe Portainer + verify endpoint id (#358)
 POST   /api/beszel/test
 POST   /api/pulse/test
 POST   /api/webmin/test
@@ -240,7 +240,7 @@ Full schema for each endpoint lives in `main.py` — every route is decorated wi
 - **External stacks** (deployed via `docker stack deploy` CLI and then "discovered" by Portainer) have no compose file stored in Portainer → stack update returns HTTP 400. The Update button is disabled and the detail drawer explains this. Workaround: redeploy via CLI or use the Restart (no-pull) action.
 - **No live Docker events.** The ops panel polls the in-memory event log at 1.5s intervals — good enough for the "kicked off → succeeded / failed" loop, but not a real-time `docker events` stream.
 - **Single-replica only.** State (live ops dict, gather cache, host-stats cache) lives in-memory inside one process. Running multiple replicas would split this state across replicas; the compose placement constraint pins the service to a single manager node by default. Lifespan-managed background tasks (samplers, scheduler, drift watcher) follow the same single-replica invariant.
-- **SQLite-backed only (today).** The `DB_TYPE` env var scaffolds multi-database support but only `sqlite` is wired up. Postgres / MariaDB / MongoDB are tracked in the TODO ([#354 / #355 / #356](notes/note_todo.txt)) for when an operator with an existing managed DB asks for it.
+- **SQLite-backed only (today).** The `DB_TYPE` env var scaffolds multi-database support but only `sqlite` is wired up. Postgres / MariaDB / MongoDB are tracked in the TODO ([#354 / #355 / #390](notes/note_todo.txt)) for when an operator with an existing managed DB asks for it.
 - **Worker-node container ops require Portainer Edge agent.** Container-level write ops (recreate / restart / remove) are routed via `X-PortainerAgent-Target: <hostname>` so Portainer talks to the right Docker daemon. Stack and service ops use Portainer's Swarm-aware endpoints and don't need this.
 - **Time-series retention is bounded.** `STATS_HISTORY_DAYS` defaults to 7. Charts stop having data beyond that window. Bump the env var or push the data to a downstream Prometheus / VictoriaMetrics if you need long-term retention.
 - **Asset-inventory integration is operator-supplied.** OmniGrid joins host rows against an external asset API (model / serial / location). The API contract is documented in [`docs/guidelines/api_services.md`](docs/guidelines/api_services.md); without it the asset card simply doesn't render.

@@ -386,3 +386,17 @@ async def gather_stats() -> None:
         with_stats = sum(1 for v in out.values() if v.get("has_stats"))
         with_size  = sum(1 for v in out.values() if v.get("has_size"))
         print(f"[stats] gather_stats wrote: items={len(out)} has_stats_true={with_stats} has_size_true={with_size}")
+        # SSE — hint-only event. Stats payload is small but the SPA
+        # already has /api/stats wired with TTL-aware caching, so
+        # fire-and-forget with item count + ts is enough; the live
+        # client refreshes via the existing endpoint.
+        try:
+            from logic import events as _events
+            _events.publish("stats:refreshed", {
+                "items": len(out),
+                "with_stats": with_stats,
+                "with_size": with_size,
+                "ts": _stats_cache["ts"],
+            })
+        except Exception as e:
+            print(f"[events] gather_stats publish failed: {e}")

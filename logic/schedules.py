@@ -1178,6 +1178,20 @@ async def fire_schedule(schedule: dict) -> str:
     with db_conn() as c:
         record_run(c, int(schedule["id"]), op_id, duration=None, status=None)
 
+    # SSE — fire START event so the Schedules tab can flip the row's
+    # last_op_id + spinner without waiting for the next 5s poll cycle.
+    try:
+        from logic import events as _events
+        _events.publish("schedule:fired", {
+            "schedule_id": int(schedule["id"]),
+            "name": schedule.get("name"),
+            "kind": kind,
+            "op_id": op_id,
+            "phase": "start",
+        })
+    except Exception as e:
+        print(f"[events] schedule:fired (start) publish failed: {e}")
+
     # Waiter: completes the record_run row with the real duration and
     # status when the op finishes. Fire-and-forget — we don't await it.
     async def _await_and_record():
@@ -1191,6 +1205,22 @@ async def fire_schedule(schedule: dict) -> str:
                 record_run(c, int(schedule["id"]), op_id, duration, status)
         except Exception as e:
             print(f"[scheduler] record_run update for {op_id} failed: {e}")
+        # SSE — fire END event with the resolved duration + status so
+        # the SPA can update the row in place and append the queue
+        # entry without polling.
+        try:
+            from logic import events as _events
+            _events.publish("schedule:fired", {
+                "schedule_id": int(schedule["id"]),
+                "name": schedule.get("name"),
+                "kind": kind,
+                "op_id": op_id,
+                "phase": "end",
+                "duration": duration,
+                "status": status,
+            })
+        except Exception as e:
+            print(f"[events] schedule:fired (end) publish failed: {e}")
 
     asyncio.create_task(_await_and_record())
     return op_id
