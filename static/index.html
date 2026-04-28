@@ -4125,7 +4125,7 @@
             <input type="checkbox" :disabled="isReadonly()"
                    :checked="hasHostStatsSource('pulse')"
                    @change="toggleHostStatsSource('pulse', $event.target.checked)">
-            <span>Pulse (Proxmox VE)</span>
+            <span>Pulse</span>
           </label>
           <label class="inline-flex items-center gap-2">
             <input type="checkbox" :disabled="isReadonly()"
@@ -5903,21 +5903,13 @@
           <p class="text-[10.5px] text-[var(--text-faint)] mt-1"
              x-text="t('admin_ssh.destructive_hint')"></p>
         </div>
-        <div class="flex items-center gap-3 flex-wrap">
-          <button x-show="isAdmin()" @click="saveSshSettings()"
-                  :disabled="sshSettingsBusy"
-                  :class="sshSettingsDirty ? 'ring-2 ring-[var(--warning)]' : ''"
-                  class="btn btn-primary text-[12px]">
-            <span x-show="!sshSettingsBusy" x-text="t('actions.save')"></span>
-            <span x-show="sshSettingsBusy" class="flex items-center gap-1"><span class="spin"></span><span x-text="t('actions.saving')"></span></span>
-          </button>
-          <span x-show="sshSettingsDirty"
-                class="text-[11.5px] text-[var(--warning)] flex items-center gap-1.5">
-            <span class="w-1.5 h-1.5 rounded-full bg-[var(--warning)] animate-pulse"></span>
-            <span class="unsaved-flash" x-text="t('hosts_actions.unsaved_label')"></span>
-          </span>
-        </div>
-        <div class="mt-5 pt-4 border-t border-dashed border-[var(--border)]">
+        <!-- #550 — Test before Save. Operator workflow: configure
+             credentials → verify connectivity against a real host →
+             only THEN commit. Putting Save first asked the operator
+             to "save first, hope it works second" which inverted the
+             dirty-state intent (testing tests the in-form values via
+             the keep-current-if-blank contract on credentials). -->
+        <div class="mb-5 pb-4 border-b border-dashed border-[var(--border)]">
           <h4 class="font-semibold text-[12.5px] mb-1" x-text="t('admin_ssh.test_widget_title')"></h4>
           <p class="text-[11px] text-[var(--text-faint)] mb-2" x-text="t('admin_ssh.test_widget_hint')"></p>
           <div class="flex items-center gap-2 flex-wrap">
@@ -5940,6 +5932,20 @@
                   class="text-[11.5px]"
                   x-text="(sshTestOnHost.result && sshTestOnHost.result.ok ? t('admin_ssh.test_ok_prefix') : t('admin_ssh.test_fail_prefix')) + (sshTestOnHost.result && (sshTestOnHost.result.error || (sshTestOnHost.result.resolved && (sshTestOnHost.result.resolved.user + '@' + sshTestOnHost.result.resolved.host + ':' + sshTestOnHost.result.resolved.port))) || '')"></span>
           </div>
+        </div>
+        <div class="flex items-center gap-3 flex-wrap">
+          <button x-show="isAdmin()" @click="saveSshSettings()"
+                  :disabled="sshSettingsBusy"
+                  :class="sshSettingsDirty ? 'ring-2 ring-[var(--warning)]' : ''"
+                  class="btn btn-primary text-[12px]">
+            <span x-show="!sshSettingsBusy" x-text="t('actions.save')"></span>
+            <span x-show="sshSettingsBusy" class="flex items-center gap-1"><span class="spin"></span><span x-text="t('actions.saving')"></span></span>
+          </button>
+          <span x-show="sshSettingsDirty"
+                class="text-[11.5px] text-[var(--warning)] flex items-center gap-1.5">
+            <span class="w-1.5 h-1.5 rounded-full bg-[var(--warning)] animate-pulse"></span>
+            <span class="unsaved-flash" x-text="t('hosts_actions.unsaved_label')"></span>
+          </span>
         </div>
       </section>
 
