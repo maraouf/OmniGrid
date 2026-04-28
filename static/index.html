@@ -340,22 +340,25 @@
              alone on its own wrap-row read as orphaned (operator
              flag). The user-menu's Settings / Admin / etc. covers
              other navigation. -->
-        <!-- Context-aware manual refresh (#498). Hosts view → refreshes
-             the curated host list + per-host probes (`loadHosts`);
-             every other view → forces an items re-gather (`refresh`).
-             Pre-fix the Hosts view had its own duplicate refresh
-             button in the toolbar; consolidating into one topbar
-             button matches the pattern established by the
-             "Expand/Collapse all" switch at index.html:639. The
+        <!-- Context-aware manual refresh. Hosts view → refreshes the
+             curated host list + per-host probes (`loadHosts`); every
+             other view → forces an items re-gather (`refresh`). The
              spinner gates on whichever loading flag matches the
-             active view so the icon only spins when THAT view's
-             fetch is in flight. -->
+             active view so the icon only spins when THAT view's fetch
+             is in flight, AND the label flips Refresh → Refreshing…
+             so the operator sees ACTION feedback (operator preference:
+             matches the previous Hosts-toolbar version's nicer style
+             over the prior icon-only consolidation). Ghost button +
+             gap-1.5 + label flip mirrors the old Hosts-toolbar shape
+             that operators preferred. -->
         <button @click="view==='hosts' ? loadHosts() : refresh(true)"
                 :disabled="view==='hosts' ? hostsLoading : loading"
-                class="btn btn-soft hidden sm:inline-flex"
+                class="btn btn-ghost text-[12px] hidden sm:inline-flex items-center gap-1.5"
                 :title="t('topbar.refresh_title')">
           <svg width="13" height="13" aria-hidden="true"
                :class="(view==='hosts' ? hostsLoading : loading) ? 'animate-spin' : ''"><use href="#icon-rotate-cw"/></svg>
+          <span x-show="!(view==='hosts' ? hostsLoading : loading)" x-text="t('actions.refresh')"></span>
+          <span x-show="view==='hosts' ? hostsLoading : loading" x-text="t('actions.refreshing')"></span>
         </button>
         <!-- Deploy watcher — only visible when /api/version returns a
              string different from the one captured at page boot.
