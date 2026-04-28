@@ -4100,42 +4100,35 @@
           <h3 class="font-semibold text-[13px]" x-text="t('settings.host_stats.title')"></h3>
         </div>
         <p class="text-[11.5px] text-[var(--text-faint)] mb-3" x-text="t('settings.host_stats.desc')"></p>
-        <label class="block text-[11px] text-[var(--text-faint)] mb-1"
-               x-text="t('settings.host_stats.source_label')"></label>
-        <p class="text-[10.5px] text-[var(--text-faint)] mb-3 italic">
-          Enable one or both. When both are on, node-exporter's richer
-          Linux-native fields (per-mount disks, NICs, kernel detail)
-          overwrite Beszel's values on hosts where the exporter is
-          reachable; Beszel stays authoritative on everything else.
-        </p>
-        <div class="flex flex-wrap gap-4 mb-4 text-[12px] text-[var(--text-dim)]">
-          <label class="inline-flex items-center gap-2">
-            <input type="checkbox" :disabled="isReadonly()"
-                   :checked="hasHostStatsSource('node_exporter')"
-                   @change="toggleHostStatsSource('node_exporter', $event.target.checked)">
-            <span x-text="t('settings.host_stats.source_node_exporter')"></span>
-          </label>
-          <label class="inline-flex items-center gap-2">
-            <input type="checkbox" :disabled="isReadonly()"
-                   :checked="hasHostStatsSource('beszel')"
-                   @change="toggleHostStatsSource('beszel', $event.target.checked)">
-            <span x-text="t('settings.host_stats.source_beszel')"></span>
-          </label>
-          <label class="inline-flex items-center gap-2">
-            <input type="checkbox" :disabled="isReadonly()"
-                   :checked="hasHostStatsSource('pulse')"
-                   @change="toggleHostStatsSource('pulse', $event.target.checked)">
-            <span>Pulse</span>
-          </label>
-          <label class="inline-flex items-center gap-2">
-            <input type="checkbox" :disabled="isReadonly()"
-                   :checked="hasHostStatsSource('webmin')"
-                   @change="toggleHostStatsSource('webmin', $event.target.checked)">
-            <span>Webmin (pkg updates, per-host mounts)</span>
-          </label>
-          <span class="text-[11px] text-[var(--text-faint)] italic"
-                x-show="!hasHostStatsSource('node_exporter') && !hasHostStatsSource('beszel') && !hasHostStatsSource('pulse') && !hasHostStatsSource('webmin')"
-                x-text="t('settings.host_stats.source_none') + ' — host stats disabled'"></span>
+        <!-- #562 — provider TABS replace the prior flat list of source
+             checkboxes + sequential config blocks. Each tab is one
+             provider's full config in isolation; the master enable
+             toggle for that provider lives at the top of its tab body
+             (see the per-tab "Enable" rows below). Tab strip mirrors
+             the Admin tabs (`adminTab`) and Logs sub-tabs (`logsTab`)
+             shape — `hostStatsTab` reactive state, persisted to
+             `localStorage.hostStatsTab`. Adding a sixth provider
+             (SNMP — #344) is one line on this strip + one new tab
+             body below. -->
+        <div class="flex items-center gap-1 border-b border-[var(--border)] mb-4 -mx-1 overflow-x-auto scrollbar">
+          <template x-for="tab in [
+            ['node_exporter', t('settings.host_stats.source_node_exporter')],
+            ['beszel',        t('settings.host_stats.source_beszel')],
+            ['pulse',         'Pulse'],
+            ['webmin',        'Webmin'],
+            ['ping',          t('settings.host_stats.source_ping')],
+          ]" :key="tab[0]">
+            <button @click="setHostStatsTab(tab[0])"
+                    :class="hostStatsTab === tab[0]
+                      ? 'text-[var(--text)] border-[var(--primary)]'
+                      : 'text-[var(--text-dim)] hover:text-[var(--text)] border-transparent'"
+                    class="px-3 py-1.5 text-[12.5px] font-medium border-b-2 -mb-[1px] transition flex items-center gap-1.5 whitespace-nowrap">
+              <span class="w-1.5 h-1.5 rounded-full"
+                    :style="hasHostStatsSource(tab[0]) ? 'background: var(--success)' : 'background: var(--text-faint)'"
+                    :title="hasHostStatsSource(tab[0]) ? t('settings.host_stats.tab_active_dot') : t('settings.host_stats.tab_inactive_dot')"></span>
+              <span x-text="tab[1]"></span>
+            </button>
+          </template>
         </div>
         <!-- Per-provider config blocks (#213) — visible always, inputs
              disabled when the matching toggle in the source-list above
@@ -4143,7 +4136,18 @@
              reads as "saved but inactive" instead of disappearing.
              Operator can audit configured values for a disabled
              provider without flipping it back on. -->
-        <div class="space-y-3" :class="!hasHostStatsSource('node_exporter') ? 'opacity-60' : ''">
+        <div x-show="hostStatsTab === 'node_exporter'" class="space-y-3" :class="!hasHostStatsSource('node_exporter') ? 'opacity-60' : ''">
+          <div class="flex items-center justify-between gap-2 pb-2 border-b border-dashed border-[var(--border)]">
+            <label class="inline-flex items-center gap-2 text-[12px] font-medium">
+              <input type="checkbox" :disabled="isReadonly()"
+                     :checked="hasHostStatsSource('node_exporter')"
+                     @change="toggleHostStatsSource('node_exporter', $event.target.checked)">
+              <span x-text="t('settings.host_stats.tab_enable_label', { provider: t('settings.host_stats.source_node_exporter') })"></span>
+            </label>
+            <span class="chip"
+                  :class="hasHostStatsSource('node_exporter') ? 'pill-ok' : 'pill-muted'"
+                  x-text="hasHostStatsSource('node_exporter') ? t('settings.host_stats.tab_enabled') : t('settings.host_stats.tab_disabled')"></span>
+          </div>
           <div>
             <label class="block text-[11px] text-[var(--text-faint)] mb-1"
                    x-text="t('settings.host_stats.url_label')"></label>
@@ -4210,7 +4214,18 @@
                  the bottom covers this knob via saveHostStats. -->
           </div>
         </div>
-        <div class="space-y-3 mt-4" :class="!hasHostStatsSource('beszel') ? 'opacity-60' : ''">
+        <div x-show="hostStatsTab === 'beszel'" class="space-y-3" :class="!hasHostStatsSource('beszel') ? 'opacity-60' : ''">
+          <div class="flex items-center justify-between gap-2 pb-2 border-b border-dashed border-[var(--border)]">
+            <label class="inline-flex items-center gap-2 text-[12px] font-medium">
+              <input type="checkbox" :disabled="isReadonly()"
+                     :checked="hasHostStatsSource('beszel')"
+                     @change="toggleHostStatsSource('beszel', $event.target.checked)">
+              <span x-text="t('settings.host_stats.tab_enable_label', { provider: t('settings.host_stats.source_beszel') })"></span>
+            </label>
+            <span class="chip"
+                  :class="hasHostStatsSource('beszel') ? 'pill-ok' : 'pill-muted'"
+                  x-text="hasHostStatsSource('beszel') ? t('settings.host_stats.tab_enabled') : t('settings.host_stats.tab_disabled')"></span>
+          </div>
           <div>
             <label class="block text-[11px] text-[var(--text-faint)] mb-1"
                    x-text="t('settings.host_stats.beszel_url_label')"></label>
@@ -4265,7 +4280,18 @@
         <!-- Pulse config — third provider. PVE-only, so it pairs well
              with Beszel (cross-platform) + node-exporter (Linux detail).
              Token is write-only like Beszel's password. -->
-        <div class="space-y-3 mt-4" :class="!hasHostStatsSource('pulse') ? 'opacity-60' : ''">
+        <div x-show="hostStatsTab === 'pulse'" class="space-y-3" :class="!hasHostStatsSource('pulse') ? 'opacity-60' : ''">
+          <div class="flex items-center justify-between gap-2 pb-2 border-b border-dashed border-[var(--border)]">
+            <label class="inline-flex items-center gap-2 text-[12px] font-medium">
+              <input type="checkbox" :disabled="isReadonly()"
+                     :checked="hasHostStatsSource('pulse')"
+                     @change="toggleHostStatsSource('pulse', $event.target.checked)">
+              <span x-text="t('settings.host_stats.tab_enable_label', { provider: 'Pulse' })"></span>
+            </label>
+            <span class="chip"
+                  :class="hasHostStatsSource('pulse') ? 'pill-ok' : 'pill-muted'"
+                  x-text="hasHostStatsSource('pulse') ? t('settings.host_stats.tab_enabled') : t('settings.host_stats.tab_disabled')"></span>
+          </div>
           <div>
             <label class="block text-[11px] text-[var(--text-faint)] mb-1" x-text="t('settings.host_stats.pulse_url_label')"></label>
             <input x-model="settings.pulse_url" type="url"
@@ -4309,7 +4335,18 @@
              per-host (edited in the Hosts tab's webmin_aliases map).
              These fields carry the SHARED credentials that probe every
              Webmin endpoint. Password is write-only like the others. -->
-        <div class="space-y-3 mt-4" :class="!hasHostStatsSource('webmin') ? 'opacity-60' : ''">
+        <div x-show="hostStatsTab === 'webmin'" class="space-y-3" :class="!hasHostStatsSource('webmin') ? 'opacity-60' : ''">
+          <div class="flex items-center justify-between gap-2 pb-2 border-b border-dashed border-[var(--border)]">
+            <label class="inline-flex items-center gap-2 text-[12px] font-medium">
+              <input type="checkbox" :disabled="isReadonly()"
+                     :checked="hasHostStatsSource('webmin')"
+                     @change="toggleHostStatsSource('webmin', $event.target.checked)">
+              <span x-text="t('settings.host_stats.tab_enable_label', { provider: 'Webmin' })"></span>
+            </label>
+            <span class="chip"
+                  :class="hasHostStatsSource('webmin') ? 'pill-ok' : 'pill-muted'"
+                  x-text="hasHostStatsSource('webmin') ? t('settings.host_stats.tab_enabled') : t('settings.host_stats.tab_disabled')"></span>
+          </div>
           <div class="grid grid-cols-1 md:grid-cols-2 gap-2">
             <div>
               <label class="block text-[11px] text-[var(--text-faint)] mb-1" x-text="t('settings.host_stats.webmin_user_label')"></label>
@@ -4407,6 +4444,126 @@
                  saveHostStats / hostStatsDirty) now folds these
                  tunable changes into the same POST so operators have
                  ONE Save action covering the whole tab. -->
+          </div>
+        </div>
+
+        <!-- Ping (#343) — fifth provider. No credentials, no aliases.
+             Defaults flow into per-host config; per-host overrides win.
+             Per-host opt-in still gates probing, so this block is the
+             "globals" panel. -->
+        <div x-show="hostStatsTab === 'ping'" class="space-y-3" :class="!hasHostStatsSource('ping') ? 'opacity-60' : ''">
+          <div class="flex items-center justify-between gap-2 pb-2 border-b border-dashed border-[var(--border)]">
+            <label class="inline-flex items-center gap-2 text-[12px] font-medium">
+              <input type="checkbox" :disabled="isReadonly()"
+                     :checked="hasHostStatsSource('ping')"
+                     @change="toggleHostStatsSource('ping', $event.target.checked)">
+              <span x-text="t('settings.host_stats.tab_enable_label', { provider: t('settings.host_stats.source_ping') })"></span>
+            </label>
+            <span class="chip"
+                  :class="hasHostStatsSource('ping') ? 'pill-ok' : 'pill-muted'"
+                  x-text="hasHostStatsSource('ping') ? t('settings.host_stats.tab_enabled') : t('settings.host_stats.tab_disabled')"></span>
+          </div>
+          <div class="flex items-center gap-2">
+            <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true"><use href="#icon-radio"/></svg>
+            <h4 class="font-semibold text-[12.5px]"
+                x-text="t('settings.host_stats.ping.section_title')"></h4>
+          </div>
+          <p class="text-[10.5px] text-[var(--text-faint)] mt-1"
+             x-text="t('settings.host_stats.ping.section_desc')"></p>
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-2">
+            <div>
+              <label class="block text-[11px] text-[var(--text-faint)] mb-1"
+                     x-text="t('settings.host_stats.ping.default_port_label')"></label>
+              <input x-model="settings.ping_default_port" type="number" min="1" max="65535"
+                     :disabled="isReadonly() || !hasHostStatsSource('ping')"
+                     class="w-full mono text-[11.5px]"
+                     placeholder="443">
+              <p class="text-[10.5px] text-[var(--text-faint)] mt-1"
+                 x-text="t('settings.host_stats.ping.default_port_hint')"></p>
+            </div>
+            <div>
+              <label class="inline-flex items-center gap-2 text-[12px] text-[var(--text-dim)] mb-1">
+                <input type="checkbox" x-model="settings.ping_use_icmp"
+                       :disabled="isReadonly() || !hasHostStatsSource('ping') || !settings.ping_has_icmp_support">
+                <span x-text="t('settings.host_stats.ping.use_icmp_label')"></span>
+              </label>
+              <p class="text-[10.5px] text-[var(--text-faint)]"
+                 x-text="t('settings.host_stats.ping.use_icmp_hint')"></p>
+              <p x-show="!settings.ping_has_icmp_support"
+                 class="text-[10.5px] text-[var(--warning)] mt-1"
+                 x-text="t('settings.host_stats.ping.icmp_unavailable')"></p>
+            </div>
+          </div>
+          <!-- Test button — picks an opted-in host and fires a one-shot
+               live probe via /api/ping/test. -->
+          <div class="flex items-center gap-2 flex-wrap">
+            <button x-show="isAdmin()" @click="testPingConnection()"
+                    :disabled="(pingTestResult && pingTestResult.pending) || !hasHostStatsSource('ping') || !pingTestHostId"
+                    class="btn btn-soft text-[12px]"
+                    x-text="(pingTestResult && pingTestResult.pending) ? t('settings.host_stats.ping.test_running') : t('settings.host_stats.ping.test_button')"></button>
+            <select x-model="pingTestHostId"
+                    :disabled="isReadonly() || !hasHostStatsSource('ping')"
+                    class="text-[11.5px] mono">
+              <option value="" x-text="t('settings.host_stats.ping.test_target_label')"></option>
+              <template x-for="opt in pingEnabledHosts()" :key="opt.id">
+                <option :value="opt.id" x-text="opt.label"></option>
+              </template>
+            </select>
+            <span x-show="pingTestResult && !pingTestResult.pending"
+                  :class="pingTestResult && pingTestResult.ok ? 'text-[var(--success)]' : 'text-[var(--danger)]'"
+                  class="text-[11.5px]"
+                  x-text="(pingTestResult && pingTestResult.detail) || ''"></span>
+            <span x-show="hasHostStatsSource('ping') && !pingEnabledHosts().length"
+                  class="text-[10.5px] text-[var(--text-faint)] italic"
+                  x-text="t('settings.host_stats.ping.test_no_hosts')"></span>
+          </div>
+          <!-- Ping tunables — same Alpine state as the other tunable
+               cards (tuningForm / tuningEffective). Renders inline so
+               operators tweaking ping have everything to hand. -->
+          <div class="mt-3 pt-3 border-t border-[var(--border)] space-y-3"
+               x-show="tuningLoaded">
+            <template x-for="key in [
+              'tuning_ping_interval_seconds',
+              'tuning_ping_concurrency',
+              'tuning_ping_probe_timeout_seconds',
+              'tuning_ping_cooldown_seconds',
+            ]" :key="key">
+              <div class="space-y-1">
+                <label class="block text-[11px] font-medium"
+                       x-text="t('admin.config.fields.' + key + '.label')"></label>
+                <p class="text-[10.5px] text-[var(--text-faint)] leading-snug"
+                   x-text="t('admin.config.fields.' + key + '.help')"></p>
+                <div class="flex flex-wrap items-center gap-2">
+                  <input type="number"
+                         x-model="tuningForm[key]"
+                         :placeholder="tuningPlaceholder(key)"
+                         :min="(tuningEffective[key] || {}).min"
+                         :max="(tuningEffective[key] || {}).max"
+                         :disabled="!isAdmin() || tuningSaving || !hasHostStatsSource('ping')"
+                         class="w-32 mono text-[12px]">
+                  <div class="bounds-chips" role="group"
+                       :aria-label="t('admin.config.bounds.group_label')">
+                    <span class="bounds-chip bounds-chip--min"
+                          :title="t('admin.config.bounds.min_title')">
+                      <svg width="11" height="11" aria-hidden="true"><use href="#icon-arrow-down-to-line"/></svg>
+                      <span x-text="(tuningEffective[key] || {}).min"></span>
+                    </span>
+                    <span class="bounds-chip bounds-chip--max"
+                          :title="t('admin.config.bounds.max_title')">
+                      <svg width="11" height="11" aria-hidden="true"><use href="#icon-arrow-up-to-line"/></svg>
+                      <span x-text="(tuningEffective[key] || {}).max"></span>
+                    </span>
+                    <span class="bounds-chip bounds-chip--default"
+                          :title="t('admin.config.bounds.default_title')">
+                      <svg width="11" height="11" aria-hidden="true"><use href="#icon-target"/></svg>
+                      <span x-text="(tuningEffective[key] || {}).default"></span>
+                    </span>
+                  </div>
+                  <span class="text-[11px] text-[var(--text-dim)] ms-auto"
+                        x-text="t('admin.config.effective_label', { value: (tuningEffective[key] || {}).effective })"></span>
+                </div>
+              </div>
+            </template>
           </div>
         </div>
 
@@ -4872,6 +5029,43 @@
                          :disabled="isReadonly()">
                   <span x-text="t('hosts_extra_ssh.per_host_disabled')"></span>
                 </label>
+              </div>
+              <!-- Row 2b-ping — Per-host ping opt-in (#343). Default OFF.
+                   When checked, optional port + transport overrides
+                   reveal below; they cascade over the globals (defaults
+                   from Settings → Host stats → Ping). Mirrors the
+                   shape of the SSH-disabled checkbox above so the two
+                   read as a uniform per-host control row. -->
+              <div class="grid grid-cols-1 md:grid-cols-[auto_1fr_1fr] gap-3 items-end">
+                <label class="inline-flex items-center gap-2 text-[12px] text-[var(--text-dim)] pb-1.5">
+                  <input type="checkbox"
+                         :checked="!!(row.ping && row.ping.enabled)"
+                         @change="row.ping = Object.assign({}, row.ping || {}, { enabled: $event.target.checked }); markHostRowDirty(idx)"
+                         :disabled="isReadonly()">
+                  <span x-text="t('admin_hosts.provider.ping_enabled_label')"></span>
+                </label>
+                <div x-show="!!(row.ping && row.ping.enabled)">
+                  <label class="block text-[10.5px] uppercase tracking-wider text-[var(--text-faint)] mb-1"
+                         x-text="t('admin_hosts.provider.ping_port_label')"></label>
+                  <input type="number" min="1" max="65535"
+                         :value="row.ping && row.ping.port || ''"
+                         @input="row.ping = Object.assign({}, row.ping || {}, { port: $event.target.value ? parseInt($event.target.value, 10) : null }); markHostRowDirty(idx)"
+                         :disabled="isReadonly()"
+                         class="w-full mono text-[12.5px] py-1.5"
+                         :placeholder="t('admin_hosts.provider.ping_port_placeholder')">
+                </div>
+                <div x-show="!!(row.ping && row.ping.enabled)">
+                  <label class="block text-[10.5px] uppercase tracking-wider text-[var(--text-faint)] mb-1"
+                         x-text="t('admin_hosts.provider.ping_transport_label')"></label>
+                  <select :value="row.ping && row.ping.transport || ''"
+                          @change="row.ping = Object.assign({}, row.ping || {}, { transport: $event.target.value || null }); markHostRowDirty(idx)"
+                          :disabled="isReadonly()"
+                          class="w-full mono text-[12.5px] py-1.5">
+                    <option value="" x-text="t('admin_hosts.provider.ping_transport_default')"></option>
+                    <option value="tcp" x-text="t('admin_hosts.provider.ping_transport_tcp')"></option>
+                    <option value="icmp" x-text="t('admin_hosts.provider.ping_transport_icmp')"></option>
+                  </select>
+                </div>
               </div>
               <!-- Row 2c — FQDN override + per-host password. FQDN wins
                    over the global ssh_fqdn_suffix logic (explicit
@@ -5935,7 +6129,7 @@
                   x-text="(sshTestOnHost.result && sshTestOnHost.result.ok ? t('admin_ssh.test_ok_prefix') : t('admin_ssh.test_fail_prefix')) + (sshTestOnHost.result && (sshTestOnHost.result.error || (sshTestOnHost.result.resolved && (sshTestOnHost.result.resolved.user + '@' + sshTestOnHost.result.resolved.host + ':' + sshTestOnHost.result.resolved.port))) || '')"></span>
           </div>
         </div>
-        <div class="flex items-center gap-3 flex-wrap">
+        <div class="mt-5 flex items-center gap-3 flex-wrap">
           <button x-show="isAdmin()" @click="saveSshSettings()"
                   :disabled="sshSettingsBusy"
                   :class="sshSettingsDirty ? 'ring-2 ring-[var(--warning)]' : ''"
@@ -8150,6 +8344,68 @@
                     </div>
                   </template>
                   <template x-if="!hostChart(hostHistoryKey(h), 'nr')">
+                    <div class="collecting-block">
+                      <svg aria-hidden="true"><use href="#icon-refresh-ccw"/></svg>
+                      <div>
+                        <div x-text="t('loading.collecting_data')"></div>
+                      </div>
+                    </div>
+                  </template>
+                </div>
+
+                <!-- ====== Ping latency (#563) — RTT chart for hosts
+                     opted in via per-host `ping.enabled`. Backend
+                     endpoint `GET /api/hosts/{id}/ping/history` and
+                     SSE event `host:ping_sampled` were shipped in #343;
+                     this is the SPA chart wiring. Card hidden when the
+                     host hasn't opted in (default OFF). Live mode is
+                     push-driven — the existing `host:ping_sampled` SSE
+                     handler refreshes the row's `ping_*` fields and
+                     this card's series via `loadHostPingHistory`. -->
+                <div class="metric-card metric-card--ping"
+                     x-show="h.ping_enabled"
+                     :class="hostChartMax(hostPingHistoryKey(h), ['rtt']) === 0 ? 'metric-card--flat' : ''">
+                  <div class="metric-card-head">
+                    <div class="metric-card-title">
+                      <span x-text="t('hosts_extra.metrics.ping')"></span>
+                      <span class="unit">ms</span>
+                    </div>
+                    <div class="metric-card-stats" style="gap:8px">
+                      <span x-show="h.ping_alive === false"
+                            class="chip pill-error text-[10.5px] px-1.5 py-0"
+                            x-text="t('hosts_extra.metrics.ping_down')"></span>
+                      <span x-show="h.ping_alive === true && (h.ping_loss_pct || 0) > 0"
+                            class="chip pill-update text-[10.5px] px-1.5 py-0"
+                            :title="t('hosts_extra.metrics.ping_loss_title')"
+                            x-text="(h.ping_loss_pct || 0).toFixed(0) + '% loss'"></span>
+                      <span x-show="hostMetricStats(hostPingHistoryKey(h), 'rtt', false)">
+                        <span class="metric-legend-dot" style="background: var(--success)"></span>
+                        <span x-text="t('hosts_extra.metrics.ping_rtt')"></span>
+                        <span class="legend-val"
+                              x-text="hostMetricStats(hostPingHistoryKey(h), 'rtt', false) ? (hostMetricStats(hostPingHistoryKey(h), 'rtt', false).max + ' ms') : ''"></span>
+                      </span>
+                    </div>
+                  </div>
+                  <template x-if="hostChart(hostPingHistoryKey(h), 'rtt') && hostChartMax(hostPingHistoryKey(h), ['rtt']) > 0">
+                    <div class="metric-card-body">
+                      <div class="metric-y-axis">
+                        <template x-for="(l, i) in yAxisAuto(hostChartMax(hostPingHistoryKey(h), ['rtt']), n => Math.round(n) + ' ms')" :key="i">
+                          <span x-text="l"></span>
+                        </template>
+                      </div>
+                      <svg class="metric-svg" viewBox="0 0 420 120" preserveAspectRatio="none">
+                        <path class="metric-grid" :d="hostChart(hostPingHistoryKey(h), 'rtt', { min: 0, max: hostChartMax(hostPingHistoryKey(h), ['rtt']), height: 120 }).gridPath" fill="none"/>
+                        <polyline class="metric-line" style="color: var(--success)"
+                                  :points="hostChart(hostPingHistoryKey(h), 'rtt', { min: 0, max: hostChartMax(hostPingHistoryKey(h), ['rtt']), height: 120 }).points"/>
+                      </svg>
+                      <div class="metric-x-axis">
+                        <template x-for="(l, i) in xAxisFromSeries(hostPingHistoryKey(h), 5)" :key="i">
+                          <span x-text="l"></span>
+                        </template>
+                      </div>
+                    </div>
+                  </template>
+                  <template x-if="!hostChart(hostPingHistoryKey(h), 'rtt')">
                     <div class="collecting-block">
                       <svg aria-hidden="true"><use href="#icon-refresh-ccw"/></svg>
                       <div>

@@ -299,6 +299,14 @@ async def _lifespan(app: FastAPI):
         _host_metrics_sampler.host_metrics_sampler_loop(),
         name="host-metrics-sampler",
     )
+    # Ping reachability sampler (#343) — TCP-connect (or optional ICMP)
+    # probes for hosts that opt in via hosts_config[].ping.enabled.
+    # Same lifespan-only contract; dormant when "ping" isn't in
+    # host_stats_source. Writes to ping_samples; pubs `host:ping_sampled`.
+    from logic import ping_sampler as _ping_sampler
+    ping_sampler = asyncio.create_task(
+        _ping_sampler.ping_sampler_loop(), name="ping-sampler",
+    )
     # Persistent-log pruner (#424) — sweeps /app/data/logs/ once per
     # hour, deletes any omnigrid-YYYY-MM-DD.log older than the
     # operator-tunable retention window.
@@ -308,7 +316,7 @@ async def _lifespan(app: FastAPI):
     finally:
         # Cancel in reverse-start order. Each cancel + await is wrapped so
         # one failing shutdown step can't starve the next one.
-        for task in (log_pruner, host_metrics_sampler, host_net_sampler, scheduler, sampler, seed_task):
+        for task in (log_pruner, ping_sampler, host_metrics_sampler, host_net_sampler, scheduler, sampler, seed_task):
             task.cancel()
             try:
                 await task
@@ -532,6 +540,25 @@ def init_db():
             paused_at REAL,
             last_error TEXT
         );
+
+        -- Ping reachability time-series (#343). Populated by
+        -- logic/ping_sampler.py at tuning_ping_interval_seconds
+        -- cadence; pruned to tuning_stats_history_days (reuses the
+        -- existing retention knob — no separate ping retention).
+        -- ``alive`` is INTEGER 0/1 (SQLite has no native bool). RTT
+        -- columns NULL when the probe got no responses.
+        CREATE TABLE IF NOT EXISTS ping_samples (
+            ts         INTEGER NOT NULL,
+            host_id    TEXT    NOT NULL,
+            alive      INTEGER NOT NULL,
+            rtt_ms     REAL,
+            rtt_min_ms REAL,
+            rtt_max_ms REAL,
+            loss_pct   REAL,
+            PRIMARY KEY (ts, host_id)
+        );
+        CREATE INDEX IF NOT EXISTS idx_ping_samples_host_ts
+            ON ping_samples(host_id, ts DESC);
         COMMIT;
         """)
         # Idempotent column additions for existing deployments. SQLite pre-3.35
@@ -885,10 +912,15 @@ async def api_op(op_id: str):
 # CSRF: SSE is GET-only; no CSRF cookie check applies (the global middleware
 # only runs CSRF on state-changing methods).
 #
-# Heartbeat: emit a ``: keepalive`` comment every 25s so EventSource can
-# detect a dead TCP connection (browsers don't fire `error` reliably on
-# silent half-open sockets — comments keep the stream alive AND give the
-# client an "I'm alive" hint).
+# Heartbeat: emit a real ``event: keepalive`` line every 25s. NOT a
+# comment line — `EventSource.onmessage` doesn't fire for SSE comments,
+# so a comment-only heartbeat keeps the TCP socket alive but never
+# reaches the SPA's freshness watchdog (which advances
+# `_sseLastEventTs` only on real events). Pre-#561 the comment-form
+# caused a 30s-quiet-window false-flip into polling-fallback mode even
+# though the connection was healthy. The real-event form lets the
+# generic onmessage listener bump the timestamp on every heartbeat,
+# AND keeps the socket-warm property the comment had.
 # ============================================================================
 # #537 / #538 — both moved to TUNABLES (tuning_sse_heartbeat_seconds,
 # tuning_sse_max_lifetime_seconds). Resolve at the consumer site via
@@ -1013,8 +1045,17 @@ async def api_events(request: Request):
                     )
                 except asyncio.TimeoutError:
                     # No traffic for the heartbeat window — keep the
-                    # socket warm and let the client know we're alive.
-                    yield ": keepalive\n\n"
+                    # socket warm AND give the SPA's freshness watchdog
+                    # something to consume so it doesn't false-flip
+                    # to polling-fallback during quiet periods (#561).
+                    # Emitted as a real `event: keepalive` line (NOT a
+                    # `: comment` line) because EventSource fires
+                    # `onmessage` only for real events; comment lines
+                    # arrive at the socket but never reach the SPA's
+                    # event handler that advances `_sseLastEventTs`.
+                    # Empty JSON payload — the event's existence is
+                    # the signal, no fields to carry.
+                    yield "event: keepalive\ndata: {}\n\n"
                     continue
                 if evt is None:
                     # Bus signalled end-of-stream; propagate cleanly.
@@ -1325,6 +1366,18 @@ class SettingsIn(BaseModel):
     webmin_password: Optional[str] = None
     webmin_verify_tls: Optional[bool] = None
     webmin_aliases: Optional[dict] = None
+    # Ping (#343) — fifth host-stats provider. Reachability + RTT only,
+    # opt-in per host (hosts_config[].ping.enabled). No credentials, no
+    # aliases — the provider runs against the host's own id (or the
+    # per-host SSH FQDN override). ``ping_default_port`` is the TCP port
+    # used when a per-host row doesn't override; ``ping_use_icmp`` flips
+    # the global default transport when the icmplib package is present
+    # AND the container has CAP_NET_RAW (per-host ``transport``
+    # overrides individually). Three matching tunables resolve via
+    # logic/tuning.py.
+    ping_enabled: Optional[bool] = None
+    ping_default_port: Optional[int] = None
+    ping_use_icmp: Optional[bool] = None
     # Scheduler timezone — IANA name (e.g. "Africa/Cairo"). When set,
     # daily/weekly/monthly schedule anchors are computed in THIS zone
     # instead of the container's localtime. Containers default to UTC;
@@ -1490,6 +1543,11 @@ class SettingsIn(BaseModel):
     tuning_host_metrics_probe_concurrency: Optional[str] = None
     # #549 — shared (Webmin + SSH) per-(host, user) auth-failure cool-down.
     tuning_auth_failure_cooldown_seconds: Optional[str] = None
+    # #343 — Ping host-stats provider knobs.
+    tuning_ping_interval_seconds: Optional[str] = None
+    tuning_ping_concurrency: Optional[str] = None
+    tuning_ping_probe_timeout_seconds: Optional[str] = None
+    tuning_ping_cooldown_seconds: Optional[str] = None
     # -----------------------------------------------------------------
     # Per-event notification toggles. Each maps to one of the
     # 12 (event group × success/failure) notify() call sites in
@@ -1684,6 +1742,17 @@ async def api_get_settings(request: Request):
             "verify_tls": (get_setting("webmin_verify_tls", "false") or "false").lower() == "true",
             "aliases": json.loads(get_setting("webmin_aliases", "{}") or "{}"),
         },
+        # Ping (#343) — no secrets, so fields round-trip in the clear.
+        # ``has_icmp_support`` reflects whether ``icmplib`` is importable
+        # (the container's Python may not have it); the SPA uses this
+        # to disable the ICMP toggle with a hint when the package is
+        # missing.
+        "ping": {
+            "enabled":          get_setting_bool("ping_enabled", False),
+            "default_port":     int(get_setting("ping_default_port", "443") or "443"),
+            "use_icmp":         get_setting_bool("ping_use_icmp", False),
+            "has_icmp_support": (lambda: __import__("logic.ping", fromlist=["has_icmp_support"]).has_icmp_support())(),
+        },
         # SSH console — global defaults (Admin → SSH). Secrets
         # redacted per CLAUDE.md's ``_set`` flag contract: the browser
         # learns only whether a private key / passphrase has been set.
@@ -1876,15 +1945,15 @@ async def api_set_settings(
         raw = (s.host_stats_source or "").strip()
         parts = {t.strip().lower() for t in raw.split(",") if t.strip()}
         parts.discard("none")
-        valid = {"beszel", "node_exporter", "pulse", "webmin"}
+        valid = {"beszel", "node_exporter", "pulse", "webmin", "ping"}
         unknown = parts - valid
         if unknown:
             raise HTTPException(
                 status_code=400,
                 detail=(
                     "host_stats_source must be a CSV of 'beszel' / "
-                    "'node_exporter' / 'pulse' / 'webmin' (or 'none'). "
-                    f"Unknown: {sorted(unknown)}"
+                    "'node_exporter' / 'pulse' / 'webmin' / 'ping' "
+                    f"(or 'none'). Unknown: {sorted(unknown)}"
                 ),
             )
         normalized = ",".join(sorted(parts)) if parts else "none"
@@ -1938,6 +2007,29 @@ async def api_set_settings(
             if str(k).strip() and str(v).strip()
         }
         set_setting("webmin_aliases", json.dumps(clean))
+    # Ping (#343). No secrets — every field round-trips in the clear.
+    # Validation: `ping_default_port` clamped to 1..65535. `ping_enabled`
+    # is the master toggle but this acts as documentation only — the
+    # provider also has to be in `host_stats_source` to actually probe
+    # (handled by `active_host_stats_providers()` upstream).
+    if s.ping_enabled is not None:
+        set_setting("ping_enabled", "true" if s.ping_enabled else "false")
+    if s.ping_default_port is not None:
+        try:
+            p = int(s.ping_default_port)
+        except (TypeError, ValueError):
+            raise HTTPException(
+                status_code=400,
+                detail="ping_default_port must be an integer",
+            )
+        if not (1 <= p <= 65535):
+            raise HTTPException(
+                status_code=400,
+                detail="ping_default_port must be 1-65535",
+            )
+        set_setting("ping_default_port", str(p))
+    if s.ping_use_icmp is not None:
+        set_setting("ping_use_icmp", "true" if s.ping_use_icmp else "false")
     # SSH console — mirrors the webmin / beszel / pulse suffix contract.
     # Private key + passphrase use "keep current if blank". Known hosts
     # and destructive patterns are plain strings (operator clears by
@@ -2479,6 +2571,10 @@ async def api_set_settings(
         "webmin_verify_tls", "webmin_aliases",
         "node_exporter_enabled", "node_exporter_url_template",
         "node_exporter_overrides",
+        # #343 — Ping. No credential to bust the cred-blob hash with;
+        # cache TTL alone catches `ping_enabled` flips after the
+        # 10s window, but we still bust on save for instant feedback.
+        "ping_enabled", "ping_default_port", "ping_use_icmp",
     }
     if _host_provider_fields & set(s.model_dump(exclude_unset=True).keys()):
         invalidate_host_provider_cache()
@@ -3783,6 +3879,28 @@ async def _merge_one_host(h: dict, state: dict, *, force: bool = False) -> tuple
                 _merge_best(merged, stats)
                 providers_hit.append("webmin")
 
+    # Ping (#343) — fifth provider, runs LAST in the merge chain. Only
+    # consults the LATEST stored sample (the sampler does the actual
+    # probing on its own cadence). When this host is opted-out
+    # (``hosts_config[].ping.enabled == False``), we deliberately skip —
+    # no row, no chip, no banner.
+    pcfg = h.get("ping") if isinstance(h.get("ping"), dict) else {}
+    if "ping" in active and pcfg.get("enabled"):
+        from logic import ping_sampler as _ping_sampler
+        from logic import ping as _ping_mod
+        recent = _ping_sampler.last_samples(h["id"], limit=1)
+        if recent:
+            last = recent[0]
+            stats = _ping_mod.to_host_stats({
+                "alive":    last.get("alive"),
+                "rtt_ms":   last.get("rtt_ms"),
+                "loss_pct": last.get("loss_pct"),
+            })
+            if stats:
+                _merge_best(merged, stats)
+                if last.get("alive"):
+                    providers_hit.append("ping")
+
     # Snapshot fallback (#449) — when a provider went down mid-session,
     # fill missing host_* fields from the previous gather's persisted
     # snapshot and tag them in `_stale_fields` so the SPA can dim those
@@ -3908,7 +4026,7 @@ def _shape_host_api_row(
         beszel_st = "down"
     pulse_st = s.get("pulse_status")
     non_beszel_hit = any(
-        p in providers_hit for p in ("pulse", "node_exporter", "webmin")
+        p in providers_hit for p in ("pulse", "node_exporter", "webmin", "ping")
     )
     if non_beszel_hit:
         host_status = "up"
@@ -3988,6 +4106,16 @@ def _shape_host_api_row(
         # loaded. Reads the hosts_config `ssh.disabled` field — if the
         # operator explicitly opted out, the card never renders.
         "ssh_disabled":     bool((h.get("ssh") or {}).get("disabled", False)),
+        # Ping (#343). `ping_enabled` is the per-host opt-in flag (the
+        # SPA uses it to gate the latency chip + drawer chart). The
+        # alive / RTT / loss values come from the merged provider
+        # dict — empty when the sampler hasn't run yet OR ping isn't
+        # enabled for this host. Booleans coerced safely so a
+        # null-from-snapshot doesn't crash the spread.
+        "ping_enabled":     bool((h.get("ping") or {}).get("enabled", False)),
+        "ping_alive":       bool(s.get("host_ping_alive")) if s.get("host_ping_alive") is not None else None,
+        "ping_rtt_ms":      (float(s.get("host_ping_rtt_ms")) if s.get("host_ping_rtt_ms") is not None else None),
+        "ping_loss_pct":    (float(s.get("host_ping_loss_pct")) if s.get("host_ping_loss_pct") is not None else None),
         # Load averages (node-exporter primary, Beszel agents emit
         # `la=[1m,5m,15m]` which `extract_stats` now also surfaces here
         # so the load-average chart works for Beszel-only hosts too).
@@ -4255,6 +4383,10 @@ def _load_hosts_config() -> list[dict]:
             # single global key). Missing or non-dict values collapse
             # to {} so downstream code can always do dict.get(...).
             "ssh":         _clean_host_ssh(h.get("ssh")),
+            # Per-host ping opt-in (#343). Default OFF — operator opts
+            # in per host. Optional `port` + `transport` overrides
+            # cascade over the globals.
+            "ping":        _clean_host_ping(h.get("ping")),
             "enabled":     bool(h.get("enabled", True)),
         })
     return clean
@@ -4303,6 +4435,36 @@ def _clean_host_ssh(raw: Any) -> dict:
         out["password"] = password
     if bool(raw.get("disabled")):
         out["disabled"] = True
+    return out
+
+
+def _clean_host_ping(raw: Any) -> dict:
+    """Normalise the per-host ``ping`` sub-dict (#343).
+
+    Accepts ``enabled`` (bool, default False), ``port`` (int 1..65535
+    or null = use global ``ping_default_port``), and ``transport``
+    (``"tcp"`` / ``"icmp"`` / null = use global ``ping_use_icmp``).
+    Unknown keys are dropped; malformed types collapse to default.
+    Empty input → empty dict (= "no per-host config" — which itself
+    means "ping NOT enabled for this host" because the gate defaults
+    to OFF).
+    """
+    if not isinstance(raw, dict):
+        return {}
+    out: dict = {}
+    if bool(raw.get("enabled")):
+        out["enabled"] = True
+    port = raw.get("port")
+    if port not in (None, "", 0):
+        try:
+            p = int(port)
+            if 1 <= p <= 65535:
+                out["port"] = p
+        except (TypeError, ValueError):
+            pass
+    t = (str(raw.get("transport") or "")).strip().lower()
+    if t in ("tcp", "icmp"):
+        out["transport"] = t
     return out
 
 
@@ -4412,6 +4574,8 @@ def _save_hosts_config(hosts: list[dict]) -> list[dict]:
             # Per-host SSH override block — see _clean_host_ssh for
             # the shape contract. {} when no override is set.
             "ssh":           _clean_host_ssh(h.get("ssh")),
+            # Per-host ping opt-in (#343).
+            "ping":          _clean_host_ping(h.get("ping")),
             "enabled":       bool(h.get("enabled", True)),
         }
     ordered = list(seen.values())
@@ -5740,6 +5904,91 @@ async def api_hosts_history(system_id: str = "", hours: int = 1, host_id: str = 
         hub_url, ident, passw, sid, hours=h, verify_tls=verify,
         host_id=(hid or None),
     )
+
+
+@app.get("/api/hosts/{host_id}/ping/history")
+async def api_hosts_ping_history(
+    host_id: str, hours: int = 1,
+    _admin: auth.User = Depends(auth.require_admin),
+):
+    """Ping reachability time-series for one curated host (#343).
+
+    Mirrors :func:`api_hosts_history` shape — returns
+    ``{points: [...], error: None}`` with one point per
+    ``ping_samples`` row in the window. Empty list when this host
+    has never been probed (sampler hasn't run yet, or the host isn't
+    opted in). Window clamped to 1..168 hours like the Beszel path.
+    """
+    h = max(1, min(168, int(hours or 1)))
+    hid = (host_id or "").strip()
+    if not hid:
+        return {"points": [], "error": "host_id required"}
+    # Reach into the sampler module's read helper (same pattern the
+    # NE-only path uses with ``host_metrics_sampler.recent_samples``).
+    from logic import ping_sampler as _ping_sampler
+    since = int(time.time() - h * 3600)
+    try:
+        rows = _ping_sampler.recent_samples(hid, since, limit=h * 60)
+    except Exception as e:
+        return {"points": [], "error": f"ping_sampler: {e}"}
+    return {"points": rows, "error": None}
+
+
+class PingTestIn(BaseModel):
+    host_id: str
+    # Optional ad-hoc overrides — when blank, the test honours the
+    # host's persisted ping config (or the global defaults). Used by
+    # the Settings-tab "Test ping" button when the operator has typed
+    # values that haven't been saved yet.
+    port: Optional[int] = None
+    transport: Optional[str] = None
+    timeout_seconds: Optional[float] = None
+
+
+@app.post("/api/ping/test")
+async def api_ping_test(
+    body: PingTestIn,
+    _admin: auth.User = Depends(auth.require_admin),
+):
+    """One-shot ping probe against a curated host (#343). Used by the
+    "Test ping" button in Settings → Host stats and the per-host test
+    in Admin → Hosts. Always live (no cache); does NOT write to
+    ``ping_samples`` so test-clicks don't pollute the chart series.
+    """
+    hid = (body.host_id or "").strip()
+    if not hid:
+        raise HTTPException(400, "host_id required")
+    curated = _load_hosts_config()
+    h = next((x for x in curated if x.get("id") == hid), None)
+    if h is None:
+        raise HTTPException(404, f"Host not found: {hid}")
+    # Resolve the probe target the same way the sampler does so the
+    # test result reflects what the sampler will actually probe.
+    ssh_cfg = h.get("ssh") if isinstance(h.get("ssh"), dict) else {}
+    target = (ssh_cfg.get("fqdn") or ssh_cfg.get("host") or hid).strip() or hid
+    pcfg = h.get("ping") if isinstance(h.get("ping"), dict) else {}
+    default_port = int(get_setting("ping_default_port", "443") or "443") or 443
+    port = body.port if body.port is not None else (pcfg.get("port") or default_port)
+    use_icmp_global = get_setting_bool("ping_use_icmp", False)
+    transport = (body.transport or pcfg.get("transport") or "").strip().lower()
+    if transport not in ("tcp", "icmp"):
+        transport = "icmp" if use_icmp_global else "tcp"
+    timeout = float(body.timeout_seconds) if body.timeout_seconds is not None \
+        else float(tuning.tuning_int("tuning_ping_probe_timeout_seconds"))
+    from logic import ping as _ping_mod
+    if transport == "icmp" and not _ping_mod.has_icmp_support():
+        transport = "tcp"
+    result = await _ping_mod.probe_ping(
+        target, port=int(port), transport=transport,
+        timeout_seconds=timeout, count=3,
+    )
+    return {
+        "ok":     bool(result.get("alive")),
+        "host":   target,
+        "port":   int(port),
+        "transport": transport,
+        **result,
+    }
 
 
 @app.get("/api/auth/providers")
