@@ -5908,8 +5908,10 @@
              only THEN commit. Putting Save first asked the operator
              to "save first, hope it works second" which inverted the
              dirty-state intent (testing tests the in-form values via
-             the keep-current-if-blank contract on credentials). -->
-        <div class="mb-5 pb-4 border-b border-dashed border-[var(--border)]">
+             the keep-current-if-blank contract on credentials). The
+             divider is ABOVE the Test block — separates the form
+             fields above from the Test+Save group below. -->
+        <div class="mt-5 pt-4 border-t border-dashed border-[var(--border)]">
           <h4 class="font-semibold text-[12.5px] mb-1" x-text="t('admin_ssh.test_widget_title')"></h4>
           <p class="text-[11px] text-[var(--text-faint)] mb-2" x-text="t('admin_ssh.test_widget_hint')"></p>
           <div class="flex items-center gap-2 flex-wrap">

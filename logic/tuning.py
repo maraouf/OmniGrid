@@ -156,6 +156,17 @@ TUNABLES: dict[str, tuple[str, int, int, int]] = {
     # avoid lockout cascades on bad creds, short enough that operators
     # don't have to wait an hour after fixing a typo.
     "tuning_auth_failure_cooldown_seconds": ("AUTH_FAILURE_COOLDOWN_SECONDS", 300, 5, 3600),
+    # #343 — Ping host-stats provider knobs. All four resolved via the
+    # same DB > env > default tier so operators can tune the sampler's
+    # cadence + per-probe timeout + per-(host, port) cool-down without
+    # editing TUNABLES. Cooldown reuses the Cooldown timer pattern but
+    # has its OWN tunable rather than sharing with the auth cooldown
+    # — Ping has no notion of "credential lockout"; the cool-down here
+    # purely throttles probes against an unreachable host.
+    "tuning_ping_interval_seconds":      ("PING_INTERVAL_SECONDS", 60, 10, 3600),
+    "tuning_ping_concurrency":           ("PING_CONCURRENCY", 16, 1, 128),
+    "tuning_ping_probe_timeout_seconds": ("PING_PROBE_TIMEOUT_SECONDS", 2, 1, 30),
+    "tuning_ping_cooldown_seconds":      ("PING_COOLDOWN_SECONDS", 300, 30, 3600),
 }
 
 
