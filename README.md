@@ -202,7 +202,7 @@ GET / POST / DELETE          /api/tokens[/{id}]
 # Settings & integrations (admin)
 GET    /api/settings
 POST   /api/settings                       additive — null = keep current
-POST   /api/portainer/test                 probe Portainer + verify endpoint id (#358)
+POST   /api/portainer/test                 probe Portainer + verify endpoint id (#499)
 POST   /api/beszel/test
 POST   /api/pulse/test
 POST   /api/webmin/test

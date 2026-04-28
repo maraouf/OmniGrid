@@ -367,23 +367,51 @@ async def callback(request: Request):
     ip = auth._client_ip(request)
     auth.rate_limit_check(ip)
 
+    # Pre-built Set-Cookie header that expires the flow cookie on every
+    # error path (#461 / BUG-006). Pre-fix only the success branch ran
+    # `delete_cookie`; failure paths (state mismatch, token-exchange
+    # 401, id_token validation error, missing email claim) left a
+    # dangling 5-min cookie that could confuse a subsequent flow if the
+    # operator clicked through Authentik again before the TTL expired.
+    # Passing this via `HTTPException(headers=...)` makes FastAPI's
+    # default exception handler emit the Set-Cookie alongside the 4xx
+    # response, so every error path now clears the cookie just like the
+    # success path does.
+    _flow_clear_headers = {
+        "Set-Cookie": f"{FLOW_COOKIE}=; Path=/api/oidc/; Max-Age=0; HttpOnly; SameSite=Lax"
+        + ("; Secure" if _is_https(request) else "")
+    }
+
     flow_cookie = request.cookies.get(FLOW_COOKIE)
     if not flow_cookie:
         auth.rate_limit_record_failure(ip)
-        raise HTTPException(status_code=400, detail="Missing OIDC flow cookie (did the flow time out?)")
+        raise HTTPException(
+            status_code=400,
+            detail="Missing OIDC flow cookie (did the flow time out?)",
+            headers=_flow_clear_headers,
+        )
     flow = _decode_flow(flow_cookie)
     if not flow:
         auth.rate_limit_record_failure(ip)
-        raise HTTPException(status_code=400, detail="Invalid OIDC flow cookie")
+        raise HTTPException(
+            status_code=400, detail="Invalid OIDC flow cookie",
+            headers=_flow_clear_headers,
+        )
 
     code = request.query_params.get("code")
     state = request.query_params.get("state")
     if not code or not state:
         auth.rate_limit_record_failure(ip)
-        raise HTTPException(status_code=400, detail="Missing code/state in callback")
+        raise HTTPException(
+            status_code=400, detail="Missing code/state in callback",
+            headers=_flow_clear_headers,
+        )
     if not hmac.compare_digest(state, flow["state"]):
         auth.rate_limit_record_failure(ip)
-        raise HTTPException(status_code=400, detail="OIDC state mismatch")
+        raise HTTPException(
+            status_code=400, detail="OIDC state mismatch",
+            headers=_flow_clear_headers,
+        )
 
     s = _settings()
     issuer = s["oidc_issuer_url"]
@@ -396,7 +424,11 @@ async def callback(request: Request):
     token_ep = doc.get("token_endpoint")
     jwks_uri = doc.get("jwks_uri")
     if not token_ep or not jwks_uri:
-        raise HTTPException(status_code=502, detail="OIDC discovery missing token_endpoint / jwks_uri")
+        raise HTTPException(
+            status_code=502,
+            detail="OIDC discovery missing token_endpoint / jwks_uri",
+            headers=_flow_clear_headers,
+        )
 
     # Token exchange. Authentik accepts client credentials in either the
     # Authorization header or the body; we use the body for clarity.
@@ -418,12 +450,16 @@ async def callback(request: Request):
         raise HTTPException(
             status_code=401,
             detail=f"OIDC token exchange failed: HTTP {token_resp.status_code} — {token_resp.text[:300]}",
+            headers=_flow_clear_headers,
         )
     tok = token_resp.json()
     id_token = tok.get("id_token")
     if not id_token:
         auth.rate_limit_record_failure(ip)
-        raise HTTPException(status_code=502, detail="OIDC token response missing id_token")
+        raise HTTPException(
+            status_code=502, detail="OIDC token response missing id_token",
+            headers=_flow_clear_headers,
+        )
 
     # --- Validate id_token -------------------------------------------------
     # Per RFC 8414 / OIDC Core, the `iss` claim MUST EXACTLY match the
@@ -450,15 +486,23 @@ async def callback(request: Request):
             status_code=401,
             detail=(f"id_token validation failed: Invalid issuer. "
                     f"Expected {expected_iss!r}, got {actual!r}."),
+            headers=_flow_clear_headers,
         )
     except jwt.PyJWTError as e:
         auth.rate_limit_record_failure(ip)
-        raise HTTPException(status_code=401, detail=f"id_token validation failed: {e}")
+        raise HTTPException(
+            status_code=401, detail=f"id_token validation failed: {e}",
+            headers=_flow_clear_headers,
+        )
 
     email = (claims.get("email") or "").strip().lower()
     if not email:
         auth.rate_limit_record_failure(ip)
-        raise HTTPException(status_code=400, detail="id_token missing 'email' claim — ensure the 'email' scope is granted")
+        raise HTTPException(
+            status_code=400,
+            detail="id_token missing 'email' claim — ensure the 'email' scope is granted",
+            headers=_flow_clear_headers,
+        )
     username = (claims.get("preferred_username") or claims.get("nickname") or email).strip()
     groups = claims.get("groups") or []
     if isinstance(groups, str):
@@ -472,7 +516,10 @@ async def callback(request: Request):
     with db_conn() as c:
         u = auth.auto_provision_authentik(c, email, username, list(groups))
         if u.disabled:
-            raise HTTPException(status_code=403, detail="Account disabled")
+            raise HTTPException(
+                status_code=403, detail="Account disabled",
+                headers=_flow_clear_headers,
+            )
         auth.touch_last_login(c, u.id)
         cookie_value, expires_at = auth.create_session(
             c, u.id, ip, request.headers.get("user-agent"),
@@ -573,9 +620,18 @@ async def _validate_id_token(
 
 
 def _find_key(jwks: dict, kid: Optional[str]) -> Optional[dict]:
+    # Reject `kid is None` (#460 / BUG-005). Pre-fix this returned
+    # `keys[0]` blindly, which during a multi-key JWKS rotation lets an
+    # attacker who suppresses the `kid` header force verification
+    # against whichever key happens to be first in the array — typically
+    # the older key. Authentik always emits `kid`, but a future IdP swap
+    # or a misconfigured one would silently downgrade key selection.
+    # `kid` is OPTIONAL per RFC 7515, but for an OIDC id_token signed by
+    # an IdP that publishes a JWKS, requiring it is the conservative
+    # choice — every spec-compliant IdP we'd integrate with does emit it.
+    if not kid:
+        return None
     keys = jwks.get("keys") or []
-    if kid is None:
-        return keys[0] if keys else None
     for k in keys:
         if k.get("kid") == kid:
             return k

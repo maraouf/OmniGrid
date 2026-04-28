@@ -230,7 +230,18 @@ def verify_registration(
         require_user_verification=False,
     )
     transports_raw = (credential_json.get("response") or {}).get("transports") or []
-    transports = [str(t) for t in transports_raw if isinstance(t, str)]
+    # Whitelist against the documented `AuthenticatorTransport` enum
+    # values (#463 / BUG-008). Pre-fix any client-supplied string was
+    # persisted verbatim — a quirky / malicious client could store
+    # `transports=["evil"]` which then made `make_authentication_options`
+    # fall back to dropping the field entirely. Filter to the official
+    # set so the row stays honest. Lower-case before the membership
+    # check; the upstream enum values are all lower-case.
+    _ALLOWED_TRANSPORTS = {"usb", "nfc", "ble", "internal", "hybrid"}
+    transports = [
+        t.lower() for t in transports_raw
+        if isinstance(t, str) and t.lower() in _ALLOWED_TRANSPORTS
+    ]
     return {
         "credential_id": bytes(verification.credential_id),
         "public_key": bytes(verification.credential_public_key),
@@ -321,4 +332,14 @@ def verify_authentication(
     # `verify_authentication_response` already rejects sign-count
     # regressions for authenticators that DO report a counter. The
     # 0/0 case is left to us: that's normal for password managers.
+    # Defence-in-depth (#462 / BUG-007): explicitly reject any
+    # backwards step in the non-zero range. Past versions of Duo's
+    # webauthn lib (1.x) silently allowed regressions in some edge
+    # cases; pinning >=2.0 covers the published behaviour but keeping
+    # this guard means an upstream regression doesn't silently let
+    # cloned authenticators through.
+    if new_sc and current_sign_count and new_sc < current_sign_count:
+        raise ValueError(
+            f"Sign counter regression: new={new_sc} < current={current_sign_count}"
+        )
     return {"new_sign_count": new_sc}

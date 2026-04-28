@@ -1069,12 +1069,30 @@ def auto_provision_authentik(
     if u is None:
         # Username collisions with a local user get a suffix so we never
         # conflate identities. Email is the real key for Authentik users.
+        # First check the bare username; on collision use a random 4-digit
+        # suffix instead of linear `#2`/`#3`/... probing (#465 / BUG-010).
+        # Linear probing was O(N) — three local users named `alice`,
+        # `alice#2`, `alice#3` cost a fresh Authentik `alice` four DB
+        # round-trips. Random suffix is O(1) in expectation; bounded retry
+        # against the 1-in-9000 collision case.
         uname = username or email
         base = uname
-        n = 1
-        while get_user_by_username(conn, uname) is not None:
-            n += 1
-            uname = f"{base}#{n}"
+        if get_user_by_username(conn, uname) is not None:
+            import random
+            for _ in range(8):  # 8 random tries before falling back
+                candidate = f"{base}#{random.randint(1000, 9999)}"
+                if get_user_by_username(conn, candidate) is None:
+                    uname = candidate
+                    break
+            else:
+                # Statistically unreachable on homelab fleets, but keep
+                # the linear-probe escape hatch so a fully-saturated
+                # 9000-user namespace still lands somewhere unique.
+                n = 1
+                uname = f"{base}#{n}"
+                while get_user_by_username(conn, uname) is not None:
+                    n += 1
+                    uname = f"{base}#{n}"
         u = create_user(conn, uname, email, None, target_role, "authentik")
         return u
     if u.role != target_role:

@@ -852,6 +852,17 @@ async def api_op(op_id: str):
 # ============================================================================
 _SSE_HEARTBEAT_SECONDS = 25
 
+# Force a periodic close + reconnect so the cookie-authed SPA tab gets a
+# session-slide refresh on the new connection (#464 / BUG-009). The
+# auth middleware fires once per request — a long-lived SSE never
+# re-enters it, so without this the cookie's sliding-window 7h refresh
+# would never fire and a >8h connection would silently lapse the session
+# at the hard cap. EventSource auto-reconnects on the synthetic close,
+# re-entering the middleware and triggering `slide_session_if_needed`.
+# Set to 6h so the 1h margin before the hard cap leaves room for clock
+# skew and one more heartbeat round-trip on flaky networks.
+_SSE_MAX_LIFETIME_SECONDS = 6 * 3600
+
 
 def _format_sse(evt: dict) -> str:
     """One SSE record per event. ``event:`` carries the type, ``data:``
@@ -911,9 +922,25 @@ async def api_events(request: Request):
 
         local: asyncio.Queue = asyncio.Queue()
         task = asyncio.create_task(producer(local))
+        started_at = time.time()
         try:
             while True:
                 if await request.is_disconnected():
+                    break
+                # Cap the connection's wall-clock lifetime so the auth
+                # middleware re-fires on the EventSource reconnect and
+                # the session cookie's sliding-window refresh has a
+                # chance to land before the 8h hard cap (#464 /
+                # BUG-009). Emit a synthetic `reconnect` hint so the
+                # SPA logs the cycle in dev-tools network tab; the
+                # `EventSource` API itself reconnects automatically on
+                # any normal end-of-stream.
+                if (time.time() - started_at) > _SSE_MAX_LIFETIME_SECONDS:
+                    yield _format_sse({
+                        "type": "reconnect",
+                        "ts": time.time(),
+                        "payload": {"reason": "lifetime_cap"},
+                    })
                     break
                 try:
                     evt = await asyncio.wait_for(
@@ -1460,6 +1487,9 @@ async def api_get_settings(request: Request):
             "totp_lockout_minutes",
             str(_TOTP_POLICY_DEFAULTS["totp_lockout_minutes"]),
         ) or _TOTP_POLICY_DEFAULTS["totp_lockout_minutes"]),
+        "passkeys_allowed":          get_setting_bool(
+            "passkeys_allowed", _TOTP_POLICY_DEFAULTS["passkeys_allowed"],
+        ),
         # Open-Meteo upstream (Admin → General). Returned in the
         # clear so the input round-trips and reloads persisted. Blank
         # disables the topbar weather widget (see _open_meteo_url).
@@ -3193,88 +3223,25 @@ async def api_hosts():
             f"mounts={len(mounts)} ({[m.get('n') or m.get('name') for m in mounts]}) "
             f"nics={len(nics)}"
         )
-        hosts.append({
-            "id":              h["id"],
-            "name":            h["id"],
-            "host":            h["id"],
-            "label":           h.get("label") or h["id"],
-            "beszel_name":     h.get("beszel_name") or "",
-            "pulse_name":      h.get("pulse_name") or "",
-            "ne_url":          h.get("ne_url") or "",
-            "url":             h.get("url") or "",
-            "icon":            h.get("icon") or "",
-            "providers":       entry["_providers"],
-            # Status priority: explicit Beszel → Pulse → fallback to
-            # "up" when any provider returned non-zero data at all
-            # (node-exporter and Webmin don't emit a status field; if
-            # they answered, the host is clearly alive). Last resort
-            # "unknown" only for hosts with NO provider response.
-            "status":          (
-                s.get("beszel_status")
-                or s.get("pulse_status")
-                or ("up" if entry["_providers"] else "unknown")
-            ),
-            "docker_node":     (h["id"] if _is_swarm_node(h.get("id")) else ""),
-            "platform":        s.get("host_platform") or "",
-            "os":              s.get("host_os") or "",
-            "kernel":          s.get("host_kernel") or "",
-            "arch":            s.get("host_arch") or "",
-            "agent":           s.get("host_agent") or "",
-            # cores falls back to threads — Beszel container-mode
-            # agents skip ``info.c`` (cores) but still emit
-            # ``info.t`` (threads). Pulse's older state endpoint
-            # sometimes omits ``maxcpu`` too. For a host overview,
-            # either number answers the "how much compute does this
-            # machine have" question, so we'd rather show one than
-            # neither.
-            "cores":           s.get("host_cores") or s.get("host_threads") or 0,
-            "threads":         s.get("host_threads") or 0,
-            "cpu_model":       s.get("host_cpu_model") or "",
-            "cpu_percent":     s.get("host_cpu_percent") or 0,
-            "mem_percent":     s.get("host_mem_percent") or 0,
-            "disk_percent":    s.get("host_disk_percent") or 0,
-            "mem_used":        s.get("host_mem_used") or 0,
-            "mem_total":       s.get("host_mem_total") or 0,
-            "disk_used":       s.get("host_disk_used") or 0,
-            "disk_total":      s.get("host_disk_total") or 0,
-            "mounts":          s.get("mounts") or [],
-            "network_ifaces":  s.get("network_ifaces") or [],
-            "bandwidth":       s.get("host_bandwidth") or 0,
-            "containers":      s.get("host_containers") or 0,
-            "uptime_s":        s.get("host_uptime_s") or 0,
-            "boot_ts":         s.get("host_boot_ts"),
-            "beszel_id":       s.get("beszel_id") or "",
-            "beszel_updated":  s.get("beszel_updated") or "",
-            # Pulse-specific metadata for rendering a "Proxmox" facet
-            # in the SYSTEM / HARDWARE card when Pulse contributed.
-            "pulse_kind":      s.get("pulse_kind") or "",        # "node" / "lxc" / "qemu"
-            "pulse_vmid":      s.get("pulse_vmid") or 0,
-            "pulse_node":      s.get("pulse_node") or "",        # PVE host the guest lives on
-            "pulse_status":    s.get("pulse_status") or "",
-            # Webmin — pending + security update counts. Both default
-            # to 0 when Webmin didn't match this host so the UI's
-            # ``x-show="h.updates_pending > 0"`` gate works without
-            # needing to check provider membership.
-            "updates_pending":  int(s.get("host_updates_pending") or 0),
-            "updates_security": int(s.get("host_updates_security") or 0),
-            # Operator-assigned catalogue number from hosts_config — feeds
-            # the "Custom #" sort option in the Hosts view and is the
-            # eventual key for Asset-inventory lookups at <asset-api-host>.
-            "custom_number":    h.get("custom_number"),
-            # Asset-inventory snapshot — null when no match. External
-            # API consumers can read vendor/model/serial/interfaces/
-            # ports here without hitting /api/asset-inventory
-            # separately. Shared resolver with `_shape_host_api_row`
-            # via the module-level mtime-keyed cache.
-            "asset":            _resolve_asset_for_host(h.get("custom_number")),
-            # Stale-marker bookkeeping (#449) — same plumbing as
-            # `_shape_host_api_row`. List of backend host_* keys whose
-            # current value came from the persisted snapshot rather
-            # than a live provider, plus the snapshot's persistence
-            # timestamp. Frontend dims the corresponding bars / fields.
-            "_stale_fields":   list(s.get("_stale_fields") or []),
-            "_stale_ts":       float(s.get("_stale_ts") or 0.0),
-        })
+        # Share `_shape_host_api_row` with the new endpoints (#458/#459).
+        # Pre-fix the legacy `/api/hosts` built its own inline dict that
+        # (a) omitted the `_failure_state_for_host()` spread (sampling_paused
+        # + last_failure_ts + consecutive_failures + last_error never
+        # reached bearer-token clients), and (b) used a 3-tier status
+        # taxonomy that diverged from the canonical six-tier one in
+        # `_shape_host_api_row` (paused→down normalisation, `unconfigured`
+        # for "no provider mapped", `unknown` only for "providers mapped
+        # but no answer"). Scrapers saw false `unknown` → false `down`
+        # alerts in Grafana / Apprise. Calling the helper here keeps the
+        # legacy endpoint a strict superset of the new ones for any
+        # bearer-token client still using it (Homarr widget, scrapers,
+        # external automation). Note the helper's `any_provider_enabled`
+        # arg — pass True since this endpoint only fires when at least
+        # one provider IS active (the early-return at the top of
+        # `api_hosts` short-circuits the no-provider case).
+        hosts.append(
+            _shape_host_api_row(h, s, entry["_providers"], any_provider_enabled=True)
+        )
 
     # Aggregate error — non-fatal; UI shows the first one per provider.
     agg_error = "; ".join(f"{k}: {v}" for k, v in errors.items()) or None
