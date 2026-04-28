@@ -584,7 +584,11 @@ async def host_metrics_sampler_loop() -> None:
                 hosts = _load_curated_hosts()
                 if hosts:
                     sem = asyncio.Semaphore(_PROBE_CONCURRENCY)
-                    async with httpx.AsyncClient(verify=False, timeout=15.0) as client:
+                    # #540 — operator-tunable timeout shared with the
+                    # other NE consumers in main.py. Pre-fix this was
+                    # 15s while the other sites used 10s — drift class.
+                    _ne_timeout = tuning.tuning_int("tuning_node_exporter_probe_timeout_seconds")
+                    async with httpx.AsyncClient(verify=False, timeout=float(_ne_timeout)) as client:
                         await asyncio.gather(
                             *(_probe_one(client, h, sem) for h in hosts),
                             return_exceptions=True,

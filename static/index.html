@@ -1481,14 +1481,20 @@
                 · merged from
                 <span x-text="(hostsActiveSources || []).map(s => s === 'node_exporter' ? 'node-exporter' : s).join(' + ')"></span>
               </span>
-              <!-- Polling-cadence label gated on `statsInterval`. The
-                   Hosts poll timer now uses `statsInterval * 1000`
-                   (was hardcoded 15000) so it actually matches what
-                   the operator picks in the topbar — and this label
-                   reflects that value too via fmtIntervalShort(). -->
-              <span x-show="statsInterval > 0"
-                    x-text="t('hosts_extra.polled_every', { interval: fmtIntervalShort(statsInterval) })"></span>
-              <span x-show="statsInterval === 0" class="text-[var(--warning)]"
+              <!-- Polling-cadence label gated on `refreshInterval`
+                   (the unified picker from #486), NOT `statsInterval`.
+                   `statsInterval === 0` is true in BOTH Live mode AND
+                   Off mode (because Live maps `statsInterval=0` so the
+                   SPA polls idle while SSE pushes), so reading
+                   `statsInterval` alone showed "polling off" even in
+                   Live mode. Now: refreshInterval=-1 → Live label,
+                   refreshInterval=0 → operator-explicit Off (warning
+                   colour), refreshInterval>0 → interval-mode label. -->
+              <span x-show="refreshInterval === -1"
+                    x-text="t('hosts_extra.live_mode')"></span>
+              <span x-show="refreshInterval > 0"
+                    x-text="t('hosts_extra.polled_every', { interval: fmtIntervalShort(refreshInterval) })"></span>
+              <span x-show="refreshInterval === 0" class="text-[var(--warning)]"
                     x-text="t('hosts_extra.polling_off')"></span>
             </span>
           </span>

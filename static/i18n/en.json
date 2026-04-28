@@ -663,6 +663,42 @@
         "tuning_hosts_parallel_fetch": {
           "label": "Hosts fan-out concurrency",
           "help": "Cap on the SPA's PARALLEL /api/hosts/one/{id} calls during a Hosts-tab load / refresh. The SPA fetches the curated host list first (fast skeleton), then fans out per-host probes with this concurrency. Lower it if a slow Webmin / unreachable node-exporter saturates NPM's upstream pool — symptom is 504s on UNRELATED static-asset requests (icons, fonts) because their requests queue behind the slow per-host probes. Raise it on a beefy NPM + manager with many hosts so the Hosts tab paints fully in fewer wall-clock seconds. Default 6. Takes effect on the next /api/me round-trip."
+        },
+        "tuning_sse_heartbeat_seconds": {
+          "label": "SSE heartbeat cadence (seconds)",
+          "help": "How often the /api/events stream emits a `: keepalive` comment so an idle reverse proxy (NPM / Cloudflare / Traefik) doesn't drop the connection on its own idle-keepalive timer. Lower this if your proxy has a tight idle timeout (some defaults are 30s); raise it to cut comment-traffic on long-lived tabs. Default 25 seconds. Takes effect on the NEXT SSE reconnect — already-open connections keep their old cadence until they cycle (every 6h via the lifetime cap, OR after a network drop)."
+        },
+        "tuning_sse_max_lifetime_seconds": {
+          "label": "SSE connection lifetime cap (seconds)",
+          "help": "Forces a periodic close + reconnect on each /api/events stream so the cookie-authed tab re-enters the auth middleware, letting the session-cookie's sliding-window refresh land before the 8-hour session hard cap expires. Default 21600 (6 hours), leaving a 1-hour margin for clock skew + heartbeat round-trip on flaky networks. Do NOT raise past 25200 (7 hours) — the upper bound exists to keep the safety margin against the session hard cap. Lower this aggressively (e.g. 3600 = 1 hour) on networks with frequent NAT timeouts; the SPA's EventSource auto-reconnects on the synthetic close, so the operator never sees the cycle."
+        },
+        "tuning_webmin_probe_budget_seconds": {
+          "label": "Webmin probe budget (seconds)",
+          "help": "Outer wall-clock budget for the per-host Webmin probe (system-status + package-updates + mount + net via Miniserv's three-tier XML/JSON/HTML fallback). Caps how long ONE host's Webmin call can block. Used by both the legacy /api/hosts (fleet-wide) AND the per-host /api/hosts/one paths so they stay in lockstep. Lower it (e.g. 10s) on a fleet of fast Miniservs to surface failures faster; raise it for fleets with slow Webmin instances that need the full XML→JSON→HTML fallback chain. Default 20 seconds. Pairs with the 5s negative-cache TTL so a hung Webmin doesn't burn 20s × N parallel calls."
+        },
+        "tuning_node_exporter_probe_timeout_seconds": {
+          "label": "node-exporter probe timeout (seconds)",
+          "help": "HTTP timeout on every node-exporter scrape, applied uniformly across the legacy /api/hosts fleet probe, the per-host /api/hosts/one probe, the /api/hosts/debug endpoint, AND the lifespan host_metrics_sampler. Lower it on a network where node-exporter usually responds in milliseconds and you want fast-fail on broken hosts; raise it for nodes with deliberately slow exporters or saturated metrics endpoints. Default 10 seconds. Pre-#540 the sampler used 15s while the request-path used 10s — drift that's now closed."
+        },
+        "tuning_sse_idle_threshold_seconds": {
+          "label": "SSE freshness threshold (seconds)",
+          "help": "How long the SPA waits without seeing ANY event (organic or heartbeat) before flipping the live-mode badge to 'polling fallback'. Defence-in-depth on top of EventSource's onerror, which doesn't always fire on silent half-open sockets. Lower it for faster fallback detection on flaky networks (cost: false positives during normal heartbeat gaps); raise it to suppress brief stalls. Default 30 seconds — matches the heartbeat cadence so a stalled stream missing both heartbeats AND organic events triggers fallback within ~2 heartbeat windows. Stored as seconds; SPA multiplies × 1000 for its setInterval comparison."
+        },
+        "tuning_pollops_sse_keepalive_seconds": {
+          "label": "Ops poll keepalive when SSE is up (seconds)",
+          "help": "When SSE is healthy, op deltas arrive via push (the `op:created/updated/completed` events), so /api/ops doesn't need fast polling. The SPA's pollOps loop slows from `tuning_ops_poll_interval_seconds` (the fast cadence) to THIS value as a safety-net keepalive — catches a silently-stalled stream that the freshness watchdog hasn't yet detected. Default 30 seconds, lined up with the freshness threshold so the keepalive fires at-or-before the watchdog flips _sseConnected to false. Lower this if you want belt-and-braces faster recovery; raise it to cut idle traffic when SSE is reliable. Stored as seconds; SPA multiplies × 1000 for setTimeout."
+        },
+        "tuning_rate_limit_max_failures": {
+          "label": "Login rate-limit failures threshold",
+          "help": "Maximum consecutive failed login attempts (per IP, AND independently per IP+username pair) before the account locks out. Default 5 — matches OWASP's recommendation for interactive logins. Lower for high-security deployments (e.g. 3); raise for shared-IP environments where multiple operators may collide on bad-typed-passwords (e.g. 10). Resolved per failed-login attempt so a Save in Admin → Config takes effect immediately."
+        },
+        "tuning_rate_limit_window_seconds": {
+          "label": "Login rate-limit window (seconds)",
+          "help": "Sliding window over which failed login attempts are counted toward the threshold. After N seconds with no further failures the counter resets. Default 900 (15 minutes) — a long enough window to thwart slow-burn brute-force attempts but short enough that a one-off typo from yesterday doesn't carry over. Range 60s (very tight; aggressive recovery) to 86400s (24h; very strict). Resolved per failed-login attempt."
+        },
+        "tuning_rate_limit_lockout_seconds": {
+          "label": "Login lockout duration (seconds)",
+          "help": "Once the failure threshold is hit, how long the IP / IP+username bucket stays locked. Pre-lockout-expiry, every login attempt is rejected without checking the password. Default 900 (15 minutes). Lower for less-paranoid environments where operator typos shouldn't cost much wall-clock; raise (e.g. 3600 = 1 hour, or 86400 = 24h) for high-security deployments where a brute-force attempt should cost the attacker meaningfully. Range 60s-86400s. Resolved per blocked-login check."
         }
       },
       "totp": {
@@ -1301,6 +1337,7 @@
     "open_link_title": "Open {label}",
     "polled_every": " · polled every {interval}",
     "polling_off": " · polling off",
+    "live_mode": " · live (push)",
     "probe_error": "Host probe error: {error}"
   },
   "stale_marker": {
