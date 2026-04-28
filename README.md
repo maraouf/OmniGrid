@@ -152,6 +152,13 @@ Any HTTPS-terminating proxy works — Nginx Proxy Manager, Traefik, Caddy, plain
 | `STATS_CONCURRENCY` | `16` | Parallel `/containers/{id}/stats` calls. |
 | `STATS_HISTORY_DAYS` | `7` | Retention window for the time-series tables (`stats_samples` / `host_metrics_samples` / `host_net_samples`). |
 | `STATS_SAMPLE_INTERVAL_SECONDS` | `300` | How often the lifespan samplers snapshot into the time-series tables. |
+| `HOST_PERMANENT_FAIL_WINDOW_SECONDS` | `900` | `host_metrics_sampler` auto-pause window after consecutive probe failures. |
+| `OPS_POLL_INTERVAL_MS` | `1500` | SPA `/api/ops` poll cadence (read on `/api/me` as `client_config.ops_poll_ms`). |
+| `LOG_RETENTION_DAYS` | `7` | Persistent-log retention for `/app/data/logs/` (pruned hourly). |
+| `HOST_SNAPSHOTS_CACHE_TTL_SECONDS` | `5` | Read-side cache TTL on `host_snapshots` to collapse parallel `/api/hosts/one/{id}` reads (set 0 to disable). |
+| `HOSTS_PARALLEL_FETCH` | `6` | Concurrency cap on the SPA's `/api/hosts/one/{id}` fan-out (read on `/api/me` as `client_config.hosts_parallel_fetch`; #508). |
+
+The authoritative table is [`logic/tuning.py:TUNABLES`](logic/tuning.py); the env-var names above are mirrored from there. Strict rule (CLAUDE.md "No-static-config rule"): every operator-tunable value lives in `TUNABLES` — no hardcoded magic numbers in Python / JS / HTML. Add new knobs there, never as code constants.
 
 OIDC has **no env vars** — every OIDC setting (issuer URL, client ID / secret, redirect URI, scopes, admin group, enable toggle) lives in the DB `settings` table and is edited from `Settings → Authentik OIDC`. See [`docs/guidelines/env_example.md`](docs/guidelines/env_example.md) for the full reference and [`docs/guidelines/authentik.md`](docs/guidelines/authentik.md) for the Authentik-side walkthrough.
 
@@ -196,7 +203,7 @@ POST   /api/local-auth/change-password
 POST   /api/local-auth/bootstrap           one-shot first-admin seed
 GET    /api/oidc/login                     starts the Authorization-Code+PKCE flow
 GET    /api/oidc/callback
-GET    /api/me                             current identity (auth-optional; includes notify-prefs + bootstrap_env_still_set warning)
+GET    /api/me                             current identity + client_config (auth-optional; tunables surfaced for SPA consumers)
 GET / PATCH                  /api/me/{ui-prefs,notify-prefs,profile}    self-service profile + per-user notify opt-in/out
 GET                          /api/me/totp
 POST                         /api/me/totp/{enroll-start,enroll-confirm,regenerate-codes,disable}

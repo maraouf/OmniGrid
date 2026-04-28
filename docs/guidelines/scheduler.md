@@ -104,6 +104,7 @@ dropdown.
 | `gather_refresh`           | `{}`                         | Runs `logic.gather.gather()`.                                                                                                                      |
 | `backup`                   | `{}`                         | Runs `logic.backups.create_backup()` in the default executor. Synthetic op_id (no `ops.py` Operation); writes a direct history row. Use this with `run_at_hhmm` for "nightly backup at 01:00" style schedules. |
 | `asset_inventory_refresh`  | `{}`                         | Reloads the `<asset-api-host>/admin/api` asset cache via `logic.asset_inventory.refresh_cache()`. Synthetic op_id; writes a direct history row.             |
+| `prune_logs`               | `{"days": int?}`             | Sweeps `/app/data/logs/omnigrid-YYYY-MM-DD.log` files older than `params.days` (clamped to `TUNABLES["tuning_log_retention_days"]` `[1, 365]` range; falls back to the live tunable when omitted). Synthetic op_id; writes a direct history row. Same operation the lifespan-managed pruner runs hourly — schedule this for ad-hoc / one-shot cleanups. `target_name` records the resolved `days` so audits show whether the param-override or the tuning fallback fired (#444). |
 
 Examples of likely next kinds (not yet implemented):
 
