@@ -318,7 +318,7 @@
       "profile": "Profile",
       "notifications": "Notifications",
       "portainer": "Portainer",
-      "host_stats": "Host Stats",
+      "host_stats": "Providers",
       "ignores": "Ignore list",
       "oidc": "Authentik OIDC",
       "scheduler": "Scheduler",
@@ -327,8 +327,8 @@
       "security": "Security"
     },
     "host_stats": {
-      "title": "Host Stats",
-      "desc": "Surface real host disk / memory / uptime on the Nodes view. Pick one source: node-exporter (scrape :9100 per host) or Beszel (read a running Beszel Hub's API).",
+      "title": "Providers",
+      "desc": "Configure the data sources OmniGrid uses to surface host telemetry, reachability, and update state. Pick any combination of: node-exporter (Prometheus :9100 scrape), Beszel (agent + Hub), Pulse (Proxmox VE / PBS / PMG), Webmin (Miniserv module probes), and Ping (TCP/ICMP reachability + RTT). Each provider contributes what it knows; the merge layer surfaces a unified view per host.",
       "source_label": "Data source",
       "source_none": "None (Docker-only)",
       "source_node_exporter": "node-exporter",
@@ -582,7 +582,7 @@
       "general": "General",
       "portainer": "Portainer",
       "oidc": "Authentik OIDC",
-      "host_stats": "Host Stats",
+      "host_stats": "Providers",
       "hosts": "Hosts",
       "host_groups": "Host Groups",
       "ssh": "SSH",
