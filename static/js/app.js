@@ -200,6 +200,23 @@ function app() {
       return [0, 5, 15, 30, 60].includes(v) ? v : 15;
     })(),
     activeOps: [],
+    // Real-time event stream (#454). EventSource connection to /api/events;
+    // when healthy, every polling loop in this component idles. When the
+    // stream drops AND we haven't seen a heartbeat for ``_sseIdleThresholdMs``
+    // ms, polling resumes as the fallback. Re-connect retries are handled
+    // by EventSource itself (browser native); we only track the connection
+    // state for the toolbar indicator and the polling-fallback gate.
+    _sse: null,
+    _sseConnected: false,
+    _sseLastEventTs: 0,
+    _sseIdleThresholdMs: 30000,
+    _sseReconnects: 0,
+    // Heartbeat window (server emits ``: keepalive`` every 25s). The
+    // freshness watch ticks once per second to flip _sseConnected back
+    // to false if no traffic arrives for the threshold above. Acts as
+    // a belt-and-braces safety check on top of EventSource's onerror
+    // (which doesn't always fire on silent half-open sockets).
+    _sseFreshnessTimer: null,
     view: (['stacks','services','nodes','hosts','history','settings','admin'].includes(localStorage.getItem('view')) ? localStorage.getItem('view') : 'stacks'),
     search: '', statusFilter: '', healthFilter: '',
     sortField: 'name', sortDir: 'asc',
@@ -878,7 +895,15 @@ function app() {
           // (with its brief loading-spinner flash on every row)
           // is part of the "live updates" they wanted to silence.
           if (this.statsInterval > 0) {
-            this._hostsTimer = setInterval(() => this.loadHosts(), this.statsInterval * 1000);
+            // #454 — when SSE is healthy, host:row_updated /
+            // host:failure_state_changed events drive refreshHostRow
+            // directly. The interval still fires (so the freshness
+            // tooltip ticks + we resume polling within one cadence
+            // window if SSE drops), but the work is conditional.
+            this._hostsTimer = setInterval(() => {
+              if (this._sseConnected) return;
+              this.loadHosts();
+            }, this.statsInterval * 1000);
           }
         } else if (this._hostsTimer) {
           clearInterval(this._hostsTimer);
@@ -972,6 +997,11 @@ function app() {
       this.pollOps();
       this.pollStats();
       this.pollSparks();
+      // Real-time event stream (#454). Connects to /api/events and
+      // gates the polling loops on connection health. Polling is the
+      // explicit fallback — EventSource handles reconnect on its own,
+      // and if reconnect fails for ~30s the polls resume.
+      this._initSSE();
       // If the SPA restored to the Hosts view (saved in localStorage or
       // arrived via /hosts deep-link), trigger the same load+poll the
       // view-watcher does on manual switch.
@@ -3940,7 +3970,17 @@ function app() {
       const tick = async () => {
         await this.loadStats();
         if (this.statsInterval > 0) {
-          this._statsTimer = setTimeout(tick, this.statsInterval * 1000);
+          // #454 — when SSE is healthy the backend pushes a
+          // ``stats:refreshed`` hint after every gather_stats() write;
+          // the listener kicks loadStats() then. The fallback timer
+          // fires only every 5 minutes as a safety net for the case
+          // where the live stream is silently broken AND the
+          // freshness watchdog hasn't yet flipped _sseConnected
+          // back to false.
+          const intervalMs = this._sseConnected
+            ? Math.max(this.statsInterval * 1000, 5 * 60 * 1000)
+            : this.statsInterval * 1000;
+          this._statsTimer = setTimeout(tick, intervalMs);
         } else {
           this._statsTimer = null;
         }
@@ -5920,12 +5960,192 @@ function app() {
         // Save in Admin → Config takes effect on the very next cycle
         // (after /api/me re-flows on the next page load OR is
         // refreshed elsewhere). Defaults to 1500 if absent.
-        const opsPollMs = (this.me && this.me.client_config && this.me.client_config.ops_poll_ms) || 1500;
+        // SSE-fallback gate (#454). When the live event stream is
+        // healthy, op deltas arrive via /api/events and re-running the
+        // poll is wasted work. Stretch the cadence to a slow keepalive
+        // (every 30s) so a stalled stream we haven't yet detected
+        // can't permanently freeze the live panel; the freshness
+        // watchdog flips _sseConnected back to false within 30s of a
+        // real disconnect and the next tick at the slow cadence
+        // resumes regular polling.
+        const fastMs = (this.me && this.me.client_config && this.me.client_config.ops_poll_ms) || 1500;
+        const opsPollMs = this._sseConnected ? 30000 : fastMs;
         this._opsTimer = setTimeout(tick, opsPollMs);
       };
       tick();
     },
     pollOpsNow() { this.pollOps(); },
+
+    // ===================================================================
+    // Real-time event stream (#454)
+    // ===================================================================
+    // EventSource connects to /api/events on cookie-authed browsers and
+    // dispatches one handler per server-side event type. Every existing
+    // poll loop (pollOps / pollStats / refresh / loadHosts / loadHistory)
+    // checks `_sseConnected` and skips its self-scheduled work while the
+    // stream is healthy. EventSource handles reconnect natively; we only
+    // track the connection state for the toolbar indicator + poll-gate.
+    //
+    // Reactive updates use the existing in-place reconcile contract —
+    // never reassign reactive arrays from an event handler (would tear
+    // every chart SVG / <details> / inline-style node down on each
+    // event, defeating the entire purpose of moving from poll → push).
+    _initSSE() {
+      // Defence-in-depth: never start two streams. ``init()`` runs once
+      // per Alpine component instance but a future hot-reload path
+      // could call it twice.
+      if (this._sse) {
+        try { this._sse.close(); } catch (_) {}
+        this._sse = null;
+      }
+      let es;
+      try {
+        es = new EventSource('/api/events', { withCredentials: true });
+      } catch (e) {
+        console.warn('[events] EventSource not supported in this browser — staying on polling', e);
+        return;
+      }
+      this._sse = es;
+      const onAny = () => {
+        this._sseLastEventTs = Date.now();
+        this._sseConnected = true;
+      };
+      es.addEventListener('open', () => {
+        onAny();
+        this._sseReconnects += 1;
+        // First connect carries _sseReconnects === 1 (baseline). Every
+        // bump above 1 represents a recover from a drop — kick a one-
+        // shot REST refresh so the SPA catches up on what it missed
+        // while disconnected.
+        if (this._sseReconnects > 1) {
+          try { this.refresh(true); } catch (_) {}
+          try { if (this.view === 'hosts') this.loadHosts(true); } catch (_) {}
+          try { this.loadHistory && this.loadHistory(); } catch (_) {}
+        }
+      });
+      // ``hello`` is the bus's first frame after upgrade — treat as a
+      // confirmation of healthy stream rather than a real event.
+      es.addEventListener('hello', () => onAny());
+      // ``:overflow`` signals the per-subscriber queue dropped events
+      // (slow consumer / throttled tab). Backend emits this BEFORE
+      // resuming the live stream so we know to reconcile via REST.
+      es.addEventListener(':overflow', () => {
+        onAny();
+        try { this.refresh(true); } catch (_) {}
+        try { this.loadHistory && this.loadHistory(); } catch (_) {}
+        if (this.view === 'hosts') {
+          try { this.loadHosts(true); } catch (_) {}
+        }
+      });
+      es.addEventListener('op:created',   (e) => { onAny(); this._handleOpEvent(e, 'created'); });
+      es.addEventListener('op:updated',   (e) => { onAny(); this._handleOpEvent(e, 'updated'); });
+      es.addEventListener('op:completed', (e) => { onAny(); this._handleOpEvent(e, 'completed'); });
+      es.addEventListener('cache:invalidated', () => {
+        onAny();
+        // Items dataset is large enough that delta-broadcasting it
+        // isn't worth it for V1 — kick a forced refresh instead, and
+        // let the existing in-place reconcile in `refresh()` do its
+        // work without tearing rows down.
+        try { this.refresh(true); } catch (_) {}
+      });
+      es.addEventListener('stats:refreshed', () => {
+        onAny();
+        // Hint event — the stats payload itself isn't broadcast (cheap
+        // to fetch via /api/stats and the existing TTL gate prevents
+        // back-to-back pulls). Skip when statsInterval=0 (operator
+        // explicitly turned stats off) so the master switch still wins.
+        if (this.statsInterval > 0) {
+          try { this.loadStats && this.loadStats(); } catch (_) {}
+        }
+      });
+      es.addEventListener('host:row_updated', (e) => {
+        onAny();
+        try {
+          const data = JSON.parse(e.data || '{}');
+          const id = (data.payload && data.payload.id) || '';
+          if (!id) return;
+          // Reuse the existing per-host refresher so we go through the
+          // same in-place reconcile path (CURATED_REFRESH_FIELDS-style
+          // field-by-field assignment). Forced flag bypasses the 10s
+          // provider-state cache so the freshly-published data lands.
+          if (typeof this.refreshHostRow === 'function') {
+            this.refreshHostRow(id, { force: false }).catch(() => {});
+          }
+        } catch (_) {}
+      });
+      es.addEventListener('host:failure_state_changed', (e) => {
+        onAny();
+        try {
+          const data = JSON.parse(e.data || '{}');
+          const id = (data.payload && data.payload.host_id) || '';
+          if (!id) return;
+          if (typeof this.refreshHostRow === 'function') {
+            this.refreshHostRow(id, { force: false }).catch(() => {});
+          }
+        } catch (_) {}
+      });
+      es.addEventListener('schedule:fired', () => {
+        onAny();
+        // Schedule rows + queue rebuild via the same helpers the
+        // Schedules tab uses. They reconcile in place via #439's
+        // _reconcileById path so re-firing them mid-tab doesn't
+        // tear DOM down.
+        try { this.loadSchedules && this.loadSchedules(); } catch (_) {}
+        try { this.loadScheduleQueue && this.loadScheduleQueue(); } catch (_) {}
+      });
+      es.addEventListener('history:appended', () => {
+        onAny();
+        // Reload via the same paginated endpoint — the in-place
+        // reconcile (#444) keeps each row's <details> open/closed
+        // state intact.
+        try { this.loadHistory && this.loadHistory(); } catch (_) {}
+      });
+      es.onerror = () => {
+        // EventSource auto-reconnects with its own backoff. We just
+        // surface the visible "polling" badge until ``open`` fires
+        // again. Belt-and-braces — the freshness watcher below also
+        // flips the flag if no traffic arrives within the threshold.
+        this._sseConnected = false;
+      };
+      // Freshness watchdog: flip _sseConnected to false if no event
+      // (organic OR heartbeat) arrives within the idle threshold. EOL
+      // catches the case where the TCP connection silently dies and
+      // EventSource doesn't fire `error` immediately.
+      if (this._sseFreshnessTimer) clearInterval(this._sseFreshnessTimer);
+      this._sseFreshnessTimer = setInterval(() => {
+        if (!this._sseLastEventTs) return;
+        const idle = Date.now() - this._sseLastEventTs;
+        if (idle > this._sseIdleThresholdMs) {
+          this._sseConnected = false;
+        }
+      }, 1000);
+    },
+
+    _handleOpEvent(e, phase) {
+      try {
+        const data = JSON.parse(e.data || '{}');
+        const p = data.payload || {};
+        // Defer to pollOps's existing logic — it handles the linger
+        // window, toast notifications, and the post-op refresh kicks.
+        // Calling it as a one-off here gives the same effect as a
+        // 1.5s tick landing on the operator's screen ~immediately.
+        this.pollOpsNow();
+        // Special-case: ``op:completed`` for an op we DID see running
+        // also triggers the items refresh. pollOpsNow's own justDone
+        // path picks this up so we don't double-fire here.
+        void p; void phase;
+      } catch (_) {}
+    },
+
+    // Helper for the toolbar indicator — exposes a concise status string
+    // for the i18n-bound title attribute.
+    sseStatusKey() {
+      if (this._sseConnected) return 'events.connected_title';
+      // Distinguish "never connected" from "dropped + retrying".
+      if (this._sse && this._sseLastEventTs) return 'events.reconnecting_title';
+      return 'events.disconnected_title';
+    },
+
     setAutoRefresh(seconds) {
       this.autoRefresh = seconds;
       try { localStorage.setItem('autoRefresh', String(seconds)); } catch {}

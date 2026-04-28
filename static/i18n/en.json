@@ -65,6 +65,13 @@
     "hotkeys_title": "Keyboard shortcuts (?)",
     "cleanup_title": "Remove all {count} stopped/failed container(s)"
   },
+  "events": {
+    "live_label": "Live",
+    "polling_label": "Polling",
+    "connected_title": "Real-time event stream connected — live updates via /api/events. Polling loops are idle while this stream is healthy.",
+    "disconnected_title": "Real-time event stream not connected — using polling as a fallback. The SPA will automatically switch back to live updates when the stream recovers.",
+    "reconnecting_title": "Real-time event stream dropped — polling has resumed and the browser is auto-reconnecting in the background."
+  },
   "user_menu": {
     "profile": "Profile",
     "settings": "Settings",

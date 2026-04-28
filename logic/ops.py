@@ -22,7 +22,7 @@ from typing import Optional
 
 import httpx
 
-from logic import gather, metrics, portainer
+from logic import events, gather, metrics, portainer
 from logic.db import db_conn, get_setting, get_setting_bool
 
 
@@ -98,11 +98,27 @@ class Operation:
     def log(self, msg: str, level: str = "info"):
         self.events.append({"ts": time.time(), "level": level, "msg": msg})
         print(f"[op {self.id}] {level}: {msg}")
+        # SSE — publish a minimal delta. Full op shape is available
+        # via /api/ops/{id} if the consumer wants it; the live panel
+        # only needs id + status + last-event so it can update the
+        # row in place without re-fetching the world.
+        events.publish("op:updated", {
+            "id": self.id, "op_type": self.op_type, "status": self.status,
+            "target_name": self.target_name, "last_event": {
+                "ts": time.time(), "level": level, "msg": msg,
+            },
+        })
 
     def done(self, status: str, error: Optional[str] = None):
         self.status = status
         self.ended = time.time()
         self.error = error
+        # SSE — terminal transition. Consumer correlates by id.
+        events.publish("op:completed", {
+            "id": self.id, "op_type": self.op_type, "status": status,
+            "target_name": self.target_name, "error": error,
+            "duration": (self.ended or time.time()) - self.started,
+        })
 
     def to_dict(self):
         return {
@@ -131,6 +147,13 @@ def new_op(op_type: str, target_id: str, target_name: str,
         dead = ops_order.pop()
         if ops.get(dead) and ops[dead].status != "running":
             ops.pop(dead, None)
+    # SSE — surface the new op so the live panel slides it in
+    # immediately rather than waiting for the next 1.5s poll cycle.
+    events.publish("op:created", {
+        "id": op.id, "op_type": op.op_type, "status": op.status,
+        "target_name": op.target_name, "target_stack": op.target_stack,
+        "actor": op.actor, "started": op.started,
+    })
     return op
 
 
@@ -138,19 +161,29 @@ def persist_history(op: Operation) -> None:
     """Write a finished op to the ``history`` table and bump the
     Prometheus ops counter. Called from every _do_* handler's
     finally-block so there's a single instrumentation point."""
+    duration = (op.ended or time.time()) - op.started
     with db_conn() as c:
-        c.execute(
+        cur = c.execute(
             "INSERT INTO history "
             "(ts,op_type,target_name,target_id,target_stack,status,duration,events,error,actor) "
             "VALUES (?,?,?,?,?,?,?,?,?,?)",
             (op.started, op.op_type, op.target_name, op.target_id, op.target_stack,
-             op.status, (op.ended or time.time()) - op.started,
+             op.status, duration,
              json.dumps(op.events), op.error, op.actor),
         )
+        history_id = cur.lastrowid
     try:
         metrics.OPS_TOTAL.labels(op_type=op.op_type, status=op.status).inc()
     except Exception as e:
         print(f"[metrics] OPS_TOTAL inc failed: {e}")
+    # SSE — fire AFTER the row commits so the SPA's prepend lands a
+    # row that's already visible to /api/history.
+    events.publish("history:appended", {
+        "id": history_id, "ts": op.started, "op_type": op.op_type,
+        "target_name": op.target_name, "target_id": op.target_id,
+        "target_stack": op.target_stack, "status": op.status,
+        "duration": duration, "error": op.error, "actor": op.actor,
+    })
 
 
 # ---------------------------------------------------------------------

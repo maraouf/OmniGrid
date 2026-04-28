@@ -121,6 +121,89 @@ Most endpoints return JSON. Common shapes:
 {"detail":"<message>"}  // FastAPI default; HTTP code in the response status
 ```
 
+## Real-time events
+
+OmniGrid streams live deltas over an SSE channel at `GET /api/events`. The
+SPA connects automatically and gates its polling loops on the connection's
+health — the toolbar pill flips to "Live" once the stream is up. Headless /
+machine clients can subscribe too, but most should stay on polling (see
+"Auth" below).
+
+### Connection contract
+
+- **Method**: `GET /api/events`
+- **Content-Type**: `text/event-stream`
+- **Headers set on response**: `Cache-Control: no-cache, no-transform`,
+  `X-Accel-Buffering: no`, `Connection: keep-alive`. The latter two prevent
+  upstream proxies (nginx / NPM / Traefik) from buffering frames.
+- **Auth**: cookie session OR bearer token — same as every other `/api/*`
+  route. Cookie-authed callers DO NOT need a CSRF token (SSE is GET-only;
+  CSRF is only enforced on state-changing methods).
+- **Heartbeat**: server emits a `: keepalive` comment line every 25 seconds
+  with no traffic. Clients should treat ~30s without ANY frame as "stream
+  is dead" and reconnect.
+- **Reconnect**: browsers' `EventSource` reconnects automatically with its
+  own backoff. Headless clients implementing SSE should follow the same
+  pattern.
+
+### Event types
+
+Each frame is `event: <type>\ndata: <json>\n\n` where the JSON body is
+`{"type": "<type>", "ts": <epoch>, "payload": {...}}`. Payload shape per
+type:
+
+| Type | Fired when | Payload (selected fields) |
+|---|---|---|
+| `hello` | First frame after upgrade | `{subscriber_count, heartbeat_seconds}` — confirms the upgrade succeeded. |
+| `op:created` | A new background op (update / restart / remove / prune) starts. | `{id, op_type, status, target_name, target_stack, actor, started}` |
+| `op:updated` | Op progresses (logs an event, transitions a substep). | `{id, op_type, status, target_name, last_event:{ts, level, msg}}` |
+| `op:completed` | Op terminates (success / error). | `{id, op_type, status, target_name, error, duration}` |
+| `cache:invalidated` | Items cache has been marked stale (post-op refresh, settings save). | `{reason}` |
+| `stats:refreshed` | `gather_stats()` finished a cycle. | `{items, with_stats, with_size, ts}` — hint only; consumers refetch via `/api/stats`. |
+| `host:row_updated` | One curated host's merged row was recomputed. | `{id, host: <full row dict>}` |
+| `host:failure_state_changed` | Host sampler paused / cleared a host. | `{host_id, paused, consecutive_failures?, last_error?, cleared?}` |
+| `schedule:fired` | A schedule started or finished (two events per fire). | `{schedule_id, name, kind, op_id, phase: "start"\|"end", duration?, status?}` |
+| `history:appended` | A new row was written to the `history` table. | `{id, ts, op_type, target_name, target_id, target_stack, status, duration, error, actor}` |
+| `:overflow` | Synthetic — the per-subscriber queue dropped events. | `{}` — react with a one-shot REST refresh. |
+
+Event names use a `<noun>:<verb>` convention; new event types follow the
+same shape. Payloads are intentionally narrow — consumers that need the
+full server-side resource shape should refetch via the REST endpoint
+keyed on the payload's id field.
+
+### Client guidance
+
+- **Browser SPA**: connects automatically — no opt-in. The toolbar status
+  pill ("Live" / "Polling") is the operator's cue. Polling resumes if the
+  stream drops for more than ~30s.
+- **Bearer-token machine clients**: stay on polling. Browser `EventSource`
+  can't easily attach an `Authorization` header — the server accepts a
+  bearer over SSE just fine, but very few SSE client libraries support it
+  cleanly. Use `/api/items` / `/api/ops` / `/api/history` on whatever
+  cadence your scripts need; the polling endpoints are not deprecated and
+  serve the same payloads they always have.
+- **Slow consumers**: each subscriber gets a bounded queue (256 events).
+  When the queue fills, oldest events are dropped and the next frame the
+  consumer reads is `:overflow`. React by reconciling state via REST —
+  events are ephemeral; there's no replay.
+- **Multiple connections**: each tab opens its own subscriber. Server cost
+  is one async task + one queue per connection. The single-replica deploy
+  invariant means horizontal scale-out would replace this design rather
+  than extend it.
+
+### Curl example
+
+```bash
+COOKIE_JAR=/tmp/omnigrid-cookies.txt
+# Cookie auth (after a successful /api/local-auth/login)
+curl -sN -c "$COOKIE_JAR" -b "$COOKIE_JAR" \
+  -H 'Accept: text/event-stream' \
+  https://omnigrid.example.com/api/events
+```
+
+You'll see `event: hello\ndata: {...}\n\n`, then live events as they
+fire, with `: keepalive` comments every 25s during quiet periods.
+
 ## Common workflows
 
 ### Watch the cluster

@@ -134,9 +134,24 @@ def _match_hosts_row(host: str, hosts_cfg: list[dict]) -> Optional[dict]:
     return None
 
 
-def invalidate_cache() -> None:
-    """Mark the cache stale so the next gather request rebuilds it."""
+def invalidate_cache(reason: Optional[str] = None) -> None:
+    """Mark the cache stale so the next gather request rebuilds it.
+
+    Optional ``reason`` is passed through to the SSE ``cache:invalidated``
+    event payload so the SPA can log "post-op refresh" / "settings save"
+    / etc. without sprinkling extra publish() calls at every caller.
+    """
     _cache["ts"] = 0
+    # SSE — tell live SPA clients the items dataset is stale. They
+    # react with a /api/items?force=true refresh. Imported lazily to
+    # keep this hot path independent of the events module's load
+    # state (the ``logic`` package import order has gather pulled in
+    # before events on first boot).
+    try:
+        from logic import events as _events
+        _events.publish("cache:invalidated", {"reason": reason or ""})
+    except Exception as e:
+        print(f"[events] invalidate_cache publish failed: {e}")
 
 
 # ---------------------------------------------------------------------

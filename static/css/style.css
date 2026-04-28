@@ -3200,6 +3200,59 @@ body.login {
     background: var(--surface-3);
 }
 
+/* Real-time event-stream indicator (#454). Compact pill in the topbar
+   that flips between live (SSE healthy) and polling (fallback). All
+   colour tokens come from existing :root vars — no theme-specific
+   literals. */
+.sse-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px var(--s-2);
+    border-radius: var(--r-md);
+    border: 1px solid var(--border);
+    background: var(--surface-2);
+    color: var(--text-dim);
+    font-size: 11px;
+    font-weight: 500;
+    line-height: 1;
+    user-select: none;
+    transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+
+.sse-pill-dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--text-faint);
+    flex: 0 0 7px;
+}
+
+.sse-pill--live {
+    color: var(--success);
+    border-color: var(--success);
+    background: var(--pill-healthy-bg);
+}
+
+.sse-pill--live .sse-pill-dot {
+    background: var(--success);
+    animation: sse-pulse 2s ease-in-out infinite;
+}
+
+.sse-pill--fallback {
+    color: var(--text-dim);
+    border-color: var(--border);
+}
+
+.sse-pill--fallback .sse-pill-dot {
+    background: var(--warning);
+}
+
+@keyframes sse-pulse {
+    0%, 100% { opacity: 1; }
+    50%      { opacity: 0.45; }
+}
+
 /* ---------------------------------------------------------------------------
    Host drawer — admin Debug panel
 
