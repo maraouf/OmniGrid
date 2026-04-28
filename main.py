@@ -5224,6 +5224,54 @@ async def api_hosts_debug(
             except Exception as e:
                 providers_raw["webmin"] = {"_error": str(e)}
 
+    # ---- Ping (#343) — most recent samples + the resolved sampler
+    #      target so the operator can see exactly what address the
+    #      probe is hitting (DNS failure debugging). Only renders
+    #      when ping is in active AND this host is opted in. -------
+    if "ping" in active and bool((record.get("ping") or {}).get("enabled", False)):
+        try:
+            from logic import ping_sampler as _ping_sampler_dbg
+            from logic import ping as _ping_dbg
+            samples = _ping_sampler_dbg.last_samples(record["id"], limit=5) or []
+            # Replicate the sampler's target-resolution chain so the
+            # debug surface shows the same `host` the probe is using.
+            ping_cfg = (record.get("ping") or {}) if isinstance(record.get("ping"), dict) else {}
+            ssh_cfg = (record.get("ssh") or {}) if isinstance(record.get("ssh"), dict) else {}
+            url_host_dbg = ""
+            url_raw = (record.get("url") or "").strip()
+            if url_raw:
+                try:
+                    from urllib.parse import urlparse as _urlparse_dbg
+                    url_host_dbg = (_urlparse_dbg(url_raw).hostname or "").strip()
+                except (ValueError, TypeError):
+                    url_host_dbg = ""
+            target = (
+                (ping_cfg.get("host") or "").strip()
+                or (ssh_cfg.get("fqdn") or "").strip()
+                or (ssh_cfg.get("host") or "").strip()
+                or url_host_dbg
+                or record["id"]
+            )
+            providers_raw["ping"] = {
+                "target":          target,
+                "port":            ping_cfg.get("port"),
+                "transport":       ping_cfg.get("transport") or "(global default)",
+                "icmp_supported":  _ping_dbg.has_icmp_support(),
+                "samples_count":   len(samples),
+                "last_samples":    samples,
+            }
+            if samples:
+                last = samples[0]
+                stats = _ping_dbg.to_host_stats({
+                    "alive":    last.get("alive"),
+                    "rtt_ms":   last.get("rtt_ms"),
+                    "loss_pct": last.get("loss_pct"),
+                })
+                if stats:
+                    providers_normalized["ping"] = stats
+        except Exception as e:
+            providers_raw["ping"] = {"_error": str(e)}
+
     # ---- Merged (best-of) ----------------------------------------
     merged: dict = {}
     for src in ("pulse", "beszel", "node_exporter", "webmin"):
@@ -5241,9 +5289,25 @@ async def api_hosts_debug(
     except Exception as e:
         rendered = {"_error": str(e)}
 
+    # Per-host active providers — global `active` list intersected
+    # with what's actually mapped on THIS host's curated config.
+    # Without this, the debug panel's "Active providers" row showed
+    # the operator the GLOBAL set even on a row that only had ping
+    # enabled — misleading, because the other providers wouldn't
+    # actually probe this host. Operator-reported on the ftth row
+    # (ping-only) showing "beszel, node_exporter, ping, pulse".
+    host_active = sorted(
+        p for p in active
+        if (p == "beszel"        and (record.get("beszel_name") or "").strip())
+        or (p == "pulse"         and (record.get("pulse_name") or "").strip())
+        or (p == "node_exporter" and (record.get("ne_url") or "").strip())
+        or (p == "webmin"        and (record.get("webmin_name") or "").strip())
+        or (p == "ping"          and bool((record.get("ping") or {}).get("enabled", False)))
+    )
     return {
         "host_record":          record,
-        "active_providers":     sorted(active),
+        "active_providers":     host_active,
+        "active_providers_global": sorted(active),
         "providers_raw":        providers_raw,
         "providers_normalized": providers_normalized,
         "merged":               merged,

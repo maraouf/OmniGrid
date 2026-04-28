@@ -83,7 +83,30 @@ def _curated_ping_hosts() -> list[dict]:
         # simple in V1 — operators with non-DNS-resolvable ids set
         # `ssh.fqdn` per-host and we use that.
         ssh_cfg = row.get("ssh") if isinstance(row.get("ssh"), dict) else {}
-        host_target = (ssh_cfg.get("fqdn") or ssh_cfg.get("host") or hid).strip() or hid
+        # Target resolution fallback chain — pick the FIRST non-empty
+        # candidate. Many curated rows have a bare-hostname `id` (e.g.
+        # "ftth") that doesn't resolve from inside the OmniGrid
+        # container's DNS namespace, but the same row carries a
+        # reachable address in `ssh.fqdn`, the per-host service `url`,
+        # or (less commonly) an explicit `ping.host` override. Without
+        # a fallback chain those rows ping into the void and produce
+        # no samples at all (operator-reported via the ftth host).
+        ping_host_override = (ping_cfg.get("host") or "").strip()
+        url_host = ""
+        url_raw = (row.get("url") or "").strip()
+        if url_raw:
+            try:
+                from urllib.parse import urlparse as _urlparse
+                url_host = (_urlparse(url_raw).hostname or "").strip()
+            except (ValueError, TypeError):
+                url_host = ""
+        host_target = (
+            ping_host_override
+            or (ssh_cfg.get("fqdn") or "").strip()
+            or (ssh_cfg.get("host") or "").strip()
+            or url_host
+            or hid
+        )
         port_override = ping_cfg.get("port")
         try:
             port = int(port_override) if port_override not in (None, "", 0) else default_port
@@ -115,15 +138,40 @@ def _resolve_default_port() -> int:
 
 
 async def _probe_one(host: dict, sem: asyncio.Semaphore) -> None:
-    """Probe one host + write a row + publish SSE."""
+    """Probe one host + write a row + publish SSE.
+
+    Probe exceptions (DNS NXDOMAIN, network unreachable, asyncio
+    cancellation timeouts that leak past the inner timeout, etc.)
+    are caught and synthesised into an alive=False result so we
+    STILL write a row to ``ping_samples``. Without this, a host
+    with an unresolvable name (e.g. bare-id `ftth` in a container
+    whose DNS doesn't have it) produces NO samples at all — the
+    `asyncio.gather(return_exceptions=True)` upstream would
+    silently swallow the exception and the operator sees an
+    empty row in /api/hosts (ping_alive=null forever).
+    """
     async with sem:
         timeout_s = float(tuning.tuning_int("tuning_ping_probe_timeout_seconds"))
-        result = await _ping.probe_ping(
-            host["host"], port=host["port"],
-            transport=host.get("transport", "tcp"),
-            timeout_seconds=timeout_s,
-            count=3,
-        )
+        try:
+            result = await _ping.probe_ping(
+                host["host"], port=host["port"],
+                transport=host.get("transport", "tcp"),
+                timeout_seconds=timeout_s,
+                count=3,
+            )
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:
+            err = f"{type(e).__name__}: {str(e)[:120]}" if str(e) else type(e).__name__
+            print(f"[ping_sampler] {host['id']!r} probe exception: {err}")
+            result = {
+                "alive":      False,
+                "rtt_ms":     None,
+                "rtt_min_ms": None,
+                "rtt_max_ms": None,
+                "loss_pct":   100.0,
+                "error":      err,
+            }
         ts = int(time.time())
         try:
             with db_conn() as c:
