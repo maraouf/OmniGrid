@@ -4289,6 +4289,59 @@
           </div>
           <p class="text-[10.5px] text-[var(--text-faint)]"
              x-html="t('settings.host_stats.webmin_aliases_hint_html')"></p>
+
+          <!-- Webmin probe budget — moved here from the generic
+               Process tunables section so operators tweaking Webmin
+               creds have the budget knob ready to hand. Same
+               `tuningForm` / `tuningEffective` Alpine state as
+               Admin → Process tunables; renders only when tuning
+               state is loaded (loadTuning fires on host_stats tab
+               open via the dispatcher in onTabChange). -->
+          <div class="mt-3 pt-3 border-t border-[var(--border)] space-y-2"
+               x-show="tuningLoaded">
+            <label class="block text-[11px] font-medium"
+                   x-text="t('admin.config.fields.tuning_webmin_probe_budget_seconds.label')"></label>
+            <p class="text-[10.5px] text-[var(--text-faint)] leading-snug"
+               x-text="t('admin.config.fields.tuning_webmin_probe_budget_seconds.help')"></p>
+            <div class="flex flex-wrap items-center gap-2">
+              <input type="number"
+                     x-model="tuningForm['tuning_webmin_probe_budget_seconds']"
+                     :placeholder="tuningPlaceholder('tuning_webmin_probe_budget_seconds')"
+                     :min="(tuningEffective['tuning_webmin_probe_budget_seconds'] || {}).min"
+                     :max="(tuningEffective['tuning_webmin_probe_budget_seconds'] || {}).max"
+                     :disabled="!isAdmin() || tuningSaving || !hasHostStatsSource('webmin')"
+                     class="w-32 mono text-[12px]">
+              <div class="bounds-chips" role="group"
+                   :aria-label="t('admin.config.bounds.group_label')">
+                <span class="bounds-chip bounds-chip--min"
+                      :title="t('admin.config.bounds.min_title')">
+                  <svg width="11" height="11" aria-hidden="true"><use href="#icon-arrow-down-to-line"/></svg>
+                  <span x-text="(tuningEffective['tuning_webmin_probe_budget_seconds'] || {}).min"></span>
+                </span>
+                <span class="bounds-chip bounds-chip--max"
+                      :title="t('admin.config.bounds.max_title')">
+                  <svg width="11" height="11" aria-hidden="true"><use href="#icon-arrow-up-to-line"/></svg>
+                  <span x-text="(tuningEffective['tuning_webmin_probe_budget_seconds'] || {}).max"></span>
+                </span>
+                <span class="bounds-chip bounds-chip--default"
+                      :title="t('admin.config.bounds.default_title')">
+                  <svg width="11" height="11" aria-hidden="true"><use href="#icon-target"/></svg>
+                  <span x-text="(tuningEffective['tuning_webmin_probe_budget_seconds'] || {}).default"></span>
+                </span>
+              </div>
+              <span class="text-[11px] text-[var(--text-dim)] ms-auto"
+                    x-text="t('admin.config.effective_label', { value: (tuningEffective['tuning_webmin_probe_budget_seconds'] || {}).effective })"></span>
+            </div>
+            <div class="flex items-center gap-2" x-show="isAdmin()">
+              <button @click="saveTuning()"
+                      :disabled="tuningSaving"
+                      :class="tuningDirty() ? 'ring-2 ring-[var(--warning)]' : ''"
+                      class="btn btn-soft text-[11.5px]"
+                      x-text="tuningSaving ? t('admin.config.saving') : t('admin.config.save')"></button>
+              <span x-show="tuningDirty()" class="text-[11px] text-[var(--warning)]"
+                    x-text="t('admin.config.unsaved')"></span>
+            </div>
+          </div>
         </div>
 
         <!-- Save + unsaved-changes indicator. Same visual treatment as
@@ -6411,6 +6464,62 @@
              mobile), live-tail viewer on the right when a file is
              selected. Each file row carries a download button that
              hits /api/admin/logs/files/{name}/download. -->
+        <!-- Log retention setting — moved here from the generic
+             Process tunables section so operators looking at the
+             persistent log files have the retention knob ready to
+             hand. Reuses the same `tuningForm` / `tuningEffective` /
+             `saveTuning` Alpine state as Admin → Process tunables;
+             a Save here triggers the same POST /api/settings call
+             and the same effective-value re-resolution as a Save
+             there. -->
+        <section x-show="logsSubTab==='files' && tuningLoaded" class="bg-[var(--surface)] border border-[var(--border)] rounded-md p-4">
+          <div class="flex items-center gap-2 mb-3">
+            <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true"><use href="#icon-clock"/></svg>
+            <h3 class="font-semibold text-[13px]"
+                x-text="t('admin.config.fields.tuning_log_retention_days.label')"></h3>
+          </div>
+          <p class="text-[11px] text-[var(--text-faint)] mb-2 leading-snug"
+             x-text="t('admin.config.fields.tuning_log_retention_days.help')"></p>
+          <div class="flex flex-wrap items-center gap-2">
+            <input type="number"
+                   x-model="tuningForm['tuning_log_retention_days']"
+                   :placeholder="tuningPlaceholder('tuning_log_retention_days')"
+                   :min="(tuningEffective['tuning_log_retention_days'] || {}).min"
+                   :max="(tuningEffective['tuning_log_retention_days'] || {}).max"
+                   :disabled="!isAdmin() || tuningSaving"
+                   class="w-44 mono text-[12.5px]">
+            <div class="bounds-chips" role="group"
+                 :aria-label="t('admin.config.bounds.group_label')">
+              <span class="bounds-chip bounds-chip--min"
+                    :title="t('admin.config.bounds.min_title')">
+                <svg width="11" height="11" aria-hidden="true"><use href="#icon-arrow-down-to-line"/></svg>
+                <span x-text="(tuningEffective['tuning_log_retention_days'] || {}).min"></span>
+              </span>
+              <span class="bounds-chip bounds-chip--max"
+                    :title="t('admin.config.bounds.max_title')">
+                <svg width="11" height="11" aria-hidden="true"><use href="#icon-arrow-up-to-line"/></svg>
+                <span x-text="(tuningEffective['tuning_log_retention_days'] || {}).max"></span>
+              </span>
+              <span class="bounds-chip bounds-chip--default"
+                    :title="t('admin.config.bounds.default_title')">
+                <svg width="11" height="11" aria-hidden="true"><use href="#icon-target"/></svg>
+                <span x-text="(tuningEffective['tuning_log_retention_days'] || {}).default"></span>
+              </span>
+            </div>
+            <span class="text-[11px] text-[var(--text-dim)] ms-auto"
+                  x-text="t('admin.config.effective_label', { value: (tuningEffective['tuning_log_retention_days'] || {}).effective })"></span>
+          </div>
+          <div class="flex items-center gap-3 mt-3" x-show="isAdmin()">
+            <button @click="saveTuning()"
+                    :disabled="tuningSaving"
+                    :class="tuningDirty() ? 'ring-2 ring-[var(--warning)]' : ''"
+                    class="btn btn-primary text-[12px]"
+                    x-text="tuningSaving ? t('admin.config.saving') : t('admin.config.save')"></button>
+            <span x-show="tuningDirty()" class="text-[11px] text-[var(--warning)]"
+                  x-text="t('admin.config.unsaved')"></span>
+          </div>
+        </section>
+
         <section x-show="logsSubTab==='files'" class="bg-[var(--surface)] border border-[var(--border)] rounded-md p-4 space-y-3">
           <div class="flex flex-wrap items-center gap-2">
             <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true"><use href="#icon-archive"/></svg>
@@ -6530,7 +6639,7 @@
           </div>
 
           <div class="space-y-4" x-show="tuningLoaded">
-            <template x-for="key in tuningKeys" :key="key">
+            <template x-for="key in sortedTuningKeys()" :key="key">
               <div class="border border-[var(--border)] rounded-md bg-[var(--surface-2)] p-3">
                 <label class="block text-[12.5px] font-medium mb-1"
                        x-text="t('admin.config.fields.' + key + '.label')"></label>

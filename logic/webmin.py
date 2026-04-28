@@ -71,13 +71,19 @@ except ImportError:
     _HAS_BS4 = False
 
 
-_AUTH_COOLDOWN_SECONDS = 300
-# Auth cool-down — same shape as logic/ssh.py; centralised in
-# `logic/cooldown.py` per CONS-004. Per-(base_url, user) key avoids
-# locking out global creds when ONE Miniserv instance has stale auth.
+# #549 — cool-down duration shared with logic/ssh.py via
+# `tuning_auth_failure_cooldown_seconds` (default 300, range 5-3600).
+# Per-(base_url, user) key avoids locking out global creds when ONE
+# Miniserv has stale auth. The Cooldown timer's seconds parameter
+# reads `tuning_int(...)` lazily on every `arm()` / `remaining()`
+# call (see logic/cooldown.py) so the operator's Save in Admin →
+# Config takes effect on the next probe without a restart.
 from logic.cooldown import Cooldown as _Cooldown
 from logic.merge import normalize_arch as _normalize_arch
-_auth_cooldown_timer = _Cooldown(_AUTH_COOLDOWN_SECONDS)
+from logic import tuning as _tuning
+_auth_cooldown_timer = _Cooldown(
+    seconds_fn=lambda: _tuning.tuning_int("tuning_auth_failure_cooldown_seconds")
+)
 
 # Plural → singular for _json_to_element's list wrapping. Webmin JSON
 # responses use plural keys for arrays ("mounts", "updates") but the

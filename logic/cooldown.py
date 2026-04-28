@@ -19,7 +19,7 @@ correct and simple.
 from __future__ import annotations
 
 import time
-from typing import Optional, Tuple, Hashable
+from typing import Callable, Optional, Tuple, Hashable, Union
 
 
 class Cooldown:
@@ -31,21 +31,62 @@ class Cooldown:
     Keys are arbitrary hashable tuples — the consumer chooses the
     granularity (e.g. SSH uses ``(host_id, user)``; Webmin uses
     ``(base_url, user)``).
+
+    The window length may be a fixed number OR a zero-arg callable
+    (#549) — the callable form lets the duration come from a TUNABLES
+    knob that the operator can re-tune at runtime. ``arm()`` invokes
+    the callable on each call, so a Save in Admin → Config takes
+    effect on the next failed-auth event without a restart. Existing
+    consumers passing a fixed ``seconds=`` value keep working
+    unchanged.
     """
 
-    def __init__(self, seconds: float):
-        if seconds <= 0:
-            raise ValueError("Cooldown window must be > 0 seconds")
-        self.seconds = float(seconds)
+    def __init__(self, seconds: Union[float, Callable[[], float]] = 0,
+                 *, seconds_fn: Optional[Callable[[], float]] = None):
+        # Normalise the constructor: ``Cooldown(seconds=300)``,
+        # ``Cooldown(seconds=lambda: tuning_int(...))``, AND
+        # ``Cooldown(seconds_fn=...)`` are all accepted. ``seconds_fn``
+        # exists as an explicit keyword so a callable consumer reads
+        # naturally at the call site.
+        resolver: Optional[Callable[[], float]] = None
+        if seconds_fn is not None:
+            resolver = seconds_fn
+        elif callable(seconds):
+            resolver = seconds  # type: ignore[assignment]
+        else:
+            if seconds <= 0:
+                raise ValueError("Cooldown window must be > 0 seconds")
+        self._resolver = resolver
+        self._fixed = float(seconds) if resolver is None else 0.0
         # `_armed` maps key → epoch-second timestamp at which the
         # cooldown expires. Lazy expiry: ``remaining()`` pops a key
         # whose expiry is in the past, so the dict can never grow
         # past the number of keys actively in cooldown right now.
         self._armed: dict[Tuple[Hashable, ...], float] = {}
 
+    @property
+    def seconds(self) -> float:
+        """Effective cooldown window for THIS call. Reads the
+        operator-tunable value via the resolver if one was given,
+        else returns the fixed value.
+        """
+        if self._resolver is not None:
+            try:
+                v = float(self._resolver())
+            except Exception:
+                # Resolver failure (DB unreachable, settings table
+                # missing, etc.) — fall back to a safe default of 300s
+                # (matches the historical hardcoded value across the
+                # original Webmin + SSH consumers).
+                v = 300.0
+            return v if v > 0 else 300.0
+        return self._fixed
+
     def arm(self, *key: Hashable) -> None:
         """Start the cooldown window for ``key`` (variadic — any
-        hashable values, joined into a tuple).
+        hashable values, joined into a tuple). The window length is
+        resolved per-call when a callable resolver is configured, so
+        a Save in Admin → Config takes effect on the next ``arm()``.
         """
         self._armed[tuple(key)] = time.time() + self.seconds
 

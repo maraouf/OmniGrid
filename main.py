@@ -1482,6 +1482,14 @@ class SettingsIn(BaseModel):
     tuning_rate_limit_max_failures: Optional[str] = None
     tuning_rate_limit_window_seconds: Optional[str] = None
     tuning_rate_limit_lockout_seconds: Optional[str] = None
+    # #547 / #546 — outer host-provider cache + per-host Webmin caches.
+    tuning_host_provider_cache_ttl_seconds: Optional[str] = None
+    tuning_webmin_host_cache_ttl_seconds: Optional[str] = None
+    tuning_webmin_host_fail_cache_ttl_seconds: Optional[str] = None
+    # #548 — host_metrics_sampler per-tick NE probe concurrency.
+    tuning_host_metrics_probe_concurrency: Optional[str] = None
+    # #549 — shared (Webmin + SSH) per-(host, user) auth-failure cool-down.
+    tuning_auth_failure_cooldown_seconds: Optional[str] = None
     # -----------------------------------------------------------------
     # Per-event notification toggles. Each maps to one of the
     # 12 (event group × success/failure) notify() call sites in
@@ -3414,7 +3422,10 @@ async def api_hosts():
 # want one round-trip to see the whole fleet). The SPA calls the
 # split pair.
 # ---------------------------------------------------------------------------
-_HOST_PROVIDER_CACHE_TTL = 10.0
+# #547 — cache TTL is now operator-tunable via
+# `tuning_host_provider_cache_ttl_seconds`. Default preserved at 10s.
+# Resolved at every consumer site (NOT cached at module import) per
+# the strict-rule contract.
 _host_provider_cache: dict = {"ts": 0.0, "state": None}
 # Single-flight guard for ``_get_host_provider_state`` (#506). Without
 # this, a parallel SPA fan-out of 6 ``/api/hosts/one/<id>`` calls on a
@@ -3435,15 +3446,11 @@ _host_provider_lock = asyncio.Lock()
 # Cache key is the host_id (one Webmin per host — unlike Beszel/Pulse
 # which are multi-tenant). Value is the raw dict returned by
 # probe_webmin so _merge_one_host can fold it the same way.
-_WEBMIN_HOST_CACHE_TTL = 30.0
+# #546 — both Webmin cache TTLs are now operator-tunable via
+# `tuning_webmin_host_cache_ttl_seconds` (default 30s, success cache)
+# and `tuning_webmin_host_fail_cache_ttl_seconds` (default 5s, negative
+# cache from #506). Resolved per consumer-site read.
 _webmin_host_cache: dict[str, tuple[float, dict]] = {}
-# Negative-result cache for Webmin probe failures (#506). Pre-fix only
-# successful probes were cached, so an unreachable / hung Webmin burned
-# its full 20s timeout on EVERY parallel /api/hosts/one/<id> call until
-# the host came back. Short 5s TTL: long enough to dedupe a SPA fan-out
-# burst, short enough that recovery is felt within one refresh cycle.
-# Tuple shape mirrors `_webmin_host_cache` for symmetry.
-_WEBMIN_HOST_FAIL_CACHE_TTL = 5.0
 _webmin_host_fail_cache: dict[str, tuple[float, dict]] = {}
 
 
@@ -3511,10 +3518,14 @@ async def _get_host_provider_state(force: bool = False) -> dict:
 
     now = time.time()
     active, cache_key = _compute_cache_key()
+    # #547 — cache TTL is operator-tunable; resolve once at the top of
+    # the function and reuse for both the pre-lock and post-lock checks
+    # (within the same call, the value can't legitimately change).
+    cache_ttl = tuning.tuning_int("tuning_host_provider_cache_ttl_seconds")
     cached = _host_provider_cache.get("state")
     cached_key = _host_provider_cache.get("key")
     if (not force and cached and cached_key == cache_key
-            and (now - _host_provider_cache.get("ts", 0.0)) < _HOST_PROVIDER_CACHE_TTL):
+            and (now - _host_provider_cache.get("ts", 0.0)) < cache_ttl):
         return cached
 
     # Single-flight (#506) — only ONE concurrent caller does the cold-
@@ -3550,7 +3561,7 @@ async def _get_host_provider_state(force: bool = False) -> dict:
         cached2 = _host_provider_cache.get("state")
         cached_key2 = _host_provider_cache.get("key")
         if (cached2 and cached_key2 == cache_key
-                and (now2 - _host_provider_cache.get("ts", 0.0)) < _HOST_PROVIDER_CACHE_TTL):
+                and (now2 - _host_provider_cache.get("ts", 0.0)) < cache_ttl):
             return cached2
 
         return await _do_host_provider_probe(active, cache_key)
@@ -3709,16 +3720,22 @@ async def _merge_one_host(h: dict, state: dict, *, force: bool = False) -> tuple
         wm_url = state["webmin_aliases"].get(h["id"]) or h.get("webmin_url") or ""
         if wm_url:
             now = time.time()
+            # #546 — both cache TTLs are operator-tunable. Resolved
+            # once per call (the same TTLs apply across both branches
+            # of the if/else below).
+            wm_success_ttl = tuning.tuning_int("tuning_webmin_host_cache_ttl_seconds")
+            wm_fail_ttl = tuning.tuning_int("tuning_webmin_host_fail_cache_ttl_seconds")
             cached = _webmin_host_cache.get(h["id"])
-            if cached and (now - cached[0]) < _WEBMIN_HOST_CACHE_TTL:
+            if cached and (now - cached[0]) < wm_success_ttl:
                 result = cached[1]
             else:
                 # Negative-result cache (#506) — short-circuit a recently-
                 # failed probe so a SPA fan-out burst doesn't burn 20s ×
-                # PARALLEL on an unreachable Webmin. 5s TTL means recovery
-                # is felt within one Hosts-tab refresh cycle.
+                # PARALLEL on an unreachable Webmin. Tunable TTL means
+                # recovery is felt within one Hosts-tab refresh cycle
+                # at the default 5s.
                 fail_cached = _webmin_host_fail_cache.get(h["id"])
-                if fail_cached and (now - fail_cached[0]) < _WEBMIN_HOST_FAIL_CACHE_TTL:
+                if fail_cached and (now - fail_cached[0]) < wm_fail_ttl:
                     result = fail_cached[1]
                 else:
                     # #539 — Webmin probe budget is operator-tunable;

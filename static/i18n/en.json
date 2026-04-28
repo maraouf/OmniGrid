@@ -699,6 +699,26 @@
         "tuning_rate_limit_lockout_seconds": {
           "label": "Login lockout duration (seconds)",
           "help": "Once the failure threshold is hit, how long the IP / IP+username bucket stays locked. Pre-lockout-expiry, every login attempt is rejected without checking the password. Default 900 (15 minutes). Lower for less-paranoid environments where operator typos shouldn't cost much wall-clock; raise (e.g. 3600 = 1 hour, or 86400 = 24h) for high-security deployments where a brute-force attempt should cost the attacker meaningfully. Range 60s-86400s. Resolved per blocked-login check."
+        },
+        "tuning_host_provider_cache_ttl_seconds": {
+          "label": "Host-provider cache TTL (seconds)",
+          "help": "How long the batch-provider state (Beszel hub map + Pulse hub map + Webmin creds + active-sources tuple) is cached before the next call re-probes. Settings saves explicitly invalidate this cache so the matter only when an UPSTREAM change happens silently (e.g. a new host appears in Beszel without a settings save). Default 10 seconds. Lower for live-feeling drawer reopens after upstream changes; raise to cut hub probe load on small fleets where the data is mostly static."
+        },
+        "tuning_webmin_host_cache_ttl_seconds": {
+          "label": "Webmin per-host success cache TTL (seconds)",
+          "help": "How long a SUCCESSFUL Webmin probe result is cached per host before the next call re-probes. Burst refreshes (SPA fan-out, drawer reopens) within the window skip the probe entirely and reuse the last known-good stats. Default 30 seconds. Lower for live-feeling drawer reopens; raise to cut Miniserv load on a fleet where most data is stable. Pairs with the failure-cache TTL — a fresh failure on a previously-cached success drops the success entry immediately, so this knob doesn't affect failure-detection latency."
+        },
+        "tuning_webmin_host_fail_cache_ttl_seconds": {
+          "label": "Webmin per-host failure cache TTL (seconds)",
+          "help": "How long a FAILED Webmin probe result is cached per host so a SPA fan-out burst doesn't burn 20 seconds × N parallel calls on an unreachable host. Default 5 seconds — tight enough that recovery is felt within one Hosts-tab refresh cycle, long enough to dedupe a fan-out burst. Operators with constantly-flapping Webmin instances may want 30s+ to suppress the spam; operators wanting fastest possible recovery detection can drop to 1s."
+        },
+        "tuning_host_metrics_probe_concurrency": {
+          "label": "Host metrics sampler concurrency",
+          "help": "Maximum parallel node-exporter scrapes the lifespan host_metrics_sampler runs per tick. Default 8 — comfortable on a 60-host fleet through 8 workers in ~3 batches without saturating the manager. Lower on a Pi-class manager where 8 parallel HTTP scrapes saturate the network or CPU; raise on a beefy host or a fleet of many hosts where serialised batches push past the 5-minute interval."
+        },
+        "tuning_auth_failure_cooldown_seconds": {
+          "label": "Auth-failure cool-down (seconds)",
+          "help": "Per-(host, user) cool-down applied after a Webmin or SSH probe gets a 401. During the cool-down, OmniGrid skips that host's probe entirely (returning the cached failure) instead of re-burning a doomed call. Shared between Webmin and SSH so a single Save propagates to both. Default 300 seconds (5 minutes) — long enough to avoid lockout cascades on bad credentials, short enough that operators don't have to wait an hour after fixing a typo."
         }
       },
       "totp": {
