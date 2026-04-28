@@ -2699,12 +2699,14 @@
           </template>
 
           <template x-if="!totp.loaded">
-            <div class="text-[12px] text-[var(--text-faint)]"
-                 x-text="t('loading.fetching')"></div>
+            <div class="loading-state">
+              <span class="spin-lg" aria-hidden="true"></span>
+              <span x-text="t('loading.section')"></span>
+            </div>
           </template>
         </section>
 
-        <!-- Passkeys card (#381). Local users only. WebAuthn / FIDO2
+        <!-- Passkeys card. Local users only. WebAuthn / FIDO2
              credentials sit ALONGSIDE TOTP — either method satisfies
              the 2FA gate. Both stay in the Security section so the
              operator has one place to manage second factors. -->
@@ -2784,8 +2786,10 @@
           </template>
 
           <template x-if="!passkeys.loaded">
-            <div class="text-[12px] text-[var(--text-faint)]"
-                 x-text="t('loading.fetching')"></div>
+            <div class="loading-state">
+              <span class="spin-lg" aria-hidden="true"></span>
+              <span x-text="t('loading.section')"></span>
+            </div>
           </template>
         </section>
 
@@ -4338,9 +4342,9 @@
           </div>
         </div>
 
-        <div x-show="hostsConfigLoading" class="loading-state py-8">
-          <span class="spin" aria-hidden="true"></span>
-          <span class="ms-2" x-text="t('admin_hosts.loading')"></span>
+        <div x-show="hostsConfigLoading" class="loading-state">
+          <span class="spin-lg" aria-hidden="true"></span>
+          <span x-text="t('admin_hosts.loading')"></span>
         </div>
 
         <!-- Datalists populated by the Discover endpoint. Inputs
@@ -6463,6 +6467,17 @@
           <p class="text-[11.5px] text-[var(--text-faint)] mb-4 max-w-[820px]"
              x-text="t('admin.config.subtitle')"></p>
 
+          <!-- Initial-load placeholder. The tunable keys come from
+               `/api/admin/tuning` which fans across DB / env / default
+               resolution per knob; on first open the form would
+               otherwise render empty for ~100ms+ and look broken.
+               Unified `.loading-state` + `.spin-lg` pattern matches
+               every other admin tab. -->
+          <div x-show="!tuningLoaded" class="loading-state">
+            <span class="spin-lg" aria-hidden="true"></span>
+            <span x-text="t('loading.section')"></span>
+          </div>
+
           <div class="space-y-4" x-show="tuningLoaded">
             <template x-for="key in tuningKeys" :key="key">
               <div class="border border-[var(--border)] rounded-md bg-[var(--surface-2)] p-3">
@@ -6620,7 +6635,10 @@
              x-text="t('admin.version.intro')"></p>
 
           <template x-if="!versionLoaded">
-            <div class="text-[12px] text-[var(--text-faint)]" x-text="t('loading.fetching')"></div>
+            <div class="loading-state">
+              <span class="spin-lg" aria-hidden="true"></span>
+              <span x-text="t('loading.section')"></span>
+            </div>
           </template>
 
           <template x-if="versionLoaded">
