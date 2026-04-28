@@ -60,11 +60,11 @@
     "sync_title": "Items auto-refresh",
     "stats_title": "Live stats polling cadence",
     "refresh_label": "Refresh",
-    "refresh_title": "How the dashboard stays current. Exactly ONE of: \"Live\" — connect to the event stream, every chart updates instantly via push (recommended); \"Off\" — close the event stream and stop polling, the dashboard becomes a static snapshot; or a cadence (30s / 1m / 5m) — close the event stream and poll every chart at that rate. Switching modes immediately opens or closes the connection.",
+    "refresh_picker_title": "How the dashboard stays current. Exactly ONE of: \"Live\" — connect to the event stream, every chart updates instantly via push (recommended); \"Off\" — close the event stream and stop polling, the dashboard becomes a static snapshot; or a cadence (30s / 1m / 5m) — close the event stream and poll every chart at that rate. Switching modes immediately opens or closes the connection.",
     "refresh_live": "Live",
     "refresh_live_title": "Open the event stream and update every chart on push. Closes when you pick Off or an interval.",
     "off": "Off",
-    "refresh_title": "Refresh (r)",
+    "refresh_title": "Manual refresh (r) — re-runs the active view's data fetch. Use when you want fresh data NOW without waiting for the next interval tick.",
     "theme_title": "Theme: {pref} (click to cycle)",
     "hotkeys_title": "Keyboard shortcuts (?)",
     "cleanup_title": "Remove all {count} stopped/failed container(s)"

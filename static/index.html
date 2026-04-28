@@ -340,8 +340,22 @@
              alone on its own wrap-row read as orphaned (operator
              flag). The user-menu's Settings / Admin / etc. covers
              other navigation. -->
-        <button @click="refresh(true)" :disabled="loading" class="btn btn-soft hidden sm:inline-flex" :title="t('topbar.refresh_title')">
-          <svg width="13" height="13" aria-hidden="true" :class="loading && 'animate-spin'"><use href="#icon-rotate-cw"/></svg>
+        <!-- Context-aware manual refresh (#498). Hosts view → refreshes
+             the curated host list + per-host probes (`loadHosts`);
+             every other view → forces an items re-gather (`refresh`).
+             Pre-fix the Hosts view had its own duplicate refresh
+             button in the toolbar; consolidating into one topbar
+             button matches the pattern established by the
+             "Expand/Collapse all" switch at index.html:639. The
+             spinner gates on whichever loading flag matches the
+             active view so the icon only spins when THAT view's
+             fetch is in flight. -->
+        <button @click="view==='hosts' ? loadHosts() : refresh(true)"
+                :disabled="view==='hosts' ? hostsLoading : loading"
+                class="btn btn-soft hidden sm:inline-flex"
+                :title="t('topbar.refresh_title')">
+          <svg width="13" height="13" aria-hidden="true"
+               :class="(view==='hosts' ? hostsLoading : loading) ? 'animate-spin' : ''"><use href="#icon-rotate-cw"/></svg>
         </button>
         <!-- Deploy watcher — only visible when /api/version returns a
              string different from the one captured at page boot.
@@ -489,7 +503,7 @@
            operators reported as "the bar disappears".
            `w-full sm:w-auto` keeps the mobile-row wrap behaviour. -->
       <div class="flex items-center gap-0 bg-[var(--surface-2)] rounded-md p-0.5 border border-[var(--border)] order-5 sm:order-none w-full sm:w-auto"
-           :title="t('topbar.refresh_title')">
+           :title="t('topbar.refresh_picker_title')">
         <span class="px-1.5 text-[10px] text-faint uppercase tracking-wider" x-text="t('topbar.refresh_label')"></span>
         <button @click="setRefreshInterval(-1)"
                 :class="refreshInterval===-1 ? 'bg-[var(--success)] text-white' : 'text-[var(--text-dim)] hover:text-[var(--text)]'"
@@ -1504,18 +1518,10 @@
               <span x-text="t('hosts_extra_groups.collapse_all')"></span>
             </button>
           </div>
-          <!-- Manual refresh — waits on the same /api/hosts endpoint
-               the 15s poller uses but doesn't reset the timer; next
-               auto-refresh still fires on schedule. Spin icon when
-               a fetch is in-flight. -->
-          <button @click="loadHosts()"
-                  :disabled="hostsLoading"
-                  class="btn btn-ghost text-[12px] flex items-center gap-1.5"
-                  :title="t('hosts_extra.refresh_title')">
-            <svg width="12" height="12" aria-hidden="true" :class="hostsLoading ? 'animate-spin' : ''"><use href="#icon-refresh-ccw"/></svg>
-            <span x-show="!hostsLoading" x-text="t('actions.refresh')"></span>
-            <span x-show="hostsLoading" x-text="t('actions.refreshing')"></span>
-          </button>
+          <!-- Hosts-toolbar refresh button removed in #498 — the
+               topbar refresh icon is now context-aware and triggers
+               `loadHosts()` automatically when the Hosts view is
+               active. One refresh affordance is plenty. -->
           <a :href="settings.beszel_hub_url || '#'" target="_blank" rel="noopener"
              x-show="settings.beszel_hub_url"
              class="btn btn-ghost text-[12px] flex items-center gap-1.5"
