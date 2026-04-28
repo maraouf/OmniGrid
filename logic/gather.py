@@ -261,7 +261,24 @@ def save_host_snapshots(nodes_info: dict) -> int:
     except Exception as e:
         print(f"[gather] save_host_snapshots failed: {e}")
         return 0
+    # Bust the read-side cache so the next caller sees the freshest
+    # snapshots immediately after a write (#467). Pre-fix the cache
+    # was time-based only and could serve a stale map for up to TTL.
+    _snapshots_cache["map"] = None
+    _snapshots_cache["ts"] = 0.0
     return len(rows)
+
+
+# Short-TTL cache for ``load_host_snapshots`` (#467). The SPA fans out
+# N parallel ``/api/hosts/one/{id}`` calls per refresh, each of which
+# triggers ``apply_host_snapshot_fallback`` → ``load_host_snapshots()``
+# → a full SELECT against ``host_snapshots``. With 50 hosts that's 50
+# full-table reads per refresh on a hot path. Caching collapses N
+# reads into 1 without serving stale data (the snapshot table is
+# written once per gather tick; the cache is also busted on every
+# save). TTL is admin-tunable — `tuning_host_snapshots_cache_ttl_seconds`
+# (default 5s, range 0–300s; 0 disables the cache for debugging).
+_snapshots_cache: dict = {"map": None, "ts": 0.0}
 
 
 def load_host_snapshots() -> dict[str, dict]:
@@ -271,7 +288,25 @@ def load_host_snapshots() -> dict[str, dict]:
     errors are skipped per-row so a single malformed blob doesn't
     poison the lookup. Empty dict on table-missing (first boot before
     init_db has run) or any other DB failure.
+
+    Cached for the operator-tunable
+    ``tuning_host_snapshots_cache_ttl_seconds`` window (#467) — the
+    snapshot table is written once per gather tick and read O(N) times
+    per SPA refresh, so caching the read is a strict win. The cache is
+    busted on every ``save_host_snapshots`` write so write→read
+    consistency is immediate after a successful gather. Setting the
+    tunable to 0 disables the cache entirely.
     """
+    now = time.time()
+    try:
+        from logic.tuning import tuning_int
+        ttl = float(tuning_int("tuning_host_snapshots_cache_ttl_seconds"))
+    except Exception:
+        ttl = 5.0
+    cached_map = _snapshots_cache.get("map")
+    cached_ts = _snapshots_cache.get("ts") or 0.0
+    if ttl > 0 and cached_map is not None and (now - cached_ts) < ttl:
+        return cached_map
     out: dict[str, dict] = {}
     try:
         with db_conn() as c:
@@ -288,6 +323,11 @@ def load_host_snapshots() -> dict[str, dict]:
             continue
         if isinstance(data, dict):
             out[r["host"]] = {"ts": float(r["ts"] or 0.0), "data": data}
+    # Cache the freshly-built map so parallel callers in the same TTL
+    # window share it. Mutating callers (`apply_host_snapshot_fallback`)
+    # already treat the returned dict as read-only.
+    _snapshots_cache["map"] = out
+    _snapshots_cache["ts"] = now
     return out
 
 

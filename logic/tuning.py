@@ -44,6 +44,17 @@ TUNABLES: dict[str, tuple[str, int, int, int]] = {
     # convention. Min 1d (a sweep that's run every hour wouldn't have
     # time to produce older files anyway); max 365d.
     "tuning_log_retention_days": ("LOG_RETENTION_DAYS", 7, 1, 365),
+    # #467 — host-snapshots read-side cache TTL in seconds. The SPA
+    # fans out N parallel /api/hosts/one/{id} calls per refresh, each
+    # of which triggers a full SELECT against host_snapshots. Caching
+    # the read for a few seconds collapses N reads into 1 without
+    # serving stale data (the snapshot table is written once per
+    # gather tick; the cache is also busted on every save). Default
+    # 5s — N parallel callers in the same tick share one read, the
+    # next refresh after TTL pays the ~1ms read once. Min 0 lets
+    # operators disable the cache entirely (every call hits the DB);
+    # max 300s caps a misconfigured override at 5 min.
+    "tuning_host_snapshots_cache_ttl_seconds": ("HOST_SNAPSHOTS_CACHE_TTL_SECONDS", 5, 0, 300),
 }
 
 

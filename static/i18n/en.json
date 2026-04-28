@@ -631,6 +631,10 @@
         "tuning_log_retention_days": {
           "label": "Log retention (days)",
           "help": "How long to keep persistent log files in /app/data/logs/. Daily files older than this are deleted by an hourly sweep. The in-memory ring buffer (Admin → Logs viewer) is unaffected — it always shows the last 2000 lines from this process. Default 7 days."
+        },
+        "tuning_host_snapshots_cache_ttl_seconds": {
+          "label": "Host snapshots cache TTL (seconds)",
+          "help": "Short-TTL cache for the host_snapshots table read. The SPA fans out N parallel /api/hosts/one/{id} calls per refresh; caching this read collapses N database queries into 1. Cache is also busted on every snapshot write so write→read consistency is immediate. Default 5s. Set to 0 to disable the cache (every call hits the DB — useful for debugging)."
         }
       },
       "totp": {

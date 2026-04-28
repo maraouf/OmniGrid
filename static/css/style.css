@@ -561,6 +561,20 @@ select:focus {
 /* ---------------------------------------------------------------------------
    Buttons
    --------------------------------------------------------------------------- */
+/* Global cursor:pointer for every native <button> (#466). Browsers
+   default <button> to `cursor: default`; only <a> gets the hand
+   cursor for free. The Tailwind utility `cursor-pointer` works on
+   per-button declarations but a runtime-JIT bundle can miss them on
+   dynamically-rendered <template x-for> children. A blanket rule on
+   the bare element guarantees the affordance everywhere. Disabled
+   buttons override below. */
+button {
+    cursor: pointer;
+}
+button:disabled {
+    cursor: not-allowed;
+}
+
 .btn {
     padding: 6px var(--s-5);
     border-radius: var(--r-lg);

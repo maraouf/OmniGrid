@@ -282,7 +282,7 @@
           <button @click="view=t[0]"
                   :class="view===t[0] ? 'text-[var(--text)] bg-[var(--surface-2)]' : 'text-[var(--text-dim)] hover:text-[var(--text)]'"
                   :title="t[0]==='stacks' && counts.update > 0 ? t('nav.stacks_updates_title', { count: counts.update }) : t[1]"
-                  class="px-2 sm:px-3 py-1.5 rounded-md text-[13px] font-medium transition flex items-center gap-1.5 relative">
+                  class="px-2 sm:px-3 py-1.5 rounded-md text-[13px] font-medium transition flex items-center gap-1.5 relative cursor-pointer">
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor"
                  stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
                  x-html="navIcon(t[0])"></svg>
