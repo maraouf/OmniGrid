@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="static/img/logo/omnigrid.svg" alt="OmniGrid logo" width="96" />
+</p>
+
 # OmniGrid
 
 > Single-replica FastAPI + Alpine.js dashboard for Docker Swarm + bare hosts via Portainer. Surfaces stack/service/container update state, multi-provider host metrics (Beszel/Pulse/node-exporter/Webmin), one-click stack updates, scheduler, OIDC/TOTP/passkey auth, Apprise notifications. SQLite-backed, no build step, bind-mount deploy.
