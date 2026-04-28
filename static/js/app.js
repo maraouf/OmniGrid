@@ -487,6 +487,19 @@ function app() {
                 passkeys_allowed: true },
     schedulerSaving: false,
     openMeteoSaving: false,
+    scheduleSaving: false,   // #558 — schedule modal Save button
+    retentionSaving: false,  // #558 — Backups → retention save
+    // #556 — in-flight flags for Admin tab Save buttons. Each toggles
+    // around the corresponding save function so the button shows
+    // "Saving…" + disabled state during the POST. Standardised
+    // pattern matching #555's hostStatsSaving — operator request
+    // for visual + behavioural consistency across every Save action.
+    settingsSaving: false,       // Admin → Notifications (saveSettings)
+    portainerSaving: false,      // Admin → Portainer
+    oidcSaving: false,           // Admin → OIDC
+    // sshSettingsSaving — already declared elsewhere as sshSettingsBusy.
+    // totpPolicySaving — already declared at line ~2580 with its save fn.
+    // assetSaving — already declared at line ~431.
     // Admin → Hosts per-row collapse state. Keyed by host id so
     // expand/collapse survives reorders. Fresh rows auto-expand on
     // addHostRow so the operator sees the fields. Saved into
@@ -2059,6 +2072,7 @@ function app() {
           return;
         }
       }
+      this.scheduleSaving = true;
       try {
         const r = await fetch('/api/schedules/' + e.id, {
           method: 'PATCH',
@@ -2081,6 +2095,7 @@ function app() {
           this.showToast(j.detail || this.t('admin.schedules.toasts.save_failed'), 'error');
         }
       } catch (_) { this.showToast(this.t('toasts.network_error'), 'error'); }
+      finally { this.scheduleSaving = false; }
     },
 
     async toggleScheduleEnabled(s) {
@@ -2305,11 +2320,29 @@ function app() {
     },
     // Cheap dirty check — called from the template every render. String
     // comparison is O(length) which is trivial for the ~15-key subset.
+    // #555 — dirty also when any of the 3 tunables that live in this
+    // panel (Webmin probe budget + 2 cache TTLs + NE timeout) has an
+    // unsaved change. tuningDirty() walks _allTuningKeys() so it
+    // catches the relocated keys correctly.
     hostStatsDirty() {
-      return this._hostStatsBaseline !== this._hostStatsSnapshot();
+      return this._hostStatsBaseline !== this._hostStatsSnapshot()
+          || this.tuningDirty();
     },
+    // In-flight flag (#555) for the unified host_stats Save button so
+    // the spinner / "Saving…" label fires the same way as the
+    // per-section Save buttons did pre-#555.
+    hostStatsSaving: false,
 
     async saveHostStats() {
+      this.hostStatsSaving = true;
+      try {
+        await this._saveHostStatsImpl();
+      } finally {
+        this.hostStatsSaving = false;
+      }
+    },
+
+    async _saveHostStatsImpl() {
       const raw = this.settings.host_stats_source || 'none';
       const active = new Set(
         raw.split(',').map(s => s.trim()).filter(s => s && s !== 'none'),
@@ -2410,6 +2443,45 @@ function app() {
         }
         payload.webmin_aliases = this.settings.webmin_aliases || {};
       }
+      // #555 — fold in any dirty tunables that live on this panel
+      // (Webmin probe budget + cache TTLs, NE probe timeout). The
+      // backend's /api/settings POST is the same endpoint the
+      // dedicated saveTuning() uses, so packaging them in the same
+      // payload removes the need for per-section Save buttons.
+      // Validate via the same int + bounds check saveTuning does.
+      for (const k of this._allTuningKeys()) {
+        const raw = (this.tuningForm || {})[k];
+        if (raw === '' || raw == null) {
+          // Blank means "clear the override" — include it in the
+          // payload as an empty string so the backend deletes the
+          // setting row.
+          payload[k] = '';
+          continue;
+        }
+        const n = Number(raw);
+        if (!Number.isFinite(n) || !Number.isInteger(n)) {
+          this.showToast(this.t('admin.config.errors.must_be_int', {
+            field: this.t('admin.config.fields.' + k + '.label'),
+          }), 'error');
+          return;
+        }
+        const eff = (this.tuningEffective || {})[k] || {};
+        if (Number.isFinite(eff.min) && n < eff.min) {
+          this.showToast(this.t('admin.config.errors.below_min', {
+            field: this.t('admin.config.fields.' + k + '.label'),
+            min: eff.min,
+          }), 'error');
+          return;
+        }
+        if (Number.isFinite(eff.max) && n > eff.max) {
+          this.showToast(this.t('admin.config.errors.above_max', {
+            field: this.t('admin.config.fields.' + k + '.label'),
+            max: eff.max,
+          }), 'error');
+          return;
+        }
+        payload[k] = String(raw).trim();
+      }
       try {
         const r = await fetch('/api/settings', {
           method: 'POST',
@@ -2431,6 +2503,12 @@ function app() {
           // Re-capture baseline so the dirty indicator clears now that
           // the server has the same values we just sent.
           this._hostStatsBaseline = this._hostStatsSnapshot();
+          // #555 — also re-baseline the tuning form (we just POSTed
+          // the same values) so `tuningDirty()` flips back to false
+          // and the unified Save button loses its amber ring.
+          // loadTuning() does both: re-fetch /api/admin/tuning and
+          // reset _tuningBaseline.
+          await this.loadTuning();
           // Refresh items so the new nodes_info fields land immediately.
           this.refresh(true);
           // ALSO re-fetch /api/hosts/list with force=true so the next
@@ -2447,6 +2525,8 @@ function app() {
     },
 
     async saveRetention() {
+      if (this.retentionSaving) return;
+      this.retentionSaving = true;
       // Separate save endpoint from the general settings form so the
       // Backups tab doesn't require pushing the full SettingsIn bundle.
       const n = Math.max(0, parseInt(this.settings.backup_retention_count, 10) || 0);
@@ -2464,6 +2544,7 @@ function app() {
           this.showToast(j.detail || this.t('toasts.save_failed'), 'error');
         }
       } catch (_) { this.showToast(this.t('toasts.network_error'), 'error'); }
+      finally { this.retentionSaving = false; }
     },
 
     // Scheduler settings — currently just the IANA timezone. Blank
@@ -4569,6 +4650,15 @@ function app() {
     },
 
     async saveOidcSettings() {
+      if (this.oidcSaving) return;
+      this.oidcSaving = true;
+      try {
+        await this._saveOidcSettingsImpl();
+      } finally {
+        this.oidcSaving = false;
+      }
+    },
+    async _saveOidcSettingsImpl() {
       const body = {
         oidc_enabled:      !!this.oidcForm.enabled,
         oidc_issuer_url:   (this.oidcForm.issuer_url || '').trim(),
@@ -4636,6 +4726,15 @@ function app() {
     },
 
     async savePortainerSettings() {
+      if (this.portainerSaving) return;
+      this.portainerSaving = true;
+      try {
+        await this._savePortainerSettingsImpl();
+      } finally {
+        this.portainerSaving = false;
+      }
+    },
+    async _savePortainerSettingsImpl() {
       const body = {
         // Master switch (#204) saved alongside the URL / API key /
         // endpoint / verify_tls so the operator's toggle persists on
@@ -5519,6 +5618,8 @@ function app() {
       }
     },
     async saveSettings() {
+      if (this.settingsSaving) return;  // #556 — guard against double-click
+      this.settingsSaving = true;
       try {
         // Per-event notification toggles are stored on
         // `settings` as JS booleans (resolved server-side by
@@ -5546,6 +5647,7 @@ function app() {
         this._openMeteoBaseline = this._openMeteoSnapshot();
         this.showToast(this.t('toasts.settings_saved'));
       } catch (e) { this.showToast(this.t('toasts.load_failed', { error: e.message }), 'error'); }
+      finally { this.settingsSaving = false; }
     },
     // Unified dirty-tracking — per-tab snapshot+baseline pattern. The
     // `<X>Dirty()` getter compares the current state against the

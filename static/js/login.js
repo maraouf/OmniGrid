@@ -159,6 +159,15 @@ function applyI18nDom() {
         } else if (r.status === 429) {
           const j = await r.json().catch(() => ({}));
           showErr(j.detail || tx('login.too_many_attempts', 'Too many attempts. Try again shortly.'));
+        } else if (r.status === 403) {
+          // #557 — disabled-account case (#554's specialised path
+          // returns 403 with a clear `detail` message). Surface the
+          // backend's text instead of the generic "Sign-in failed".
+          // Other 403s would also pass through here — that's fine
+          // because they're authorisation-level rejections that DO
+          // benefit from the specific message.
+          const j = await r.json().catch(() => ({}));
+          showErr(j.detail || tx('login.account_disabled', 'Account is disabled. Contact your administrator.'));
         } else if (r.status === 401) {
           showErr(tx('login.invalid_credentials', 'Invalid username or password.'));
         } else {

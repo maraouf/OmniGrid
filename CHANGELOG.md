@@ -59,6 +59,15 @@ the next release, this whole block becomes the `[X.Y.0]` entry below.
 
 ### Fixed
 
+- Login UI now surfaces backend `detail` text on 403 responses (#557). Pre-fix #554's disabled-user message ("Account is disabled. Contact your administrator.") was masked by the generic "Sign-in failed (403). Try again." in the login page's catch-all branch. New 403 handler in `static/js/login.js` reads the `detail` field and falls back to a localised default. New i18n key `login.account_disabled`.
+
+### Changed
+
+- Phase-1 Admin Save button standardisation (#556) — added in-flight flags + `:disabled` + "Saving…" label flip to the four highest-visibility Admin Save buttons: Notifications (`saveSettings`), Portainer (`savePortainerSettings`), OIDC (`saveOidcSettings` ×2 copies), host_stats (already done in #555). New `admin.config.saving` i18n key.
+- Phase-2 Admin Save button audit complete (#558) — most remaining Save buttons already had the full in-flight pattern from prior work. Only two needed updates: `saveSchedule` (schedule edit modal — added `scheduleSaving` flag + wrapper + markup) and `saveRetention` (Admin → Backups — added `retentionSaving` flag, switched from `btn-soft` to `btn-primary` for consistency). Tiny consistency fix on saveSshSettings's "Saving…" label (was a literal "…" ellipsis, now uses `t('actions.saving')`). Every Admin Save button now has uniform in-flight state + blue button + standard "Saving…" label.
+
+### Fixed
+
 - Login error message — disabled-user case now returns a specific 403 "Account is disabled. Contact your administrator." (#554). Pre-fix the generic "Invalid credentials" 401 covered four cases (no-such-user / wrong auth source / disabled / wrong password); legitimate disabled-account holders had no way to know the actual issue. Specialised message only fires AFTER successful password verification, so an attacker can't enumerate disabled accounts without already holding the credentials. Wrong-password / non-existent-user paths keep the generic message. No rate-limit failure recorded on the disabled-case (credentials were correct).
 - Tunables relocated by #550 weren't being saved — `loadTuning` / `_tuningSnapshot` / `saveTuning` all iterated `tuningKeys`, but the relocated keys had been removed from that list (#553). Result: form-seed, dirty-track, and POST builder all skipped them; "Save" was a no-op for the Log retention card. Fix: introduced `relocatedTuningKeys` companion list + `_allTuningKeys()` union helper; the four iteration sites walk the union now. Sort helper still uses just `tuningKeys` so the Process tunables form only renders those.
 - Hosts header status-line UX bug — "polling off" was shown in Live mode (#545). Pre-fix the `X hosts · merged from Y · polling off` line was gated on `statsInterval === 0`, but Live mode also sets `statsInterval=0` (the SPA idles its polls while SSE pushes), so the misleading "polling off" displayed even when SSE was healthy. Re-gated on `refreshInterval` (the unified picker's authoritative state): Live → " · live (push)", interval > 0 → " · polled every X", 0 → " · polling off" (warning amber).
