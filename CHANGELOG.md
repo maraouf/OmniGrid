@@ -600,21 +600,28 @@ baseline lives in `notes/note_todo.txt` under the `## Done` block,
 keyed by stable `#NNN` TODO IDs.
 
 <!--
-  Version link references — absolute GitHub URLs.
+  No version link references — by design.
 
-  Why absolute, not relative: relative paths would have to be tuned
-  per-host (GitHub's URL shape is `<host>/<owner>/<repo>/blob/<branch>/CHANGELOG.md`
-  — 4 segments before the file — so 2 `..` pops resolve correctly, but
-  Forgejo's shape is one segment longer (`.../src/branch/<branch>/`) AND
-  Forgejo's markdown renderer strips `..` segments as a security measure,
-  so no `..`-count satisfies both. We optimise for the public-shippable
-  surface (GitHub mirror); on Forgejo these links navigate cross-host to
-  GitHub, which is fine because the operator keeps Forgejo synced to
-  GitHub anyway. We don't have a v1.0.0 release tag (no `[1.0.0]` link
-  target on purpose); the heading above renders as `## [1.0.0]` text,
-  which is fine. The `[Unreleased]` link points at the milestone view
-  since no release page exists yet.
+  Markdown link references like `[1.2.0]: ../../releases/tag/v1.2.0`
+  cannot resolve correctly on BOTH GitHub and Forgejo from the same
+  CHANGELOG.md file:
+   - GitHub's URL shape is `<host>/<owner>/<repo>/blob/<branch>/CHANGELOG.md`
+     (4 path segments before the file) — 2 `..` pops climb to the repo
+     root; 3 pops over-climb to the owner page.
+   - Forgejo's shape is `<host>/<owner>/<repo>/src/branch/<branch>/CHANGELOG.md`
+     (5 segments) AND Forgejo's renderer rewrites relative URLs in a
+     non-standard way that can drop `..` traversal when it would
+     escape the file's containing directory.
+  No `..`-count satisfies both, and absolute URLs bake an operator-
+  specific host (or username) into a publicly-shipped surface — which
+  the strict no-static-config rule + privacy rule both reject.
+
+  Resolution: don't link to release pages from CHANGELOG.md at all.
+  `## [X.Y.Z]` renders as a plain heading on every host; operators
+  navigate to release pages via the host's own Releases tab (one click
+  away in both UIs). The `## [Unreleased]` block stays plain too.
+
+  If a future release-link source becomes practical (e.g. a build step
+  that emits host-specific CHANGELOG-{github,forgejo}.md, or markdown
+  renderer-side templating), revisit this decision.
 -->
-[Unreleased]: https://github.com/maraouf/OmniGrid/milestones
-[1.1.0]: https://github.com/maraouf/OmniGrid/releases/tag/v1.1.0
-[1.2.0]: https://github.com/maraouf/OmniGrid/releases/tag/v1.2.0
