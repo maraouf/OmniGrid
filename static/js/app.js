@@ -4107,6 +4107,17 @@ function app() {
     },
     pollSparks() {
       if (this._sparksTimer) clearInterval(this._sparksTimer);
+      // #486 — Off mode kills the sparks timer too. The picker's
+      // "static snapshot" promise must hold for sparklines as well as
+      // every other chart. Live and interval modes stay at the 5min
+      // baseline because sparklines are coarse 24h aggregates that
+      // barely change tick-to-tick — even with picker=30s, polling
+      // sparks every 30s would be wasted bandwidth without visible
+      // benefit. The first one-shot loadSparks() also gates on Off
+      // so an Off-on-boot doesn't fetch once and freeze.
+      if (this.refreshInterval === 0) {
+        return;
+      }
       this.loadSparks();
       this._sparksTimer = setInterval(() => this.loadSparks(), 5 * 60 * 1000);
     },
@@ -6318,6 +6329,34 @@ function app() {
       // the panel comes back without waiting for a manual interaction.
       if (seconds !== 0 && !this._opsTimer) {
         try { this.pollOps(); } catch (_) {}
+      }
+      // Host-drawer history chart timer also follows the picker now
+      // (#486). Re-arm it under the new cadence whenever the operator
+      // switches modes while the drawer is open. Off → clear; Live →
+      // 30s baseline; interval → operator's chosen cadence.
+      if (this._drawerHistoryTimer) {
+        clearInterval(this._drawerHistoryTimer);
+        this._drawerHistoryTimer = null;
+      }
+      if (this.drawerHost && (this.drawerHost.beszel_id || this.drawerHost.ne_url) && seconds !== 0) {
+        const ms = (seconds === -1 ? 30 : seconds) * 1000;
+        this._drawerHistoryTimer = setInterval(() => {
+          if (!this.drawerHost) return;
+          this.loadHostHistory(
+            this.drawerHost.beszel_id || '',
+            this.drawerHost.id,
+          );
+        }, ms);
+      }
+      // Sparklines (#486) — Off kills the timer; Live / interval
+      // modes restart at the 5min baseline (sparklines are coarse
+      // 24h aggregates, the picker doesn't change their cadence).
+      if (this._sparksTimer) {
+        clearInterval(this._sparksTimer);
+        this._sparksTimer = null;
+      }
+      if (seconds !== 0) {
+        try { this.pollSparks(); } catch (_) {}
       }
     },
 
@@ -10998,18 +11037,28 @@ function app() {
       // `statsInterval=0` the loadHosts setInterval never fires, so a
       // hook inside loadHosts doesn't reach the drawer). 30s is a
       // sensible default for a drawer the operator is actively
-      // watching; clears on closeHostDrawer.
+      // watching; clears on closeHostDrawer. #486 — the drawer chart
+      // now follows the unified refresh cadence: Live mode keeps a
+      // 30s baseline (no SSE event type pushes per-host history yet,
+      // so the chart needs SOME tick to stay current); Off mode
+      // disables it entirely (true static snapshot promise); interval
+      // modes use the operator's chosen cadence so the drawer chart
+      // doesn't outpace the picker. The poll restart on
+      // setRefreshInterval is wired below — opening the drawer just
+      // arms the right timer for the current mode.
       if (this._drawerHistoryTimer) {
         clearInterval(this._drawerHistoryTimer);
+        this._drawerHistoryTimer = null;
       }
-      if (host.beszel_id || host.ne_url) {
+      if ((host.beszel_id || host.ne_url) && this.refreshInterval !== 0) {
+        const ms = (this.refreshInterval === -1 ? 30 : this.refreshInterval) * 1000;
         this._drawerHistoryTimer = setInterval(() => {
           if (!this.drawerHost) return;
           this.loadHostHistory(
             this.drawerHost.beszel_id || '',
             this.drawerHost.id,
           );
-        }, 30 * 1000);
+        }, ms);
       }
       // Preload SSH status — admin only, and only when the host
       // didn't opt out. Without this the SSH card header shows
