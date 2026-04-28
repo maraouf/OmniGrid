@@ -3953,3 +3953,28 @@ select.field-invalid {
 .bounds-chip--default svg {
     color: var(--primary);
 }
+
+/* #529 — events-dropped counter chip alongside the SSE pill. Renders
+ * only when `_sseDropped > 0` (one-glance signal that the bus has
+ * dropped frames for this tab). Amber accent intentionally distinct
+ * from the SSE pill's green/grey palette so the operator's eye
+ * separates the two signals. Same dimensions / spacing as `.sse-pill`
+ * so they sit visually paired in the topbar. */
+.sse-drops-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 4px 8px;
+    border: 1px solid var(--pill-update-br);
+    background: var(--pill-update-bg);
+    color: var(--pill-update-fg);
+    border-radius: var(--r-sm);
+    font-size: 11px;
+    font-family: var(--font-mono);
+    line-height: 1.4;
+    white-space: nowrap;
+}
+.sse-drops-pill svg {
+    flex-shrink: 0;
+    color: var(--pill-update-fg);
+}

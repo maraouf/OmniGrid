@@ -560,6 +560,18 @@
                       : refreshInterval === 0 ? t('events.off_label')
                       : t('events.polling_label')"></span>
       </div>
+      <!-- #529 — events-dropped counter chip. Hidden when count is 0;
+           renders a small amber chip alongside the SSE pill when the
+           bus has dropped events for this tab (fired from the
+           `:overflow` SSE handler). One-glance signal that the bus is
+           overwhelmed; the per-overflow toast (#527) is the in-the-
+           moment alert, this chip is the running tally. -->
+      <div class="sse-drops-pill order-4 sm:order-none"
+           x-show="_sseDropped > 0"
+           :title="t('events.dropped_title', { count: _sseDropped })">
+        <svg width="12" height="12" aria-hidden="true"><use href="#icon-alert-triangle"/></svg>
+        <span x-text="t('events.dropped_label', { count: _sseDropped })"></span>
+      </div>
       <!-- Theme + Hotkeys — small icon buttons. On mobile they live at
            order-4 alongside the language picker so they don't get
            shoved to a new row by the wide SYNC/STATS pills below. -->
@@ -1685,7 +1697,8 @@
               </template>
               <template x-if="!h._loading">
                 <span class="host-mobile-card-status"
-                      :style="'background:' + statusDotColor(h.status)"></span>
+                      :style="'background:' + statusDotColor(h.status)"
+                      :title="hostProbeTitle(h)"></span>
               </template>
               <img class="host-mobile-card-icon" :src="hostIconUrl(h)"
                    x-show="hostIconUrl(h)" alt="" loading="lazy"
@@ -1854,7 +1867,9 @@
                   <span class="host-loading-spinner" aria-hidden="true"></span>
                 </template>
                 <template x-if="!h._loading">
-                  <span class="w-2 h-2 rounded-full flex-shrink-0" :style="'background:' + statusDotColor(h.status)"></span>
+                  <span class="w-2 h-2 rounded-full flex-shrink-0"
+                        :style="'background:' + statusDotColor(h.status)"
+                        :title="hostProbeTitle(h)"></span>
                 </template>
               </div>
               <!-- Brand icon + hostname block + provider chips. The

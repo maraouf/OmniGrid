@@ -119,7 +119,7 @@ part of any auth handshake) to pick up Admin → Config edits without a SPA relo
   "role": "admin",
   "source": "local",
   "client_config": {
-    "ops_poll_ms": 1500,             // tuning_ops_poll_interval_ms
+    "ops_poll_ms": 2000,             // tuning_ops_poll_interval_seconds × 1000 (renamed in #514)
     "hosts_parallel_fetch": 6,        // tuning_hosts_parallel_fetch (#508)
     "scheduler_tz": { "configured": "Africa/Cairo", "resolved": "Africa/Cairo", "fallback": false }
     // ...

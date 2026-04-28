@@ -77,7 +77,9 @@
     "disconnected_title": "Real-time event stream not connected — using polling as a fallback. The SPA will automatically switch back to live updates when the stream recovers.",
     "reconnecting_title": "Real-time event stream dropped — polling has resumed and the browser is auto-reconnecting in the background.",
     "off_title": "Refresh is set to Off — the dashboard is a static snapshot. Pick Live or an interval from the topbar to resume updates.",
-    "polling_interval_title": "Polling every {seconds} seconds. The pill flashes green while a fetch is in flight; grey between ticks."
+    "polling_interval_title": "Polling every {seconds} seconds. The pill flashes green while a fetch is in flight; grey between ticks.",
+    "dropped_label": "{count} dropped",
+    "dropped_title": "{count} live events have been dropped this session because the bus's per-subscriber queue (256 events) was full. The SPA reconciled via REST after each drop, so the data is correct — this counter is a heads-up that bursts have exceeded queue capacity. Reset on page reload."
   },
   "user_menu": {
     "profile": "Profile",
@@ -1200,6 +1202,7 @@
     "new_version_title": "New version {version} deployed — click to reload and use the updated UI"
   },
   "hosts_extra": {
+    "probe_title": "Probe took {elapsed} (status: {status})",
     "permanent_fail": {
       "badge_title": "Sampling paused — host has been unreachable for {minutes}m",
       "drawer_banner": "Sampling paused: this host has been unreachable for {minutes} min. Last error: {error}",
@@ -1722,6 +1725,7 @@
     "save_failed_generic": "Save failed",
     "network_error_generic": "Network error",
     "language_load_failed": "Language load failed",
+    "sse_overflow": "Live event stream backlogged — refreshed automatically",
     "test_result_ok": "OK",
     "test_result_failed": "Failed",
     "pulse_url_required": "Pulse URL is required.",
