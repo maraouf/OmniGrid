@@ -624,5 +624,5 @@ keyed by stable `#NNN` TODO IDs.
   no release page exists yet.
 -->
 [Unreleased]: /milestones
-[1.1.0]: ../releases/tag/v1.1.0
-[1.2.0]: ../releases/tag/v1.2.0
+[1.1.0]: ../../releases/tag/v1.1.0
+[1.2.0]: ../../releases/tag/v1.2.0
