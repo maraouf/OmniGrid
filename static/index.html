@@ -7527,6 +7527,34 @@
                   </section>
                 </template>
 
+                <!-- ENABLED AGENTS (#571) — dedicated card listing
+                     the providers WIRED on this curated row, rendered
+                     as colored pills (not a comma-joined string in the
+                     System card — operator wanted real visual chips).
+                     Distinct from the per-row `providers` chips next
+                     to the host name: those reflect what RETURNED data
+                     THIS tick (live up/down state); these reflect what
+                     the operator has CONFIGURED, regardless of current
+                     reachability. Useful at a glance for "why is this
+                     row grey — did I forget to enable an agent?". Each
+                     pill's color is hand-mapped in `hostEnabledAgents()`
+                     for visual distinctness across the five providers
+                     (the four ok/info/update/error pills don't have
+                     enough variance for five distinct chips, so
+                     pill-primary + pill-degraded round it out). -->
+                <template x-if="hostEnabledAgents(h).length">
+                  <section class="rounded border border-[var(--border)] bg-[var(--surface)] p-4 md:col-span-6">
+                    <h4 class="text-[10.5px] uppercase tracking-wider text-[var(--text-faint)] mb-3" x-text="t('host_drawer.system.agents')"></h4>
+                    <div class="flex items-center gap-1.5 flex-wrap">
+                      <template x-for="agent in hostEnabledAgents(h)" :key="agent.name">
+                        <span class="chip text-[11px] px-2 py-0.5"
+                              :class="agent.pill"
+                              x-text="agent.label"></span>
+                      </template>
+                    </div>
+                  </section>
+                </template>
+
                 <!-- SYSTEM — only the fields Beszel's agent actually
                      reports for this host are rendered. Container-mode
                      agents tend to skip platform / OS / kernel / arch;
@@ -7537,19 +7565,6 @@
                   <dl class="drawer-dl text-[12px]">
                     <dt class="text-[var(--text-dim)]" x-text="t('host_drawer.system.hostname')"></dt>
                     <dd class="mono text-end" x-text="h.host"></dd>
-                    <!-- Enabled agents (#570) — comma-joined list of
-                         providers configured on this host. Distinct
-                         from `providers` (which lists what RETURNED
-                         data this tick); this lists what's WIRED in
-                         the curated row. Useful at a glance on hosts
-                         where status disagrees with expectation
-                         ("why is this row grey? oh, no agent set"). -->
-                    <template x-if="hostEnabledAgents(h).length">
-                      <dt class="text-[var(--text-dim)]" x-text="t('host_drawer.system.agents')"></dt>
-                    </template>
-                    <template x-if="hostEnabledAgents(h).length">
-                      <dd class="text-end" x-text="hostEnabledAgents(h).join(', ')"></dd>
-                    </template>
                     <!-- Hide Platform when it duplicates the OS's
                          first word (common when Pulse derived the
                          platform hint from its ``osName``). "debian"

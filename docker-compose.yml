@@ -32,6 +32,19 @@ services:
     environment:
       - TZ=Africa/Cairo
 
+    # Raw socket capability — ONLY required for the Ping host-stats
+    # provider's optional ICMP transport (#343). icmplib needs
+    # CAP_NET_RAW to open SOCK_RAW for ICMP echo requests; without it
+    # every probe raises SocketPermissionError and logic/ping.py falls
+    # back to TCP-connect at probe time (still functional, just no
+    # ICMP). Granting NET_RAW only marginally widens attack surface
+    # because the container already runs as root via python:3.12-slim's
+    # default user; if you ever switch to a non-root image, you'll
+    # also need `user: 0` or to drop this. Standard CVE feeds don't
+    # treat NET_RAW as a privilege escalation path on its own.
+    cap_add:
+      - NET_RAW
+
     volumes:
       - /opt/omnigrid/app:/app:ro             # source code (read-only, hot-reload with a container restart)
       # Per-file writable bind for VERSION.txt — Docker layers nested binds
