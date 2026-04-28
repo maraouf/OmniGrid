@@ -245,7 +245,9 @@
     "testing": "Testing…",
     "waiting": "Waiting…",
     "collecting_data": "Collecting data…",
-    "history_will_appear": "History will appear here."
+    "history_will_appear": "History will appear here.",
+    "section": "Loading…",
+    "fetching": "Fetching…"
   },
   "nodes": {
     "docker_disk_tooltip": "Docker daemon footprint: image layers + container writable layers + volumes + build cache",
