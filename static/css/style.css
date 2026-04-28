@@ -3908,3 +3908,48 @@ select.field-invalid {
     background: var(--terminal-status-err-bg);
     color: var(--terminal-status-err-fg);
 }
+
+/* Admin → Process tunables — bounds chips (#510). Three small chips
+ * inline with the input render the min / max / default values, each
+ * with a Lucide icon that telegraphs the semantic at a glance:
+ *   min     → arrow-down-to-line   (lower bound / floor)
+ *   max     → arrow-up-to-line     (upper bound / ceiling)
+ *   default → target               (the anchor — what you'd land on
+ *                                    if you cleared the override)
+ * Icon colour differentiates: min/max use --text-faint (subtle —
+ * they're metadata bounds), default uses --primary (small accent so
+ * the operator's eye finds the "where it lands by default" value).
+ * Hover-title via the i18n `admin.config.bounds.*_title` keys gives
+ * assistive tech + sighted operators the long-form meaning. */
+.bounds-chips {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--s-1);
+    flex-wrap: wrap;
+}
+.bounds-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 2px 7px;
+    border: 1px solid var(--border);
+    background: var(--surface-3);
+    color: var(--text-dim);
+    border-radius: var(--r-sm);
+    font-size: 11px;
+    font-family: var(--font-mono);
+    line-height: 1.4;
+    white-space: nowrap;
+    transition: border-color 120ms ease, color 120ms ease;
+}
+.bounds-chip:hover {
+    border-color: var(--border-bright);
+    color: var(--text);
+}
+.bounds-chip svg {
+    color: var(--text-faint);
+    flex-shrink: 0;
+}
+.bounds-chip--default svg {
+    color: var(--primary);
+}
