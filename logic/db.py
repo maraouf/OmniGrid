@@ -175,6 +175,62 @@ def curated_ne_hosts() -> list[dict]:
     return out
 
 
+def curated_ping_hosts() -> list[dict]:
+    """Curated ``hosts_config`` rows opted-in for ping probing.
+
+    Mirror of :func:`curated_ne_hosts` but gates on ``ping.enabled``
+    rather than ``ne_url``. Returns one ``{id, host, port, transport}``
+    row per ENABLED entry whose ``ping.enabled`` flag is true. Defaults
+    pulled from the per-row ``ping`` sub-dict; resolution of global
+    defaults (``ping_default_port`` / ``ping_use_icmp``) lives in the
+    sampler so this helper stays I/O-free beyond the one settings read.
+
+    Single-source-of-truth for "which hosts is OmniGrid ping-probing
+    right now" — consumed by the sampler + the gather merge path. New
+    consumers (a future debug endpoint, a UI count badge) should use
+    this rather than re-walking ``hosts_config``.
+    """
+    import json as _json
+
+    raw = get_setting("hosts_config", "") or ""
+    if not raw.strip():
+        return []
+    try:
+        parsed = _json.loads(raw)
+    except ValueError:
+        return []
+    if not isinstance(parsed, list):
+        return []
+    out: list[dict] = []
+    for row in parsed:
+        if not isinstance(row, dict):
+            continue
+        if not row.get("enabled", True):
+            continue
+        ping_cfg = row.get("ping") if isinstance(row.get("ping"), dict) else {}
+        if not ping_cfg.get("enabled"):
+            continue
+        hid = (row.get("id") or "").strip()
+        if not hid:
+            continue
+        ssh_cfg = row.get("ssh") if isinstance(row.get("ssh"), dict) else {}
+        host_target = (ssh_cfg.get("fqdn") or ssh_cfg.get("host") or hid).strip() or hid
+        try:
+            port_override = ping_cfg.get("port")
+            port = int(port_override) if port_override not in (None, "", 0) else 0
+        except (TypeError, ValueError):
+            port = 0
+        transport_raw = (ping_cfg.get("transport") or "").strip().lower()
+        transport = transport_raw if transport_raw in ("tcp", "icmp") else ""
+        out.append({
+            "id":        hid,
+            "host":      host_target,
+            "port":      port,            # 0 = use ping_default_port
+            "transport": transport,        # "" = use ping_use_icmp global
+        })
+    return out
+
+
 def get_setting_bool(key: str, default: bool = False) -> bool:
     """Read a boolean settings row tolerantly.
 

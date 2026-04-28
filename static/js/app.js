@@ -556,6 +556,11 @@ function app() {
     beszelTestResult: null,
     pulseTestResult: null,
     webminTestResult: null,
+    // #343 — Ping test widget state. `pingTestHostId` is the curated
+    // host_id picked from the dropdown of opted-in hosts; `pingTestResult`
+    // mirrors the shape of the others (pending / ok / detail).
+    pingTestHostId: '',
+    pingTestResult: null,
     // The URL typed into the "Test one Webmin URL" scratch field.
     // Persisted to localStorage so operators don't have to retype it
     // every time they reload Host Stats to re-test after a config
@@ -728,6 +733,11 @@ function app() {
       'tuning_node_exporter_probe_timeout_seconds', // → Settings → Host stats → NE (#552)
       'tuning_webmin_host_cache_ttl_seconds',     // → Settings → Host stats → Webmin (#553)
       'tuning_webmin_host_fail_cache_ttl_seconds',// → Settings → Host stats → Webmin (#553)
+      // #343 — Ping provider tunables (rendered in Host stats → Ping).
+      'tuning_ping_interval_seconds',
+      'tuning_ping_concurrency',
+      'tuning_ping_probe_timeout_seconds',
+      'tuning_ping_cooldown_seconds',
     ],
     tuningForm: {},
     tuningEffective: {},
@@ -891,6 +901,19 @@ function app() {
     editingSchedule: null,
     // Admin view state
     adminTab: 'users',
+    // #562 — Settings → Host stats provider tabs. Persists in
+    // localStorage so the page returns to the operator's view on
+    // refresh. Default falls through to the first ENABLED provider on
+    // first load (handled by `setHostStatsTab` / `loadSettings`'s
+    // post-hydrate setter); 'beszel' is the safe initial since it's
+    // the most-common.
+    hostStatsTab: (() => {
+      try {
+        const v = localStorage.getItem('hostStatsTab');
+        if (v && ['node_exporter', 'beszel', 'pulse', 'webmin', 'ping'].includes(v)) return v;
+      } catch {}
+      return 'beszel';
+    })(),
     users: [],
     sessions: [], sessionsLoaded: false,
     usersLoaded: false, tokensLoaded: false,
@@ -2297,6 +2320,16 @@ function app() {
         : 'none';
     },
 
+    // #562 — Settings → Host stats provider tab switcher. Persists the
+    // chosen tab in localStorage so the page returns to the operator's
+    // view on refresh. Mirrors the existing `setRefreshInterval` /
+    // localStorage shape.
+    setHostStatsTab(name) {
+      if (!['node_exporter', 'beszel', 'pulse', 'webmin', 'ping'].includes(name)) return;
+      this.hostStatsTab = name;
+      try { localStorage.setItem('hostStatsTab', name); } catch {}
+    },
+
     // Serialise just the host-stats-related subset of settings to a
     // stable string. Used by _hostStatsBaseline and hostStatsDirty()
     // to detect unsaved edits. Password / token fields are always
@@ -2313,6 +2346,10 @@ function app() {
         'pulse_url', 'pulse_token', 'pulse_verify_tls',
         'webmin_url', 'webmin_user', 'webmin_password',
         'webmin_verify_tls',
+        // #343 — ping provider settings flow through the same dirty
+        // tracker so saveHostStats picks them up alongside the other
+        // providers' fields.
+        'ping_enabled', 'ping_default_port', 'ping_use_icmp',
       ];
       const subset = {};
       for (const k of pick) subset[k] = s[k];
@@ -2347,7 +2384,7 @@ function app() {
       const active = new Set(
         raw.split(',').map(s => s.trim()).filter(s => s && s !== 'none'),
       );
-      const valid = new Set(['beszel', 'node_exporter', 'pulse', 'webmin']);
+      const valid = new Set(['beszel', 'node_exporter', 'pulse', 'webmin', 'ping']);
       for (const s of active) {
         if (!valid.has(s)) {
           this.showToast(this.t('settings.host_stats.source_invalid'), 'error');
@@ -2442,6 +2479,23 @@ function app() {
           payload.webmin_password = this.settings.webmin_password;
         }
         payload.webmin_aliases = this.settings.webmin_aliases || {};
+      }
+      // #343 — ping provider. No secrets, so we always include the
+      // fields if the master toggle is on; backend bounds-checks the
+      // port. When the source isn't active, the master toggle still
+      // round-trips so the operator's saved port + transport are
+      // preserved across enable/disable cycles.
+      if (this.settings.ping_enabled !== undefined) {
+        payload.ping_enabled = !!this.settings.ping_enabled;
+      }
+      if (this.settings.ping_default_port) {
+        const p = parseInt(this.settings.ping_default_port, 10);
+        if (Number.isFinite(p) && p >= 1 && p <= 65535) {
+          payload.ping_default_port = p;
+        }
+      }
+      if (this.settings.ping_use_icmp !== undefined) {
+        payload.ping_use_icmp = !!this.settings.ping_use_icmp;
       }
       // #555 — fold in any dirty tunables that live on this panel
       // (Webmin probe budget + cache TTLs, NE probe timeout). The
@@ -4486,6 +4540,14 @@ function app() {
           webmin_password_set: !!(d.webmin && d.webmin.password_set),
           webmin_verify_tls: d.webmin ? !!d.webmin.verify_tls : false,
           webmin_aliases: (d.webmin && d.webmin.aliases) || {},
+          // Ping provider (#343). No secrets — every field round-trips
+          // in the clear. `has_icmp_support` reflects whether icmplib
+          // is importable on the server; SPA uses it to disable the
+          // ICMP toggle with a hint when the package is missing.
+          ping_enabled:          !!(d.ping && d.ping.enabled),
+          ping_default_port:     (d.ping && Number.isFinite(d.ping.default_port)) ? d.ping.default_port : 443,
+          ping_use_icmp:         !!(d.ping && d.ping.use_icmp),
+          ping_has_icmp_support: !!(d.ping && d.ping.has_icmp_support),
           // Scheduler — IANA zone. Blank = container-local (legacy).
           scheduler_timezone: d.scheduler_timezone || '',
           // Open-Meteo upstream (weather widget). Blank = default.
@@ -4875,6 +4937,54 @@ function app() {
         };
       } catch (e) {
         this.webminTestResult = { pending: false, ok: false, detail: this.t('toasts.network_error') };
+      }
+    },
+    // #343 — list of curated hosts that have ping enabled. Pulled from
+    // the in-memory `hostsConfig` (loaded by the Hosts admin tab) so
+    // the picker stays in sync with the row-level toggles without an
+    // extra round-trip.
+    pingEnabledHosts() {
+      const rows = Array.isArray(this.hostsConfig) ? this.hostsConfig : [];
+      return rows
+        .filter(h => h && h.ping && h.ping.enabled && h.enabled !== false && h.id)
+        .map(h => ({ id: h.id, label: h.label || h.id }));
+    },
+    async testPingConnection() {
+      // One-shot live probe against a curated host (#343). Server-side
+      // honours unsaved overrides (port + transport are optional in
+      // the body), so the operator can test before committing.
+      const hid = (this.pingTestHostId || '').trim();
+      if (!hid) {
+        this.showToast(this.t('settings.host_stats.ping.test_no_hosts'), 'error');
+        return;
+      }
+      this.pingTestResult = { pending: true };
+      try {
+        const r = await fetch('/api/ping/test', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ host_id: hid }),
+        });
+        const j = await r.json().catch(() => ({}));
+        if (!r.ok) {
+          this.pingTestResult = {
+            pending: false, ok: false,
+            detail: j.detail || this.t('toasts.save_failed'),
+          };
+          return;
+        }
+        const rtt = (j.rtt_ms != null) ? j.rtt_ms.toFixed(1) : '—';
+        const loss = (j.loss_pct != null) ? j.loss_pct.toFixed(0) : '—';
+        const detail = j.ok
+          ? this.t('settings.host_stats.ping.test_result_alive', {
+              host: j.host || hid, port: j.port || '?', rtt_ms: rtt, loss_pct: loss,
+            })
+          : this.t('settings.host_stats.ping.test_result_down', {
+              host: j.host || hid, port: j.port || '?', error: j.error || '—',
+            });
+        this.pingTestResult = { pending: false, ok: !!j.ok, detail };
+      } catch (e) {
+        this.pingTestResult = { pending: false, ok: false, detail: this.t('toasts.network_error') };
       }
     },
     // -------- SSH console ----------------------------------------------
@@ -6425,6 +6535,15 @@ function app() {
         onAny();
         console.log('[live] event=hello (bus upgrade confirmed)');
       });
+      // #561 — `keepalive` heartbeat. Server emits one every
+      // tuning_sse_heartbeat_seconds during quiet windows so the
+      // freshness watchdog clock keeps advancing and we don't false-
+      // flip to polling-fallback. `onAny()` updates `_sseLastEventTs`;
+      // no other side-effect (it's a synthetic ping with empty
+      // payload).
+      es.addEventListener('keepalive', () => {
+        onAny();
+      });
       // ``:overflow`` signals the per-subscriber queue dropped events
       // (slow consumer / throttled tab). Backend emits this BEFORE
       // resuming the live stream so we know to reconcile via REST.
@@ -6533,6 +6652,30 @@ function app() {
             this.drawerHost.beszel_id || '',
             this.drawerHost.id,
           )).catch(() => {});
+        } catch (_) {}
+      });
+      // #343 — ping_sampler publishes this on every INSERT. Drives the
+      // RTT chip + (V2) the drawer Ping chart. Per-host filter same as
+      // history_appended. We use refreshHostRow so the row's
+      // ping_alive / ping_rtt_ms fields update without a full poll.
+      es.addEventListener('host:ping_sampled', (e) => {
+        onAny();
+        try {
+          const data = JSON.parse(e.data || '{}');
+          const id = (data.payload && data.payload.host_id) || '';
+          if (!id) return;
+          console.log('[live] event=host:ping_sampled id=' + id);
+          if (typeof this.refreshHostRow === 'function') {
+            this.refreshHostRow(id, { force: false }).catch(() => {});
+          }
+          // #563 — push the new sample into the open drawer's ping
+          // chart so Live mode is genuinely push-driven (no fallback
+          // timer needed when SSE is healthy). Same shape as the
+          // host:history_appended handler for #496.
+          if (this.drawerHost && this.drawerHost.id === id && this.drawerHost.ping_enabled
+              && typeof this.loadHostPingHistory === 'function') {
+            this._pollWrap(this.loadHostPingHistory(id)).catch(() => {});
+          }
         } catch (_) {}
       });
       es.addEventListener('schedule:fired', (e) => {
@@ -6747,6 +6890,21 @@ function app() {
             ));
           }, ms);
         }
+      }
+      // #563 — ping history timer follows the same picker cadence.
+      // Live mode is push-driven by the `host:ping_sampled` SSE
+      // handler so no timer needed; Off → no timer; interval → poll
+      // at the operator's chosen cadence.
+      if (this._drawerPingTimer) {
+        clearInterval(this._drawerPingTimer);
+        this._drawerPingTimer = null;
+      }
+      if (dh && dh.ping_enabled && seconds !== 0 && seconds !== -1) {
+        const pingMs = seconds * 1000;
+        this._drawerPingTimer = setInterval(() => {
+          if (!this.drawerHost || !this.drawerHost.ping_enabled) return;
+          this._pollWrap(this.loadHostPingHistory(this.drawerHost.id));
+        }, pingMs);
       }
       // Sparklines (#486) — Off kills the timer; Live / interval
       // modes restart at the 5min baseline (sparklines are coarse
@@ -7778,6 +7936,10 @@ function app() {
           // doesn't reactively create it piecemeal (which would break
           // the dirty tracker).
           if (!row.ssh || typeof row.ssh !== 'object') row.ssh = {};
+          // #343 — same defensive default for the per-host ping
+          // sub-object so Alpine bindings can read row.ping.enabled
+          // without an undefined-chain on first render.
+          if (!row.ping || typeof row.ping !== 'object') row.ping = {};
           // Stamp a stable per-row uid the first time we see this
           // row. Used as the x-for :key so DOM elements never tear
           // down + re-mount mid-typing (which loses input focus and
@@ -8485,6 +8647,10 @@ function app() {
         ip: '',
         // Per-host SSH overrides — empty object = use global defaults.
         ssh: {},
+        // #343 — Per-host ping opt-in. Default OFF; operator flips to
+        // probe this host. Empty object = use global defaults
+        // (ping_default_port + ping_use_icmp).
+        ping: {},
         enabled: true,
         // Stable identity for x-for keying (matches the loadHostsConfig
         // hydration path).
@@ -9342,6 +9508,17 @@ function app() {
           sshOut.password = sshIn.password;
         }
         if (sshIn.disabled) sshOut.disabled = true;
+        // Per-host ping (#343). Same shape contract as ssh — strip
+        // falsy / blank keys so empty strings don't poison the merge.
+        const pingIn = h.ping || {};
+        const pingOut = {};
+        if (pingIn.enabled) pingOut.enabled = true;
+        if (pingIn.port) {
+          const pp = parseInt(pingIn.port, 10);
+          if (Number.isFinite(pp) && pp >= 1 && pp <= 65535) pingOut.port = pp;
+        }
+        const pt = String(pingIn.transport || '').trim().toLowerCase();
+        if (pt === 'tcp' || pt === 'icmp') pingOut.transport = pt;
         return {
           id:            (h.id || '').trim(),
           label:         (h.label || h.id || '').trim(),
@@ -9353,6 +9530,7 @@ function app() {
           url:           (h.url || '').trim(),
           icon:          (h.icon || '').trim(),
           ssh:           sshOut,
+          ping:          pingOut,
           enabled:       h.enabled !== false,
         };
       });
@@ -11437,6 +11615,14 @@ function app() {
       if (drawerKey && (host.beszel_id || host.ne_url) && !this.hostHistory[drawerKey]) {
         this.loadHostHistory(host.beszel_id || '', host.id);
       }
+      // #563 — ping history is a separate fetch (different endpoint,
+      // different key namespace). Only loads when the host has opted
+      // in via per-host `ping_enabled`; the chart card itself is
+      // hidden via `x-show="h.ping_enabled"` for non-opted hosts.
+      const pingKey = this.hostPingHistoryKey(host);
+      if (pingKey && host.ping_enabled && !this.hostHistory[pingKey]) {
+        this.loadHostPingHistory(host.id);
+      }
       // Dedicated drawer-history poll (#365) — keeps the chart series +
       // the `Updated Xs ago` freshness label in sync regardless of
       // whether the operator has the host-list poll enabled (when
@@ -11474,6 +11660,21 @@ function app() {
           ));
         }, ms);
       }
+      // #563 — ping history timer. Live mode is push-driven by the
+      // host:ping_sampled SSE handler so no fallback timer needed
+      // when SSE is healthy; for Off / interval modes the same
+      // pickup-cadence rules apply as for the main history timer.
+      if (this._drawerPingTimer) {
+        clearInterval(this._drawerPingTimer);
+        this._drawerPingTimer = null;
+      }
+      if (host.ping_enabled && !off && !live) {
+        const pingMs = this.refreshInterval * 1000;
+        this._drawerPingTimer = setInterval(() => {
+          if (!this.drawerHost || !this.drawerHost.ping_enabled) return;
+          this._pollWrap(this.loadHostPingHistory(this.drawerHost.id));
+        }, pingMs);
+      }
       // Preload SSH status — admin only, and only when the host
       // didn't opt out. Without this the SSH card header shows
       // "Not configured" until the operator clicks to expand it —
@@ -11487,6 +11688,10 @@ function app() {
       if (this._drawerHistoryTimer) {
         clearInterval(this._drawerHistoryTimer);
         this._drawerHistoryTimer = null;
+      }
+      if (this._drawerPingTimer) {
+        clearInterval(this._drawerPingTimer);
+        this._drawerPingTimer = null;
       }
     },
     async loadHostHistory(systemId, hostId) {
@@ -11633,6 +11838,46 @@ function app() {
     hostHistoryKey(h) {
       if (!h) return '';
       return h.beszel_id || h.id || '';
+    },
+
+    // #563 — separate key namespace for the ping-latency drawer chart.
+    // Stored as a sibling slot in `hostHistory` so the existing chart
+    // helpers (`hostChart` / `hostChartMax` / `hostMetricStats`) work
+    // unmodified — they read `entry.series[<idx>][key]`, where key is
+    // `'rtt'` for the ping series. Using `hostHistoryKey` directly
+    // would pollute the host's main history slot (which carries
+    // cpu/mp/dp/nr/ns from Beszel/NE on different timestamps), so the
+    // ping series gets its own `ping:<id>` namespace.
+    hostPingHistoryKey(h) {
+      if (!h || !h.id) return '';
+      return 'ping:' + h.id;
+    },
+
+    // #563 — fetch /api/hosts/{id}/ping/history for the host whose
+    // drawer is open and store as `entry.series` on a separate
+    // namespace so the existing chart helpers work without changes.
+    // Mirrors `loadHostHistory`'s shape: stamp `loadedAt` for the
+    // freshness label, leave the previous series in place on a
+    // network blip (no wholesale array reassignment).
+    async loadHostPingHistory(hostId) {
+      if (!hostId) return;
+      const key = 'ping:' + hostId;
+      try {
+        const r = await fetch('/api/hosts/' + encodeURIComponent(hostId) + '/ping/history?hours=24');
+        if (!r.ok) return;
+        const d = await r.json();
+        const points = (d.points || []).map(p => ({
+          ts: Number(p.ts) || 0,
+          rtt: Number(p.rtt_ms) || 0,
+          alive: !!p.alive,
+          loss_pct: Number(p.loss_pct) || 0,
+        }));
+        if (!this.hostHistory[key]) this.hostHistory[key] = {};
+        this.hostHistory[key].series = points;
+        this.hostHistory[key].loadedAt = Date.now();
+      } catch (e) {
+        console.warn('[ping] loadHostPingHistory failed:', e);
+      }
     },
 
     // Permanent-fail tracking helpers (#383). Backend sets

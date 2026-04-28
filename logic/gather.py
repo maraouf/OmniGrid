@@ -961,6 +961,48 @@ async def _gather_impl() -> None:
                     continue
                 _merge_best(nodes_info[host], stats)
 
+        # Ping (#343) — fifth provider. LAST in the merge order because
+        # its data is the coarsest (reachability + RTT only); a richer
+        # provider's CPU% / mem / disk values must never be overwritten
+        # by Ping's empty-handed merge. Per-host opt-in via
+        # ``hosts_config[].ping.enabled`` — most operators don't want
+        # OmniGrid TCP-syncing every router by default. The merge here
+        # surfaces the LAST stored sample's signal into ``nodes_info``
+        # so the SPA's row chip gets a value without waiting on the
+        # sampler's next tick.
+        if "ping" in active_sources and df_hosts:
+            from logic import ping_sampler as _ping_sampler
+            from logic import ping as _ping
+            hosts_cfg = _load_hosts_config_for_gather()
+            for host in df_hosts:
+                if host not in nodes_info:
+                    continue
+                row = _match_hosts_row(host, hosts_cfg)
+                if not row:
+                    continue
+                pcfg = row.get("ping") if isinstance(row.get("ping"), dict) else {}
+                if not pcfg.get("enabled"):
+                    continue
+                hid = (row.get("id") or "").strip()
+                if not hid:
+                    continue
+                # Read the most recent ping_samples row — the live probe
+                # is owned by the sampler. This branch is read-only:
+                # it folds the sampler's last result into nodes_info so
+                # operators see the chip immediately after enabling the
+                # provider, without waiting up to one tick.
+                recent = _ping_sampler.last_samples(hid, limit=1)
+                if not recent:
+                    continue
+                last = recent[0]
+                stats = _ping.to_host_stats({
+                    "alive": last.get("alive"),
+                    "rtt_ms": last.get("rtt_ms"),
+                    "loss_pct": last.get("loss_pct"),
+                })
+                if stats:
+                    _merge_best(nodes_info[host], stats)
+
         # Per-node container sweep — gives us a containerID → hostname map
         # that covers PLAIN compose containers on worker nodes too. The
         # Swarm-task-ID approach above only works for Swarm-managed

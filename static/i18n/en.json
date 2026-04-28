@@ -333,6 +333,11 @@
       "source_none": "None (Docker-only)",
       "source_node_exporter": "node-exporter (scrape per host)",
       "source_beszel": "Beszel Hub (single API call)",
+      "tab_active_dot": "Provider enabled",
+      "tab_inactive_dot": "Provider disabled",
+      "tab_enable_label": "Enable {provider}",
+      "tab_enabled": "Enabled",
+      "tab_disabled": "Disabled",
       "source_invalid": "Data source must be one of: none, node_exporter, beszel, pulse.",
       "url_label": "Endpoint URL template",
       "url_hint": "Placeholders: {host} = Docker hostname (append a domain suffix for FQDN: http://{host}.example.com:9100/metrics), {ip} = Swarm-advertised IP (skip DNS entirely: http://{ip}:9100/metrics). Change the port here if your exporter listens somewhere other than :9100.",
@@ -374,7 +379,27 @@
       "webmin_verify_tls_label": "Verify TLS certificate (Webmin's default cert is self-signed — leave off for homelab)",
       "webmin_test_button": "Test one Webmin URL",
       "webmin_testing": "Testing…",
-      "webmin_aliases_hint_html": "Per-host Webmin URLs are configured in <a href=\"/admin/hosts\" class=\"text-[var(--primary)] hover:underline\">Admin → Hosts</a> — add a <code class=\"mono\">webmin_name</code> + <code class=\"mono\">webmin_url</code> on any row whose box runs Webmin. Hosts without a mapping are silently skipped by the Webmin probe."
+      "webmin_aliases_hint_html": "Per-host Webmin URLs are configured in <a href=\"/admin/hosts\" class=\"text-[var(--primary)] hover:underline\">Admin → Hosts</a> — add a <code class=\"mono\">webmin_name</code> + <code class=\"mono\">webmin_url</code> on any row whose box runs Webmin. Hosts without a mapping are silently skipped by the Webmin probe.",
+      "source_ping": "Ping (TCP / ICMP reachability)",
+      "ping": {
+        "section_title": "Ping",
+        "section_desc": "Reachability + RTT only — no agents, no credentials. TCP-connect (works without privileges) is the default; raw ICMP is opt-in and requires the icmplib package + CAP_NET_RAW. Per-host opt-in: each host you want to ping must have its checkbox flipped in Admin → Hosts.",
+        "default_port_label": "Default TCP port",
+        "default_port_hint": "Used when a host doesn't override the port. Common picks: 443 (HTTPS), 22 (SSH), 80 (HTTP), 53 (DNS), 7 (echo). Hosts that respond on this port show clean RTT; hosts whose port is closed but reachable show alive=true with the connect-fail latency.",
+        "use_icmp_label": "Prefer raw ICMP echo when possible",
+        "use_icmp_hint": "Switches the global default transport to ICMP. Requires the icmplib Python package AND CAP_NET_RAW on the container. Falls back to TCP transparently if either is missing. Per-host transport overrides win.",
+        "icmp_unavailable": "icmplib package not installed — TCP-connect probes only.",
+        "test_button": "Test ping",
+        "test_target_label": "Pick a ping-enabled host",
+        "test_no_hosts": "No hosts have ping enabled yet. Flip the checkbox in Admin → Hosts on at least one row.",
+        "test_running": "Probing…",
+        "test_result_alive": "✓ {host}:{port} alive — RTT {rtt_ms} ms · loss {loss_pct}%",
+        "test_result_down": "✗ {host}:{port} unreachable — {error}",
+        "tunable_interval_label": "Sampler interval",
+        "tunable_concurrency_label": "Probe concurrency",
+        "tunable_timeout_label": "Per-probe timeout",
+        "tunable_cooldown_label": "Cool-down after consecutive timeouts"
+      }
     },
     "language": {
       "title": "Language & region",
@@ -720,6 +745,22 @@
         "tuning_auth_failure_cooldown_seconds": {
           "label": "Auth-failure cool-down (seconds)",
           "help": "Per-(host, user) cool-down applied after a Webmin or SSH probe gets a 401. During the cool-down, OmniGrid skips that host's probe entirely (returning the cached failure) instead of re-burning a doomed call. Shared between Webmin and SSH so a single Save propagates to both. Default 300 seconds (5 minutes) — long enough to avoid lockout cascades on bad credentials, short enough that operators don't have to wait an hour after fixing a typo."
+        },
+        "tuning_ping_interval_seconds": {
+          "label": "Ping sampler interval (seconds)",
+          "help": "Cadence at which the lifespan ping_sampler walks every opted-in host and writes a ping_samples row. Lower for finer-grained latency charts (cost: more wire-level traffic AND a denser SQLite table); raise to cut sampling cost on large fleets. Default 60 seconds — same scale as the metrics sampler. Range 10s..3600s."
+        },
+        "tuning_ping_concurrency": {
+          "label": "Ping probe concurrency",
+          "help": "Maximum parallel ping probes the sampler runs in one tick. Default 16 — fits a 60-host fleet through 16 workers in ~4 sequential batches. Lower if probes are saturating the network's outbound concurrency budget (NPM, ISP modem, etc.); raise on a beefy host with many opted-in hosts to keep the per-tick wall-clock under the interval. Range 1..128."
+        },
+        "tuning_ping_probe_timeout_seconds": {
+          "label": "Ping per-probe timeout (seconds)",
+          "help": "Wall-clock budget for ONE TCP-connect attempt (or one ICMP echo round-trip). Each tick fires 3 probes per host; this knob caps each one independently. Default 2 seconds — enough for cross-WAN latencies but tight enough to not stall the sampler on dead hosts. Lower if your fleet is all on-LAN (sub-millisecond RTTs); raise if you're probing hosts over a satellite link or a flaky upstream. Range 1..30."
+        },
+        "tuning_ping_cooldown_seconds": {
+          "label": "Ping cool-down on consecutive timeouts (seconds)",
+          "help": "After TWO consecutive timeout-batches against the same host:port, the probe arms a cool-down — subsequent ticks skip that pair until the cool-down expires. Cuts wire traffic against permanently-unreachable hosts without removing them from the chart entirely. Default 300 seconds (5 minutes). Lower for fast-recovery detection; raise to suppress probes against a host that's been down for hours. Range 30..3600."
         }
       },
       "totp": {
@@ -1341,7 +1382,12 @@
       "source_disk_io": "Block-device read/write rates. Source: Beszel (system_stats.dr / .dw) or node-exporter (host_disk_read_bps / host_disk_write_bps from host_metrics_samples). Excludes loop / ram / fd / sr / zram devices; keeps dm-* / md* (NAS volumes).",
       "source_load_avg": "1m / 5m / 15m load averages. Source: Beszel agent only (system_stats.la). Not surfaced by the node-exporter sampler today.",
       "source_bandwidth": "Combined bandwidth (rx + tx). Same source as Network — Beszel or node-exporter.",
-      "source_swap": "Swap usage % and used GiB. Source: Beszel agent only (system_stats.s / .su). Not surfaced by the node-exporter sampler today."
+      "source_swap": "Swap usage % and used GiB. Source: Beszel agent only (system_stats.s / .su). Not surfaced by the node-exporter sampler today.",
+      "ping": "Ping",
+      "ping_rtt": "RTT",
+      "ping_down": "Unreachable",
+      "ping_loss_title": "Packet loss across the polled window",
+      "source_ping": "ICMP round-trip latency in milliseconds. Source: OmniGrid's built-in ping sampler (host_ping_samples), opt-in per host via Admin → Hosts → ping_enabled. Hosts without the toggle hide this chart entirely."
     },
     "empty": {
       "loading": "Loading hosts from providers…",
@@ -1645,7 +1691,15 @@
       "blank_skip": "(blank = skip)",
       "autocomplete": "(autocomplete)",
       "webmin_blank_skip": "(blank = skip — hosts without Webmin keep working)",
-      "webmin_name_placeholder": "host reported by Webmin"
+      "webmin_name_placeholder": "host reported by Webmin",
+      "ping_enabled_label": "Enable ping for this host",
+      "ping_enabled_hint": "Reachability + RTT only. The sampler probes every {interval}s; latency lands in the host drawer's Ping chart.",
+      "ping_port_label": "Ping port (optional)",
+      "ping_port_placeholder": "(global default)",
+      "ping_transport_label": "Ping transport",
+      "ping_transport_default": "(global default)",
+      "ping_transport_tcp": "TCP-connect",
+      "ping_transport_icmp": "ICMP echo"
     },
     "groups": {
       "heading": "Host groups",
