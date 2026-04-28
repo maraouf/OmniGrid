@@ -126,6 +126,17 @@ const CURATED_REFRESH_FIELDS = new Set([
   '_probe_elapsed_ms',
   // Service-summary surface (Beszel systemd_services rollup).
   'host_services',
+  // #343 — Ping (TCP/ICMP). ping_enabled is curated (per-host opt-in
+  // flag from hosts_config[].ping.enabled) but it shapes the SPA's
+  // reactive gates — openHostDrawer reads it to decide whether to
+  // call loadHostPingHistory; the chart card's x-show gates on it
+  // too. Pre-add it slipped through the CURATED_FIELDS / CURATED_
+  // REFRESH_FIELDS audit so drawerHost.ping_enabled stayed undefined,
+  // loadHostPingHistory never fired, and the chart was empty even
+  // when ping_samples had 100+ rows. ping_alive / ping_rtt_ms /
+  // ping_loss_pct are the per-tick probe state that drives the
+  // header chips (red Unreachable / amber X% loss).
+  'ping_enabled', 'ping_alive', 'ping_rtt_ms', 'ping_loss_pct',
 ]);
 
 function app() {
@@ -11113,6 +11124,12 @@ function app() {
           'label', 'icon', 'custom_number', 'url',
           'beszel_name', 'pulse_name', 'ne_url', 'webmin_name',
           'ssh_disabled', 'asset',
+          // #343 — ping_enabled needs to flow through the skeleton
+          // path so drawerHost.ping_enabled is truthy when the
+          // operator first clicks a ping-enabled row. Otherwise the
+          // openHostDrawer gate fails and loadHostPingHistory never
+          // fires (chart stays "Collecting data…" forever).
+          'ping_enabled',
         ];
         const incoming = Array.isArray(d.hosts) ? d.hosts : [];
         const incomingIds = new Set(incoming.map(h => h.id));
@@ -11910,8 +11927,13 @@ function app() {
     async loadHostPingHistory(hostId) {
       if (!hostId) return;
       const key = 'ping:' + hostId;
+      // Honour the shared host-history range picker (#343 follow-up).
+      // Was hardcoded to ?hours=24; now reads `hostHistoryRange` so
+      // the ping series re-fetches with the same window as CPU /
+      // Memory / Disk / Net when the operator clicks 1h / 6h / 24h / 7d.
+      const hours = Math.max(1, Math.min(168, Number(this.hostHistoryRange) || 24));
       try {
-        const r = await fetch('/api/hosts/' + encodeURIComponent(hostId) + '/ping/history?hours=24');
+        const r = await fetch('/api/hosts/' + encodeURIComponent(hostId) + '/ping/history?hours=' + hours);
         if (!r.ok) return;
         const d = await r.json();
         const points = (d.points || []).map(p => ({
@@ -12130,6 +12152,12 @@ function app() {
       // is the slide-out drawer keyed on `drawerHost`).
       if (this.drawerHost && (this.drawerHost.beszel_id || this.drawerHost.ne_url)) {
         this.loadHostHistory(this.drawerHost.beszel_id || '', this.drawerHost.id);
+      }
+      // Ping chart shares the same range picker (#343 follow-up). When
+      // the operator switches between 1h / 6h / 24h / 7d, the ping
+      // series re-fetches alongside CPU / Mem / Disk / Net / Disk-IO.
+      if (this.drawerHost && this.drawerHost.ping_enabled) {
+        this.loadHostPingHistory(this.drawerHost.id);
       }
       // Also handle any legacy expanded rows (kept for back-compat —
       // the inline-expansion code path is mostly dead but not yet
