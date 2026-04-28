@@ -10,7 +10,7 @@ python-dotenv==1.2.2
 # surface, and we already own the discovery + token-exchange httpx calls.
 # The [crypto] extra pulls in the cryptography package needed for RS256 /
 # ES256 verification of id_tokens. See logic/oidc.py.
-PyJWT[crypto]>=2.8.0
+PyJWT[crypto]>=2.12.1
 # Admin SSH console — async-native SSH client used by logic/ssh.py for
 # the host-drawer "Run command" feature. asyncssh handles known-hosts,
 # key parsing, and fingerprint exposure natively so we don't shell out
@@ -25,7 +25,7 @@ asyncssh==2.22.0
 # / asyncssh, so this is a no-op for the wheel size; pinned explicitly so
 # logic/totp.py has a hard contract on the Fernet API.
 pyotp>=2.9.0
-cryptography>=42.0.0
+cryptography>=47.0.0
 # WebAuthn / FIDO2 passkeys as a 2FA factor (#381). Duo Security's
 # `webauthn` package wraps the W3C ceremony in a small, dependency-light
 # API: generate_registration_options / verify_registration_response /
@@ -34,7 +34,7 @@ cryptography>=42.0.0
 # deps. Used from logic/webauthn_helper.py; the module gracefully
 # degrades when this package is missing (boot succeeds, every passkey
 # route returns 503 with a "library not installed" hint).
-webauthn>=2.0.0
+webauthn>=2.7.1
 # Webmin 2.x HTML-scrape fallback. Webmin's ``?xml=1`` and ``?json=1``
 # query params are honoured on different modules by different builds —
 # on 2.630 in particular package-updates / mount / net return the
@@ -42,3 +42,17 @@ webauthn>=2.0.0
 # the HTML to extract the table data rather than failing hard. Pulled
 # in only for the scrape path; the XML and JSON branches don't touch it.
 beautifulsoup4==4.14.3
+# Optional ICMP transport for the Ping host-stats provider (#343).
+# logic/ping.py imports this LAZILY and falls back to TCP-connect
+# probes when the package is missing — so this dep is genuinely
+# optional from a correctness standpoint. We pin it anyway so the
+# Settings → Host stats → Ping panel's "use ICMP" toggle is wired
+# out of the box; without it the operator sees the
+# "icmplib package not installed" hint and the toggle is disabled.
+# Runtime caveat: ICMP echo requires CAP_NET_RAW on the container.
+# The default python:3.12-slim image does NOT carry the capability;
+# enable it by adding ``cap_add: [NET_RAW]`` to the OmniGrid service
+# in docker-compose.yml. Without the cap the import succeeds but
+# every probe raises SocketPermissionError → ping.py auto-falls-back
+# to TCP at probe time, so a missing cap is not a boot-blocker.
+icmplib==3.0.4

@@ -4110,7 +4110,7 @@
              `localStorage.hostStatsTab`. Adding a sixth provider
              (SNMP — #344) is one line on this strip + one new tab
              body below. -->
-        <div class="flex items-center gap-1 border-b border-[var(--border)] mb-4 -mx-1 overflow-x-auto scrollbar">
+        <div class="flex items-center gap-1 border-b border-[var(--border)] mb-4 -mx-1 overflow-x-auto overflow-y-hidden scrollbar">
           <template x-for="tab in [
             ['node_exporter', t('settings.host_stats.source_node_exporter')],
             ['beszel',        t('settings.host_stats.source_beszel')],
