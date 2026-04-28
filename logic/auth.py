@@ -89,10 +89,11 @@ _AUTH_DEFAULTS = {
 _auth_settings_cache: dict = {}
 _auth_settings_cache_valid = False
 
-# Rate limit: 5 failed local logins per IP within the window → 15-minute lockout.
-RATE_LIMIT_MAX_FAILURES = 5
-RATE_LIMIT_WINDOW = 15 * 60
-RATE_LIMIT_LOCKOUT = 15 * 60
+# Rate limit: failed local logins per IP within the window → lockout.
+# #543 — operator-tunable via Admin → Process tunables. Resolved per
+# call (NOT cached at import) so a Save in Admin → Config takes effect
+# on the next failed-login attempt without a restart. The historical
+# defaults (5 failures / 15 min / 15 min lockout) live in TUNABLES.
 
 
 def auto_secret_warning() -> Optional[str]:
@@ -1322,14 +1323,21 @@ def rate_limit_record_failure(ip: str, username: Optional[str] = None) -> None:
     uk = _username_key(ip, username)
     if uk:
         keys.append(uk)
+    # #543 — resolve per-call so a Save in Admin → Config takes effect
+    # immediately without a restart. tuning_int caches via the
+    # auth-settings cache, so this is sub-microsecond per call.
+    from logic import tuning as _tuning
+    window = _tuning.tuning_int("tuning_rate_limit_window_seconds")
+    max_failures = _tuning.tuning_int("tuning_rate_limit_max_failures")
+    lockout = _tuning.tuning_int("tuning_rate_limit_lockout_seconds")
     for k in keys:
         rec = _login_attempts.get(k) or {"failures": 0, "window_start": now, "locked_until": 0.0}
-        # Roll the window if the oldest failure is beyond RATE_LIMIT_WINDOW.
-        if now - rec["window_start"] > RATE_LIMIT_WINDOW:
+        # Roll the window if the oldest failure is beyond the window.
+        if now - rec["window_start"] > window:
             rec = {"failures": 0, "window_start": now, "locked_until": 0.0}
         rec["failures"] += 1
-        if rec["failures"] >= RATE_LIMIT_MAX_FAILURES:
-            rec["locked_until"] = now + RATE_LIMIT_LOCKOUT
+        if rec["failures"] >= max_failures:
+            rec["locked_until"] = now + lockout
         _login_attempts[k] = rec
 
 

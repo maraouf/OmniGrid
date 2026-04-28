@@ -890,18 +890,15 @@ async def api_op(op_id: str):
 # silent half-open sockets — comments keep the stream alive AND give the
 # client an "I'm alive" hint).
 # ============================================================================
-_SSE_HEARTBEAT_SECONDS = 25
-
-# Force a periodic close + reconnect so the cookie-authed SPA tab gets a
-# session-slide refresh on the new connection (#464 / BUG-009). The
-# auth middleware fires once per request — a long-lived SSE never
-# re-enters it, so without this the cookie's sliding-window 7h refresh
-# would never fire and a >8h connection would silently lapse the session
-# at the hard cap. EventSource auto-reconnects on the synthetic close,
-# re-entering the middleware and triggering `slide_session_if_needed`.
-# Set to 6h so the 1h margin before the hard cap leaves room for clock
-# skew and one more heartbeat round-trip on flaky networks.
-_SSE_MAX_LIFETIME_SECONDS = 6 * 3600
+# #537 / #538 — both moved to TUNABLES (tuning_sse_heartbeat_seconds,
+# tuning_sse_max_lifetime_seconds). Resolve at the consumer site via
+# `tuning.tuning_int(...)` so a Save in Admin → Config takes effect on
+# the next /api/events reconnect — no module-level constants here so a
+# stale import-time read can't pin the old value. The historical
+# defaults (25s heartbeat, 6h lifetime — 1h margin before session 8h
+# hard cap) are preserved as the TUNABLES defaults; bounds on the
+# lifetime knob (3600-25200s = 1h-7h) prevent an operator from racing
+# past the session hard cap.
 
 
 def _format_sse(evt: dict) -> str:
@@ -935,12 +932,16 @@ async def api_events(request: Request):
         # the upgrade succeeded BEFORE waiting for the first organic
         # event. Carries process-level diagnostics that the connection-
         # state indicator surfaces in its tooltip.
+        # #537 — heartbeat cadence is operator-tunable; resolve per
+        # connection-open so a Save takes effect on the next reconnect.
+        heartbeat_seconds = tuning.tuning_int("tuning_sse_heartbeat_seconds")
+        max_lifetime_seconds = tuning.tuning_int("tuning_sse_max_lifetime_seconds")
         yield _format_sse({
             "type": "hello",
             "ts": time.time(),
             "payload": {
                 "subscriber_count": _events.subscriber_count(),
-                "heartbeat_seconds": _SSE_HEARTBEAT_SECONDS,
+                "heartbeat_seconds": heartbeat_seconds,
             },
         })
 
@@ -999,7 +1000,7 @@ async def api_events(request: Request):
                 # SPA logs the cycle in dev-tools network tab; the
                 # `EventSource` API itself reconnects automatically on
                 # any normal end-of-stream.
-                if (time.time() - started_at) > _SSE_MAX_LIFETIME_SECONDS:
+                if (time.time() - started_at) > max_lifetime_seconds:
                     yield _format_sse({
                         "type": "reconnect",
                         "ts": time.time(),
@@ -1008,7 +1009,7 @@ async def api_events(request: Request):
                     break
                 try:
                     evt = await asyncio.wait_for(
-                        local.get(), timeout=_SSE_HEARTBEAT_SECONDS,
+                        local.get(), timeout=heartbeat_seconds,
                     )
                 except asyncio.TimeoutError:
                     # No traffic for the heartbeat window — keep the
@@ -1464,6 +1465,23 @@ class SettingsIn(BaseModel):
     # fan-out in `loadHosts()`. Read on /api/me into
     # `me.client_config.hosts_parallel_fetch`.
     tuning_hosts_parallel_fetch: Optional[str] = None
+    # #537 / #538 — SSE heartbeat cadence + connection lifetime cap.
+    tuning_sse_heartbeat_seconds: Optional[str] = None
+    tuning_sse_max_lifetime_seconds: Optional[str] = None
+    # #539 — Webmin probe outer budget (shared by /api/hosts and
+    # /api/hosts/one).
+    tuning_webmin_probe_budget_seconds: Optional[str] = None
+    # #540 — node-exporter per-host probe timeout (shared by /api/hosts,
+    # /api/hosts/one, the debug endpoint, and host_metrics_sampler).
+    tuning_node_exporter_probe_timeout_seconds: Optional[str] = None
+    # #541 / #542 — frontend SSE knobs delivered via /api/me's
+    # client_config (× 1000 ms conversion in main.py).
+    tuning_sse_idle_threshold_seconds: Optional[str] = None
+    tuning_pollops_sse_keepalive_seconds: Optional[str] = None
+    # #543 — login rate-limit policy (3 knobs).
+    tuning_rate_limit_max_failures: Optional[str] = None
+    tuning_rate_limit_window_seconds: Optional[str] = None
+    tuning_rate_limit_lockout_seconds: Optional[str] = None
     # -----------------------------------------------------------------
     # Per-event notification toggles. Each maps to one of the
     # 12 (event group × success/failure) notify() call sites in
@@ -3208,8 +3226,11 @@ async def api_hosts():
         })
 
     # Parallel node-exporter probes for hosts that had a ne_url.
+    # #540 — operator-tunable timeout (default 10s) shared with
+    # `_merge_one_host` and `host_metrics_sampler`.
     if ne_probes:
-        async with httpx.AsyncClient(verify=False, timeout=10.0) as ne_client:
+        _ne_timeout = tuning.tuning_int("tuning_node_exporter_probe_timeout_seconds")
+        async with httpx.AsyncClient(verify=False, timeout=float(_ne_timeout)) as ne_client:
             results = await asyncio.gather(*(
                 _ne.probe_node(ne_client, url) for _, url in ne_probes
             ))
@@ -3243,7 +3264,11 @@ async def api_hosts():
             # one host to 75s, which trips NPM's 60s proxy_read_timeout
             # and the operator sees a 504. 20s is a soft ceiling that
             # still allows a healthy Webmin to complete its 5 calls.
-            _WEBMIN_PROBE_BUDGET = 20.0
+            # #539 — sourced from `tuning_webmin_probe_budget_seconds`
+            # (resolves to int(20) by default). Same knob as the
+            # `_merge_one_host` consumer below so both code paths stay
+            # in lockstep.
+            _webmin_probe_budget = tuning.tuning_int("tuning_webmin_probe_budget_seconds")
 
             async def _one_probe(wm_url: str) -> dict:
                 try:
@@ -3253,12 +3278,12 @@ async def api_hosts():
                             verify_tls=webmin_verify,
                             active_sources=active,
                         ),
-                        timeout=_WEBMIN_PROBE_BUDGET,
+                        timeout=_webmin_probe_budget,
                     )
                 except asyncio.TimeoutError:
                     return {
                         "hosts": {},
-                        "error": f"webmin probe timeout after {int(_WEBMIN_PROBE_BUDGET)}s",
+                        "error": f"webmin probe timeout after {_webmin_probe_budget}s",
                     }
                 except Exception as e:  # noqa: BLE001 — surface to UI
                     return {"hosts": {}, "error": f"webmin probe failed: {e}"}
@@ -3664,9 +3689,11 @@ async def _merge_one_host(h: dict, state: dict, *, force: bool = False) -> tuple
             providers_hit.append("beszel")
 
     # Node-exporter (per-host probe).
+    # #540 — operator-tunable timeout via `tuning_node_exporter_probe_timeout_seconds`.
     if "node_exporter" in active and h.get("ne_url"):
+        _ne_timeout = tuning.tuning_int("tuning_node_exporter_probe_timeout_seconds")
         try:
-            async with httpx.AsyncClient(verify=False, timeout=10.0) as ne_client:
+            async with httpx.AsyncClient(verify=False, timeout=float(_ne_timeout)) as ne_client:
                 stats = await _ne.probe_node(ne_client, h["ne_url"])
             _merge_best(merged, stats or {})
             if stats and not stats.get("exporter_error"):
@@ -3694,6 +3721,9 @@ async def _merge_one_host(h: dict, state: dict, *, force: bool = False) -> tuple
                 if fail_cached and (now - fail_cached[0]) < _WEBMIN_HOST_FAIL_CACHE_TTL:
                     result = fail_cached[1]
                 else:
+                    # #539 — Webmin probe budget is operator-tunable;
+                    # shared with the legacy `api_hosts` consumer.
+                    _wm_budget = tuning.tuning_int("tuning_webmin_probe_budget_seconds")
                     try:
                         result = await asyncio.wait_for(
                             _webmin.probe_webmin(
@@ -3701,10 +3731,10 @@ async def _merge_one_host(h: dict, state: dict, *, force: bool = False) -> tuple
                                 verify_tls=state["webmin_verify"],
                                 active_sources=active,
                             ),
-                            timeout=20.0,
+                            timeout=_wm_budget,
                         )
                     except asyncio.TimeoutError:
-                        result = {"hosts": {}, "error": "webmin probe timeout after 20s"}
+                        result = {"hosts": {}, "error": f"webmin probe timeout after {_wm_budget}s"}
                     except Exception as e:  # noqa: BLE001
                         result = {"hosts": {}, "error": f"webmin probe failed: {e}"}
                     # Cache the OUTCOME — successes go in the long-lived
@@ -4920,8 +4950,10 @@ async def api_hosts_debug(
         # does so the "Raw" debug dump shows real metric text, not the
         # HTML landing page that bare host:port returns.
         url_canonical = _ne._normalise_ne_url(url_input)
+        # #540 — operator-tunable NE probe timeout.
+        _ne_timeout = tuning.tuning_int("tuning_node_exporter_probe_timeout_seconds")
         try:
-            async with httpx.AsyncClient(verify=False, timeout=10.0) as client:
+            async with httpx.AsyncClient(verify=False, timeout=float(_ne_timeout)) as client:
                 r = await client.get(url_canonical)
                 r.raise_for_status()
                 text = r.text
@@ -6884,6 +6916,12 @@ async def api_me(request: Request):
             # per /api/me round-trip so an Admin → Config save takes
             # effect on the next call.
             "hosts_parallel_fetch": tuning.tuning_int("tuning_hosts_parallel_fetch"),
+            # #541 — SSE freshness-watchdog idle threshold. Stored as
+            # seconds; SPA's `_sseIdleThresholdMs` consumer wants ms.
+            "sse_idle_threshold_ms": tuning.tuning_int("tuning_sse_idle_threshold_seconds") * 1000,
+            # #542 — pollOps SSE-up keep-alive cadence. Same ms-conversion
+            # pattern as ops_poll_ms (#514) and sse_idle_threshold_ms.
+            "pollops_sse_keepalive_ms": tuning.tuning_int("tuning_pollops_sse_keepalive_seconds") * 1000,
             # Scheduler-tz state so the admin Schedules tab can badge
             # "TZ: <name> → falling back to UTC" when the operator typed
             # an invalid IANA name. ``configured`` = raw setting,

@@ -660,6 +660,20 @@ function app() {
       // /api/hosts/one/<id> fan-out. Read on /api/me into
       // `me.client_config.hosts_parallel_fetch`.
       'tuning_hosts_parallel_fetch',
+      // #537 / #538 — SSE heartbeat cadence + connection lifetime.
+      'tuning_sse_heartbeat_seconds',
+      'tuning_sse_max_lifetime_seconds',
+      // #539 — Webmin probe outer budget.
+      'tuning_webmin_probe_budget_seconds',
+      // #540 — node-exporter per-host probe timeout.
+      'tuning_node_exporter_probe_timeout_seconds',
+      // #541 / #542 — frontend SSE knobs delivered via /api/me.
+      'tuning_sse_idle_threshold_seconds',
+      'tuning_pollops_sse_keepalive_seconds',
+      // #543 — login rate-limit policy.
+      'tuning_rate_limit_max_failures',
+      'tuning_rate_limit_window_seconds',
+      'tuning_rate_limit_lockout_seconds',
     ],
     tuningForm: {},
     tuningEffective: {},
@@ -6141,9 +6155,15 @@ function app() {
           this._opsTimer = null;
           return;
         }
-        const opsPollMs = this._sseConnected ? 30000 : fastMs;
+        // #542 — SSE-up keep-alive cadence is operator-tunable via
+        // `tuning_pollops_sse_keepalive_seconds`. Backend × 1000 in
+        // `client_config.pollops_sse_keepalive_ms`. Defensive `|| 30000`
+        // covers the brief window before /api/me hydrates.
+        const keepAliveMs = (this.me && this.me.client_config
+                              && this.me.client_config.pollops_sse_keepalive_ms) || 30000;
+        const opsPollMs = this._sseConnected ? keepAliveMs : fastMs;
         if (this._sseConnected && !this._opsLiveLogged) {
-          console.log('[live] pollOps cadence: SSE up → 30s keepalive (was ' + fastMs + 'ms)');
+          console.log('[live] pollOps cadence: SSE up → ' + keepAliveMs + 'ms keepalive (was ' + fastMs + 'ms)');
           this._opsLiveLogged = true;
         } else if (!this._sseConnected && this._opsLiveLogged) {
           console.log('[live] pollOps cadence: SSE down → ' + fastMs + 'ms fast polling');
@@ -6397,7 +6417,15 @@ function app() {
       this._sseFreshnessTimer = setInterval(() => {
         if (!this._sseLastEventTs) return;
         const idle = Date.now() - this._sseLastEventTs;
-        if (idle > this._sseIdleThresholdMs) {
+        // #541 — operator-tunable via `tuning_sse_idle_threshold_seconds`,
+        // delivered as `client_config.sse_idle_threshold_ms`. Defensive
+        // fallback to the historical 30000 covers the brief window
+        // before /api/me hydrates AND any consumer of the legacy
+        // `_sseIdleThresholdMs` property.
+        const threshold = (this.me && this.me.client_config
+                            && this.me.client_config.sse_idle_threshold_ms)
+                          || this._sseIdleThresholdMs || 30000;
+        if (idle > threshold) {
           if (this._sseConnected) {
             console.warn('[live] SSE freshness watchdog: ' + Math.round(idle / 1000) + 's since last event — flipping _sseConnected=false (polling fallback resumes)');
           }

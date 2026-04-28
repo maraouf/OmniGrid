@@ -68,6 +68,62 @@ TUNABLES: dict[str, tuple[str, int, int, int]] = {
     # const; min 1 (serialised — guaranteed safe but slow); max 32 (NPM
     # default upstream pool exhausts well before this on most setups).
     "tuning_hosts_parallel_fetch": ("HOSTS_PARALLEL_FETCH", 6, 1, 32),
+    # #537 — SSE heartbeat cadence (seconds). The /api/events stream
+    # emits a `: keepalive\n\n` comment every N seconds so an idle NPM
+    # / cloudflare proxy doesn't drop the connection on its own
+    # idle-keepalive timer. Lower if your proxy has a tight idle
+    # timeout (some defaults are 30s); raise to cut the comment-traffic
+    # on long-lived tabs. Default 25s.
+    "tuning_sse_heartbeat_seconds": ("SSE_HEARTBEAT_SECONDS", 25, 5, 300),
+    # #538 — SSE connection wall-clock cap (seconds). Forces a
+    # periodic close + reconnect so the cookie-authed tab re-enters the
+    # auth middleware, letting the session-cookie's sliding-window
+    # refresh land before the 8h hard cap. Default 6h leaves a 1h
+    # margin for clock skew + heartbeat round-trip; do NOT raise past
+    # the session hard cap minus that margin.
+    "tuning_sse_max_lifetime_seconds": ("SSE_MAX_LIFETIME_SECONDS", 21600, 3600, 25200),
+    # #539 — Webmin probe outer budget (seconds). Used by both
+    # `_merge_one_host` (the per-host `asyncio.wait_for`) AND legacy
+    # `api_hosts`'s `_WEBMIN_PROBE_BUDGET`. Pre-#539 these duplicated
+    # the same 20s constant in two places. Default 20s — enough for a
+    # slow Miniserv to respond on its three-tier fallback (XML → JSON
+    # → HTML scrape) but well under the 30s outer `/api/hosts/one/<id>`
+    # budget so a hung Webmin doesn't blow the whole probe.
+    "tuning_webmin_probe_budget_seconds": ("WEBMIN_PROBE_BUDGET_SECONDS", 20, 5, 120),
+    # #540 — node-exporter per-host probe timeout (seconds). Used by
+    # `_merge_one_host`'s NE block (was 10s), legacy `api_hosts`'s NE
+    # probe (was 10s), AND `host_metrics_sampler` (was 15s — the
+    # sampler's slightly higher value was a slow-startup compensation
+    # that's no longer needed with the per-host failure-pause window).
+    # Pick 10s as canonical default; operators with a deliberately
+    # slow exporter raise it. Strict-rule category (e) "tuned during a
+    # 504 incident".
+    "tuning_node_exporter_probe_timeout_seconds": ("NODE_EXPORTER_PROBE_TIMEOUT_SECONDS", 10, 2, 60),
+    # #541 — SSE freshness-watchdog idle threshold (seconds). Stored
+    # as integer seconds for operator-friendly UI; SPA-side
+    # `_sseIdleThresholdMs` consumer multiplies × 1000. Default 30s —
+    # matches the heartbeat cadence so a stalled stream that's missing
+    # both heartbeats AND organic events will trigger the polling
+    # fallback within ~2 heartbeat windows. Strict-rule category (b)
+    # "freshness threshold".
+    "tuning_sse_idle_threshold_seconds": ("SSE_IDLE_THRESHOLD_SECONDS", 30, 5, 300),
+    # #542 — pollOps SSE-up keep-alive cadence (seconds). When SSE is
+    # connected, `pollOps` slows from `tuning_ops_poll_interval_seconds`
+    # to this value as a defence-in-depth safety net (catches a
+    # silently-stalled stream that the freshness watchdog hasn't yet
+    # flipped). Stored as integer seconds; SPA × 1000 in setTimeout.
+    # Default 30s — lines up with the freshness threshold so the
+    # keepalive fires at-or-before the watchdog flips _sseConnected
+    # to false.
+    "tuning_pollops_sse_keepalive_seconds": ("POLLOPS_SSE_KEEPALIVE_SECONDS", 30, 5, 600),
+    # #543 — login rate-limit policy. Three knobs grouped (max
+    # failures, sliding window, lockout duration). Default mirrors
+    # the prior hardcoded policy: 5 failures in 15 min → 15 min
+    # lockout. High-security operators want longer lockouts; dev
+    # operators want looser limits.
+    "tuning_rate_limit_max_failures": ("RATE_LIMIT_MAX_FAILURES", 5, 1, 100),
+    "tuning_rate_limit_window_seconds": ("RATE_LIMIT_WINDOW_SECONDS", 900, 60, 86400),
+    "tuning_rate_limit_lockout_seconds": ("RATE_LIMIT_LOCKOUT_SECONDS", 900, 60, 86400),
 }
 
 
