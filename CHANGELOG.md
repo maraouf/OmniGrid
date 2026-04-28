@@ -76,6 +76,7 @@ Second MINOR cut after the `1.1.0` baseline. Every entry below shipped to the li
 
 ### Fixed
 
+- Cursor:pointer on every clickable button (#466). Native `<button>` defaults to `cursor: default` in modern browsers (only `<a>` gets the hand cursor for free); operators noticed the missing affordance on the nav (Stacks / Services / Nodes / Hosts / History) and topbar buttons (Theme, Hotkeys). Added Tailwind `cursor-pointer` to the nav button class string and `cursor: pointer` to the base `.btn` CSS rule so every button using the class flips uniformly. Disabled state still inherits the existing `cursor: not-allowed`.
 - 10-bug sweep from `notes/code_review_2026-04-28.txt` shipped in one batch (#456–#465). (a) `passkeys_allowed` now returned by `api_get_settings` next to the TOTP-policy fields — same drift class as #453 but on the GET-side; the SPA's defensive `(d.passkeys_allowed !== false)` was always evaluating `true` because the field was never in the GET response (#456). (b) `prune_old_logs` cutoff math + filename-date parse now route through a shared `_resolved_tz()` helper so they use the same zone the rotation half (`_today_log_path`) does — pre-fix the pruner stayed on UTC after #452 moved rotation to local-tz, and the prune window slipped by one day in non-UTC offsets (#457). (c) Legacy `/api/hosts` now calls `_shape_host_api_row` per row instead of building its own inline dict — closes the missing `_failure_state_for_host()` spread for bearer-token clients (Homarr widget, scrapers) AND the diverged status taxonomy (legacy 3-tier vs canonical six-tier) in one move; ~80 lines net negative (#458 + #459). (d) `_validate_id_token._find_key` now rejects `kid is None` instead of silently picking `keys[0]` — defence-in-depth against suppressed-`kid`-header attacks during JWKS rotation (#460). (e) OIDC flow cookie now deleted on every callback failure path via `HTTPException(headers=...)` — was only deleted in the success branch (#461). (f) `verify_authentication` now actually performs the sign-counter regression guard the docstring promised — defence-in-depth on top of `webauthn>=2.0`'s own check (#462). (g) `verify_registration` now whitelists `transports` against the documented `AuthenticatorTransport` enum (`usb`, `nfc`, `ble`, `internal`, `hybrid`) before persisting via `add_user_credential` (#463). (h) `/api/events` now caps each connection's wall-clock lifetime at 6h via `_SSE_MAX_LIFETIME_SECONDS`, emitting a synthetic `reconnect` event so EventSource re-upgrades and the auth middleware fires again — fixes the silent session-lapse on >8h SSE connections that never gave the cookie's sliding-window 7h refresh a chance to land (#464). (i) `auto_provision_authentik` username collision search now uses an O(1)-in-expectation `random.randint(1000, 9999)` suffix with up to 8 random tries before falling back to the legacy linear-probe escape hatch — pre-fix linear probing cost N DB queries on a busy local namespace (#465).
 - Admin → Authentication "Allow users to enrol passkeys" toggle (`passkeys_allowed`) wasn't persisting on page refresh — the SPA's `loadSettings()` hydrated the five TOTP-policy fields but skipped `passkeys_allowed`, so the checkbox bound to a never-set `settings.passkeys_allowed` (undefined → falsy) on every load even though the saved DB value round-tripped correctly through the backend. Added the hydration line + an initial-state default matching the backend's `_TOTP_POLICY_DEFAULTS["passkeys_allowed"]: True` so the checkbox renders correctly even during the brief window before the first `/api/settings` response (#493).
 - Persistent log rotation now uses the operator's local date for the filename instead of UTC (#492). Pre-fix symptom: an operator in `TZ=Africa/Cairo` (UTC+2) saw writes at Cairo 00:00–01:59 land in the previous UTC-day's file (`omnigrid-2026-04-27.log` with mtime 28/04 01:59:58 Cairo) because `_today_log_path()` was calling `datetime.now(timezone.utc).strftime("%Y-%m-%d")`. Resolution order is now `scheduler_timezone` (canonical "what day is it for OmniGrid?" knob, same one `logic/schedules.py:_scheduler_tz` consults) → container-local clock (TZ env + /etc/localtime bind mount) → UTC as a last-resort. Per-line ISO 8601 timestamps inside the file stay UTC (`Z`-suffixed) — that's the standard log-aggregator format; only the filename date moved to local.
@@ -564,14 +565,17 @@ baseline lives in `notes/note_todo.txt` under the `## Done` block,
 keyed by stable `#NNN` TODO IDs.
 
 <!--
-  Version link references — Forgejo milestone URLs, written as relative
-  paths so the host stays out of the repo and a fork / mirror picks
-  the right links automatically. Path resolves from the CHANGELOG.md
-  URL `<host>/<owner>/<repo>/src/branch/<branch>/CHANGELOG.md` —
-  three `..` segments take us to `<host>/<owner>/<repo>/`, then
-  `milestone/<id>` lands on the right page. We don't have a v1.0.0
-  release tag (no `[1.0.0]` link target on purpose); the heading
-  above renders literally as `## [1.0.0]` text, which is fine.
+  Version link references — Forgejo release-page URLs, written as
+  relative paths so the host stays out of the repo and a fork / mirror
+  picks the right links automatically. Path resolves from the
+  CHANGELOG.md URL `<host>/<owner>/<repo>/src/branch/<branch>/CHANGELOG.md`
+  — three `..` segments take us to `<host>/<owner>/<repo>/`, then
+  `releases/tag/v<X.Y.Z>` lands on the right page. We don't have a
+  v1.0.0 release tag (no `[1.0.0]` link target on purpose); the heading
+  above renders literally as `## [1.0.0]` text, which is fine. The
+  `[Unreleased]` link points at the next-version milestone view since
+  no release page exists yet.
 -->
-[Unreleased]: ../../../milestone/2
-[1.1.0]: ../../../milestone/1
+[Unreleased]: ../../../milestones
+[1.1.0]: ../../../releases/tag/v1.1.0
+[1.2.0]: ../../../releases/tag/v1.2.0
