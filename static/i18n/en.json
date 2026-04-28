@@ -1420,6 +1420,7 @@
     "system": {
       "heading": "System",
       "hostname": "Hostname",
+      "agents": "Enabled agents",
       "platform": "Platform",
       "os": "OS",
       "kernel": "Kernel",

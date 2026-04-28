@@ -1762,6 +1762,14 @@ function app() {
         // (tuning_webmin_probe_budget_seconds); ensure tuning state
         // is available the first time the operator visits.
         if (tab === 'host_stats' && !this.tuningLoaded) await this.loadTuning();
+        // The Ping test-target picker reads from `hostsConfig` (loaded
+        // by the Hosts admin tab). When the operator opens the host_stats
+        // tab without ever visiting Admin → Hosts in this session, the
+        // picker is empty and the dropdown shows "No ping-enabled hosts"
+        // even though there are some. Lazy-load on first visit.
+        if (tab === 'host_stats' && !(Array.isArray(this.hostsConfig) && this.hostsConfig.length)) {
+          this.loadHostsConfig().catch(() => {});
+        }
       }
       else if (tab === 'hosts') {
         await this.loadHostsConfig();
@@ -11500,6 +11508,31 @@ function app() {
     hostHasAgent(h) {
       if (!h) return false;
       return !!(h.beszel_name || h.pulse_name || h.ne_url || h.webmin_name || h.ping_enabled);
+    },
+    // Telemetry = any provider that contributes CPU / Memory / Disk
+    // gauges. Ping is reachability + latency only; a ping-only host
+    // shouldn't render CPU/Mem/Disk bars (every value would be zero,
+    // which looks like "loading" or a broken row). Use this to gate
+    // the bars on the host rows (desktop + mobile) and the per-card
+    // CPU/Mem/Disk/Net/DiskIO charts in the drawer.
+    hostHasTelemetry(h) {
+      if (!h) return false;
+      return !!(h.beszel_name || h.pulse_name || h.ne_url || h.webmin_name);
+    },
+    // Display list of agent names enabled on a host — used by the
+    // drawer's "Enabled agents" row. Ping shows alongside the four
+    // telemetry providers because, from the operator's POV, it's a
+    // distinct opt-in agent even though it doesn't contribute CPU /
+    // Mem / Disk gauges.
+    hostEnabledAgents(h) {
+      if (!h) return [];
+      const out = [];
+      if (h.beszel_name) out.push('Beszel');
+      if (h.pulse_name)  out.push('Pulse');
+      if (h.ne_url)      out.push('node-exporter');
+      if (h.webmin_name) out.push('Webmin');
+      if (h.ping_enabled) out.push('Ping');
+      return out;
     },
     filteredHosts() {
       const q = (this.hostsSearch || '').trim().toLowerCase();

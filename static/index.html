@@ -1746,10 +1746,14 @@
               </div>
             </div>
             <!-- Metric strip — only rendered for hosts that are
-                 actually online. Offline / unknown hosts collapse
-                 the whole row to just header + status dot so "0%"
-                 bars don't imply "loading" on a host that's down. -->
-            <div class="host-mobile-card-metrics" x-show="h.status === 'up'">
+                 actually online AND have a telemetry provider that
+                 contributes CPU / Mem / Disk gauges. Ping-only hosts
+                 are "up" via reachability but don't have those
+                 gauges; rendering empty bars on them looks broken
+                 (#569). Offline / unknown hosts collapse the whole
+                 row to just header + status dot so "0%" bars don't
+                 imply "loading" on a host that's down. -->
+            <div class="host-mobile-card-metrics" x-show="h.status === 'up' && hostHasTelemetry(h)">
               <div class="host-mobile-card-metric">
                 <span class="name" x-text="t('columns.cpu')"></span>
                 <span class="value" x-text="(h.cpu_percent || 0).toFixed(1) + '%'"></span>
@@ -1997,9 +2001,11 @@
                    "—" dashes that imply "data is loading" when in
                    reality the host is just down. Status dot + name
                    column alone communicate the state. -->
-              <!-- CPU % -->
+              <!-- CPU % — gated on hostHasTelemetry so ping-only
+                   hosts (which can be 'up' via reachability but
+                   contribute no CPU gauge) don't render an empty bar (#569). -->
               <div>
-                <template x-if="h.status === 'up'">
+                <template x-if="h.status === 'up' && hostHasTelemetry(h)">
                   <div>
                     <div class="stat-bar"
                          :class="[barLevel(h.cpu_percent), isStaleField(h, 'host_cpu_percent') ? 'stale' : '']"
@@ -2012,9 +2018,9 @@
                   </div>
                 </template>
               </div>
-              <!-- Memory % + bytes -->
+              <!-- Memory % + bytes — same telemetry gate. -->
               <div>
-                <template x-if="h.status === 'up'">
+                <template x-if="h.status === 'up' && hostHasTelemetry(h)">
                   <div>
                     <div class="stat-bar"
                          :class="[barLevel(h.mem_percent || memPercentOf(h)), (isStaleField(h, 'host_mem_total') || isStaleField(h, 'host_mem_used')) ? 'stale' : '']"
@@ -2036,7 +2042,7 @@
                    whole pool. Falls back to a plain single-colour
                    bar when the host reports only aggregate totals. -->
               <div>
-                <template x-if="h.status === 'up'">
+                <template x-if="h.status === 'up' && hostHasTelemetry(h)">
                   <div>
                     <template x-if="(h.mounts || []).length > 1">
                       <div class="disk-segmented">
@@ -7531,6 +7537,19 @@
                   <dl class="drawer-dl text-[12px]">
                     <dt class="text-[var(--text-dim)]" x-text="t('host_drawer.system.hostname')"></dt>
                     <dd class="mono text-end" x-text="h.host"></dd>
+                    <!-- Enabled agents (#570) — comma-joined list of
+                         providers configured on this host. Distinct
+                         from `providers` (which lists what RETURNED
+                         data this tick); this lists what's WIRED in
+                         the curated row. Useful at a glance on hosts
+                         where status disagrees with expectation
+                         ("why is this row grey? oh, no agent set"). -->
+                    <template x-if="hostEnabledAgents(h).length">
+                      <dt class="text-[var(--text-dim)]" x-text="t('host_drawer.system.agents')"></dt>
+                    </template>
+                    <template x-if="hostEnabledAgents(h).length">
+                      <dd class="text-end" x-text="hostEnabledAgents(h).join(', ')"></dd>
+                    </template>
                     <!-- Hide Platform when it duplicates the OS's
                          first word (common when Pulse derived the
                          platform hint from its ``osName``). "debian"
@@ -8053,9 +8072,12 @@
                    with neither show the "link to Beszel / set NE URL"
                    hint above instead of an empty "Collecting data…" grid. -->
               <div class="mt-3 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4"
-                   x-show="(h.beszel_id || h.ne_url) && h.status === 'up' && (h.providers || []).length > 0">
-                <!-- CPU % -->
-                <div class="metric-card metric-card--cpu">
+                   x-show="(h.beszel_id || h.ne_url || h.ping_enabled) && h.status === 'up' && (h.providers || []).length > 0">
+                <!-- CPU % — hidden for ping-only hosts (#569). The
+                     grid wrapper now opens for ping_enabled too so the
+                     Ping chart renders, but ping doesn't contribute a
+                     CPU gauge. -->
+                <div class="metric-card metric-card--cpu" x-show="h.beszel_id || h.ne_url">
                   <div class="metric-card-head">
                     <div class="metric-card-title">
                       <span>CPU</span><span class="unit">%</span>
@@ -8113,8 +8135,8 @@
                   </template>
                 </div>
 
-                <!-- Memory % -->
-                <div class="metric-card metric-card--mem">
+                <!-- Memory % — same telemetry gate as CPU (#569). -->
+                <div class="metric-card metric-card--mem" x-show="h.beszel_id || h.ne_url">
                   <div class="metric-card-head">
                     <div class="metric-card-title">
                       <span>Memory</span><span class="unit">%</span>
@@ -8164,8 +8186,8 @@
                   </template>
                 </div>
 
-                <!-- Disk % -->
-                <div class="metric-card metric-card--disk">
+                <!-- Disk % — same telemetry gate (#569). -->
+                <div class="metric-card metric-card--disk" x-show="h.beszel_id || h.ne_url">
                   <div class="metric-card-head">
                     <div class="metric-card-title">
                       <span>Disk</span><span class="unit">%</span>
@@ -8230,6 +8252,7 @@
                      directly comparable. Legend at top shows both
                      metrics with their min/max from `hostMetricStats`. -->
                 <div class="metric-card metric-card--net"
+                     x-show="h.beszel_id || h.ne_url"
                      :class="hostChartMax(hostHistoryKey(h), ['nr','ns']) === 0 ? 'metric-card--flat' : ''">
                   <div class="metric-card-head">
                     <div class="metric-card-title">
@@ -8424,6 +8447,7 @@
                      both source types — the "idle" hint correctly
                      surfaces a genuinely-quiet disk regardless of source. -->
                 <div class="metric-card metric-card--disk"
+                     x-show="h.beszel_id || h.ne_url"
                      :class="hostChartMax(hostHistoryKey(h), ['dr','dw']) === 0 ? 'metric-card--flat' : ''">
                   <div class="metric-card-head">
                     <div class="metric-card-title">
