@@ -7150,6 +7150,14 @@ function app() {
       add('pulse',         !!(h.pulse_name  && String(h.pulse_name).trim()),  h.pulse_status);
       add('node_exporter', !!(h.ne_url      && String(h.ne_url).trim()),      null);
       add('webmin',        !!(h.webmin_name && String(h.webmin_name).trim()), null);
+      // Ping is per-host opt-in (no name/URL field — just a boolean
+      // toggle). The chip turns red when the latest sample says
+      // alive=false; that's the closest analog to beszel_status='down'
+      // for a transport that IS the up/down signal. `ping_alive` is
+      // null until the sampler fires for the first time — we don't
+      // want that "no data yet" case to render a misleading red chip,
+      // so only flip to 'down' when the value is explicitly false.
+      add('ping',          !!h.ping_enabled, h.ping_alive === false ? 'down' : null);
       return out;
     },
     // Stale-marker helpers for the UI.
@@ -11491,7 +11499,7 @@ function app() {
     // toolbar count badge.
     hostHasAgent(h) {
       if (!h) return false;
-      return !!(h.beszel_name || h.pulse_name || h.ne_url || h.webmin_name);
+      return !!(h.beszel_name || h.pulse_name || h.ne_url || h.webmin_name || h.ping_enabled);
     },
     filteredHosts() {
       const q = (this.hostsSearch || '').trim().toLowerCase();

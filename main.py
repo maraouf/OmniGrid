@@ -3898,8 +3898,15 @@ async def _merge_one_host(h: dict, state: dict, *, force: bool = False) -> tuple
             })
             if stats:
                 _merge_best(merged, stats)
-                if last.get("alive"):
-                    providers_hit.append("ping")
+                # Count ping as a "provider hit" whenever we got a sample
+                # back, regardless of alive/down. The alive flag is
+                # surfaced separately on the row so the SPA can render
+                # the right chip + status colour. Pre-fix this only
+                # appended when alive=True, which meant a ping-only host
+                # that was currently DOWN got filtered out as "no
+                # provider returned data" and rendered grey/unconfigured
+                # instead of the red "down" the operator expected.
+                providers_hit.append("ping")
 
     # Snapshot fallback (#449) — when a provider went down mid-session,
     # fill missing host_* fields from the previous gather's persisted
@@ -4025,15 +4032,26 @@ def _shape_host_api_row(
     if beszel_st == "paused":
         beszel_st = "down"
     pulse_st = s.get("pulse_status")
+    # Ping is excluded from `non_beszel_hit` because — unlike the other
+    # providers — a ping "hit" doesn't prove the host is alive. Ping IS
+    # the alive/down signal, so a ping sample that says alive=False
+    # means the host is down. The dedicated ping branch below derives
+    # "up" / "down" from `host_ping_alive`; the other providers
+    # implicitly mean "alive" when they return data at all.
     non_beszel_hit = any(
-        p in providers_hit for p in ("pulse", "node_exporter", "webmin", "ping")
+        p in providers_hit for p in ("pulse", "node_exporter", "webmin")
     )
+    ping_hit = "ping" in providers_hit
+    ping_alive = s.get("host_ping_alive")
+    ping_enabled = bool((h.get("ping") or {}).get("enabled", False))
     if non_beszel_hit:
         host_status = "up"
     elif beszel_st in ("up", "down"):
         host_status = beszel_st
     elif pulse_st:
         host_status = pulse_st
+    elif ping_hit:
+        host_status = "up" if ping_alive else "down"
     elif providers_hit:
         host_status = "up"
     elif (not any_provider_enabled) or not (
@@ -4041,6 +4059,7 @@ def _shape_host_api_row(
         or (h.get("pulse_name")  or "").strip()
         or (h.get("webmin_name") or "").strip()
         or (h.get("ne_url")      or "").strip()
+        or ping_enabled
     ):
         host_status = "unconfigured"
     else:
