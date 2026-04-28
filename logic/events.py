@@ -156,6 +156,19 @@ def publish(
     into the caller (an Operation handler, a sampler, the gather loop).
     Logged loudly so a regression in event shape doesn't go silent.
     """
+    # #536 — request-correlation log line at every publish site.
+    # Instrumenting here (single point) instead of each of the 12 call
+    # sites means new publishers automatically get the trace. Identity
+    # hint mirrors the failure-path's lookup order so the log line
+    # stays useful regardless of which publisher fired.
+    _ident = (payload or {}).get("id")
+    if _ident is None:
+        _ident = (payload or {}).get("host_id") or (payload or {}).get("op_id") \
+                or (payload or {}).get("schedule_id")
+    if _ident is not None:
+        print(f"[events] publish {type_} id={_ident}")
+    else:
+        print(f"[events] publish {type_}")
     try:
         bus.publish(type_, payload, ts)
     except Exception as e:

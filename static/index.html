@@ -6559,9 +6559,13 @@
                   <span class="text-[11px] text-[var(--text-dim)] ms-auto"
                         x-text="t('admin.config.effective_label', { value: (tuningEffective[key] || {}).effective })"></span>
                 </div>
-                <p class="text-[10.5px] text-[var(--text-faint)] mt-1 mono">
-                  <span x-text="(tuningEffective[key] || {}).env_var"></span>
-                </p>
+                <!-- #530 — env-var hint removed. Operator manages tunables
+                     via Admin → Config; the env-var fallback still exists
+                     in `logic/tuning.py:tuning_int` (DB > env > default)
+                     for back-compat with first-boot bootstrap and any
+                     legacy deployment that still sets values via .env,
+                     but the label was UI noise (operators were never
+                     going to edit .env to tune these). -->
               </div>
             </template>
 
