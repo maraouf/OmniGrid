@@ -6288,9 +6288,33 @@ async def api_local_login(
     auth.rate_limit_check(ip, username)
     with db_conn() as c:
         u = auth.get_user_by_username(c, username)
-        if not u or u.auth_source != "local" or u.disabled or not auth.verify_password(password, _get_user_password_hash(c, u.id)):
+        # #554 — split the failure cases for clearer operator-facing
+        # error messages without disclosing username existence.
+        # SECURITY: only specialise the message AFTER a successful
+        # password verification; otherwise an attacker could enumerate
+        # disabled accounts by probing for the "Account disabled"
+        # response without knowing the password.
+        password_ok = (
+            u is not None
+            and u.auth_source == "local"
+            and auth.verify_password(password, _get_user_password_hash(c, u.id))
+        )
+        if not password_ok:
             auth.rate_limit_record_failure(ip, username)
             raise HTTPException(status_code=401, detail="Invalid credentials")
+        if u.disabled:
+            # Password is verified correct; the user just can't log in.
+            # Safe to disclose because we already proved the caller
+            # holds the credentials. Use 403 so the SPA's login page
+            # can branch on the status code if it ever wants per-case
+            # styling. NOTE: we do NOT record a rate-limit failure
+            # here — the credentials were CORRECT; the lockout exists
+            # to slow down brute-force, not to punish a re-enable
+            # attempt by a legitimate user.
+            raise HTTPException(
+                status_code=403,
+                detail="Account is disabled. Contact your administrator.",
+            )
         # ----------------------------------------------------------------
         # 2FA gate (#345 TOTP + #381 passkeys). Branches before any
         # session cookie is issued:
