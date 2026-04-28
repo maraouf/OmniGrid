@@ -173,8 +173,24 @@ function applyI18nDom() {
         } else {
           showErr(tx('login.sign_in_failed', 'Sign-in failed (' + r.status + '). Try again.', { status: r.status }));
         }
+        // #559 — clear password field on ANY non-success response.
+        // Operator request: don't leave the failing password sitting
+        // in the input where a quick second click would re-submit
+        // the same value, OR where it could be glanced at by anyone
+        // standing behind the screen. Username stays so the operator
+        // doesn't have to re-type both. The password field is also
+        // re-focused for the next attempt.
+        try {
+          const pw = document.getElementById('p');
+          if (pw) { pw.value = ''; pw.focus(); }
+        } catch (_) {}
       } catch (_) {
         showErr(tx('login.network_error', 'Network error. Try again.'));
+        // Same clear-on-error UX for network failures (#559).
+        try {
+          const pw = document.getElementById('p');
+          if (pw) { pw.value = ''; pw.focus(); }
+        } catch (_) {}
       } finally {
         refs.btn.disabled = false;
         refs.btn.textContent = tx('login.sign_in', 'Sign in');

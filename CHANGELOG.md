@@ -59,6 +59,7 @@ the next release, this whole block becomes the `[X.Y.0]` entry below.
 
 ### Fixed
 
+- Login UI now clears the password field + refocuses it on every failed login attempt (#559) — disabled-user, wrong credentials, lockout, network failure. Username stays so the operator doesn't have to re-type both. Closes the "double-click re-submits the same wrong password" UX trap and the over-the-shoulder visibility issue.
 - Login UI now surfaces backend `detail` text on 403 responses (#557). Pre-fix #554's disabled-user message ("Account is disabled. Contact your administrator.") was masked by the generic "Sign-in failed (403). Try again." in the login page's catch-all branch. New 403 handler in `static/js/login.js` reads the `detail` field and falls back to a localised default. New i18n key `login.account_disabled`.
 
 ### Changed
