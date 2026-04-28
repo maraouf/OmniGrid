@@ -65,6 +65,7 @@ the next release, this whole block becomes the `[X.Y.0]` entry below.
 ### Changed
 
 - Phase-1 Admin Save button standardisation (#556) — added in-flight flags + `:disabled` + "Saving…" label flip to the four highest-visibility Admin Save buttons: Notifications (`saveSettings`), Portainer (`savePortainerSettings`), OIDC (`saveOidcSettings` ×2 copies), host_stats (already done in #555). New `admin.config.saving` i18n key.
+- Spinner pattern unified across all Admin Save buttons (#560). The Phase-1 batch (#556) plus saveSchedule + saveRetention from Phase-2 plus the Log-retention card all used a simple text-only "Saving…" label; brought them to the same spinner-with-icon pattern as every other Save button so the visual feedback is consistent across the app.
 - Phase-2 Admin Save button audit complete (#558) — most remaining Save buttons already had the full in-flight pattern from prior work. Only two needed updates: `saveSchedule` (schedule edit modal — added `scheduleSaving` flag + wrapper + markup) and `saveRetention` (Admin → Backups — added `retentionSaving` flag, switched from `btn-soft` to `btn-primary` for consistency). Tiny consistency fix on saveSshSettings's "Saving…" label (was a literal "…" ellipsis, now uses `t('actions.saving')`). Every Admin Save button now has uniform in-flight state + blue button + standard "Saving…" label.
 
 ### Fixed
