@@ -48,13 +48,14 @@ the next release, this whole block becomes the `[X.Y.0]` entry below.
 
 ### Changed
 
-- Admin → Process tunables — per-row bounds hint now shows the default alongside min/max ("min 5, max 3600, default 30") so operators can see the value-they'd-fall-back-to without clearing the input. The default flows from `effective_state()` in `logic/tuning.py` so it auto-stays in sync with `TUNABLES` (#510).
+- Admin → Process tunables — per-row bounds rendered as three icon chips (↓ min, ↑ max, ◎ default) instead of a comma-separated text hint. Three Lucide icons added to the sprite (`arrow-down-to-line`, `arrow-up-to-line`, `target`). Default-chip's icon picks up `var(--primary)` so the operator's eye finds "where it lands by default" at a glance; min/max use `var(--text-faint)`. Hover-titles wired via `admin.config.bounds.*_title` i18n keys for accessibility. The default value still flows from `effective_state()` in `logic/tuning.py` so it auto-stays in sync with `TUNABLES` (#510).
 - Admin → Process tunables now self-counts. The subtitle was hardcoded as "Override the six runtime knobs..." but there are now eleven; switched to a `{count}` placeholder driven by `tuningKeys.length` so future additions auto-update. Every tunable's help text was rewritten from a one-line summary into a detailed paragraph covering the value's concrete effect, the trade-off when lowering, the trade-off when raising, the default + any special-value semantics (e.g. set-to-0 disables the snapshot cache), and takes-effect-on-next-X timing. Operators get enough context to make informed changes without reading the source (#509).
 - CLAUDE.md adds the strict "No-static-config rule" — every operator-tunable value must go through `logic/tuning.py:TUNABLES`, never a hardcoded literal in Python / JS / HTML. The existing Process-level tunables bullet was expanded with the full six-step wiring surface (TUNABLES + SettingsIn + `tuningKeys` + i18n + `/api/me`'s `client_config` for frontend consumers + the consumer site itself). `docs/guidelines/env_example.md` and CLAUDE.md's Config-reference table updated with five tunables that had been added since the doc was last touched: `HOST_PERMANENT_FAIL_WINDOW_SECONDS`, `OPS_POLL_INTERVAL_MS`, `LOG_RETENTION_DAYS`, `HOST_SNAPSHOTS_CACHE_TTL_SECONDS`, `HOSTS_PARALLEL_FETCH` (#508).
 
 ### Fixed
 
 - Fan-out 504s from `/api/hosts/one/<id>` saturating NPM's upstream connection pool. Two root causes: `_get_host_provider_state` was NOT single-flight, so a parallel SPA fan-out of 6 cold-cache calls fired 6 independent Beszel hub + Pulse probes (15-20s each), starving the event loop and multiplying outbound load 6×; AND `_webmin_host_cache` cached only successes, so an unreachable Webmin burned its full 20s timeout on every parallel call. Fix: added `_host_provider_lock = asyncio.Lock()` + post-lock cache re-check pattern (first caller does the probe, rest await + reuse the populated cache, force=true serialises the same way); added `_webmin_host_fail_cache` (5s TTL) so failed Webmin probes short-circuit the 20s timeout for the duration of a fan-out burst, with recovery felt within one refresh cycle; lowered the outer per-host budget from 45s → 30s so OmniGrid's explicit 504 always fires before NPM's generic gateway 504; `[hosts]` log line on every Webmin probe failure (#506).
+- `CHANGELOG.md` release-page links switched from relative paths to absolute GitHub URLs. Forgejo's markdown renderer strips `..` segments as a security measure (preventing markdown from escaping its directory), so no relative-path combination resolved correctly on both hosts — GitHub needed 2 pops, Forgejo stripped them. Hardcoded absolute GitHub URLs work everywhere; clicking from Forgejo navigates cross-host to GitHub, which is acceptable since the operator keeps the two synced (#512).
 - `CHANGELOG.md` release-page links now resolve correctly on GitHub. Pre-fix `[1.2.0]: ../../../releases/tag/v1.2.0` was tuned for Forgejo's 5-segment URL shape (`/<owner>/<repo>/src/branch/<branch>/CHANGELOG.md`); on GitHub's 4-segment shape (`/<owner>/<repo>/blob/<branch>/CHANGELOG.md`) the same 3-pop relative path climbed one segment too high and landed at `github.com/maraouf/releases/tag/v1.2.0` (404). Dropped one `..` to match GitHub since that's the public-shippable mirror; comment block documents the GitHub-vs-Forgejo trade-off (#507).
 
 ### Internal
@@ -599,21 +600,21 @@ baseline lives in `notes/note_todo.txt` under the `## Done` block,
 keyed by stable `#NNN` TODO IDs.
 
 <!--
-  Version link references — release-page URLs as relative paths so the
-  host stays out of the repo and a fork / mirror picks the right links
-  automatically. The path is tuned for GitHub's URL shape
-  `<host>/<owner>/<repo>/blob/<branch>/CHANGELOG.md` (4 segments before
-  the file) — two `..` pops climb past `blob/<branch>/` and land at
-  `<host>/<owner>/<repo>/`, where `releases/tag/v<X.Y.Z>` resolves
-  correctly. NOTE: Forgejo's URL shape is one segment longer
-  (`<host>/<owner>/<repo>/src/branch/<branch>/CHANGELOG.md`, 5 segments)
-  so these links require manual navigation when viewing on Forgejo —
-  the public-shippable surface is GitHub, so it wins. We don't have a
-  v1.0.0 release tag (no `[1.0.0]` link target on purpose); the heading
-  above renders literally as `## [1.0.0]` text, which is fine. The
-  `[Unreleased]` link points at the next-version milestone view since
-  no release page exists yet.
+  Version link references — absolute GitHub URLs.
+
+  Why absolute, not relative: relative paths would have to be tuned
+  per-host (GitHub's URL shape is `<host>/<owner>/<repo>/blob/<branch>/CHANGELOG.md`
+  — 4 segments before the file — so 2 `..` pops resolve correctly, but
+  Forgejo's shape is one segment longer (`.../src/branch/<branch>/`) AND
+  Forgejo's markdown renderer strips `..` segments as a security measure,
+  so no `..`-count satisfies both. We optimise for the public-shippable
+  surface (GitHub mirror); on Forgejo these links navigate cross-host to
+  GitHub, which is fine because the operator keeps Forgejo synced to
+  GitHub anyway. We don't have a v1.0.0 release tag (no `[1.0.0]` link
+  target on purpose); the heading above renders as `## [1.0.0]` text,
+  which is fine. The `[Unreleased]` link points at the milestone view
+  since no release page exists yet.
 -->
-[Unreleased]: ../../milestones
-[1.1.0]: ../../releases/tag/v1.1.0
-[1.2.0]: ../../releases/tag/v1.2.0
+[Unreleased]: https://github.com/maraouf/OmniGrid/milestones
+[1.1.0]: https://github.com/maraouf/OmniGrid/releases/tag/v1.1.0
+[1.2.0]: https://github.com/maraouf/OmniGrid/releases/tag/v1.2.0

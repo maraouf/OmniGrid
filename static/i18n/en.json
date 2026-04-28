@@ -600,6 +600,12 @@
       "placeholder_env": "env: {value} (default: {default})",
       "placeholder_default": "default: {default}",
       "bounds_hint": "min {min}, max {max}, default {default}",
+      "bounds": {
+        "group_label": "Allowed range and default value",
+        "min_title": "Minimum allowed value",
+        "max_title": "Maximum allowed value",
+        "default_title": "Default value (used when both the DB override and the env var are blank)"
+      },
       "effective_label": "Effective: {value}",
       "save": "Save",
       "unsaved": "Unsaved",

@@ -185,6 +185,12 @@
     <symbol id="icon-file-text" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></symbol>
     <symbol id="icon-tag" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/><line x1="7" y1="7" x2="7.01" y2="7"/></symbol>
     <symbol id="icon-bug" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="8" y="6" width="8" height="14" rx="4"/><path d="M19 7l-3 2"/><path d="M5 7l3 2"/><path d="M19 13h-3"/><path d="M5 13h3"/><path d="M19 19l-3-2"/><path d="M5 19l3-2"/><path d="M9 6V3"/><path d="M15 6V3"/></symbol>
+    <!-- Lucide: arrow-down-to-line (downward arrow with floor — visual metaphor for "lower bound / minimum"). Used in Admin → Process tunables bounds chips. -->
+    <symbol id="icon-arrow-down-to-line" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 17V3"/><path d="m6 11 6 6 6-6"/><path d="M19 21H5"/></symbol>
+    <!-- Lucide: arrow-up-to-line (upward arrow with ceiling — visual metaphor for "upper bound / maximum"). -->
+    <symbol id="icon-arrow-up-to-line" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 3h14"/><path d="m18 13-6-6-6 6"/><path d="M12 7v14"/></symbol>
+    <!-- Lucide: target (concentric circles + center dot — visual metaphor for "default value / what you'd land on if you cleared the override"). -->
+    <symbol id="icon-target" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/></symbol>
 
     <!-- Brand-shaped mono icons for Admin sidebar tabs (#421). Both
          use currentColor so they inherit the same line-icon styling
@@ -6517,8 +6523,24 @@
                          :max="(tuningEffective[key] || {}).max"
                          :disabled="!isAdmin() || tuningSaving"
                          class="w-44 mono text-[12.5px]">
-                  <span class="text-[11px] text-[var(--text-faint)]"
-                        x-text="t('admin.config.bounds_hint', { min: (tuningEffective[key] || {}).min, max: (tuningEffective[key] || {}).max, default: (tuningEffective[key] || {}).default })"></span>
+                  <div class="bounds-chips" role="group"
+                       :aria-label="t('admin.config.bounds.group_label')">
+                    <span class="bounds-chip bounds-chip--min"
+                          :title="t('admin.config.bounds.min_title')">
+                      <svg width="11" height="11" aria-hidden="true"><use href="#icon-arrow-down-to-line"/></svg>
+                      <span x-text="(tuningEffective[key] || {}).min"></span>
+                    </span>
+                    <span class="bounds-chip bounds-chip--max"
+                          :title="t('admin.config.bounds.max_title')">
+                      <svg width="11" height="11" aria-hidden="true"><use href="#icon-arrow-up-to-line"/></svg>
+                      <span x-text="(tuningEffective[key] || {}).max"></span>
+                    </span>
+                    <span class="bounds-chip bounds-chip--default"
+                          :title="t('admin.config.bounds.default_title')">
+                      <svg width="11" height="11" aria-hidden="true"><use href="#icon-target"/></svg>
+                      <span x-text="(tuningEffective[key] || {}).default"></span>
+                    </span>
+                  </div>
                   <span class="text-[11px] text-[var(--text-dim)] ms-auto"
                         x-text="t('admin.config.effective_label', { value: (tuningEffective[key] || {}).effective })"></span>
                 </div>
