@@ -76,6 +76,11 @@ _AUTH_DEFAULTS = {
     # isn't in certifi's bundle. Mirrors the behaviour of Portainer's
     # verify_tls setting.
     "oidc_verify_tls":    True,
+    # When True (legacy / default), the admin-group claim must match
+    # `oidc_admin_group` byte-for-byte. When False, both are lowered
+    # before comparison so operators don't have to chase Authentik's
+    # mixed-case group names. ENH-002 / #469.
+    "oidc_group_case_sensitive": True,
 }
 
 # In-memory cache for the three auth-setting values. First read after an
@@ -110,6 +115,7 @@ _AUTH_SETTING_KEYS = (
     "oidc_redirect_uri",
     "oidc_scopes",
     "oidc_verify_tls",
+    "oidc_group_case_sensitive",
 )
 
 
@@ -137,7 +143,7 @@ def bootstrap_auth_settings(conn: sqlite3.Connection) -> None:
 # Bool-typed auth settings — every other key stores its value verbatim as a
 # string. Keep this set in sync when adding new boolean settings so the
 # cache refresh coerces them back from their stringified form.
-_BOOL_AUTH_KEYS = ("oidc_enabled", "oidc_verify_tls")
+_BOOL_AUTH_KEYS = ("oidc_enabled", "oidc_verify_tls", "oidc_group_case_sensitive")
 
 
 def _refresh_auth_settings_cache(conn: sqlite3.Connection) -> None:
@@ -1052,8 +1058,18 @@ def auto_provision_authentik(
     Name retained for historical reasons — any OIDC IdP fits the same
     shape (email + username + list-of-groups claim).
     """
-    admin_group = get_auth_settings(conn).get("oidc_admin_group", "")
-    target_role = "admin" if admin_group and admin_group in (groups or []) else "readonly"
+    settings = get_auth_settings(conn)
+    admin_group = settings.get("oidc_admin_group", "")
+    case_sensitive = bool(settings.get("oidc_group_case_sensitive", True))
+    if admin_group:
+        if case_sensitive:
+            in_admin_group = admin_group in (groups or [])
+        else:
+            needle = admin_group.lower()
+            in_admin_group = needle in [str(g).lower() for g in (groups or [])]
+    else:
+        in_admin_group = False
+    target_role = "admin" if in_admin_group else "readonly"
     # Only look up an existing AUTHENTIK-sourced user by this email. Local
     # accounts sharing the same email MUST NOT be matched here — otherwise
     # we'd silently flip their auth_source to 'authentik' and the local
@@ -1196,6 +1212,26 @@ def slide_session_if_needed(
         "UPDATE sessions SET last_seen_at=?, expires_at=? WHERE token_id=?",
         (now, new_expires_at, token_id),
     )
+    # ENH-020 / #485 — publish a session:renewed event so the SPA tab
+    # can update its "session expires in X" tooltip in real time
+    # without polling. Best-effort: never let a publish failure block
+    # the slide. Resolve the user_id from the session row so the SPA
+    # can filter to "is this MY session?" (operators rarely have two
+    # tabs as different users on the same browser, but worth doing
+    # right).
+    try:
+        from logic import events as _events
+        row = conn.execute(
+            "SELECT user_id FROM sessions WHERE token_id=?", (token_id,),
+        ).fetchone()
+        user_id = row["user_id"] if row else None
+        _events.publish("session:renewed", {
+            "user_id":    user_id,
+            "expires_at": new_expires_at,
+            "ts":         now,
+        })
+    except Exception as e:
+        print(f"[auth] session:renewed publish failed: {e}")
     return issue_session_cookie(token_id, new_expires_at), new_expires_at
 
 
@@ -1245,34 +1281,66 @@ def verify_api_token(conn: sqlite3.Connection, raw: str) -> Optional[dict]:
 _login_attempts: dict[str, dict] = {}
 
 
-def rate_limit_check(ip: str) -> None:
-    """Raise 429 if this IP is locked out."""
-    rec = _login_attempts.get(ip)
-    if not rec:
-        return
-    if rec.get("locked_until", 0) > time.time():
-        retry = int(rec["locked_until"] - time.time())
-        raise HTTPException(
-            status_code=429,
-            detail=f"Too many failed logins. Try again in {retry}s.",
-            headers={"Retry-After": str(retry)},
-        )
+def _username_key(ip: str, username: Optional[str]) -> Optional[str]:
+    """Composite (ip, username) bucket key — None when username isn't
+    known yet (e.g. /api/local-auth/login pre-form-parse)."""
+    if not username:
+        return None
+    return f"{ip}|{(username or '').lower().strip()}"
 
 
-def rate_limit_record_failure(ip: str) -> None:
+def rate_limit_check(ip: str, username: Optional[str] = None) -> None:
+    """Raise 429 if THIS IP or the (ip, username) tuple is locked out.
+
+    ENH-012 / #478 — pre-fix the limiter keyed solely on IP, so a
+    single corporate-NAT'd office got locked out for ANY user's typo.
+    Now both buckets are checked; lockout fires when either trips.
+    """
     now = time.time()
-    rec = _login_attempts.get(ip) or {"failures": 0, "window_start": now, "locked_until": 0.0}
-    # Roll the window if the oldest failure is beyond RATE_LIMIT_WINDOW.
-    if now - rec["window_start"] > RATE_LIMIT_WINDOW:
-        rec = {"failures": 0, "window_start": now, "locked_until": 0.0}
-    rec["failures"] += 1
-    if rec["failures"] >= RATE_LIMIT_MAX_FAILURES:
-        rec["locked_until"] = now + RATE_LIMIT_LOCKOUT
-    _login_attempts[ip] = rec
+    keys = [ip]
+    uk = _username_key(ip, username)
+    if uk:
+        keys.append(uk)
+    for k in keys:
+        rec = _login_attempts.get(k)
+        if not rec:
+            continue
+        if rec.get("locked_until", 0) > now:
+            retry = int(rec["locked_until"] - now)
+            raise HTTPException(
+                status_code=429,
+                detail=f"Too many failed logins. Try again in {retry}s.",
+                headers={"Retry-After": str(retry)},
+            )
 
 
-def rate_limit_clear(ip: str) -> None:
+def rate_limit_record_failure(ip: str, username: Optional[str] = None) -> None:
+    """Increment both the IP bucket AND the (ip, username) bucket.
+    Lockouts on either bucket independently — same window + threshold."""
+    now = time.time()
+    keys = [ip]
+    uk = _username_key(ip, username)
+    if uk:
+        keys.append(uk)
+    for k in keys:
+        rec = _login_attempts.get(k) or {"failures": 0, "window_start": now, "locked_until": 0.0}
+        # Roll the window if the oldest failure is beyond RATE_LIMIT_WINDOW.
+        if now - rec["window_start"] > RATE_LIMIT_WINDOW:
+            rec = {"failures": 0, "window_start": now, "locked_until": 0.0}
+        rec["failures"] += 1
+        if rec["failures"] >= RATE_LIMIT_MAX_FAILURES:
+            rec["locked_until"] = now + RATE_LIMIT_LOCKOUT
+        _login_attempts[k] = rec
+
+
+def rate_limit_clear(ip: str, username: Optional[str] = None) -> None:
+    """Clear BOTH buckets on success so a successful login resets the
+    user's bucket too — otherwise an attacker who knows the username
+    could keep tripping the (ip, username) bucket from a clean IP."""
     _login_attempts.pop(ip, None)
+    uk = _username_key(ip, username)
+    if uk:
+        _login_attempts.pop(uk, None)
 
 
 # ----------------------------------------------------------------------------
@@ -1343,8 +1411,18 @@ def _resolve_user(request: Request, db_conn_factory) -> tuple[Optional[User], Op
     auth_h = request.headers.get("authorization", "")
     if auth_h.startswith("Bearer "):
         raw = auth_h[7:].strip()
-        with db_conn_factory() as c:
-            tok = verify_api_token(c, raw)
+        # ENH-013 / #479 — defensive try/except so a transient SQLite
+        # BUSY / OperationalError doesn't escape the middleware as a
+        # 500. Treat any DB failure as "auth failed" — the caller's
+        # request gets a clean 401 (or proceeds anonymously if the
+        # path is auth-optional). Mirrors the cookie branch's pattern
+        # via `get_active_session`'s exception swallowing below.
+        try:
+            with db_conn_factory() as c:
+                tok = verify_api_token(c, raw)
+        except Exception as e:
+            print(f"[auth] bearer-token DB read failed: {e} — treating as auth-failed")
+            tok = None
         if tok:
             return (
                 User(

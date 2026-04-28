@@ -4303,6 +4303,12 @@ function app() {
             // Default ON when the backend hasn't surfaced it yet (first load
             // after the migration); otherwise reflect whatever's persisted.
             verify_tls:    this.oidcStatus.verify_tls !== false,
+            // ENH-002 / #469 — case-insensitive admin-group claim match.
+            // Default true (legacy exact-match contract) so existing
+            // deploys are no-ops; flip false in the form when the IdP
+            // returns mixed-case group names that don't match the
+            // operator-typed value verbatim.
+            group_case_sensitive: this.oidcStatus.group_case_sensitive !== false,
           };
         }
 
@@ -4404,6 +4410,7 @@ function app() {
         oidc_scopes:       (this.oidcForm.scopes || '').trim(),
         oidc_admin_group:  (this.oidcForm.admin_group || '').trim(),
         oidc_verify_tls:   !!this.oidcForm.verify_tls,
+        oidc_group_case_sensitive: !!this.oidcForm.group_case_sensitive,
       };
       // Client secret: only send when the admin actually typed one.
       // Empty / whitespace-only = "keep current" per the backend contract.
@@ -5519,6 +5526,7 @@ function app() {
         scopes:      (f.scopes || '').trim(),
         admin_group: (f.admin_group || '').trim(),
         verify_tls:  f.verify_tls !== false,
+        group_case_sensitive: f.group_case_sensitive !== false,
         baseEnabled: !!s.enabled,
         baseIssuer:  s.issuer_url || '',
         baseCid:     s.client_id || '',
@@ -5526,6 +5534,7 @@ function app() {
         baseScopes:  s.scopes || '',
         baseGrp:     s.admin_group || '',
         baseVerify:  s.verify_tls !== false,
+        baseGroupCS: s.group_case_sensitive !== false,
       });
     },
     oidcDirty()      { return this._oidcBaseline      !== this._oidcSnapshot(); },

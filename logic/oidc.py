@@ -44,6 +44,7 @@ from fastapi import HTTPException, Request
 from fastapi.responses import JSONResponse, RedirectResponse
 
 from logic import auth
+from logic import errors as _err
 from logic.db import db_conn
 
 
@@ -477,6 +478,9 @@ async def callback(request: Request):
     except jwt.InvalidIssuerError as e:
         # Dig out the actual iss in the token so the operator can spot
         # trailing-slash / host mismatches without reaching for jwt.io.
+        # ENH-008 / #474 — route through the errors catalog so Apprise +
+        # UI tone come from the structured code instead of raw PyJWT
+        # text.
         try:
             actual = jwt.decode(id_token, options={"verify_signature": False}).get("iss", "?")
         except Exception:
@@ -484,14 +488,31 @@ async def callback(request: Request):
         auth.rate_limit_record_failure(ip)
         raise HTTPException(
             status_code=401,
-            detail=(f"id_token validation failed: Invalid issuer. "
+            detail=(f"[{_err.AUTH_OIDC_ISSUER_INVALID}] "
+                    f"{_err.message_for(_err.AUTH_OIDC_ISSUER_INVALID)} "
                     f"Expected {expected_iss!r}, got {actual!r}."),
             headers=_flow_clear_headers,
         )
     except jwt.PyJWTError as e:
         auth.rate_limit_record_failure(ip)
+        # Pattern-match on PyJWT's exception class to pick the most
+        # specific code; falls back to the generic "validation failed"
+        # bucket. ENH-008 / #474.
+        e_type = type(e).__name__
+        e_msg = str(e)
+        if e_type == "InvalidSignatureError":
+            code = _err.AUTH_OIDC_SIGNATURE_INVALID
+        elif e_type == "InvalidAudienceError":
+            code = _err.AUTH_OIDC_AUDIENCE_MISMATCH
+        elif e_type in ("ExpiredSignatureError", "ImmatureSignatureError"):
+            code = _err.AUTH_OIDC_TOKEN_EXPIRED
+        elif "nonce mismatch" in e_msg.lower():
+            code = _err.AUTH_OIDC_NONCE_MISMATCH
+        else:
+            code = _err.AUTH_OIDC_TOKEN_VALIDATION_FAILED
         raise HTTPException(
-            status_code=401, detail=f"id_token validation failed: {e}",
+            status_code=401,
+            detail=f"[{code}] {_err.message_for(code)} ({e_msg})",
             headers=_flow_clear_headers,
         )
 
