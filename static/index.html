@@ -476,28 +476,41 @@
          restores the flex row with border-top divider. -->
     <div class="contents sm:flex sm:items-center sm:gap-2 sm:px-5 sm:py-1.5 sm:max-w-full sm:mx-auto sm:border-t sm:border-[var(--border)] sm:flex-wrap">
       <!-- Unified refresh-cadence picker (#486). Replaces the SYNC +
-           STATS pair. ONE cadence drives ALL polling (items + stats +
-           hosts) when SSE is dropped; when SSE is connected the picker
-           is hidden entirely behind the Live pill since push events
-           drive every update. `w-full sm:w-auto` keeps the mobile-row
-           wrap behaviour from the prior pickers. -->
-      <div x-show="!_sseConnected"
-           class="flex items-center gap-0 bg-[var(--surface-2)] rounded-md p-0.5 border border-[var(--border)] order-5 sm:order-none w-full sm:w-auto"
+           STATS pair. ONE control with FIVE choices: "Live" (push via
+           SSE — `refreshInterval = -1`) OR a polling cadence
+           (Off / 30s / 1m / 5m). When Live is selected the SSE pipe
+           drives every chart and the polling timers idle (modulo a 5
+           min safety net). When a cadence is selected SSE stays
+           connected for ops/event toasts but polling at the chosen
+           cadence drives every graph + indicator uniformly. The
+           picker is ALWAYS visible so operators have a single,
+           discoverable control over the dashboard's heartbeat —
+           previous version hid the bar after SSE connected which
+           operators reported as "the bar disappears".
+           `w-full sm:w-auto` keeps the mobile-row wrap behaviour. -->
+      <div class="flex items-center gap-0 bg-[var(--surface-2)] rounded-md p-0.5 border border-[var(--border)] order-5 sm:order-none w-full sm:w-auto"
            :title="t('topbar.refresh_title')">
         <span class="px-1.5 text-[10px] text-faint uppercase tracking-wider" x-text="t('topbar.refresh_label')"></span>
+        <button @click="setRefreshInterval(-1)"
+                :class="refreshInterval===-1 ? 'bg-[var(--success)] text-white' : 'text-[var(--text-dim)] hover:text-[var(--text)]'"
+                class="px-2 py-0.5 rounded text-[11px] font-medium transition flex items-center gap-1"
+                :title="t('topbar.refresh_live_title')">
+          <span class="inline-block w-1.5 h-1.5 rounded-full"
+                :style="`background: ${refreshInterval===-1 ? 'currentColor' : 'var(--success)'}`"></span>
+          <span x-text="t('topbar.refresh_live')"></span>
+        </button>
         <template x-for="p in [[t('topbar.off'),0],['30s',30],['1m',60],['5m',300]]" :key="p[1]">
           <button @click="setRefreshInterval(p[1])"
                   :class="refreshInterval===p[1] ? 'bg-[var(--primary)] text-white' : 'text-[var(--text-dim)] hover:text-[var(--text)]'"
                   class="px-2 py-0.5 rounded text-[11px] font-medium transition" x-text="p[0]"></button>
         </template>
       </div>
-      <span class="text-[11px] text-[var(--text-faint)] hidden xl:inline order-5 sm:order-none" x-text="cacheLabel"></span>
       <span class="hidden sm:inline flex-1"></span>
       <!-- Real-time event-stream status (#454). Pill flips between
            "live" (SSE healthy) and "polling" (fallback). Tooltip
            explains the source via i18n. -->
       <div class="sse-pill order-4 sm:order-none"
-           :class="_sseConnected ? 'sse-pill--live' : 'sse-pill--fallback'"
+           :class="_sseConnected ? 'sse-pill--live' : (sseStatusKey() === 'events.reconnecting_title' ? 'sse-pill--reconnecting' : 'sse-pill--fallback')"
            :title="t(sseStatusKey())">
         <span class="sse-pill-dot" aria-hidden="true"></span>
         <span class="sse-pill-label" x-text="_sseConnected ? t('events.live_label') : t('events.polling_label')"></span>
@@ -2708,10 +2721,10 @@
                           <span class="passkey-meta-sep">·</span>
                           <span x-text="pk.last_used_at ? t('settings.profile.passkeys.last_used_at', { when: relativeWhen(pk.last_used_at) }) : t('settings.profile.passkeys.last_used_never')"></span>
                           <template x-if="pk.transports && pk.transports.length">
-                            <span>
-                              <span class="passkey-meta-sep">·</span>
-                              <span x-text="t('settings.profile.passkeys.transports_label')"></span>
-                              <span x-text="pk.transports.join(', ')"></span>
+                            <span class="passkey-transports inline-flex items-center gap-1 ms-1">
+                              <template x-for="t in pk.transports" :key="t">
+                                <span class="chip pill-info text-[9.5px] px-1 py-0 mono uppercase" x-text="t"></span>
+                              </template>
                             </span>
                           </template>
                         </div>
@@ -3427,12 +3440,20 @@
                          a future kind not in the map) fall through to
                          pill-muted with the raw value. -->
                     <td class="px-4 py-2">
-                      <span class="pill"
+                      <span class="pill inline-flex items-center gap-1"
                             :class="(s.auth_method === 'passkey' ? 'pill-success'
                                    : s.auth_method === 'totp' ? 'pill-success'
                                    : s.auth_method === 'oidc' ? 'pill-info'
-                                   : 'pill-muted')"
-                            x-text="t('admin.sessions.method_' + (s.auth_method || 'password'))"></span>
+                                   : 'pill-muted')">
+                        <!-- UX-ENH-005 / #495 — small Authentik logo
+                             prefix on OIDC rows so operators recognise
+                             SSO sessions vs local at a glance. -->
+                        <template x-if="s.auth_method === 'oidc'">
+                          <img :src="iconUrlFor('authentik')"
+                               class="w-3 h-3" alt="" aria-hidden="true">
+                        </template>
+                        <span x-text="t('admin.sessions.method_' + (s.auth_method || 'password'))"></span>
+                      </span>
                     </td>
                     <td class="px-4 py-2 mono text-[11px]" x-text="s.ip || '—'"></td>
                     <td class="px-4 py-2 text-[11.5px] text-[var(--text-dim)] truncate max-w-[280px]" x-text="s.user_agent || '—'" :title="s.user_agent || ''"></td>
@@ -7503,6 +7524,7 @@
                      "Xm ago" label stays current without re-fetching. -->
                 <span class="text-[10.5px] italic text-[var(--text-faint)]"
                       x-show="hostHistoryFreshness(h)"
+                      :title="hostHistoryFreshnessAbsolute(h)"
                       x-text="hostHistoryFreshness(h)"></span>
               </div>
               <div x-show="!h.beszel_id && !h.ne_url && h.status === 'up' && (h.providers || []).length > 0" class="mt-4 text-[11.5px] text-[var(--text-faint)] italic">

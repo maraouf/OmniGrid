@@ -436,18 +436,21 @@ function app() {
     // then `autoRefresh`. New state of the world is "Live (SSE) OR
     // one cadence drives every poll uniformly".
     refreshInterval: (() => {
+      // -1 = Live (SSE-driven); 0 = Off; 30/60/300 = polling cadence.
+      // Default to Live for fresh installs — the SPA's whole reason
+      // for SSE is that operators don't have to think about cadence.
       try {
         const k = localStorage.getItem('refreshInterval');
         if (k != null) {
           const n = parseInt(k, 10);
-          if ([0, 30, 60, 300].includes(n)) return n;
+          if ([-1, 0, 30, 60, 300].includes(n)) return n;
         }
         const s = parseInt(localStorage.getItem('statsInterval') || '', 10);
         if ([0, 30, 60, 300].includes(s)) return s;
         const a = parseInt(localStorage.getItem('autoRefresh') || '', 10);
         if (Number.isFinite(a) && a >= 0) return [0, 30, 60, 300].includes(a) ? a : 60;
-        return 0;
-      } catch { return 0; }
+        return -1;
+      } catch { return -1; }
     })(),
     autoRefresh: (() => {
       try {
@@ -4221,8 +4224,11 @@ function app() {
         if (typeof d.portainer_configured === 'boolean') {
           this.portainerConfigured = d.portainer_configured;
         }
-        // Non-UI label; stays English since it's diagnostic-adjacent.
-        this.cacheLabel = d.cached ? `cached ${d.age}s ago` : 'fresh';
+        // Cache state is implementation detail — the unified refresh
+        // picker (#486) is the operator's mental model for "how live
+        // is this dashboard". Cleared rather than deleted so any
+        // remaining bindings render empty instead of crashing.
+        this.cacheLabel = '';
         // Only fire stats alongside a forced refresh when stats
         // polling is actually enabled. With statsInterval=0 the
         // operator explicitly chose "off", so auto-refresh
@@ -5247,11 +5253,27 @@ function app() {
         } else if (this.terminalState !== 'error') {
           this.terminalState = 'disconnected';
         }
-        // Map close codes to user-friendly reasons.
-        if (ev.code === 4401) {
+        // UX-BUG-004 / #489 — map close codes to user-friendly i18n
+        // reasons. 4400-4403 each have distinct backend-side meanings;
+        // surfacing the close-reason string via specific keys lets
+        // operators behind a misconfigured NPM see "X-Forwarded-Host
+        // mismatch" instead of just "connection closed".
+        const reasonText = (ev.reason || '').toLowerCase();
+        if (ev.code === 4400) {
+          this.terminalCloseReason = this.t('hosts_extra_ssh.terminal.bad_request');
+        } else if (ev.code === 4401) {
           this.terminalCloseReason = this.t('hosts_extra_ssh.terminal.cookie_expired');
         } else if (ev.code === 4403) {
-          this.terminalCloseReason = this.t('hosts_extra_ssh.terminal.not_admin');
+          // 4403 covers both "origin mismatch" (#474) and "not admin".
+          // The reason string distinguishes them so the operator gets
+          // the right diagnostic.
+          if (reasonText.includes('origin')) {
+            this.terminalCloseReason = this.t('hosts_extra_ssh.terminal.origin_mismatch');
+          } else {
+            this.terminalCloseReason = this.t('hosts_extra_ssh.terminal.not_admin');
+          }
+        } else if (ev.code === 4402) {
+          this.terminalCloseReason = this.t('hosts_extra_ssh.terminal.csrf_failed');
         } else if (!this.terminalCloseReason && ev.reason) {
           this.terminalCloseReason = String(ev.reason);
         }
@@ -5615,6 +5637,39 @@ function app() {
     },
     async saveTuning() {
       if (this.tuningSaving) return;
+      // UX-BUG-005 / #490 — client-side integer + bounds validation
+      // before posting. Pre-fix the input was `type="number"` (rejects
+      // letters) BUT the form still accepted decimals like "1.5" which
+      // the backend silently truncated through the int cast. Now an
+      // explicit Number.isInteger guard surfaces a clean toast naming
+      // the field and the bound; the operator's value is preserved
+      // until they fix it (no silent clamp).
+      for (const k of this.tuningKeys) {
+        const raw = (this.tuningForm || {})[k];
+        if (raw === '' || raw == null) continue;  // blank = clear override
+        const n = Number(raw);
+        if (!Number.isFinite(n) || !Number.isInteger(n)) {
+          this.showToast(this.t('admin.config.errors.must_be_int', {
+            field: this.t('admin.config.fields.' + k + '.label'),
+          }), 'error');
+          return;
+        }
+        const eff = this.tuningEffective[k] || {};
+        if (Number.isFinite(eff.min) && n < eff.min) {
+          this.showToast(this.t('admin.config.errors.below_min', {
+            field: this.t('admin.config.fields.' + k + '.label'),
+            min: eff.min,
+          }), 'error');
+          return;
+        }
+        if (Number.isFinite(eff.max) && n > eff.max) {
+          this.showToast(this.t('admin.config.errors.above_max', {
+            field: this.t('admin.config.fields.' + k + '.label'),
+            max: eff.max,
+          }), 'error');
+          return;
+        }
+      }
       this.tuningSaving = true;
       try {
         const body = {};
@@ -6198,20 +6253,27 @@ function app() {
       if (seconds > 0) this._autoTimer = setInterval(() => this.refresh(true), seconds * 1000);
     },
 
-    // #486 — single canonical cadence-setter. Mirrors the chosen value
-    // into both legacy state vars (`autoRefresh` for items poll +
-    // `statsInterval` for stats / hosts polls) and persists each so a
-    // browser reload preserves the choice. Pollers continue to read the
-    // legacy keys so the unification is purely a UI / config layer
-    // change. SSE-vs-poll handover is unchanged: when SSE is healthy,
-    // the existing `_sseConnected` gate idles every poller; when it
-    // drops the cadence here drives all of them uniformly. Setting
-    // 0 = OFF puts every poller asleep regardless of SSE state.
+    // #486 — single canonical cadence-setter. Five choices:
+    //   -1   "Live"  — SSE drives every chart; polling timers idle
+    //                  except for a 5-min safety net.
+    //    0   "Off"   — every poller sleeps; SSE stays connected so
+    //                  ops/event toasts still fire.
+    //   30/60/300    — polling at the chosen cadence drives every
+    //                  poller uniformly; SSE-vs-poll merge is the
+    //                  existing `_sseConnected`-gated handover.
+    // Mirrors the chosen value into legacy state vars (`autoRefresh`
+    // for items poll + `statsInterval` for stats / hosts polls) so
+    // the existing pollers don't need to be rewired. Live mode maps
+    // to seconds=0 internally because SSE handles updates.
     setRefreshInterval(seconds) {
       this.refreshInterval = seconds;
       try { localStorage.setItem('refreshInterval', String(seconds)); } catch {}
-      this.setStatsInterval(seconds);
-      this.setAutoRefresh(seconds);
+      // Live → 0 for the legacy poll keys so the existing SSE-gated
+      // `_sseConnected ? long-fallback : interval` arms idle (except
+      // the 5min safety tick already implemented in #454).
+      const legacy = seconds === -1 ? 0 : seconds;
+      this.setStatsInterval(legacy);
+      this.setAutoRefresh(legacy);
     },
 
     get counts() {
@@ -11024,6 +11086,22 @@ function app() {
       return this.t('hosts_extra.metrics.last_updated_hours', {
         count: Math.floor(ageS / 3600),
       });
+    },
+    // UX-ENH-002 / #492 — absolute-time tooltip companion for the
+    // relative "Updated Xs ago" label. Operators correlating a chart
+    // anomaly with Grafana / Prometheus dashboards need a stable
+    // anchor — the relative label drifts every second, the ISO string
+    // doesn't.
+    hostHistoryFreshnessAbsolute(h) {
+      if (!h) return '';
+      const key = this.hostHistoryKey(h);
+      const entry = this.hostHistory[key];
+      if (!entry || !entry.loadedAt) return '';
+      try {
+        return new Date(entry.loadedAt).toISOString().replace(/\.\d{3}Z$/, 'Z');
+      } catch (_) {
+        return '';
+      }
     },
     // True only when we KNOW the named NE collector is missing for this
     // host (sampler walked the window and never saw a non-null value).

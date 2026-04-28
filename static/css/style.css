@@ -3260,7 +3260,20 @@ body.login {
 }
 
 .sse-pill--fallback .sse-pill-dot {
+    background: var(--text-faint);
+}
+
+/* UX-ENH-001 / #491 — distinct "reconnecting" state. The dot ticks
+   amber instead of red so operators see "we're trying" rather than
+   "we gave up". Animation reuses the existing sse-pulse keyframes. */
+.sse-pill--reconnecting {
+    color: var(--text-dim);
+    border-color: color-mix(in srgb, var(--warning) 50%, var(--border));
+}
+
+.sse-pill--reconnecting .sse-pill-dot {
     background: var(--warning);
+    animation: sse-pulse 1.6s ease-in-out infinite;
 }
 
 @keyframes sse-pulse {
