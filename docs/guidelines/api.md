@@ -89,6 +89,12 @@ fi
 
 Bearer-token callers bypass TOTP entirely — the token's role check is the only auth step.
 
+WebAuthn / passkey is an interchangeable second factor — when the user has either or both
+enrolled, `/api/local-auth/login` returns `methods: [...]` so the client can pick. The passkey
+challenge flow lives at `POST /api/local-auth/webauthn-start` + `POST /api/local-auth/webauthn-finish`;
+see [`passkeys.md`](passkeys.md) for the full enrolment + login walkthrough. Headless / scripted
+callers should stay on bearer tokens — passkeys are a browser flow.
+
 ### Roles
 
 | Role | Reads | Writes |
@@ -98,6 +104,32 @@ Bearer-token callers bypass TOTP entirely — the token's role check is the only
 
 The role is enforced server-side via FastAPI `Depends(auth.require_admin)` on
 every write route. UI-side role gating is a UX nicety only.
+
+### Client config (`GET /api/me`)
+
+`/api/me` is auth-optional: unauthed callers get `{authenticated: false}`, authed callers get
+their identity plus a `client_config` object that surfaces the live values of every operator-
+tunable knob the SPA / dashboards need. Re-read it on a slow cadence (every page load, or as
+part of any auth handshake) to pick up Admin → Config edits without a SPA reload.
+
+```jsonc
+{
+  "authenticated": true,
+  "username": "admin",
+  "role": "admin",
+  "source": "local",
+  "client_config": {
+    "ops_poll_ms": 1500,             // tuning_ops_poll_interval_ms
+    "hosts_parallel_fetch": 6,        // tuning_hosts_parallel_fetch (#508)
+    "scheduler_tz": { "configured": "Africa/Cairo", "resolved": "Africa/Cairo", "fallback": false }
+    // ...
+  }
+}
+```
+
+The full canonical list of tunables is `logic/tuning.py:TUNABLES`; the ones surfaced into
+`client_config` are the ones the SPA actually reads. Add a knob there + the GET-side handler
+when wiring a new frontend-controlled tunable.
 
 ## Response shape conventions
 
@@ -162,7 +194,7 @@ type:
 | `stats:refreshed` | `gather_stats()` finished a cycle. | `{items, with_stats, with_size, ts}` — hint only; consumers refetch via `/api/stats`. |
 | `host:row_updated` | One curated host's merged row was recomputed. | `{id, host: <full row dict>}` |
 | `host:failure_state_changed` | Host sampler paused / cleared a host. | `{host_id, paused, consecutive_failures?, last_error?, cleared?}` |
-| `host:history_appended` | A new row was inserted into `host_metrics_samples` for a curated host. | `{host_id, ts, cpu_percent?, mem_used?, mem_total?, ...}` — hint only; consumers refetch via `/api/hosts/history`. |
+| `host:history_appended` | A new row was inserted into `host_metrics_samples` for a curated host. | `{host_id, ts}` — hint only; consumers refetch the full window via `/api/hosts/history`. |
 | `schedule:fired` | A schedule started or finished (two events per fire). | `{schedule_id, name, kind, op_id, phase: "start"\|"end", duration?, status?}` |
 | `history:appended` | A new row was written to the `history` table. | `{id, ts, op_type, target_name, target_id, target_stack, status, duration, error, actor}` |
 | `session:renewed` | A cookie session was slid forward (sliding-window refresh near expiry). | `{user_id, expires_at, ts}` |

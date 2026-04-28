@@ -613,6 +613,43 @@ From here on the CI deploy's "Force Swarm service update" step will roll start-f
 healthy before old one stops), typically cutting the step from ~42 s down to roughly one
 healthcheck warmup (~10–15 s).
 
+## Reverse-proxy timeouts — `/api/hosts/one/{id}` budget vs NPM `proxy_read_timeout`
+
+If you see HTTP 504s on the Hosts view (gateway timeout, generic NPM error page rather than
+OmniGrid's own JSON `{"detail": "per-host probe budget exceeded (30s) for <id>"}`), the
+upstream proxy is timing out before OmniGrid gets a chance to surface its own actionable error.
+
+Contract (#506):
+
+- OmniGrid wraps each `/api/hosts/one/{id}` call in `asyncio.wait_for(timeout=30.0)`. If the
+  inner probe sequence (single-flight Beszel + Pulse hub + per-host NE / Webmin) runs past
+  30s, OmniGrid returns `504` with a `detail` string identifying the host.
+- Nginx Proxy Manager's default `proxy_read_timeout` is **60 seconds**, leaving 30s of
+  headroom — OmniGrid's 504 should always fire first.
+- If your proxy is set lower than 30s, the operator sees NPM's generic `504 Gateway Time-out`
+  page instead of OmniGrid's identifying detail, and `/api/events` SSE connections die after
+  the same window.
+
+If your proxy enforces a shorter read timeout (Cloudflare, some load-balancer defaults, very
+strict NPM tweaks), raise the per-route timeout to at least 35 seconds:
+
+```nginx
+# In the OmniGrid host's NPM "Advanced" tab, or your nginx server block:
+proxy_read_timeout 60s;
+proxy_send_timeout 60s;
+```
+
+Other concurrency knobs that affect this surface:
+
+- `HOSTS_PARALLEL_FETCH` (default 6, range 1–32; #508) caps the SPA's fan-out concurrency on
+  `/api/hosts/one/{id}`. Lower if the upstream pool is thin or slow Webmin / NE probes saturate
+  the loop. Edit live from Admin → Config — no restart needed.
+- The single-flight `_host_provider_lock` collapses parallel cold-cache hub probes into one
+  shared call, so raising `HOSTS_PARALLEL_FETCH` doesn't multiply the Beszel / Pulse load.
+- `_webmin_host_fail_cache` caches Webmin probe FAILURES for 5s so an unreachable Miniserv
+  short-circuits the 20s timeout for the rest of a fan-out burst, with recovery felt within
+  one refresh cycle.
+
 ## Cleanup — delete failed run history
 
 UI sometimes has no delete button. Use the API:

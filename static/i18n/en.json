@@ -599,7 +599,7 @@
       "subtitle": "Override the {count} runtime knobs that would otherwise require an env-var change + restart. Each value resolves via DB setting → env var → code default. Leave a field blank to clear the override and fall back to the env / default shown in the placeholder. UI changes take effect on the next consumer read — TTLs immediate, samplers on the next tick.",
       "placeholder_env": "env: {value} (default: {default})",
       "placeholder_default": "default: {default}",
-      "bounds_hint": "min {min}, max {max}",
+      "bounds_hint": "min {min}, max {max}, default {default}",
       "effective_label": "Effective: {value}",
       "save": "Save",
       "unsaved": "Unsaved",
