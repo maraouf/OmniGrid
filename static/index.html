@@ -7527,34 +7527,6 @@
                   </section>
                 </template>
 
-                <!-- ENABLED AGENTS (#571) — dedicated card listing
-                     the providers WIRED on this curated row, rendered
-                     as colored pills (not a comma-joined string in the
-                     System card — operator wanted real visual chips).
-                     Distinct from the per-row `providers` chips next
-                     to the host name: those reflect what RETURNED data
-                     THIS tick (live up/down state); these reflect what
-                     the operator has CONFIGURED, regardless of current
-                     reachability. Useful at a glance for "why is this
-                     row grey — did I forget to enable an agent?". Each
-                     pill's color is hand-mapped in `hostEnabledAgents()`
-                     for visual distinctness across the five providers
-                     (the four ok/info/update/error pills don't have
-                     enough variance for five distinct chips, so
-                     pill-primary + pill-degraded round it out). -->
-                <template x-if="hostEnabledAgents(h).length">
-                  <section class="rounded border border-[var(--border)] bg-[var(--surface)] p-4 md:col-span-6">
-                    <h4 class="text-[10.5px] uppercase tracking-wider text-[var(--text-faint)] mb-3" x-text="t('host_drawer.system.agents')"></h4>
-                    <div class="flex items-center gap-1.5 flex-wrap">
-                      <template x-for="agent in hostEnabledAgents(h)" :key="agent.name">
-                        <span class="chip text-[11px] px-2 py-0.5"
-                              :class="agent.pill"
-                              x-text="agent.label"></span>
-                      </template>
-                    </div>
-                  </section>
-                </template>
-
                 <!-- SYSTEM — only the fields Beszel's agent actually
                      reports for this host are rendered. Container-mode
                      agents tend to skip platform / OS / kernel / arch;
@@ -7683,6 +7655,34 @@
                     </dd>
                   </dl>
                 </section>
+
+                <!-- ENABLED AGENTS (#571) — dedicated card listing
+                     the providers WIRED on this curated row, rendered
+                     as colored pills (not a comma-joined string in the
+                     System card — operator wanted real visual chips).
+                     Distinct from the per-row `providers` chips next
+                     to the host name: those reflect what RETURNED data
+                     THIS tick (live up/down state); these reflect what
+                     the operator has CONFIGURED, regardless of current
+                     reachability. Useful at a glance for "why is this
+                     row grey — did I forget to enable an agent?". Each
+                     pill's color is hand-mapped in `hostEnabledAgents()`
+                     for visual distinctness across the five providers
+                     (the four ok/info/update/error pills don't have
+                     enough variance for five distinct chips, so
+                     pill-primary + pill-degraded round it out). -->
+                <template x-if="hostEnabledAgents(h).length">
+                  <section class="rounded border border-[var(--border)] bg-[var(--surface)] p-4 md:col-span-6">
+                    <h4 class="text-[10.5px] uppercase tracking-wider text-[var(--text-faint)] mb-3" x-text="t('host_drawer.system.agents')"></h4>
+                    <div class="flex items-center gap-1.5 flex-wrap">
+                      <template x-for="agent in hostEnabledAgents(h)" :key="agent.name">
+                        <span class="chip text-[11px] px-2 py-0.5"
+                              :class="agent.pill"
+                              x-text="agent.label"></span>
+                      </template>
+                    </div>
+                  </section>
+                </template>
 
                 <!-- HARDWARE — same honest-fields rule. CPU model /
                      Cores come from the host-daemon agent; container
@@ -8929,6 +8929,17 @@
                             </header>
                             <pre class="host-debug-json scrollbar" x-text="fmtDebugJson(hostsDebug[h.id].providers_raw?.webmin)"></pre>
                           </section>
+                          <section class="host-debug-box" x-show="hasDebugData(hostsDebug[h.id].providers_raw?.ping)">
+                            <header class="host-debug-box-head">
+                              <span class="host-debug-label host-debug-label--ping" x-text="t('debug_panel.labels.raw_ping')"></span>
+                              <button type="button" class="host-debug-copy"
+                                      @click="copyDebugJson(hostsDebug[h.id].providers_raw?.ping, 'Raw · Ping')"
+                                      :title="t('debug_panel.copy_title')">
+                                <svg width="12" height="12" aria-hidden="true"><use href="#icon-copy"/></svg>
+                              </button>
+                            </header>
+                            <pre class="host-debug-json scrollbar" x-text="fmtDebugJson(hostsDebug[h.id].providers_raw?.ping)"></pre>
+                          </section>
                           <section class="host-debug-box" x-show="hasDebugData(hostsDebug[h.id].merged)">
                             <header class="host-debug-box-head">
                               <span class="host-debug-label host-debug-label--merged" x-text="t('debug_panel.labels.merged')"></span>
@@ -8996,6 +9007,17 @@
                               </button>
                             </header>
                             <pre class="host-debug-json scrollbar" x-text="fmtDebugJson(hostsDebug[h.id].providers_normalized?.webmin)"></pre>
+                          </section>
+                          <section class="host-debug-box" x-show="hasDebugData(hostsDebug[h.id].providers_normalized?.ping)">
+                            <header class="host-debug-box-head">
+                              <span class="host-debug-label host-debug-label--ping" x-text="t('debug_panel.labels.normalized_ping')"></span>
+                              <button type="button" class="host-debug-copy"
+                                      @click="copyDebugJson(hostsDebug[h.id].providers_normalized?.ping, 'Normalized · Ping')"
+                                      :title="t('debug_panel.copy_title')">
+                                <svg width="12" height="12" aria-hidden="true"><use href="#icon-copy"/></svg>
+                              </button>
+                            </header>
+                            <pre class="host-debug-json scrollbar" x-text="fmtDebugJson(hostsDebug[h.id].providers_normalized?.ping)"></pre>
                           </section>
                           <!-- Asset inventory (raw upstream payload).
                                Sourced from the host's `asset` field
