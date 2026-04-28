@@ -1387,6 +1387,10 @@ class SettingsIn(BaseModel):
     # /app/data/logs/ older than this get deleted by the lifespan
     # _log_pruner_loop().
     tuning_log_retention_days: Optional[str] = None
+    # #467 — host-snapshots read-side cache TTL (seconds). The SPA fans
+    # out N parallel /api/hosts/one/{id} per refresh; caching the
+    # snapshot-table read for a few seconds collapses N reads into 1.
+    tuning_host_snapshots_cache_ttl_seconds: Optional[str] = None
     # -----------------------------------------------------------------
     # Per-event notification toggles. Each maps to one of the
     # 12 (event group × success/failure) notify() call sites in
