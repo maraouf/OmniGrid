@@ -1020,15 +1020,14 @@ function app() {
       // operator's choice through the keys they already read. When
       // `refreshInterval` is 0 (Off) every poller stays asleep until
       // SSE handles updates via push events.
-      this.setRefreshInterval(this.refreshInterval || 0);
+      // setRefreshInterval already manages SSE based on the chosen
+      // mode — Live opens the stream, Off / interval close it. Don't
+      // double-init here. `?? -1` (not `|| 0`) preserves the explicit
+      // 0 ("Off") choice across reloads instead of mapping it to -1.
+      this.setRefreshInterval(this.refreshInterval ?? -1);
       this.pollOps();
       this.pollStats();
       this.pollSparks();
-      // Real-time event stream (#454). Connects to /api/events and
-      // gates the polling loops on connection health. Polling is the
-      // explicit fallback — EventSource handles reconnect on its own,
-      // and if reconnect fails for ~30s the polls resume.
-      this._initSSE();
       // If the SPA restored to the Hosts view (saved in localStorage or
       // arrived via /hosts deep-link), trigger the same load+poll the
       // view-watcher does on manual switch.
@@ -6069,6 +6068,16 @@ function app() {
         // real disconnect and the next tick at the slow cadence
         // resumes regular polling.
         const fastMs = (this.me && this.me.client_config && this.me.client_config.ops_poll_ms) || 1500;
+        // #486 — honour the unified picker's "Off" mode here too. Pre-fix
+        // pollOps kept firing at `fastMs` even when the operator chose
+        // Off, breaking the picker's promise of "no updates at all".
+        // Now: Off → don't reschedule; Live → 30s keep-alive; interval
+        // modes → fastMs (ops need faster feedback than charts so the
+        // unified picker's interval value doesn't override this).
+        if (this.refreshInterval === 0) {
+          this._opsTimer = null;
+          return;
+        }
         const opsPollMs = this._sseConnected ? 30000 : fastMs;
         this._opsTimer = setTimeout(tick, opsPollMs);
       };
@@ -6090,6 +6099,20 @@ function app() {
     // never reassign reactive arrays from an event handler (would tear
     // every chart SVG / <details> / inline-style node down on each
     // event, defeating the entire purpose of moving from poll → push).
+    // #486 — explicit disconnect so the cadence picker can fully turn
+    // SSE off when the operator chooses "Off" or an interval. Without
+    // this, picking Off left the SSE pipe alive and the Live pill
+    // stayed green even though the operator's mental model is "no
+    // updates at all".
+    _disconnectSSE() {
+      if (this._sse) {
+        try { this._sse.close(); } catch (_) {}
+        this._sse = null;
+      }
+      this._sseConnected = false;
+      this._sseLastEventTs = 0;
+    },
+
     _initSSE() {
       // Defence-in-depth: never start two streams. ``init()`` runs once
       // per Alpine component instance but a future hot-reload path
@@ -6253,27 +6276,49 @@ function app() {
       if (seconds > 0) this._autoTimer = setInterval(() => this.refresh(true), seconds * 1000);
     },
 
-    // #486 — single canonical cadence-setter. Five choices:
-    //   -1   "Live"  — SSE drives every chart; polling timers idle
-    //                  except for a 5-min safety net.
-    //    0   "Off"   — every poller sleeps; SSE stays connected so
-    //                  ops/event toasts still fire.
-    //   30/60/300    — polling at the chosen cadence drives every
-    //                  poller uniformly; SSE-vs-poll merge is the
-    //                  existing `_sseConnected`-gated handover.
-    // Mirrors the chosen value into legacy state vars (`autoRefresh`
-    // for items poll + `statsInterval` for stats / hosts polls) so
-    // the existing pollers don't need to be rewired. Live mode maps
-    // to seconds=0 internally because SSE handles updates.
+    // #486 — single canonical cadence-setter. Three modes mapped to
+    // the picker's five buttons:
+    //
+    //   -1   "Live"   — SSE connection ON, every chart updates via
+    //                   push events. Polling timers sleep.
+    //    0   "Off"    — SSE connection CLOSED, polling sleeps. The
+    //                   dashboard becomes a static snapshot of the
+    //                   current state. Operator sees no more updates
+    //                   until they pick another mode (or refresh).
+    //   30/60/300     — SSE connection CLOSED, polling at the chosen
+    //                   cadence drives every chart uniformly.
+    //
+    // Closing SSE for Off + interval modes is the load-bearing UX
+    // fix — pre-fix the picker selected Off but the Live pill stayed
+    // green because SSE was still pushing events; operators reported
+    // "the picker doesn't do what it says". Now the SSE pill colour
+    // is a direct read of the picker's choice.
+    //
+    // Mirrors the chosen polling cadence into legacy state vars
+    // (`autoRefresh` for items poll + `statsInterval` for stats /
+    // hosts polls) so the existing pollers don't need to be rewired.
+    // Live and Off both map to legacy=0; only intervals drive the
+    // pollers.
     setRefreshInterval(seconds) {
       this.refreshInterval = seconds;
       try { localStorage.setItem('refreshInterval', String(seconds)); } catch {}
-      // Live → 0 for the legacy poll keys so the existing SSE-gated
-      // `_sseConnected ? long-fallback : interval` arms idle (except
-      // the 5min safety tick already implemented in #454).
       const legacy = seconds === -1 ? 0 : seconds;
       this.setStatsInterval(legacy);
       this.setAutoRefresh(legacy);
+      // SSE management — Live opens (or keeps open) the stream;
+      // Off / interval modes close it so the picker is the single
+      // source of truth for "is this dashboard receiving updates?".
+      if (seconds === -1) {
+        if (!this._sse) this._initSSE();
+      } else {
+        this._disconnectSSE();
+      }
+      // pollOps gates on `refreshInterval === 0` (see pollOps tick
+      // body) — re-kick it whenever we transition AWAY from Off so
+      // the panel comes back without waiting for a manual interaction.
+      if (seconds !== 0 && !this._opsTimer) {
+        try { this.pollOps(); } catch (_) {}
+      }
     },
 
     get counts() {
