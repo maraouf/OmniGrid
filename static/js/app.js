@@ -11519,19 +11519,26 @@ function app() {
       if (!h) return false;
       return !!(h.beszel_name || h.pulse_name || h.ne_url || h.webmin_name);
     },
-    // Display list of agent names enabled on a host — used by the
-    // drawer's "Enabled agents" row. Ping shows alongside the four
-    // telemetry providers because, from the operator's POV, it's a
-    // distinct opt-in agent even though it doesn't contribute CPU /
-    // Mem / Disk gauges.
+    // Display list of agents enabled on a host — used by the drawer's
+    // dedicated "Enabled agents" card. Returns rich objects so the
+    // template can render colored pills:
+    //   { name: 'beszel', label: 'Beszel', pill: 'pill-ok' }
+    // Each pill class is hand-mapped for visual distinctness across
+    // the five providers (the four ok/info/update colors that
+    // `providerStates` uses don't have enough variance for five
+    // distinct chips, so pill-primary is added for one slot). Ping
+    // shows alongside the four telemetry providers because from the
+    // operator's POV it's a distinct opt-in agent — even though it
+    // doesn't contribute CPU / Mem / Disk gauges (#571 follow-up:
+    // operator wanted color-coded pills, not a comma-joined list).
     hostEnabledAgents(h) {
       if (!h) return [];
       const out = [];
-      if (h.beszel_name) out.push('Beszel');
-      if (h.pulse_name)  out.push('Pulse');
-      if (h.ne_url)      out.push('node-exporter');
-      if (h.webmin_name) out.push('Webmin');
-      if (h.ping_enabled) out.push('Ping');
+      if (h.beszel_name)  out.push({ name: 'beszel',        label: 'Beszel',        pill: 'pill-ok' });
+      if (h.pulse_name)   out.push({ name: 'pulse',         label: 'Pulse',         pill: 'pill-info' });
+      if (h.ne_url)       out.push({ name: 'node_exporter', label: 'node-exporter', pill: 'pill-update' });
+      if (h.webmin_name)  out.push({ name: 'webmin',        label: 'Webmin',        pill: 'pill-primary' });
+      if (h.ping_enabled) out.push({ name: 'ping',          label: 'Ping',          pill: 'pill-degraded' });
       return out;
     },
     filteredHosts() {
