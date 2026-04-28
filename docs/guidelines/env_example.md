@@ -51,12 +51,15 @@ DB_PATH=/app/data/omnigrid.db
 
 ## Runtime tuning (process-level)
 
-> **Live override available (#337).** Each of the six tunables below also has a
-> matching DB setting (`tuning_<lowercase_env_var>`). When set from
-> Admin → Config the DB value wins; blank/unset falls back to the env var
-> shown here, which falls back to the code default. UI changes take
-> effect on the next consumer read (per-request for TTLs, per-tick for
-> samplers — one tick lag).
+> **Live override available (#337).** Every tunable below has a matching DB
+> setting (`tuning_<lowercase_env_var>`). When set from Admin → Config
+> the DB value wins; blank/unset falls back to the env var shown here,
+> which falls back to the code default. UI changes take effect on the
+> next consumer read (per-request for TTLs, per-tick for samplers — one
+> tick lag). The authoritative list of tunables lives in
+> `logic/tuning.py:TUNABLES`. **Strict rule (CLAUDE.md):** every operator-
+> tunable value goes through TUNABLES — no hardcoded magic numbers in
+> Python / JS / HTML. Add new knobs there, not as code constants.
 
 ```ini
 # Items cache TTL — how long _gather() results stay valid before the next
@@ -81,6 +84,30 @@ STATS_HISTORY_DAYS=7
 # stats_samples, node-exporter scrape into host_net_samples and
 # host_metrics_samples.
 STATS_SAMPLE_INTERVAL_SECONDS=300
+
+# Permanent-fail window for the host_metrics_sampler. After this many
+# seconds of consecutive probe failures the sampler auto-pauses the host;
+# the operator resumes via POST /api/hosts/{id}/resume-sampling.
+HOST_PERMANENT_FAIL_WINDOW_SECONDS=900
+
+# Frontend /api/ops poll cadence (milliseconds). Read on /api/me, used as
+# the setTimeout delay between consecutive ops polls in the SPA.
+OPS_POLL_INTERVAL_MS=1500
+
+# Persistent-log retention in days. Daily files under /app/data/logs/
+# older than this are deleted by an hourly sweep.
+LOG_RETENTION_DAYS=7
+
+# Host-snapshots read-side cache TTL (seconds). The SPA fans out N
+# parallel /api/hosts/one/{id} per refresh; caching the snapshot-table
+# read collapses N reads into 1. Set 0 to disable.
+HOST_SNAPSHOTS_CACHE_TTL_SECONDS=5
+
+# Concurrency cap on the SPA's /api/hosts/one/{id} fan-out (#506).
+# Lower if NPM's upstream pool is small or slow Webmin / NE probes
+# saturate the loop (manifests as 504s on unrelated static-asset
+# requests); raise on a beefy NPM with many hosts.
+HOSTS_PARALLEL_FETCH=6
 
 # Docker Hub auth — optional, avoids anonymous rate limits.
 # DOCKERHUB_USER=
@@ -188,6 +215,11 @@ Quick index of every env var OmniGrid reads, grouped by scope:
 | `STATS_CONCURRENCY`               | Runtime     | `16`                 | Parallel `/stats` calls.                                                        |
 | `STATS_HISTORY_DAYS`              | Runtime     | `7`                  | Retention window for `stats_samples`.                                           |
 | `STATS_SAMPLE_INTERVAL_SECONDS`   | Runtime     | `300`                | Sampler cadence.                                                                |
+| `HOST_PERMANENT_FAIL_WINDOW_SECONDS` | Runtime  | `900`                | host_metrics_sampler auto-pause window (#410).                                   |
+| `OPS_POLL_INTERVAL_MS`            | Runtime     | `1500`               | SPA's /api/ops poll cadence (#417).                                             |
+| `LOG_RETENTION_DAYS`              | Runtime     | `7`                  | Persistent-log retention (#424).                                                |
+| `HOST_SNAPSHOTS_CACHE_TTL_SECONDS` | Runtime    | `5`                  | host_snapshots read-cache TTL (#467).                                            |
+| `HOSTS_PARALLEL_FETCH`            | Runtime     | `6`                  | SPA fan-out concurrency cap on `/api/hosts/one/{id}` (#506).                    |
 | `DOCKERHUB_USER`                  | Optional    | unset                | Docker Hub auth (avoid anonymous rate limits).                                  |
 | `DOCKERHUB_TOKEN`                 | Optional    | unset                | Paired with `DOCKERHUB_USER`.                                                   |
 | `SESSION_SECRET`                  | Auth        | auto-generated       | HMAC key for session cookies. Set explicitly in prod.                           |

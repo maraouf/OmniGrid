@@ -596,7 +596,7 @@
     },
     "config": {
       "title": "Process tunables",
-      "subtitle": "Override the six runtime knobs that previously required an env-var change + restart. Each value resolves via DB setting → env var → code default. Leave a field blank to clear the override and fall back to the env / default shown in the placeholder. UI changes take effect on the next consumer read — TTLs immediate, samplers on the next tick.",
+      "subtitle": "Override the {count} runtime knobs that would otherwise require an env-var change + restart. Each value resolves via DB setting → env var → code default. Leave a field blank to clear the override and fall back to the env / default shown in the placeholder. UI changes take effect on the next consumer read — TTLs immediate, samplers on the next tick.",
       "placeholder_env": "env: {value} (default: {default})",
       "placeholder_default": "default: {default}",
       "bounds_hint": "min {min}, max {max}",
@@ -614,43 +614,47 @@
       "fields": {
         "tuning_cache_ttl_seconds": {
           "label": "Items cache TTL (seconds)",
-          "help": "How long /api/items results stay valid before the next caller triggers a refresh."
+          "help": "How long the /api/items result (services + containers + stacks + remote registry digests) stays valid before the next caller triggers a fresh _gather() pass. Drives the Stacks / Services tables. Lower it if you want \"check for new image digests\" to feel more live (cost: every call past TTL pays the full registry-digest sweep, ~5-30s on a fleet with many private images). Raise it to lighten outbound load on Docker Hub / private registries when you don't need fresh digest data more than once every N minutes. Default 900s (15 min). The SPA's force-refresh hotkey (Shift+R) and the auto-refresh ticker bypass this cache via ?force=true."
         },
         "tuning_stats_cache_ttl_seconds": {
           "label": "Stats cache TTL (seconds)",
-          "help": "Fresh CPU / Memory / size polling without refetching all registry digests."
+          "help": "How long the /api/stats result (per-container CPU% / memory / image disk size) stays valid before the next caller triggers a fresh stats poll. This is a SEPARATE cache from items so the SPA's 15s stats-poll doesn't keep refreshing the slow registry-digest sweep. Lower it to make per-row CPU / Memory bars feel more live (cost: more parallel /containers/{id}/stats calls to the Docker daemon via Portainer). Raise it on a large fleet to cut Docker daemon load. Default 30s — matches the SPA's 30s polling interval so most polls are cache hits."
         },
         "tuning_registry_concurrency": {
           "label": "Registry digest concurrency",
-          "help": "Parallel remote-registry digest fetches per gather."
+          "help": "Maximum parallel HEAD requests OmniGrid fires at remote container registries (Docker Hub, ghcr, registry.k8s.io, your private registry) per _gather() pass to resolve each image's :tag → @sha256 digest. The semaphore caps the concurrent in-flight requests so a fleet with 100 unique images doesn't open 100 sockets at once. Lower it when a registry rate-limits you (Docker Hub anonymous pulls cap aggressively — symptom: 429 / 401 in [registry] log lines). Raise it on a beefy network with multiple registries so the digest pass finishes faster. Default 8."
         },
         "tuning_stats_concurrency": {
           "label": "Container stats concurrency",
-          "help": "Parallel /containers/{id}/stats calls during a stats gather."
+          "help": "Maximum parallel /containers/{id}/stats?stream=false calls to the Docker daemon (via Portainer) during one stats gather. Each call costs ~50-200ms, so a fleet with 80 running containers can take 5+ seconds even at this concurrency. Lower it on a slow / loaded Swarm manager so the stats sweep doesn't compete with normal Docker scheduling. Raise it on a fast manager with many containers so the sweep finishes inside the SPA's 30s poll cadence. Default 16."
         },
         "tuning_stats_history_days": {
-          "label": "Stats history (days)",
-          "help": "Retention window for every time-series table (stats_samples, host_net_samples, host_metrics_samples). Pruned hourly."
+          "label": "Time-series retention (days)",
+          "help": "How long every time-series table (stats_samples, host_net_samples, host_metrics_samples) keeps rows before the hourly pruner deletes them. Drives the inline sparklines on the Stacks view + the Hosts drawer's CPU / Memory / Disk / Net history charts. Lower it when SQLite is growing too large on a small disk (each sample row is ~80 bytes, but a 60-host fleet sampled every 5min for 30d adds up). Raise it for longer-term graphs. Default 7d. Bumping this RETROACTIVELY surfaces older data immediately (no backfill — rows already exist, the cutoff just moves)."
         },
         "tuning_stats_sample_interval_seconds": {
           "label": "Sampler interval (seconds)",
-          "help": "Cadence for the lifespan samplers — _stats_cache snapshot into stats_samples, node-exporter scrape into host_net_samples and host_metrics_samples."
+          "help": "Cadence for every lifespan-managed sampler: container stats → stats_samples, node-exporter network counters → host_net_samples, full host metrics → host_metrics_samples. Lower it for finer-grained sparklines + faster response in the Net I/O fallback chart (cost: N× more rows in SQLite for the same retention window — re-tune `tuning_stats_history_days` together if you halve this). Raise it on a Pi / underpowered host to reduce sampler CPU. Default 300s (5 min). Takes effect on the NEXT tick after Save (current sleep finishes first)."
         },
         "tuning_host_permanent_fail_window_seconds": {
           "label": "Host sampling pause window (seconds)",
-          "help": "After this many seconds of consecutive probe failures, the host_metrics_sampler auto-pauses the host (no more probe attempts, no log spam). Resume manually from the host drawer's banner."
+          "help": "After this many seconds of CONSECUTIVE probe failures (no successful sample landed in this window), the host_metrics_sampler stops sampling that host entirely — no more probe attempts, no more failure rows in the log. The host shows a paused badge in the Hosts table and an explanatory banner in the drawer. Resume manually via the drawer's \"Resume sampling\" button. Lower it to react faster to dead hosts (less log noise from a host that crashed); raise it to tolerate longer transient outages without auto-pausing (e.g. a host that reboots every Sunday for an hour). Default 900s (15 min)."
         },
         "tuning_ops_poll_interval_ms": {
           "label": "Ops poll cadence (ms)",
-          "help": "How often the SPA polls /api/ops to detect when background operations finish. Lower = snappier UI feedback, higher = less idle traffic. Default 1500 ms. Takes effect on the next /api/me round-trip."
+          "help": "How often the SPA polls /api/ops while it's open to detect when a background operation (stack update, container restart, prune, etc.) finishes. Drives the live progress chip + auto-refresh after success. When SSE is connected (Live mode), the cadence stretches to a 30s safety-net keepalive because op deltas arrive via push instead. Lower this for snappier feedback on a click → \"Done\" cycle (cost: more idle GET /api/ops requests when no ops are running); raise it to cut idle traffic on a long-open SPA tab. Default 1500ms. Takes effect on the next /api/me round-trip."
         },
         "tuning_log_retention_days": {
           "label": "Log retention (days)",
-          "help": "How long to keep persistent log files in /app/data/logs/. Daily files older than this are deleted by an hourly sweep. The in-memory ring buffer (Admin → Logs viewer) is unaffected — it always shows the last 2000 lines from this process. Default 7 days."
+          "help": "How long persistent log files at /app/data/logs/omnigrid-YYYY-MM-DD.log are kept before the hourly pruner sweep deletes them. The in-memory ring buffer in Admin → Logs (Live tab) is INDEPENDENT — it always shows the last 2000 lines from the current process and is unaffected by this setting. Lower it if disk space is tight; raise it for longer audit trails / forensic windows. Default 7d. Pruner clamps to (1, 365) at consume time so a corrupt DB row can't disable the sweep entirely."
         },
         "tuning_host_snapshots_cache_ttl_seconds": {
           "label": "Host snapshots cache TTL (seconds)",
-          "help": "Short-TTL cache for the host_snapshots table read. The SPA fans out N parallel /api/hosts/one/{id} calls per refresh; caching this read collapses N database queries into 1. Cache is also busted on every snapshot write so write→read consistency is immediate. Default 5s. Set to 0 to disable the cache (every call hits the DB — useful for debugging)."
+          "help": "Short-TTL read cache for the host_snapshots SQLite table — the source of stale-fallback data when a provider goes offline mid-session. The SPA fans out N parallel /api/hosts/one/{id} calls per refresh, each of which would otherwise issue its own SELECT against host_snapshots; caching collapses N reads into 1 per TTL window. Cache is auto-busted on every snapshot WRITE so write→read consistency is immediate (no stale-data risk). Lower it / set to 0 to disable the cache entirely (every call hits the DB — only useful for debugging cache-related stale-data bugs). Raise it on a large fleet where the parallel SELECT stampede shows up in profiling. Default 5s."
+        },
+        "tuning_hosts_parallel_fetch": {
+          "label": "Hosts fan-out concurrency",
+          "help": "Cap on the SPA's PARALLEL /api/hosts/one/{id} calls during a Hosts-tab load / refresh. The SPA fetches the curated host list first (fast skeleton), then fans out per-host probes with this concurrency. Lower it if a slow Webmin / unreachable node-exporter saturates NPM's upstream pool — symptom is 504s on UNRELATED static-asset requests (icons, fonts) because their requests queue behind the slow per-host probes. Raise it on a beefy NPM + manager with many hosts so the Hosts tab paints fully in fewer wall-clock seconds. Default 6. Takes effect on the next /api/me round-trip."
         }
       },
       "totp": {

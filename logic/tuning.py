@@ -55,6 +55,14 @@ TUNABLES: dict[str, tuple[str, int, int, int]] = {
     # operators disable the cache entirely (every call hits the DB);
     # max 300s caps a misconfigured override at 5 min.
     "tuning_host_snapshots_cache_ttl_seconds": ("HOST_SNAPSHOTS_CACHE_TTL_SECONDS", 5, 0, 300),
+    # #506 — concurrency cap on the SPA's per-host /api/hosts/one/<id>
+    # fan-out in `loadHosts()`. Read on /api/me into
+    # `me.client_config.hosts_parallel_fetch`; loadHosts resolves it per
+    # call so a Save in Admin → Config takes effect on the next refresh
+    # without a page reload. Default 6 matched the prior hardcoded
+    # const; min 1 (serialised — guaranteed safe but slow); max 32 (NPM
+    # default upstream pool exhausts well before this on most setups).
+    "tuning_hosts_parallel_fetch": ("HOSTS_PARALLEL_FETCH", 6, 1, 32),
 }
 
 

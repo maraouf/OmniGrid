@@ -1434,6 +1434,10 @@ class SettingsIn(BaseModel):
     # out N parallel /api/hosts/one/{id} per refresh; caching the
     # snapshot-table read for a few seconds collapses N reads into 1.
     tuning_host_snapshots_cache_ttl_seconds: Optional[str] = None
+    # #506 — concurrency cap on the SPA's per-host /api/hosts/one/<id>
+    # fan-out in `loadHosts()`. Read on /api/me into
+    # `me.client_config.hosts_parallel_fetch`.
+    tuning_hosts_parallel_fetch: Optional[str] = None
     # -----------------------------------------------------------------
     # Per-event notification toggles. Each maps to one of the
     # 12 (event group × success/failure) notify() call sites in
@@ -3350,6 +3354,17 @@ async def api_hosts():
 # ---------------------------------------------------------------------------
 _HOST_PROVIDER_CACHE_TTL = 10.0
 _host_provider_cache: dict = {"ts": 0.0, "state": None}
+# Single-flight guard for ``_get_host_provider_state`` (#506). Without
+# this, a parallel SPA fan-out of 6 ``/api/hosts/one/<id>`` calls on a
+# cold cache fires 6 independent Beszel hub + Pulse probes (each 15-20s),
+# saturating the event loop AND the upstream NPM connection pool —
+# manifests as 504s on unrelated static-asset requests because they
+# queue behind the in-flight probe traffic. With the lock, the first
+# caller does the probe; the rest await its result and the cache fills
+# from a SINGLE round-trip per provider. Same pattern applies under
+# `force=true` (settings-save → forced refresh): the lock prevents 6
+# parallel forced calls from each re-running the probe.
+_host_provider_lock = asyncio.Lock()
 
 # Per-host Webmin result cache. Webmin probes are the slowest link in
 # the /api/hosts/one/{id} path (up to 20s each on slow Miniserv); a
@@ -3360,6 +3375,14 @@ _host_provider_cache: dict = {"ts": 0.0, "state": None}
 # probe_webmin so _merge_one_host can fold it the same way.
 _WEBMIN_HOST_CACHE_TTL = 30.0
 _webmin_host_cache: dict[str, tuple[float, dict]] = {}
+# Negative-result cache for Webmin probe failures (#506). Pre-fix only
+# successful probes were cached, so an unreachable / hung Webmin burned
+# its full 20s timeout on EVERY parallel /api/hosts/one/<id> call until
+# the host came back. Short 5s TTL: long enough to dedupe a SPA fan-out
+# burst, short enough that recovery is felt within one refresh cycle.
+# Tuple shape mirrors `_webmin_host_cache` for symmetry.
+_WEBMIN_HOST_FAIL_CACHE_TTL = 5.0
+_webmin_host_fail_cache: dict[str, tuple[float, dict]] = {}
 
 
 def invalidate_host_provider_cache() -> None:
@@ -3378,6 +3401,7 @@ def invalidate_host_provider_cache() -> None:
     _host_provider_cache["ts"] = 0.0
     _host_provider_cache["state"] = None
     _webmin_host_cache.clear()
+    _webmin_host_fail_cache.clear()
 
 
 async def _get_host_provider_state(force: bool = False) -> dict:
@@ -3389,9 +3413,6 @@ async def _get_host_provider_state(force: bool = False) -> dict:
     calls from the SPA hits the cache; settings changes auto-clear
     after the TTL expires (no explicit invalidation needed).
     """
-    from logic import beszel as _beszel
-    from logic import pulse as _pulse
-
     now = time.time()
     active = active_host_stats_providers()
     # Include the active-sources tuple in the cache key so a settings
@@ -3431,6 +3452,37 @@ async def _get_host_provider_state(force: bool = False) -> dict:
     if (not force and cached and cached_key == cache_key
             and (now - _host_provider_cache.get("ts", 0.0)) < _HOST_PROVIDER_CACHE_TTL):
         return cached
+
+    # Single-flight (#506) — only ONE concurrent caller does the cold-
+    # cache probe; the rest await on the lock and pick up the populated
+    # cache via the post-lock re-check below. Pre-fix N parallel
+    # /api/hosts/one/<id> calls fired N independent Beszel hub + Pulse
+    # probes, saturating the event loop. Force=true requests still
+    # serialise here so a SPA settings-save fan-out doesn't 6× the
+    # upstream load either.
+    async with _host_provider_lock:
+        # Re-check inside the lock: another caller may have populated
+        # the cache while we were waiting. ``force`` requests always
+        # re-probe but only the FIRST forced caller pays the cost —
+        # subsequent forced callers within the same lock-acquire window
+        # see a fresh cache (now < TTL) and reuse it.
+        now2 = time.time()
+        cached2 = _host_provider_cache.get("state")
+        cached_key2 = _host_provider_cache.get("key")
+        if (cached2 and cached_key2 == cache_key
+                and (now2 - _host_provider_cache.get("ts", 0.0)) < _HOST_PROVIDER_CACHE_TTL):
+            return cached2
+
+        return await _do_host_provider_probe(active, cache_key)
+
+
+async def _do_host_provider_probe(active: list, cache_key: tuple) -> dict:
+    """Inner — runs the Beszel + Pulse probes and writes the result
+    cache. Always called under ``_host_provider_lock``. Split from
+    the outer function so the lock-acquire path stays narrow.
+    """
+    from logic import beszel as _beszel
+    from logic import pulse as _pulse
 
     errors: dict[str, str] = {}
     beszel_map: dict[str, dict] = {}
@@ -3495,7 +3547,7 @@ async def _get_host_provider_state(force: bool = False) -> dict:
         "webmin_creds_ok":  webmin_creds_ok,
         "webmin_aliases":   webmin_aliases,
     }
-    _host_provider_cache["ts"] = now
+    _host_provider_cache["ts"] = time.time()
     _host_provider_cache["state"] = state
     _host_provider_cache["key"] = cache_key
     return state
@@ -3552,24 +3604,39 @@ async def _merge_one_host(h: dict, state: dict) -> tuple[dict, list[str]]:
             if cached and (now - cached[0]) < _WEBMIN_HOST_CACHE_TTL:
                 result = cached[1]
             else:
-                try:
-                    result = await asyncio.wait_for(
-                        _webmin.probe_webmin(
-                            wm_url, state["webmin_user"], state["webmin_password"],
-                            verify_tls=state["webmin_verify"],
-                            active_sources=active,
-                        ),
-                        timeout=20.0,
-                    )
-                except asyncio.TimeoutError:
-                    result = {"hosts": {}, "error": "webmin probe timeout after 20s"}
-                except Exception as e:  # noqa: BLE001
-                    result = {"hosts": {}, "error": f"webmin probe failed: {e}"}
-                # Only cache successful probes (non-empty hosts map).
-                # Caching a timeout/auth-fail would mask recovery for
-                # a full TTL window — we'd rather retry quickly.
-                if (result.get("hosts") or {}):
-                    _webmin_host_cache[h["id"]] = (now, result)
+                # Negative-result cache (#506) — short-circuit a recently-
+                # failed probe so a SPA fan-out burst doesn't burn 20s ×
+                # PARALLEL on an unreachable Webmin. 5s TTL means recovery
+                # is felt within one Hosts-tab refresh cycle.
+                fail_cached = _webmin_host_fail_cache.get(h["id"])
+                if fail_cached and (now - fail_cached[0]) < _WEBMIN_HOST_FAIL_CACHE_TTL:
+                    result = fail_cached[1]
+                else:
+                    try:
+                        result = await asyncio.wait_for(
+                            _webmin.probe_webmin(
+                                wm_url, state["webmin_user"], state["webmin_password"],
+                                verify_tls=state["webmin_verify"],
+                                active_sources=active,
+                            ),
+                            timeout=20.0,
+                        )
+                    except asyncio.TimeoutError:
+                        result = {"hosts": {}, "error": "webmin probe timeout after 20s"}
+                    except Exception as e:  # noqa: BLE001
+                        result = {"hosts": {}, "error": f"webmin probe failed: {e}"}
+                    # Cache the OUTCOME — successes go in the long-lived
+                    # cache (30s TTL), failures go in the negative cache
+                    # (5s TTL) so a hung Webmin doesn't re-burn 20s on
+                    # every parallel call. Recovery is felt within 5s
+                    # because the fail cache is short.
+                    if (result.get("hosts") or {}):
+                        _webmin_host_cache[h["id"]] = (now, result)
+                        _webmin_host_fail_cache.pop(h["id"], None)
+                    else:
+                        _webmin_host_fail_cache[h["id"]] = (now, result)
+                        err = result.get("error") or "empty hosts map"
+                        print(f"[hosts] webmin probe failed for {h.get('id')!r}: {err}")
             hosts_map = result.get("hosts") or {}
             if hosts_map:
                 stats = next(iter(hosts_map.values()))
@@ -3939,23 +4006,25 @@ async def api_hosts_one(host_id: str, force: bool = False):
     h = next((x for x in curated if x.get("id") == host_id), None)
     if h is None or not h.get("enabled", True):
         raise HTTPException(404, f"Host not found: {host_id}")
-    # Outer per-host budget (45s). Worst-case the per-host probe runs
-    # `_get_host_provider_state` (15s Beszel + 15s Pulse on a cold
-    # cache) + 10s NE + 20s Webmin sequentially — comfortably under
-    # 60s but already past NPM's default `proxy_read_timeout`. Wrap
-    # the whole merge in `asyncio.wait_for` so a hung provider can't
-    # turn into a 504 from the upstream proxy. On timeout we raise
-    # 504 ourselves with a clear message so the SPA can render the
-    # row with the error chip instead of a generic gateway error.
+    # Outer per-host budget (30s — #506). With #506's single-flight
+    # `_get_host_provider_state` lock, the cold-cache Beszel+Pulse cost
+    # is paid by the FIRST caller only; subsequent fan-out calls reuse
+    # the populated cache. Worst-case for the first caller is
+    # ~15s Beszel + ~15s Pulse + ~10s NE + ~20s Webmin sequentially,
+    # but NE has its own 10s `httpx` timeout and Webmin its own 20s
+    # `asyncio.wait_for`, so a single laggy provider can't blow past
+    # this budget. 30s comfortably under any reasonable NPM
+    # `proxy_read_timeout` (default 60s) so OmniGrid's explicit 504
+    # always fires first, never NPM's generic gateway timeout.
     try:
         state, (merged, providers) = await asyncio.wait_for(
             _hosts_one_inner(h, force=force),
-            timeout=45.0,
+            timeout=30.0,
         )
     except asyncio.TimeoutError:
         raise HTTPException(
             status_code=504,
-            detail=f"per-host probe budget exceeded (45s) for {host_id}",
+            detail=f"per-host probe budget exceeded (30s) for {host_id}",
         )
     any_enabled = bool(state["active"])
     row = _shape_host_api_row(
@@ -6702,6 +6771,11 @@ async def api_me(request: Request):
         # separate endpoint.
         "client_config": {
             "ops_poll_ms": tuning.tuning_int("tuning_ops_poll_interval_ms"),
+            # #506 — SPA's loadHosts() reads this and uses it as the cap on
+            # parallel /api/hosts/one/<id> calls during fan-out. Resolved
+            # per /api/me round-trip so an Admin → Config save takes
+            # effect on the next call.
+            "hosts_parallel_fetch": tuning.tuning_int("tuning_hosts_parallel_fetch"),
             # Scheduler-tz state so the admin Schedules tab can badge
             # "TZ: <name> → falling back to UTC" when the operator typed
             # an invalid IANA name. ``configured`` = raw setting,

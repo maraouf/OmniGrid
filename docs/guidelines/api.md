@@ -162,9 +162,12 @@ type:
 | `stats:refreshed` | `gather_stats()` finished a cycle. | `{items, with_stats, with_size, ts}` — hint only; consumers refetch via `/api/stats`. |
 | `host:row_updated` | One curated host's merged row was recomputed. | `{id, host: <full row dict>}` |
 | `host:failure_state_changed` | Host sampler paused / cleared a host. | `{host_id, paused, consecutive_failures?, last_error?, cleared?}` |
+| `host:history_appended` | A new row was inserted into `host_metrics_samples` for a curated host. | `{host_id, ts, cpu_percent?, mem_used?, mem_total?, ...}` — hint only; consumers refetch via `/api/hosts/history`. |
 | `schedule:fired` | A schedule started or finished (two events per fire). | `{schedule_id, name, kind, op_id, phase: "start"\|"end", duration?, status?}` |
 | `history:appended` | A new row was written to the `history` table. | `{id, ts, op_type, target_name, target_id, target_stack, status, duration, error, actor}` |
+| `session:renewed` | A cookie session was slid forward (sliding-window refresh near expiry). | `{user_id, expires_at, ts}` |
 | `:overflow` | Synthetic — the per-subscriber queue dropped events. | `{}` — react with a one-shot REST refresh. |
+| `reconnect` | Synthetic — server hit `_SSE_MAX_LIFETIME_SECONDS` (6h cap, #464) and is asking the client to re-upgrade so the auth middleware fires again. | `{}` — `EventSource` reconnects automatically; bespoke clients should drop the connection and reopen. |
 
 Event names use a `<noun>:<verb>` convention; new event types follow the
 same shape. Payloads are intentionally narrow — consumers that need the
@@ -269,13 +272,19 @@ curl -sS -H "Authorization: Bearer $TOKEN" \
   | jq '.hosts[] | {id, label, status, providers}'
 ```
 
-For full telemetry on one host (cached 10s server-side):
+For full telemetry on one host (cached 10s server-side; per-host probe budget is 30s — beyond that the endpoint returns a 504 with `detail: "per-host probe budget exceeded (30s) for <id>"` so OmniGrid's explicit 504 always fires before NPM's generic 60s `proxy_read_timeout`):
 
 ```bash
 curl -sS -H "Authorization: Bearer $TOKEN" \
   "https://omnigrid.example.com/api/hosts/one/host01" \
   | jq '.host | {host_cpu_percent, host_mem_used, host_mem_total, host_disk_used, mounts, network_ifaces}'
+
+# Force-bypass the 10s provider-state cache (mirrors the same flag on /api/hosts/list):
+curl -sS -H "Authorization: Bearer $TOKEN" \
+  "https://omnigrid.example.com/api/hosts/one/host01?force=true"
 ```
+
+Concurrent fan-out from a SPA / dashboard tile is single-flight on the server: the first cold-cache caller pays the Beszel + Pulse hub probe, every parallel caller within the same window awaits and reuses the populated cache (#506). The SPA caps its own fan-out via `client_config.hosts_parallel_fetch` (`/api/me`) — see "Client config" below.
 
 For time-series charts (1 / 6 / 24 / 168 hour windows):
 
