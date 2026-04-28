@@ -72,9 +72,12 @@
   "events": {
     "live_label": "Live",
     "polling_label": "Polling",
+    "off_label": "Off",
     "connected_title": "Real-time event stream connected — live updates via /api/events. Polling loops are idle while this stream is healthy.",
     "disconnected_title": "Real-time event stream not connected — using polling as a fallback. The SPA will automatically switch back to live updates when the stream recovers.",
-    "reconnecting_title": "Real-time event stream dropped — polling has resumed and the browser is auto-reconnecting in the background."
+    "reconnecting_title": "Real-time event stream dropped — polling has resumed and the browser is auto-reconnecting in the background.",
+    "off_title": "Refresh is set to Off — the dashboard is a static snapshot. Pick Live or an interval from the topbar to resume updates.",
+    "polling_interval_title": "Polling every {seconds} seconds. The pill flashes green while a fetch is in flight; grey between ticks."
   },
   "user_menu": {
     "profile": "Profile",

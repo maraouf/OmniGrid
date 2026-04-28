@@ -3276,6 +3276,46 @@ body.login {
     animation: sse-pulse 1.6s ease-in-out infinite;
 }
 
+/* #486 — Off mode. The picker explicitly stopped every poll, so
+   the pill goes neutral grey to match the operator's mental model
+   "nothing is updating". No animation; this is a STATIC state. */
+.sse-pill--off {
+    color: var(--text-faint);
+    border-color: var(--border);
+}
+
+.sse-pill--off .sse-pill-dot {
+    background: var(--text-faint);
+}
+
+/* #486 — interval mode, idle (between ticks). Same visual weight as
+   --fallback (grey) but the dot is the consistent "polling" colour. */
+.sse-pill--polling-idle {
+    color: var(--text-dim);
+    border-color: var(--border);
+}
+
+.sse-pill--polling-idle .sse-pill-dot {
+    background: var(--text-faint);
+    transition: background 120ms ease-out;
+}
+
+/* #486 — interval mode, fetch in flight. The dot strobes green for
+   the EXACT duration of the network round-trip so operators see
+   "the system polled just now". Class flip is gated on
+   `_pollFlashing`, which `_pollStart()` / `_pollEnd()` toggle around
+   each interval-driven fetch. */
+.sse-pill--polling-active {
+    color: var(--text);
+    border-color: color-mix(in srgb, var(--success) 50%, var(--border));
+}
+
+.sse-pill--polling-active .sse-pill-dot {
+    background: var(--success);
+    box-shadow: 0 0 6px color-mix(in srgb, var(--success) 60%, transparent);
+    transition: background 60ms ease-out, box-shadow 60ms ease-out;
+}
+
 @keyframes sse-pulse {
     0%, 100% { opacity: 1; }
     50%      { opacity: 0.45; }

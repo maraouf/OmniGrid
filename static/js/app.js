@@ -6237,6 +6237,31 @@ function app() {
           }
         } catch (_) {}
       });
+      // #496 — host_metrics_sampler publishes this on every NE
+      // sample INSERT. Refresh the drawer chart only when (a) it's
+      // currently open AND (b) the open host matches the event's
+      // host_id. Per-host filter is critical: 50 sampled hosts firing
+      // 50 events each tick would otherwise spam the SPA. Beszel
+      // hosts don't go through host_metrics_sampler so they keep
+      // the polling baseline — the drawer timer gracefully handles
+      // both cases.
+      es.addEventListener('host:history_appended', (e) => {
+        onAny();
+        if (!this.drawerHost) return;
+        try {
+          const data = JSON.parse(e.data || '{}');
+          const id = (data.payload && data.payload.host_id) || '';
+          if (!id || id !== this.drawerHost.id) return;
+          // Only NE-source drawers get the push refresh; Beszel
+          // drawers' history isn't sample-keyed off our DB so this
+          // event is irrelevant to them.
+          if (!this.drawerHost.ne_url) return;
+          this._pollWrap(this.loadHostHistory(
+            this.drawerHost.beszel_id || '',
+            this.drawerHost.id,
+          )).catch(() => {});
+        } catch (_) {}
+      });
       es.addEventListener('schedule:fired', () => {
         onAny();
         // Schedule rows + queue rebuild via the same helpers the
@@ -6388,15 +6413,24 @@ function app() {
         clearInterval(this._drawerHistoryTimer);
         this._drawerHistoryTimer = null;
       }
-      if (this.drawerHost && (this.drawerHost.beszel_id || this.drawerHost.ne_url) && seconds !== 0) {
-        const ms = (seconds === -1 ? 30 : seconds) * 1000;
-        this._drawerHistoryTimer = setInterval(() => {
-          if (!this.drawerHost) return;
-          this._pollWrap(this.loadHostHistory(
-            this.drawerHost.beszel_id || '',
-            this.drawerHost.id,
-          ));
-        }, ms);
+      // NE-only Live mode → push-driven (#496) → no timer.
+      // Beszel / NE+Beszel Live → 30s timer (push event covers NE
+      // half but Beszel data still needs polling). Interval modes
+      // use the picker cadence regardless. Off → no timer.
+      const dh = this.drawerHost;
+      if (dh && (dh.beszel_id || dh.ne_url) && seconds !== 0) {
+        const liveMode = seconds === -1;
+        const pushOnly = liveMode && dh.ne_url && !dh.beszel_id;
+        if (!pushOnly) {
+          const ms = (liveMode ? 30 : seconds) * 1000;
+          this._drawerHistoryTimer = setInterval(() => {
+            if (!this.drawerHost) return;
+            this._pollWrap(this.loadHostHistory(
+              this.drawerHost.beszel_id || '',
+              this.drawerHost.id,
+            ));
+          }, ms);
+        }
       }
       // Sparklines (#486) — Off kills the timer; Live / interval
       // modes restart at the 5min baseline (sparklines are coarse
@@ -11087,21 +11121,29 @@ function app() {
       // `statsInterval=0` the loadHosts setInterval never fires, so a
       // hook inside loadHosts doesn't reach the drawer). 30s is a
       // sensible default for a drawer the operator is actively
-      // watching; clears on closeHostDrawer. #486 — the drawer chart
-      // now follows the unified refresh cadence: Live mode keeps a
-      // 30s baseline (no SSE event type pushes per-host history yet,
-      // so the chart needs SOME tick to stay current); Off mode
-      // disables it entirely (true static snapshot promise); interval
-      // modes use the operator's chosen cadence so the drawer chart
-      // doesn't outpace the picker. The poll restart on
-      // setRefreshInterval is wired below — opening the drawer just
-      // arms the right timer for the current mode.
+      // watching; clears on closeHostDrawer. Cadence rules under
+      // #486 + #496:
+      //   - Off → no timer (static-snapshot promise).
+      //   - Live + NE-only host → no timer; the new
+      //     `host:history_appended` push event refreshes the chart on
+      //     every sampler write (#496).
+      //   - Live + Beszel host (or NE+Beszel hybrid) → 30s timer
+      //     because Beszel data isn't push-driven from our side
+      //     (PocketBase owns the writes; we'd need a PB → bus
+      //     bridge to push, out of scope).
+      //   - Interval mode → poll at the picker cadence regardless of
+      //     source (operator explicitly opted out of push).
       if (this._drawerHistoryTimer) {
         clearInterval(this._drawerHistoryTimer);
         this._drawerHistoryTimer = null;
       }
-      if ((host.beszel_id || host.ne_url) && this.refreshInterval !== 0) {
-        const ms = (this.refreshInterval === -1 ? 30 : this.refreshInterval) * 1000;
+      const hasHistory = host.beszel_id || host.ne_url;
+      const live = this.refreshInterval === -1;
+      const off = this.refreshInterval === 0;
+      // NE-only hosts in Live mode rely entirely on push.
+      const pushOnly = live && host.ne_url && !host.beszel_id;
+      if (hasHistory && !off && !pushOnly) {
+        const ms = (live ? 30 : this.refreshInterval) * 1000;
         this._drawerHistoryTimer = setInterval(() => {
           if (!this.drawerHost) return;
           this._pollWrap(this.loadHostHistory(
