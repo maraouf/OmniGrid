@@ -6286,7 +6286,11 @@ function app() {
           // field-by-field assignment). Forced flag bypasses the 10s
           // provider-state cache so the freshly-published data lands.
           if (typeof this.refreshHostRow === 'function') {
-            this.refreshHostRow(id, { force: false }).catch(() => {});
+            // #532 — force: true so the refresh bypasses the 10s
+            // provider-state cache. SSE-driven refreshes are
+            // "fresh state landed" signals; pairs with #531's
+            // backend-side force-clears the per-host Webmin caches.
+            this.refreshHostRow(id, { force: true }).catch(() => {});
           }
         } catch (_) {}
       });
@@ -6298,7 +6302,11 @@ function app() {
           console.log('[live] event=host:failure_state_changed id=' + id);
           if (!id) return;
           if (typeof this.refreshHostRow === 'function') {
-            this.refreshHostRow(id, { force: false }).catch(() => {});
+            // #532 — force: true so the refresh bypasses the 10s
+            // provider-state cache. SSE-driven refreshes are
+            // "fresh state landed" signals; pairs with #531's
+            // backend-side force-clears the per-host Webmin caches.
+            this.refreshHostRow(id, { force: true }).catch(() => {});
           }
         } catch (_) {}
       });

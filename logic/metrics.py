@@ -28,6 +28,7 @@ __all__ = [
     "REGISTRY",
     "ITEMS_TOTAL", "STACK_OUTDATED", "STACK_OFFLINE",
     "OPS_TOTAL", "REGISTRY_ERRORS", "REGISTRY_LATENCY", "GATHER_DURATION",
+    "HOST_PROVIDER_LOCK_WAIT",
     "register_cache_age_collector", "register_events_collectors",
     "populate_from_cache",
     "generate_latest", "CONTENT_TYPE_LATEST",
@@ -78,6 +79,20 @@ GATHER_DURATION = Histogram(
     "End-to-end _gather() duration",
     registry=REGISTRY,
     buckets=(0.5, 1, 2, 5, 10, 30, 60, 120),
+)
+# #533 — `_host_provider_lock` acquire-latency histogram. The lock
+# single-flights cold-cache Beszel + Pulse hub probes (#506); when N
+# parallel `/api/hosts/one/<id>` calls land, the second-through-Nth
+# wait here for the first caller's probe to populate the cache. This
+# histogram lets the operator see whether contention is the cause of
+# elevated p95 latency vs slow upstreams. Buckets cover sub-100ms
+# (idle case — cache hit on entry) through 30s (cold-cache worst case
+# matching the outer `/api/hosts/one/<id>` budget).
+HOST_PROVIDER_LOCK_WAIT = Histogram(
+    "omnigrid_host_provider_lock_wait_seconds",
+    "Time spent waiting on _host_provider_lock before _do_host_provider_probe runs",
+    registry=REGISTRY,
+    buckets=(0.001, 0.01, 0.05, 0.1, 0.25, 0.5, 1, 2, 5, 10, 20, 30),
 )
 # SSE event-bus health (#472 / ENH-005). Subscriber count + dropped
 # count are both surfaced via a single custom collector — same pattern

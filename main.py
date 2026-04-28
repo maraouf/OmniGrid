@@ -948,10 +948,34 @@ async def api_events(request: Request):
             """Consume the event-bus iterator and forward into a local
             queue. Runs as a task so we can race it against the
             heartbeat timer + the disconnect check.
+
+            #535 — `queue.put_nowait` with overflow synthesis: pre-fix
+            this awaited an unbounded `queue.put`, so a slow client
+            could let the local queue grow without bound while the
+            bus's drop-oldest cap (256) stayed satisfied (because we
+            moved events off the bus queue immediately). Now we mirror
+            the bus's bound; on `QueueFull`, drop the new event and
+            emit a synthetic `:local-overflow` hint so the SPA can
+            reconcile via REST (same recovery path the existing
+            `:overflow` triggers).
             """
             try:
                 async for evt in _events.bus.subscribe():
-                    await queue.put(evt)
+                    try:
+                        queue.put_nowait(evt)
+                    except asyncio.QueueFull:
+                        try:
+                            queue.put_nowait({
+                                "type": ":local-overflow",
+                                "ts": time.time(),
+                                "payload": {"dropped_type": evt.get("type")},
+                            })
+                        except asyncio.QueueFull:
+                            # Even the overflow signal didn't fit —
+                            # the consumer is stuck. Drop silently;
+                            # the outer disconnect-check will reap
+                            # the connection on the next iteration.
+                            pass
             except asyncio.CancelledError:
                 raise
             except Exception as e:
@@ -960,7 +984,7 @@ async def api_events(request: Request):
                 print(f"[events] subscribe iterator failed: {e}")
                 await queue.put(None)
 
-        local: asyncio.Queue = asyncio.Queue()
+        local: asyncio.Queue = asyncio.Queue(maxsize=256)
         task = asyncio.create_task(producer(local))
         started_at = time.time()
         try:
@@ -3475,7 +3499,13 @@ async def _get_host_provider_state(force: bool = False) -> dict:
     # probes, saturating the event loop. Force=true requests still
     # serialise here so a SPA settings-save fan-out doesn't 6× the
     # upstream load either.
+    # #533 — measure the wait so operators can see whether contention
+    # is the cause of elevated /api/hosts/one latency vs slow upstreams.
+    # First caller bucket-counts in sub-ms (zero wait); subsequent
+    # callers in the same fan-out bucket-count in seconds.
+    _lock_wait_start = time.monotonic()
     async with _host_provider_lock:
+        metrics.HOST_PROVIDER_LOCK_WAIT.observe(time.monotonic() - _lock_wait_start)
         # BUG-004 fix (#518) — RE-COMPUTE active + cache_key inside the
         # lock. A settings save during the lock-wait could have changed
         # `host_stats_source` or any credential, so the pre-lock values
@@ -3591,10 +3621,21 @@ async def _do_host_provider_probe(active: set[str], cache_key: tuple) -> dict:
     return state
 
 
-async def _merge_one_host(h: dict, state: dict) -> tuple[dict, list[str]]:
+async def _merge_one_host(h: dict, state: dict, *, force: bool = False) -> tuple[dict, list[str]]:
     """Merge one curated host with provider data. Runs NE + Webmin
     probes inline for THIS host only; Beszel/Pulse lookups hit the
-    cached batch maps. Returns (merged_dict, providers_hit)."""
+    cached batch maps. Returns (merged_dict, providers_hit).
+
+    #531 — when ``force=True``, drop this host's per-host Webmin
+    caches (success + failure) before the probe block so the next
+    `probe_webmin` call hits the wire. Pre-fix `?force=true` only
+    bypassed the OUTER `_host_provider_cache`; the 30s success cache
+    + 5s failure cache still served the previously-cached entry.
+    Operators expect "force = re-probe everything for THIS host".
+    Settings-save paths already invalidate every cache via
+    `invalidate_host_provider_cache()`; this is the per-host force-
+    refresh path (drawer reopen with `?force=true`).
+    """
     from logic import node_exporter as _ne
     from logic import pulse as _pulse
     from logic import webmin as _webmin
@@ -3602,6 +3643,9 @@ async def _merge_one_host(h: dict, state: dict) -> tuple[dict, list[str]]:
     merged: dict = {}
     providers_hit: list[str] = []
     active = state["active"]
+    if force:
+        _webmin_host_cache.pop(h["id"], None)
+        _webmin_host_fail_cache.pop(h["id"], None)
 
     # Pulse — coarse fallback layer.
     pulse_key = h.get("pulse_name") or h.get("id") or ""
@@ -4034,7 +4078,7 @@ async def _hosts_one_inner(h: dict, *, force: bool):
     outer endpoint can wrap the whole sequence in `asyncio.wait_for`.
     """
     state = await _get_host_provider_state(force=force)
-    merged_pair = await _merge_one_host(h, state)
+    merged_pair = await _merge_one_host(h, state, force=force)
     return state, merged_pair
 
 
