@@ -506,14 +506,31 @@
         </template>
       </div>
       <span class="hidden sm:inline flex-1"></span>
-      <!-- Real-time event-stream status (#454). Pill flips between
-           "live" (SSE healthy) and "polling" (fallback). Tooltip
-           explains the source via i18n. -->
+      <!-- Connection-state pill (#486). Mirrors the picker's chosen
+           mode and shows real-time activity:
+             • Live (SSE on, healthy)         → green dot, label "Live"
+             • Live (SSE reconnecting)        → amber pulse,  label "Live"
+             • Off                            → grey dot,    label "Off"
+             • Polling, idle (between ticks)  → grey dot,    label "Polling"
+             • Polling, fetch in flight       → green flash, label "Polling"
+           The flash brackets the actual network round-trip via
+           `_pollStart()` / `_pollEnd()` so operators see a green
+           strobe on every interval tick. -->
       <div class="sse-pill order-4 sm:order-none"
-           :class="_sseConnected ? 'sse-pill--live' : (sseStatusKey() === 'events.reconnecting_title' ? 'sse-pill--reconnecting' : 'sse-pill--fallback')"
-           :title="t(sseStatusKey())">
+           :class="refreshInterval === -1
+                     ? (_sseConnected ? 'sse-pill--live'
+                        : (sseStatusKey() === 'events.reconnecting_title' ? 'sse-pill--reconnecting' : 'sse-pill--fallback'))
+                     : refreshInterval === 0
+                       ? 'sse-pill--off'
+                       : (_pollFlashing ? 'sse-pill--polling-active' : 'sse-pill--polling-idle')"
+           :title="refreshInterval === -1 ? t(sseStatusKey())
+                   : refreshInterval === 0 ? t('events.off_title')
+                   : t('events.polling_interval_title', { seconds: refreshInterval })">
         <span class="sse-pill-dot" aria-hidden="true"></span>
-        <span class="sse-pill-label" x-text="_sseConnected ? t('events.live_label') : t('events.polling_label')"></span>
+        <span class="sse-pill-label"
+              x-text="refreshInterval === -1 ? t('events.live_label')
+                      : refreshInterval === 0 ? t('events.off_label')
+                      : t('events.polling_label')"></span>
       </div>
       <!-- Theme + Hotkeys — small icon buttons. On mobile they live at
            order-4 alongside the language picker so they don't get

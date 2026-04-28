@@ -523,6 +523,22 @@ async def _probe_one(
         # Successful probe + write — clear any in-flight failure tracking
         # so a previously-pausing host can recover quietly (#383).
         _clear_failure(hid)
+        # SSE push (#496) — broadcast a `host:history_appended` event so
+        # any SPA tab with this host's drawer open in Live mode
+        # repaints its chart immediately. Payload carries host_id +
+        # ts only; the SPA fetches the full window via /api/hosts/history
+        # on receipt (cheap — same call the polling baseline made every
+        # 30s, just triggered by the event instead of a timer). Wraps
+        # the publish in try/except so a bus regression never blocks
+        # the sampler tick.
+        try:
+            from logic import events as _events
+            _events.publish("host:history_appended", {
+                "host_id": hid,
+                "ts": row["ts"],
+            })
+        except Exception as e:  # noqa: BLE001
+            print(f"[host_metrics_sampler] {hid!r} history_appended publish failed: {e}")
         net_blurb = (
             f"net rx={row['net_rx_bps']:.0f} tx={row['net_tx_bps']:.0f} B/s"
             if (row["net_rx_bps"] is not None and row["net_tx_bps"] is not None)
