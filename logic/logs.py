@@ -60,6 +60,36 @@ _LOG_NAME_RE = re.compile(r"^omnigrid-(\d{4})-(\d{2})-(\d{2})\.log$")
 _LOG_FAILED_ONCE = False  # latch so a sustained write failure doesn't spam stderr
 
 
+def _resolved_tz():
+    """Return the ZoneInfo OmniGrid uses for log-file dates.
+
+    Resolution mirrors `_today_log_path()` exactly so rotation,
+    pruning, and filename-date parsing all agree on what "today"
+    means (#457 — fixes the BUG-002 desync where rotation moved to
+    local-tz in #452 but the pruner stayed on UTC, producing a
+    one-day-late delete window in non-UTC offsets). Returns None
+    when neither the DB setting nor a usable local clock are
+    available; callers MUST treat None as "fall back to UTC" so
+    every consumer reproduces the same fallback ladder.
+    """
+    try:
+        from logic.db import get_setting
+        tz_name = (get_setting("scheduler_timezone", "") or "").strip()
+        if tz_name:
+            from zoneinfo import ZoneInfo
+            return ZoneInfo(tz_name)
+    except Exception:
+        pass
+    try:
+        # Container-local TZ via the libc-resolved zone (TZ env +
+        # /etc/localtime bind mount that docker-compose.yml sets up).
+        # `datetime.now().astimezone()` returns the local zone object
+        # without needing the IANA name.
+        return datetime.now().astimezone().tzinfo
+    except Exception:
+        return None
+
+
 def _today_log_path() -> str:
     """Today's log file path. Rotation advances at the operator's
     local midnight — consults the ``scheduler_timezone`` setting (the
@@ -73,25 +103,11 @@ def _today_log_path() -> str:
     (UTC+2) sees writes at local 00:00–01:59 land in the previous
     UTC-day file, even though the local mtime says "today".
     """
+    tz = _resolved_tz()
     try:
-        from logic.db import get_setting
-        tz_name = (get_setting("scheduler_timezone", "") or "").strip()
-        if tz_name:
-            from zoneinfo import ZoneInfo
-            today = datetime.now(ZoneInfo(tz_name)).strftime("%Y-%m-%d")
-            return os.path.join(LOG_DIR, f"omnigrid-{today}.log")
+        today = datetime.now(tz).strftime("%Y-%m-%d") if tz \
+            else datetime.now(timezone.utc).strftime("%Y-%m-%d")
     except Exception:
-        # DB not ready / invalid IANA name / zoneinfo missing — fall
-        # through to container-local. Silent: this code runs on every
-        # log line, so any noise here would itself spam the log.
-        pass
-    try:
-        # Container-local — relies on TZ env + /etc/localtime bind
-        # mount that docker-compose.yml sets up.
-        today = datetime.now().strftime("%Y-%m-%d")
-    except Exception:
-        # Last-resort UTC fallback if even the local clock read fails
-        # (vanishingly unlikely but cheap to defend).
         today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
     return os.path.join(LOG_DIR, f"omnigrid-{today}.log")
 
@@ -240,8 +256,17 @@ def prune_old_logs(retention_days: int) -> int:
         return 0
     if not os.path.isdir(LOG_DIR):
         return 0
+    # Cutoff + filename-date interpretation must use the SAME zone the
+    # rotation half (`_today_log_path`) uses, otherwise non-UTC operators
+    # see a one-day-late delete window (BUG-002 / #457). Both halves
+    # route through `_resolved_tz()`; None means "fall back to UTC" and
+    # both halves reproduce that same fallback.
+    tz = _resolved_tz() or timezone.utc
     cutoff_ts = time.time() - (retention_days * 86400)
-    cutoff_dt = datetime.fromtimestamp(cutoff_ts, tz=timezone.utc).date()
+    try:
+        cutoff_dt = datetime.fromtimestamp(cutoff_ts, tz=tz).date()
+    except Exception:
+        cutoff_dt = datetime.fromtimestamp(cutoff_ts, tz=timezone.utc).date()
     removed = 0
     try:
         names = os.listdir(LOG_DIR)
@@ -254,7 +279,7 @@ def prune_old_logs(retention_days: int) -> int:
         try:
             file_date = datetime(
                 int(m.group(1)), int(m.group(2)), int(m.group(3)),
-                tzinfo=timezone.utc,
+                tzinfo=tz,
             ).date()
         except ValueError:
             continue
