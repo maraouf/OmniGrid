@@ -628,9 +628,21 @@ See `docs/RELEASE_PROCESS.md` for the full operator runbook. Quick summary:
   release-worthy, the operator runs a manual `docker build --build-arg VERSION=<X.Y.0>`
   + `service update --image omnigrid:<X.Y.0>` on the manager (or pushes a one-off tagged
   image). The next CI deploy increments PATCH → `X.Y.1`. CI never touches MINOR autonomously.
-- **PATCH** — CI-controlled, automatic. Every successful CI deploy reads the previous version
-  from `/api/version`, increments PATCH by 1, and passes it to `docker build --build-arg
-  VERSION=$NEW`. MAJOR + MINOR are preserved.
+- **PATCH** — CI-controlled, automatic. Every successful CI deploy resolves the previous
+  version from THREE sources and takes the highest semver, then increments PATCH by 1 and
+  passes it to `docker build --build-arg VERSION=$NEW`. MAJOR + MINOR are preserved. The
+  three sources, in order of authority:
+    1. **Live `/api/version`** on the running service — most authoritative when reachable.
+    2. **`VERSION.txt` from the rsynced build context** (`/opt/omnigrid/app/VERSION.txt`) —
+       file-grounded floor; survives a brief outage of the live service. Operator can also
+       hand-edit this in the repo to SEED a MAJOR/MINOR bump (the next CI deploy will read
+       it as the new floor and bump from there).
+    3. **Highest existing `omnigrid:<X.Y.Z>` tag in the local image registry** on the
+       manager — covers post-rollback scenarios where you've manually swapped to an older
+       tag; the registry still knows the highest version that ever shipped, so the next CI
+       deploy won't accidentally re-issue an existing tag.
+  Pipeline log line `[deploy] version sources: live='X.Y.Z' file='X.Y.Z' image='X.Y.Z' →
+  resolved=X.Y.Z` shows exactly which source won and what the bump computes from.
 - The post-deploy "Verify deployed version matches" step asserts `/api/version` equals what
   was just built. Catches the situation where the build succeeded but `service update --force
   --image omnigrid:<new>` rolled the wrong tag, or the new task failed health and Swarm rolled
