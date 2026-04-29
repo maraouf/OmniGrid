@@ -6713,29 +6713,30 @@
             <button @click="clearLogs()" class="btn btn-ghost text-[11px] text-danger"
                     x-text="t('admin.logs.clear')"></button>
           </div>
-          <!-- Severity multi-select (#422). One checkbox per level the
-               `logSeverity()` helper emits. Persisted to localStorage
-               so reload preserves the view. "All" / "Errors only"
-               convenience buttons mirror the Notifications event
-               grid's bulk-action shape. -->
-          <div class="flex flex-wrap items-center gap-2 mb-3 pb-3 border-b border-[var(--border)]">
-            <span class="text-[11px] uppercase tracking-wider text-[var(--text-faint)]"
-                  x-text="t('admin.logs.severity_label')"></span>
+          <!-- Severity filter pills — colored chips per level with
+               counts. Click ALL → enable every level; click a specific
+               level → toggle that one. State stored in
+               `logSeverityFilter` per level + persisted to localStorage.
+               Pill colours come from new `--log-sev-*` CSS tokens. -->
+          <div class="log-sev-bar flex flex-wrap items-center gap-1.5 mb-3 pb-3 border-b border-[var(--border)]">
+            <button type="button"
+                    class="log-sev-pill log-sev-pill--all"
+                    :class="logAllSeverityOn() ? 'is-active' : ''"
+                    @click="setAllLogSeverity(true)">
+              <span class="log-sev-pill-label" x-text="t('admin.logs.severity_all_label')"></span>
+              <span class="log-sev-count" x-text="logLines.length"></span>
+            </button>
             <template x-for="lvl in logSeverityLevels" :key="lvl">
-              <label class="inline-flex items-center gap-1 text-[11.5px] cursor-pointer select-none px-2 py-0.5 rounded border border-[var(--border)] bg-[var(--surface-2)]"
-                     :class="logSeverityFilter[lvl] ? '' : 'opacity-50'">
-                <input type="checkbox"
-                       :checked="logSeverityFilter[lvl]"
-                       @change="toggleLogSeverity(lvl)">
-                <span x-text="t('admin.logs.severity.' + lvl)"></span>
-              </label>
+              <button type="button"
+                      class="log-sev-pill"
+                      :class="['log-sev-pill--' + lvl, logSeverityFilter[lvl] ? 'is-active' : '']"
+                      @click="toggleLogSeverity(lvl)">
+                <span class="log-sev-pill-label" x-text="t('admin.logs.severity.' + lvl)"></span>
+                <span class="log-sev-count" x-text="logSeverityCount(lvl)"></span>
+              </button>
             </template>
             <span class="flex-1"></span>
-            <button @click="setAllLogSeverity(true)" class="btn btn-ghost text-[11px]"
-                    x-text="t('admin.logs.severity_all')"></button>
-            <button @click="setAllLogSeverity(false)" class="btn btn-ghost text-[11px]"
-                    x-text="t('admin.logs.severity_none')"></button>
-            <button @click="setLogSeverityErrorsOnly()" class="btn btn-ghost text-[11px]"
+            <button @click="setLogSeverityErrorsOnly()" class="btn btn-ghost text-[10.5px]"
                     x-text="t('admin.logs.severity_errors_only')"></button>
           </div>
           <!-- Line-buffered viewer. Monospace + fixed height = terminal feel.
@@ -6744,8 +6745,15 @@
           <div id="log-viewer"
                class="mono text-[11px] bg-[var(--bg)] border border-[var(--border)] rounded-md p-2 h-[60vh] overflow-y-auto scrollbar leading-[1.35]">
             <template x-for="(l, i) in filteredLogLines()" :key="i + '-' + l.ts">
-              <div class="flex gap-2 whitespace-pre-wrap break-all log-line"
+              <div class="flex items-start gap-2 whitespace-pre-wrap break-all log-line"
                    :class="'log-line--' + logSeverity(l)">
+                <!-- Left-anchored severity badge — colored pill so the
+                     row's level is scan-able at a glance (matches the
+                     filter-pill colour for the same level). -->
+                <span class="log-line-sev shrink-0"
+                      :class="'log-line-sev--' + logSeverity(l)"
+                      x-text="logSeverity(l).toUpperCase()"></span>
+                <span class="log-line-sep shrink-0 text-[var(--text-faint)]">—</span>
                 <span class="text-[var(--text-faint)] shrink-0" x-text="fmtDate(l.ts)"></span>
                 <span class="log-stream shrink-0 uppercase text-[9.5px] tracking-wider pt-[2px]"
                       x-text="l.stream"></span>
@@ -6901,8 +6909,12 @@
             </div>
             <div class="mono text-[11px] bg-[var(--bg)] border border-[var(--border)] rounded-md p-2 h-[50vh] overflow-y-auto scrollbar leading-[1.35]">
               <template x-for="(l, i) in parsedLogFileLines()" :key="i + '-' + l.ts">
-                <div class="flex gap-2 whitespace-pre-wrap break-all log-line"
+                <div class="flex items-start gap-2 whitespace-pre-wrap break-all log-line"
                      :class="'log-line--' + logSeverityFor(l)">
+                  <span class="log-line-sev shrink-0"
+                        :class="'log-line-sev--' + logSeverityFor(l)"
+                        x-text="logSeverityFor(l).toUpperCase()"></span>
+                  <span class="log-line-sep shrink-0 text-[var(--text-faint)]">—</span>
                   <span class="text-[var(--text-faint)] shrink-0"
                         x-text="l.ts ? fmtDate(l.ts) : ''"></span>
                   <span class="log-stream shrink-0 uppercase text-[9.5px] tracking-wider pt-[2px]"

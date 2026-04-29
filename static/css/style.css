@@ -1720,6 +1720,114 @@ details summary::-webkit-details-marker {
 .log-line--error .log-body { color: var(--danger); }
 .log-line--ok    .log-body { color: var(--text); }
 
+/* Severity pill bar — clickable filter chips above the log viewer.
+   Each pill carries a count chip (right side) + colour-coded background
+   when active. Inactive state is muted; click toggles the level on/off
+   in `logSeverityFilter`. */
+.log-sev-bar {
+    /* container layout handled inline (Tailwind classes on the wrapper). */
+}
+.log-sev-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 3px 9px;
+    border-radius: 999px;
+    border: 1px solid var(--border);
+    background: var(--surface-2);
+    color: var(--text-dim);
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.4px;
+    text-transform: uppercase;
+    cursor: pointer;
+    transition: background 120ms, border-color 120ms, color 120ms, opacity 120ms;
+}
+.log-sev-pill:hover { border-color: var(--border-bright); }
+.log-sev-pill:not(.is-active) { opacity: 0.6; }
+.log-sev-count {
+    font-size: 10px;
+    font-weight: 600;
+    background: var(--surface-3);
+    color: var(--text-faint);
+    padding: 0 6px;
+    min-width: 18px;
+    height: 16px;
+    border-radius: 999px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    text-transform: none;
+    letter-spacing: 0;
+}
+.log-sev-pill.is-active .log-sev-count {
+    background: rgba(0, 0, 0, 0.18);
+    color: inherit;
+}
+/* ALL pill — neutral dark when active. */
+.log-sev-pill--all.is-active {
+    background: var(--text);
+    color: var(--bg);
+    border-color: var(--text);
+}
+/* Per-level colours — soft tint when active so the pill reads as
+   "this filter is on" without being garish. Inactive state stays muted. */
+.log-sev-pill--info.is-active {
+    background: color-mix(in srgb, var(--info) 14%, transparent);
+    border-color: color-mix(in srgb, var(--info) 50%, transparent);
+    color: var(--info);
+}
+.log-sev-pill--ok.is-active {
+    background: color-mix(in srgb, var(--success) 14%, transparent);
+    border-color: color-mix(in srgb, var(--success) 50%, transparent);
+    color: var(--success);
+}
+.log-sev-pill--warn.is-active {
+    background: color-mix(in srgb, var(--warning) 14%, transparent);
+    border-color: color-mix(in srgb, var(--warning) 50%, transparent);
+    color: var(--warning);
+}
+.log-sev-pill--error.is-active {
+    background: color-mix(in srgb, var(--danger) 14%, transparent);
+    border-color: color-mix(in srgb, var(--danger) 50%, transparent);
+    color: var(--danger);
+}
+
+/* Per-row severity badge — sits at the start of each log line so the
+   level is visible without colour-relying alone. Same colour family as
+   the filter pills above. */
+.log-line-sev {
+    display: inline-block;
+    padding: 0 6px;
+    min-width: 52px;
+    text-align: center;
+    border-radius: 4px;
+    font-size: 9.5px;
+    font-weight: 700;
+    letter-spacing: 0.5px;
+    line-height: 18px;
+    margin-top: 1px;
+}
+.log-line-sev--info  {
+    background: color-mix(in srgb, var(--info) 14%, transparent);
+    color: var(--info);
+}
+.log-line-sev--ok {
+    background: color-mix(in srgb, var(--success) 14%, transparent);
+    color: var(--success);
+}
+.log-line-sev--warn {
+    background: color-mix(in srgb, var(--warning) 16%, transparent);
+    color: var(--warning);
+}
+.log-line-sev--error {
+    background: color-mix(in srgb, var(--danger) 16%, transparent);
+    color: var(--danger);
+}
+.log-line-sep {
+    margin-top: 2px;
+}
+
 /* Tag chip — inline in the log body. Distinct colour per known
    backend prefix so operators can visually filter (e.g. "I only
    care about [webmin] lines"). Bold for readability; monospace
