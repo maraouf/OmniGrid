@@ -1511,8 +1511,11 @@
             <!-- One chip per provider, coloured by whether anything
                  came back — green when that provider matched at least
                  one host, red when it returned an error, muted when
-                 it's enabled but matched nothing. -->
-            <template x-for="p in ['beszel','pulse','node_exporter','webmin']" :key="p">
+                 it's enabled but matched nothing. Ping (#596 follow-up)
+                 added to the iteration list — it's a first-class
+                 provider (per-host opt-in via hosts_config[].ping)
+                 and was missing from the strip even when active. -->
+            <template x-for="p in ['beszel','pulse','node_exporter','webmin','ping']" :key="p">
               <span x-show="hostsProviderState(p).visible"
                     class="pill text-[10.5px]"
                     :class="hostsProviderState(p).cls"
