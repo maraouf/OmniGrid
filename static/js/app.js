@@ -62,7 +62,7 @@ const KNOWN_ICONS = new Set([
   'beszel', 'bose', 'caddy', 'chromecast', 'cisco', 'cloudflare', 'database',
   'ddns-updater', 'debian', 'dell', 'dell-dark', 'deluge', 'docker', 'dovecot',
   'dozzle', 'esxi', 'fing', 'firetv', 'flaresolverr', 'forgejo',
-  'freenas', 'ftth', 'gigabyte', 'glinet', 'glinet-dark', 'google',
+  'freenas', 'ftth', 'gigabyte', 'gitsync', 'glinet', 'glinet-dark', 'google',
   'google-home', 'grafana', 'hisense', 'homarr', 'home-assistant', 'homebridge',
   'hdhomerun', 'homepage', 'hp', 'huawei', 'humax', 'idrac', 'ikea', 'ilo',
   'influxdb', 'jellyfin', 'jellyseerr', 'jtech', 'kali', 'kaonmedia', 'kavita', 'keycloak',
@@ -7357,6 +7357,16 @@ function app() {
         'cloudflare-tunnel':   'cloudflare',
         'cloudflare-warp':     'cloudflare',
         'cloudflare-zero-trust': 'cloudflare',
+        // Operator's custom GitSync Connector container (stack name
+        // `gitsync-connector`, service name `gitsync-connector_connector`).
+        // Both the stack-namespaced and bare-name forms map to the
+        // gitsync brand mark. Deliberately NOT aliasing bare `connector`
+        // (too generic — would collide with Kafka Connect, MQTT bridges,
+        // etc.); operators wanting a different `*-connector` icon stay
+        // unaffected.
+        'gitsync-connector':           'gitsync',
+        'gitsync-connector_connector': 'gitsync',
+        'gitsync_connector':           'gitsync',
       };
       // Prefix patterns — one entry covers all siblings of a product
       // (authentik outposts: ak-outpost-authentik-ldap-outpost, etc.).
@@ -8984,6 +8994,10 @@ function app() {
           'cloudflare-tunnel':     'cloudflare',
           'cloudflare-warp':       'cloudflare',
           'cloudflare-zero-trust': 'cloudflare',
+          // GitSync Connector — operator's custom service.
+          'gitsync-connector':           'gitsync',
+          'gitsync-connector_connector': 'gitsync',
+          'gitsync_connector':           'gitsync',
         };
         const slug = aliases[h.icon.toLowerCase()] || h.icon;
         return this._themeIcon('/img/icons/' + slug + '.svg');
@@ -9282,6 +9296,13 @@ function app() {
         ['cloudflare warp',       'cloudflare'],
         ['cloudflare-warp',       'cloudflare'],
         ['cloudflare',            'cloudflare'],
+        // GitSync Connector — operator's custom container. Long-form
+        // phrases first; bare `gitsync` is also a meaningful brand
+        // match in case a future stack drops the `-connector` suffix.
+        ['gitsync-connector',     'gitsync'],
+        ['gitsync_connector',     'gitsync'],
+        ['gitsync connector',     'gitsync'],
+        ['gitsync',               'gitsync'],
         // download clients
         ['qbittorrent',           'qbittorrent'],
         ['qbit',                  'qbittorrent'],

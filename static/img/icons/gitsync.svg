@@ -1,0 +1,32 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" role="img" aria-label="GitSync Connector">
+  <title>GitSync Connector</title>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="256" y2="256" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#10b981"/>
+      <stop offset="1" stop-color="#0d9488"/>
+    </linearGradient>
+    <filter id="lift" x="-10%" y="-10%" width="120%" height="120%">
+      <feDropShadow dx="0" dy="3" stdDeviation="2" flood-color="#0a3a2a" flood-opacity="0.18"/>
+    </filter>
+  </defs>
+
+  <!-- Rounded square background with brand gradient -->
+  <rect width="256" height="256" rx="56" ry="56" fill="url(#bg)"/>
+
+  <!-- Two-way sync arrows: top-right, bottom-left -->
+  <g fill="none" stroke="#ffffff" stroke-width="14" stroke-linecap="round" stroke-linejoin="round" filter="url(#lift)">
+    <!-- Top arrow: left → right -->
+    <path d="M64 96 H180"/>
+    <polyline points="156 70 184 96 156 122"/>
+
+    <!-- Bottom arrow: right → left -->
+    <path d="M192 160 H76"/>
+    <polyline points="100 134 72 160 100 186"/>
+  </g>
+
+  <!-- Center anchor dots -->
+  <g fill="#ffffff" opacity="0.85">
+    <circle cx="56" cy="96" r="6"/>
+    <circle cx="200" cy="160" r="6"/>
+  </g>
+</svg>

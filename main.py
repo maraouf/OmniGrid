@@ -8787,7 +8787,21 @@ def _render_shell(path: str) -> Response:
     # operator edit /app/VERSION.txt on the server and have cache-busting
     # URLs follow without restarting the container.
     body = body.replace("__APP_VERSION__", read_version())
-    return Response(content=body, media_type="text/html; charset=utf-8")
+    # Cache-Control: no-cache, must-revalidate — the SPA shell is the
+    # entry point that references EVERY versioned asset (`/js/app.js?v=...`,
+    # `/css/style.css`, the inline `window.__APP_VERSION__` global), so a
+    # browser-cached shell would freeze the whole asset chain at a stale
+    # PATCH and the `?v=` bust scheme falls apart. `no-cache` doesn't
+    # disable caching — it forces revalidation on every navigation so a
+    # 304 is allowed when nothing changed; only the body bytes are
+    # skipped, the headers (including the freshly-substituted version)
+    # are re-served. Safe for the SPA shell; do NOT copy onto static
+    # assets (they SHOULD cache by the URL-versioning contract).
+    return Response(
+        content=body,
+        media_type="text/html; charset=utf-8",
+        headers={"Cache-Control": "no-cache, must-revalidate"},
+    )
 
 
 # SPA shell. Served through _render_shell so the version substitution
