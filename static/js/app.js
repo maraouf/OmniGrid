@@ -2968,6 +2968,26 @@ function app() {
     logSeverityFor(l) {
       return (l && l.level) ? l.level : this.logSeverity(l);
     },
+    // Same severity filter applied to the Files-tab parsed lines. Uses
+    // logSeverityFor (which prefers the parsed `level` field, falls
+    // back to `logSeverity` regex) so an INFO row whose body just has
+    // "loading..." doesn't get reclassified. Shares `logSeverityFilter`
+    // state with the Live tab so toggling a level in either tab carries.
+    filteredLogFileLines() {
+      const sev = this.logSeverityFilter || {};
+      const allOn = this.logSeverityLevels.every(k => sev[k]);
+      const lines = this.parsedLogFileLines();
+      if (allOn) return lines;
+      return lines.filter(l => !!sev[this.logSeverityFor(l)]);
+    },
+    // Per-level count for the Files-tab pill chips.
+    logFileSeverityCount(level) {
+      let n = 0;
+      for (const l of this.parsedLogFileLines()) {
+        if (this.logSeverityFor(l) === level) n++;
+      }
+      return n;
+    },
     // Copy the currently-filtered log view to the clipboard as plain
     // text. Format: "YYYY-MM-DD HH:MM:SS [stream] body" per line, so
     // the paste lands cleanly in issue trackers / chat apps with the
