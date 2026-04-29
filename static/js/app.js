@@ -7204,13 +7204,22 @@ function app() {
     //      - 'failing' → mapped on this host but provider didn't hit
     //                    here OR returned data with a paused/down
     //                    self-status. Chip turns red.
-    // Per-provider chip colour resolver (#596). Returns the operator's
-    // configured hex from `me.client_config.provider_colors[name]`, or
-    // a built-in distinct default if no override is set. Drives the
-    // inline `:style` on `.chip.pill-custom` in the row + drawer chip
-    // templates. Defaults are tuned to be visually distinct across the
-    // five providers — pre-fix, ping shared node-exporter's amber and
-    // operators couldn't tell them apart in the row chips.
+    // Per-provider chip colour resolver (#596). Resolution order:
+    //   1. `this.settings.provider_color_<name>` — live admin form
+    //      state, hydrated by `loadSettings()` at init AND on every
+    //      Save. This is what makes the chip-style update REACTIVELY
+    //      as the operator drags the colour input around (Alpine
+    //      tracks `settings` as a dependency of every binding that
+    //      calls into here).
+    //   2. `me.client_config.provider_colors[<name>]` — fallback for
+    //      readonly viewers who don't fetch /api/settings. Reads from
+    //      the snapshot the server stamped at the most recent
+    //      /api/me round-trip, so a colour change here only takes
+    //      effect on the next /api/me — fine for "view-only" users.
+    //   3. Built-in distinct default so an unconfigured deploy still
+    //      shows five different chip colours instead of two-or-three
+    //      shared hues (pre-fix, ping shared node-exporter's amber
+    //      and operators couldn't tell them apart in the row chips).
     providerColor(name) {
       const defaults = {
         beszel:        '#22c55e',  // green  (matches pill-ok hue)
@@ -7219,6 +7228,10 @@ function app() {
         webmin:        '#a78bfa',  // purple (distinct slot for the 4th provider)
         ping:          '#06b6d4',  // cyan   (distinct from amber + green; was conflating with exporter)
       };
+      // Live admin-form value first (reactive on every keystroke / save).
+      const live = ((this.settings || {})['provider_color_' + name] || '').trim();
+      if (live) return live;
+      // Server-stamped snapshot for non-admin viewers.
       const map = (this.me && this.me.client_config && this.me.client_config.provider_colors) || {};
       const v = (map[name] || '').trim();
       return v || defaults[name] || 'currentColor';
