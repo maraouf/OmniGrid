@@ -7074,7 +7074,20 @@ async def api_local_login_webauthn_start(
         "origin": _request_origin(request),
         "ip": ip,
     })
-    print(f"[webauthn] {u.username} login-start (rp_id={rp_id})")
+    # #602 — surface the per-credential transports being sent so the
+    # operator can grep server logs to verify the assertion-options
+    # payload includes 'internal' (without it, macOS Safari/Chrome
+    # default to the QR/hybrid flow regardless of `hints`).
+    _allow = (options.get("allowCredentials") or []) if isinstance(options, dict) else []
+    _transports_summary = [
+        {"id_prefix": (c.get("id") or "")[:8], "transports": c.get("transports")}
+        for c in _allow
+    ]
+    print(
+        f"[webauthn] {u.username} login-start (rp_id={rp_id}) "
+        f"hints={options.get('hints') if isinstance(options, dict) else None} "
+        f"allow={_transports_summary}"
+    )
     return JSONResponse({
         "options": options,
         "login_id": login_id,
