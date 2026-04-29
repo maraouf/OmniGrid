@@ -2369,6 +2369,10 @@ function app() {
         // tracker so saveHostStats picks them up alongside the other
         // providers' fields.
         'ping_enabled', 'ping_default_port', 'ping_use_icmp',
+        // #596 — per-provider chip colour overrides.
+        'provider_color_beszel', 'provider_color_pulse',
+        'provider_color_node_exporter', 'provider_color_webmin',
+        'provider_color_ping',
       ];
       const subset = {};
       for (const k of pick) subset[k] = s[k];
@@ -2515,6 +2519,20 @@ function app() {
       }
       if (this.settings.ping_use_icmp !== undefined) {
         payload.ping_use_icmp = !!this.settings.ping_use_icmp;
+      }
+      // #596 — per-provider chip colour overrides. Always packed into
+      // the payload (even when blank → backend treats blank as "clear
+      // the override"). Hex validation is done server-side; the colour
+      // input element naturally produces #RRGGBB so a malformed value
+      // would only arrive via direct API tampering.
+      for (const k of [
+        'provider_color_beszel', 'provider_color_pulse',
+        'provider_color_node_exporter', 'provider_color_webmin',
+        'provider_color_ping',
+      ]) {
+        if (this.settings[k] !== undefined) {
+          payload[k] = (this.settings[k] || '').trim();
+        }
       }
       // #555 — fold in any dirty tunables that live on this panel
       // (Webmin probe budget + cache TTLs, NE probe timeout). The
@@ -4605,6 +4623,13 @@ function app() {
           ping_default_port:     (d.ping && Number.isFinite(d.ping.default_port)) ? d.ping.default_port : 443,
           ping_use_icmp:         !!(d.ping && d.ping.use_icmp),
           ping_has_icmp_support: !!(d.ping && d.ping.has_icmp_support),
+          // #596 — per-provider chip colour overrides. Empty string
+          // means "use the SPA default" (see providerColor() helper).
+          provider_color_beszel:        d.provider_color_beszel        || '',
+          provider_color_pulse:         d.provider_color_pulse         || '',
+          provider_color_node_exporter: d.provider_color_node_exporter || '',
+          provider_color_webmin:        d.provider_color_webmin        || '',
+          provider_color_ping:          d.provider_color_ping          || '',
           // Scheduler — IANA zone. Blank = container-local (legacy).
           scheduler_timezone: d.scheduler_timezone || '',
           // Open-Meteo upstream (weather widget). Blank = default.
@@ -7179,6 +7204,38 @@ function app() {
     //      - 'failing' → mapped on this host but provider didn't hit
     //                    here OR returned data with a paused/down
     //                    self-status. Chip turns red.
+    // Per-provider chip colour resolver (#596). Returns the operator's
+    // configured hex from `me.client_config.provider_colors[name]`, or
+    // a built-in distinct default if no override is set. Drives the
+    // inline `:style` on `.chip.pill-custom` in the row + drawer chip
+    // templates. Defaults are tuned to be visually distinct across the
+    // five providers — pre-fix, ping shared node-exporter's amber and
+    // operators couldn't tell them apart in the row chips.
+    providerColor(name) {
+      const defaults = {
+        beszel:        '#22c55e',  // green  (matches pill-ok hue)
+        pulse:         '#3b82f6',  // blue   (matches pill-info hue)
+        node_exporter: '#f59e0b',  // amber  (matches pill-update hue)
+        webmin:        '#a78bfa',  // purple (distinct slot for the 4th provider)
+        ping:          '#06b6d4',  // cyan   (distinct from amber + green; was conflating with exporter)
+      };
+      const map = (this.me && this.me.client_config && this.me.client_config.provider_colors) || {};
+      const v = (map[name] || '').trim();
+      return v || defaults[name] || 'currentColor';
+    },
+    // Inline style triplet for .chip.pill-custom — three CSS variables
+    // (--chip-bg, --chip-br, --chip-fg) derived from the provider
+    // colour via color-mix so the chip stays a soft tinted token rather
+    // than a saturated background. The same pattern works for any
+    // future dynamic-colour chip (asset categories, group badges, etc.).
+    providerChipStyle(name) {
+      const c = this.providerColor(name);
+      return (
+        '--chip-bg: color-mix(in srgb, ' + c + ' 18%, transparent); ' +
+        '--chip-br: color-mix(in srgb, ' + c + ' 40%, transparent); ' +
+        '--chip-fg: ' + c + ';'
+      );
+    },
     providerStates(h) {
       if (!h) return [];
       const active = this.hostsActiveSources || [];
@@ -11683,12 +11740,19 @@ function app() {
     // operator wanted color-coded pills, not a comma-joined list).
     hostEnabledAgents(h) {
       if (!h) return [];
+      // Each chip is `pill-custom` so it picks up the configured
+      // per-provider colour via providerChipStyle (#596). The
+      // hand-mapped pill class names left over from the original
+      // implementation are deliberately dropped — the colour now
+      // flows from the operator-settable provider_color_* settings,
+      // not from a fixed visual mapping that conflated providers.
+      if (!h) return [];
       const out = [];
-      if (h.beszel_name)  out.push({ name: 'beszel',        label: 'Beszel',        pill: 'pill-ok' });
-      if (h.pulse_name)   out.push({ name: 'pulse',         label: 'Pulse',         pill: 'pill-info' });
-      if (h.ne_url)       out.push({ name: 'node_exporter', label: 'node-exporter', pill: 'pill-update' });
-      if (h.webmin_name)  out.push({ name: 'webmin',        label: 'Webmin',        pill: 'pill-primary' });
-      if (h.ping_enabled) out.push({ name: 'ping',          label: 'Ping',          pill: 'pill-degraded' });
+      if (h.beszel_name)  out.push({ name: 'beszel',        label: 'Beszel' });
+      if (h.pulse_name)   out.push({ name: 'pulse',         label: 'Pulse' });
+      if (h.ne_url)       out.push({ name: 'node_exporter', label: 'node-exporter' });
+      if (h.webmin_name)  out.push({ name: 'webmin',        label: 'Webmin' });
+      if (h.ping_enabled) out.push({ name: 'ping',          label: 'Ping' });
       return out;
     },
     filteredHosts() {

@@ -1741,13 +1741,13 @@
                 <!-- Per-host provider chips. Red when provider is
                      globally enabled AND mapped to this host but
                      didn't return data (paused / unreachable / 401).
-                     Brand color when healthy. -->
+                     Brand color when healthy — driven by
+                     `providerColor()` (#596), per-provider customisable
+                     under Settings → Providers. -->
                 <template x-for="p in providerStates(h)" :key="p.name">
                   <span class="chip text-[9.5px] px-1 py-0"
-                        :class="p.state === 'failing' ? 'pill-error'
-                              : p.name === 'beszel' ? 'pill-ok'
-                              : p.name === 'pulse'  ? 'pill-info'
-                              : 'pill-update'"
+                        :class="p.state === 'failing' ? 'pill-error' : 'pill-custom'"
+                        :style="p.state === 'failing' ? '' : providerChipStyle(p.name)"
                         :title="p.state === 'failing' ? t('hosts_extra.provider_failing', { provider: p.name }) : ''"
                         x-text="p.name === 'node_exporter' ? 'exporter' : p.name"></span>
                 </template>
@@ -1939,13 +1939,13 @@
                     <!-- Per-host provider chips. Red when provider is
                          globally enabled AND mapped to this host but
                          didn't return data (paused / unreachable / 401).
-                         Brand color when healthy. -->
+                         Brand color when healthy — driven by
+                         `providerColor()` (#596), per-provider
+                         customisable under Settings → Providers. -->
                     <template x-for="p in providerStates(h)" :key="p.name">
                       <span class="chip text-[9.5px] px-1 py-0"
-                            :class="p.state === 'failing' ? 'pill-error'
-                                  : p.name === 'beszel' ? 'pill-ok'
-                                  : p.name === 'pulse'  ? 'pill-info'
-                                  : 'pill-update'"
+                            :class="p.state === 'failing' ? 'pill-error' : 'pill-custom'"
+                            :style="p.state === 'failing' ? '' : providerChipStyle(p.name)"
                             :title="p.state === 'failing' ? t('hosts_extra.provider_failing', { provider: p.name }) : ''"
                             x-text="p.name === 'node_exporter' ? 'exporter' : p.name"></span>
                     </template>
@@ -4227,6 +4227,29 @@
             <!-- #555 — per-section Save removed; main page Save at
                  the bottom covers this knob via saveHostStats. -->
           </div>
+          <!-- Per-provider chip colour (#596) — operator-customisable
+               override that flows into the row-chip + drawer-chip
+               render via `providerChipStyle`. Empty means "use the
+               built-in default colour" (a distinct hue per provider). -->
+          <div class="pt-3 mt-3 border-t border-[var(--border)] flex items-center gap-3 flex-wrap">
+            <label class="text-[11px] flex items-center gap-2">
+              <span x-text="t('settings.host_stats.chip_color_label')"></span>
+              <input type="color" x-model="settings.provider_color_node_exporter"
+                     :value="settings.provider_color_node_exporter || providerColor('node_exporter')"
+                     :disabled="isReadonly() || !hasHostStatsSource('node_exporter')"
+                     class="w-9 h-7 cursor-pointer p-0 bg-transparent border border-[var(--border)] rounded">
+            </label>
+            <button type="button"
+                    x-show="settings.provider_color_node_exporter"
+                    @click="settings.provider_color_node_exporter = ''"
+                    class="btn btn-ghost text-[10.5px]"
+                    x-text="t('settings.host_stats.chip_color_reset')"></button>
+            <span class="chip pill-custom text-[10.5px]"
+                  :style="providerChipStyle('node_exporter')"
+                  x-text="t('settings.host_stats.chip_color_preview')"></span>
+            <p class="basis-full text-[10.5px] text-[var(--text-faint)]"
+               x-text="t('settings.host_stats.chip_color_hint')"></p>
+          </div>
         </div>
         <div x-show="hostStatsTab === 'beszel'" class="space-y-3" :class="!hasHostStatsSource('beszel') ? 'opacity-60' : ''">
           <div class="flex items-center justify-between gap-2 pb-2 border-b border-dashed border-[var(--border)]">
@@ -4289,6 +4312,26 @@
           </div>
           <p class="text-[10.5px] text-[var(--text-faint)]"
              x-text="t('settings.host_stats.beszel_naming_hint')"></p>
+          <!-- Per-provider chip colour (#596). -->
+          <div class="pt-3 mt-3 border-t border-[var(--border)] flex items-center gap-3 flex-wrap">
+            <label class="text-[11px] flex items-center gap-2">
+              <span x-text="t('settings.host_stats.chip_color_label')"></span>
+              <input type="color" x-model="settings.provider_color_beszel"
+                     :value="settings.provider_color_beszel || providerColor('beszel')"
+                     :disabled="isReadonly() || !hasHostStatsSource('beszel')"
+                     class="w-9 h-7 cursor-pointer p-0 bg-transparent border border-[var(--border)] rounded">
+            </label>
+            <button type="button"
+                    x-show="settings.provider_color_beszel"
+                    @click="settings.provider_color_beszel = ''"
+                    class="btn btn-ghost text-[10.5px]"
+                    x-text="t('settings.host_stats.chip_color_reset')"></button>
+            <span class="chip pill-custom text-[10.5px]"
+                  :style="providerChipStyle('beszel')"
+                  x-text="t('settings.host_stats.chip_color_preview')"></span>
+            <p class="basis-full text-[10.5px] text-[var(--text-faint)]"
+               x-text="t('settings.host_stats.chip_color_hint')"></p>
+          </div>
         </div>
 
         <!-- Pulse config — third provider. PVE-only, so it pairs well
@@ -4342,6 +4385,26 @@
                   x-text="(pulseTestResult && pulseTestResult.ok ? '✓ ' : '✗ ') + (pulseTestResult && pulseTestResult.detail || '')"></span>
           </div>
           <p class="text-[10.5px] text-[var(--text-faint)]" x-text="t('settings.host_stats.pulse_aliases_hint')"></p>
+          <!-- Per-provider chip colour (#596). -->
+          <div class="pt-3 mt-3 border-t border-[var(--border)] flex items-center gap-3 flex-wrap">
+            <label class="text-[11px] flex items-center gap-2">
+              <span x-text="t('settings.host_stats.chip_color_label')"></span>
+              <input type="color" x-model="settings.provider_color_pulse"
+                     :value="settings.provider_color_pulse || providerColor('pulse')"
+                     :disabled="isReadonly() || !hasHostStatsSource('pulse')"
+                     class="w-9 h-7 cursor-pointer p-0 bg-transparent border border-[var(--border)] rounded">
+            </label>
+            <button type="button"
+                    x-show="settings.provider_color_pulse"
+                    @click="settings.provider_color_pulse = ''"
+                    class="btn btn-ghost text-[10.5px]"
+                    x-text="t('settings.host_stats.chip_color_reset')"></button>
+            <span class="chip pill-custom text-[10.5px]"
+                  :style="providerChipStyle('pulse')"
+                  x-text="t('settings.host_stats.chip_color_preview')"></span>
+            <p class="basis-full text-[10.5px] text-[var(--text-faint)]"
+               x-text="t('settings.host_stats.chip_color_hint')"></p>
+          </div>
         </div>
 
         <!-- Webmin config — fourth provider. Each target host runs its
@@ -4458,6 +4521,26 @@
                  saveHostStats / hostStatsDirty) now folds these
                  tunable changes into the same POST so operators have
                  ONE Save action covering the whole tab. -->
+          </div>
+          <!-- Per-provider chip colour (#596). -->
+          <div class="pt-3 mt-3 border-t border-[var(--border)] flex items-center gap-3 flex-wrap">
+            <label class="text-[11px] flex items-center gap-2">
+              <span x-text="t('settings.host_stats.chip_color_label')"></span>
+              <input type="color" x-model="settings.provider_color_webmin"
+                     :value="settings.provider_color_webmin || providerColor('webmin')"
+                     :disabled="isReadonly() || !hasHostStatsSource('webmin')"
+                     class="w-9 h-7 cursor-pointer p-0 bg-transparent border border-[var(--border)] rounded">
+            </label>
+            <button type="button"
+                    x-show="settings.provider_color_webmin"
+                    @click="settings.provider_color_webmin = ''"
+                    class="btn btn-ghost text-[10.5px]"
+                    x-text="t('settings.host_stats.chip_color_reset')"></button>
+            <span class="chip pill-custom text-[10.5px]"
+                  :style="providerChipStyle('webmin')"
+                  x-text="t('settings.host_stats.chip_color_preview')"></span>
+            <p class="basis-full text-[10.5px] text-[var(--text-faint)]"
+               x-text="t('settings.host_stats.chip_color_hint')"></p>
           </div>
         </div>
 
@@ -4578,6 +4661,26 @@
                 </div>
               </div>
             </template>
+          </div>
+          <!-- Per-provider chip colour (#596). -->
+          <div class="pt-3 mt-3 border-t border-[var(--border)] flex items-center gap-3 flex-wrap">
+            <label class="text-[11px] flex items-center gap-2">
+              <span x-text="t('settings.host_stats.chip_color_label')"></span>
+              <input type="color" x-model="settings.provider_color_ping"
+                     :value="settings.provider_color_ping || providerColor('ping')"
+                     :disabled="isReadonly() || !hasHostStatsSource('ping')"
+                     class="w-9 h-7 cursor-pointer p-0 bg-transparent border border-[var(--border)] rounded">
+            </label>
+            <button type="button"
+                    x-show="settings.provider_color_ping"
+                    @click="settings.provider_color_ping = ''"
+                    class="btn btn-ghost text-[10.5px]"
+                    x-text="t('settings.host_stats.chip_color_reset')"></button>
+            <span class="chip pill-custom text-[10.5px]"
+                  :style="providerChipStyle('ping')"
+                  x-text="t('settings.host_stats.chip_color_preview')"></span>
+            <p class="basis-full text-[10.5px] text-[var(--text-faint)]"
+               x-text="t('settings.host_stats.chip_color_hint')"></p>
           </div>
         </div>
 
@@ -7728,19 +7831,17 @@
                      THIS tick (live up/down state); these reflect what
                      the operator has CONFIGURED, regardless of current
                      reachability. Useful at a glance for "why is this
-                     row grey — did I forget to enable an agent?". Each
-                     pill's color is hand-mapped in `hostEnabledAgents()`
-                     for visual distinctness across the five providers
-                     (the four ok/info/update/error pills don't have
-                     enough variance for five distinct chips, so
-                     pill-primary + pill-degraded round it out). -->
+                     row grey — did I forget to enable an agent?". Chip
+                     colour comes from `providerColor()` — defaults to a
+                     distinct hue per provider and overridable via
+                     Settings → Providers (#596). -->
                 <template x-if="hostEnabledAgents(h).length">
                   <section class="rounded border border-[var(--border)] bg-[var(--surface)] p-4 md:col-span-6">
                     <h4 class="text-[10.5px] uppercase tracking-wider text-[var(--text-faint)] mb-3" x-text="t('host_drawer.system.agents')"></h4>
                     <div class="flex items-center gap-1.5 flex-wrap">
                       <template x-for="agent in hostEnabledAgents(h)" :key="agent.name">
-                        <span class="chip text-[11px] px-2 py-0.5"
-                              :class="agent.pill"
+                        <span class="chip pill-custom text-[11px] px-2 py-0.5"
+                              :style="providerChipStyle(agent.name)"
                               x-text="agent.label"></span>
                       </template>
                     </div>

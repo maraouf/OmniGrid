@@ -1378,6 +1378,17 @@ class SettingsIn(BaseModel):
     ping_enabled: Optional[bool] = None
     ping_default_port: Optional[int] = None
     ping_use_icmp: Optional[bool] = None
+    # Per-provider chip color (#596) — operator-customisable hex colour
+    # for the per-host provider chip rendered in the Hosts view + the
+    # drawer's "Enabled agents" card. Each value is a 7-char `#RRGGBB`
+    # string OR blank to fall back to the SPA's built-in default. The
+    # `failing` red chip is unaffected (it intentionally stays a
+    # uniform error colour regardless of the provider's normal hue).
+    provider_color_beszel: Optional[str] = None
+    provider_color_pulse: Optional[str] = None
+    provider_color_node_exporter: Optional[str] = None
+    provider_color_webmin: Optional[str] = None
+    provider_color_ping: Optional[str] = None
     # Scheduler timezone — IANA name (e.g. "Africa/Cairo"). When set,
     # daily/weekly/monthly schedule anchors are computed in THIS zone
     # instead of the container's localtime. Containers default to UTC;
@@ -1753,6 +1764,15 @@ async def api_get_settings(request: Request):
             "use_icmp":         get_setting_bool("ping_use_icmp", False),
             "has_icmp_support": (lambda: __import__("logic.ping", fromlist=["has_icmp_support"]).has_icmp_support())(),
         },
+        # Per-provider chip colour overrides (#596). Empty string means
+        # "use the SPA's built-in default" — the SPA's `providerColor()`
+        # helper falls back to the same default constant. Round-tripped
+        # in the clear (not a secret).
+        "provider_color_beszel":        get_setting("provider_color_beszel", "")        or "",
+        "provider_color_pulse":         get_setting("provider_color_pulse", "")         or "",
+        "provider_color_node_exporter": get_setting("provider_color_node_exporter", "") or "",
+        "provider_color_webmin":        get_setting("provider_color_webmin", "")        or "",
+        "provider_color_ping":          get_setting("provider_color_ping", "")          or "",
         # SSH console — global defaults (Admin → SSH). Secrets
         # redacted per CLAUDE.md's ``_set`` flag contract: the browser
         # learns only whether a private key / passphrase has been set.
@@ -2030,6 +2050,31 @@ async def api_set_settings(
         set_setting("ping_default_port", str(p))
     if s.ping_use_icmp is not None:
         set_setting("ping_use_icmp", "true" if s.ping_use_icmp else "false")
+    # Per-provider chip colours (#596). Hex string `#RRGGBB` (7 chars,
+    # case-insensitive) OR empty/blank to clear the override and fall
+    # back to the SPA's built-in default. Any other shape rejected at
+    # save time rather than letting an invalid value reach inline
+    # CSS where it'd silently break the chip render.
+    import re as _re
+    _hex_re = _re.compile(r"^#[0-9a-fA-F]{6}$")
+    for _field in (
+        "provider_color_beszel", "provider_color_pulse",
+        "provider_color_node_exporter", "provider_color_webmin",
+        "provider_color_ping",
+    ):
+        _val = getattr(s, _field, None)
+        if _val is None:
+            continue
+        _trim = _val.strip()
+        if _trim == "":
+            set_setting(_field, "")
+            continue
+        if not _hex_re.match(_trim):
+            raise HTTPException(
+                status_code=400,
+                detail=f"{_field} must be a 7-char hex colour (e.g. #22c55e) or blank",
+            )
+        set_setting(_field, _trim.lower())
     # SSH console — mirrors the webmin / beszel / pulse suffix contract.
     # Private key + passphrase use "keep current if blank". Known hosts
     # and destructive patterns are plain strings (operator clears by
@@ -7302,6 +7347,17 @@ async def api_me(request: Request):
             # ``fallback`` = True only when configured was non-empty
             # but ZoneInfo rejected it.
             "scheduler_tz": schedules.scheduler_tz_state(),
+            # #596 — per-provider chip colours. Hex string per provider,
+            # falls back to the SPA's built-in default when the operator
+            # hasn't customised. Read once on /api/me and applied to the
+            # provider chip via inline `:style` (--chip-bg/-br/-fg).
+            "provider_colors": {
+                "beszel":        get_setting("provider_color_beszel", "")        or "",
+                "pulse":         get_setting("provider_color_pulse", "")         or "",
+                "node_exporter": get_setting("provider_color_node_exporter", "") or "",
+                "webmin":        get_setting("provider_color_webmin", "")        or "",
+                "ping":          get_setting("provider_color_ping", "")          or "",
+            },
         },
     }
     # ARCH-004: surface the SESSION_SECRET-auto-generated state to admins.

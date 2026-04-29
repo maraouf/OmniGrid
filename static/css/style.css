@@ -224,10 +224,19 @@
        with the CLAUDE.md "Runtime-injected vars" rule when adding new ones.
          --w         stat-bar fill width (percentage)
          --c         stat-bar fill colour
-         --avatar-hue  user-menu avatar hue (0-359), keyed per username */
+         --avatar-hue  user-menu avatar hue (0-359), keyed per username
+         --chip-bg / --chip-br / --chip-fg
+                     per-provider chip colour triplet (#596) — set
+                     inline on .chip.pill-custom from the operator-
+                     configured provider colour via color-mix; also
+                     reusable by any future component that wants
+                     dynamic-colour chips. */
     --w: 0%;
     --c: var(--success);
     --avatar-hue: 210;
+    --chip-bg: var(--surface-2);
+    --chip-br: var(--border);
+    --chip-fg: var(--text-dim);
 
     /* Column widths */
     --col-checkbox: 32px;
@@ -1059,6 +1068,21 @@ button:disabled {
 .chip.pill-offline { background: var(--pill-offline-bg);
                      color: var(--pill-offline-fg);
                      border-color: var(--pill-offline-br); }
+
+/* Per-provider custom-color chip (#596). The three CSS variables
+ * (--chip-bg, --chip-br, --chip-fg) are set inline via Alpine's
+ * `:style`, derived from the operator-configured provider color
+ * via color-mix in the template. Lets each provider render its own
+ * brand color in the Hosts row chips + drawer "Enabled agents"
+ * card without a separate `.pill-<provider>` rule per brand.
+ * Fallback values keep the chip readable if the inline style is
+ * missing (defensive — should never happen in practice).
+ */
+.chip.pill-custom {
+    background: var(--chip-bg);
+    color: var(--chip-fg);
+    border-color: var(--chip-br);
+}
 
 /* ---------------------------------------------------------------------------
    Filter chips (pill-style toggles)
