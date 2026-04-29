@@ -313,7 +313,17 @@ def make_authentication_options(
         # `["hybrid"]`-only stored case.
         ts_set = {t for t in ts if isinstance(t, str)}
         ts_set.update({"internal", "hybrid"})
-        ts = sorted(ts_set)
+        # #602 — order matters: WebAuthn defines `transports` as an
+        # ORDERED sequence of preferred transports, and several
+        # browsers (notably Safari on macOS) use the FIRST listed
+        # transport as the default-UI hint. Sorted alphabetically the
+        # list reads `['hybrid', 'internal']` — `hybrid` first nudges
+        # Safari toward the QR flow even when `internal` is also
+        # listed. Force `internal` first when present, then USB / BLE /
+        # NFC / hybrid in their natural fallback order so the picker
+        # tries the local platform before any cross-device flow.
+        _TRANSPORT_ORDER = ["internal", "usb", "ble", "nfc", "hybrid"]
+        ts = [t for t in _TRANSPORT_ORDER if t in ts_set]
         try:
             transport_enums = [
                 AuthenticatorTransport(str(t).lower())

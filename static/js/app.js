@@ -271,6 +271,22 @@ function app() {
     // before the first /api/hosts/list call resolves. Skeleton renders
     // until this flips, then the real empty states take over.
     hostsInitialLoaded: false,
+    // #603 — IntersectionObserver-driven lazy fetch for /api/hosts/one/{id}.
+    // For fleets of 100+ hosts the historical "fan out every row at
+    // page load" pattern burned backend probes + sockets for rows
+    // the operator never scrolls to. The observer (lazy-created in
+    // `_observeHostRow`) watches every `data-host-id="..."` row and
+    // adds the id to `_hostSeenIds` on first intersection — also
+    // triggering an immediate `refreshHostRow` for that one id.
+    // Subsequent 15s polls (`loadHosts`) re-fetch every host whose id
+    // is in `_hostSeenIds`, so once an operator has scrolled past a
+    // row it stays fresh. Off-screen rows that have NEVER been seen
+    // pay zero probe cost. Set is non-reactive (vanilla Set, not
+    // Alpine-tracked) — Alpine doesn't need to render anything from
+    // it, and avoiding reactivity prevents the in-loop `add()` from
+    // triggering a fan-out re-render.
+    _hostSeenIds: new Set(),
+    _hostRowObserver: null,
     // Persisted across browser refresh — mirrors the 'expanded' state
     // that the Stacks view already stores. Parsing tolerates stale /
     // invalid JSON so a corrupt entry doesn't break the whole view.
@@ -11282,6 +11298,54 @@ function app() {
     //      simultaneous Webmin+NE probes). Each response splices its
     //      row back into `this.hosts`, flipping _loading false and
     //      filling in stats. Alpine's proxy picks up the mutation.
+    // #603 — IntersectionObserver-driven lazy fetch for host rows.
+    // Called by each row's `x-init` (mobile + desktop templates) so
+    // every mounted `[data-host-id]` element registers with a single
+    // shared observer. On first intersection, the row's id lands in
+    // `_hostSeenIds` and an immediate `refreshHostRow` fires to fill
+    // the row's metrics. Re-observing the same element is a no-op
+    // (IntersectionObserver dedupes internally). The observer's
+    // `rootMargin` is generous (200px above + below) so rows about to
+    // scroll into view start fetching slightly early — operators
+    // don't see a "loading" flash mid-scroll.
+    _ensureHostRowObserver() {
+      if (this._hostRowObserver) return this._hostRowObserver;
+      if (typeof IntersectionObserver === 'undefined') return null;
+      const handle = (entries) => {
+        for (const entry of entries) {
+          if (!entry.isIntersecting) continue;
+          const id = entry.target && entry.target.getAttribute('data-host-id');
+          if (!id) continue;
+          if (this._hostSeenIds.has(id)) continue;
+          this._hostSeenIds.add(id);
+          // Fire-and-forget the per-row probe. refreshHostRow handles
+          // its own error path; a failure here shouldn't break the
+          // observer or other rows.
+          this.refreshHostRow(id).catch(() => {});
+        }
+      };
+      this._hostRowObserver = new IntersectionObserver(handle, {
+        rootMargin: '200px 0px 200px 0px',
+        threshold: 0,
+      });
+      return this._hostRowObserver;
+    },
+    observeHostRow(el, id) {
+      if (!el || !id) return;
+      const obs = this._ensureHostRowObserver();
+      if (!obs) {
+        // Browser without IntersectionObserver — fall back to eager
+        // fetch so functionality is preserved (some old WebViews lack
+        // IO). This path is unreachable on every modern browser.
+        if (!this._hostSeenIds.has(id)) {
+          this._hostSeenIds.add(id);
+          this.refreshHostRow(id).catch(() => {});
+        }
+        return;
+      }
+      obs.observe(el);
+    },
+
     async loadHosts(force = false) {
       this.hostsLoading = true;
       try {
@@ -11418,8 +11482,26 @@ function app() {
       // re-run the same backend logic that already stamped them
       // unconfigured in the LIST response. Saves a round trip per
       // dead row and prevents the dot from flashing yellow→grey.
+      // #603 — for fleets larger than ~50 hosts the auto fan-out was
+      // a perf cliff: 200 rows × per-probe time burned background
+      // CPU + sockets even for off-screen rows the operator never
+      // looks at. Filter the fan-out to hosts that the
+      // IntersectionObserver-driven lazy fetcher has already
+      // marked as "seen in viewport" (via `_hostSeenIds`). On first
+      // load the set is empty, so this loop is a no-op; the observer
+      // fires for in-viewport rows during initial paint and triggers
+      // their first fetch directly. Subsequent 15s polls re-fetch
+      // every previously-seen row to keep them fresh while the user
+      // is on the page; off-screen rows that have never been viewed
+      // never pay the probe cost. Saves dramatic bandwidth +
+      // backend load on 200-host fleets.
+      // Cleanup: drop seen-ids whose hosts have disappeared.
+      const _validIds = new Set(this.hosts.map(h => h.id));
+      this._hostSeenIds = new Set(
+        [...(this._hostSeenIds || [])].filter(id => _validIds.has(id))
+      );
       const queue = this.hosts
-        .filter(h => h.status !== 'unconfigured')
+        .filter(h => h.status !== 'unconfigured' && this._hostSeenIds.has(h.id))
         .map(h => h.id);
       // #506 — concurrency cap is now operator-tunable via Admin →
       // Config (`tuning_hosts_parallel_fetch`). Resolved per call so a
