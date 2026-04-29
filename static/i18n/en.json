@@ -816,6 +816,7 @@
       "copy_failed": "Couldn't copy to clipboard",
       "severity_label": "Severity",
       "severity_all": "All",
+      "severity_all_label": "ALL",
       "severity_none": "None",
       "severity_errors_only": "Errors only",
       "severity": {

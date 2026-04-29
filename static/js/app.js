@@ -2836,6 +2836,24 @@ function app() {
       this.logSeverityFilter[level] = !this.logSeverityFilter[level];
       this._persistLogSeverity();
     },
+    // Count of log lines that resolve to a given severity level (used
+    // in the per-pill counter chips). Walks logLines once per call —
+    // the list is small (capped ring buffer) so this is cheap.
+    logSeverityCount(level) {
+      let n = 0;
+      for (const l of (this.logLines || [])) {
+        if (this.logSeverity(l) === level) n++;
+      }
+      return n;
+    },
+    // True when every severity level is on — used by the ALL pill's
+    // is-active state. False if any level is off.
+    logAllSeverityOn() {
+      for (const k of this.logSeverityLevels) {
+        if (!this.logSeverityFilter[k]) return false;
+      }
+      return true;
+    },
     setAllLogSeverity(on) {
       for (const k of this.logSeverityLevels) this.logSeverityFilter[k] = !!on;
       this._persistLogSeverity();
