@@ -1662,6 +1662,28 @@ details summary::-webkit-details-marker {
 .metric-card--net  { color: var(--metric-net); }
 .metric-card--net-out { color: var(--metric-net-out); }
 
+/* Ping card lives on its own full-width row (#599) above the
+ * CPU/Mem/Disk grid. Without these overrides the SVG `height: 100%`
+ * inside `.metric-card-body { min-height: 160px }` plus the card's
+ * `min-height: 220px` floor lets the chart grow taller than its
+ * siblings in the 3-col grid below, where the same min-heights are
+ * the FLOOR but the row stretches to match the tallest sibling and
+ * settles around 220px. At full width the visual height looks much
+ * larger than the half-width Net / Disk-IO cards underneath, even
+ * though the px values match — so cap the body + svg lower so the
+ * ping chart reads as "compact one-line summary above the dashboard"
+ * rather than dominating the drawer. (#601) */
+.metric-card--ping {
+    min-height: 0;
+}
+.metric-card--ping .metric-card-body {
+    min-height: 0;
+}
+.metric-card--ping .metric-svg {
+    min-height: 0;
+    height: 110px;
+}
+
 /* Flat-signal modifier — applied when the peak is zero, which
    collapses the chart to a single-line "nothing happening" state.
    Triggered from the template via ``:class="... && peak === 0 ? 'metric-card--flat' : ''"``

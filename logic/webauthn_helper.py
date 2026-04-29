@@ -242,6 +242,25 @@ def verify_registration(
         t.lower() for t in transports_raw
         if isinstance(t, str) and t.lower() in _ALLOWED_TRANSPORTS
     ]
+    # #601 — when the browser doesn't emit `response.transports` (older
+    # Chrome / 1Password / various enterprise WebAuthn implementations),
+    # fall back to inferring from `authenticatorAttachment`. The top-
+    # level field on the PublicKeyCredential reports 'platform' for
+    # built-in authenticators (Touch ID / Windows Hello / Android
+    # biometric) and 'cross-platform' for roaming auths (USB key /
+    # 1Password browser extension / phone-as-authenticator). Map to
+    # the matching transports so the credential row carries enough
+    # data for the assertion-options builder to surface the correct
+    # picker on the next login. Without this, empty-transport rows
+    # fall back to the default-everything hint added in
+    # `make_authentication_options`, which works but loses the
+    # operator's intent ("I enrolled this AS Touch ID specifically").
+    if not transports:
+        attachment = (credential_json.get("authenticatorAttachment") or "").strip().lower()
+        if attachment == "platform":
+            transports = ["internal"]
+        elif attachment == "cross-platform":
+            transports = ["hybrid", "usb"]
     return {
         "credential_id": bytes(verification.credential_id),
         "public_key": bytes(verification.credential_public_key),
@@ -274,6 +293,22 @@ def make_authentication_options(
         if not cid:
             continue
         ts = c.get("transports") or []
+        # #601 — Safari/Chrome on macOS default to the hybrid (QR) flow
+        # at assertion time when a credential's stored transports is
+        # EMPTY (browser didn't emit `response.transports` at
+        # registration, common on older Chrome / 1Password versions).
+        # Listing transports as null tells the browser "could be
+        # anywhere" — it hedges by showing the cross-device picker
+        # FIRST. Default empties to ['internal','hybrid'] so the
+        # browser knows the credential might live on the local
+        # device OR on a paired device, which surfaces Touch ID /
+        # iCloud Keychain / 1Password's browser extension as
+        # primary picks. Operators who actually have a USB security
+        # key registered with empty transports will see that key
+        # offered too — the browser still queries every available
+        # authenticator, the hint just changes the default UI order.
+        if not ts:
+            ts = ["internal", "hybrid"]
         try:
             transport_enums = [
                 AuthenticatorTransport(str(t).lower())
