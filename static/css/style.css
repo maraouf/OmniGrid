@@ -1616,16 +1616,19 @@ details summary::-webkit-details-marker {
     grid-row: 1;
     display: block;
     width: 100%;
-    /* Fixed chart height (#601) — was `min-height: 150px; height: 100%`
-     * which let SVGs in multi-col grids grow when the row stretched to
-     * match the tallest sibling, making cards in the 3-col CPU/Mem/Disk
-     * row taller than the lone Ping card in its 1-col row. Pinning the
-     * height makes every chart exactly the same size regardless of
-     * grid context (3-col, 2-col, or 1-col), which is what
-     * "unify chart heights" means in practice — the card body chrome
-     * may still vary slightly with head wrapping, but the chart
-     * itself is constant. */
+    /* Fixed chart height (#601 / #604) — pinning height keeps every
+     * chart the same visual size regardless of grid context (3-col,
+     * 2-col, or 1-col). `height` alone wasn't enough on the lone-row
+     * ping wrapper because the parent grid cell can stretch via
+     * default `align-self: stretch`, which silently overrides
+     * `height: 150px` when the cell is taller. Three-layer defence:
+     * `height` sets the target, `max-height` caps any stretch, and
+     * `align-self: start` removes the stretch behaviour entirely so
+     * the SVG anchors at the top of its cell with empty space below
+     * if the row happens to be taller. */
     height: 150px;
+    max-height: 150px;
+    align-self: start;
     /* Chart blends with the card body — no distinct background
        block. Matches Beszel's detail view where the plot area is
        just the curve + gridlines, no inset panel. */

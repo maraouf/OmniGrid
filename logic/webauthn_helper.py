@@ -344,7 +344,18 @@ def make_authentication_options(
     options = generate_authentication_options(
         rp_id=rp_id,
         allow_credentials=allow,
-        user_verification=UserVerificationRequirement.PREFERRED,
+        # #604 — escalated from PREFERRED to REQUIRED. With PREFERRED,
+        # Chrome on macOS could satisfy the assertion via the hybrid
+        # (QR) flow without a biometric — and with QR available as
+        # an option, Chrome's picker DEFAULTED to it for our two-
+        # credential case. REQUIRED forces a UV-capable
+        # authenticator which is exactly what Touch ID / iCloud
+        # Keychain / 1Password's browser extension provide; the QR
+        # flow on a paired phone also satisfies REQUIRED via the
+        # phone's biometric, so cross-device sign-in still works.
+        # Net effect: the picker offers Touch ID / 1Password BEFORE
+        # QR because they're the local UV-capable authenticators.
+        user_verification=UserVerificationRequirement.REQUIRED,
     )
     import json as _json
     options_dict = _json.loads(options_to_json(options))
