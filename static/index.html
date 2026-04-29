@@ -8247,6 +8247,70 @@
                 to see CPU / Memory / Disk / Net history here.
               </div>
 
+              <!-- Ping latency — promoted to its own full-width row
+                   ABOVE the CPU/Mem/Disk grid (#599). RTT shape doesn't
+                   match the percentage cards (different y-axis, narrow
+                   value range, ms unit), so giving it dedicated space
+                   reads cleaner than wedging it into the 2-col grid
+                   with Net/Disk-IO. Card hidden when the host hasn't
+                   opted in via per-host `ping.enabled` — gate is the
+                   same `x-show` the inner metric-card carries. -->
+              <div class="mt-3 grid grid-cols-1 gap-4"
+                   x-show="h.ping_enabled">
+                <div class="metric-card metric-card--ping"
+                     x-show="h.ping_enabled"
+                     :class="hostChartMax(hostPingHistoryKey(h), ['rtt']) === 0 ? 'metric-card--flat' : ''">
+                  <div class="metric-card-head">
+                    <div class="metric-card-title">
+                      <span x-text="t('hosts_extra.metrics.ping')"></span>
+                      <span class="unit">ms</span>
+                    </div>
+                    <div class="metric-card-stats" style="gap:8px">
+                      <span x-show="h.ping_alive === false"
+                            class="chip pill-error text-[10.5px] px-1.5 py-0"
+                            x-text="t('hosts_extra.metrics.ping_down')"></span>
+                      <span x-show="h.ping_alive === true && (h.ping_loss_pct || 0) > 0"
+                            class="chip pill-update text-[10.5px] px-1.5 py-0"
+                            :title="t('hosts_extra.metrics.ping_loss_title')"
+                            x-text="(h.ping_loss_pct || 0).toFixed(0) + '% loss'"></span>
+                      <span x-show="hostMetricStats(hostPingHistoryKey(h), 'rtt', false)">
+                        <span class="metric-legend-dot" style="background: var(--success)"></span>
+                        <span x-text="t('hosts_extra.metrics.ping_rtt')"></span>
+                        <span class="legend-val"
+                              x-text="hostMetricStats(hostPingHistoryKey(h), 'rtt', false) ? (hostMetricStats(hostPingHistoryKey(h), 'rtt', false).minRaw.toFixed(1) + '–' + hostMetricStats(hostPingHistoryKey(h), 'rtt', false).maxRaw.toFixed(1) + ' ms') : ''"></span>
+                      </span>
+                    </div>
+                  </div>
+                  <template x-if="hostChart(hostPingHistoryKey(h), 'rtt') && hostChartMax(hostPingHistoryKey(h), ['rtt']) > 0">
+                    <div class="metric-card-body">
+                      <div class="metric-y-axis">
+                        <template x-for="(l, i) in yAxisAuto(hostChartMax(hostPingHistoryKey(h), ['rtt']), n => Math.round(n) + ' ms')" :key="i">
+                          <span x-text="l"></span>
+                        </template>
+                      </div>
+                      <svg class="metric-svg" viewBox="0 0 420 120" preserveAspectRatio="none">
+                        <path class="metric-grid" :d="hostChart(hostPingHistoryKey(h), 'rtt', { min: 0, max: hostChartMax(hostPingHistoryKey(h), ['rtt']), height: 120 }).gridPath" fill="none"/>
+                        <polyline class="metric-line" style="color: var(--success)"
+                                  :points="hostChart(hostPingHistoryKey(h), 'rtt', { min: 0, max: hostChartMax(hostPingHistoryKey(h), ['rtt']), height: 120 }).points"/>
+                      </svg>
+                      <div class="metric-x-axis">
+                        <template x-for="(l, i) in xAxisFromSeries(hostPingHistoryKey(h), 5)" :key="i">
+                          <span x-text="l"></span>
+                        </template>
+                      </div>
+                    </div>
+                  </template>
+                  <template x-if="!hostChart(hostPingHistoryKey(h), 'rtt')">
+                    <div class="collecting-block">
+                      <svg aria-hidden="true"><use href="#icon-refresh-ccw"/></svg>
+                      <div>
+                        <div x-text="t('loading.collecting_data')"></div>
+                      </div>
+                    </div>
+                  </template>
+                </div>
+              </div>
+
               <!-- Metric cards — Beszel-style. Three percentage charts
                    (CPU / Memory / Disk) in a 3-col grid, then Net In /
                    Net Out side by side beneath. Axis labels live
@@ -8261,9 +8325,13 @@
                    per-host gauges + net rates into host_metrics_samples
                    so NE-only hosts also get historical charts). Hosts
                    with neither show the "link to Beszel / set NE URL"
-                   hint above instead of an empty "Collecting data…" grid. -->
+                   hint above instead of an empty "Collecting data…" grid.
+                   Ping was promoted out of this layout (#599); the
+                   gate no longer needs to consider `h.ping_enabled`
+                   since ping-only hosts are served by the standalone
+                   row above. -->
               <div class="mt-3 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4"
-                   x-show="((h.beszel_id || h.ne_url) && h.status === 'up' && (h.providers || []).length > 0) || h.ping_enabled">
+                   x-show="(h.beszel_id || h.ne_url) && h.status === 'up' && (h.providers || []).length > 0">
                 <!-- CPU % — hidden for ping-only hosts (#569). The
                      grid wrapper now opens for ping_enabled too so the
                      Ping chart renders, but ping doesn't contribute a
@@ -8429,20 +8497,17 @@
                 </div>
               </div>
 
-              <!-- Combined Net In/Out + Disk I/O + Load Average + Ping grid.
+              <!-- Combined Net In/Out + Disk I/O + Load Average grid.
                    #318 / #319 / #320 — was 2 separate Net cards; now
                    one Network card with both lines on a shared y-axis,
-                   plus new Disk I/O / Load Average cards. The Ping
-                   card lives in this 2-col grid too. Gate widened to
-                   include `h.ping_enabled` so ping-only hosts (no
-                   beszel_id / ne_url) actually see the wrapper —
-                   without this the WHOLE second grid is display:none
-                   and the Ping card is invisible regardless of its
-                   own x-show state. The non-ping cards inside have
-                   per-card x-show gates so they don't render for
-                   ping-only hosts. -->
+                   plus Disk I/O + Load Average. Ping was promoted to
+                   its own full-width row above the 3-col grid (#599)
+                   because its visual proportions (ms y-axis, narrow
+                   value range) read poorly in a half-width slot beside
+                   B/s gauges. The wrapper's gate no longer carries
+                   `|| h.ping_enabled` for that reason. -->
               <div class="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4"
-                   x-show="((h.beszel_id || h.ne_url) && h.status === 'up' && (h.providers || []).length > 0) || h.ping_enabled">
+                   x-show="(h.beszel_id || h.ne_url) && h.status === 'up' && (h.providers || []).length > 0">
 
                 <!-- ====== Network (combined In + Out, #318) ======
                      Two polylines on one SVG, shared y-axis via
@@ -8574,72 +8639,9 @@
                   </template>
                 </div>
 
-                <!-- ====== Ping latency (#563) — RTT chart for hosts
-                     opted in via per-host `ping.enabled`. Backend
-                     endpoint `GET /api/hosts/{id}/ping/history` and
-                     SSE event `host:ping_sampled` were shipped in #343;
-                     this is the SPA chart wiring. Card hidden when the
-                     host hasn't opted in (default OFF). Live mode is
-                     push-driven — the existing `host:ping_sampled` SSE
-                     handler refreshes the row's `ping_*` fields and
-                     this card's series via `loadHostPingHistory`. -->
-                <div class="metric-card metric-card--ping"
-                     x-show="h.ping_enabled"
-                     :class="hostChartMax(hostPingHistoryKey(h), ['rtt']) === 0 ? 'metric-card--flat' : ''">
-                  <div class="metric-card-head">
-                    <div class="metric-card-title">
-                      <span x-text="t('hosts_extra.metrics.ping')"></span>
-                      <span class="unit">ms</span>
-                    </div>
-                    <div class="metric-card-stats" style="gap:8px">
-                      <span x-show="h.ping_alive === false"
-                            class="chip pill-error text-[10.5px] px-1.5 py-0"
-                            x-text="t('hosts_extra.metrics.ping_down')"></span>
-                      <span x-show="h.ping_alive === true && (h.ping_loss_pct || 0) > 0"
-                            class="chip pill-update text-[10.5px] px-1.5 py-0"
-                            :title="t('hosts_extra.metrics.ping_loss_title')"
-                            x-text="(h.ping_loss_pct || 0).toFixed(0) + '% loss'"></span>
-                      <span x-show="hostMetricStats(hostPingHistoryKey(h), 'rtt', false)">
-                        <span class="metric-legend-dot" style="background: var(--success)"></span>
-                        <span x-text="t('hosts_extra.metrics.ping_rtt')"></span>
-                        <!-- Use minRaw/maxRaw and format as ms locally.
-                             hostMetricStats's `.max` is pre-formatted as
-                             "X B/s" (asPct=false branch uses fmtBytes),
-                             so concatenating " ms" produced "8.6 B/s ms".
-                             ms is the right unit for RTT — format here. -->
-                        <span class="legend-val"
-                              x-text="hostMetricStats(hostPingHistoryKey(h), 'rtt', false) ? (hostMetricStats(hostPingHistoryKey(h), 'rtt', false).minRaw.toFixed(1) + '–' + hostMetricStats(hostPingHistoryKey(h), 'rtt', false).maxRaw.toFixed(1) + ' ms') : ''"></span>
-                      </span>
-                    </div>
-                  </div>
-                  <template x-if="hostChart(hostPingHistoryKey(h), 'rtt') && hostChartMax(hostPingHistoryKey(h), ['rtt']) > 0">
-                    <div class="metric-card-body">
-                      <div class="metric-y-axis">
-                        <template x-for="(l, i) in yAxisAuto(hostChartMax(hostPingHistoryKey(h), ['rtt']), n => Math.round(n) + ' ms')" :key="i">
-                          <span x-text="l"></span>
-                        </template>
-                      </div>
-                      <svg class="metric-svg" viewBox="0 0 420 120" preserveAspectRatio="none">
-                        <path class="metric-grid" :d="hostChart(hostPingHistoryKey(h), 'rtt', { min: 0, max: hostChartMax(hostPingHistoryKey(h), ['rtt']), height: 120 }).gridPath" fill="none"/>
-                        <polyline class="metric-line" style="color: var(--success)"
-                                  :points="hostChart(hostPingHistoryKey(h), 'rtt', { min: 0, max: hostChartMax(hostPingHistoryKey(h), ['rtt']), height: 120 }).points"/>
-                      </svg>
-                      <div class="metric-x-axis">
-                        <template x-for="(l, i) in xAxisFromSeries(hostPingHistoryKey(h), 5)" :key="i">
-                          <span x-text="l"></span>
-                        </template>
-                      </div>
-                    </div>
-                  </template>
-                  <template x-if="!hostChart(hostPingHistoryKey(h), 'rtt')">
-                    <div class="collecting-block">
-                      <svg aria-hidden="true"><use href="#icon-refresh-ccw"/></svg>
-                      <div>
-                        <div x-text="t('loading.collecting_data')"></div>
-                      </div>
-                    </div>
-                  </template>
-                </div>
+                <!-- Ping latency card was promoted out of this grid in
+                     #599 — see the standalone full-width row above the
+                     3-col CPU/Mem/Disk grid. -->
 
                 <!-- ====== Disk I/O (#319) — same dual-line pattern as
                      the combined Network card. Read/write summed across

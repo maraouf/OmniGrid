@@ -298,6 +298,19 @@ def make_authentication_options(
     )
     import json as _json
     options_dict = _json.loads(options_to_json(options))
+    # WebAuthn Level 3 `hints` field on the assertion (#600) — same
+    # nudge the registration path uses (line ~203). Without this,
+    # Safari and Chrome on macOS frequently default to the hybrid
+    # (QR-code) flow when stored credentials don't carry explicit
+    # `internal` transports, even when Touch ID + iCloud Keychain
+    # AND a password-manager extension (1Password / Bitwarden) BOTH
+    # have valid passkeys. Listing all three hints in priority
+    # order tells the browser to show the platform picker first
+    # (Touch ID / Windows Hello / Android biometric), then
+    # hybrid for cross-device sign-in, then security keys.
+    # Splice on after serialisation because the webauthn library's
+    # dataclass doesn't expose the field yet.
+    options_dict["hints"] = ["client-device", "hybrid", "security-key"]
     return options_dict, bytes(options.challenge)
 
 
