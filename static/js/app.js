@@ -7278,15 +7278,35 @@ function app() {
       } else {
         dark = pref !== 'light';
       }
-      if (!dark) return url;
-      const m = /^\/img\/icons\/([a-z0-9_-]+)\.svg$/i.exec(url);
-      if (!m) return url;
-      const slug = m[1].toLowerCase();
-      // Already a -dark / -light explicit variant — operator picked
-      // this file deliberately, leave it alone.
-      if (slug.endsWith('-dark') || slug.endsWith('-light')) return url;
-      if (!KNOWN_DARK_ICONS.has(slug)) return url;
-      return `/img/icons/${slug}-dark.svg`;
+      let final = url;
+      if (dark) {
+        const m = /^\/img\/icons\/([a-z0-9_-]+)\.svg$/i.exec(url);
+        if (m) {
+          const slug = m[1].toLowerCase();
+          // Already a -dark / -light explicit variant — operator picked
+          // this file deliberately, leave it alone.
+          if (!slug.endsWith('-dark') && !slug.endsWith('-light') && KNOWN_DARK_ICONS.has(slug)) {
+            final = `/img/icons/${slug}-dark.svg`;
+          }
+        }
+      }
+      // Cache-bust local icon URLs with `?v=APP_VERSION` so a deploy
+      // that ships a corrected SVG (e.g. the cloudflare.svg "alwa"
+      // corruption recovery, #590) is guaranteed to be re-fetched —
+      // unlike the bare `/img/icons/<slug>.svg` URL which the browser
+      // can keep serving from disk cache for hours via heuristic
+      // freshness on a Last-Modified header, even when the file on the
+      // server has been updated. The version marker (`window.__APP_VERSION__`)
+      // is set inline in `static/index.html` and substituted server-side
+      // at HTML serve time, so it bumps with every PATCH deploy. External
+      // / non-/img/icons/ URLs pass through unchanged.
+      if (/^\/img\/icons\//.test(final)) {
+        const v = (typeof window !== 'undefined' && window.__APP_VERSION__) || '';
+        if (v && v !== '__APP_VERSION__' && !final.includes('?')) {
+          final = `${final}?v=${encodeURIComponent(v)}`;
+        }
+      }
+      return final;
     },
     iconUrlFor(name) {
       // Resolve an app name to an icon URL. Every icon is local (in
