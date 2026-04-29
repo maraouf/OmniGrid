@@ -1023,6 +1023,15 @@ button:disabled {
     font-size: 11px;
     color: var(--text-dim);
     border: 1px solid var(--border);
+    /* #592 — chips are single-line compact tokens. Without these two
+     * rules the browser wraps multi-word chip content (e.g. the
+     * History view's `gather refresh` op_type chip after the
+     * `_` → ` ` replacement) at the whitespace, producing a tall
+     * 2-line chip that breaks the row's vertical rhythm. inline-block
+     * keeps the chip a coherent visual unit when it can't fit on the
+     * current line; nowrap prevents intra-chip wrapping. */
+    display: inline-block;
+    white-space: nowrap;
 }
 
 /* When `.chip` is combined with a `.pill-*` colour modifier

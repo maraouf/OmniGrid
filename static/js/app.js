@@ -59,7 +59,7 @@ const KNOWN_ICONS = new Set([
   '5g', 'adguard-home', 'alexa', 'alienware', 'amazon', 'amazon-dark', 'ansible',
   'apache', 'apc', 'apc-ups', 'apple', 'apple-dark', 'apple-light', 'apple-tv-plus',
   'apple-tv-plus-dark', 'apple-tv-plus-light', 'apprise', 'aqara', 'asus', 'authentik', 'bazarr',
-  'beszel', 'bose', 'caddy', 'chromecast', 'cisco', 'database',
+  'beszel', 'bose', 'caddy', 'chromecast', 'cisco', 'cloudflare', 'database',
   'ddns-updater', 'debian', 'dell', 'dell-dark', 'deluge', 'docker', 'dovecot',
   'dozzle', 'esxi', 'fing', 'firetv', 'flaresolverr', 'forgejo',
   'freenas', 'ftth', 'gigabyte', 'glinet', 'glinet-dark', 'google',
@@ -7330,6 +7330,13 @@ function app() {
         'somphy':    'somfy',
         'tahoma':    'somfy',
         'connexoon': 'somfy',
+        // Cloudflared (the tunnel daemon) + sibling Cloudflare products
+        // resolve to the parent cloudflare.svg brand mark.
+        'cloudflared':         'cloudflare',
+        'cloudflared-tunnel':  'cloudflare',
+        'cloudflare-tunnel':   'cloudflare',
+        'cloudflare-warp':     'cloudflare',
+        'cloudflare-zero-trust': 'cloudflare',
       };
       // Prefix patterns — one entry covers all siblings of a product
       // (authentik outposts: ak-outpost-authentik-ldap-outpost, etc.).
@@ -7438,6 +7445,12 @@ function app() {
       if (info.exporter_error) exporterStatus = 'error';
       else if (hostStatsEnabled && (hostMemTotal > 0 || Number.isFinite(info.host_boot_ts) || (info.mounts && info.mounts.length))) exporterStatus = 'ok';
       else if (hostStatsEnabled) exporterStatus = 'error';  // enabled but no data came back
+      // Per-node provider hits (#591) — backend records which providers
+      // actually contributed data for THIS node into ``_providers`` per
+      // gather. Falls back to the global active set on hosts that
+      // haven't been re-gathered since this field was added (e.g.
+      // first boot before a fresh gather lands).
+      const providersHit = Array.isArray(info._providers) ? info._providers : [];
       return {
         cpuRaw,                        // 0..cores*100 (can exceed 100)
         hostCpuRaw,                    // 0..100 — host-provider CPU%
@@ -7454,25 +7467,31 @@ function app() {
         exporterStatus,
         exporterError: info.exporter_error || null,
         hostStatsSource: source,             // CSV string, legacy callers
-        hostStatsSources: [...sourceSet],     // array form for new callers
+        hostStatsSources: [...sourceSet],     // array form for new callers (GLOBAL)
+        nodeProvidersHit: providersHit,       // per-node list (#591)
       };
     },
-    // Label for the green/red chip on a node row — "3 sources" when
-    // multiple are active, else the single provider name. Keeps the
-    // header compact when the operator enabled everything.
+    // Label for the green/red chip on a node row — reflects the
+    // providers that actually probed THIS node (#591). Falls back to
+    // the global active set on rows missing per-node tracking (e.g.
+    // before the first post-upgrade gather).
     nodeProviderChip(host) {
       const st = this.nodeStats(host);
-      const arr = st.hostStatsSources || [];
+      const arr = (st.nodeProvidersHit && st.nodeProvidersHit.length)
+        ? st.nodeProvidersHit
+        : (st.hostStatsSources || []);
       if (arr.length === 0) return 'host';
       if (arr.length === 1) return arr[0] === 'node_exporter' ? 'exporter' : arr[0];
       return `${arr.length} sources`;
     },
-    // Hover tooltip for the chip — lists the active provider names.
+    // Hover tooltip for the chip — lists the providers that contributed
+    // data for this specific node.
     nodeProviderList(host) {
       const st = this.nodeStats(host);
-      const arr = (st.hostStatsSources || []).map(s =>
-        s === 'node_exporter' ? 'node-exporter' : s
-      );
+      const src = (st.nodeProvidersHit && st.nodeProvidersHit.length)
+        ? st.nodeProvidersHit
+        : (st.hostStatsSources || []);
+      const arr = src.map(s => s === 'node_exporter' ? 'node-exporter' : s);
       return arr.length ? arr.join(', ') : 'none';
     },
 
@@ -8938,6 +8957,13 @@ function app() {
           'website_monitoring': 'uptime-kuma',
           'uptime-monitor':     'uptime-kuma',
           'monitoring':         'uptime-kuma',
+          // Cloudflared / Cloudflare Tunnel / WARP / Zero Trust all
+          // share the orange Cloudflare cloud mark (cloudflare.svg).
+          'cloudflared':           'cloudflare',
+          'cloudflared-tunnel':    'cloudflare',
+          'cloudflare-tunnel':     'cloudflare',
+          'cloudflare-warp':       'cloudflare',
+          'cloudflare-zero-trust': 'cloudflare',
         };
         const slug = aliases[h.icon.toLowerCase()] || h.icon;
         return this._themeIcon('/img/icons/' + slug + '.svg');
@@ -9223,6 +9249,19 @@ function app() {
         ['openvpn',               'openvpn'],
         ['wireguard',             'wireguard'],
         ['wg-easy',               'wireguard'],
+        // Cloudflare family — cloudflared (the tunnel daemon),
+        // cloudflare-tunnel, WARP client, Zero Trust dashboard all
+        // share the orange Cloudflare cloud brand mark. Long-form
+        // phrases first so "cloudflare zero trust" wins over
+        // bare "cloudflare".
+        ['cloudflare zero trust', 'cloudflare'],
+        ['cloudflare-zero-trust', 'cloudflare'],
+        ['cloudflare tunnel',     'cloudflare'],
+        ['cloudflare-tunnel',     'cloudflare'],
+        ['cloudflared',           'cloudflare'],
+        ['cloudflare warp',       'cloudflare'],
+        ['cloudflare-warp',       'cloudflare'],
+        ['cloudflare',            'cloudflare'],
         // download clients
         ['qbittorrent',           'qbittorrent'],
         ['qbit',                  'qbittorrent'],
