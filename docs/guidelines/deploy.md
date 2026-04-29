@@ -1,24 +1,35 @@
 # Deploy runbook — OmniGrid
 
-Forgejo Actions deployment setup.
+Forgejo Actions deployment setup. **Image-build deploy** — the in-tree `Dockerfile` bakes
+deps + source + static assets + `node_modules/` into an `omnigrid:<version>` image; the
+pipeline builds on the Swarm manager itself and rolls the new tag in via `docker stack
+deploy` + `docker service update --force`.
 
-| Field     | Value                                             |
-| --------- | ------------------------------------------------- |
-| Workflow  | `.forgejo/workflows/deploy.yml`                    |
-| Target    | `pi@docker.example.com:/opt/omnigrid/app`             |
-| Runner    | `home-runner` on `git.example.com` (shared, INSTANCE scope) |
-| Restart   | `docker service update --force omnigrid_omnigrid`  |
+| Field           | Value                                                       |
+| --------------- | ----------------------------------------------------------- |
+| Workflow        | `.forgejo/workflows/deploy.yml`                             |
+| Target          | `pi@docker.example.com:/opt/omnigrid/app` (build context)   |
+| Runner          | `home-runner` on `git.example.com` (shared, INSTANCE scope) |
+| Build           | `docker build --build-arg VERSION=<new> -t omnigrid:<new>` (on the manager) |
+| Stack apply     | `docker stack deploy --resolve-image=always --compose-file docker-compose.yml omnigrid` |
+| Force tag swap  | `docker service update --force --image omnigrid:<new> omnigrid_omnigrid` |
 
 The deploy target is a Debian 13 VM (amd64, 16 GB / 100 GB) reachable at `pi@docker.example.com`.
-The username `pi` is just a unix account name — it is NOT a Raspberry Pi. Bind mounts on the
-host:
+The username `pi` is just a unix account name — it is NOT a Raspberry Pi.
 
-- `/opt/omnigrid/app` → `/app:ro` (source code, read-only, rsync target).
+Bind mounts on the host (production runtime — only stateful surfaces remain):
+
 - `/opt/omnigrid/data` → `/app/data` (writable — SQLite DB, backups, avatars).
-- `/opt/omnigrid/pip-cache` → `/pip-cache` (persistent pip cache across container restarts).
+- `/opt/omnigrid/app/.env` → `/app/.env` (read-only — secrets / SESSION_SECRET / bootstrap admin).
+- `/etc/ssl/certs` → `/etc/ssl/certs:ro` (host CA bundle for HTTPS calls to internal CAs).
+- `/etc/localtime` → `/etc/localtime:ro` (libc timezone fallback).
+
+`/opt/omnigrid/app` is now JUST the **build context** rsynced from the runner — no longer a
+runtime bind mount. The image build reads it once via `COPY . /app` (filtered by `.dockerignore`)
+and the running container has no view of the host directory thereafter.
 
 The SQLite database lives at `/opt/omnigrid/data/omnigrid.db` on the host; inside the container
-it's at `/app/data/omnigrid.db` (which is the `DB_PATH` default).
+it's at `/app/data/omnigrid.db` (the `DB_PATH` default).
 
 ## 0. One runner, many repos (the preference for this homelab)
 
@@ -449,31 +460,47 @@ ssh pi@docker.example.com '
 
 ### 2.4 Docker permissions for the pi user
 
-Two choices — pick one.
+The image-build pipeline now needs `pi` to run `docker build`, `docker stack deploy`,
+`docker service ls/ps/update`, and `docker image prune` non-interactively. The narrow
+sudoers approach from the old bind-mount deploy (one whitelisted `service update` line)
+no longer scales — go with **Option A**.
 
-**Option A — add pi to docker group** (simplest, no sudo in workflow):
+**Option A — add pi to docker group** (recommended):
 
 ```bash
 ssh pi@docker.example.com 'sudo usermod -aG docker pi'
-# pi must log out and back in for the new group to take effect
-ssh pi@docker.example.com 'docker info >/dev/null && echo OK'
+# pi must log out and back in for the new group to take effect.
+# After re-login, sanity-check every command the pipeline will run:
+ssh pi@docker.example.com '
+  docker info >/dev/null && echo "info OK" &&
+  docker build --help >/dev/null && echo "build OK" &&
+  docker stack ls >/dev/null && echo "stack OK" &&
+  docker service ls >/dev/null && echo "service OK"
+'
 ```
 
-**Option B — passwordless sudo for just the one restart command**:
+**Option B — passwordless sudo for the full set** (if your security policy forbids
+group membership): whitelist every command the pipeline runs. Keep the list narrow
+to the `pi` user and just these subcommands:
 
 ```bash
 ssh pi@docker.example.com "
     sudo tee /etc/sudoers.d/forgejo-omnigrid > /dev/null <<'EOF'
-pi ALL=(root) NOPASSWD: /usr/bin/docker service update --force omnigrid_omnigrid
+pi ALL=(root) NOPASSWD: /usr/bin/docker build *
+pi ALL=(root) NOPASSWD: /usr/bin/docker stack deploy *
+pi ALL=(root) NOPASSWD: /usr/bin/docker service ls *
+pi ALL=(root) NOPASSWD: /usr/bin/docker service ps *
+pi ALL=(root) NOPASSWD: /usr/bin/docker service update *
+pi ALL=(root) NOPASSWD: /usr/bin/docker image prune *
+pi ALL=(root) NOPASSWD: /usr/bin/docker info
 EOF
     sudo chmod 440 /etc/sudoers.d/forgejo-omnigrid &&
-    sudo visudo -cf /etc/sudoers.d/forgejo-omnigrid &&
-    sudo -n docker service update --force omnigrid_omnigrid && echo OK
+    sudo visudo -cf /etc/sudoers.d/forgejo-omnigrid && echo OK
 "
 ```
 
-If you pick option B, change the restart step in `deploy.yml` to run
-`sudo -n docker service update --force ...` instead of bare `docker`.
+If you pick option B, prefix every `docker` invocation in the deploy workflow's
+heredoc with `sudo -n` instead of running bare `docker`.
 
 ### 2.5 Sanity: `/opt/omnigrid/data`
 
@@ -485,6 +512,30 @@ wiping it. Confirm it's present and owned by pi:
 ssh pi@docker.example.com 'ls -la /opt/omnigrid/data 2>/dev/null || echo "NOT CREATED YET — will be made on first run"'
 ```
 
+### 2.6 Sanity: `/opt/omnigrid/app/.env`
+
+The image build deliberately does NOT bake `.env` (it's in `.dockerignore`); secrets ride a
+per-file bind mount in `docker-compose.yml`. Pre-create the file BEFORE the first deploy or
+the container will start without `SESSION_SECRET` / `BOOTSTRAP_ADMIN_*` and you'll be stuck
+on the login page with no way in.
+
+```bash
+ssh pi@docker.example.com '
+  test -f /opt/omnigrid/app/.env && echo "OK ($(stat -c %a /opt/omnigrid/app/.env))" \
+    || echo "MISSING — copy your secrets file there before the first deploy"
+'
+```
+
+Copy it from your dev machine over SSH:
+
+```bash
+scp .env pi@docker.example.com:/opt/omnigrid/app/.env
+ssh pi@docker.example.com 'chmod 600 /opt/omnigrid/app/.env'
+```
+
+The compose bind is `:ro`, so the container can't modify the file (intentional — secrets
+should only flow operator → host, never the other way).
+
 ## 3. First run
 
 Either:
@@ -495,87 +546,108 @@ Either:
 
 Watch the run. Expected behaviour:
 
-1. **Checkout** — green, < 5 s.
+1. **Checkout (manual SHA-256)** — green, < 5 s. Forces `git init --object-format=sha256`
+   because actions/checkout@v4 still defaults to SHA-1 and would fail against the SHA-256
+   server.
 2. **Configure SSH** — green, writes `deploy_key` and `ssh-keyscan`.
-3. **Rsync source** — green, transfers only files that changed.
-4. **Bump VERSION.txt on server** — SSHes in, reads `/app/VERSION.txt`, bumps PATCH by 1.
-5. **Resolve Swarm service name** (if restart needed) — auto-discovers the single service in the
-   stack.
-6. **Force Swarm update** — green, Swarm replaces the single replica.
-7. **Verify service is running** — polls `docker service ps ... --format {{.CurrentState}}` for
-   up to 60 s; fails if any task is Failed / Rejected / Shutdown.
-8. **Verify HTTP endpoint** — curls `$PROBE_URL` from the runner; must return 200 within ~30 s.
-   Catches ingress / NPM breakage that the in-container healthcheck can't see.
-9. **Verify deployed version matches** — curls `/api/version` and asserts it equals the freshly
-   bumped value. Fails loudly (and notifies) if VERSION.txt didn't propagate.
-10. **Cleanup SSH key** — always runs, removes `deploy_key`.
-11. **Apprise notifications** — success on successful restart, failure on any failure.
+3. **Rsync source to target build context** — green. Same exclude list as `.dockerignore` so
+   the build context the runner ships matches what `docker build` will read.
+4. **Build image, deploy stack, force update, verify** — single SSH heredoc that:
+   1. Confirms `docker info` reports `Swarm.LocalNodeState == active`.
+   2. Reads previous version from `/api/version`, increments PATCH, computes `NEW`.
+   3. Runs `docker build --pull --build-arg VERSION=$NEW -t omnigrid:latest -t omnigrid:$NEW .`
+      (cold builds on the Pi take ~3–8 min; layer-cached static-only iterations ~10–30 s).
+   4. `docker stack deploy --resolve-image=always --compose-file docker-compose.yml omnigrid`.
+   5. Resolves the service name (auto-discovered via `label=com.docker.stack.namespace=omnigrid`).
+   6. `docker service update --force --image omnigrid:$NEW <service>`. The version-tagged
+      image is pinned in Swarm's task spec so a manual rollback has a discrete tag to point at.
+   7. Polls `docker service ps ... --format {{.CurrentState}}` for up to 60 s; fails if any
+      task is Failed / Rejected / Shutdown.
+   8. Curls `$PROBE_URL` from the manager; must return 200 within ~30 s. Catches ingress / NPM
+      breakage that the in-container healthcheck can't see.
+   9. Curls `/api/version` and asserts it equals the freshly built tag. Fails loudly (and
+      notifies) if Swarm rolled back or kept the old tag for any reason.
+   10. `docker image prune -f` removes dangling untagged layers (does NOT touch tagged
+       version images — manual rollback targets stay intact).
+5. **Cleanup SSH key** — always runs, removes `deploy_key`.
+6. **Apprise notifications** — success on green, failure on any red step.
 
-Total pipeline: ~20–40 seconds. Service downtime during the `--force` rolling update: ~5–15
-seconds (single replica rolling restart with `order: start-first`).
+Total pipeline: cold first build ~3–8 min on a Pi, ~30 s thereafter (layer cache holds for
+deps + static assets). Service downtime during `--force` rolling update: ~5–15 s (single
+replica rolling restart with `order: start-first`).
 
-## Smart deploy — skips the Swarm restart when only static assets changed
+## Image-build deploy — every push rebuilds
 
-The workflow runs `rsync -i` (itemised changes) and parses which files were actually written on
-the remote. Rule:
+Unlike the previous bind-mount deploy, EVERY successful rsync triggers a full image rebuild +
+stack deploy. There is no static-only short-circuit because:
 
-| Changed                                  | Behaviour                                       |
-| ---------------------------------------- | ----------------------------------------------- |
-| Any file outside `static/`               | Swarm service restart (uvicorn picks up new code). |
-| Only `static/` files changed             | No restart; browser Ctrl+Shift+R.               |
-| Nothing changed                          | No restart, no-op deploy.                       |
+- The image is the deployment unit; you can't ship "just `static/`" without rebuilding.
+- Docker's layer cache makes static-only iterations fast: only the `COPY . /app` layer
+  invalidates — the deps install + base image are reused.
+- `?v=<APP_VERSION>` cache-busting on asset URLs needs the version to bump on every push,
+  which the auto-PATCH path provides.
 
-This means editing `index.html` / `style.css` / `img/` ships in a couple of seconds (rsync +
-cleanup only) and downstream users just hard-refresh. Backend changes still go through the full
-~15 s rolling update.
+Manual rollback: SSH to the manager and re-tag a previous version onto the running service:
 
-The "smart restart" decision is made by parsing `rsync -i` output: only lines where column 3 is
-`+` / `c` (new file / content change) or column 4 is `s` (size change) count — pure mtime/perm
-drift (from a fresh CI checkout) is intentionally ignored, otherwise every push would look like
-a backend change.
+```bash
+ssh pi@docker.example.com '
+  docker image ls omnigrid --format "{{.Tag}}" | sort -V | tail -10   # see what is available
+  docker service update --force --image omnigrid:1.0.42 omnigrid_omnigrid
+'
+```
 
-**Manual override**: when triggering "Run workflow" in the Forgejo Actions tab you get a
-`force_restart` dropdown. Set it to `true` to restart even on a static-only diff (useful if the
-uvicorn process has drifted for unrelated reasons and you want to bounce it).
+Swarm honours the `start-first` + `failure_action: rollback` update_config — if the rolled-back
+image fails its healthcheck, Swarm restores the previous one automatically.
 
 ## VERSION.txt bump model (SemVer MAJOR.MINOR.PATCH)
 
-The server owns `/app/VERSION.txt` — rsync deliberately excludes `VERSION.txt` so deploys never
-overwrite a hand-pinned version. `main.py` reads `/app/VERSION.txt` (falls back to the
-repo-local copy for dev); missing file returns `"0.0.0-dev"` as a visible signal. `compose.yml`
-layers a per-file writable bind for `VERSION.txt` on top of the read-only `/app` mount so both
-the deploy pipeline (writing from the host) and Admin → Version (writing from inside the
-container) target the same path.
+Version is **baked into the image at build time**, not bind-mounted. The Dockerfile has:
+
+```dockerfile
+ARG VERSION=0.0.0-dev
+RUN echo "$VERSION" > /app/VERSION.txt
+LABEL org.opencontainers.image.version="$VERSION"
+```
+
+The pipeline overrides `ARG VERSION` via `--build-arg`, so the file inside the image always
+reflects the version that was built. `main.py:_read_version()` reads `/app/VERSION.txt` from
+inside the container at startup; a local `docker build` with no `--build-arg` produces an
+image whose `/api/version` shows `0.0.0-dev` (visible signal).
+
+The repo-root `VERSION.txt` is no longer the runtime source of truth — it remains as a
+dev-time hint for IDEs and `_read_version()`'s repo-fallback path, but the deploy pipeline
+never reads or writes it.
 
 See `docs/RELEASE_PROCESS.md` for the full operator runbook. Quick summary:
 
 - **MAJOR** — operator-controlled. Reserved for breaking changes. Resets MINOR + PATCH to 0.
+  Cut by hand-building an `omnigrid:<X.0.0>` tag on the manager and `docker service update
+  --image omnigrid:<X.0.0> omnigrid_omnigrid`. The next CI deploy reads `/api/version=X.0.0`
+  and increments PATCH → `X.0.1`.
 - **MINOR** — operator-controlled, periodic. When a batch of PATCH-shipped items feels
-  release-worthy, the operator hand-edits `/app/VERSION.txt` on the server (e.g. `1.0.47` →
-  `1.1.0`) — or uses the Admin → Version page in the UI. Resets PATCH to 0. CI never touches
-  MINOR.
-- **PATCH** — CI-controlled, automatic. Every successful rsync increments PATCH by 1 via the
-  "Bump VERSION.txt on server" step, which runs BEFORE the Swarm restart so the new container
-  reads the bumped file at startup. Fires on every successful rsync (static-only included,
-  because the `?v=__APP_VERSION__` cache-bust on assets needs a fresh value). MAJOR + MINOR
-  are preserved.
+  release-worthy, the operator runs a manual `docker build --build-arg VERSION=<X.Y.0>`
+  + `service update --image omnigrid:<X.Y.0>` on the manager (or pushes a one-off tagged
+  image). The next CI deploy increments PATCH → `X.Y.1`. CI never touches MINOR autonomously.
+- **PATCH** — CI-controlled, automatic. Every successful CI deploy reads the previous version
+  from `/api/version`, increments PATCH by 1, and passes it to `docker build --build-arg
+  VERSION=$NEW`. MAJOR + MINOR are preserved.
 - The post-deploy "Verify deployed version matches" step asserts `/api/version` equals what
-  was just written. Catches the situation where the SSH bump succeeded but the container
-  failed to read the new file (e.g. bind-mount stale). Mismatch → ❌ Apprise ping.
-- **First-deploy bootstrap**: if `/app/VERSION.txt` doesn't exist, the bump step creates it at
-  `1.0.0` then increments to `1.0.1`. Operator can also seed the file manually with any
-  SemVer triple before the first deploy.
+  was just built. Catches the situation where the build succeeded but `service update --force
+  --image omnigrid:<new>` rolled the wrong tag, or the new task failed health and Swarm rolled
+  back. Mismatch → ❌ Apprise ping.
+- **First-deploy bootstrap**: if `/api/version` is unreachable (no prior deployment) or
+  returns `0.0.0-dev` (image built without `--build-arg VERSION`), the pipeline seeds at
+  `1.0.0` then increments to `1.0.1`.
 - **Legacy migrations** are handled inline in deploy.yml's bump step:
     - 3-part `2.x.y` (an older flavour we briefly used) one-shot collapses to `1.0.<counter>`
       — the counter keeps moving forward rather than resetting.
     - 2-part `M.N` (the brief MAJOR.MINOR-only experiment) backfills PATCH=0 then bumps to
       `M.N.1`.
 
-Operator UI: **Admin → Version** is a direct VERSION.txt editor — Save writes the values
-straight to the file. Use case: reset PATCH to 0 from the UI when cutting a MINOR release. The
-writable per-file bind in `docker-compose.yml` (`/opt/omnigrid/app/VERSION.txt:/app/VERSION.txt`)
-is what makes this possible — operators upgrading from older deploys must redeploy the stack
-once for the new compose bind to take effect.
+The old Admin → Version UI was a direct VERSION.txt editor that worked because of a writable
+per-file bind mount on the host. Under the image-build model that file lives INSIDE the image
+and isn't writable from inside the container; the equivalent operator workflow is to build a
+new image with the desired `--build-arg VERSION=...` and force-update the service onto it.
 
 ## Apply Swarm update-config without redeploying the stack
 
