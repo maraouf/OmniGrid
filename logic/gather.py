@@ -750,6 +750,25 @@ async def _gather_impl() -> None:
         # see logic/db.py:active_host_stats_providers (CONS-004).
         active_sources = active_host_stats_providers()
 
+        # Per-node provider-hit tracker (#591). Drives the SPA chip in
+        # the Nodes view ("3 sources" / "exporter") so the count
+        # reflects what actually probed THIS node, not the global CSV
+        # of enabled providers. An ``exporter_error``-only payload from
+        # a probe doesn't count as a hit (the chip flips red via the
+        # error path; no need to inflate the green count). Filtered
+        # out of host_snapshots at save time by the leading-underscore
+        # rule, so per-gather hits don't get restored from a stale
+        # snapshot.
+        def _provider_returned_data(stats: dict) -> bool:
+            if not isinstance(stats, dict):
+                return False
+            for k, v in stats.items():
+                if k == "exporter_error":
+                    continue
+                if _meaningful(v):
+                    return True
+            return False
+
         if "beszel" in active_sources and df_hosts:
             # One HTTP call to the hub fetches every system's latest
             # snapshot. Docker hostname → Beszel ``host`` field via
@@ -806,6 +825,8 @@ async def _gather_impl() -> None:
                         )
                         continue
                     _merge_best(nodes_info[host], stats)
+                    if _provider_returned_data(stats):
+                        nodes_info[host].setdefault("_providers", []).append("beszel")
 
         # Pulse (rcourtman/Pulse) — Proxmox VE monitoring. Runs BETWEEN
         # Beszel and node-exporter: overwrites Beszel for PVE hosts
@@ -852,6 +873,8 @@ async def _gather_impl() -> None:
                 if stats is None:
                     continue  # not a PVE node — legit miss, no error
                 _merge_best(nodes_info[host], stats)
+                if _provider_returned_data(stats):
+                    nodes_info[host].setdefault("_providers", []).append("pulse")
 
         # node-exporter runs AFTER beszel + pulse when enabled, so its
         # richer Linux-native fields (per-mount disks via node_filesystem_*,
@@ -906,6 +929,8 @@ async def _gather_impl() -> None:
                 for host, stats in results:
                     if host in nodes_info:
                         _merge_best(nodes_info[host], stats)
+                        if _provider_returned_data(stats):
+                            nodes_info[host].setdefault("_providers", []).append("node_exporter")
 
         # Webmin runs LAST (most-specific). Supplies distro-native data
         # the other providers can't see — pending package updates, per-
@@ -960,6 +985,8 @@ async def _gather_impl() -> None:
                 if host not in nodes_info or not stats:
                     continue
                 _merge_best(nodes_info[host], stats)
+                if _provider_returned_data(stats):
+                    nodes_info[host].setdefault("_providers", []).append("webmin")
 
         # Ping (#343) — fifth provider. LAST in the merge order because
         # its data is the coarsest (reachability + RTT only); a richer
@@ -1002,6 +1029,8 @@ async def _gather_impl() -> None:
                 })
                 if stats:
                     _merge_best(nodes_info[host], stats)
+                    if _provider_returned_data(stats):
+                        nodes_info[host].setdefault("_providers", []).append("ping")
 
         # Per-node container sweep — gives us a containerID → hostname map
         # that covers PLAIN compose containers on worker nodes too. The
