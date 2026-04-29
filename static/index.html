@@ -1704,6 +1704,8 @@
                :class="h._sub_group ? 'ms-4' : ''"
                x-show="!h._heading_only && !isGroupCollapsed(bucket.group ? bucket.group.name : '') && (!h._sub_group || !isGroupCollapsed(h._sub_group.name))"
                :data-expandable="isHostExpandable(h) ? 'true' : 'false'"
+               :data-host-id="h.id"
+               x-init="observeHostRow($el, h.id)"
                @click="toggleHost(h.host)">
             <div class="host-mobile-card-head">
               <!-- Loading spinner replaces the status dot while
@@ -1872,7 +1874,9 @@
                      sub-group hosts. Indent applied when the row
                      belongs to a sub-group. -->
                 <div class="border-b border-[var(--border)] last:border-b-0"
-                     x-show="!h._heading_only && !isGroupCollapsed(bucket.group ? bucket.group.name : '') && (!h._sub_group || !isGroupCollapsed(h._sub_group.name))">
+                     x-show="!h._heading_only && !isGroupCollapsed(bucket.group ? bucket.group.name : '') && (!h._sub_group || !isGroupCollapsed(h._sub_group.name))"
+                     :data-host-id="h.id"
+                     x-init="observeHostRow($el, h.id)">
             <!-- Collapsed row — click-to-expand only when the host
                  is "up" AND at least one provider returned data.
                  Dead / unmatched rows get a muted cursor and no
