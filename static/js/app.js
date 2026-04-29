@@ -59,7 +59,7 @@ const KNOWN_ICONS = new Set([
   '5g', 'adguard-home', 'alexa', 'alienware', 'amazon', 'amazon-dark', 'ansible',
   'apache', 'apc', 'apc-ups', 'apple', 'apple-dark', 'apple-light', 'apple-tv-plus',
   'apple-tv-plus-dark', 'apple-tv-plus-light', 'apprise', 'aqara', 'asus', 'authentik', 'bazarr',
-  'beszel', 'bose', 'caddy', 'chromecast', 'cisco', 'cloudflare', 'database',
+  'beszel', 'bose', 'caddy', 'chromecast', 'cisco', 'cloudflare', 'cloudflared', 'database',
   'ddns-updater', 'debian', 'dell', 'dell-dark', 'deluge', 'docker', 'dovecot',
   'dozzle', 'esxi', 'fing', 'firetv', 'flaresolverr', 'forgejo',
   'freenas', 'ftth', 'gigabyte', 'gitsync', 'glinet', 'glinet-dark', 'google',
@@ -7350,12 +7350,18 @@ function app() {
         'somphy':    'somfy',
         'tahoma':    'somfy',
         'connexoon': 'somfy',
-        // Cloudflared (the tunnel daemon) + sibling Cloudflare products
-        // resolve to the parent cloudflare.svg brand mark.
-        'cloudflared':         'cloudflare',
-        'cloudflared-tunnel':  'cloudflare',
-        'cloudflare-tunnel':   'cloudflare',
-        'cloudflare-warp':     'cloudflare',
+        // Cloudflared (the tunnel daemon) has its OWN file
+        // (cloudflared.svg) — same orange Cloudflare cloud bytes as
+        // cloudflare.svg, but a distinct URL so the operator's edge
+        // cache (Cloudflare's own CDN, fitting given they ARE running
+        // cloudflared) doesn't keep serving a stale broken response on
+        // the cloudflare.svg URL. The `cloudflared` slug resolves
+        // naturally via KNOWN_ICONS, no alias needed; keeping the
+        // other Cloudflare-family aliases pointed at the parent
+        // cloudflare.svg brand mark.
+        'cloudflared-tunnel':    'cloudflared',
+        'cloudflare-tunnel':     'cloudflare',
+        'cloudflare-warp':       'cloudflare',
         'cloudflare-zero-trust': 'cloudflare',
         // Operator's custom GitSync Connector container (stack name
         // `gitsync-connector`, service name `gitsync-connector_connector`).
@@ -8987,10 +8993,10 @@ function app() {
           'website_monitoring': 'uptime-kuma',
           'uptime-monitor':     'uptime-kuma',
           'monitoring':         'uptime-kuma',
-          // Cloudflared / Cloudflare Tunnel / WARP / Zero Trust all
-          // share the orange Cloudflare cloud mark (cloudflare.svg).
-          'cloudflared':           'cloudflare',
-          'cloudflared-tunnel':    'cloudflare',
+          // Cloudflared has its own file (cloudflared.svg) — see
+          // iconUrlFor for the rationale. Other Cloudflare-family
+          // products use the parent cloudflare.svg brand mark.
+          'cloudflared-tunnel':    'cloudflared',
           'cloudflare-tunnel':     'cloudflare',
           'cloudflare-warp':       'cloudflare',
           'cloudflare-zero-trust': 'cloudflare',
@@ -9283,16 +9289,19 @@ function app() {
         ['openvpn',               'openvpn'],
         ['wireguard',             'wireguard'],
         ['wg-easy',               'wireguard'],
-        // Cloudflare family — cloudflared (the tunnel daemon),
-        // cloudflare-tunnel, WARP client, Zero Trust dashboard all
-        // share the orange Cloudflare cloud brand mark. Long-form
-        // phrases first so "cloudflare zero trust" wins over
-        // bare "cloudflare".
+        // Cloudflare family — `cloudflared` (the tunnel daemon) has
+        // its own file (cloudflared.svg, same artwork as
+        // cloudflare.svg but a distinct URL so the operator's edge
+        // cache can't get stuck on a broken response — fitting
+        // given they ARE running cloudflared tunnel). Other
+        // Cloudflare-family products share the parent
+        // cloudflare.svg brand mark. Long-form phrases first so
+        // "cloudflare zero trust" wins over bare "cloudflare".
         ['cloudflare zero trust', 'cloudflare'],
         ['cloudflare-zero-trust', 'cloudflare'],
         ['cloudflare tunnel',     'cloudflare'],
         ['cloudflare-tunnel',     'cloudflare'],
-        ['cloudflared',           'cloudflare'],
+        ['cloudflared',           'cloudflared'],
         ['cloudflare warp',       'cloudflare'],
         ['cloudflare-warp',       'cloudflare'],
         ['cloudflare',            'cloudflare'],
