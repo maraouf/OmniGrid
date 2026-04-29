@@ -293,22 +293,27 @@ def make_authentication_options(
         if not cid:
             continue
         ts = c.get("transports") or []
-        # #601 — Safari/Chrome on macOS default to the hybrid (QR) flow
-        # at assertion time when a credential's stored transports is
-        # EMPTY (browser didn't emit `response.transports` at
-        # registration, common on older Chrome / 1Password versions).
-        # Listing transports as null tells the browser "could be
-        # anywhere" — it hedges by showing the cross-device picker
-        # FIRST. Default empties to ['internal','hybrid'] so the
-        # browser knows the credential might live on the local
-        # device OR on a paired device, which surfaces Touch ID /
-        # iCloud Keychain / 1Password's browser extension as
-        # primary picks. Operators who actually have a USB security
-        # key registered with empty transports will see that key
-        # offered too — the browser still queries every available
-        # authenticator, the hint just changes the default UI order.
-        if not ts:
-            ts = ["internal", "hybrid"]
+        # #601 / #602 — Safari/Chrome on macOS default to the hybrid
+        # (QR) flow at assertion time when a credential's stored
+        # transports list is missing `internal` (common when the
+        # browser emitted `["hybrid"]` only at registration, OR when
+        # the field came back empty entirely). Listing transports
+        # without `internal` tells the browser "this credential is
+        # NOT on the local device" — it then dives straight to QR
+        # without offering Touch ID / iCloud Keychain / a password-
+        # manager extension, even when those would actually work.
+        # Force-union `['internal', 'hybrid']` into whatever's stored
+        # so the browser ALWAYS considers the local platform AND
+        # cross-device sign-in. If a credential was registered as a
+        # USB security key, `['usb', 'internal', 'hybrid']` tells the
+        # browser "consider all three" — the OS-level authenticator
+        # query still rejects the wrong device, but the picker
+        # surfaces every plausible option. The previous narrower
+        # behaviour (default-only-when-empty) didn't cover the
+        # `["hybrid"]`-only stored case.
+        ts_set = {t for t in ts if isinstance(t, str)}
+        ts_set.update({"internal", "hybrid"})
+        ts = sorted(ts_set)
         try:
             transport_enums = [
                 AuthenticatorTransport(str(t).lower())
