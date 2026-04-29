@@ -9618,12 +9618,18 @@ function app() {
         if (this.settings) this.settings.webmin_aliases = webminAliases;
         this.hostsConfigDirty = false;
         this.showToast(this.t('admin_hosts.saved_n', { count: d.count }), 'success');
-        // The Hosts tab consumes this list — refresh it so the new
-        // mapping takes effect without a full page reload. ``force=true``
+        // Refresh the Hosts tab data unconditionally — was previously
+        // gated on ``this.view === 'hosts'`` so an Admin → Hosts save
+        // followed by switching to the Hosts page rendered with a
+        // STALE `this.hosts` (e.g. ping_enabled flipped to true in the
+        // DB but `hostHasAgent(h)` still saw the pre-save snapshot, so
+        // "Hide hosts without agents" hid the row until the next 15s
+        // polling tick reconciled). The fetch is cheap; running it
+        // regardless of current view keeps the per-host provider /
+        // ping_enabled state consistent across the whole SPA. ``force=true``
         // busts the backend's 10s provider-state cache so the new
-        // aliases / SSH config produce a fresh probe immediately
-        // (ENH-003).
-        if (this.view === 'hosts') this.loadHosts(true);
+        // aliases / SSH config produce a fresh probe immediately.
+        this.loadHosts(true);
       } catch (e) {
         this.showToast(this.t('admin_hosts.save_failed', { error: e.message }), 'error');
       } finally {
