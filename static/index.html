@@ -790,7 +790,8 @@
                   <div class="flex items-center gap-2">
                     <img class="app-icon" :src="stackIconUrl(stack)" :alt="stack.name" loading="lazy"
                          x-show="stackIconUrl(stack)"
-                         @error="$el.classList.add('broken')">
+                         @error="$el.classList.add('broken')"
+                         @load="$el.classList.remove('broken')">
                     <span x-text="stack.name"></span>
                     <span class="text-[var(--text-faint)] text-[11px] font-normal" x-text="'(' + stack.total + ')'"></span>
                     <span x-show="stack.is_standalone" class="chip text-[10px]" x-text="t('chips.standalone')"></span>
@@ -854,7 +855,8 @@
                     <div class="flex items-center gap-2">
                       <img class="app-icon sm" :src="itemIconUrl(item)" :alt="item.stack || item.name" loading="lazy"
                            x-show="itemIconUrl(item)"
-                           @error="$el.classList.add('broken')">
+                           @error="$el.classList.add('broken')"
+                           @load="$el.classList.remove('broken')">
                       <div class="min-w-0">
                         <div class="mono text-[12.5px] text-[var(--text)]" x-text="item.name"></div>
                         <div class="text-[10.5px] text-[var(--text-faint)]" x-text="itemSubline(item)"></div>
@@ -1040,7 +1042,8 @@
                 <td class="mono text-[12.5px] col-grow">
                   <div class="flex items-center gap-2">
                     <img class="app-icon sm" :src="itemIconUrl(item)" :alt="item.stack || item.name" loading="lazy"
-                         @error="$el.classList.add('broken')">
+                         @error="$el.classList.add('broken')"
+                         @load="$el.classList.remove('broken')">
                     <span x-text="item.name"></span>
                   </div>
                 </td>
