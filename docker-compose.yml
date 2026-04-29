@@ -1,68 +1,58 @@
 version: "3.8"
 services:
   omnigrid:
-    image: python:3.12-slim
-    # Persistent pip cache (see the extra volume below) so restarts don't
-    # re-download the dependency tree every time. Upgrading pip first makes
-    # the cache-hit check faster on modern indexes.
-    command: >
-      sh -c "pip install --cache-dir=/pip-cache --root-user-action=ignore --upgrade pip &&
-             pip install --cache-dir=/pip-cache --root-user-action=ignore -r /app/requirements.txt &&
-             cd /app &&
-             exec uvicorn main:app --host 0.0.0.0 --port 8088 --workers 1"
+    # Built from the in-tree Dockerfile by the deploy pipeline on the
+    # Swarm manager. The pipeline tags both `omnigrid:latest` and
+    # `omnigrid:<version>`; this file references `:latest` so the
+    # compose-spec stays static across deploys, while the pipeline's
+    # `docker service update --force --image omnigrid:<version>` step
+    # pins each task to the exact version-tagged image (so rollbacks
+    # have a discrete tag to point at).
+    image: omnigrid:latest
     ports:
       - "9500:8088"
 
-    # Every tunable — including DB_PATH — lives in `.env` at the repo
-    # root and ships via CI rsync to /opt/omnigrid/app/.env. main.py
-    # loads that file via python-dotenv at startup (already visible
-    # inside the container at /app/.env thanks to the bind mount below).
-    # We deliberately don't use Compose's `env_file:` because Portainer's
-    # web-editor stacks can't resolve relative paths (they'd look in
-    # /data/compose/<stack-id>/ inside Portainer's container). Letting
-    # the app read its own file sidesteps that entirely — and keeps the
-    # compose file free of service-level config.
-
     # Container timezone. Python's zoneinfo module reads /etc/localtime,
-    # but the python:3.12-slim base image ships with UTC and tzdata
-    # isn't guaranteed to be present. Setting TZ here makes
-    # `time.localtime()` + the scheduler's `scheduler_timezone` default
-    # align with the operator's wall clock instead of UTC. Change this
-    # to match wherever the operator physically runs OmniGrid from.
+    # but the python:3.12-slim base ships UTC and tzdata isn't
+    # guaranteed. Setting TZ here makes `time.localtime()` and the
+    # scheduler's `scheduler_timezone` default align with the operator's
+    # wall clock instead of UTC. Match this to wherever OmniGrid runs.
     environment:
       - TZ=Africa/Cairo
 
     # Raw socket capability — ONLY required for the Ping host-stats
     # provider's optional ICMP transport (#343). icmplib needs
-    # CAP_NET_RAW to open SOCK_RAW for ICMP echo requests; without it
-    # every probe raises SocketPermissionError and logic/ping.py falls
-    # back to TCP-connect at probe time (still functional, just no
-    # ICMP). Granting NET_RAW only marginally widens attack surface
-    # because the container already runs as root via python:3.12-slim's
-    # default user; if you ever switch to a non-root image, you'll
-    # also need `user: 0` or to drop this. Standard CVE feeds don't
-    # treat NET_RAW as a privilege escalation path on its own.
+    # CAP_NET_RAW to open SOCK_RAW; without it every ICMP probe raises
+    # SocketPermissionError and logic/ping.py falls back to TCP-connect
+    # at probe time (still functional, just no ICMP). Granting NET_RAW
+    # only marginally widens attack surface because the container
+    # already runs as root via python:3.12-slim's default user; if
+    # you ever switch to a non-root image, drop this and add `user: 0`
+    # only where required.
     cap_add:
       - NET_RAW
 
     volumes:
-      - /opt/omnigrid/app:/app:ro             # source code (read-only, hot-reload with a container restart)
-      # Per-file writable bind for VERSION.txt — Docker layers nested binds
-      # path-most-specific-wins, so this stays writable even though the
-      # parent /app mount is :ro. The deploy pipeline writes here from
-      # the host (pi-user SSH); Admin → Version writes here from inside
-      # the container. Both writers target the same path; whoever writes
-      # last wins. open()-and-truncate preserves the inode + host owner
-      # so cross-writer permission flips don't strand either side.
-      - /opt/omnigrid/app/VERSION.txt:/app/VERSION.txt
-      - /opt/omnigrid/data:/app/data          # database for history / ignores / settings / users / sessions (SQLite today; more backends planned)
-      - /opt/omnigrid/pip-cache:/pip-cache    # persistent pip cache across restarts
-      - /etc/ssl/certs:/etc/ssl/certs:ro      # trust your internal CA so HTTPS calls to portainer.example.com work
-      - /etc/localtime:/etc/localtime:ro      # belt-and-braces for TZ — libc functions that bypass $TZ still see the right zone
+      # Database, avatars, asset_inventory cache, persistent logs, etc.
+      # Bind-mount so a `docker stack rm` doesn't lose state.
+      - /opt/omnigrid/data:/app/data
+
+      # Secrets / config. Read by main.py via python-dotenv at startup
+      # (logic/auth.py + logic/portainer.py read DB-backed settings
+      # but the .env still carries SESSION_SECRET, BOOTSTRAP_*, and
+      # any process-level overrides). Per-file bind, read-only.
+      - /opt/omnigrid/app/.env:/app/.env:ro
+
+      # Trust the host's CA bundle so HTTPS calls to internal CAs
+      # (portainer.example.com et al.) don't have to set VERIFY_TLS=false.
+      - /etc/ssl/certs:/etc/ssl/certs:ro
+
+      # Belt-and-braces for TZ — libc functions that bypass $TZ still
+      # see the right zone by reading /etc/localtime directly.
+      - /etc/localtime:/etc/localtime:ro
 
     networks:
-      - nginx-proxy-manager_default
-      - default
+      - omnigrid
 
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request;urllib.request.urlopen('http://localhost:8088/api/healthz',timeout=3)"]
@@ -81,10 +71,10 @@ services:
         condition: on-failure
         delay: 10s
         max_attempts: 5
-      # Zero-downtime rolling update. `start-first` boots the new task and
-      # waits for its healthcheck to pass before the old one is stopped,
-      # which also cuts the CI verify step's waiting time down to the
-      # healthcheck warm-up instead of a stop → start round-trip.
+      # Zero-downtime rolling update. `start-first` boots the new task
+      # and waits for its healthcheck before stopping the old one,
+      # cutting CI verify time from a stop→start round-trip down to
+      # the healthcheck warm-up.
       update_config:
         parallelism: 1
         delay: 0s
@@ -97,6 +87,12 @@ services:
         order: start-first
 
 networks:
-  nginx-proxy-manager_default:
-    external: true
-    name: nginx-proxy-manager_default
+  # Stack-internal overlay. Reverse proxies (NPM / Traefik) reach the
+  # service via the published host port (9500:8088 above) — no shared
+  # external network needed. If you later want NPM to talk container-
+  # to-container, attach NPM to this network with
+  #   `docker network connect <stack>_omnigrid <npm-container>` or
+  # add the same `external: true` block to NPM's compose.
+  omnigrid:
+    driver: overlay
+    attachable: true

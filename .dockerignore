@@ -1,0 +1,52 @@
+# --- VCS / editor / agent state -----------------------------------------
+.git
+.gitignore
+.gitattributes
+.idea
+.claude
+.vscode
+.DS_Store
+Thumbs.db
+
+# --- Python build artefacts ---------------------------------------------
+.venv
+venv
+__pycache__
+**/__pycache__
+*.pyc
+*.pyo
+*.egg-info
+
+# --- Runtime state (lives on host bind, never in image) -----------------
+data
+*.db
+*.db-journal
+
+# --- Secrets — read from host bind at /app/.env, never baked --------------
+.env
+
+# --- Dev-only / scratch / agent-private ---------------------------------
+notes
+tmp
+old_index
+old_main
+old_code
+*.old*
+debug.txt
+CLAUDE.md
+tests
+
+# --- CI / compose / Docker meta — not needed at runtime -----------------
+.forgejo
+docker-compose.yml
+docker-compose.override.yml
+Dockerfile
+.dockerignore
+
+# --- npm dev metadata. node_modules/ IS shipped (FastAPI serves it
+#     directly from /node_modules/ — see CLAUDE.md "Front-end deps").
+#     Only the dev-side metadata stays out.
+package.json
+package-lock.json
+.package-lock.json
+scripts/download_poppins.sh
