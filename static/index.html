@@ -4994,7 +4994,7 @@
                            x-text="t('hosts_extra_ssh.per_host_user')"></label>
                     <input type="text"
                            :value="row.ssh && row.ssh.user || ''"
-                           @input="row.ssh = Object.assign({}, row.ssh || {}, { user: $event.target.value }); markHostRowDirty(idx)"
+                           @input="hostsConfig[idx].ssh = Object.assign({}, hostsConfig[idx].ssh || {}, { user: $event.target.value }); markHostRowDirty(idx)"
                            :disabled="isReadonly()"
                            class="w-full mono text-[12.5px] py-1.5"
                            placeholder="(blank = use global default)">
@@ -5004,7 +5004,7 @@
                            x-text="t('hosts_extra_ssh.per_host_port')"></label>
                     <input type="number" min="1" max="65535"
                            :value="row.ssh && row.ssh.port || ''"
-                           @input="row.ssh = Object.assign({}, row.ssh || {}, { port: $event.target.value ? parseInt($event.target.value, 10) : null }); markHostRowDirty(idx)"
+                           @input="hostsConfig[idx].ssh = Object.assign({}, hostsConfig[idx].ssh || {}, { port: $event.target.value ? parseInt($event.target.value, 10) : null }); markHostRowDirty(idx)"
                            :disabled="isReadonly()"
                            class="w-full mono text-[12.5px] py-1.5"
                            placeholder="22">
@@ -5012,7 +5012,7 @@
                   <label class="inline-flex items-center gap-2 text-[12px] text-[var(--text-dim)] pb-1.5">
                     <input type="checkbox"
                            :checked="!!(row.ssh && row.ssh.disabled)"
-                           @change="row.ssh = Object.assign({}, row.ssh || {}, { disabled: $event.target.checked }); markHostRowDirty(idx)"
+                           @change="hostsConfig[idx].ssh = Object.assign({}, hostsConfig[idx].ssh || {}, { disabled: $event.target.checked }); markHostRowDirty(idx)"
                            :disabled="isReadonly()">
                     <span x-text="t('hosts_extra_ssh.per_host_disabled')"></span>
                   </label>
@@ -5025,7 +5025,7 @@
                     </label>
                     <input type="text"
                            :value="row.ssh && (row.ssh.fqdn || row.ssh.host) || ''"
-                           @input="row.ssh = Object.assign({}, row.ssh || {}, { fqdn: $event.target.value }); markHostRowDirty(idx)"
+                           @input="hostsConfig[idx].ssh = Object.assign({}, hostsConfig[idx].ssh || {}, { fqdn: $event.target.value }); markHostRowDirty(idx)"
                            :disabled="isReadonly()"
                            class="w-full mono text-[12.5px] py-1.5"
                            :placeholder="t('admin_hosts.row.webmin_name_placeholder')">
@@ -5038,7 +5038,7 @@
                     <input type="password"
                            autocomplete="new-password"
                            :value="row.ssh && row.ssh.password || ''"
-                           @input="row.ssh = Object.assign({}, row.ssh || {}, { password: $event.target.value }); markHostRowDirty(idx)"
+                           @input="hostsConfig[idx].ssh = Object.assign({}, hostsConfig[idx].ssh || {}, { password: $event.target.value }); markHostRowDirty(idx)"
                            :disabled="isReadonly()"
                            class="w-full text-[12.5px] py-1.5"
                            placeholder="override for this host only">
@@ -5055,9 +5055,19 @@
                 <div class="text-[10px] uppercase tracking-wider text-[var(--text-faint)] mb-2 font-semibold">Ping</div>
                 <div class="grid grid-cols-1 md:grid-cols-[auto_1fr_1fr] gap-3 items-end">
                   <label class="inline-flex items-center gap-2 text-[12px] text-[var(--text-dim)] pb-1.5">
+                    <!-- Was `row.ping = Object.assign(...)` — the
+                         destructured `row` from `<template x-for="{row,idx}">`
+                         appears to capture the wrapper's `row` property
+                         eagerly and assignments to `row.ping` don't
+                         propagate to `this.hostsConfig[idx].ping`
+                         (operator-confirmed: click → checkbox visually
+                         toggles, hostsConfigDirty=true, but row.ping
+                         stays {}). Switched to indexed access via
+                         `hostsConfig[idx]` so the mutation goes
+                         through the live reactive array directly. -->
                     <input type="checkbox"
                            :checked="!!(row.ping && row.ping.enabled)"
-                           @change="row.ping = Object.assign({}, row.ping || {}, { enabled: $event.target.checked }); markHostRowDirty(idx)"
+                           @change="hostsConfig[idx].ping = Object.assign({}, hostsConfig[idx].ping || {}, { enabled: $event.target.checked }); markHostRowDirty(idx)"
                            :disabled="isReadonly()">
                     <span x-text="t('admin_hosts.provider.ping_enabled_label')"></span>
                   </label>
@@ -5066,7 +5076,7 @@
                            x-text="t('admin_hosts.provider.ping_port_label')"></label>
                     <input type="number" min="1" max="65535"
                            :value="row.ping && row.ping.port || ''"
-                           @input="row.ping = Object.assign({}, row.ping || {}, { port: $event.target.value ? parseInt($event.target.value, 10) : null }); markHostRowDirty(idx)"
+                           @input="hostsConfig[idx].ping = Object.assign({}, hostsConfig[idx].ping || {}, { port: $event.target.value ? parseInt($event.target.value, 10) : null }); markHostRowDirty(idx)"
                            :disabled="isReadonly()"
                            class="w-full mono text-[12.5px] py-1.5"
                            :placeholder="t('admin_hosts.provider.ping_port_placeholder')">
@@ -5075,7 +5085,7 @@
                     <label class="block text-[10.5px] uppercase tracking-wider text-[var(--text-faint)] mb-1"
                            x-text="t('admin_hosts.provider.ping_transport_label')"></label>
                     <select :value="row.ping && row.ping.transport || ''"
-                            @change="row.ping = Object.assign({}, row.ping || {}, { transport: $event.target.value || null }); markHostRowDirty(idx)"
+                            @change="hostsConfig[idx].ping = Object.assign({}, hostsConfig[idx].ping || {}, { transport: $event.target.value || null }); markHostRowDirty(idx)"
                             :disabled="isReadonly()"
                             class="w-full mono text-[12.5px] py-1.5">
                       <option value="" x-text="t('admin_hosts.provider.ping_transport_default')"></option>
