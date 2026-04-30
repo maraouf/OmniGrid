@@ -403,6 +403,33 @@
         "tunable_concurrency_label": "Probe concurrency",
         "tunable_timeout_label": "Per-probe timeout",
         "tunable_cooldown_label": "Cool-down after consecutive timeouts"
+      },
+      "source_snmp": "SNMP",
+      "snmp": {
+        "section_title": "SNMP",
+        "section_desc": "Sixth host-stats provider. Reads CPU / memory / disk / uptime / interface counters from devices that speak SNMP v2c / v3 USM but not unix-style agents — managed switches, routers, UPSes, network printers, managed APs. Per-host probe (no central hub): each curated row maps to one SNMP target. Per-host overrides (community / version / port / v3 keys) live on Admin → Hosts; the values below are the global defaults.",
+        "unavailable": "pysnmp package not installed — SNMP probes are disabled until the dep is added to requirements.txt and the container restarts.",
+        "community_label": "Default community (v2c)",
+        "community_hint": "Read-only community string for SNMP v2c. Most home-lab gear uses 'public' out of the box; rotate to a custom value on the device side and mirror it here. Per-host override on Admin → Hosts wins per row.",
+        "version_label": "Default version",
+        "port_label": "Default UDP port",
+        "v3_section_title": "v3 / USM credentials",
+        "v3_section_hint": "Used when the default version above is v3. Auth/priv key combinations: leave both blank for noAuthNoPriv, fill auth only for authNoPriv (HMAC-SHA-256), fill both for authPriv (HMAC-SHA-256 + AES-128).",
+        "v3_user_label": "Username",
+        "v3_user_placeholder": "snmp-readonly",
+        "v3_auth_key_label": "Auth key",
+        "v3_auth_key_placeholder": "Authentication passphrase (≥ 8 chars)",
+        "v3_priv_key_label": "Priv key",
+        "v3_priv_key_placeholder": "Privacy passphrase (≥ 8 chars)",
+        "set_suffix": " · set",
+        "aliases_label": "Per-host alias map (Docker hostname → SNMP target)",
+        "aliases_hint": "Optional JSON object mapping a curated host's id to its SNMP-reachable address. Useful when the bare hostname doesn't resolve from the container or the device is on a different management VLAN. Rows without an alias use the curated row's snmp_name (Admin → Hosts) and finally the bare id.",
+        "aliases_invalid": "SNMP aliases must be a JSON object like {\"host\": \"192.X.X.10\"}.",
+        "version_invalid": "SNMP default version must be 'v2c' or 'v3'.",
+        "test_button": "Test connection",
+        "testing": "Testing…",
+        "test_host_placeholder": "192.X.X.10 or switch01.example.com",
+        "test_host_required": "Enter a host or IP to test against."
       }
     },
     "language": {
@@ -766,6 +793,14 @@
         "tuning_ping_cooldown_seconds": {
           "label": "Ping cool-down on consecutive timeouts (seconds)",
           "help": "After TWO consecutive timeout-batches against the same host:port, the probe arms a cool-down — subsequent ticks skip that pair until the cool-down expires. Cuts wire traffic against permanently-unreachable hosts without removing them from the chart entirely. Default 300 seconds (5 minutes). Lower for fast-recovery detection; raise to suppress probes against a host that's been down for hours. Range 30..3600."
+        },
+        "tuning_snmp_probe_timeout_seconds": {
+          "label": "SNMP per-probe timeout (seconds)",
+          "help": "Wall-clock budget for ONE SNMP GET / GETBULK round-trip. The probe fires a sysName/sysDescr/sysUpTime GET plus several walks (hrStorage / hrProcessorLoad / ifTable) in parallel under this budget. Default 5 seconds — enough for slow embedded devices to ack on UDP without stalling the gather pipeline on a dead host. Lower if your fleet is purely on-LAN with < 50 ms RTTs; raise for cross-WAN devices or chatty UPS units that are slow to respond. Range 1..60."
+        },
+        "tuning_snmp_concurrency": {
+          "label": "SNMP probe concurrency",
+          "help": "Maximum parallel SNMP probes the gather + per-host-merge paths run in one tick. Default 16 — comfortable on a 50-host SNMP fleet through 16 workers in ~3 batches. Lower if your network gear's CPU is fragile (some older switches lock up under > 8 parallel SNMP requests); raise on a beefy fleet of well-provisioned UPSes / routers. Range 1..128."
         }
       },
       "totp": {

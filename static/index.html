@@ -1515,7 +1515,7 @@
                  added to the iteration list — it's a first-class
                  provider (per-host opt-in via hosts_config[].ping)
                  and was missing from the strip even when active. -->
-            <template x-for="p in ['beszel','pulse','node_exporter','webmin','ping']" :key="p">
+            <template x-for="p in ['beszel','pulse','node_exporter','webmin','ping','snmp']" :key="p">
               <span x-show="hostsProviderState(p).visible"
                     class="chip text-[10.5px]"
                     :class="hostsProviderState(p).cls"
@@ -4161,6 +4161,7 @@
             ['pulse',         'Pulse'],
             ['webmin',        'Webmin'],
             ['ping',          t('settings.host_stats.source_ping')],
+            ['snmp',          t('settings.host_stats.source_snmp')],
           ]" :key="tab[0]">
             <button @click="setHostStatsTab(tab[0])"
                     :class="hostStatsTab === tab[0]
@@ -4170,6 +4171,16 @@
               <span class="w-1.5 h-1.5 rounded-full"
                     :style="hasHostStatsSource(tab[0]) ? 'background: var(--success)' : 'background: var(--text-faint)'"
                     :title="hasHostStatsSource(tab[0]) ? t('settings.host_stats.tab_active_dot') : t('settings.host_stats.tab_inactive_dot')"></span>
+              <!-- #607 — mono provider icon painted in the operator-
+                   customised chip colour (#596). Active tab gets the
+                   full provider colour; inactive tabs use a muted
+                   token-driven foreground so the strip doesn't read
+                   like six saturated buttons all at once. -->
+              <span class="provider-icon"
+                    :style="hostStatsTab === tab[0]
+                      ? providerIconStyle(tab[0])
+                      : ('--provider-icon-url: url(/img/icons/' + providerIconSlug(tab[0]) + '.svg); color: var(--text-faint);')"
+                    aria-hidden="true"></span>
               <span x-text="tab[1]"></span>
             </button>
           </template>
@@ -4713,6 +4724,202 @@
                x-text="t('settings.host_stats.chip_color_hint')"></p>
           </div>
         </div>
+        <!-- #344 — SNMP provider. Sixth host-stats provider for
+             managed switches / routers / printers / UPSes / managed APs
+             that speak SNMP v2c/v3 but don't run unix-style agents.
+             Mirrors the Webmin tab structure (per-host probe with a
+             per-host alias map) plus a v3-only sub-block for USM
+             credentials. -->
+        <div x-show="hostStatsTab === 'snmp'" class="space-y-3" :class="!hasHostStatsSource('snmp') ? 'opacity-60' : ''">
+          <div class="flex items-center justify-between gap-2 pb-2 border-b border-dashed border-[var(--border)]">
+            <label class="inline-flex items-center gap-2 text-[12px] font-medium">
+              <input type="checkbox" :disabled="isReadonly() || !settings.snmp_has_snmp_support"
+                     :checked="hasHostStatsSource('snmp')"
+                     @change="toggleHostStatsSource('snmp', $event.target.checked)">
+              <span x-text="t('settings.host_stats.tab_enable_label', { provider: t('settings.host_stats.source_snmp') })"></span>
+            </label>
+            <span class="chip"
+                  :class="hasHostStatsSource('snmp') ? 'pill-ok' : 'pill-muted'"
+                  x-text="hasHostStatsSource('snmp') ? t('settings.host_stats.tab_enabled') : t('settings.host_stats.tab_disabled')"></span>
+          </div>
+          <p x-show="!settings.snmp_has_snmp_support"
+             class="text-[10.5px] text-[var(--warning)]"
+             x-text="t('settings.host_stats.snmp.unavailable')"></p>
+          <p class="text-[10.5px] text-[var(--text-faint)]"
+             x-text="t('settings.host_stats.snmp.section_desc')"></p>
+
+          <div class="grid grid-cols-1 md:grid-cols-3 gap-2">
+            <div>
+              <label class="block text-[11px] text-[var(--text-faint)] mb-1"
+                     x-text="t('settings.host_stats.snmp.community_label')"></label>
+              <input x-model="settings.snmp_default_community" type="text"
+                     :disabled="isReadonly() || !hasHostStatsSource('snmp')"
+                     class="w-full mono text-[11.5px]"
+                     placeholder="public">
+            </div>
+            <div>
+              <label class="block text-[11px] text-[var(--text-faint)] mb-1"
+                     x-text="t('settings.host_stats.snmp.version_label')"></label>
+              <select x-model="settings.snmp_default_version"
+                      :disabled="isReadonly() || !hasHostStatsSource('snmp')"
+                      class="w-full text-[11.5px]">
+                <option value="v2c">v2c</option>
+                <option value="v3">v3 (USM)</option>
+              </select>
+            </div>
+            <div>
+              <label class="block text-[11px] text-[var(--text-faint)] mb-1"
+                     x-text="t('settings.host_stats.snmp.port_label')"></label>
+              <input x-model="settings.snmp_default_port" type="number" min="1" max="65535"
+                     :disabled="isReadonly() || !hasHostStatsSource('snmp')"
+                     class="w-full mono text-[11.5px]"
+                     placeholder="161">
+            </div>
+          </div>
+          <p class="text-[10.5px] text-[var(--text-faint)]"
+             x-text="t('settings.host_stats.snmp.community_hint')"></p>
+
+          <!-- v3 USM block — only visible when version=v3. -->
+          <div x-show="settings.snmp_default_version === 'v3'"
+               class="space-y-2 pt-3 mt-2 border-t border-dashed border-[var(--border)]">
+            <h4 class="font-semibold text-[12.5px]"
+                x-text="t('settings.host_stats.snmp.v3_section_title')"></h4>
+            <p class="text-[10.5px] text-[var(--text-faint)]"
+               x-text="t('settings.host_stats.snmp.v3_section_hint')"></p>
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-2">
+              <div>
+                <label class="block text-[11px] text-[var(--text-faint)] mb-1"
+                       x-text="t('settings.host_stats.snmp.v3_user_label')"></label>
+                <input x-model="settings.snmp_v3_user" type="text"
+                       :disabled="isReadonly() || !hasHostStatsSource('snmp')"
+                       class="w-full text-[11.5px]"
+                       :placeholder="t('settings.host_stats.snmp.v3_user_placeholder')">
+              </div>
+              <div>
+                <label class="block text-[11px] text-[var(--text-faint)] mb-1">
+                  <span x-text="t('settings.host_stats.snmp.v3_auth_key_label')"></span>
+                  <span x-show="settings.snmp_v3_auth_key_set" class="text-[var(--success)]"
+                        x-text="t('settings.host_stats.snmp.set_suffix')"></span>
+                </label>
+                <input x-model="settings.snmp_v3_auth_key" type="password"
+                       autocomplete="new-password"
+                       :disabled="isReadonly() || !hasHostStatsSource('snmp')"
+                       class="w-full text-[11.5px]"
+                       :placeholder="settings.snmp_v3_auth_key_set ? '••••••••' : t('settings.host_stats.snmp.v3_auth_key_placeholder')">
+              </div>
+              <div>
+                <label class="block text-[11px] text-[var(--text-faint)] mb-1">
+                  <span x-text="t('settings.host_stats.snmp.v3_priv_key_label')"></span>
+                  <span x-show="settings.snmp_v3_priv_key_set" class="text-[var(--success)]"
+                        x-text="t('settings.host_stats.snmp.set_suffix')"></span>
+                </label>
+                <input x-model="settings.snmp_v3_priv_key" type="password"
+                       autocomplete="new-password"
+                       :disabled="isReadonly() || !hasHostStatsSource('snmp')"
+                       class="w-full text-[11.5px]"
+                       :placeholder="settings.snmp_v3_priv_key_set ? '••••••••' : t('settings.host_stats.snmp.v3_priv_key_placeholder')">
+              </div>
+            </div>
+          </div>
+
+          <!-- Per-host alias map (Docker hostname → SNMP target IP/host).
+               Same JSON-textarea contract as node_exporter_overrides. -->
+          <div>
+            <label class="block text-[11px] text-[var(--text-faint)] mb-1"
+                   x-text="t('settings.host_stats.snmp.aliases_label')"></label>
+            <textarea x-model="settings.snmp_aliases_json"
+                      :disabled="isReadonly() || !hasHostStatsSource('snmp')" rows="5"
+                      class="w-full mono text-[11.5px]"
+                      :placeholder='`{\n  "switch01": "192.X.X.10",\n  "ups01": "192.X.X.50"\n}`'></textarea>
+            <p class="text-[10.5px] text-[var(--text-faint)] mt-1"
+               x-text="t('settings.host_stats.snmp.aliases_hint')"></p>
+          </div>
+
+          <!-- Test button + result chip. Mirrors webminTestResult /
+               beszelTestResult — the connection test fires
+               `/api/snmp/test` against the configured target. -->
+          <div class="flex items-center gap-2 flex-wrap">
+            <button x-show="isAdmin()" @click="testSnmpConnection()"
+                    :disabled="(snmpTestResult && snmpTestResult.pending) || !hasHostStatsSource('snmp') || !snmpTestHost"
+                    class="btn btn-soft text-[12px]"
+                    x-text="(snmpTestResult && snmpTestResult.pending) ? t('settings.host_stats.snmp.testing') : t('settings.host_stats.snmp.test_button')"></button>
+            <input x-model="snmpTestHost" type="text"
+                   :disabled="isReadonly() || !hasHostStatsSource('snmp')"
+                   class="text-[11.5px] mono w-48"
+                   :placeholder="t('settings.host_stats.snmp.test_host_placeholder')">
+            <span x-show="snmpTestResult && !snmpTestResult.pending"
+                  :class="snmpTestResult && snmpTestResult.ok ? 'text-[var(--success)]' : 'text-[var(--danger)]'"
+                  class="text-[11.5px]"
+                  x-text="(snmpTestResult && snmpTestResult.ok ? '✓ ' : '✗ ') + (snmpTestResult && snmpTestResult.detail || '')"></span>
+          </div>
+
+          <!-- Tunables — SNMP probe timeout + concurrency. Same Alpine
+               state pattern as the other relocated tunables. -->
+          <div class="mt-3 pt-3 border-t border-[var(--border)] space-y-3"
+               x-show="tuningLoaded">
+            <template x-for="key in [
+              'tuning_snmp_probe_timeout_seconds',
+              'tuning_snmp_concurrency',
+            ]" :key="key">
+              <div class="space-y-1">
+                <label class="block text-[11px] font-medium"
+                       x-text="t('admin.config.fields.' + key + '.label')"></label>
+                <p class="text-[10.5px] text-[var(--text-faint)] leading-snug"
+                   x-text="t('admin.config.fields.' + key + '.help')"></p>
+                <div class="flex flex-wrap items-center gap-2">
+                  <input type="number"
+                         x-model="tuningForm[key]"
+                         :placeholder="tuningPlaceholder(key)"
+                         :min="(tuningEffective[key] || {}).min"
+                         :max="(tuningEffective[key] || {}).max"
+                         :disabled="!isAdmin() || tuningSaving || !hasHostStatsSource('snmp')"
+                         class="w-32 mono text-[12px]">
+                  <div class="bounds-chips" role="group"
+                       :aria-label="t('admin.config.bounds.group_label')">
+                    <span class="bounds-chip bounds-chip--min"
+                          :title="t('admin.config.bounds.min_title')">
+                      <svg width="11" height="11" aria-hidden="true"><use href="#icon-arrow-down-to-line"/></svg>
+                      <span x-text="(tuningEffective[key] || {}).min"></span>
+                    </span>
+                    <span class="bounds-chip bounds-chip--max"
+                          :title="t('admin.config.bounds.max_title')">
+                      <svg width="11" height="11" aria-hidden="true"><use href="#icon-arrow-up-to-line"/></svg>
+                      <span x-text="(tuningEffective[key] || {}).max"></span>
+                    </span>
+                    <span class="bounds-chip bounds-chip--default"
+                          :title="t('admin.config.bounds.default_title')">
+                      <svg width="11" height="11" aria-hidden="true"><use href="#icon-target"/></svg>
+                      <span x-text="(tuningEffective[key] || {}).default"></span>
+                    </span>
+                  </div>
+                  <span class="text-[11px] text-[var(--text-dim)] ms-auto"
+                        x-text="t('admin.config.effective_label', { value: (tuningEffective[key] || {}).effective })"></span>
+                </div>
+              </div>
+            </template>
+          </div>
+
+          <!-- Per-provider chip colour (#596). -->
+          <div class="pt-3 mt-3 border-t border-[var(--border)] flex items-center gap-3 flex-wrap">
+            <label class="text-[11px] flex items-center gap-2">
+              <span x-text="t('settings.host_stats.chip_color_label')"></span>
+              <input type="color" x-model="settings.provider_color_snmp"
+                     :value="settings.provider_color_snmp || providerColor('snmp')"
+                     :disabled="isReadonly() || !hasHostStatsSource('snmp')"
+                     class="w-9 h-7 cursor-pointer p-0 bg-transparent border border-[var(--border)] rounded">
+            </label>
+            <button type="button"
+                    x-show="settings.provider_color_snmp"
+                    @click="settings.provider_color_snmp = ''"
+                    class="btn btn-ghost text-[10.5px]"
+                    x-text="t('settings.host_stats.chip_color_reset')"></button>
+            <span class="chip pill-custom text-[10.5px]"
+                  :style="providerChipStyle('snmp')"
+                  x-text="t('settings.host_stats.chip_color_preview')"></span>
+            <p class="basis-full text-[10.5px] text-[var(--text-faint)]"
+               x-text="t('settings.host_stats.chip_color_hint')"></p>
+          </div>
+        </div>
 
         <!-- Save + unsaved-changes indicator. Same visual treatment as
              the Admin → Hosts editor so the two match: amber ring on
@@ -4836,6 +5043,11 @@
             <option :value="name"></option>
           </template>
         </datalist>
+        <datalist id="snmp-names">
+          <template x-for="name in (hostsDiscovery.snmp || [])" :key="name">
+            <option :value="name"></option>
+          </template>
+        </datalist>
 
         <!-- Search filter — same pattern as the Hosts-view filter.
              Only appears when there are enough rows to make scanning
@@ -4934,29 +5146,42 @@
                          aria-hidden="true"><use href="#icon-package"/></svg>
                   </span>
                 </template>
-                <!-- Per-row provider chips. Each chip uses the
-                     operator-set colour from Settings → Providers via
-                     `providerChipStyle(name)`, NOT the hardcoded
-                     `pill-muted` grey (#631 — was off-pattern from the
-                     Hosts grid + drawer chips). The map below pairs
-                     each provider's CANONICAL name (used for the
-                     colour lookup — must match `providerColor()`'s
-                     defaults dict) with its short DISPLAY label
-                     (`exporter` reads cleaner than `node_exporter`
-                     in a small chip). -->
+                <span x-show="!row.enabled" class="chip text-[9.5px] px-1 py-0 pill-warning" x-text="t('states.disabled')"></span>
+                <!-- Spacer pushes the per-row provider chip strip + the
+                     SSH state icon to the trailing edge of the row
+                     (#607). Pre-fix the chips sat inline next to the
+                     host name and crowded the row when many providers
+                     were mapped; floating right keeps the row scannable
+                     and frees horizontal space for long host labels. -->
+                <span class="ms-auto"></span>
+                <!-- Per-row provider chips — mono icon painted in the
+                     operator-set provider colour from Settings →
+                     Providers (#596, icon-mode #607). Icon replaces
+                     the previous text label ("beszel" / "pulse" /
+                     "exporter" / "webmin" / "ping" / "snmp") so the
+                     strip stays compact regardless of fleet width.
+                     `title` attr surfaces the canonical provider name
+                     on hover for accessibility + screen-readers. The
+                     chip's `pill-custom` background still tints the
+                     bubble in the provider colour so visual scanning
+                     (which provider is mapped on this row?) reads at
+                     a glance without needing the text. -->
                 <template x-for="p in [
                     row.beszel_name ? {name:'beszel', label:'beszel'} : null,
                     row.pulse_name ? {name:'pulse', label:'pulse'} : null,
-                    row.ne_url ? {name:'node_exporter', label:'exporter'} : null,
+                    row.ne_url ? {name:'node_exporter', label:'node-exporter'} : null,
                     row.webmin_url ? {name:'webmin', label:'webmin'} : null,
                     (row.ping && row.ping.enabled) ? {name:'ping', label:'ping'} : null,
+                    row.snmp_name ? {name:'snmp', label:'snmp'} : null,
                   ].filter(Boolean)" :key="p.name">
-                  <span class="chip text-[9.5px] px-1 py-0 pill-custom mono"
+                  <span class="chip pill-custom px-1.5 py-0.5 inline-flex items-center"
                         :style="providerChipStyle(p.name)"
-                        x-text="p.label"></span>
+                        :title="p.label">
+                    <span class="provider-icon"
+                          :style="'--provider-icon-url: url(/img/icons/' + providerIconSlug(p.name) + '.svg); --provider-icon-size: 12px;'"
+                          aria-hidden="true"></span>
+                  </span>
                 </template>
-                <span x-show="!row.enabled" class="chip text-[9.5px] px-1 py-0 pill-warning" x-text="t('states.disabled')"></span>
-                <span class="ms-auto"></span>
                 <!-- SSH-enabled indicator (#623, repositioned right
                      in #629). Replaces the prior green/grey dot —
                      an explicit icon reads more decisively than a
@@ -5290,6 +5515,71 @@
                   </div>
                 </div>
               </div>
+              <!-- ========== SNMP block (#344) ==========
+                   Per-host SNMP target alias + optional v2c/v3 override
+                   block. Bare `snmp_name` covers the common case (one
+                   curated row → one SNMP-reachable IP/host); the
+                   override block under it lets operators pin a specific
+                   community / version / port / v3 keys when this row's
+                   device differs from the global defaults. Empty fields
+                   = "inherit the global default". -->
+              <div class="pt-2 mt-1 border-t border-dashed border-[var(--border)]">
+                <div class="text-[10px] uppercase tracking-wider text-[var(--text-faint)] mb-2 font-semibold">SNMP</div>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-3 items-end">
+                  <div>
+                    <label class="block text-[10.5px] uppercase tracking-wider text-[var(--text-faint)] mb-1">
+                      SNMP target
+                      <span class="text-[10px] normal-case text-[var(--text-faint)] ms-1">(blank = use id)</span>
+                    </label>
+                    <input type="text" x-model="row.snmp_name" :disabled="isReadonly()"
+                           list="snmp-names"
+                           @input="markHostRowDirty(idx)"
+                           class="w-full mono text-[12.5px] py-1.5"
+                           placeholder="192.X.X.10 or switch01.example.com">
+                  </div>
+                </div>
+                <div x-show="!!(row.snmp_name && row.snmp_name.trim())"
+                     class="grid grid-cols-1 md:grid-cols-3 gap-3 items-end mt-3">
+                  <div>
+                    <label class="block text-[10.5px] uppercase tracking-wider text-[var(--text-faint)] mb-1">
+                      Community
+                      <span class="text-[10px] normal-case text-[var(--text-faint)] ms-1">(blank = global)</span>
+                    </label>
+                    <input type="text"
+                           :value="row.snmp && row.snmp.community || ''"
+                           @input="hostsConfig[idx].snmp = Object.assign({}, hostsConfig[idx].snmp || {}, { community: $event.target.value || null }); markHostRowDirty(idx)"
+                           :disabled="isReadonly()"
+                           class="w-full mono text-[12.5px] py-1.5"
+                           placeholder="public">
+                  </div>
+                  <div>
+                    <label class="block text-[10.5px] uppercase tracking-wider text-[var(--text-faint)] mb-1">
+                      Version
+                      <span class="text-[10px] normal-case text-[var(--text-faint)] ms-1">(blank = global)</span>
+                    </label>
+                    <select :value="row.snmp && row.snmp.version || ''"
+                            @change="hostsConfig[idx].snmp = Object.assign({}, hostsConfig[idx].snmp || {}, { version: $event.target.value || null }); markHostRowDirty(idx)"
+                            :disabled="isReadonly()"
+                            class="w-full mono text-[12.5px] py-1.5">
+                      <option value="">(default)</option>
+                      <option value="v2c">v2c</option>
+                      <option value="v3">v3</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label class="block text-[10.5px] uppercase tracking-wider text-[var(--text-faint)] mb-1">
+                      UDP port
+                      <span class="text-[10px] normal-case text-[var(--text-faint)] ms-1">(blank = 161)</span>
+                    </label>
+                    <input type="number" min="1" max="65535"
+                           :value="row.snmp && row.snmp.port || ''"
+                           @input="hostsConfig[idx].snmp = Object.assign({}, hostsConfig[idx].snmp || {}, { port: $event.target.value ? parseInt($event.target.value, 10) : null }); markHostRowDirty(idx)"
+                           :disabled="isReadonly()"
+                           class="w-full mono text-[12.5px] py-1.5"
+                           placeholder="161">
+                  </div>
+                </div>
+              </div>
               <!-- Row 3 — test button + per-provider result line. The
                    result lists each probed provider with a tick or
                    cross and a short reason so the operator knows
@@ -5308,7 +5598,7 @@
                 </button>
                 <div x-show="!!(hostsTestResults[idx] && !hostsTestResults[idx].pending && !hostsTestResults[idx].error)"
                      class="flex flex-wrap gap-3 text-[11px] flex-1">
-                  <template x-for="name in ['beszel','pulse','node_exporter','webmin']" :key="name">
+                  <template x-for="name in ['beszel','pulse','node_exporter','webmin','snmp']" :key="name">
                     <div x-show="!!(hostsTestResults[idx] && hostsTestResults[idx][name] && !hostsTestResults[idx][name].skipped)"
                          class="flex items-center gap-1.5"
                          :class="(hostsTestResults[idx] && hostsTestResults[idx][name] && hostsTestResults[idx][name].ok) ? 'text-[var(--success)]' : 'text-[var(--danger)]'">

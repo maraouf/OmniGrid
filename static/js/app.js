@@ -137,6 +137,12 @@ const CURATED_REFRESH_FIELDS = new Set([
   // ping_loss_pct are the per-tick probe state that drives the
   // header chips (red Unreachable / amber X% loss).
   'ping_enabled', 'ping_alive', 'ping_rtt_ms', 'ping_loss_pct',
+  // #344 — SNMP. snmp_name is curated (per-host alias to the SNMP-
+  // reachable target). Fetched on each /api/hosts response so the
+  // chip in providerStates(h) tracks the operator's mapping. Probe
+  // outputs (CPU/mem/disk/uptime) flow through the existing host_*
+  // schema fields above and don't need their own row here.
+  'snmp_name',
 ]);
 
 function app() {
@@ -379,7 +385,7 @@ function app() {
     // Datalist-backed autocomplete source for the Hosts editor.
     // Filled by discoverHosts() on demand; stays empty until the
     // operator asks.
-    hostsDiscovery: { beszel: [], pulse: [], webmin: [] },
+    hostsDiscovery: { beszel: [], pulse: [], webmin: [], snmp: [] },
     hostsDiscovering: false,
     // Per-row test results keyed by row index. Each entry has
     // ``pending: bool`` and the provider payloads {beszel, pulse,
@@ -588,6 +594,12 @@ function app() {
     // mirrors the shape of the others (pending / ok / detail).
     pingTestHostId: '',
     pingTestResult: null,
+    // #344 — SNMP test widget state. The Test button posts to
+    // `/api/snmp/test` with the operator-typed `snmpTestHost` (a
+    // bare hostname or IP — no per-host alias resolution at the test
+    // layer). Mirrors the shape of the other providers' test results.
+    snmpTestHost: '',
+    snmpTestResult: null,
     // The URL typed into the "Test one Webmin URL" scratch field.
     // Persisted to localStorage so operators don't have to retype it
     // every time they reload Host Stats to re-test after a config
@@ -765,6 +777,9 @@ function app() {
       'tuning_ping_concurrency',
       'tuning_ping_probe_timeout_seconds',
       'tuning_ping_cooldown_seconds',
+      // #344 — SNMP provider tunables (rendered in Host stats → SNMP).
+      'tuning_snmp_probe_timeout_seconds',
+      'tuning_snmp_concurrency',
     ],
     tuningForm: {},
     tuningEffective: {},
@@ -2355,7 +2370,7 @@ function app() {
     // view on refresh. Mirrors the existing `setRefreshInterval` /
     // localStorage shape.
     setHostStatsTab(name) {
-      if (!['node_exporter', 'beszel', 'pulse', 'webmin', 'ping'].includes(name)) return;
+      if (!['node_exporter', 'beszel', 'pulse', 'webmin', 'ping', 'snmp'].includes(name)) return;
       this.hostStatsTab = name;
       try { localStorage.setItem('hostStatsTab', name); } catch {}
     },
@@ -2380,10 +2395,18 @@ function app() {
         // tracker so saveHostStats picks them up alongside the other
         // providers' fields.
         'ping_enabled', 'ping_default_port', 'ping_use_icmp',
+        // #344 — SNMP. v3 secret keys behave like beszel_password /
+        // webmin_password — `_set` flag indicates persisted state, the
+        // `*_key` strings are blanked on the form so any typed value
+        // marks dirty. The aliases JSON also rides this dirty list.
+        'snmp_default_community', 'snmp_default_version',
+        'snmp_default_port', 'snmp_v3_user',
+        'snmp_v3_auth_key', 'snmp_v3_priv_key',
+        'snmp_aliases_json',
         // #596 — per-provider chip colour overrides.
         'provider_color_beszel', 'provider_color_pulse',
         'provider_color_node_exporter', 'provider_color_webmin',
-        'provider_color_ping',
+        'provider_color_ping', 'provider_color_snmp',
       ];
       const subset = {};
       for (const k of pick) subset[k] = s[k];
@@ -2418,7 +2441,7 @@ function app() {
       const active = new Set(
         raw.split(',').map(s => s.trim()).filter(s => s && s !== 'none'),
       );
-      const valid = new Set(['beszel', 'node_exporter', 'pulse', 'webmin', 'ping']);
+      const valid = new Set(['beszel', 'node_exporter', 'pulse', 'webmin', 'ping', 'snmp']);
       for (const s of active) {
         if (!valid.has(s)) {
           this.showToast(this.t('settings.host_stats.source_invalid'), 'error');
@@ -2531,6 +2554,53 @@ function app() {
       if (this.settings.ping_use_icmp !== undefined) {
         payload.ping_use_icmp = !!this.settings.ping_use_icmp;
       }
+      // #344 — SNMP provider. Defaults always round-trip (so the
+      // operator's saved community / version / port survive an
+      // enable/disable cycle). v3 keys follow the keep-current-if-blank
+      // contract — only POSTed when the user actually types a value.
+      // Aliases ride the JSON-textarea pattern from node_exporter
+      // overrides; `snmp_aliases_json` holds the textarea string and
+      // we parse-and-reject here.
+      if (this.settings.snmp_default_community !== undefined) {
+        payload.snmp_default_community = (this.settings.snmp_default_community || '').trim();
+      }
+      if (this.settings.snmp_default_version !== undefined) {
+        const v = (this.settings.snmp_default_version || '').trim().toLowerCase();
+        if (v && v !== 'v2c' && v !== 'v3') {
+          this.showToast(this.t('settings.host_stats.snmp.version_invalid'), 'error');
+          return;
+        }
+        payload.snmp_default_version = v;
+      }
+      if (this.settings.snmp_default_port !== undefined && this.settings.snmp_default_port !== '') {
+        const p = parseInt(this.settings.snmp_default_port, 10);
+        if (Number.isFinite(p) && p >= 1 && p <= 65535) {
+          payload.snmp_default_port = p;
+        }
+      }
+      if (this.settings.snmp_v3_user !== undefined) {
+        payload.snmp_v3_user = (this.settings.snmp_v3_user || '').trim();
+      }
+      if (this.settings.snmp_v3_auth_key) {
+        payload.snmp_v3_auth_key = this.settings.snmp_v3_auth_key;
+      }
+      if (this.settings.snmp_v3_priv_key) {
+        payload.snmp_v3_priv_key = this.settings.snmp_v3_priv_key;
+      }
+      if (this.settings.snmp_aliases_json !== undefined) {
+        const raw = (this.settings.snmp_aliases_json || '').trim() || '{}';
+        let aliases = {};
+        try {
+          const parsed = JSON.parse(raw);
+          if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+            aliases = parsed;
+          } else { throw new Error('object expected'); }
+        } catch (_) {
+          this.showToast(this.t('settings.host_stats.snmp.aliases_invalid'), 'error');
+          return;
+        }
+        payload.snmp_aliases = aliases;
+      }
       // #596 — per-provider chip colour overrides. Always packed into
       // the payload (even when blank → backend treats blank as "clear
       // the override"). Hex validation is done server-side; the colour
@@ -2539,7 +2609,7 @@ function app() {
       for (const k of [
         'provider_color_beszel', 'provider_color_pulse',
         'provider_color_node_exporter', 'provider_color_webmin',
-        'provider_color_ping',
+        'provider_color_ping', 'provider_color_snmp',
       ]) {
         if (this.settings[k] !== undefined) {
           payload[k] = (this.settings[k] || '').trim();
@@ -2601,6 +2671,16 @@ function app() {
           if (payload.webmin_password) {
             this.settings.webmin_password_set = true;
             this.settings.webmin_password = '';
+          }
+          // SNMP v3 keys (#344). Same flip-flag-and-clear pattern as
+          // every other write-only secret in this form.
+          if (payload.snmp_v3_auth_key) {
+            this.settings.snmp_v3_auth_key_set = true;
+            this.settings.snmp_v3_auth_key = '';
+          }
+          if (payload.snmp_v3_priv_key) {
+            this.settings.snmp_v3_priv_key_set = true;
+            this.settings.snmp_v3_priv_key = '';
           }
           // Re-capture baseline so the dirty indicator clears now that
           // the server has the same values we just sent.
@@ -3104,6 +3184,8 @@ function app() {
         // #381 — WebAuthn / passkey state changes. Same OIDC accent
         // family — both share the security domain.
         'webauthn',
+        // #344 — SNMP host-stats provider diagnostics.
+        'snmp',
       ]);
       // Replace [xxx] at the start of (or inside) the line. Allow
       // underscores / hyphens for tag names like [host_net_sampler].
@@ -4641,6 +4723,26 @@ function app() {
           ping_default_port:     (d.ping && Number.isFinite(d.ping.default_port)) ? d.ping.default_port : 443,
           ping_use_icmp:         !!(d.ping && d.ping.use_icmp),
           ping_has_icmp_support: !!(d.ping && d.ping.has_icmp_support),
+          // SNMP provider (#344). v3 secret keys flow as `_set` flags
+          // (write-only contract); community / version / port / aliases
+          // round-trip in the clear. `has_snmp_support` reflects whether
+          // pysnmp is importable on the server; SPA uses it to disable
+          // the ICMP-style "missing dep" hint when the package isn't
+          // installed.
+          snmp_default_community: (d.snmp && d.snmp.default_community) || 'public',
+          snmp_default_version:   (d.snmp && d.snmp.default_version)   || 'v2c',
+          snmp_default_port:      (d.snmp && Number.isFinite(d.snmp.default_port)) ? d.snmp.default_port : 161,
+          snmp_v3_user:           (d.snmp && d.snmp.v3_user) || '',
+          snmp_v3_auth_key:       '',
+          snmp_v3_auth_key_set:   !!(d.snmp && d.snmp.v3_auth_key_set),
+          snmp_v3_priv_key:       '',
+          snmp_v3_priv_key_set:   !!(d.snmp && d.snmp.v3_priv_key_set),
+          // Aliases textarea — same JSON-string pattern as
+          // node_exporter_overrides_json so the existing dirty-tracker
+          // + JSON-parse-on-save path applies.
+          snmp_aliases:           (d.snmp && d.snmp.aliases) || {},
+          snmp_aliases_json:      JSON.stringify((d.snmp && d.snmp.aliases) || {}, null, 2),
+          snmp_has_snmp_support:  !!(d.snmp && d.snmp.has_snmp_support),
           // #596 — per-provider chip colour overrides. Empty string
           // means "use the SPA default" (see providerColor() helper).
           provider_color_beszel:        d.provider_color_beszel        || '',
@@ -4648,6 +4750,7 @@ function app() {
           provider_color_node_exporter: d.provider_color_node_exporter || '',
           provider_color_webmin:        d.provider_color_webmin        || '',
           provider_color_ping:          d.provider_color_ping          || '',
+          provider_color_snmp:          d.provider_color_snmp          || '',
           // Scheduler — IANA zone. Blank = container-local (legacy).
           scheduler_timezone: d.scheduler_timezone || '',
           // Open-Meteo upstream (weather widget). Blank = default.
@@ -5085,6 +5188,40 @@ function app() {
         this.pingTestResult = { pending: false, ok: !!j.ok, detail };
       } catch (e) {
         this.pingTestResult = { pending: false, ok: false, detail: this.t('toasts.network_error') };
+      }
+    },
+    // #344 — SNMP test widget. Hits `/api/snmp/test` with the operator-
+    // typed host (bare IP or hostname). Falls back to persisted defaults
+    // server-side via _resolve_field, so the operator doesn't need to
+    // retype the community / version / port / v3 keys to validate one
+    // box. Result rendering mirrors testWebminConnection.
+    async testSnmpConnection() {
+      const host = (this.snmpTestHost || '').trim();
+      if (!host) {
+        this.showToast(this.t('settings.host_stats.snmp.test_host_required'), 'error');
+        return;
+      }
+      this.snmpTestResult = { pending: true };
+      try {
+        const r = await fetch('/api/snmp/test', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ host }),
+        });
+        const j = await r.json().catch(() => ({}));
+        if (!r.ok) {
+          this.snmpTestResult = {
+            pending: false, ok: false,
+            detail: j.detail || this.t('toasts.save_failed'),
+          };
+          return;
+        }
+        this.snmpTestResult = {
+          pending: false, ok: !!j.ok,
+          detail: j.detail || (j.ok ? 'OK' : this.t('toasts.save_failed')),
+        };
+      } catch (e) {
+        this.snmpTestResult = { pending: false, ok: false, detail: this.t('toasts.network_error') };
       }
     },
     // -------- SSH console ----------------------------------------------
@@ -7186,6 +7323,7 @@ function app() {
         node_exporter: '#f59e0b',  // amber  (matches pill-update hue)
         webmin:        '#a78bfa',  // purple (distinct slot for the 4th provider)
         ping:          '#06b6d4',  // cyan   (distinct from amber + green; was conflating with exporter)
+        snmp:          '#ec4899',  // pink   (#344 — sixth provider; distinct from the existing five)
       };
       // Live admin-form value first (reactive on every keystroke / save).
       const live = ((this.settings || {})['provider_color_' + name] || '').trim();
@@ -7206,6 +7344,30 @@ function app() {
         '--chip-bg: color-mix(in srgb, ' + c + ' 18%, transparent); ' +
         '--chip-br: color-mix(in srgb, ' + c + ' 40%, transparent); ' +
         '--chip-fg: ' + c + ';'
+      );
+    },
+    // Provider name → /img/icons/<slug>.svg filename (#607). Mostly
+    // identity except for `node_exporter` → `node-exporter` (the
+    // resolver convention prefers hyphens over underscores in icon
+    // filenames). Returns the bare slug; the consumer wraps it in
+    // `url(/img/icons/<slug>.svg)` for the mask-image binding.
+    providerIconSlug(name) {
+      if (name === 'node_exporter') return 'node-exporter';
+      return name;
+    },
+    // Inline style for `.provider-icon` (#607) — paints a mono SVG
+    // mask in the per-provider chip colour. Use this on a `<span>`
+    // when you want the provider's icon recoloured by the operator's
+    // chip-colour customisation (#596). Pairs naturally with
+    // `providerChipStyle()` when the icon sits inside a `pill-custom`
+    // chip (the parent's `--chip-fg` already provides the colour, so
+    // the icon picks it up via `currentColor` automatically). Use this
+    // helper when the icon stands ALONE (e.g. tab strip) where there's
+    // no surrounding chip to inherit from.
+    providerIconStyle(name) {
+      return (
+        '--provider-icon-url: url(/img/icons/' + this.providerIconSlug(name) + '.svg); '
+        + 'color: ' + this.providerColor(name) + ';'
       );
     },
     providerStates(h) {
@@ -7244,6 +7406,13 @@ function app() {
       // want that "no data yet" case to render a misleading red chip,
       // so only flip to 'down' when the value is explicitly false.
       add('ping',          !!h.ping_enabled, h.ping_alive === false ? 'down' : null);
+      // SNMP (#344) — chip renders when the row carries a snmp_name
+      // (alias) OR was explicitly mapped via the `snmp` per-row override
+      // dict. Same rules as the other providers: globally enabled,
+      // globally healthy, hit on this host = ok, mapped-but-no-hit =
+      // failing. SNMP doesn't carry its own self-status field (unlike
+      // beszel_status) so the badStatus check no-ops by passing null.
+      add('snmp',          !!(h.snmp_name && String(h.snmp_name).trim()), null);
       return out;
     },
     // Stale-marker helpers for the UI.
@@ -8095,6 +8264,13 @@ function app() {
           // sub-object so Alpine bindings can read row.ping.enabled
           // without an undefined-chain on first render.
           if (!row.ping || typeof row.ping !== 'object') row.ping = {};
+          // #344 — same defensive default for the per-host SNMP
+          // override sub-object. Bare `snmp_name` (string) is separate
+          // and lives on the row directly; the `snmp` dict is only used
+          // when the operator wants to override the global community /
+          // version / port / v3 keys for THIS host.
+          if (!row.snmp || typeof row.snmp !== 'object') row.snmp = {};
+          if (typeof row.snmp_name !== 'string') row.snmp_name = '';
           // Stamp a stable per-row uid the first time we see this
           // row. Used as the x-for :key so DOM elements never tear
           // down + re-mount mid-typing (which loses input focus and
@@ -8139,6 +8315,9 @@ function app() {
           beszel: Array.isArray(d.beszel) ? d.beszel : [],
           pulse:  Array.isArray(d.pulse)  ? d.pulse  : [],
           webmin: Array.isArray(d.webmin) ? d.webmin : [],
+          // #344 — SNMP discovery surfaces the configured aliases'
+          // values (TARGETS, not curated row ids). Empty by default.
+          snmp:   Array.isArray(d.snmp)   ? d.snmp   : [],
         };
         const errs = d.errors || {};
         const errKeys = Object.keys(errs);
@@ -8387,6 +8566,7 @@ function app() {
             pulse_name:  '',
             webmin_name: '',
             webmin_url:  '',
+            snmp_name:   '',
             enabled:     true,
           };
         }
@@ -8395,6 +8575,7 @@ function app() {
       for (const n of (this.hostsDiscovery.beszel || [])) addOrMerge(n, 'beszel_name');
       for (const n of (this.hostsDiscovery.pulse  || [])) addOrMerge(n, 'pulse_name');
       for (const n of (this.hostsDiscovery.webmin || [])) addOrMerge(n, 'webmin_name');
+      for (const n of (this.hostsDiscovery.snmp   || [])) addOrMerge(n, 'snmp_name');
       const rows = Object.values(added);
       if (!rows.length) {
         this.showToast(this.t('admin_hosts.import.nothing_new'), 'success');
@@ -8800,6 +8981,9 @@ function app() {
         pulse_name: '',
         webmin_name: '',
         webmin_url: '',
+        // #344 — SNMP target alias. Blank = no SNMP for this host.
+        snmp_name: '',
+        snmp: {},
         url: '',
         icon: '',
         // Free-text IP field — operator-maintained, not derived.
@@ -9726,6 +9910,23 @@ function app() {
         }
         const pt = String(pingIn.transport || '').trim().toLowerCase();
         if (pt === 'tcp' || pt === 'icmp') pingOut.transport = pt;
+        // Per-host SNMP override (#344). Same strip-blanks pattern as
+        // ssh / ping — every key falls back to the global default when
+        // empty, so we only persist explicit overrides.
+        const snmpIn = h.snmp || {};
+        const snmpOut = {};
+        const sc = String(snmpIn.community || '').trim();
+        if (sc) snmpOut.community = sc;
+        const sv = String(snmpIn.version || '').trim().toLowerCase();
+        if (sv === 'v2c' || sv === 'v3') snmpOut.version = sv;
+        if (snmpIn.port) {
+          const sp = parseInt(snmpIn.port, 10);
+          if (Number.isFinite(sp) && sp >= 1 && sp <= 65535) snmpOut.port = sp;
+        }
+        for (const k of ['v3_user', 'v3_auth_key', 'v3_priv_key']) {
+          const sval = String(snmpIn[k] || '').trim();
+          if (sval) snmpOut[k] = sval;
+        }
         return {
           id:            (h.id || '').trim(),
           // Empty label is INTENTIONAL — `hostDisplayName(h)` falls
@@ -9739,6 +9940,11 @@ function app() {
           beszel_name:   (h.beszel_name || '').trim(),
           pulse_name:    (h.pulse_name || '').trim(),
           webmin_name:   (h.webmin_name || '').trim(),
+          // SNMP target alias (#344). Empty means "no SNMP for this
+          // host". Backend's _clean_host_snmp validates the override
+          // dict; bare snmp_name flows through as a string.
+          snmp_name:     (h.snmp_name || '').trim(),
+          snmp:          snmpOut,
           url:           (h.url || '').trim(),
           icon:          (h.icon || '').trim(),
           ssh:           sshOut,
@@ -11403,6 +11609,10 @@ function app() {
           // openHostDrawer gate fails and loadHostPingHistory never
           // fires (chart stays "Collecting data…" forever).
           'ping_enabled',
+          // #344 — SNMP target alias. Curated overlay so the per-host
+          // chip in providerStates(h) renders correctly off the
+          // skeleton row (before the per-host probe lands).
+          'snmp_name',
         ];
         const incoming = Array.isArray(d.hosts) ? d.hosts : [];
         const incomingIds = new Set(incoming.map(h => h.id));
@@ -11823,7 +12033,8 @@ function app() {
     // toolbar count badge.
     hostHasAgent(h) {
       if (!h) return false;
-      return !!(h.beszel_name || h.pulse_name || h.ne_url || h.webmin_name || h.ping_enabled);
+      return !!(h.beszel_name || h.pulse_name || h.ne_url
+                || h.webmin_name || h.ping_enabled || h.snmp_name);
     },
     // Telemetry = any provider that contributes CPU / Memory / Disk
     // gauges. Ping is reachability + latency only; a ping-only host
@@ -11862,6 +12073,7 @@ function app() {
       if (h.ne_url)       out.push({ name: 'node_exporter', label: 'node-exporter' });
       if (h.webmin_name)  out.push({ name: 'webmin',        label: 'Webmin' });
       if (h.ping_enabled) out.push({ name: 'ping',          label: 'Ping' });
+      if (h.snmp_name)    out.push({ name: 'snmp',          label: 'SNMP' });
       return out;
     },
     filteredHosts() {

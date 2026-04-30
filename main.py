@@ -1378,6 +1378,24 @@ class SettingsIn(BaseModel):
     ping_enabled: Optional[bool] = None
     ping_default_port: Optional[int] = None
     ping_use_icmp: Optional[bool] = None
+    # SNMP (#344) — sixth host-stats provider. Per-host probe (no
+    # central hub). Defaults are global; per-host overrides live on
+    # ``hosts_config[].snmp = {community, version, port, v3_*}``.
+    # ``snmp_default_community`` defaults to "public" (the common read-
+    # only community on home-lab gear); ``snmp_default_version``
+    # accepts "v2c" or "v3"; ``snmp_default_port`` defaults to 161.
+    # The three v3 keys (user / auth-key / priv-key) follow the same
+    # write-only ``_set`` flag contract as every other secret — empty
+    # input keeps the current value, non-empty replaces it.
+    # ``snmp_aliases`` maps Docker hostname → SNMP target IP/host so
+    # the probe can hit a different address than the curated row's id.
+    snmp_default_community: Optional[str] = None
+    snmp_default_version: Optional[str] = None
+    snmp_default_port: Optional[int] = None
+    snmp_v3_user: Optional[str] = None
+    snmp_v3_auth_key: Optional[str] = None
+    snmp_v3_priv_key: Optional[str] = None
+    snmp_aliases: Optional[dict] = None
     # Per-provider chip color (#596) — operator-customisable hex colour
     # for the per-host provider chip rendered in the Hosts view + the
     # drawer's "Enabled agents" card. Each value is a 7-char `#RRGGBB`
@@ -1389,6 +1407,7 @@ class SettingsIn(BaseModel):
     provider_color_node_exporter: Optional[str] = None
     provider_color_webmin: Optional[str] = None
     provider_color_ping: Optional[str] = None
+    provider_color_snmp: Optional[str] = None
     # Scheduler timezone — IANA name (e.g. "Africa/Cairo"). When set,
     # daily/weekly/monthly schedule anchors are computed in THIS zone
     # instead of the container's localtime. Containers default to UTC;
@@ -1764,6 +1783,23 @@ async def api_get_settings(request: Request):
             "use_icmp":         get_setting_bool("ping_use_icmp", False),
             "has_icmp_support": (lambda: __import__("logic.ping", fromlist=["has_icmp_support"]).has_icmp_support())(),
         },
+        # SNMP (#344). v3 secret keys follow the write-only ``_set``
+        # flag contract; community, version, port, aliases round-trip
+        # in the clear (community is technically a credential but it's
+        # not a SECRET in the same sense — many operators want to see
+        # the configured value to confirm). ``has_snmp_support`` mirrors
+        # the Ping pattern so the SPA's master toggle disables with a
+        # "package missing" hint when pysnmp isn't installed.
+        "snmp": {
+            "default_community":   get_setting("snmp_default_community", "public") or "public",
+            "default_version":     (get_setting("snmp_default_version", "v2c") or "v2c").strip().lower(),
+            "default_port":        int(get_setting("snmp_default_port", "161") or "161"),
+            "v3_user":             get_setting("snmp_v3_user", "") or "",
+            "v3_auth_key_set":     bool(get_setting("snmp_v3_auth_key", "")),
+            "v3_priv_key_set":     bool(get_setting("snmp_v3_priv_key", "")),
+            "aliases":             json.loads(get_setting("snmp_aliases", "{}") or "{}"),
+            "has_snmp_support":    (lambda: __import__("logic.snmp", fromlist=["has_snmp_support"]).has_snmp_support())(),
+        },
         # Per-provider chip colour overrides (#596). Empty string means
         # "use the SPA's built-in default" — the SPA's `providerColor()`
         # helper falls back to the same default constant. Round-tripped
@@ -1773,6 +1809,7 @@ async def api_get_settings(request: Request):
         "provider_color_node_exporter": get_setting("provider_color_node_exporter", "") or "",
         "provider_color_webmin":        get_setting("provider_color_webmin", "")        or "",
         "provider_color_ping":          get_setting("provider_color_ping", "")          or "",
+        "provider_color_snmp":          get_setting("provider_color_snmp", "")          or "",
         # SSH console — global defaults (Admin → SSH). Secrets
         # redacted per CLAUDE.md's ``_set`` flag contract: the browser
         # learns only whether a private key / passphrase has been set.
@@ -1965,14 +2002,15 @@ async def api_set_settings(
         raw = (s.host_stats_source or "").strip()
         parts = {t.strip().lower() for t in raw.split(",") if t.strip()}
         parts.discard("none")
-        valid = {"beszel", "node_exporter", "pulse", "webmin", "ping"}
+        valid = {"beszel", "node_exporter", "pulse", "webmin", "ping", "snmp"}
         unknown = parts - valid
         if unknown:
             raise HTTPException(
                 status_code=400,
                 detail=(
                     "host_stats_source must be a CSV of 'beszel' / "
-                    "'node_exporter' / 'pulse' / 'webmin' / 'ping' "
+                    "'node_exporter' / 'pulse' / 'webmin' / 'ping' / "
+                    "'snmp' "
                     f"(or 'none'). Unknown: {sorted(unknown)}"
                 ),
             )
@@ -2050,6 +2088,48 @@ async def api_set_settings(
         set_setting("ping_default_port", str(p))
     if s.ping_use_icmp is not None:
         set_setting("ping_use_icmp", "true" if s.ping_use_icmp else "false")
+    # SNMP (#344). Mirror the webmin / beszel / pulse persistence
+    # contract: community / version / port / aliases round-trip in the
+    # clear; v3 user is also clear text; the two v3 keys are write-only
+    # (keep current if blank). Validation: port clamped to 1..65535;
+    # version restricted to {"v2c", "v3"}; community trimmed.
+    if s.snmp_default_community is not None:
+        set_setting("snmp_default_community", (s.snmp_default_community or "").strip())
+    if s.snmp_default_version is not None:
+        v = (s.snmp_default_version or "").strip().lower()
+        if v and v not in ("v2c", "v3"):
+            raise HTTPException(
+                status_code=400,
+                detail="snmp_default_version must be 'v2c' or 'v3' (or blank)",
+            )
+        set_setting("snmp_default_version", v or "v2c")
+    if s.snmp_default_port is not None:
+        try:
+            p = int(s.snmp_default_port)
+        except (TypeError, ValueError):
+            raise HTTPException(
+                status_code=400,
+                detail="snmp_default_port must be an integer",
+            )
+        if not (1 <= p <= 65535):
+            raise HTTPException(
+                status_code=400,
+                detail="snmp_default_port must be 1-65535",
+            )
+        set_setting("snmp_default_port", str(p))
+    if s.snmp_v3_user is not None:
+        set_setting("snmp_v3_user", (s.snmp_v3_user or "").strip())
+    if s.snmp_v3_auth_key is not None and s.snmp_v3_auth_key.strip() != "":
+        set_setting("snmp_v3_auth_key", s.snmp_v3_auth_key)
+    if s.snmp_v3_priv_key is not None and s.snmp_v3_priv_key.strip() != "":
+        set_setting("snmp_v3_priv_key", s.snmp_v3_priv_key)
+    if s.snmp_aliases is not None:
+        clean = {
+            str(k).strip(): str(v).strip()
+            for k, v in (s.snmp_aliases or {}).items()
+            if str(k).strip() and str(v).strip()
+        }
+        set_setting("snmp_aliases", json.dumps(clean))
     # Per-provider chip colours (#596). Hex string `#RRGGBB` (7 chars,
     # case-insensitive) OR empty/blank to clear the override and fall
     # back to the SPA's built-in default. Any other shape rejected at
@@ -2060,7 +2140,7 @@ async def api_set_settings(
     for _field in (
         "provider_color_beszel", "provider_color_pulse",
         "provider_color_node_exporter", "provider_color_webmin",
-        "provider_color_ping",
+        "provider_color_ping", "provider_color_snmp",
     ):
         _val = getattr(s, _field, None)
         if _val is None:
@@ -2620,6 +2700,13 @@ async def api_set_settings(
         # cache TTL alone catches `ping_enabled` flips after the
         # 10s window, but we still bust on save for instant feedback.
         "ping_enabled", "ping_default_port", "ping_use_icmp",
+        # #344 — SNMP. Defaults + aliases + v3 keys all live under the
+        # same per-provider state; any change here invalidates the
+        # cred-blob hash so subsequent /api/hosts/one/<id> calls re-
+        # probe with the new credentials.
+        "snmp_default_community", "snmp_default_version", "snmp_default_port",
+        "snmp_v3_user", "snmp_v3_auth_key", "snmp_v3_priv_key",
+        "snmp_aliases",
     }
     if _host_provider_fields & set(s.model_dump(exclude_unset=True).keys()):
         invalidate_host_provider_cache()
@@ -2876,6 +2963,87 @@ async def api_beszel_test(
         count_key="system_count",
         items_key="systems",
     )
+
+
+@app.post("/api/snmp/test")
+async def api_snmp_test(
+    request: Request,
+    _admin: auth.User = Depends(auth.require_admin),
+):
+    """Admin-only: probe one SNMP host (#344).
+
+    Body fields are all optional — missing values fall through to the
+    persisted defaults via ``_resolve_field``, mirroring the test-
+    connection contract every other provider implements:
+
+      * ``host``      — required (no global default)
+      * ``community`` — falls back to ``snmp_default_community``
+      * ``version``   — falls back to ``snmp_default_version``
+      * ``port``      — falls back to ``snmp_default_port``
+      * ``v3_user``    — falls back to ``snmp_v3_user``
+      * ``v3_auth_key``/``v3_priv_key`` — keep-current-if-blank
+                                          (write-only secret contract)
+
+    Returns ``{ok, detail, host_key}`` with a short summary suitable
+    for the Settings panel's Test button + the Admin → Hosts editor's
+    per-row test column.
+    """
+    from logic import snmp as _snmp
+    body = await request.json()
+    host = (body.get("host") or "").strip()
+    if not host:
+        return {"ok": False, "detail": "host is required"}
+    if not _snmp.has_snmp_support():
+        return {"ok": False,
+                "detail": "pysnmp not installed (pip install pysnmp)"}
+    community = _resolve_field(body, "community", "snmp_default_community", "public")
+    version = (_resolve_field(body, "version", "snmp_default_version", "v2c")
+               .strip().lower() or "v2c")
+    try:
+        port = int(_resolve_field(body, "port", "snmp_default_port", "161") or "161")
+    except (TypeError, ValueError):
+        port = 161
+    v3_user = _resolve_field(body, "v3_user", "snmp_v3_user", "")
+    v3_auth = _resolve_field(body, "v3_auth_key", "snmp_v3_auth_key", "")
+    v3_priv = _resolve_field(body, "v3_priv_key", "snmp_v3_priv_key", "")
+
+    result = await _snmp.probe_snmp(
+        host,
+        community=community,
+        version=version,
+        port=port,
+        v3_user=v3_user,
+        v3_auth_key=v3_auth,
+        v3_priv_key=v3_priv,
+        timeout=10.0,
+    )
+    if result.get("error") and not result.get("hosts"):
+        return {"ok": False,
+                "detail": _humanise_probe_error(result["error"], "SNMP")}
+    hosts = result.get("hosts") or {}
+    if not hosts:
+        return {"ok": False,
+                "detail": "no parseable response — check community / version / port"}
+    host_key = next(iter(hosts))
+    stats = hosts[host_key]
+    cpu = stats.get("host_cpu_percent")
+    mem = stats.get("host_mem_total") or 0
+    disk = stats.get("host_disk_total") or 0
+    nics = len(stats.get("network_ifaces") or [])
+    detail_bits = [f"OK — {host_key}"]
+    if cpu is not None:
+        try:
+            detail_bits.append(f"cpu={int(cpu)}%")
+        except (TypeError, ValueError):
+            pass
+    if mem:
+        detail_bits.append(f"mem={mem // (1024**3)} GB")
+    if disk:
+        detail_bits.append(f"disk={disk // (1024**3)} GB")
+    if nics:
+        detail_bits.append(f"nics={nics}")
+    return {"ok": True, "detail": " · ".join(detail_bits),
+            "host_key": host_key}
 
 
 # ----------------------------------------------------------------------------
@@ -3444,6 +3612,15 @@ _host_provider_lock = asyncio.Lock()
 _webmin_host_cache: dict[str, tuple[float, dict]] = {}
 _webmin_host_fail_cache: dict[str, tuple[float, dict]] = {}
 
+# Per-host SNMP result caches — same pattern as the Webmin caches.
+# Success cache for 30s, fail cache for 5s. SNMP probes are bounded by
+# UDP timeout (default 5s × ~13 OID walks fanned in parallel ≈ 5-8s
+# wall-clock on a healthy host) so caching the result for the burst
+# fan-out is the same win Webmin gets. Per-host id keying matches the
+# Webmin cache; SNMP is per-host, no central hub.
+_snmp_host_cache: dict[str, tuple[float, dict]] = {}
+_snmp_host_fail_cache: dict[str, tuple[float, dict]] = {}
+
 
 def invalidate_host_provider_cache() -> None:
     """Drop the cached provider state + per-host Webmin results.
@@ -3462,6 +3639,12 @@ def invalidate_host_provider_cache() -> None:
     _host_provider_cache["state"] = None
     _webmin_host_cache.clear()
     _webmin_host_fail_cache.clear()
+    # SNMP shares the per-host success / failure cache pattern with
+    # Webmin (#344). Bust on every settings-save touching SNMP creds /
+    # aliases so the next probe picks up the new community / version /
+    # port without waiting out the 30s TTL.
+    _snmp_host_cache.clear()
+    _snmp_host_fail_cache.clear()
 
 
 async def _get_host_provider_state(force: bool = False) -> dict:
@@ -3503,6 +3686,18 @@ async def _get_host_provider_state(force: bool = False) -> dict:
             get_setting("webmin_verify_tls", "true") or "true",
             get_setting("node_exporter_url_template", "") or "",
             get_setting("node_exporter_overrides", "") or "",
+            # SNMP (#344) — every credential / default that affects
+            # what the probe sees. v3 keys are the security-sensitive
+            # ones; the community + port + version + aliases also
+            # belong here so a global default change auto-busts the
+            # cache without waiting on the explicit invalidate path.
+            get_setting("snmp_default_community", "") or "",
+            get_setting("snmp_default_version", "") or "",
+            get_setting("snmp_default_port", "") or "",
+            get_setting("snmp_v3_user", "") or "",
+            get_setting("snmp_v3_auth_key", "") or "",
+            get_setting("snmp_v3_priv_key", "") or "",
+            get_setting("snmp_aliases", "") or "",
         ))
         cred_hash = hashlib.sha256(cred_blob.encode("utf-8")).hexdigest()[:16]
         return active_set, (tuple(sorted(active_set)), cred_hash)
@@ -3631,6 +3826,43 @@ async def _do_host_provider_probe(active: set[str], cache_key: tuple) -> dict:
         else:
             errors["webmin"] = "missing user / password"
 
+    # SNMP (#344) — settings-derived defaults flow through state so
+    # `_merge_one_host` doesn't re-read them per host. v3 keys are
+    # secrets but stay in the in-process state dict (not the wire); the
+    # admin-only `/api/snmp/test` endpoint is the only path that lets
+    # operators surface them and even there they're write-only via
+    # `_set` flags. Per-host overrides on `hosts_config[].snmp` are
+    # consulted INSIDE _merge_one_host so a row's own community wins.
+    snmp_default_community = ""
+    snmp_default_version = "v2c"
+    snmp_default_port = 161
+    snmp_v3_user = ""
+    snmp_v3_auth_key = ""
+    snmp_v3_priv_key = ""
+    snmp_aliases: dict[str, str] = {}
+    if "snmp" in active:
+        snmp_default_community = get_setting("snmp_default_community", "") or "public"
+        snmp_default_version = (
+            get_setting("snmp_default_version", "") or "v2c"
+        ).strip().lower() or "v2c"
+        try:
+            snmp_default_port = int(get_setting("snmp_default_port", "") or "161")
+        except (TypeError, ValueError):
+            snmp_default_port = 161
+        snmp_v3_user = get_setting("snmp_v3_user", "") or ""
+        snmp_v3_auth_key = get_setting("snmp_v3_auth_key", "") or ""
+        snmp_v3_priv_key = get_setting("snmp_v3_priv_key", "") or ""
+        try:
+            sn_aliases_raw = json.loads(get_setting("snmp_aliases", "{}") or "{}")
+            if isinstance(sn_aliases_raw, dict):
+                snmp_aliases = {
+                    str(k).strip(): str(v).strip()
+                    for k, v in sn_aliases_raw.items()
+                    if str(k).strip() and str(v).strip()
+                }
+        except ValueError:
+            snmp_aliases = {}
+
     state = {
         "active":           active,
         "beszel_map":       beszel_map,
@@ -3641,6 +3873,15 @@ async def _do_host_provider_probe(active: set[str], cache_key: tuple) -> dict:
         "webmin_verify":    webmin_verify,
         "webmin_creds_ok":  webmin_creds_ok,
         "webmin_aliases":   webmin_aliases,
+        # SNMP (#344) — defaults + aliases. Per-host overrides land
+        # later via `hosts_config[].snmp`.
+        "snmp_default_community": snmp_default_community,
+        "snmp_default_version":   snmp_default_version,
+        "snmp_default_port":      snmp_default_port,
+        "snmp_v3_user":           snmp_v3_user,
+        "snmp_v3_auth_key":       snmp_v3_auth_key,
+        "snmp_v3_priv_key":       snmp_v3_priv_key,
+        "snmp_aliases":           snmp_aliases,
     }
     _host_provider_cache["ts"] = time.time()
     _host_provider_cache["state"] = state
@@ -3673,6 +3914,11 @@ async def _merge_one_host(h: dict, state: dict, *, force: bool = False) -> tuple
     if force:
         _webmin_host_cache.pop(h["id"], None)
         _webmin_host_fail_cache.pop(h["id"], None)
+        # SNMP per-host caches (#344) — same force=true contract as
+        # Webmin. Drop both success + fail entries so the next probe
+        # block hits the wire and produces a fresh sample.
+        _snmp_host_cache.pop(h["id"], None)
+        _snmp_host_fail_cache.pop(h["id"], None)
 
     # Pulse — coarse fallback layer.
     pulse_key = h.get("pulse_name") or h.get("id") or ""
@@ -3681,6 +3927,74 @@ async def _merge_one_host(h: dict, state: dict, *, force: bool = False) -> tuple
         if pstats:
             _merge_best(merged, pstats)
             providers_hit.append("pulse")
+
+    # SNMP (#344) — runs AFTER Pulse but BEFORE Beszel so the unix-
+    # style providers can override SNMP's coarser data wherever they
+    # have visibility. Each curated row can override community / port
+    # / version / v3 keys via `hosts_config[].snmp`; falls through to
+    # the global defaults from state otherwise. Per-host alias map
+    # (Docker hostname → SNMP target) wins over the row's snmp_name.
+    if "snmp" in active:
+        from logic import snmp as _snmp
+        row_snmp = h.get("snmp") if isinstance(h.get("snmp"), dict) else {}
+        snmp_target = (
+            (state.get("snmp_aliases") or {}).get(h["id"])
+            or (h.get("snmp_name") or "").strip()
+            or h["id"]
+        )
+        if snmp_target:
+            now = time.time()
+            wm_success_ttl = tuning.tuning_int("tuning_webmin_host_cache_ttl_seconds")
+            wm_fail_ttl = tuning.tuning_int("tuning_webmin_host_fail_cache_ttl_seconds")
+            cached = _snmp_host_cache.get(h["id"])
+            if cached and (now - cached[0]) < wm_success_ttl:
+                result = cached[1]
+            else:
+                fail_cached = _snmp_host_fail_cache.get(h["id"])
+                if fail_cached and (now - fail_cached[0]) < wm_fail_ttl:
+                    result = fail_cached[1]
+                else:
+                    community = (row_snmp.get("community") or "").strip() \
+                        or state.get("snmp_default_community") or "public"
+                    version = ((row_snmp.get("version") or "").strip().lower()
+                               or state.get("snmp_default_version") or "v2c")
+                    try:
+                        port = int(row_snmp.get("port")
+                                   or state.get("snmp_default_port") or 161)
+                    except (TypeError, ValueError):
+                        port = 161
+                    v3_user = ((row_snmp.get("v3_user") or "").strip()
+                               or state.get("snmp_v3_user") or "")
+                    v3_auth = ((row_snmp.get("v3_auth_key") or "").strip()
+                               or state.get("snmp_v3_auth_key") or "")
+                    v3_priv = ((row_snmp.get("v3_priv_key") or "").strip()
+                               or state.get("snmp_v3_priv_key") or "")
+                    try:
+                        result = await _snmp.probe_snmp(
+                            snmp_target,
+                            community=community,
+                            version=version,
+                            port=port,
+                            v3_user=v3_user,
+                            v3_auth_key=v3_auth,
+                            v3_priv_key=v3_priv,
+                            active_sources=active,
+                        )
+                    except Exception as e:  # noqa: BLE001
+                        result = {"hosts": {}, "error": f"snmp probe failed: {e}"}
+                    if (result.get("hosts") or {}):
+                        _snmp_host_cache[h["id"]] = (now, result)
+                        _snmp_host_fail_cache.pop(h["id"], None)
+                    else:
+                        _snmp_host_fail_cache[h["id"]] = (now, result)
+                        _snmp_host_cache.pop(h["id"], None)
+                        err = result.get("error") or "empty hosts map"
+                        print(f"[hosts] snmp probe failed for {h.get('id')!r}: {err}")
+            hosts_map = result.get("hosts") or {}
+            if hosts_map:
+                stats = next(iter(hosts_map.values()))
+                _merge_best(merged, stats)
+                providers_hit.append("snmp")
 
     # Beszel.
     beszel_key = h.get("beszel_name") or h.get("id") or ""
@@ -3933,12 +4247,20 @@ def _shape_host_api_row(
     # means the host is down. The dedicated ping branch below derives
     # "up" / "down" from `host_ping_alive`; the other providers
     # implicitly mean "alive" when they return data at all.
+    # SNMP slots in here as a "real telemetry hit" (alongside pulse /
+    # node_exporter / webmin) — when SNMP successfully returns data,
+    # the host is alive on the network even if Beszel hasn't reached
+    # it yet.
     non_beszel_hit = any(
-        p in providers_hit for p in ("pulse", "node_exporter", "webmin")
+        p in providers_hit for p in ("pulse", "node_exporter", "webmin", "snmp")
     )
     ping_hit = "ping" in providers_hit
     ping_alive = s.get("host_ping_alive")
     ping_enabled = bool((h.get("ping") or {}).get("enabled", False))
+    snmp_mapped = bool(
+        (h.get("snmp_name") or "").strip()
+        or (isinstance(h.get("snmp"), dict) and h.get("snmp"))
+    )
     if non_beszel_hit:
         host_status = "up"
     elif beszel_st in ("up", "down"):
@@ -3955,6 +4277,7 @@ def _shape_host_api_row(
         or (h.get("webmin_name") or "").strip()
         or (h.get("ne_url")      or "").strip()
         or ping_enabled
+        or snmp_mapped
     ):
         host_status = "unconfigured"
     else:
@@ -3972,6 +4295,10 @@ def _shape_host_api_row(
         "beszel_name":     h.get("beszel_name") or "",
         "pulse_name":      h.get("pulse_name") or "",
         "ne_url":          h.get("ne_url") or "",
+        # SNMP target alias (#344). Surfaced on the API row so
+        # `providerStates(h)` and `hostHasAgent(h)` can decide whether
+        # to render the SNMP chip + count this host as having an agent.
+        "snmp_name":       h.get("snmp_name") or "",
         "url":             h.get("url") or "",
         "icon":            h.get("icon") or "",
         "providers":       providers_hit or [],
@@ -4313,6 +4640,16 @@ def _load_hosts_config() -> list[dict]:
             # in per host. Optional `port` + `transport` overrides
             # cascade over the globals.
             "ping":        _clean_host_ping(h.get("ping")),
+            # SNMP target alias (#344) — Docker hostname → SNMP-reachable
+            # name/IP when the curated row's id isn't directly addressable
+            # by the SNMP agent. Empty falls through to the global
+            # snmp_aliases map and finally to the bare id.
+            "snmp_name":   (h.get("snmp_name") or "").strip(),
+            # Per-host SNMP override sub-dict. Optional community /
+            # version / port / v3_user / v3_auth_key / v3_priv_key —
+            # any unset key falls through to the global default. {} =
+            # "no override" (the common case).
+            "snmp":        _clean_host_snmp(h.get("snmp")),
             "enabled":     bool(h.get("enabled", True)),
         })
     return clean
@@ -4412,6 +4749,49 @@ def _clean_host_ping(raw: Any) -> dict:
     t = (str(raw.get("transport") or "")).strip().lower()
     if t in ("tcp", "icmp"):
         out["transport"] = t
+    return out
+
+
+def _clean_host_snmp(raw: Any) -> dict:
+    """Normalise the per-host ``snmp`` override sub-dict (#344).
+
+    Accepts every per-host SNMP override on a curated row:
+      * ``community`` (str)        — overrides ``snmp_default_community``
+      * ``version``   ("v2c"/"v3") — overrides ``snmp_default_version``
+      * ``port``      (1..65535)   — overrides ``snmp_default_port``
+      * ``v3_user``   (str)        — overrides ``snmp_v3_user``
+      * ``v3_auth_key`` (str)      — overrides ``snmp_v3_auth_key``
+      * ``v3_priv_key`` (str)      — overrides ``snmp_v3_priv_key``
+
+    Empty / missing input → empty dict (the common case — most rows
+    inherit every default). Unknown keys are dropped silently so a
+    malformed import or a stale field name can't smuggle arbitrary
+    data through. v3 keys persist VERBATIM in the curated JSON; admin
+    is the only role that reads/writes ``hosts_config``, and the
+    backup tooling already redacts the file via the same path it
+    redacts ssh.password — see logic.backups.
+    """
+    if not isinstance(raw, dict):
+        return {}
+    out: dict = {}
+    community = (str(raw.get("community") or "")).strip()
+    if community:
+        out["community"] = community
+    version = (str(raw.get("version") or "")).strip().lower()
+    if version in ("v2c", "v3"):
+        out["version"] = version
+    port = raw.get("port")
+    if port not in (None, "", 0):
+        try:
+            p = int(port)
+            if 1 <= p <= 65535:
+                out["port"] = p
+        except (TypeError, ValueError):
+            pass
+    for k in ("v3_user", "v3_auth_key", "v3_priv_key"):
+        v = (str(raw.get(k) or "")).strip()
+        if v:
+            out[k] = v
     return out
 
 
@@ -4529,6 +4909,9 @@ def _save_hosts_config(hosts: list[dict]) -> list[dict]:
             "ssh":           _clean_host_ssh(h.get("ssh")),
             # Per-host ping opt-in (#343).
             "ping":          _clean_host_ping(h.get("ping")),
+            # Per-host SNMP target alias + per-row override block (#344).
+            "snmp_name":     (h.get("snmp_name") or "").strip(),
+            "snmp":          _clean_host_snmp(h.get("snmp")),
             "enabled":       bool(h.get("enabled", True)),
         }
     ordered = list(seen.values())
@@ -4682,6 +5065,7 @@ async def api_hosts_test(
     from logic import pulse as _pulse
     from logic import node_exporter as _ne
     from logic import webmin as _webmin
+    from logic import snmp as _snmp
 
     beszel_name = (body.get("beszel_name") or "").strip()
     pulse_name = (body.get("pulse_name") or "").strip()
@@ -4697,11 +5081,28 @@ async def api_hosts_test(
                 webmin_url = str(aliases.get(row_id, "") or "").strip().rstrip("/")
         except ValueError:
             webmin_url = ""
+    # SNMP test row (#344). Body fields are all optional; defaults flow
+    # through from the global settings the same way other providers do.
+    snmp_target = (body.get("snmp_target") or body.get("snmp_name") or "").strip()
+    if not snmp_target and row_id:
+        try:
+            sn_aliases = json.loads(get_setting("snmp_aliases", "{}") or "{}")
+            if isinstance(sn_aliases, dict):
+                snmp_target = str(sn_aliases.get(row_id, "") or "").strip()
+        except ValueError:
+            snmp_target = ""
+    snmp_community = (body.get("snmp_community") or "").strip()
+    snmp_version = (body.get("snmp_version") or "").strip().lower()
+    try:
+        snmp_port = int(body.get("snmp_port") or 0) or 0
+    except (TypeError, ValueError):
+        snmp_port = 0
     out = {
         "beszel": {"ok": False, "skipped": True, "detail": "not set"},
         "pulse":  {"ok": False, "skipped": True, "detail": "not set"},
         "node_exporter": {"ok": False, "skipped": True, "detail": "not set"},
         "webmin": {"ok": False, "skipped": True, "detail": "not set"},
+        "snmp":   {"ok": False, "skipped": True, "detail": "not set"},
     }
 
     # Respect the global host_stats_source CSV — a provider disabled
@@ -4731,6 +5132,10 @@ async def api_hosts_test(
         out["webmin"] = {"ok": False, "skipped": True,
                          "detail": "disabled in host_stats_source"}
         webmin_url = ""
+    if snmp_target and "snmp" not in active_sources:
+        out["snmp"] = {"ok": False, "skipped": True,
+                       "detail": "disabled in host_stats_source"}
+        snmp_target = ""
 
     if beszel_name:
         hub_url = get_setting("beszel_hub_url", "") or ""
@@ -4828,6 +5233,51 @@ async def api_hosts_test(
                 out["webmin"] = {"ok": False, "skipped": False,
                                  "detail": "webmin responded with no parseable host"}
 
+    if snmp_target:
+        if not _snmp.has_snmp_support():
+            out["snmp"] = {
+                "ok": False, "skipped": False,
+                "detail": "pysnmp not installed (pip install pysnmp)",
+            }
+        else:
+            community = snmp_community or get_setting("snmp_default_community", "public") or "public"
+            version = snmp_version or (get_setting("snmp_default_version", "v2c") or "v2c").lower()
+            try:
+                port = snmp_port or int(get_setting("snmp_default_port", "161") or "161")
+            except (TypeError, ValueError):
+                port = 161
+            r = await _snmp.probe_snmp(
+                snmp_target,
+                community=community,
+                version=version,
+                port=port,
+                v3_user=get_setting("snmp_v3_user", "") or "",
+                v3_auth_key=get_setting("snmp_v3_auth_key", "") or "",
+                v3_priv_key=get_setting("snmp_v3_priv_key", "") or "",
+            )
+            if r.get("error") and not r.get("hosts"):
+                out["snmp"] = {"ok": False, "skipped": False,
+                               "detail": f"snmp error: {r['error']}"}
+            elif r.get("hosts"):
+                host_key, stats = next(iter(r["hosts"].items()))
+                cpu = stats.get("host_cpu_percent")
+                mem = stats.get("host_mem_total") or 0
+                detail_bits = [f"matched · {host_key}"]
+                if cpu is not None:
+                    try:
+                        detail_bits.append(f"cpu={int(cpu)}%")
+                    except (TypeError, ValueError):
+                        pass
+                if mem:
+                    detail_bits.append(f"mem={mem // (1024**3)} GB")
+                out["snmp"] = {
+                    "ok": True, "skipped": False,
+                    "detail": " · ".join(detail_bits),
+                }
+            else:
+                out["snmp"] = {"ok": False, "skipped": False,
+                               "detail": "snmp responded with no parseable data"}
+
     return out
 
 
@@ -4906,10 +5356,30 @@ async def api_hosts_discover(_u: auth.User = Depends(auth.require_admin)):
         if failed and not webmin_names:
             errors["webmin"] = f"{failed} Webmin URL(s) failed to probe"
 
+    # SNMP discovery (#344) — there's no central hub to enumerate so
+    # discovery surfaces the configured ``snmp_aliases`` map's keys.
+    # Each entry is the curated row's id; the autocomplete value is
+    # the alias's TARGET (the SNMP-reachable host/IP). The Admin →
+    # Hosts editor renders this list as the snmp_name column's
+    # datalist so operators don't have to retype targets they've
+    # already mapped at the global level. Empty when no aliases are
+    # configured — that's the expected state on first-boot deploys.
+    snmp_names: list[str] = []
+    try:
+        sn_aliases_raw = json.loads(get_setting("snmp_aliases", "{}") or "{}")
+        if isinstance(sn_aliases_raw, dict):
+            snmp_names = sorted(
+                {str(v).strip() for v in sn_aliases_raw.values() if str(v).strip()},
+                key=str.lower,
+            )
+    except ValueError:
+        snmp_names = []
+
     return {
         "beszel": beszel_names,
         "pulse":  pulse_names,
         "webmin": webmin_names,
+        "snmp":   snmp_names,
         "errors": errors,
     }
 
@@ -4950,10 +5420,12 @@ async def api_hosts_debug(
     active = active_host_stats_providers()
 
     providers_raw: dict[str, Any] = {
-        "pulse": None, "beszel": None, "node_exporter": None, "webmin": None,
+        "pulse": None, "beszel": None, "node_exporter": None,
+        "webmin": None, "snmp": None,
     }
     providers_normalized: dict[str, Any] = {
-        "pulse": None, "beszel": None, "node_exporter": None, "webmin": None,
+        "pulse": None, "beszel": None, "node_exporter": None,
+        "webmin": None, "snmp": None,
     }
 
     # ---- Beszel --------------------------------------------------
@@ -5206,9 +5678,75 @@ async def api_hosts_debug(
         except Exception as e:
             providers_raw["ping"] = {"_error": str(e)}
 
+    # ---- SNMP (#344) — fresh probe against THIS host. Surfaces the
+    #      raw response shape (host_key + first few stats fields) so
+    #      operators can confirm community/version/port resolution and
+    #      see which OIDs the agent actually answered. -------------
+    if "snmp" in active:
+        from logic import snmp as _snmp
+        if not _snmp.has_snmp_support():
+            providers_raw["snmp"] = {"_error": "pysnmp not installed"}
+        else:
+            row_snmp = (record.get("snmp") if isinstance(record.get("snmp"), dict)
+                        else {})
+            try:
+                sn_aliases = json.loads(get_setting("snmp_aliases", "{}") or "{}")
+                if not isinstance(sn_aliases, dict):
+                    sn_aliases = {}
+            except ValueError:
+                sn_aliases = {}
+            snmp_target = (
+                sn_aliases.get(record["id"])
+                or (record.get("snmp_name") or "").strip()
+                or record["id"]
+            )
+            community = ((row_snmp.get("community") or "").strip()
+                         or (get_setting("snmp_default_community", "") or "public"))
+            version = (((row_snmp.get("version") or "").strip().lower())
+                       or (get_setting("snmp_default_version", "") or "v2c").lower()
+                       or "v2c")
+            try:
+                port = int(row_snmp.get("port")
+                           or get_setting("snmp_default_port", "") or "161")
+            except (TypeError, ValueError):
+                port = 161
+            v3_user = ((row_snmp.get("v3_user") or "").strip()
+                       or get_setting("snmp_v3_user", "") or "")
+            v3_auth = ((row_snmp.get("v3_auth_key") or "").strip()
+                       or get_setting("snmp_v3_auth_key", "") or "")
+            v3_priv = ((row_snmp.get("v3_priv_key") or "").strip()
+                       or get_setting("snmp_v3_priv_key", "") or "")
+            try:
+                r = await _snmp.probe_snmp(
+                    snmp_target,
+                    community=community, version=version, port=port,
+                    v3_user=v3_user, v3_auth_key=v3_auth,
+                    v3_priv_key=v3_priv,
+                    timeout=10.0, active_sources=active,
+                )
+                providers_raw["snmp"] = {
+                    "target":     snmp_target,
+                    "community":  community,
+                    "version":    version,
+                    "port":       port,
+                    "v3_user":    v3_user,
+                    "v3_auth_set": bool(v3_auth),
+                    "v3_priv_set": bool(v3_priv),
+                    "hosts_keys": sorted((r.get("hosts") or {}).keys()),
+                    "error":      r.get("error"),
+                }
+                if r.get("hosts"):
+                    providers_normalized["snmp"] = next(iter(r["hosts"].values()))
+            except Exception as e:  # noqa: BLE001
+                providers_raw["snmp"] = {"_error": str(e)}
+
     # ---- Merged (best-of) ----------------------------------------
     merged: dict = {}
-    for src in ("pulse", "beszel", "node_exporter", "webmin"):
+    # Order matches the runtime merge order in `_merge_one_host` /
+    # `gather.py`: Pulse → SNMP → Beszel → node-exporter → Webmin.
+    # Keeps the debug panel's "merged" view byte-identical to what the
+    # SPA shows on the live row.
+    for src in ("pulse", "snmp", "beszel", "node_exporter", "webmin"):
         stats = providers_normalized.get(src)
         if stats:
             _merge_best(merged, stats)
@@ -5237,6 +5775,15 @@ async def api_hosts_debug(
         or (p == "node_exporter" and (record.get("ne_url") or "").strip())
         or (p == "webmin"        and (record.get("webmin_name") or "").strip())
         or (p == "ping"          and bool((record.get("ping") or {}).get("enabled", False)))
+        # SNMP is "active for this host" when EITHER an alias is mapped
+        # OR a per-row snmp_name is set. The provider also runs against
+        # the bare host id when no alias / name is set, but that's the
+        # implicit default — we only mark the row "actively snmp-probed"
+        # when the operator has signalled intent.
+        or (p == "snmp" and bool(
+            ((record.get("snmp_name") or "").strip())
+            or (isinstance(record.get("snmp"), dict) and record["snmp"])
+        ))
     )
     return {
         "host_record":          record,
