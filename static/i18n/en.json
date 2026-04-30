@@ -1556,11 +1556,13 @@
       "raw_ne": "Raw · node-exporter",
       "raw_webmin": "Raw · Webmin",
       "raw_ping": "Raw · Ping",
+      "raw_snmp": "Raw · SNMP",
       "normalized_pulse": "Normalized · Pulse",
       "normalized_beszel": "Normalized · Beszel",
       "normalized_ne": "Normalized · node-exporter",
       "normalized_webmin": "Normalized · Webmin",
       "normalized_ping": "Normalized · Ping",
+      "normalized_snmp": "Normalized · SNMP",
       "merged": "Merged (best-of)",
       "rendered": "Rendered (/api/hosts)"
     },
