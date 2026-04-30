@@ -131,20 +131,44 @@ _LOOPBACK_PREFIXES = ("lo", "loopback", "null", "vlan-internal", "docker", "veth
 # Importing the asyncio HLAPI surface up front is fine because pysnmp is a
 # pure-Python wheel; we do it inside try/except so a missing package
 # doesn't trip the whole logic package's import.
+#
+# pysnmp 7.x reorganised the module hierarchy: the asyncio HLAPI symbols
+# moved from `pysnmp.hlapi.asyncio` (5.x / 6.x path) to
+# `pysnmp.hlapi.v3arch.asyncio` (7.x path). #344 originally pinned >=7.0.0
+# but used the old import path, which made `has_snmp_support()` return
+# False even on a correctly-pinned install. Fix (#642): try the modern
+# 7.x path first, then fall back to the 5.x / 6.x path. Capture the
+# actual ImportError text so a third-party packaging weirdness surfaces
+# in the server logs instead of disappearing silently — the operator's
+# first diagnostic now is `grep "[snmp] pysnmp import" <log>` which
+# names the exact missing symbol.
+_SNMP_IMPORT_ERROR = ""
 try:
-    # pysnmp 5.x / 6.x / 7.x all expose the same hlapi.asyncio surface;
-    # the symbols below are stable across recent majors.
-    from pysnmp.hlapi.asyncio import (  # type: ignore
-        SnmpEngine, CommunityData, UsmUserData,
-        UdpTransportTarget, ContextData, ObjectType, ObjectIdentity,
-        getCmd, bulkCmd,
-        usmHMACSHAAuthProtocol, usmHMACSHA256AuthProtocol,
-        usmAesCfb128Protocol,
-        usmNoAuthProtocol, usmNoPrivProtocol,
-    )
+    try:
+        # pysnmp 7.x — current modern path.
+        from pysnmp.hlapi.v3arch.asyncio import (  # type: ignore
+            SnmpEngine, CommunityData, UsmUserData,
+            UdpTransportTarget, ContextData, ObjectType, ObjectIdentity,
+            getCmd, bulkCmd,
+            usmHMACSHAAuthProtocol, usmHMACSHA256AuthProtocol,
+            usmAesCfb128Protocol,
+            usmNoAuthProtocol, usmNoPrivProtocol,
+        )
+    except ImportError:
+        # pysnmp 5.x / 6.x — legacy path.
+        from pysnmp.hlapi.asyncio import (  # type: ignore
+            SnmpEngine, CommunityData, UsmUserData,
+            UdpTransportTarget, ContextData, ObjectType, ObjectIdentity,
+            getCmd, bulkCmd,
+            usmHMACSHAAuthProtocol, usmHMACSHA256AuthProtocol,
+            usmAesCfb128Protocol,
+            usmNoAuthProtocol, usmNoPrivProtocol,
+        )
     _HAS_SNMP = True
-except ImportError:
+except ImportError as _e:
     _HAS_SNMP = False
+    _SNMP_IMPORT_ERROR = f"{type(_e).__name__}: {_e}"
+    print(f"[snmp] pysnmp import failed — SNMP probes disabled: {_SNMP_IMPORT_ERROR}")
 
 
 def has_snmp_support() -> bool:

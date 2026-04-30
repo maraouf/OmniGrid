@@ -7346,6 +7346,31 @@ function app() {
         '--chip-fg: ' + c + ';'
       );
     },
+    // Hex-colour normaliser (#643) — used by the per-provider chip
+    // colour text input alongside the native colour picker. Operators
+    // can paste any of these forms and have them coerced into the
+    // canonical `#rrggbb` shape the backend's `^#[0-9a-fA-F]{6}$`
+    // validator accepts:
+    //   - blank / whitespace → "" (means "use the SPA's default")
+    //   - "1e63d4" / "1E63D4" → "#1e63d4"  (auto-prepend #, lowercase)
+    //   - "#1E63D4" / "#1e63d4" → "#1e63d4" (lowercase only)
+    //   - anything else → returned verbatim so the input's `pattern`
+    //     attribute can flag it as invalid (red ring) without us
+    //     silently swallowing operator-typed garbage.
+    // The native `<input type="color">` writes its own `#rrggbb` when
+    // the operator drags the picker; this helper only fires when the
+    // operator types directly into the text input. Both inputs
+    // x-model the same `settings.provider_color_<name>` field so they
+    // stay synced regardless of which one was edited last.
+    normalizeHexColor(raw) {
+      const v = (raw || '').trim();
+      if (!v) return '';
+      const bareHex = /^[0-9a-fA-F]{6}$/;
+      const fullHex = /^#[0-9a-fA-F]{6}$/;
+      if (bareHex.test(v)) return '#' + v.toLowerCase();
+      if (fullHex.test(v)) return v.toLowerCase();
+      return v;  // invalid — let the input's `pattern` flag it
+    },
     // Provider name → /img/icons/<slug>.svg filename (#607). Mostly
     // identity except for `node_exporter` → `node-exporter` (the
     // resolver convention prefers hyphens over underscores in icon
