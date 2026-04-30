@@ -4897,12 +4897,30 @@
                      clearing reverts to the asset-name fallback.
                      Long labels ellipsis-truncate (`min-w-0
                      max-w-[280px] truncate`) so the SSH icon
-                     never wraps to a second line. -->
+                     never wraps to a second line.
+                     #638: subtle source indicator — asset-derived
+                     names render in italic so the operator can tell
+                     at a glance which rows are using the asset
+                     fallback vs an explicit operator-typed label.
+                     Tooltip clarifies the source. -->
                 <template x-if="row.id">
-                  <span class="text-[11px] text-[var(--text-faint)] truncate min-w-0 max-w-[280px]"
+                  <span class="text-[11px] text-[var(--text-faint)] truncate min-w-0 max-w-[280px] inline-flex items-center gap-1"
                         x-show="(row.label || (assetForHost(row) && assetForHost(row).name) || '') && (row.label || (assetForHost(row) && assetForHost(row).name) || '') !== row.id"
-                        :title="row.label || (assetForHost(row) && assetForHost(row).name) || ''"
-                        x-text="'· ' + (row.label || (assetForHost(row) && assetForHost(row).name) || '')"></span>
+                        :title="!row.label && assetForHost(row) && assetForHost(row).name
+                                 ? t('admin_hosts.label_source_asset', { name: assetForHost(row).name })
+                                 : (row.label || '')">
+                    <span x-text="'· ' + (row.label || (assetForHost(row) && assetForHost(row).name) || '')" class="truncate"></span>
+                    <!-- Tiny indicator (#638) — 9px package glyph
+                         appears ONLY when the suffix came from the
+                         asset inventory (operator left the label
+                         blank). Operator-typed labels render no
+                         indicator. Subtle by virtue of being small
+                         + skip-when-irrelevant. -->
+                    <svg x-show="!row.label && assetForHost(row) && assetForHost(row).name"
+                         width="9" height="9"
+                         class="text-[var(--text-faint)] flex-shrink-0 opacity-70"
+                         aria-hidden="true"><use href="#icon-package"/></svg>
+                  </span>
                 </template>
                 <!-- Per-row provider chips. Each chip uses the
                      operator-set colour from Settings → Providers via
