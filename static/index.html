@@ -1724,7 +1724,7 @@
                    @error="$event.target.style.display='none'">
               <div class="host-mobile-card-title">
                 <div class="flex items-center gap-1.5 min-w-0">
-                  <span class="label" x-text="hostTypePrefix(h) + (h.label || h.host)"></span>
+                  <span class="label" x-text="hostTypePrefix(h) + hostDisplayName(h)"></span>
                   <!-- Permanent-fail + stale badges — same priority
                        order as the desktop table (#383, #449). Paused
                        is more severe (red) so it wins; stale falls
@@ -1920,7 +1920,7 @@
                           :title="t('hosts_extra.custom_number_title')"
                           x-text="'#' + h.custom_number"></span>
                     <span class="font-semibold text-[13px] mono truncate"
-                          x-text="hostTypePrefix(h) + (h.label || h.host)"></span>
+                          x-text="hostTypePrefix(h) + hostDisplayName(h)"></span>
                     <!-- Permanent-fail badge (#383). Renders only when
                          the host_metrics_sampler has auto-paused the
                          host after consecutive probe failures. Title
@@ -2115,7 +2115,7 @@
                    target="_blank" rel="noopener"
                    @click.stop
                    class="inline-flex items-center justify-center text-[var(--text-dim)] hover:text-[var(--primary)]"
-                   :title="t('hosts_extra.open_link_title', { label: h.label || h.host })">
+                   :title="t('hosts_extra.open_link_title', { label: hostDisplayName(h) })">
                   <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
                 </a>
               </div>
@@ -4867,12 +4867,18 @@
                      consistent design (operator request via tmp/img_5.png). -->
                 <span class="text-[10.5px] text-[var(--text-faint)] hidden sm:inline"
                       x-show="!isHostConfigExpanded(row)">Click to edit</span>
-                <span x-show="!isHostConfigExpanded(row)"
-                      class="dot"
-                      :class="(row.ssh && row.ssh.disabled) ? 'dot-offline' : 'dot-healthy'"
-                      :title="(row.ssh && row.ssh.disabled)
-                                ? t('admin_hosts.ssh_state.disabled')
-                                : t('admin_hosts.ssh_state.enabled')"></span>
+                <!-- SSH-enabled indicator (#623). Replaces the prior
+                     green/grey dot — operator-flagged: an explicit icon
+                     reads more decisively than a tinted circle. The
+                     icon is COMPLETELY HIDDEN when SSH is not enabled
+                     for the row (post-#622 opt-in semantics — most
+                     rows will have it off by default). When enabled,
+                     renders in `--success` green. -->
+                <svg x-show="!isHostConfigExpanded(row) && row.ssh && row.ssh.enabled"
+                     width="13" height="13"
+                     class="text-[var(--success)] flex-shrink-0"
+                     aria-hidden="true"
+                     :title="t('admin_hosts.ssh_state.enabled')"><use href="#icon-terminal"/></svg>
                 <!-- Brand icon — only on the collapsed-row header so
                      operators can scan the list visually before
                      opening anything. Hidden when the row is expanded
@@ -5133,10 +5139,10 @@
                   </div>
                   <label class="inline-flex items-center gap-2 text-[12px] text-[var(--text-dim)] pb-1.5">
                     <input type="checkbox"
-                           :checked="!!(row.ssh && row.ssh.disabled)"
-                           @change="hostsConfig[idx].ssh = Object.assign({}, hostsConfig[idx].ssh || {}, { disabled: $event.target.checked }); markHostRowDirty(idx)"
+                           :checked="!!(row.ssh && row.ssh.enabled)"
+                           @change="hostsConfig[idx].ssh = Object.assign({}, hostsConfig[idx].ssh || {}, { enabled: $event.target.checked }); markHostRowDirty(idx)"
                            :disabled="isReadonly()">
-                    <span x-text="t('hosts_extra_ssh.per_host_disabled')"></span>
+                    <span x-text="t('hosts_extra_ssh.per_host_enabled')"></span>
                   </label>
                 </div>
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-3 items-end mt-3">
@@ -6274,7 +6280,7 @@
                     class="text-[12px] py-1 min-w-[240px]">
               <option value="">—</option>
               <template x-for="h in hostsConfig" :key="h.id">
-                <option :value="h.id" x-text="(h.label || h.id) + ' (' + h.id + ')'"></option>
+                <option :value="h.id" x-text="hostDisplayName(h) + ' (' + h.id + ')'"></option>
               </template>
             </select>
             <button x-show="isAdmin()" @click="runSshAdminTest()"
@@ -7414,7 +7420,7 @@
                        x-show="hostIconUrl(h)" alt="" loading="lazy"
                        @error="$event.target.style.display='none'">
                   <h2 class="text-[14px] font-semibold mono break-all"
-                      x-text="hostTypePrefix(h) + (h.label || h.host)"></h2>
+                      x-text="hostTypePrefix(h) + hostDisplayName(h)"></h2>
                 </div>
                 <button @click="closeHostDrawer()"
                         class="btn btn-ghost text-base leading-none"
@@ -9204,12 +9210,13 @@
                    first by default; destructive commands raise a typed-
                    hostname confirm before the real run (also enforced
                    backend-side via logic/ssh.command_is_destructive).
-                   Hidden entirely when SSH is disabled on this host
-                   (hosts_config[].ssh.disabled=true). Gate reads
-                   `h.ssh_disabled` straight from the row (not
+                   Visible only when SSH is ENABLED for this host
+                   (post-#622 opt-in semantics —
+                   hosts_config[].ssh.enabled=true). Gate reads
+                   `h.ssh_enabled` straight from the row (not
                    sshStatus) so the panel never appears even for a
                    split second before sshStatus loads. -->
-              <template x-if="me && me.role === 'admin' && !h.ssh_disabled">
+              <template x-if="me && me.role === 'admin' && h.ssh_enabled">
                 <div class="host-debug-panel">
                   <button type="button"
                           class="host-debug-toggle"

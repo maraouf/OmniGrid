@@ -28,7 +28,9 @@ Credentials storage model:
     flag convention from CLAUDE.md — the browser only ever learns
     "is it set", never the material.
   - **Per-host** overrides live in ``hosts_config[].ssh`` as a JSON
-    sub-dict with optional ``user`` / ``port`` / ``disabled`` keys. V1
+    sub-dict with optional ``user`` / ``port`` / ``enabled`` keys
+    (post-#622, opt-in semantics — `enabled=true` is the explicit gate;
+    no flag at all means SSH is OFF for this host). V1
     intentionally keeps key material GLOBAL only — per-host user + port
     is enough for the current use case without adding a named-keys
     table. Operators who need multiple keys can revisit this when the
@@ -557,9 +559,19 @@ def resolve_ssh_params(host_id: str, hosts_config: list[dict]) -> dict:
             per_host_applied.append(f"port={resolved['port']}")
     except (TypeError, ValueError):
         pass
-    resolved["disabled"] = bool(per_host.get("disabled"))
-    if per_host.get("disabled"):
-        per_host_applied.append("disabled=True")
+    # Per-host SSH is OPT-IN (#622, post-migration #001): the operator
+    # must explicitly tick "Enable SSH for this host" in Admin → Hosts
+    # for the row to inherit the global Admin → SSH master switch.
+    # Hosts without the flag stay disabled even when SSH is globally on.
+    # Computes `disabled` (the legacy output key consumed by every
+    # caller and downstream UI) from the new positive flag so the
+    # function's return shape stays stable.
+    per_host_enabled = bool(per_host.get("enabled"))
+    resolved["disabled"] = not per_host_enabled
+    if per_host_enabled:
+        per_host_applied.append("enabled=True")
+    else:
+        per_host_applied.append("enabled=False (default — host opt-in via Admin → Hosts)")
     _log(f"[ssh] layer per_host: applied {per_host_applied or '<nothing — no per-host overrides>'}")
     _log(f"[ssh] resolve_ssh_params done id={host_id!r}: "
          f"host={resolved['host']!r} user={resolved['user']!r} port={resolved['port']} "
@@ -925,7 +937,7 @@ def ssh_status(host_id: str, hosts_config: list[dict]) -> dict:
     # Diagnostic print so Admin → Logs shows exactly WHY a host reads
     # as "Not configured" — the status pill doesn't distinguish
     # between "host id unknown", "user blank", "no auth material",
-    # and "ssh.disabled=true". Operators have reported false negatives
+    # and "ssh.enabled missing/false". Operators have reported false negatives
     # here; redacted dump of the resolved dict makes the root cause
     # visible without exposing secrets. Deduped against the last
     # emitted status for this host — if nothing changed, stay silent.

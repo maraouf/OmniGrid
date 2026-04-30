@@ -144,7 +144,68 @@ def apply_pending(conn: sqlite3.Connection) -> List[Tuple[int, str]]:
 # main.py:init_db(). Future non-additive changes (column renames, data
 # migrations, etc.) get registered here.
 # ----------------------------------------------------------------------
+def _migration_001_flip_ssh_per_host_to_opt_in(conn: sqlite3.Connection) -> None:
+    """Flip per-host SSH from opt-out (`ssh.disabled=true`) to opt-in
+    (`ssh.enabled=true`) so host-level features default to OFF unless
+    the operator explicitly enables them. Consistent with `ping.enabled`.
+
+    Pre-flip:
+      - `ssh` sub-dict absent OR `ssh.disabled=false` → SSH was
+        implicitly enabled (inherited global Admin → SSH master switch).
+      - `ssh.disabled=true` → SSH was explicitly disabled for the host.
+
+    Post-flip:
+      - `ssh.enabled=true` → SSH is enabled for the host.
+      - `ssh.enabled=false` OR `ssh.enabled` absent OR `ssh` sub-dict
+        absent → SSH is disabled for the host (default).
+
+    Preserves CURRENT operator intent across the migration:
+      - `disabled=true` → `enabled=false` (was off, stays off).
+      - `disabled=false` or absent (with other ssh fields) → `enabled=true`
+        (was on, stays on).
+      - No `ssh` sub-dict at all → write `ssh={"enabled": true}` so the
+        host doesn't silently flip off post-migration.
+
+    Drops the legacy `disabled` key from each ssh sub-dict so the data
+    settles cleanly on the new shape.
+    """
+    import json
+
+    row = conn.execute(
+        "SELECT v FROM settings WHERE k=?", ("hosts_config",)
+    ).fetchone()
+    if not row or not row[0]:
+        return  # no curated hosts yet — nothing to migrate
+
+    try:
+        cfg = json.loads(row[0])
+    except (ValueError, TypeError):
+        return  # corrupt — leave as-is rather than blow up boot
+
+    if not isinstance(cfg, list):
+        return
+
+    for h in cfg:
+        if not isinstance(h, dict):
+            continue
+        ssh = h.get("ssh")
+        if not isinstance(ssh, dict):
+            # No ssh sub-dict — host was implicitly enabled. Write
+            # explicit enabled=true so it stays enabled post-migration.
+            h["ssh"] = {"enabled": True}
+            continue
+        # ssh sub-dict exists. Compute new flag from old; drop legacy key.
+        was_disabled = bool(ssh.get("disabled"))
+        ssh["enabled"] = not was_disabled
+        if "disabled" in ssh:
+            del ssh["disabled"]
+
+    conn.execute(
+        "UPDATE settings SET v=? WHERE k=?",
+        (json.dumps(cfg, separators=(",", ":")), "hosts_config"),
+    )
+
+
 MIGRATIONS: List[Tuple[int, str, MigrationFn]] = [
-    # (1, "rename_foo_to_bar", _migration_001_rename_foo_to_bar),
-    # (2, "backfill_user_emails", _migration_002_backfill_user_emails),
+    (1, "flip_ssh_per_host_to_opt_in", _migration_001_flip_ssh_per_host_to_opt_in),
 ]

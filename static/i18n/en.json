@@ -1943,7 +1943,7 @@
     "per_host_override_title": "SSH (per-host override)",
     "per_host_user": "Override user",
     "per_host_port": "Override port",
-    "per_host_disabled": "Disable SSH for this host",
+    "per_host_enabled": "Enable SSH for this host",
     "terminal": {
       "open_button": "Open Terminal",
       "open_button_hint": "Open an interactive PTY shell on this host (admin only)",
