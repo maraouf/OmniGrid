@@ -496,7 +496,9 @@
         "revoke_confirm_body": "{name} will stop working immediately. You can always add it again later.",
         "revoke_confirm_button": "Revoke",
         "registering_hint": "Confirm on your device — touch the key, allow the prompt, or unlock with biometrics.",
-        "disabled_by_admin": "Passkey enrolment is disabled by an administrator. Existing keys keep working until you revoke them OR the toggle goes back on."
+        "disabled_by_admin": "Passkey enrolment is disabled by an administrator. Existing keys keep working until you revoke them OR the toggle goes back on.",
+        "orphaned_badge": "registered for {rp_id}",
+        "orphaned_title": "This passkey was registered under {rp_id} and won't work on the current domain. Revoke and re-enrol it here."
       }
     },
     "notifications": {
@@ -1241,7 +1243,8 @@
     "passkey_prompting": "Confirm on your device…",
     "passkey_failed": "Passkey sign-in failed. Try again or use a code.",
     "passkey_data_error": "Passkey data error: {error}",
-    "passkey_browser_unsupported": "This browser doesn't support passkeys."
+    "passkey_browser_unsupported": "This browser doesn't support passkeys.",
+    "passkey_rp_id_mismatch": "Your passkeys were registered under a different domain and can't be used here. Sign in another way (TOTP / password recovery), then re-enrol them from Profile → Security on the new domain ({current}). Orphaned: {orphans}."
   },
   "new_token_modal": {
     "title": "New API token — copy it now",

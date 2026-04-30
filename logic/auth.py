@@ -301,6 +301,17 @@ def init_auth_schema(conn: sqlite3.Connection) -> None:
         # 'password' which is the right behaviour for any session
         # minted before this column existed (pre-2FA era).
         "ALTER TABLE sessions ADD COLUMN auth_method TEXT NOT NULL DEFAULT 'password'",
+        # Per-credential RP-ID (#605). Stamped at registration from the
+        # request's effective hostname so we can detect "credential
+        # registered under a different domain" at login time and surface
+        # a clearer error than the browser's silent QR fallback. Existing
+        # rows default to '' — read-side treats blank as "unknown"
+        # (assume current rp_id matches; mismatch detection only fires
+        # on rows that have an explicit non-empty value). Operators
+        # who migrate domains between this rollout and the first
+        # re-enrolment will see a no-op for the legacy rows; only NEW
+        # registrations after this column lands carry the marker.
+        "ALTER TABLE user_credentials ADD COLUMN rp_id TEXT NOT NULL DEFAULT ''",
     ):
         try:
             conn.execute(ddl)
@@ -863,7 +874,7 @@ def list_user_credentials(
     """
     rows = conn.execute(
         "SELECT id, credential_id, transports, friendly_name, "
-        "created_at, last_used_at, sign_count "
+        "created_at, last_used_at, sign_count, rp_id "
         "FROM user_credentials WHERE user_id=? "
         "ORDER BY created_at DESC",
         (user_id,),
@@ -879,6 +890,11 @@ def list_user_credentials(
             "created_at": r["created_at"],
             "last_used_at": r["last_used_at"],
             "sign_count": int(r["sign_count"] or 0),
+            # #605 — empty string means "registered before the column
+            # was added" (no rp_id stamp); read-side treats blank as
+            # "unknown — assume current rp_id matches" so legacy rows
+            # don't trigger spurious mismatch banners.
+            "rp_id": (r["rp_id"] or "") if "rp_id" in r.keys() else "",
         })
     return out
 
@@ -938,6 +954,7 @@ def add_user_credential(
     sign_count: int,
     transports: list[str],
     friendly_name: str,
+    rp_id: str = "",
 ) -> int:
     """Persist a new passkey.
 
@@ -946,6 +963,12 @@ def add_user_credential(
     the WebAuthn excludeCredentials list ALSO catches this in the
     browser, but a malicious / quirky client could still POST a
     duplicate). The caller maps this to 409 Conflict.
+
+    ``rp_id`` (#605) — the effective hostname the credential was
+    registered under, copied from the request's ``request.url.hostname``
+    (or X-Forwarded-Host) at registration time. Stored so login can
+    detect "credential registered under a different domain" and
+    surface a clearer error than the browser's silent QR fallback.
     """
     transports_csv = ",".join(
         sorted({(t or "").strip().lower() for t in transports if t})
@@ -953,12 +976,13 @@ def add_user_credential(
     cur = conn.execute(
         "INSERT INTO user_credentials("
         "  user_id, credential_id, public_key, sign_count, "
-        "  transports, friendly_name, created_at"
-        ") VALUES (?,?,?,?,?,?,?)",
+        "  transports, friendly_name, created_at, rp_id"
+        ") VALUES (?,?,?,?,?,?,?,?)",
         (
             user_id, credential_id, public_key, int(sign_count),
             transports_csv, friendly_name or "",
             int(time.time()),
+            (rp_id or "").strip().lower(),
         ),
     )
     return int(cur.lastrowid or 0)

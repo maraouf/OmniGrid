@@ -331,6 +331,27 @@ function applyI18nDom() {
         return;
       }
       const startJ = await startResp.json();
+      // #605 — RP-ID mismatch short-circuit. When EVERY stored
+      // credential was registered under a different domain, the
+      // browser will accept the assertion challenge but its local
+      // credential lookup returns nothing — falling through to the
+      // hybrid (QR) flow with no explanation. Surface a clear hint
+      // BEFORE we trigger navigator.credentials.get so the operator
+      // doesn't waste a click on the QR popup. The hint includes
+      // the rp_id(s) the orphaned credentials were registered under
+      // so the operator can tell which old domain they came from.
+      if (startJ.rp_id_mismatch) {
+        const orphans = (startJ.orphaned_credentials || [])
+          .map(o => o.friendly_name + ' (' + (o.rp_id || 'unknown') + ')')
+          .join(', ');
+        const cur = startJ.current_rp_id || (location && location.hostname) || '';
+        showErr(tx(
+          'login.passkey_rp_id_mismatch',
+          'Your passkeys were registered under a different domain and can\'t be used here. Sign in another way (TOTP / password recovery), then re-enrol them from Profile → Security on the new domain ({current}). Orphaned: {orphans}.',
+          { current: cur, orphans: orphans || '—' },
+        ));
+        return;
+      }
       const publicKey = buildPublicKeyOptions(startJ.options);
       let cred;
       try {

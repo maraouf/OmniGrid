@@ -827,6 +827,12 @@ function app() {
     // covers the CLIENT side separately.
     passkeys: {
       loaded: false, supported: false, list: [], busy: false,
+      // #605 — server-derived effective rp_id (request.url.hostname or
+      // X-Forwarded-Host). Profile → Security compares each
+      // credential's stored rp_id against this so cross-domain
+      // passkeys (orphaned by a domain migration) get the red
+      // "different domain" badge inline.
+      current_rp_id: '',
     },
     adminSections: [
       { id: 'general',        label: 'General',         icon: 'sliders' },
@@ -3385,7 +3391,7 @@ function app() {
       try {
         const r = await fetch('/api/me/webauthn');
         if (!r.ok) {
-          this.passkeys = { loaded: true, supported: false, list: [], busy: false };
+          this.passkeys = { loaded: true, supported: false, list: [], busy: false, current_rp_id: '' };
           return;
         }
         const j = await r.json();
@@ -3394,9 +3400,16 @@ function app() {
           supported: !!j.supported,
           list: Array.isArray(j.credentials) ? j.credentials : [],
           busy: false,
+          // #605 — server's effective rp_id; Profile → Security uses
+          // it as the comparison anchor for the orphaned-credential
+          // badge. Lower-cased so the SPA's `pk.rp_id !== current`
+          // check is stable when storage trimmed-and-lowered the
+          // credential rp_id at registration but the request resolves
+          // to a mixed-case Host header.
+          current_rp_id: ((j.current_rp_id || '') + '').toLowerCase(),
         };
       } catch (_) {
-        this.passkeys = { loaded: true, supported: false, list: [], busy: false };
+        this.passkeys = { loaded: true, supported: false, list: [], busy: false, current_rp_id: '' };
       }
     },
 

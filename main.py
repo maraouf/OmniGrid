@@ -3197,262 +3197,112 @@ def _format_provider_test_summary(
 
 
 @app.get("/api/hosts")
-async def api_hosts():
+async def api_hosts(force: bool = False):
     """Hosts view — returns the CURATED host list merged with live
     stats from every enabled provider.
 
     Source of truth is ``hosts_config`` (Settings → Hosts). If it's
-    empty, falls back to auto-discovering from Beszel so the view
-    isn't blank for fresh installs.
+    empty, falls back to auto-discovering from the Beszel / Pulse
+    batch maps so the view isn't blank for fresh installs.
+
+    NOTE (#524) — refactored from the original ~975-line inline
+    duplication of the Beszel / Pulse / NE / Webmin probe logic to
+    compose the protected helper chain (``_get_host_provider_state`` +
+    ``_merge_one_host``) per row. Bearer-token scrapers (Homarr widget,
+    Grafana, custom dashboards) hitting THIS endpoint now share the
+    SPA's single-flight lock on hub probes (#506) AND the per-host
+    Webmin success-cache + 5s fail-cache, so a burst of /api/hosts
+    calls can no longer recreate the 504-storm pattern. Response shape
+    is byte-for-byte identical to the pre-refactor inline version
+    (same ``_shape_host_api_row`` per row, same top-level keys,
+    same ``provider_errors`` aggregation).
 
     Each curated host entry specifies its per-provider name:
       - ``ne_url``      — node-exporter scrape URL
       - ``beszel_name`` — Beszel ``host`` field to match
       - ``pulse_name``  — Pulse PVE node name
-    For each enabled provider, we fetch once (all hosts in one call
-    where possible) and look up this host's stats by its provider-
-    specific name. Fields are merged with the best-of rule — non-zero
-    values win over zeros — so flaky providers never erase good data.
-
-    NOTE (#522 / BUG-008) — this endpoint is LEGACY and bypasses #506's
-    `_host_provider_lock` (single-flight on Beszel + Pulse hub probes)
-    and `_webmin_host_fail_cache` (5s negative cache for unreachable
-    Webmin). Bearer-token scrapers (Homarr widget, Grafana, etc.) hitting
-    THIS endpoint can recreate the original 504-storm pattern that #506
-    fixed for the SPA. Prefer ``/api/hosts/list`` + ``/api/hosts/one/{id}``
-    for new integrations — that pair shares the protected helper chain
-    (`_get_host_provider_state` + `_merge_one_host`). A future change
-    will refactor this endpoint to compose the same helpers per row;
-    until then, bearer-token clients should migrate.
+    For each enabled provider, we fetch once (Beszel + Pulse via the
+    cached batch maps; NE + Webmin per-host inside ``_merge_one_host``)
+    and merge with the best-of rule — non-zero values win over zeros —
+    so flaky providers never erase good data.
     """
-    from logic import beszel as _beszel
-    from logic import pulse as _pulse
-    from logic import node_exporter as _ne
-
-    # Which providers are live? Single helper parses the CSV setting
-    # with the legacy node_exporter_enabled fallback (see CONS-004).
-    active = active_host_stats_providers()
+    # ---- Provider state (single-flight, cached) -------------------
+    # `_get_host_provider_state` does the Beszel + Pulse batch probes
+    # once, gated by the lock + cache. On a cache hit it's a dict
+    # lookup; on a miss exactly ONE caller pays the probe cost while
+    # the rest queue. `force=True` bypasses the TTL but still goes
+    # through the lock.
+    state = await _get_host_provider_state(force=force)
+    active = state["active"]
+    beszel_map = state["beszel_map"]
+    pulse_map = state["pulse_map"]
+    errors: dict[str, str] = dict(state["errors"])
 
     curated = _load_hosts_config()
-    errors: dict[str, str] = {}
 
-    # ---- Batch-fetch each enabled provider once -------------------
-    beszel_map: dict[str, dict] = {}
-    if "beszel" in active:
-        hub_url = get_setting("beszel_hub_url", "") or ""
-        ident = get_setting("beszel_identity", "") or ""
-        passw = get_setting("beszel_password", "") or ""
-        verify = (get_setting("beszel_verify_tls", "true") or "true").lower() == "true"
-        if hub_url and ident and passw:
-            r = await _beszel.probe_hub(hub_url, ident, passw, verify_tls=verify)
-            if r.get("error"):
-                errors["beszel"] = r["error"]
-            beszel_map = r.get("systems") or {}
-        else:
-            errors["beszel"] = "missing url / identity / password"
-
-    pulse_map: dict[str, dict] = {}
-    if "pulse" in active:
-        pulse_url = get_setting("pulse_url", "") or ""
-        pulse_token = get_setting("pulse_token", "") or ""
-        verify = (get_setting("pulse_verify_tls", "true") or "true").lower() == "true"
-        if pulse_url and pulse_token:
-            r = await _pulse.probe_pulse(pulse_url, pulse_token, verify_tls=verify)
-            if r.get("error"):
-                errors["pulse"] = r["error"]
-            pulse_map = r.get("hosts") or {}
-        else:
-            errors["pulse"] = "missing url / token"
-
-    webmin_creds_ok = False
-    webmin_user = ""
-    webmin_password = ""
-    webmin_verify = False
-    webmin_aliases: dict[str, str] = {}
-    if "webmin" in active:
-        from logic import webmin as _webmin  # noqa: F401 — used below
-        webmin_user = get_setting("webmin_user", "") or ""
-        webmin_password = get_setting("webmin_password", "") or ""
-        webmin_verify = (get_setting("webmin_verify_tls", "false")
-                         or "false").lower() == "true"
-        try:
-            wm_aliases_raw = json.loads(
-                get_setting("webmin_aliases", "{}") or "{}"
-            )
-            if isinstance(wm_aliases_raw, dict):
-                webmin_aliases = {
-                    str(k).strip(): str(v).strip()
-                    for k, v in wm_aliases_raw.items()
-                    if str(k).strip() and str(v).strip()
-                }
-        except ValueError:
-            webmin_aliases = {}
-        if webmin_user and webmin_password:
-            webmin_creds_ok = True
-        else:
-            errors["webmin"] = "missing user / password"
-
-    # ---- Fallback: auto-discover from Beszel when no curated list ----
+    # ---- Fallback: auto-discover from Beszel / Pulse when no curated list ----
+    # Same shape the inline path emitted; uses the cached batch maps
+    # rather than re-probing.
     if not curated:
         if beszel_map:
             curated = [
                 {
                     "id":          k,
-                    "label":       v.get("beszel_name") or k,
+                    "label":       (v or {}).get("beszel_name") or k,
                     "ne_url":      "",
                     "beszel_name": k,
                     "pulse_name":  "",
                     "enabled":     True,
                 }
-                for k in sorted(beszel_map.keys(), key=str.lower)
+                for k, v in sorted(beszel_map.items(), key=lambda kv: kv[0].lower())
             ]
         elif pulse_map:
             curated = [
                 {
                     "id":          k,
-                    "label":       v.get("pulse_name") or k,
+                    "label":       (v or {}).get("pulse_name") or k,
                     "ne_url":      "",
                     "beszel_name": "",
                     "pulse_name":  k,
                     "enabled":     True,
                 }
-                for k in sorted(pulse_map.keys(), key=str.lower)
+                for k, v in sorted(pulse_map.items(), key=lambda kv: kv[0].lower())
             ]
 
-    # ---- Per-host merge -------------------------------------------
+    # ---- Per-host merge via the protected helper chain ------------
+    # Each enabled curated host gets its OWN `_merge_one_host` call.
+    # NE + Webmin probes happen per-host inside the helper (Webmin
+    # behind the per-host success-cache + 5s fail-cache). Beszel /
+    # Pulse hits are dict lookups against the cached batch maps the
+    # outer state carries. Run the per-host merges in parallel — same
+    # behaviour as the previous inline path's `asyncio.gather` over
+    # NE + Webmin probes, just composed via the helper.
+    enabled_hosts = [h for h in curated if h.get("enabled", True)]
+    if enabled_hosts:
+        merge_results = await asyncio.gather(*(
+            _merge_one_host(h, state, force=force) for h in enabled_hosts
+        ), return_exceptions=False)
+    else:
+        merge_results = []
+
     out: list[dict] = []
-    ne_probes: list[tuple[dict, str]] = []  # (host_record, url)
-
-    for h in curated:
-        if not h.get("enabled", True):
-            continue
-        merged: dict = {}
-        providers_hit: list[str] = []
-
-        # Merge order: Pulse (fallback / coarse detail) → Beszel
-        # (cleaner short forms override Pulse) → node-exporter
-        # (richest Linux detail). Each provider's ``_merge_best``
-        # only overwrites when the new value is meaningful, so
-        # Pulse-only hosts keep Pulse's platform/kernel/arch, while
-        # hosts covered by Beszel get Beszel's tidier values.
-        pulse_key = h.get("pulse_name") or h.get("id") or ""
-        if "pulse" in active and pulse_key:
-            print(f"[hosts] host id={h.get('id')!r} label={h.get('label')!r} "
-                  f"pulse_name={h.get('pulse_name')!r} "
-                  f"→ lookup key={pulse_key!r} "
-                  f"(pulse map has {len(pulse_map)} entries)")
-            pstats = _pulse.lookup(pulse_map, pulse_key)
-            if pstats:
-                _merge_best(merged, pstats)
-                providers_hit.append("pulse")
-                print(f"[hosts] host id={h.get('id')!r} pulse MATCH "
-                      f"(kind={pstats.get('pulse_kind')!r} "
-                      f"name={pstats.get('pulse_name')!r})")
-            else:
-                print(f"[hosts] host id={h.get('id')!r} pulse NO MATCH")
-
-        # Match order for Beszel: explicit per-provider name → host
-        # id. When the operator leaves a mapping blank but the row's
-        # id happens to match what Beszel reports, treat that as a
-        # hit — saves typing the same hostname in two fields.
-        beszel_key = h.get("beszel_name") or h.get("id") or ""
-        if "beszel" in active and beszel_key:
-            # Beszel is case-sensitive on its ``host`` field; the
-            # lookup still requires an exact key. For forgiving
-            # matching, users should populate the field explicitly.
-            bstats = beszel_map.get(beszel_key)
-            if bstats:
-                _merge_best(merged, bstats)
-                providers_hit.append("beszel")
-
-        if "node_exporter" in active and h.get("ne_url"):
-            ne_probes.append((h, h["ne_url"]))
-
+    for h, (merged, providers_hit) in zip(enabled_hosts, merge_results):
+        # If a Webmin probe surfaced an error string in the merged
+        # dict (the helper stamps `exporter_error` on full-failure),
+        # aggregate it into the top-level provider_errors map so
+        # bearer-token clients keep getting the same coarse signal
+        # the inline path emitted. First-error-per-provider wins,
+        # mirroring the legacy behaviour.
+        wm_err = (merged or {}).get("exporter_error")
+        if wm_err and "webmin" not in errors and "webmin" in active:
+            # Match the legacy "<host_id>: <message>" prefix so
+            # downstream dashboards' regex parsers don't break.
+            errors["webmin"] = f"{h.get('id')}: {wm_err}"
         out.append({
             "_host_record": h,
             "_merged":      merged,
             "_providers":   providers_hit,
         })
-
-    # Parallel node-exporter probes for hosts that had a ne_url.
-    # #540 — operator-tunable timeout (default 10s) shared with
-    # `_merge_one_host` and `host_metrics_sampler`.
-    if ne_probes:
-        _ne_timeout = tuning.tuning_int("tuning_node_exporter_probe_timeout_seconds")
-        async with httpx.AsyncClient(verify=False, timeout=float(_ne_timeout)) as ne_client:
-            results = await asyncio.gather(*(
-                _ne.probe_node(ne_client, url) for _, url in ne_probes
-            ))
-        # Zip back into the out list by reference.
-        by_id = {o["_host_record"]["id"]: o for o in out}
-        for (host_rec, _), stats in zip(ne_probes, results):
-            entry = by_id.get(host_rec["id"])
-            if entry is None:
-                continue
-            _merge_best(entry["_merged"], stats or {})
-            if stats and not (stats.get("exporter_error")):
-                entry["_providers"].append("node_exporter")
-
-    # Webmin — per-host probes, runs LAST in the merge chain. Each
-    # curated row that has a ``webmin_aliases`` URL (or explicit
-    # ``webmin_url``) fires one probe in parallel. Hosts without a
-    # mapping are silently skipped so the existing Pulse/Beszel/NE
-    # pipeline keeps working unchanged.
-    if "webmin" in active and webmin_creds_ok:
-        from logic import webmin as _webmin
-        probe_targets: list[tuple[dict, str]] = []
-        for entry in out:
-            hid = entry["_host_record"]["id"]
-            wm_url = webmin_aliases.get(hid) or entry["_host_record"].get("webmin_url") or ""
-            if wm_url:
-                probe_targets.append((entry, wm_url))
-        if probe_targets:
-            # Per-host overall budget — Webmin does 5 sequential HTTP
-            # calls (session login + 4 module fetches). At the default
-            # 15s per-request timeout, a slow / hung Miniserv can push
-            # one host to 75s, which trips NPM's 60s proxy_read_timeout
-            # and the operator sees a 504. 20s is a soft ceiling that
-            # still allows a healthy Webmin to complete its 5 calls.
-            # #539 — sourced from `tuning_webmin_probe_budget_seconds`
-            # (resolves to int(20) by default). Same knob as the
-            # `_merge_one_host` consumer below so both code paths stay
-            # in lockstep.
-            _webmin_probe_budget = tuning.tuning_int("tuning_webmin_probe_budget_seconds")
-
-            async def _one_probe(wm_url: str) -> dict:
-                try:
-                    return await asyncio.wait_for(
-                        _webmin.probe_webmin(
-                            wm_url, webmin_user, webmin_password,
-                            verify_tls=webmin_verify,
-                            active_sources=active,
-                        ),
-                        timeout=_webmin_probe_budget,
-                    )
-                except asyncio.TimeoutError:
-                    return {
-                        "hosts": {},
-                        "error": f"webmin probe timeout after {_webmin_probe_budget}s",
-                    }
-                except Exception as e:  # noqa: BLE001 — surface to UI
-                    return {"hosts": {}, "error": f"webmin probe failed: {e}"}
-
-            webmin_results = await asyncio.gather(*(
-                _one_probe(u) for _, u in probe_targets
-            ), return_exceptions=False)
-            for (entry, _url), result in zip(probe_targets, webmin_results):
-                if result.get("error") and not result.get("hosts"):
-                    errors.setdefault(
-                        "webmin",
-                        f"{entry['_host_record']['id']}: {result['error']}",
-                    )
-                    continue
-                hosts_map = result.get("hosts") or {}
-                if not hosts_map:
-                    continue
-                stats = next(iter(hosts_map.values()))
-                _merge_best(entry["_merged"], stats)
-                entry["_providers"].append("webmin")
 
     # ---- Shape the response ---------------------------------------
     # Snapshot fallback (#449) — apply ONCE for every entry whose probes
@@ -7030,6 +6880,37 @@ async def api_local_login_webauthn_start(
             detail="No passkeys enrolled for this account.",
         )
     rp_id = _request_rp_id(request)
+    # #605 — detect credentials registered under a different domain.
+    # WebAuthn binds credentials to their RP ID; if the operator
+    # migrated OmniGrid between domains, stored credentials are still
+    # in the DB but the browser correctly refuses to offer them on the
+    # new domain — falling through to the QR / hybrid flow with no
+    # explanation. Compute the orphaned set so the SPA can surface a
+    # clear "re-enrol from Profile" hint above the Passkey button.
+    # Empty `rp_id` on a credential row means "registered before this
+    # column landed (#605 rollout)" — treat as unknown rather than
+    # mismatched so the legacy creds don't fire spurious banners.
+    orphaned = []
+    matching = []
+    for c in creds:
+        cred_rp = (c.get("rp_id") or "").strip().lower()
+        if cred_rp and cred_rp != rp_id.lower():
+            orphaned.append({
+                "id": c["id"],
+                "friendly_name": c.get("friendly_name") or "",
+                "rp_id": cred_rp,
+            })
+        else:
+            matching.append(c)
+    rp_id_mismatch = len(orphaned) > 0 and len(matching) == 0
+    # Build the assertion options against ALL stored credentials. Even
+    # when every credential is orphaned, we still send the options so
+    # the browser tries — the spec-correct outcome is still QR-fallback,
+    # but the SPA surfaces the banner explaining WHY based on the
+    # `rp_id_mismatch` flag below. If at least one matching credential
+    # exists, restrict allowCredentials to those so the picker doesn't
+    # waste a click on a stale credential.
+    _allow_set = matching if matching else creds
     options, raw_challenge = webauthn_h.make_authentication_options(
         rp_id=rp_id,
         allowed_credentials=[
@@ -7037,7 +6918,7 @@ async def api_local_login_webauthn_start(
                 "credential_id": c["credential_id"],
                 "transports": c["transports"],
             }
-            for c in creds
+            for c in _allow_set
         ],
     )
     login_id, expires_at = _create_webauthn_login_challenge({
@@ -7061,11 +6942,27 @@ async def api_local_login_webauthn_start(
         f"hints={options.get('hints') if isinstance(options, dict) else None} "
         f"allow={_transports_summary}"
     )
+    if orphaned:
+        print(
+            f"[webauthn] {u.username} login-start RP-ID mismatch "
+            f"current={rp_id!r} orphaned={[(o['friendly_name'], o['rp_id']) for o in orphaned]} "
+            f"matching={len(matching)} (#605)"
+        )
     return JSONResponse({
         "options": options,
         "login_id": login_id,
         "expires_at": expires_at,
         "username": u.username,
+        # #605 — surface the RP-ID mismatch state so the SPA's login
+        # form can render a clear hint instead of letting the browser
+        # silently fall through to QR. Only fires when EVERY stored
+        # credential's rp_id differs from the current rp_id (any
+        # matching cred → operator can still authenticate normally,
+        # no banner needed). `orphaned_credentials` lists the
+        # friendly names + their original rp_ids for context.
+        "rp_id_mismatch": rp_id_mismatch,
+        "orphaned_credentials": orphaned,
+        "current_rp_id": rp_id,
     })
 
 
@@ -7941,14 +7838,20 @@ async def api_me_webauthn_client_error(
 
 @app.get("/api/me/webauthn")
 async def api_me_webauthn_list(
+    request: Request,
     user: auth.User = Depends(auth.current_user),
 ):
     """Return every passkey enrolled for the caller.
 
     Each row is shaped ``{id, friendly_name, transports, created_at,
-    last_used_at, sign_count, credential_id}`` -- credential_id is
+    last_used_at, sign_count, credential_id, rp_id}`` -- credential_id is
     base64url for display purposes only (stable identifier for the
     revoke button). public_key never leaves the server.
+
+    ``rp_id`` (#605) lets the SPA flag credentials registered under a
+    different domain (orphaned passkeys that the browser will refuse
+    to offer at login). Profile → Security renders an inline badge
+    when ``pk.rp_id !== current_rp_id``.
     """
     if user.id < 0:
         raise HTTPException(400, "API tokens cannot manage passkeys")
@@ -7973,11 +7876,18 @@ async def api_me_webauthn_list(
             "created_at": r["created_at"],
             "last_used_at": r["last_used_at"],
             "sign_count": r["sign_count"],
+            "rp_id": r.get("rp_id", "") or "",
         })
     return {
         "auth_source": user.auth_source,
         "supported": True,
         "credentials": out,
+        # #605 — current effective rp_id so the SPA can compare each
+        # credential's rp_id against the live page's domain WITHOUT
+        # the SPA having to re-derive it (the SPA's `location.hostname`
+        # would skip X-Forwarded-Host edge cases that `_request_rp_id`
+        # handles).
+        "current_rp_id": _request_rp_id(request),
     }
 
 
@@ -8098,6 +8008,13 @@ async def api_me_webauthn_register_finish(
                 sign_count=result["sign_count"],
                 transports=result["transports"],
                 friendly_name=friendly,
+                # #605 — stamp the rp_id this credential was registered
+                # under so login can detect "credential registered under
+                # a different domain" later. ``state["rp_id"]`` came
+                # from `_request_rp_id(request)` at register-start
+                # time, so it tracks the effective hostname the user
+                # was on when they enrolled.
+                rp_id=state.get("rp_id", "") or "",
             )
         except sqlite3.IntegrityError:
             raise HTTPException(
