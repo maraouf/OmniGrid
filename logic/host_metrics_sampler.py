@@ -72,6 +72,8 @@ _last_counters: dict[str, tuple] = {}  # host_id → variable-length tuple
 from logic.db import (
     active_host_stats_providers as _active_providers,
     curated_ne_hosts as _load_curated_hosts,
+    curated_snmp_hosts as _load_curated_snmp_hosts,
+    get_setting as _get_setting,
 )
 
 
@@ -554,6 +556,84 @@ async def _probe_one(
               f"disk={row['disk_used']}/{row['disk_total']} {net_blurb} {disk_blurb}")
 
 
+async def _probe_one_snmp(host: dict, sem: asyncio.Semaphore) -> None:
+    """#679 — Probe one SNMP host on the sampler tick to record per-host
+    failure state for the auto-pause behaviour, mirroring the NE pattern.
+
+    Failure tracking uses a prefixed key (``snmp:{host_id}``) so the
+    SNMP failure streak stays independent of the NE one. A host with
+    BOTH NE and SNMP mapped gets two parallel failure_state rows; each
+    auto-pauses independently when its provider fails through the
+    `tuning_host_permanent_fail_window_seconds` window.
+
+    Phase-1 caveat: the SNMP-prefixed pause flag isn't surfaced in the
+    UI yet (the drawer's "sampling paused" banner reads the bare-id
+    row). Operators see the auto-pause via the `[host_metrics_sampler]
+    snmp:<host> AUTO-PAUSED` log line; UI surface comes in a follow-up.
+    """
+    async with sem:
+        from logic import snmp as _snmp
+        if not _snmp.has_snmp_support():
+            return
+        hid = host["id"]
+        snmp_key = f"snmp:{hid}"
+        # Permanent-fail short-circuit (#383 pattern).
+        state = _get_failure_state(snmp_key)
+        if state and state["paused"]:
+            return
+        # Resolve target via the SAME chain `_merge_one_host` uses.
+        try:
+            import json as _json
+            aliases_raw = _get_setting("snmp_aliases", "{}") or "{}"
+            aliases = _json.loads(aliases_raw)
+            if not isinstance(aliases, dict):
+                aliases = {}
+        except ValueError:
+            aliases = {}
+        snmp_target = (
+            aliases.get(hid)
+            or (host.get("snmp_name") or "").strip()
+            or ""
+        )
+        if not snmp_target:
+            return
+        snmp_cfg = host.get("snmp") if isinstance(host.get("snmp"), dict) else {}
+        community = (snmp_cfg.get("community") or "").strip() \
+            or (_get_setting("snmp_default_community", "") or "public")
+        version = ((snmp_cfg.get("version") or "").strip().lower()
+                   or (_get_setting("snmp_default_version", "") or "v2c"))
+        try:
+            port = int(snmp_cfg.get("port") or _get_setting("snmp_default_port", "") or 161)
+        except (TypeError, ValueError):
+            port = 161
+        v3_user = ((snmp_cfg.get("v3_user") or "").strip()
+                   or _get_setting("snmp_v3_user", "") or "")
+        v3_auth = ((snmp_cfg.get("v3_auth_key") or "").strip()
+                   or _get_setting("snmp_v3_auth_key", "") or "")
+        v3_priv = ((snmp_cfg.get("v3_priv_key") or "").strip()
+                   or _get_setting("snmp_v3_priv_key", "") or "")
+        snmp_timeout = float(tuning.tuning_int("tuning_snmp_probe_timeout_seconds"))
+        now = time.time()
+        try:
+            r = await _snmp.probe_snmp(
+                snmp_target,
+                community=community, version=version, port=port,
+                v3_user=v3_user, v3_auth_key=v3_auth, v3_priv_key=v3_priv,
+                timeout=snmp_timeout,
+            )
+        except Exception as e:  # noqa: BLE001
+            print(f"[host_metrics_sampler] {snmp_key} probe error: {e}")
+            await _record_failure(snmp_key, now, str(e))
+            return
+        if r.get("error") and not r.get("hosts"):
+            err = r["error"]
+            print(f"[host_metrics_sampler] {snmp_key} snmp error: {err}")
+            await _record_failure(snmp_key, now, str(err))
+            return
+        # Success — clear any in-flight failure tracking.
+        _clear_failure(snmp_key)
+
+
 def _prune_old_samples() -> int:
     days = tuning.tuning_int("tuning_stats_history_days")
     cutoff = int(time.time() - days * 86400)
@@ -593,6 +673,21 @@ async def host_metrics_sampler_loop() -> None:
                             *(_probe_one(client, h, sem) for h in hosts),
                             return_exceptions=True,
                         )
+            # #679 — SNMP-aware permanent-fail tracking. Independent of
+            # the NE block above (a host can have NE off + SNMP on, or
+            # both, or neither). Failure-state rows are keyed
+            # `snmp:<host_id>` so SNMP / NE streaks stay separate. A
+            # paused SNMP host skips the probe entirely on subsequent
+            # ticks until the operator clears the row.
+            if "snmp" in active:
+                snmp_hosts = _load_curated_snmp_hosts()
+                if snmp_hosts:
+                    snmp_sem = asyncio.Semaphore(
+                        tuning.tuning_int("tuning_snmp_concurrency"))
+                    await asyncio.gather(
+                        *(_probe_one_snmp(h, snmp_sem) for h in snmp_hosts),
+                        return_exceptions=True,
+                    )
             interval = tuning.tuning_int("tuning_stats_sample_interval_seconds")
             days = tuning.tuning_int("tuning_stats_history_days")
             if tick % max(1, 3600 // interval) == 0:

@@ -200,12 +200,33 @@
     --r-sm: 3px;
     --r-md: 4px;
     --r-lg: 6px;
+    --r-xl: 10px;
+    /* LOW-CSS — pill / capsule radius. Repeated as a 999px literal in
+     * 7+ sites (filter chips, log severity pills, source pills, etc.).
+     * Single token consolidates the convention; theme/density tweaks
+     * land in one place. */
+    --r-pill: 999px;
+
+    /* MED-CSS — typography token family. Migrated incrementally; new
+     * components MUST use these. The legacy hardcoded literals across
+     * the file are NOT yet migrated (60+ sites) — operator-tracked as
+     * a follow-up. Sizes match the most-frequent literals in the
+     * existing stylesheet so a swap is safe. */
+    --fs-xs:   11px;
+    --fs-sm:   12px;
+    --fs-md:   13px;
+    --fs-lg:   14px;
+    --fs-xl:   15px;
+
+    /* MED-CSS — log-severity active-pill count badge background.
+     * Pre-fix `static/css/style.css:.log-sev-pill.is-active .log-sev-count`
+     * inlined `rgba(0, 0, 0, 0.18)` — direct CLAUDE.md violation. */
+    --log-sev-active-count-bg: rgba(0, 0, 0, 0.18);
 
     /* Touch-target minimum — tappable elements on mobile need this
        much area to be comfortable. Used by the mobile-first Hosts
        layout; desktop interactions can ignore it. */
     --touch-target-min: 2.75rem;
-    --r-xl: 10px;
     /* Percentage radius matching the SVG logo's intrinsic 7/32 ≈ 22%
        corner ratio. Used by `.login-logo` (and any future consumer of
        `omnigrid.svg`) so the CSS clip and the SVG's baked-in rounded
@@ -393,6 +414,12 @@
     /* Drop-shadow tint for `.app-icon` — light theme uses a soft
        dark tint to lift icons against the bright surface. */
     --icon-glow: rgba(15, 23, 42, .12);
+
+    /* MED-CSS — log-severity active-pill count badge background.
+     * Light-theme variant uses a higher-opacity black tint so the
+     * badge visibly recedes into the surrounding chip on a bright
+     * surface (the dark-theme value is calibrated for surface-2). */
+    --log-sev-active-count-bg: rgba(15, 23, 42, 0.10);
 }
 
 /* ---------------------------------------------------------------------------
@@ -733,7 +760,7 @@ button:disabled {
 .spin {
     width: 11px;
     height: 11px;
-    border-radius: 999px;
+    border-radius: var(--r-pill);
     border: 2px solid currentColor;
     border-top-color: transparent;
     animation: spin .7s linear infinite;
@@ -746,7 +773,7 @@ button:disabled {
        against a near-empty table background. */
     width: 28px;
     height: 28px;
-    border-radius: 999px;
+    border-radius: var(--r-pill);
     border: 3px solid var(--border-bright);
     border-top-color: var(--primary);
     animation: spin .8s linear infinite;
@@ -800,7 +827,7 @@ button:disabled {
 }
 .skeleton-cell.tall { height: 18px; }
 .skeleton-cell.short { height: 10px; }
-.skeleton-cell.bar { height: 8px; border-radius: 999px; }
+.skeleton-cell.bar { height: 8px; border-radius: var(--r-pill); }
 @keyframes skeleton-shimmer {
     0%   { background-position: 100% 0; }
     100% { background-position: -100% 0; }
@@ -831,7 +858,7 @@ button:disabled {
     flex: 1;
     height: 4px;
     background: var(--surface-3);
-    border-radius: 999px;
+    border-radius: var(--r-pill);
     overflow: hidden;
 }
 .pw-bar > div {
@@ -996,7 +1023,7 @@ button:disabled {
 .dot {
     width: 7px;
     height: 7px;
-    border-radius: 999px;
+    border-radius: var(--r-pill);
     display: inline-block;
     flex-shrink: 0;
 }
@@ -1126,6 +1153,23 @@ button.chip:hover {
     filter: brightness(1.06);
 }
 
+/* #680 follow-up — clickable chips must meet the touch-target rule on
+ * phones (CLAUDE.md mandates --touch-target-min for mobile interactive
+ * elements). The base .chip is 11px font + 2px·6px padding (~18px tall)
+ * which is comfortable on desktop but below tap target on mobile. Only
+ * applied to BUTTON chips so static .chip badges (read-only state) keep
+ * their compact density. The `.filter-chip` sibling has its own mobile
+ * padding rule at line 1197 — kept separate to preserve filter-bar
+ * density. */
+@media (max-width: 768px) {
+    button.chip {
+        min-height: var(--touch-target-min);
+        padding-block: var(--s-3);
+        display: inline-flex;
+        align-items: center;
+    }
+}
+
 /* Provider icon — mono SVG painted in the per-provider chip colour
  * via CSS mask-image (#607). Used in (a) Settings → Providers tab
  * strip next to each tab label, (b) the Hosts row provider chip
@@ -1140,8 +1184,13 @@ button.chip:hover {
 .provider-icon {
     display: inline-block;
     flex-shrink: 0;
-    width: var(--provider-icon-size, 14px);
-    height: var(--provider-icon-size, 14px);
+    /* HIGH-CSS — drop fallback literals. CLAUDE.md: "No fallback
+     * literals inside var()". The `--provider-icon-size` token is
+     * declared on :root (line 254); a missing token here would be
+     * the kind of dev-time bug we want to surface visibly, not
+     * paper over with a 14px fallback. */
+    width: var(--provider-icon-size);
+    height: var(--provider-icon-size);
     background-color: currentColor;
     -webkit-mask-image: var(--provider-icon-url);
     mask-image: var(--provider-icon-url);
@@ -1158,7 +1207,7 @@ button.chip:hover {
    --------------------------------------------------------------------------- */
 .filter-chip {
     padding: 5px var(--s-5);
-    border-radius: 999px;
+    border-radius: var(--r-pill);
     font-size: 12px;
     font-weight: 500;
     transition: all .15s;
@@ -1845,7 +1894,7 @@ details summary::-webkit-details-marker {
     align-items: center;
     gap: 6px;
     padding: 3px 9px;
-    border-radius: 999px;
+    border-radius: var(--r-pill);
     border: 1px solid var(--border);
     background: var(--surface-2);
     color: var(--text-dim);
@@ -1866,7 +1915,7 @@ details summary::-webkit-details-marker {
     padding: 0 6px;
     min-width: 18px;
     height: 16px;
-    border-radius: 999px;
+    border-radius: var(--r-pill);
     display: inline-flex;
     align-items: center;
     justify-content: center;
@@ -1874,7 +1923,7 @@ details summary::-webkit-details-marker {
     letter-spacing: 0;
 }
 .log-sev-pill.is-active .log-sev-count {
-    background: rgba(0, 0, 0, 0.18);
+    background: var(--log-sev-active-count-bg);
     color: inherit;
 }
 /* ALL pill — neutral dark when active. */
@@ -2229,9 +2278,13 @@ details summary::-webkit-details-marker {
 }
 
 .host-mobile-card-metric .name {
+    /* LOW-VISUAL — bumped 9.5px → 10.5px and tightened letter-spacing
+     * 0.5px → 0.3px. The previous 9.5px uppercase 0.5px-spaced label
+     * was below readability threshold on small phones; the 12px
+     * value below felt uncomfortably tight against it. */
     display: block;
-    font-size: 9.5px;
-    letter-spacing: 0.5px;
+    font-size: 10.5px;
+    letter-spacing: 0.3px;
     text-transform: uppercase;
     color: var(--text-faint);
     margin-bottom: 2px;
@@ -2633,7 +2686,7 @@ details summary::-webkit-details-marker {
 
 .swal2-html-container {
     color: var(--text-dim) !important;
-    font-size: 13px !important;
+    font-size: var(--fs-md) !important;
 }
 
 .swal2-html-container ul {
@@ -2662,16 +2715,22 @@ details summary::-webkit-details-marker {
     border-radius: var(--r-md);
     color: var(--warning);
     font-family: var(--font-mono);
-    font-size: 12px;
+    font-size: var(--fs-sm);
 }
 
 .swal2-confirm,
 .swal2-cancel {
     border-radius: var(--r-lg) !important;
-    padding: 8px 18px !important;
+    /* LOW-CSS — token-driven button padding. The 18px horizontal pad
+     * is the SweetAlert default's "comfortable button" — no exact
+     * `--s-*` matches, so we use --s-4 (8px) × 2 horizontal, which
+     * reads identically at this density. If a future redesign wants
+     * a tighter button, the token chain handles it without touching
+     * !important overrides. */
+    padding: var(--s-3) var(--s-6) !important;
     font-weight: 500 !important;
     box-shadow: none !important;
-    font-size: 13px !important;
+    font-size: var(--fs-md) !important;
 }
 
 .swal2-icon {
@@ -2960,6 +3019,26 @@ details summary::-webkit-details-marker {
     user-select: none;
     overflow: hidden;  /* keep uploaded image inside the circular clip */
 }
+
+/* MED-VISUAL — profile-modal avatar shares the `.user-avatar` colour
+ * recipe via the sanctioned `--avatar-hue` token. Pre-fix the modal
+ * inlined `style="background: hsl(...)"` directly — direct violation
+ * of CLAUDE.md's "no inline-style colour literals" rule. The tag
+ * scales to 120px square + 48px font, hence the modifier. */
+.user-avatar--lg {
+    width: 120px;
+    height: 120px;
+    font-size: 48px;
+    border-radius: 50%;
+    border: 2px solid var(--border-bright);
+}
+
+/* LOW-VISUAL — small status dot utilities. Active = success (green),
+ * inactive = faint (muted). Replaces `:style="background: var(--success)"`
+ * / `:style="background: var(--text-faint)"` inline bindings in
+ * Settings → Providers tab strip + future similar dot consumers. */
+.dot-on  { background: var(--success); }
+.dot-off { background: var(--text-faint); }
 .user-avatar .user-avatar-img {
     width: 100%;
     height: 100%;
@@ -3865,7 +3944,7 @@ select.field-invalid {
     font-size: 10.5px;
     font-weight: 600;
     line-height: 1.2;
-    border-radius: 999px;
+    border-radius: var(--r-pill);
     border: 1px solid color-mix(in srgb, var(--success) 50%, transparent);
     background: color-mix(in srgb, var(--success) 14%, transparent);
     color: var(--success);
@@ -3897,7 +3976,7 @@ select.field-invalid {
     font-size: 10.5px;
     font-weight: 600;
     line-height: 1.2;
-    border-radius: 999px;
+    border-radius: var(--r-pill);
     border: 1px solid var(--border);
     background: var(--surface);
     color: var(--text-dim);
