@@ -4886,17 +4886,24 @@
                       class="chip text-[10px] px-1.5 py-0 mono pill-muted"
                       x-text="'#' + row.custom_number"></span>
                 <span class="font-semibold text-[12.5px] mono truncate" x-text="row.id || '(new host)'"></span>
-                <!-- Long display labels (asset names like "Raspberry Pi
-                     4 Model B Rev 1.4 (AdGuard 02) [Secondary]") used
-                     to push the SSH icon onto a second line. `min-w-0
-                     max-w-[280px] truncate` makes the · label
-                     ellipsis-truncate before forcing a wrap so the
-                     header stays single-line on typical widths.
-                     Tooltip exposes the full label for hover-discovery. -->
-                <span class="text-[11px] text-[var(--text-faint)] truncate min-w-0 max-w-[280px]"
-                      x-show="row.label && row.label !== row.id"
-                      :title="row.label"
-                      x-text="'· ' + row.label"></span>
+                <!-- Display-only · label suffix on the collapsed row
+                     header. Resolution chain (#637): operator-set
+                     `row.label` first (highest priority), else the
+                     asset inventory's name via `assetForHost(row).name`
+                     (matches the public Hosts page behaviour from
+                     #621). Editor textbox stays bound to raw
+                     `row.label` so an empty input means "use the
+                     asset's name" — typing populates the literal,
+                     clearing reverts to the asset-name fallback.
+                     Long labels ellipsis-truncate (`min-w-0
+                     max-w-[280px] truncate`) so the SSH icon
+                     never wraps to a second line. -->
+                <template x-if="row.id">
+                  <span class="text-[11px] text-[var(--text-faint)] truncate min-w-0 max-w-[280px]"
+                        x-show="(row.label || (assetForHost(row) && assetForHost(row).name) || '') && (row.label || (assetForHost(row) && assetForHost(row).name) || '') !== row.id"
+                        :title="row.label || (assetForHost(row) && assetForHost(row).name) || ''"
+                        x-text="'· ' + (row.label || (assetForHost(row) && assetForHost(row).name) || '')"></span>
+                </template>
                 <!-- Per-row provider chips. Each chip uses the
                      operator-set colour from Settings → Providers via
                      `providerChipStyle(name)`, NOT the hardcoded
