@@ -4930,7 +4930,7 @@
                      of the chips strip via the preceding `ms-auto`
                      spacer so it sits in a stable position regardless
                      of how many provider chips the row carries. -->
-                <svg x-show="!isHostConfigExpanded(row) && row.ssh && row.ssh.enabled"
+                <svg x-show="!isHostConfigExpanded(row) && hostsConfig[idx] && hostsConfig[idx].ssh && hostsConfig[idx].ssh.enabled === true"
                      width="13" height="13"
                      class="text-[var(--success)] flex-shrink-0"
                      aria-hidden="true"
