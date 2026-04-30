@@ -1799,6 +1799,16 @@ async def api_get_settings(request: Request):
             "v3_priv_key_set":     bool(get_setting("snmp_v3_priv_key", "")),
             "aliases":             json.loads(get_setting("snmp_aliases", "{}") or "{}"),
             "has_snmp_support":    (lambda: __import__("logic.snmp", fromlist=["has_snmp_support"]).has_snmp_support())(),
+            # #644 — surface the actual ImportError text from logic.snmp's
+            # module-level import block so the SPA's hint can show the
+            # ROOT CAUSE instead of just "package not installed". Empty
+            # string when pysnmp imported cleanly. Operators don't have
+            # to grep the server log to figure out which symbol/path
+            # is missing — the hint banner shows it inline.
+            "import_error":        (lambda: getattr(
+                __import__("logic.snmp", fromlist=["_SNMP_IMPORT_ERROR"]),
+                "_SNMP_IMPORT_ERROR", "",
+            ))(),
         },
         # Per-provider chip colour overrides (#596). Empty string means
         # "use the SPA's built-in default" — the SPA's `providerColor()`

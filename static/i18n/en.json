@@ -409,6 +409,7 @@
         "section_title": "SNMP",
         "section_desc": "Sixth host-stats provider. Reads CPU / memory / disk / uptime / interface counters from devices that speak SNMP v2c / v3 USM but not unix-style agents — managed switches, routers, UPSes, network printers, managed APs. Per-host probe (no central hub): each curated row maps to one SNMP target. Per-host overrides (community / version / port / v3 keys) live on Admin → Hosts; the values below are the global defaults.",
         "unavailable": "pysnmp package not installed — SNMP probes are disabled until the dep is added to requirements.txt and the container restarts.",
+        "import_error_label": "Server-side import error: {error}",
         "community_label": "Default community (v2c)",
         "community_hint": "Read-only community string for SNMP v2c. Most home-lab gear uses 'public' out of the box; rotate to a custom value on the device side and mirror it here. Per-host override on Admin → Hosts wins per row.",
         "version_label": "Default version",

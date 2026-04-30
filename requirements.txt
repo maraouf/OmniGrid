@@ -110,12 +110,15 @@ icmplib==3.0.4
 #    dep is added to requirements.txt and the container restarts."
 # (i18n key `settings.host_stats.snmp.unavailable` in static/i18n/en.json,
 # rendered at static/index.html line ~4745 inside the SNMP tab body.)
-# Pin range: >=6.2.0 covers BOTH the 6.x line (legacy
-# `pysnmp.hlapi.asyncio` path) and the 7.x line (`pysnmp.hlapi.v3arch.asyncio`
-# path) — `logic/snmp.py` tries the 7.x path first then falls back to 6.x
-# (#642) so either resolution works. Sticking with >=6.2.0 lower bound
-# rather than <7 because 7.x's hlapi was reorganised but the symbols
-# we use (getCmd / bulkCmd / Usm*Protocol / UdpTransportTarget) all
-# kept their names in the new namespace — see the dual-path import
-# in `logic/snmp.py`. If a future major drops more symbols, pin upper.
-pysnmp>=6.2.0
+# Pin range: >=7.1.26 — operator-floored at the current PyPI latest.
+# Floor pin (rather than `==`) lets pip auto-update on image rebuild
+# so a future security patch on the 7.x line lands without a manual
+# bump. logic/snmp.py uses `await UdpTransportTarget.create(...)` which
+# is 7.x-only (6.x had the synchronous `UdpTransportTarget((host, port))`
+# constructor), so the floor matches the actual runtime requirement.
+# The dual-path import in `logic/snmp.py` (#642) tries the 7.x
+# `pysnmp.hlapi.v3arch.asyncio` namespace first and falls back to the
+# legacy `pysnmp.hlapi.asyncio` path — the legacy branch is now
+# unreachable under this pin but kept as defence-in-depth in case
+# pysnmp 8.x reorganises the namespace again.
+pysnmp>=7.1.26
