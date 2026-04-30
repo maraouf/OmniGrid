@@ -8059,6 +8059,12 @@ function app() {
         }
         const d = await r.json();
         this.hostsConfig = Array.isArray(d.hosts) ? d.hosts : [];
+        // Invalidate filtered-list cache (#636) — see saveHostsConfig
+        // for the full rationale. Cache key doesn't notice an array
+        // identity swap, so without this `pagedHostsConfig()` would
+        // keep returning pre-load row references on the next render.
+        this._filteredHostsConfigCache.key = '';
+        this._filteredHostsConfigCache.value = null;
         // Hydrate each row's webmin_url from settings.webmin_aliases —
         // the hosts_config endpoint doesn't carry the URL, the settings
         // table does. Keeps the editor's per-row field in sync with
@@ -8479,6 +8485,10 @@ function app() {
         for (const row of cleanIncoming) byId[row.id] = row;  // overwrite on id collision
         this.hostsConfig = Object.values(byId);
       }
+      // Invalidate filtered-list cache (#636) — array identity swap
+      // doesn't move the cache key.
+      this._filteredHostsConfigCache.key = '';
+      this._filteredHostsConfigCache.value = null;
       this.hostsConfigDirty = true;
       this.showToast(
         this.t('admin_hosts.imported_n', { count: cleanIncoming.length }),
@@ -9759,6 +9769,19 @@ function app() {
           if (r && r.id && r._uid) oldUidById[r.id] = r._uid;
         }
         this.hostsConfig = d.hosts || [];
+        // Invalidate the filtered-list cache (#636 root cause): the
+        // cache key is `filter + length + order.length`, which DOESN'T
+        // change when the array elements are replaced via `=`. Without
+        // the explicit reset, `pagedHostsConfig()` keeps returning the
+        // pre-save `{row, idx}` objects whose `row` references point
+        // at the OLD array's elements — bindings like the SSH icon's
+        // `row.ssh && row.ssh.enabled` read STALE state until a hard
+        // refresh rebuilds the cache. Mutate the cache field in place
+        // (don't reassign — Alpine's reactivity tracks the existing
+        // proxy slot) so the next `filteredHostsConfig()` call sees
+        // the empty key and rebuilds against the fresh array.
+        this._filteredHostsConfigCache.key = '';
+        this._filteredHostsConfigCache.value = null;
         // Re-stamp each row with its webmin_url (the hosts_config
         // endpoint doesn't know about aliases, so the field is
         // load-bearing for the editor UI only) AND its _uid (re-use

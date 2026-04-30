@@ -4113,7 +4113,12 @@ def _shape_host_api_row(
         "id":              h["id"],
         "name":            h["id"],
         "host":            h["id"],
-        "label":           h.get("label") or h["id"],
+        # Empty label is INTENTIONAL post-#621 — frontend's
+        # `hostDisplayName(h)` falls back to the asset inventory's
+        # name when this is blank. The previous `or h["id"]` fallback
+        # silently overrode the operator's "use asset name" intent on
+        # every API response. Pass the literal stored value through.
+        "label":           h.get("label") or "",
         "beszel_name":     h.get("beszel_name") or "",
         "pulse_name":      h.get("pulse_name") or "",
         "ne_url":          h.get("ne_url") or "",
@@ -4409,7 +4414,14 @@ def _load_hosts_config() -> list[dict]:
             continue
         clean.append({
             "id":          hid,
-            "label":       (h.get("label") or hid).strip() or hid,
+            # Empty label is INTENTIONAL post-#621 — frontend's
+            # `hostDisplayName(h)` resolver falls back to the asset
+            # inventory's name when this is blank. The previous
+            # `or hid` fallback (kept for years pre-asset-inventory)
+            # silently overwrote that intent on EVERY load, defeating
+            # the save-side fixes in #632 / #635. Pass the literal
+            # stored value through.
+            "label":       (h.get("label") or "").strip(),
             "ne_url":      (h.get("ne_url") or "").strip(),
             "beszel_name": (h.get("beszel_name") or "").strip(),
             "pulse_name":  (h.get("pulse_name") or "").strip(),
