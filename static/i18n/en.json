@@ -1580,6 +1580,8 @@
     "open_meteo_saved": "Open-Meteo URL saved",
     "enabled_label": "Service enabled",
     "disabled_hint": "Disabled — settings preserved, callers will short-circuit until re-enabled.",
+    "enabled_pill": "Enabled",
+    "disabled_pill": "Disabled",
     "toggle_enabled_toast": "{name} enabled",
     "toggle_disabled_toast": "{name} disabled (settings preserved)"
   },
