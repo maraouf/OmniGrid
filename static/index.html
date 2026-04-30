@@ -1517,7 +1517,7 @@
                  and was missing from the strip even when active. -->
             <template x-for="p in ['beszel','pulse','node_exporter','webmin','ping']" :key="p">
               <span x-show="hostsProviderState(p).visible"
-                    class="pill text-[10.5px]"
+                    class="chip text-[10.5px]"
                     :class="hostsProviderState(p).cls"
                     :style="hostsProviderState(p).styled ? providerChipStyle(p) : ''"
                     :title="hostsProviderState(p).title">
@@ -4868,18 +4868,6 @@
                      consistent design (operator request via tmp/img_5.png). -->
                 <span class="text-[10.5px] text-[var(--text-faint)] hidden sm:inline"
                       x-show="!isHostConfigExpanded(row)">Click to edit</span>
-                <!-- SSH-enabled indicator (#623). Replaces the prior
-                     green/grey dot — operator-flagged: an explicit icon
-                     reads more decisively than a tinted circle. The
-                     icon is COMPLETELY HIDDEN when SSH is not enabled
-                     for the row (post-#622 opt-in semantics — most
-                     rows will have it off by default). When enabled,
-                     renders in `--success` green. -->
-                <svg x-show="!isHostConfigExpanded(row) && row.ssh && row.ssh.enabled"
-                     width="13" height="13"
-                     class="text-[var(--success)] flex-shrink-0"
-                     aria-hidden="true"
-                     :title="t('admin_hosts.ssh_state.enabled')"><use href="#icon-terminal"/></svg>
                 <!-- Brand icon — only on the collapsed-row header so
                      operators can scan the list visually before
                      opening anything. Hidden when the row is expanded
@@ -4912,6 +4900,21 @@
                 </template>
                 <span x-show="!row.enabled" class="chip text-[9.5px] px-1 py-0 pill-warning" x-text="t('states.disabled')"></span>
                 <span class="ms-auto"></span>
+                <!-- SSH-enabled indicator (#623, repositioned right
+                     in #629). Replaces the prior green/grey dot —
+                     an explicit icon reads more decisively than a
+                     tinted circle. COMPLETELY HIDDEN when SSH is not
+                     enabled for the row (post-#622 opt-in semantics —
+                     most rows will have it off by default); rendered
+                     in `--success` green when enabled. Floats right
+                     of the chips strip via the preceding `ms-auto`
+                     spacer so it sits in a stable position regardless
+                     of how many provider chips the row carries. -->
+                <svg x-show="!isHostConfigExpanded(row) && row.ssh && row.ssh.enabled"
+                     width="13" height="13"
+                     class="text-[var(--success)] flex-shrink-0"
+                     aria-hidden="true"
+                     :title="t('admin_hosts.ssh_state.enabled')"><use href="#icon-terminal"/></svg>
                 <!-- Asset-inventory autofill — shown in the expanded-row
                      header only. Collapsed rows stay visually quiet; once
                      the operator opens a row to edit it, the chip appears

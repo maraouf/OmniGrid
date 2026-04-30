@@ -9677,20 +9677,21 @@ function app() {
         if (typeof sshIn.password === 'string' && sshIn.password !== '') {
           sshOut.password = sshIn.password;
         }
-        // Per-host SSH is OPT-IN as of #622 — `ssh.enabled=true` is the
-        // explicit flag. Imported old-shape rows carrying `ssh.disabled`
-        // are migrated here at import-time so the operator can re-import
-        // a pre-#622 export without losing intent: `disabled=true` →
-        // stay disabled (don't write `enabled`); any other shape (no
-        // `disabled` field, OR `disabled=false`) → write `enabled=true`
-        // to preserve the old "implicitly enabled inheriting global"
-        // behaviour. Same flip the schema_migrations #001 applies to
-        // existing DB rows on first boot post-#622.
-        if (typeof sshIn.enabled !== 'undefined') {
-          if (sshIn.enabled) sshOut.enabled = true;
-        } else if (sshIn.disabled !== true) {
-          sshOut.enabled = true;
-        }
+        // Per-host SSH is OPT-IN as of #622 — only the explicit
+        // `enabled: true` flag survives the round-trip. Absence (or
+        // `enabled: false`) means SSH is OFF for the host.
+        //
+        // **DO NOT add a legacy `disabled=true` fallback here** (#628):
+        // this `norm()` runs on EVERY save, not just at import time.
+        // A defensive `else if (sshIn.disabled !== true) sshOut.enabled
+        // = true` would auto-enable every row that lacks an explicit
+        // flag — which is the exact symptom of "enabling host A
+        // re-enables host C that was previously disabled". The schema
+        // migration in `logic/migrations.py:_migration_001` handles
+        // legacy `disabled` → `enabled` ONCE on first boot post-#622;
+        // re-applying that conversion per-save corrupts subsequent
+        // operator edits.
+        if (sshIn.enabled === true) sshOut.enabled = true;
         // Per-host ping (#343). Same shape contract as ssh — strip
         // falsy / blank keys so empty strings don't poison the merge.
         const pingIn = h.ping || {};
