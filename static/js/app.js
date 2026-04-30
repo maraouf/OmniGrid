@@ -7386,6 +7386,25 @@ function app() {
       if (!h || !h.id) return;
       this.networkIfacesShowIdle[h.id] = !this.networkIfacesShowIdle[h.id];
     },
+    // #718 — Cap the busy-iface list to the top 10 by traffic, with a
+    // per-host "Show all (N)" toggle. Switches with 52+ ports overflow
+    // the drawer even after the show-idle filter; the operator wants
+    // the loudest 10 by default and can opt into the rest.
+    networkIfacesBusyCap: 10,
+    networkIfacesShowAllBusy: {},  // per-host toggle for the busy-cap group
+    toggleNetworkIfacesBusyAll(h) {
+      if (!h || !h.id) return;
+      this.networkIfacesShowAllBusy[h.id] = !this.networkIfacesShowAllBusy[h.id];
+    },
+    networkIfacesBusyVisible(h) {
+      const busy = this.networkIfacesActivityPartition(h).busy;
+      if (this.networkIfacesShowAllBusy[h.id]) return busy;
+      return busy.slice(0, this.networkIfacesBusyCap);
+    },
+    networkIfacesBusyHiddenCount(h) {
+      const busy = this.networkIfacesActivityPartition(h).busy;
+      return Math.max(0, busy.length - this.networkIfacesBusyCap);
+    },
     // #701 — per-interface SNMP traffic helpers. SNMP-derived
     // `network_ifaces[]` rows carry `rx_bytes` / `tx_bytes` /
     // `oper_status`; node-exporter / Beszel / Pulse rows have
@@ -8743,6 +8762,38 @@ function app() {
     },
     hostsConfigPrevPage() { this.hostsConfigGoToPage(this.hostsConfigPage - 1); },
     hostsConfigNextPage() { this.hostsConfigGoToPage(this.hostsConfigPage + 1); },
+    // #719 — Jump to and expand a specific row by id in the
+    // Admin → Hosts editor. Used by deep-link affordances like the
+    // host drawer's "+ Add URL" link so the operator lands directly
+    // on the row they wanted to edit (page-skipping + chevron-
+    // expanding handled in one call). No-op if the id isn't found.
+    focusHostsConfigRow(id) {
+      if (!id) return;
+      const cfg = this.hostsConfig || [];
+      const cfgIdx = cfg.findIndex(r => r && r.id === id);
+      if (cfgIdx < 0) return;
+      const row = cfg[cfgIdx];
+      // Expand the row so the URL input is visible.
+      if (row && row._uid) {
+        this.hostsConfigExpanded = { ...this.hostsConfigExpanded, [row._uid]: true };
+      }
+      // Find the row's position in the filtered list and page-jump.
+      const filtered = this.filteredHostsConfig();
+      const filteredIdx = filtered.findIndex(({ idx }) => idx === cfgIdx);
+      if (filteredIdx >= 0) {
+        const per = this.hostsConfigPerPage || 50;
+        this.hostsConfigPage = Math.floor(filteredIdx / per) + 1;
+      }
+      // Scroll the row's DOM node into view after Alpine renders the
+      // page change. Falls back gracefully if the selector misses.
+      this.$nextTick(() => {
+        const sel = `[data-host-row-id="${row && row.id}"]`;
+        const el = document.querySelector(sel);
+        if (el && typeof el.scrollIntoView === 'function') {
+          el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }
+      });
+    },
     hostsConfigSetPerPage(n) {
       const v = parseInt(n, 10);
       if (!Number.isFinite(v) || v < 1) return;
@@ -12657,10 +12708,15 @@ function app() {
       if (pingKey && host.ping_enabled && !this.hostHistory[pingKey]) {
         this.loadHostPingHistory(host.id);
       }
-      // #713 — SNMP history (separate endpoint, separate state map).
-      // Loads once per host on drawer open; range-picker click could
-      // refetch with a different `hours` arg in the future.
-      if (this.hostHasSnmpCharts(host) && !this.hostSnmpHistory[host.id]) {
+      // #713 / #739 — SNMP history (separate endpoint, separate state
+      // map). Load EAGERLY when the host has SNMP enabled, BEFORE the
+      // live probe completes — the host_snmp_samples table already
+      // carries previous samples written by the sampler, so charts
+      // can render the last-known series within ~100ms HTTP RTT
+      // instead of waiting 10-20s for the fresh SNMP probe to land.
+      // Gated only on `host.snmp_enabled` (curated config) so non-
+      // SNMP hosts still skip the fetch.
+      if (host.snmp_enabled && !this.hostSnmpHistory[host.id]) {
         this.loadHostSnmpHistory(host.id, 1);
       }
       // Dedicated drawer-history poll (#365) — keeps the chart series +
@@ -12793,9 +12849,61 @@ function app() {
       // SNMP cards EXCLUSIVE to SNMP-only hosts (managed switches,
       // UPSes, NVRs, embedded routers without an OmniGrid agent).
       if (h.beszel_id || h.ne_url) return false;
+      // #739 — also return true when historical SNMP samples exist
+      // for this host even before the LIVE probe has populated
+      // `host_*` fields. Lets the chart cards render the
+      // last-known series during the 10-20s probe window instead
+      // of staying blank, with a freshness label so the operator
+      // can see how stale the displayed data is.
+      const hist = this.hostSnmpHistory[h.id];
+      if (hist && Array.isArray(hist.points) && hist.points.length > 0) return true;
       return !!((h.host_cpu_per_core || []).length > 0
                 || h.host_load_1m || h.host_load_5m || h.host_load_15m
                 || h.host_mem_buffers || h.host_mem_cached);
+    },
+    // #720 — Memory chart Y-axis upper bound. Prefer the LIVE
+    // `host_mem_total` (Beszel/NE-style absolute), fall back to the
+    // max `mem_total` in history points so the axis renders sensibly
+    // before the live probe completes. Final fallback is the highest
+    // observed mem_used + mem_buffers + mem_cached + mem_free across
+    // history (if mem_total field was never populated).
+    snmpMemMax(h) {
+      if (!h) return 0;
+      const live = +h.host_mem_total || 0;
+      if (live > 0) return live;
+      const hist = this.hostSnmpHistory[h.id];
+      const points = (hist && hist.points) || [];
+      let max = 0;
+      for (const p of points) {
+        if (p.mem_total && +p.mem_total > max) max = +p.mem_total;
+      }
+      if (max > 0) return max;
+      // Synthesise from the layer sum as a last resort.
+      for (const p of points) {
+        const sum = (+p.mem_used || 0) + (+p.mem_buffers || 0)
+                  + (+p.mem_cached || 0) + (+p.mem_free || 0);
+        if (sum > max) max = sum;
+      }
+      return max;
+    },
+    // #739 — Freshness label for the SNMP chart section. Returns
+    // `{age_s, label, stale}` or null when there's no data yet.
+    // `stale` is true once age exceeds 2× the host_snmp sampler
+    // cadence (~5min), used to amber-tint the label so the
+    // operator knows the data hasn't refreshed in a while.
+    snmpHistoryFreshness(h) {
+      if (!h) return null;
+      const hist = this.hostSnmpHistory[h.id];
+      if (!hist || !Array.isArray(hist.points) || hist.points.length === 0) return null;
+      const last = hist.points[hist.points.length - 1];
+      const ts = last && (last.ts || last.t);
+      if (!ts) return null;
+      const ageS = Math.max(0, Math.round(Date.now() / 1000 - +ts));
+      let label;
+      if (ageS < 60) label = ageS + 's';
+      else if (ageS < 3600) label = Math.round(ageS / 60) + 'm';
+      else label = Math.round(ageS / 3600) + 'h';
+      return { age_s: ageS, label, stale: ageS > 600 };
     },
     // Build a polyline `points` attribute from a series of values.
     // Normalises against `max` (default = max value in series) so the
