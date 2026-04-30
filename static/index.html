@@ -5154,18 +5154,15 @@
                      were mapped; floating right keeps the row scannable
                      and frees horizontal space for long host labels. -->
                 <span class="ms-auto"></span>
-                <!-- Per-row provider chips — mono icon painted in the
-                     operator-set provider colour from Settings →
-                     Providers (#596, icon-mode #607). Icon replaces
-                     the previous text label ("beszel" / "pulse" /
-                     "exporter" / "webmin" / "ping" / "snmp") so the
-                     strip stays compact regardless of fleet width.
-                     `title` attr surfaces the canonical provider name
-                     on hover for accessibility + screen-readers. The
-                     chip's `pill-custom` background still tints the
-                     bubble in the provider colour so visual scanning
-                     (which provider is mapped on this row?) reads at
-                     a glance without needing the text. -->
+                <!-- Per-row provider icons — bare mono SVG painted in
+                     the operator-set provider colour from Settings →
+                     Providers (#596 / #607). No chip bubble around
+                     them: matches the trailing SSH state icon's bare
+                     style (#608) so the strip reads as a row of
+                     equal-weight glyphs rather than coloured-box
+                     chips. `title` attr surfaces the canonical
+                     provider name on hover for accessibility +
+                     screen-readers. -->
                 <template x-for="p in [
                     row.beszel_name ? {name:'beszel', label:'beszel'} : null,
                     row.pulse_name ? {name:'pulse', label:'pulse'} : null,
@@ -5174,13 +5171,10 @@
                     (row.ping && row.ping.enabled) ? {name:'ping', label:'ping'} : null,
                     row.snmp_name ? {name:'snmp', label:'snmp'} : null,
                   ].filter(Boolean)" :key="p.name">
-                  <span class="chip pill-custom px-1.5 py-0.5 inline-flex items-center"
-                        :style="providerChipStyle(p.name)"
-                        :title="p.label">
-                    <span class="provider-icon"
-                          :style="'--provider-icon-url: url(/img/icons/' + providerIconSlug(p.name) + '.svg); --provider-icon-size: 12px;'"
-                          aria-hidden="true"></span>
-                  </span>
+                  <span class="provider-icon"
+                        :style="providerIconStyle(p.name) + ' --provider-icon-size: 13px;'"
+                        :title="p.label"
+                        aria-hidden="false"></span>
                 </template>
                 <!-- SSH-enabled indicator (#623, repositioned right
                      in #629). Replaces the prior green/grey dot —

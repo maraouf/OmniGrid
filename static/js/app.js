@@ -12844,8 +12844,8 @@ function app() {
     // (#437). Returns [[sensor_name, celsius], ...] sorted hottest-
     // first, capped at 3 — modern hosts can expose 8+ sensors
     // (coretemp_package + nvme_composite + acpitz + per-core +
-    // hwmon …) and shoving them all into the inline header overflowed
-    // the row in img_1.png so name and value visually decoupled. The
+    // hwmon …) and shoving them all into the inline header
+    // overflowed the row, decoupling sensor name from value. The
     // chart line carries `temp_max` (the global peak across ALL
     // sensors at each tick) so nothing hot gets hidden — only the
     // verbose readout is trimmed. The full per-sensor dict is
