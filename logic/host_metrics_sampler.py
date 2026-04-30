@@ -648,7 +648,11 @@ async def _probe_one_snmp(host: dict, sem: asyncio.Semaphore) -> None:
                 # chart populates on devices that don't surface memory.
                 rx_raw_present = stats.get("host_net_rx_total_bytes") is not None
                 tx_raw_present = stats.get("host_net_tx_total_bytes") is not None
-                if mem_total > 0 or rx_raw_present or tx_raw_present:
+                # #146 — printer hosts may report ONLY prtMarkerLifeCount
+                # (no mem, no IF-MIB). Insert the row so the sparkline
+                # has data to plot.
+                page_count_present = stats.get("printer_page_count") is not None
+                if mem_total > 0 or rx_raw_present or tx_raw_present or page_count_present:
                     cores = stats.get("host_cpu_per_core") or []
                     cpu_used = stats.get("host_cpu_percent")
                     cpu_used_pct = float(cpu_used) if cpu_used is not None else None
@@ -665,14 +669,19 @@ async def _probe_one_snmp(host: dict, sem: asyncio.Semaphore) -> None:
                     tx_raw = stats.get("host_net_tx_total_bytes")
                     rx_total = int(rx_raw) if rx_raw is not None else None
                     tx_total = int(tx_raw) if tx_raw is not None else None
+                    # #146 — printer lifetime page count. NULL for
+                    # non-printer SNMP hosts.
+                    page_raw = stats.get("printer_page_count")
+                    page_count = int(page_raw) if page_raw is not None else None
                     with db_conn() as c:
                         c.execute(
                             "INSERT OR REPLACE INTO host_snmp_samples "
                             "(ts, host_id, cpu_per_core, cpu_used_pct, "
                             "load_1m, load_5m, load_15m, "
                             "mem_total, mem_used, mem_buffers, mem_cached, mem_free, "
-                            "uptime_s, net_rx_total_bytes, net_tx_total_bytes) "
-                            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                            "uptime_s, net_rx_total_bytes, net_tx_total_bytes, "
+                            "printer_page_count) "
+                            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                             (
                                 int(now), hid,
                                 json.dumps(list(cores)) if cores else None,
@@ -688,6 +697,7 @@ async def _probe_one_snmp(host: dict, sem: asyncio.Semaphore) -> None:
                                 uptime_s,
                                 rx_total,
                                 tx_total,
+                                page_count,
                             ),
                         )
         except Exception as e:  # noqa: BLE001

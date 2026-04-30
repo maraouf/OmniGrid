@@ -628,6 +628,12 @@ def init_db():
             # tell "host stopped responding" from "0 bps idle".
             "ALTER TABLE host_snmp_samples ADD COLUMN net_rx_total_bytes INTEGER",
             "ALTER TABLE host_snmp_samples ADD COLUMN net_tx_total_bytes INTEGER",
+            # #146 — printer lifetime page count (Printer-MIB
+            # prtMarkerLifeCount). Cumulative monotonic counter; the
+            # SPA computes per-interval deltas → pages/day for the
+            # sparkline + reads the live value as the lifetime
+            # headline. NULL for non-printer hosts.
+            "ALTER TABLE host_snmp_samples ADD COLUMN printer_page_count INTEGER",
         ):
             try:
                 c.execute(ddl)
@@ -6709,7 +6715,8 @@ async def api_hosts_snmp_history(
                 "SELECT ts, cpu_per_core, cpu_used_pct, "
                 "load_1m, load_5m, load_15m, "
                 "mem_total, mem_used, mem_buffers, mem_cached, mem_free, "
-                "uptime_s, net_rx_total_bytes, net_tx_total_bytes "
+                "uptime_s, net_rx_total_bytes, net_tx_total_bytes, "
+                "printer_page_count "
                 "FROM host_snmp_samples "
                 "WHERE host_id=? AND ts >= ? "
                 "ORDER BY ts ASC LIMIT ?",
@@ -6744,6 +6751,10 @@ async def api_hosts_snmp_history(
             # / negative deltas (counter wrap, reboot) are skipped.
             "net_rx_total_bytes": (int(r[12]) if r[12] is not None else None),
             "net_tx_total_bytes": (int(r[13]) if r[13] is not None else None),
+            # #146 — printer lifetime page count (Printer-MIB
+            # prtMarkerLifeCount). Cumulative monotonic counter; the
+            # SPA computes deltas → pages-per-day.
+            "printer_page_count": (int(r[14]) if r[14] is not None else None),
         })
     return {"points": points, "error": None}
 

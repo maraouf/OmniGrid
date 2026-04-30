@@ -13129,6 +13129,106 @@ function app() {
       }
       return false;
     },
+    // #146 — printer pages-printed sparkline. Series of pages-per-day
+    // rates derived from adjacent samples of `printer_page_count`
+    // (Printer-MIB prtMarkerLifeCount, monotonic). Skip-don't-
+    // synthesize on out-of-bounds deltas (negative = printer reset
+    // / counter rollover, near-zero timespan, hour-plus gap, > 10 000
+    // pages = absurd-rate guard against agent glitches).
+    snmpPagesPerDaySeries(hostId) {
+      const series = (this.hostSnmpHistory[hostId] || {}).points || [];
+      if (series.length < 2) return [];
+      const out = new Array(series.length).fill(0);
+      for (let i = 1; i < series.length; i++) {
+        const a = series[i - 1], b = series[i];
+        const dt = (b.ts || 0) - (a.ts || 0);
+        const av = a.printer_page_count, bv = b.printer_page_count;
+        if (av == null || bv == null) continue;
+        if (dt < 1 || dt > 3600) continue;
+        const dp = bv - av;
+        if (dp < 0 || dp > 10000) continue;
+        out[i] = (dp / dt) * 86400;     // pages per day
+      }
+      return out;
+    },
+    snmpPagesPerDayLine(hostId) {
+      const vals = this.snmpPagesPerDaySeries(hostId);
+      if (!vals.length) return '';
+      const m = Math.max(0.0001, ...vals);
+      return this._snmpPolyPoints(vals, m || 1);
+    },
+    snmpPagesPerDayMax(hostId) {
+      const vals = this.snmpPagesPerDaySeries(hostId);
+      let m = 0;
+      for (const v of vals) if (v > m) m = v;
+      return m;
+    },
+    snmpPagesPerDayLast(hostId) {
+      const vals = this.snmpPagesPerDaySeries(hostId);
+      for (let i = vals.length - 1; i >= 0; i--) {
+        if (vals[i] > 0) return vals[i];
+      }
+      return 0;
+    },
+    // Banner copy — derives the per-tick interval from the SAME tunable
+    // the SNMP sampler uses (tuning_stats_sample_interval_seconds,
+    // delivered via /api/me's client_config). Falls back to 300 s
+    // when client_config hasn't hydrated yet so the literal
+    // `{minutes}` placeholder never reaches the rendered DOM.
+    snmpWarmingUpText() {
+      const sec = (this.me && this.me.client_config && this.me.client_config.stats_sample_interval_seconds) || 300;
+      const minutes = Math.max(1, Math.round(sec / 60));
+      return this.t('host_drawer.snmp_charts.warming_up', { minutes });
+    },
+    // Legend value for SNMP load lines. Operator-flagged: reading
+    // `last` showed 0.00 while the chart line clearly had a non-zero
+    // peak (the most recent tick happened to be 0). Show MAX over the
+    // window so the legend matches what the eye sees on the chart.
+    snmpLoadLegendValue(hostId, key, liveValue) {
+      const live = +liveValue;
+      if (Number.isFinite(live) && live > 0) return live.toFixed(2);
+      const stats = this.snmpStats(hostId, key);
+      if (stats && stats.max > 0) return stats.max.toFixed(2);
+      return (live || 0).toFixed(2);
+    },
+    // List of providers currently ENABLED globally — used to render
+    // the "no data from any enabled provider" banner so it only
+    // mentions providers the operator has actually turned on. Reads
+    // `host_stats_source` (CSV) plus the per-source enable flags.
+    // Operator-flagged: banner used to claim "Webmin" was checked
+    // even when Webmin was disabled, which made it look like a bug
+    // rather than a "host not yet wired" state.
+    enabledProvidersList() {
+      const labels = {
+        beszel: 'Beszel',
+        pulse: 'Pulse',
+        node_exporter: 'node-exporter',
+        webmin: 'Webmin',
+        snmp: 'SNMP',
+        ping: 'Ping',
+      };
+      const sources = ((this.settings && this.settings.host_stats_source) || '')
+        .split(',').map(s => s.trim()).filter(Boolean);
+      const out = [];
+      for (const k of ['pulse', 'beszel', 'node_exporter', 'webmin', 'snmp', 'ping']) {
+        if (sources.includes(k)) out.push(labels[k]);
+      }
+      if (!out.length) return this.t('hosts_extra.no_data.no_providers') || 'any provider';
+      if (out.length === 1) return out[0];
+      if (out.length === 2) return out[0] + ' or ' + out[1];
+      return out.slice(0, -1).join(', ') + ', or ' + out[out.length - 1];
+    },
+    snmpHasPageCount(hostId, h) {
+      // Live live `h.printer_page_count` OR ANY history row carrying
+      // a non-null page count. Either way, the printer card is
+      // worth rendering.
+      if (h && h.printer_page_count != null) return true;
+      const series = (this.hostSnmpHistory[hostId] || {}).points || [];
+      for (const p of series) {
+        if (p.printer_page_count != null) return true;
+      }
+      return false;
+    },
     async loadHostHistory(systemId, hostId) {
       // Preserve whatever series we already have so the chart doesn't
       // flicker back to "Collecting data…" between range-picker
@@ -13491,6 +13591,7 @@ function app() {
         snmp_cpu:    ['snmp'],
         snmp_memory: ['snmp'],
         snmp_load:   ['snmp'],
+        snmp_pages:  ['snmp'],
         // Ping is its own thing — TCP / ICMP probe per host.
         ping:        ['ping'],
       };

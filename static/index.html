@@ -1573,7 +1573,14 @@
             </button>
           </span>
         </div>
-        <div class="flex items-center gap-2 flex-wrap">
+        <!-- Right-side toolbar cluster. `grow` makes this cluster fill
+             the remaining width to the right of the LEFT (status) cluster
+             so the inner spacer has room to push the Beszel / Pulse links
+             to the trailing edge. Without `grow` the cluster shrinks to
+             fit-content and the spacer collapses to 0 px — operator-flagged
+             twice that the buttons stayed packed left next to expand /
+             collapse. RTL-aware via the logical-property spacer. -->
+        <div class="flex items-center gap-2 flex-wrap grow">
           <!-- Expand / collapse all — lives here on the Hosts view
                because the shared toolbar above sits inside the
                stacks/services/nodes filter bar that this view
@@ -8004,7 +8011,7 @@
                   <div>
                     <div class="font-semibold text-[var(--text)]" x-text="t('hosts_extra.no_data.title')"></div>
                     <div class="text-[var(--text-dim)] mt-1"
-                         x-text="t('hosts_extra.no_data.body', { debug_label: t('debug_panel.show') })"></div>
+                         x-text="t('hosts_extra.no_data.body', { debug_label: t('debug_panel.show'), providers: enabledProvidersList() })"></div>
                   </div>
                 </div>
               </template>
@@ -9054,7 +9061,7 @@
                    the Ping latency chart as their time-series source
                    so this hint is misleading there; the gate now
                    excludes `h.ping_enabled`. -->
-              <div x-show="!h.beszel_id && !h.ne_url && !h.ping_enabled && !h.snmp_enabled && h.status === 'up' && (h.providers || []).length > 0"
+              <div x-show="!h.beszel_id && !h.ne_url && !h.ping_enabled && !h.snmp_name && !h.snmp_enabled && h.status === 'up' && (h.providers || []).length > 0"
                    class="mt-4 text-[11.5px] text-[var(--text-faint)] italic">
                 <span x-text="t('host_drawer.charts.no_source_hint_prefix')"></span>
                 <a href="#" @click.prevent="openAdminTab('hosts')"
@@ -9197,7 +9204,7 @@
                            && !(hostSnmpHistory[h.id] && hostSnmpHistory[h.id].loading)"
                    class="mt-2 text-[11px] flex items-center gap-2 text-[var(--text-faint)]">
                 <svg width="11" height="11" aria-hidden="true"><use href="#icon-info"/></svg>
-                <span x-text="t('host_drawer.snmp_charts.warming_up', { minutes: Math.max(1, Math.round(((me && me.client_config && me.client_config.stats_sample_interval_seconds) || 300) / 60)) })"></span>
+                <span x-text="snmpWarmingUpText()"></span>
               </div>
               <div class="mt-3 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4"
                    x-show="hostHasSnmpCharts(h)">
@@ -9279,17 +9286,17 @@
                       <span>
                         <span class="metric-legend-dot" style="background: var(--success)"></span>
                         <span x-text="t('host_drawer.snmp_charts.legend_load_1m')"></span>
-                        <span class="legend-val" x-text="((+h.host_load_1m) || (snmpStats(h.id, 'load_1m') || {}).last || 0).toFixed(2)"></span>
+                        <span class="legend-val" x-text="snmpLoadLegendValue(h.id, 'load_1m', h.host_load_1m)"></span>
                       </span>
                       <span>
                         <span class="metric-legend-dot" style="background: var(--warning)"></span>
                         <span x-text="t('host_drawer.snmp_charts.legend_load_5m')"></span>
-                        <span class="legend-val" x-text="((+h.host_load_5m) || (snmpStats(h.id, 'load_5m') || {}).last || 0).toFixed(2)"></span>
+                        <span class="legend-val" x-text="snmpLoadLegendValue(h.id, 'load_5m', h.host_load_5m)"></span>
                       </span>
                       <span>
                         <span class="metric-legend-dot" style="background: var(--info)"></span>
                         <span x-text="t('host_drawer.snmp_charts.legend_load_15m')"></span>
-                        <span class="legend-val" x-text="((+h.host_load_15m) || (snmpStats(h.id, 'load_15m') || {}).last || 0).toFixed(2)"></span>
+                        <span class="legend-val" x-text="snmpLoadLegendValue(h.id, 'load_15m', h.host_load_15m)"></span>
                       </span>
                     </div>
                   </div>
@@ -9444,6 +9451,59 @@
                     </svg>
                     <div class="metric-x-axis">
                       <template x-for="(l, i) in snmpXAxis(h.id, 5)" :key="'thr-x-' + i"><span x-text="l"></span></template>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- #146 — printer pages-printed chart. Sparkline of
+                     pages-per-day computed from adjacent samples of
+                     printer_page_count (Printer-MIB prtMarkerLifeCount,
+                     monotonic). Lifetime headline reads the live
+                     value. Hidden when neither live nor history has a
+                     page count (non-printer SNMP hosts). -->
+                <div class="metric-card"
+                     x-show="snmpHasPageCount(h.id, h)">
+                  <div class="metric-card-head">
+                    <div class="metric-card-title">
+                      <span x-text="t('host_drawer.snmp_charts.pages_title')"></span>
+                      <span class="metric-source-help" :title="metricSource(h, 'snmp_throughput')"
+                            @click.stop="toggleMetricTooltip(h, 'snmp_pages')"
+                            @keydown.escape.window="metricTooltipOpen = null">
+                        <svg width="12" height="12" aria-hidden="true"><use href="#icon-help-circle"/></svg>
+                        <span class="metric-source-tooltip"
+                              x-show="metricTooltipOpen === metricTooltipKey(h, 'snmp_pages')"
+                              x-cloak @click.stop
+                              x-transition.opacity.duration.120ms
+                              x-text="metricSource(h, 'snmp_throughput')"></span>
+                      </span>
+                    </div>
+                    <div class="metric-card-stats" style="gap:8px">
+                      <span x-show="h.printer_page_count">
+                        <span class="metric-legend-dot" style="background: var(--text-faint)"></span>
+                        <span x-text="t('host_drawer.snmp_charts.legend_lifetime')"></span>
+                        <span class="legend-val" x-text="(+h.printer_page_count || 0).toLocaleString()"></span>
+                      </span>
+                      <span x-show="snmpPagesPerDayLast(h.id) > 0">
+                        <span class="metric-legend-dot" style="background: var(--info)"></span>
+                        <span x-text="t('host_drawer.snmp_charts.legend_pages_per_day')"></span>
+                        <span class="legend-val" x-text="Math.round(snmpPagesPerDayLast(h.id)).toLocaleString()"></span>
+                      </span>
+                    </div>
+                  </div>
+                  <div class="metric-card-body">
+                    <div class="metric-y-axis">
+                      <span x-text="Math.round(snmpPagesPerDayMax(h.id)).toLocaleString()"></span>
+                      <span x-text="Math.round(snmpPagesPerDayMax(h.id) / 2).toLocaleString()"></span>
+                      <span>0</span>
+                    </div>
+                    <svg class="metric-svg" viewBox="0 0 420 120" preserveAspectRatio="none" aria-hidden="true">
+                      <line class="metric-grid" x1="0" y1="30" x2="420" y2="30"/>
+                      <line class="metric-grid" x1="0" y1="60" x2="420" y2="60"/>
+                      <line class="metric-grid" x1="0" y1="90" x2="420" y2="90"/>
+                      <polyline fill="none" stroke="var(--info)" stroke-width="1.5" :points="snmpPagesPerDayLine(h.id)"></polyline>
+                    </svg>
+                    <div class="metric-x-axis">
+                      <template x-for="(l, i) in snmpXAxis(h.id, 5)" :key="'pg-x-' + i"><span x-text="l"></span></template>
                     </div>
                   </div>
                 </div>
