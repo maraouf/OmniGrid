@@ -4,7 +4,7 @@
 
 # OmniGrid
 
-> Single-replica FastAPI + Alpine.js dashboard for Docker Swarm clusters **and the bare hosts that run them**. Portainer-native stack / service / container updates, multi-provider host telemetry (Beszel / Pulse / node-exporter / Webmin), interactive SSH + audited one-shot runner, scheduler, OIDC + TOTP + passkey auth, Apprise notifications. SQLite-backed, no build step, bind-mount deploy.
+> Single-replica FastAPI + Alpine.js dashboard for Docker Swarm clusters **and the bare hosts that run them**. Portainer-native stack / service / container updates, multi-provider host telemetry (Beszel / Pulse / node-exporter / Webmin), interactive SSH + audited one-shot runner, scheduler, OIDC + TOTP + passkey auth, Apprise notifications. 
 
 A Portainer-native operations dashboard for Docker Swarm clusters **and the bare hosts that run them**. One screen, four core capabilities:
 

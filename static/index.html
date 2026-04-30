@@ -5794,7 +5794,7 @@
           <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true"><use href="#icon-package"/></svg>
           <h3 class="font-semibold text-[13px]" x-text="t('admin_assets.title')"></h3>
         </div>
-        <p class="text-[11.5px] text-[var(--text-faint)] mb-4 leading-snug max-w-[720px]"
+        <p class="text-[11.5px] text-[var(--text-faint)] mb-3 leading-snug max-w-[720px]"
            x-text="t('admin_assets.intro')"></p>
 
         <!-- Auth mode selector — segmented control. -->
@@ -6318,7 +6318,7 @@
             <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true"><use href="#icon-calendar"/></svg>
             <h3 class="font-semibold text-[13px]" x-text="t('scheduler_settings.title')"></h3>
           </div>
-          <p class="text-[11.5px] text-[var(--text-faint)] mb-4" x-text="t('scheduler_settings.intro')"></p>
+          <p class="text-[11.5px] text-[var(--text-faint)] mb-3" x-text="t('scheduler_settings.intro')"></p>
           <div class="flex items-end gap-3 flex-wrap">
             <div class="flex flex-col gap-1">
               <label class="text-[11px] text-[var(--text-faint)]" x-text="t('scheduler_settings.tz_label')"></label>
@@ -7100,7 +7100,7 @@
             <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true"><use href="#icon-settings"/></svg>
             <h3 class="font-semibold text-[13px]" x-text="t('admin.config.title')"></h3>
           </div>
-          <p class="text-[11.5px] text-[var(--text-faint)] mb-3 max-w-[820px]"
+          <p class="text-[11.5px] text-[var(--text-faint)] mb-3 max-w-[720px]"
              x-text="t('admin.config.subtitle', { count: tuningKeys.length })"></p>
 
           <!-- Initial-load placeholder. The tunable keys come from
@@ -7189,13 +7189,24 @@
            bearer-token rotation policy). -->
       <div x-show="adminTab==='authentication'" class="space-y-4">
         <section class="bg-[var(--surface)] border border-[var(--border)] rounded-md p-5">
-          <div class="flex items-center gap-2 mb-2">
-            <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true"><use href="#icon-shield"/></svg>
-            <h3 class="font-semibold text-[13px]"
-                x-text="t('admin.config.totp.title')"></h3>
+          <!-- Title row + Enabled/Disabled pill — matches Portainer /
+               Notifications / SSH / OIDC pattern. Pill is "Enabled"
+               when AT LEAST ONE 2FA method is allowed (TOTP OR
+               passkeys); both off → "Disabled". -->
+          <div class="flex items-start justify-between">
+            <div>
+              <div class="flex items-center gap-2 mb-2">
+                <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true"><use href="#icon-shield"/></svg>
+                <h3 class="font-semibold text-[13px]"
+                    x-text="t('admin.config.totp.title')"></h3>
+              </div>
+              <p class="text-[11.5px] text-[var(--text-faint)] mb-3"
+                 x-text="t('admin.config.totp.subtitle')"></p>
+            </div>
+            <span class="chip"
+                  :class="(settings.totp_allowed || settings.passkeys_allowed) ? 'pill-ok' : 'pill-muted'"
+                  x-text="(settings.totp_allowed || settings.passkeys_allowed) ? t('admin_integrations.enabled_pill') : t('admin_integrations.disabled_pill')"></span>
           </div>
-          <p class="text-[11.5px] text-[var(--text-faint)] mb-3 max-w-[820px]"
-             x-text="t('admin.config.totp.subtitle')"></p>
 
           <div class="space-y-3" x-show="settings">
             <label class="flex items-center gap-2 text-[12.5px]">
