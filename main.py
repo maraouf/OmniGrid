@@ -512,6 +512,36 @@ def init_db():
         CREATE INDEX IF NOT EXISTS idx_host_metrics_samples_host_ts
             ON host_metrics_samples(host_id, ts DESC);
 
+        -- #713 — SNMP-specific time-series. Separate from
+        -- host_metrics_samples because: (a) SNMP exposes per-core CPU
+        -- + buffers/cached memory that the unified `host_metrics_samples`
+        -- schema doesn't carry; (b) the rate-derivation contract for
+        -- net/disk doesn't apply (SNMP gives gauges, not counters
+        -- here); (c) keeps SNMP enrichment additive — operators with
+        -- only Beszel/NE pay zero query cost. JSON cpu_per_core blob
+        -- is fine because the row count is one per host per tick
+        -- and we never query INTO the JSON; bulk reads return the
+        -- raw text + frontend parses. Skip-don't-synthesize discipline
+        -- still applies — the sampler does NOT insert when memTotal is
+        -- 0 / undefined (would mask "host disappeared" as flat zeros).
+        CREATE TABLE IF NOT EXISTS host_snmp_samples (
+            ts            INTEGER NOT NULL,
+            host_id       TEXT    NOT NULL,
+            cpu_per_core  TEXT,
+            cpu_used_pct  REAL,
+            load_1m       REAL,
+            load_5m       REAL,
+            load_15m      REAL,
+            mem_total     INTEGER,
+            mem_used      INTEGER,
+            mem_buffers   INTEGER,
+            mem_cached    INTEGER,
+            mem_free      INTEGER,
+            PRIMARY KEY (ts, host_id)
+        );
+        CREATE INDEX IF NOT EXISTS idx_host_snmp_samples_host_ts
+            ON host_snmp_samples(host_id, ts DESC);
+
         -- Last-known per-host nodes_info blob (Beszel / Pulse /
         -- node-exporter / Webmin merged). Written at the end of every
         -- successful gather, read at startup AND on every gather to
@@ -4455,6 +4485,14 @@ def _shape_host_api_row(
         "host_location":    s.get("host_location") or "",
         "host_temp_c":      (float(s.get("host_temp_c")) if s.get("host_temp_c") is not None else None),
         "host_upgrade_status": s.get("host_upgrade_status") or "",
+        # #713 — per-core CPU + UCD memory breakdown for the new
+        # SNMP time-series charts. Empty list / 0 when the host
+        # didn't return UCD or hrProcessorLoad walks; frontend gate
+        # on length so non-SNMP hosts don't see the cards.
+        "host_cpu_per_core": list(s.get("host_cpu_per_core") or []),
+        "host_mem_buffers":  int(s.get("host_mem_buffers") or 0),
+        "host_mem_cached":   int(s.get("host_mem_cached") or 0),
+        "host_mem_free":     int(s.get("host_mem_free") or 0),
         # APC PowerNet-MIB UPS (#683 / #703). Present only when the
         # host responded to upsBasicIdentModel / upsBasicOutputStatus.
         "host_ups_status":         s.get("host_ups_status") or "",
@@ -6613,6 +6651,63 @@ async def api_hosts_ping_history(
     except Exception as e:
         return {"points": [], "error": f"ping_sampler: {e}"}
     return {"points": rows, "error": None}
+
+
+@app.get("/api/hosts/{host_id}/snmp/history")
+async def api_hosts_snmp_history(
+    host_id: str, hours: int = 1,
+    _admin: auth.User = Depends(auth.require_admin),
+):
+    """SNMP time-series for one curated host (#713).
+
+    Returns ``{points: [...], error: None}`` with one row per
+    ``host_snmp_samples`` entry in the window. Each point carries
+    ``ts``, ``cpu_per_core`` (parsed JSON list of int 0..100),
+    ``cpu_used_pct`` (UCD ssCpuIdle-derived smoother value),
+    ``load_1m`` / ``load_5m`` / ``load_15m`` (floats), ``mem_total`` /
+    ``mem_used`` / ``mem_buffers`` / ``mem_cached`` / ``mem_free``
+    (bytes). Empty list when this host has never been SNMP-probed.
+    Window clamped to 1..168 hours.
+    """
+    import json as _json
+    h = max(1, min(168, int(hours or 1)))
+    hid = (host_id or "").strip()
+    if not hid:
+        return {"points": [], "error": "host_id required"}
+    since = int(time.time() - h * 3600)
+    try:
+        with db_conn() as c:
+            rows = c.execute(
+                "SELECT ts, cpu_per_core, cpu_used_pct, "
+                "load_1m, load_5m, load_15m, "
+                "mem_total, mem_used, mem_buffers, mem_cached, mem_free "
+                "FROM host_snmp_samples "
+                "WHERE host_id=? AND ts >= ? "
+                "ORDER BY ts ASC LIMIT ?",
+                (hid, since, h * 60),
+            ).fetchall()
+    except Exception as e:
+        return {"points": [], "error": f"snmp_history: {e}"}
+    points = []
+    for r in rows:
+        try:
+            cores = _json.loads(r[1]) if r[1] else []
+        except (ValueError, TypeError):
+            cores = []
+        points.append({
+            "ts": int(r[0]),
+            "cpu_per_core": cores,
+            "cpu_used_pct": (float(r[2]) if r[2] is not None else None),
+            "load_1m": (float(r[3]) if r[3] is not None else None),
+            "load_5m": (float(r[4]) if r[4] is not None else None),
+            "load_15m": (float(r[5]) if r[5] is not None else None),
+            "mem_total":   (int(r[6]) if r[6] is not None else None),
+            "mem_used":    (int(r[7]) if r[7] is not None else None),
+            "mem_buffers": (int(r[8]) if r[8] is not None else None),
+            "mem_cached":  (int(r[9]) if r[9] is not None else None),
+            "mem_free":    (int(r[10]) if r[10] is not None else None),
+        })
+    return {"points": points, "error": None}
 
 
 class PingTestIn(BaseModel):

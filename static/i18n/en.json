@@ -1608,6 +1608,12 @@
       "qemu": "VM",
       "node": "Hypervisor"
     },
+    "snmp_charts": {
+      "cpu_title": "CPU per-core",
+      "load_title": "Load avg",
+      "mem_title": "Memory",
+      "cores": "{n} core(s)"
+    },
     "charts": {
       "cpu": "CPU %",
       "memory": "Memory %",

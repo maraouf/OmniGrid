@@ -632,6 +632,43 @@ async def _probe_one_snmp(host: dict, sem: asyncio.Semaphore) -> None:
             return
         # Success — clear any in-flight failure tracking.
         _clear_failure(snmp_key)
+        # #713 — write a sample into host_snmp_samples for the
+        # time-series chart cards (CPU per-core, load avg, memory
+        # stacked-area). Skip-don't-synthesize: when mem_total didn't
+        # come back, we don't insert a row. Storing zeros would mask
+        # exactly the "host stopped responding" signal the chart should
+        # surface.
+        try:
+            stats = next(iter((r.get("hosts") or {}).values()), None)
+            if stats:
+                mem_total = int(stats.get("host_mem_total") or 0)
+                if mem_total > 0:
+                    cores = stats.get("host_cpu_per_core") or []
+                    cpu_used = stats.get("host_cpu_percent")
+                    cpu_used_pct = float(cpu_used) if cpu_used is not None else None
+                    with db_conn() as c:
+                        c.execute(
+                            "INSERT OR REPLACE INTO host_snmp_samples "
+                            "(ts, host_id, cpu_per_core, cpu_used_pct, "
+                            "load_1m, load_5m, load_15m, "
+                            "mem_total, mem_used, mem_buffers, mem_cached, mem_free) "
+                            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                            (
+                                int(now), hid,
+                                json.dumps(list(cores)) if cores else None,
+                                cpu_used_pct,
+                                stats.get("host_load_1m"),
+                                stats.get("host_load_5m"),
+                                stats.get("host_load_15m"),
+                                mem_total,
+                                int(stats.get("host_mem_used") or 0),
+                                int(stats.get("host_mem_buffers") or 0),
+                                int(stats.get("host_mem_cached") or 0),
+                                int(stats.get("host_mem_free") or 0),
+                            ),
+                        )
+        except Exception as e:  # noqa: BLE001
+            print(f"[host_metrics_sampler] {snmp_key} snmp_sample insert failed: {e}")
 
 
 def _prune_old_samples() -> int:
@@ -640,7 +677,14 @@ def _prune_old_samples() -> int:
     try:
         with db_conn() as c:
             cur = c.execute("DELETE FROM host_metrics_samples WHERE ts < ?", (cutoff,))
-            return cur.rowcount or 0
+            removed = cur.rowcount or 0
+            # #713 — prune host_snmp_samples on the same cadence /
+            # window. SNMP sample rows are denser than host_metrics
+            # rows (they're written every successful tick) so the
+            # retention budget gets eaten faster otherwise.
+            cur2 = c.execute("DELETE FROM host_snmp_samples WHERE ts < ?", (cutoff,))
+            removed += cur2.rowcount or 0
+            return removed
     except Exception as e:
         print(f"[host_metrics_sampler] prune failed: {e}")
         return 0
