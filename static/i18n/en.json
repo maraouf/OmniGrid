@@ -1407,7 +1407,7 @@
     },
     "no_data": {
       "title": "No data from any enabled provider",
-      "body": "OmniGrid could not match this host to Pulse, Beszel, node-exporter, Webmin, SNMP, or Ping. Open the {debug_label} panel below to see what each provider returned and where the match failed."
+      "body": "OmniGrid could not match this host to {providers}. Open the {debug_label} panel below to see what each provider returned and where the match failed."
     },
     "provider_count_one": "1 provider",
     "provider_count_many": "{count} providers",
