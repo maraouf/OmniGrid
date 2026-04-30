@@ -172,7 +172,7 @@ def _migration_001_flip_ssh_per_host_to_opt_in(conn: sqlite3.Connection) -> None
     import json
 
     row = conn.execute(
-        "SELECT v FROM settings WHERE k=?", ("hosts_config",)
+        "SELECT value FROM settings WHERE key=?", ("hosts_config",)
     ).fetchone()
     if not row or not row[0]:
         return  # no curated hosts yet — nothing to migrate
@@ -201,7 +201,7 @@ def _migration_001_flip_ssh_per_host_to_opt_in(conn: sqlite3.Connection) -> None
             del ssh["disabled"]
 
     conn.execute(
-        "UPDATE settings SET v=? WHERE k=?",
+        "UPDATE settings SET value=? WHERE key=?",
         (json.dumps(cfg, separators=(",", ":")), "hosts_config"),
     )
 
