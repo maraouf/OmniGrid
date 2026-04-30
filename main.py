@@ -4437,6 +4437,43 @@ def _shape_host_api_row(
         "dmi_product":      (s.get("host_dmi_product") or ""),
         "dmi_serial":       (s.get("host_dmi_serial") or ""),
         "dmi_bios_version": (s.get("host_dmi_bios_version") or ""),
+        # SNMP vendor-specific fields (#682–#685, #702, #703). All of
+        # these are populated by `extract_vendor_info` only when the
+        # corresponding vendor MIB returned data — non-vendor hosts get
+        # empty / None / 0 here and the frontend cards gate on the
+        # presence of the field so they don't render empty. Without
+        # this whitelist the fields were silently dropped on the API
+        # boundary (same drift class as the host_temperatures fix
+        # earlier in this row — extract_stats produced them but they
+        # never reached the SPA).
+        # Universal identity (Dell / Cisco / APC / Synology / printer):
+        "host_model":       s.get("host_model") or "",
+        "host_serial":      s.get("host_serial") or "",
+        "host_firmware":    s.get("host_firmware") or "",
+        "host_health":      s.get("host_health") or "",
+        "host_contact":     s.get("host_contact") or "",
+        "host_location":    s.get("host_location") or "",
+        "host_temp_c":      (float(s.get("host_temp_c")) if s.get("host_temp_c") is not None else None),
+        "host_upgrade_status": s.get("host_upgrade_status") or "",
+        # APC PowerNet-MIB UPS (#683 / #703). Present only when the
+        # host responded to upsBasicIdentModel / upsBasicOutputStatus.
+        "host_ups_status":         s.get("host_ups_status") or "",
+        "host_battery_percent":    (float(s.get("host_battery_percent")) if s.get("host_battery_percent") is not None else None),
+        "host_battery_runtime_s":  (int(s.get("host_battery_runtime_s")) if s.get("host_battery_runtime_s") is not None else None),
+        "host_battery_temp_c":     (float(s.get("host_battery_temp_c")) if s.get("host_battery_temp_c") is not None else None),
+        "host_battery_status":     s.get("host_battery_status") or "",
+        "host_load_percent":       (float(s.get("host_load_percent")) if s.get("host_load_percent") is not None else None),
+        # Printer-MIB (#702). Empty list / 0 / "" → frontend cards hide.
+        "printer_page_count":      int(s.get("printer_page_count") or 0),
+        "printer_supplies":        list(s.get("printer_supplies") or []),
+        "printer_console_msg":     s.get("printer_console_msg") or "",
+        # Network interfaces — already populated by extract_interfaces;
+        # added explicitly here so the SNMP path's rx_bytes / tx_bytes /
+        # oper_status make it through to the SPA. node-exporter / Beszel
+        # / Pulse populate the same field with name + mac + addrs and
+        # those merge cleanly via _merge_best (the per-iface dict shape
+        # is the same; SNMP just adds the extra rx/tx/oper keys).
+        "network_ifaces":  list(s.get("network_ifaces") or []),
         # Stale-marker bookkeeping (#449). Populated by
         # apply_host_snapshot_fallback when a provider went down and we
         # filled missing host_* fields from the persisted snapshot.
