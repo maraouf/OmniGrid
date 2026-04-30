@@ -6162,80 +6162,14 @@ async def api_version():
     return {"version": read_version()}
 
 
-# ----------------------------------------------------------------------------
-# Admin → Version page. Direct VERSION.txt editor — Save writes the
-# file. The deployment pipeline keeps bumping PATCH on every successful
-# deploy; both writers target the same path. Operator uses this page
-# to reset PATCH after cutting a MINOR release.
-# ----------------------------------------------------------------------------
-@app.get("/api/admin/version")
-async def api_admin_version(_admin: auth.User = Depends(auth.require_admin)):
-    """Return the live version split into its components for the
-    Admin → Version form to pre-populate. Values come straight from
-    VERSION.txt.
-    """
-    from logic.version import _read_version_file, _split_version
-    raw = _read_version_file()
-    major, minor, patch = _split_version(raw)
-    return {
-        "current": read_version(),
-        "raw_file": raw,
-        "major": major,
-        "minor": minor,
-        "patch": patch,
-    }
-
-
-class VersionPin(BaseModel):
-    major: int
-    minor: int
-    patch: int
-
-
-@app.post("/api/admin/version")
-async def api_admin_version_set(
-    body: VersionPin,
-    _admin: auth.User = Depends(auth.require_admin),
-):
-    """Write MAJOR.MINOR.PATCH directly to VERSION.txt.
-
-    The file is the single source of truth — the deploy pipeline keeps
-    bumping the same path on every successful deploy. Open-and-truncate
-    keeps the file's inode and host-side ownership intact, so the
-    pi-user SSH writes from CI continue to work after a container
-    write.
-
-    Returns the same shape as GET so the UI can re-baseline its form.
-    """
-    if body.major < 0 or body.minor < 0 or body.patch < 0:
-        return JSONResponse(
-            status_code=400,
-            content={"detail": "major, minor and patch must be non-negative integers"},
-        )
-    if body.major > 99 or body.minor > 999 or body.patch > 99999:
-        return JSONResponse(
-            status_code=400,
-            content={"detail": "major must be ≤99, minor must be ≤999, patch must be ≤99999"},
-        )
-    from logic.version import write_version
-    try:
-        write_version(body.major, body.minor, body.patch)
-    except OSError as e:
-        # Most common cause: docker-compose still has /app:ro without
-        # the per-file writable bind mount for VERSION.txt. Surface a
-        # readable hint instead of the raw "Read-only file system" so
-        # the operator knows what to fix. Canonical message lives in
-        # logic/errors.py (OG0900); we prepend the OS-level reason so
-        # the operator can tell apart EROFS vs EACCES vs EDQUOT.
-        return JSONResponse(
-            status_code=500,
-            content={
-                "detail": (
-                    f"{e}. " + _err.message_for(_err.CONFIG_VERSION_FILE_NOT_WRITABLE)
-                ),
-            },
-        )
-    return await api_admin_version(_admin)
+# Admin → Version page was removed in 2026-04-30 alongside the deploy
+# migration to image-build. Pre-#606 the page wrote to /app/VERSION.txt
+# via a per-file bind mount; post-#606 the file is baked into the image
+# at build time and any in-container write lands in the ephemeral
+# overlay layer that the next `service update --force` discards. The
+# durable seed path is now: edit repo-root VERSION.txt, commit, push —
+# deploy.yml's source-B resolver (head -n1 ${DEPLOY_PATH}/VERSION.txt)
+# picks it up as the floor for the next PATCH bump.
 
 
 # ----------------------------------------------------------------------------

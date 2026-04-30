@@ -241,8 +241,6 @@ POST                          /api/asset-inventory/refresh           force a ful
 # Health / metrics / version
 GET    /api/healthz                        always 200 if alive
 GET    /api/version                        {version}
-GET    /api/admin/version                  admin-only — current MAJOR/MINOR/PATCH for the editor
-POST   /api/admin/version                  admin-only — write VERSION.txt directly
 GET    /metrics                            Prometheus exposition (no auth)
 ```
 

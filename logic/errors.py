@@ -238,12 +238,12 @@ AUTH_OIDC_TOKEN_VALIDATION_FAILED = _define(
 # OG0900..OG0999 — Misc
 # ============================================================================
 
-CONFIG_VERSION_FILE_NOT_WRITABLE = _define(
-    "OG0900",
-    "Could not write VERSION.txt — the file is on a read-only mount. "
-    "Add a writable bind for /opt/omnigrid/app/VERSION.txt:/app/VERSION.txt "
-    "to docker-compose.yml and redeploy the stack.",
-)
+# OG0900 (CONFIG_VERSION_FILE_NOT_WRITABLE) was removed alongside the
+# Admin → Version page in 2026-04-30. The deploy migration to
+# image-build (#606) eliminated the writable per-file bind for
+# /app/VERSION.txt — versions are baked at build time now, no
+# in-container write path remains. Code is permanently retired (do not
+# reuse OG0900 for a different error — keeps grep history honest).
 
 
 # ============================================================================
