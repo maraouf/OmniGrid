@@ -2077,10 +2077,17 @@
               <div>
                 <template x-if="h.status === 'up' && hostHasTelemetry(h)">
                   <div>
+                    <!-- #730 — desktop bars now self-identify on hover.
+                         Pre-fix the desktop view's bars had only stale-
+                         state tooltips; an operator zooming on a row
+                         without the table header in view couldn't tell
+                         which bar was CPU vs Memory vs Disk just by
+                         the colour/level. Title now combines metric
+                         name + percent + bytes (where applicable). -->
                     <div class="stat-bar"
                          :class="[barLevel(h.cpu_percent), isStaleField(h, 'host_cpu_percent') ? 'stale' : '']"
                          :style="'--w: ' + Math.round(Math.min(100, h.cpu_percent || 0)) + '%'"
-                         :title="isStaleField(h, 'host_cpu_percent') ? staleAge(h) : ''">
+                         :title="t('columns.cpu') + ': ' + (h.cpu_percent || 0).toFixed(1) + '%' + (h.cores ? ' (' + h.cores + ' cores)' : '') + (isStaleField(h, 'host_cpu_percent') ? ' — ' + staleAge(h) : '')">
                       <div class="fill"></div>
                     </div>
                     <div class="text-[10.5px] mono mt-1"
@@ -2095,7 +2102,7 @@
                     <div class="stat-bar"
                          :class="[barLevel(h.mem_percent || memPercentOf(h)), (isStaleField(h, 'host_mem_total') || isStaleField(h, 'host_mem_used')) ? 'stale' : '']"
                          :style="'--w: ' + Math.round(h.mem_percent || memPercentOf(h)) + '%'"
-                         :title="(isStaleField(h, 'host_mem_total') || isStaleField(h, 'host_mem_used')) ? staleAge(h) : ''">
+                         :title="t('columns.memory') + ': ' + Math.round(h.mem_percent || memPercentOf(h)) + '%' + (h.mem_total ? ' (' + fmtBytes(h.mem_used) + ' / ' + fmtBytes(h.mem_total) + ')' : '') + ((isStaleField(h, 'host_mem_total') || isStaleField(h, 'host_mem_used')) ? ' — ' + staleAge(h) : '')">
                       <div class="fill"></div>
                     </div>
                     <div class="text-[10.5px] mono mt-1">
@@ -2133,7 +2140,7 @@
                       <div class="stat-bar"
                            :class="[barLevel(h.disk_percent || diskPercentOf(h)), (isStaleField(h, 'host_disk_total') || isStaleField(h, 'host_disk_used')) ? 'stale' : '']"
                            :style="'--w: ' + Math.round(h.disk_percent || diskPercentOf(h)) + '%'"
-                           :title="(isStaleField(h, 'host_disk_total') || isStaleField(h, 'host_disk_used')) ? staleAge(h) : ''">
+                           :title="t('columns.disk') + ': ' + Math.round(h.disk_percent || diskPercentOf(h)) + '%' + (h.disk_total ? ' (' + fmtBytes(h.disk_used) + ' / ' + fmtBytes(h.disk_total) + ')' : '') + ((isStaleField(h, 'host_disk_total') || isStaleField(h, 'host_disk_used')) ? ' — ' + staleAge(h) : '')">
                         <div class="fill"></div>
                       </div>
                     </template>
@@ -8235,9 +8242,22 @@
                       <dt class="text-[var(--text-dim)]" x-text="t('host_drawer.system.uptime')"></dt>
                     </template>
                     <template x-if="h.uptime_s != null && h.uptime_s > 0">
-                      <dd class="mono text-end" :class="isStaleField(h, 'host_uptime_s') ? 'stale' : ''"
-                          :title="isStaleField(h, 'host_uptime_s') ? staleAge(h) : ''"
-                          x-text="fmtUptimeShort(h.uptime_s)"></dd>
+                      <dd class="mono text-end flex items-center justify-end gap-2"
+                          :class="isStaleField(h, 'host_uptime_s') ? 'stale' : ''"
+                          :title="isStaleField(h, 'host_uptime_s') ? staleAge(h) : ''">
+                        <span x-text="fmtUptimeShort(h.uptime_s)"></span>
+                        <!-- #725a — fresh-reboot badge. Only surfaces
+                             when SNMP history caught an uptime backwards-
+                             jump in the last 24 h (snmpRebootInfo handles
+                             the windowing). Compact warning chip so the
+                             operator catches a "this just bounced" signal
+                             without expanding any debug panel. -->
+                        <template x-if="snmpRebootInfo(h)">
+                          <span class="chip pill-warning text-[10px]"
+                                :title="t('host_drawer.system.reboot_title', { ago: fmtUptimeShort(snmpRebootInfo(h).age_s) })"
+                                x-text="t('host_drawer.system.reboot_badge', { ago: fmtUptimeShort(snmpRebootInfo(h).age_s) })"></span>
+                        </template>
+                      </dd>
                     </template>
                     <template x-if="h.docker_node">
                       <dt class="text-[var(--text-dim)]" x-text="t('host_drawer.system.docker_node')"></dt>
@@ -8312,8 +8332,22 @@
                            into view + auto-expand it so the operator
                            lands directly on the URL field they wanted
                            to edit. -->
+                      <!-- #719 (revised): pre-fix the click chained
+                           `$nextTick(() => focusHostsConfigRow(h.id))`
+                           after `openAdminTab('hosts')`, but
+                           `openAdminTab` is async + AWAITS
+                           `loadHostsConfig()` + `loadSettings()` for
+                           the hosts branch — `$nextTick` was firing
+                           before either resolved, so `hostsConfig` was
+                           still empty when `focusHostsConfigRow`
+                           queried it (`cfgIdx === -1` → early return →
+                           no expand, no scroll). Switching to
+                           `.then()` chains the focus call AFTER the
+                           openAdminTab Promise resolves; by then the
+                           cfg array is populated and the row's _uid is
+                           minted in loadHostsConfig. -->
                       <a x-show="!h.url" href="#"
-                         @click.prevent="closeHostDrawer(); view='admin'; openAdminTab('hosts'); $nextTick(() => focusHostsConfigRow(h.id))"
+                         @click.prevent="(() => { const _hid = h.id; closeHostDrawer(); view='admin'; openAdminTab('hosts').then(() => focusHostsConfigRow(_hid)); })()"
                          class="text-[var(--primary)] hover:underline"
                          :aria-label="t('host_drawer.system.add_url_aria')"
                          x-text="t('host_drawer.system.add_url')"></a>
@@ -9091,6 +9125,24 @@
                   <span x-text="t('host_drawer.snmp_charts.refreshing')"></span>
                 </span>
               </div>
+              <!-- #727 — "Collecting first samples" hint when the
+                   sampler hasn't accumulated 2+ samples yet. SNMP just
+                   enabled? Live legend values (CPU%, Load avg, Mem
+                   bytes) populate from the live probe immediately, but
+                   polylines need 2 points minimum to draw a line — so
+                   each chart card looks empty for ~5 minutes until the
+                   second sampler tick lands. This hint replaces the
+                   blank with an explicit message so the operator knows
+                   it's NOT broken — just warming up. Hidden once
+                   `points.length >= 2`. -->
+              <div x-show="hostHasSnmpCharts(h)
+                           && (!hostSnmpHistory[h.id]
+                               || (hostSnmpHistory[h.id].points || []).length < 2)
+                           && !(hostSnmpHistory[h.id] && hostSnmpHistory[h.id].loading)"
+                   class="mt-2 text-[11px] flex items-center gap-2 text-[var(--text-faint)]">
+                <svg width="11" height="11" aria-hidden="true"><use href="#icon-info"/></svg>
+                <span x-text="t('host_drawer.snmp_charts.warming_up')"></span>
+              </div>
               <div class="mt-3 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4"
                    x-show="hostHasSnmpCharts(h)">
                 <!-- #717 — Per-core CPU + ssCpuIdle overlay. Matches
@@ -9191,29 +9243,37 @@
                      x-show="(h.host_mem_buffers || h.host_mem_cached
                              || (hostSnmpHistory[h.id] && (hostSnmpHistory[h.id].points || []).some(p => p.mem_buffers || p.mem_cached)))">
                   <div class="metric-card-head">
+                    <!-- #725b — generic "B" unit suffix on the title was
+                         redundant once the legend started rendering the
+                         actual unit per value (GB / MB). Dropped. The
+                         legend + Y-axis use `fmtBytesAt(value, max)`
+                         to lock all four layers + axis labels to the
+                         SAME unit family (operator screenshot showed
+                         "1012 MB" next to "1.9 GB" — visually
+                         misaligned). -->
                     <div class="metric-card-title">
-                      <span x-text="t('host_drawer.snmp_charts.mem_title')"></span><span class="unit">B</span>
+                      <span x-text="t('host_drawer.snmp_charts.mem_title')"></span>
                     </div>
                     <div class="metric-card-stats" style="gap:8px">
                       <span x-show="snmpStats(h.id, 'mem_used')">
                         <span class="metric-legend-dot" style="background: var(--danger)"></span>
                         <span x-text="t('host_drawer.snmp_charts.legend_mem_used')"></span>
-                        <span class="legend-val" x-text="snmpStats(h.id, 'mem_used') ? fmtBytes(snmpStats(h.id, 'mem_used').last) : ''"></span>
+                        <span class="legend-val" x-text="snmpStats(h.id, 'mem_used') ? fmtBytesAt(snmpStats(h.id, 'mem_used').last, snmpMemMax(h)) : ''"></span>
                       </span>
                       <span x-show="snmpStats(h.id, 'mem_cached')">
                         <span class="metric-legend-dot" style="background: var(--warning)"></span>
                         <span x-text="t('host_drawer.snmp_charts.legend_mem_cached')"></span>
-                        <span class="legend-val" x-text="snmpStats(h.id, 'mem_cached') ? fmtBytes(snmpStats(h.id, 'mem_cached').last) : ''"></span>
+                        <span class="legend-val" x-text="snmpStats(h.id, 'mem_cached') ? fmtBytesAt(snmpStats(h.id, 'mem_cached').last, snmpMemMax(h)) : ''"></span>
                       </span>
                       <span x-show="snmpStats(h.id, 'mem_buffers')">
                         <span class="metric-legend-dot" style="background: var(--info)"></span>
                         <span x-text="t('host_drawer.snmp_charts.legend_mem_buffers')"></span>
-                        <span class="legend-val" x-text="snmpStats(h.id, 'mem_buffers') ? fmtBytes(snmpStats(h.id, 'mem_buffers').last) : ''"></span>
+                        <span class="legend-val" x-text="snmpStats(h.id, 'mem_buffers') ? fmtBytesAt(snmpStats(h.id, 'mem_buffers').last, snmpMemMax(h)) : ''"></span>
                       </span>
                       <span x-show="snmpStats(h.id, 'mem_free')">
                         <span class="metric-legend-dot" style="background: var(--success)"></span>
                         <span x-text="t('host_drawer.snmp_charts.legend_mem_free')"></span>
-                        <span class="legend-val" x-text="snmpStats(h.id, 'mem_free') ? fmtBytes(snmpStats(h.id, 'mem_free').last) : ''"></span>
+                        <span class="legend-val" x-text="snmpStats(h.id, 'mem_free') ? fmtBytesAt(snmpStats(h.id, 'mem_free').last, snmpMemMax(h)) : ''"></span>
                       </span>
                     </div>
                   </div>
@@ -9221,10 +9281,15 @@
                     <!-- #720 — fall back to history-derived max when
                          the live `host_mem_total` hasn't populated
                          yet (operator-flagged: Y-axis was reading
-                         "0 B / 0 B / 0" while waiting on the probe). -->
+                         "0 B / 0 B / 0" while waiting on the probe).
+                         #725b — Y-axis labels use `fmtBytesAt(v, max)`
+                         (instead of `fmtBytes`) so all three labels
+                         share the same unit family — pre-fix the axis
+                         showed "2.0 GB / 1018 MB / 0" which read as
+                         misaligned scale tiers. -->
                     <div class="metric-y-axis">
-                      <span x-text="fmtBytes(snmpMemMax(h))"></span>
-                      <span x-text="fmtBytes(snmpMemMax(h) / 2)"></span>
+                      <span x-text="fmtBytesAt(snmpMemMax(h), snmpMemMax(h))"></span>
+                      <span x-text="fmtBytesAt(snmpMemMax(h) / 2, snmpMemMax(h))"></span>
                       <span>0</span>
                     </div>
                     <svg class="metric-svg" viewBox="0 0 420 120" preserveAspectRatio="none" aria-hidden="true">

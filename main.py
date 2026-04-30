@@ -611,6 +611,14 @@ def init_db():
             # ago" instead of leaving the operator wondering whether
             # the issue may have already cleared.
             "ALTER TABLE host_failure_state ADD COLUMN last_failure_ts REAL",
+            # #725a — host uptime in SECONDS per SNMP probe. Lets the
+            # drawer surface a current-uptime pill AND detect reboots:
+            # when sample[N].uptime_s < sample[N-1].uptime_s the host
+            # rebooted in the gap (sysUpTime counter resets at boot).
+            # Stored as seconds (not raw TimeTicks) so it matches the
+            # `host_uptime_s` field convention every other provider
+            # uses. Additive — NULL for pre-#725a rows.
+            "ALTER TABLE host_snmp_samples ADD COLUMN uptime_s INTEGER",
         ):
             try:
                 c.execute(ddl)
@@ -6691,7 +6699,8 @@ async def api_hosts_snmp_history(
             rows = c.execute(
                 "SELECT ts, cpu_per_core, cpu_used_pct, "
                 "load_1m, load_5m, load_15m, "
-                "mem_total, mem_used, mem_buffers, mem_cached, mem_free "
+                "mem_total, mem_used, mem_buffers, mem_cached, mem_free, "
+                "uptime_s "
                 "FROM host_snmp_samples "
                 "WHERE host_id=? AND ts >= ? "
                 "ORDER BY ts ASC LIMIT ?",
@@ -6717,6 +6726,8 @@ async def api_hosts_snmp_history(
             "mem_buffers": (int(r[8]) if r[8] is not None else None),
             "mem_cached":  (int(r[9]) if r[9] is not None else None),
             "mem_free":    (int(r[10]) if r[10] is not None else None),
+            # #725a — uptime in seconds; NULL for pre-#725a rows.
+            "uptime_s":    (int(r[11]) if r[11] is not None else None),
         })
     return {"points": points, "error": None}
 

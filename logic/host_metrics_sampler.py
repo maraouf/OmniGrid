@@ -646,13 +646,19 @@ async def _probe_one_snmp(host: dict, sem: asyncio.Semaphore) -> None:
                     cores = stats.get("host_cpu_per_core") or []
                     cpu_used = stats.get("host_cpu_percent")
                     cpu_used_pct = float(cpu_used) if cpu_used is not None else None
+                    # #725a — uptime in seconds (NULL when sysUpTime
+                    # didn't come back; lets the drawer detect reboots
+                    # by comparing adjacent rows).
+                    uptime_raw = stats.get("host_uptime_s")
+                    uptime_s = int(uptime_raw) if uptime_raw is not None else None
                     with db_conn() as c:
                         c.execute(
                             "INSERT OR REPLACE INTO host_snmp_samples "
                             "(ts, host_id, cpu_per_core, cpu_used_pct, "
                             "load_1m, load_5m, load_15m, "
-                            "mem_total, mem_used, mem_buffers, mem_cached, mem_free) "
-                            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                            "mem_total, mem_used, mem_buffers, mem_cached, mem_free, "
+                            "uptime_s) "
+                            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                             (
                                 int(now), hid,
                                 json.dumps(list(cores)) if cores else None,
@@ -665,6 +671,7 @@ async def _probe_one_snmp(host: dict, sem: asyncio.Semaphore) -> None:
                                 int(stats.get("host_mem_buffers") or 0),
                                 int(stats.get("host_mem_cached") or 0),
                                 int(stats.get("host_mem_free") or 0),
+                                uptime_s,
                             ),
                         )
         except Exception as e:  # noqa: BLE001
