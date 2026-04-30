@@ -273,6 +273,11 @@
     --chip-fg: var(--text-dim);
     --provider-icon-url: none;
     --provider-icon-size: 14px;
+    /* #701 — per-iface SNMP traffic bar widths. Both default 0 so an
+     * un-styled `.iface-bar` renders empty (no rendered tracks); the
+     * `:style="hostIfaceBarStyle(...)"` binding overrides per row. */
+    --rx-pct: 0%;
+    --tx-pct: 0%;
 
     /* Column widths */
     --col-checkbox: 32px;
@@ -3039,6 +3044,38 @@ details summary::-webkit-details-marker {
  * Settings → Providers tab strip + future similar dot consumers. */
 .dot-on  { background: var(--success); }
 .dot-off { background: var(--text-faint); }
+
+/* #701 — per-interface stacked rx/tx traffic bar in the host drawer's
+ * Network card. Two coloured spans inside a thin track, normalised to
+ * the busiest interface on the host so the operator can see at a glance
+ * which NIC is dominating traffic. Widths are runtime-injected via
+ * `--rx-pct` / `--tx-pct` (set inline by `hostIfaceBarStyle`); a
+ * normal-but-busy interface like vlan2 fills 100% and a quiet eth1
+ * shows a thin sliver. Bar height is intentionally small (4px) so the
+ * card stays compact; the trailing `↓ rx · ↑ tx` text in the row
+ * header carries the actual numbers. Colours: rx uses the success
+ * token (incoming = healthy data flowing in), tx uses the info token
+ * (outgoing = data this host is generating / forwarding). */
+.iface-bar {
+    display: flex;
+    height: 4px;
+    width: 100%;
+    background: var(--surface-2);
+    border-radius: var(--r-pill);
+    overflow: hidden;
+}
+.iface-bar-rx {
+    display: block;
+    height: 100%;
+    width: var(--rx-pct);
+    background: var(--success);
+}
+.iface-bar-tx {
+    display: block;
+    height: 100%;
+    width: var(--tx-pct);
+    background: var(--info);
+}
 .user-avatar .user-avatar-img {
     width: 100%;
     height: 100%;

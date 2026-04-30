@@ -255,6 +255,20 @@ _SYNO_UPGRADE_LABELS = {
     1: "available", 2: "up-to-date",
     3: "checking", 4: "disconnected", 5: "other",
 }
+
+# #702 — Printer-MIB (RFC 1759 / 3805). Universal printer surface —
+# HP / Brother / Canon / Epson / Xerox / Konica all implement it.
+# `prtMarkerLifeCount` is the lifetime page count (single GET);
+# `prtMarkerSupplies*` are per-supply walks (one row per toner /
+# ink cartridge / drum / waste container) with description, max
+# capacity, and current level.
+_OID_PRT_PAGE_COUNT       = "1.3.6.1.2.1.43.10.2.1.4.1.1"
+_OID_PRT_SUPPLIES_DESCR   = "1.3.6.1.2.1.43.11.1.1.6"
+_OID_PRT_SUPPLIES_MAX_CAP = "1.3.6.1.2.1.43.11.1.1.8"
+_OID_PRT_SUPPLIES_LEVEL   = "1.3.6.1.2.1.43.11.1.1.9"
+# Console / display message — useful when the printer is in an
+# error state ("Replace toner Y" / "Paper jam").
+_OID_PRT_CONSOLE_MSG      = "1.3.6.1.2.1.43.16.5.1.2.1.1"
 _OID_HR_STORAGE_TYPE  = "1.3.6.1.2.1.25.2.3.1.2"
 _OID_HR_STORAGE_DESC  = "1.3.6.1.2.1.25.2.3.1.3"
 _OID_HR_STORAGE_UNIT  = "1.3.6.1.2.1.25.2.3.1.4"
@@ -870,6 +884,45 @@ def extract_vendor_info(walks: dict, existing: Optional[dict] = None) -> dict:
         out["host_upgrade_status"] = _SYNO_UPGRADE_LABELS.get(
             syno_upgrade, f"status={syno_upgrade}"
         )
+    # ---- Printer-MIB (HP / Brother / Canon / Epson / Xerox / etc.) ---
+    # #702 — universal printer surface. Picks up any device whose SNMP
+    # agent implements RFC 1759 / 3805 — basically every networked
+    # office / home-office printer. Emits `printer_page_count` (int),
+    # `printer_console_msg` (str — "Replace toner Y" / "Paper jam" /
+    # etc.), and `printer_supplies[]` (per-supply rows aligned across
+    # the three walks).
+    prt_basic = walks.get("prt_basic") or {}
+    page_count = _coerce_int(prt_basic.get(_OID_PRT_PAGE_COUNT))
+    console_msg = _coerce_str(prt_basic.get(_OID_PRT_CONSOLE_MSG)).strip()
+    if page_count > 0:
+        out["printer_page_count"] = page_count
+    if console_msg:
+        out["printer_console_msg"] = console_msg
+    prt_descrs = walks.get("prt_supply_descr") or {}
+    prt_maxs = walks.get("prt_supply_max") or {}
+    prt_levels = walks.get("prt_supply_level") or {}
+    if prt_descrs:
+        supplies = []
+        for oid in prt_descrs.keys():
+            idx = _last_index(oid, _OID_PRT_SUPPLIES_DESCR)
+            name = _coerce_str(prt_descrs.get(oid)).strip()
+            max_cap = _coerce_int(_pick(prt_maxs, idx))
+            level = _coerce_int(_pick(prt_levels, idx))
+            # Printer-MIB sentinel values: -1 = "unknown / unbounded";
+            # -2 = "value lasts indefinitely" (e.g. drum / fuser).
+            # -3 = "value is in some other unit". Skip those rows so the
+            # operator's chart doesn't show "-1%" toner.
+            pct = None
+            if max_cap > 0 and level >= 0:
+                pct = float(level) / float(max_cap) * 100.0
+            supplies.append({
+                "name":    name or f"supply-{idx}",
+                "level":   level if level >= 0 else None,
+                "max":     max_cap if max_cap > 0 else None,
+                "percent": pct,
+            })
+        if supplies:
+            out["printer_supplies"] = supplies
     # dskTable — per-mount disk. Only emit when hrStorage didn't.
     ucd_paths = walks.get("ucd_dsk_path") or {}
     ucd_totals = walks.get("ucd_dsk_total") or {}
@@ -1334,6 +1387,15 @@ async def probe_snmp(
             _OID_SYNO_MODEL_NAME, _OID_SYNO_SERIAL_NUMBER, _OID_SYNO_DSM_VERSION,
             _OID_SYNO_SYSTEM_STATUS, _OID_SYNO_SYSTEM_TEMP, _OID_SYNO_UPGRADE_AVAIL,
         ])
+        # #702 — Printer-MIB. Page count + console message GET; per-
+        # supply walks (description / max / level). Non-printer agents
+        # return empty for all of these; extractor tolerates.
+        prt_basic_task = _snmp_get(engine, auth, target, [
+            _OID_PRT_PAGE_COUNT, _OID_PRT_CONSOLE_MSG,
+        ])
+        prt_supply_descr_task = _snmp_walk(engine, auth, target, _OID_PRT_SUPPLIES_DESCR)
+        prt_supply_max_task   = _snmp_walk(engine, auth, target, _OID_PRT_SUPPLIES_MAX_CAP)
+        prt_supply_level_task = _snmp_walk(engine, auth, target, _OID_PRT_SUPPLIES_LEVEL)
 
         # #658 — wrap the gather in wait_for so the TimeoutError catch
         # becomes reachable (asyncio.gather alone can't raise TimeoutError
@@ -1356,6 +1418,8 @@ async def probe_snmp(
             apc_vendor_task, ucd_mem_cpu_task, ucd_load_task,
             ucd_dsk_path_task, ucd_dsk_total_task, ucd_dsk_used_task,
             ucd_dsk_pct_task, syno_vendor_task,
+            prt_basic_task, prt_supply_descr_task,
+            prt_supply_max_task, prt_supply_level_task,
             return_exceptions=False,
         ), timeout=wall_clock_budget)
     except asyncio.TimeoutError:
@@ -1376,7 +1440,9 @@ async def probe_snmp(
      cisco_cpu_walk,
      apc_vendor_get, ucd_mem_cpu_get, ucd_load_walk,
      ucd_dsk_path_walk, ucd_dsk_total_walk, ucd_dsk_used_walk,
-     ucd_dsk_pct_walk, syno_vendor_get) = results
+     ucd_dsk_pct_walk, syno_vendor_get,
+     prt_basic_get, prt_supply_descr_walk,
+     prt_supply_max_walk, prt_supply_level_walk) = results
 
     # #681 — entity walks count toward the "any data" gate so a switch
     # that answers ONLY entPhysicalSerialNum (no sysDescr / no ifTable)
@@ -1390,7 +1456,8 @@ async def probe_snmp(
             or dell_vendor_get or cisco_hw_get or cisco_mem_used_walk
             or cisco_cpu_walk
             or apc_vendor_get or ucd_mem_cpu_get or ucd_load_walk
-            or ucd_dsk_total_walk or syno_vendor_get):
+            or ucd_dsk_total_walk or syno_vendor_get
+            or prt_basic_get or prt_supply_descr_walk):
         # Every walk came back empty — typically a wrong community or
         # the host doesn't speak SNMP on the expected port.
         _arm_cooldown(host_clean, port_int)
@@ -1431,6 +1498,10 @@ async def probe_snmp(
             "ucd_dsk_used":  ucd_dsk_used_walk,
             "ucd_dsk_pct":   ucd_dsk_pct_walk,
             "syno": syno_vendor_get,
+            "prt_basic": prt_basic_get,
+            "prt_supply_descr": prt_supply_descr_walk,
+            "prt_supply_max":   prt_supply_max_walk,
+            "prt_supply_level": prt_supply_level_walk,
         },
     )
 
@@ -1510,6 +1581,10 @@ async def probe_snmp(
             "vendor_ucd_dsk_used": _stringify(ucd_dsk_used_walk),
             "vendor_ucd_dsk_pct": _stringify(ucd_dsk_pct_walk),
             "vendor_synology": _stringify(syno_vendor_get),
+            "vendor_printer_basic": _stringify(prt_basic_get),
+            "vendor_printer_supply_descr": _stringify(prt_supply_descr_walk),
+            "vendor_printer_supply_max":   _stringify(prt_supply_max_walk),
+            "vendor_printer_supply_level": _stringify(prt_supply_level_walk),
             "walk_summary": {
                 "sys_keys": len(sys_get or {}),
                 "cpu_rows": len(cpu_walk or {}),
@@ -1531,6 +1606,8 @@ async def probe_snmp(
                 "vendor_ucd_load_rows": len(ucd_load_walk or {}),
                 "vendor_ucd_dsk_rows": len(ucd_dsk_path_walk or {}),
                 "vendor_synology_keys": len(syno_vendor_get or {}),
+                "vendor_printer_basic_keys": len(prt_basic_get or {}),
+                "vendor_printer_supply_rows": len(prt_supply_descr_walk or {}),
             },
         }
     return out

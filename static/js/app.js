@@ -7338,6 +7338,125 @@ function app() {
       if (!h || !h.id) return;
       this.networkIfacesShowDocker[h.id] = !this.networkIfacesShowDocker[h.id];
     },
+    // #701 — per-interface SNMP traffic helpers. SNMP-derived
+    // `network_ifaces[]` rows carry `rx_bytes` / `tx_bytes` /
+    // `oper_status`; node-exporter / Beszel / Pulse rows have
+    // `name` + `mac` + `addrs` but no traffic counters. Helpers
+    // gracefully no-op when the rows lack the SNMP fields so
+    // non-SNMP hosts don't see empty traffic rows.
+    hostIfaceHasTraffic(iface) {
+      if (!iface || typeof iface !== 'object') return false;
+      const rx = +iface.rx_bytes || 0;
+      const tx = +iface.tx_bytes || 0;
+      return rx > 0 || tx > 0;
+    },
+    // Largest rx+tx total across the host's REAL interfaces — used to
+    // normalise per-interface bar widths so the busiest NIC fills 100%
+    // and the rest scale relative. Internal (docker / veth / etc.)
+    // interfaces are excluded from the max so a noisy docker0 doesn't
+    // drown the legitimate eth0/wlan0 traffic visually.
+    hostIfaceMaxTotal(h) {
+      const ifaces = this.networkIfacesPartition(h).real || [];
+      let max = 0;
+      for (const i of ifaces) {
+        if (!this.hostIfaceHasTraffic(i)) continue;
+        const t = (+i.rx_bytes || 0) + (+i.tx_bytes || 0);
+        if (t > max) max = t;
+      }
+      return max;
+    },
+    // Inline `:style` for an interface's stacked rx/tx bar. `--rx-pct`
+    // and `--tx-pct` are rendered as widths inside the bar. Returns
+    // empty string when no traffic data is available so the template
+    // can short-circuit without rendering an empty bar.
+    hostIfaceBarStyle(iface, maxTotal) {
+      if (!this.hostIfaceHasTraffic(iface) || !(maxTotal > 0)) return '';
+      const total = (+iface.rx_bytes || 0) + (+iface.tx_bytes || 0);
+      const totalPct = (total / maxTotal) * 100;
+      const rxShare = total > 0 ? (+iface.rx_bytes || 0) / total : 0;
+      const rxPct = totalPct * rxShare;
+      const txPct = totalPct - rxPct;
+      return `--rx-pct: ${rxPct.toFixed(2)}%; --tx-pct: ${txPct.toFixed(2)}%;`;
+    },
+    // True iff at least one REAL interface on this host has SNMP
+    // traffic counters. Drives the optional traffic block's x-show
+    // gate so non-SNMP hosts don't see an empty card.
+    hostHasIfaceTraffic(h) {
+      const ifaces = this.networkIfacesPartition(h).real || [];
+      return ifaces.some(i => this.hostIfaceHasTraffic(i));
+    },
+    // #703 — UPS card helpers (APC PowerNet-MIB). Pill class for the
+    // status badge, level class for the battery gauge (matching the
+    // .stat-bar warn/crit convention), and human-readable runtime
+    // formatter. All gracefully handle missing data; the card itself
+    // is gated on `h.host_ups_status || h.host_battery_percent` in
+    // the template.
+    upsStatusPillClass(status) {
+      const s = String(status || '').toLowerCase();
+      if (s === 'online') return 'pill-ok';
+      if (s === 'on-battery' || s === 'on-smart-boost' || s === 'on-smart-trim') return 'pill-update';
+      if (s === 'off' || s === 'rebooting' || s.includes('bypass')
+          || s === 'hardware-failure-bypass' || s === 'sleeping-until') return 'pill-error';
+      return 'pill-unknown';
+    },
+    upsStatusLabel(status) {
+      // Pretty-print the snake-case enum from PowerNet-MIB. i18n keys
+      // exist for the canonical set; unknown values fall through to
+      // the raw enum string.
+      const s = String(status || '').toLowerCase();
+      const key = `host_drawer.ups.status_${s.replace(/-/g, '_')}`;
+      const translated = this.t(key);
+      return (translated && translated !== key) ? translated : (status || '');
+    },
+    upsBatteryLevel(pct) {
+      // Inverse of the .stat-bar warn/crit semantics — for batteries,
+      // LOW is bad. <20% = crit (red), <50% = warn (amber), else ok.
+      const n = +pct;
+      if (!Number.isFinite(n)) return '';
+      if (n < 20) return 'crit';
+      if (n < 50) return 'warn';
+      return '';
+    },
+    fmtUpsRuntime(seconds) {
+      const s = +seconds;
+      if (!Number.isFinite(s) || s <= 0) return '—';
+      if (s < 60) return s.toFixed(0) + 's';
+      const mins = Math.floor(s / 60);
+      if (mins < 60) {
+        const rem = Math.floor(s % 60);
+        return rem ? `${mins}m ${rem}s` : `${mins}m`;
+      }
+      const hrs = Math.floor(mins / 60);
+      const remMins = mins % 60;
+      return remMins ? `${hrs}h ${remMins}m` : `${hrs}h`;
+    },
+    // #702 — Printer-MIB supply card helpers. Per-supply colour is
+    // hand-mapped from common toner names (cyan / magenta / yellow /
+    // black / waste); falls through to a neutral colour for unmapped
+    // supplies. Level class follows the .stat-bar warn/crit
+    // convention with INVERSE semantics (low fill = bad).
+    printerSupplyColor(supply) {
+      const name = String(supply && supply.name || '').toLowerCase();
+      // Each colour token comes from :root so light + dark themes stay
+      // consistent. CMYK-style names get their named colours; "waste"
+      // / "drum" / "fuser" / etc. fall to text-dim.
+      if (name.includes('cyan'))    return 'var(--info)';
+      if (name.includes('magenta')) return '#ec4899';
+      if (name.includes('yellow')) return 'var(--warning)';
+      if (name.includes('black'))   return 'var(--text)';
+      if (name.includes('waste'))   return 'var(--text-faint)';
+      return 'var(--text-dim)';
+    },
+    printerSupplyLevel(supply) {
+      // Inverse semantics — low fill = warn / crit. Operator wants a
+      // "running out" signal, not a "running high" one.
+      const pct = supply && supply.percent;
+      const n = +pct;
+      if (!Number.isFinite(n)) return '';
+      if (n < 10) return 'crit';
+      if (n < 25) return 'warn';
+      return '';
+    },
     // Set of providers that returned data for AT LEAST ONE host on
     // the most recent /api/hosts response. Used by `providerStates()`
     // to suppress chips for globally-broken providers — if pulse
