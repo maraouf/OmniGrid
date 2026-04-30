@@ -4865,7 +4865,7 @@
                      the right with `ms-auto` and wrapped to a second
                      line on long-name rows; the wrap put them on the
                      left already, so "always on the left" is now the
-                     consistent design (operator request via tmp/img_5.png). -->
+                     consistent design -->
                 <span class="text-[10.5px] text-[var(--text-faint)] hidden sm:inline"
                       x-show="!isHostConfigExpanded(row)">Click to edit</span>
                 <!-- Brand icon — only on the collapsed-row header so
@@ -4886,8 +4886,16 @@
                       class="chip text-[10px] px-1.5 py-0 mono pill-muted"
                       x-text="'#' + row.custom_number"></span>
                 <span class="font-semibold text-[12.5px] mono truncate" x-text="row.id || '(new host)'"></span>
-                <span class="text-[11px] text-[var(--text-faint)] truncate"
+                <!-- Long display labels (asset names like "Raspberry Pi
+                     4 Model B Rev 1.4 (AdGuard 02) [Secondary]") used
+                     to push the SSH icon onto a second line. `min-w-0
+                     max-w-[280px] truncate` makes the · label
+                     ellipsis-truncate before forcing a wrap so the
+                     header stays single-line on typical widths.
+                     Tooltip exposes the full label for hover-discovery. -->
+                <span class="text-[11px] text-[var(--text-faint)] truncate min-w-0 max-w-[280px]"
                       x-show="row.label && row.label !== row.id"
+                      :title="row.label"
                       x-text="'· ' + row.label"></span>
                 <!-- Per-row provider chips. Each chip uses the
                      operator-set colour from Settings → Providers via
@@ -5132,14 +5140,27 @@
                    a specific host. -->
               <div class="pt-2 mt-1 border-t border-dashed border-[var(--border)]">
                 <div class="text-[10px] uppercase tracking-wider text-[var(--text-faint)] mb-2 font-semibold">SSH</div>
-                <div class="grid grid-cols-1 md:grid-cols-[2fr_1fr_auto] gap-3 items-end">
+                <!-- "Enable SSH" checkbox FIRST (left), matching the
+                     Ping section's pattern below — every host-level
+                     opt-in toggle leads its block, then the dependent
+                     fields follow. Grid is `auto_2fr_1fr` so the
+                     checkbox cell stays compact and the user/port
+                     fields take the remaining width. -->
+                <div class="grid grid-cols-1 md:grid-cols-[auto_2fr_1fr] gap-3 items-end">
+                  <label class="inline-flex items-center gap-2 text-[12px] text-[var(--text-dim)] pb-1.5">
+                    <input type="checkbox"
+                           :checked="!!(row.ssh && row.ssh.enabled)"
+                           @change="hostsConfig[idx].ssh = Object.assign({}, hostsConfig[idx].ssh || {}, { enabled: $event.target.checked }); markHostRowDirty(idx)"
+                           :disabled="isReadonly()">
+                    <span x-text="t('hosts_extra_ssh.per_host_enabled')"></span>
+                  </label>
                   <div>
                     <label class="block text-[10.5px] uppercase tracking-wider text-[var(--text-faint)] mb-1"
                            x-text="t('hosts_extra_ssh.per_host_user')"></label>
                     <input type="text"
                            :value="row.ssh && row.ssh.user || ''"
                            @input="hostsConfig[idx].ssh = Object.assign({}, hostsConfig[idx].ssh || {}, { user: $event.target.value }); markHostRowDirty(idx)"
-                           :disabled="isReadonly()"
+                           :disabled="isReadonly() || !(row.ssh && row.ssh.enabled)"
                            class="w-full mono text-[12.5px] py-1.5"
                            placeholder="(blank = use global default)">
                   </div>
@@ -5149,17 +5170,10 @@
                     <input type="number" min="1" max="65535"
                            :value="row.ssh && row.ssh.port || ''"
                            @input="hostsConfig[idx].ssh = Object.assign({}, hostsConfig[idx].ssh || {}, { port: $event.target.value ? parseInt($event.target.value, 10) : null }); markHostRowDirty(idx)"
-                           :disabled="isReadonly()"
+                           :disabled="isReadonly() || !(row.ssh && row.ssh.enabled)"
                            class="w-full mono text-[12.5px] py-1.5"
                            placeholder="22">
                   </div>
-                  <label class="inline-flex items-center gap-2 text-[12px] text-[var(--text-dim)] pb-1.5">
-                    <input type="checkbox"
-                           :checked="!!(row.ssh && row.ssh.enabled)"
-                           @change="hostsConfig[idx].ssh = Object.assign({}, hostsConfig[idx].ssh || {}, { enabled: $event.target.checked }); markHostRowDirty(idx)"
-                           :disabled="isReadonly()">
-                    <span x-text="t('hosts_extra_ssh.per_host_enabled')"></span>
-                  </label>
                 </div>
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-3 items-end mt-3">
                   <div>
@@ -5170,7 +5184,7 @@
                     <input type="text"
                            :value="row.ssh && (row.ssh.fqdn || row.ssh.host) || ''"
                            @input="hostsConfig[idx].ssh = Object.assign({}, hostsConfig[idx].ssh || {}, { fqdn: $event.target.value }); markHostRowDirty(idx)"
-                           :disabled="isReadonly()"
+                           :disabled="isReadonly() || !(row.ssh && row.ssh.enabled)"
                            class="w-full mono text-[12.5px] py-1.5"
                            :placeholder="t('admin_hosts.row.webmin_name_placeholder')">
                   </div>
@@ -5183,7 +5197,7 @@
                            autocomplete="new-password"
                            :value="row.ssh && row.ssh.password || ''"
                            @input="hostsConfig[idx].ssh = Object.assign({}, hostsConfig[idx].ssh || {}, { password: $event.target.value }); markHostRowDirty(idx)"
-                           :disabled="isReadonly()"
+                           :disabled="isReadonly() || !(row.ssh && row.ssh.enabled)"
                            class="w-full text-[12.5px] py-1.5"
                            placeholder="override for this host only">
                   </div>
@@ -5272,7 +5286,7 @@
                      class="text-[11px] text-[var(--danger)]"
                      x-text="t('admin_hosts.test.test_failed', { error: (hostsTestResults[idx] && hostsTestResults[idx].error) || '' })"></div>
                 <!-- Row-level actions — moved here from row 1 per
-                     operator request (tmp/img_6.png). `ms-auto`
+                     operator request. `ms-auto`
                      pushes them to the trailing edge so they sit
                      opposite Test-providers; on narrow viewports the
                      parent's `flex-wrap` lets them drop to a new line. -->

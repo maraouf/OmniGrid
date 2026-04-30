@@ -9705,7 +9705,12 @@ function app() {
         if (pt === 'tcp' || pt === 'icmp') pingOut.transport = pt;
         return {
           id:            (h.id || '').trim(),
-          label:         (h.label || h.id || '').trim(),
+          // Empty label is INTENTIONAL — `hostDisplayName(h)` falls
+          // back to `assetForHost(h).name` (#621). Don't auto-fill
+          // with id here, because that would PIN the id forever and
+          // the operator's intent to "use the asset's name" would be
+          // silently dropped on every save.
+          label:         (h.label || '').trim(),
           custom_number: num,
           ne_url:        (h.ne_url || '').trim(),
           beszel_name:   (h.beszel_name || '').trim(),
