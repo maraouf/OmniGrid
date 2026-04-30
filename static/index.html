@@ -330,7 +330,11 @@
       <!-- Search input — full width below sm: (drops to its own row via
            flex-wrap order class), constrained to max-w-md on tablet+. -->
       <div class="relative w-full order-last sm:order-none sm:flex-1 sm:max-w-md sm:w-auto">
-        <input type="search" x-model="search" x-ref="searchBox"
+        <!-- LOW-A11Y / #711 — visually-hidden label for screen readers.
+             The placeholder alone is a UA-dependent fallback and not
+             every reader announces it consistently. -->
+        <label for="topbar-search" class="sr-only" x-text="t('topbar.search_label')"></label>
+        <input type="search" id="topbar-search" x-model="search" x-ref="searchBox"
                :placeholder="t('topbar.search_placeholder')"
                class="w-full">
         <span class="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--text-faint)]">
@@ -1759,7 +1763,7 @@
               </template>
               <template x-if="!h._loading">
                 <span class="host-mobile-card-status"
-                      :style="'background:' + statusDotColor(h.status)"
+                      :class="'dot-status-' + (h.status || 'unknown')"
                       :title="hostProbeTitle(h)"></span>
               </template>
               <img class="host-mobile-card-icon" :src="hostIconUrl(h)"
@@ -1936,7 +1940,7 @@
                 </template>
                 <template x-if="!h._loading">
                   <span class="w-2 h-2 rounded-full flex-shrink-0"
-                        :style="'background:' + statusDotColor(h.status)"
+                        :class="'dot-status-' + (h.status || 'unknown')"
                         :title="hostProbeTitle(h)"></span>
                 </template>
               </div>
@@ -3118,14 +3122,14 @@
             <span x-text="t('settings.host_stats.beszel_verify_tls')"></span>
           </label>
           <div class="flex items-center gap-2 flex-wrap">
-            <button x-show="isAdmin()" @click="testBeszelConnection()"
-                    :disabled="beszelTestResult && beszelTestResult.pending"
-                    class="btn btn-soft text-[12px]"
-                    x-text="(beszelTestResult && beszelTestResult.pending) ? t('settings.host_stats.beszel_testing') : t('settings.host_stats.beszel_test_button')"></button>
             <span x-show="beszelTestResult && !beszelTestResult.pending"
                   :class="beszelTestResult && beszelTestResult.ok ? 'text-[var(--success)]' : 'text-[var(--danger)]'"
                   class="text-[11.5px]"
                   x-text="(beszelTestResult && beszelTestResult.ok ? '✓ ' : '✗ ') + (beszelTestResult && beszelTestResult.detail || '')"></span>
+            <button x-show="isAdmin()" @click="testBeszelConnection()"
+                    :disabled="beszelTestResult && beszelTestResult.pending"
+                    class="btn btn-soft text-[12px] ms-auto"
+                    x-text="(beszelTestResult && beszelTestResult.pending) ? t('settings.host_stats.beszel_testing') : t('settings.host_stats.beszel_test_button')"></button>
           </div>
           <p class="text-[10.5px] text-[var(--text-faint)]"
              x-text="t('settings.host_stats.beszel_naming_hint')"></p>
@@ -8273,8 +8277,11 @@
                     <dd class="text-end">
                       <a x-show="h.url" :href="h.url" target="_blank" rel="noopener"
                          class="text-[var(--primary)] hover:underline mono" x-text="h.url"></a>
-                      <a x-show="!h.url" href="/admin/hosts"
-                         class="text-[var(--primary)] hover:underline" x-text="t('host_drawer.system.add_url')"></a>
+                      <a x-show="!h.url" href="#"
+                         @click.prevent="openAdminTab('hosts')"
+                         class="text-[var(--primary)] hover:underline"
+                         :aria-label="t('host_drawer.system.add_url_aria')"
+                         x-text="t('host_drawer.system.add_url')"></a>
                     </dd>
                   </dl>
                 </section>
@@ -8489,7 +8496,13 @@
                      red above 40°C (APC's "warm" threshold for SLA cells),
                      battery percent shows red below 20% and amber below
                      50%, runtime uses fmtUpsRuntime for the human format. -->
-                <section x-show="h.host_ups_status || h.host_battery_percent !== undefined"
+                <!-- Card gate is `host_ups_status` truthy STRING, NOT
+                     "battery_percent !== undefined". Post-#687 the
+                     API row whitelist always emits the field as
+                     `null` for non-UPS hosts, and `null !== undefined`
+                     is True — which made the card render on every
+                     non-UPS host until tightened. -->
+                <section x-show="!!(h.host_ups_status)"
                          class="rounded border border-[var(--border)] bg-[var(--surface)] p-4 md:col-span-6">
                   <h4 class="text-[10.5px] uppercase tracking-wider text-[var(--text-faint)] mb-3 flex items-center gap-2">
                     <span x-text="t('host_drawer.ups.heading')"></span>
@@ -8499,28 +8512,32 @@
                           x-text="upsStatusLabel(h.host_ups_status)"></span>
                   </h4>
                   <dl class="drawer-dl text-[12px]">
-                    <template x-if="h.host_battery_percent !== undefined && h.host_battery_percent !== null">
+                    <template x-if="typeof h.host_battery_percent === 'number'">
                       <dt class="text-[var(--text-dim)]" x-text="t('host_drawer.ups.battery')"></dt>
                     </template>
-                    <template x-if="h.host_battery_percent !== undefined && h.host_battery_percent !== null">
+                    <template x-if="typeof h.host_battery_percent === 'number'">
                       <dd class="text-end">
                         <div class="flex items-center justify-end gap-2">
                           <div class="stat-bar w-24"
                                :class="upsBatteryLevel(h.host_battery_percent)"
-                               :style="'--w:' + (h.host_battery_percent || 0) + '%'"></div>
+                               :style="'--w:' + (h.host_battery_percent || 0) + '%'">
+                            <div class="fill"></div>
+                          </div>
                           <span class="mono" x-text="(+h.host_battery_percent).toFixed(0) + '%'"></span>
                         </div>
                       </dd>
                     </template>
-                    <template x-if="h.host_load_percent !== undefined && h.host_load_percent !== null">
+                    <template x-if="typeof h.host_load_percent === 'number'">
                       <dt class="text-[var(--text-dim)]" x-text="t('host_drawer.ups.load')"></dt>
                     </template>
-                    <template x-if="h.host_load_percent !== undefined && h.host_load_percent !== null">
+                    <template x-if="typeof h.host_load_percent === 'number'">
                       <dd class="text-end">
                         <div class="flex items-center justify-end gap-2">
                           <div class="stat-bar w-24"
                                :class="barLevel(h.host_load_percent)"
-                               :style="'--w:' + (h.host_load_percent || 0) + '%'"></div>
+                               :style="'--w:' + (h.host_load_percent || 0) + '%'">
+                            <div class="fill"></div>
+                          </div>
                           <span class="mono" x-text="(+h.host_load_percent).toFixed(0) + '%'"></span>
                         </div>
                       </dd>

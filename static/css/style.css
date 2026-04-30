@@ -3045,6 +3045,19 @@ details summary::-webkit-details-marker {
 .dot-on  { background: var(--success); }
 .dot-off { background: var(--text-faint); }
 
+/* NIT-A11Y / #711 — host-status dot classes. Status comes from a
+ * closed enum (six values: up / down / paused / loading /
+ * unconfigured / unknown), so a class-driven approach is cleaner
+ * than the inline `:style="background: …"` pattern AND opens the
+ * door to per-status `:focus-visible` / hover affordances later.
+ * Token mapping mirrors `statusDotColor()` in `static/js/app.js`. */
+.dot-status-up           { background: var(--success); }
+.dot-status-down         { background: var(--danger); }
+.dot-status-paused       { background: var(--warning); }
+.dot-status-loading      { background: var(--text-faint); }
+.dot-status-unconfigured { background: var(--text-faint); }
+.dot-status-unknown      { background: var(--danger); }
+
 /* HIGH-A11Y — global :focus-visible ring. Pre-fix `.btn` had NO
  * focus rule (browser-default suppressed by `outline: none` elsewhere)
  * and inputs only swapped border-colour to a slightly-brighter token,
