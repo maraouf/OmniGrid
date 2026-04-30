@@ -4509,14 +4509,16 @@ def _clean_host_ssh(raw: Any) -> dict:
     password = str(raw.get("password") or "")
     if password:
         out["password"] = password
-    # New `enabled` flag (#622). Defensive legacy fallback: if a
-    # caller still sends `disabled: false` (pre-flip "implicitly on"
-    # intent) and no explicit `enabled`, write `enabled: true`. Anything
-    # else (legacy `disabled: true`, no flags at all) stays empty so
-    # the host inherits the new "OFF until opted in" default.
-    if bool(raw.get("enabled")):
-        out["enabled"] = True
-    elif "disabled" in raw and not bool(raw["disabled"]):
+    # New `enabled` flag (#622). ONLY explicit `enabled: true` writes
+    # the flag through; everything else (absent, false, legacy
+    # `disabled` field) leaves the row in the new "OFF until opted in"
+    # default. The schema migration in `logic/migrations.py:#001`
+    # handles legacy data on first boot — DO NOT add a defensive
+    # `disabled` fallback here (#628 root cause): the writer runs on
+    # every save, not just at import, and any "fall back to enabled
+    # when not explicitly disabled" branch would re-enable rows the
+    # operator just unchecked elsewhere in the same save.
+    if raw.get("enabled") is True:
         out["enabled"] = True
     return out
 
