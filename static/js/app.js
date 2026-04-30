@@ -3147,11 +3147,18 @@ function app() {
           await navigator.clipboard.writeText(body);
         } else {
           // Fallback — dispatch a textarea + execCommand('copy').
+          // #711 — `position: fixed` + `opacity: 0` + `pointer-events: none`
+          // is RTL-clean (no inset / left to flip) AND off-screen for
+          // sighted users. Pre-fix used `left: -9999px` which placed
+          // the textarea off the wrong edge under RTL — invisible
+          // both ways but the pattern is non-RTL-safe and could be
+          // copied as a template.
           const ta = document.createElement('textarea');
           ta.value = body;
           ta.setAttribute('readonly', '');
-          ta.style.position = 'absolute';
-          ta.style.left = '-9999px';
+          ta.style.position = 'fixed';
+          ta.style.opacity = '0';
+          ta.style.pointerEvents = 'none';
           document.body.appendChild(ta);
           ta.select();
           document.execCommand('copy');

@@ -56,6 +56,7 @@
   },
   "topbar": {
     "search_placeholder": "Search resources, stacks, images…  (/)",
+    "search_label": "Search",
     "sync_label": "Sync",
     "stats_label": "Stats",
     "sync_title": "Items auto-refresh",
@@ -1503,6 +1504,7 @@
       "proxmox": "Proxmox",
       "url": "URL",
       "add_url": "+ Add",
+      "add_url_aria": "Add a URL for this host in Admin → Hosts",
       "vendor": "Vendor",
       "product": "Product",
       "bios_version": "BIOS / firmware",
