@@ -108,6 +108,7 @@
     --debug-ne:       #a3e635;   /* lime — Prometheus-ish */
     --debug-webmin:   #ec4899;   /* pink — Webmin's own accent */
     --debug-ping:     #6366f1;   /* indigo — distinct from the four telemetry providers above */
+    --debug-snmp:     #db2777;   /* fuchsia — sixth provider, distinct from ping/webmin */
     --debug-merged:   #a78bfa;   /* violet — merged best-of */
     --debug-rendered: #22c55e;   /* emerald — what ships to UI */
 
@@ -329,6 +330,7 @@
     --debug-ne:       #65a30d;
     --debug-webmin:   #be185d;
     --debug-ping:     #4f46e5;
+    --debug-snmp:     #be185d;
     --debug-merged:   #7c3aed;
     --debug-rendered: #16a34a;
 
@@ -3688,6 +3690,7 @@ body.login {
 .host-debug-label--ne       { color: var(--debug-ne); }
 .host-debug-label--webmin   { color: var(--debug-webmin); }
 .host-debug-label--ping     { color: var(--debug-ping); }
+.host-debug-label--snmp     { color: var(--debug-snmp); }
 .host-debug-label--merged   { color: var(--debug-merged); }
 .host-debug-label--rendered { color: var(--debug-rendered); }
 

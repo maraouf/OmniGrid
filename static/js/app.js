@@ -10007,6 +10007,17 @@ function app() {
         // empty, so we only persist explicit overrides.
         const snmpIn = h.snmp || {};
         const snmpOut = {};
+        // #652 — explicit opt-OUT must be preserved on the wire. The
+        // strip-blanks pattern below would drop `enabled: false`
+        // (false is falsy) and the row would round-trip as
+        // {}. The SPA's checkbox binding defaults to "checked" when
+        // snmp is empty (legacy rows that have snmp_name set predate
+        // the toggle, so default-true preserves their behaviour) —
+        // which means an unchecked toggle that didn't persist would
+        // silently flip back to checked on reload. Explicit
+        // enabled=false flows through; enabled=true is the default
+        // and stripped to keep the persisted JSON small.
+        if (snmpIn.enabled === false) snmpOut.enabled = false;
         const sc = String(snmpIn.community || '').trim();
         if (sc) snmpOut.community = sc;
         const sv = String(snmpIn.version || '').trim().toLowerCase();

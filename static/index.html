@@ -9527,6 +9527,17 @@
                             </header>
                             <pre class="host-debug-json scrollbar" x-text="fmtDebugJson(hostsDebug[h.id].providers_raw?.ping)"></pre>
                           </section>
+                          <section class="host-debug-box" x-show="hasDebugData(hostsDebug[h.id].providers_raw?.snmp)">
+                            <header class="host-debug-box-head">
+                              <span class="host-debug-label host-debug-label--snmp" x-text="t('debug_panel.labels.raw_snmp')"></span>
+                              <button type="button" class="host-debug-copy"
+                                      @click="copyDebugJson(hostsDebug[h.id].providers_raw?.snmp, 'Raw · SNMP')"
+                                      :title="t('debug_panel.copy_title')">
+                                <svg width="12" height="12" aria-hidden="true"><use href="#icon-copy"/></svg>
+                              </button>
+                            </header>
+                            <pre class="host-debug-json scrollbar" x-text="fmtDebugJson(hostsDebug[h.id].providers_raw?.snmp)"></pre>
+                          </section>
                           <section class="host-debug-box" x-show="hasDebugData(hostsDebug[h.id].merged)">
                             <header class="host-debug-box-head">
                               <span class="host-debug-label host-debug-label--merged" x-text="t('debug_panel.labels.merged')"></span>
@@ -9605,6 +9616,17 @@
                               </button>
                             </header>
                             <pre class="host-debug-json scrollbar" x-text="fmtDebugJson(hostsDebug[h.id].providers_normalized?.ping)"></pre>
+                          </section>
+                          <section class="host-debug-box" x-show="hasDebugData(hostsDebug[h.id].providers_normalized?.snmp)">
+                            <header class="host-debug-box-head">
+                              <span class="host-debug-label host-debug-label--snmp" x-text="t('debug_panel.labels.normalized_snmp')"></span>
+                              <button type="button" class="host-debug-copy"
+                                      @click="copyDebugJson(hostsDebug[h.id].providers_normalized?.snmp, 'Normalized · SNMP')"
+                                      :title="t('debug_panel.copy_title')">
+                                <svg width="12" height="12" aria-hidden="true"><use href="#icon-copy"/></svg>
+                              </button>
+                            </header>
+                            <pre class="host-debug-json scrollbar" x-text="fmtDebugJson(hostsDebug[h.id].providers_normalized?.snmp)"></pre>
                           </section>
                           <!-- Asset inventory (raw upstream payload).
                                Sourced from the host's `asset` field
