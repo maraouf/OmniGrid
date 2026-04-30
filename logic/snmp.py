@@ -132,65 +132,116 @@ _LOOPBACK_PREFIXES = ("lo", "loopback", "null", "vlan-internal", "docker", "veth
 # pure-Python wheel; we do it inside try/except so a missing package
 # doesn't trip the whole logic package's import.
 #
-# pysnmp version compat — TWO breaking changes between 6.x and 7.x:
-#  1. Module path: `pysnmp.hlapi.asyncio` (5.x / 6.x) → some 7.x lines
-#     ALSO ship a `pysnmp.hlapi.v3arch.asyncio` namespace alongside the
-#     legacy path. Both paths exist in 7.x but contain different
-#     symbols depending on the patch release; we try the v3arch path
-#     first and fall back. (#642)
-#  2. Function names: `getCmd` / `bulkCmd` (camelCase, 5.x / 6.x) renamed
-#     to `get_cmd` / `bulk_cmd` (PEP 8 snake_case, 7.x). The original
-#     #642 fix only handled the path change and still imported the
-#     camelCase names — which exist in `pysnmp.hlapi.asyncio` on 7.x
-#     as a stub module but raise ImportError on the camelCase symbol.
-#     Fix (#646): import the symbols separately, trying snake_case
-#     first and falling back to camelCase. After import, alias both
-#     to `getCmd` / `bulkCmd` so the rest of this module can keep its
-#     existing camelCase call sites unchanged.
-# Capture the actual ImportError text so future drift surfaces in the
-# operator's `[snmp] pysnmp import failed: …` server log line AND
-# inline in the SPA's "package not installed" hint via the
-# `_SNMP_IMPORT_ERROR` global (#644).
+# pysnmp version compat — multiple breaking changes between 6.x and 7.x:
+#  1. Module path: `pysnmp.hlapi.asyncio` (5.x / 6.x) — some 7.x lines
+#     ALSO ship a `pysnmp.hlapi.v3arch.asyncio` namespace. Try v3arch
+#     first, fall back to the legacy path.
+#  2. Function names: `getCmd` / `bulkCmd` (camelCase, ≤6.x) renamed
+#     to `get_cmd` / `bulk_cmd` (PEP 8 snake_case, 7.x).
+#  3. USM protocol constants: `usmHMACSHA256AuthProtocol` etc. (camelCase,
+#     ≤6.x) renamed to `USM_AUTH_HMAC192_SHA256` (UPPER_SNAKE_CASE, 7.x).
+#     The full mapping isn't documented anywhere stable; resolve each
+#     constant by trying every known historical name and let `_resolve`
+#     return None when none match — the v3 USM probe path raises a
+#     clear "v3 protocol unavailable" error in that case while v2c
+#     probes keep working unaffected.
+# Strategy: resolve every symbol by name lookup against the imported
+# module rather than `from … import …` — that lets one missing or
+# renamed symbol fail JUST that symbol's branch (v3 USM specifically)
+# instead of failing the whole package's import. Aliases the modern
+# names to the camelCase variables this module already references so
+# the rest of the file's call sites stay stable across pysnmp versions.
+# Captures the actual error text so future drift surfaces in the
+# `[snmp] pysnmp import failed: …` server log + the SPA's inline hint
+# (the operator no longer has to grep logs to identify renames).
 _SNMP_IMPORT_ERROR = ""
+SnmpEngine = CommunityData = UsmUserData = None  # type: ignore[assignment]
+UdpTransportTarget = ContextData = ObjectType = ObjectIdentity = None  # type: ignore[assignment]
+getCmd = bulkCmd = None  # type: ignore[assignment]
+usmHMACSHAAuthProtocol = usmHMACSHA256AuthProtocol = None  # type: ignore[assignment]
+usmAesCfb128Protocol = None  # type: ignore[assignment]
+usmNoAuthProtocol = usmNoPrivProtocol = None  # type: ignore[assignment]
 try:
-    # Try the v3arch path first (some pysnmp 7.x patches), fall back to
-    # the legacy `pysnmp.hlapi.asyncio` path (5.x / 6.x AND most 7.x).
-    try:
-        from pysnmp.hlapi.v3arch.asyncio import (  # type: ignore
-            SnmpEngine, CommunityData, UsmUserData,
-            UdpTransportTarget, ContextData, ObjectType, ObjectIdentity,
-            usmHMACSHAAuthProtocol, usmHMACSHA256AuthProtocol,
-            usmAesCfb128Protocol,
-            usmNoAuthProtocol, usmNoPrivProtocol,
-        )
-        _SNMP_HLAPI_NS = "pysnmp.hlapi.v3arch.asyncio"
-    except ImportError:
-        from pysnmp.hlapi.asyncio import (  # type: ignore
-            SnmpEngine, CommunityData, UsmUserData,
-            UdpTransportTarget, ContextData, ObjectType, ObjectIdentity,
-            usmHMACSHAAuthProtocol, usmHMACSHA256AuthProtocol,
-            usmAesCfb128Protocol,
-            usmNoAuthProtocol, usmNoPrivProtocol,
-        )
-        _SNMP_HLAPI_NS = "pysnmp.hlapi.asyncio"
-    # getCmd / bulkCmd: 7.x renamed to get_cmd / bulk_cmd. Try snake_case
-    # first (modern), camelCase second (legacy). Alias to camelCase
-    # locally so the rest of the module's call sites stay stable.
     import importlib as _importlib
-    _hlapi = _importlib.import_module(_SNMP_HLAPI_NS)
-    if hasattr(_hlapi, "get_cmd") and hasattr(_hlapi, "bulk_cmd"):
-        getCmd = _hlapi.get_cmd       # type: ignore[assignment]
-        bulkCmd = _hlapi.bulk_cmd     # type: ignore[assignment]
-    elif hasattr(_hlapi, "getCmd") and hasattr(_hlapi, "bulkCmd"):
-        getCmd = _hlapi.getCmd        # type: ignore[assignment]
-        bulkCmd = _hlapi.bulkCmd      # type: ignore[assignment]
-    else:
+    _hlapi = None
+    _SNMP_HLAPI_NS = ""
+    for _ns in ("pysnmp.hlapi.v3arch.asyncio", "pysnmp.hlapi.asyncio"):
+        try:
+            _hlapi = _importlib.import_module(_ns)
+            _SNMP_HLAPI_NS = _ns
+            break
+        except ImportError:
+            continue
+    if _hlapi is None:
+        raise ImportError("pysnmp not installed (neither v3arch nor legacy hlapi paths importable)")
+
+    def _resolve_required(*candidates: str):
+        """First-name-that-exists wins; raise if none of the candidates
+        resolve. Use for symbols every SNMP path needs (engine, target,
+        OID builders, command functions)."""
+        for n in candidates:
+            v = getattr(_hlapi, n, None)
+            if v is not None:
+                return v
         raise ImportError(
-            f"neither get_cmd/bulk_cmd nor getCmd/bulkCmd exported by "
-            f"{_SNMP_HLAPI_NS} — pysnmp may have renamed/removed them again"
+            f"none of {candidates!r} exported by {_SNMP_HLAPI_NS} — "
+            f"pysnmp may have renamed/removed them again"
         )
+
+    def _resolve_optional(*candidates: str):
+        """First-name-that-exists wins; returns None if none match.
+        Use for v3-only USM constants — v2c probes don't need them, so
+        a missing/renamed v3 protocol shouldn't disable the whole
+        SNMP provider. The v3 code path checks for None and surfaces
+        a clear "v3 protocol unavailable for SHA256 — pysnmp may have
+        renamed it" error per probe instead of disabling everything."""
+        for n in candidates:
+            v = getattr(_hlapi, n, None)
+            if v is not None:
+                return v
+        return None
+
+    SnmpEngine         = _resolve_required("SnmpEngine")
+    CommunityData      = _resolve_required("CommunityData")
+    UsmUserData        = _resolve_required("UsmUserData")
+    UdpTransportTarget = _resolve_required("UdpTransportTarget")
+    ContextData        = _resolve_required("ContextData")
+    ObjectType         = _resolve_required("ObjectType")
+    ObjectIdentity     = _resolve_required("ObjectIdentity")
+
+    # Cmd functions — snake_case (7.x) preferred, camelCase (≤6.x) fallback.
+    getCmd  = _resolve_required("get_cmd",  "getCmd")
+    bulkCmd = _resolve_required("bulk_cmd", "bulkCmd")
+
+    # USM protocols (v3-only — optional, see _resolve_optional docstring).
+    # 7.x UPPER_SNAKE_CASE first, ≤6.x camelCase fallback. Variant names
+    # cover the bit-length-prefixed forms (HMAC96 / HMAC192 / HMAC384) the
+    # 7.x release notes used.
+    usmHMACSHAAuthProtocol    = _resolve_optional(
+        "USM_AUTH_HMAC96_SHA",
+        "USM_AUTH_HMAC_SHA",
+        "usmHMACSHAAuthProtocol",
+    )
+    usmHMACSHA256AuthProtocol = _resolve_optional(
+        "USM_AUTH_HMAC192_SHA256",
+        "USM_AUTH_HMAC_SHA256",
+        "usmHMACSHA256AuthProtocol",
+    )
+    usmAesCfb128Protocol      = _resolve_optional(
+        "USM_PRIV_CFB128_AES",
+        "USM_PRIV_AES",
+        "usmAesCfb128Protocol",
+    )
+    usmNoAuthProtocol         = _resolve_optional(
+        "USM_AUTH_NONE",
+        "usmNoAuthProtocol",
+    )
+    usmNoPrivProtocol         = _resolve_optional(
+        "USM_PRIV_NONE",
+        "usmNoPrivProtocol",
+    )
     _HAS_SNMP = True
-except ImportError as _e:
+except Exception as _e:
     _HAS_SNMP = False
     _SNMP_IMPORT_ERROR = f"{type(_e).__name__}: {_e}"
     print(f"[snmp] pysnmp import failed — SNMP probes disabled: {_SNMP_IMPORT_ERROR}")
