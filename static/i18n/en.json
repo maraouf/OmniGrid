@@ -1612,7 +1612,9 @@
       "cpu_title": "CPU per-core",
       "load_title": "Load avg",
       "mem_title": "Memory",
-      "cores": "{n} core(s)"
+      "cores": "{n} core(s)",
+      "x_axis_old": "1h ago",
+      "x_axis_now": "now"
     },
     "charts": {
       "cpu": "CPU %",
