@@ -4777,12 +4777,16 @@
                actual ImportError text from the server. Operators don't
                have to grep server logs to figure out which symbol or
                module path is missing — the inline error pinpoints it.
-               import_error stays empty when the import succeeds. -->
+               import_error stays empty when the import succeeds. The
+               import-error line uses the same `--warning` (orange)
+               token as the unavailable hint (#647) so the diagnostic
+               reads as a unified warning block rather than a two-tone
+               muted-then-bright surface. -->
           <div x-show="!settings.snmp_has_snmp_support" class="space-y-1">
             <p class="text-[10.5px] text-[var(--warning)]"
                x-text="t('settings.host_stats.snmp.unavailable')"></p>
             <p x-show="settings.snmp_import_error"
-               class="text-[10.5px] mono text-[var(--text-faint)] break-all"
+               class="text-[10.5px] mono text-[var(--warning)] break-all"
                x-text="t('settings.host_stats.snmp.import_error_label', { error: settings.snmp_import_error })"></p>
           </div>
           <p class="text-[10.5px] text-[var(--text-faint)]"

@@ -132,37 +132,62 @@ _LOOPBACK_PREFIXES = ("lo", "loopback", "null", "vlan-internal", "docker", "veth
 # pure-Python wheel; we do it inside try/except so a missing package
 # doesn't trip the whole logic package's import.
 #
-# pysnmp 7.x reorganised the module hierarchy: the asyncio HLAPI symbols
-# moved from `pysnmp.hlapi.asyncio` (5.x / 6.x path) to
-# `pysnmp.hlapi.v3arch.asyncio` (7.x path). #344 originally pinned >=7.0.0
-# but used the old import path, which made `has_snmp_support()` return
-# False even on a correctly-pinned install. Fix (#642): try the modern
-# 7.x path first, then fall back to the 5.x / 6.x path. Capture the
-# actual ImportError text so a third-party packaging weirdness surfaces
-# in the server logs instead of disappearing silently — the operator's
-# first diagnostic now is `grep "[snmp] pysnmp import" <log>` which
-# names the exact missing symbol.
+# pysnmp version compat — TWO breaking changes between 6.x and 7.x:
+#  1. Module path: `pysnmp.hlapi.asyncio` (5.x / 6.x) → some 7.x lines
+#     ALSO ship a `pysnmp.hlapi.v3arch.asyncio` namespace alongside the
+#     legacy path. Both paths exist in 7.x but contain different
+#     symbols depending on the patch release; we try the v3arch path
+#     first and fall back. (#642)
+#  2. Function names: `getCmd` / `bulkCmd` (camelCase, 5.x / 6.x) renamed
+#     to `get_cmd` / `bulk_cmd` (PEP 8 snake_case, 7.x). The original
+#     #642 fix only handled the path change and still imported the
+#     camelCase names — which exist in `pysnmp.hlapi.asyncio` on 7.x
+#     as a stub module but raise ImportError on the camelCase symbol.
+#     Fix (#646): import the symbols separately, trying snake_case
+#     first and falling back to camelCase. After import, alias both
+#     to `getCmd` / `bulkCmd` so the rest of this module can keep its
+#     existing camelCase call sites unchanged.
+# Capture the actual ImportError text so future drift surfaces in the
+# operator's `[snmp] pysnmp import failed: …` server log line AND
+# inline in the SPA's "package not installed" hint via the
+# `_SNMP_IMPORT_ERROR` global (#644).
 _SNMP_IMPORT_ERROR = ""
 try:
+    # Try the v3arch path first (some pysnmp 7.x patches), fall back to
+    # the legacy `pysnmp.hlapi.asyncio` path (5.x / 6.x AND most 7.x).
     try:
-        # pysnmp 7.x — current modern path.
         from pysnmp.hlapi.v3arch.asyncio import (  # type: ignore
             SnmpEngine, CommunityData, UsmUserData,
             UdpTransportTarget, ContextData, ObjectType, ObjectIdentity,
-            getCmd, bulkCmd,
             usmHMACSHAAuthProtocol, usmHMACSHA256AuthProtocol,
             usmAesCfb128Protocol,
             usmNoAuthProtocol, usmNoPrivProtocol,
         )
+        _SNMP_HLAPI_NS = "pysnmp.hlapi.v3arch.asyncio"
     except ImportError:
-        # pysnmp 5.x / 6.x — legacy path.
         from pysnmp.hlapi.asyncio import (  # type: ignore
             SnmpEngine, CommunityData, UsmUserData,
             UdpTransportTarget, ContextData, ObjectType, ObjectIdentity,
-            getCmd, bulkCmd,
             usmHMACSHAAuthProtocol, usmHMACSHA256AuthProtocol,
             usmAesCfb128Protocol,
             usmNoAuthProtocol, usmNoPrivProtocol,
+        )
+        _SNMP_HLAPI_NS = "pysnmp.hlapi.asyncio"
+    # getCmd / bulkCmd: 7.x renamed to get_cmd / bulk_cmd. Try snake_case
+    # first (modern), camelCase second (legacy). Alias to camelCase
+    # locally so the rest of the module's call sites stay stable.
+    import importlib as _importlib
+    _hlapi = _importlib.import_module(_SNMP_HLAPI_NS)
+    if hasattr(_hlapi, "get_cmd") and hasattr(_hlapi, "bulk_cmd"):
+        getCmd = _hlapi.get_cmd       # type: ignore[assignment]
+        bulkCmd = _hlapi.bulk_cmd     # type: ignore[assignment]
+    elif hasattr(_hlapi, "getCmd") and hasattr(_hlapi, "bulkCmd"):
+        getCmd = _hlapi.getCmd        # type: ignore[assignment]
+        bulkCmd = _hlapi.bulkCmd      # type: ignore[assignment]
+    else:
+        raise ImportError(
+            f"neither get_cmd/bulk_cmd nor getCmd/bulkCmd exported by "
+            f"{_SNMP_HLAPI_NS} — pysnmp may have renamed/removed them again"
         )
     _HAS_SNMP = True
 except ImportError as _e:

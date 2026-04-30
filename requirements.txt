@@ -12,6 +12,7 @@ fastapi==0.136.1
 # admin SSH terminal modal (logic/ssh.py drives an xterm-backed PTY
 # over a FastAPI WebSocket). Local dev runs `uvicorn main:app --reload`;
 # prod runs the same single-replica process behind NPM's reverse proxy.
+
 uvicorn[standard]==0.46.0
 # Async HTTP client used for EVERY outbound call: Portainer REST API
 # (services / containers / stacks / registries proxy), Beszel Hub
@@ -62,7 +63,7 @@ PyJWT[crypto]>=2.12.1
 # to the OpenSSH CLI. Pulls in `cryptography` transitively (already a
 # PyJWT[crypto] dep) so no new heavy dependency is introduced.
 asyncssh==2.22.0
-# TOTP-based 2FA for local-auth users (#345). pyotp implements RFC 6238
+# TOTP-based 2FA for local-auth users. pyotp implements RFC 6238
 # (~150 lines, no native deps); cryptography supplies Fernet for at-rest
 # encryption of TOTP secrets + backup codes (key derived via HKDF-SHA256
 # from SESSION_SECRET so rotating that env var rotates every stored
@@ -71,7 +72,7 @@ asyncssh==2.22.0
 # logic/totp.py has a hard contract on the Fernet API.
 pyotp>=2.9.0
 cryptography>=47.0.0
-# WebAuthn / FIDO2 passkeys as a 2FA factor (#381). Duo Security's
+# WebAuthn / FIDO2 passkeys as a 2FA factor. Duo Security's
 # `webauthn` package wraps the W3C ceremony in a small, dependency-light
 # API: generate_registration_options / verify_registration_response /
 # generate_authentication_options / verify_authentication_response.
@@ -87,19 +88,19 @@ webauthn>=2.7.1
 # the HTML to extract the table data rather than failing hard. Pulled
 # in only for the scrape path; the XML and JSON branches don't touch it.
 beautifulsoup4==4.14.3
-# Optional ICMP transport for the Ping host-stats provider (#343).
+# Optional ICMP transport for the Ping host-stats provider.
 # logic/ping.py imports this LAZILY and falls back to TCP-connect
 # probes when the package is missing — so this dep is genuinely
 # optional from a correctness standpoint. We pin it anyway so the
 # Settings → Host stats → Ping panel's "use ICMP" toggle is wired
 # out of the box. Runtime requirement: ICMP echo needs CAP_NET_RAW
-# on the container (#573 — wired via ``cap_add: [NET_RAW]`` on the
+# on the container (wired via ``cap_add: [NET_RAW]`` on the
 # `omnigrid` service in docker-compose.yml). Without the cap the
 # import succeeds but every probe raises SocketPermissionError →
 # ping.py auto-falls-back to TCP at probe time, so a missing cap is
 # not a boot-blocker, just "ICMP toggle on but TCP is what runs".
 icmplib==3.0.4
-# SNMP host-stats provider (#344). pysnmp is the engine for the v2c +
+# SNMP host-stats provider. pysnmp is the engine for the v2c +
 # v3 (USM) probes against managed switches / routers / UPSes / network
 # printers / managed APs that don't run unix-style agents. logic/snmp.py
 # imports this LAZILY (mirroring icmplib) so a missing wheel doesn't
@@ -116,7 +117,7 @@ icmplib==3.0.4
 # bump. logic/snmp.py uses `await UdpTransportTarget.create(...)` which
 # is 7.x-only (6.x had the synchronous `UdpTransportTarget((host, port))`
 # constructor), so the floor matches the actual runtime requirement.
-# The dual-path import in `logic/snmp.py` (#642) tries the 7.x
+# The dual-path import in `logic/snmp.py` tries the 7.x
 # `pysnmp.hlapi.v3arch.asyncio` namespace first and falls back to the
 # legacy `pysnmp.hlapi.asyncio` path — the legacy branch is now
 # unreachable under this pin but kept as defence-in-depth in case
