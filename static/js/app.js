@@ -801,6 +801,9 @@ function app() {
       // #678 — dedicated SNMP unreachable cool-down (was sharing the
       // auth-failure cool-down with Webmin / SSH).
       'tuning_snmp_unreachable_cooldown_seconds',
+      // #695 — stat-bar warn / crit thresholds (frontend-consumed).
+      'tuning_stat_bar_warn_pct',
+      'tuning_stat_bar_crit_pct',
     ],
     tuningForm: {},
     tuningEffective: {},
@@ -8002,17 +8005,32 @@ function app() {
       if (!this._maxSize) return 0;
       return Math.min(100, (s.size_root / this._maxSize) * 100);
     },
+    // LOW-VISUAL — stat-bar thresholds are operator-tunable (#688).
+    // Pre-fix the 60 / 85 thresholds were hardcoded; CLAUDE.md's
+    // no-static-config rule says operator-tunable visual thresholds
+    // belong in TUNABLES. Now sourced from `client_config` (per-call
+    // read so an Admin → Config save lands on the next render).
+    _statBarWarnPct() {
+      const v = this.me && this.me.client_config && this.me.client_config.stat_bar_warn_pct;
+      const n = parseInt(v, 10);
+      return Number.isFinite(n) && n >= 30 && n <= 90 ? n : 60;
+    },
+    _statBarCritPct() {
+      const v = this.me && this.me.client_config && this.me.client_config.stat_bar_crit_pct;
+      const n = parseInt(v, 10);
+      return Number.isFinite(n) && n >= 50 && n <= 99 ? n : 85;
+    },
     barColor(pct) {
       // Kept for backward compat; prefer barLevel() which returns a CSS class.
-      if (pct > 85) return 'var(--danger)';
-      if (pct > 60) return 'var(--warning)';
+      if (pct > this._statBarCritPct()) return 'var(--danger)';
+      if (pct > this._statBarWarnPct()) return 'var(--warning)';
       return 'var(--success)';
     },
     barLevel(pct) {
       // Maps a percentage to the `.warn` / `.crit` class on `.stat-bar`, which
       // drives the fill colour from the stylesheet. Empty string = default green.
-      if (pct > 85) return 'crit';
-      if (pct > 60) return 'warn';
+      if (pct > this._statBarCritPct()) return 'crit';
+      if (pct > this._statBarWarnPct()) return 'warn';
       return '';
     },
     cpuLabel(pct) {

@@ -1589,6 +1589,9 @@ class SettingsIn(BaseModel):
     # #678 — dedicated SNMP unreachable cool-down (was sharing the
     # auth-failure cool-down with Webmin / SSH).
     tuning_snmp_unreachable_cooldown_seconds: Optional[str] = None
+    # #695 — stat-bar thresholds (frontend-consumed via /api/me).
+    tuning_stat_bar_warn_pct: Optional[str] = None
+    tuning_stat_bar_crit_pct: Optional[str] = None
     # -----------------------------------------------------------------
     # Per-event notification toggles. Each maps to one of the
     # 12 (event group × success/failure) notify() call sites in
@@ -7853,6 +7856,12 @@ async def api_me(request: Request):
             # #542 — pollOps SSE-up keep-alive cadence. Same ms-conversion
             # pattern as ops_poll_ms (#514) and sse_idle_threshold_ms.
             "pollops_sse_keepalive_ms": tuning.tuning_int("tuning_pollops_sse_keepalive_seconds") * 1000,
+            # #695 — stat-bar warn / crit cutovers. SPA's barLevel /
+            # barColor helpers read these per-call so an Admin → Config
+            # save lands on the next render. Stored as integer percent
+            # (30..90 / 50..99).
+            "stat_bar_warn_pct": tuning.tuning_int("tuning_stat_bar_warn_pct"),
+            "stat_bar_crit_pct": tuning.tuning_int("tuning_stat_bar_crit_pct"),
             # Scheduler-tz state so the admin Schedules tab can badge
             # "TZ: <name> → falling back to UTC" when the operator typed
             # an invalid IANA name. ``configured`` = raw setting,

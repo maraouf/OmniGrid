@@ -231,6 +231,59 @@ def curated_ping_hosts() -> list[dict]:
     return out
 
 
+def curated_snmp_hosts() -> list[dict]:
+    """Curated ``hosts_config`` rows opted-in for SNMP probing (#679).
+
+    Mirror of :func:`curated_ne_hosts` / :func:`curated_ping_hosts` but
+    gates on ``snmp.enabled === True`` AND a non-empty ``snmp_name`` (or
+    a global ``snmp_aliases`` mapping that resolves the host id — caller
+    layers the alias lookup on top). Per-host opt-in matches the SPA's
+    contract from #654 — `enabled is True` is the read-side gate.
+
+    Returns ``{id, snmp_name, ssh}`` per row. The caller resolves global
+    SNMP defaults (community / version / port / v3 keys) so this helper
+    stays I/O-free beyond the one settings read.
+
+    Single source of truth for "which hosts is OmniGrid SNMP-probing
+    right now" — consumed by the per-host probe path and (post-#679)
+    by the host_metrics_sampler's permanent-fail tracking pass.
+    """
+    import json as _json
+
+    raw = get_setting("hosts_config", "") or ""
+    if not raw.strip():
+        return []
+    try:
+        parsed = _json.loads(raw)
+    except ValueError:
+        return []
+    if not isinstance(parsed, list):
+        return []
+    out: list[dict] = []
+    for row in parsed:
+        if not isinstance(row, dict):
+            continue
+        if not row.get("enabled", True):
+            continue
+        snmp_cfg = row.get("snmp") if isinstance(row.get("snmp"), dict) else {}
+        if snmp_cfg.get("enabled") is not True:
+            continue
+        hid = (row.get("id") or "").strip()
+        if not hid:
+            continue
+        snmp_name = (row.get("snmp_name") or "").strip()
+        # Caller may resolve `snmp_aliases[hid]` to override snmp_name —
+        # we leave that lookup to the consumer so this helper stays
+        # narrow-scoped (matches CLAUDE.md's "logic/db.py is the
+        # I/O-free shape layer" rule).
+        out.append({
+            "id":        hid,
+            "snmp_name": snmp_name,
+            "snmp":      dict(snmp_cfg),
+        })
+    return out
+
+
 def get_setting_bool(key: str, default: bool = False) -> bool:
     """Read a boolean settings row tolerantly.
 

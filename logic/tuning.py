@@ -195,6 +195,16 @@ TUNABLES: dict[str, tuple[str, int, int, int]] = {
     # for SNMP keep their behaviour until they explicitly tune this
     # one. Range 30..3600.
     "tuning_snmp_unreachable_cooldown_seconds": ("SNMP_UNREACHABLE_COOLDOWN_SECONDS", 300, 30, 3600),
+    # #695 — stat-bar threshold cutovers. Pre-fix the SPA's `barLevel`
+    # / `barColor` helpers hardcoded 60 (warn) and 85 (crit). Operators
+    # running CPU-saturated workloads where 80% steady is normal want
+    # to push warn higher; operators running provisioned workloads
+    # where every spike is a signal want lower. Range bounds are
+    # asymmetric on purpose — warn must be ≤ crit so the colour
+    # progression stays monotonic, and crit < 100 so a crit-equal
+    # reading is still a crit.
+    "tuning_stat_bar_warn_pct": ("STAT_BAR_WARN_PCT", 60, 30, 90),
+    "tuning_stat_bar_crit_pct": ("STAT_BAR_CRIT_PCT", 85, 50, 99),
 }
 
 

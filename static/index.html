@@ -2410,8 +2410,8 @@
               <img :src="me.avatar_url" class="w-[120px] h-[120px] rounded-full object-cover border-2 border-[var(--border-bright)]" alt="Avatar">
             </template>
             <template x-if="!(me && me.avatar_url)">
-              <div class="flex items-center justify-center w-[120px] h-[120px] rounded-full text-[48px] font-semibold text-[var(--text-on-primary)] border-2 border-[var(--border-bright)]"
-                   :style="'background: hsl(' + avatarHue() + ', 55%, 45%)'"
+              <div class="user-avatar user-avatar--lg font-semibold"
+                   :style="'--avatar-hue: ' + avatarHue()"
                    x-text="initial()"></div>
             </template>
             <label class="absolute bottom-1 right-1 w-8 h-8 rounded-full bg-[var(--surface-3)] border border-[var(--border-bright)] flex items-center justify-center cursor-pointer hover:bg-[var(--surface-2)]"
@@ -4198,7 +4198,7 @@
                       : 'text-[var(--text-dim)] hover:text-[var(--text)] border-transparent'"
                     class="px-3 py-1.5 text-[12.5px] font-medium border-b-2 -mb-[1px] transition flex items-center gap-1.5 whitespace-nowrap">
               <span class="w-1.5 h-1.5 rounded-full"
-                    :style="hasHostStatsSource(tab[0]) ? 'background: var(--success)' : 'background: var(--text-faint)'"
+                    :class="hasHostStatsSource(tab[0]) ? 'dot-on' : 'dot-off'"
                     :title="hasHostStatsSource(tab[0]) ? t('settings.host_stats.tab_active_dot') : t('settings.host_stats.tab_inactive_dot')"></span>
               <!-- #607 — mono provider icon painted in the operator-
                    customised chip colour (#596). Active tab gets the

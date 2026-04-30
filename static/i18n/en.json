@@ -816,6 +816,14 @@
         "tuning_snmp_unreachable_cooldown_seconds": {
           "label": "SNMP unreachable cool-down (seconds)",
           "help": "After a single SNMP probe times out, the per-(host, port) probe arms a cool-down — subsequent ticks skip that pair until the cool-down expires. UDP timeouts are slower to detect than auth-failure 401s, so SNMP arms after one strike (Webmin / SSH wait for two consecutive 401s before arming). Cuts wire traffic against permanently-unreachable devices without removing them from the chart entirely. Default 300 seconds (5 minutes). Lower for fast-recovery detection on flaky links; raise to suppress probes against a host that's been down for hours. Pre-#678 this shared the auth-failure cool-down knob with Webmin / SSH; now dedicated so operators can tune SNMP independently. Range 30..3600."
+        },
+        "tuning_stat_bar_warn_pct": {
+          "label": "Stat-bar warning threshold (percent)",
+          "help": "Percent at which CPU / Memory / Disk bars flip from green to amber across the SPA. Default 60 — leaves headroom on bursty workloads while making sustained load visible. Lower (e.g. 50) for over-provisioned hosts where any sustained load is interesting; raise (e.g. 75) on hosts where high steady utilisation is normal (build farms, batch processing). Must stay ≤ the crit threshold so the green→amber→red progression remains monotonic. Range 30..90. Resolved per render; an Admin → Config save reflects on the next /api/me round-trip."
+        },
+        "tuning_stat_bar_crit_pct": {
+          "label": "Stat-bar critical threshold (percent)",
+          "help": "Percent at which CPU / Memory / Disk bars flip from amber to red. Default 85 — the typical \"investigate before saturation\" signal. Lower (e.g. 75) for fleets where 80% sustained means a rebalance; raise (e.g. 95) for over-provisioned hosts where amber stays green-equivalent. Must be ≥ the warning threshold. Range 50..99. Resolved per render."
         }
       },
       "totp": {

@@ -141,6 +141,120 @@ _OID_ENT_SOFTWARE_REV = "1.3.6.1.2.1.47.1.1.1.1.10"
 _OID_ENT_SERIAL_NUM   = "1.3.6.1.2.1.47.1.1.1.1.11"
 _OID_ENT_MODEL_NAME   = "1.3.6.1.2.1.47.1.1.1.1.13"
 _OID_ENT_PHYS_CLASS   = "1.3.6.1.2.1.47.1.1.1.1.5"
+
+# #682 — Vendor-private MIBs for hosts whose SNMP profile blocks the
+# standard MIB-II / Host Resources / ENTITY-MIB surfaces. iDRAC v6+ in
+# particular returns nothing useful from sysDescr / hrStorage / ifTable /
+# ENTITY-MIB on the default community profile, but exposes rich data
+# under DELL-RAC-MIB. Cisco SG300 / SG350 / SG500 SMB switches expose
+# CPU% + memory pools + product hardware version under
+# CISCO-MEMORY-POOL-MIB + CISCO-PROCESS-MIB + CISCO-PRODUCTS-MIB.
+#
+# These are GETs (not walks) where the OID resolves to a single value;
+# walks where the OID resolves to a table (memory pools, CPU per-engine).
+# An agent that doesn't speak the vendor's MIB returns "noSuchObject" /
+# empty walk and our extractors silently fall through.
+#
+# Dell DELL-RAC-MIB (iDRAC). Stable since iDRAC6, current on iDRAC9/10.
+# Service tag = serial; chassis model = product name; racFirmwareVersion
+# = iDRAC firmware string (e.g. "5.10.30.00"). globalSystemStatus uses
+# the standard Dell Systems Management Server Health enum:
+#   1=other, 2=unknown, 3=ok, 4=non-critical, 5=critical, 6=non-recoverable
+_OID_DELL_CHASSIS_SERVICE_TAG = "1.3.6.1.4.1.674.10892.5.1.3.2.0"
+_OID_DELL_CHASSIS_MODEL       = "1.3.6.1.4.1.674.10892.5.1.3.3.0"
+_OID_DELL_RAC_FIRMWARE        = "1.3.6.1.4.1.674.10892.5.1.1.6.0"
+_OID_DELL_GLOBAL_SYS_STATUS   = "1.3.6.1.4.1.674.10892.5.4.200.10.1.4.1"
+# Dell host-system info (different sub-tree from chassis): system
+# service tag + product short name. Some iDRAC firmware revs only
+# answer the host-system OIDs, others only chassis — probe both.
+_OID_DELL_SYSTEM_SERVICE_TAG  = "1.3.6.1.4.1.674.10892.5.4.300.10.1.11.1"
+_OID_DELL_SYSTEM_MODEL_NAME   = "1.3.6.1.4.1.674.10892.5.4.300.10.1.9.1"
+# Cisco — covers SG300 / SG350 / SG500 / Catalyst / Nexus.
+# productHardwareVer is SG300-specific (under enterprises.9.6.1.101);
+# memory pool + CPU% are common across the Cisco family.
+_OID_CISCO_PRODUCT_HW_VER       = "1.3.6.1.4.1.9.6.1.101.1.1.0"
+_OID_CISCO_MEM_POOL_NAME        = "1.3.6.1.4.1.9.9.48.1.1.1.2"
+_OID_CISCO_MEM_POOL_USED        = "1.3.6.1.4.1.9.9.48.1.1.1.5"
+_OID_CISCO_MEM_POOL_FREE        = "1.3.6.1.4.1.9.9.48.1.1.1.6"
+_OID_CISCO_CPU_TOTAL_5SEC       = "1.3.6.1.4.1.9.9.109.1.1.1.1.7"
+
+# Dell global-status enum → string label.
+_DELL_STATUS_LABELS = {
+    1: "other", 2: "unknown", 3: "ok",
+    4: "non-critical", 5: "critical", 6: "non-recoverable",
+}
+
+# #683 — APC PowerNet-MIB (UPS / PDU). Smart-UPS family answers under
+# 1.3.6.1.4.1.318.x. Standard UPS-MIB (RFC 1628) is sometimes also
+# present but APC's PowerNet OIDs carry more detail (battery temp,
+# runtime in TimeTicks, load% per-phase). One probe pass covers
+# Smart-UPS RT, Back-UPS, BR-series, the rack PDU family, etc.
+_OID_APC_UPS_MODEL          = "1.3.6.1.4.1.318.1.1.1.1.1.1.0"
+_OID_APC_UPS_NAME           = "1.3.6.1.4.1.318.1.1.1.1.1.2.0"
+_OID_APC_UPS_FIRMWARE       = "1.3.6.1.4.1.318.1.1.1.1.2.1.0"
+_OID_APC_UPS_SERIAL         = "1.3.6.1.4.1.318.1.1.1.1.2.3.0"
+_OID_APC_UPS_BATT_STATUS    = "1.3.6.1.4.1.318.1.1.1.2.1.1.0"
+_OID_APC_UPS_BATT_CAPACITY  = "1.3.6.1.4.1.318.1.1.1.2.2.1.0"
+_OID_APC_UPS_BATT_TEMP_C    = "1.3.6.1.4.1.318.1.1.1.2.2.2.0"
+_OID_APC_UPS_BATT_RUNTIME   = "1.3.6.1.4.1.318.1.1.1.2.2.3.0"  # TimeTicks
+_OID_APC_UPS_OUTPUT_STATUS  = "1.3.6.1.4.1.318.1.1.1.4.1.1.0"
+_OID_APC_UPS_OUTPUT_LOAD    = "1.3.6.1.4.1.318.1.1.1.4.2.3.0"
+
+# APC battery-status enum (from PowerNet-MIB upsBasicBatteryStatus).
+_APC_BATT_STATUS_LABELS = {
+    1: "unknown", 2: "battery-normal", 3: "battery-low",
+    4: "battery-in-fault",
+}
+# APC output-status enum (from PowerNet-MIB upsBasicOutputStatus).
+# Subset that's actually emitted by the Smart-UPS family (full enum
+# carries 12 values; the rare ones rarely appear in production).
+_APC_OUTPUT_STATUS_LABELS = {
+    1: "unknown", 2: "online", 3: "on-battery",
+    4: "on-smart-boost", 5: "timed-sleeping", 6: "software-bypass",
+    7: "off", 8: "rebooting", 9: "switched-bypass", 10: "hardware-failure-bypass",
+    11: "sleeping-until", 12: "on-smart-trim",
+}
+
+# #684 — UCD-SNMP-MIB (1.3.6.1.4.1.2021.x). The universal Linux
+# net-snmp surface — present on basically every Linux distro running
+# net-snmp (DD-WRT / OpenWrt / Synology / generic embedded boxes that
+# don't ship Beszel/NE agents). Sometimes the only useful surface on
+# routers whose snmpd builds Host-Resources OFF for size.
+_OID_UCD_MEM_TOTAL_REAL = "1.3.6.1.4.1.2021.4.5.0"
+_OID_UCD_MEM_AVAIL_REAL = "1.3.6.1.4.1.2021.4.6.0"
+_OID_UCD_MEM_TOTAL_FREE = "1.3.6.1.4.1.2021.4.11.0"
+_OID_UCD_SS_CPU_USER    = "1.3.6.1.4.1.2021.11.9.0"
+_OID_UCD_SS_CPU_SYSTEM  = "1.3.6.1.4.1.2021.11.10.0"
+_OID_UCD_SS_CPU_IDLE    = "1.3.6.1.4.1.2021.11.11.0"
+# laLoadInt walk — three rows: 1m / 5m / 15m × 100 (centi-load).
+# Index 1=1m, 2=5m, 3=15m on every snmpd impl I've seen.
+_OID_UCD_LA_LOAD_INT    = "1.3.6.1.4.1.2021.10.1.5"
+# dskTable walk — per-mount path / total / used / percent.
+_OID_UCD_DSK_PATH    = "1.3.6.1.4.1.2021.9.1.2"
+_OID_UCD_DSK_TOTAL   = "1.3.6.1.4.1.2021.9.1.6"   # KB
+_OID_UCD_DSK_USED    = "1.3.6.1.4.1.2021.9.1.8"   # KB
+_OID_UCD_DSK_PERCENT = "1.3.6.1.4.1.2021.9.1.9"
+
+# #685 — SYNOLOGY-MIB. DSM-based NAS (DiskStation, RackStation, etc.).
+# DSM 7+ also implements Host Resources MIB; these OIDs add identity +
+# DSM-specific health surface (temperature, upgrade-available flag).
+_OID_SYNO_MODEL_NAME    = "1.3.6.1.4.1.6574.1.5.5.0"
+_OID_SYNO_SERIAL_NUMBER = "1.3.6.1.4.1.6574.1.5.4.0"
+_OID_SYNO_DSM_VERSION   = "1.3.6.1.4.1.6574.1.5.3.0"
+_OID_SYNO_SYSTEM_STATUS = "1.3.6.1.4.1.6574.1.1.0"
+_OID_SYNO_SYSTEM_TEMP   = "1.3.6.1.4.1.6574.1.2.0"
+_OID_SYNO_UPGRADE_AVAIL = "1.3.6.1.4.1.6574.1.5.1.0"
+
+# Synology system-status enum (1=normal, 2=failed).
+_SYNO_STATUS_LABELS = {
+    1: "ok", 2: "failed",
+}
+# Synology upgrade-available enum (per DSM MIB definition):
+# 1=available, 2=unavailable, 3=connecting, 4=disconnected, 5=others.
+_SYNO_UPGRADE_LABELS = {
+    1: "available", 2: "up-to-date",
+    3: "checking", 4: "disconnected", 5: "other",
+}
 _OID_HR_STORAGE_TYPE  = "1.3.6.1.2.1.25.2.3.1.2"
 _OID_HR_STORAGE_DESC  = "1.3.6.1.2.1.25.2.3.1.3"
 _OID_HR_STORAGE_UNIT  = "1.3.6.1.2.1.25.2.3.1.4"
@@ -195,7 +309,7 @@ _LOOPBACK_PREFIXES = ("lo", "loopback", "null", "vlan-internal", "docker", "veth
 _SNMP_IMPORT_ERROR = ""
 SnmpEngine = CommunityData = UsmUserData = None  # type: ignore[assignment]
 UdpTransportTarget = ContextData = ObjectType = ObjectIdentity = None  # type: ignore[assignment]
-getCmd = bulkCmd = None  # type: ignore[assignment]
+getCmd = bulkCmd = bulkWalkCmd = walkCmd = None  # type: ignore[assignment]
 usmHMACSHAAuthProtocol = usmHMACSHA256AuthProtocol = None  # type: ignore[assignment]
 usmAesCfb128Protocol = None  # type: ignore[assignment]
 usmNoAuthProtocol = usmNoPrivProtocol = None  # type: ignore[assignment]
@@ -250,6 +364,16 @@ try:
     # Cmd functions — snake_case (7.x) preferred, camelCase (≤6.x) fallback.
     getCmd  = _resolve_required("get_cmd",  "getCmd")
     bulkCmd = _resolve_required("bulk_cmd", "bulkCmd")
+    # In pysnmp 7.x `bulk_cmd` returns a coroutine (single response —
+    # not iterable!), and walks must use `bulk_walk_cmd` (or `walk_cmd`
+    # for the slower GETNEXT-based walk). `_snmp_walk` checks for
+    # bulkWalkCmd FIRST and falls through to legacy bulkCmd-as-iterator
+    # only when the modern function isn't available (pysnmp ≤6.x).
+    # The "TypeError: 'async for' requires an object with __aiter__
+    # method, got coroutine" runtime error we hit on the live deploy
+    # was exactly this: 7.x's bulk_cmd is no longer iterable.
+    bulkWalkCmd = _resolve_optional("bulk_walk_cmd", "bulkWalkCmd")
+    walkCmd     = _resolve_optional("walk_cmd",      "walkCmd")
 
     # USM protocols (v3-only — optional, see _resolve_optional docstring).
     # 7.x UPPER_SNAKE_CASE first, ≤6.x camelCase fallback. Variant names
@@ -418,11 +542,22 @@ async def _snmp_walk(engine, auth, target, base_oid: str,
     Bounded by ``max_rows`` so a misbehaving agent can't loop us forever.
     Uses GETBULK (SNMP v2c+) for efficiency; on v1 fallback this would
     need rewriting to GETNEXT but we don't support v1.
+
+    #687 — pysnmp 7.x split the bulk-walk path off `bulk_cmd`. In 7.x:
+      - `bulk_cmd(...)` returns a coroutine that yields ONE response —
+        NOT iterable. ``async for`` over it raises
+        "TypeError: 'async for' requires an object with __aiter__,
+        got coroutine".
+      - `bulk_walk_cmd(...)` returns an async iterator — the real walk.
+    On pysnmp ≤6.x, `bulkCmd` itself returned the iterator and there
+    was no separate `bulkWalkCmd`. Resolution: prefer bulkWalkCmd when
+    the version exposes it, fall back to bulkCmd (legacy iterator).
     """
     if not _HAS_SNMP:
         return {}
     out: dict[str, object] = {}
-    iterator = bulkCmd(
+    walk_fn = bulkWalkCmd or bulkCmd
+    iterator = walk_fn(
         engine, auth, target, ContextData(),
         0, 25,  # nonRepeaters, maxRepetitions
         ObjectType(ObjectIdentity(base_oid)),
@@ -536,6 +671,244 @@ def extract_sys_info(get_result: dict) -> dict:
         out["host_contact"] = contact
     if location:
         out["host_location"] = location
+    # #686 — Ubiquiti UniFi switches / APs / routers return ONLY
+    # sysDescr ("USW-Enterprise-8-PoE, 7.4.1.16850") and have no
+    # useful vendor-private MIB. Detect the comma-then-version-string
+    # convention and pull model + firmware out of sysDescr when other
+    # extractors haven't populated them. Conservative parser: only
+    # fires when sysDescr's second comma-separated token starts with
+    # a digit (looks like a version number) AND first token contains
+    # no whitespace (model slug like "USW-...", "UAP-...", "U6-LR").
+    if descr and "," in descr:
+        parts = [p.strip() for p in descr.split(",", 1)]
+        if (len(parts) == 2
+                and parts[0]
+                and " " not in parts[0]
+                and parts[1] and parts[1][0].isdigit()
+                and "host_model" not in out
+                and "host_firmware" not in out):
+            out["host_model"] = parts[0]
+            out["host_firmware"] = parts[1]
+    return out
+
+
+def extract_vendor_info(walks: dict, existing: Optional[dict] = None) -> dict:
+    """#682 — DELL-RAC-MIB + Cisco vendor-MIB extractor.
+
+    Fills `host_model` / `host_serial` / `host_firmware` / `host_health`
+    when ENTITY-MIB and the standard MIBs left them empty. Designed to
+    NEVER overwrite values the earlier extractors set — the operator's
+    Beszel-mapped Linux host stays Beszel-shaped even when SNMP
+    incidentally returns a hardware-model string from a USB peripheral.
+
+    Cisco memory pools are summed across all pools; the result lands
+    as `host_mem_total` / `host_mem_used` only when Host-Resources MIB
+    didn't produce them. Cisco CPU% is the mean across all
+    cpmCPUTotal5sec entries (one per CPU engine on stackable switches).
+
+    `walks` keys: 'dell' (GET dict), 'cisco_hw' (GET dict),
+    'cisco_mem_used' / 'cisco_mem_free' / 'cisco_mem_name' (walk dicts),
+    'cisco_cpu' (walk dict).
+    """
+    existing = existing or {}
+    out: dict = {}
+    # ---- Dell DELL-RAC-MIB (iDRAC) ----------------------------------
+    dell = walks.get("dell") or {}
+    chassis_tag = _coerce_str(dell.get(_OID_DELL_CHASSIS_SERVICE_TAG)).strip()
+    chassis_model = _coerce_str(dell.get(_OID_DELL_CHASSIS_MODEL)).strip()
+    rac_firmware = _coerce_str(dell.get(_OID_DELL_RAC_FIRMWARE)).strip()
+    sys_tag = _coerce_str(dell.get(_OID_DELL_SYSTEM_SERVICE_TAG)).strip()
+    sys_model = _coerce_str(dell.get(_OID_DELL_SYSTEM_MODEL_NAME)).strip()
+    global_status = _coerce_int(dell.get(_OID_DELL_GLOBAL_SYS_STATUS))
+    serial = chassis_tag or sys_tag
+    model = chassis_model or sys_model
+    if serial and not existing.get("host_serial"):
+        out["host_serial"] = serial
+    if model and not existing.get("host_model"):
+        out["host_model"] = model
+    if rac_firmware and not existing.get("host_firmware"):
+        out["host_firmware"] = rac_firmware
+    if global_status > 0:
+        out["host_health"] = _DELL_STATUS_LABELS.get(global_status, f"status={global_status}")
+    # ---- Cisco product hardware version -----------------------------
+    cisco_hw = walks.get("cisco_hw") or {}
+    cisco_model = _coerce_str(cisco_hw.get(_OID_CISCO_PRODUCT_HW_VER)).strip()
+    if cisco_model and not existing.get("host_model"):
+        out["host_model"] = cisco_model
+    # ---- Cisco memory pools (sum across all pools) ------------------
+    mem_used_walk = walks.get("cisco_mem_used") or {}
+    mem_free_walk = walks.get("cisco_mem_free") or {}
+    if mem_used_walk and mem_free_walk:
+        used_sum = sum(_coerce_int(v) for v in mem_used_walk.values())
+        free_sum = sum(_coerce_int(v) for v in mem_free_walk.values())
+        total = used_sum + free_sum
+        if total > 0:
+            if not existing.get("host_mem_total"):
+                out["host_mem_total"] = total
+            if not existing.get("host_mem_used"):
+                out["host_mem_used"] = used_sum
+                out["host_mem_avail"] = free_sum
+                out["host_mem_percent"] = (used_sum / total * 100.0) if total else 0.0
+    # ---- Cisco CPU% (mean across cpmCPUTotal5sec entries) -----------
+    cpu_walk = walks.get("cisco_cpu") or {}
+    if cpu_walk and existing.get("host_cpu_percent") is None:
+        loads = [_coerce_int(v) for v in cpu_walk.values()]
+        loads = [n for n in loads if 0 <= n <= 100]
+        if loads:
+            out["host_cpu_percent"] = float(sum(loads)) / len(loads)
+    # ---- APC PowerNet-MIB (UPS) -------------------------------------
+    # #683 — Smart-UPS RT, Back-UPS, BR-series, rack PDUs all live
+    # under 1.3.6.1.4.1.318.x. The full surface adds host_ups_status,
+    # host_battery_*, host_load_percent — these don't conflict with
+    # any existing host_* field and are ONLY emitted by APC gear, so
+    # they're additive.
+    apc = walks.get("apc") or {}
+    apc_model = _coerce_str(apc.get(_OID_APC_UPS_MODEL)).strip()
+    apc_firmware = _coerce_str(apc.get(_OID_APC_UPS_FIRMWARE)).strip()
+    apc_serial = _coerce_str(apc.get(_OID_APC_UPS_SERIAL)).strip()
+    if apc_model and not existing.get("host_model"):
+        out["host_model"] = apc_model
+    if apc_firmware and not existing.get("host_firmware"):
+        out["host_firmware"] = apc_firmware
+    if apc_serial and not existing.get("host_serial"):
+        out["host_serial"] = apc_serial
+    apc_batt_status = _coerce_int(apc.get(_OID_APC_UPS_BATT_STATUS))
+    if apc_batt_status > 0:
+        out["host_battery_status"] = _APC_BATT_STATUS_LABELS.get(
+            apc_batt_status, f"status={apc_batt_status}"
+        )
+    apc_batt_pct = _coerce_int(apc.get(_OID_APC_UPS_BATT_CAPACITY))
+    if 0 <= apc_batt_pct <= 100 and (apc_batt_pct > 0 or apc_batt_status > 0):
+        out["host_battery_percent"] = float(apc_batt_pct)
+    apc_batt_temp = _coerce_int(apc.get(_OID_APC_UPS_BATT_TEMP_C))
+    if apc_batt_temp > 0:
+        out["host_battery_temp_c"] = float(apc_batt_temp)
+    # upsAdvBatteryRunTimeRemaining is in TimeTicks (centiseconds).
+    apc_runtime_ticks = _coerce_int(apc.get(_OID_APC_UPS_BATT_RUNTIME))
+    if apc_runtime_ticks > 0:
+        out["host_battery_runtime_s"] = apc_runtime_ticks // 100
+    apc_output_status = _coerce_int(apc.get(_OID_APC_UPS_OUTPUT_STATUS))
+    if apc_output_status > 0:
+        out["host_ups_status"] = _APC_OUTPUT_STATUS_LABELS.get(
+            apc_output_status, f"status={apc_output_status}"
+        )
+    apc_load = _coerce_int(apc.get(_OID_APC_UPS_OUTPUT_LOAD))
+    if 0 <= apc_load <= 200:  # APC reports up to ~150% before overload
+        if apc_load > 0 or apc_output_status > 0:
+            out["host_load_percent"] = float(apc_load)
+    # ---- UCD-SNMP-MIB (Linux net-snmp) ------------------------------
+    # #684 — DD-WRT / OpenWrt / generic Linux without Beszel/NE pick
+    # up CPU% (100 - ssCpuIdle), memory (KB → bytes), 1/5/15-min load
+    # average (centi-load → float), and per-mount disk via dskTable.
+    ucd_mem = walks.get("ucd_mem_cpu") or {}
+    if ucd_mem:
+        mem_total_kb = _coerce_int(ucd_mem.get(_OID_UCD_MEM_TOTAL_REAL))
+        mem_avail_kb = _coerce_int(ucd_mem.get(_OID_UCD_MEM_AVAIL_REAL))
+        mem_free_kb  = _coerce_int(ucd_mem.get(_OID_UCD_MEM_TOTAL_FREE))
+        if mem_total_kb > 0 and not existing.get("host_mem_total"):
+            mem_total = mem_total_kb * 1024
+            # Prefer memAvailReal if present (accounts for cache); fall
+            # back to memTotalFree (raw free, no cache discount).
+            avail_kb = mem_avail_kb if mem_avail_kb > 0 else mem_free_kb
+            avail = avail_kb * 1024 if avail_kb > 0 else 0
+            mem_used = max(0, mem_total - avail) if avail > 0 else 0
+            out["host_mem_total"] = mem_total
+            if mem_used > 0:
+                out["host_mem_used"] = mem_used
+                out["host_mem_avail"] = avail
+                out["host_mem_percent"] = (mem_used / mem_total * 100.0) if mem_total else 0.0
+        # CPU% via 100 - ssCpuIdle. ssCpuIdle is "% idle since last
+        # poll", so the snmpd's accounting interval matters; net-snmp
+        # uses 60s by default. Operators wanting tighter granularity
+        # configure shorter intervals on the agent side.
+        cpu_idle = _coerce_int(ucd_mem.get(_OID_UCD_SS_CPU_IDLE))
+        if 0 <= cpu_idle <= 100 and existing.get("host_cpu_percent") is None:
+            out["host_cpu_percent"] = float(max(0, min(100, 100 - cpu_idle)))
+    # laLoadInt walk — three rows × 100 (centi-load).
+    ucd_load = walks.get("ucd_load") or {}
+    if ucd_load:
+        load_by_idx: dict[int, float] = {}
+        for oid, v in ucd_load.items():
+            idx_s = oid.rsplit(".", 1)[-1]
+            try:
+                idx = int(idx_s)
+            except ValueError:
+                continue
+            if idx in (1, 2, 3):
+                centi = _coerce_int(v)
+                if centi >= 0:
+                    load_by_idx[idx] = centi / 100.0
+        if 1 in load_by_idx and not existing.get("host_load_1m"):
+            out["host_load_1m"] = load_by_idx[1]
+        if 2 in load_by_idx and not existing.get("host_load_5m"):
+            out["host_load_5m"] = load_by_idx[2]
+        if 3 in load_by_idx and not existing.get("host_load_15m"):
+            out["host_load_15m"] = load_by_idx[3]
+    # ---- SYNOLOGY-MIB (DSM NAS) -------------------------------------
+    # #685 — DSM 7+ also implements Host Resources MIB; these OIDs
+    # add the NAS-specific identity + the system temperature + an
+    # upgrade-available signal. Picks up DiskStation / RackStation
+    # gear where the operator hasn't (yet) deployed an OmniGrid agent.
+    syno = walks.get("syno") or {}
+    syno_model = _coerce_str(syno.get(_OID_SYNO_MODEL_NAME)).strip()
+    syno_serial = _coerce_str(syno.get(_OID_SYNO_SERIAL_NUMBER)).strip()
+    syno_dsm = _coerce_str(syno.get(_OID_SYNO_DSM_VERSION)).strip()
+    if syno_model and not existing.get("host_model") and "host_model" not in out:
+        out["host_model"] = syno_model
+    if syno_serial and not existing.get("host_serial") and "host_serial" not in out:
+        out["host_serial"] = syno_serial
+    if syno_dsm and not existing.get("host_firmware") and "host_firmware" not in out:
+        out["host_firmware"] = syno_dsm
+    syno_status = _coerce_int(syno.get(_OID_SYNO_SYSTEM_STATUS))
+    if syno_status > 0 and "host_health" not in out:
+        out["host_health"] = _SYNO_STATUS_LABELS.get(syno_status, f"status={syno_status}")
+    syno_temp = _coerce_int(syno.get(_OID_SYNO_SYSTEM_TEMP))
+    if syno_temp > 0:
+        out["host_temp_c"] = float(syno_temp)
+    syno_upgrade = _coerce_int(syno.get(_OID_SYNO_UPGRADE_AVAIL))
+    if syno_upgrade > 0:
+        out["host_upgrade_status"] = _SYNO_UPGRADE_LABELS.get(
+            syno_upgrade, f"status={syno_upgrade}"
+        )
+    # dskTable — per-mount disk. Only emit when hrStorage didn't.
+    ucd_paths = walks.get("ucd_dsk_path") or {}
+    ucd_totals = walks.get("ucd_dsk_total") or {}
+    ucd_useds = walks.get("ucd_dsk_used") or {}
+    ucd_pcts = walks.get("ucd_dsk_pct") or {}
+    if ucd_paths and not existing.get("mounts"):
+        gib = 1024 ** 3
+        mounts = []
+        disk_total_sum = 0
+        disk_used_sum = 0
+        for oid in ucd_paths.keys():
+            idx = oid.rsplit(".", 1)[-1]
+            path = _coerce_str(_pick(ucd_paths, idx)).strip()
+            total_kb = _coerce_int(_pick(ucd_totals, idx))
+            used_kb = _coerce_int(_pick(ucd_useds, idx))
+            pct = _coerce_int(_pick(ucd_pcts, idx))
+            if not path or total_kb <= 0:
+                continue
+            total_b = total_kb * 1024
+            used_b = max(0, min(used_kb * 1024, total_b))
+            disk_total_sum += total_b
+            disk_used_sum += used_b
+            mounts.append({
+                "n":  path,
+                "d":  total_b / gib,
+                "du": used_b / gib,
+                "dp": float(pct) if 0 <= pct <= 100 else (used_b / total_b * 100.0 if total_b else 0.0),
+                "dr": 0,
+                "dw": 0,
+                "fstype": "ucd",
+            })
+        if mounts:
+            mounts.sort(key=lambda m: m.get("dp", 0), reverse=True)
+            out["mounts"] = mounts
+            if not existing.get("host_disk_total"):
+                out["host_disk_total"] = disk_total_sum
+                out["host_disk_used"] = disk_used_sum
+                out["host_disk_free"] = max(0, disk_total_sum - disk_used_sum)
+                out["host_disk_percent"] = (disk_used_sum / disk_total_sum * 100.0) if disk_total_sum else 0.0
     return out
 
 
@@ -745,6 +1118,7 @@ def extract_stats(
     iface_walks: dict,
     active_sources: Optional[set[str]] = None,
     entity_walks: Optional[dict] = None,
+    vendor_walks: Optional[dict] = None,
 ) -> dict:
     """Compose every per-section extractor into one host_* dict.
 
@@ -784,6 +1158,14 @@ def extract_stats(
     # host_serial / host_firmware when the agent answers.
     if entity_walks:
         stats.update(extract_entity_info(entity_walks))
+    # #682 — Vendor-private MIB pass. Dell DELL-RAC-MIB + Cisco
+    # CISCO-MEMORY-POOL-MIB / CISCO-PROCESS-MIB. Only fills fields the
+    # earlier passes left empty (a Beszel/NE-mapped Linux box probed
+    # over SNMP keeps the richer kernel/arch/uptime data; an iDRAC
+    # gets host_serial / host_model / host_firmware / host_health
+    # because every other surface returned nothing).
+    if vendor_walks:
+        stats.update(extract_vendor_info(vendor_walks, existing=stats))
     # When a richer provider is active for this host AND likely to
     # report a more accurate CPU/memory snapshot, drop SNMP's coarser
     # values. SNMP CPU% in particular is often a 5-second average that
@@ -908,6 +1290,50 @@ async def probe_snmp(
         ent_serial_task = _snmp_walk(engine, auth, target, _OID_ENT_SERIAL_NUM)
         ent_model_task = _snmp_walk(engine, auth, target, _OID_ENT_MODEL_NAME)
         ent_fw_task = _snmp_walk(engine, auth, target, _OID_ENT_SOFTWARE_REV)
+        # #682 — Vendor-private MIB GETs/walks. Each agent silently
+        # returns "noSuchObject" when the OID isn't supported, so a
+        # non-Dell / non-Cisco device incurs only the round-trip cost
+        # of a few extra UDP packets — no error path.
+        dell_vendor_task = _snmp_get(engine, auth, target, [
+            _OID_DELL_CHASSIS_SERVICE_TAG,
+            _OID_DELL_CHASSIS_MODEL,
+            _OID_DELL_RAC_FIRMWARE,
+            _OID_DELL_GLOBAL_SYS_STATUS,
+            _OID_DELL_SYSTEM_SERVICE_TAG,
+            _OID_DELL_SYSTEM_MODEL_NAME,
+        ])
+        cisco_hw_task = _snmp_get(engine, auth, target, [
+            _OID_CISCO_PRODUCT_HW_VER,
+        ])
+        cisco_mem_used_task = _snmp_walk(engine, auth, target, _OID_CISCO_MEM_POOL_USED)
+        cisco_mem_free_task = _snmp_walk(engine, auth, target, _OID_CISCO_MEM_POOL_FREE)
+        cisco_mem_name_task = _snmp_walk(engine, auth, target, _OID_CISCO_MEM_POOL_NAME)
+        cisco_cpu_task = _snmp_walk(engine, auth, target, _OID_CISCO_CPU_TOTAL_5SEC)
+        # #683 — APC PowerNet-MIB. One GET covers identity + battery +
+        # output. Non-APC devices return noSuchObject; extractor tolerates.
+        apc_vendor_task = _snmp_get(engine, auth, target, [
+            _OID_APC_UPS_MODEL, _OID_APC_UPS_NAME,
+            _OID_APC_UPS_FIRMWARE, _OID_APC_UPS_SERIAL,
+            _OID_APC_UPS_BATT_STATUS, _OID_APC_UPS_BATT_CAPACITY,
+            _OID_APC_UPS_BATT_TEMP_C, _OID_APC_UPS_BATT_RUNTIME,
+            _OID_APC_UPS_OUTPUT_STATUS, _OID_APC_UPS_OUTPUT_LOAD,
+        ])
+        # #684 — UCD-SNMP-MIB. Memory + CPU% (by mode) GETs; load
+        # average + dskTable walks. Non-net-snmp devices return empty.
+        ucd_mem_cpu_task = _snmp_get(engine, auth, target, [
+            _OID_UCD_MEM_TOTAL_REAL, _OID_UCD_MEM_AVAIL_REAL, _OID_UCD_MEM_TOTAL_FREE,
+            _OID_UCD_SS_CPU_USER, _OID_UCD_SS_CPU_SYSTEM, _OID_UCD_SS_CPU_IDLE,
+        ])
+        ucd_load_task = _snmp_walk(engine, auth, target, _OID_UCD_LA_LOAD_INT)
+        ucd_dsk_path_task = _snmp_walk(engine, auth, target, _OID_UCD_DSK_PATH)
+        ucd_dsk_total_task = _snmp_walk(engine, auth, target, _OID_UCD_DSK_TOTAL)
+        ucd_dsk_used_task = _snmp_walk(engine, auth, target, _OID_UCD_DSK_USED)
+        ucd_dsk_pct_task = _snmp_walk(engine, auth, target, _OID_UCD_DSK_PERCENT)
+        # #685 — SYNOLOGY-MIB. One GET covers identity + system status.
+        syno_vendor_task = _snmp_get(engine, auth, target, [
+            _OID_SYNO_MODEL_NAME, _OID_SYNO_SERIAL_NUMBER, _OID_SYNO_DSM_VERSION,
+            _OID_SYNO_SYSTEM_STATUS, _OID_SYNO_SYSTEM_TEMP, _OID_SYNO_UPGRADE_AVAIL,
+        ])
 
         # #658 — wrap the gather in wait_for so the TimeoutError catch
         # becomes reachable (asyncio.gather alone can't raise TimeoutError
@@ -924,6 +1350,12 @@ async def probe_snmp(
             if_in_task, if_out_task,
             ent_descr_task, ent_name_task, ent_serial_task,
             ent_model_task, ent_fw_task,
+            dell_vendor_task, cisco_hw_task,
+            cisco_mem_used_task, cisco_mem_free_task, cisco_mem_name_task,
+            cisco_cpu_task,
+            apc_vendor_task, ucd_mem_cpu_task, ucd_load_task,
+            ucd_dsk_path_task, ucd_dsk_total_task, ucd_dsk_used_task,
+            ucd_dsk_pct_task, syno_vendor_task,
             return_exceptions=False,
         ), timeout=wall_clock_budget)
     except asyncio.TimeoutError:
@@ -938,13 +1370,27 @@ async def probe_snmp(
      st_type, st_desc, st_unit, st_size, st_used,
      if_descr, if_oper,
      if_hc_in, if_hc_out, if_in, if_out,
-     ent_descr, ent_name, ent_serial, ent_model, ent_fw) = results
+     ent_descr, ent_name, ent_serial, ent_model, ent_fw,
+     dell_vendor_get, cisco_hw_get,
+     cisco_mem_used_walk, cisco_mem_free_walk, cisco_mem_name_walk,
+     cisco_cpu_walk,
+     apc_vendor_get, ucd_mem_cpu_get, ucd_load_walk,
+     ucd_dsk_path_walk, ucd_dsk_total_walk, ucd_dsk_used_walk,
+     ucd_dsk_pct_walk, syno_vendor_get) = results
 
     # #681 — entity walks count toward the "any data" gate so a switch
     # that answers ONLY entPhysicalSerialNum (no sysDescr / no ifTable)
     # still passes the cool-down clear. ENTITY-MIB-only is a real
     # config — some agents are locked down to Entity-MIB only.
-    if not (sys_get or cpu_walk or st_size or if_descr or ent_serial or ent_model):
+    # #682 — vendor-private OIDs also count: an iDRAC's whole identity
+    # surface lives under DELL-RAC-MIB, so a successful chassis-tag
+    # GET is enough signal that the host is alive even when every
+    # standard MIB-II / Host-Resources / ENTITY-MIB walk came back empty.
+    if not (sys_get or cpu_walk or st_size or if_descr or ent_serial or ent_model
+            or dell_vendor_get or cisco_hw_get or cisco_mem_used_walk
+            or cisco_cpu_walk
+            or apc_vendor_get or ucd_mem_cpu_get or ucd_load_walk
+            or ucd_dsk_total_walk or syno_vendor_get):
         # Every walk came back empty — typically a wrong community or
         # the host doesn't speak SNMP on the expected port.
         _arm_cooldown(host_clean, port_int)
@@ -969,6 +1415,22 @@ async def probe_snmp(
             "descr": ent_descr, "name": ent_name,
             "serial": ent_serial, "model": ent_model,
             "firmware": ent_fw,
+        },
+        vendor_walks={
+            "dell": dell_vendor_get,
+            "cisco_hw": cisco_hw_get,
+            "cisco_mem_used": cisco_mem_used_walk,
+            "cisco_mem_free": cisco_mem_free_walk,
+            "cisco_mem_name": cisco_mem_name_walk,
+            "cisco_cpu": cisco_cpu_walk,
+            "apc": apc_vendor_get,
+            "ucd_mem_cpu": ucd_mem_cpu_get,
+            "ucd_load": ucd_load_walk,
+            "ucd_dsk_path":  ucd_dsk_path_walk,
+            "ucd_dsk_total": ucd_dsk_total_walk,
+            "ucd_dsk_used":  ucd_dsk_used_walk,
+            "ucd_dsk_pct":   ucd_dsk_pct_walk,
+            "syno": syno_vendor_get,
         },
     )
 
@@ -1029,6 +1491,25 @@ async def probe_snmp(
             "iface_rows": iface_rows,
             "entity_count": len(ent_descr or {}),
             "entity_rows": entity_rows,
+            # #682 — vendor-private MIB visibility. Dell GETs render as
+            # one block of OID → string-pretty-printed values; Cisco
+            # walks render per-pool / per-engine. Operators can confirm
+            # at a glance whether the iDRAC's chassis service tag came
+            # back, whether the SG300 returned its memory pool, etc.
+            "vendor_dell": _stringify(dell_vendor_get),
+            "vendor_cisco_hw": _stringify(cisco_hw_get),
+            "vendor_cisco_mem_used": _stringify(cisco_mem_used_walk),
+            "vendor_cisco_mem_free": _stringify(cisco_mem_free_walk),
+            "vendor_cisco_mem_name": _stringify(cisco_mem_name_walk),
+            "vendor_cisco_cpu": _stringify(cisco_cpu_walk),
+            "vendor_apc": _stringify(apc_vendor_get),
+            "vendor_ucd_mem_cpu": _stringify(ucd_mem_cpu_get),
+            "vendor_ucd_load": _stringify(ucd_load_walk),
+            "vendor_ucd_dsk_path": _stringify(ucd_dsk_path_walk),
+            "vendor_ucd_dsk_total": _stringify(ucd_dsk_total_walk),
+            "vendor_ucd_dsk_used": _stringify(ucd_dsk_used_walk),
+            "vendor_ucd_dsk_pct": _stringify(ucd_dsk_pct_walk),
+            "vendor_synology": _stringify(syno_vendor_get),
             "walk_summary": {
                 "sys_keys": len(sys_get or {}),
                 "cpu_rows": len(cpu_walk or {}),
@@ -1041,6 +1522,15 @@ async def probe_snmp(
                 "entity_rows": len(ent_descr or {}),
                 "entity_serial_rows": len(ent_serial or {}),
                 "entity_model_rows": len(ent_model or {}),
+                "vendor_dell_keys": len(dell_vendor_get or {}),
+                "vendor_cisco_hw_keys": len(cisco_hw_get or {}),
+                "vendor_cisco_mem_pools": len(cisco_mem_used_walk or {}),
+                "vendor_cisco_cpu_engines": len(cisco_cpu_walk or {}),
+                "vendor_apc_keys": len(apc_vendor_get or {}),
+                "vendor_ucd_keys": len(ucd_mem_cpu_get or {}),
+                "vendor_ucd_load_rows": len(ucd_load_walk or {}),
+                "vendor_ucd_dsk_rows": len(ucd_dsk_path_walk or {}),
+                "vendor_synology_keys": len(syno_vendor_get or {}),
             },
         }
     return out
