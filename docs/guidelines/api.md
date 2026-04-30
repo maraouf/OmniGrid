@@ -15,7 +15,7 @@ Every `/api/*` route requires authentication. Three exceptions, all unauthentica
 | Path | Purpose |
 | --- | --- |
 | `/api/healthz` | Liveness probe — always `200 {"status":"ok"}` if the process is alive. |
-| `/api/version` | Returns `{version, git_sha}` for the running deploy. |
+| `/api/version` | Returns `{version}` (the live `MAJOR.MINOR.PATCH`) for the running deploy. |
 | `/metrics` | Prometheus exposition. (Treat as sensitive — operator stats; gate at the proxy if needed.) |
 
 For everything else, two auth modes:
@@ -192,9 +192,9 @@ type:
 | `op:completed` | Op terminates (success / error). | `{id, op_type, status, target_name, error, duration}` |
 | `cache:invalidated` | Items cache has been marked stale (post-op refresh, settings save). | `{reason}` |
 | `stats:refreshed` | `gather_stats()` finished a cycle. | `{items, with_stats, with_size, ts}` — hint only; consumers refetch via `/api/stats`. |
-| `host:row_updated` | One curated host's merged row was recomputed. | `{id, host: <full row dict>}` |
 | `host:failure_state_changed` | Host sampler paused / cleared a host. | `{host_id, paused, consecutive_failures?, last_error?, cleared?}` |
 | `host:history_appended` | A new row was inserted into `host_metrics_samples` for a curated host. | `{host_id, ts}` — hint only; consumers refetch the full window via `/api/hosts/history`. |
+| `host:ping_sampled` | New ping sample landed in `ping_samples` for a curated host (#343). | `{host_id, alive, rtt_ms, loss_pct, ts}` — hint only; consumers refetch via `/api/hosts/{id}/ping/history`. |
 | `schedule:fired` | A schedule started or finished (two events per fire). | `{schedule_id, name, kind, op_id, phase: "start"\|"end", duration?, status?}` |
 | `history:appended` | A new row was written to the `history` table. | `{id, ts, op_type, target_name, target_id, target_stack, status, duration, error, actor}` |
 | `session:renewed` | A cookie session was slid forward (sliding-window refresh near expiry). | `{user_id, expires_at, ts}` |
@@ -311,12 +311,15 @@ curl -sS -H "Authorization: Bearer $TOKEN" \
   "https://omnigrid.example.com/api/hosts/one/host01" \
   | jq '.host | {host_cpu_percent, host_mem_used, host_mem_total, host_disk_used, mounts, network_ifaces}'
 
-# Force-bypass the 10s provider-state cache (mirrors the same flag on /api/hosts/list):
+# Force-bypass the 10s provider-state cache (mirrors the same flag on /api/hosts/list and the
+# legacy /api/hosts endpoint):
 curl -sS -H "Authorization: Bearer $TOKEN" \
   "https://omnigrid.example.com/api/hosts/one/host01?force=true"
 ```
 
-Concurrent fan-out from a SPA / dashboard tile is single-flight on the server: the first cold-cache caller pays the Beszel + Pulse hub probe, every parallel caller within the same window awaits and reuses the populated cache (#506). The SPA caps its own fan-out via `client_config.hosts_parallel_fetch` (`/api/me`) — see "Client config" below.
+Concurrent fan-out from a SPA / dashboard tile is single-flight on the server: the first cold-cache caller pays the Beszel + Pulse hub probe, every parallel caller within the same window awaits and reuses the populated cache (#506). The SPA caps its own fan-out via `client_config.hosts_parallel_fetch` (`/api/me`) — see "Client config" below. Lazy fetch (#603): the SPA only calls `/api/hosts/one/{id}` for rows that enter the viewport (IntersectionObserver with a 200 px above/below `rootMargin`) instead of fanning out at page load — bearer-token scrapers polling on a fixed cadence don't get this optimisation and should still consider `?force=true` carefully.
+
+The legacy `/api/hosts` endpoint composes `/list` + `/one` per-row and shares the same single-flight + Webmin success/fail caches (#524). It's the lowest-friction shape for one-call dashboard scrapers (Homarr widget, Grafana JSON-API panel) that want one round-trip for the whole fleet — but at the cost of waiting for every per-host probe before returning. Prefer the split endpoints for SPA-style UIs.
 
 For time-series charts (1 / 6 / 24 / 168 hour windows):
 
@@ -429,10 +432,10 @@ for the full operator workflow.
 
 Each integration has a `/test` endpoint that fires one synchronous probe with
 the given (or saved) credentials. Useful for CI-style health-checking your
-OmniGrid deploy:
+OmniGrid deploy. Six provider tests today:
 
 ```bash
-for E in portainer beszel pulse webmin oidc; do
+for E in portainer beszel pulse webmin ping snmp oidc; do
   R=$(curl -sS -H "Authorization: Bearer $TOKEN" -X POST \
     -H 'Content-Type: application/json' \
     -d '{}' \
@@ -443,7 +446,9 @@ done
 ```
 
 Sending an empty `{}` body falls back to the persisted settings — handy for
-nightly health checks. Send `{url, api_key, ...}` to test unsaved values.
+nightly health checks. Send `{url, api_key, ...}` to test unsaved values. The
+asset-inventory token has its own probe at `POST /api/asset-inventory/test`
+following the same shape.
 
 ## Error handling
 

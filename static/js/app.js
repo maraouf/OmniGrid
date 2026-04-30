@@ -594,11 +594,14 @@ function app() {
     // mirrors the shape of the others (pending / ok / detail).
     pingTestHostId: '',
     pingTestResult: null,
-    // #344 — SNMP test widget state. The Test button posts to
-    // `/api/snmp/test` with the operator-typed `snmpTestHost` (a
-    // bare hostname or IP — no per-host alias resolution at the test
-    // layer). Mirrors the shape of the other providers' test results.
-    snmpTestHost: '',
+    // #344 / #649 — SNMP test widget state. UX unified with the Ping
+    // test (#343) — the picker shows curated hosts that have an
+    // `snmp_name` mapped, mirroring `pingTestHostId` instead of a
+    // free-text host input. `testSnmpConnection` resolves the row's
+    // SNMP target + overrides client-side and submits them to the
+    // existing `/api/snmp/test` endpoint, so no backend change was
+    // needed for the unification.
+    snmpTestHostId: '',
     snmpTestResult: null,
     // The URL typed into the "Test one Webmin URL" scratch field.
     // Persisted to localStorage so operators don't have to retype it
@@ -5203,23 +5206,57 @@ function app() {
         this.pingTestResult = { pending: false, ok: false, detail: this.t('toasts.network_error') };
       }
     },
-    // #344 — SNMP test widget. Hits `/api/snmp/test` with the operator-
-    // typed host (bare IP or hostname). Falls back to persisted defaults
-    // server-side via _resolve_field, so the operator doesn't need to
-    // retype the community / version / port / v3 keys to validate one
-    // box. Result rendering mirrors testWebminConnection.
+    // #344 / #649 — list of curated hosts that have SNMP mapped (a
+    // non-empty `snmp_name` row field). Pulled from the in-memory
+    // `hostsConfig` (loaded by the Hosts admin tab) so the picker
+    // stays in sync with the row-level config without an extra
+    // round-trip. Mirrors `pingEnabledHosts()` exactly so the two
+    // providers' test UX is unified.
+    snmpEnabledHosts() {
+      const rows = Array.isArray(this.hostsConfig) ? this.hostsConfig : [];
+      return rows
+        .filter(h => h && h.enabled !== false && h.id
+                     && (h.snmp_name || '').trim()
+                     // #651 — per-host enable gate; default-true when
+                     // the field is missing matches the backend's
+                     // _clean_host_snmp + _merge_one_host semantics.
+                     && !(h.snmp && h.snmp.enabled === false))
+        .map(h => ({ id: h.id, label: this.hostDisplayName(h) || h.id }));
+    },
+    // #344 / #649 — SNMP test widget. UX-unified with the Ping test
+    // (#343): operator picks a curated SNMP-mapped host from the
+    // dropdown, the helper looks up the row's `snmp_name` (target IP /
+    // hostname) + per-row overrides (community / version / port /
+    // v3 USM), and posts them to `/api/snmp/test`. Falls back to
+    // persisted defaults server-side via `_resolve_field` for any
+    // field the row doesn't override, so the operator doesn't need
+    // to retype the community / v3 keys to validate one box.
     async testSnmpConnection() {
-      const host = (this.snmpTestHost || '').trim();
-      if (!host) {
-        this.showToast(this.t('settings.host_stats.snmp.test_host_required'), 'error');
+      const hid = (this.snmpTestHostId || '').trim();
+      if (!hid) {
+        this.showToast(this.t('settings.host_stats.snmp.test_no_hosts'), 'error');
         return;
       }
+      const row = (Array.isArray(this.hostsConfig) ? this.hostsConfig : [])
+        .find(h => h && h.id === hid);
+      const target = ((row && row.snmp_name) || hid).trim();
+      // Per-row overrides — only forwarded when the operator actually
+      // set them on this row; blanks fall through to the global
+      // defaults server-side.
+      const ovr = (row && row.snmp) || {};
+      const body = { host: target };
+      if (ovr.community) body.community = ovr.community;
+      if (ovr.version)   body.version   = ovr.version;
+      if (ovr.port)      body.port      = ovr.port;
+      if (ovr.v3_user)   body.v3_user   = ovr.v3_user;
+      if (ovr.v3_auth_key) body.v3_auth_key = ovr.v3_auth_key;
+      if (ovr.v3_priv_key) body.v3_priv_key = ovr.v3_priv_key;
       this.snmpTestResult = { pending: true };
       try {
         const r = await fetch('/api/snmp/test', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ host }),
+          body: JSON.stringify(body),
         });
         const j = await r.json().catch(() => ({}));
         if (!r.ok) {
@@ -8750,17 +8787,28 @@ function app() {
       }
     },
     // True when at least one provider (Beszel / Pulse / node-exporter
-    // / Webmin) is mapped on this row. The "Test providers" button
-    // disables when none are set — there's nothing to probe and the
-    // backend would return all-skipped anyway.
+    // / Webmin / Ping / SNMP) is mapped on this row. The "Test providers"
+    // button disables when none are set — there's nothing to probe and
+    // the backend would return all-skipped anyway. SNMP + Ping added
+    // (#650): pre-fix an SNMP-only or Ping-only row showed the button
+    // greyed out even with the row's snmp_name set or ping.enabled=true,
+    // so the operator had no way to test those providers from the
+    // Admin → Hosts editor.
     rowHasProviderMapping(row) {
       if (!row) return false;
+      // #651 — SNMP gating mirrors the row's `snmp.enabled` flag with
+      // default-true when missing (legacy rows), so an explicitly-
+      // disabled row's button greys out even if snmp_name is still set.
+      const snmpActive = !!(row.snmp_name || '').trim()
+        && !(row.snmp && row.snmp.enabled === false);
       return !!(
         (row.beszel_name || '').trim() ||
         (row.pulse_name  || '').trim() ||
         (row.ne_url      || '').trim() ||
         (row.webmin_name || '').trim() ||
-        (row.webmin_url  || '').trim()
+        (row.webmin_url  || '').trim() ||
+        snmpActive ||
+        (row.ping && row.ping.enabled)
       );
     },
     async testHostRow(idx) {
@@ -8779,6 +8827,12 @@ function app() {
             pulse_name:  (row.pulse_name  || '').trim(),
             ne_url:      (row.ne_url      || '').trim(),
             webmin_url:  (row.webmin_url  || '').trim(),
+            // #650 — SNMP + Ping forwarded to /api/hosts/test so the
+            // per-row test reflects the SAME providers the live probe
+            // chain runs. Without this, SNMP-only rows reported "all
+            // skipped" + ping-only rows skipped their reachability check.
+            snmp_name:   (row.snmp_name   || '').trim(),
+            ping_enabled: !!(row.ping && row.ping.enabled),
             host_id:     (row.id          || '').trim(),
           }),
         });

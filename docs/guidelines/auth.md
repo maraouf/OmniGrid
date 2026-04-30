@@ -119,7 +119,7 @@ API-level enforcement (`require_admin` deps) is still the source of truth. UI ga
 
 ## OIDC + Portainer settings — DB-backed (UI-managed, no env)
 
-Every value in the Settings → Authentik OIDC and Settings → Portainer panels lives in the
+Every value in the Admin → Authentik OIDC and Admin → Portainer panels lives in the
 `settings` table. There are NO env vars for OIDC (no `OIDC_*` keys anywhere). Portainer
 connection env vars (`PORTAINER_URL` etc.) are consulted ONCE on first boot as a transitional
 aid for existing deploys, then ignored — the DB is authoritative after seeding.
@@ -172,9 +172,10 @@ aid for existing deploys, then ignored — the DB is authoritative after seeding
     security event). Master toggle gates dependent inputs.
   - **Portainer** — connection settings + public URL. Master toggle.
   - **Authentik OIDC** — SSO provider config. Master toggle. See `docs/guidelines/authentik.md`.
-  - **Host stats**, **Hosts**, **Host Groups**, **SSH**, **Asset inventory**, **Schedules**,
-    **Backups**, **Logs**, **Debug**, **Config** (process-level tunables — see `docs/guidelines/env_example.md`),
-    **Version** (direct VERSION.txt editor — see `docs/RELEASE_PROCESS.md`).
+  - **Providers** (Beszel / Pulse / node-exporter / Webmin / Ping / SNMP — renamed from
+    "Host stats" in #583), **Hosts**, **Host Groups**, **SSH**, **Asset inventory**,
+    **Schedules**, **Backups**, **Logs**, **Debug**, **Config** (process-level tunables —
+    see `docs/guidelines/env_example.md`).
 - **Profile modal** opened by clicking the username pill in the top-right is now retired —
   identity / password / TOTP have all moved into the Settings → Profile and Settings → Security
   sub-sections. The username pill in the topbar opens a small dropdown (avatar, role chip,
@@ -389,7 +390,7 @@ curl -sS -H 'Authorization: Bearer og_xxxx...' https://omnigrid.<host>/api/items
 # OIDC blank/disabled.
 curl -sS -b /tmp/c https://omnigrid.<host>/api/settings | jq '.oidc,.portainer'
 
-# Configure OIDC (UI: Settings → Authentik OIDC). The client secret
+# Configure OIDC (UI: Admin → Authentik OIDC). The client secret
 # follows the "blank = keep current" contract so the form is safe to
 # save repeatedly.
 CSRF=$(grep og_csrf /tmp/c | awk '{print $NF}')
@@ -416,7 +417,7 @@ curl -sS -b /tmp/c -H "X-CSRF-Token: $CSRF" -X POST \
   -d '{"issuer_url":"https://authentik.example.com/application/o/omnigrid/"}'
 # → {"ok":true,"status":200,"detail":"OK — issuer: https://..."}
 
-# Configure Portainer from the UI (Settings → Portainer connection).
+# Configure Portainer from the UI (Admin → Portainer connection).
 # Same "blank api_key = keep current" contract.
 curl -sS -b /tmp/c -H "X-CSRF-Token: $CSRF" -X POST \
   https://omnigrid.<host>/api/settings \
@@ -521,10 +522,12 @@ Mitigations (pick one):
 
 This repo is private (self-hosted Forgejo), so `.env` is committed at the repo root alongside
 `main.py` / `logic/auth.py` and ships via the normal CI rsync pipeline to
-`/opt/omnigrid/app/.env`. The existing bind mount (`/opt/omnigrid/app:/app:ro`) makes it
-visible inside the container at `/app/.env`, and `main.py`'s first lines load it via
-`python-dotenv` before any `os.getenv()` runs. Compose doesn't use `env_file:` — the app reads
-its own config file, same pattern as adguardhome-sync / many other stacks.
+`/opt/omnigrid/app/.env` on the manager. After the image-build deploy migration (#609) the
+`.env` is no longer baked into the image — it rides a per-file bind mount declared in
+`docker-compose.yml` (`/opt/omnigrid/app/.env:/app/.env:ro`), so secrets stay operator-controlled
+on the host while the application code lives inside the image. `main.py`'s first lines load
+`/app/.env` via `python-dotenv` before any `os.getenv()` runs. Compose doesn't use `env_file:`
+— the app reads its own config file, same pattern as adguardhome-sync / many other stacks.
 
 We avoid Compose's `env_file:` because Portainer's web-editor stacks can't resolve relative
 paths against the host filesystem (they'd look inside Portainer's own container at
@@ -545,7 +548,7 @@ Why not the "gitignored, hand-managed on the server" pattern?
 What lives in `.env` (reference with inline docs: `docs/guidelines/env_example.md`):
 
 - `PORTAINER_URL`, `PORTAINER_API_KEY`, `PORTAINER_ENDPOINT_ID`, `VERIFY_TLS` — OPTIONAL
-  bootstrap only. Seeded into the DB on first boot; after that Settings → Portainer wins and
+  bootstrap only. Seeded into the DB on first boot; after that Admin → Portainer wins and
   env is ignored. Fresh deploys can leave these blank.
 - `CACHE_TTL_SECONDS`, `STATS_CACHE_TTL_SECONDS`, `REGISTRY_CONCURRENCY`, `STATS_CONCURRENCY`,
   `STATS_HISTORY_DAYS`, `STATS_SAMPLE_INTERVAL_SECONDS`.
@@ -557,11 +560,13 @@ What lives in `.env` (reference with inline docs: `docs/guidelines/env_example.m
 - `ENV_FILE_PATH` — override if `.env` isn't at `/app/.env`.
 
 NOT in `.env` (UI-only): every OIDC setting, every host-stats provider credential
-(Beszel / Pulse / node-exporter / Webmin), the weather proxy URL (`open_meteo_url`), all SSH
-runner settings (including `ssh_fqdn_suffix`, `ssh_custom_actions`, and the write-only key /
-password fields with their `clear_*` unset flags), and the scheduler timezone. There are no
-`OIDC_*`, `BESZEL_*`, `PULSE_*`, `WEBMIN_*`, or `SSH_*` env vars. Configure from Settings after
-first admin login.
+(Beszel / Pulse / node-exporter / Webmin / Ping / SNMP — the six providers shipped today), the
+weather proxy URL (`open_meteo_url`), all SSH runner settings (including `ssh_fqdn_suffix`,
+`ssh_custom_actions`, and the write-only key / password fields with their `clear_*` unset
+flags), and the scheduler timezone. There are no `OIDC_*`, `BESZEL_*`, `PULSE_*`, `WEBMIN_*`,
+`PING_*` (provider credentials — distinct from `PING_INTERVAL_SECONDS` etc. tunables), `SNMP_*`,
+or `SSH_*` env vars. Configure from Admin → Authentik OIDC / Admin → Portainer / Admin → Host
+stats / Admin → SSH after first admin login.
 
 ## `SESSION_SECRET` rotation
 
@@ -577,30 +582,38 @@ Paste the output into `.env`, commit, push. Users re-authenticate.
 ## Initial server setup (do once)
 
 The deploy target is a Debian 13 VM (amd64, 16 GB / 100 GB) reachable at `pi@docker.example.com`.
-The operator creates `/opt/omnigrid/docker-compose.yml` and the `/opt/omnigrid/{app,data,pip-cache}`
-directories once; every subsequent change ships via CI.
+Image-build deploy (#609) — `/opt/omnigrid/app/` is the rsynced build context, NOT a runtime
+bind mount. The operator creates the directory tree once; every subsequent change ships via CI
+which rsyncs the build context, runs `docker build` on the manager, and rolls the new tag in.
 
 ```bash
 ssh pi@docker.example.com
-sudo mkdir -p /opt/omnigrid/{app,data,pip-cache}
+sudo mkdir -p /opt/omnigrid/{app,data}
 sudo chown -R pi:pi /opt/omnigrid
-# Copy docker-compose.yml from the repo (not synced by CI — operator-owned).
-# Deploy the stack once:
-cd /opt/omnigrid
-docker stack deploy -c docker-compose.yml omnigrid
-# Subsequent pushes to main: CI rsyncs into /opt/omnigrid/app/ and runs
-# `docker service update --force omnigrid_omnigrid`.
+# Pre-create the .env BEFORE the first deploy — the image deliberately does NOT bake it
+# (it's in .dockerignore); secrets ride a per-file bind mount in docker-compose.yml.
+scp .env pi@docker.example.com:/opt/omnigrid/app/.env
+ssh pi@docker.example.com 'chmod 600 /opt/omnigrid/app/.env'
+# Trigger the first CI deploy by pushing to main, OR build locally on the manager:
+cd /opt/omnigrid/app
+docker build --build-arg VERSION=1.0.0 -t omnigrid:1.0.0 -t omnigrid:latest .
+docker stack deploy --resolve-image=always --compose-file docker-compose.yml omnigrid
 ```
 
+Subsequent pushes to main rebuild the image, push it to the configured registry, and force
+the running service onto the new tag. See `docs/guidelines/deploy.md` for the full pipeline
+runbook.
+
 The SQLite database lives at `/opt/omnigrid/data/omnigrid.db` on the host (mounted into the
-container at `/app/data/omnigrid.db`).
+container at `/app/data/omnigrid.db` via the `/opt/omnigrid/data:/app/data` bind in
+`docker-compose.yml`).
 
 ## Env var reference
 
 | Var                           | Purpose                                                                                                                                                  |
 | ----------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `SESSION_SECRET`              | (required for prod; auto-generated if unset). HMAC key for session cookies. Rotate to kick every logged-in user. Keep stable otherwise.                  |
-| `PORTAINER_URL`               | (optional bootstrap — UI is authoritative). Seeded into the DB on first boot; after that Settings → Portainer wins. Fresh deploys can leave this blank. |
+| `PORTAINER_URL`               | (optional bootstrap — UI is authoritative). Seeded into the DB on first boot; after that Admin → Portainer wins. Fresh deploys can leave this blank. |
 | `PORTAINER_API_KEY`           | Same bootstrap rules as above.                                                                                                                           |
 | `PORTAINER_ENDPOINT_ID`       | Same bootstrap rules as above.                                                                                                                           |
 | `VERIFY_TLS`                  | Same bootstrap rules as above.                                                                                                                           |
@@ -664,7 +677,7 @@ that user.
 - [ ] When enabling OIDC:
     - [ ] Authentik OIDC provider + application configured and bound to the `omnigrid-admins`
           group (see `docs/guidelines/authentik.md`).
-    - [ ] Settings → Authentik OIDC filled in (issuer URL, client ID, client secret, redirect
+    - [ ] Admin → Authentik OIDC filled in (issuer URL, client ID, client secret, redirect
           URI pasted into Authentik's allowlist).
     - [ ] "Test connection" returns ✓.
     - [ ] Enable toggle on, Save.

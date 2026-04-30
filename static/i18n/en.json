@@ -430,7 +430,9 @@
         "test_button": "Test connection",
         "testing": "Testing…",
         "test_host_placeholder": "192.X.X.10 or switch01.example.com",
-        "test_host_required": "Enter a host or IP to test against."
+        "test_host_required": "Enter a host or IP to test against.",
+        "test_target_label": "Pick an SNMP-mapped host",
+        "test_no_hosts": "Add an SNMP target alias on at least one curated host to enable the test."
       }
     },
     "language": {
@@ -1728,6 +1730,7 @@
       "webmin_blank_skip": "(blank = skip — hosts without Webmin keep working)",
       "webmin_name_placeholder": "host reported by Webmin",
       "ping_enabled_label": "Enable ping for this host",
+      "snmp_enabled_label": "Enable SNMP for this host",
       "ping_enabled_hint": "Reachability + RTT only. The sampler probes every {interval}s; latency lands in the host drawer's Ping chart.",
       "ping_port_label": "Ping port (optional)",
       "ping_port_placeholder": "(global default)",

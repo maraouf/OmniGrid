@@ -434,7 +434,8 @@ ssh pi@docker.example.com '
 ```
 
 Typical result on a Swarm manager: `rsync` MISSING, `docker` + `ssh` + `sudo` present,
-`/opt/omnigrid/app` exists (because docker-compose bind-mounts it), ownership is `root:root`.
+`/opt/omnigrid/app` exists (because the operator created it pre-deploy and CI rsyncs the
+build context here), ownership is `root:root`.
 
 ### 2.2 Install rsync (and anything else flagged missing)
 

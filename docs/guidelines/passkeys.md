@@ -57,6 +57,32 @@ single-use, can be downloaded as a .txt, and remain visible (encrypted at rest) 
 Profile → Security. If you've never enrolled in TOTP and lose every passkey, ask an admin
 to clear your 2FA via the Users tab.
 
+## RP-ID mismatch detection (#605)
+
+If you migrate OmniGrid between hostnames (e.g. `omnigrid.old.example.com` → `omnigrid.new.example.com`)
+or move from a `localhost:8088` dev URL to a production NPM-fronted domain, the browser refuses
+to offer your previously-enrolled passkeys at the new origin — they were registered against the
+old RP ID and the new domain is a separate WebAuthn relying party. Pre-#605 this manifested as
+"the Passkey button defaults to QR with no explanation" and the operator had no in-UI signal of
+why their fingerprint / Touch ID prompts weren't appearing.
+
+Today:
+
+- The `user_credentials` schema has an `rp_id` column stamped at registration time with the
+  effective hostname the credential was created under.
+- `POST /api/local-auth/webauthn-start` partitions stored credentials into matching + orphaned
+  sets per the request's current RP ID. When EVERY credential for the user is orphaned, the
+  response carries `rp_id_mismatch: true` and the SPA renders an explanation:
+  *"Your passkeys were registered under a different domain. Re-enrol them from Profile →
+  Security on the new domain ({current})."*
+- **Profile → Security** shows a per-credential red "registered for `<old-rp-id>`" badge so the
+  operator can revoke + re-enrol orphaned credentials WITHOUT needing to authenticate first.
+- Server logs include a greppable `[webauthn] <user> login-start RP-ID mismatch (#605) current=<x>
+  orphaned=[...] matching=N` line per affected login attempt.
+
+Empty `rp_id` (legacy credentials enrolled before #605 landed) is treated as unknown / assume
+matching — existing enrolments don't fire spurious banners.
+
 ## Troubleshooting
 
 - **"This browser doesn't support passkeys"** — upgrade your browser or use a different one.
@@ -64,12 +90,22 @@ to clear your 2FA via the Users tab.
 - **"Passkey support is not available on this server"** — the `webauthn` Python package
   isn't installed. The operator runs `pip install -r requirements.txt` and restarts the
   service.
-- **"Could not verify passkey"** — most often an origin / RP ID mismatch. The browser sees
-  the public hostname (via NPM) while the server might see something else. Check that NPM
-  passes the original `Host` header (`proxy_set_header Host $host;`).
+- **"Your passkeys were registered under a different domain"** — see the RP-ID mismatch
+  section above. Revoke the orphaned credentials from Profile → Security and re-enrol on
+  the current domain.
+- **"Could not verify passkey"** — origin / RP ID mismatch on a SINGLE credential rather than
+  the whole user. The browser sees the public hostname (via NPM) while the server might see
+  something else. Check that NPM passes the original `Host` header (`proxy_set_header Host $host;`)
+  and the original `X-Forwarded-Host` is preserved.
 - **Counter regression / clone-detection rejection** — extremely rare. The authenticator
   reported a sign count lower than what we previously stored. Revoke the credential from
   Profile → Security, re-enrol from scratch.
+- **macOS Safari/Chrome defaults to QR despite local Touch ID being available** — fixed across
+  #600 / #601 / #602 / #604: the assertion-options now carry `hints=["client-device", "hybrid",
+  "security-key"]`, force `userVerification: required` so QR isn't offered without UV, list
+  `internal` first in transports, and union `{internal, hybrid}` into stored transports so empty
+  / hybrid-only credentials still get the local-device picker. If you see this on a current
+  build, grep server logs for `[webauthn] <user> login-start (rp_id=...)` to verify the payload.
 
 ## Where the code lives
 
@@ -80,7 +116,8 @@ to clear your 2FA via the Users tab.
   passkey count column), `static/js/app.js` (`addPasskey` / `revokePasskey` / `loadPasskeys`
   Alpine state), `static/js/login.js` ("Use a passkey" button on the second-factor screen).
 - **Schema** — `user_credentials(user_id, credential_id BLOB UNIQUE, public_key BLOB,
-  sign_count, transports, friendly_name, created_at, last_used_at)`. ALTER-only addition
-  in `logic/auth.py:init_auth_schema`.
+  sign_count, transports, friendly_name, created_at, last_used_at, rp_id)`. The `rp_id`
+  column was added in #605 for RP-ID mismatch detection — empty on legacy rows, stamped
+  per-registration thereafter. All additions are ALTER-only in `logic/auth.py:init_auth_schema`.
 - **Lifecycle** — passkeys are wiped automatically by `delete_user`,
   `admin_reset_password`, and the user-delete cascade.
