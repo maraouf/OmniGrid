@@ -1586,6 +1586,9 @@ class SettingsIn(BaseModel):
     # #659 — SNMP per-host cache TTLs, distinct from the Webmin pair.
     tuning_snmp_host_cache_ttl_seconds: Optional[str] = None
     tuning_snmp_host_fail_cache_ttl_seconds: Optional[str] = None
+    # #678 — dedicated SNMP unreachable cool-down (was sharing the
+    # auth-failure cool-down with Webmin / SSH).
+    tuning_snmp_unreachable_cooldown_seconds: Optional[str] = None
     # -----------------------------------------------------------------
     # Per-event notification toggles. Each maps to one of the
     # 12 (event group × success/failure) notify() call sites in
@@ -4820,6 +4823,11 @@ def _clean_host_snmp(raw: Any) -> dict:
     # default-true fallback), so a fresh row with snmp_name set but no
     # explicit opt-in does NOT probe — the operator must check the
     # per-host SNMP enable box. Mirrors `_clean_host_ping`'s pattern.
+    # #673 — omission == disabled is INTENTIONAL. The read-side gate
+    # (`enabled is True`) interprets a missing `enabled` key as OFF
+    # rather than ON, so the SPA's strip-blanks pattern that drops
+    # `enabled: false` to keep JSON tight stays correct. DON'T re-add
+    # a default-true fallback here.
     if bool(raw.get("enabled")):
         out["enabled"] = True
     community = (str(raw.get("community") or "")).strip()
@@ -5775,12 +5783,17 @@ async def api_hosts_debug(
             v3_priv = ((row_snmp.get("v3_priv_key") or "").strip()
                        or get_setting("snmp_v3_priv_key", "") or "")
             try:
+                # #675 — verbose=True surfaces the parsed walks
+                # (system / cpu / storage / interfaces) so the
+                # debug panel can show what SNMP data is actually
+                # available, not just the connection params.
                 r = await _snmp.probe_snmp(
                     snmp_target,
                     community=community, version=version, port=port,
                     v3_user=v3_user, v3_auth_key=v3_auth,
                     v3_priv_key=v3_priv,
                     timeout=10.0, active_sources=active,
+                    verbose=True,
                 )
                 providers_raw["snmp"] = {
                     "target":     snmp_target,
@@ -5792,6 +5805,12 @@ async def api_hosts_debug(
                     "v3_priv_set": bool(v3_priv),
                     "hosts_keys": sorted((r.get("hosts") or {}).keys()),
                     "error":      r.get("error"),
+                    # #675 — full probed data: every parsed OID, per-row
+                    # storage table (RAM + disks), per-row interface
+                    # counters, and a quick walk-summary header so
+                    # operators can see at a glance which OID families
+                    # the agent answered.
+                    "raw":        r.get("raw") or {},
                 }
                 if r.get("hosts"):
                     providers_normalized["snmp"] = next(iter(r["hosts"].values()))

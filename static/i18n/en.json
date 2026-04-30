@@ -812,6 +812,10 @@
         "tuning_snmp_host_fail_cache_ttl_seconds": {
           "label": "SNMP per-host failure cache TTL (seconds)",
           "help": "How long a FAILED SNMP probe result is cached per host so a SPA fan-out burst doesn't re-burn the timeout × N parallel calls on an unreachable host. Default 5 seconds — tight enough that recovery is felt within one Hosts-tab refresh cycle, long enough to dedupe a fan-out burst. Operators with constantly-flapping SNMP devices may want 30s+ to suppress the spam; operators wanting fastest possible recovery detection can drop to 1s."
+        },
+        "tuning_snmp_unreachable_cooldown_seconds": {
+          "label": "SNMP unreachable cool-down (seconds)",
+          "help": "After a single SNMP probe times out, the per-(host, port) probe arms a cool-down — subsequent ticks skip that pair until the cool-down expires. UDP timeouts are slower to detect than auth-failure 401s, so SNMP arms after one strike (Webmin / SSH wait for two consecutive 401s before arming). Cuts wire traffic against permanently-unreachable devices without removing them from the chart entirely. Default 300 seconds (5 minutes). Lower for fast-recovery detection on flaky links; raise to suppress probes against a host that's been down for hours. Pre-#678 this shared the auth-failure cool-down knob with Webmin / SSH; now dedicated so operators can tune SNMP independently. Range 30..3600."
         }
       },
       "totp": {
@@ -1358,6 +1362,12 @@
     "sort_title": "Sort hosts — persisted in this browser",
     "hide_unconfigured_label": "Hide hosts without agents",
     "hide_unconfigured_title": "Hide curated rows that have no Beszel / Pulse / node-exporter / Webmin field set — inventory-only entries are filtered out. Persisted in this browser.",
+    "provider_filter": {
+      "all": "All",
+      "all_title": "Clear the provider filter — show every host (default).",
+      "none": "No provider",
+      "none_title": "Show only curated rows without any provider mapped ({count} host(s)). Useful for finding inventory-only entries waiting for an agent."
+    },
     "sort": {
       "status": "Status (default)",
       "custom_number": "Custom # (catalogue order)",
@@ -1558,6 +1568,7 @@
     "refresh": "⟳ Refresh",
     "refresh_title": "Re-run probes",
     "copy_title": "Copy to clipboard",
+    "error_prefix": "Error: {error}",
     "labels": {
       "raw_pulse": "Raw · Pulse",
       "raw_beszel": "Raw · Beszel",
