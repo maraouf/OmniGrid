@@ -5553,22 +5553,22 @@
                            :disabled="isReadonly() || !row.enabled">
                     <span x-text="t('admin_hosts.provider.ping_enabled_label')"></span>
                   </label>
-                  <div x-show="!!(row.ping && row.ping.enabled)">
+                  <div x-show="!!(row.enabled && row.ping && row.ping.enabled)">
                     <label class="block text-[10.5px] uppercase tracking-wider text-[var(--text-faint)] mb-1"
                            x-text="t('admin_hosts.provider.ping_port_label')"></label>
                     <input type="number" min="1" max="65535"
                            :value="row.ping && row.ping.port || ''"
                            @input="hostsConfig[idx].ping = Object.assign({}, hostsConfig[idx].ping || {}, { port: $event.target.value ? parseInt($event.target.value, 10) : null }); markHostRowDirty(idx)"
-                           :disabled="isReadonly()"
+                           :disabled="isReadonly() || !row.enabled"
                            class="w-full mono text-[12.5px] py-1.5"
                            :placeholder="t('admin_hosts.provider.ping_port_placeholder')">
                   </div>
-                  <div x-show="!!(row.ping && row.ping.enabled)">
+                  <div x-show="!!(row.enabled && row.ping && row.ping.enabled)">
                     <label class="block text-[10.5px] uppercase tracking-wider text-[var(--text-faint)] mb-1"
                            x-text="t('admin_hosts.provider.ping_transport_label')"></label>
                     <select :value="row.ping && row.ping.transport || ''"
                             @change="hostsConfig[idx].ping = Object.assign({}, hostsConfig[idx].ping || {}, { transport: $event.target.value || null }); markHostRowDirty(idx)"
-                            :disabled="isReadonly()"
+                            :disabled="isReadonly() || !row.enabled"
                             class="w-full mono text-[12.5px] py-1.5">
                       <option value="" x-text="t('admin_hosts.provider.ping_transport_default')"></option>
                       <option value="tcp" x-text="t('admin_hosts.provider.ping_transport_tcp')"></option>
@@ -5608,20 +5608,20 @@
                   <span x-text="t('admin_hosts.provider.snmp_enabled_label')"></span>
                 </label>
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-3 items-end"
-                     x-show="!!(row.snmp && row.snmp.enabled === true)">
+                     x-show="!!(row.enabled && row.snmp && row.snmp.enabled === true)">
                   <div>
                     <label class="block text-[10.5px] uppercase tracking-wider text-[var(--text-faint)] mb-1">
                       SNMP target
                       <span class="text-[10px] normal-case text-[var(--text-faint)] ms-1">(blank = use id)</span>
                     </label>
-                    <input type="text" x-model="row.snmp_name" :disabled="isReadonly()"
+                    <input type="text" x-model="row.snmp_name" :disabled="isReadonly() || !row.enabled"
                            list="snmp-names"
                            @input="markHostRowDirty(idx)"
                            class="w-full mono text-[12.5px] py-1.5"
                            placeholder="192.X.X.10 or switch01.example.com">
                   </div>
                 </div>
-                <div x-show="!!(row.snmp && row.snmp.enabled === true) && !!(row.snmp_name && row.snmp_name.trim())"
+                <div x-show="!!(row.enabled && row.snmp && row.snmp.enabled === true) && !!(row.snmp_name && row.snmp_name.trim())"
                      class="grid grid-cols-1 md:grid-cols-3 gap-3 items-end mt-3">
                   <div>
                     <label class="block text-[10.5px] uppercase tracking-wider text-[var(--text-faint)] mb-1">
@@ -5631,7 +5631,7 @@
                     <input type="text"
                            :value="row.snmp && row.snmp.community || ''"
                            @input="hostsConfig[idx].snmp = Object.assign({}, hostsConfig[idx].snmp || {}, { community: $event.target.value || null }); markHostRowDirty(idx)"
-                           :disabled="isReadonly()"
+                           :disabled="isReadonly() || !row.enabled"
                            class="w-full mono text-[12.5px] py-1.5"
                            placeholder="public">
                   </div>
@@ -5642,7 +5642,7 @@
                     </label>
                     <select :value="row.snmp && row.snmp.version || ''"
                             @change="hostsConfig[idx].snmp = Object.assign({}, hostsConfig[idx].snmp || {}, { version: $event.target.value || null }); markHostRowDirty(idx)"
-                            :disabled="isReadonly()"
+                            :disabled="isReadonly() || !row.enabled"
                             class="w-full mono text-[12.5px] py-1.5">
                       <option value="">(default)</option>
                       <option value="v2c">v2c</option>
@@ -5657,7 +5657,7 @@
                     <input type="number" min="1" max="65535"
                            :value="row.snmp && row.snmp.port || ''"
                            @input="hostsConfig[idx].snmp = Object.assign({}, hostsConfig[idx].snmp || {}, { port: $event.target.value ? parseInt($event.target.value, 10) : null }); markHostRowDirty(idx)"
-                           :disabled="isReadonly()"
+                           :disabled="isReadonly() || !row.enabled"
                            class="w-full mono text-[12.5px] py-1.5"
                            placeholder="161">
                   </div>

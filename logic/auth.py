@@ -925,13 +925,18 @@ def get_credential_by_credential_id(
     """
     r = conn.execute(
         "SELECT id, user_id, credential_id, public_key, sign_count, "
-        "transports, friendly_name, created_at, last_used_at "
+        "transports, friendly_name, created_at, last_used_at, rp_id "
         "FROM user_credentials WHERE credential_id=?",
         (credential_id,),
     ).fetchone()
     if not r:
         return None
     ts = (r["transports"] or "").strip()
+    # #663 — rp_id added so the helper stays in sync with the schema
+    # post-#605's additive ALTER. Login-finish doesn't currently consume
+    # the field (expected_rp_id comes from the challenge dict), but a
+    # future caller wanting to detect "credential matches login but not
+    # current page" should read this rather than a separate query.
     return {
         "id": r["id"],
         "user_id": r["user_id"],
@@ -942,6 +947,7 @@ def get_credential_by_credential_id(
         "friendly_name": r["friendly_name"] or "",
         "created_at": r["created_at"],
         "last_used_at": r["last_used_at"],
+        "rp_id": (r["rp_id"] or "").strip(),
     }
 
 
