@@ -1578,6 +1578,14 @@ class SettingsIn(BaseModel):
     tuning_ping_concurrency: Optional[str] = None
     tuning_ping_probe_timeout_seconds: Optional[str] = None
     tuning_ping_cooldown_seconds: Optional[str] = None
+    # #344 / #656 — SNMP host-stats provider knobs. SettingsIn must list
+    # them so the POST /api/settings validator stops Pydantic v2's
+    # extra="ignore" default from silently dropping them on save.
+    tuning_snmp_probe_timeout_seconds: Optional[str] = None
+    tuning_snmp_concurrency: Optional[str] = None
+    # #659 — SNMP per-host cache TTLs, distinct from the Webmin pair.
+    tuning_snmp_host_cache_ttl_seconds: Optional[str] = None
+    tuning_snmp_host_fail_cache_ttl_seconds: Optional[str] = None
     # -----------------------------------------------------------------
     # Per-event notification toggles. Each maps to one of the
     # 12 (event group × success/failure) notify() call sites in
@@ -3009,6 +3017,9 @@ async def api_snmp_test(
     community = _resolve_field(body, "community", "snmp_default_community", "public")
     version = (_resolve_field(body, "version", "snmp_default_version", "v2c")
                .strip().lower() or "v2c")
+    if version not in ("v2c", "v3"):
+        return {"ok": False,
+                "detail": f"unsupported version {version!r} — use v2c or v3"}
     try:
         port = int(_resolve_field(body, "port", "snmp_default_port", "161") or "161")
     except (TypeError, ValueError):
@@ -3017,6 +3028,9 @@ async def api_snmp_test(
     v3_auth = _resolve_field(body, "v3_auth_key", "snmp_v3_auth_key", "")
     v3_priv = _resolve_field(body, "v3_priv_key", "snmp_v3_priv_key", "")
 
+    # #655 — consume tuning_snmp_probe_timeout_seconds. Test endpoint uses
+    # max(tunable, 10s) so a tiny tunable doesn't cripple manual smoke probes.
+    snmp_timeout = max(10.0, float(tuning.tuning_int("tuning_snmp_probe_timeout_seconds")))
     result = await _snmp.probe_snmp(
         host,
         community=community,
@@ -3025,7 +3039,7 @@ async def api_snmp_test(
         v3_user=v3_user,
         v3_auth_key=v3_auth,
         v3_priv_key=v3_priv,
-        timeout=10.0,
+        timeout=snmp_timeout,
     )
     if result.get("error") and not result.get("hosts"):
         return {"ok": False,
@@ -3952,21 +3966,28 @@ async def _merge_one_host(h: dict, state: dict, *, force: bool = False) -> tuple
         from logic import snmp as _snmp
         row_snmp = h.get("snmp") if isinstance(h.get("snmp"), dict) else {}
         snmp_enabled = row_snmp.get("enabled") is True
+        # #657 — HARD-GATE: probe ONLY when an alias OR a curated `snmp_name`
+        # resolves a target. The previous bare-`h["id"]` fallthrough fanned
+        # out probes to every host on fleet-enable, ~all-but-mapped of which
+        # timed out. Resolution chain: alias > snmp_name > SKIP.
         snmp_target = (
             (state.get("snmp_aliases") or {}).get(h["id"])
             or (h.get("snmp_name") or "").strip()
-            or h["id"]
+            or ""
         )
         if snmp_target and snmp_enabled:
             now = time.time()
-            wm_success_ttl = tuning.tuning_int("tuning_webmin_host_cache_ttl_seconds")
-            wm_fail_ttl = tuning.tuning_int("tuning_webmin_host_fail_cache_ttl_seconds")
+            # #659 — SNMP per-host caches use SNMP-specific TTLs (was reusing
+            # the Webmin pair; operator changing Webmin TTL silently changed
+            # SNMP cache behaviour).
+            snmp_success_ttl = tuning.tuning_int("tuning_snmp_host_cache_ttl_seconds")
+            snmp_fail_ttl = tuning.tuning_int("tuning_snmp_host_fail_cache_ttl_seconds")
             cached = _snmp_host_cache.get(h["id"])
-            if cached and (now - cached[0]) < wm_success_ttl:
+            if cached and (now - cached[0]) < snmp_success_ttl:
                 result = cached[1]
             else:
                 fail_cached = _snmp_host_fail_cache.get(h["id"])
-                if fail_cached and (now - fail_cached[0]) < wm_fail_ttl:
+                if fail_cached and (now - fail_cached[0]) < snmp_fail_ttl:
                     result = fail_cached[1]
                 else:
                     community = (row_snmp.get("community") or "").strip() \
@@ -3984,6 +4005,8 @@ async def _merge_one_host(h: dict, state: dict, *, force: bool = False) -> tuple
                                or state.get("snmp_v3_auth_key") or "")
                     v3_priv = ((row_snmp.get("v3_priv_key") or "").strip()
                                or state.get("snmp_v3_priv_key") or "")
+                    # #655 — consume tuning_snmp_probe_timeout_seconds.
+                    snmp_timeout = float(tuning.tuning_int("tuning_snmp_probe_timeout_seconds"))
                     try:
                         result = await _snmp.probe_snmp(
                             snmp_target,
@@ -3994,6 +4017,7 @@ async def _merge_one_host(h: dict, state: dict, *, force: bool = False) -> tuple
                             v3_auth_key=v3_auth,
                             v3_priv_key=v3_priv,
                             active_sources=active,
+                            timeout=snmp_timeout,
                         )
                     except Exception as e:  # noqa: BLE001
                         result = {"hosts": {}, "error": f"snmp probe failed: {e}"}
@@ -4938,6 +4962,16 @@ def _save_hosts_config(hosts: list[dict]) -> list[dict]:
             "snmp":          _clean_host_snmp(h.get("snmp")),
             "enabled":       bool(h.get("enabled", True)),
         }
+        # #660 — host-level enable gates every per-provider enable.
+        # Defence-in-depth on top of the SPA's strip in saveHostsConfig:
+        # if the row is disabled, force every provider's `enabled` flag
+        # to drop so a malformed POST (or a future caller bypassing the
+        # SPA) can't persist `enabled: true` on any provider sub-dict.
+        if not seen[hid]["enabled"]:
+            for _provider_key in ("ssh", "ping", "snmp"):
+                _sub = seen[hid].get(_provider_key)
+                if isinstance(_sub, dict):
+                    _sub.pop("enabled", None)
     ordered = list(seen.values())
     set_setting("hosts_config", json.dumps(ordered))
     return ordered

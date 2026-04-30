@@ -768,17 +768,26 @@ async def probe_snmp(
         if_in_task = _snmp_walk(engine, auth, target, _OID_IF_IN_OCTETS_32)
         if_out_task = _snmp_walk(engine, auth, target, _OID_IF_OUT_OCTETS_32)
 
-        results = await asyncio.gather(
+        # #658 — wrap the gather in wait_for so the TimeoutError catch
+        # becomes reachable (asyncio.gather alone can't raise TimeoutError
+        # without wait_for) AND the caller earns a wall-clock guarantee.
+        # Budget = (timeout + 2s) × 2 — covers UDP retransmits per
+        # outstanding GET/walk plus a small overhead margin so a partial
+        # responder doesn't run forever past the per-OID timeout.
+        wall_clock_budget = max(5.0, (timeout + 2.0) * 2)
+        results = await asyncio.wait_for(asyncio.gather(
             sys_task, cpu_task,
             st_type_task, st_desc_task, st_unit_task, st_size_task, st_used_task,
             if_descr_task, if_oper_task,
             if_hc_in_task, if_hc_out_task,
             if_in_task, if_out_task,
             return_exceptions=False,
-        )
+        ), timeout=wall_clock_budget)
     except asyncio.TimeoutError:
         _arm_cooldown(host_clean, port_int)
         return {"hosts": {}, "error": f"snmp: timeout against {host_clean}:{port_int}"}
+    except (asyncio.CancelledError, KeyboardInterrupt):
+        raise
     except Exception as e:
         return {"hosts": {}, "error": f"snmp: probe failed: {e}"}
 

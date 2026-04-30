@@ -783,6 +783,9 @@ function app() {
       // #344 — SNMP provider tunables (rendered in Host stats → SNMP).
       'tuning_snmp_probe_timeout_seconds',
       'tuning_snmp_concurrency',
+      // #659 — SNMP per-host cache TTLs, distinct from Webmin's pair.
+      'tuning_snmp_host_cache_ttl_seconds',
+      'tuning_snmp_host_fail_cache_ttl_seconds',
     ],
     tuningForm: {},
     tuningEffective: {},
@@ -10026,6 +10029,17 @@ function app() {
         for (const k of ['v3_user', 'v3_auth_key', 'v3_priv_key']) {
           const sval = String(snmpIn[k] || '').trim();
           if (sval) snmpOut[k] = sval;
+        }
+        // #660 — host-level enable gates every per-provider enable.
+        // A disabled host cannot have any provider enabled. Strip
+        // each per-provider `enabled` flag here so reload comes back
+        // consistent (no stale `ssh.enabled: true` on a row whose main
+        // checkbox is off). Backend `_clean_host_*` validators mirror
+        // this defence-in-depth contract — see _save_hosts_config.
+        if (h.enabled === false) {
+          delete sshOut.enabled;
+          delete pingOut.enabled;
+          delete snmpOut.enabled;
         }
         return {
           id:            (h.id || '').trim(),

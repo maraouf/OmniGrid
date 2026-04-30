@@ -177,6 +177,13 @@ TUNABLES: dict[str, tuple[str, int, int, int]] = {
     # an unreachable host, same purpose as the auth one).
     "tuning_snmp_probe_timeout_seconds": ("SNMP_PROBE_TIMEOUT_SECONDS", 5, 1, 60),
     "tuning_snmp_concurrency":           ("SNMP_CONCURRENCY", 16, 1, 128),
+    # #659 — SNMP per-host caches, distinct from the Webmin TTL knobs.
+    # Pre-#659 the SNMP per-host caches reused tuning_webmin_host_cache_ttl_seconds /
+    # tuning_webmin_host_fail_cache_ttl_seconds — operator changing the
+    # Webmin TTL silently changed SNMP cache behaviour. Each provider's
+    # per-host probe cache (success and fail) gets its OWN dial.
+    "tuning_snmp_host_cache_ttl_seconds":      ("SNMP_HOST_CACHE_TTL_SECONDS", 30, 5, 300),
+    "tuning_snmp_host_fail_cache_ttl_seconds": ("SNMP_HOST_FAIL_CACHE_TTL_SECONDS", 5, 1, 60),
 }
 
 

@@ -890,6 +890,7 @@ async def _gather_impl() -> None:
         # win over the global defaults.
         if "snmp" in active_sources and df_hosts:
             from logic import snmp as _snmp
+            from logic import tuning as _tuning
             default_community = get_setting("snmp_default_community", "") or "public"
             default_version = (get_setting("snmp_default_version", "") or "v2c").strip().lower()
             try:
@@ -906,18 +907,26 @@ async def _gather_impl() -> None:
             except ValueError:
                 snmp_aliases_raw = {}
             snmp_hosts_cfg = _load_hosts_config_for_gather()
+            # #655 — per-tick reads of probe-timeout + concurrency-cap tunables.
+            snmp_timeout = float(_tuning.tuning_int("tuning_snmp_probe_timeout_seconds"))
+            snmp_sem = asyncio.Semaphore(_tuning.tuning_int("tuning_snmp_concurrency"))
 
             async def _one_snmp(h: str):
                 row = _match_hosts_row(h, snmp_hosts_cfg)
-                # Per-host override block (community / version / port /
-                # v3 keys). Falls back to globals on a per-key basis so
-                # operators can override JUST the community on one host.
+                # #654 — per-host opt-in gate. Skip when the row lacks
+                # `snmp.enabled === True` so disabled hosts (and the
+                # default) don't fan out probes.
                 row_snmp = (row.get("snmp") if row and isinstance(row.get("snmp"), dict)
                             else {})
+                if row_snmp.get("enabled") is not True:
+                    return h, None
+                # #657 — HARD-GATE on alias OR snmp_name. Bare-`h` fallthrough
+                # was a perf cliff: fleet-enable on a 200-host fleet fanned
+                # out 200 SNMP probes, ~all-but-mapped of which timed out.
                 target_host = (
                     snmp_aliases_raw.get(h)
                     or (row.get("snmp_name") if row else "")
-                    or h
+                    or ""
                 )
                 target_host = (target_host or "").strip()
                 if not target_host:
@@ -931,16 +940,18 @@ async def _gather_impl() -> None:
                 row_v3_user = (row_snmp.get("v3_user") or "").strip() or v3_user
                 row_v3_auth = (row_snmp.get("v3_auth_key") or "").strip() or v3_auth_key
                 row_v3_priv = (row_snmp.get("v3_priv_key") or "").strip() or v3_priv_key
-                result = await _snmp.probe_snmp(
-                    target_host,
-                    community=community,
-                    version=version,
-                    port=port,
-                    v3_user=row_v3_user,
-                    v3_auth_key=row_v3_auth,
-                    v3_priv_key=row_v3_priv,
-                    active_sources=active_sources,
-                )
+                async with snmp_sem:
+                    result = await _snmp.probe_snmp(
+                        target_host,
+                        community=community,
+                        version=version,
+                        port=port,
+                        v3_user=row_v3_user,
+                        v3_auth_key=row_v3_auth,
+                        v3_priv_key=row_v3_priv,
+                        active_sources=active_sources,
+                        timeout=snmp_timeout,
+                    )
                 if result.get("error") and not result.get("hosts"):
                     return h, {"exporter_error": f"snmp: {result['error']}"}
                 hosts_map = result.get("hosts") or {}

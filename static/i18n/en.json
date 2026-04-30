@@ -804,6 +804,14 @@
         "tuning_snmp_concurrency": {
           "label": "SNMP probe concurrency",
           "help": "Maximum parallel SNMP probes the gather + per-host-merge paths run in one tick. Default 16 — comfortable on a 50-host SNMP fleet through 16 workers in ~3 batches. Lower if your network gear's CPU is fragile (some older switches lock up under > 8 parallel SNMP requests); raise on a beefy fleet of well-provisioned UPSes / routers. Range 1..128."
+        },
+        "tuning_snmp_host_cache_ttl_seconds": {
+          "label": "SNMP per-host success cache TTL (seconds)",
+          "help": "How long a SUCCESSFUL SNMP probe result is cached per host before the next call re-probes. Burst refreshes (SPA fan-out, drawer reopens) within the window skip the probe entirely and reuse the last known-good stats. Default 30 seconds. Lower for live-feeling drawer reopens; raise to cut SNMP probe load on a fleet of slow-responding UPSes / network gear. Pairs with the failure-cache TTL — a fresh failure on a previously-cached success drops the success entry immediately."
+        },
+        "tuning_snmp_host_fail_cache_ttl_seconds": {
+          "label": "SNMP per-host failure cache TTL (seconds)",
+          "help": "How long a FAILED SNMP probe result is cached per host so a SPA fan-out burst doesn't re-burn the timeout × N parallel calls on an unreachable host. Default 5 seconds — tight enough that recovery is felt within one Hosts-tab refresh cycle, long enough to dedupe a fan-out burst. Operators with constantly-flapping SNMP devices may want 30s+ to suppress the spam; operators wanting fastest possible recovery detection can drop to 1s."
         }
       },
       "totp": {
