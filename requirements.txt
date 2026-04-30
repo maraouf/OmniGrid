@@ -110,6 +110,12 @@ icmplib==3.0.4
 #    dep is added to requirements.txt and the container restarts."
 # (i18n key `settings.host_stats.snmp.unavailable` in static/i18n/en.json,
 # rendered at static/index.html line ~4745 inside the SNMP tab body.)
-# Pinned at the modern major (>=7.0.0); the hlapi.asyncio surface is
-# stable across recent 5.x / 6.x / 7.x.
-pysnmp>=7.0.0
+# Pin range: >=6.2.0 covers BOTH the 6.x line (legacy
+# `pysnmp.hlapi.asyncio` path) and the 7.x line (`pysnmp.hlapi.v3arch.asyncio`
+# path) — `logic/snmp.py` tries the 7.x path first then falls back to 6.x
+# (#642) so either resolution works. Sticking with >=6.2.0 lower bound
+# rather than <7 because 7.x's hlapi was reorganised but the symbols
+# we use (getCmd / bulkCmd / Usm*Protocol / UdpTransportTarget) all
+# kept their names in the new namespace — see the dual-path import
+# in `logic/snmp.py`. If a future major drops more symbols, pin upper.
+pysnmp>=6.2.0

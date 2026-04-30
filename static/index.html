@@ -4279,6 +4279,12 @@
                      :value="settings.provider_color_node_exporter || providerColor('node_exporter')"
                      :disabled="isReadonly() || !hasHostStatsSource('node_exporter')"
                      class="w-9 h-7 cursor-pointer p-0 bg-transparent border border-[var(--border)] rounded">
+              <input type="text" x-model="settings.provider_color_node_exporter"
+                     @input="settings.provider_color_node_exporter = normalizeHexColor($event.target.value)"
+                     :placeholder="providerColor('node_exporter')"
+                     :disabled="isReadonly() || !hasHostStatsSource('node_exporter')"
+                     pattern="^#[0-9a-fA-F]{6}$" maxlength="7"
+                     class="w-24 mono text-[11.5px] uppercase">
             </label>
             <button type="button"
                     x-show="settings.provider_color_node_exporter"
@@ -4361,6 +4367,12 @@
                      :value="settings.provider_color_beszel || providerColor('beszel')"
                      :disabled="isReadonly() || !hasHostStatsSource('beszel')"
                      class="w-9 h-7 cursor-pointer p-0 bg-transparent border border-[var(--border)] rounded">
+              <input type="text" x-model="settings.provider_color_beszel"
+                     @input="settings.provider_color_beszel = normalizeHexColor($event.target.value)"
+                     :placeholder="providerColor('beszel')"
+                     :disabled="isReadonly() || !hasHostStatsSource('beszel')"
+                     pattern="^#[0-9a-fA-F]{6}$" maxlength="7"
+                     class="w-24 mono text-[11.5px] uppercase">
             </label>
             <button type="button"
                     x-show="settings.provider_color_beszel"
@@ -4434,6 +4446,12 @@
                      :value="settings.provider_color_pulse || providerColor('pulse')"
                      :disabled="isReadonly() || !hasHostStatsSource('pulse')"
                      class="w-9 h-7 cursor-pointer p-0 bg-transparent border border-[var(--border)] rounded">
+              <input type="text" x-model="settings.provider_color_pulse"
+                     @input="settings.provider_color_pulse = normalizeHexColor($event.target.value)"
+                     :placeholder="providerColor('pulse')"
+                     :disabled="isReadonly() || !hasHostStatsSource('pulse')"
+                     pattern="^#[0-9a-fA-F]{6}$" maxlength="7"
+                     class="w-24 mono text-[11.5px] uppercase">
             </label>
             <button type="button"
                     x-show="settings.provider_color_pulse"
@@ -4571,6 +4589,12 @@
                      :value="settings.provider_color_webmin || providerColor('webmin')"
                      :disabled="isReadonly() || !hasHostStatsSource('webmin')"
                      class="w-9 h-7 cursor-pointer p-0 bg-transparent border border-[var(--border)] rounded">
+              <input type="text" x-model="settings.provider_color_webmin"
+                     @input="settings.provider_color_webmin = normalizeHexColor($event.target.value)"
+                     :placeholder="providerColor('webmin')"
+                     :disabled="isReadonly() || !hasHostStatsSource('webmin')"
+                     pattern="^#[0-9a-fA-F]{6}$" maxlength="7"
+                     class="w-24 mono text-[11.5px] uppercase">
             </label>
             <button type="button"
                     x-show="settings.provider_color_webmin"
@@ -4711,6 +4735,12 @@
                      :value="settings.provider_color_ping || providerColor('ping')"
                      :disabled="isReadonly() || !hasHostStatsSource('ping')"
                      class="w-9 h-7 cursor-pointer p-0 bg-transparent border border-[var(--border)] rounded">
+              <input type="text" x-model="settings.provider_color_ping"
+                     @input="settings.provider_color_ping = normalizeHexColor($event.target.value)"
+                     :placeholder="providerColor('ping')"
+                     :disabled="isReadonly() || !hasHostStatsSource('ping')"
+                     pattern="^#[0-9a-fA-F]{6}$" maxlength="7"
+                     class="w-24 mono text-[11.5px] uppercase">
             </label>
             <button type="button"
                     x-show="settings.provider_color_ping"
@@ -4907,6 +4937,12 @@
                      :value="settings.provider_color_snmp || providerColor('snmp')"
                      :disabled="isReadonly() || !hasHostStatsSource('snmp')"
                      class="w-9 h-7 cursor-pointer p-0 bg-transparent border border-[var(--border)] rounded">
+              <input type="text" x-model="settings.provider_color_snmp"
+                     @input="settings.provider_color_snmp = normalizeHexColor($event.target.value)"
+                     :placeholder="providerColor('snmp')"
+                     :disabled="isReadonly() || !hasHostStatsSource('snmp')"
+                     pattern="^#[0-9a-fA-F]{6}$" maxlength="7"
+                     class="w-24 mono text-[11.5px] uppercase">
             </label>
             <button type="button"
                     x-show="settings.provider_color_snmp"
