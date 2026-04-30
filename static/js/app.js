@@ -5217,10 +5217,10 @@ function app() {
       return rows
         .filter(h => h && h.enabled !== false && h.id
                      && (h.snmp_name || '').trim()
-                     // #651 — per-host enable gate; default-true when
-                     // the field is missing matches the backend's
-                     // _clean_host_snmp + _merge_one_host semantics.
-                     && !(h.snmp && h.snmp.enabled === false))
+                     // #654 — explicit opt-in: SNMP probes only run
+                     // when the operator checks the per-host enable
+                     // box. Default-OFF mirrors ping.enabled.
+                     && !!(h.snmp && h.snmp.enabled === true))
         .map(h => ({ id: h.id, label: this.hostDisplayName(h) || h.id }));
     },
     // #344 / #649 — SNMP test widget. UX-unified with the Ping test
@@ -8796,11 +8796,12 @@ function app() {
     // Admin → Hosts editor.
     rowHasProviderMapping(row) {
       if (!row) return false;
-      // #651 — SNMP gating mirrors the row's `snmp.enabled` flag with
-      // default-true when missing (legacy rows), so an explicitly-
-      // disabled row's button greys out even if snmp_name is still set.
+      // #654 — SNMP gating mirrors ping's explicit opt-in: probe
+      // only when `snmp.enabled === true`. Default-OFF (no fallback
+      // to "snmp_name set means enabled") so a fresh row with the
+      // checkbox unchecked doesn't claim a provider mapping.
       const snmpActive = !!(row.snmp_name || '').trim()
-        && !(row.snmp && row.snmp.enabled === false);
+        && !!(row.snmp && row.snmp.enabled === true);
       return !!(
         (row.beszel_name || '').trim() ||
         (row.pulse_name  || '').trim() ||
@@ -10007,17 +10008,13 @@ function app() {
         // empty, so we only persist explicit overrides.
         const snmpIn = h.snmp || {};
         const snmpOut = {};
-        // #652 — explicit opt-OUT must be preserved on the wire. The
-        // strip-blanks pattern below would drop `enabled: false`
-        // (false is falsy) and the row would round-trip as
-        // {}. The SPA's checkbox binding defaults to "checked" when
-        // snmp is empty (legacy rows that have snmp_name set predate
-        // the toggle, so default-true preserves their behaviour) —
-        // which means an unchecked toggle that didn't persist would
-        // silently flip back to checked on reload. Explicit
-        // enabled=false flows through; enabled=true is the default
-        // and stripped to keep the persisted JSON small.
-        if (snmpIn.enabled === false) snmpOut.enabled = false;
+        // #654 — explicit opt-IN. Persist `enabled: true` only when
+        // the operator checked the box; drop the field otherwise so
+        // the persisted JSON stays tight. Backend's _clean_host_snmp
+        // mirrors this contract (only persists when raw value is
+        // explicitly truthy) and _merge_one_host gates the probe on
+        // `enabled is True` (no default-true fallback).
+        if (snmpIn.enabled === true) snmpOut.enabled = true;
         const sc = String(snmpIn.community || '').trim();
         if (sc) snmpOut.community = sc;
         const sv = String(snmpIn.version || '').trim().toLowerCase();

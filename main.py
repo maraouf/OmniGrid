@@ -3944,15 +3944,14 @@ async def _merge_one_host(h: dict, state: dict, *, force: bool = False) -> tuple
     # / version / v3 keys via `hosts_config[].snmp`; falls through to
     # the global defaults from state otherwise. Per-host alias map
     # (Docker hostname → SNMP target) wins over the row's snmp_name.
-    # Per-host enable gate (#651): the row's ``snmp.enabled`` opts a
-    # specific host IN/OUT of SNMP probing without losing the rest of
-    # the override config. Default when the flag is missing: enabled
-    # (preserves the historical "snmp_name set → probe" behaviour so
-    # existing rows don't silently stop reporting).
+    # Per-host enable gate (#654): the row's `snmp.enabled` is an
+    # explicit OPT-IN, parallel to ping.enabled. Default-OFF when the
+    # flag is missing — the operator must check the per-host SNMP
+    # enable box for the probe to fire, even when snmp_name is set.
     if "snmp" in active:
         from logic import snmp as _snmp
         row_snmp = h.get("snmp") if isinstance(h.get("snmp"), dict) else {}
-        snmp_enabled = row_snmp.get("enabled", True)
+        snmp_enabled = row_snmp.get("enabled") is True
         snmp_target = (
             (state.get("snmp_aliases") or {}).get(h["id"])
             or (h.get("snmp_name") or "").strip()
@@ -4790,15 +4789,15 @@ def _clean_host_snmp(raw: Any) -> dict:
     if not isinstance(raw, dict):
         return {}
     out: dict = {}
-    # #651 — explicit per-host enable flag, parallel to ping.enabled.
-    # Default behaviour: when the field is missing, treat as enabled
-    # (preserves the historical "snmp_name set → probe" gate so existing
-    # rows don't silently stop working). When the field is explicitly
-    # False, the row opts OUT even with snmp_name configured — useful
-    # for temporarily disabling a flaky SNMP target without losing the
-    # community / version / port overrides on the row.
-    if "enabled" in raw:
-        out["enabled"] = bool(raw.get("enabled"))
+    # #654 — explicit per-host enable flag, parallel to ping.enabled.
+    # Opt-IN semantics: persist `enabled: True` only when the operator
+    # explicitly checked the box; drop the field otherwise so the row
+    # JSON stays tight. `_merge_one_host` reads `enabled is True` (no
+    # default-true fallback), so a fresh row with snmp_name set but no
+    # explicit opt-in does NOT probe — the operator must check the
+    # per-host SNMP enable box. Mirrors `_clean_host_ping`'s pattern.
+    if bool(raw.get("enabled")):
+        out["enabled"] = True
     community = (str(raw.get("community") or "")).strip()
     if community:
         out["community"] = community
