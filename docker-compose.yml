@@ -2,13 +2,19 @@ version: "3.8"
 services:
   omnigrid:
     # Built from the in-tree Dockerfile by the deploy pipeline on the
-    # Swarm manager. The pipeline tags both `omnigrid:latest` and
-    # `omnigrid:<version>`; this file references `:latest` so the
-    # compose-spec stays static across deploys, while the pipeline's
-    # `docker service update --force --image omnigrid:<version>` step
-    # pins each task to the exact version-tagged image (so rollbacks
-    # have a discrete tag to point at).
-    image: omnigrid:latest
+    # Swarm manager AND pushed to Forgejo's container registry on
+    # every successful build (#609). The pipeline sets `OMNIGRID_IMAGE`
+    # in the runner env to the registry path
+    # (`<REGISTRY_HOST>/<NAMESPACE>/<IMAGE>:latest`) before
+    # `docker stack deploy`, and `${OMNIGRID_IMAGE:-omnigrid:latest}`
+    # below resolves to that registry path. The default (`omnigrid:latest`,
+    # placeholder hostname for hostname-scrub compliance — the registry
+    # path lives in CI vars, not the committed compose file) lets a
+    # manual `docker compose up` on a dev machine still find a local
+    # build. Each task is pinned to the exact version tag via the
+    # pipeline's `docker service update --force --image
+    # <REG_PATH>:<version>` step so rollbacks point at a discrete tag.
+    image: ${OMNIGRID_IMAGE:-omnigrid:latest}
     ports:
       - "9500:8088"
 
