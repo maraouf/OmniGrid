@@ -11593,23 +11593,31 @@ function app() {
       const matchCount = (this.hosts || [])
         .filter(h => (h.providers || []).includes(name)).length;
       if (!active && !err) {
-        return { visible: false, cls: '', icon: '', title: '' };
+        return { visible: false, cls: '', icon: '', title: '', styled: false };
       }
       if (err) {
         return {
           visible: true, cls: 'pill-error', icon: '✗',
           title: `${name} error: ${err}`,
+          styled: false,
         };
       }
       if (matchCount === 0) {
         return {
           visible: true, cls: 'pill-unknown', icon: '·',
           title: `${name} is enabled but matched no host`,
+          styled: false,
         };
       }
+      // Healthy state — use the operator-customised provider colour
+      // via `pill-custom` + `providerChipStyle()` (#621 follow-up).
+      // The fixed `pill-ok` green ignored Settings → Providers colour
+      // overrides; flip to pill-custom so the toolbar chip matches the
+      // per-row chip's colouring.
       return {
-        visible: true, cls: 'pill-ok', icon: '✓',
+        visible: true, cls: 'pill-custom', icon: '✓',
         title: `${name} — ${matchCount} host${matchCount === 1 ? '' : 's'}`,
+        styled: true,
       };
     },
     // Drawer mode (#239): row is "expanded" when its host matches

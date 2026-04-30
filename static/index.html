@@ -1519,6 +1519,7 @@
               <span x-show="hostsProviderState(p).visible"
                     class="pill text-[10.5px]"
                     :class="hostsProviderState(p).cls"
+                    :style="hostsProviderState(p).styled ? providerChipStyle(p) : ''"
                     :title="hostsProviderState(p).title">
                 <span x-text="p === 'node_exporter' ? 'exporter' : p"></span>
                 <span x-show="hostsProviderState(p).icon" class="ms-1" x-text="hostsProviderState(p).icon"></span>
