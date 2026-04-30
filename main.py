@@ -4987,12 +4987,14 @@ def _save_hosts_config(hosts: list[dict]) -> list[dict]:
         by_cn.setdefault(cn, []).append(hid)
     dupes = {cn: ids for cn, ids in by_cn.items() if len(ids) > 1}
     if dupes:
-        parts = [f"#{cn}: {', '.join(ids)}" for cn, ids in sorted(dupes.items())]
+        parts = [f"#{cn} ({', '.join(ids)})" for cn, ids in sorted(dupes.items())]
+        plural = "numbers are" if len(parts) > 1 else "number is"
         raise HTTPException(
             400,
-            "hosts_config: duplicate custom_number — "
-            + "; ".join(parts)
-            + ". Each host must have a unique custom_number.",
+            "These custom " + plural + " used by more than one host: "
+            + "; ".join(parts) + ". "
+            "Each host needs its own unique custom number — change the "
+            "conflicting ones and try Save again.",
         )
 
     # Duplicate-id check — without this, two rows with the same id
@@ -5009,11 +5011,13 @@ def _save_hosts_config(hosts: list[dict]) -> list[dict]:
         id_counts[hid] = id_counts.get(hid, 0) + 1
     id_dupes = sorted(hid for hid, n in id_counts.items() if n > 1)
     if id_dupes:
+        names = ", ".join(id_dupes)
+        plural = "hosts share these ids" if len(id_dupes) > 1 else "host id"
         raise HTTPException(
             400,
-            "hosts_config: duplicate id — "
-            + ", ".join(id_dupes)
-            + ". Each host must have a unique id.",
+            "Two or more " + plural + ": " + names + ". "
+            "Each host needs its own unique id — rename the duplicates "
+            "and try Save again.",
         )
 
     seen: dict[str, dict] = {}

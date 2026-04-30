@@ -207,11 +207,14 @@
      * land in one place. */
     --r-pill: 999px;
 
-    /* MED-CSS — typography token family. Migrated incrementally; new
-     * components MUST use these. The legacy hardcoded literals across
-     * the file are NOT yet migrated (60+ sites) — operator-tracked as
-     * a follow-up. Sizes match the most-frequent literals in the
-     * existing stylesheet so a swap is safe. */
+    /* MED-CSS — typography token family. The legacy hardcoded
+     * literals across the file have been migrated to these tokens.
+     * Sizes match the most-frequent literals in the existing
+     * stylesheet so a swap is safe. The 3xs / 2xs sizes consolidate
+     * the "tiny pill / badge text" tier that previously appeared as
+     * 10px (6 sites) and 10.5px (16 sites). */
+    --fs-3xs:  10px;
+    --fs-2xs:  10.5px;
     --fs-xs:   11px;
     --fs-sm:   12px;
     --fs-md:   13px;
@@ -1390,19 +1393,39 @@ details summary::-webkit-details-marker {
    readable without dismissing the dim. Also applied to host-drawer
    <dd> elements via the same isStaleField() / isStale() helpers. */
 .stale {
-    opacity: 0.55;
-    transition: opacity 120ms ease-out;
+    /* #724 — bumped from opacity:0.55 → 0.45 plus a dashed underline
+       + slight desaturation so the operator can spot a cached value at
+       a glance instead of having to scan for "is this slightly dimmer
+       than its neighbour". Hover lifts everything (opacity → 0.9,
+       saturation back to 1) so values stay readable on focus. */
+    opacity: 0.45;
+    filter: saturate(0.6);
+    text-decoration: underline dashed var(--text-faint);
+    text-decoration-thickness: 1px;
+    text-underline-offset: 3px;
+    transition: opacity 120ms ease-out, filter 120ms ease-out;
 }
-.stale:hover { opacity: 0.9; }
-.stat-bar.stale { position: relative; }
+.stale:hover {
+    opacity: 0.9;
+    filter: saturate(1);
+}
+.stat-bar.stale {
+    position: relative;
+    /* Override the underline (doesn't apply to the bar wrapper) but
+       keep the desaturation so the fill colour reads as "muted". */
+    text-decoration: none;
+}
 .stat-bar.stale::after {
     content: "";
     position: absolute;
     inset: 0;
-    border: 1px dashed var(--text-faint);
+    /* #724 — thicker dashed border (was 1px → 1.5px) + warning-tone
+       so the cached bar reads as a visible alert overlay rather than a
+       subtle border. Matches the "Showing cached data" banner colour. */
+    border: 1.5px dashed var(--warning);
     border-radius: inherit;
     pointer-events: none;
-    opacity: 0.8;
+    opacity: 0.7;
 }
 
 .stat-sub {

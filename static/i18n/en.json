@@ -1407,7 +1407,7 @@
     },
     "no_data": {
       "title": "No data from any enabled provider",
-      "body": "OmniGrid could not match this host to Pulse, Beszel, node-exporter, or Webmin. Open the {debug_label} panel below to see what each provider returned and where the match failed."
+      "body": "OmniGrid could not match this host to Pulse, Beszel, node-exporter, Webmin, SNMP, or Ping. Open the {debug_label} panel below to see what each provider returned and where the match failed."
     },
     "provider_count_one": "1 provider",
     "provider_count_many": "{count} providers",
@@ -1559,6 +1559,9 @@
       "idle_show": "Show {count} idle interface(s)",
       "idle_hide": "Hide {count} idle interface(s)",
       "idle_toggle_title": "Switch ports / channels with no traffic and no assigned IP — typically unused ports on a managed switch",
+      "busy_all_show": "Show {count} more interface(s)",
+      "busy_all_hide": "Hide {count} interface(s)",
+      "busy_all_toggle_title": "Beyond the top 10 by traffic — useful when reviewing a switch's full active port list",
       "iface_up": "Interface up",
       "iface_down": "Interface down",
       "iface_bar_title": "rx {rx} · tx {tx} since boot"
@@ -1609,6 +1612,8 @@
       "node": "Hypervisor"
     },
     "snmp_charts": {
+      "freshness": "Last sample {age} ago",
+      "refreshing": "Refreshing…",
       "cpu_title": "CPU per-core",
       "load_title": "Load avg",
       "mem_title": "Memory",
