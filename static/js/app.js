@@ -12799,18 +12799,62 @@ function app() {
     },
     // Build a polyline `points` attribute from a series of values.
     // Normalises against `max` (default = max value in series) so the
-    // chart spans the full SVG viewBox. SVG viewBox is 200×60 by
-    // convention (matches the sparkline viewBox elsewhere).
+    // chart spans the full SVG viewBox. ViewBox 420×120 matches the
+    // existing Beszel / NE chart cards (#717) so the SNMP charts
+    // render at the same scale + gridline density as their cousins.
     _snmpPolyPoints(values, max) {
       if (!values || !values.length) return '';
       const m = max !== undefined ? max : Math.max(0.0001, ...values.filter(v => v != null));
       const n = values.length;
-      const w = 200, hh = 60;
+      const w = 420, hh = 120;
       return values.map((v, i) => {
         const x = (i / Math.max(1, n - 1)) * w;
         const y = hh - ((+v || 0) / m) * hh;
         return `${x.toFixed(1)},${y.toFixed(1)}`;
       }).join(' ');
+    },
+    // #717 — Min/Max/Last over a series field. Returns null when the
+    // series is empty so the legend's `x-show` short-circuits to
+    // hidden. Mirrors the shape of `hostMetricStats(...)` so the
+    // template binding reads the same.
+    snmpStats(hostId, key, idx) {
+      const series = (this.hostSnmpHistory[hostId] || {}).points || [];
+      if (!series.length) return null;
+      let pick;
+      if (key === 'cpu_per_core' && typeof idx === 'number') {
+        pick = (p) => (p.cpu_per_core || [])[idx];
+      } else {
+        pick = (p) => p[key];
+      }
+      const vals = series.map(pick).filter(v => v !== null && v !== undefined);
+      if (!vals.length) return null;
+      let min = Infinity, max = -Infinity;
+      for (const v of vals) {
+        if (v < min) min = v;
+        if (v > max) max = v;
+      }
+      return { min, max, last: vals[vals.length - 1] };
+    },
+    // #717 — Five evenly-spaced X-axis timestamp labels for the
+    // bottom of the chart. Matches the existing `xAxisFromSeries`
+    // call shape on Beszel / NE cards.
+    snmpXAxis(hostId, n) {
+      const series = (this.hostSnmpHistory[hostId] || {}).points || [];
+      n = n || 5;
+      if (series.length < 2) return Array(n).fill('');
+      const out = [];
+      for (let i = 0; i < n; i++) {
+        const idx = Math.round((series.length - 1) * (i / (n - 1)));
+        const ts = series[idx] && series[idx].ts;
+        out.push(ts ? this._snmpFmtAxisTime(ts) : '');
+      }
+      return out;
+    },
+    _snmpFmtAxisTime(ts) {
+      const d = new Date((+ts) * 1000);
+      const hh = String(d.getHours()).padStart(2, '0');
+      const mm = String(d.getMinutes()).padStart(2, '0');
+      return `${hh}:${mm}`;
     },
     // CPU per-core lines — one polyline string per core index.
     snmpCpuPerCoreLines(hostId) {

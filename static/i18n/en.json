@@ -1614,7 +1614,16 @@
       "mem_title": "Memory",
       "cores": "{n} core(s)",
       "x_axis_old": "1h ago",
-      "x_axis_now": "now"
+      "x_axis_now": "now",
+      "legend_used": "Used",
+      "legend_per_core": "Cores ({n})",
+      "legend_load_1m": "1m",
+      "legend_load_5m": "5m",
+      "legend_load_15m": "15m",
+      "legend_mem_used": "Used",
+      "legend_mem_cached": "Cached",
+      "legend_mem_buffers": "Buffers",
+      "legend_mem_free": "Free"
     },
     "charts": {
       "cpu": "CPU %",
