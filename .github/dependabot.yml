@@ -1,0 +1,84 @@
+# Dependabot config for automated dep-bump PRs.
+#
+# Activates only when this repo is mirrored / hosted on GitHub —
+# Forgejo doesn't run Dependabot, so the file is a no-op on the
+# canonical Forgejo deploy. Push the repo to a github.com mirror and
+# enable Dependabot in Settings → Code security and analysis to make
+# this take effect.
+#
+# Three ecosystems covered: Python deps (requirements.txt), npm deps
+# (package.json + node_modules/), Docker base image (Dockerfile).
+# All grouped by update-type so minor + patch bumps roll into one PR
+# per ecosystem per week instead of N separate PRs that swamp the
+# review queue.
+#
+# Reference: https://docs.github.com/en/code-security/dependabot/dependabot-version-updates/configuration-options-for-the-dependabot.yml-file
+
+version: 2
+updates:
+  # ----- Python deps (requirements.txt) ----------------------------
+  - package-ecosystem: "pip"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "06:00"
+      timezone: "Africa/Cairo"
+    open-pull-requests-limit: 5
+    labels:
+      - "deps"
+      - "python"
+    commit-message:
+      prefix: "deps(pip)"
+    groups:
+      # Bundle all minor + patch bumps for python deps into one
+      # weekly PR. Major bumps stay individual so each can be
+      # reviewed for breaking changes.
+      python-minor-patch:
+        update-types:
+          - "minor"
+          - "patch"
+
+  # ----- npm deps (package.json) -----------------------------------
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "06:00"
+      timezone: "Africa/Cairo"
+    open-pull-requests-limit: 5
+    labels:
+      - "deps"
+      - "javascript"
+    commit-message:
+      prefix: "deps(npm)"
+    groups:
+      npm-minor-patch:
+        update-types:
+          - "minor"
+          - "patch"
+    # npm pins are deliberately tight in this project (alpinejs 3.x,
+    # sweetalert2 11.x, @tailwindcss/browser v4 latest). Major bumps
+    # need manual review of API breaks (e.g. Tailwind v3 → v4 was a
+    # known migration); Dependabot opens individual PRs for them.
+    versioning-strategy: "increase"
+
+  # ----- Docker base image (Dockerfile) ----------------------------
+  # Bumps `python:3.12-slim` to newer 3.12 patch images automatically.
+  # Stays on 3.12 (won't auto-bump to 3.13) because we don't pin the
+  # Python minor version here — Dependabot's docker ecosystem only
+  # bumps within the matched tag pattern.
+  - package-ecosystem: "docker"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "06:00"
+      timezone: "Africa/Cairo"
+    open-pull-requests-limit: 3
+    labels:
+      - "deps"
+      - "docker"
+    commit-message:
+      prefix: "deps(docker)"
