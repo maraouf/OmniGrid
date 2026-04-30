@@ -1530,7 +1530,11 @@
       "asset_vendor": "Vendor (asset)",
       "asset_model": "Model (asset)",
       "asset_serial": "Serial (asset)",
-      "asset_title": "Sourced from asset inventory (matched by Custom #)"
+      "asset_title": "Sourced from asset inventory (matched by Custom #)",
+      "snmp_model": "Model (SNMP)",
+      "snmp_serial": "Serial (SNMP)",
+      "snmp_firmware": "Firmware (SNMP)",
+      "snmp_title": "Reported by the device via SNMP entPhysicalTable / vendor MIBs"
     },
     "asset": {
       "location_title": "Location (from asset inventory)",
@@ -1616,7 +1620,7 @@
     "snmp_charts": {
       "freshness": "Last sample {age} ago",
       "refreshing": "Refreshing…",
-      "warming_up": "Collecting first samples — chart will populate after the next sampler tick (~5 min). Live values show in the legend.",
+      "warming_up": "Collecting first samples — chart will populate after the next sampler tick (~{minutes} min). Live values show in the legend.",
       "cpu_title": "CPU per-core",
       "load_title": "Load avg",
       "mem_title": "Memory",
@@ -1631,7 +1635,10 @@
       "legend_mem_used": "Used",
       "legend_mem_cached": "Cached",
       "legend_mem_buffers": "Buffers",
-      "legend_mem_free": "Free"
+      "legend_mem_free": "Free",
+      "throughput_title": "Total throughput",
+      "legend_throughput_in": "In",
+      "legend_throughput_out": "Out"
     },
     "charts": {
       "cpu": "CPU %",

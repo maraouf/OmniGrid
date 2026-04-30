@@ -13075,6 +13075,60 @@ function app() {
       const vals = series.map(p => p[fieldKey] || 0);
       return this._snmpPolyPoints(vals, maxTotal);
     },
+    // #725b — derive per-tick throughput series in bytes/sec from the
+    // cumulative IF-MIB ifHCInOctets / ifHCOutOctets samples. Skip-
+    // don't-synthesize: out-of-bounds deltas (negative = counter
+    // reset / reboot, near-zero timespan, hour-plus gap, absurd byte
+    // delta) become 0 in the rendered series so a flat segment is
+    // visibly distinct from a real "host idle" zero. First point is
+    // always 0 because there's no predecessor to diff against. dir ∈
+    // {'rx', 'tx'}.
+    snmpThroughputBpsSeries(hostId, dir) {
+      const series = (this.hostSnmpHistory[hostId] || {}).points || [];
+      if (series.length < 2) return [];
+      const fieldKey = 'net_' + dir + '_total_bytes';
+      const out = new Array(series.length).fill(0);
+      for (let i = 1; i < series.length; i++) {
+        const a = series[i - 1], b = series[i];
+        const dt = (b.ts || 0) - (a.ts || 0);
+        const av = a[fieldKey], bv = b[fieldKey];
+        if (av == null || bv == null) continue;
+        if (dt < 1 || dt > 3600) continue;       // gap or doubled tick
+        const db = bv - av;
+        if (db < 0 || db > 10 * 1024 * 1024 * 1024) continue;   // wrap / reboot / 10 GB cap
+        out[i] = db / dt;
+      }
+      return out;
+    },
+    snmpThroughputLine(hostId, dir) {
+      const vals = this.snmpThroughputBpsSeries(hostId, dir);
+      if (!vals.length) return '';
+      const m = this.snmpThroughputMaxBps(hostId);
+      return this._snmpPolyPoints(vals, m || 1);
+    },
+    snmpThroughputMaxBps(hostId) {
+      const rx = this.snmpThroughputBpsSeries(hostId, 'rx');
+      const tx = this.snmpThroughputBpsSeries(hostId, 'tx');
+      let m = 0;
+      for (const v of rx) if (v > m) m = v;
+      for (const v of tx) if (v > m) m = v;
+      return m;
+    },
+    snmpThroughputLast(hostId, dir) {
+      const vals = this.snmpThroughputBpsSeries(hostId, dir);
+      for (let i = vals.length - 1; i >= 0; i--) {
+        if (vals[i] > 0) return vals[i];
+      }
+      return 0;
+    },
+    snmpHasThroughput(hostId) {
+      const series = (this.hostSnmpHistory[hostId] || {}).points || [];
+      if (series.length < 2) return false;
+      for (const p of series) {
+        if (p.net_rx_total_bytes != null || p.net_tx_total_bytes != null) return true;
+      }
+      return false;
+    },
     async loadHostHistory(systemId, hostId) {
       // Preserve whatever series we already have so the chart doesn't
       // flicker back to "Collecting data…" between range-picker
@@ -13403,7 +13457,10 @@ function app() {
       const pulse = (h.pulse_name || '').trim();
       const ne = (h.ne_url || '').trim();
       const webmin = (h.webmin_name || h.webmin_url || '').trim();
+      const snmp = (h.snmp_name || '').trim();
       const beszelLabel = beszel || beszelId;
+      const snmpEnabled = h.snmp_enabled === true && snmp;
+      const pingEnabled = h.ping_enabled === true;
 
       // Provider precedence per metric. Order matters: first match wins
       // for "what populates this for this host". NE-only metrics that
@@ -13411,12 +13468,13 @@ function app() {
       const precedence = {
         // CPU is now sampled by NE too (#402) — derived from
         // node_cpu_seconds_total deltas — so NE qualifies as a
-        // CPU provider alongside Beszel.
-        cpu:        ['beszel', 'ne'],
-        memory:     ['pulse', 'beszel', 'ne'],
+        // CPU provider alongside Beszel. SNMP fallback for managed
+        // network gear / printers / UPSes.
+        cpu:        ['beszel', 'ne', 'snmp'],
+        memory:     ['pulse', 'beszel', 'ne', 'snmp'],
         disk:       ['beszel', 'ne'],
         disk_io:    ['beszel', 'ne'],
-        load_avg:   ['beszel', 'ne'],
+        load_avg:   ['beszel', 'ne', 'snmp'],
         swap:       ['beszel'],
         // Temperature comes from Beszel only today (#437) — node-
         // exporter exposes thermal via `node_hwmon_temp_celsius` but
@@ -13424,15 +13482,25 @@ function app() {
         // to the precedence list when that work lands.
         temperature: ['beszel'],
         // Network + Bandwidth share the same upstream + the NE-fallback
-        // when both are present.
-        network:    ['beszel', 'ne'],
-        bandwidth:  ['beszel', 'ne'],
+        // when both are present. SNMP throughput chart (#725b) reads
+        // ifHCInOctets / ifHCOutOctets from the device itself.
+        network:    ['beszel', 'ne', 'snmp'],
+        bandwidth:  ['beszel', 'ne', 'snmp'],
+        // SNMP-only metrics — switch / router / printer kit.
+        snmp_throughput: ['snmp'],
+        snmp_cpu:    ['snmp'],
+        snmp_memory: ['snmp'],
+        snmp_load:   ['snmp'],
+        // Ping is its own thing — TCP / ICMP probe per host.
+        ping:        ['ping'],
       };
       const providers = {
         beszel: beszelLabel ? `Beszel agent (${beszelLabel})` : '',
         pulse:  pulse       ? `Pulse (${pulse})`              : '',
         ne:     ne          ? `node-exporter (${ne})`         : '',
         webmin: webmin      ? `Webmin (${webmin})`            : '',
+        snmp:   snmpEnabled ? `SNMP (${snmp})`                : '',
+        ping:   pingEnabled ? `Ping probe (this host)`        : '',
       };
 
       const order = precedence[key] || ['beszel', 'pulse', 'ne', 'webmin'];
