@@ -4772,9 +4772,19 @@
                   :class="hasHostStatsSource('snmp') ? 'pill-ok' : 'pill-muted'"
                   x-text="hasHostStatsSource('snmp') ? t('settings.host_stats.tab_enabled') : t('settings.host_stats.tab_disabled')"></span>
           </div>
-          <p x-show="!settings.snmp_has_snmp_support"
-             class="text-[10.5px] text-[var(--warning)]"
-             x-text="t('settings.host_stats.snmp.unavailable')"></p>
+          <!-- #644 — when pysnmp doesn't import cleanly the SPA shows
+               BOTH the generic "package not installed" hint AND the
+               actual ImportError text from the server. Operators don't
+               have to grep server logs to figure out which symbol or
+               module path is missing — the inline error pinpoints it.
+               import_error stays empty when the import succeeds. -->
+          <div x-show="!settings.snmp_has_snmp_support" class="space-y-1">
+            <p class="text-[10.5px] text-[var(--warning)]"
+               x-text="t('settings.host_stats.snmp.unavailable')"></p>
+            <p x-show="settings.snmp_import_error"
+               class="text-[10.5px] mono text-[var(--text-faint)] break-all"
+               x-text="t('settings.host_stats.snmp.import_error_label', { error: settings.snmp_import_error })"></p>
+          </div>
           <p class="text-[10.5px] text-[var(--text-faint)]"
              x-text="t('settings.host_stats.snmp.section_desc')"></p>
 

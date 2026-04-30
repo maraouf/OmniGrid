@@ -950,7 +950,14 @@ function app() {
     hostStatsTab: (() => {
       try {
         const v = localStorage.getItem('hostStatsTab');
-        if (v && ['node_exporter', 'beszel', 'pulse', 'webmin', 'ping'].includes(v)) return v;
+        // #645 — `'snmp'` was missing from the init-time whitelist when
+        // the SNMP provider landed (#344), so any operator who picked
+        // the SNMP tab got reset to `'beszel'` on every refresh
+        // (the setter wrote `'snmp'` correctly, but the IIFE filtered
+        // it out on the next page load and fell through to the
+        // default). Whitelist now matches `setHostStatsTab`'s own
+        // valid set so the persisted tab actually persists.
+        if (v && ['node_exporter', 'beszel', 'pulse', 'webmin', 'ping', 'snmp'].includes(v)) return v;
       } catch {}
       return 'beszel';
     })(),
@@ -4743,6 +4750,12 @@ function app() {
           snmp_aliases:           (d.snmp && d.snmp.aliases) || {},
           snmp_aliases_json:      JSON.stringify((d.snmp && d.snmp.aliases) || {}, null, 2),
           snmp_has_snmp_support:  !!(d.snmp && d.snmp.has_snmp_support),
+          // #644 — actual ImportError text from logic/snmp.py's module-
+          // level pysnmp import block. Empty when pysnmp imported
+          // cleanly. Surfaced inline in the SPA's "package missing"
+          // hint so operators see the ROOT CAUSE without grepping
+          // server logs.
+          snmp_import_error:      (d.snmp && d.snmp.import_error) || '',
           // #596 — per-provider chip colour overrides. Empty string
           // means "use the SPA default" (see providerColor() helper).
           provider_color_beszel:        d.provider_color_beszel        || '',
