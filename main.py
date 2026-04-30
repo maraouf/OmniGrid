@@ -4459,11 +4459,23 @@ def _load_hosts_config() -> list[dict]:
 def _clean_host_ssh(raw: Any) -> dict:
     """Normalise the per-host ``ssh`` sub-dict.
 
-    Accepts only the four keys that make sense at V1 (``user`` / ``port``
-    / ``disabled`` / ``host``) and coerces their types. Unknown keys
-    are dropped so a malformed import can't smuggle arbitrary fields
-    into the persisted JSON. Empty → empty dict, which the SSH module
-    treats as "use global defaults".
+    Accepts only the keys that make sense at V1 (``user`` / ``port``
+    / ``host`` / ``fqdn`` / ``password`` / ``enabled``) and coerces
+    their types. Unknown keys are dropped so a malformed import can't
+    smuggle arbitrary fields into the persisted JSON. Empty → empty
+    dict, which the SSH module treats as "host opted OUT of SSH"
+    under the post-#622 opt-in semantics.
+
+    Pre-#622 the gate field was ``disabled`` (off-when-set, default =
+    inherit global). Post-#622 it's ``enabled`` (on-when-set, default
+    = host is OFF). Inputs with the legacy ``disabled`` key are
+    silently dropped here — the client-side ``norm()`` in
+    `static/js/app.js` already converts old-shape backups at import
+    time, and the schema migration in ``logic/migrations.py`` rewrites
+    every existing DB row, so by the time data reaches this validator
+    it should always be the new shape. Defensive: if a stray legacy
+    POST arrives with ``disabled: false``, we treat it as the
+    pre-flip "implicitly enabled" intent and write ``enabled: true``.
     """
     if not isinstance(raw, dict):
         return {}
@@ -4497,8 +4509,15 @@ def _clean_host_ssh(raw: Any) -> dict:
     password = str(raw.get("password") or "")
     if password:
         out["password"] = password
-    if bool(raw.get("disabled")):
-        out["disabled"] = True
+    # New `enabled` flag (#622). Defensive legacy fallback: if a
+    # caller still sends `disabled: false` (pre-flip "implicitly on"
+    # intent) and no explicit `enabled`, write `enabled: true`. Anything
+    # else (legacy `disabled: true`, no flags at all) stays empty so
+    # the host inherits the new "OFF until opted in" default.
+    if bool(raw.get("enabled")):
+        out["enabled"] = True
+    elif "disabled" in raw and not bool(raw["disabled"]):
+        out["enabled"] = True
     return out
 
 
