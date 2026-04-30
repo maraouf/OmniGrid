@@ -32,6 +32,13 @@ WORKDIR /app
 #       && apt-get purge -y build-essential libffi-dev libssl-dev \
 #       && apt-get autoremove -y && rm -rf /var/lib/apt/lists/*
 COPY requirements.txt /app/requirements.txt
+# Always upgrade to the latest pip available at build time. A pip
+# release that breaks resolution would surface immediately as a failed
+# `docker build` step in CI — the deploy.yml verification gates
+# (build → stack-deploy → /api/version match → Apprise) catch it
+# before any bad image rolls onto Swarm, so unpinned is safe here.
+# If you ever need to pin (e.g. reproducing an exact historic image),
+# replace `pip` with `pip==<version>` on the upgrade line.
 RUN pip install --upgrade pip \
  && pip install -r /app/requirements.txt
 
@@ -46,7 +53,7 @@ RUN echo "$VERSION" > /app/VERSION.txt
 
 LABEL org.opencontainers.image.title="OmniGrid" \
       org.opencontainers.image.version="$VERSION" \
-      org.opencontainers.image.source="https://git.www.home.lan/m.a.raouf/OmniGrid" \
+      org.opencontainers.image.source="https://git.example.com/<owner>/OmniGrid" \
       org.opencontainers.image.description="Portainer-native update + management dashboard for Docker Swarm"
 
 EXPOSE 8088

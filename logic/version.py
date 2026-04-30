@@ -1,16 +1,23 @@
-"""App version reading + writing.
+"""App version reading.
 
-The single source of truth is ``/app/VERSION.txt`` on the server. The
-deployment pipeline bumps PATCH on every successful deploy. The
-Admin → Version UI also writes the same file directly when the
-operator wants to reset PATCH after cutting a MINOR release. Both
-writers (CI + UI) target the same path; whoever writes last wins.
+The runtime source of truth is ``/app/VERSION.txt`` baked into the
+image at build time via the Dockerfile's ``ARG VERSION``. The
+deployment pipeline overrides VERSION on every successful build
+(deploy.yml computes MAX(live /api/version, repo VERSION.txt, highest
+local image tag) + 1 PATCH). For local dev, the repo-root
+``VERSION.txt`` is used as a fallback. Missing file → ``"0.0.0-dev"``
+as a visible signal.
 
-For local dev, the repo-root ``VERSION.txt`` is used. Missing file →
-``"0.0.0-dev"`` as a visible signal.
+Pre-2026-04-30 this module also exposed ``write_version`` for the
+Admin → Version page. Both were removed alongside the deploy migration
+to image-build (#606): the per-file bind mount that made writes
+durable no longer exists, so any container-side write would land in
+the overlay layer and disappear on the next ``service update --force``.
+Operators now seed MAJOR/MINOR by editing repo-root ``VERSION.txt``,
+committing, and pushing — deploy.yml's source-B resolver picks it up.
 
 Rendered in the UI footer and returned by GET /api/version /
-GET /api/healthz / GET /api/admin/version.
+GET /api/healthz.
 """
 import os
 from typing import Tuple
@@ -22,7 +29,8 @@ def _candidate_paths() -> Tuple[str, ...]:
         # Dev: repo-root VERSION.txt, relative to the project (logic/
         # version.py sits inside logic/ which sits at the repo root).
         os.path.join(os.path.dirname(os.path.dirname(__file__)), "VERSION.txt"),
-        # Prod: bind-mounted file the CI pipeline writes on every deploy.
+        # Prod: file baked into the image at build time via Dockerfile's
+        # ARG VERSION + `RUN echo "$VERSION" > /app/VERSION.txt`.
         "/app/VERSION.txt",
     )
 
@@ -30,8 +38,8 @@ def _candidate_paths() -> Tuple[str, ...]:
 def _read_version_file() -> str:
     """Read the raw ``VERSION.txt`` content.
 
-    Tries the dev-side repo-root file first, falls back to the prod
-    bind-mounted path. Returns ``"0.0.0-dev"`` when nothing's readable.
+    Tries the dev-side repo-root file first, falls back to the
+    image-baked path. Returns ``"0.0.0-dev"`` when nothing's readable.
     """
     for p in _candidate_paths():
         try:
@@ -60,31 +68,6 @@ def _split_version(raw: str) -> Tuple[int, int, int]:
     while len(nums) < 3:
         nums.append(0)
     return nums[0], nums[1], nums[2]
-
-
-def write_version(major: int, minor: int, patch: int) -> str:
-    """Overwrite the first writable VERSION.txt with ``M.N.P``.
-
-    Open-and-truncate (``open(path, "w")``) keeps the existing inode
-    and ownership intact, so the deploy pipeline's pi-user SSH writes
-    can still update the file after a container-side write. Returns
-    the value written. Raises ``OSError`` (the last seen error) when
-    none of the candidate paths is writable — a missing writable
-    bind-mount in compose surfaces here as ``Read-only file system``
-    or ``Permission denied``, which the API caller propagates to the
-    UI as a save-failed toast.
-    """
-    raw = f"{int(major)}.{int(minor)}.{int(patch)}"
-    last_err: Exception = OSError("no candidate paths")
-    for p in _candidate_paths():
-        try:
-            with open(p, "w", encoding="utf-8") as f:
-                f.write(raw + "\n")
-            return raw
-        except OSError as e:
-            last_err = e
-            continue
-    raise last_err
 
 
 def read_version() -> str:

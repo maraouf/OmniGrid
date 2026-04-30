@@ -411,22 +411,19 @@ curl -sS -H "Authorization: Bearer $TOKEN" -X POST \
 The upstream contract is documented in [`api_services.md`](api_services.md). Configure the
 token in **Admin → Asset inventory** before calling `refresh`.
 
-### Version (admin)
+### Version
 
 ```bash
-# Current MAJOR / MINOR / PATCH
-curl -sS -H "Authorization: Bearer $TOKEN" \
-  https://omnigrid.example.com/api/admin/version | jq
-
-# Direct VERSION.txt write (used by the Admin → Version page)
-curl -sS -H "Authorization: Bearer $TOKEN" -X POST \
-  -H 'Content-Type: application/json' \
-  -d '{"major":1,"minor":2,"patch":0}' \
-  https://omnigrid.example.com/api/admin/version | jq
+# Current MAJOR.MINOR.PATCH (public — no auth required)
+curl -sS https://omnigrid.example.com/api/version | jq
 ```
 
-The compose file layers a writable per-file bind for `VERSION.txt`; without it, POST returns
-a 500 with operator-actionable detail. See `docs/RELEASE_PROCESS.md`.
+The `/api/admin/version` endpoint and Admin → Version UI page were removed in 2026-04-30
+alongside the deploy migration to image-build (#606). Versions are now baked into the image
+at build time via the Dockerfile's `ARG VERSION`; durable MAJOR/MINOR seeds are done by
+editing the repo-root `VERSION.txt`, committing, and pushing — `deploy.yml`'s version
+resolver picks it up as the floor for the next PATCH bump. See `docs/RELEASE_PROCESS.md`
+for the full operator workflow.
 
 ### Probe-style "does my settings work?" endpoints
 

@@ -595,7 +595,6 @@
       "backups": "Backups",
       "logs": "Logs",
       "config": "Config",
-      "version": "Version",
       "debug": "Debug"
     },
     "general": {
@@ -786,21 +785,6 @@
     "debug": {
       "title": "Debug & diagnostics",
       "intro": "Admin-wide switches for the \"show me internals\" affordances scattered across the SPA. Every toggle here persists on change — no Save button."
-    },
-    "version": {
-      "title": "App version",
-      "intro": "Edit the live version. Save writes <code>VERSION.txt</code> directly.",
-      "live_label": "Currently rendering as",
-      "major_label": "MAJOR",
-      "minor_label": "MINOR",
-      "patch_label": "PATCH",
-      "patch_hint": "Managed by the deployment pipeline.",
-      "save": "Save",
-      "unsaved": "Unsaved",
-      "saved_toast": "Version saved as {version}",
-      "load_failed": "Failed to load version: {error}",
-      "save_failed": "Failed to save version: {error}",
-      "cadence_note": "The deployment pipeline bumps PATCH by 1 on every successful deploy. Reset PATCH here when cutting a MINOR release."
     },
     "logs": {
       "title": "Application logs",
