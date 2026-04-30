@@ -167,6 +167,16 @@ TUNABLES: dict[str, tuple[str, int, int, int]] = {
     "tuning_ping_concurrency":           ("PING_CONCURRENCY", 16, 1, 128),
     "tuning_ping_probe_timeout_seconds": ("PING_PROBE_TIMEOUT_SECONDS", 2, 1, 30),
     "tuning_ping_cooldown_seconds":      ("PING_COOLDOWN_SECONDS", 300, 30, 3600),
+    # #344 — SNMP host-stats provider knobs. Two operator-tunable
+    # values: the per-probe wall-clock timeout (UDP retransmits live
+    # under this budget) and the fan-out concurrency cap that bounds
+    # how many parallel SNMP probes the gather + per-host-merge paths
+    # run in one tick. Cool-down on consecutive timeouts shares the
+    # auth-failure cool-down knob (no separate "credential lockout"
+    # surface for SNMP — the cool-down purely throttles probes against
+    # an unreachable host, same purpose as the auth one).
+    "tuning_snmp_probe_timeout_seconds": ("SNMP_PROBE_TIMEOUT_SECONDS", 5, 1, 60),
+    "tuning_snmp_concurrency":           ("SNMP_CONCURRENCY", 16, 1, 128),
 }
 
 

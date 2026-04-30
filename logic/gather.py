@@ -876,6 +876,89 @@ async def _gather_impl() -> None:
                 if _provider_returned_data(stats):
                     nodes_info[host].setdefault("_providers", []).append("pulse")
 
+        # SNMP (#344) — sixth provider. Per-host probe (no central hub).
+        # Slots BETWEEN Pulse and Beszel in the merge order: SNMP carries
+        # coarser data than Beszel/NE/Webmin (no per-mount disk on most
+        # embedded gear, no kernel/arch reporting, only standard MIB-II
+        # + Host Resources MIB), so the unix-style providers should win
+        # on hosts where they ALSO have data. SNMP's value is on
+        # devices that none of the others can reach: managed switches,
+        # routers, UPSes, network printers. Resolution order mirrors
+        # Webmin: per-host alias from `snmp_aliases` → curated row's
+        # `snmp_name` → bare Docker hostname. Per-host overrides on
+        # `hosts_config[].snmp` (community / version / port / v3 keys)
+        # win over the global defaults.
+        if "snmp" in active_sources and df_hosts:
+            from logic import snmp as _snmp
+            default_community = get_setting("snmp_default_community", "") or "public"
+            default_version = (get_setting("snmp_default_version", "") or "v2c").strip().lower()
+            try:
+                default_port = int(get_setting("snmp_default_port", "") or "161")
+            except (TypeError, ValueError):
+                default_port = 161
+            v3_user = get_setting("snmp_v3_user", "") or ""
+            v3_auth_key = get_setting("snmp_v3_auth_key", "") or ""
+            v3_priv_key = get_setting("snmp_v3_priv_key", "") or ""
+            try:
+                snmp_aliases_raw = json.loads(get_setting("snmp_aliases", "{}") or "{}")
+                if not isinstance(snmp_aliases_raw, dict):
+                    snmp_aliases_raw = {}
+            except ValueError:
+                snmp_aliases_raw = {}
+            snmp_hosts_cfg = _load_hosts_config_for_gather()
+
+            async def _one_snmp(h: str):
+                row = _match_hosts_row(h, snmp_hosts_cfg)
+                # Per-host override block (community / version / port /
+                # v3 keys). Falls back to globals on a per-key basis so
+                # operators can override JUST the community on one host.
+                row_snmp = (row.get("snmp") if row and isinstance(row.get("snmp"), dict)
+                            else {})
+                target_host = (
+                    snmp_aliases_raw.get(h)
+                    or (row.get("snmp_name") if row else "")
+                    or h
+                )
+                target_host = (target_host or "").strip()
+                if not target_host:
+                    return h, None
+                community = (row_snmp.get("community") or "").strip() or default_community
+                version = (row_snmp.get("version") or "").strip().lower() or default_version
+                try:
+                    port = int(row_snmp.get("port") or default_port)
+                except (TypeError, ValueError):
+                    port = default_port
+                row_v3_user = (row_snmp.get("v3_user") or "").strip() or v3_user
+                row_v3_auth = (row_snmp.get("v3_auth_key") or "").strip() or v3_auth_key
+                row_v3_priv = (row_snmp.get("v3_priv_key") or "").strip() or v3_priv_key
+                result = await _snmp.probe_snmp(
+                    target_host,
+                    community=community,
+                    version=version,
+                    port=port,
+                    v3_user=row_v3_user,
+                    v3_auth_key=row_v3_auth,
+                    v3_priv_key=row_v3_priv,
+                    active_sources=active_sources,
+                )
+                if result.get("error") and not result.get("hosts"):
+                    return h, {"exporter_error": f"snmp: {result['error']}"}
+                hosts_map = result.get("hosts") or {}
+                if not hosts_map:
+                    return h, None
+                stats = next(iter(hosts_map.values()))
+                return h, stats
+
+            snmp_results = await asyncio.gather(*(
+                _one_snmp(h) for h in df_hosts
+            ), return_exceptions=False)
+            for host, stats in snmp_results:
+                if host not in nodes_info or not stats:
+                    continue
+                _merge_best(nodes_info[host], stats)
+                if _provider_returned_data(stats):
+                    nodes_info[host].setdefault("_providers", []).append("snmp")
+
         # node-exporter runs AFTER beszel + pulse when enabled, so its
         # richer Linux-native fields (per-mount disks via node_filesystem_*,
         # NIC list via node_network_info, detailed kernel / arch from

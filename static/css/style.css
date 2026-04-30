@@ -159,6 +159,12 @@
     --log-tag-backup:           #84cc16;
     --log-tag-stats:            #60a5fa;
     --log-tag-deploy:           #fbbf24;
+    /* #344 — SNMP host-stats provider. Distinct hot-pink to keep it
+       separate from SSH (which uses pink at #ec4899) and the chip
+       colour token (also pink #ec4899). Operators see SNMP log noise
+       most often during initial provisioning; a sharp colour helps
+       them grep visually when many providers log on the same tick. */
+    --log-tag-snmp:             #f43f5e;
 
     /* Per-segment disk palette — Hosts drawer renders mounts as
        coloured stripes. Six distinct hues + a fallback. Tokens
@@ -230,13 +236,21 @@
                      inline on .chip.pill-custom from the operator-
                      configured provider colour via color-mix; also
                      reusable by any future component that wants
-                     dynamic-colour chips. */
+                     dynamic-colour chips.
+         --provider-icon-url / --provider-icon-size
+                     mono provider icon painted via CSS mask-image
+                     on `.provider-icon` (#607). URL points at the
+                     SVG file; size defaults to 14px square. Reusable
+                     by any future component that wants a recolourable
+                     mono SVG glyph. */
     --w: 0%;
     --c: var(--success);
     --avatar-hue: 210;
     --chip-bg: var(--surface-2);
     --chip-br: var(--border);
     --chip-fg: var(--text-dim);
+    --provider-icon-url: none;
+    --provider-icon-size: 14px;
 
     /* Column widths */
     --col-checkbox: 32px;
@@ -356,6 +370,8 @@
     --log-tag-backup:           #4d7c0f;
     --log-tag-stats:            #2563eb;
     --log-tag-deploy:           #b45309;
+    /* #344 — SNMP. Darker rose for AA contrast on the light surface. */
+    --log-tag-snmp:             #be123c;
 
     /* Per-segment disk palette — light-theme variants. Same darker
        hues so coloured stripes are legible against the light
@@ -1082,6 +1098,33 @@ button:disabled {
     background: var(--chip-bg);
     color: var(--chip-fg);
     border-color: var(--chip-br);
+}
+
+/* Provider icon — mono SVG painted in the per-provider chip colour
+ * via CSS mask-image (#607). Used in (a) Settings → Providers tab
+ * strip next to each tab label, (b) the Hosts row provider chip
+ * strip floating right of the host name. The SVG file's fill /
+ * stroke don't matter — mask-image uses ALPHA only, so we get a
+ * mono silhouette painted in `currentColor`. Set `--provider-icon-url`
+ * inline per element (`:style="--provider-icon-url: url(/img/icons/<slug>.svg)"`)
+ * AND `color: <provider-colour>` on the same element (or its ancestor)
+ * so the silhouette picks up the operator-customised hue from
+ * `providerColor()` (#596). Size defaults to 14px square; override
+ * via `--provider-icon-size`. */
+.provider-icon {
+    display: inline-block;
+    flex-shrink: 0;
+    width: var(--provider-icon-size, 14px);
+    height: var(--provider-icon-size, 14px);
+    background-color: currentColor;
+    -webkit-mask-image: var(--provider-icon-url);
+    mask-image: var(--provider-icon-url);
+    -webkit-mask-size: contain;
+    mask-size: contain;
+    -webkit-mask-repeat: no-repeat;
+    mask-repeat: no-repeat;
+    -webkit-mask-position: center;
+    mask-position: center;
 }
 
 /* ---------------------------------------------------------------------------
@@ -1907,6 +1950,7 @@ details summary::-webkit-details-marker {
 .log-tag--stats        { color: var(--log-tag-stats);            background: color-mix(in srgb, var(--log-tag-stats) 14%, transparent); }
 .log-tag--deploy,
 .log-tag--version      { color: var(--log-tag-deploy);           background: color-mix(in srgb, var(--log-tag-deploy) 14%, transparent); }
+.log-tag--snmp         { color: var(--log-tag-snmp);             background: color-mix(in srgb, var(--log-tag-snmp) 14%, transparent); }
 
 
 /* Loading spinner for host rows whose /api/hosts/one/{id} probe is
