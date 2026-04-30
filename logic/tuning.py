@@ -184,6 +184,17 @@ TUNABLES: dict[str, tuple[str, int, int, int]] = {
     # per-host probe cache (success and fail) gets its OWN dial.
     "tuning_snmp_host_cache_ttl_seconds":      ("SNMP_HOST_CACHE_TTL_SECONDS", 30, 5, 300),
     "tuning_snmp_host_fail_cache_ttl_seconds": ("SNMP_HOST_FAIL_CACHE_TTL_SECONDS", 5, 1, 60),
+    # #678 — dedicated SNMP unreachable-cool-down dial. Pre-#678
+    # SNMP shared `tuning_auth_failure_cooldown_seconds` with Webmin
+    # / SSH (which makes sense for credential lockout but is the wrong
+    # semantic for SNMP — there's no auth challenge to lock out
+    # against). Operators debugging "SNMP timing out" reach for the
+    # AUTH knob and get confused. Default = 300s (parity with the
+    # legacy auth-cooldown default), so behaviour stays unchanged on
+    # first deploy; existing deployments that bumped the auth knob
+    # for SNMP keep their behaviour until they explicitly tune this
+    # one. Range 30..3600.
+    "tuning_snmp_unreachable_cooldown_seconds": ("SNMP_UNREACHABLE_COOLDOWN_SECONDS", 300, 30, 3600),
 }
 
 

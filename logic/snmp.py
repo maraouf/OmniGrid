@@ -88,21 +88,59 @@ import time
 from typing import Optional
 
 # Cool-down on consecutive timeouts. Different lever than the Webmin /
-# SSH 401 cool-down (no auth challenge in SNMP) — we share the auth-
-# failure cool-down knob anyway so operators have one tunable for all
-# "host probably wedged, back off" decisions. Per-(host, port) key.
+# SSH 401 cool-down (no auth challenge in SNMP — there's no credential
+# lockout to defend against). Pre-#678 we shared
+# `tuning_auth_failure_cooldown_seconds` with Webmin / SSH; operators
+# debugging "SNMP timing out" reached for the wrong knob. Now uses a
+# dedicated `tuning_snmp_unreachable_cooldown_seconds` (default 300s,
+# range 30..3600). Per-(host, port) key.
 from logic.cooldown import Cooldown as _Cooldown
 from logic import tuning as _tuning
 _unreachable_cooldown = _Cooldown(
-    seconds_fn=lambda: _tuning.tuning_int("tuning_auth_failure_cooldown_seconds")
+    seconds_fn=lambda: _tuning.tuning_int("tuning_snmp_unreachable_cooldown_seconds")
 )
+
+# #671 — module-level SnmpEngine singleton. pysnmp HLAPI engines carry
+# per-engine state (USM key cache, message-id state); allocating one
+# fresh per probe wasted ~2-3 ms × N concurrent × every gather cadence.
+# Lazy-init under an asyncio.Lock so the first concurrent burst doesn't
+# race two allocations. Reused across every `probe_snmp` call. We
+# don't close the engine explicitly — pysnmp's HLAPI doesn't expose a
+# clean shutdown path, and lifespan teardown drops the process anyway.
+import asyncio as _asyncio_for_engine_lock
+_engine_singleton = None
+_engine_lock = _asyncio_for_engine_lock.Lock()
+
+
+async def _get_snmp_engine():
+    global _engine_singleton
+    if _engine_singleton is not None:
+        return _engine_singleton
+    async with _engine_lock:
+        if _engine_singleton is None:
+            _engine_singleton = SnmpEngine()
+    return _engine_singleton
 
 
 # Standard OIDs we walk. Kept as constants so the extractor branches
 # are obvious and a future MIB extension is one line.
 _OID_SYS_DESCR     = "1.3.6.1.2.1.1.1.0"
 _OID_SYS_UPTIME    = "1.3.6.1.2.1.1.3.0"
+_OID_SYS_CONTACT   = "1.3.6.1.2.1.1.4.0"
 _OID_SYS_NAME      = "1.3.6.1.2.1.1.5.0"
+_OID_SYS_LOCATION  = "1.3.6.1.2.1.1.6.0"
+# #681 — ENTITY-MIB physical-component table. Vendor-agnostic surface
+# for model name / serial number / firmware version on enterprise gear
+# (Cisco / Dell iDRAC / HP / Juniper / etc.) that doesn't necessarily
+# implement Host Resources MIB. Walk by sub-tree so we get every
+# physical entry (chassis, slot, supply, fan, port). Most agents put
+# the chassis-level info at index 1.
+_OID_ENT_DESCR        = "1.3.6.1.2.1.47.1.1.1.1.2"
+_OID_ENT_NAME         = "1.3.6.1.2.1.47.1.1.1.1.7"
+_OID_ENT_SOFTWARE_REV = "1.3.6.1.2.1.47.1.1.1.1.10"
+_OID_ENT_SERIAL_NUM   = "1.3.6.1.2.1.47.1.1.1.1.11"
+_OID_ENT_MODEL_NAME   = "1.3.6.1.2.1.47.1.1.1.1.13"
+_OID_ENT_PHYS_CLASS   = "1.3.6.1.2.1.47.1.1.1.1.5"
 _OID_HR_STORAGE_TYPE  = "1.3.6.1.2.1.25.2.3.1.2"
 _OID_HR_STORAGE_DESC  = "1.3.6.1.2.1.25.2.3.1.3"
 _OID_HR_STORAGE_UNIT  = "1.3.6.1.2.1.25.2.3.1.4"
@@ -458,11 +496,15 @@ def _last_index(oid_full: str, base: str) -> str:
 # future pytest suite can add fixture-based regression tests cheaply.
 # ---------------------------------------------------------------------
 def extract_sys_info(get_result: dict) -> dict:
-    """Shape sysName / sysDescr / sysUpTime into host_* fields."""
+    """Shape sysName / sysDescr / sysUpTime / sysContact / sysLocation
+    into host_* fields. #681 added contact + location alongside the
+    pre-existing system info."""
     out: dict = {}
     name = _coerce_str(get_result.get(_OID_SYS_NAME))
     descr = _coerce_str(get_result.get(_OID_SYS_DESCR))
     up_ticks = _coerce_int(get_result.get(_OID_SYS_UPTIME))
+    contact = _coerce_str(get_result.get(_OID_SYS_CONTACT))
+    location = _coerce_str(get_result.get(_OID_SYS_LOCATION))
     if name:
         out["host_hostname"] = name
     if descr:
@@ -487,6 +529,46 @@ def extract_sys_info(get_result: dict) -> dict:
         out["host_uptime_s"] = uptime_s
         if uptime_s > 0:
             out["host_boot_ts"] = float(time.time() - uptime_s)
+    # #681 — sysContact / sysLocation are operator-set on most managed
+    # gear; expose them as host_* fields so the drawer can surface
+    # "owned by ops@example.com" / "rack 12 / shelf 4" hints.
+    if contact:
+        out["host_contact"] = contact
+    if location:
+        out["host_location"] = location
+    return out
+
+
+def extract_entity_info(walk_results: dict) -> dict:
+    """#681 — Shape ENTITY-MIB walks into host_model / host_serial /
+    host_firmware. Picks the FIRST non-empty value across every walked
+    physical-entry index (chassis-level info typically lives at
+    entPhysicalIndex=1, but the entry can be deeper on stackable
+    switches). Caller passes a dict of the parsed walks keyed by
+    'descr' / 'name' / 'serial' / 'model' / 'firmware' / 'class'.
+    """
+    out: dict = {}
+    descrs   = walk_results.get("descr") or {}
+    names    = walk_results.get("name") or {}
+    serials  = walk_results.get("serial") or {}
+    models   = walk_results.get("model") or {}
+    firmwares = walk_results.get("firmware") or {}
+
+    def _first_nonempty(walk: dict) -> str:
+        for _, v in walk.items():
+            s = _coerce_str(v).strip()
+            if s:
+                return s
+        return ""
+    model = _first_nonempty(models) or _first_nonempty(names) or _first_nonempty(descrs)
+    serial = _first_nonempty(serials)
+    firmware = _first_nonempty(firmwares)
+    if model:
+        out["host_model"] = model
+    if serial:
+        out["host_serial"] = serial
+    if firmware:
+        out["host_firmware"] = firmware
     return out
 
 
@@ -662,6 +744,7 @@ def extract_stats(
     storage_walks: dict,
     iface_walks: dict,
     active_sources: Optional[set[str]] = None,
+    entity_walks: Optional[dict] = None,
 ) -> dict:
     """Compose every per-section extractor into one host_* dict.
 
@@ -673,6 +756,11 @@ def extract_stats(
 
     ``active_sources`` is honoured to suppress fields a richer provider
     would emit better — same pattern as Webmin.
+
+    ``entity_walks`` (#681) — optional dict of ENTITY-MIB sub-walks
+    (``descr`` / ``name`` / ``serial`` / ``model`` / ``firmware``) for
+    devices that don't expose Host Resources MIB but DO carry vendor
+    identification under entPhysicalEntry.
     """
     stats: dict = {}
     stats.update(extract_sys_info(sys_get))
@@ -692,6 +780,10 @@ def extract_stats(
         iface_walks.get("in_32") or {},
         iface_walks.get("out_32") or {},
     ))
+    # #681 — ENTITY-MIB pass. Vendor-agnostic; emits host_model /
+    # host_serial / host_firmware when the agent answers.
+    if entity_walks:
+        stats.update(extract_entity_info(entity_walks))
     # When a richer provider is active for this host AND likely to
     # report a more accurate CPU/memory snapshot, drop SNMP's coarser
     # values. SNMP CPU% in particular is often a 5-second average that
@@ -714,6 +806,7 @@ async def probe_snmp(
     v3_priv_key: str = "",
     timeout: float = 5.0,
     active_sources: Optional[set[str]] = None,
+    verbose: bool = False,
 ) -> dict:
     """Probe one SNMP-speaking host. See module docstring for the contract.
 
@@ -725,6 +818,13 @@ async def probe_snmp(
     ``sysName.0`` (falling back to the supplied host string when sysName
     isn't readable — common on appliances that disable SNMP system
     naming).
+
+    ``verbose`` (#675) — when True, the response also carries a ``raw``
+    sub-dict with the parsed system / cpu / storage / interface walks
+    (string-keyed pretty-print so the operator can see WHICH OIDs the
+    agent answered). Used by the host-drawer debug panel — left OFF on
+    the hot gather + per-host probe paths so we don't carry the extra
+    bytes through the merge / cache layers.
     """
     if not _HAS_SNMP:
         return {
@@ -763,11 +863,15 @@ async def probe_snmp(
                      f"snmp_v3_user or fall back to v2c",
         }
 
-    engine = SnmpEngine()
+    # #671 — reuse the module-level SnmpEngine singleton instead of
+    # allocating a fresh one per probe.
+    engine = await _get_snmp_engine()
     try:
         target = await UdpTransportTarget.create(
             (host_clean, port_int), timeout=timeout, retries=1,
         )
+    except (asyncio.CancelledError, KeyboardInterrupt):
+        raise
     except Exception as e:
         return {"hosts": {}, "error": f"snmp: transport setup failed: {e}"}
 
@@ -778,8 +882,12 @@ async def probe_snmp(
     # `bulkCmd` call carries its own request ID.
     # ----------------------------------------------------------------
     try:
+        # #681 — sys GET expanded with sysContact + sysLocation; new
+        # ENTITY-MIB walks added so device model / serial / firmware
+        # come back even on agents that don't expose Host Resources MIB.
         sys_task = _snmp_get(engine, auth, target, [
             _OID_SYS_NAME, _OID_SYS_DESCR, _OID_SYS_UPTIME,
+            _OID_SYS_CONTACT, _OID_SYS_LOCATION,
         ])
         cpu_task = _snmp_walk(engine, auth, target, _OID_HR_CPU_LOAD)
         st_type_task = _snmp_walk(engine, auth, target, _OID_HR_STORAGE_TYPE)
@@ -793,6 +901,13 @@ async def probe_snmp(
         if_hc_out_task = _snmp_walk(engine, auth, target, _OID_IF_HC_OUT_OCTETS)
         if_in_task = _snmp_walk(engine, auth, target, _OID_IF_IN_OCTETS_32)
         if_out_task = _snmp_walk(engine, auth, target, _OID_IF_OUT_OCTETS_32)
+        # #681 — ENTITY-MIB physical-component walks. Vendor-agnostic
+        # source for model name / serial / firmware on enterprise gear.
+        ent_descr_task = _snmp_walk(engine, auth, target, _OID_ENT_DESCR)
+        ent_name_task = _snmp_walk(engine, auth, target, _OID_ENT_NAME)
+        ent_serial_task = _snmp_walk(engine, auth, target, _OID_ENT_SERIAL_NUM)
+        ent_model_task = _snmp_walk(engine, auth, target, _OID_ENT_MODEL_NAME)
+        ent_fw_task = _snmp_walk(engine, auth, target, _OID_ENT_SOFTWARE_REV)
 
         # #658 — wrap the gather in wait_for so the TimeoutError catch
         # becomes reachable (asyncio.gather alone can't raise TimeoutError
@@ -807,6 +922,8 @@ async def probe_snmp(
             if_descr_task, if_oper_task,
             if_hc_in_task, if_hc_out_task,
             if_in_task, if_out_task,
+            ent_descr_task, ent_name_task, ent_serial_task,
+            ent_model_task, ent_fw_task,
             return_exceptions=False,
         ), timeout=wall_clock_budget)
     except asyncio.TimeoutError:
@@ -820,9 +937,14 @@ async def probe_snmp(
     (sys_get, cpu_walk,
      st_type, st_desc, st_unit, st_size, st_used,
      if_descr, if_oper,
-     if_hc_in, if_hc_out, if_in, if_out) = results
+     if_hc_in, if_hc_out, if_in, if_out,
+     ent_descr, ent_name, ent_serial, ent_model, ent_fw) = results
 
-    if not (sys_get or cpu_walk or st_size or if_descr):
+    # #681 — entity walks count toward the "any data" gate so a switch
+    # that answers ONLY entPhysicalSerialNum (no sysDescr / no ifTable)
+    # still passes the cool-down clear. ENTITY-MIB-only is a real
+    # config — some agents are locked down to Entity-MIB only.
+    if not (sys_get or cpu_walk or st_size or if_descr or ent_serial or ent_model):
         # Every walk came back empty — typically a wrong community or
         # the host doesn't speak SNMP on the expected port.
         _arm_cooldown(host_clean, port_int)
@@ -843,6 +965,11 @@ async def probe_snmp(
          "in_hc": if_hc_in, "out_hc": if_hc_out,
          "in_32": if_in, "out_32": if_out},
         active_sources=active_sources,
+        entity_walks={
+            "descr": ent_descr, "name": ent_name,
+            "serial": ent_serial, "model": ent_model,
+            "firmware": ent_fw,
+        },
     )
 
     host_key = stats.get("host_hostname") or host_clean
@@ -854,10 +981,146 @@ async def probe_snmp(
           f"disk_total={stats.get('host_disk_total')} "
           f"ifaces={len(stats.get('network_ifaces') or [])}")
 
-    return {
+    out = {
         "hosts": {host_key: stats} if host_key else {},
         "error": None,
     }
+    if verbose:
+        # #675 — surface the parsed walks so the host-drawer debug
+        # panel can answer "what SNMP data is actually available?".
+        # Pretty-print every value via _coerce_str so the JSON
+        # serialiser doesn't choke on pysnmp's ASN.1 wrapper objects.
+        # Counts of distinct rows per OID family give a quick "did
+        # the agent answer?" signal; the per-row dicts give the
+        # full picture.
+        def _stringify(d: dict) -> dict:
+            return {str(k): _coerce_str(v) for k, v in (d or {}).items()}
+        storage_rows = []
+        try:
+            storage_rows = _summarise_storage_rows(
+                {"type": st_type, "desc": st_desc, "unit": st_unit,
+                 "size": st_size, "used": st_used},
+            )
+        except Exception:  # noqa: BLE001
+            storage_rows = []
+        iface_rows = []
+        try:
+            iface_rows = _summarise_iface_rows(
+                if_descr, if_oper, if_hc_in, if_hc_out, if_in, if_out,
+            )
+        except Exception:  # noqa: BLE001
+            iface_rows = []
+        # #681 — entity rows for the verbose surface. Each physical
+        # entry is one row keyed by entPhysicalIndex with name / model /
+        # serial / firmware aligned.
+        entity_rows = []
+        try:
+            entity_rows = _summarise_entity_rows(
+                ent_descr, ent_name, ent_serial, ent_model, ent_fw,
+            )
+        except Exception:  # noqa: BLE001
+            entity_rows = []
+        out["raw"] = {
+            "system": _stringify(sys_get),
+            "cpu_walk": _stringify(cpu_walk),
+            "storage_count": len(st_size or {}),
+            "storage_rows": storage_rows,
+            "iface_count": len(if_descr or {}),
+            "iface_rows": iface_rows,
+            "entity_count": len(ent_descr or {}),
+            "entity_rows": entity_rows,
+            "walk_summary": {
+                "sys_keys": len(sys_get or {}),
+                "cpu_rows": len(cpu_walk or {}),
+                "storage_rows": len(st_size or {}),
+                "iface_rows": len(if_descr or {}),
+                "if_hc_in_rows": len(if_hc_in or {}),
+                "if_hc_out_rows": len(if_hc_out or {}),
+                "if_32_in_rows": len(if_in or {}),
+                "if_32_out_rows": len(if_out or {}),
+                "entity_rows": len(ent_descr or {}),
+                "entity_serial_rows": len(ent_serial or {}),
+                "entity_model_rows": len(ent_model or {}),
+            },
+        }
+    return out
+
+
+def _summarise_entity_rows(descrs: dict, names: dict, serials: dict,
+                           models: dict, firmwares: dict) -> list[dict]:
+    """#681 — Per-physical-entry row summary from ENTITY-MIB walks.
+    Indexed by the trailing entPhysicalIndex so descr / name / serial /
+    model / firmware align per row.
+    """
+    out = []
+    seen_idx = set()
+    for src in (descrs or {}, names or {}, serials or {}, models or {}, firmwares or {}):
+        for oid in src.keys():
+            # Trailing dotted index after the .1.x.x.x.x.x prefix.
+            idx = oid.rsplit(".", 1)[-1]
+            seen_idx.add(idx)
+    for idx in sorted(seen_idx, key=lambda s: int(s) if s.isdigit() else 0):
+        out.append({
+            "idx": idx,
+            "descr": _coerce_str(_pick(descrs, idx)),
+            "name": _coerce_str(_pick(names, idx)),
+            "serial": _coerce_str(_pick(serials, idx)),
+            "model": _coerce_str(_pick(models, idx)),
+            "firmware": _coerce_str(_pick(firmwares, idx)),
+        })
+    return out
+
+
+def _summarise_storage_rows(walks: dict) -> list[dict]:
+    """Build a per-row summary of hrStorage walk output for the debug
+    surface. Indexed by the trailing OID component so type / desc /
+    unit / size / used can be aligned per row."""
+    sizes = walks.get("size") or {}
+    types = walks.get("type") or {}
+    descs = walks.get("desc") or {}
+    units = walks.get("unit") or {}
+    useds = walks.get("used") or {}
+    out = []
+    for oid in sizes.keys():
+        idx = _last_index(oid, _OID_HR_STORAGE_SIZE)
+        out.append({
+            "idx": idx,
+            "type_oid": _coerce_str(_pick(types, idx)),
+            "desc": _coerce_str(_pick(descs, idx)),
+            "unit_bytes": _coerce_int(_pick(units, idx)),
+            "size_units": _coerce_int(sizes.get(oid)),
+            "used_units": _coerce_int(_pick(useds, idx)),
+        })
+    return out
+
+
+def _summarise_iface_rows(if_descr: dict, if_oper: dict,
+                          if_hc_in: dict, if_hc_out: dict,
+                          if_in: dict, if_out: dict) -> list[dict]:
+    """Per-interface row summary for the debug surface."""
+    out = []
+    for oid in (if_descr or {}).keys():
+        idx = _last_index(oid, _OID_IF_DESCR)
+        out.append({
+            "idx": idx,
+            "descr": _coerce_str(if_descr.get(oid)),
+            "oper": _coerce_int(_pick(if_oper, idx)),
+            "in_hc": _coerce_int(_pick(if_hc_in, idx)),
+            "out_hc": _coerce_int(_pick(if_hc_out, idx)),
+            "in_32": _coerce_int(_pick(if_in, idx)),
+            "out_32": _coerce_int(_pick(if_out, idx)),
+        })
+    return out
+
+
+def _pick(walk: dict, idx: str):
+    """Lookup a walk row by its trailing index suffix (no base prefix)."""
+    if not walk or not idx:
+        return None
+    for oid, val in walk.items():
+        if oid.endswith("." + idx):
+            return val
+    return None
 
 
 def lookup(snmp_hosts: dict, needle: str) -> Optional[dict]:

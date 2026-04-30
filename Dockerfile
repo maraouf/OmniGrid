@@ -51,6 +51,16 @@ COPY . /app
 ARG VERSION=0.0.0-dev
 RUN echo "$VERSION" > /app/VERSION.txt
 
+# #672 — `image.source` is a build-time placeholder. The deploy
+# pipeline (`.forgejo/workflows/deploy.yml`) overrides it via
+# `docker build --label org.opencontainers.image.source=<real-url>` at
+# build time so the image actually pushed to the registry carries the
+# operator's real git host. A LOCAL `docker build` without that
+# `--label` override bakes the placeholder above — that's intentional
+# for the public-shippable Dockerfile (operator-private hostnames stay
+# out of the public surface; see CLAUDE.md "Operator-private hostnames"
+# rule). Anyone re-using this Dockerfile should override the label
+# themselves; the placeholder is NOT stale.
 LABEL org.opencontainers.image.title="OmniGrid" \
       org.opencontainers.image.version="$VERSION" \
       org.opencontainers.image.source="https://git.example.com/<owner>/OmniGrid" \

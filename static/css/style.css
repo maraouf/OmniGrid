@@ -1102,6 +1102,30 @@ button:disabled {
     border-color: var(--chip-br);
 }
 
+/* #680 — `.chip-active` adds a subtle ring + slight lift on top of
+ * any existing `.chip.pill-*` colouring, signalling that the chip is
+ * currently selected as a Hosts-toolbar filter. Multi-select friendly:
+ * several chips can be active at once. The ring uses the chip's own
+ * border colour at increased opacity so the active state inherits the
+ * per-provider hue instead of competing with it. Removing the chip
+ * from the filter set reverts to the base style. */
+.chip.chip-active {
+    box-shadow: 0 0 0 1px currentColor inset, 0 1px 2px var(--label-shadow);
+    filter: brightness(1.08);
+}
+button.chip {
+    /* Override <button>'s inherited bold/center alignment so chips
+     * render identically whether emitted as <span> or <button>. */
+    font-weight: inherit;
+    line-height: inherit;
+    appearance: none;
+    -webkit-appearance: none;
+    text-align: inherit;
+}
+button.chip:hover {
+    filter: brightness(1.06);
+}
+
 /* Provider icon — mono SVG painted in the per-provider chip colour
  * via CSS mask-image (#607). Used in (a) Settings → Providers tab
  * strip next to each tab label, (b) the Hosts row provider chip

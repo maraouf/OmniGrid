@@ -312,6 +312,18 @@ function app() {
     // rather than reassigning the array). Null = drawer closed.
     drawerHost: null,
     hostsSearch: '',
+    // #680 — clickable provider filter on the Hosts toolbar. Set of
+    // active filters (provider names + 'none' for "no provider mapped")
+    // — empty Set means show everything. Multi-select with OR semantics:
+    // a host matches when it carries ANY of the selected providers (or
+    // matches the 'none' synthetic when no provider is set on the row).
+    // Persists to sessionStorage so a tab reload preserves the filter
+    // but a fresh tab starts clean.
+    hostsProviderFilter: new Set(
+      (typeof sessionStorage !== 'undefined'
+        && (sessionStorage.getItem('hostsProviderFilter') || '').split(','))
+        .filter(Boolean)
+    ),
     // Sort key for the Hosts view. Persisted to localStorage so the
     // operator's preferred order sticks across reloads. Supported keys:
     //   'status' (default — alive first, then paused, down, unknown)
@@ -786,6 +798,9 @@ function app() {
       // #659 — SNMP per-host cache TTLs, distinct from Webmin's pair.
       'tuning_snmp_host_cache_ttl_seconds',
       'tuning_snmp_host_fail_cache_ttl_seconds',
+      // #678 — dedicated SNMP unreachable cool-down (was sharing the
+      // auth-failure cool-down with Webmin / SSH).
+      'tuning_snmp_unreachable_cooldown_seconds',
     ],
     tuningForm: {},
     tuningEffective: {},
@@ -12007,6 +12022,41 @@ function app() {
         // fleet the spam would be worse than the missing data.
       }
     },
+    // #680 — toggle a provider in the Hosts-toolbar filter set.
+    // Multi-select OR semantics. The synthetic 'none' name filters
+    // to hosts without ANY provider mapped (curated rows that exist
+    // for inventory but have no live data source).
+    toggleHostsProviderFilter(name) {
+      if (!name) return;
+      const set = new Set(this.hostsProviderFilter || []);
+      if (set.has(name)) set.delete(name); else set.add(name);
+      this.hostsProviderFilter = set;
+      try {
+        if (typeof sessionStorage !== 'undefined') {
+          if (set.size) sessionStorage.setItem('hostsProviderFilter', [...set].join(','));
+          else sessionStorage.removeItem('hostsProviderFilter');
+        }
+      } catch (_) { /* private mode / quota — ignore */ }
+    },
+    // Convenience: clear the provider filter ("All" pill click).
+    clearHostsProviderFilter() {
+      this.hostsProviderFilter = new Set();
+      try {
+        if (typeof sessionStorage !== 'undefined') {
+          sessionStorage.removeItem('hostsProviderFilter');
+        }
+      } catch (_) { /* ignore */ }
+    },
+    // Whether `name` is currently in the active filter set.
+    isHostsProviderFilterActive(name) {
+      return !!(this.hostsProviderFilter && this.hostsProviderFilter.has(name));
+    },
+    // Count of curated rows that have NO provider field mapped.
+    // Used by the synthetic 'none' chip to surface "how many
+    // inventory-only hosts are sitting on the page right now?".
+    hostsWithNoProviderCount() {
+      return (this.hosts || []).filter(h => !this.hostHasAgent(h)).length;
+    },
     // Status chip for a provider in the Hosts toolbar. Combines
     // "enabled in settings" with "actually returned data for at least
     // one host" so operators spot misconfigs fast.
@@ -12270,6 +12320,25 @@ function app() {
       let list = (this.hosts || []).slice();
       if (this.hostsHideUnconfigured) {
         list = list.filter(h => this.hostHasAgent(h));
+      }
+      // #680 — provider filter (toolbar chips). Empty set = show all
+      // (status quo). Otherwise OR-match across the selected provider
+      // names; the synthetic 'none' name matches hosts that have NO
+      // provider field configured, so operators can isolate
+      // inventory-only rows.
+      if (this.hostsProviderFilter && this.hostsProviderFilter.size) {
+        const filt = this.hostsProviderFilter;
+        const wantNone = filt.has('none');
+        list = list.filter(h => {
+          if (wantNone && !this.hostHasAgent(h)) return true;
+          // hostEnabledAgents() returns ALL configured provider fields
+          // on the row — bare alias presence (beszel_name / pulse_name /
+          // ...) counts even when the live probe hasn't returned yet,
+          // so the filter survives transient probe failures.
+          const agents = (this.hostEnabledAgents(h) || []).map(a => a.name);
+          for (const a of agents) if (filt.has(a)) return true;
+          return false;
+        });
       }
       if (q) {
         list = list.filter(h => {

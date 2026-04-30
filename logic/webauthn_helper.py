@@ -98,6 +98,24 @@ _FRIENDLY_NAME_MAX = 64
 _FRIENDLY_NAME_RE = re.compile(r"^[\x20-\x7E -￿]{1,64}$")
 
 
+# #670 — hoisted from per-loop scope. Both constants used to live
+# inside verify_registration / make_authentication_options and were
+# re-allocated per credential evaluation. Moving to module scope
+# saves the allocation on every webauthn ceremony.
+#
+# `_ALLOWED_TRANSPORTS` matches the documented `AuthenticatorTransport`
+# enum values; #463 / BUG-008 added the whitelist to defend against
+# quirky / malicious clients persisting strings that then break the
+# assertion-options builder.
+_ALLOWED_TRANSPORTS = frozenset({"usb", "nfc", "ble", "internal", "hybrid"})
+# `_TRANSPORT_ORDER` is the picker-priority sequence WebAuthn treats
+# as a hint to authenticator UIs. Safari on macOS uses the FIRST
+# listed transport as the default-UI nudge — `internal` first ensures
+# Touch ID / Windows Hello / Android biometric beats any cross-device
+# flow (USB key / hybrid QR). See #602 for the full rationale.
+_TRANSPORT_ORDER = ("internal", "usb", "ble", "nfc", "hybrid")
+
+
 def assert_available() -> None:
     """Raise RuntimeError if the ``webauthn`` package isn't installed.
 
@@ -235,9 +253,9 @@ def verify_registration(
     # persisted verbatim — a quirky / malicious client could store
     # `transports=["evil"]` which then made `make_authentication_options`
     # fall back to dropping the field entirely. Filter to the official
-    # set so the row stays honest. Lower-case before the membership
-    # check; the upstream enum values are all lower-case.
-    _ALLOWED_TRANSPORTS = {"usb", "nfc", "ble", "internal", "hybrid"}
+    # set so the row stays honest. Module-scope `_ALLOWED_TRANSPORTS`
+    # frozenset (#670) — hoisted from this loop so it doesn't reallocate
+    # per call.
     transports = [
         t.lower() for t in transports_raw
         if isinstance(t, str) and t.lower() in _ALLOWED_TRANSPORTS
@@ -322,7 +340,8 @@ def make_authentication_options(
         # listed. Force `internal` first when present, then USB / BLE /
         # NFC / hybrid in their natural fallback order so the picker
         # tries the local platform before any cross-device flow.
-        _TRANSPORT_ORDER = ["internal", "usb", "ble", "nfc", "hybrid"]
+        # `_TRANSPORT_ORDER` is module-scope (#670) — hoisted from this
+        # loop so it doesn't reallocate per credential.
         ts = [t for t in _TRANSPORT_ORDER if t in ts_set]
         try:
             transport_enums = [
