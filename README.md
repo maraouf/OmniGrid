@@ -4,12 +4,12 @@
 
 # OmniGrid
 
-> Single-replica FastAPI + Alpine.js dashboard for Docker Swarm clusters **and the bare hosts that run them**. Portainer-native stack / service / container updates, multi-provider host telemetry (Beszel / Pulse / node-exporter / Webmin), interactive SSH + audited one-shot runner, scheduler, OIDC + TOTP + passkey auth, Apprise notifications. 
+> Single-replica FastAPI + Alpine.js dashboard for Docker Swarm clusters **and the bare hosts that run them**. Portainer-native stack / service / container updates, multi-provider host telemetry (Beszel / Pulse / node-exporter / Webmin / Ping / SNMP), interactive SSH + audited one-shot runner, scheduler, OIDC + TOTP + passkey auth, Apprise notifications. 
 
 A Portainer-native operations dashboard for Docker Swarm clusters **and the bare hosts that run them**. One screen, four core capabilities:
 
 - **Updates** — scan every Swarm service, compare against remote registry digests (Docker Hub / GHCR / lscr.io / any v2 registry), one-click stack update, container recreate, service restart, orphan-task cleanup. All via the Portainer REST API — no direct Docker socket.
-- **Host telemetry** — live CPU / Memory / Disk / Disk I/O / Network / Load / Bandwidth time-series per curated host, sourced from Beszel, Pulse, node-exporter, and/or Webmin. Cross-provider fallback + per-host snapshots so a flaky agent doesn't blank the chart.
+- **Host telemetry** — live CPU / Memory / Disk / Disk I/O / Network / Load / Bandwidth time-series per curated host, sourced from Beszel, Pulse, node-exporter, Webmin, Ping (TCP/ICMP reachability + RTT), and/or SNMP (managed switches / routers / UPSes). Cross-provider fallback + per-host snapshots so a flaky agent doesn't blank the chart.
 - **Operations** — interactive xterm.js SSH terminal, admin-audited one-shot SSH runner with destructive-pattern guard, cron-like scheduled jobs (cache refresh / docker prune / SQLite + avatars backup / asset-inventory refresh), Apprise notifications, full audit log of every action.
 - **Auth** — local accounts + API tokens, optional Authentik OIDC SSO, TOTP + WebAuthn passkey 2FA, two roles (admin / read-only), CSRF-hardened, rate-limited login, session revocation, self-service password change.
 
@@ -37,7 +37,7 @@ Built as a friendlier replacement for Diun Dash plus the tab-jumping between Por
 
 ### Host telemetry & inventory
 - **Curated host list** — operator-defined inventory under Admin → Hosts; each row maps to one or more provider-specific identifiers.
-- **Four monitoring providers** (any combination): Beszel Hub (Pocketbase), Pulse (Proxmox), Prometheus node-exporter (Linux + FreeBSD), Webmin / Miniserv. Cross-provider fallback merges stats with a "most-specific wins" rule + per-host snapshots so a flaky agent doesn't blank the chart.
+- **Six monitoring providers** (any combination): Beszel Hub (Pocketbase), Pulse (Proxmox), Prometheus node-exporter (Linux + FreeBSD), Webmin / Miniserv, Ping (TCP-connect or ICMP echo for reachability + RTT), SNMP (v2c / v3 USM for managed switches / routers / UPSes / printers). Cross-provider fallback merges stats with a "most-specific wins" rule + per-host snapshots so a flaky agent doesn't blank the chart. Per-provider chip colour customisable in Settings → Providers.
 - **Time-series charts** — CPU / Memory / Disk usage / Disk I/O (Linux + FreeBSD `node_devstat_*`) / Network In/Out / Bandwidth / Load 1m/5m/15m / Swap, with 1h / 6h / 24h / 7d range picker and a live "Updated Xs ago" freshness label.
 - **Host drawer detail** — hardware (vendor / model / serial / OS / kernel / arch), network interfaces, mounted filesystems, package-update count, systemd service status, optional asset-inventory join (model / serial / location from a third-party asset API).
 - **Host groups** — operator-assigned `custom_number` ranges bucket curated hosts into collapsible sections (e.g. "Gateways 1-4", "VMs 100-199").
@@ -62,7 +62,7 @@ Built as a friendlier replacement for Diun Dash plus the tab-jumping between Por
 
 ### Deploy story
 - **No Docker socket** — every Docker call goes through Portainer's REST API.
-- **No image build** — uses `python:3.12-slim` with your code bind-mounted from `/opt/omnigrid/app`. Forgejo Actions pipeline rsyncs to the manager and force-updates the swarm service. Static-only changes ship without a service restart.
+- **Image-build deploy** (#609) — Forgejo Actions pipeline rsyncs the build context (Dockerfile + source + `node_modules/`) to the Swarm manager, builds an `omnigrid:<version>` image there, pushes to a Forgejo container registry, and force-updates the Swarm service onto the new tag. Each version is pinned in Swarm's task spec so manual rollback has a discrete tag to point at.
 - **Self-healing** — Swarm `update_config: start-first, failure_action: rollback, monitor: 30s` so a failed deploy auto-rolls back (the same template OmniGrid recommends for services it manages).
 
 ## Architecture
@@ -87,6 +87,10 @@ Built as a friendlier replacement for Diun Dash plus the tab-jumping between Por
 
 ## Deploy
 
+The canonical production deploy is the Forgejo Actions pipeline at `.forgejo/workflows/deploy.yml` — push to `main`, the runner rsyncs the build context to the Swarm manager, builds the `omnigrid:<version>` image there, pushes to the configured registry, and force-updates the running stack. Full operator runbook (runner setup, deploy-key rotation, registry credentials, manual rollback) lives in [`docs/guidelines/deploy.md`](docs/guidelines/deploy.md).
+
+For a one-off / manual stand-up:
+
 **1. Prep the host** (on the Swarm manager node):
 
 ```bash
@@ -94,21 +98,23 @@ sudo mkdir -p /opt/omnigrid/app /opt/omnigrid/data
 sudo chown -R $USER:$USER /opt/omnigrid
 ```
 
-**2. Copy the app files:**
-
-```bash
-scp main.py requirements.txt [email protected]:/opt/omnigrid/app/
-scp -r static [email protected]:/opt/omnigrid/app/
-```
+**2. Copy the build context** (Dockerfile, `main.py`, `logic/`, `static/`, `node_modules/`, `requirements.txt`, `docker-compose.yml`, `.env`) to `/opt/omnigrid/app/` on the manager. CI does this via rsync; manually you can `scp -r` the working tree.
 
 **3. Create a Portainer API key**:
-Portainer UI → profile menu → *My account* → *Access tokens* → add a new token. Give it admin scope (it needs to update any stack).
+Portainer UI → profile menu → *My account* → *Access tokens* → add a new token. Give it admin scope (it needs to update any stack). Drop it into `/opt/omnigrid/app/.env` as `PORTAINER_API_KEY` (or paste it into Admin → Portainer after first login).
 
-**4. Deploy the stack**:
-Portainer → *Stacks* → *Add stack* → paste `docker-compose.yml`, fill in `PORTAINER_API_KEY` / `PORTAINER_URL` / `PORTAINER_ENDPOINT_ID` in the environment fields → Deploy.
+**4. Build and deploy the stack** on the manager:
+
+```bash
+cd /opt/omnigrid/app
+docker build --build-arg VERSION=1.0.0 -t omnigrid:1.0.0 -t omnigrid:latest .
+docker stack deploy --resolve-image=always --compose-file docker-compose.yml omnigrid
+```
+
+The `OMNIGRID_IMAGE` env var in the compose file resolves to the registry path in CI deploys, or falls back to the local `omnigrid:latest` tag for manual builds.
 
 **5. Point a reverse proxy at it (optional)**:
-Any HTTPS-terminating proxy works — Nginx Proxy Manager, Traefik, Caddy, plain Nginx, etc. Forward `omnigrid.example.com` (or whatever hostname you publish under) → `http://<manager>:8088`. OmniGrid has its own local login + optional Authentik OIDC SSO, so the proxy doesn't need to do auth — just terminate TLS and forward. See [`docs/guidelines/authentik.md`](docs/guidelines/authentik.md) to wire up OIDC.
+Any HTTPS-terminating proxy works — Nginx Proxy Manager, Traefik, Caddy, plain Nginx, etc. Forward `omnigrid.example.com` (or whatever hostname you publish under) → `http://<manager>:9500`. OmniGrid has its own local login + optional Authentik OIDC SSO, so the proxy doesn't need to do auth — just terminate TLS and forward. See [`docs/guidelines/authentik.md`](docs/guidelines/authentik.md) to wire up OIDC.
 
 **6. Open it up**, hit ⚙️ Settings, configure:
 - Apprise URL: e.g. `http://apprise.example.com:8005/notify/OmniGrid` (or with a tag)
@@ -131,7 +137,7 @@ Any HTTPS-terminating proxy works — Nginx Proxy Manager, Traefik, Caddy, plain
 
 | Var | Default | Notes |
 |---|---|---|
-| `PORTAINER_URL` | — | **Optional bootstrap.** Seeded into the DB on first boot; `Settings → Portainer` is authoritative after that. |
+| `PORTAINER_URL` | — | **Optional bootstrap.** Seeded into the DB on first boot; `Admin → Portainer` is authoritative after that. |
 | `PORTAINER_API_KEY` | — | **Optional bootstrap** — same as above. Starts with `ptr_`. |
 | `PORTAINER_ENDPOINT_ID` | `1` | **Optional bootstrap** — the Swarm endpoint id. |
 | `VERIFY_TLS` | `true` | **Optional bootstrap** — stored as `portainer_verify_tls` in the DB after seeding. |
@@ -160,7 +166,7 @@ Any HTTPS-terminating proxy works — Nginx Proxy Manager, Traefik, Caddy, plain
 
 The authoritative table is [`logic/tuning.py:TUNABLES`](logic/tuning.py); the env-var names above are mirrored from there. Every operator-tunable value lives in `TUNABLES` — no hardcoded magic numbers in Python / JS / HTML. Add new knobs there, never as code constants.
 
-OIDC has **no env vars** — every OIDC setting (issuer URL, client ID / secret, redirect URI, scopes, admin group, enable toggle) lives in the DB `settings` table and is edited from `Settings → Authentik OIDC`. See [`docs/guidelines/env_example.md`](docs/guidelines/env_example.md) for the full reference and [`docs/guidelines/authentik.md`](docs/guidelines/authentik.md) for the Authentik-side walkthrough.
+OIDC has **no env vars** — every OIDC setting (issuer URL, client ID / secret, redirect URI, scopes, admin group, enable toggle) lives in the DB `settings` table and is edited from `Admin → Authentik OIDC`. See [`docs/guidelines/env_example.md`](docs/guidelines/env_example.md) for the full reference and [`docs/guidelines/authentik.md`](docs/guidelines/authentik.md) for the Authentik-side walkthrough.
 
 ## API (if you want to script it)
 
@@ -187,12 +193,15 @@ GET    /api/history?limit=100&search=...   persisted completed ops (filterable)
 DELETE /api/history                        clear history (admin)
 
 # Hosts (curated inventory + telemetry)
-GET    /api/hosts/list                     skeleton list (fast, no per-host probes)
-GET    /api/hosts/one/{host_id}            single curated host merged with provider data
+GET    /api/hosts                          legacy — composes /list + per-row /one (#524). Accepts ?force=true
+GET    /api/hosts/list                     skeleton list (fast, no per-host probes). Accepts ?force=true
+GET    /api/hosts/one/{host_id}            single curated host merged with provider data. Accepts ?force=true
 GET    /api/hosts/history?system_id=...&host_id=...&hours=...   per-host time-series; system_id (Beszel) OR host_id (NE-only)
+GET    /api/hosts/{host_id}/ping/history?hours=...              ping reachability + RTT series (#343)
 GET / POST                   /api/hosts/config                   list / replace `hosts_config`
 GET                          /api/hosts/discover                 probe each provider for available host names
 POST                         /api/hosts/test                     per-row validation (provider names + URLs)
+POST                         /api/hosts/{host_id}/resume-sampling  clear a host's auto-pause marker
 
 # Auth / users / sessions / tokens / TOTP
 POST   /api/local-auth/login               username + password → og_session OR {totp_required, challenge_token}
@@ -215,10 +224,12 @@ GET / POST / DELETE          /api/tokens[/{id}]
 # Settings & integrations (admin)
 GET    /api/settings
 POST   /api/settings                       additive — null = keep current
-POST   /api/portainer/test                 probe Portainer + verify endpoint id (#499)
+POST   /api/portainer/test                 probe Portainer + verify endpoint id (#335)
 POST   /api/beszel/test
 POST   /api/pulse/test
 POST   /api/webmin/test
+POST   /api/ping/test                      probe a single ping target (TCP or ICMP) (#343)
+POST   /api/snmp/test                      probe an SNMP v2c / v3 target (#344)
 POST   /api/oidc/test                      probe issuer's discovery endpoint
 POST   /api/notify-test                    fire a test Apprise ping
 
@@ -258,14 +269,16 @@ Full schema for each endpoint lives in `main.py` — every route is decorated wi
 
 ## Updating OmniGrid itself
 
-Because the code is bind-mounted from `/opt/omnigrid/app`, you just:
+The Forgejo Actions pipeline handles the full update flow: `git push origin main` rsyncs the build context, runs `docker build --build-arg VERSION=<new>` on the manager, pushes the tag to the registry, and force-updates the running service onto it. CI also auto-bumps PATCH on every successful deploy. See [`docs/guidelines/deploy.md`](docs/guidelines/deploy.md) for the full runbook.
+
+For manual updates without the pipeline, rsync the build context to the manager and rebuild + redeploy:
 
 ```bash
-# overwrite the files on the host
-scp main.py static/index.html [email protected]:/opt/omnigrid/app/...
-
-# redeploy the single service (no full stack update needed)
-docker service update --force omnigrid_omnigrid
+ssh pi@<manager> '
+  cd /opt/omnigrid/app
+  docker build --build-arg VERSION=$(date +%Y%m%d) -t omnigrid:latest .
+  docker service update --force --image omnigrid:latest omnigrid_omnigrid
+'
 ```
 
 Or, of course, use OmniGrid itself to update… itself. Fun thought.

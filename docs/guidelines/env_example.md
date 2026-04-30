@@ -20,7 +20,7 @@ process-level tunable.
 ## Portainer connection (OPTIONAL bootstrap — UI is authoritative)
 
 These four keys are consulted ONCE on first boot with an empty `settings` row and seeded into
-the DB. After that, Settings → Portainer wins and env changes are ignored. Marked transitional
+the DB. After that, Admin → Portainer wins and env changes are ignored. Marked transitional
 — will be removed in a future release once every deploy is UI-managed.
 
 ```ini
@@ -112,12 +112,55 @@ HOST_SNAPSHOTS_CACHE_TTL_SECONDS=5
 # requests); raise on a beefy NPM with many hosts.
 HOSTS_PARALLEL_FETCH=6
 
+# Ping host-stats provider knobs (#343). The first three control the
+# lifespan-managed sampler that writes ping_samples; the cool-down
+# throttles probes against an unreachable host.
+PING_INTERVAL_SECONDS=60
+PING_CONCURRENCY=16
+PING_PROBE_TIMEOUT_SECONDS=2
+PING_COOLDOWN_SECONDS=300
+
+# SNMP host-stats provider knobs (#344). Same shape — UDP retransmits
+# live under the timeout budget.
+SNMP_PROBE_TIMEOUT_SECONDS=5
+SNMP_CONCURRENCY=16
+
+# SSE pipeline tunables (#537–#542). Heartbeat keeps a quiet stream
+# alive past upstream proxy idle timers; max-lifetime forces a periodic
+# reconnect so the cookie's sliding-window refresh lands; idle-threshold
+# + pollops-keepalive drive the freshness watchdog and pollOps fallback.
+SSE_HEARTBEAT_SECONDS=25
+SSE_MAX_LIFETIME_SECONDS=21600
+SSE_IDLE_THRESHOLD_SECONDS=30
+POLLOPS_SSE_KEEPALIVE_SECONDS=30
+
+# Webmin probe outer budget + per-host caches (#539, #546).
+WEBMIN_PROBE_BUDGET_SECONDS=20
+WEBMIN_HOST_CACHE_TTL_SECONDS=30
+WEBMIN_HOST_FAIL_CACHE_TTL_SECONDS=5
+
+# node-exporter per-host probe timeout (#540) shared across the request
+# path AND host_metrics_sampler.
+NODE_EXPORTER_PROBE_TIMEOUT_SECONDS=10
+
+# Outer host-provider cache TTL (#547) + sampler concurrency (#548) +
+# auth-failure cool-down shared by Webmin + SSH (#549).
+HOST_PROVIDER_CACHE_TTL_SECONDS=10
+HOST_METRICS_PROBE_CONCURRENCY=8
+AUTH_FAILURE_COOLDOWN_SECONDS=300
+
+# Login rate-limit policy (#543). Three knobs — max failures, sliding
+# window, lockout duration. Defaults: 5 failures / 15 min / 15 min.
+RATE_LIMIT_MAX_FAILURES=5
+RATE_LIMIT_WINDOW_SECONDS=900
+RATE_LIMIT_LOCKOUT_SECONDS=900
+
 # Docker Hub auth — optional, avoids anonymous rate limits.
 # DOCKERHUB_USER=
 # DOCKERHUB_TOKEN=
 
 # Where python-dotenv looks for env values at startup. Override only for
-# non-standard deployments (e.g. alternative bind mount layouts).
+# non-standard deployments.
 # ENV_FILE_PATH=/app/.env
 ```
 
@@ -133,20 +176,35 @@ SESSION_SECRET=
 
 ## Auth — OIDC SSO (UI-managed, NO env vars)
 
-OIDC provider config is stored in the `settings` table and edited from Settings → Authentik
+OIDC provider config is stored in the `settings` table and edited from Admin → Authentik
 OIDC. There are intentionally no `OIDC_*` env vars — the UI is the only source of truth. See
 `docs/guidelines/authentik.md` for the Authentik-side setup walkthrough.
 
 ## Host-stats providers (UI-managed, NO env vars)
 
-Beszel Hub, Proxmox Pulse, Prometheus node-exporter, and Webmin credentials all live in the
-`settings` table (`beszel_hub_url`, `beszel_identity`, `beszel_password`, `pulse_url`,
-`pulse_token`, `node_exporter_enabled`, `node_exporter_url_template`, `webmin_url`, `webmin_user`,
-`webmin_password`, `webmin_aliases`, etc.) and are edited from Settings → Host stats. No env vars.
+All six providers' credentials live in the `settings` table and are edited from
+Settings → Providers (renamed from Host stats in #583). No env vars for any of them.
 The curated host list (`hosts_config`) is also DB-backed, managed from Admin → Hosts.
 
-The `node_exporter_url_template` validator accepts either `{host}` OR `{ip}` as a placeholder
-(substitution logic in `logic/gather.py` resolves both against the curated host row).
+- **Beszel Hub** — `beszel_hub_url`, `beszel_identity`, `beszel_password`, `beszel_verify_tls`,
+  `beszel_aliases`.
+- **Proxmox Pulse** — `pulse_url`, `pulse_token`, `pulse_verify_tls`, `pulse_aliases`.
+- **Prometheus node-exporter** — `node_exporter_enabled`, `node_exporter_url_template`,
+  `node_exporter_overrides`. Template accepts either `{host}` OR `{ip}` as a placeholder
+  (resolved against the curated host row in `logic/gather.py`).
+- **Webmin / Miniserv** — `webmin_url`, `webmin_user`, `webmin_password`, `webmin_verify_tls`,
+  `webmin_aliases` (per-host Miniserv URL map — every Webmin target runs its own Miniserv,
+  unlike Beszel/Pulse which are central hubs).
+- **Ping** (#343) — `ping_enabled`, `ping_default_port`, `ping_use_icmp`. Per-host opt-in via
+  `hosts_config[].ping = {enabled, host, port, transport}`. Reachability + RTT only.
+- **SNMP** (#344) — `snmp_default_community`, `snmp_default_version`, `snmp_default_port`,
+  `snmp_v3_user`, `snmp_v3_auth_key`, `snmp_v3_priv_key`, `snmp_aliases`. Per-host overrides via
+  `hosts_config[].snmp = {enabled, community, version, port, v3_user, v3_auth_key, v3_priv_key}`.
+  Optional `pysnmp` dep (in `requirements.txt`) — without it the master toggle disables itself.
+
+Per-provider chip-colour customisation (#596) lives in
+`provider_color_{beszel, pulse, node_exporter, webmin, ping, snmp}` settings (`#RRGGBB` or blank
+for default).
 
 ## Other UI-managed settings (NO env vars)
 
@@ -206,7 +264,7 @@ Quick index of every env var OmniGrid reads, grouped by scope:
 | Var                               | Scope       | Default              | Notes                                                                           |
 | --------------------------------- | ----------- | -------------------- | ------------------------------------------------------------------------------- |
 | `ENV_FILE_PATH`                   | Bootstrap   | `/app/.env`          | Path `python-dotenv` loads at startup.                                          |
-| `PORTAINER_URL`                   | Bootstrap   | `""`                 | UI-managed. Seeded into DB on first boot; Settings → Portainer wins thereafter. |
+| `PORTAINER_URL`                   | Bootstrap   | `""`                 | UI-managed. Seeded into DB on first boot; Admin → Portainer wins thereafter. |
 | `PORTAINER_API_KEY`               | Bootstrap   | `""`                 | Same bootstrap rules.                                                           |
 | `PORTAINER_ENDPOINT_ID`           | Bootstrap   | `1`                  | Same bootstrap rules.                                                           |
 | `VERIFY_TLS`                      | Bootstrap   | `true`               | Stored as `portainer_verify_tls` after seeding.                                 |
@@ -223,6 +281,26 @@ Quick index of every env var OmniGrid reads, grouped by scope:
 | `LOG_RETENTION_DAYS`              | Runtime     | `7`                  | Persistent-log retention (#424).                                                |
 | `HOST_SNAPSHOTS_CACHE_TTL_SECONDS` | Runtime    | `5`                  | host_snapshots read-cache TTL (#467).                                            |
 | `HOSTS_PARALLEL_FETCH`            | Runtime     | `6`                  | SPA fan-out concurrency cap on `/api/hosts/one/{id}` (#506).                    |
+| `PING_INTERVAL_SECONDS`           | Runtime     | `60`                 | Ping sampler tick cadence (#343).                                                |
+| `PING_CONCURRENCY`                | Runtime     | `16`                 | Ping sampler fan-out (#343).                                                     |
+| `PING_PROBE_TIMEOUT_SECONDS`      | Runtime     | `2`                  | Per-probe timeout (#343).                                                        |
+| `PING_COOLDOWN_SECONDS`           | Runtime     | `300`                | Per-(host, port) cool-down on consecutive ping failures (#343).                  |
+| `SNMP_PROBE_TIMEOUT_SECONDS`      | Runtime     | `5`                  | Per-probe wall-clock budget for SNMP UDP queries (#344).                         |
+| `SNMP_CONCURRENCY`                | Runtime     | `16`                 | SNMP probe fan-out cap (#344).                                                   |
+| `SSE_HEARTBEAT_SECONDS`           | Runtime     | `25`                 | SSE keepalive comment cadence (#537).                                            |
+| `SSE_MAX_LIFETIME_SECONDS`        | Runtime     | `21600`              | SSE connection wall-clock cap before forced reconnect (#538).                    |
+| `SSE_IDLE_THRESHOLD_SECONDS`      | Runtime     | `30`                 | SPA freshness-watchdog idle threshold (#541).                                    |
+| `POLLOPS_SSE_KEEPALIVE_SECONDS`   | Runtime     | `30`                 | pollOps fallback cadence when SSE connected (#542).                              |
+| `WEBMIN_PROBE_BUDGET_SECONDS`     | Runtime     | `20`                 | Outer per-host Webmin probe timeout (#539).                                      |
+| `WEBMIN_HOST_CACHE_TTL_SECONDS`   | Runtime     | `30`                 | Per-host Webmin success cache TTL (#546).                                        |
+| `WEBMIN_HOST_FAIL_CACHE_TTL_SECONDS` | Runtime  | `5`                  | Per-host Webmin failure cache TTL (#546).                                        |
+| `NODE_EXPORTER_PROBE_TIMEOUT_SECONDS` | Runtime | `10`                 | Per-host NE scrape timeout (#540).                                               |
+| `HOST_PROVIDER_CACHE_TTL_SECONDS` | Runtime     | `10`                 | Outer host-provider memo TTL (#547).                                             |
+| `HOST_METRICS_PROBE_CONCURRENCY`  | Runtime     | `8`                  | host_metrics_sampler per-tick NE probe fan-out (#548).                           |
+| `AUTH_FAILURE_COOLDOWN_SECONDS`   | Runtime     | `300`                | Shared Webmin + SSH auth-failure cool-down (#549).                               |
+| `RATE_LIMIT_MAX_FAILURES`         | Runtime     | `5`                  | Login rate-limit max fails (#543).                                               |
+| `RATE_LIMIT_WINDOW_SECONDS`       | Runtime     | `900`                | Login rate-limit sliding window (#543).                                          |
+| `RATE_LIMIT_LOCKOUT_SECONDS`      | Runtime     | `900`                | Login rate-limit lockout duration (#543).                                        |
 | `DOCKERHUB_USER`                  | Optional    | unset                | Docker Hub auth (avoid anonymous rate limits).                                  |
 | `DOCKERHUB_TOKEN`                 | Optional    | unset                | Paired with `DOCKERHUB_USER`.                                                   |
 | `SESSION_SECRET`                  | Auth        | auto-generated       | HMAC key for session cookies. Set explicitly in prod.                           |

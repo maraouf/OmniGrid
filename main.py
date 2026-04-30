@@ -3944,15 +3944,21 @@ async def _merge_one_host(h: dict, state: dict, *, force: bool = False) -> tuple
     # / version / v3 keys via `hosts_config[].snmp`; falls through to
     # the global defaults from state otherwise. Per-host alias map
     # (Docker hostname → SNMP target) wins over the row's snmp_name.
+    # Per-host enable gate (#651): the row's ``snmp.enabled`` opts a
+    # specific host IN/OUT of SNMP probing without losing the rest of
+    # the override config. Default when the flag is missing: enabled
+    # (preserves the historical "snmp_name set → probe" behaviour so
+    # existing rows don't silently stop reporting).
     if "snmp" in active:
         from logic import snmp as _snmp
         row_snmp = h.get("snmp") if isinstance(h.get("snmp"), dict) else {}
+        snmp_enabled = row_snmp.get("enabled", True)
         snmp_target = (
             (state.get("snmp_aliases") or {}).get(h["id"])
             or (h.get("snmp_name") or "").strip()
             or h["id"]
         )
-        if snmp_target:
+        if snmp_target and snmp_enabled:
             now = time.time()
             wm_success_ttl = tuning.tuning_int("tuning_webmin_host_cache_ttl_seconds")
             wm_fail_ttl = tuning.tuning_int("tuning_webmin_host_fail_cache_ttl_seconds")
@@ -4784,6 +4790,15 @@ def _clean_host_snmp(raw: Any) -> dict:
     if not isinstance(raw, dict):
         return {}
     out: dict = {}
+    # #651 — explicit per-host enable flag, parallel to ping.enabled.
+    # Default behaviour: when the field is missing, treat as enabled
+    # (preserves the historical "snmp_name set → probe" gate so existing
+    # rows don't silently stop working). When the field is explicitly
+    # False, the row opts OUT even with snmp_name configured — useful
+    # for temporarily disabling a flaky SNMP target without losing the
+    # community / version / port overrides on the row.
+    if "enabled" in raw:
+        out["enabled"] = bool(raw.get("enabled"))
     community = (str(raw.get("community") or "")).strip()
     if community:
         out["community"] = community
@@ -6701,9 +6716,10 @@ async def api_weather(
         return {"configured": False}
     upstream = _open_meteo_url()
     if not upstream:
-        # Admin → Notifications stores `open_meteo_url`; blank disables
-        # the widget entirely rather than forwarding to a hardcoded
-        # public endpoint the operator didn't opt into.
+        # Admin → General stores `open_meteo_url` (post-#354 split out
+        # of the legacy Notifications panel); blank disables the
+        # widget entirely rather than forwarding to a hardcoded public
+        # endpoint the operator didn't opt into.
         return {
             "configured": False,
             "error": "open_meteo_url not configured",

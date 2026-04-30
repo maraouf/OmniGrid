@@ -4879,22 +4879,32 @@
                x-text="t('settings.host_stats.snmp.aliases_hint')"></p>
           </div>
 
-          <!-- Test button + result chip. Mirrors webminTestResult /
-               beszelTestResult — the connection test fires
-               `/api/snmp/test` against the configured target. -->
+          <!-- Test button + result chip — UX unified with the Ping
+               test (#649). Picker shows curated hosts that have an
+               `snmp_name` mapped; testSnmpConnection resolves the
+               row's target + overrides client-side and submits to
+               /api/snmp/test, falling back to global defaults
+               server-side for fields the row doesn't override. -->
           <div class="flex items-center gap-2 flex-wrap">
             <button x-show="isAdmin()" @click="testSnmpConnection()"
-                    :disabled="(snmpTestResult && snmpTestResult.pending) || !hasHostStatsSource('snmp') || !snmpTestHost"
+                    :disabled="(snmpTestResult && snmpTestResult.pending) || !hasHostStatsSource('snmp') || !snmpTestHostId"
                     class="btn btn-soft text-[12px]"
                     x-text="(snmpTestResult && snmpTestResult.pending) ? t('settings.host_stats.snmp.testing') : t('settings.host_stats.snmp.test_button')"></button>
-            <input x-model="snmpTestHost" type="text"
-                   :disabled="isReadonly() || !hasHostStatsSource('snmp')"
-                   class="text-[11.5px] mono w-48"
-                   :placeholder="t('settings.host_stats.snmp.test_host_placeholder')">
+            <select x-model="snmpTestHostId"
+                    :disabled="isReadonly() || !hasHostStatsSource('snmp')"
+                    class="text-[11.5px] mono">
+              <option value="" x-text="t('settings.host_stats.snmp.test_target_label')"></option>
+              <template x-for="opt in snmpEnabledHosts()" :key="opt.id">
+                <option :value="opt.id" x-text="opt.label"></option>
+              </template>
+            </select>
             <span x-show="snmpTestResult && !snmpTestResult.pending"
                   :class="snmpTestResult && snmpTestResult.ok ? 'text-[var(--success)]' : 'text-[var(--danger)]'"
                   class="text-[11.5px]"
                   x-text="(snmpTestResult && snmpTestResult.ok ? '✓ ' : '✗ ') + (snmpTestResult && snmpTestResult.detail || '')"></span>
+            <span x-show="hasHostStatsSource('snmp') && !snmpEnabledHosts().length"
+                  class="text-[10.5px] text-[var(--text-faint)] italic"
+                  x-text="t('settings.host_stats.snmp.test_no_hosts')"></span>
           </div>
 
           <!-- Tunables — SNMP probe timeout + concurrency. Same Alpine
@@ -5569,7 +5579,23 @@
                    = "inherit the global default". -->
               <div class="pt-2 mt-1 border-t border-dashed border-[var(--border)]">
                 <div class="text-[10px] uppercase tracking-wider text-[var(--text-faint)] mb-2 font-semibold">SNMP</div>
-                <div class="grid grid-cols-1 md:grid-cols-2 gap-3 items-end">
+                <!-- Per-host enable checkbox (#651) — parallels the
+                     ping.enabled toggle. Defaults to true when the
+                     field is missing on legacy rows so existing
+                     snmp_name-mapped rows keep probing without an
+                     explicit opt-in. Backend `_clean_host_snmp` only
+                     persists the field when it's been explicitly set,
+                     and `_merge_one_host` reads with the same
+                     default-true semantics so the gate stays honest. -->
+                <label class="inline-flex items-center gap-2 text-[12px] mb-3">
+                  <input type="checkbox"
+                         :checked="!(row.snmp && row.snmp.enabled === false)"
+                         @change="hostsConfig[idx].snmp = Object.assign({}, hostsConfig[idx].snmp || {}, { enabled: $event.target.checked }); markHostRowDirty(idx)"
+                         :disabled="isReadonly()">
+                  <span x-text="t('admin_hosts.provider.snmp_enabled_label')"></span>
+                </label>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-3 items-end"
+                     x-show="!(row.snmp && row.snmp.enabled === false)">
                   <div>
                     <label class="block text-[10.5px] uppercase tracking-wider text-[var(--text-faint)] mb-1">
                       SNMP target
@@ -5582,7 +5608,7 @@
                            placeholder="192.X.X.10 or switch01.example.com">
                   </div>
                 </div>
-                <div x-show="!!(row.snmp_name && row.snmp_name.trim())"
+                <div x-show="!(row.snmp && row.snmp.enabled === false) && !!(row.snmp_name && row.snmp_name.trim())"
                      class="grid grid-cols-1 md:grid-cols-3 gap-3 items-end mt-3">
                   <div>
                     <label class="block text-[10.5px] uppercase tracking-wider text-[var(--text-faint)] mb-1">
