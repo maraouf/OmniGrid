@@ -4642,7 +4642,13 @@ def _save_hosts_config(hosts: list[dict]) -> list[dict]:
             raise HTTPException(400, "host entry is missing 'id'")
         seen[hid] = {
             "id":            hid,
-            "label":         (h.get("label") or hid).strip() or hid,
+            # Empty label is INTENTIONAL post-#621 — the SPA's
+            # `hostDisplayName(h)` resolver falls back to the asset
+            # inventory's name when this is blank. DO NOT auto-fill
+            # with `hid` here: that would silently overwrite an empty
+            # operator intent with the host id, defeating the
+            # "inherit from asset" feature on every save.
+            "label":         (h.get("label") or "").strip(),
             "ne_url":        (h.get("ne_url") or "").strip(),
             "beszel_name":   (h.get("beszel_name") or "").strip(),
             "pulse_name":    (h.get("pulse_name") or "").strip(),
