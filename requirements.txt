@@ -104,7 +104,12 @@ icmplib==3.0.4
 # printers / managed APs that don't run unix-style agents. logic/snmp.py
 # imports this LAZILY (mirroring icmplib) so a missing wheel doesn't
 # block boot — `has_snmp_support()` returns False and the SPA's
-# Settings → Providers → SNMP master toggle disables itself with a
-# "package missing" hint. Pinned at the modern major (>=7.0.0); the
-# hlapi.asyncio surface is stable across recent 5.x / 6.x / 7.x.
+# Settings → Providers → SNMP master toggle disables itself, rendering
+# the i18n'd hint:
+#   "pysnmp package not installed — SNMP probes are disabled until the
+#    dep is added to requirements.txt and the container restarts."
+# (i18n key `settings.host_stats.snmp.unavailable` in static/i18n/en.json,
+# rendered at static/index.html line ~4745 inside the SNMP tab body.)
+# Pinned at the modern major (>=7.0.0); the hlapi.asyncio surface is
+# stable across recent 5.x / 6.x / 7.x.
 pysnmp>=7.0.0

@@ -24,8 +24,7 @@ tmp/
 # its memory to a nested `.claude/` (e.g. `static/img/icons/.claude/`,
 # from a relative-path slip), git ignores it so it can't slip into a
 # deploy. See #252 for the incident this guards against.
-**/static/**/.claude/
-**/static/**/agent-memory/
+
 .claude/worktrees/
 
 
