@@ -1536,7 +1536,35 @@
       "bandwidth": "Bandwidth",
       "docker_show": "Show {count} Docker / internal interface(s)",
       "docker_hide": "Hide {count} Docker / internal interface(s)",
-      "docker_toggle_title": "Toggle Docker veth pairs, bridges, and other internal interfaces (lo, docker0, br-*, veth*, cni*, flannel*, cali*, kube-*, vxlan*, vmbr*)"
+      "docker_toggle_title": "Toggle Docker veth pairs, bridges, and other internal interfaces (lo, docker0, br-*, veth*, cni*, flannel*, cali*, kube-*, vxlan*, vmbr*)",
+      "iface_up": "Interface up",
+      "iface_down": "Interface down",
+      "iface_bar_title": "rx {rx} · tx {tx} since boot"
+    },
+    "ups": {
+      "heading": "UPS",
+      "battery": "Battery",
+      "load": "Output load",
+      "runtime": "Runtime remaining",
+      "battery_temp": "Battery temperature",
+      "battery_status": "Battery state",
+      "status_online": "Online",
+      "status_on_battery": "On battery",
+      "status_on_smart_boost": "Smart boost",
+      "status_on_smart_trim": "Smart trim",
+      "status_off": "Off",
+      "status_rebooting": "Rebooting",
+      "status_software_bypass": "Software bypass",
+      "status_switched_bypass": "Switched bypass",
+      "status_hardware_failure_bypass": "Hardware-failure bypass",
+      "status_sleeping_until": "Sleeping",
+      "status_timed_sleeping": "Timed sleeping",
+      "status_unknown": "Unknown"
+    },
+    "printer": {
+      "heading": "Printer",
+      "page_count": "{count} pages printed",
+      "supply_unknown": "Supply"
     },
     "disks": {
       "heading": "Disks",

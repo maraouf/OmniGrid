@@ -4377,14 +4377,14 @@
             <span x-text="t('settings.host_stats.beszel_verify_tls')"></span>
           </label>
           <div class="flex items-center gap-2 flex-wrap">
-            <button x-show="isAdmin()" @click="testBeszelConnection()"
-                    :disabled="(beszelTestResult && beszelTestResult.pending) || !hasHostStatsSource('beszel')"
-                    class="btn btn-soft text-[12px]"
-                    x-text="(beszelTestResult && beszelTestResult.pending) ? t('settings.host_stats.beszel_testing') : t('settings.host_stats.beszel_test_button')"></button>
             <span x-show="beszelTestResult && !beszelTestResult.pending"
                   :class="beszelTestResult && beszelTestResult.ok ? 'text-[var(--success)]' : 'text-[var(--danger)]'"
                   class="text-[11.5px]"
                   x-text="(beszelTestResult && beszelTestResult.ok ? '✓ ' : '✗ ') + (beszelTestResult && beszelTestResult.detail || '')"></span>
+            <button x-show="isAdmin()" @click="testBeszelConnection()"
+                    :disabled="(beszelTestResult && beszelTestResult.pending) || !hasHostStatsSource('beszel')"
+                    class="btn btn-soft text-[12px] ms-auto"
+                    x-text="(beszelTestResult && beszelTestResult.pending) ? t('settings.host_stats.beszel_testing') : t('settings.host_stats.beszel_test_button')"></button>
           </div>
           <p class="text-[10.5px] text-[var(--text-faint)]"
              x-text="t('settings.host_stats.beszel_naming_hint')"></p>
@@ -4457,14 +4457,14 @@
             <span x-text="t('settings.host_stats.pulse_verify_tls')"></span>
           </label>
           <div class="flex items-center gap-2 flex-wrap">
-            <button x-show="isAdmin()" @click="testPulseConnection()"
-                    :disabled="(pulseTestResult && pulseTestResult.pending) || !hasHostStatsSource('pulse')"
-                    class="btn btn-soft text-[12px]"
-                    x-text="(pulseTestResult && pulseTestResult.pending) ? t('settings.host_stats.pulse_testing') : t('settings.host_stats.pulse_test_button')"></button>
             <span x-show="pulseTestResult && !pulseTestResult.pending"
                   :class="pulseTestResult && pulseTestResult.ok ? 'text-[var(--success)]' : 'text-[var(--danger)]'"
                   class="text-[11.5px]"
                   x-text="(pulseTestResult && pulseTestResult.ok ? '✓ ' : '✗ ') + (pulseTestResult && pulseTestResult.detail || '')"></span>
+            <button x-show="isAdmin()" @click="testPulseConnection()"
+                    :disabled="(pulseTestResult && pulseTestResult.pending) || !hasHostStatsSource('pulse')"
+                    class="btn btn-soft text-[12px] ms-auto"
+                    x-text="(pulseTestResult && pulseTestResult.pending) ? t('settings.host_stats.pulse_testing') : t('settings.host_stats.pulse_test_button')"></button>
           </div>
           <p class="text-[10.5px] text-[var(--text-faint)]" x-text="t('settings.host_stats.pulse_aliases_hint')"></p>
           <!-- Per-provider chip colour (#596). -->
@@ -8466,6 +8466,108 @@
                   </dl>
                 </section>
 
+                <!-- UPS — APC PowerNet-MIB data (#683 / #703). Rendered
+                     ONLY when the host probed via SNMP returned PowerNet
+                     data — `host_ups_status` is the gate. Status badge
+                     plus battery / load gauges using the same `.stat-bar`
+                     primitive other cards use. Battery temperature shows
+                     red above 40°C (APC's "warm" threshold for SLA cells),
+                     battery percent shows red below 20% and amber below
+                     50%, runtime uses fmtUpsRuntime for the human format. -->
+                <section x-show="h.host_ups_status || h.host_battery_percent !== undefined"
+                         class="rounded border border-[var(--border)] bg-[var(--surface)] p-4 md:col-span-6">
+                  <h4 class="text-[10.5px] uppercase tracking-wider text-[var(--text-faint)] mb-3 flex items-center gap-2">
+                    <span x-text="t('host_drawer.ups.heading')"></span>
+                    <span x-show="h.host_ups_status"
+                          class="chip text-[10.5px]"
+                          :class="upsStatusPillClass(h.host_ups_status)"
+                          x-text="upsStatusLabel(h.host_ups_status)"></span>
+                  </h4>
+                  <dl class="drawer-dl text-[12px]">
+                    <template x-if="h.host_battery_percent !== undefined && h.host_battery_percent !== null">
+                      <dt class="text-[var(--text-dim)]" x-text="t('host_drawer.ups.battery')"></dt>
+                    </template>
+                    <template x-if="h.host_battery_percent !== undefined && h.host_battery_percent !== null">
+                      <dd class="text-end">
+                        <div class="flex items-center justify-end gap-2">
+                          <div class="stat-bar w-24"
+                               :class="upsBatteryLevel(h.host_battery_percent)"
+                               :style="'--w:' + (h.host_battery_percent || 0) + '%'"></div>
+                          <span class="mono" x-text="(+h.host_battery_percent).toFixed(0) + '%'"></span>
+                        </div>
+                      </dd>
+                    </template>
+                    <template x-if="h.host_load_percent !== undefined && h.host_load_percent !== null">
+                      <dt class="text-[var(--text-dim)]" x-text="t('host_drawer.ups.load')"></dt>
+                    </template>
+                    <template x-if="h.host_load_percent !== undefined && h.host_load_percent !== null">
+                      <dd class="text-end">
+                        <div class="flex items-center justify-end gap-2">
+                          <div class="stat-bar w-24"
+                               :class="barLevel(h.host_load_percent)"
+                               :style="'--w:' + (h.host_load_percent || 0) + '%'"></div>
+                          <span class="mono" x-text="(+h.host_load_percent).toFixed(0) + '%'"></span>
+                        </div>
+                      </dd>
+                    </template>
+                    <template x-if="h.host_battery_runtime_s">
+                      <dt class="text-[var(--text-dim)]" x-text="t('host_drawer.ups.runtime')"></dt>
+                    </template>
+                    <template x-if="h.host_battery_runtime_s">
+                      <dd class="text-end mono" x-text="fmtUpsRuntime(h.host_battery_runtime_s)"></dd>
+                    </template>
+                    <template x-if="h.host_battery_temp_c">
+                      <dt class="text-[var(--text-dim)]" x-text="t('host_drawer.ups.battery_temp')"></dt>
+                    </template>
+                    <template x-if="h.host_battery_temp_c">
+                      <dd class="text-end mono"
+                          :class="(+h.host_battery_temp_c) > 40 ? 'text-[var(--danger)]' : ''"
+                          x-text="(+h.host_battery_temp_c).toFixed(0) + '°C'"></dd>
+                    </template>
+                    <template x-if="h.host_battery_status">
+                      <dt class="text-[var(--text-dim)]" x-text="t('host_drawer.ups.battery_status')"></dt>
+                    </template>
+                    <template x-if="h.host_battery_status">
+                      <dd class="text-end" x-text="h.host_battery_status"></dd>
+                    </template>
+                  </dl>
+                </section>
+
+                <!-- PRINTER — Printer-MIB toner / supply levels (#702).
+                     Rendered ONLY when the host probed via SNMP returned
+                     `printer_supplies` rows. Each supply renders as a
+                     horizontal bar showing fill level (current/max);
+                     the colour comes from the supply description (cyan /
+                     magenta / yellow / black / waste). -->
+                <section x-show="(h.printer_supplies || []).length > 0"
+                         class="rounded border border-[var(--border)] bg-[var(--surface)] p-4 md:col-span-6">
+                  <h4 class="text-[10.5px] uppercase tracking-wider text-[var(--text-faint)] mb-3 flex items-center gap-2">
+                    <span x-text="t('host_drawer.printer.heading')"></span>
+                    <span x-show="h.printer_page_count"
+                          class="text-[10.5px] text-[var(--text-faint)] font-normal"
+                          x-text="t('host_drawer.printer.page_count', { count: h.printer_page_count })"></span>
+                  </h4>
+                  <div class="space-y-2.5">
+                    <template x-for="(supply, i) in (h.printer_supplies || [])" :key="'p' + i">
+                      <div class="space-y-1">
+                        <div class="flex items-center justify-between text-[12px]">
+                          <span class="font-semibold" x-text="supply.name || t('host_drawer.printer.supply_unknown')"></span>
+                          <span class="mono text-[var(--text-faint)]"
+                                x-text="(supply.percent !== null && supply.percent !== undefined)
+                                        ? supply.percent.toFixed(0) + '%'
+                                        : (supply.level + ' / ' + supply.max)"></span>
+                        </div>
+                        <div class="stat-bar"
+                             :class="printerSupplyLevel(supply)"
+                             :style="'--w:' + (supply.percent || 0) + '%; --c:' + printerSupplyColor(supply)"></div>
+                      </div>
+                    </template>
+                    <div x-show="h.printer_console_msg"
+                         class="pt-2 mt-2 border-t border-dashed border-[var(--border)] text-[11.5px] text-[var(--text-dim)] mono"
+                         x-text="h.printer_console_msg"></div>
+                  </div>
+                </section>
+
                 <!-- NETWORK — each interface rendered as a block with
                      its MAC (muted) and IPv4 / IPv6 addresses colour-
                      coded by family. Matches Beszel's own layout so
@@ -8485,11 +8587,39 @@
                     <template x-for="(iface, i) in networkIfacesPartition(h).real" :key="'r' + i">
                       <div class="space-y-1.5">
                         <div class="flex items-baseline gap-2 flex-wrap">
+                          <!-- #701 — oper_status dot when SNMP returned it.
+                               Up = success token, down = danger token. -->
+                          <span x-show="typeof iface === 'object' && iface.oper_status"
+                                class="inline-block w-1.5 h-1.5 rounded-full self-center"
+                                :class="iface.oper_status === 'up' ? 'dot-on' : 'dot-off'"
+                                :title="iface.oper_status === 'up' ? t('host_drawer.network.iface_up') : t('host_drawer.network.iface_down')"></span>
                           <span class="font-semibold text-[12.5px] mono"
                                 x-text="typeof iface === 'string' ? iface : iface.name"></span>
                           <span x-show="typeof iface === 'object' && iface.mac"
                                 class="ip-chip ip-chip--mac"
                                 x-text="iface.mac"></span>
+                          <!-- #701 — SNMP traffic totals. Only rendered
+                               when the iface row has rx/tx counters
+                               (SNMP-derived hosts only). Compact
+                               rendering: ↓ rx · ↑ tx, mono so the
+                               numbers align across rows. -->
+                          <span x-show="hostIfaceHasTraffic(iface)"
+                                class="ms-auto text-[10.5px] mono text-[var(--text-faint)]">
+                            <span x-text="'↓ ' + fmtBytes(iface.rx_bytes || 0)"></span>
+                            <span class="mx-1">·</span>
+                            <span x-text="'↑ ' + fmtBytes(iface.tx_bytes || 0)"></span>
+                          </span>
+                        </div>
+                        <!-- #701 — stacked rx/tx bar, normalised to the
+                             busiest interface on the host. Only rendered
+                             when this iface has traffic AND the host has
+                             at least one busy interface to scale against. -->
+                        <div x-show="hostIfaceHasTraffic(iface) && hostIfaceMaxTotal(h) > 0"
+                             class="iface-bar"
+                             :style="hostIfaceBarStyle(iface, hostIfaceMaxTotal(h))"
+                             :title="t('host_drawer.network.iface_bar_title', { rx: fmtBytes(iface.rx_bytes || 0), tx: fmtBytes(iface.tx_bytes || 0) })">
+                          <span class="iface-bar-rx"></span>
+                          <span class="iface-bar-tx"></span>
                         </div>
                         <div x-show="typeof iface === 'object' && (iface.addrs || []).length"
                              class="flex flex-wrap gap-1.5">
