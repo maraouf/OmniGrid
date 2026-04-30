@@ -9001,7 +9001,10 @@
                    per-core CPU + no load avg still gets the CPU card. -->
               <div class="mt-3 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4"
                    x-show="hostHasSnmpCharts(h)">
-                <!-- Per-core CPU lines + ssCpuIdle overlay. Y-axis 0..100%. -->
+                <!-- #717 — Per-core CPU + ssCpuIdle overlay. Matches
+                     the Beszel/NE chart cards: viewBox 420×120,
+                     gridlines as a path, legend dots with last-value
+                     readouts, x-axis timestamps. -->
                 <div class="metric-card"
                      x-show="(h.host_cpu_per_core || []).length > 0
                              || (hostSnmpHistory[h.id] && hostSnmpHistory[h.id].points
@@ -9010,19 +9013,26 @@
                     <div class="metric-card-title">
                       <span x-text="t('host_drawer.snmp_charts.cpu_title')"></span><span class="unit">%</span>
                     </div>
-                    <div class="text-[10.5px] text-[var(--text-faint)]"
-                         x-show="(h.host_cpu_per_core || []).length"
-                         x-text="t('host_drawer.snmp_charts.cores', { n: h.host_cpu_per_core.length })"></div>
+                    <div class="metric-card-stats" style="gap:8px">
+                      <span x-show="snmpStats(h.id, 'cpu_used_pct')">
+                        <span class="metric-legend-dot" style="background: var(--success)"></span>
+                        <span x-text="t('host_drawer.snmp_charts.legend_used')"></span>
+                        <span class="legend-val" x-text="snmpStats(h.id, 'cpu_used_pct') ? Math.round(snmpStats(h.id, 'cpu_used_pct').last) + '%' : ''"></span>
+                      </span>
+                      <span x-show="(h.host_cpu_per_core || []).length">
+                        <span class="metric-legend-dot" style="background: var(--info); opacity: 0.55"></span>
+                        <span x-text="t('host_drawer.snmp_charts.legend_per_core', { n: (h.host_cpu_per_core || []).length })"></span>
+                      </span>
+                    </div>
                   </div>
                   <div class="metric-card-body">
                     <div class="metric-y-axis">
                       <template x-for="(l, i) in yAxisPercent()" :key="'cpu-y-' + i"><span x-text="l"></span></template>
                     </div>
-                    <svg class="metric-svg" viewBox="0 0 200 60" preserveAspectRatio="none" aria-hidden="true">
-                      <!-- Gridlines at 25 / 50 / 75 % of viewBox height. -->
-                      <line class="metric-grid" x1="0" y1="15" x2="200" y2="15"/>
-                      <line class="metric-grid" x1="0" y1="30" x2="200" y2="30"/>
-                      <line class="metric-grid" x1="0" y1="45" x2="200" y2="45"/>
+                    <svg class="metric-svg" viewBox="0 0 420 120" preserveAspectRatio="none" aria-hidden="true">
+                      <line class="metric-grid" x1="0" y1="30" x2="420" y2="30"/>
+                      <line class="metric-grid" x1="0" y1="60" x2="420" y2="60"/>
+                      <line class="metric-grid" x1="0" y1="90" x2="420" y2="90"/>
                       <template x-for="(line, i) in snmpCpuPerCoreLines(h.id)" :key="'cpu-' + i">
                         <polyline fill="none" stroke="var(--info)" stroke-opacity="0.55" stroke-width="1" :points="line"></polyline>
                       </template>
@@ -9031,13 +9041,13 @@
                                 x-show="(hostSnmpHistory[h.id] && hostSnmpHistory[h.id].points || []).length > 0"></polyline>
                     </svg>
                     <div class="metric-x-axis">
-                      <span x-text="t('host_drawer.snmp_charts.x_axis_old')"></span>
-                      <span x-text="t('host_drawer.snmp_charts.x_axis_now')"></span>
+                      <template x-for="(l, i) in snmpXAxis(h.id, 5)" :key="'cpu-x-' + i"><span x-text="l"></span></template>
                     </div>
                   </div>
                 </div>
 
-                <!-- Load averages — three lines (1m / 5m / 15m). -->
+                <!-- #717 — Load averages — three lines (1m / 5m / 15m)
+                     with legend dots + current values in the head. -->
                 <div class="metric-card"
                      x-show="h.host_load_1m || h.host_load_5m || h.host_load_15m
                              || (hostSnmpHistory[h.id] && (hostSnmpHistory[h.id].points || []).some(p => p.load_1m || p.load_5m || p.load_15m))">
@@ -9045,8 +9055,23 @@
                     <div class="metric-card-title">
                       <span x-text="t('host_drawer.snmp_charts.load_title')"></span>
                     </div>
-                    <div class="text-[10.5px] text-[var(--text-faint)] mono"
-                         x-text="((+h.host_load_1m || 0).toFixed(2)) + ' / ' + ((+h.host_load_5m || 0).toFixed(2)) + ' / ' + ((+h.host_load_15m || 0).toFixed(2))"></div>
+                    <div class="metric-card-stats" style="gap:8px">
+                      <span>
+                        <span class="metric-legend-dot" style="background: var(--success)"></span>
+                        <span x-text="t('host_drawer.snmp_charts.legend_load_1m')"></span>
+                        <span class="legend-val" x-text="(+h.host_load_1m || 0).toFixed(2)"></span>
+                      </span>
+                      <span>
+                        <span class="metric-legend-dot" style="background: var(--warning)"></span>
+                        <span x-text="t('host_drawer.snmp_charts.legend_load_5m')"></span>
+                        <span class="legend-val" x-text="(+h.host_load_5m || 0).toFixed(2)"></span>
+                      </span>
+                      <span>
+                        <span class="metric-legend-dot" style="background: var(--info)"></span>
+                        <span x-text="t('host_drawer.snmp_charts.legend_load_15m')"></span>
+                        <span class="legend-val" x-text="(+h.host_load_15m || 0).toFixed(2)"></span>
+                      </span>
+                    </div>
                   </div>
                   <div class="metric-card-body">
                     <div class="metric-y-axis">
@@ -9054,22 +9079,22 @@
                       <span x-text="(snmpLoadMax(h.id) / 2).toFixed(2)"></span>
                       <span>0</span>
                     </div>
-                    <svg class="metric-svg" viewBox="0 0 200 60" preserveAspectRatio="none" aria-hidden="true">
-                      <line class="metric-grid" x1="0" y1="15" x2="200" y2="15"/>
-                      <line class="metric-grid" x1="0" y1="30" x2="200" y2="30"/>
-                      <line class="metric-grid" x1="0" y1="45" x2="200" y2="45"/>
+                    <svg class="metric-svg" viewBox="0 0 420 120" preserveAspectRatio="none" aria-hidden="true">
+                      <line class="metric-grid" x1="0" y1="30" x2="420" y2="30"/>
+                      <line class="metric-grid" x1="0" y1="60" x2="420" y2="60"/>
+                      <line class="metric-grid" x1="0" y1="90" x2="420" y2="90"/>
                       <polyline fill="none" stroke="var(--success)" stroke-width="1.5" :points="snmpLoadLine(h.id, 'load_1m')"></polyline>
                       <polyline fill="none" stroke="var(--warning)" stroke-width="1" :points="snmpLoadLine(h.id, 'load_5m')"></polyline>
                       <polyline fill="none" stroke="var(--info)" stroke-width="1" :points="snmpLoadLine(h.id, 'load_15m')"></polyline>
                     </svg>
                     <div class="metric-x-axis">
-                      <span x-text="t('host_drawer.snmp_charts.x_axis_old')"></span>
-                      <span x-text="t('host_drawer.snmp_charts.x_axis_now')"></span>
+                      <template x-for="(l, i) in snmpXAxis(h.id, 5)" :key="'load-x-' + i"><span x-text="l"></span></template>
                     </div>
                   </div>
                 </div>
 
-                <!-- Memory stacked-area: used / buffers / cached / free. -->
+                <!-- #717 — Memory layers: used / cached / buffers / free
+                     with legend dots + last-known byte values. -->
                 <div class="metric-card"
                      x-show="(h.host_mem_buffers || h.host_mem_cached
                              || (hostSnmpHistory[h.id] && (hostSnmpHistory[h.id].points || []).some(p => p.mem_buffers || p.mem_cached)))">
@@ -9077,9 +9102,28 @@
                     <div class="metric-card-title">
                       <span x-text="t('host_drawer.snmp_charts.mem_title')"></span>
                     </div>
-                    <div class="text-[10.5px] text-[var(--text-faint)] mono"
-                         x-show="h.host_mem_total"
-                         x-text="fmtBytes(h.host_mem_used || 0) + ' / ' + fmtBytes(h.host_mem_total || 0)"></div>
+                    <div class="metric-card-stats" style="gap:8px">
+                      <span x-show="snmpStats(h.id, 'mem_used')">
+                        <span class="metric-legend-dot" style="background: var(--danger)"></span>
+                        <span x-text="t('host_drawer.snmp_charts.legend_mem_used')"></span>
+                        <span class="legend-val" x-text="snmpStats(h.id, 'mem_used') ? fmtBytes(snmpStats(h.id, 'mem_used').last) : ''"></span>
+                      </span>
+                      <span x-show="snmpStats(h.id, 'mem_cached')">
+                        <span class="metric-legend-dot" style="background: var(--warning)"></span>
+                        <span x-text="t('host_drawer.snmp_charts.legend_mem_cached')"></span>
+                        <span class="legend-val" x-text="snmpStats(h.id, 'mem_cached') ? fmtBytes(snmpStats(h.id, 'mem_cached').last) : ''"></span>
+                      </span>
+                      <span x-show="snmpStats(h.id, 'mem_buffers')">
+                        <span class="metric-legend-dot" style="background: var(--info)"></span>
+                        <span x-text="t('host_drawer.snmp_charts.legend_mem_buffers')"></span>
+                        <span class="legend-val" x-text="snmpStats(h.id, 'mem_buffers') ? fmtBytes(snmpStats(h.id, 'mem_buffers').last) : ''"></span>
+                      </span>
+                      <span x-show="snmpStats(h.id, 'mem_free')">
+                        <span class="metric-legend-dot" style="background: var(--success)"></span>
+                        <span x-text="t('host_drawer.snmp_charts.legend_mem_free')"></span>
+                        <span class="legend-val" x-text="snmpStats(h.id, 'mem_free') ? fmtBytes(snmpStats(h.id, 'mem_free').last) : ''"></span>
+                      </span>
+                    </div>
                   </div>
                   <div class="metric-card-body">
                     <div class="metric-y-axis">
@@ -9087,18 +9131,17 @@
                       <span x-text="fmtBytes((h.host_mem_total || 0) / 2)"></span>
                       <span>0</span>
                     </div>
-                    <svg class="metric-svg" viewBox="0 0 200 60" preserveAspectRatio="none" aria-hidden="true">
-                      <line class="metric-grid" x1="0" y1="15" x2="200" y2="15"/>
-                      <line class="metric-grid" x1="0" y1="30" x2="200" y2="30"/>
-                      <line class="metric-grid" x1="0" y1="45" x2="200" y2="45"/>
+                    <svg class="metric-svg" viewBox="0 0 420 120" preserveAspectRatio="none" aria-hidden="true">
+                      <line class="metric-grid" x1="0" y1="30" x2="420" y2="30"/>
+                      <line class="metric-grid" x1="0" y1="60" x2="420" y2="60"/>
+                      <line class="metric-grid" x1="0" y1="90" x2="420" y2="90"/>
                       <polyline fill="none" stroke="var(--danger)"  stroke-width="1.5" :points="snmpMemArea(h.id, 'used')"></polyline>
                       <polyline fill="none" stroke="var(--warning)" stroke-width="1"   :points="snmpMemArea(h.id, 'cached')"></polyline>
                       <polyline fill="none" stroke="var(--info)"    stroke-width="1"   :points="snmpMemArea(h.id, 'buffers')"></polyline>
                       <polyline fill="none" stroke="var(--success)" stroke-width="1"   :points="snmpMemArea(h.id, 'free')"></polyline>
                     </svg>
                     <div class="metric-x-axis">
-                      <span x-text="t('host_drawer.snmp_charts.x_axis_old')"></span>
-                      <span x-text="t('host_drawer.snmp_charts.x_axis_now')"></span>
+                      <template x-for="(l, i) in snmpXAxis(h.id, 5)" :key="'mem-x-' + i"><span x-text="l"></span></template>
                     </div>
                   </div>
                 </div>
