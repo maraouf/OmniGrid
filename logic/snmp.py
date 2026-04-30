@@ -342,8 +342,18 @@ async def _snmp_get(engine, auth, target, oids: list[str]) -> dict[str, object]:
             engine, auth, target, ContextData(),
             *(ObjectType(ObjectIdentity(o)) for o in oids),
         )
+    except (asyncio.CancelledError, KeyboardInterrupt):
+        # MED-005 — never swallow cancellation. Lifespan shutdown
+        # depends on it propagating up the await chain so the loop
+        # task cancels cleanly.
+        raise
     except Exception as e:
-        print(f"[snmp] GET error against {target}: {e}")
+        # MED-005 — log the exception type so debugging "host returned
+        # no data" doesn't have to start with "is this a real network
+        # issue or a code bug?". One line per error site is fine —
+        # each call site is bounded by the gather's per-OID concurrency.
+        print(f"[snmp] WARN GET error against {target} oids={oids}: "
+              f"{type(e).__name__}: {e}")
         return {}
     if errorIndication:
         print(f"[snmp] GET errorIndication: {errorIndication}")
@@ -398,8 +408,15 @@ async def _snmp_walk(engine, auth, target, base_oid: str,
                 out[oid_s] = val
                 if len(out) >= max_rows:
                     return out
+    except (asyncio.CancelledError, KeyboardInterrupt):
+        # MED-005 — same cancellation contract as _snmp_get.
+        raise
     except Exception as e:
-        print(f"[snmp] WALK exception on {base_oid}: {e}")
+        # MED-005 — log the exception type so a misformatted OID or
+        # pysnmp internal bug shows up as a code-bug signal instead of
+        # a network-failure signal.
+        print(f"[snmp] WARN WALK error on {base_oid} against {target}: "
+              f"{type(e).__name__}: {e}")
     return out
 
 
@@ -536,6 +553,15 @@ def extract_storage(
         type_oid = _coerce_str(types.get(idx))
         desc = _coerce_str(descs.get(idx))
         if type_oid == _OID_HR_TYPE_RAM:
+            # #664 — unit-normalisation heuristic for older Cisco IOS-XE
+            # (and similar agents) that report `Units=1, Size=<KB-count>`
+            # for RAM. Naive `Units × Size` math stores 2 MB instead of
+            # 2 GB. Heuristic: hrStorageType=RAM with total_bytes < 16 MiB
+            # is suspicious for any device that runs SNMP — treat
+            # `Units` as 1024 instead.
+            if unit_bytes == 1 and total_bytes < (16 * 1024 * 1024):
+                total_bytes = size_units * 1024
+                used_bytes = max(0, min(used_units * 1024, total_bytes))
             mem_total += total_bytes
             mem_used += used_bytes
         elif type_oid in (_OID_HR_TYPE_FIXED_DISK, _OID_HR_TYPE_REMOVABLE):

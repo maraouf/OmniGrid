@@ -7498,16 +7498,21 @@ async def api_local_login_webauthn_start(
     # mismatched so the legacy creds don't fire spurious banners.
     orphaned = []
     matching = []
-    for c in creds:
-        cred_rp = (c.get("rp_id") or "").strip().lower()
+    # MED-006 — `cred` not `c`. Outer `with db_conn() as c:` block has
+    # exited but the convention in `main.py` is `c` = sqlite connection,
+    # so reusing the name in the loop body shadows that and adds reader
+    # hazard. Renamed throughout the loop + the allowCredentials list
+    # comprehension below.
+    for cred in creds:
+        cred_rp = (cred.get("rp_id") or "").strip().lower()
         if cred_rp and cred_rp != rp_id.lower():
             orphaned.append({
-                "id": c["id"],
-                "friendly_name": c.get("friendly_name") or "",
+                "id": cred["id"],
+                "friendly_name": cred.get("friendly_name") or "",
                 "rp_id": cred_rp,
             })
         else:
-            matching.append(c)
+            matching.append(cred)
     rp_id_mismatch = len(orphaned) > 0 and len(matching) == 0
     # Build the assertion options against ALL stored credentials. Even
     # when every credential is orphaned, we still send the options so
@@ -7521,10 +7526,10 @@ async def api_local_login_webauthn_start(
         rp_id=rp_id,
         allowed_credentials=[
             {
-                "credential_id": c["credential_id"],
-                "transports": c["transports"],
+                "credential_id": cred["credential_id"],
+                "transports": cred["transports"],
             }
-            for c in _allow_set
+            for cred in _allow_set
         ],
     )
     login_id, expires_at = _create_webauthn_login_challenge({

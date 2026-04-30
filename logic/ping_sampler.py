@@ -211,8 +211,14 @@ async def _probe_one(host: dict, sem: asyncio.Semaphore) -> None:
             f"rtt={result['rtt_ms']:.1f}ms" if result.get("rtt_ms") is not None
             else f"err={result.get('error') or '—'}"
         )
+        # MED-008 — defensive `or 0` so a future probe_ping that returns
+        # `{loss_pct: None}` (distinguishing "sample taken, loss unknown"
+        # from "100% loss") doesn't blow this format spec up with
+        # TypeError. Today's synthesized error path always populates
+        # 100.0; the guard is forward-looking.
+        loss_for_log = result.get("loss_pct") or 0
         print(f"[ping_sampler] {host['id']!r} alive={result.get('alive')} "
-              f"loss={result.get('loss_pct'):.0f}% {rtt_blurb}")
+              f"loss={loss_for_log:.0f}% {rtt_blurb}")
 
 
 def _prune_old_samples() -> int:

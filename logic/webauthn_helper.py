@@ -405,13 +405,17 @@ def verify_authentication(
     new_sc = int(verification.new_sign_count)
     # `verify_authentication_response` already rejects sign-count
     # regressions for authenticators that DO report a counter. The
-    # 0/0 case is left to us: that's normal for password managers.
-    # Defence-in-depth (#462 / BUG-007): explicitly reject any
-    # backwards step in the non-zero range. Past versions of Duo's
-    # webauthn lib (1.x) silently allowed regressions in some edge
-    # cases; pinning >=2.0 covers the published behaviour but keeping
-    # this guard means an upstream regression doesn't silently let
-    # cloned authenticators through.
+    # 0/0 case (passkey / password-manager that never reports a
+    # counter) is delegated to the lib's contract — Duo's webauthn 2.x
+    # currently rejects 0→0 clones at the response-verification stage.
+    # If a future minor relaxes that contract, add per-credential
+    # `ever_nonzero` bookkeeping HERE: track the max sign_count ever
+    # observed for a credential, and reject any post-nonzero 0 update.
+    # That requires a schema change (one extra BLOB / int column on
+    # user_credentials), so it's deferred until a real regression hits.
+    # Defence-in-depth (#462 / BUG-007 / #662): the guard below
+    # explicitly rejects any backwards step in the non-zero range so
+    # an upstream regression in the SAME range can't slip through.
     if new_sc and current_sign_count and new_sc < current_sign_count:
         raise ValueError(
             f"Sign counter regression: new={new_sc} < current={current_sign_count}"

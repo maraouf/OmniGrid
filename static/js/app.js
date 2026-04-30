@@ -9327,9 +9327,24 @@ function app() {
         const slug = aliases[h.icon.toLowerCase()] || h.icon;
         return this._themeIcon('/img/icons/' + slug + '.svg');
       }
+      // #669 — when the operator has cleared the display label
+      // (which falls back to assetForHost(h).name per #621), the icon
+      // resolver loses its primary "this is a Synology / Dell / ..."
+      // signal because h.label is empty. Fold the asset's name +
+      // type_short + vendor + model into the candidate pool AND the
+      // keyword-scan hay so cleared-label hosts inherit the asset's
+      // brand hint. Cheap lookup — assetForHost is a Map.get().
+      const _asset = (typeof this.assetForHost === 'function')
+        ? (this.assetForHost(h) || null)
+        : null;
+      const _assetName  = _asset ? String(_asset.name || '').trim() : '';
+      const _assetTypeS = _asset ? String(_asset.type_short || '').trim() : '';
+      const _assetVendor = _asset ? String(_asset.vendor || '').trim() : '';
+      const _assetModel = _asset ? String(_asset.model || '').trim() : '';
       // Step 2 — exact-slug match on any field.
       const candidates = [
         h.id, h.label, h.host, h.beszel_name, h.pulse_name,
+        _assetName, _assetTypeS, _assetVendor, _assetModel,
       ].filter(Boolean);
       for (const c of candidates) {
         const url = this.iconUrlFor(c);
@@ -9338,8 +9353,10 @@ function app() {
       // Step 3 — keyword scan. Lowercase hay from label + id, then
       // test each known token. Order matters: longer / more specific
       // tokens win first so "nginx-proxy-manager" beats "nginx".
-      const hay = [h.label, h.id, h.host]
-        .filter(Boolean).join(' ').toLowerCase();
+      const hay = [
+        h.label, h.id, h.host,
+        _assetName, _assetVendor, _assetModel, _assetTypeS,
+      ].filter(Boolean).join(' ').toLowerCase();
       // Longest / most specific phrases first so "nginx proxy
       // manager" wins over "nginx" and "home assistant" wins over
       // "home". Every target slug must correspond to a file that
@@ -11637,18 +11654,34 @@ function app() {
     _ensureHostRowObserver() {
       if (this._hostRowObserver) return this._hostRowObserver;
       if (typeof IntersectionObserver === 'undefined') return null;
+      // #661 — observer hits collect into a pending Set + debounce
+      // by 200 ms before flushing. Rapid scroll past a long list
+      // (e.g. 200-host fleet) coalesces into one queue load instead
+      // of firing 50+ concurrent fetches in <500 ms (the prior
+      // behaviour bypassed `tuning_hosts_parallel_fetch` entirely
+      // because each observer entry called refreshHostRow directly).
+      // The flush hands every queued id to `_runHostRefreshQueue`
+      // which honours the SAME PARALLEL cap as loadHosts'
+      // poll-driven fan-out.
+      this._hostObserverPending = this._hostObserverPending || new Set();
+      const flush = () => {
+        this._hostObserverFlushTimer = null;
+        const ids = [...(this._hostObserverPending || new Set())];
+        this._hostObserverPending = new Set();
+        if (!ids.length) return;
+        for (const id of ids) this._hostSeenIds.add(id);
+        this._runHostRefreshQueue(ids).catch(() => {});
+      };
       const handle = (entries) => {
         for (const entry of entries) {
           if (!entry.isIntersecting) continue;
           const id = entry.target && entry.target.getAttribute('data-host-id');
           if (!id) continue;
           if (this._hostSeenIds.has(id)) continue;
-          this._hostSeenIds.add(id);
-          // Fire-and-forget the per-row probe. refreshHostRow handles
-          // its own error path; a failure here shouldn't break the
-          // observer or other rows.
-          this.refreshHostRow(id).catch(() => {});
+          this._hostObserverPending.add(id);
         }
+        if (this._hostObserverFlushTimer) clearTimeout(this._hostObserverFlushTimer);
+        this._hostObserverFlushTimer = setTimeout(flush, 200);
       };
       this._hostRowObserver = new IntersectionObserver(handle, {
         rootMargin: '200px 0px 200px 0px',
@@ -11670,6 +11703,30 @@ function app() {
         return;
       }
       obs.observe(el);
+    },
+    // #661 — concurrency-capped queue runner shared between the IO
+    // observer's debounced flush and loadHosts' poll-driven fan-out.
+    // Resolves PARALLEL the same way loadHosts does (per-call read of
+    // `me.client_config.hosts_parallel_fetch`, fallback 6) so an
+    // operator's Admin → Config Save takes effect on the next call.
+    async _runHostRefreshQueue(ids) {
+      const queue = (ids || []).filter(Boolean);
+      if (!queue.length) return;
+      const PARALLEL = (this.me && this.me.client_config
+                        && this.me.client_config.hosts_parallel_fetch) || 6;
+      const worker = async () => {
+        while (queue.length) {
+          const id = queue.shift();
+          if (!id) break;
+          try { await this.refreshHostRow(id); }
+          catch (_) { /* per-row failure stays isolated */ }
+        }
+      };
+      const workers = [];
+      for (let i = 0; i < Math.min(PARALLEL, queue.length); i++) {
+        workers.push(worker());
+      }
+      await Promise.all(workers);
     },
 
     async loadHosts(force = false) {
