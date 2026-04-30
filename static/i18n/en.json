@@ -1587,6 +1587,7 @@
   },
   "admin_hosts": {
     "heading": "Hosts",
+    "intro": "Define the machines you want to monitor and map each to the names used by every enabled provider. OmniGrid fetches all providers on every refresh and merges the best values per host — missing fields degrade to what the other providers returned.",
     "discover_button": "Discover from providers",
     "discover_busy": "Fetching…",
     "discover_title": "Fetch the list of names known to every enabled provider so you can autocomplete the fields below",
