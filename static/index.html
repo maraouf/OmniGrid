@@ -2809,6 +2809,18 @@
                               </template>
                             </span>
                           </template>
+                          <!-- #605 — orphaned-credential badge. When the
+                               credential's stored rp_id doesn't match the
+                               page's current hostname, the operator
+                               can't use this passkey to sign in (browser
+                               correctly refuses cross-domain credentials)
+                               and should remove + re-enrol it. Empty
+                               rp_id (legacy creds) hides the badge. -->
+                          <template x-if="pk.rp_id && pk.rp_id !== (passkeys.current_rp_id || (location && location.hostname || '').toLowerCase())">
+                            <span class="chip pill-error text-[9.5px] px-1.5 py-0 ms-1"
+                                  :title="t('settings.profile.passkeys.orphaned_title', { rp_id: pk.rp_id })"
+                                  x-text="t('settings.profile.passkeys.orphaned_badge', { rp_id: pk.rp_id })"></span>
+                          </template>
                         </div>
                       </div>
                       <button type="button" class="btn btn-ghost text-[11.5px] text-danger"
