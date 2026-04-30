@@ -87,7 +87,7 @@ const KNOWN_ICONS = new Set([
 // ``/api/hosts/one/{id}``'s payload — when the backend omits a key the
 // row collapses it to ``null`` instead of letting the previous value
 // stick. Curated config
-// fields (``label`` / ``icon`` / ``ssh_disabled`` / ``ne_url`` /
+// fields (``label`` / ``icon`` / ``ssh_enabled`` / ``ne_url`` /
 // ``beszel_name`` / ``pulse_name`` / ``webmin_name`` / ``url`` /
 // ``custom_number`` / ``asset``) are NOT in this list — ``loadHosts``
 // owns them via ``CURATED_FIELDS`` and ``api/hosts/one`` does not edit
@@ -5034,7 +5034,7 @@ function app() {
       const rows = Array.isArray(this.hostsConfig) ? this.hostsConfig : [];
       return rows
         .filter(h => h && h.ping && h.ping.enabled && h.enabled !== false && h.id)
-        .map(h => ({ id: h.id, label: h.label || h.id }));
+        .map(h => ({ id: h.id, label: this.hostDisplayName(h) || h.id }));
     },
     async testPingConnection() {
       // One-shot live probe against a curated host (#343). Server-side
@@ -9677,7 +9677,20 @@ function app() {
         if (typeof sshIn.password === 'string' && sshIn.password !== '') {
           sshOut.password = sshIn.password;
         }
-        if (sshIn.disabled) sshOut.disabled = true;
+        // Per-host SSH is OPT-IN as of #622 — `ssh.enabled=true` is the
+        // explicit flag. Imported old-shape rows carrying `ssh.disabled`
+        // are migrated here at import-time so the operator can re-import
+        // a pre-#622 export without losing intent: `disabled=true` →
+        // stay disabled (don't write `enabled`); any other shape (no
+        // `disabled` field, OR `disabled=false`) → write `enabled=true`
+        // to preserve the old "implicitly enabled inheriting global"
+        // behaviour. Same flip the schema_migrations #001 applies to
+        // existing DB rows on first boot post-#622.
+        if (typeof sshIn.enabled !== 'undefined') {
+          if (sshIn.enabled) sshOut.enabled = true;
+        } else if (sshIn.disabled !== true) {
+          sshOut.enabled = true;
+        }
         // Per-host ping (#343). Same shape contract as ssh — strip
         // falsy / blank keys so empty strings don't poison the merge.
         const pingIn = h.ping || {};
@@ -11062,6 +11075,27 @@ function app() {
     // result skips the prefix entirely so non-asset hosts stay clean.
     //
     // One-time debug: if we have a Type object with a long `type` but
+    // Resolve the human-visible display name for a host row, used by
+    // the Hosts grid + drawer header + every "open this host" toast.
+    // Resolution order (#621):
+    //   1. Operator-set `h.label` from Admin → Hosts (highest priority)
+    //   2. Asset inventory's `name` (asset.Name / asset.CalculatedName
+    //      via `assetForHost(h).name`) — lets operators leave the
+    //      display label blank and inherit a meaningful name from the
+    //      asset record without typing it twice
+    //   3. The Docker hostname `h.host`
+    //   4. The curated row id `h.id` (last-resort)
+    // Anywhere the UI used `h.label || h.host` it should call this
+    // helper instead so the asset-fallback applies consistently.
+    hostDisplayName(h) {
+      if (!h) return '';
+      const op = (h.label || '').toString().trim();
+      if (op) return op;
+      const asset = (typeof this.assetForHost === 'function') ? this.assetForHost(h) : null;
+      const an = (asset && asset.name) ? String(asset.name).trim() : '';
+      if (an) return an;
+      return String(h.host || h.id || '').trim();
+    },
     // no `type_short`, log the available keys ONCE so the operator can
     // tell us the correct upstream field name. The set is process-wide
     // so we don't flood the console — first asset that misses logs.
@@ -11320,7 +11354,7 @@ function app() {
         const CURATED_FIELDS = [
           'label', 'icon', 'custom_number', 'url',
           'beszel_name', 'pulse_name', 'ne_url', 'webmin_name',
-          'ssh_disabled', 'asset',
+          'ssh_enabled', 'asset',
           // #343 — ping_enabled needs to flow through the skeleton
           // path so drawerHost.ping_enabled is truthy when the
           // operator first clicks a ping-enabled row. Otherwise the
@@ -11790,7 +11824,7 @@ function app() {
           default:       return 3;
         }
       };
-      const nameOf = (h) => (h.label || h.host || '').toLowerCase();
+      const nameOf = (h) => this.hostDisplayName(h).toLowerCase();
       // Group key for 'type' sort — prefer platform over os so
       // Proxmox/LXC rows cluster distinctly from plain Debian, etc.
       // Empty values sort LAST ('~' > any printable letter).
@@ -11963,10 +11997,10 @@ function app() {
         }, pingMs);
       }
       // Preload SSH status — admin only, and only when the host
-      // didn't opt out. Without this the SSH card header shows
-      // "Not configured" until the operator clicks to expand it —
-      // a false-negative for fully-configured fleets.
-      if (this.isAdmin && this.isAdmin() && !host.ssh_disabled) {
+      // explicitly opted IN to SSH (#622, post-flip). Without this the
+      // SSH card header shows "Not configured" until the operator
+      // clicks to expand it — a false-negative for opted-in fleets.
+      if (this.isAdmin && this.isAdmin() && host.ssh_enabled) {
         this.loadSshStatus(host.id);
       }
     },
@@ -12220,7 +12254,7 @@ function app() {
           h.failure_window_started_at = 0;
           h.consecutive_failures = 0;
           h.last_error = '';
-          this.showToast(this.t('hosts_extra.permanent_fail.resumed_toast', { host: h.label || h.id }), 'success');
+          this.showToast(this.t('hosts_extra.permanent_fail.resumed_toast', { host: this.hostDisplayName(h) || h.id }), 'success');
           // Refresh the host record to pick up backend's view + any
           // new probe results that landed during the API roundtrip.
           // ``force: true`` busts the 10s provider-state cache so the
@@ -12232,10 +12266,10 @@ function app() {
         } else {
           const j = await r.json().catch(() => ({}));
           const detail = j.detail || ('HTTP ' + r.status);
-          this.showToast(this.t('hosts_extra.permanent_fail.resume_failed_toast', { host: h.label || h.id, error: detail }), 'error');
+          this.showToast(this.t('hosts_extra.permanent_fail.resume_failed_toast', { host: this.hostDisplayName(h) || h.id, error: detail }), 'error');
         }
       } catch (err) {
-        this.showToast(this.t('hosts_extra.permanent_fail.resume_failed_toast', { host: h.label || h.id, error: String(err) }), 'error');
+        this.showToast(this.t('hosts_extra.permanent_fail.resume_failed_toast', { host: this.hostDisplayName(h) || h.id, error: String(err) }), 'error');
       } finally {
         h._resumeBusy = false;
       }

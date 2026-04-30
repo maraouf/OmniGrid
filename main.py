@@ -4165,11 +4165,11 @@ def _shape_host_api_row(
         # per call. If that becomes a hotspot we can stash the
         # index on the request via FastAPI Depends().
         "asset":            _resolve_asset_for_host(h.get("custom_number")),
-        # Per-host SSH-disabled flag, exposed so the drawer can hide
-        # the SSH card / common-actions panel BEFORE sshStatus has
-        # loaded. Reads the hosts_config `ssh.disabled` field — if the
-        # operator explicitly opted out, the card never renders.
-        "ssh_disabled":     bool((h.get("ssh") or {}).get("disabled", False)),
+        # Per-host SSH-enabled flag (#622 — opt-in semantics post
+        # migration #001). True only when the operator explicitly ticked
+        # "Enable SSH for this host" in Admin → Hosts. The drawer's SSH
+        # card + common-actions panel render only when this is true.
+        "ssh_enabled":      bool((h.get("ssh") or {}).get("enabled", False)),
         # Ping (#343). `ping_enabled` is the per-host opt-in flag (the
         # SPA uses it to gate the latency chip + drawer chart). The
         # alive / RTT / loss values come from the merged provider
