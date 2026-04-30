@@ -4889,14 +4889,26 @@
                 <span class="text-[11px] text-[var(--text-faint)] truncate"
                       x-show="row.label && row.label !== row.id"
                       x-text="'· ' + row.label"></span>
+                <!-- Per-row provider chips. Each chip uses the
+                     operator-set colour from Settings → Providers via
+                     `providerChipStyle(name)`, NOT the hardcoded
+                     `pill-muted` grey (#631 — was off-pattern from the
+                     Hosts grid + drawer chips). The map below pairs
+                     each provider's CANONICAL name (used for the
+                     colour lookup — must match `providerColor()`'s
+                     defaults dict) with its short DISPLAY label
+                     (`exporter` reads cleaner than `node_exporter`
+                     in a small chip). -->
                 <template x-for="p in [
-                    row.beszel_name ? 'beszel' : null,
-                    row.pulse_name ? 'pulse' : null,
-                    row.ne_url ? 'exporter' : null,
-                    row.webmin_url ? 'webmin' : null,
-                    (row.ping && row.ping.enabled) ? 'ping' : null,
-                  ].filter(Boolean)" :key="p">
-                  <span class="chip text-[9.5px] px-1 py-0 pill-muted mono" x-text="p"></span>
+                    row.beszel_name ? {name:'beszel', label:'beszel'} : null,
+                    row.pulse_name ? {name:'pulse', label:'pulse'} : null,
+                    row.ne_url ? {name:'node_exporter', label:'exporter'} : null,
+                    row.webmin_url ? {name:'webmin', label:'webmin'} : null,
+                    (row.ping && row.ping.enabled) ? {name:'ping', label:'ping'} : null,
+                  ].filter(Boolean)" :key="p.name">
+                  <span class="chip text-[9.5px] px-1 py-0 pill-custom mono"
+                        :style="providerChipStyle(p.name)"
+                        x-text="p.label"></span>
                 </template>
                 <span x-show="!row.enabled" class="chip text-[9.5px] px-1 py-0 pill-warning" x-text="t('states.disabled')"></span>
                 <span class="ms-auto"></span>
