@@ -3121,15 +3121,16 @@
             <input type="checkbox" x-model="settings.beszel_verify_tls" :disabled="isReadonly()">
             <span x-text="t('settings.host_stats.beszel_verify_tls')"></span>
           </label>
-          <div class="flex items-center gap-2 flex-wrap justify-between w-full">
-            <!-- #700 fix: result span is the ALWAYS-rendered first
-                 child (uses `min-h` placeholder when there's no
-                 result yet) so flex's `justify-between` always has
-                 two siblings to spread. Pre-fix the span was
-                 `x-show="..."` (display:none when no result), leaving
-                 the button as the only child — `ms-auto` collapsed
-                 to 0 and the button sat at the start. -->
-            <span class="text-[11.5px] flex-1 min-w-0"
+          <!-- #700 third-pass fix: switched from flex+justify-between
+               to a 2-column grid (1fr for the result span, auto for
+               the button). Flex+justify-between only works when both
+               children participate in the layout; with `flex-wrap`
+               the button could STILL wrap onto its own line on
+               narrow viewports and lose the right-edge anchor.
+               Grid columns are absolute — first column always grows,
+               second column always hugs the button content. -->
+          <div class="grid grid-cols-[1fr_auto] items-center gap-2">
+            <span class="text-[11.5px] min-w-0"
                   :class="beszelTestResult && !beszelTestResult.pending
                           ? (beszelTestResult.ok ? 'text-[var(--success)]' : 'text-[var(--danger)]')
                           : 'text-[var(--text-faint)]'"
@@ -3138,7 +3139,7 @@
                           : ''"></span>
             <button x-show="isAdmin()" @click="testBeszelConnection()"
                     :disabled="beszelTestResult && beszelTestResult.pending"
-                    class="btn btn-soft text-[12px] flex-shrink-0"
+                    class="btn btn-soft text-[12px] justify-self-end"
                     x-text="(beszelTestResult && beszelTestResult.pending) ? t('settings.host_stats.beszel_testing') : t('settings.host_stats.beszel_test_button')"></button>
           </div>
           <p class="text-[10.5px] text-[var(--text-faint)]"
@@ -4403,8 +4404,8 @@
                    :disabled="isReadonly() || !hasHostStatsSource('beszel')">
             <span x-text="t('settings.host_stats.beszel_verify_tls')"></span>
           </label>
-          <div class="flex items-center gap-2 flex-wrap justify-between w-full">
-            <span class="text-[11.5px] flex-1 min-w-0"
+          <div class="grid grid-cols-[1fr_auto] items-center gap-2">
+            <span class="text-[11.5px] min-w-0"
                   :class="beszelTestResult && !beszelTestResult.pending
                           ? (beszelTestResult.ok ? 'text-[var(--success)]' : 'text-[var(--danger)]')
                           : 'text-[var(--text-faint)]'"
@@ -4413,7 +4414,7 @@
                           : ''"></span>
             <button x-show="isAdmin()" @click="testBeszelConnection()"
                     :disabled="(beszelTestResult && beszelTestResult.pending) || !hasHostStatsSource('beszel')"
-                    class="btn btn-soft text-[12px] flex-shrink-0"
+                    class="btn btn-soft text-[12px] justify-self-end"
                     x-text="(beszelTestResult && beszelTestResult.pending) ? t('settings.host_stats.beszel_testing') : t('settings.host_stats.beszel_test_button')"></button>
           </div>
           <p class="text-[10.5px] text-[var(--text-faint)]"
@@ -4486,8 +4487,8 @@
                    :disabled="isReadonly() || !hasHostStatsSource('pulse')">
             <span x-text="t('settings.host_stats.pulse_verify_tls')"></span>
           </label>
-          <div class="flex items-center gap-2 flex-wrap justify-between w-full">
-            <span class="text-[11.5px] flex-1 min-w-0"
+          <div class="grid grid-cols-[1fr_auto] items-center gap-2">
+            <span class="text-[11.5px] min-w-0"
                   :class="pulseTestResult && !pulseTestResult.pending
                           ? (pulseTestResult.ok ? 'text-[var(--success)]' : 'text-[var(--danger)]')
                           : 'text-[var(--text-faint)]'"
@@ -4496,7 +4497,7 @@
                           : ''"></span>
             <button x-show="isAdmin()" @click="testPulseConnection()"
                     :disabled="(pulseTestResult && pulseTestResult.pending) || !hasHostStatsSource('pulse')"
-                    class="btn btn-soft text-[12px] flex-shrink-0"
+                    class="btn btn-soft text-[12px] justify-self-end"
                     x-text="(pulseTestResult && pulseTestResult.pending) ? t('settings.host_stats.pulse_testing') : t('settings.host_stats.pulse_test_button')"></button>
           </div>
           <p class="text-[10.5px] text-[var(--text-faint)]" x-text="t('settings.host_stats.pulse_aliases_hint')"></p>
@@ -8989,7 +8990,7 @@
                    per-core CPU + no load avg still gets the CPU card. -->
               <div class="mt-3 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4"
                    x-show="hostHasSnmpCharts(h)">
-                <!-- Per-core CPU lines + ssCpuIdle overlay. -->
+                <!-- Per-core CPU lines + ssCpuIdle overlay. Y-axis 0..100%. -->
                 <div class="metric-card"
                      x-show="(h.host_cpu_per_core || []).length > 0
                              || (hostSnmpHistory[h.id] && hostSnmpHistory[h.id].points
@@ -9002,14 +9003,27 @@
                          x-show="(h.host_cpu_per_core || []).length"
                          x-text="t('host_drawer.snmp_charts.cores', { n: h.host_cpu_per_core.length })"></div>
                   </div>
-                  <svg class="metric-svg" viewBox="0 0 200 60" preserveAspectRatio="none" aria-hidden="true">
-                    <template x-for="(line, i) in snmpCpuPerCoreLines(h.id)" :key="'cpu-' + i">
-                      <polyline fill="none" stroke="var(--info)" stroke-opacity="0.55" stroke-width="1" :points="line"></polyline>
-                    </template>
-                    <polyline fill="none" stroke="var(--success)" stroke-width="1.5"
-                              :points="snmpCpuUsedPctLine(h.id)"
-                              x-show="(hostSnmpHistory[h.id] && hostSnmpHistory[h.id].points || []).length > 0"></polyline>
-                  </svg>
+                  <div class="metric-card-body">
+                    <div class="metric-y-axis">
+                      <template x-for="(l, i) in yAxisPercent()" :key="'cpu-y-' + i"><span x-text="l"></span></template>
+                    </div>
+                    <svg class="metric-svg" viewBox="0 0 200 60" preserveAspectRatio="none" aria-hidden="true">
+                      <!-- Gridlines at 25 / 50 / 75 % of viewBox height. -->
+                      <line class="metric-grid" x1="0" y1="15" x2="200" y2="15"/>
+                      <line class="metric-grid" x1="0" y1="30" x2="200" y2="30"/>
+                      <line class="metric-grid" x1="0" y1="45" x2="200" y2="45"/>
+                      <template x-for="(line, i) in snmpCpuPerCoreLines(h.id)" :key="'cpu-' + i">
+                        <polyline fill="none" stroke="var(--info)" stroke-opacity="0.55" stroke-width="1" :points="line"></polyline>
+                      </template>
+                      <polyline fill="none" stroke="var(--success)" stroke-width="1.5"
+                                :points="snmpCpuUsedPctLine(h.id)"
+                                x-show="(hostSnmpHistory[h.id] && hostSnmpHistory[h.id].points || []).length > 0"></polyline>
+                    </svg>
+                    <div class="metric-x-axis">
+                      <span x-text="t('host_drawer.snmp_charts.x_axis_old')"></span>
+                      <span x-text="t('host_drawer.snmp_charts.x_axis_now')"></span>
+                    </div>
+                  </div>
                 </div>
 
                 <!-- Load averages — three lines (1m / 5m / 15m). -->
@@ -9023,11 +9037,25 @@
                     <div class="text-[10.5px] text-[var(--text-faint)] mono"
                          x-text="((+h.host_load_1m || 0).toFixed(2)) + ' / ' + ((+h.host_load_5m || 0).toFixed(2)) + ' / ' + ((+h.host_load_15m || 0).toFixed(2))"></div>
                   </div>
-                  <svg class="metric-svg" viewBox="0 0 200 60" preserveAspectRatio="none" aria-hidden="true">
-                    <polyline fill="none" stroke="var(--success)" stroke-width="1.5" :points="snmpLoadLine(h.id, 'load_1m')"></polyline>
-                    <polyline fill="none" stroke="var(--warning)" stroke-width="1" :points="snmpLoadLine(h.id, 'load_5m')"></polyline>
-                    <polyline fill="none" stroke="var(--info)" stroke-width="1" :points="snmpLoadLine(h.id, 'load_15m')"></polyline>
-                  </svg>
+                  <div class="metric-card-body">
+                    <div class="metric-y-axis">
+                      <span x-text="snmpLoadMax(h.id).toFixed(2)"></span>
+                      <span x-text="(snmpLoadMax(h.id) / 2).toFixed(2)"></span>
+                      <span>0</span>
+                    </div>
+                    <svg class="metric-svg" viewBox="0 0 200 60" preserveAspectRatio="none" aria-hidden="true">
+                      <line class="metric-grid" x1="0" y1="15" x2="200" y2="15"/>
+                      <line class="metric-grid" x1="0" y1="30" x2="200" y2="30"/>
+                      <line class="metric-grid" x1="0" y1="45" x2="200" y2="45"/>
+                      <polyline fill="none" stroke="var(--success)" stroke-width="1.5" :points="snmpLoadLine(h.id, 'load_1m')"></polyline>
+                      <polyline fill="none" stroke="var(--warning)" stroke-width="1" :points="snmpLoadLine(h.id, 'load_5m')"></polyline>
+                      <polyline fill="none" stroke="var(--info)" stroke-width="1" :points="snmpLoadLine(h.id, 'load_15m')"></polyline>
+                    </svg>
+                    <div class="metric-x-axis">
+                      <span x-text="t('host_drawer.snmp_charts.x_axis_old')"></span>
+                      <span x-text="t('host_drawer.snmp_charts.x_axis_now')"></span>
+                    </div>
+                  </div>
                 </div>
 
                 <!-- Memory stacked-area: used / buffers / cached / free. -->
@@ -9042,12 +9070,26 @@
                          x-show="h.host_mem_total"
                          x-text="fmtBytes(h.host_mem_used || 0) + ' / ' + fmtBytes(h.host_mem_total || 0)"></div>
                   </div>
-                  <svg class="metric-svg" viewBox="0 0 200 60" preserveAspectRatio="none" aria-hidden="true">
-                    <polyline fill="none" stroke="var(--danger)"  stroke-width="1.5" :points="snmpMemArea(h.id, 'used')"></polyline>
-                    <polyline fill="none" stroke="var(--warning)" stroke-width="1"   :points="snmpMemArea(h.id, 'cached')"></polyline>
-                    <polyline fill="none" stroke="var(--info)"    stroke-width="1"   :points="snmpMemArea(h.id, 'buffers')"></polyline>
-                    <polyline fill="none" stroke="var(--success)" stroke-width="1"   :points="snmpMemArea(h.id, 'free')"></polyline>
-                  </svg>
+                  <div class="metric-card-body">
+                    <div class="metric-y-axis">
+                      <span x-text="fmtBytes(h.host_mem_total || 0)"></span>
+                      <span x-text="fmtBytes((h.host_mem_total || 0) / 2)"></span>
+                      <span>0</span>
+                    </div>
+                    <svg class="metric-svg" viewBox="0 0 200 60" preserveAspectRatio="none" aria-hidden="true">
+                      <line class="metric-grid" x1="0" y1="15" x2="200" y2="15"/>
+                      <line class="metric-grid" x1="0" y1="30" x2="200" y2="30"/>
+                      <line class="metric-grid" x1="0" y1="45" x2="200" y2="45"/>
+                      <polyline fill="none" stroke="var(--danger)"  stroke-width="1.5" :points="snmpMemArea(h.id, 'used')"></polyline>
+                      <polyline fill="none" stroke="var(--warning)" stroke-width="1"   :points="snmpMemArea(h.id, 'cached')"></polyline>
+                      <polyline fill="none" stroke="var(--info)"    stroke-width="1"   :points="snmpMemArea(h.id, 'buffers')"></polyline>
+                      <polyline fill="none" stroke="var(--success)" stroke-width="1"   :points="snmpMemArea(h.id, 'free')"></polyline>
+                    </svg>
+                    <div class="metric-x-axis">
+                      <span x-text="t('host_drawer.snmp_charts.x_axis_old')"></span>
+                      <span x-text="t('host_drawer.snmp_charts.x_axis_now')"></span>
+                    </div>
+                  </div>
                 </div>
               </div>
 
