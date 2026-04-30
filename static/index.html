@@ -5229,7 +5229,7 @@
                     row.ne_url ? {name:'node_exporter', label:'node-exporter'} : null,
                     row.webmin_url ? {name:'webmin', label:'webmin'} : null,
                     (row.ping && row.ping.enabled) ? {name:'ping', label:'ping'} : null,
-                    row.snmp_name ? {name:'snmp', label:'snmp'} : null,
+                    (row.snmp && row.snmp.enabled === true && (row.snmp_name || '').trim()) ? {name:'snmp', label:'snmp'} : null,
                   ].filter(Boolean)" :key="p.name">
                   <span class="provider-icon"
                         :style="providerIconStyle(p.name) + ' --provider-icon-size: 13px;'"
@@ -5579,23 +5579,27 @@
                    = "inherit the global default". -->
               <div class="pt-2 mt-1 border-t border-dashed border-[var(--border)]">
                 <div class="text-[10px] uppercase tracking-wider text-[var(--text-faint)] mb-2 font-semibold">SNMP</div>
-                <!-- Per-host enable checkbox (#651) — parallels the
-                     ping.enabled toggle. Defaults to true when the
-                     field is missing on legacy rows so existing
-                     snmp_name-mapped rows keep probing without an
-                     explicit opt-in. Backend `_clean_host_snmp` only
-                     persists the field when it's been explicitly set,
-                     and `_merge_one_host` reads with the same
-                     default-true semantics so the gate stays honest. -->
+                <!-- Per-host enable checkbox (#654) — parallels
+                     ping.enabled. OPT-IN: defaults to OFF unless
+                     `row.snmp.enabled === true`. The previous
+                     default-true semantics (#651) auto-enabled SNMP
+                     on every row that had snmp_name set, which
+                     surprised operators creating fresh rows — the
+                     checkbox showed checked even before they typed
+                     a target. Backend `_clean_host_snmp` mirrors
+                     ping's "persist only when explicitly true; drop
+                     otherwise" pattern, and `_merge_one_host` now
+                     gates on `enabled is True` (no default-true
+                     fallback). -->
                 <label class="inline-flex items-center gap-2 text-[12px] mb-3">
                   <input type="checkbox"
-                         :checked="!(row.snmp && row.snmp.enabled === false)"
+                         :checked="!!(row.snmp && row.snmp.enabled === true)"
                          @change="hostsConfig[idx].snmp = Object.assign({}, hostsConfig[idx].snmp || {}, { enabled: $event.target.checked }); markHostRowDirty(idx)"
                          :disabled="isReadonly()">
                   <span x-text="t('admin_hosts.provider.snmp_enabled_label')"></span>
                 </label>
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-3 items-end"
-                     x-show="!(row.snmp && row.snmp.enabled === false)">
+                     x-show="!!(row.snmp && row.snmp.enabled === true)">
                   <div>
                     <label class="block text-[10.5px] uppercase tracking-wider text-[var(--text-faint)] mb-1">
                       SNMP target
@@ -5608,7 +5612,7 @@
                            placeholder="192.X.X.10 or switch01.example.com">
                   </div>
                 </div>
-                <div x-show="!(row.snmp && row.snmp.enabled === false) && !!(row.snmp_name && row.snmp_name.trim())"
+                <div x-show="!!(row.snmp && row.snmp.enabled === true) && !!(row.snmp_name && row.snmp_name.trim())"
                      class="grid grid-cols-1 md:grid-cols-3 gap-3 items-end mt-3">
                   <div>
                     <label class="block text-[10.5px] uppercase tracking-wider text-[var(--text-faint)] mb-1">
