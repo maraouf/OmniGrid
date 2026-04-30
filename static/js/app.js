@@ -8178,9 +8178,19 @@ function app() {
     // SNMP printer agents (HP / Brother often return "BLACK
     // CARTRIDGE") and mixed case alike. Each word's first letter
     // upper, rest lower; whitespace and punctuation preserved.
+    // Two exceptions: known short brand acronyms (HP, IBM, ...) and
+    // alphanumeric SKU codes (e.g. "3JA27A", "Q3960A") render ALL CAPS
+    // — operator request 2026-05-01 for printer supply labels like
+    // "Cyan Ink Hp 3ja27a" → "Cyan Ink HP 3JA27A".
     titleCase(s) {
       if (!s || typeof s !== 'string') return s || '';
-      return s.replace(/\w\S*/g, w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase());
+      const brands = new Set(['hp','hpe','ibm','amd','arm','lg','rgb','rfid','usb','pci','io','smb','ftp','http','https','tls','ssl','nfc','vpn','dns','dhcp','ip','tcp','udp','rj45','poe','sfp','sas','sata','nvme','ssd','hdd','iot','ai','ml','gpu','cpu','ram','rom','vrm','bmc','ipmi','sff']);
+      return s.replace(/\w\S*/g, w => {
+        const lo = w.toLowerCase();
+        if (brands.has(lo)) return w.toUpperCase();
+        if (/[a-z]/i.test(w) && /[0-9]/.test(w)) return w.toUpperCase();
+        return w.charAt(0).toUpperCase() + w.slice(1).toLowerCase();
+      });
     },
     fmtBytes(n) {
       if (n == null) return '—';
@@ -8189,6 +8199,22 @@ function app() {
       let i = 0;
       while (n >= 1024 && i < u.length - 1) { n /= 1024; i++; }
       return (n >= 10 ? n.toFixed(0) : n.toFixed(1)) + ' ' + u[i];
+    },
+    // Like fmtBytes but the unit is FIXED based on `refMax` (the upper
+    // bound of the chart / legend group). Use this for any chart where
+    // you want every value to read in the same unit family — without
+    // it, fmtBytes picks per-value (e.g. "1012 MB" next to "1.9 GB"
+    // looks misaligned because the per-value picks land on different
+    // tiers). Operator-flagged for the SNMP Memory chart at 2026-05-01.
+    fmtBytesAt(n, refMax) {
+      if (n == null) return '—';
+      const u = ['B','KB','MB','GB','TB'];
+      let i = 0;
+      let m = Math.max(0, +refMax || 0);
+      while (m >= 1024 && i < u.length - 1) { m /= 1024; i++; }
+      let v = (+n || 0) / Math.pow(1024, i);
+      if (v <= 0 && (+n || 0) === 0) return '0 ' + u[i];
+      return (v >= 10 ? v.toFixed(0) : v.toFixed(1)) + ' ' + u[i];
     },
     memPercent(item) {
       const s = this.statsFor(item);
@@ -12860,6 +12886,42 @@ function app() {
       return !!((h.host_cpu_per_core || []).length > 0
                 || h.host_load_1m || h.host_load_5m || h.host_load_15m
                 || h.host_mem_buffers || h.host_mem_cached);
+    },
+    // #725a — Detect a reboot in the SNMP uptime history. Walks the
+    // points pairwise from latest to oldest looking for the LAST
+    // backwards-jump in `uptime_s` (each adjacent pair where N's value
+    // is less than N-1's = a reboot in that window). Returns
+    // `{ts, prev_uptime_s, age_s}` of the most recent detected reboot,
+    // or null when no reboot is in the history window. The drawer
+    // surfaces a compact "Rebooted Xh ago" badge when this is non-null
+    // AND the age is under 24h (older reboots aren't surfaced to keep
+    // the badge actionable for fresh anomalies; full uptime is always
+    // shown via the live `host_uptime_s` field).
+    snmpRebootInfo(h) {
+      if (!h) return null;
+      const hist = this.hostSnmpHistory[h.id];
+      const points = (hist && hist.points) || [];
+      if (points.length < 2) return null;
+      let detected = null;
+      for (let i = 1; i < points.length; i++) {
+        const prev = points[i - 1];
+        const curr = points[i];
+        if (prev.uptime_s == null || curr.uptime_s == null) continue;
+        // Reboot fingerprint: uptime went BACKWARDS between samples.
+        // Allow a small slack (60s) to absorb counter-precision noise
+        // when sampler ticks are tightly spaced.
+        if (curr.uptime_s + 60 < prev.uptime_s) {
+          detected = {
+            ts: curr.ts,
+            prev_uptime_s: prev.uptime_s,
+            age_s: Math.max(0, Math.round(Date.now() / 1000 - curr.ts)),
+          };
+        }
+      }
+      // Only surface reboots within the last 24h — older reboots are
+      // archaeology, not actionable.
+      if (detected && detected.age_s > 86400) return null;
+      return detected;
     },
     // #720 — Memory chart Y-axis upper bound. Prefer the LIVE
     // `host_mem_total` (Beszel/NE-style absolute), fall back to the

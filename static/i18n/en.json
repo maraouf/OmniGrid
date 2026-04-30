@@ -1500,6 +1500,8 @@
       "kernel": "Kernel",
       "arch": "Architecture",
       "uptime": "Uptime",
+      "reboot_badge": "Rebooted {ago} ago",
+      "reboot_title": "Detected a reboot {ago} ago — sysUpTime counter went backwards between SNMP samples",
       "docker_node": "Docker node",
       "proxmox": "Proxmox",
       "url": "URL",
@@ -1614,6 +1616,7 @@
     "snmp_charts": {
       "freshness": "Last sample {age} ago",
       "refreshing": "Refreshing…",
+      "warming_up": "Collecting first samples — chart will populate after the next sampler tick (~5 min). Live values show in the legend.",
       "cpu_title": "CPU per-core",
       "load_title": "Load avg",
       "mem_title": "Memory",
