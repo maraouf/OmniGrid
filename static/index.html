@@ -1612,12 +1612,15 @@
                topbar refresh icon is now context-aware and triggers
                `loadHosts()` automatically when the Hosts view is
                active. One refresh affordance is plenty. -->
-          <!-- External-link cluster wrapped in `ms-auto` so it floats
-               to the trailing edge of the flex container regardless
-               of which links are visible (Beszel-only / Pulse-only /
-               both). Leaves the expand+collapse buttons anchored at
-               the leading edge. RTL-aware. -->
-          <div class="ms-auto flex items-center gap-2"
+          <!-- Flex-spacer pushes the external-link cluster to the
+               trailing edge. Originally used `ms-auto` on the cluster
+               itself; Tailwind v4's in-browser JIT was unreliable
+               applying it (operator-flagged 2026-05-01). The empty
+               grow-1 spacer is robust across Tailwind versions and
+               keeps the layout RTL-correct (the spacer just fills
+               whichever direction is the writing flow). -->
+          <div class="grow" aria-hidden="true"></div>
+          <div class="flex items-center gap-2"
                x-show="settings.beszel_hub_url || settings.pulse_url">
             <a :href="settings.beszel_hub_url || '#'" target="_blank" rel="noopener"
                x-show="settings.beszel_hub_url"
@@ -8507,6 +8510,49 @@
                       <dd class="mono text-end break-all text-[var(--text-faint)]"
                           x-text="assetForHost(h).serial"></dd>
                     </template>
+                    <!-- SNMP-derived hardware (#726). entPhysicalTable +
+                         Cisco MIB walks populate host_model / host_serial /
+                         host_firmware on the API row. Each gated on its
+                         own field so hosts without SNMP (or without the
+                         specific OID) skip the row. Distinct from
+                         asset_model / asset_serial above — those are the
+                         operator-curated DB record; these are what the
+                         device itself reports right now. Mismatch is a
+                         signal worth surfacing (swapped hardware not
+                         updated in inventory). -->
+                    <template x-if="h.host_model">
+                      <dt class="text-[var(--text-dim)]"
+                          :title="t('host_drawer.hardware.snmp_title')"
+                          x-text="t('host_drawer.hardware.snmp_model')"></dt>
+                    </template>
+                    <template x-if="h.host_model">
+                      <dd class="text-end break-all"
+                          :class="isStaleField(h, 'host_model') ? 'stale' : ''"
+                          :title="isStaleField(h, 'host_model') ? staleAge(h) : ''"
+                          x-text="h.host_model"></dd>
+                    </template>
+                    <template x-if="h.host_serial">
+                      <dt class="text-[var(--text-dim)]"
+                          :title="t('host_drawer.hardware.snmp_title')"
+                          x-text="t('host_drawer.hardware.snmp_serial')"></dt>
+                    </template>
+                    <template x-if="h.host_serial">
+                      <dd class="mono text-end break-all text-[var(--text-faint)]"
+                          :class="isStaleField(h, 'host_serial') ? 'stale' : ''"
+                          :title="isStaleField(h, 'host_serial') ? staleAge(h) : ''"
+                          x-text="h.host_serial"></dd>
+                    </template>
+                    <template x-if="h.host_firmware">
+                      <dt class="text-[var(--text-dim)]"
+                          :title="t('host_drawer.hardware.snmp_title')"
+                          x-text="t('host_drawer.hardware.snmp_firmware')"></dt>
+                    </template>
+                    <template x-if="h.host_firmware">
+                      <dd class="mono text-end break-all"
+                          :class="isStaleField(h, 'host_firmware') ? 'stale' : ''"
+                          :title="isStaleField(h, 'host_firmware') ? staleAge(h) : ''"
+                          x-text="h.host_firmware"></dd>
+                    </template>
                     <!-- Status row hidden for inventory-only / no-agent
                          hosts. The header status dot already conveys
                          "unconfigured" — repeating it here as a row that
@@ -9008,7 +9054,7 @@
                    the Ping latency chart as their time-series source
                    so this hint is misleading there; the gate now
                    excludes `h.ping_enabled`. -->
-              <div x-show="!h.beszel_id && !h.ne_url && !h.ping_enabled && h.status === 'up' && (h.providers || []).length > 0"
+              <div x-show="!h.beszel_id && !h.ne_url && !h.ping_enabled && !h.snmp_enabled && h.status === 'up' && (h.providers || []).length > 0"
                    class="mt-4 text-[11.5px] text-[var(--text-faint)] italic">
                 <span x-text="t('host_drawer.charts.no_source_hint_prefix')"></span>
                 <a href="#" @click.prevent="openAdminTab('hosts')"
@@ -9034,6 +9080,16 @@
                     <div class="metric-card-title">
                       <span x-text="t('hosts_extra.metrics.ping')"></span>
                       <span class="unit">ms</span>
+                      <span class="metric-source-help" :title="metricSource(h, 'ping')"
+                            @click.stop="toggleMetricTooltip(h, 'ping')"
+                            @keydown.escape.window="metricTooltipOpen = null">
+                        <svg width="12" height="12" aria-hidden="true"><use href="#icon-help-circle"/></svg>
+                        <span class="metric-source-tooltip"
+                              x-show="metricTooltipOpen === metricTooltipKey(h, 'ping')"
+                              x-cloak @click.stop
+                              x-transition.opacity.duration.120ms
+                              x-text="metricSource(h, 'ping')"></span>
+                      </span>
                     </div>
                     <div class="metric-card-stats" style="gap:8px">
                       <span x-show="h.ping_alive === false"
@@ -9141,7 +9197,7 @@
                            && !(hostSnmpHistory[h.id] && hostSnmpHistory[h.id].loading)"
                    class="mt-2 text-[11px] flex items-center gap-2 text-[var(--text-faint)]">
                 <svg width="11" height="11" aria-hidden="true"><use href="#icon-info"/></svg>
-                <span x-text="t('host_drawer.snmp_charts.warming_up')"></span>
+                <span x-text="t('host_drawer.snmp_charts.warming_up', { minutes: Math.max(1, Math.round(((me && me.client_config && me.client_config.stats_sample_interval_seconds) || 300) / 60)) })"></span>
               </div>
               <div class="mt-3 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4"
                    x-show="hostHasSnmpCharts(h)">
@@ -9156,6 +9212,16 @@
                   <div class="metric-card-head">
                     <div class="metric-card-title">
                       <span x-text="t('host_drawer.snmp_charts.cpu_title')"></span><span class="unit">%</span>
+                      <span class="metric-source-help" :title="metricSource(h, 'snmp_cpu')"
+                            @click.stop="toggleMetricTooltip(h, 'snmp_cpu')"
+                            @keydown.escape.window="metricTooltipOpen = null">
+                        <svg width="12" height="12" aria-hidden="true"><use href="#icon-help-circle"/></svg>
+                        <span class="metric-source-tooltip"
+                              x-show="metricTooltipOpen === metricTooltipKey(h, 'snmp_cpu')"
+                              x-cloak @click.stop
+                              x-transition.opacity.duration.120ms
+                              x-text="metricSource(h, 'snmp_cpu')"></span>
+                      </span>
                     </div>
                     <div class="metric-card-stats" style="gap:8px">
                       <span x-show="snmpStats(h.id, 'cpu_used_pct')">
@@ -9198,22 +9264,32 @@
                   <div class="metric-card-head">
                     <div class="metric-card-title">
                       <span x-text="t('host_drawer.snmp_charts.load_title')"></span><span class="unit">load</span>
+                      <span class="metric-source-help" :title="metricSource(h, 'snmp_load')"
+                            @click.stop="toggleMetricTooltip(h, 'snmp_load')"
+                            @keydown.escape.window="metricTooltipOpen = null">
+                        <svg width="12" height="12" aria-hidden="true"><use href="#icon-help-circle"/></svg>
+                        <span class="metric-source-tooltip"
+                              x-show="metricTooltipOpen === metricTooltipKey(h, 'snmp_load')"
+                              x-cloak @click.stop
+                              x-transition.opacity.duration.120ms
+                              x-text="metricSource(h, 'snmp_load')"></span>
+                      </span>
                     </div>
                     <div class="metric-card-stats" style="gap:8px">
                       <span>
                         <span class="metric-legend-dot" style="background: var(--success)"></span>
                         <span x-text="t('host_drawer.snmp_charts.legend_load_1m')"></span>
-                        <span class="legend-val" x-text="(+h.host_load_1m || 0).toFixed(2)"></span>
+                        <span class="legend-val" x-text="((+h.host_load_1m) || (snmpStats(h.id, 'load_1m') || {}).last || 0).toFixed(2)"></span>
                       </span>
                       <span>
                         <span class="metric-legend-dot" style="background: var(--warning)"></span>
                         <span x-text="t('host_drawer.snmp_charts.legend_load_5m')"></span>
-                        <span class="legend-val" x-text="(+h.host_load_5m || 0).toFixed(2)"></span>
+                        <span class="legend-val" x-text="((+h.host_load_5m) || (snmpStats(h.id, 'load_5m') || {}).last || 0).toFixed(2)"></span>
                       </span>
                       <span>
                         <span class="metric-legend-dot" style="background: var(--info)"></span>
                         <span x-text="t('host_drawer.snmp_charts.legend_load_15m')"></span>
-                        <span class="legend-val" x-text="(+h.host_load_15m || 0).toFixed(2)"></span>
+                        <span class="legend-val" x-text="((+h.host_load_15m) || (snmpStats(h.id, 'load_15m') || {}).last || 0).toFixed(2)"></span>
                       </span>
                     </div>
                   </div>
@@ -9253,6 +9329,16 @@
                          misaligned). -->
                     <div class="metric-card-title">
                       <span x-text="t('host_drawer.snmp_charts.mem_title')"></span>
+                      <span class="metric-source-help" :title="metricSource(h, 'snmp_memory')"
+                            @click.stop="toggleMetricTooltip(h, 'snmp_memory')"
+                            @keydown.escape.window="metricTooltipOpen = null">
+                        <svg width="12" height="12" aria-hidden="true"><use href="#icon-help-circle"/></svg>
+                        <span class="metric-source-tooltip"
+                              x-show="metricTooltipOpen === metricTooltipKey(h, 'snmp_memory')"
+                              x-cloak @click.stop
+                              x-transition.opacity.duration.120ms
+                              x-text="metricSource(h, 'snmp_memory')"></span>
+                      </span>
                     </div>
                     <div class="metric-card-stats" style="gap:8px">
                       <span x-show="snmpStats(h.id, 'mem_used')">
@@ -9303,6 +9389,61 @@
                     </svg>
                     <div class="metric-x-axis">
                       <template x-for="(l, i) in snmpXAxis(h.id, 5)" :key="'mem-x-' + i"><span x-text="l"></span></template>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- #725b — switch / router total throughput. Two
+                     polylines (in / out) computed from the cumulative
+                     IF-MIB ifHCInOctets / ifHCOutOctets columns
+                     persisted on `host_snmp_samples`. Skip-don't-
+                     synthesize on out-of-bounds deltas (counter wrap,
+                     reboot, gap > 1h, > 10 GB delta). Hidden until at
+                     least 2 ticks recorded the IF-MIB counters. -->
+                <div class="metric-card"
+                     x-show="snmpHasThroughput(h.id)">
+                  <div class="metric-card-head">
+                    <div class="metric-card-title">
+                      <span x-text="t('host_drawer.snmp_charts.throughput_title')"></span>
+                      <span class="metric-source-help" :title="metricSource(h, 'snmp_throughput')"
+                            @click.stop="toggleMetricTooltip(h, 'snmp_throughput')"
+                            @keydown.escape.window="metricTooltipOpen = null">
+                        <svg width="12" height="12" aria-hidden="true"><use href="#icon-help-circle"/></svg>
+                        <span class="metric-source-tooltip"
+                              x-show="metricTooltipOpen === metricTooltipKey(h, 'snmp_throughput')"
+                              x-cloak @click.stop
+                              x-transition.opacity.duration.120ms
+                              x-text="metricSource(h, 'snmp_throughput')"></span>
+                      </span>
+                    </div>
+                    <div class="metric-card-stats" style="gap:8px">
+                      <span>
+                        <span class="metric-legend-dot" style="background: var(--success)"></span>
+                        <span x-text="t('host_drawer.snmp_charts.legend_throughput_in')"></span>
+                        <span class="legend-val" x-text="fmtBytes(snmpThroughputLast(h.id, 'rx')) + '/s'"></span>
+                      </span>
+                      <span>
+                        <span class="metric-legend-dot" style="background: var(--info)"></span>
+                        <span x-text="t('host_drawer.snmp_charts.legend_throughput_out')"></span>
+                        <span class="legend-val" x-text="fmtBytes(snmpThroughputLast(h.id, 'tx')) + '/s'"></span>
+                      </span>
+                    </div>
+                  </div>
+                  <div class="metric-card-body">
+                    <div class="metric-y-axis">
+                      <span x-text="fmtBytes(snmpThroughputMaxBps(h.id)) + '/s'"></span>
+                      <span x-text="fmtBytes(snmpThroughputMaxBps(h.id) / 2) + '/s'"></span>
+                      <span>0</span>
+                    </div>
+                    <svg class="metric-svg" viewBox="0 0 420 120" preserveAspectRatio="none" aria-hidden="true">
+                      <line class="metric-grid" x1="0" y1="30" x2="420" y2="30"/>
+                      <line class="metric-grid" x1="0" y1="60" x2="420" y2="60"/>
+                      <line class="metric-grid" x1="0" y1="90" x2="420" y2="90"/>
+                      <polyline fill="none" stroke="var(--success)" stroke-width="1.5" :points="snmpThroughputLine(h.id, 'rx')"></polyline>
+                      <polyline fill="none" stroke="var(--info)"    stroke-width="1.5" :points="snmpThroughputLine(h.id, 'tx')"></polyline>
+                    </svg>
+                    <div class="metric-x-axis">
+                      <template x-for="(l, i) in snmpXAxis(h.id, 5)" :key="'thr-x-' + i"><span x-text="l"></span></template>
                     </div>
                   </div>
                 </div>

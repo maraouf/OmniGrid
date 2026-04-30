@@ -619,6 +619,15 @@ def init_db():
             # `host_uptime_s` field convention every other provider
             # uses. Additive — NULL for pre-#725a rows.
             "ALTER TABLE host_snmp_samples ADD COLUMN uptime_s INTEGER",
+            # #725b — switch total throughput. Stored as the cumulative
+            # IF-MIB ifHCInOctets / ifHCOutOctets sums (excluding
+            # loopback / docker-bridge / virtual ifaces — same exclusion
+            # set as Beszel / NE). The chart layer computes deltas at
+            # render time. Skip-don't-synthesize: sampler inserts NULL
+            # when SNMP didn't return either counter, so the chart can
+            # tell "host stopped responding" from "0 bps idle".
+            "ALTER TABLE host_snmp_samples ADD COLUMN net_rx_total_bytes INTEGER",
+            "ALTER TABLE host_snmp_samples ADD COLUMN net_tx_total_bytes INTEGER",
         ):
             try:
                 c.execute(ddl)
@@ -6700,7 +6709,7 @@ async def api_hosts_snmp_history(
                 "SELECT ts, cpu_per_core, cpu_used_pct, "
                 "load_1m, load_5m, load_15m, "
                 "mem_total, mem_used, mem_buffers, mem_cached, mem_free, "
-                "uptime_s "
+                "uptime_s, net_rx_total_bytes, net_tx_total_bytes "
                 "FROM host_snmp_samples "
                 "WHERE host_id=? AND ts >= ? "
                 "ORDER BY ts ASC LIMIT ?",
@@ -6728,6 +6737,13 @@ async def api_hosts_snmp_history(
             "mem_free":    (int(r[10]) if r[10] is not None else None),
             # #725a — uptime in seconds; NULL for pre-#725a rows.
             "uptime_s":    (int(r[11]) if r[11] is not None else None),
+            # #725b — cumulative IF-MIB ifHCInOctets / ifHCOutOctets
+            # sums; NULL for pre-#725b rows or when SNMP didn't return
+            # the counters (e.g. switch with hrStorage but no IF-MIB).
+            # Chart layer computes per-pair deltas → bps; out-of-bounds
+            # / negative deltas (counter wrap, reboot) are skipped.
+            "net_rx_total_bytes": (int(r[12]) if r[12] is not None else None),
+            "net_tx_total_bytes": (int(r[13]) if r[13] is not None else None),
         })
     return {"points": points, "error": None}
 
@@ -8016,6 +8032,11 @@ async def api_me(request: Request):
             # (30..90 / 50..99).
             "stat_bar_warn_pct": tuning.tuning_int("tuning_stat_bar_warn_pct"),
             "stat_bar_crit_pct": tuning.tuning_int("tuning_stat_bar_crit_pct"),
+            # Sampler tick cadence (used by the SNMP "warming up" banner
+            # so the "~N min" hint reflects the operator's configured
+            # interval rather than a stale literal). Stored as seconds;
+            # the SPA renders minutes for display.
+            "stats_sample_interval_seconds": tuning.tuning_int("tuning_stats_sample_interval_seconds"),
             # Scheduler-tz state so the admin Schedules tab can badge
             # "TZ: <name> → falling back to UTC" when the operator typed
             # an invalid IANA name. ``configured`` = raw setting,
