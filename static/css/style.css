@@ -3045,6 +3045,77 @@ details summary::-webkit-details-marker {
 .dot-on  { background: var(--success); }
 .dot-off { background: var(--text-faint); }
 
+/* HIGH-A11Y — global :focus-visible ring. Pre-fix `.btn` had NO
+ * focus rule (browser-default suppressed by `outline: none` elsewhere)
+ * and inputs only swapped border-colour to a slightly-brighter token,
+ * leaving keyboard focus barely visible. `:focus-visible` only fires
+ * for keyboard nav (not mouse clicks), so the ring doesn't show on
+ * mouse interaction — matches modern accessibility convention. The
+ * inset shadow shape mirrors the login-card's existing focus ring. */
+*:focus-visible {
+    outline: 2px solid var(--primary);
+    outline-offset: 2px;
+}
+.btn:focus-visible,
+button:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible,
+[role="button"]:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 2px var(--primary-soft);
+    border-color: var(--primary);
+}
+/* Mouse focus stays unringed — preserves existing dense-table feel. */
+.btn:focus:not(:focus-visible),
+button:focus:not(:focus-visible) {
+    outline: none;
+    box-shadow: none;
+}
+
+/* MED-A11Y — expand `prefers-reduced-motion` to cover every keyframe
+ * in the file. Pre-fix only the skeleton-shimmer was wrapped; drawer
+ * slides, fade-ins, SSE pill pulse, the global spinner, and the
+ * metric-update subtle-flash kept animating for motion-sensitive users.
+ * Important: only DURATION goes to near-zero — no `display: none` or
+ * `visibility: hidden` overrides, so the elements still render. */
+@media (prefers-reduced-motion: reduce) {
+    .slide-in,
+    .fade-in,
+    .spin,
+    .pulse-anim,
+    .subtle-flash,
+    .host-spin,
+    .sse-dot,
+    .skeleton {
+        animation-duration: 0.001ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.001ms !important;
+    }
+}
+
+/* LOW-IA — keyboard-only "skip to main content" link. Hidden until
+ * focused (positioned off-screen via clip-path); when a Tab brings it
+ * into focus, it slides into the top-left corner so the operator can
+ * jump past the topbar's ~15 nav stops. */
+.skip-link {
+    position: absolute;
+    inset-inline-start: var(--s-3);
+    top: var(--s-3);
+    z-index: 100;
+    background: var(--primary);
+    color: var(--text-on-primary);
+    padding: var(--s-2) var(--s-4);
+    border-radius: var(--r-md);
+    font-size: var(--fs-sm);
+    text-decoration: none;
+    transform: translateY(-150%);
+    transition: transform 120ms ease-out;
+}
+.skip-link:focus {
+    transform: translateY(0);
+}
+
 /* #701 — per-interface stacked rx/tx traffic bar in the host drawer's
  * Network card. Two coloured spans inside a thin track, normalised to
  * the busiest interface on the host so the operator can see at a glance

@@ -7338,6 +7338,41 @@ function app() {
       if (!h || !h.id) return;
       this.networkIfacesShowDocker[h.id] = !this.networkIfacesShowDocker[h.id];
     },
+    // #705 — busy / idle split for switches that expose 30+ ports via
+    // SNMP. The default "real" list mixes meaningful interfaces
+    // (eth0 / vlan2 / tun1 — has traffic OR an IP) with idle ports
+    // (Port-Channel21..32, unused TwoPointFiveGigabitEthernet ports —
+    // no traffic, no addrs). Without this split a Cisco SG300's drawer
+    // is a 50-row wall of mostly-empty rows. `busy` = at least one of
+    // (rx_bytes, tx_bytes, addrs.length) is non-zero; everything else
+    // falls into `idle` and is hidden behind a per-host toggle.
+    networkIfacesActivityPartition(h) {
+      const partition = this.networkIfacesPartition(h);
+      const busy = [], idle = [];
+      for (const iface of partition.real) {
+        const hasTraffic = this.hostIfaceHasTraffic(iface);
+        const hasAddrs = (typeof iface === 'object' && (iface.addrs || []).length > 0);
+        // Treat the loopback as "busy" so it always renders; operators
+        // expect to see it and it's a useful sanity-check signal.
+        const name = (typeof iface === 'object' ? (iface.name || '') : iface).toLowerCase();
+        const isLoopback = name === 'lo' || name === 'loopback';
+        (hasTraffic || hasAddrs || isLoopback ? busy : idle).push(iface);
+      }
+      // Sort busy by total traffic descending so the dominant NIC
+      // floats to the top — operator's eye reads the meaningful rows
+      // first instead of having to scan a long alphabetical list.
+      busy.sort((a, b) => {
+        const ta = (+(a && a.rx_bytes) || 0) + (+(a && a.tx_bytes) || 0);
+        const tb = (+(b && b.rx_bytes) || 0) + (+(b && b.tx_bytes) || 0);
+        return tb - ta;
+      });
+      return { busy, idle, internal: partition.internal };
+    },
+    networkIfacesShowIdle: {},  // per-host toggle for the idle group
+    toggleNetworkIfacesIdle(h) {
+      if (!h || !h.id) return;
+      this.networkIfacesShowIdle[h.id] = !this.networkIfacesShowIdle[h.id];
+    },
     // #701 — per-interface SNMP traffic helpers. SNMP-derived
     // `network_ifaces[]` rows carry `rx_bytes` / `tx_bytes` /
     // `oper_status`; node-exporter / Beszel / Pulse rows have
@@ -12205,17 +12240,18 @@ function app() {
       if (!active && !err) {
         return { visible: false, cls: '', icon: '', title: '', styled: false };
       }
+      // #704 — tooltip titles routed through i18n.
       if (err) {
         return {
           visible: true, cls: 'pill-error', icon: '✗',
-          title: `${name} error: ${err}`,
+          title: this.t('hosts_extra.provider_filter.title_error', { name, error: err }),
           styled: false,
         };
       }
       if (matchCount === 0) {
         return {
           visible: true, cls: 'pill-unknown', icon: '·',
-          title: `${name} is enabled but matched no host`,
+          title: this.t('hosts_extra.provider_filter.title_unmatched', { name }),
           styled: false,
         };
       }
@@ -12224,9 +12260,12 @@ function app() {
       // The fixed `pill-ok` green ignored Settings → Providers colour
       // overrides; flip to pill-custom so the toolbar chip matches the
       // per-row chip's colouring.
+      const titleKey = matchCount === 1
+        ? 'hosts_extra.provider_filter.title_match_one'
+        : 'hosts_extra.provider_filter.title_match_many';
       return {
         visible: true, cls: 'pill-custom', icon: '✓',
-        title: `${name} — ${matchCount} host${matchCount === 1 ? '' : 's'}`,
+        title: this.t(titleKey, { name, count: matchCount }),
         styled: true,
       };
     },

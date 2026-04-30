@@ -118,6 +118,13 @@
 </head>
 <body class="min-h-screen">
 
+<!-- LOW-IA / #704 — keyboard-only skip-to-main-content link. Visually
+     hidden until focused (CSS handles the slide-in animation); first
+     interactive element in <body> so a Tab from an empty page focuses
+     it before the topbar's ~15 nav stops. Targets `#main` which is
+     declared as the role="main" landmark below. -->
+<a href="#main" class="skip-link" x-text="t('app.skip_to_main')"></a>
+
 <!-- ================== ICON SYMBOL LIBRARY ==================
      Reused via <use href="#icon-..."/>. Keeping them here rather than
      inlined per-call shrinks index.html by hundreds of lines and ensures
@@ -1483,11 +1490,10 @@
       <div x-show="hostsConfigured" class="flex items-center justify-between gap-3 flex-wrap">
         <div class="flex items-center gap-3 text-[12px] text-[var(--text-dim)] flex-wrap">
           <span>
-            <span x-text="hosts.length + ' host' + (hosts.length === 1 ? '' : 's')"></span>
+            <span x-text="hosts.length === 1 ? t('hosts_extra.host_count_one') : t('hosts_extra.host_count_many', { count: hosts.length })"></span>
             <span class="text-[var(--text-faint)]">
               <span x-show="(hostsActiveSources || []).length > 0">
-                · merged from
-                <span x-text="(hostsActiveSources || []).map(s => s === 'node_exporter' ? 'node-exporter' : s).join(' + ')"></span>
+                <span x-text="t('hosts_extra.merged_from', { sources: (hostsActiveSources || []).map(s => s === 'node_exporter' ? 'node-exporter' : s).join(' + ') })"></span>
               </span>
               <!-- Polling-cadence label gated on `refreshInterval`
                    (the unified picker from #486), NOT `statsInterval`.
@@ -1524,8 +1530,13 @@
                     @click="clearHostsProviderFilter()"
                     class="chip text-[10.5px] cursor-pointer"
                     :class="(hostsProviderFilter && hostsProviderFilter.size === 0) ? 'pill-primary' : 'pill-muted'"
-                    :title="t('hosts_extra.provider_filter.all_title')">
-              <span x-text="t('hosts_extra.provider_filter.all')"></span>
+                    :title="t('hosts_extra.provider_filter.all_title')"
+                    :aria-pressed="!!(hostsProviderFilter && hostsProviderFilter.size === 0)">
+              <span x-text="t('hosts_extra.provider_filter.show_all')"></span>
+              <!-- NIT-UX — small reset glyph appears only when at
+                   least one chip is currently active, signalling that
+                   "All" is a clear-all rather than a separate filter. -->
+              <span x-show="hostsProviderFilter && hostsProviderFilter.size > 0" class="ms-1">↻</span>
             </button>
             <template x-for="p in ['beszel','pulse','node_exporter','webmin','ping','snmp']" :key="p">
               <button type="button"
@@ -1537,7 +1548,8 @@
                         hostsProviderState(p).cls
                       ]"
                       :style="hostsProviderState(p).styled ? providerChipStyle(p) : ''"
-                      :title="hostsProviderState(p).title">
+                      :title="hostsProviderState(p).title"
+                      :aria-pressed="isHostsProviderFilterActive(p)">
                 <span class="provider-icon"
                       :style="providerIconStyle(p)"
                       aria-hidden="true"></span>
@@ -1550,7 +1562,8 @@
                     @click="toggleHostsProviderFilter('none')"
                     class="chip text-[10.5px] cursor-pointer"
                     :class="isHostsProviderFilterActive('none') ? 'chip-active pill-warning' : 'pill-muted'"
-                    :title="t('hosts_extra.provider_filter.none_title', { count: hostsWithNoProviderCount() })">
+                    :title="t('hosts_extra.provider_filter.none_title', { count: hostsWithNoProviderCount() })"
+                    :aria-pressed="isHostsProviderFilterActive('none')">
               <span x-text="t('hosts_extra.provider_filter.none')"></span>
               <span class="ms-1" x-text="hostsWithNoProviderCount()"></span>
             </button>
@@ -4187,8 +4200,8 @@
           <template x-for="tab in [
             ['node_exporter', t('settings.host_stats.source_node_exporter')],
             ['beszel',        t('settings.host_stats.source_beszel')],
-            ['pulse',         'Pulse'],
-            ['webmin',        'Webmin'],
+            ['pulse',         t('settings.host_stats.source_pulse')],
+            ['webmin',        t('settings.host_stats.source_webmin')],
             ['ping',          t('settings.host_stats.source_ping')],
             ['snmp',          t('settings.host_stats.source_snmp')],
           ]" :key="tab[0]">
@@ -5180,7 +5193,8 @@
                      left already, so "always on the left" is now the
                      consistent design -->
                 <span class="text-[10.5px] text-[var(--text-faint)] hidden sm:inline"
-                      x-show="!isHostConfigExpanded(row)">Click to edit</span>
+                      x-show="!isHostConfigExpanded(row)"
+                      x-text="t('admin_hosts.click_to_edit')"></span>
                 <!-- Brand icon — only on the collapsed-row header so
                      operators can scan the list visually before
                      opening anything. Hidden when the row is expanded
@@ -6607,15 +6621,14 @@
              password auth — NAS boxes, routers, fresh VM images. -->
         <div class="mb-3">
           <label class="block text-[11px] text-[var(--text-faint)] mb-1 flex items-center gap-2">
-            <span>Default password</span>
+            <span x-text="t('admin_ssh.password_label')"></span>
             <span x-show="sshSettings.password_set" class="text-[var(--success)]"> · set</span>
             <button type="button"
                     x-show="sshSettings.password_set && isAdmin()"
                     @click="clearSshSecret('password')"
                     class="ms-auto text-[10.5px] text-[var(--danger)] hover:underline"
-                    :title="t('admin_ssh.clear_password_title')">
-              Clear
-            </button>
+                    :title="t('admin_ssh.clear_password_title')"
+                    x-text="t('admin_ssh.clear_label')"></button>
           </label>
           <input x-model="sshSettings.password" type="password"
                  autocomplete="new-password"
@@ -7882,6 +7895,8 @@
                  no-op'd while the drawerItem panel (using the same
                  keyframe directly via its CSS class) worked fine. -->
             <div x-show="isHostExpanded(h.host)"
+                 role="dialog" aria-modal="true"
+                 :aria-label="hostDisplayName(h)"
                  class="host-drawer scrollbar">
               <div class="flex items-center justify-between gap-3 mb-4 sticky top-0 bg-[var(--surface)] border-b border-[var(--border)] -mx-5 -mt-4 px-5 py-3 z-10">
                 <div class="min-w-0 flex items-center gap-2">
@@ -8580,11 +8595,17 @@
                       <span class="text-[var(--text-dim)]" x-text="t('host_drawer.network.bandwidth')"></span>
                       <span class="mono" x-text="fmtBytes(h.bandwidth) + '/s'"></span>
                     </div>
-                    <!-- "Real" interfaces always render — physical / virtual
-                         NICs the operator cares about (ens*, eth*, wlan*,
-                         enp*, etc.). Docker / k8s / Proxmox internals get
-                         partitioned out into a collapsed group below. -->
-                    <template x-for="(iface, i) in networkIfacesPartition(h).real" :key="'r' + i">
+                    <!-- "Busy" real interfaces always render — physical /
+                         virtual NICs the operator cares about (ens*, eth*,
+                         wlan*, enp*, etc.) that have traffic OR an IP
+                         address. Idle ports (Cisco SG300's 32-port
+                         Port-Channel pool with no traffic, switch ports
+                         with no link) get partitioned out and hidden
+                         behind a toggle below — switches expose 30+
+                         interfaces and most are unused (#705). Sorted by
+                         total traffic descending so the dominant NIC
+                         floats to the top. -->
+                    <template x-for="(iface, i) in networkIfacesActivityPartition(h).busy" :key="'r' + i">
                       <div class="space-y-1.5">
                         <div class="flex items-baseline gap-2 flex-wrap">
                           <!-- #701 — oper_status dot when SNMP returned it.
@@ -8627,6 +8648,34 @@
                             <span class="ip-chip"
                                   :class="a.includes(':') ? 'ip-chip--v6' : 'ip-chip--v4'"
                                   x-text="a"></span>
+                          </template>
+                        </div>
+                      </div>
+                    </template>
+                    <!-- #705 — Idle interfaces (no traffic, no IP).
+                         Same toggle pattern as the Docker veths block
+                         below, applied within the "real" group so a
+                         32-port switch's empty Port-Channel pool
+                         doesn't dominate the drawer. -->
+                    <template x-if="networkIfacesActivityPartition(h).idle.length > 0">
+                      <div class="pt-2 border-t border-dashed border-[var(--border)]">
+                        <button @click="toggleNetworkIfacesIdle(h)"
+                                class="text-[11.5px] text-[var(--text-dim)] hover:text-[var(--text)] flex items-center gap-1.5"
+                                :title="t('host_drawer.network.idle_toggle_title')">
+                          <svg width="10" height="10" stroke-width="3" aria-hidden="true" :style="networkIfacesShowIdle[h.id] ? 'transform: rotate(90deg)' : ''" style="transition: transform 120ms ease-out"><use href="#icon-chevron-right"/></svg>
+                          <span x-text="networkIfacesShowIdle[h.id]
+                                        ? t('host_drawer.network.idle_hide', { count: networkIfacesActivityPartition(h).idle.length })
+                                        : t('host_drawer.network.idle_show', { count: networkIfacesActivityPartition(h).idle.length })"></span>
+                        </button>
+                        <div x-show="networkIfacesShowIdle[h.id]" class="space-y-1.5 mt-2">
+                          <template x-for="(iface, i) in networkIfacesActivityPartition(h).idle" :key="'idle' + i">
+                            <div class="flex items-baseline gap-2 flex-wrap">
+                              <span x-show="typeof iface === 'object' && iface.oper_status"
+                                    class="inline-block w-1.5 h-1.5 rounded-full self-center"
+                                    :class="iface.oper_status === 'up' ? 'dot-on' : 'dot-off'"></span>
+                              <span class="font-semibold text-[12.5px] mono opacity-70"
+                                    x-text="typeof iface === 'string' ? iface : iface.name"></span>
+                            </div>
                           </template>
                         </div>
                       </div>
@@ -8809,11 +8858,11 @@
                    excludes `h.ping_enabled`. -->
               <div x-show="!h.beszel_id && !h.ne_url && !h.ping_enabled && h.status === 'up' && (h.providers || []).length > 0"
                    class="mt-4 text-[11.5px] text-[var(--text-faint)] italic">
-                Time-series charts are sourced from Beszel or
-                node-exporter. Link this host to a Beszel system OR
-                set its node-exporter URL in
-                <a href="/admin/hosts" class="text-[var(--primary)] hover:underline">Admin → Hosts</a>
-                to see CPU / Memory / Disk / Net history here.
+                <span x-text="t('host_drawer.charts.no_source_hint_prefix')"></span>
+                <a href="#" @click.prevent="openAdminTab('hosts')"
+                   class="text-[var(--primary)] hover:underline"
+                   x-text="t('host_drawer.charts.admin_hosts_link')"></a>
+                <span x-text="t('host_drawer.charts.no_source_hint_suffix')"></span>
               </div>
 
               <!-- Ping latency — promoted to its own full-width row
@@ -10004,31 +10053,29 @@
   <div x-show="drawerNode" class="fixed inset-0 z-40 fade-in">
     <div @click="drawerNode=null" class="absolute inset-0 backdrop"></div>
     <aside x-show="drawerNode"
+           role="dialog" aria-modal="true"
+           :aria-label="drawerNode && drawerNode.name ? t('nodes.beszel.alias_section_title') + ' — ' + drawerNode.name : t('nodes.beszel.alias_section_title')"
            class="absolute inset-y-0 right-0 w-full md:w-[460px] bg-[var(--surface)] border-l border-[var(--border)] overflow-y-auto scrollbar slide-in">
       <template x-if="drawerNode">
         <div class="p-5">
           <div class="flex items-start justify-between gap-3">
             <div class="min-w-0">
-              <div class="text-[10.5px] uppercase tracking-wider text-[var(--text-faint)]">Node</div>
+              <div class="text-[10.5px] uppercase tracking-wider text-[var(--text-faint)]" x-text="t('nodes.beszel.drawer_kicker')"></div>
               <h2 class="text-[17px] font-semibold mt-1 mono break-all" x-text="drawerNode.name"></h2>
             </div>
-            <button @click="drawerNode=null" class="btn btn-ghost text-base leading-none">✕</button>
+            <button @click="drawerNode=null" class="btn btn-ghost text-base leading-none"
+                    :aria-label="t('actions.close')">✕</button>
           </div>
 
           <div class="mt-5 space-y-5">
             <!-- Beszel alias editor -->
             <section>
-              <h3 class="text-[12px] uppercase tracking-wider text-[var(--text-dim)] mb-2">Beszel host</h3>
-              <p class="text-[12px] text-[var(--text-faint)] mb-3 leading-snug">
-                Matches on the Beszel record's <code class="mono">host</code>
-                field (the hostname the agent reports), not the
-                user-editable <code class="mono">name</code> label. Set
-                this when the Docker hostname differs from the Beszel
-                host — e.g. Docker sees <code class="mono">host01</code>
-                but Beszel reports <code class="mono">host01.example.com</code>.
-                Leave blank to match on the Docker name as-is.
-              </p>
-              <label class="block text-[11px] text-[var(--text-dim)] mb-1" for="node-beszel-alias">Beszel host</label>
+              <h3 class="text-[12px] uppercase tracking-wider text-[var(--text-dim)] mb-2"
+                  x-text="t('nodes.beszel.alias_section_title')"></h3>
+              <p class="text-[12px] text-[var(--text-faint)] mb-3 leading-snug"
+                 x-html="t('nodes.beszel.alias_section_desc')"></p>
+              <label class="block text-[11px] text-[var(--text-dim)] mb-1" for="node-beszel-alias"
+                     x-text="t('nodes.beszel.alias_input_label')"></label>
               <input id="node-beszel-alias"
                      type="text"
                      class="input w-full"
@@ -10054,7 +10101,10 @@
   <!-- ================== DETAIL DRAWER ================== -->
   <div x-show="drawerItem" class="fixed inset-0 z-40 fade-in">
     <div @click="drawerItem=null" class="absolute inset-0 backdrop"></div>
-    <aside x-show="drawerItem" class="absolute inset-y-0 right-0 w-full md:w-[500px] bg-[var(--surface)] border-l border-[var(--border)] overflow-y-auto scrollbar slide-in">
+    <aside x-show="drawerItem"
+           role="dialog" aria-modal="true"
+           :aria-label="drawerItem && drawerItem.name ? drawerItem.name : t('item.drawer_title')"
+           class="absolute inset-y-0 right-0 w-full md:w-[500px] bg-[var(--surface)] border-l border-[var(--border)] overflow-y-auto scrollbar slide-in">
       <template x-if="drawerItem">
         <div class="p-5">
           <div class="flex items-start justify-between gap-3">
@@ -10069,7 +10119,8 @@
                 <span x-text="imageRepo(drawerItem)"></span><span class="text-[var(--text-faint)]">:</span><span x-text="drawerItem.tag"></span>
               </div>
             </div>
-            <button @click="drawerItem=null" class="btn btn-ghost text-base leading-none">✕</button>
+            <button @click="drawerItem=null" class="btn btn-ghost text-base leading-none"
+                    :aria-label="t('actions.close')">✕</button>
           </div>
 
           <div class="mt-5 space-y-2">
@@ -10205,14 +10256,16 @@
   <!-- ================== HOTKEYS HELP MODAL ================== -->
   <div x-show="showHotkeys" class="fixed inset-0 z-50 fade-in">
     <div @click="showHotkeys=false" class="absolute inset-0 backdrop-strong"></div>
-    <div class="relative flex items-center justify-center p-4 h-full overflow-auto">
+    <div class="relative flex items-center justify-center p-4 h-full overflow-auto scrollbar"
+         role="dialog" aria-modal="true" :aria-label="t('hotkeys.title')">
       <div class="bg-[var(--surface)] border border-[var(--border)] rounded-md max-w-2xl w-full max-h-[90vh] overflow-y-auto scrollbar">
         <div class="p-4 border-b border-[var(--border)] flex justify-between items-center sticky top-0 bg-[var(--surface)] z-10">
           <div>
             <h2 class="text-[15px] font-semibold" x-text="t('hotkeys.title')"></h2>
             <p class="text-[11px] text-[var(--text-faint)] mt-0.5" x-html="t('hotkeys.hint')"></p>
           </div>
-          <button @click="showHotkeys=false" class="btn btn-ghost">✕</button>
+          <button @click="showHotkeys=false" class="btn btn-ghost"
+                  :aria-label="t('actions.close')">✕</button>
         </div>
         <div class="p-5 grid grid-cols-1 md:grid-cols-2 gap-5">
           <template x-for="group in hotkeyGroups()" :key="group.title">

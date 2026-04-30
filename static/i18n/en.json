@@ -41,7 +41,8 @@
     "name": "OmniGrid",
     "tagline": "One dashboard. Every node.",
     "signed_in_as": "Signed in as",
-    "version": "Version:"
+    "version": "Version:",
+    "skip_to_main": "Skip to main content"
   },
   "nav": {
     "stacks": "Stacks",
@@ -258,7 +259,13 @@
     "stats_merged_from_title": "Stats merged from: {sources}",
     "stats_all_failed_title": "All configured host-stats sources failed — falling back to Docker-only signals.",
     "prune_button_title": "Run docker system prune on {node}",
-    "docker_disk_label": "Docker: {value}"
+    "docker_disk_label": "Docker: {value}",
+    "beszel": {
+      "drawer_kicker": "Node",
+      "alias_section_title": "Beszel host",
+      "alias_section_desc": "Matches on the Beszel record's <code class=\"mono\">host</code> field (the hostname the agent reports), not the user-editable <code class=\"mono\">name</code> label. Set this when the Docker hostname differs from the Beszel host — e.g. Docker sees <code class=\"mono\">host01</code> but Beszel reports <code class=\"mono\">host01.example.com</code>. Leave blank to match on the Docker name as-is.",
+      "alias_input_label": "Beszel host"
+    }
   },
   "empty": {
     "no_match_filters": "No resources match your filters.",
@@ -333,6 +340,8 @@
       "source_none": "None (Docker-only)",
       "source_node_exporter": "node-exporter",
       "source_beszel": "Beszel",
+      "source_pulse": "Pulse",
+      "source_webmin": "Webmin",
       "tab_active_dot": "Provider enabled",
       "tab_inactive_dot": "Provider disabled",
       "tab_enable_label": "Enable {provider}",
@@ -1372,10 +1381,18 @@
     "hide_unconfigured_title": "Hide curated rows that have no Beszel / Pulse / node-exporter / Webmin field set — inventory-only entries are filtered out. Persisted in this browser.",
     "provider_filter": {
       "all": "All",
+      "show_all": "Show all",
       "all_title": "Clear the provider filter — show every host (default).",
       "none": "No provider",
-      "none_title": "Show only curated rows without any provider mapped ({count} host(s)). Useful for finding inventory-only entries waiting for an agent."
+      "none_title": "Show only curated rows without any provider mapped ({count} host(s)). Useful for finding inventory-only entries waiting for an agent.",
+      "title_error": "{name} error: {error}",
+      "title_unmatched": "{name} is enabled but matched no host",
+      "title_match_one": "{name} — 1 host",
+      "title_match_many": "{name} — {count} hosts"
     },
+    "host_count_one": "1 host",
+    "host_count_many": "{count} hosts",
+    "merged_from": "· merged from {sources}",
     "sort": {
       "status": "Status (default)",
       "custom_number": "Custom # (catalogue order)",
@@ -1537,6 +1554,9 @@
       "docker_show": "Show {count} Docker / internal interface(s)",
       "docker_hide": "Hide {count} Docker / internal interface(s)",
       "docker_toggle_title": "Toggle Docker veth pairs, bridges, and other internal interfaces (lo, docker0, br-*, veth*, cni*, flannel*, cali*, kube-*, vxlan*, vmbr*)",
+      "idle_show": "Show {count} idle interface(s)",
+      "idle_hide": "Hide {count} idle interface(s)",
+      "idle_toggle_title": "Switch ports / channels with no traffic and no assigned IP — typically unused ports on a managed switch",
       "iface_up": "Interface up",
       "iface_down": "Interface down",
       "iface_bar_title": "rx {rx} · tx {tx} since boot"
@@ -1591,7 +1611,10 @@
       "memory": "Memory %",
       "disk": "Disk %",
       "net_in": "Net In B/s",
-      "net_out": "Net Out B/s"
+      "net_out": "Net Out B/s",
+      "no_source_hint_prefix": "Time-series charts are sourced from Beszel or node-exporter. Link this host to a Beszel system OR set its node-exporter URL in ",
+      "admin_hosts_link": "Admin → Hosts",
+      "no_source_hint_suffix": " to see CPU / Memory / Disk / Net history here."
     }
   },
   "debug_panel": {
@@ -1687,6 +1710,7 @@
     "heading": "Hosts",
     "intro": "Define the machines you want to monitor and map each to the names used by every enabled provider. OmniGrid fetches all providers on every refresh and merges the best values per host — missing fields degrade to what the other providers returned.",
     "label_source_asset": "{name} — from asset inventory (no operator label set)",
+    "click_to_edit": "Click to edit",
     "discover_button": "Discover from providers",
     "discover_busy": "Fetching…",
     "discover_title": "Fetch the list of names known to every enabled provider so you can autocomplete the fields below",
@@ -1971,6 +1995,8 @@
     "clear_key_title": "Erase the stored SSH private key (and its passphrase). Cannot be undone — paste a new key after to restore access.",
     "clear_passphrase_title": "Erase the stored passphrase. The private key stays; the runner will try to parse it unprotected.",
     "clear_password_title": "Erase the stored default password. Per-host password overrides still apply.",
+    "password_label": "Default password",
+    "clear_label": "Clear",
     "user_label": "Default user",
     "user_placeholder": "e.g. root · omnigrid · ubuntu",
     "port_label": "Default port",
