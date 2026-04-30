@@ -1819,7 +1819,7 @@
                 <span class="value" x-text="(h.cpu_percent || 0).toFixed(1) + '%'"></span>
                 <div class="stat-bar"
                      :class="[barLevel(h.cpu_percent), isStaleField(h, 'host_cpu_percent') ? 'stale' : '']"
-                     :style="'--w: ' + Math.min(100, h.cpu_percent) + '%'"
+                     :style="'--w: ' + Math.round(Math.min(100, h.cpu_percent || 0)) + '%'"
                      :title="isStaleField(h, 'host_cpu_percent') ? staleAge(h) : ''">
                   <div class="fill"></div>
                 </div>
@@ -1827,10 +1827,10 @@
               <div class="host-mobile-card-metric">
                 <span class="name" x-text="t('columns.memory')"></span>
                 <span class="value"
-                      x-text="(h.mem_percent || memPercentOf(h)) + '%'"></span>
+                      x-text="Math.round(h.mem_percent || memPercentOf(h)) + '%'"></span>
                 <div class="stat-bar"
                      :class="[barLevel(h.mem_percent || memPercentOf(h)), (isStaleField(h, 'host_mem_total') || isStaleField(h, 'host_mem_used')) ? 'stale' : '']"
-                     :style="'--w: ' + (h.mem_percent || memPercentOf(h)) + '%'"
+                     :style="'--w: ' + Math.round(h.mem_percent || memPercentOf(h)) + '%'"
                      :title="(isStaleField(h, 'host_mem_total') || isStaleField(h, 'host_mem_used')) ? staleAge(h) : ''">
                   <div class="fill"></div>
                 </div>
@@ -1838,10 +1838,10 @@
               <div class="host-mobile-card-metric">
                 <span class="name" x-text="t('columns.disk')"></span>
                 <span class="value"
-                      x-text="(h.disk_percent || diskPercentOf(h)) + '%'"></span>
+                      x-text="Math.round(h.disk_percent || diskPercentOf(h)) + '%'"></span>
                 <div class="stat-bar"
                      :class="[barLevel(h.disk_percent || diskPercentOf(h)), (isStaleField(h, 'host_disk_total') || isStaleField(h, 'host_disk_used')) ? 'stale' : '']"
-                     :style="'--w: ' + (h.disk_percent || diskPercentOf(h)) + '%'"
+                     :style="'--w: ' + Math.round(h.disk_percent || diskPercentOf(h)) + '%'"
                      :title="(isStaleField(h, 'host_disk_total') || isStaleField(h, 'host_disk_used')) ? staleAge(h) : ''">
                   <div class="fill"></div>
                 </div>
@@ -2071,7 +2071,7 @@
                   <div>
                     <div class="stat-bar"
                          :class="[barLevel(h.cpu_percent), isStaleField(h, 'host_cpu_percent') ? 'stale' : '']"
-                         :style="'--w: ' + Math.min(100, h.cpu_percent) + '%'"
+                         :style="'--w: ' + Math.round(Math.min(100, h.cpu_percent || 0)) + '%'"
                          :title="isStaleField(h, 'host_cpu_percent') ? staleAge(h) : ''">
                       <div class="fill"></div>
                     </div>
@@ -2086,12 +2086,12 @@
                   <div>
                     <div class="stat-bar"
                          :class="[barLevel(h.mem_percent || memPercentOf(h)), (isStaleField(h, 'host_mem_total') || isStaleField(h, 'host_mem_used')) ? 'stale' : '']"
-                         :style="'--w: ' + (h.mem_percent || memPercentOf(h)) + '%'"
+                         :style="'--w: ' + Math.round(h.mem_percent || memPercentOf(h)) + '%'"
                          :title="(isStaleField(h, 'host_mem_total') || isStaleField(h, 'host_mem_used')) ? staleAge(h) : ''">
                       <div class="fill"></div>
                     </div>
                     <div class="text-[10.5px] mono mt-1">
-                      <span x-text="(h.mem_percent || memPercentOf(h)) + '%'"></span>
+                      <span x-text="Math.round(h.mem_percent || memPercentOf(h)) + '%'"></span>
                       <span class="text-[var(--text-faint)]" x-show="h.mem_total"
                             x-text="' (' + fmtBytes(h.mem_used) + '/' + fmtBytes(h.mem_total) + ')'"></span>
                     </div>
@@ -2124,13 +2124,13 @@
                     <template x-if="(h.mounts || []).length <= 1">
                       <div class="stat-bar"
                            :class="[barLevel(h.disk_percent || diskPercentOf(h)), (isStaleField(h, 'host_disk_total') || isStaleField(h, 'host_disk_used')) ? 'stale' : '']"
-                           :style="'--w: ' + (h.disk_percent || diskPercentOf(h)) + '%'"
+                           :style="'--w: ' + Math.round(h.disk_percent || diskPercentOf(h)) + '%'"
                            :title="(isStaleField(h, 'host_disk_total') || isStaleField(h, 'host_disk_used')) ? staleAge(h) : ''">
                         <div class="fill"></div>
                       </div>
                     </template>
                     <div class="text-[10.5px] mono mt-1">
-                      <span x-text="(h.disk_percent || diskPercentOf(h)) + '%'"></span>
+                      <span x-text="Math.round(h.disk_percent || diskPercentOf(h)) + '%'"></span>
                       <span class="text-[var(--text-faint)]" x-show="h.disk_total"
                             x-text="' (' + fmtBytes(h.disk_used) + '/' + fmtBytes(h.disk_total) + ')'"></span>
                     </div>
@@ -3121,14 +3121,24 @@
             <input type="checkbox" x-model="settings.beszel_verify_tls" :disabled="isReadonly()">
             <span x-text="t('settings.host_stats.beszel_verify_tls')"></span>
           </label>
-          <div class="flex items-center gap-2 flex-wrap">
-            <span x-show="beszelTestResult && !beszelTestResult.pending"
-                  :class="beszelTestResult && beszelTestResult.ok ? 'text-[var(--success)]' : 'text-[var(--danger)]'"
-                  class="text-[11.5px]"
-                  x-text="(beszelTestResult && beszelTestResult.ok ? '✓ ' : '✗ ') + (beszelTestResult && beszelTestResult.detail || '')"></span>
+          <div class="flex items-center gap-2 flex-wrap justify-between w-full">
+            <!-- #700 fix: result span is the ALWAYS-rendered first
+                 child (uses `min-h` placeholder when there's no
+                 result yet) so flex's `justify-between` always has
+                 two siblings to spread. Pre-fix the span was
+                 `x-show="..."` (display:none when no result), leaving
+                 the button as the only child — `ms-auto` collapsed
+                 to 0 and the button sat at the start. -->
+            <span class="text-[11.5px] flex-1 min-w-0"
+                  :class="beszelTestResult && !beszelTestResult.pending
+                          ? (beszelTestResult.ok ? 'text-[var(--success)]' : 'text-[var(--danger)]')
+                          : 'text-[var(--text-faint)]'"
+                  x-text="beszelTestResult && !beszelTestResult.pending
+                          ? ((beszelTestResult.ok ? '✓ ' : '✗ ') + (beszelTestResult.detail || ''))
+                          : ''"></span>
             <button x-show="isAdmin()" @click="testBeszelConnection()"
                     :disabled="beszelTestResult && beszelTestResult.pending"
-                    class="btn btn-soft text-[12px] ms-auto"
+                    class="btn btn-soft text-[12px] flex-shrink-0"
                     x-text="(beszelTestResult && beszelTestResult.pending) ? t('settings.host_stats.beszel_testing') : t('settings.host_stats.beszel_test_button')"></button>
           </div>
           <p class="text-[10.5px] text-[var(--text-faint)]"
@@ -4393,14 +4403,17 @@
                    :disabled="isReadonly() || !hasHostStatsSource('beszel')">
             <span x-text="t('settings.host_stats.beszel_verify_tls')"></span>
           </label>
-          <div class="flex items-center gap-2 flex-wrap">
-            <span x-show="beszelTestResult && !beszelTestResult.pending"
-                  :class="beszelTestResult && beszelTestResult.ok ? 'text-[var(--success)]' : 'text-[var(--danger)]'"
-                  class="text-[11.5px]"
-                  x-text="(beszelTestResult && beszelTestResult.ok ? '✓ ' : '✗ ') + (beszelTestResult && beszelTestResult.detail || '')"></span>
+          <div class="flex items-center gap-2 flex-wrap justify-between w-full">
+            <span class="text-[11.5px] flex-1 min-w-0"
+                  :class="beszelTestResult && !beszelTestResult.pending
+                          ? (beszelTestResult.ok ? 'text-[var(--success)]' : 'text-[var(--danger)]')
+                          : 'text-[var(--text-faint)]'"
+                  x-text="beszelTestResult && !beszelTestResult.pending
+                          ? ((beszelTestResult.ok ? '✓ ' : '✗ ') + (beszelTestResult.detail || ''))
+                          : ''"></span>
             <button x-show="isAdmin()" @click="testBeszelConnection()"
                     :disabled="(beszelTestResult && beszelTestResult.pending) || !hasHostStatsSource('beszel')"
-                    class="btn btn-soft text-[12px] ms-auto"
+                    class="btn btn-soft text-[12px] flex-shrink-0"
                     x-text="(beszelTestResult && beszelTestResult.pending) ? t('settings.host_stats.beszel_testing') : t('settings.host_stats.beszel_test_button')"></button>
           </div>
           <p class="text-[10.5px] text-[var(--text-faint)]"
@@ -4473,14 +4486,17 @@
                    :disabled="isReadonly() || !hasHostStatsSource('pulse')">
             <span x-text="t('settings.host_stats.pulse_verify_tls')"></span>
           </label>
-          <div class="flex items-center gap-2 flex-wrap">
-            <span x-show="pulseTestResult && !pulseTestResult.pending"
-                  :class="pulseTestResult && pulseTestResult.ok ? 'text-[var(--success)]' : 'text-[var(--danger)]'"
-                  class="text-[11.5px]"
-                  x-text="(pulseTestResult && pulseTestResult.ok ? '✓ ' : '✗ ') + (pulseTestResult && pulseTestResult.detail || '')"></span>
+          <div class="flex items-center gap-2 flex-wrap justify-between w-full">
+            <span class="text-[11.5px] flex-1 min-w-0"
+                  :class="pulseTestResult && !pulseTestResult.pending
+                          ? (pulseTestResult.ok ? 'text-[var(--success)]' : 'text-[var(--danger)]')
+                          : 'text-[var(--text-faint)]'"
+                  x-text="pulseTestResult && !pulseTestResult.pending
+                          ? ((pulseTestResult.ok ? '✓ ' : '✗ ') + (pulseTestResult.detail || ''))
+                          : ''"></span>
             <button x-show="isAdmin()" @click="testPulseConnection()"
                     :disabled="(pulseTestResult && pulseTestResult.pending) || !hasHostStatsSource('pulse')"
-                    class="btn btn-soft text-[12px] ms-auto"
+                    class="btn btn-soft text-[12px] flex-shrink-0"
                     x-text="(pulseTestResult && pulseTestResult.pending) ? t('settings.host_stats.pulse_testing') : t('settings.host_stats.pulse_test_button')"></button>
           </div>
           <p class="text-[10.5px] text-[var(--text-faint)]" x-text="t('settings.host_stats.pulse_aliases_hint')"></p>
