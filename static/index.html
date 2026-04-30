@@ -8981,6 +8981,76 @@
                    gate no longer needs to consider `h.ping_enabled`
                    since ping-only hosts are served by the standalone
                    row above. -->
+              <!-- #713 — SNMP time-series charts. Three cards for hosts
+                   probed via SNMP whose data isn't covered by the
+                   Beszel / NE charts: per-core CPU (multi-line), load
+                   averages (3 lines), memory stacked layers. Each
+                   card individually gates so a host that returns ONLY
+                   per-core CPU + no load avg still gets the CPU card. -->
+              <div class="mt-3 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4"
+                   x-show="hostHasSnmpCharts(h)">
+                <!-- Per-core CPU lines + ssCpuIdle overlay. -->
+                <div class="metric-card"
+                     x-show="(h.host_cpu_per_core || []).length > 0
+                             || (hostSnmpHistory[h.id] && hostSnmpHistory[h.id].points
+                                 && hostSnmpHistory[h.id].points.some(p => p.cpu_used_pct !== null))">
+                  <div class="metric-card-head">
+                    <div class="metric-card-title">
+                      <span x-text="t('host_drawer.snmp_charts.cpu_title')"></span><span class="unit">%</span>
+                    </div>
+                    <div class="text-[10.5px] text-[var(--text-faint)]"
+                         x-show="(h.host_cpu_per_core || []).length"
+                         x-text="t('host_drawer.snmp_charts.cores', { n: h.host_cpu_per_core.length })"></div>
+                  </div>
+                  <svg class="metric-svg" viewBox="0 0 200 60" preserveAspectRatio="none" aria-hidden="true">
+                    <template x-for="(line, i) in snmpCpuPerCoreLines(h.id)" :key="'cpu-' + i">
+                      <polyline fill="none" stroke="var(--info)" stroke-opacity="0.55" stroke-width="1" :points="line"></polyline>
+                    </template>
+                    <polyline fill="none" stroke="var(--success)" stroke-width="1.5"
+                              :points="snmpCpuUsedPctLine(h.id)"
+                              x-show="(hostSnmpHistory[h.id] && hostSnmpHistory[h.id].points || []).length > 0"></polyline>
+                  </svg>
+                </div>
+
+                <!-- Load averages — three lines (1m / 5m / 15m). -->
+                <div class="metric-card"
+                     x-show="h.host_load_1m || h.host_load_5m || h.host_load_15m
+                             || (hostSnmpHistory[h.id] && (hostSnmpHistory[h.id].points || []).some(p => p.load_1m || p.load_5m || p.load_15m))">
+                  <div class="metric-card-head">
+                    <div class="metric-card-title">
+                      <span x-text="t('host_drawer.snmp_charts.load_title')"></span>
+                    </div>
+                    <div class="text-[10.5px] text-[var(--text-faint)] mono"
+                         x-text="((+h.host_load_1m || 0).toFixed(2)) + ' / ' + ((+h.host_load_5m || 0).toFixed(2)) + ' / ' + ((+h.host_load_15m || 0).toFixed(2))"></div>
+                  </div>
+                  <svg class="metric-svg" viewBox="0 0 200 60" preserveAspectRatio="none" aria-hidden="true">
+                    <polyline fill="none" stroke="var(--success)" stroke-width="1.5" :points="snmpLoadLine(h.id, 'load_1m')"></polyline>
+                    <polyline fill="none" stroke="var(--warning)" stroke-width="1" :points="snmpLoadLine(h.id, 'load_5m')"></polyline>
+                    <polyline fill="none" stroke="var(--info)" stroke-width="1" :points="snmpLoadLine(h.id, 'load_15m')"></polyline>
+                  </svg>
+                </div>
+
+                <!-- Memory stacked-area: used / buffers / cached / free. -->
+                <div class="metric-card"
+                     x-show="(h.host_mem_buffers || h.host_mem_cached
+                             || (hostSnmpHistory[h.id] && (hostSnmpHistory[h.id].points || []).some(p => p.mem_buffers || p.mem_cached)))">
+                  <div class="metric-card-head">
+                    <div class="metric-card-title">
+                      <span x-text="t('host_drawer.snmp_charts.mem_title')"></span>
+                    </div>
+                    <div class="text-[10.5px] text-[var(--text-faint)] mono"
+                         x-show="h.host_mem_total"
+                         x-text="fmtBytes(h.host_mem_used || 0) + ' / ' + fmtBytes(h.host_mem_total || 0)"></div>
+                  </div>
+                  <svg class="metric-svg" viewBox="0 0 200 60" preserveAspectRatio="none" aria-hidden="true">
+                    <polyline fill="none" stroke="var(--danger)"  stroke-width="1.5" :points="snmpMemArea(h.id, 'used')"></polyline>
+                    <polyline fill="none" stroke="var(--warning)" stroke-width="1"   :points="snmpMemArea(h.id, 'cached')"></polyline>
+                    <polyline fill="none" stroke="var(--info)"    stroke-width="1"   :points="snmpMemArea(h.id, 'buffers')"></polyline>
+                    <polyline fill="none" stroke="var(--success)" stroke-width="1"   :points="snmpMemArea(h.id, 'free')"></polyline>
+                  </svg>
+                </div>
+              </div>
+
               <div class="mt-3 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4"
                    x-show="(h.beszel_id || h.ne_url) && h.status === 'up' && (h.providers || []).length > 0">
                 <!-- CPU % — hidden for ping-only hosts (#569). The

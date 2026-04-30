@@ -223,6 +223,10 @@ _APC_OUTPUT_STATUS_LABELS = {
 _OID_UCD_MEM_TOTAL_REAL = "1.3.6.1.4.1.2021.4.5.0"
 _OID_UCD_MEM_AVAIL_REAL = "1.3.6.1.4.1.2021.4.6.0"
 _OID_UCD_MEM_TOTAL_FREE = "1.3.6.1.4.1.2021.4.11.0"
+# #713 — buffers + cached for the stacked-area memory chart.
+# memShared (4.13) is rarely populated on modern Linux so skipped.
+_OID_UCD_MEM_BUFFER     = "1.3.6.1.4.1.2021.4.14.0"
+_OID_UCD_MEM_CACHED     = "1.3.6.1.4.1.2021.4.15.0"
 _OID_UCD_SS_CPU_USER    = "1.3.6.1.4.1.2021.11.9.0"
 _OID_UCD_SS_CPU_SYSTEM  = "1.3.6.1.4.1.2021.11.10.0"
 _OID_UCD_SS_CPU_IDLE    = "1.3.6.1.4.1.2021.11.11.0"
@@ -819,6 +823,9 @@ def extract_vendor_info(walks: dict, existing: Optional[dict] = None) -> dict:
         mem_total_kb = _coerce_int(ucd_mem.get(_OID_UCD_MEM_TOTAL_REAL))
         mem_avail_kb = _coerce_int(ucd_mem.get(_OID_UCD_MEM_AVAIL_REAL))
         mem_free_kb  = _coerce_int(ucd_mem.get(_OID_UCD_MEM_TOTAL_FREE))
+        # #713 — buffers + cached for the stacked-area memory chart.
+        mem_buffer_kb = _coerce_int(ucd_mem.get(_OID_UCD_MEM_BUFFER))
+        mem_cached_kb = _coerce_int(ucd_mem.get(_OID_UCD_MEM_CACHED))
         if mem_total_kb > 0 and not existing.get("host_mem_total"):
             mem_total = mem_total_kb * 1024
             # Prefer memAvailReal if present (accounts for cache); fall
@@ -831,6 +838,15 @@ def extract_vendor_info(walks: dict, existing: Optional[dict] = None) -> dict:
                 out["host_mem_used"] = mem_used
                 out["host_mem_avail"] = avail
                 out["host_mem_percent"] = (mem_used / mem_total * 100.0) if mem_total else 0.0
+        # #713 — surface raw buffers / cached / free in bytes for the
+        # stacked-area chart. Always emit when the OID returned a value,
+        # independent of the host_mem_* gates above.
+        if mem_buffer_kb > 0:
+            out["host_mem_buffers"] = mem_buffer_kb * 1024
+        if mem_cached_kb > 0:
+            out["host_mem_cached"] = mem_cached_kb * 1024
+        if mem_free_kb > 0:
+            out["host_mem_free"] = mem_free_kb * 1024
         # CPU% via 100 - ssCpuIdle. ssCpuIdle is "% idle since last
         # poll", so the snmpd's accounting interval matters; net-snmp
         # uses 60s by default. Operators wanting tighter granularity
@@ -999,20 +1015,32 @@ def extract_entity_info(walk_results: dict) -> dict:
 
 
 def extract_cpu_percent(walk_result: dict) -> dict:
-    """Shape hrProcessorLoad walk into host_cpu_percent (mean across cores)."""
+    """Shape hrProcessorLoad walk into host_cpu_percent (mean across cores)
+    AND host_cpu_per_core (per-index list, sorted by hrProcessorIndex
+    so per-core lines render in the same order across ticks). #713 added
+    the per-core list so the host drawer can plot one chart line per
+    core; pre-#713 we kept only the mean.
+    """
     if not walk_result:
         return {}
-    loads: list[int] = []
-    for _, v in walk_result.items():
+    indexed: list[tuple[int, int]] = []
+    for oid, v in walk_result.items():
         n = _coerce_int(v)
         if 0 <= n <= 100:
-            loads.append(n)
-    if not loads:
+            try:
+                idx = int(oid.rsplit(".", 1)[-1])
+            except ValueError:
+                idx = 0
+            indexed.append((idx, n))
+    if not indexed:
         return {}
+    indexed.sort(key=lambda t: t[0])
+    loads = [n for _, n in indexed]
     avg = sum(loads) / len(loads)
     return {
         "host_cpu_percent": float(avg),
         "host_cores": len(loads),
+        "host_cpu_per_core": loads,
     }
 
 
@@ -1375,6 +1403,7 @@ async def probe_snmp(
         # average + dskTable walks. Non-net-snmp devices return empty.
         ucd_mem_cpu_task = _snmp_get(engine, auth, target, [
             _OID_UCD_MEM_TOTAL_REAL, _OID_UCD_MEM_AVAIL_REAL, _OID_UCD_MEM_TOTAL_FREE,
+            _OID_UCD_MEM_BUFFER, _OID_UCD_MEM_CACHED,
             _OID_UCD_SS_CPU_USER, _OID_UCD_SS_CPU_SYSTEM, _OID_UCD_SS_CPU_IDLE,
         ])
         ucd_load_task = _snmp_walk(engine, auth, target, _OID_UCD_LA_LOAD_INT)

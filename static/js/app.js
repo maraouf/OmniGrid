@@ -12629,6 +12629,12 @@ function app() {
       if (pingKey && host.ping_enabled && !this.hostHistory[pingKey]) {
         this.loadHostPingHistory(host.id);
       }
+      // #713 — SNMP history (separate endpoint, separate state map).
+      // Loads once per host on drawer open; range-picker click could
+      // refetch with a different `hours` arg in the future.
+      if (this.hostHasSnmpCharts(host) && !this.hostSnmpHistory[host.id]) {
+        this.loadHostSnmpHistory(host.id, 1);
+      }
       // Dedicated drawer-history poll (#365) — keeps the chart series +
       // the `Updated Xs ago` freshness label in sync regardless of
       // whether the operator has the host-list poll enabled (when
@@ -12699,6 +12705,121 @@ function app() {
         clearInterval(this._drawerPingTimer);
         this._drawerPingTimer = null;
       }
+    },
+    // #713 — SNMP time-series state. Keyed per-host (no Beszel-id
+    // fallback because SNMP probes are always per-host). Reads from
+    // the new `/api/hosts/{id}/snmp/history` endpoint that wraps the
+    // `host_snmp_samples` table written by the sampler. Same loading-
+    // flag pattern as `hostHistory` so chart cards don't flicker on
+    // range-picker clicks.
+    hostSnmpHistory: {},
+    async loadHostSnmpHistory(hostId, hours) {
+      if (!hostId) return;
+      const h = +hours || 1;
+      const prev = this.hostSnmpHistory[hostId] || {};
+      this.hostSnmpHistory[hostId] = {
+        loading: true,
+        error: prev.error || '',
+        points: Array.isArray(prev.points) ? prev.points : [],
+        loadedAt: prev.loadedAt || 0,
+      };
+      try {
+        const r = await fetch(
+          `/api/hosts/${encodeURIComponent(hostId)}/snmp/history?hours=${h}`
+        );
+        if (!r.ok) {
+          this.hostSnmpHistory[hostId] = {
+            loading: false, error: `HTTP ${r.status}`,
+            points: prev.points || [], loadedAt: prev.loadedAt || 0,
+          };
+          return;
+        }
+        const d = await r.json();
+        this.hostSnmpHistory[hostId] = {
+          loading: false,
+          error: d.error || '',
+          points: Array.isArray(d.points) ? d.points : [],
+          loadedAt: Date.now(),
+        };
+      } catch (e) {
+        this.hostSnmpHistory[hostId] = {
+          loading: false, error: String(e),
+          points: prev.points || [], loadedAt: prev.loadedAt || 0,
+        };
+      }
+    },
+    // True when this host has SNMP data worth charting (per-core CPU
+    // OR load avg OR buffers/cached). Drives the gate on the new
+    // chart cards so non-SNMP hosts don't see them.
+    hostHasSnmpCharts(h) {
+      if (!h) return false;
+      return !!((h.host_cpu_per_core || []).length > 0
+                || h.host_load_1m || h.host_load_5m || h.host_load_15m
+                || h.host_mem_buffers || h.host_mem_cached);
+    },
+    // Build a polyline `points` attribute from a series of values.
+    // Normalises against `max` (default = max value in series) so the
+    // chart spans the full SVG viewBox. SVG viewBox is 200×60 by
+    // convention (matches the sparkline viewBox elsewhere).
+    _snmpPolyPoints(values, max) {
+      if (!values || !values.length) return '';
+      const m = max !== undefined ? max : Math.max(0.0001, ...values.filter(v => v != null));
+      const n = values.length;
+      const w = 200, hh = 60;
+      return values.map((v, i) => {
+        const x = (i / Math.max(1, n - 1)) * w;
+        const y = hh - ((+v || 0) / m) * hh;
+        return `${x.toFixed(1)},${y.toFixed(1)}`;
+      }).join(' ');
+    },
+    // CPU per-core lines — one polyline string per core index.
+    snmpCpuPerCoreLines(hostId) {
+      const series = (this.hostSnmpHistory[hostId] || {}).points || [];
+      if (!series.length) return [];
+      // Determine core count from the FIRST point that has a non-empty
+      // cpu_per_core. Older samples may have fewer cores (e.g. host
+      // reboot changed core count); render only the consistent prefix.
+      const numCores = (series.find(p => (p.cpu_per_core || []).length) || {}).cpu_per_core?.length || 0;
+      const out = [];
+      for (let i = 0; i < numCores; i++) {
+        const vals = series.map(p => (p.cpu_per_core || [])[i] ?? 0);
+        out.push(this._snmpPolyPoints(vals, 100));
+      }
+      return out;
+    },
+    snmpCpuUsedPctLine(hostId) {
+      const series = (this.hostSnmpHistory[hostId] || {}).points || [];
+      const vals = series.map(p => p.cpu_used_pct ?? 0);
+      return this._snmpPolyPoints(vals, 100);
+    },
+    snmpLoadLine(hostId, key) {
+      const series = (this.hostSnmpHistory[hostId] || {}).points || [];
+      const vals = series.map(p => p[key] ?? 0);
+      // Auto-scale load — typical idle is < 1, busy can hit > cores.
+      const max = Math.max(1, ...vals);
+      return this._snmpPolyPoints(vals, max);
+    },
+    snmpLoadMax(hostId) {
+      const series = (this.hostSnmpHistory[hostId] || {}).points || [];
+      let max = 1;
+      for (const p of series) {
+        max = Math.max(max, p.load_1m || 0, p.load_5m || 0, p.load_15m || 0);
+      }
+      return max;
+    },
+    snmpMemArea(hostId, key) {
+      // For the memory chart — render each layer as a polyline, scaled
+      // against mem_total. `key` ∈ {used, buffers, cached, free}.
+      const series = (this.hostSnmpHistory[hostId] || {}).points || [];
+      if (!series.length) return '';
+      // Normalise against the largest mem_total seen (handles probes
+      // pre/post a memory hot-add cleanly).
+      let maxTotal = 0;
+      for (const p of series) maxTotal = Math.max(maxTotal, p.mem_total || 0);
+      if (!maxTotal) return '';
+      const fieldKey = 'mem_' + key;
+      const vals = series.map(p => p[fieldKey] || 0);
+      return this._snmpPolyPoints(vals, maxTotal);
     },
     async loadHostHistory(systemId, hostId) {
       // Preserve whatever series we already have so the chart doesn't
