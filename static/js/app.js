@@ -142,7 +142,13 @@ const CURATED_REFRESH_FIELDS = new Set([
   // chip in providerStates(h) tracks the operator's mapping. Probe
   // outputs (CPU/mem/disk/uptime) flow through the existing host_*
   // schema fields above and don't need their own row here.
-  'snmp_name',
+  // #714 — `snmp_enabled` (per-host opt-in flag) MUST also be in this
+  // overlay set. Without it the in-place reconcile preserves the
+  // stale `true` value on rows where the operator just unticked the
+  // enable box, leaving the SNMP chip rendered indefinitely until
+  // a hard refresh. Mirrors `ssh_enabled` and `ping_enabled` further
+  // up in this list.
+  'snmp_name', 'snmp_enabled',
 ]);
 
 function app() {
@@ -7663,13 +7669,14 @@ function app() {
       // want that "no data yet" case to render a misleading red chip,
       // so only flip to 'down' when the value is explicitly false.
       add('ping',          !!h.ping_enabled, h.ping_alive === false ? 'down' : null);
-      // SNMP (#344) — chip renders when the row carries a snmp_name
-      // (alias) OR was explicitly mapped via the `snmp` per-row override
-      // dict. Same rules as the other providers: globally enabled,
-      // globally healthy, hit on this host = ok, mapped-but-no-hit =
-      // failing. SNMP doesn't carry its own self-status field (unlike
+      // SNMP (#344) — chip renders when the row has a snmp_name
+      // alias AND `snmp.enabled === true` (#654 opt-in / #714 fix).
+      // Same rules as the other providers: globally enabled, globally
+      // healthy, hit on this host = ok, mapped-but-no-hit = failing.
+      // SNMP doesn't carry its own self-status field (unlike
       // beszel_status) so the badStatus check no-ops by passing null.
-      add('snmp',          !!(h.snmp_name && String(h.snmp_name).trim()), null);
+      add('snmp',          !!(h.snmp_name && String(h.snmp_name).trim()
+                              && h.snmp_enabled === true), null);
       return out;
     },
     // Stale-marker helpers for the UI.
@@ -8147,6 +8154,14 @@ function app() {
         }
       }
       return { cpu, memUsage, sizeRoot, hasStats, hasSize };
+    },
+    // Title Case a free-text string. Handles ALL-CAPS replies from
+    // SNMP printer agents (HP / Brother often return "BLACK
+    // CARTRIDGE") and mixed case alike. Each word's first letter
+    // upper, rest lower; whitespace and punctuation preserved.
+    titleCase(s) {
+      if (!s || typeof s !== 'string') return s || '';
+      return s.replace(/\w\S*/g, w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase());
     },
     fmtBytes(n) {
       if (n == null) return '—';
@@ -11977,7 +11992,10 @@ function app() {
           // #344 — SNMP target alias. Curated overlay so the per-host
           // chip in providerStates(h) renders correctly off the
           // skeleton row (before the per-host probe lands).
-          'snmp_name',
+          // #714 — `snmp_enabled` (per-host opt-in flag) added so an
+          // un-ticked save flips the chip off on the next refresh
+          // instead of staying stuck on the previous `true` state.
+          'snmp_name', 'snmp_enabled',
         ];
         const incoming = Array.isArray(d.hosts) ? d.hosts : [];
         const incomingIds = new Set(incoming.map(h => h.id));
@@ -12437,8 +12455,11 @@ function app() {
     // toolbar count badge.
     hostHasAgent(h) {
       if (!h) return false;
+      // #714 — SNMP gates on `snmp_enabled === true` per #654's
+      // opt-in contract; the bare `snmp_name` is no longer enough.
       return !!(h.beszel_name || h.pulse_name || h.ne_url
-                || h.webmin_name || h.ping_enabled || h.snmp_name);
+                || h.webmin_name || h.ping_enabled
+                || (h.snmp_name && h.snmp_enabled === true));
     },
     // Telemetry = any provider that contributes CPU / Memory / Disk
     // gauges. Ping is reachability + latency only; a ping-only host
@@ -12477,7 +12498,14 @@ function app() {
       if (h.ne_url)       out.push({ name: 'node_exporter', label: 'node-exporter' });
       if (h.webmin_name)  out.push({ name: 'webmin',        label: 'Webmin' });
       if (h.ping_enabled) out.push({ name: 'ping',          label: 'Ping' });
-      if (h.snmp_name)    out.push({ name: 'snmp',          label: 'SNMP' });
+      // #714 — per #654's opt-in contract, render the SNMP chip ONLY
+      // when both the alias is set AND the operator has explicitly
+      // ticked "Enable SNMP for this host". Pre-fix the chip rendered
+      // on every row whose snmp_name had ever been typed, even when
+      // the operator un-ticked the enable box and saved.
+      if (h.snmp_name && h.snmp_enabled === true) {
+        out.push({ name: 'snmp', label: 'SNMP' });
+      }
       return out;
     },
     filteredHosts() {
@@ -12753,6 +12781,18 @@ function app() {
     // chart cards so non-SNMP hosts don't see them.
     hostHasSnmpCharts(h) {
       if (!h) return false;
+      // #716 — SNMP CPU / Load / Memory charts are SUPPRESSED when
+      // the host also has Beszel or node-exporter enabled. Both
+      // providers carry the same data with a smoother time-series
+      // surface AND their own existing chart cards (CPU % / Memory %
+      // / Disk % / Load avg) below. Showing the SNMP cards too
+      // produced redundant CPU + Memory bars that disagreed with
+      // the Beszel/NE values (SNMP's hrProcessorLoad is a 5s
+      // average; ssCpuIdle uses snmpd's accounting interval; both
+      // are coarser than Beszel/NE's per-tick deltas). Keep the
+      // SNMP cards EXCLUSIVE to SNMP-only hosts (managed switches,
+      // UPSes, NVRs, embedded routers without an OmniGrid agent).
+      if (h.beszel_id || h.ne_url) return false;
       return !!((h.host_cpu_per_core || []).length > 0
                 || h.host_load_1m || h.host_load_5m || h.host_load_15m
                 || h.host_mem_buffers || h.host_mem_cached);

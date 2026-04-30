@@ -4374,6 +4374,13 @@ def _shape_host_api_row(
         # `providerStates(h)` and `hostHasAgent(h)` can decide whether
         # to render the SNMP chip + count this host as having an agent.
         "snmp_name":       h.get("snmp_name") or "",
+        # Per-host SNMP opt-in flag (#654 + #714). The bug: the SPA's
+        # SNMP chip iterators were gating on `h.snmp_name` alone, so a
+        # host with snmp_name set but `snmp.enabled === false` STILL
+        # rendered the SNMP chip on the Hosts page. The frontend gates
+        # now read `snmp_enabled === true && snmp_name` per #654's
+        # explicit opt-in contract.
+        "snmp_enabled":    bool((h.get("snmp") or {}).get("enabled", False)),
         "url":             h.get("url") or "",
         "icon":            h.get("icon") or "",
         "providers":       providers_hit or [],

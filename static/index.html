@@ -8600,15 +8600,26 @@
                     <template x-for="(supply, i) in (h.printer_supplies || [])" :key="'p' + i">
                       <div class="space-y-1">
                         <div class="flex items-center justify-between text-[12px]">
-                          <span class="font-semibold" x-text="supply.name || t('host_drawer.printer.supply_unknown')"></span>
+                          <!-- Title-case the supply name so HP / Brother
+                               replies that come back ALL-CAPS ("BLACK
+                               CARTRIDGE") render cleanly. -->
+                          <span class="font-semibold" x-text="titleCase(supply.name) || t('host_drawer.printer.supply_unknown')"></span>
                           <span class="mono text-[var(--text-faint)]"
                                 x-text="(supply.percent !== null && supply.percent !== undefined)
-                                        ? supply.percent.toFixed(0) + '%'
+                                        ? Math.round(supply.percent) + '%'
                                         : (supply.level + ' / ' + supply.max)"></span>
                         </div>
+                        <!-- Custom-coloured fill — `.stat-bar > .fill`
+                             defaults to `var(--success)`; for printer
+                             supplies we want each supply painted in
+                             its mapped brand colour (cyan / magenta /
+                             yellow / black / waste-grey). Set the fill
+                             background inline to the resolved colour. -->
                         <div class="stat-bar"
                              :class="printerSupplyLevel(supply)"
-                             :style="'--w:' + (supply.percent || 0) + '%; --c:' + printerSupplyColor(supply)"></div>
+                             :style="'--w:' + Math.round(supply.percent || 0) + '%'">
+                          <div class="fill" :style="'background:' + printerSupplyColor(supply)"></div>
+                        </div>
                       </div>
                     </template>
                     <div x-show="h.printer_console_msg"
