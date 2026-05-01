@@ -9543,9 +9543,19 @@
                    blank with an explicit message so the operator knows
                    it's NOT broken — just warming up. Hidden once
                    `points.length >= 2`. -->
+              <!-- "Collecting first samples" hint shown ONLY when the
+                   host has zero history rows AND no probe is currently
+                   in flight. Pre-fix the gate was `points.length < 2`
+                   which fired even on a host with 1 stale sample (e.g.
+                   last sample 2h ago, no recent probe coming) — the
+                   "chart will populate after the next sampler tick"
+                   copy was misleading because no tick was actually
+                   imminent. Now hidden the moment ANY historical
+                   sample exists; the freshness banner above ("Last
+                   sample N ago") carries the messaging from there. -->
               <div x-show="hostHasSnmpCharts(h)
                            && (!hostSnmpHistory[h.id]
-                               || (hostSnmpHistory[h.id].points || []).length < 2)
+                               || (hostSnmpHistory[h.id].points || []).length === 0)
                            && !(hostSnmpHistory[h.id] && hostSnmpHistory[h.id].loading)"
                    class="mt-2 text-[11px] flex items-center gap-2 text-[var(--text-faint)]">
                 <svg width="11" height="11" aria-hidden="true"><use href="#icon-info"/></svg>

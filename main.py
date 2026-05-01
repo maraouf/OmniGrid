@@ -4140,7 +4140,16 @@ async def _merge_one_host(h: dict, state: dict, *, force: bool = False) -> tuple
         _snmp_host_fail_cache.pop(h["id"], None)
 
     # Pulse — coarse fallback layer.
-    pulse_key = h.get("pulse_name") or h.get("id") or ""
+    # HARD-GATE on explicit `pulse_name` (#832 — mirrors SNMP's #651
+    # gate). Pre-fix the lookup fell through to `h["id"]` when no
+    # alias was set, so every host got probed against the Pulse hub
+    # using its host_id; the lookup always missed for non-Pulse hosts
+    # and the "host not found in Pulse hub map" failure incremented
+    # consecutive_failures until auto-pause. Operators saw "Pulse
+    # paused" on hosts they'd never configured for Pulse. Strict gate:
+    # operator must set `pulse_name` explicitly to opt this host into
+    # the Pulse probe.
+    pulse_key = (h.get("pulse_name") or "").strip()
     if "pulse" in active and pulse_key:
         # Per-(pulse, host) auto-pause short-circuit (#804).
         if not _is_provider_paused(h["id"], "pulse"):
@@ -4266,7 +4275,12 @@ async def _merge_one_host(h: dict, state: dict, *, force: bool = False) -> tuple
                 providers_hit.append("snmp")
 
     # Beszel.
-    beszel_key = h.get("beszel_name") or h.get("id") or ""
+    # HARD-GATE on explicit `beszel_name` (#832 — same fix as Pulse
+    # above). Pre-fix the lookup fell through to `h["id"]` when no
+    # alias was set, so non-Beszel hosts accumulated "host not found
+    # in Beszel hub map" failures and auto-paused on a provider they
+    # were never configured for.
+    beszel_key = (h.get("beszel_name") or "").strip()
     if "beszel" in active and beszel_key:
         # Per-(beszel, host) auto-pause short-circuit (#804). Same
         # hub-fetch-OK gate as Pulse so a global hub blip doesn't
@@ -8938,6 +8952,13 @@ async def api_me(request: Request):
             # interval rather than a stale literal). Stored as seconds;
             # the SPA renders minutes for display.
             "stats_sample_interval_seconds": tuning.tuning_int("tuning_stats_sample_interval_seconds"),
+            # SNMP-specific sampler cadence (#833). When > 0, the SNMP
+            # sampler runs at this interval instead of inheriting the
+            # global stats_sample_interval. SPA's `snmpWarmingUpText`
+            # uses this when non-zero so the "~N min" hint matches the
+            # SNMP-specific cadence on operators who run SNMP at a
+            # different cadence than Beszel/NE.
+            "snmp_sample_interval_seconds": tuning.tuning_int("tuning_snmp_sample_interval_seconds"),
             # Scheduler-tz state so the admin Schedules tab can badge
             # "TZ: <name> → falling back to UTC" when the operator typed
             # an invalid IANA name. ``configured`` = raw setting,
