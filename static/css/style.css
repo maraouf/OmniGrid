@@ -1208,18 +1208,17 @@ button.chip:hover {
     mask-repeat: no-repeat;
     -webkit-mask-position: center;
     mask-position: center;
-    /* Operator-flagged: icon sat ~1 px above the text baseline in the
-     * provider filter chips. With flex `items-center` the icon's
-     * 14×14 BOX is centered but the text's font-metrics put its
-     * optical centre slightly below the box centre (font ascent >
-     * descent). Shift the icon down 1 px so its mid-line matches
-     * the text x-height. `align-self: center` is redundant here
-     * (the parent already does items-center) — kept for explicitness
-     * so future refactors that swap the parent away from flex don't
-     * silently break the alignment. */
+    /* Two-pass alignment fix. Pass 1: shifted icon down 1 px because
+     * font ascent > descent appeared to lift the icon above text
+     * optical centre. Pass 2: operator screenshot showed icons now
+     * sat ~1 px LOW (over-corrected). Removed the `top: 1px` and
+     * left `align-self: center` so the parent's `items-center`
+     * handles vertical alignment without a manual nudge. The
+     * `align-self` is redundant with the parent's `items-center`
+     * but kept for explicitness so a future refactor that swaps
+     * the parent away from flex doesn't silently break the
+     * alignment. */
     align-self: center;
-    position: relative;
-    top: 1px;
 }
 
 /* ---------------------------------------------------------------------------
