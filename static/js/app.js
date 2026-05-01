@@ -807,6 +807,8 @@ function app() {
       // #678 — dedicated SNMP unreachable cool-down (was sharing the
       // auth-failure cool-down with Webmin / SSH).
       'tuning_snmp_unreachable_cooldown_seconds',
+      // #770 — SNMP-specific sample interval (0 = use global cadence).
+      'tuning_snmp_sample_interval_seconds',
       // #695 — stat-bar warn / crit thresholds (frontend-consumed).
       'tuning_stat_bar_warn_pct',
       'tuning_stat_bar_crit_pct',
@@ -12993,9 +12995,18 @@ function app() {
     // (link speed null) — looked broken. Now waits until at least
     // one chip can show a meaningful colour.
     snmpHasIfaceUtilization(hostId, h) {
+      // True only when at least one iface has BOTH a known link
+      // speed AND ≥ 2 ticks of bps history (so the polyline can
+      // actually draw something). Pre-fix this returned true as
+      // soon as link_speed_mbps was known regardless of bps data,
+      // which produced an empty chart with 0 % values rendered
+      // instead of the warm-up spinner.
       const names = this.snmpAllIfacesSorted(hostId, h);
       for (const n of names) {
-        if (this.snmpIfaceUtilizationPct(hostId, n, h) != null) return true;
+        const link = this.snmpIfaceLinkSpeedMbps(hostId, n, h);
+        if (!link) continue;
+        const s = this.snmpIfaceBpsSeries(hostId, n);
+        if (s.in.length >= 2 || s.out.length >= 2) return true;
       }
       return false;
     },

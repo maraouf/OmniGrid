@@ -827,6 +827,10 @@
           "label": "SNMP unreachable cool-down (seconds)",
           "help": "After a single SNMP probe times out, the per-(host, port) probe arms a cool-down — subsequent ticks skip that pair until the cool-down expires. UDP timeouts are slower to detect than auth-failure 401s, so SNMP arms after one strike (Webmin / SSH wait for two consecutive 401s before arming). Cuts wire traffic against permanently-unreachable devices without removing them from the chart entirely. Default 300 seconds (5 minutes). Lower for fast-recovery detection on flaky links; raise to suppress probes against a host that's been down for hours. Pre-#678 this shared the auth-failure cool-down knob with Webmin / SSH; now dedicated so operators can tune SNMP independently. Range 30..3600."
         },
+        "tuning_snmp_sample_interval_seconds": {
+          "label": "SNMP sample interval (seconds)",
+          "help": "How often the host_metrics_sampler probes SNMP-enabled hosts. SEPARATE from the global Stats sample interval so SNMP gear can run on a different cadence than Beszel / node-exporter agents — printers can poll hourly, switches every minute. Default 0 means 'use the global Stats sample interval' (legacy behaviour); any value 30..3600 overrides the global for SNMP probes only. Lowering this speeds up chart freshness on managed network gear at the cost of more SNMP traffic; raising it cuts traffic against rarely-changing devices. Sampler reads per-tick so changes take effect without restart."
+        },
         "tuning_stat_bar_warn_pct": {
           "label": "Stat-bar warning threshold (percent)",
           "help": "Percent at which CPU / Memory / Disk bars flip from green to amber across the SPA. Default 60 — leaves headroom on bursty workloads while making sustained load visible. Lower (e.g. 50) for over-provisioned hosts where any sustained load is interesting; raise (e.g. 75) on hosts where high steady utilisation is normal (build farms, batch processing). Must stay ≤ the crit threshold so the green→amber→red progression remains monotonic. Range 30..90. Resolved per render; an Admin → Config save reflects on the next /api/me round-trip."
