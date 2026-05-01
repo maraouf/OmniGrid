@@ -9415,7 +9415,7 @@
                      x-show="snmpHasThroughput(h.id)">
                   <div class="metric-card-head">
                     <div class="metric-card-title">
-                      <span x-text="t('host_drawer.snmp_charts.throughput_title')"></span>
+                      <span x-text="t('host_drawer.snmp_charts.throughput_title')"></span><span class="unit">B/s</span>
                       <span class="metric-source-help" :title="metricSource(h, 'snmp_throughput')"
                             @click.stop="toggleMetricTooltip(h, 'snmp_throughput')"
                             @keydown.escape.window="metricTooltipOpen = null">
@@ -9466,10 +9466,10 @@
                      port throughput. Hidden when fewer than 2 ticks
                      of iface history exist. -->
                 <div class="metric-card md:col-span-2 lg:col-span-3"
-                     x-show="snmpHasIfaceHistory(h.id)">
+                     x-show="snmpHasIfaceHistory(h.id) || (h.network_ifaces && h.network_ifaces.length > 0)">
                   <div class="metric-card-head">
                     <div class="metric-card-title">
-                      <span x-text="t('host_drawer.snmp_charts.per_port_title')"></span>
+                      <span x-text="t('host_drawer.snmp_charts.per_port_title')"></span><span class="unit">B/s</span>
                       <span class="metric-source-help" :title="metricSource(h, 'snmp_throughput')"
                             @click.stop="toggleMetricTooltip(h, 'snmp_per_port')"
                             @keydown.escape.window="metricTooltipOpen = null">
@@ -9527,10 +9527,10 @@
                      < 85 < red. Hidden when no iface has both
                      throughput AND ifHighSpeed. -->
                 <div class="metric-card md:col-span-2 lg:col-span-3"
-                     x-show="snmpHasIfaceHistory(h.id)">
+                     x-show="snmpHasIfaceHistory(h.id) || (h.network_ifaces && h.network_ifaces.length > 0)">
                   <div class="metric-card-head">
                     <div class="metric-card-title">
-                      <span x-text="t('host_drawer.snmp_charts.heatmap_title')"></span>
+                      <span x-text="t('host_drawer.snmp_charts.heatmap_title')"></span><span class="unit">%</span>
                       <span class="metric-source-help" :title="metricSource(h, 'snmp_throughput')"
                             @click.stop="toggleMetricTooltip(h, 'snmp_heatmap')"
                             @keydown.escape.window="metricTooltipOpen = null">
@@ -9562,17 +9562,17 @@
                     </div>
                   </div>
                   <div class="mt-2 flex flex-wrap gap-1.5">
-                    <template x-for="ifname in snmpAllIfacesSorted(h.id)" :key="'hm-' + ifname">
+                    <template x-for="ifname in snmpAllIfacesSorted(h.id, h)" :key="'hm-' + ifname">
                       <span class="inline-flex items-center gap-1.5 px-2 py-1 rounded text-[10.5px] mono"
-                            :style="'background:' + snmpIfaceHeatmapColor(snmpIfaceUtilizationPct(h.id, ifname)) + '; color:var(--text-on-accent)'"
-                            :title="ifname + ': ' + (snmpIfaceUtilizationPct(h.id, ifname) != null
-                                                      ? Math.round(snmpIfaceUtilizationPct(h.id, ifname)) + '% of '
-                                                        + snmpIfaceLinkSpeedMbps(h.id, ifname) + ' Mbps'
+                            :style="'background:' + snmpIfaceHeatmapColor(snmpIfaceUtilizationPct(h.id, ifname, h)) + '; color:var(--text-on-accent)'"
+                            :title="ifname + ': ' + (snmpIfaceUtilizationPct(h.id, ifname, h) != null
+                                                      ? Math.round(snmpIfaceUtilizationPct(h.id, ifname, h)) + '% of '
+                                                        + snmpIfaceLinkSpeedMbps(h.id, ifname, h) + ' Mbps'
                                                       : 'link speed unknown')">
                         <span x-text="ifname"></span>
-                        <span x-show="snmpIfaceUtilizationPct(h.id, ifname) != null"
+                        <span x-show="snmpIfaceUtilizationPct(h.id, ifname, h) != null"
                               class="opacity-90"
-                              x-text="Math.round(snmpIfaceUtilizationPct(h.id, ifname) || 0) + '%'"></span>
+                              x-text="Math.round(snmpIfaceUtilizationPct(h.id, ifname, h) || 0) + '%'"></span>
                       </span>
                     </template>
                   </div>
@@ -9588,7 +9588,7 @@
                      x-show="snmpHasPageCount(h.id, h)">
                   <div class="metric-card-head">
                     <div class="metric-card-title">
-                      <span x-text="t('host_drawer.snmp_charts.pages_title')"></span>
+                      <span x-text="t('host_drawer.snmp_charts.pages_title')"></span><span class="unit">pages/day</span>
                       <span class="metric-source-help" :title="metricSource(h, 'snmp_throughput')"
                             @click.stop="toggleMetricTooltip(h, 'snmp_pages')"
                             @keydown.escape.window="metricTooltipOpen = null">
@@ -9817,7 +9817,7 @@
                      directly comparable. Legend at top shows both
                      metrics with their min/max from `hostMetricStats`. -->
                 <div class="metric-card metric-card--net"
-                     x-show="h.beszel_id || h.ne_url"
+                     x-show="(h.beszel_id || h.ne_url) && !hostChartIsPermanentlyFlat(hostHistoryKey(h), ['nr','ns'])"
                      :class="hostChartMax(hostHistoryKey(h), ['nr','ns']) === 0 ? 'metric-card--flat' : ''">
                   <div class="metric-card-head">
                     <div class="metric-card-title">
@@ -9954,11 +9954,11 @@
                      both source types — the "idle" hint correctly
                      surfaces a genuinely-quiet disk regardless of source. -->
                 <div class="metric-card metric-card--disk"
-                     x-show="h.beszel_id || h.ne_url"
+                     x-show="(h.beszel_id || h.ne_url) && !hostChartIsPermanentlyFlat(hostHistoryKey(h), ['dr','dw'])"
                      :class="hostChartMax(hostHistoryKey(h), ['dr','dw']) === 0 ? 'metric-card--flat' : ''">
                   <div class="metric-card-head">
                     <div class="metric-card-title">
-                      <span x-text="t('hosts_extra.metrics.disk_io')"></span>
+                      <span x-text="t('hosts_extra.metrics.disk_io')"></span><span class="unit">B/s</span>
                       <span class="metric-source-help" :title="metricSource(h, 'disk_io')"
                             @click.stop="toggleMetricTooltip(h, 'disk_io')"
                             @keydown.escape.window="metricTooltipOpen = null">
@@ -9970,7 +9970,6 @@
                               x-transition.opacity.duration.120ms
                               x-text="metricSource(h, 'disk_io')"></span>
                       </span>
-                      <span class="unit">B/s</span>
                     </div>
                     <div class="metric-card-stats" style="gap:8px">
                       <span x-show="hostMetricStats(hostHistoryKey(h), 'dr', false)">
@@ -10125,7 +10124,7 @@
                      x-show="hostMetricStats(hostHistoryKey(h), 'net', false) && hostMetricStats(hostHistoryKey(h), 'net', false).maxRaw > 0">
                   <div class="metric-card-head">
                     <div class="metric-card-title">
-                      <span x-text="t('hosts_extra.metrics.bandwidth')"></span>
+                      <span x-text="t('hosts_extra.metrics.bandwidth')"></span><span class="unit">B/s</span>
                       <span class="metric-source-help" :title="metricSource(h, 'bandwidth')"
                             @click.stop="toggleMetricTooltip(h, 'bandwidth')"
                             @keydown.escape.window="metricTooltipOpen = null">
@@ -10137,7 +10136,6 @@
                               x-transition.opacity.duration.120ms
                               x-text="metricSource(h, 'bandwidth')"></span>
                       </span>
-                      <span class="unit">B/s</span>
                     </div>
                     <div class="metric-card-stats"
                          x-show="hostMetricStats(hostHistoryKey(h), 'net', false)">
@@ -10175,7 +10173,7 @@
                      x-show="hostMetricStats(hostHistoryKey(h), 's') && hostMetricStats(hostHistoryKey(h), 's').maxRaw > 0">
                   <div class="metric-card-head">
                     <div class="metric-card-title">
-                      <span x-text="t('hosts_extra.metrics.swap')"></span>
+                      <span x-text="t('hosts_extra.metrics.swap')"></span><span class="unit">%</span>
                       <span class="metric-source-help" :title="metricSource(h, 'swap')"
                             @click.stop="toggleMetricTooltip(h, 'swap')"
                             @keydown.escape.window="metricTooltipOpen = null">
@@ -10187,7 +10185,6 @@
                               x-transition.opacity.duration.120ms
                               x-text="metricSource(h, 'swap')"></span>
                       </span>
-                      <span class="unit">%</span>
                     </div>
                     <div class="metric-card-stats"
                          x-show="hostMetricStats(hostHistoryKey(h), 's')">
@@ -10229,7 +10226,7 @@
                      x-show="h.host_temperatures && Object.keys(h.host_temperatures).length > 0">
                   <div class="metric-card-head">
                     <div class="metric-card-title">
-                      <span x-text="t('hosts_extra.metrics.temperature')"></span>
+                      <span x-text="t('hosts_extra.metrics.temperature')"></span><span class="unit">°C</span>
                       <span class="metric-source-help" :title="metricSource(h, 'temperature')"
                             @click.stop="toggleMetricTooltip(h, 'temperature')"
                             @keydown.escape.window="metricTooltipOpen = null">
@@ -10241,7 +10238,6 @@
                               x-transition.opacity.duration.120ms
                               x-text="metricSource(h, 'temperature')"></span>
                       </span>
-                      <span class="unit">°C</span>
                     </div>
                     <!-- Live per-sensor readout — sorted hottest-first
                          so the operator's eye lands on the worst

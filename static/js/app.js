@@ -12979,22 +12979,28 @@ function app() {
       }
       return m;
     },
-    // #725 slice 4 — link speed (Mbps) for one iface, taken from the
-    // most recent history point that carries it. Returns null when
-    // ifHighSpeed isn't exposed on this device.
-    snmpIfaceLinkSpeedMbps(hostId, ifname) {
+    // #725 slice 4 — link speed (Mbps) for one iface. Tries history
+    // first (newest non-null), then falls back to the live
+    // `host.network_ifaces[].link_speed_mbps` from the latest probe.
+    // Returns null when ifHighSpeed isn't exposed on this device.
+    snmpIfaceLinkSpeedMbps(hostId, ifname, h) {
       const series = ((this.hostSnmpIfaceHistory[hostId] || {}).ifaces || {})[ifname] || [];
       for (let i = series.length - 1; i >= 0; i--) {
         const s = series[i].link_speed_mbps;
         if (s != null && s > 0) return s;
+      }
+      const host = h || (this.drawerHost && this.drawerHost.id === hostId ? this.drawerHost : null);
+      if (host && Array.isArray(host.network_ifaces)) {
+        const live = host.network_ifaces.find(i => i && i.name === ifname);
+        if (live && live.link_speed_mbps && live.link_speed_mbps > 0) return live.link_speed_mbps;
       }
       return null;
     },
     // Utilization % for one iface = max(in, out) bps × 8 ÷ link_bps × 100.
     // Returns null when link speed unknown so the heatmap can render
     // those ifaces in grey ("speed unknown") instead of mis-implying 0%.
-    snmpIfaceUtilizationPct(hostId, ifname) {
-      const link = this.snmpIfaceLinkSpeedMbps(hostId, ifname);
+    snmpIfaceUtilizationPct(hostId, ifname, h) {
+      const link = this.snmpIfaceLinkSpeedMbps(hostId, ifname, h);
       if (!link) return null;
       const s = this.snmpIfaceBpsSeries(hostId, ifname);
       let lastIn = 0, lastOut = 0;
@@ -13009,15 +13015,34 @@ function app() {
       if (linkBps <= 0) return null;
       return Math.min(100, (peakBps / linkBps) * 100);
     },
-    // Full iface list sorted by name for the heatmap (no top-N
-    // filtering — operators want every port visible to spot a single
-    // hot link in a quiet 48-port switch).
-    snmpAllIfacesSorted(hostId) {
-      const ifaces = (this.hostSnmpIfaceHistory[hostId] || {}).ifaces || {};
-      return Object.keys(ifaces).sort((a, b) => {
-        // Natural sort so ge-0/0/2 comes before ge-0/0/12
-        return a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' });
-      });
+    // Full iface list for the heatmap. Tries history first, falls
+    // back to the LIVE `host.network_ifaces[]` so chips render
+    // immediately when the history table is still empty (fresh
+    // SNMP enrolment, or before the first sampler tick lands).
+    // Excludes loopback / docker / veth / bridge / cni / flannel /
+    // cali / vmnet / tap / tun / ovs prefixes — same exclusion set
+    // the sampler uses, so chip count matches what the throughput
+    // chart graphs.
+    snmpAllIfacesSorted(hostId, h) {
+      const exclude = ['lo', 'docker', 'veth', 'br-', 'cni',
+                       'flannel', 'cali', 'vmnet', 'tap', 'tun', 'ovs'];
+      const isExcluded = (name) => {
+        const n = (name || '').toLowerCase();
+        return exclude.some(p => n.startsWith(p));
+      };
+      const ifacesHist = (this.hostSnmpIfaceHistory[hostId] || {}).ifaces || {};
+      let names = Object.keys(ifacesHist).filter(n => !isExcluded(n));
+      if (!names.length) {
+        const host = h || (this.drawerHost && this.drawerHost.id === hostId ? this.drawerHost : null);
+        if (host && Array.isArray(host.network_ifaces)) {
+          names = host.network_ifaces
+            .map(i => i && i.name)
+            .filter(n => n && !isExcluded(n));
+        }
+      }
+      return names.sort((a, b) =>
+        a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' })
+      );
     },
     // Color mapping for the heatmap cell: green < 50 < amber < 85 < red.
     // Same thresholds as the .stat-bar fill (CLAUDE.md: 60/85 split was
@@ -13851,16 +13876,13 @@ function app() {
 
       const primary = providers[active[0]];
 
-      // Special: Network back-fills NE rates onto Beszel zeros via
-      // host_net_samples. When both providers are mapped, name both.
-      if ((key === 'network' || key === 'bandwidth') && active.includes('beszel') && active.includes('ne')) {
-        return `${primary}; node-exporter (${ne}) fills Net I/O when Beszel returns zero`;
-      }
-
       // Operator-flagged: just the active source — no fallback chain
-      // suffix. The chart is rendered from ONE provider's data right
-      // now; calling out fallbacks confused operators into thinking
-      // the chart was somehow merged.
+      // suffix, no dual-source phrasing. The chart is rendered from
+      // ONE provider's data; calling out fallbacks confused operators
+      // into thinking the chart was somehow merged. Even the Network
+      // chart's NE-back-fill nuance (when Beszel returns zero we
+      // overlay NE rates from host_net_samples) is suppressed in the
+      // tooltip — too much detail for a one-line chip hint.
       return primary;
     },
 
@@ -14035,6 +14057,25 @@ function app() {
         }
       }
       return m;
+    },
+    // #750 — "permanently flat" detector. Returns true when the chart
+    // has accumulated enough history (default ≥ 12 points = 1 hour at
+    // a 5-min cadence) AND every point across the listed fields is 0.
+    // Caller uses this to HIDE chart cards whose data source is
+    // genuinely never going to populate (e.g. SNMP-only TrueNAS host
+    // for Disk I/O — SNMP doesn't track per-mount IOPS, so dr/dw stay
+    // at 0 forever). Pre-fix the card stayed visible permanently with
+    // a "Disk idle" hint, which read like "data is loading" instead of
+    // "this provider doesn't surface this metric". Hosts in warmup
+    // (< minPoints) get the benefit of the doubt — chart still shows.
+    hostChartIsPermanentlyFlat(systemId, keys, minPoints) {
+      const entry = this.hostHistory[systemId];
+      if (!entry || !entry.series) return false;
+      const points = entry.series.length;
+      const need = +minPoints || 12;
+      if (points < need) return false;     // still warming up
+      // hostChartMax === 0 means every point in every key is 0/missing.
+      return this.hostChartMax(systemId, keys) === 0;
     },
     // Per-sensor temperature readout for the chart card stats line
     // (#437). Returns [[sensor_name, celsius], ...] sorted hottest-
