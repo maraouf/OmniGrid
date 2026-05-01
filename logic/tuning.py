@@ -202,6 +202,57 @@ TUNABLES: dict[str, tuple[str, int, int, int]] = {
     # different cadence than Beszel/NE hosts — printers can poll
     # hourly, switches every minute. Range 0 (use global) OR 30..3600.
     "tuning_snmp_sample_interval_seconds": ("SNMP_SAMPLE_INTERVAL_SECONDS", 0, 0, 3600),
+    # SNMP per-host auto-pause threshold (consecutive failed probe
+    # rounds). When `_probe_one_snmp` fails this many ticks in a row,
+    # the (snmp, host) pair is marked auto-paused in
+    # `host_failure_state` (keyed `snmp:<host_id>` — see CLAUDE.md
+    # SNMP-aware sampler). Subsequent probes are SKIPPED entirely
+    # until the operator clears the marker via
+    # POST /api/hosts/{id}/provider/snmp/resume. Distinct from the
+    # in-memory cool-down (`tuning_snmp_unreachable_cooldown_seconds`)
+    # which is a short throttle on transient blips — auto-pause is the
+    # operator-visible "this host is broken, fix it manually" state.
+    # 0 = disabled (never auto-pause; cool-down still applies); 5 =
+    # default (~25 min of failures at the default 5-min cadence before
+    # the chip goes red). Range 0..50.
+    "tuning_snmp_failure_pause_rounds": ("SNMP_FAILURE_PAUSE_ROUNDS", 5, 0, 50),
+    # Webmin per-host auto-pause threshold (consecutive failed probe
+    # rounds). Same semantic as `tuning_snmp_failure_pause_rounds`.
+    # When per-request Webmin probes in `_merge_one_host` fail this
+    # many times in a row, the (webmin, host) pair is marked auto-paused
+    # in `host_failure_state` (keyed `webmin:<host_id>`); subsequent
+    # probes are SKIPPED entirely until operator clears the marker via
+    # POST /api/hosts/{id}/provider/webmin/resume. Distinct from the
+    # 5-min auth-failure cool-down which throttles credential lockout —
+    # auto-pause is the operator-visible "this Miniserv is broken, fix
+    # it manually" state. 0 = disabled. Range 0..50.
+    "tuning_webmin_failure_pause_rounds": ("WEBMIN_FAILURE_PAUSE_ROUNDS", 5, 0, 50),
+    # Beszel per-host auto-pause threshold. Beszel is hub-based — the
+    # hub fetch runs once per gather and produces a per-host map. A
+    # "round" here is "hub fetch SUCCEEDED but this specific host was
+    # missing from the map OR reported status=down/paused". Hub-level
+    # outages (entire `state["beszel_map"]` empty) do NOT count toward
+    # the threshold, so a brief hub blip can't cascade-pause every host.
+    # 0 = disabled. Range 0..50.
+    "tuning_beszel_failure_pause_rounds": ("BESZEL_FAILURE_PAUSE_ROUNDS", 5, 0, 50),
+    # Pulse per-host auto-pause threshold. Same hub-based contract as
+    # Beszel — only counts when hub fetch succeeded but the host wasn't
+    # found OR Pulse reported the host status as down. 0 = disabled.
+    "tuning_pulse_failure_pause_rounds": ("PULSE_FAILURE_PAUSE_ROUNDS", 5, 0, 50),
+    # node-exporter per-host auto-pause threshold. Per-host scrape, so
+    # the failure semantic is the same as Webmin: probe attempt that
+    # raised OR returned exporter_error. 0 = disabled. Range 0..50.
+    "tuning_node_exporter_failure_pause_rounds": ("NODE_EXPORTER_FAILURE_PAUSE_ROUNDS", 5, 0, 50),
+    # Ping per-host auto-pause threshold. CAREFUL: ping is the
+    # alive/down detection signal — `alive=False` is the actual DATA
+    # the operator wants surfaced, not a fault condition. So this
+    # threshold counts ONLY sampler-level errors (network unreachable
+    # from runner, ICMP permission denied, transport setup failure),
+    # NOT host-down samples. Default disabled (0) so existing deploys
+    # don't see ping chips spuriously paused on a normally-down host.
+    # Operators concerned about runtime sampler errors can opt in by
+    # raising the value. Range 0..50.
+    "tuning_ping_failure_pause_rounds": ("PING_FAILURE_PAUSE_ROUNDS", 0, 0, 50),
     # stat-bar threshold cutovers. Pre-fix the SPA's `barLevel`
     # / `barColor` helpers hardcoded 60 (warn) and 85 (crit). Operators
     # running CPU-saturated workloads where 80% steady is normal want

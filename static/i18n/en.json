@@ -831,6 +831,30 @@
           "label": "SNMP sample interval (seconds)",
           "help": "How often the host_metrics_sampler probes SNMP-enabled hosts. SEPARATE from the global Stats sample interval so SNMP gear can run on a different cadence than Beszel / node-exporter agents — printers can poll hourly, switches every minute. Default 0 means 'use the global Stats sample interval' (legacy behaviour); any value 30..3600 overrides the global for SNMP probes only. Lowering this speeds up chart freshness on managed network gear at the cost of more SNMP traffic; raising it cuts traffic against rarely-changing devices. Sampler reads per-tick so changes take effect without restart."
         },
+        "tuning_snmp_failure_pause_rounds": {
+          "label": "SNMP auto-pause threshold (rounds)",
+          "help": "After this many consecutive failed SNMP sampler rounds against a host, the (snmp, host) pair is marked auto-paused — subsequent probes are SKIPPED entirely until the operator clicks Resume on the SNMP chip in the host drawer. The in-memory cool-down still throttles individual failures (default 5 min between attempts); this knob is the higher-level 'this device is broken, stop probing it' signal. Default 5 = ~25 min of failures at the default 5-min cadence before the chip goes amber. Lower (e.g. 3) for fast-fail on critical gear; raise (e.g. 20) to ride out long maintenance windows. Set 0 to disable auto-pause entirely (cool-down still applies). Range 0..50."
+        },
+        "tuning_webmin_failure_pause_rounds": {
+          "label": "Webmin auto-pause threshold (rounds)",
+          "help": "After this many consecutive failed Webmin probes against a host, the (webmin, host) pair is marked auto-paused — subsequent probes are SKIPPED entirely until the operator clicks Resume on the Webmin chip in the host drawer. The 5-min auth-failure cool-down still throttles credential lockout independently. Cool-down responses (HTTP 401 backoff) do NOT count toward the threshold — only real probe failures (timeout, network error, agent rejection). Default 5. Set 0 to disable auto-pause entirely. Range 0..50."
+        },
+        "tuning_beszel_failure_pause_rounds": {
+          "label": "Beszel auto-pause threshold (rounds)",
+          "help": "After this many consecutive rounds where the Beszel hub fetch SUCCEEDED but this specific host was missing from the hub map (or reported status=down/paused), the (beszel, host) pair is marked auto-paused — subsequent merges are SKIPPED until the operator clicks Resume on the Beszel chip in the host drawer. Hub-level outages (entire hub fetch fails) do NOT count toward the threshold so a single hub blip doesn't cascade-pause every host. Default 5. Set 0 to disable. Range 0..50."
+        },
+        "tuning_pulse_failure_pause_rounds": {
+          "label": "Pulse auto-pause threshold (rounds)",
+          "help": "After this many consecutive rounds where the Pulse hub fetch SUCCEEDED but this specific host was missing from the hub map (or reported status=down/paused/unreachable), the (pulse, host) pair is marked auto-paused — subsequent merges are SKIPPED until the operator clicks Resume on the Pulse chip. Hub-level outages don't count. Default 5. Set 0 to disable. Range 0..50."
+        },
+        "tuning_node_exporter_failure_pause_rounds": {
+          "label": "node-exporter auto-pause threshold (rounds)",
+          "help": "After this many consecutive failed per-host node-exporter scrapes, the (node_exporter, host) pair is marked auto-paused — subsequent scrapes are SKIPPED until the operator clicks Resume on the chip. A failure here means HTTP error, timeout, or `exporter_error` response. Default 5. Set 0 to disable. Range 0..50."
+        },
+        "tuning_ping_failure_pause_rounds": {
+          "label": "Ping auto-pause threshold (rounds)",
+          "help": "After this many consecutive SAMPLER-LEVEL errors (DNS NXDOMAIN, ICMP permission denied from runner, transport setup failure — NOT plain alive=False which is the actual data the operator wants surfaced), the (ping, host) pair is marked auto-paused. Default 0 (disabled) so existing deploys don't see ping chips spuriously paused on a normally-down host. Operators concerned about runtime sampler errors can opt in by raising the value. Range 0..50."
+        },
         "tuning_stat_bar_warn_pct": {
           "label": "Stat-bar warning threshold (percent)",
           "help": "Percent at which CPU / Memory / Disk bars flip from green to amber across the SPA. Default 60 — leaves headroom on bursty workloads while making sustained load visible. Lower (e.g. 50) for over-provisioned hosts where any sustained load is interesting; raise (e.g. 75) on hosts where high steady utilisation is normal (build farms, batch processing). Must stay ≤ the crit threshold so the green→amber→red progression remains monotonic. Range 30..90. Resolved per render; an Admin → Config save reflects on the next /api/me round-trip."
@@ -1418,6 +1442,14 @@
     "provider_count_one": "1 provider",
     "provider_count_many": "{count} providers",
     "provider_failing": "{provider} is enabled and mapped for this host but returned no data (probe failed / agent paused / unreachable / auth error). Open the drawer's Debug panel for the provider's raw response.",
+    "provider_paused": "{provider} auto-paused after {count} consecutive probe failures. Last error: {error}. Probes are stopped until you click Resume.",
+    "provider_resume": "Resume",
+    "provider_resuming": "…",
+    "provider_resume_title": "Clear the {provider} auto-pause for this host so probes start running again. The next failed probe will start a fresh failure counter.",
+    "provider_resumed": "{provider} resumed for {host}",
+    "provider_resume_failed": "Failed to resume {provider}: {error}",
+    "provider_last_ok": "Updated {age} ago",
+    "provider_last_ok_title": "Most recent successful probe from {provider} for this host. Helps tell 'fresh data' from 'this chip is fine but we haven't heard from it in hours'.",
     "no_agents_configured": "No agents configured",
     "agents_not_responding": "No data from agents",
     "net_inactive": {
@@ -1498,7 +1530,9 @@
   "host_drawer": {
     "stale": {
       "title": "Showing cached data — provider unavailable",
-      "body": "Last live update {age} ago. {count} field(s) restored from the snapshot — values dimmed below are not live."
+      "body": "Last live update {age} ago. {count} field(s) restored from the snapshot — values dimmed below are not live.",
+      "title_bulk": "Provider unreachable — every metric below is cached",
+      "body_bulk": "Last live update {age} ago. The full host telemetry is being served from the snapshot. Per-field warning markers are suppressed because they'd appear on every row — check the chips above for which provider went down."
     },
     "actions": {
       "edit_in_admin": "Edit",
@@ -1583,8 +1617,8 @@
       "busy_all_toggle_title": "Beyond the top 10 by traffic — useful when reviewing a switch's full active port list",
       "iface_up": "Interface up",
       "iface_down": "Interface down",
-      "iface_bar_title": "rx {rx} · tx {tx} since boot"
-    },
+      "iface_bar_title": "rx {rx} · tx {tx} since boot",
+      "counter_32_title": "Device returned 32-bit byte counters (no ifHCInOctets / ifHCOutOctets). On a 1 Gbps link these wrap every ~17 s at line rate — the throughput chart can silently miscount under-wrap traffic. Upgrade the device firmware or accept the limitation; 64-bit (HC) counters are SNMPv2c+."
     "ups": {
       "heading": "UPS",
       "battery": "Battery",

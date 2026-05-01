@@ -132,6 +132,24 @@ SNMP_CONCURRENCY=16
 # without restart.
 SNMP_SAMPLE_INTERVAL_SECONDS=0
 
+# Per-(provider, host) auto-pause threshold (#797 + #804). After this
+# many consecutive failed sampler / probe rounds against a host, the
+# (provider, host) pair gets MARKED auto-paused — subsequent probes
+# are SKIPPED entirely until the operator clicks Resume on the
+# provider chip in the host drawer. Distinct from any in-memory cool-
+# down (which throttles INDIVIDUAL failures); this is the higher-level
+# "this device is broken, stop probing it" signal. Default 5 ≈ 25 min
+# at the default 5-min cadence. 0 = disabled (cool-down still applies
+# where present). Hub-based providers (Beszel/Pulse) gate on hub-fetch-OK
+# so a global hub outage doesn't cascade-pause every host. Ping defaults
+# to 0 because alive=False is the data, not a fault condition.
+SNMP_FAILURE_PAUSE_ROUNDS=5
+WEBMIN_FAILURE_PAUSE_ROUNDS=5
+BESZEL_FAILURE_PAUSE_ROUNDS=5
+PULSE_FAILURE_PAUSE_ROUNDS=5
+NODE_EXPORTER_FAILURE_PAUSE_ROUNDS=5
+PING_FAILURE_PAUSE_ROUNDS=0
+
 # SSE pipeline tunables (#537–#542). Heartbeat keeps a quiet stream
 # alive past upstream proxy idle timers; max-lifetime forces a periodic
 # reconnect so the cookie's sliding-window refresh lands; idle-threshold
@@ -295,6 +313,12 @@ Quick index of every env var OmniGrid reads, grouped by scope:
 | `SNMP_PROBE_TIMEOUT_SECONDS`      | Runtime     | `5`                  | Per-probe wall-clock budget for SNMP UDP queries (#344).                         |
 | `SNMP_CONCURRENCY`                | Runtime     | `16`                 | SNMP probe fan-out cap (#344).                                                   |
 | `SNMP_SAMPLE_INTERVAL_SECONDS`    | Runtime     | `0`                  | SNMP-specific sample interval; 0 inherits the global stats interval, 30..3600 overrides for SNMP probes only. |
+| `SNMP_FAILURE_PAUSE_ROUNDS`       | Runtime     | `5`                  | Per-(snmp, host) auto-pause threshold. After N consecutive failed sampler rounds, the chip flips to Paused and probes stop until manual Resume. 0 = disabled. |
+| `WEBMIN_FAILURE_PAUSE_ROUNDS`     | Runtime     | `5`                  | Per-(webmin, host) auto-pause threshold. Cool-down responses don't count toward the threshold; only real probe failures do. 0 = disabled. |
+| `BESZEL_FAILURE_PAUSE_ROUNDS`     | Runtime     | `5`                  | Per-(beszel, host) auto-pause threshold. Hub-fetch-OK gate so a global hub outage doesn't cascade-pause every host. 0 = disabled. |
+| `PULSE_FAILURE_PAUSE_ROUNDS`      | Runtime     | `5`                  | Per-(pulse, host) auto-pause threshold. Same hub-fetch-OK contract as Beszel. 0 = disabled. |
+| `NODE_EXPORTER_FAILURE_PAUSE_ROUNDS` | Runtime  | `5`                  | Per-(node_exporter, host) auto-pause threshold. Per-host scrape, so any HTTP error / timeout / `exporter_error` counts. 0 = disabled. |
+| `PING_FAILURE_PAUSE_ROUNDS`       | Runtime     | `0`                  | Per-(ping, host) auto-pause threshold. Counts ONLY sampler-level errors (DNS, ICMP perm-denied, transport setup), NOT alive=False which is the actual data. Default 0 (disabled) so a normally-down host doesn't get its ping chip spuriously paused. |
 | `SSE_HEARTBEAT_SECONDS`           | Runtime     | `25`                 | SSE keepalive comment cadence (#537).                                            |
 | `SSE_MAX_LIFETIME_SECONDS`        | Runtime     | `21600`              | SSE connection wall-clock cap before forced reconnect (#538).                    |
 | `SSE_IDLE_THRESHOLD_SECONDS`      | Runtime     | `30`                 | SPA freshness-watchdog idle threshold (#541).                                    |

@@ -101,6 +101,10 @@ const CURATED_REFRESH_FIELDS = new Set([
   'sampling_paused', 'failure_window_started_at',
   'consecutive_failures', 'last_error', 'paused_at',
   'last_failure_ts',
+  // Per-provider auto-pause state (#797). `{snmp: {paused, ...},
+  // webmin: {paused, ...}}` populated only when the provider has
+  // a row in `host_failure_state`. Empty object for healthy hosts.
+  'provider_pause_state',
   // CPU / memory / disk / swap rollups.
   'cpu_percent', 'mem_percent', 'disk_percent',
   'host_cpu_percent', 'host_mem_total', 'host_mem_used',
@@ -809,6 +813,25 @@ function app() {
       'tuning_snmp_unreachable_cooldown_seconds',
       // SNMP-specific sample interval (0 = use global cadence).
       'tuning_snmp_sample_interval_seconds',
+      // SNMP per-(provider, host) auto-pause threshold (#797). N
+      // consecutive failed sampler rounds → mark host as Paused on
+      // the SNMP chip; operator clears via Resume button.
+      'tuning_snmp_failure_pause_rounds',
+      // Webmin per-(provider, host) auto-pause threshold (#797).
+      // Same semantic as the SNMP one; counts failed _merge_one_host
+      // probes (cool-down responses don't count).
+      'tuning_webmin_failure_pause_rounds',
+      // Beszel / Pulse / node-exporter / Ping per-(provider, host)
+      // auto-pause thresholds (#804). Generalised the SNMP+Webmin
+      // pattern to every provider so the chip + Resume button work
+      // uniformly. Hub-based providers (Beszel/Pulse) only count
+      // hub-OK + missing-host as failures, so a global hub blip
+      // doesn't cascade-pause every host. Ping default 0 because
+      // alive=False is the data, not a fault.
+      'tuning_beszel_failure_pause_rounds',
+      'tuning_pulse_failure_pause_rounds',
+      'tuning_node_exporter_failure_pause_rounds',
+      'tuning_ping_failure_pause_rounds',
       // stat-bar warn / crit thresholds (frontend-consumed).
       'tuning_stat_bar_warn_pct',
       'tuning_stat_bar_crit_pct',
@@ -6832,11 +6855,16 @@ function app() {
           try { this.loadHosts(true); } catch (_) {}
         }
       });
-      es.addEventListener('op:created',   (e) => { onAny(); console.log('[live] event=op:created', e.data ? e.data.slice(0, 200) : ''); this._handleOpEvent(e, 'created'); });
-      es.addEventListener('op:updated',   (e) => { onAny(); console.log('[live] event=op:updated', e.data ? e.data.slice(0, 200) : ''); this._handleOpEvent(e, 'updated'); });
-      es.addEventListener('op:completed', (e) => { onAny(); console.log('[live] event=op:completed', e.data ? e.data.slice(0, 200) : ''); this._handleOpEvent(e, 'completed'); });
+      // Self-filter check FIRST so the console.log only fires for events
+      // we'll actually act on. Pre-fix the log fired even on self-
+      // originated events that _handleOpEvent then filtered out — log
+      // spam on every op the originating tab triggered.
+      es.addEventListener('op:created',   (e) => { onAny(); if (this._isSelfEvent(e)) return; console.log('[live] event=op:created', e.data ? e.data.slice(0, 200) : ''); this._handleOpEvent(e, 'created'); });
+      es.addEventListener('op:updated',   (e) => { onAny(); if (this._isSelfEvent(e)) return; console.log('[live] event=op:updated', e.data ? e.data.slice(0, 200) : ''); this._handleOpEvent(e, 'updated'); });
+      es.addEventListener('op:completed', (e) => { onAny(); if (this._isSelfEvent(e)) return; console.log('[live] event=op:completed', e.data ? e.data.slice(0, 200) : ''); this._handleOpEvent(e, 'completed'); });
       es.addEventListener('cache:invalidated', (e) => {
         onAny();
+        if (this._isSelfEvent(e)) return;
         console.log('[live] event=cache:invalidated → refresh(true)', e.data ? e.data.slice(0, 200) : '');
         // Items dataset is large enough that delta-broadcasting it
         // isn't worth it for V1 — kick a forced refresh instead, and
@@ -6846,6 +6874,7 @@ function app() {
       });
       es.addEventListener('stats:refreshed', (e) => {
         onAny();
+        if (this._isSelfEvent(e)) return;
         const fired = this.statsInterval > 0;
         console.log('[live] event=stats:refreshed → loadStats=' + fired + (fired ? '' : ' (statsInterval=0, suppressed)'), e.data ? e.data.slice(0, 200) : '');
         // Hint event — the stats payload itself isn't broadcast (cheap
@@ -6858,6 +6887,7 @@ function app() {
       });
       es.addEventListener('host:row_updated', (e) => {
         onAny();
+        if (this._isSelfEvent(e)) return;
         try {
           const data = JSON.parse(e.data || '{}');
           const id = (data.payload && data.payload.id) || '';
@@ -6883,6 +6913,7 @@ function app() {
       });
       es.addEventListener('host:failure_state_changed', (e) => {
         onAny();
+        if (this._isSelfEvent(e)) return;
         try {
           const data = JSON.parse(e.data || '{}');
           const id = (data.payload && data.payload.host_id) || '';
@@ -6907,6 +6938,7 @@ function app() {
       // both cases.
       es.addEventListener('host:history_appended', (e) => {
         onAny();
+        if (this._isSelfEvent(e)) return;
         if (!this.drawerHost) return;
         try {
           const data = JSON.parse(e.data || '{}');
@@ -6916,26 +6948,46 @@ function app() {
           // drawers' history isn't sample-keyed off our DB so this
           // event is irrelevant to them.
           if (!this.drawerHost.ne_url) return;
-          console.log('[live] event=host:history_appended id=' + id + ' → loadHostHistory');
-          this._pollWrap(this.loadHostHistory(
-            this.drawerHost.beszel_id || '',
-            this.drawerHost.id,
-          )).catch(() => {});
+          // Debounce 200 ms — backend may fire bursts of
+          // history_appended events for the open host within a single
+          // sampler tick (e.g. SNMP + NE both writing). Collapse them
+          // into one loadHostHistory call so we don't make N redundant
+          // /api/hosts/history fetches in <1s.
+          if (this._historyAppendedDebounceTimer) {
+            clearTimeout(this._historyAppendedDebounceTimer);
+          }
+          this._historyAppendedDebounceTimer = setTimeout(() => {
+            this._historyAppendedDebounceTimer = null;
+            if (!this.drawerHost || this.drawerHost.id !== id) return;
+            console.log('[live] event=host:history_appended id=' + id + ' → loadHostHistory (debounced)');
+            this._pollWrap(this.loadHostHistory(
+              this.drawerHost.beszel_id || '',
+              this.drawerHost.id,
+            )).catch(() => {});
+          }, 200);
         } catch (_) {}
       });
       // ping_sampler publishes this on every INSERT. Drives the
       // RTT chip + (V2) the drawer Ping chart. Per-host filter same as
-      // history_appended. We use refreshHostRow so the row's
-      // ping_alive / ping_rtt_ms fields update without a full poll.
+      // history_appended. Routes through the SHARED _hostObserverPending
+      // queue so a fleet-wide ping tick (N hosts firing in the same
+      // second) coalesces through the 200ms debounce + shares the
+      // _hostRefreshQueue cap with poll + IO observer + other SSE
+      // events. Direct refreshHostRow would bypass that cap.
       es.addEventListener('host:ping_sampled', (e) => {
         onAny();
+        if (this._isSelfEvent(e)) return;
         try {
           const data = JSON.parse(e.data || '{}');
           const id = (data.payload && data.payload.host_id) || '';
           if (!id) return;
           console.log('[live] event=host:ping_sampled id=' + id);
-          if (typeof this.refreshHostRow === 'function') {
-            this.refreshHostRow(id, { force: false }).catch(() => {});
+          this._hostObserverPending = this._hostObserverPending || new Set();
+          this._hostObserverPending.add(id);
+          if (typeof this._scheduleHostObserverFlush === 'function') {
+            this._scheduleHostObserverFlush();
+          } else if (typeof this._runHostRefreshQueue === 'function') {
+            this._runHostRefreshQueue([id]).catch(() => {});
           }
           // push the new sample into the open drawer's ping
           // chart so Live mode is genuinely push-driven (no fallback
@@ -6949,6 +7001,7 @@ function app() {
       });
       es.addEventListener('schedule:fired', (e) => {
         onAny();
+        if (this._isSelfEvent(e)) return;
         console.log('[live] event=schedule:fired → loadSchedules + loadScheduleQueue', e.data ? e.data.slice(0, 200) : '');
         // Schedule rows + queue rebuild via the same helpers the
         // Schedules tab uses. They reconcile in place via #439's
@@ -6959,11 +7012,33 @@ function app() {
       });
       es.addEventListener('history:appended', (e) => {
         onAny();
+        if (this._isSelfEvent(e)) return;
         console.log('[live] event=history:appended → loadHistory', e.data ? e.data.slice(0, 200) : '');
         // Reload via the same paginated endpoint — the in-place
         // reconcile (#444) keeps each row's <details> open/closed
         // state intact.
         try { this.loadHistory && this.loadHistory(); } catch (_) {}
+      });
+      // Settings changed — published by api_set_settings with the
+      // originating tab's client_id. Self-filter via _isSelfEvent
+      // skips this for the tab that did the save (it already has the
+      // latest values from its own POST response). Other tabs reload
+      // /api/settings so a setting flipped in one tab takes effect
+      // everywhere within one SSE round-trip.
+      es.addEventListener('settings:updated', (e) => {
+        onAny();
+        if (this._isSelfEvent(e)) return;
+        console.log('[live] event=settings:updated → loadSettings (cross-tab)', e.data ? e.data.slice(0, 200) : '');
+        try { this.loadSettings && this.loadSettings(); } catch (_) {}
+        // Also pull /api/me so any client_config-delivered tunable
+        // (poll cadences, fan-out caps) reflects the new value
+        // without requiring a page reload.
+        try {
+          fetch('/api/me', { cache: 'no-store' })
+            .then(r => r.ok ? r.json() : null)
+            .then(d => { if (d && d.authenticated) this.me = d; })
+            .catch(() => {});
+        } catch (_) {}
       });
       // session-cookie sliding window. Backend's
       // `slide_session_if_needed` publishes this when it bumps the
@@ -6974,6 +7049,7 @@ function app() {
       // — caught by the SSE-publisher-vs-consumer audit recipe.
       es.addEventListener('session:renewed', (e) => {
         onAny();
+        if (this._isSelfEvent(e)) return;
         try {
           const data = JSON.parse(e.data || '{}');
           const exp = (data.payload && data.payload.expires_at) || null;
@@ -7027,6 +7103,7 @@ function app() {
 
     _handleOpEvent(e, phase) {
       try {
+        if (this._isSelfEvent(e)) return;
         const data = JSON.parse(e.data || '{}');
         const p = data.payload || {};
         // Defer to pollOps's existing logic — it handles the linger
@@ -7039,6 +7116,47 @@ function app() {
         // path picks this up so we don't double-fire here.
         void p; void phase;
       } catch (_) {}
+    },
+
+    // SSE self-filter check (#534). Returns true when the incoming
+    // event's payload.client_id matches the local tab's id (set by
+    // auth-fetch.js into window.__ogClientId on first fetch). Used at
+    // the top of every data-bearing handler so an SSE event published
+    // off a request originating from THIS tab doesn't loop back as a
+    // redundant refresh / flicker. Sampler / background-task publishers
+    // don't pass client_id, so events from those paths never match
+    // and the filter is a transparent no-op there.
+    _isSelfEvent(e) {
+      if (!e || !e.data) return false;
+      const myId = window.__ogClientId;
+      if (!myId) return false;
+      try {
+        const data = JSON.parse(e.data);
+        const cid = data && data.payload && data.payload.client_id;
+        if (cid && cid === myId) return true;
+      } catch (_) {}
+      return false;
+    },
+    // Single-parse SSE event unwrap. Returns the parsed event object
+    // ({type, ts, payload}) when the event should be processed,
+    // OR null when self-filter wins (caller should early-return).
+    // Eliminates the per-handler "JSON.parse(e.data) twice" pattern —
+    // _isSelfEvent does its own parse, then handlers parse again.
+    // 13 handlers × 2 parses per event = unnecessary overhead on
+    // fleet-wide ticks. Use:
+    //   const evt = this._unwrapEventOrNull(e); if (!evt) return;
+    //   const id = (evt.payload || {}).id;  // already parsed
+    _unwrapEventOrNull(e) {
+      if (!e || !e.data) return null;
+      try {
+        const data = JSON.parse(e.data);
+        const myId = window.__ogClientId;
+        const cid = data && data.payload && data.payload.client_id;
+        if (myId && cid && cid === myId) return null;  // self-event, skip
+        return data;
+      } catch (_) {
+        return null;  // malformed event, treat as skip
+      }
     },
 
     // Helper for the toolbar indicator — exposes a concise status string
@@ -7664,6 +7782,7 @@ function app() {
       const active = this.hostsActiveSources || [];
       const globalOk = this.providersWorkingGlobally();
       const got = new Set(h.providers || []);
+      const pause = (h && h.provider_pause_state) || {};
       const out = [];
       const badStatus = v => {
         const s = String(v || '').toLowerCase();
@@ -7672,6 +7791,22 @@ function app() {
       const add = (name, mapped, selfStatus) => {
         if (!mapped) return;
         if (!active.includes(name)) return;
+        // Per-(provider, host) auto-pause (#797) wins over every
+        // other state — operator has explicitly marked this provider
+        // off for this host until they manually resume it. Render the
+        // 'paused' chip even when the provider isn't globally-OK so
+        // the Resume button stays reachable.
+        const pauseRow = pause[name];
+        if (pauseRow && pauseRow.paused) {
+          out.push({
+            name,
+            state: 'paused',
+            consecutive_failures: Number(pauseRow.consecutive_failures || 0),
+            last_error: String(pauseRow.last_error || ''),
+            paused_at: Number(pauseRow.paused_at || 0),
+          });
+          return;
+        }
         // Globally-broken provider — suppress the chip entirely so
         // operators see the failure once in Settings (not N times in
         // the Hosts grid). Exception: if THIS host got data from it,
@@ -7726,6 +7861,24 @@ function app() {
       if (!obj || !field) return false;
       const sf = obj._stale_fields;
       return Array.isArray(sf) && sf.indexOf(field) !== -1;
+    },
+    // True when the bulk of this host's snapshot-eligible fields are
+    // stale (i.e. an entire provider went down vs a transient one-key
+    // blip). The drawer's banner widens to a more explicit message
+    // and the per-field warning triangles are SUPPRESSED so the
+    // operator gets one clear signal instead of every <dl> row
+    // carrying a triangle.
+    //
+    // Threshold: ≥ 6 stale fields (matches the typical count covered
+    // by a single-provider outage — host_cpu_percent, host_mem_total,
+    // host_mem_used, host_disk_total, host_disk_used, host_uptime_s
+    // is six). Fewer than that = partial / transient — keep the
+    // per-field triangles for actionable detail.
+    isAllStale(obj) {
+      if (!obj) return false;
+      const sf = obj._stale_fields;
+      if (!Array.isArray(sf)) return false;
+      return sf.length >= 6;
     },
     staleAge(obj) {
       // UX-BUG-002 / return a clean fallback when `_stale_ts`
@@ -12637,6 +12790,95 @@ function app() {
       }
       return out;
     },
+    // Per-(provider, host) auto-pause lookup (#797). Returns the
+    // pause-state row for `name` on `h`, or null when the provider
+    // isn't paused for this host. Backend populates
+    // `provider_pause_state: {snmp: {paused, consecutive_failures,
+    // last_error, paused_at, last_ok_ts, ...}}` on every host API
+    // row via `_provider_pause_state_for_host(host_id)`. Used by the
+    // host drawer's Enabled-agents card to render Paused styling +
+    // the Resume button (admin-only).
+    agentPauseInfo(h, name) {
+      if (!h || !name) return null;
+      const map = h.provider_pause_state;
+      if (!map || typeof map !== 'object') return null;
+      const row = map[name];
+      if (!row || !row.paused) return null;
+      return row;
+    },
+    // Last-OK timestamp for a (host, provider) pair. Returns 0 when
+    // the provider has never had a successful probe recorded for this
+    // host on the current schema (host hasn't been seen since #785
+    // shipped, or this is the first probe ever). The chip subtitle
+    // hides on 0.
+    providerLastOkSeconds(h, name) {
+      if (!h || !name) return 0;
+      const map = h.provider_pause_state;
+      if (!map || typeof map !== 'object') return 0;
+      const row = map[name];
+      if (!row) return 0;
+      return Number(row.last_ok_ts || 0);
+    },
+    // Human-friendly "Xm ago" / "Xh ago" age string for the chip
+    // subtitle. Returns empty when there's nothing to render (the
+    // x-show gate hides the span anyway, but the helper stays
+    // defensive).
+    providerLastOkAge(h, name) {
+      const ts = this.providerLastOkSeconds(h, name);
+      if (!ts) return '';
+      return this.fmtAgo(ts * 1000);
+    },
+    // Resume-button busy-state map. Keyed `<host_id>:<provider>` so
+    // simultaneous resumes on different providers don't collide.
+    providerResumeBusy: {},
+    // Manual resume action for the per-provider auto-pause (#797).
+    // POSTs /api/hosts/{id}/provider/{name}/resume which clears the
+    // failure-state row + the in-memory cool-down for that provider.
+    // Optimistic UI: clear the local pause row immediately so the
+    // chip flips back without waiting for the next poll, then refresh
+    // the row via the shared queue to confirm.
+    async resumeProvider(host, name) {
+      if (!host || !host.id || !name) return;
+      const key = host.id + ':' + name;
+      if (this.providerResumeBusy[key]) return;
+      this.providerResumeBusy[key] = true;
+      try {
+        const r = await fetch(
+          '/api/hosts/' + encodeURIComponent(host.id)
+          + '/provider/' + encodeURIComponent(name) + '/resume',
+          { method: 'POST' },
+        );
+        if (!r.ok) {
+          const j = await r.json().catch(() => ({}));
+          this.showToast(this.t('hosts_extra.provider_resume_failed', {
+            provider: name,
+            error: (j && j.detail) || ('HTTP ' + r.status),
+          }), 'error');
+          return;
+        }
+        // Optimistic clear so the chip flips immediately. The next
+        // refresh from the shared host-refresh queue confirms via the
+        // backend's authoritative state.
+        if (host.provider_pause_state && host.provider_pause_state[name]) {
+          host.provider_pause_state[name].paused = false;
+        }
+        this.showToast(this.t('hosts_extra.provider_resumed', {
+          provider: name,
+          host: this.hostDisplayName(host) || host.id,
+        }), 'success');
+        // Force-refresh the row so backend's authoritative state lands.
+        if (typeof this.refreshHostRow === 'function') {
+          this.refreshHostRow(host.id, { force: true }).catch(() => {});
+        }
+      } catch (e) {
+        this.showToast(this.t('hosts_extra.provider_resume_failed', {
+          provider: name,
+          error: String(e),
+        }), 'error');
+      } finally {
+        this.providerResumeBusy[key] = false;
+      }
+    },
     filteredHosts() {
       const q = (this.hostsSearch || '').trim().toLowerCase();
       const statusWeight = (s) => {
@@ -13080,14 +13322,16 @@ function app() {
     snmpIfaceUtilizationLine(hostId, ifname, h) {
       const vals = this.snmpIfaceUtilizationSeries(hostId, ifname, h);
       if (!vals.length) return '';
-      return this._snmpPolyPoints(vals, 100);
+      return this._snmpPathGapped(vals, 100);
     },
-    // Polyline points for one iface's bps series scaled to refMax.
+    // Gap-aware path string for one iface's bps series scaled to refMax.
+    // Consumer renders via SVG `<path :d>` not `<polyline :points>` so
+    // counter-wrap / reboot / gap nulls show as visual breaks.
     snmpIfaceLine(hostId, ifname, dir, refMax) {
       const s = this.snmpIfaceBpsSeries(hostId, ifname);
       const vals = (dir === 'in' ? s.in : s.out);
       if (!vals.length) return '';
-      return this._snmpPolyPoints(vals, refMax || 1);
+      return this._snmpPathGapped(vals, refMax || 1);
     },
     snmpIfaceMaxBps(hostId) {
       const ifaces = (this.hostSnmpIfaceHistory[hostId] || {}).ifaces || {};
@@ -13307,12 +13551,16 @@ function app() {
       // null-aware. Skip-don't-synthesize: when a counter-rate
       // helper passes a null at a wrap / reboot / gap point, OMIT it
       // from the polyline points string instead of plotting it as 0.
-      // Polyline bridges from the previous valid point to the next —
-      // not a true gap (would need <path> with M commands), but it
-      // never plots a fake "0 bps idle" segment that visually buries
-      // the wrap signal. CPU per-core / load polylines that fill
-      // empty slots with 0 still work because 0 IS a meaningful
-      // "load=0" value for those series.
+      // CPU per-core / load polylines that fill empty slots with 0
+      // still work because 0 IS a meaningful "load=0" value for those
+      // series. Pre-fix the polyline string contained only the valid
+      // points so the rendered line bridged across nulls — visually
+      // identical to a steady ramp, hiding the gap. Most chart cards
+      // now use `_snmpPathGapped` for the SVG `<path d>` attribute
+      // (M commands at every gap so genuine outages render as breaks
+      // instead of bridges). This helper stays for the legacy
+      // `<polyline points>` consumers (CPU per-core / load) which
+      // never emit nulls.
       if (!values || !values.length) return '';
       const m = max !== undefined ? max : Math.max(0.0001, ...values.filter(v => v != null));
       const n = values.length;
@@ -13324,6 +13572,35 @@ function app() {
         const x = (i / Math.max(1, n - 1)) * w;
         const y = hh - ((+v || 0) / m) * hh;
         out.push(`${x.toFixed(1)},${y.toFixed(1)}`);
+      }
+      return out.join(' ');
+    },
+    // Gap-aware SVG path builder. Same scaling as `_snmpPolyPoints`
+    // but emits an SVG path `d` string with `M` (moveto) at every gap
+    // so a single `<path>` element renders as multiple disconnected
+    // segments — genuine null gaps appear as visual breaks instead of
+    // straight-line bridges. Cheaper than rendering N `<polyline>`
+    // elements when the series has many gaps. Consumers swap their
+    // `<polyline points="...">` for `<path d="...">` and bind the
+    // result here.
+    _snmpPathGapped(values, max) {
+      if (!values || !values.length) return '';
+      const m = max !== undefined ? max : Math.max(0.0001, ...values.filter(v => v != null));
+      const n = values.length;
+      const w = 420, hh = 120;
+      const out = [];
+      let needMove = true;
+      for (let i = 0; i < n; i++) {
+        const v = values[i];
+        if (v == null) {
+          // Null = gap. Next valid point starts a fresh sub-path.
+          needMove = true;
+          continue;
+        }
+        const x = (i / Math.max(1, n - 1)) * w;
+        const y = hh - ((+v || 0) / m) * hh;
+        out.push(`${needMove ? 'M' : 'L'}${x.toFixed(1)},${y.toFixed(1)}`);
+        needMove = false;
       }
       return out.join(' ');
     },
@@ -13478,7 +13755,10 @@ function app() {
       const vals = this.snmpThroughputBpsSeries(hostId, dir);
       if (!vals.length) return '';
       const m = this.snmpThroughputMaxBps(hostId);
-      return this._snmpPolyPoints(vals, m || 1);
+      // Gap-aware path so wrap / reboot / gap nulls render as visual
+      // breaks instead of straight-line bridges. Consumer must use
+      // SVG <path :d> not <polyline :points>.
+      return this._snmpPathGapped(vals, m || 1);
     },
     snmpThroughputMaxBps(hostId) {
       const rx = this.snmpThroughputBpsSeries(hostId, 'rx');

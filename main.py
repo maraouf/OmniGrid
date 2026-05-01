@@ -157,27 +157,27 @@ def _resolve_totp_policy() -> dict:
         return cached_value
     resolved = {
         "totp_allowed":              get_setting_bool(
-            "totp_allowed", _TOTP_POLICY_DEFAULTS["totp_allowed"],
+            "totp_allowed", _TOTP_POLICY_DEFAULTS.get("totp_allowed", True),
         ),
         "totp_required_for_admins":  get_setting_bool(
             "totp_required_for_admins",
-            _TOTP_POLICY_DEFAULTS["totp_required_for_admins"],
+            _TOTP_POLICY_DEFAULTS.get("totp_required_for_admins", False),
         ),
         "totp_required_for_users":   get_setting_bool(
             "totp_required_for_users",
-            _TOTP_POLICY_DEFAULTS["totp_required_for_users"],
+            _TOTP_POLICY_DEFAULTS.get("totp_required_for_users", False),
         ),
         "totp_lockout_max_failures": int(
             get_setting(
                 "totp_lockout_max_failures",
-                str(_TOTP_POLICY_DEFAULTS["totp_lockout_max_failures"]),
-            ) or _TOTP_POLICY_DEFAULTS["totp_lockout_max_failures"]
+                str(_TOTP_POLICY_DEFAULTS.get("totp_lockout_max_failures", 5)),
+            ) or _TOTP_POLICY_DEFAULTS.get("totp_lockout_max_failures", 5)
         ),
         "totp_lockout_minutes":      int(
             get_setting(
                 "totp_lockout_minutes",
-                str(_TOTP_POLICY_DEFAULTS["totp_lockout_minutes"]),
-            ) or _TOTP_POLICY_DEFAULTS["totp_lockout_minutes"]
+                str(_TOTP_POLICY_DEFAULTS.get("totp_lockout_minutes", 15)),
+            ) or _TOTP_POLICY_DEFAULTS.get("totp_lockout_minutes", 15)
         ),
         "passkeys_allowed":          get_setting_bool(
             "passkeys_allowed", _TOTP_POLICY_DEFAULTS.get("passkeys_allowed", True),
@@ -588,6 +588,19 @@ def init_db():
             last_error TEXT
         );
 
+        -- Per-(provider, host) last-successful-probe timestamp (#785).
+        -- Distinct from host_failure_state which only exists during a
+        -- failure streak. last_ok lives ALWAYS — every record_provider_outcome
+        -- with ok=True UPSERTs here. host_id uses the same `<provider>:<host_id>`
+        -- keying convention as host_failure_state so the parallel SELECTs in
+        -- _provider_pause_state_for_host can join cheaply by prefix-match.
+        -- Drives the "Updated Xm ago" subtitle on each provider chip in the
+        -- host drawer's Enabled-agents card.
+        CREATE TABLE IF NOT EXISTS host_provider_last_ok (
+            host_id    TEXT PRIMARY KEY,
+            last_ok_ts INTEGER NOT NULL
+        );
+
         -- Ping reachability time-series (#343). Populated by
         -- logic/ping_sampler.py at tuning_ping_interval_seconds
         -- cadence; pruned to tuning_stats_history_days (reuses the
@@ -860,6 +873,31 @@ def _actor_from(request: Request) -> str:
     if user and getattr(user, "username", None):
         return user.username
     return (request.headers.get("x-forwarded-user") or "ui").strip() or "ui"
+
+
+def _request_client_id(request: Optional[Request]) -> Optional[str]:
+    """Extract the per-tab client id from the request headers (#534).
+
+    SPA's `auth-fetch.js` attaches `X-OmniGrid-Client-Id: <uuid>` on
+    every fetch. Backend write-handlers that publish SSE events should
+    pass this to `events.publish(..., client_id=...)` so the originating
+    tab can self-filter the echoed event. Returns None when the header
+    is absent (bearer-token clients without the wrapper, sampler /
+    background tasks that have no Request, third-party callers).
+
+    Trims to a sane length so a malicious / oversized header can't
+    poison an event payload. UUIDs are 36 chars; 64 is generous
+    headroom for a future format change.
+    """
+    if request is None:
+        return None
+    raw = request.headers.get("x-omnigrid-client-id")
+    if not raw:
+        return None
+    val = raw.strip()
+    if not val:
+        return None
+    return val[:64]
 
 
 def _item_context(container_or_service_id: str) -> tuple[str, Optional[str]]:
@@ -1666,6 +1704,17 @@ class SettingsIn(BaseModel):
     # SNMP-specific sample interval; 0 = use the global stats
     # interval, > 0 = SNMP probes run on their own cadence.
     tuning_snmp_sample_interval_seconds: Optional[str] = None
+    # Per-(provider, host) auto-pause threshold. Counts consecutive
+    # failed sampler / probe rounds; flips the (provider, host) row in
+    # `host_failure_state` to paused when threshold is met. 0 =
+    # disabled. Default 5 ≈ 25 min @ 5-min cadence (Ping default 0
+    # because alive=False is the data, not a fault condition).
+    tuning_snmp_failure_pause_rounds: Optional[str] = None
+    tuning_webmin_failure_pause_rounds: Optional[str] = None
+    tuning_beszel_failure_pause_rounds: Optional[str] = None
+    tuning_pulse_failure_pause_rounds: Optional[str] = None
+    tuning_node_exporter_failure_pause_rounds: Optional[str] = None
+    tuning_ping_failure_pause_rounds: Optional[str] = None
     # stat-bar thresholds (frontend-consumed via /api/me).
     tuning_stat_bar_warn_pct: Optional[str] = None
     tuning_stat_bar_crit_pct: Optional[str] = None
@@ -1709,9 +1758,23 @@ class SettingsIn(BaseModel):
     passkeys_allowed: Optional[bool] = None
 
 
+@app.get("/api/settings/version")
+async def api_get_settings_version(_u: auth.User = Depends(auth.require_admin)):
+    """Cheap probe for cross-tab settings-change detection. Returns the
+    monotonic `_settings_version` int that's bumped on every
+    `set_setting` call. SPA polls this on tab focus + on a slow
+    background timer; a version mismatch triggers a full /api/settings
+    reload. Avoids re-fetching the full settings blob just to check
+    whether anything changed.
+    """
+    from logic.db import get_settings_version
+    return {"version": get_settings_version()}
+
+
 @app.get("/api/settings")
 async def api_get_settings(request: Request):
     from logic import portainer as _portainer
+    from logic.db import get_settings_version
     with db_conn() as c:
         a = auth.get_auth_settings(c)
     p = _portainer.get_portainer_settings()
@@ -1751,24 +1814,24 @@ async def api_get_settings(request: Request):
         # enablement. Defaults preserve "no 2FA required" semantics so
         # an upgrade is a no-op until the operator opts in.
         "totp_allowed":              get_setting_bool(
-            "totp_allowed", _TOTP_POLICY_DEFAULTS["totp_allowed"],
+            "totp_allowed", _TOTP_POLICY_DEFAULTS.get("totp_allowed", True),
         ),
         "totp_required_for_admins":  get_setting_bool(
             "totp_required_for_admins",
-            _TOTP_POLICY_DEFAULTS["totp_required_for_admins"],
+            _TOTP_POLICY_DEFAULTS.get("totp_required_for_admins", False),
         ),
         "totp_required_for_users":   get_setting_bool(
             "totp_required_for_users",
-            _TOTP_POLICY_DEFAULTS["totp_required_for_users"],
+            _TOTP_POLICY_DEFAULTS.get("totp_required_for_users", False),
         ),
         "totp_lockout_max_failures": int(get_setting(
             "totp_lockout_max_failures",
-            str(_TOTP_POLICY_DEFAULTS["totp_lockout_max_failures"]),
-        ) or _TOTP_POLICY_DEFAULTS["totp_lockout_max_failures"]),
+            str(_TOTP_POLICY_DEFAULTS.get("totp_lockout_max_failures", 5)),
+        ) or _TOTP_POLICY_DEFAULTS.get("totp_lockout_max_failures", 5)),
         "totp_lockout_minutes":      int(get_setting(
             "totp_lockout_minutes",
-            str(_TOTP_POLICY_DEFAULTS["totp_lockout_minutes"]),
-        ) or _TOTP_POLICY_DEFAULTS["totp_lockout_minutes"]),
+            str(_TOTP_POLICY_DEFAULTS.get("totp_lockout_minutes", 15)),
+        ) or _TOTP_POLICY_DEFAULTS.get("totp_lockout_minutes", 15)),
         "passkeys_allowed":          get_setting_bool(
             "passkeys_allowed", _TOTP_POLICY_DEFAULTS.get("passkeys_allowed", True),
         ),
@@ -1960,15 +2023,30 @@ async def api_get_settings(request: Request):
             "verify_tls": bool(a.get("oidc_verify_tls", True)),
             "group_case_sensitive": bool(a.get("oidc_group_case_sensitive", True)),
         },
+        # Settings-version int for cheap cross-tab change detection.
+        # Bumped on every set_setting call. SPA reads this once on
+        # /api/settings load + polls /api/settings/version cheaply.
+        "_version": get_settings_version(),
     }
 
 
 @app.post("/api/settings")
 async def api_set_settings(
     s: SettingsIn,
+    request: Request,
     _admin: auth.User = Depends(auth.require_admin),
 ):
     from logic import portainer as _portainer
+    from logic.db import defer_settings_version_bump
+    # Multi-field Saves call set_setting N times. Without the defer
+    # context, each call bumps `_settings_version` and other tabs see
+    # N version mismatches → N reloads of /api/settings + /api/me per
+    # Save. The defer context collapses to ONE bump at end-of-request.
+    with defer_settings_version_bump():
+        return await _api_set_settings_inner(s, request, _portainer)
+
+
+async def _api_set_settings_inner(s, request, _portainer):
     # Per-service master switches (#204). Persisted as "true" / "false"
     # strings to match every other boolean toggle in the settings table.
     if s.apprise_enabled is not None:
@@ -2811,7 +2889,31 @@ async def api_set_settings(
     }
     if _host_provider_fields & set(s.model_dump(exclude_unset=True).keys()):
         invalidate_host_provider_cache()
+    # Broadcast a settings-changed signal so other tabs can refresh
+    # without polling. Self-filter via the originating tab's
+    # X-OmniGrid-Client-Id header so this tab doesn't loop the event
+    # back as a redundant /api/settings re-fetch.
+    try:
+        from logic import events as _events
+        _events.publish(
+            "settings:updated",
+            {"version": _settings_version_for_payload()},
+            client_id=_request_client_id(request),
+        )
+    except Exception as e:
+        print(f"[events] settings:updated publish failed: {e}")
     return {"status": "ok"}
+
+
+def _settings_version_for_payload() -> int:
+    """Wrapper around `get_settings_version()` that's safe to call from
+    a publish-side context — returns 0 on any DB blip rather than
+    propagating the exception into the publish path."""
+    try:
+        from logic.db import get_settings_version
+        return get_settings_version()
+    except Exception:
+        return 0
 
 
 # ----------------------------------------------------------------------------
@@ -4030,10 +4132,37 @@ async def _merge_one_host(h: dict, state: dict, *, force: bool = False) -> tuple
     # Pulse — coarse fallback layer.
     pulse_key = h.get("pulse_name") or h.get("id") or ""
     if "pulse" in active and pulse_key:
-        pstats = _pulse.lookup(state["pulse_map"], pulse_key)
-        if pstats:
-            _merge_best(merged, pstats)
-            providers_hit.append("pulse")
+        # Per-(pulse, host) auto-pause short-circuit (#804).
+        if not _is_provider_paused(h["id"], "pulse"):
+            pstats = _pulse.lookup(state["pulse_map"], pulse_key)
+            # Hub-fetch-OK gate: only count as a per-host failure when
+            # the hub fetch itself succeeded (errors map has no entry).
+            # Without this guard a single hub outage would auto-pause
+            # every host with a pulse_name.
+            hub_ok = "pulse" not in (state.get("errors") or {})
+            if pstats:
+                # status=down/paused on a hub-OK probe = real failure.
+                pst = (pstats.get("pulse_status") or "").lower()
+                if pst in ("down", "paused", "unreachable"):
+                    if hub_ok:
+                        from logic.host_metrics_sampler import record_provider_outcome
+                        await record_provider_outcome(
+                            h["id"], "pulse", False,
+                            error=f"pulse status={pst}",
+                            round_threshold=tuning.tuning_int("tuning_pulse_failure_pause_rounds"),
+                        )
+                else:
+                    _merge_best(merged, pstats)
+                    providers_hit.append("pulse")
+                    from logic.host_metrics_sampler import record_provider_outcome
+                    await record_provider_outcome(h["id"], "pulse", True)
+            elif hub_ok:
+                from logic.host_metrics_sampler import record_provider_outcome
+                await record_provider_outcome(
+                    h["id"], "pulse", False,
+                    error="host not found in Pulse hub map",
+                    round_threshold=tuning.tuning_int("tuning_pulse_failure_pause_rounds"),
+                )
 
     # SNMP (#344) — runs AFTER Pulse but BEFORE Beszel so the unix-
     # style providers can override SNMP's coarser data wherever they
@@ -4058,7 +4187,15 @@ async def _merge_one_host(h: dict, state: dict, *, force: bool = False) -> tuple
             or (h.get("snmp_name") or "").strip()
             or ""
         )
-        if snmp_target and snmp_enabled:
+        # Per-(snmp, host) auto-pause short-circuit (#797). When the
+        # operator-set threshold has been hit on the sampler path the
+        # probe is SKIPPED entirely — no cool-down arming, no log spam,
+        # no token spend. Operator clears via POST
+        # /api/hosts/{id}/provider/snmp/resume; until then the SPA
+        # renders the SNMP chip in its Paused state via
+        # `provider_pause_state.snmp.paused`.
+        snmp_paused = _is_provider_paused(h["id"], "snmp")
+        if snmp_target and snmp_enabled and not snmp_paused:
             now = time.time()
             # SNMP per-host caches use SNMP-specific TTLs (was reusing
             # the Webmin pair; operator changing Webmin TTL silently changed
@@ -4121,23 +4258,64 @@ async def _merge_one_host(h: dict, state: dict, *, force: bool = False) -> tuple
     # Beszel.
     beszel_key = h.get("beszel_name") or h.get("id") or ""
     if "beszel" in active and beszel_key:
-        bstats = state["beszel_map"].get(beszel_key)
-        if bstats:
-            _merge_best(merged, bstats)
-            providers_hit.append("beszel")
+        # Per-(beszel, host) auto-pause short-circuit (#804). Same
+        # hub-fetch-OK gate as Pulse so a global hub blip doesn't
+        # cascade-pause every host.
+        if not _is_provider_paused(h["id"], "beszel"):
+            bstats = state["beszel_map"].get(beszel_key)
+            hub_ok = "beszel" not in (state.get("errors") or {})
+            if bstats:
+                bst = (bstats.get("beszel_status") or "").lower()
+                if bst in ("down", "paused", "unreachable"):
+                    if hub_ok:
+                        from logic.host_metrics_sampler import record_provider_outcome
+                        await record_provider_outcome(
+                            h["id"], "beszel", False,
+                            error=f"beszel status={bst}",
+                            round_threshold=tuning.tuning_int("tuning_beszel_failure_pause_rounds"),
+                        )
+                else:
+                    _merge_best(merged, bstats)
+                    providers_hit.append("beszel")
+                    from logic.host_metrics_sampler import record_provider_outcome
+                    await record_provider_outcome(h["id"], "beszel", True)
+            elif hub_ok:
+                from logic.host_metrics_sampler import record_provider_outcome
+                await record_provider_outcome(
+                    h["id"], "beszel", False,
+                    error="host not found in Beszel hub map",
+                    round_threshold=tuning.tuning_int("tuning_beszel_failure_pause_rounds"),
+                )
 
     # Node-exporter (per-host probe).
     # operator-tunable timeout via `tuning_node_exporter_probe_timeout_seconds`.
     if "node_exporter" in active and h.get("ne_url"):
-        _ne_timeout = tuning.tuning_int("tuning_node_exporter_probe_timeout_seconds")
-        try:
-            async with httpx.AsyncClient(verify=False, timeout=float(_ne_timeout)) as ne_client:
-                stats = await _ne.probe_node(ne_client, h["ne_url"])
-            _merge_best(merged, stats or {})
-            if stats and not stats.get("exporter_error"):
-                providers_hit.append("node_exporter")
-        except Exception as e:  # noqa: BLE001
-            print(f"[hosts] NE probe failed for {h.get('id')!r}: {e}")
+        # Per-(node_exporter, host) auto-pause short-circuit (#804).
+        if not _is_provider_paused(h["id"], "node_exporter"):
+            _ne_timeout = tuning.tuning_int("tuning_node_exporter_probe_timeout_seconds")
+            _ne_pause_rounds = tuning.tuning_int("tuning_node_exporter_failure_pause_rounds")
+            from logic.host_metrics_sampler import record_provider_outcome
+            try:
+                async with httpx.AsyncClient(verify=False, timeout=float(_ne_timeout)) as ne_client:
+                    stats = await _ne.probe_node(ne_client, h["ne_url"])
+                _merge_best(merged, stats or {})
+                if stats and not stats.get("exporter_error"):
+                    providers_hit.append("node_exporter")
+                    await record_provider_outcome(h["id"], "node_exporter", True)
+                else:
+                    err = (stats or {}).get("exporter_error") or "no response"
+                    await record_provider_outcome(
+                        h["id"], "node_exporter", False,
+                        error=str(err),
+                        round_threshold=_ne_pause_rounds,
+                    )
+            except Exception as e:  # noqa: BLE001
+                print(f"[hosts] NE probe failed for {h.get('id')!r}: {e}")
+                await record_provider_outcome(
+                    h["id"], "node_exporter", False,
+                    error=str(e),
+                    round_threshold=_ne_pause_rounds,
+                )
 
     # Webmin (per-host probe, 20s outer budget matching api_hosts).
     # Consults a 30s per-host result cache — Webmin is the slowest
@@ -4145,6 +4323,12 @@ async def _merge_one_host(h: dict, state: dict, *, force: bool = False) -> tuple
     # /api/hosts/one/{id} twice in a minute) skip the repeat probe.
     if "webmin" in active and state["webmin_creds_ok"]:
         wm_url = state["webmin_aliases"].get(h["id"]) or h.get("webmin_url") or ""
+        # Per-(webmin, host) auto-pause short-circuit (#797). Same
+        # contract as the SNMP block above — operator clears via POST
+        # /api/hosts/{id}/provider/webmin/resume.
+        webmin_paused = _is_provider_paused(h["id"], "webmin")
+        if wm_url and webmin_paused:
+            wm_url = ""  # signal "skip" without re-indenting the rest
         if wm_url:
             now = time.time()
             # both cache TTLs are operator-tunable. Resolved
@@ -4189,21 +4373,59 @@ async def _merge_one_host(h: dict, state: dict, *, force: bool = False) -> tuple
                     if (result.get("hosts") or {}):
                         _webmin_host_cache[h["id"]] = (now, result)
                         _webmin_host_fail_cache.pop(h["id"], None)
+                        # Per-(webmin, host) success path. Routes through
+                        # `record_provider_outcome` (NOT bare _clear_failure)
+                        # so the `host_provider_last_ok` UPSERT lands —
+                        # the chip's "Updated Xm ago" subtitle reads from
+                        # that table. Pre-fix the bypass left the subtitle
+                        # invisible forever for Webmin chips.
+                        try:
+                            from logic.host_metrics_sampler import (
+                                record_provider_outcome as _wm_outcome,
+                            )
+                            await _wm_outcome(h["id"], "webmin", True)
+                        except Exception as ex:
+                            print(f"[hosts] webmin success-record "
+                                  f"failed for {h.get('id')!r}: {ex}")
                     else:
                         _webmin_host_fail_cache[h["id"]] = (now, result)
-                        # BUG-007 fix (#521) — also drop any stale
-                        # success entry so the negative-cache's "fast
-                        # failure detection" claim actually holds. Pre-
-                        # fix a host whose success cache was populated
-                        # 25s ago + has just gone down would keep
-                        # serving the stale success for 5 more seconds
-                        # (until the success cache's 30s TTL expired)
-                        # because the success cache lookup at line 3631
+                        # Drop any stale success entry so the negative-cache's
+                        # "fast failure detection" claim actually holds. Pre-fix
+                        # a host whose success cache was populated 25s ago + has
+                        # just gone down would keep serving the stale success
+                        # for 5 more seconds (until the success cache's 30s TTL
+                        # expired) because the success cache lookup
                         # short-circuits before the fail cache is even
                         # consulted.
                         _webmin_host_cache.pop(h["id"], None)
                         err = result.get("error") or "empty hosts map"
                         print(f"[hosts] webmin probe failed for {h.get('id')!r}: {err}")
+                        # Per-(webmin, host) auto-pause counter.
+                        # Cool-down responses are SKIPPED (probe wasn't
+                        # actually attempted) so they don't count toward
+                        # the round threshold. Structured-skip detection:
+                        # prefer `result.get("skipped_cooldown")` when the
+                        # probe wires it; fall back to substring match for
+                        # legacy. Real failures (HTTP 5xx, timeout,
+                        # connection refused, agent rejection) DO count.
+                        err_str = str(err)
+                        skipped = result.get("skipped_cooldown") or ("cool-down" in err_str)
+                        if not skipped:
+                            try:
+                                from logic.host_metrics_sampler import (
+                                    record_provider_outcome as _wm_outcome,
+                                )
+                                _wm_threshold = tuning.tuning_int(
+                                    "tuning_webmin_failure_pause_rounds"
+                                )
+                                await _wm_outcome(
+                                    h["id"], "webmin", False,
+                                    error=err_str,
+                                    round_threshold=_wm_threshold,
+                                )
+                            except Exception as ex:
+                                print(f"[hosts] webmin failure-record "
+                                      f"failed for {h.get('id')!r}: {ex}")
             hosts_map = result.get("hosts") or {}
             if hosts_map:
                 stats = next(iter(hosts_map.values()))
@@ -4592,6 +4814,13 @@ def _shape_host_api_row(
         # frontend banner + table icon; the operator clears via POST
         # /api/hosts/{id}/resume-sampling.
         **_failure_state_for_host(h["id"]),
+        # Per-provider auto-pause state (#797). Populated only when one
+        # or more providers (currently SNMP + Webmin) have a failure-
+        # state row keyed `<provider>:<host_id>`. Empty dict for healthy
+        # hosts. SPA reads this to render the Paused badge on the
+        # provider chip + the Resume button. Operator clears via POST
+        # /api/hosts/{id}/provider/{name}/resume.
+        "provider_pause_state": _provider_pause_state_for_host(h["id"]),
     }
 
 
@@ -4650,6 +4879,155 @@ def _failure_state_for_host(host_id: str) -> dict:
         "last_failure_ts":            int(last_ts or 0),
         "paused_at":                  int(paused_at or 0),
     }
+
+
+# Providers that support per-(provider, host) auto-pause via the
+# round-count threshold model. Keys are the provider names that match
+# the front-end chip strip + `host_failure_state` row prefix
+# (`<provider>:<host_id>`). Generic shape — adding a new provider in
+# future is the documented six-step contract: (1) extend this tuple,
+# (2) add `tuning_<provider>_failure_pause_rounds` to TUNABLES,
+# (3) add it to SettingsIn, (4) add to `relocatedTuningKeys` in
+# `static/js/app.js`, (5) call `record_provider_outcome` at the probe
+# site (or thread `round_threshold=` through the existing
+# `_record_failure` site), (6) add an i18n entry under
+# `admin.config.fields`. The resume endpoint below auto-handles the
+# row delete; per-provider cool-down clearing is provider-specific.
+_PROVIDER_AUTO_PAUSE_NAMES = (
+    "beszel", "pulse", "node_exporter", "webmin", "ping", "snmp",
+)
+
+
+# Short-TTL cache for the full-table scans behind
+# `_provider_pause_state_for_host`. Rebuilt once per cache window;
+# 200-host /api/hosts/list pays ONE table scan instead of 200×2.
+# 5s TTL is short enough for "live" feel on the chip without burning
+# CPU on back-to-back calls within a fan-out burst.
+_PROVIDER_STATE_CACHE_TTL = 5.0
+_provider_state_cache: dict = {"ts": 0.0, "by_host": {}}
+
+
+def _build_provider_state_index() -> dict:
+    """One-shot full-table scan; returns ``{host_id: {provider: stateDict}}``.
+
+    Replaces the per-host leading-wildcard `LIKE '%:host_id'` SELECT
+    that turned /api/hosts/list into a 400-scan O(N×rows) problem.
+    Single full-table scan now, indexed dict lookup per host.
+    """
+    by_host: dict = {}
+    try:
+        with db_conn() as c:
+            fail_rows = c.execute(
+                "SELECT host_id, first_failure_ts, consecutive_failures, "
+                "paused, last_error, last_failure_ts, paused_at "
+                "FROM host_failure_state"
+            ).fetchall()
+            ok_rows = c.execute(
+                "SELECT host_id, last_ok_ts FROM host_provider_last_ok"
+            ).fetchall()
+    except Exception:
+        return by_host
+    # Pre-bucket by (provider, host_id). Bare host_id rows (whole-host
+    # #383 pauses) are skipped — they're surfaced via the separate
+    # `_failure_state_for_host` helper, not the per-provider map.
+    for row in fail_rows:
+        key = row[0] or ""
+        if ":" not in key:
+            continue
+        provider, _, hid = key.partition(":")
+        if not hid or provider not in _PROVIDER_AUTO_PAUSE_NAMES:
+            continue
+        last_ts = row[5] if (len(row) > 5 and row[5] is not None) else row[1]
+        paused_at = row[6] if (len(row) > 6 and row[6] is not None) else 0
+        by_host.setdefault(hid, {})[provider] = {
+            "paused":                bool(row[3]),
+            "consecutive_failures":  int(row[2] or 0),
+            "last_error":            row[4] or "",
+            "first_failure_ts":      int(row[1] or 0),
+            "last_failure_ts":       int(last_ts or 0),
+            "paused_at":             int(paused_at or 0),
+            "last_ok_ts":            0,
+        }
+    for r in ok_rows:
+        key = r[0] or ""
+        if ":" not in key:
+            continue
+        provider, _, hid = key.partition(":")
+        if not hid or provider not in _PROVIDER_AUTO_PAUSE_NAMES:
+            continue
+        ts = int(r[1] or 0)
+        existing = by_host.setdefault(hid, {}).get(provider)
+        if existing is not None:
+            existing["last_ok_ts"] = ts
+        else:
+            # Healthy provider — no failure-state row but has a last_ok
+            # stamp. SPA needs the subtitle even on never-failed hosts.
+            by_host.setdefault(hid, {})[provider] = {
+                "paused":               False,
+                "consecutive_failures": 0,
+                "last_error":           "",
+                "first_failure_ts":     0,
+                "last_failure_ts":      0,
+                "paused_at":            0,
+                "last_ok_ts":           ts,
+            }
+    return by_host
+
+
+def _get_provider_state_index() -> dict:
+    """Cached accessor — rebuilds the full-table index when the
+    cache is cold or older than `_PROVIDER_STATE_CACHE_TTL`."""
+    now = time.time()
+    if (now - float(_provider_state_cache.get("ts") or 0.0)) >= _PROVIDER_STATE_CACHE_TTL:
+        _provider_state_cache["by_host"] = _build_provider_state_index()
+        _provider_state_cache["ts"] = now
+    return _provider_state_cache.get("by_host") or {}
+
+
+def _invalidate_provider_state_cache() -> None:
+    """Drop the cached index so the next read does a fresh scan.
+    Called from write-paths (`api_hosts_provider_resume`,
+    `api_hosts_resume_sampling`, `_sweep_orphan_provider_state_rows`)
+    so the operator sees their resume / clear immediately rather than
+    waiting up to TTL for the next refresh."""
+    _provider_state_cache["ts"] = 0.0
+    _provider_state_cache["by_host"] = {}
+
+
+def _provider_pause_state_for_host(host_id: str) -> dict:
+    """Per-host slice of the cached full-table provider-state index.
+
+    Pre-fix this did two leading-wildcard `LIKE '%:host_id'` SELECTs
+    per call → 200-host /api/hosts/list = 400 full-table scans (~480k
+    row comparisons on a 1200-row table). Post-fix the full index is
+    built once per ``_PROVIDER_STATE_CACHE_TTL`` window and indexed
+    dict-lookup per host. Same shape returned, drop-in for the API
+    payload.
+    """
+    if not host_id:
+        return {}
+    return dict(_get_provider_state_index().get(host_id) or {})
+
+
+def _is_provider_paused(host_id: str, provider: str) -> bool:
+    """Cheap read-side check used by `_merge_one_host`'s SNMP / Webmin
+    blocks to skip the probe entirely when the operator has marked the
+    (provider, host) pair as auto-paused. Returns False on any DB error
+    — defence-in-depth: a transient SQLite BUSY shouldn't make a paused
+    host start probing again. The probe will discover the failure
+    naturally and re-pause on the next round."""
+    if not host_id or not provider:
+        return False
+    key = f"{provider}:{host_id}"
+    try:
+        with db_conn() as c:
+            row = c.execute(
+                "SELECT paused FROM host_failure_state WHERE host_id = ?",
+                (key,),
+            ).fetchone()
+    except Exception:
+        return False
+    return bool(row and row[0])
 
 
 @app.get("/api/hosts/list")
@@ -5165,7 +5543,58 @@ async def api_hosts_config_set(
     # so /api/hosts/one/{id} doesn't serve up to 10s of stale results
     # using the old aliases. Same rationale as in api_set_settings.
     invalidate_host_provider_cache()
+    # Sweep orphan rows in `host_failure_state` + `host_provider_last_ok`
+    # for hosts that are no longer in the curated list. Without this,
+    # rows accumulate forever after a host is deleted, eventually
+    # degrading the LIKE-scan performance of `_provider_pause_state_for_host`.
+    # Best-effort — a sweep failure must not roll back the operator's
+    # save; just log and move on.
+    try:
+        _sweep_orphan_provider_state_rows({h.get("id") for h in saved if h.get("id")})
+    except Exception as e:
+        print(f"[hosts] orphan sweep failed: {e}")
+    _invalidate_provider_state_cache()  # next /api/hosts/list rebuilds from clean state
     return {"hosts": saved, "count": len(saved)}
+
+
+def _sweep_orphan_provider_state_rows(live_ids: set) -> int:
+    """Delete `<provider>:<host_id>` rows in `host_failure_state` and
+    `host_provider_last_ok` whose suffix isn't in ``live_ids``. Also
+    deletes BARE host_id rows whose value isn't in ``live_ids`` (these
+    come from the whole-host #383 sampler). Returns total rows removed.
+
+    Called by `api_hosts_config_set` after every Save and also safe to
+    call from a periodic prune in `_lifespan`. Live_ids is the set of
+    host_ids the operator's curated `hosts_config` references — anything
+    NOT in that set is an orphan from a since-deleted host.
+    """
+    total = 0
+    if not isinstance(live_ids, set):
+        live_ids = set(live_ids or [])
+    try:
+        with db_conn() as c:
+            for table in ("host_failure_state", "host_provider_last_ok"):
+                rows = c.execute(f"SELECT host_id FROM {table}").fetchall()
+                doomed = []
+                for r in rows:
+                    key = r[0] or ""
+                    bare = key
+                    if ":" in key:
+                        head, _, tail = key.partition(":")
+                        if head in _PROVIDER_AUTO_PAUSE_NAMES:
+                            bare = tail
+                    if bare and bare not in live_ids:
+                        doomed.append(key)
+                if doomed:
+                    c.executemany(
+                        f"DELETE FROM {table} WHERE host_id = ?",
+                        [(k,) for k in doomed],
+                    )
+                    total += len(doomed)
+                    print(f"[hosts] orphan sweep: removed {len(doomed)} row(s) from {table}")
+    except Exception as e:
+        print(f"[hosts] orphan sweep DB error: {e}")
+    return total
 
 
 @app.post("/api/hosts/{host_id}/resume-sampling")
@@ -5262,6 +5691,163 @@ async def api_hosts_resume_sampling(
     invalidate_host_provider_cache()
     return {
         "host_id": host_id,
+        "cleared": bool(cleared),
+        "cooldowns_cleared": len(cooldown_cleared),
+    }
+
+
+@app.post("/api/hosts/{host_id}/provider/{provider}/resume")
+async def api_hosts_provider_resume(
+    host_id: str, provider: str,
+    request: Request,
+    _u: auth.User = Depends(auth.require_admin),
+):
+    """Admin-only: clear the per-(provider, host) auto-pause marker
+    (#797). Mirrors `/api/hosts/{id}/resume-sampling` but scoped to a
+    single provider — the host-level pause stays intact, only the
+    `<provider>:<host_id>` row is removed.
+
+    Also clears the provider's in-memory cool-down for this host so the
+    next probe runs immediately rather than waiting out the cool-down
+    window. Without that the operator's "Resume" click would technically
+    succeed (the pause is cleared) but the very next probe would short-
+    circuit on the unrelated cool-down — unintuitive.
+
+    Validates ``provider`` against the supported set so an unknown
+    provider name returns 400 instead of silently no-op'ing.
+    """
+    provider = (provider or "").strip().lower()
+    if provider not in _PROVIDER_AUTO_PAUSE_NAMES:
+        raise HTTPException(400, f"Unsupported provider: {provider}")
+    curated = _load_hosts_config()
+    h = next((x for x in curated if x.get("id") == host_id), None)
+    if h is None:
+        raise HTTPException(404, f"Host not found: {host_id}")
+    pause_key = f"{provider}:{host_id}"
+    try:
+        with db_conn() as c:
+            cur = c.execute(
+                "DELETE FROM host_failure_state WHERE host_id = ?",
+                (pause_key,),
+            )
+            cleared = cur.rowcount or 0
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"resume failed: {e}")
+    # Provider-specific cool-down clears so the next probe doesn't hit
+    # an unrelated short throttle. SNMP cool-down is keyed on the
+    # SNMP target (alias > snmp_name); Webmin on (base_url, user).
+    cooldown_cleared: list[str] = []
+    if provider == "snmp":
+        try:
+            from logic import snmp as _snmp
+            timers = getattr(_snmp._unreachable_cooldown, "_armed", None)
+            if timers:
+                # Resolve the SNMP target the same way `_merge_one_host`
+                # does: alias map > row's snmp_name. Whichever matches
+                # the cool-down key gets cleared.
+                aliases_raw = get_setting("snmp_aliases", "") or ""
+                try:
+                    aliases = json.loads(aliases_raw) if aliases_raw else {}
+                except Exception:
+                    aliases = {}
+                candidates: set[str] = set()
+                if isinstance(aliases, dict) and aliases.get(host_id):
+                    candidates.add(str(aliases[host_id]).strip())
+                snmp_name = (h.get("snmp_name") or "").strip()
+                if snmp_name:
+                    candidates.add(snmp_name)
+                doomed = [k for k in list(timers.keys())
+                          if isinstance(k, tuple) and k and k[0] in candidates]
+                for k in doomed:
+                    _snmp._unreachable_cooldown.clear(*k)
+                    cooldown_cleared.append(f"snmp:{k}")
+        except Exception as e:
+            print(f"[hosts] provider/snmp/resume cooldown clear failed: {e}")
+        # also drop the per-host SNMP success + fail caches so the next
+        # probe in `_merge_one_host` actually hits the wire.
+        _snmp_host_cache.pop(host_id, None)
+        _snmp_host_fail_cache.pop(host_id, None)
+    elif provider == "webmin":
+        try:
+            from logic import webmin as _webmin
+            candidates: set[str] = set()
+            wurl = (h.get("webmin_url") or "").strip().rstrip("/")
+            if wurl:
+                candidates.add(wurl)
+            webmin_name = (h.get("webmin_name") or "").strip()
+            if webmin_name:
+                try:
+                    aliases_raw = get_setting("webmin_aliases", "") or ""
+                    aliases = json.loads(aliases_raw) if aliases_raw else {}
+                    if isinstance(aliases, dict):
+                        aliased = (aliases.get(webmin_name) or "").strip().rstrip("/")
+                        if aliased:
+                            candidates.add(aliased)
+                except Exception:
+                    pass
+            timers = getattr(_webmin._auth_cooldown_timer, "_armed", None)
+            if timers and candidates:
+                doomed = [k for k in list(timers.keys())
+                          if isinstance(k, tuple) and k and k[0] in candidates]
+                for k in doomed:
+                    _webmin._auth_cooldown_timer.clear(*k)
+                    cooldown_cleared.append(f"webmin:{k}")
+        except Exception as e:
+            print(f"[hosts] provider/webmin/resume cooldown clear failed: {e}")
+        _webmin_host_cache.pop(host_id, None)
+        _webmin_host_fail_cache.pop(host_id, None)
+    elif provider == "ping":
+        # Ping cool-down keyed `(host_clean, port_int)` per-host. Walk
+        # the timer's `_armed` map and drop any entry whose first key
+        # element matches the host's reachable target (host field +
+        # any per-host ping config).
+        try:
+            from logic import ping as _ping
+            timers = getattr(_ping._unreachable_cooldown, "_armed", None)
+            if timers:
+                # Resolve candidate targets — `host_id` matches what
+                # the sampler passes, but operators may also configure
+                # a different host-field target via `hosts_config[].ping`.
+                candidates: set[str] = {host_id}
+                pcfg = h.get("ping") or {}
+                if isinstance(pcfg, dict):
+                    target = (pcfg.get("host") or "").strip()
+                    if target:
+                        candidates.add(target)
+                doomed = [k for k in list(timers.keys())
+                          if isinstance(k, tuple) and k and k[0] in candidates]
+                for k in doomed:
+                    _ping._unreachable_cooldown.clear(*k)
+                    cooldown_cleared.append(f"ping:{k}")
+        except Exception as e:
+            print(f"[hosts] provider/ping/resume cooldown clear failed: {e}")
+    # beszel / pulse / node_exporter: no per-host in-memory cool-down
+    # to clear. The DB row delete above is the entire reset — next
+    # tick re-attempts the probe.
+    if cooldown_cleared:
+        print(f"[hosts] {host_id!r} provider/{provider}/resume cleared "
+              f"cooldowns: {cooldown_cleared}")
+    invalidate_host_provider_cache()
+    _invalidate_provider_state_cache()  # ensure /api/hosts/list reflects the resume immediately
+    # SSE: surface the resume so the SPA's chip flips back to its
+    # default state without waiting for the next poll cycle.
+    try:
+        from logic import events as _events
+        _events.publish(
+            "host:failure_state_changed",
+            {
+                "host_id": host_id,
+                "provider": provider,
+                "paused": False,
+                "cleared": True,
+            },
+            client_id=_request_client_id(request),
+        )
+    except Exception as ee:
+        print(f"[events] host:failure_state_changed publish failed: {ee}")
+    return {
+        "host_id": host_id,
+        "provider": provider,
         "cleared": bool(cleared),
         "cooldowns_cleared": len(cooldown_cleared),
     }
@@ -8209,7 +8795,7 @@ async def api_me(request: Request):
         # (defaults to admin state until the user opts out).
         admin_map = {
             name: get_setting_bool(
-                f"notify_event_{name}", _NOTIFY_EVENT_DEFAULTS[name],
+                f"notify_event_{name}", _NOTIFY_EVENT_DEFAULTS.get(name, True),
             )
             for name in _NOTIFY_EVENT_NAMES
         }
@@ -8329,7 +8915,7 @@ async def api_me_notify_prefs(
     # Admin gate snapshot — refuse opt-IN for admin-disabled events.
     admin_map = {
         name: get_setting_bool(
-            f"notify_event_{name}", _NOTIFY_EVENT_DEFAULTS[name],
+            f"notify_event_{name}", _NOTIFY_EVENT_DEFAULTS.get(name, True),
         )
         for name in _NOTIFY_EVENT_NAMES
     }

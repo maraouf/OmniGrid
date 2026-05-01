@@ -1,4 +1,4 @@
-// Global fetch wrapper installed before Alpine init. Does three things:
+// Global fetch wrapper installed before Alpine init. Does four things:
 //   1. Auto-attaches X-CSRF-Token on state-changing requests by copying
 //      the og_csrf cookie (double-submit defense). Server enforces this
 //      for cookie-authed callers on every POST/PUT/PATCH/DELETE.
@@ -11,22 +11,79 @@
 //   3. Redirects to /login on a 401 response so session expiry is
 //      self-healing — user lands on the login page, authenticates,
 //      comes back to where they were.
+//   4. Attaches X-OmniGrid-Client-Id (UUID per tab, persisted in
+//      sessionStorage). Backend echoes this in any SSE event published
+//      off the same request; SSE handlers skip self-originated events
+//      so a write from THIS tab doesn't loop back as a redundant
+//      refresh / flicker. Read by `window.__ogClientId` from anywhere
+//      that needs to compare an incoming SSE event's client_id.
 (function () {
   const WRITE_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
   const orig = window.fetch;
+
+  // Per-tab UUID — generated on first read, persisted in
+  // sessionStorage so an Alpine reload-without-tab-close keeps the
+  // same id (otherwise an in-flight fetch from before the reload
+  // would echo with a different id and fail self-filter). Falls back
+  // to crypto.randomUUID where available; otherwise a quick
+  // RFC4122-shaped string from Math.random — id collision risk is
+  // limited to "two tabs on the same operator's browser hitting the
+  // same backend within milliseconds AND both rolling the same 36-
+  // char string", which is essentially zero for the use case.
+  function readOrMintClientId() {
+    try {
+      let cid = sessionStorage.getItem('og_client_id');
+      if (cid && typeof cid === 'string' && cid.length >= 8) return cid;
+      if (window.crypto && typeof window.crypto.randomUUID === 'function') {
+        cid = window.crypto.randomUUID();
+      } else {
+        cid = ('xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx').replace(/[xy]/g, c => {
+          const r = (Math.random() * 16) | 0;
+          const v = c === 'x' ? r : (r & 0x3) | 0x8;
+          return v.toString(16);
+        });
+      }
+      sessionStorage.setItem('og_client_id', cid);
+      return cid;
+    } catch (_) {
+      // Private mode / quota — generate a per-load fallback. Loses
+      // the across-reload stability guarantee but keeps the contract.
+      return 'fallback-' + Math.random().toString(36).slice(2);
+    }
+  }
+
+  // Surface globally so SSE handlers + any future code that wants
+  // "is this event from me?" can compare without re-reading
+  // sessionStorage on every event.
+  window.__ogClientId = readOrMintClientId();
 
   function readCsrfCookie() {
     const m = document.cookie.match(/(?:^|; )og_csrf=([^;]+)/);
     return m ? decodeURIComponent(m[1]) : '';
   }
 
-  function attachCsrf(init) {
-    const method = (init.method || 'GET').toUpperCase();
-    if (!WRITE_METHODS.has(method)) return init;
-    const token = readCsrfCookie();
-    if (!token) return init;
+  // Single Headers construction + every header set on it + assigned
+  // back ONCE. Avoids the order-coupling bug where a future refactor
+  // makes one helper mutate-in-place and the other constructs a fresh
+  // Headers, silently dropping the in-place header on the second call.
+  // Applies to both the initial fetch AND the CSRF retry path.
+  function attachAllHeaders(init) {
     const headers = new Headers(init.headers || {});
-    headers.set('X-CSRF-Token', token);
+    // X-OmniGrid-Client-Id (#534): per-tab UUID echoed by backend SSE
+    // publishers so the originating tab can self-filter. Applied on
+    // every method (read GETs that trigger SSE-on-the-side need it too).
+    if (window.__ogClientId) {
+      headers.set('X-OmniGrid-Client-Id', window.__ogClientId);
+    }
+    // X-CSRF-Token: double-submit defence on state-changing requests
+    // for cookie-authed callers. Bearer-token clients don't need it
+    // (they don't have cookies); the token-mint path runs through
+    // /api/me which auto-issues og_csrf on first GET.
+    const method = (init.method || 'GET').toUpperCase();
+    if (WRITE_METHODS.has(method)) {
+      const token = readCsrfCookie();
+      if (token) headers.set('X-CSRF-Token', token);
+    }
     init.headers = headers;
     return init;
   }
@@ -50,7 +107,7 @@
   window.fetch = async function (input, init) {
     init = init || {};
     const method = (init.method || 'GET').toUpperCase();
-    init = attachCsrf(init);
+    init = attachAllHeaders(init);
     let r = await orig.call(this, input, init);
 
     // CSRF mismatch recovery — only on cookie-authed write requests. Don't
@@ -74,8 +131,8 @@
           await orig.call(this, '/api/me', { credentials: 'same-origin' });
         } catch (_) { /* fall through — retry will surface the real error */ }
         init._csrfRetried = true;
-        // Re-attach the (now hopefully valid) CSRF token from the new cookie.
-        init = attachCsrf(init);
+        // Re-attach all headers (the new CSRF token is now valid in the cookie).
+        init = attachAllHeaders(init);
         r = await orig.call(this, input, init);
       }
     }

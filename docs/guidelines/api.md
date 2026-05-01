@@ -192,12 +192,14 @@ type:
 | `op:completed` | Op terminates (success / error). | `{id, op_type, status, target_name, error, duration}` |
 | `cache:invalidated` | Items cache has been marked stale (post-op refresh, settings save). | `{reason}` |
 | `stats:refreshed` | `gather_stats()` finished a cycle. | `{items, with_stats, with_size, ts}` — hint only; consumers refetch via `/api/stats`. |
-| `host:failure_state_changed` | Host sampler paused / cleared a host. | `{host_id, paused, consecutive_failures?, last_error?, cleared?}` |
+| `host:row_updated` | A curated host's row state changed (provider data refreshed mid-tick). | `{id}` — hint only; consumers refetch the row via `/api/hosts/one/{id}`. |
+| `host:failure_state_changed` | Host sampler paused / cleared a host OR per-(provider, host) auto-pause flipped. | `{host_id, paused, consecutive_failures?, last_error?, cleared?, provider?}` — `provider` present for per-provider transitions (`snmp` / `webmin` / etc.). `host_id` is ALWAYS the bare id (the SPA's `/api/hosts/one/{id}` lookup needs the bare value, not the prefixed key the table stores). |
 | `host:history_appended` | A new row was inserted into `host_metrics_samples` for a curated host. | `{host_id, ts}` — hint only; consumers refetch the full window via `/api/hosts/history`. |
-| `host:ping_sampled` | New ping sample landed in `ping_samples` for a curated host (#343). | `{host_id, alive, rtt_ms, loss_pct, ts}` — hint only; consumers refetch via `/api/hosts/{id}/ping/history`. |
+| `host:ping_sampled` | New ping sample landed in `ping_samples` for a curated host. | `{host_id, alive, rtt_ms, loss_pct, ts}` — hint only; consumers refetch via `/api/hosts/{id}/ping/history`. |
 | `schedule:fired` | A schedule started or finished (two events per fire). | `{schedule_id, name, kind, op_id, phase: "start"\|"end", duration?, status?}` |
 | `history:appended` | A new row was written to the `history` table. | `{id, ts, op_type, target_name, target_id, target_stack, status, duration, error, actor}` |
 | `session:renewed` | A cookie session was slid forward (sliding-window refresh near expiry). | `{user_id, expires_at, ts}` |
+| `settings:updated` | An admin Save through `POST /api/settings` committed. | `{version, client_id?}` — version is the new `_settings_version` int; `client_id` is the originating tab's UUID (when present, the originating tab self-filters via `_isSelfEvent`). |
 | `:overflow` | Synthetic — the per-subscriber queue dropped events. | `{}` — react with a one-shot REST refresh. |
 | `reconnect` | Synthetic — server hit `_SSE_MAX_LIFETIME_SECONDS` (6h cap, #464) and is asking the client to re-upgrade so the auth middleware fires again. | `{}` — `EventSource` reconnects automatically; bespoke clients should drop the connection and reopen. |
 

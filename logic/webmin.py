@@ -1221,6 +1221,13 @@ async def probe_webmin(
             "hosts": {},
             "error": f"webmin: auth cool-down ({int(cd)}s remaining) — "
                      f"check credentials and wait before retrying",
+            # Structured marker so callers can detect "this was a
+            # cool-down skip vs a real failure" without substring
+            # matching the message text. Per-(provider, host)
+            # auto-pause counters check this to avoid counting cool-
+            # down responses toward the threshold (the probe was
+            # SKIPPED, not attempted).
+            "skipped_cooldown": True,
         }
     base = base_url.rstrip("/")
     # Per-module alternate paths. Webmin 2.x (>= 2.000) silently

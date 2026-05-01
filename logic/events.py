@@ -149,12 +149,21 @@ bus = EventBus()
 def publish(
     type_: str, payload: Optional[dict] = None,
     ts: Optional[float] = None,
+    *, client_id: Optional[str] = None,
 ) -> None:
     """Module-level shortcut — ``logic.events.publish('op:updated', ...)``.
 
     Wrapped in try/except so a publish failure never propagates back
     into the caller (an Operation handler, a sampler, the gather loop).
     Logged loudly so a regression in event shape doesn't go silent.
+
+    ``client_id`` (#534): when supplied, the SPA tab whose
+    ``X-OmniGrid-Client-Id`` header matches will skip the resulting
+    SSE event — i.e. "broadcast to other tabs but not to me". Stamped
+    into the payload as a top-level ``client_id`` key so the SPA
+    handler can compare against ``window.__ogClientId``. Sampler /
+    background-task publishers leave it None — they have no
+    originating request to correlate against.
     """
     # request-correlation log line at every publish site.
     # Instrumenting here (single point) instead of each of the 12 call
@@ -169,6 +178,11 @@ def publish(
         print(f"[events] publish {type_} id={_ident}")
     else:
         print(f"[events] publish {type_}")
+    # Stamp client_id into the payload (non-destructive: callers'
+    # original dict isn't mutated; we make a shallow copy when needed).
+    if client_id:
+        payload = dict(payload or {})
+        payload["client_id"] = client_id
     try:
         bus.publish(type_, payload, ts)
     except Exception as e:

@@ -88,12 +88,122 @@ def get_setting(key: str, default: str = "") -> str:
 
 
 def set_setting(key: str, value: str) -> None:
-    """Upsert one row into the ``settings`` table."""
+    """Upsert one row into the ``settings`` table.
+
+    Bumps `_settings_version` (a synthetic monotonic int) so the SPA
+    can poll a cheap version endpoint to detect cross-tab changes
+    without re-fetching the full settings blob. Excluded: the version
+    row itself (avoids recursion). Multi-field admin Saves can call
+    this N times per request — wrap in `defer_settings_version_bump()`
+    to collapse the N bumps into ONE end-of-request bump (the SPA
+    sees one version mismatch instead of N reloads).
+    """
     with db_conn() as c:
         c.execute(
             "INSERT OR REPLACE INTO settings(key,value) VALUES (?,?)",
             (key, value),
         )
+        if key == _SETTINGS_VERSION_KEY:
+            return
+        if _settings_version_deferred_count[0] > 0:
+            # A defer-context is active — accumulate one notional bump
+            # and let the context exit issue a single `_bump_settings_version_in`
+            # at the end. Multi-field admin Saves through `api_set_settings`
+            # collapse N bumps into one this way.
+            _settings_version_pending[0] = True
+            return
+        _bump_settings_version_in(c)
+
+
+_SETTINGS_VERSION_KEY = "_settings_version"
+# Single-element lists used as nullable-int / nullable-bool boxes so the
+# context manager + nested-defer support work without globals + lock
+# ceremony. The harness is single-process single-replica per CLAUDE.md
+# invariant; an asyncio re-entrant defer would still write the right
+# count because the context manager's enter/exit is synchronous.
+_settings_version_deferred_count = [0]
+_settings_version_pending = [False]
+
+
+from contextlib import contextmanager
+
+
+@contextmanager
+def defer_settings_version_bump():
+    """Context manager that collapses N `set_setting` calls into ONE
+    `_settings_version` bump on context exit.
+
+    Usage:
+
+        with defer_settings_version_bump():
+            for k, v in fields.items():
+                set_setting(k, v)
+        # → exactly one version bump after the with-block exits
+
+    Multi-field admin Saves through `api_set_settings` would otherwise
+    bump the counter N times and trigger N cross-tab `settings:updated`
+    SSE events, each prompting a `/api/settings` reload on every other
+    tab. The defer context ensures other tabs see ONE version mismatch
+    per logical operation. Nestable — only the outermost exit triggers
+    the actual bump.
+    """
+    _settings_version_deferred_count[0] += 1
+    try:
+        yield
+    finally:
+        _settings_version_deferred_count[0] -= 1
+        if _settings_version_deferred_count[0] == 0 and _settings_version_pending[0]:
+            _settings_version_pending[0] = False
+            try:
+                with db_conn() as c:
+                    _bump_settings_version_in(c)
+            except Exception:
+                # Defence-in-depth: a defer-exit bump failure must NOT
+                # propagate out of the context manager and break the
+                # caller's request. SPA loses one cross-tab notification
+                # at worst — recoverable on next poll.
+                pass
+
+
+def _bump_settings_version_in(c) -> None:
+    """Increment `_settings_version` inside an existing connection.
+    Caller is responsible for the commit (the surrounding `db_conn()`
+    context manager handles it). Treats a missing row as starting from
+    0 → 1; a malformed value rolls back to 0 → 1 too so corrupt state
+    self-heals."""
+    try:
+        row = c.execute(
+            "SELECT value FROM settings WHERE key=?",
+            (_SETTINGS_VERSION_KEY,),
+        ).fetchone()
+        cur = 0
+        if row and row["value"]:
+            try:
+                cur = int(row["value"])
+            except (TypeError, ValueError):
+                cur = 0
+        c.execute(
+            "INSERT OR REPLACE INTO settings(key,value) VALUES (?,?)",
+            (_SETTINGS_VERSION_KEY, str(cur + 1)),
+        )
+    except Exception:
+        # Defence-in-depth: a version-bump failure must NOT roll back
+        # the operator's actual settings write. Worst case the SPA
+        # misses a cross-tab notification — recoverable on next poll.
+        pass
+
+
+def get_settings_version() -> int:
+    """Return the current `_settings_version`. 0 when never written.
+    Used by `/api/settings/version` so the SPA can detect cross-tab
+    changes without re-fetching the full settings blob."""
+    raw = get_setting(_SETTINGS_VERSION_KEY, "")
+    if not raw:
+        return 0
+    try:
+        return int(raw)
+    except (TypeError, ValueError):
+        return 0
 
 
 # Truthy strings accepted by :func:`get_setting_bool`. The save path
