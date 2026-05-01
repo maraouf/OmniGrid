@@ -1405,6 +1405,23 @@ details summary::-webkit-details-marker {
     text-underline-offset: 3px;
     transition: opacity 120ms ease-out, filter 120ms ease-out;
 }
+/* Small faded warning triangle prefix on every stale TEXT element.
+   Operator-flagged: even with the dashed-underline + reduced opacity,
+   the cached state was hard to spot at a glance. The amber triangle
+   is the universal "this isn't quite right" affordance. Scoped with
+   :not(.stat-bar) so the marker doesn't render inside the empty
+   stat-bar wrapper (which already has its own dashed-border overlay
+   via the ::after pseudo above). */
+.stale:not(.stat-bar)::before {
+    content: '⚠';
+    color: var(--warning);
+    font-size: 0.85em;
+    margin-inline-end: 4px;
+    opacity: 0.85;
+    text-decoration: none;
+    display: inline-block;
+    vertical-align: -1px;
+}
 .stale:hover {
     opacity: 0.9;
     filter: saturate(1);

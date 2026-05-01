@@ -9183,8 +9183,7 @@
                    operator can tell the chart isn't real-time. Goes
                    amber after 10 minutes (2× sampler cadence). -->
               <div x-show="hostHasSnmpCharts(h) && snmpHistoryFreshness(h)"
-                   class="mt-3 text-[11px] flex items-center gap-2"
-                   :class="snmpHistoryFreshness(h) && snmpHistoryFreshness(h).stale ? 'text-[var(--warning)]' : 'text-[var(--text-faint)]'">
+                   class="mt-3 text-[11px] flex items-center gap-2 text-[var(--warning)]">
                 <svg width="11" height="11" aria-hidden="true"><use href="#icon-clock"/></svg>
                 <span x-text="snmpHistoryFreshness(h)
                                 ? t('host_drawer.snmp_charts.freshness', { age: snmpHistoryFreshness(h).label })
@@ -9518,6 +9517,64 @@
                     <div class="metric-x-axis">
                       <template x-for="(l, i) in snmpXAxis(h.id, 5)" :key="'pp-x-' + i"><span x-text="l"></span></template>
                     </div>
+                  </div>
+                </div>
+
+                <!-- #725 slice 4 — per-port utilization heatmap. One
+                     cell per interface, color-graded against link
+                     capacity (max(in, out) bps × 8 ÷ link_bps × 100):
+                     grey = unknown speed / idle, green < 50 < amber
+                     < 85 < red. Hidden when no iface has both
+                     throughput AND ifHighSpeed. -->
+                <div class="metric-card md:col-span-2 lg:col-span-3"
+                     x-show="snmpHasIfaceHistory(h.id)">
+                  <div class="metric-card-head">
+                    <div class="metric-card-title">
+                      <span x-text="t('host_drawer.snmp_charts.heatmap_title')"></span>
+                      <span class="metric-source-help" :title="metricSource(h, 'snmp_throughput')"
+                            @click.stop="toggleMetricTooltip(h, 'snmp_heatmap')"
+                            @keydown.escape.window="metricTooltipOpen = null">
+                        <svg width="12" height="12" aria-hidden="true"><use href="#icon-help-circle"/></svg>
+                        <span class="metric-source-tooltip"
+                              x-show="metricTooltipOpen === metricTooltipKey(h, 'snmp_heatmap')"
+                              x-cloak @click.stop
+                              x-transition.opacity.duration.120ms
+                              x-text="metricSource(h, 'snmp_throughput')"></span>
+                      </span>
+                    </div>
+                    <div class="metric-card-stats" style="gap:10px">
+                      <span class="text-[10.5px] flex items-center gap-1">
+                        <span class="inline-block w-2.5 h-2.5 rounded-sm" style="background: var(--success)"></span>
+                        <span x-text="t('host_drawer.snmp_charts.heatmap_legend_low')"></span>
+                      </span>
+                      <span class="text-[10.5px] flex items-center gap-1">
+                        <span class="inline-block w-2.5 h-2.5 rounded-sm" style="background: var(--warning)"></span>
+                        <span x-text="t('host_drawer.snmp_charts.heatmap_legend_med')"></span>
+                      </span>
+                      <span class="text-[10.5px] flex items-center gap-1">
+                        <span class="inline-block w-2.5 h-2.5 rounded-sm" style="background: var(--danger)"></span>
+                        <span x-text="t('host_drawer.snmp_charts.heatmap_legend_high')"></span>
+                      </span>
+                      <span class="text-[10.5px] flex items-center gap-1">
+                        <span class="inline-block w-2.5 h-2.5 rounded-sm" style="background: var(--surface-3); border: 1px solid var(--border)"></span>
+                        <span x-text="t('host_drawer.snmp_charts.heatmap_legend_idle')"></span>
+                      </span>
+                    </div>
+                  </div>
+                  <div class="mt-2 flex flex-wrap gap-1.5">
+                    <template x-for="ifname in snmpAllIfacesSorted(h.id)" :key="'hm-' + ifname">
+                      <span class="inline-flex items-center gap-1.5 px-2 py-1 rounded text-[10.5px] mono"
+                            :style="'background:' + snmpIfaceHeatmapColor(snmpIfaceUtilizationPct(h.id, ifname)) + '; color:var(--text-on-accent)'"
+                            :title="ifname + ': ' + (snmpIfaceUtilizationPct(h.id, ifname) != null
+                                                      ? Math.round(snmpIfaceUtilizationPct(h.id, ifname)) + '% of '
+                                                        + snmpIfaceLinkSpeedMbps(h.id, ifname) + ' Mbps'
+                                                      : 'link speed unknown')">
+                        <span x-text="ifname"></span>
+                        <span x-show="snmpIfaceUtilizationPct(h.id, ifname) != null"
+                              class="opacity-90"
+                              x-text="Math.round(snmpIfaceUtilizationPct(h.id, ifname) || 0) + '%'"></span>
+                      </span>
+                    </template>
                   </div>
                 </div>
 
@@ -9999,7 +10056,7 @@
                      x-show="hostChartMax(hostHistoryKey(h), ['la1','la5','la15']) > 0">
                   <div class="metric-card-head">
                     <div class="metric-card-title">
-                      <span x-text="t('hosts_extra.metrics.load_avg')"></span>
+                      <span x-text="t('hosts_extra.metrics.load_avg')"></span><span class="unit">load</span>
                       <span class="metric-source-help" :title="metricSource(h, 'load_avg')"
                             @click.stop="toggleMetricTooltip(h, 'load_avg')"
                             @keydown.escape.window="metricTooltipOpen = null">
@@ -10262,6 +10319,152 @@
                         <template x-for="(l, i) in xAxisFromSeries(hostHistoryKey(h), 5)" :key="i">
                           <span x-text="l"></span>
                         </template>
+                      </div>
+                    </div>
+                  </template>
+                </div>
+
+                <!-- #749 — GPU Power Draw. Average watts across every
+                     GPU on the host, plotted from the per-tick
+                     `gpu_pwr` field synthesized in
+                     `logic/beszel.py:fetch_system_history`. Card
+                     hidden when the host has no GPU (host_gpus empty
+                     OR every history point's gpu_pwr is 0 — no
+                     discrete GPU surfaces no telemetry). -->
+                <div class="metric-card metric-card--gpu"
+                     x-show="(h.host_gpus || []).length > 0">
+                  <div class="metric-card-head">
+                    <div class="metric-card-title">
+                      <span x-text="t('hosts_extra.metrics.gpu_power')"></span><span class="unit">W</span>
+                      <span class="metric-source-help" :title="metricSource(h, 'gpu')"
+                            @click.stop="toggleMetricTooltip(h, 'gpu_pwr')"
+                            @keydown.escape.window="metricTooltipOpen = null">
+                        <svg width="12" height="12" aria-hidden="true"><use href="#icon-help-circle"/></svg>
+                        <span class="metric-source-tooltip"
+                              x-show="metricTooltipOpen === metricTooltipKey(h, 'gpu_pwr')"
+                              x-cloak @click.stop
+                              x-transition.opacity.duration.120ms
+                              x-text="metricSource(h, 'gpu')"></span>
+                      </span>
+                    </div>
+                    <div class="metric-card-stats" style="gap:8px">
+                      <template x-for="(gpu, i) in (h.host_gpus || [])" :key="'gpw' + i">
+                        <span class="text-[11px]">
+                          <span class="metric-legend-dot" style="background: var(--warning)"></span>
+                          <span x-text="gpu.name || ('GPU ' + gpu.index)"></span>
+                          <span class="legend-val" x-text="(+gpu.power_watts || 0).toFixed(1) + ' W'"></span>
+                        </span>
+                      </template>
+                    </div>
+                  </div>
+                  <template x-if="hostChart(hostHistoryKey(h), 'gpu_pwr')">
+                    <div class="metric-card-body">
+                      <div class="metric-y-axis">
+                        <template x-for="(l, i) in yAxisAuto(hostChartMax(hostHistoryKey(h), ['gpu_pwr']), n => Math.round(n) + ' W')" :key="i">
+                          <span x-text="l"></span>
+                        </template>
+                      </div>
+                      <svg class="metric-svg" viewBox="0 0 420 120" preserveAspectRatio="none" aria-hidden="true">
+                        <path class="metric-grid"
+                              :d="hostChart(hostHistoryKey(h), 'gpu_pwr', { min: 0, max: hostChartMax(hostHistoryKey(h), ['gpu_pwr']), height: 120 }).gridPath" fill="none"/>
+                        <polyline class="metric-line" style="color: var(--warning)" fill="none"
+                                  :points="hostChart(hostHistoryKey(h), 'gpu_pwr', { min: 0, max: hostChartMax(hostHistoryKey(h), ['gpu_pwr']), height: 120 }).points"/>
+                      </svg>
+                      <div class="metric-x-axis">
+                        <template x-for="(l, i) in xAxisFromSeries(hostHistoryKey(h), 5)" :key="i"><span x-text="l"></span></template>
+                      </div>
+                    </div>
+                  </template>
+                </div>
+
+                <!-- #749 — GPU Usage. Average utilization % across
+                     every GPU. -->
+                <div class="metric-card metric-card--gpu"
+                     x-show="(h.host_gpus || []).length > 0">
+                  <div class="metric-card-head">
+                    <div class="metric-card-title">
+                      <span x-text="t('hosts_extra.metrics.gpu_usage')"></span><span class="unit">%</span>
+                      <span class="metric-source-help" :title="metricSource(h, 'gpu')"
+                            @click.stop="toggleMetricTooltip(h, 'gpu_usage')"
+                            @keydown.escape.window="metricTooltipOpen = null">
+                        <svg width="12" height="12" aria-hidden="true"><use href="#icon-help-circle"/></svg>
+                        <span class="metric-source-tooltip"
+                              x-show="metricTooltipOpen === metricTooltipKey(h, 'gpu_usage')"
+                              x-cloak @click.stop
+                              x-transition.opacity.duration.120ms
+                              x-text="metricSource(h, 'gpu')"></span>
+                      </span>
+                    </div>
+                    <div class="metric-card-stats" style="gap:8px">
+                      <template x-for="(gpu, i) in (h.host_gpus || [])" :key="'gus' + i">
+                        <span class="text-[11px]">
+                          <span class="metric-legend-dot" style="background: var(--success)"></span>
+                          <span x-text="gpu.name || ('GPU ' + gpu.index)"></span>
+                          <span class="legend-val" x-text="Math.round(+gpu.usage_percent || 0) + '%'"></span>
+                        </span>
+                      </template>
+                    </div>
+                  </div>
+                  <template x-if="hostChart(hostHistoryKey(h), 'gpu_usage')">
+                    <div class="metric-card-body">
+                      <div class="metric-y-axis">
+                        <template x-for="(l, i) in yAxisPercent()" :key="i"><span x-text="l"></span></template>
+                      </div>
+                      <svg class="metric-svg" viewBox="0 0 420 120" preserveAspectRatio="none" aria-hidden="true">
+                        <path class="metric-grid"
+                              :d="hostChart(hostHistoryKey(h), 'gpu_usage', { min: 0, max: 100, height: 120 }).gridPath" fill="none"/>
+                        <polyline class="metric-line" style="color: var(--success)" fill="none"
+                                  :points="hostChart(hostHistoryKey(h), 'gpu_usage', { min: 0, max: 100, height: 120 }).points"/>
+                      </svg>
+                      <div class="metric-x-axis">
+                        <template x-for="(l, i) in xAxisFromSeries(hostHistoryKey(h), 5)" :key="i"><span x-text="l"></span></template>
+                      </div>
+                    </div>
+                  </template>
+                </div>
+
+                <!-- #749 — GPU VRAM. Plots the % of VRAM used; legend
+                     shows used / total bytes via fmtBytes. -->
+                <div class="metric-card metric-card--gpu"
+                     x-show="(h.host_gpus || []).length > 0">
+                  <div class="metric-card-head">
+                    <div class="metric-card-title">
+                      <span x-text="t('hosts_extra.metrics.gpu_vram')"></span><span class="unit">%</span>
+                      <span class="metric-source-help" :title="metricSource(h, 'gpu')"
+                            @click.stop="toggleMetricTooltip(h, 'gpu_vram')"
+                            @keydown.escape.window="metricTooltipOpen = null">
+                        <svg width="12" height="12" aria-hidden="true"><use href="#icon-help-circle"/></svg>
+                        <span class="metric-source-tooltip"
+                              x-show="metricTooltipOpen === metricTooltipKey(h, 'gpu_vram')"
+                              x-cloak @click.stop
+                              x-transition.opacity.duration.120ms
+                              x-text="metricSource(h, 'gpu')"></span>
+                      </span>
+                    </div>
+                    <div class="metric-card-stats" style="gap:8px">
+                      <template x-for="(gpu, i) in (h.host_gpus || [])" :key="'gvr' + i">
+                        <span class="text-[11px]">
+                          <span class="metric-legend-dot" style="background: var(--info)"></span>
+                          <span x-text="gpu.name || ('GPU ' + gpu.index)"></span>
+                          <span class="legend-val"
+                                x-text="fmtBytes(gpu.vram_used_bytes) + ' / ' + fmtBytes(gpu.vram_total_bytes)"></span>
+                        </span>
+                      </template>
+                    </div>
+                  </div>
+                  <template x-if="hostChart(hostHistoryKey(h), 'gpu_vram_pct')">
+                    <div class="metric-card-body">
+                      <div class="metric-y-axis">
+                        <template x-for="(l, i) in yAxisPercent()" :key="i"><span x-text="l"></span></template>
+                      </div>
+                      <svg class="metric-svg" viewBox="0 0 420 120" preserveAspectRatio="none" aria-hidden="true">
+                        <path class="metric-grid"
+                              :d="hostChart(hostHistoryKey(h), 'gpu_vram_pct', { min: 0, max: 100, height: 120 }).gridPath" fill="none"/>
+                        <polyline class="metric-line" style="color: var(--info)" fill="none"
+                                  :points="hostChart(hostHistoryKey(h), 'gpu_vram_pct', { min: 0, max: 100, height: 120 }).points"/>
+                      </svg>
+                      <div class="metric-x-axis">
+                        <template x-for="(l, i) in xAxisFromSeries(hostHistoryKey(h), 5)" :key="i"><span x-text="l"></span></template>
                       </div>
                     </div>
                   </template>

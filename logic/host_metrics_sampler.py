@@ -725,16 +725,25 @@ async def _probe_one_snmp(host: dict, sem: asyncio.Semaphore) -> None:
                                 tx = iface.get("tx_bytes")
                                 if rx is None and tx is None:
                                     continue
+                                # #725 slice 4 — IF-MIB ifHighSpeed
+                                # (Mbps). NULL on devices that don't
+                                # expose v2c HC counters; heatmap
+                                # renders such ifaces in grey.
+                                speed_raw = iface.get("link_speed_mbps")
+                                speed_mbps = (
+                                    int(speed_raw) if speed_raw is not None else None
+                                )
                                 iface_rows.append((
                                     int(now), hid, name,
                                     int(rx) if rx is not None else None,
                                     int(tx) if tx is not None else None,
+                                    speed_mbps,
                                 ))
                             if iface_rows:
                                 c.executemany(
                                     "INSERT OR REPLACE INTO host_snmp_iface_samples "
-                                    "(ts, host_id, ifname, in_bytes, out_bytes) "
-                                    "VALUES (?, ?, ?, ?, ?)",
+                                    "(ts, host_id, ifname, in_bytes, out_bytes, link_speed_mbps) "
+                                    "VALUES (?, ?, ?, ?, ?, ?)",
                                     iface_rows,
                                 )
         except Exception as e:  # noqa: BLE001
