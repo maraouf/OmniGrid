@@ -5002,6 +5002,10 @@
             <template x-for="key in [
               'tuning_snmp_probe_timeout_seconds',
               'tuning_snmp_concurrency',
+              'tuning_snmp_sample_interval_seconds',
+              'tuning_snmp_unreachable_cooldown_seconds',
+              'tuning_snmp_host_cache_ttl_seconds',
+              'tuning_snmp_host_fail_cache_ttl_seconds',
             ]" :key="key">
               <div class="space-y-1">
                 <label class="block text-[11px] font-medium"
