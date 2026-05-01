@@ -565,6 +565,14 @@ async def probe_pulse(
             await _fetch_version(client, base_url, token)
             state = await _fetch_state(client, base_url, token)
     except Exception as e:
+        # Surface the failure in stdout so it lands in Admin → Logs.
+        # Pre-fix the error string was returned silently in the API
+        # response and operators saw "Pulse: down" on the Hosts page
+        # with no log entry explaining why (#831). Print BEFORE
+        # returning so the same error reaches the persistent log
+        # capture even when callers don't surface the response field.
+        print(f"[pulse] probe failed: {type(e).__name__}: {e} "
+              f"url={base_url!r} verify_tls={verify_tls}")
         return {"hosts": {}, "error": str(e)}
     # Nodes live at ``state.nodes`` in every Pulse version we've seen.
     nodes = state.get("nodes") or []
