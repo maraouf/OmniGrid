@@ -775,13 +775,18 @@ def _prune_old_samples() -> int:
 
 async def host_metrics_sampler_loop() -> None:
     """Lifespan-managed sampler. One tick per
-    ``tuning_stats_sample_interval_seconds`` (DB > env > default)."""
+    ``tuning_stats_sample_interval_seconds`` (DB > env > default).
+    SNMP probes can have their own cadence via
+    ``tuning_snmp_sample_interval_seconds`` (#768) — when set > 0 they
+    run only when ``now - last_snmp >= snmp_interval``; when 0 they
+    inherit the global cadence (legacy behaviour)."""
     _last_counters.clear()
     # Wait a beat so DB tables exist + hosts_config is loaded before the
     # first probe. Same pattern as host_net_sampler / stats_sampler.
     interval = tuning.tuning_int("tuning_stats_sample_interval_seconds")
     await asyncio.sleep(min(60, interval))
     tick = 0
+    last_snmp_ts = 0.0
     while True:
         try:
             active = _active_providers()
@@ -806,15 +811,24 @@ async def host_metrics_sampler_loop() -> None:
             # `snmp:<host_id>` so SNMP / NE streaks stay separate. A
             # paused SNMP host skips the probe entirely on subsequent
             # ticks until the operator clears the row.
+            # #768 — SNMP cadence is independent of NE when
+            # `tuning_snmp_sample_interval_seconds > 0`. Falls back to
+            # the global stats interval when 0 so legacy deployments
+            # keep their existing behaviour.
             if "snmp" in active:
-                snmp_hosts = _load_curated_snmp_hosts()
-                if snmp_hosts:
-                    snmp_sem = asyncio.Semaphore(
-                        tuning.tuning_int("tuning_snmp_concurrency"))
-                    await asyncio.gather(
-                        *(_probe_one_snmp(h, snmp_sem) for h in snmp_hosts),
-                        return_exceptions=True,
-                    )
+                snmp_interval = tuning.tuning_int("tuning_snmp_sample_interval_seconds")
+                now_ts = time.time()
+                snmp_due = (snmp_interval <= 0) or (now_ts - last_snmp_ts >= snmp_interval)
+                if snmp_due:
+                    snmp_hosts = _load_curated_snmp_hosts()
+                    if snmp_hosts:
+                        snmp_sem = asyncio.Semaphore(
+                            tuning.tuning_int("tuning_snmp_concurrency"))
+                        await asyncio.gather(
+                            *(_probe_one_snmp(h, snmp_sem) for h in snmp_hosts),
+                            return_exceptions=True,
+                        )
+                    last_snmp_ts = now_ts
             interval = tuning.tuning_int("tuning_stats_sample_interval_seconds")
             days = tuning.tuning_int("tuning_stats_history_days")
             if tick % max(1, 3600 // interval) == 0:
