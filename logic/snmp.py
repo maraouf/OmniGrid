@@ -1140,6 +1140,7 @@ def extract_interfaces(
     descr_walk: dict, oper_walk: dict,
     in_hc_walk: dict, out_hc_walk: dict,
     in_32_walk: dict, out_32_walk: dict,
+    high_speed_walk: Optional[dict] = None,
 ) -> dict:
     """Shape ifTable rows into network_ifaces[] + host_net rx/tx totals.
 
@@ -1164,6 +1165,8 @@ def extract_interfaces(
              for oid, v in in_32_walk.items()}
     out_32 = {_last_index(oid, _OID_IF_OUT_OCTETS_32): _coerce_int(v)
               for oid, v in out_32_walk.items()}
+    speeds = {_last_index(oid, _OID_IF_HIGH_SPEED): _coerce_int(v)
+              for oid, v in (high_speed_walk or {}).items()}
 
     ifaces: list[dict] = []
     rx_total = 0
@@ -1174,14 +1177,18 @@ def extract_interfaces(
         oper = opers.get(idx, 1)  # 1 = up
         rx = in_hc.get(idx) or in_32.get(idx) or 0
         tx = out_hc.get(idx) or out_32.get(idx) or 0
-        ifaces.append({
+        speed_mbps = speeds.get(idx) or None  # None when ifHighSpeed not exposed
+        iface_row = {
             "name": name,
             "mac": "",
             "addrs": [],
             "oper_status": "up" if oper == 1 else "down",
             "rx_bytes": rx,
             "tx_bytes": tx,
-        })
+        }
+        if speed_mbps:
+            iface_row["link_speed_mbps"] = speed_mbps
+        ifaces.append(iface_row)
         # Exclude pseudo NICs from the host-wide totals — same rule the
         # node-exporter sampler applies.
         nlc = name.lower()
@@ -1239,6 +1246,7 @@ def extract_stats(
         iface_walks.get("out_hc") or {},
         iface_walks.get("in_32") or {},
         iface_walks.get("out_32") or {},
+        iface_walks.get("high_speed") or {},
     ))
     # #681 — ENTITY-MIB pass. Vendor-agnostic; emits host_model /
     # host_serial / host_firmware when the agent answers.
@@ -1517,7 +1525,8 @@ async def probe_snmp(
          "size": st_size, "used": st_used},
         {"descr": if_descr, "oper": if_oper,
          "in_hc": if_hc_in, "out_hc": if_hc_out,
-         "in_32": if_in, "out_32": if_out},
+         "in_32": if_in, "out_32": if_out,
+         "high_speed": if_high_speed},
         active_sources=active_sources,
         entity_walks={
             "descr": ent_descr, "name": ent_name,

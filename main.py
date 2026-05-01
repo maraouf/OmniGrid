@@ -651,6 +651,12 @@ def init_db():
             # sparkline + reads the live value as the lifetime
             # headline. NULL for non-printer hosts.
             "ALTER TABLE host_snmp_samples ADD COLUMN printer_page_count INTEGER",
+            # #725 — per-iface link speed (Mbps) so the per-port
+            # utilization heatmap can compute throughput ÷ link
+            # capacity. NULL when the agent doesn't expose ifHighSpeed
+            # (older IF-MIB-v1-only devices) — heatmap renders such
+            # ifaces in grey ("unknown speed") instead of red.
+            "ALTER TABLE host_snmp_iface_samples ADD COLUMN link_speed_mbps INTEGER",
         ):
             try:
                 c.execute(ddl)
@@ -6798,7 +6804,7 @@ async def api_hosts_snmp_iface_history(
     try:
         with db_conn() as c:
             rows = c.execute(
-                "SELECT ts, ifname, in_bytes, out_bytes "
+                "SELECT ts, ifname, in_bytes, out_bytes, link_speed_mbps "
                 "FROM host_snmp_iface_samples "
                 "WHERE host_id=? AND ts >= ? "
                 "ORDER BY ifname ASC, ts ASC",
@@ -6815,6 +6821,9 @@ async def api_hosts_snmp_iface_history(
             "ts": int(r[0]),
             "in_bytes":  (int(r[2]) if r[2] is not None else None),
             "out_bytes": (int(r[3]) if r[3] is not None else None),
+            # #725 slice 4 — IF-MIB ifHighSpeed (Mbps); NULL when the
+            # device doesn't expose it.
+            "link_speed_mbps": (int(r[4]) if r[4] is not None else None),
         })
     return {"ifaces": ifaces, "error": None}
 

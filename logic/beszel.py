@@ -413,6 +413,33 @@ async def fetch_system_history(
         # (one for ``temps``, two for ``temp_max``). On a 168h history
         # at 1-minute granularity that's 30k+ wasted parses
         temps = _flatten_temperatures(stats.get("t"))
+        # GPU per-tick aggregates (#749). Beszel emits per-GPU dict on
+        # every history row — average across GPUs for power / usage
+        # (operator-flagged: "GPU Power Draw: Average power consumption
+        # of GPUs", "GPU Usage: Average utilization of GPU"); sum
+        # across GPUs for VRAM totals so multi-GPU rigs surface their
+        # combined memory pressure. Missing `g` → zeros; chart hides
+        # on `host_gpus.length > 0` gate.
+        g_dict = stats.get("g") if isinstance(stats.get("g"), dict) else {}
+        gpu_pwr_sum = 0.0
+        gpu_usage_sum = 0.0
+        gpu_vram_used_sum = 0.0
+        gpu_vram_total_sum = 0.0
+        gpu_n = 0
+        for _idx, _gpu in g_dict.items():
+            if not isinstance(_gpu, dict):
+                continue
+            gpu_pwr_sum += _num(_gpu.get("p"))
+            gpu_usage_sum += _num(_gpu.get("u"))
+            gpu_vram_used_sum += _num(_gpu.get("mu")) * 1024 ** 3   # GB → bytes
+            gpu_vram_total_sum += _num(_gpu.get("mt")) * 1024 ** 2  # MB → bytes
+            gpu_n += 1
+        gpu_pwr_avg = (gpu_pwr_sum / gpu_n) if gpu_n else 0.0
+        gpu_usage_avg = (gpu_usage_sum / gpu_n) if gpu_n else 0.0
+        gpu_vram_pct = (
+            (gpu_vram_used_sum / gpu_vram_total_sum * 100.0)
+            if gpu_vram_total_sum else 0.0
+        )
         series.append({
             "t":   ts,
             "cpu": _num(stats.get("cpu")),
@@ -447,6 +474,14 @@ async def fetch_system_history(
             # on `Object.keys(temps).length > 0` (#437).
             "temps":    temps,
             "temp_max": max(temps.values()) if temps else 0.0,
+            # GPU aggregates (#749) — gpu_pwr / gpu_usage / gpu_vram_pct
+            # power dedicated per-GPU chart cards. Plus the absolute
+            # VRAM used / total (bytes) for the legend value formatting.
+            "gpu_pwr":             gpu_pwr_avg,
+            "gpu_usage":           gpu_usage_avg,
+            "gpu_vram_pct":        gpu_vram_pct,
+            "gpu_vram_used_bytes": int(gpu_vram_used_sum),
+            "gpu_vram_total_bytes": int(gpu_vram_total_sum),
         })
 
     # ---- Net I/O fallback from node-exporter samples --------------------
@@ -638,6 +673,43 @@ def _flatten_temperatures(t) -> dict[str, float]:
         if celsius != celsius:  # NaN guard
             continue
         out[str(k)] = celsius
+    return out
+
+
+def _flatten_gpus(g) -> list[dict]:
+    """Normalise Beszel's ``stats.g`` into a clean ``[{name, vram_used_bytes,
+    vram_total_bytes, usage_percent, power_watts}, ...]`` list (#749).
+
+    Beszel agents emit ``g`` as a dict keyed by GPU index (string) →
+    ``{n, mu, mt, u, p}``. Units are inconsistent in the agent payload:
+    ``mu`` (VRAM used) is in GB, ``mt`` (VRAM total) is in MB —
+    confirmed against the Beszel agent source. We normalise BOTH to
+    bytes so the SPA can use ``fmtBytes`` without per-field unit math.
+    Hosts without a discrete GPU emit no ``g`` field; we return an
+    empty list so the frontend chart cards hide via
+    ``host_gpus.length > 0``.
+    """
+    if not isinstance(g, dict):
+        return []
+    out: list[dict] = []
+    for idx, gpu in g.items():
+        if not isinstance(gpu, dict):
+            continue
+        try:
+            vram_used_gb = float(gpu.get("mu") or 0)
+            vram_total_mb = float(gpu.get("mt") or 0)
+            usage_pct = float(gpu.get("u") or 0)
+            power_w = float(gpu.get("p") or 0)
+        except (TypeError, ValueError):
+            continue
+        out.append({
+            "index": str(idx),
+            "name": str(gpu.get("n") or ""),
+            "vram_used_bytes":  int(vram_used_gb * 1024 ** 3),
+            "vram_total_bytes": int(vram_total_mb * 1024 ** 2),
+            "usage_percent":    usage_pct,
+            "power_watts":      power_w,
+        })
     return out
 
 
@@ -845,6 +917,14 @@ def extract_stats(info: dict, stats: Optional[dict] = None) -> dict:
         # agent doesn't expose any thermal sensor get an empty dict and
         # the frontend chart card hides cleanly.
         "host_temperatures": _flatten_temperatures(stats.get("t")),
+        # GPUs (#749). Beszel agents emit `stats.g` as a dict keyed by
+        # GPU index → {n, mu, mt, u, p} (name / VRAM used / VRAM total /
+        # usage % / power W). Beszel stores `mu` in GB and `mt` in MB
+        # (yes, inconsistent — confirmed against agent source). We
+        # normalise both to bytes here so the SPA can use `fmtBytes`
+        # without per-field unit math. Empty list when the host has
+        # no discrete GPU.
+        "host_gpus":             _flatten_gpus(stats.get("g")),
         # Service info (#321). Beszel agents emit the systemd-services
         # data under the field name `systemd_services` (operator
         # confirmed by inspecting the PocketBase admin — initial

@@ -12979,6 +12979,58 @@ function app() {
       }
       return m;
     },
+    // #725 slice 4 — link speed (Mbps) for one iface, taken from the
+    // most recent history point that carries it. Returns null when
+    // ifHighSpeed isn't exposed on this device.
+    snmpIfaceLinkSpeedMbps(hostId, ifname) {
+      const series = ((this.hostSnmpIfaceHistory[hostId] || {}).ifaces || {})[ifname] || [];
+      for (let i = series.length - 1; i >= 0; i--) {
+        const s = series[i].link_speed_mbps;
+        if (s != null && s > 0) return s;
+      }
+      return null;
+    },
+    // Utilization % for one iface = max(in, out) bps × 8 ÷ link_bps × 100.
+    // Returns null when link speed unknown so the heatmap can render
+    // those ifaces in grey ("speed unknown") instead of mis-implying 0%.
+    snmpIfaceUtilizationPct(hostId, ifname) {
+      const link = this.snmpIfaceLinkSpeedMbps(hostId, ifname);
+      if (!link) return null;
+      const s = this.snmpIfaceBpsSeries(hostId, ifname);
+      let lastIn = 0, lastOut = 0;
+      for (let i = s.in.length - 1; i >= 0; i--) {
+        if (s.in[i] > 0) { lastIn = s.in[i]; break; }
+      }
+      for (let i = s.out.length - 1; i >= 0; i--) {
+        if (s.out[i] > 0) { lastOut = s.out[i]; break; }
+      }
+      const peakBps = Math.max(lastIn, lastOut);
+      const linkBps = link * 1_000_000 / 8;       // Mbps → bytes/sec capacity
+      if (linkBps <= 0) return null;
+      return Math.min(100, (peakBps / linkBps) * 100);
+    },
+    // Full iface list sorted by name for the heatmap (no top-N
+    // filtering — operators want every port visible to spot a single
+    // hot link in a quiet 48-port switch).
+    snmpAllIfacesSorted(hostId) {
+      const ifaces = (this.hostSnmpIfaceHistory[hostId] || {}).ifaces || {};
+      return Object.keys(ifaces).sort((a, b) => {
+        // Natural sort so ge-0/0/2 comes before ge-0/0/12
+        return a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' });
+      });
+    },
+    // Color mapping for the heatmap cell: green < 50 < amber < 85 < red.
+    // Same thresholds as the .stat-bar fill (CLAUDE.md: 60/85 split was
+    // for CPU/mem; ports tend to alarm earlier so 50/85). Returns a
+    // CSS color literal — heatmap uses inline style because there's
+    // no pre-existing token for the per-cell shade.
+    snmpIfaceHeatmapColor(pct) {
+      if (pct == null) return 'var(--surface-3)';      // unknown speed
+      if (pct >= 85) return 'var(--danger)';
+      if (pct >= 50) return 'var(--warning)';
+      if (pct > 0)  return 'var(--success)';
+      return 'var(--surface-3)';                       // 0% / idle
+    },
     // True when this host has SNMP data worth charting (per-core CPU
     // OR load avg OR buffers/cached). Drives the gate on the new
     // chart cards so non-SNMP hosts don't see them.
@@ -13753,6 +13805,9 @@ function app() {
         // OmniGrid's NE sampler doesn't extract those yet. Add 'ne'
         // to the precedence list when that work lands.
         temperature: ['beszel'],
+        // GPU comes from Beszel only — agent reads NVIDIA / AMD GPU
+        // stats and emits per-GPU power / usage / VRAM in `stats.g`.
+        gpu:         ['beszel'],
         // Network + Bandwidth share the same upstream + the NE-fallback
         // when both are present. SNMP throughput chart (#725b) reads
         // ifHCInOctets / ifHCOutOctets from the device itself.
@@ -13802,9 +13857,11 @@ function app() {
         return `${primary}; node-exporter (${ne}) fills Net I/O when Beszel returns zero`;
       }
 
-      if (active.length === 1) return primary;
-      const rest = active.slice(1).map(p => providers[p]).join(', ');
-      return `${primary} (fallback chain: ${rest})`;
+      // Operator-flagged: just the active source — no fallback chain
+      // suffix. The chart is rendered from ONE provider's data right
+      // now; calling out fallbacks confused operators into thinking
+      // the chart was somehow merged.
+      return primary;
     },
 
     setHostHistoryRange(hours) {
