@@ -8011,7 +8011,7 @@
                   <div>
                     <div class="font-semibold text-[var(--text)]" x-text="t('hosts_extra.no_data.title')"></div>
                     <div class="text-[var(--text-dim)] mt-1"
-                         x-text="t('hosts_extra.no_data.body', { debug_label: t('debug_panel.show'), providers: enabledProvidersList() })"></div>
+                         x-text="t('hosts_extra.no_data.body', { debug_label: t('debug_panel.show'), providers: enabledProvidersList(h) })"></div>
                   </div>
                 </div>
               </template>
@@ -8695,12 +8695,19 @@
                      magenta / yellow / black / waste). -->
                 <section x-show="(h.printer_supplies || []).length > 0"
                          class="rounded border border-[var(--border)] bg-[var(--surface)] p-4 md:col-span-6">
-                  <h4 class="text-[10.5px] uppercase tracking-wider text-[var(--text-faint)] mb-3 flex items-center gap-2">
-                    <span x-text="t('host_drawer.printer.heading')"></span>
-                    <span x-show="h.printer_page_count"
-                          class="text-[10.5px] text-[var(--text-faint)] font-normal"
-                          x-text="t('host_drawer.printer.page_count', { count: h.printer_page_count })"></span>
-                  </h4>
+                  <h4 class="text-[10.5px] uppercase tracking-wider text-[var(--text-faint)] mb-3"
+                      x-text="t('host_drawer.printer.heading')"></h4>
+                  <!-- Operator-flagged: surface the lifetime page count
+                       prominently inside the box rather than as small
+                       greyed sub-text in the heading. Value rendered in
+                       a larger, more visible font matched to the rest
+                       of the drawer's "headline number" style. -->
+                  <div x-show="h.printer_page_count" class="mb-3 flex items-baseline gap-2">
+                    <span class="text-[18px] font-semibold mono"
+                          x-text="(+h.printer_page_count || 0).toLocaleString()"></span>
+                    <span class="text-[11.5px] text-[var(--text-dim)]"
+                          x-text="t('host_drawer.printer.pages_label')"></span>
+                  </div>
                   <div class="space-y-2.5">
                     <template x-for="(supply, i) in (h.printer_supplies || [])" :key="'p' + i">
                       <div class="space-y-1">
@@ -9270,7 +9277,7 @@
                              || (hostSnmpHistory[h.id] && (hostSnmpHistory[h.id].points || []).some(p => p.load_1m || p.load_5m || p.load_15m))">
                   <div class="metric-card-head">
                     <div class="metric-card-title">
-                      <span x-text="t('host_drawer.snmp_charts.load_title')"></span><span class="unit">load</span>
+                      <span x-text="t('host_drawer.snmp_charts.load_title')"></span><span class="unit">%</span>
                       <span class="metric-source-help" :title="metricSource(h, 'snmp_load')"
                             @click.stop="toggleMetricTooltip(h, 'snmp_load')"
                             @keydown.escape.window="metricTooltipOpen = null">
@@ -9286,25 +9293,23 @@
                       <span>
                         <span class="metric-legend-dot" style="background: var(--success)"></span>
                         <span x-text="t('host_drawer.snmp_charts.legend_load_1m')"></span>
-                        <span class="legend-val" x-text="snmpLoadLegendValue(h.id, 'load_1m', h.host_load_1m)"></span>
+                        <span class="legend-val" x-text="Math.round(snmpLoadPctLive(h.id, h.host_load_1m || (snmpStats(h.id, 'load_1m') || {}).max || 0)) + '%'"></span>
                       </span>
                       <span>
                         <span class="metric-legend-dot" style="background: var(--warning)"></span>
                         <span x-text="t('host_drawer.snmp_charts.legend_load_5m')"></span>
-                        <span class="legend-val" x-text="snmpLoadLegendValue(h.id, 'load_5m', h.host_load_5m)"></span>
+                        <span class="legend-val" x-text="Math.round(snmpLoadPctLive(h.id, h.host_load_5m || (snmpStats(h.id, 'load_5m') || {}).max || 0)) + '%'"></span>
                       </span>
                       <span>
                         <span class="metric-legend-dot" style="background: var(--info)"></span>
                         <span x-text="t('host_drawer.snmp_charts.legend_load_15m')"></span>
-                        <span class="legend-val" x-text="snmpLoadLegendValue(h.id, 'load_15m', h.host_load_15m)"></span>
+                        <span class="legend-val" x-text="Math.round(snmpLoadPctLive(h.id, h.host_load_15m || (snmpStats(h.id, 'load_15m') || {}).max || 0)) + '%'"></span>
                       </span>
                     </div>
                   </div>
                   <div class="metric-card-body">
                     <div class="metric-y-axis">
-                      <span x-text="snmpLoadMax(h.id).toFixed(2)"></span>
-                      <span x-text="(snmpLoadMax(h.id) / 2).toFixed(2)"></span>
-                      <span>0</span>
+                      <template x-for="(l, i) in yAxisPercent()" :key="'snmp-load-y-' + i"><span x-text="l"></span></template>
                     </div>
                     <svg class="metric-svg" viewBox="0 0 420 120" preserveAspectRatio="none" aria-hidden="true">
                       <line class="metric-grid" x1="0" y1="30" x2="420" y2="30"/>
