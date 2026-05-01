@@ -1760,11 +1760,13 @@
       "normalized_ping": "Normalized · Ping",
       "normalized_snmp": "Normalized · SNMP",
       "merged": "Merged (best-of)",
-      "rendered": "Rendered (/api/hosts)"
+      "rendered": "Rendered (/api/hosts)",
+      "counters": "Counters & state"
     },
     "hints": {
       "merged": "after _merge_best",
-      "rendered": "what the UI sees"
+      "rendered": "what the UI sees",
+      "counters": "failure-state, per-provider pauses, sample row counts, tunables"
     }
   },
   "topbar_widgets": {

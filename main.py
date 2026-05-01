@@ -6659,6 +6659,127 @@ async def api_hosts_debug(
             or (isinstance(record.get("snmp"), dict) and record["snmp"])
         ))
     )
+    # Per-host counters — operator-requested addition (#828). Surfaces
+    # failure-state retry counters, per-provider pause / last-ok rows,
+    # and time-series row counts so operators can debug "why is my host
+    # paused" / "why is my chart empty" without poking the SQLite DB
+    # directly.
+    counters: dict = {}
+    try:
+        counters["failure_state"] = _failure_state_for_host(id)
+    except Exception as e:
+        counters["failure_state"] = {"_error": str(e)}
+    try:
+        counters["provider_pause_state"] = _provider_pause_state_for_host(id)
+    except Exception as e:
+        counters["provider_pause_state"] = {"_error": str(e)}
+    try:
+        with db_conn() as c:
+            # host_snmp_samples — SNMP probe history depth.
+            row = c.execute(
+                "SELECT COUNT(*), MAX(ts), MIN(ts) "
+                "FROM host_snmp_samples WHERE host_id=?",
+                (id,),
+            ).fetchone()
+            counters["snmp_samples"] = {
+                "count":    int(row[0] or 0),
+                "newest_ts": (int(row[1]) if row[1] is not None else None),
+                "oldest_ts": (int(row[2]) if row[2] is not None else None),
+            }
+            # host_snmp_iface_samples — per-port history depth.
+            row2 = c.execute(
+                "SELECT COUNT(*), COUNT(DISTINCT ifname), MAX(ts) "
+                "FROM host_snmp_iface_samples WHERE host_id=?",
+                (id,),
+            ).fetchone()
+            counters["snmp_iface_samples"] = {
+                "rows":      int(row2[0] or 0),
+                "ifaces":    int(row2[1] or 0),
+                "newest_ts": (int(row2[2]) if row2[2] is not None else None),
+            }
+            # host_metrics_samples — node-exporter sampler history.
+            row3 = c.execute(
+                "SELECT COUNT(*), MAX(ts) "
+                "FROM host_metrics_samples WHERE host_id=?",
+                (id,),
+            ).fetchone()
+            counters["ne_samples"] = {
+                "count":     int(row3[0] or 0),
+                "newest_ts": (int(row3[1]) if row3[1] is not None else None),
+            }
+            # ping_samples — TCP/ICMP probe history.
+            row4 = c.execute(
+                "SELECT COUNT(*), MAX(ts), "
+                "       SUM(CASE WHEN alive=1 THEN 1 ELSE 0 END), "
+                "       SUM(CASE WHEN alive=0 THEN 1 ELSE 0 END) "
+                "FROM ping_samples WHERE host_id=?",
+                (id,),
+            ).fetchone()
+            counters["ping_samples"] = {
+                "count":     int(row4[0] or 0),
+                "newest_ts": (int(row4[1]) if row4[1] is not None else None),
+                "alive":     int(row4[2] or 0),
+                "down":      int(row4[3] or 0),
+            }
+            # host_snapshots — last persistence write for this host.
+            row5 = c.execute(
+                "SELECT ts, length(data) FROM host_snapshots WHERE host=?",
+                (id,),
+            ).fetchone()
+            if row5:
+                counters["snapshot"] = {
+                    "ts":        float(row5[0] or 0.0),
+                    "size_bytes": int(row5[1] or 0),
+                }
+            else:
+                # Try short-hostname fallback (mirrors the snapshot
+                # lookup tolerance in apply_host_snapshot_fallback).
+                short = (id or "").split(".", 1)[0]
+                row5b = c.execute(
+                    "SELECT host, ts, length(data) FROM host_snapshots "
+                    "WHERE host=? OR host LIKE ?",
+                    (short, short + ".%"),
+                ).fetchone()
+                if row5b:
+                    counters["snapshot"] = {
+                        "ts":         float(row5b[1] or 0.0),
+                        "size_bytes": int(row5b[2] or 0),
+                        "host_key":   row5b[0],
+                    }
+                else:
+                    counters["snapshot"] = None
+    except Exception as e:
+        counters["_db_error"] = str(e)
+
+    # Tunables that affect this host's probe behaviour. Surfaced so
+    # operators don't have to cross-reference Admin → Config to see
+    # "what's the failure-pause threshold for SNMP?". Read live from
+    # the resolver so a recent edit is reflected.
+    from logic.tuning import tuning_int as _tuning_int
+    tuning_keys = [
+        "tuning_snmp_failure_pause_rounds",
+        "tuning_webmin_failure_pause_rounds",
+        "tuning_beszel_failure_pause_rounds",
+        "tuning_pulse_failure_pause_rounds",
+        "tuning_node_exporter_failure_pause_rounds",
+        "tuning_ping_failure_pause_rounds",
+        "tuning_snmp_sample_interval_seconds",
+        "tuning_stats_sample_interval_seconds",
+        "tuning_stats_history_days",
+        "tuning_snmp_probe_timeout_seconds",
+        "tuning_snmp_concurrency",
+        "tuning_host_permanent_fail_window_seconds",
+        "tuning_webmin_host_cache_ttl_seconds",
+        "tuning_snmp_host_cache_ttl_seconds",
+    ]
+    counters["tunables"] = {}
+    for key in tuning_keys:
+        try:
+            counters["tunables"][key] = _tuning_int(key)
+        except Exception:
+            # Knob may not exist on older deploys; skip silently.
+            pass
+
     return {
         "host_record":          record,
         "active_providers":     host_active,
@@ -6667,6 +6788,7 @@ async def api_hosts_debug(
         "providers_normalized": providers_normalized,
         "merged":               merged,
         "rendered":             rendered,
+        "counters":             counters,
     }
 
 

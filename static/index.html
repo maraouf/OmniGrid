@@ -11157,6 +11157,26 @@
                             </header>
                             <pre class="host-debug-json scrollbar" x-text="fmtDebugJson(hostsDebug[h.id].rendered)"></pre>
                           </section>
+                          <!-- Counters block — failure-state retry counts,
+                               per-provider pause / last-OK rows, time-series
+                               row counts, and the tunables that affect this
+                               host's probe behaviour. Lets operators answer
+                               "why is my host paused?" / "is the SNMP
+                               sampler actually writing rows?" / "what's
+                               the failure-pause threshold?" without poking
+                               the SQLite DB directly (#828). -->
+                          <section class="host-debug-box host-debug-box--wide" x-show="hasDebugData(hostsDebug[h.id].counters)">
+                            <header class="host-debug-box-head">
+                              <span class="host-debug-label host-debug-label--rendered" x-text="t('debug_panel.labels.counters')"></span>
+                              <span class="host-debug-hint" x-text="t('debug_panel.hints.counters')"></span>
+                              <button type="button" class="host-debug-copy"
+                                      @click="copyDebugJson(hostsDebug[h.id].counters, 'Counters')"
+                                      :title="t('debug_panel.copy_title')">
+                                <svg width="12" height="12" aria-hidden="true"><use href="#icon-copy"/></svg>
+                              </button>
+                            </header>
+                            <pre class="host-debug-json scrollbar" x-text="fmtDebugJson(hostsDebug[h.id].counters)"></pre>
+                          </section>
                           <section class="host-debug-box" x-show="hasDebugData(hostsDebug[h.id].providers_normalized?.pulse)">
                             <header class="host-debug-box-head">
                               <span class="host-debug-label host-debug-label--pulse" x-text="t('debug_panel.labels.normalized_pulse')"></span>

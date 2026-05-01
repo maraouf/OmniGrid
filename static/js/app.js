@@ -13285,8 +13285,22 @@ function app() {
       // Load history once per (host, range). Subsequent re-opens of
       // the same host reuse the cached series until the range picker
       // forces a refetch. Same logic the legacy inline-expansion used.
+      // Stale-cache guard. Pre-fix the gate was just `!hostHistory[key]`
+      // — a previously-cached series fetched at an earlier "now" stayed
+      // on the chart even after the operator had been away for an hour,
+      // so the unified time-domain (which anchors on Date.now() at
+      // render time) clamped every cached point to the left edge and
+      // operators saw the chart cropped from the right. The dedicated
+      // 30s drawer-history poll eventually corrects it, but the first
+      // ~30s after reopening showed stale-positioned data. Re-fetch
+      // when the cache is older than 30s OR missing entirely; under
+      // that threshold the cached data is fresh enough to keep.
+      const HISTORY_STALE_MS = 30_000;
+      const _cacheStale = (entry) => !entry || !entry.loadedAt
+        || (Date.now() - entry.loadedAt) > HISTORY_STALE_MS;
       const drawerKey = this.hostHistoryKey(host);
-      if (drawerKey && (host.beszel_id || host.ne_url) && !this.hostHistory[drawerKey]) {
+      if (drawerKey && (host.beszel_id || host.ne_url)
+          && _cacheStale(this.hostHistory[drawerKey])) {
         this.loadHostHistory(host.beszel_id || '', host.id);
       }
       // ping history is a separate fetch (different endpoint,
@@ -13294,7 +13308,7 @@ function app() {
       // in via per-host `ping_enabled`; the chart card itself is
       // hidden via `x-show="h.ping_enabled"` for non-opted hosts.
       const pingKey = this.hostPingHistoryKey(host);
-      if (pingKey && host.ping_enabled && !this.hostHistory[pingKey]) {
+      if (pingKey && host.ping_enabled && _cacheStale(this.hostHistory[pingKey])) {
         this.loadHostPingHistory(host.id);
       }
       // #713 / SNMP history (separate endpoint, separate state
@@ -13305,14 +13319,14 @@ function app() {
       // instead of waiting 10-20s for the fresh SNMP probe to land.
       // Gated only on `host.snmp_enabled` (curated config) so non-
       // SNMP hosts still skip the fetch.
-      if (host.snmp_enabled && !this.hostSnmpHistory[host.id]) {
-        this.loadHostSnmpHistory(host.id, 1);
+      if (host.snmp_enabled && _cacheStale(this.hostSnmpHistory[host.id])) {
+        this.loadHostSnmpHistory(host.id, this.hostHistoryRange || 1);
       }
       // per-interface SNMP history powers the per-port
       // throughput chart on switches / routers. Same gate + cadence
       // as the per-host SNMP history call above.
-      if (host.snmp_enabled && !this.hostSnmpIfaceHistory[host.id]) {
-        this.loadHostSnmpIfaceHistory(host.id, 1);
+      if (host.snmp_enabled && _cacheStale(this.hostSnmpIfaceHistory[host.id])) {
+        this.loadHostSnmpIfaceHistory(host.id, this.hostHistoryRange || 1);
       }
       // Dedicated drawer-history poll (#365) — keeps the chart series +
       // the `Updated Xs ago` freshness label in sync regardless of
