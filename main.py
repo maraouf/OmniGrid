@@ -4483,6 +4483,31 @@ async def _merge_one_host(h: dict, state: dict, *, force: bool = False) -> tuple
     except Exception as e:  # noqa: BLE001
         print(f"[hosts] snapshot fallback failed for {h.get('id')!r}: {e}")
 
+    # Persist the just-merged dict as the snapshot for this host
+    # (#830). Pre-fix, snapshots were only written by the legacy
+    # _gather_impl path (the one /api/items uses) which builds
+    # nodes_info from Swarm-node hostnames — curated SNMP-only hosts
+    # like UPSes / managed switches that aren't Swarm nodes never
+    # appeared in nodes_info, so save_host_snapshots never wrote a
+    # row for them. Fallback then had nothing to restore when SNMP
+    # stopped returning data → operator-reported "UPS card disappears
+    # 5 minutes after the last probe even though SNMP says Updated 7m
+    # ago". Write the snapshot from the per-host probe path AS WELL
+    # so any host that ever has a successful probe gets a fallback
+    # source. We only persist when at least one host_* field is
+    # meaningful — empty / no-data merged dicts skip the write so we
+    # don't overwrite a good snapshot with a transient empty probe.
+    try:
+        from logic.gather import (
+            save_host_snapshots as _save_snaps,
+            _is_snapshot_key as _snap_key,
+        )
+        from logic.merge import is_meaningful as _is_mean
+        if any(_snap_key(k) and _is_mean(v) for k, v in merged.items()):
+            _save_snaps({h["id"]: merged})
+    except Exception as e:  # noqa: BLE001
+        print(f"[hosts] snapshot save failed for {h.get('id')!r}: {e}")
+
     return merged, providers_hit
 
 
