@@ -14324,12 +14324,19 @@ function app() {
       return 0;
     },
     // Banner copy — derives the per-tick interval from the SAME tunable
-    // the SNMP sampler uses (tuning_stats_sample_interval_seconds,
-    // delivered via /api/me's client_config). Falls back to 300 s
-    // when client_config hasn't hydrated yet so the literal
+    // the SNMP sampler uses. Resolution order (#833):
+    //   1. tuning_snmp_sample_interval_seconds when > 0 (SNMP runs at
+    //      its own cadence, distinct from the global Beszel/NE one).
+    //   2. tuning_stats_sample_interval_seconds (legacy / inherited
+    //      cadence when the SNMP-specific knob is 0).
+    //   3. 300s fallback when client_config hasn't hydrated.
+    // Both knobs are surfaced via /api/me's client_config; the literal
     // `{minutes}` placeholder never reaches the rendered DOM.
     snmpWarmingUpText() {
-      const sec = (this.me && this.me.client_config && this.me.client_config.stats_sample_interval_seconds) || 300;
+      const cc = (this.me && this.me.client_config) || {};
+      const snmpSec  = +cc.snmp_sample_interval_seconds || 0;
+      const statsSec = +cc.stats_sample_interval_seconds || 0;
+      const sec = snmpSec > 0 ? snmpSec : (statsSec || 300);
       const minutes = Math.max(1, Math.round(sec / 60));
       let s = this.t('host_drawer.snmp_charts.warming_up', { minutes });
       // Defensive: if i18n's interpolation didn't substitute (older
