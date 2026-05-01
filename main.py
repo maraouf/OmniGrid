@@ -1665,6 +1665,9 @@ class SettingsIn(BaseModel):
     # #678 — dedicated SNMP unreachable cool-down (was sharing the
     # auth-failure cool-down with Webmin / SSH).
     tuning_snmp_unreachable_cooldown_seconds: Optional[str] = None
+    # #770 — SNMP-specific sample interval; 0 = use the global stats
+    # interval, > 0 = SNMP probes run on their own cadence.
+    tuning_snmp_sample_interval_seconds: Optional[str] = None
     # #695 — stat-bar thresholds (frontend-consumed via /api/me).
     tuning_stat_bar_warn_pct: Optional[str] = None
     tuning_stat_bar_crit_pct: Optional[str] = None

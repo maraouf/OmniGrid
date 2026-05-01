@@ -124,6 +124,13 @@ PING_COOLDOWN_SECONDS=300
 # live under the timeout budget.
 SNMP_PROBE_TIMEOUT_SECONDS=5
 SNMP_CONCURRENCY=16
+# SNMP-specific sample interval. 0 (default) = use the global
+# STATS_SAMPLE_INTERVAL_SECONDS for SNMP probes too. >0 = SNMP probes
+# run on their own cadence (range 30..3600). Useful for keeping
+# expensive switch / printer probes on a slower cadence than
+# Beszel / NE hosts. Sampler reads per-tick — changes take effect
+# without restart.
+SNMP_SAMPLE_INTERVAL_SECONDS=0
 
 # SSE pipeline tunables (#537–#542). Heartbeat keeps a quiet stream
 # alive past upstream proxy idle timers; max-lifetime forces a periodic
@@ -287,6 +294,7 @@ Quick index of every env var OmniGrid reads, grouped by scope:
 | `PING_COOLDOWN_SECONDS`           | Runtime     | `300`                | Per-(host, port) cool-down on consecutive ping failures (#343).                  |
 | `SNMP_PROBE_TIMEOUT_SECONDS`      | Runtime     | `5`                  | Per-probe wall-clock budget for SNMP UDP queries (#344).                         |
 | `SNMP_CONCURRENCY`                | Runtime     | `16`                 | SNMP probe fan-out cap (#344).                                                   |
+| `SNMP_SAMPLE_INTERVAL_SECONDS`    | Runtime     | `0`                  | SNMP-specific sample interval; 0 inherits the global stats interval, 30..3600 overrides for SNMP probes only. |
 | `SSE_HEARTBEAT_SECONDS`           | Runtime     | `25`                 | SSE keepalive comment cadence (#537).                                            |
 | `SSE_MAX_LIFETIME_SECONDS`        | Runtime     | `21600`              | SSE connection wall-clock cap before forced reconnect (#538).                    |
 | `SSE_IDLE_THRESHOLD_SECONDS`      | Runtime     | `30`                 | SPA freshness-watchdog idle threshold (#541).                                    |
