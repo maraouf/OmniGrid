@@ -279,6 +279,22 @@ async def _lifespan(app: FastAPI):
                 print(f"[boot] seeded {n_hosts} host snapshots from host_snapshots")
         except Exception as e:
             print(f"[boot] seed_nodes_info_from_snapshots failed: {e}")
+        # Orphan sweep on startup (#834). Cleans stale `<provider>:<host_id>`
+        # rows from `host_failure_state` + `host_provider_last_ok` where the
+        # host has been deleted OR no longer has that provider configured.
+        # Pre-#834 these accumulated until the operator re-saved a host config
+        # — operator-reported pulse/beszel paused state on a Ping-only host
+        # carried over indefinitely after #832 hardened the probe-side gate.
+        # Running on every deploy ensures a fresh DB without operator action.
+        try:
+            curated = _load_hosts_config()
+            live_ids = {h.get("id") for h in curated if h.get("id")}
+            removed = _sweep_orphan_provider_state_rows(live_ids)
+            if removed:
+                print(f"[boot] orphan sweep removed {removed} row(s) from "
+                      f"host_failure_state / host_provider_last_ok")
+        except Exception as e:
+            print(f"[boot] orphan sweep failed: {e}")
 
     seed_task = asyncio.create_task(_seed_caches_bg(), name="boot-seed-caches")
     sampler = asyncio.create_task(_stats_sampler_loop(), name="stats-sampler")
@@ -5656,16 +5672,42 @@ def _sweep_orphan_provider_state_rows(live_ids: set) -> int:
     """Delete `<provider>:<host_id>` rows in `host_failure_state` and
     `host_provider_last_ok` whose suffix isn't in ``live_ids``. Also
     deletes BARE host_id rows whose value isn't in ``live_ids`` (these
-    come from the whole-host #383 sampler). Returns total rows removed.
+    come from the whole-host #383 sampler). ALSO (#834) deletes
+    per-provider rows where the host EXISTS in ``live_ids`` but the
+    provider isn't actually configured on the host's curated row —
+    catches orphans like "pulse:apc.example.com" on a host that only has
+    Ping enabled (the operator-reported case after #832 hardened the
+    probe-side gate but didn't clean the DB rows that accumulated
+    pre-fix). Returns total rows removed.
 
-    Called by `api_hosts_config_set` after every Save and also safe to
-    call from a periodic prune in `_lifespan`. Live_ids is the set of
-    host_ids the operator's curated `hosts_config` references — anything
-    NOT in that set is an orphan from a since-deleted host.
+    Called by `api_hosts_config_set` after every Save AND from
+    `_lifespan` startup so a deploy automatically cleans accumulated
+    orphans without operator action.
     """
     total = 0
     if not isinstance(live_ids, set):
         live_ids = set(live_ids or [])
+    # Build a per-host "providers configured" map so we can spot orphan
+    # provider-prefixed rows (#834). Mirror the same check
+    # `_merge_one_host` uses post-#832 to decide whether to probe each
+    # provider for a given host.
+    curated = _load_hosts_config()
+    host_providers: dict[str, set] = {}
+    for h in curated:
+        hid = h.get("id") or ""
+        if not hid:
+            continue
+        configured: set[str] = set()
+        if (h.get("beszel_name")  or "").strip(): configured.add("beszel")
+        if (h.get("pulse_name")   or "").strip(): configured.add("pulse")
+        if (h.get("ne_url")       or "").strip(): configured.add("node_exporter")
+        if (h.get("webmin_name")  or "").strip(): configured.add("webmin")
+        if bool((h.get("ping") or {}).get("enabled", False)): configured.add("ping")
+        if (h.get("snmp_name")    or "").strip() and (
+            isinstance(h.get("snmp"), dict) and h["snmp"].get("enabled") is True
+        ):
+            configured.add("snmp")
+        host_providers[hid] = configured
     try:
         with db_conn() as c:
             for table in ("host_failure_state", "host_provider_last_ok"):
@@ -5674,12 +5716,24 @@ def _sweep_orphan_provider_state_rows(live_ids: set) -> int:
                 for r in rows:
                     key = r[0] or ""
                     bare = key
+                    provider = ""
                     if ":" in key:
                         head, _, tail = key.partition(":")
                         if head in _PROVIDER_AUTO_PAUSE_NAMES:
                             bare = tail
+                            provider = head
                     if bare and bare not in live_ids:
                         doomed.append(key)
+                        continue
+                    # Per-provider orphan check (#834): provider-prefixed
+                    # row but the host's curated config no longer (or
+                    # never) had that provider enabled. Most common path
+                    # for these is the pre-#832 fall-through that probed
+                    # Pulse/Beszel against `host.id` for hosts without
+                    # the corresponding alias set.
+                    if provider and bare in host_providers:
+                        if provider not in host_providers[bare]:
+                            doomed.append(key)
                 if doomed:
                     c.executemany(
                         f"DELETE FROM {table} WHERE host_id = ?",
