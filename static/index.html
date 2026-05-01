@@ -8869,7 +8869,8 @@
                     <span x-text="t('host_drawer.ups.heading')"></span>
                     <span x-show="h.host_ups_status"
                           class="chip text-[10.5px]"
-                          :class="upsStatusPillClass(h.host_ups_status)"
+                          :class="[upsStatusPillClass(h.host_ups_status), isStaleField(h, 'host_ups_status') ? 'stale' : '']"
+                          :title="isStaleField(h, 'host_ups_status') ? staleAge(h) : ''"
                           x-text="upsStatusLabel(h.host_ups_status)"></span>
                   </h4>
                   <dl class="drawer-dl text-[12px]">
@@ -8877,7 +8878,9 @@
                       <dt class="text-[var(--text-dim)]" x-text="t('host_drawer.ups.battery')"></dt>
                     </template>
                     <template x-if="typeof h.host_battery_percent === 'number'">
-                      <dd class="text-end">
+                      <dd class="text-end"
+                          :class="isStaleField(h, 'host_battery_percent') ? 'stale' : ''"
+                          :title="isStaleField(h, 'host_battery_percent') ? staleAge(h) : ''">
                         <div class="flex items-center justify-end gap-2">
                           <div class="stat-bar w-24"
                                :class="upsBatteryLevel(h.host_battery_percent)"
@@ -8892,7 +8895,9 @@
                       <dt class="text-[var(--text-dim)]" x-text="t('host_drawer.ups.load')"></dt>
                     </template>
                     <template x-if="typeof h.host_load_percent === 'number'">
-                      <dd class="text-end">
+                      <dd class="text-end"
+                          :class="isStaleField(h, 'host_load_percent') ? 'stale' : ''"
+                          :title="isStaleField(h, 'host_load_percent') ? staleAge(h) : ''">
                         <div class="flex items-center justify-end gap-2">
                           <div class="stat-bar w-24"
                                :class="barLevel(h.host_load_percent)"
@@ -8907,21 +8912,30 @@
                       <dt class="text-[var(--text-dim)]" x-text="t('host_drawer.ups.runtime')"></dt>
                     </template>
                     <template x-if="h.host_battery_runtime_s">
-                      <dd class="text-end mono" x-text="fmtUpsRuntime(h.host_battery_runtime_s)"></dd>
+                      <dd class="text-end mono"
+                          :class="isStaleField(h, 'host_battery_runtime_s') ? 'stale' : ''"
+                          :title="isStaleField(h, 'host_battery_runtime_s') ? staleAge(h) : ''"
+                          x-text="fmtUpsRuntime(h.host_battery_runtime_s)"></dd>
                     </template>
                     <template x-if="h.host_battery_temp_c">
                       <dt class="text-[var(--text-dim)]" x-text="t('host_drawer.ups.battery_temp')"></dt>
                     </template>
                     <template x-if="h.host_battery_temp_c">
                       <dd class="text-end mono"
-                          :class="(+h.host_battery_temp_c) > 40 ? 'text-[var(--danger)]' : ''"
+                          :class="[(+h.host_battery_temp_c) > 40 ? 'text-[var(--danger)]' : '', isStaleField(h, 'host_battery_temp_c') ? 'stale' : '']"
+                          :title="isStaleField(h, 'host_battery_temp_c') ? staleAge(h) : ''"
                           x-text="(+h.host_battery_temp_c).toFixed(0) + '°C'"></dd>
                     </template>
                     <template x-if="h.host_battery_status">
                       <dt class="text-[var(--text-dim)]" x-text="t('host_drawer.ups.battery_status')"></dt>
                     </template>
                     <template x-if="h.host_battery_status">
-                      <dd class="text-end" x-text="h.host_battery_status"></dd>
+                      <dd class="text-end">
+                        <span class="chip text-[10.5px]"
+                              :class="[upsBatteryStatusPillClass(h.host_battery_status), isStaleField(h, 'host_battery_status') ? 'stale' : '']"
+                              :title="isStaleField(h, 'host_battery_status') ? staleAge(h) : ''"
+                              x-text="upsBatteryStatusLabel(h.host_battery_status)"></span>
+                      </dd>
                     </template>
                   </dl>
                 </section>
@@ -9914,6 +9928,117 @@
                      the pages-per-day rate sparkline added marginal
                      value for the cost of a permanently-spinner card
                      on idle printers. -->
+
+                <!-- APC UPS Output Load % chart (#820). Reads
+                     `load_percent` from `host_snmp_samples` rows the
+                     sampler writes when host_load_percent is present.
+                     Y-axis pinned to 100% so a busy UPS doesn't auto-
+                     rescale the chart on every tick. Visible only
+                     when ≥ 2 ticks have a non-null load_percent — the
+                     gate matches `snmpHasUpsLoad(h.id)` so non-UPS
+                     hosts and brand-new UPS rows skip the card cleanly. -->
+                <div class="metric-card"
+                     x-show="snmpHasUpsLoad(h.id)">
+                  <div class="metric-card-head">
+                    <div class="metric-card-title">
+                      <span x-text="t('host_drawer.snmp_charts.ups_load_title')"></span><span class="unit">%</span>
+                    </div>
+                    <div class="metric-card-stats" style="gap:8px"
+                         x-show="typeof h.host_load_percent === 'number'">
+                      <span>
+                        <span class="metric-legend-dot" style="background: var(--warning)"></span>
+                        <span x-text="t('host_drawer.snmp_charts.ups_load_legend')"></span>
+                        <span class="legend-val mono" x-text="(+h.host_load_percent).toFixed(0) + '%'"></span>
+                      </span>
+                    </div>
+                  </div>
+                  <div class="metric-card-body">
+                    <div class="metric-y-axis">
+                      <template x-for="(l, i) in yAxisPercent()" :key="'ups-load-y-' + i"><span x-text="l"></span></template>
+                    </div>
+                    <svg class="metric-svg" viewBox="0 0 420 120" preserveAspectRatio="none" aria-hidden="true">
+                      <line class="metric-grid" x1="0" y1="30" x2="420" y2="30"/>
+                      <line class="metric-grid" x1="0" y1="60" x2="420" y2="60"/>
+                      <line class="metric-grid" x1="0" y1="90" x2="420" y2="90"/>
+                      <polyline fill="none" stroke="var(--warning)" stroke-width="1.5" :points="snmpUpsLoadLine(h.id)"></polyline>
+                    </svg>
+                    <div class="metric-x-axis">
+                      <template x-for="(l, i) in snmpXAxis(h.id, 5)" :key="'ups-load-x-' + i"><span x-text="l"></span></template>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- APC UPS Battery % chart (#820). Discharge curve
+                     when on battery + recharge curve afterwards.
+                     Same pattern as Output Load. -->
+                <div class="metric-card"
+                     x-show="snmpHasUpsBattery(h.id)">
+                  <div class="metric-card-head">
+                    <div class="metric-card-title">
+                      <span x-text="t('host_drawer.snmp_charts.ups_battery_title')"></span><span class="unit">%</span>
+                    </div>
+                    <div class="metric-card-stats" style="gap:8px"
+                         x-show="typeof h.host_battery_percent === 'number'">
+                      <span>
+                        <span class="metric-legend-dot" style="background: var(--success)"></span>
+                        <span x-text="t('host_drawer.snmp_charts.ups_battery_legend')"></span>
+                        <span class="legend-val mono" x-text="(+h.host_battery_percent).toFixed(0) + '%'"></span>
+                      </span>
+                    </div>
+                  </div>
+                  <div class="metric-card-body">
+                    <div class="metric-y-axis">
+                      <template x-for="(l, i) in yAxisPercent()" :key="'ups-batt-y-' + i"><span x-text="l"></span></template>
+                    </div>
+                    <svg class="metric-svg" viewBox="0 0 420 120" preserveAspectRatio="none" aria-hidden="true">
+                      <line class="metric-grid" x1="0" y1="30" x2="420" y2="30"/>
+                      <line class="metric-grid" x1="0" y1="60" x2="420" y2="60"/>
+                      <line class="metric-grid" x1="0" y1="90" x2="420" y2="90"/>
+                      <polyline fill="none" stroke="var(--success)" stroke-width="1.5" :points="snmpUpsBatteryLine(h.id)"></polyline>
+                    </svg>
+                    <div class="metric-x-axis">
+                      <template x-for="(l, i) in snmpXAxis(h.id, 5)" :key="'ups-batt-x-' + i"><span x-text="l"></span></template>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- APC UPS Battery Temperature chart (#820). Auto-
+                     ranges to max(50, observed_max) so a flat-ish 36°C
+                     line still has vertical movement instead of
+                     compressing into the bottom margin of a 0..100
+                     scale. -->
+                <div class="metric-card"
+                     x-show="snmpHasUpsBatteryTemp(h.id)">
+                  <div class="metric-card-head">
+                    <div class="metric-card-title">
+                      <span x-text="t('host_drawer.snmp_charts.ups_battery_temp_title')"></span><span class="unit">°C</span>
+                    </div>
+                    <div class="metric-card-stats" style="gap:8px"
+                         x-show="typeof h.host_battery_temp_c === 'number'">
+                      <span>
+                        <span class="metric-legend-dot" style="background: var(--danger)"></span>
+                        <span x-text="t('host_drawer.snmp_charts.ups_battery_temp_legend')"></span>
+                        <span class="legend-val mono" x-text="(+h.host_battery_temp_c).toFixed(0) + '°C'"></span>
+                      </span>
+                    </div>
+                  </div>
+                  <div class="metric-card-body">
+                    <div class="metric-y-axis">
+                      <span x-text="snmpUpsBatteryTempMax(h.id).toFixed(0) + '°'"></span>
+                      <span x-text="(snmpUpsBatteryTempMax(h.id) / 2).toFixed(0) + '°'"></span>
+                      <span>0°</span>
+                    </div>
+                    <svg class="metric-svg" viewBox="0 0 420 120" preserveAspectRatio="none" aria-hidden="true">
+                      <line class="metric-grid" x1="0" y1="30" x2="420" y2="30"/>
+                      <line class="metric-grid" x1="0" y1="60" x2="420" y2="60"/>
+                      <line class="metric-grid" x1="0" y1="90" x2="420" y2="90"/>
+                      <polyline fill="none" stroke="var(--danger)" stroke-width="1.5" :points="snmpUpsBatteryTempLine(h.id)"></polyline>
+                    </svg>
+                    <div class="metric-x-axis">
+                      <template x-for="(l, i) in snmpXAxis(h.id, 5)" :key="'ups-temp-x-' + i"><span x-text="l"></span></template>
+                    </div>
+                  </div>
+                </div>
               </div>
 
               <div class="mt-3 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4"

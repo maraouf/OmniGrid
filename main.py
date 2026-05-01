@@ -670,6 +670,16 @@ def init_db():
             # (older IF-MIB-v1-only devices) — heatmap renders such
             # ifaces in grey ("unknown speed") instead of red.
             "ALTER TABLE host_snmp_iface_samples ADD COLUMN link_speed_mbps INTEGER",
+            # APC UPS time-series fields (#820). Sampler writes the live
+            # values per probe so the host drawer can render Output
+            # Load %, Battery %, Battery temperature charts over the
+            # picker window. NULL for non-UPS hosts. Reads come from
+            # `host_load_percent` / `host_battery_percent` /
+            # `host_battery_temp_c` extracted in `logic/snmp.py` via
+            # PowerNet-MIB OIDs (1.3.6.1.4.1.318.1.1.1.x).
+            "ALTER TABLE host_snmp_samples ADD COLUMN load_percent REAL",
+            "ALTER TABLE host_snmp_samples ADD COLUMN battery_percent REAL",
+            "ALTER TABLE host_snmp_samples ADD COLUMN battery_temp_c REAL",
         ):
             try:
                 c.execute(ddl)
@@ -7345,7 +7355,8 @@ async def api_hosts_snmp_history(
                 "load_1m, load_5m, load_15m, "
                 "mem_total, mem_used, mem_buffers, mem_cached, mem_free, "
                 "uptime_s, net_rx_total_bytes, net_tx_total_bytes, "
-                "printer_page_count "
+                "printer_page_count, load_percent, battery_percent, "
+                "battery_temp_c "
                 "FROM host_snmp_samples "
                 "WHERE host_id=? AND ts >= ? "
                 "ORDER BY ts ASC LIMIT ?",
@@ -7384,6 +7395,12 @@ async def api_hosts_snmp_history(
             # prtMarkerLifeCount). Cumulative monotonic counter; the
             # SPA computes deltas → pages-per-day.
             "printer_page_count": (int(r[14]) if r[14] is not None else None),
+            # APC UPS time-series fields (#820). NULL for non-UPS hosts
+            # or pre-#820 rows. Drives the Output Load / Battery /
+            # Battery temperature charts in the host drawer's UPS card.
+            "load_percent":     (float(r[15]) if r[15] is not None else None),
+            "battery_percent":  (float(r[16]) if r[16] is not None else None),
+            "battery_temp_c":   (float(r[17]) if r[17] is not None else None),
         })
     return {"points": points, "error": None}
 

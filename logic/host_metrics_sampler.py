@@ -813,7 +813,18 @@ async def _probe_one_snmp(host: dict, sem: asyncio.Semaphore) -> None:
                 # (no mem, no IF-MIB). Insert the row so the sparkline
                 # has data to plot.
                 page_count_present = stats.get("printer_page_count") is not None
-                if mem_total > 0 or rx_raw_present or tx_raw_present or page_count_present:
+                # APC UPS hosts report load / battery percentages but
+                # may have neither hrStorage nor IF-MIB on basic models
+                # (#820). Without this branch, UPS history rows never
+                # got inserted so the Output Load chart had no data
+                # to plot. host_load_percent extracted from PowerNet
+                # OID 1.3.6.1.4.1.318.1.1.1.4.2.3.0 in `logic/snmp.py`.
+                load_pct_present    = stats.get("host_load_percent") is not None
+                batt_pct_present    = stats.get("host_battery_percent") is not None
+                batt_temp_present   = stats.get("host_battery_temp_c") is not None
+                ups_present = load_pct_present or batt_pct_present or batt_temp_present
+                if (mem_total > 0 or rx_raw_present or tx_raw_present
+                        or page_count_present or ups_present):
                     cores = stats.get("host_cpu_per_core") or []
                     cpu_used = stats.get("host_cpu_percent")
                     cpu_used_pct = float(cpu_used) if cpu_used is not None else None
@@ -834,6 +845,14 @@ async def _probe_one_snmp(host: dict, sem: asyncio.Semaphore) -> None:
                     # non-printer SNMP hosts.
                     page_raw = stats.get("printer_page_count")
                     page_count = int(page_raw) if page_raw is not None else None
+                    # APC UPS time-series fields (#820). NULL when the
+                    # host isn't a UPS or the OIDs didn't come back.
+                    load_pct_raw = stats.get("host_load_percent")
+                    batt_pct_raw = stats.get("host_battery_percent")
+                    batt_temp_raw = stats.get("host_battery_temp_c")
+                    ups_load_pct = float(load_pct_raw) if load_pct_raw is not None else None
+                    ups_batt_pct = float(batt_pct_raw) if batt_pct_raw is not None else None
+                    ups_batt_temp = float(batt_temp_raw) if batt_temp_raw is not None else None
                     with db_conn() as c:
                         c.execute(
                             "INSERT OR REPLACE INTO host_snmp_samples "
@@ -841,8 +860,9 @@ async def _probe_one_snmp(host: dict, sem: asyncio.Semaphore) -> None:
                             "load_1m, load_5m, load_15m, "
                             "mem_total, mem_used, mem_buffers, mem_cached, mem_free, "
                             "uptime_s, net_rx_total_bytes, net_tx_total_bytes, "
-                            "printer_page_count) "
-                            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                            "printer_page_count, load_percent, battery_percent, "
+                            "battery_temp_c) "
+                            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                             (
                                 int(now), hid,
                                 json.dumps(list(cores)) if cores else None,
@@ -859,6 +879,9 @@ async def _probe_one_snmp(host: dict, sem: asyncio.Semaphore) -> None:
                                 rx_total,
                                 tx_total,
                                 page_count,
+                                ups_load_pct,
+                                ups_batt_pct,
+                                ups_batt_temp,
                             ),
                         )
                         # per-interface counter snapshot for the

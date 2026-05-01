@@ -269,13 +269,39 @@ async def _fetch_systemd_services(client, base_url: str, token: str) -> list:
     return out
 
 
+def _pick_stat_type(hours: int) -> str:
+    """Pick the Beszel stat aggregation tier appropriate for the
+    requested window. Beszel's PocketBase keeps multiple parallel
+    aggregations of system_stats keyed by ``type`` — the ``1m`` rows
+    are retained for roughly an hour, ``10m`` for ~12 hours, ``20m``
+    for ~a day, ``120m`` for the long tail. Querying ``1m`` for a
+    24-hour window returns the last ~1 hour of data only (the rest
+    has been aggregated away), which is exactly what the operator
+    saw as "the chart only shows the last hour even when I pick 24h".
+
+    Tier picks (#818):
+      hours ≤ 1   → ``1m``    (60 rows max)
+      hours ≤ 12  → ``10m``   (72 rows max for 12h)
+      hours ≤ 48  → ``20m``   (72 rows for 24h, 144 for 48h)
+      hours > 48  → ``120m``  (84 rows for 168h / 7d)
+    """
+    h = max(1, int(hours or 1))
+    if h <= 1:
+        return "1m"
+    if h <= 12:
+        return "10m"
+    if h <= 48:
+        return "20m"
+    return "120m"
+
+
 async def fetch_system_history(
     base_url: str,
     identity: str,
     password: str,
     system_id: str,
     hours: int = 1,
-    stat_type: str = "1m",
+    stat_type: Optional[str] = None,
     verify_tls: bool = True,
     timeout: float = 15.0,
     host_id: Optional[str] = None,
@@ -293,9 +319,19 @@ async def fetch_system_history(
 
     Non-fatal failures (401, 5xx, network) return an empty series and
     the error string so the UI can show "Collecting data…" instead.
+
+    ``stat_type`` defaults to None; when None, ``_pick_stat_type(hours)``
+    selects the right aggregation tier so a 24h request hits ``20m`` rows
+    (retained for ~24h) instead of ``1m`` rows (retained for ~1h) — see
+    #818.
     """
     if not (base_url and identity and password and system_id):
         return {"series": [], "error": "missing hub credentials or system id"}
+    # Pick aggregation tier from the window when caller didn't override.
+    # Explicit value wins so the test endpoints / operator probes still
+    # work the legacy way.
+    if stat_type is None:
+        stat_type = _pick_stat_type(hours)
     # Limit to a sane number — 1h * 60 = 60 rows for type=1m, etc.
     per_page = max(10, min(500, hours * 60))
     # Escape single quotes in user-controlled values before interpolating
