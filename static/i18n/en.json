@@ -1540,6 +1540,14 @@
       "title_bulk": "Provider unreachable — every metric below is cached",
       "body_bulk": "Last live update {age} ago. The full host telemetry is being served from the snapshot. Per-field warning markers are suppressed because they'd appear on every row — check the chips above for which provider went down."
     },
+    "paused_banner": {
+      "title": "{count} provider(s) auto-paused on this host",
+      "body": "Probes are stopped for: {providers}. Failure-state is preserved — click Resume all to clear and let the next sampler tick re-probe."
+    },
+    "disabled_banner": {
+      "title": "Host is disabled — sampling suppressed",
+      "body": "No provider probes will run while this host is disabled. The auto-pause counters from the previous enable cycle are preserved. Re-enable in Admin → Hosts to resume probing; the paused-providers banner will then offer one-click clear."
+    },
     "actions": {
       "edit_in_admin": "Edit",
       "edit_in_admin_title": "Open this host's row in Admin → Hosts"
