@@ -8692,6 +8692,24 @@
                           :title="isStaleField(h, 'host_mem_total') ? staleAge(h) : ''"
                           x-text="fmtBytes(h.mem_total)"></dd>
                     </template>
+                    <!-- Swap usage — pulled from host_swap_used (bytes).
+                         Snapshot fallback stamps this when live providers
+                         stop returning it; without rendering anywhere,
+                         the field surfaced as "1 stale field" in the
+                         drawer banner with no UI bind point (the swap
+                         CHART card uses host_swap_percent / `s`, not
+                         used-bytes). Render here so cached snapshot
+                         data is identifiable + operators can spot
+                         memory pressure at a glance even on stable
+                         hosts. -->
+                    <template x-if="h.host_swap_used">
+                      <dt class="text-[var(--text-dim)]" x-text="t('charts.swap')"></dt>
+                    </template>
+                    <template x-if="h.host_swap_used">
+                      <dd class="mono text-end" :class="isStaleField(h, 'host_swap_used') ? 'stale' : ''"
+                          :title="isStaleField(h, 'host_swap_used') ? staleAge(h) : ''"
+                          x-text="fmtBytes(h.host_swap_used)"></dd>
+                    </template>
                     <template x-if="h.disk_total">
                       <dt class="text-[var(--text-dim)]" x-text="t('host_drawer.hardware.disk')"></dt>
                     </template>
