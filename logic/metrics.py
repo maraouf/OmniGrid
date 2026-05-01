@@ -80,7 +80,7 @@ GATHER_DURATION = Histogram(
     registry=REGISTRY,
     buckets=(0.5, 1, 2, 5, 10, 30, 60, 120),
 )
-# #533 — `_host_provider_lock` acquire-latency histogram. The lock
+# `_host_provider_lock` acquire-latency histogram. The lock
 # single-flights cold-cache Beszel + Pulse hub probes (#506); when N
 # parallel `/api/hosts/one/<id>` calls land, the second-through-Nth
 # wait here for the first caller's probe to populate the cache. This

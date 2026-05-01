@@ -118,7 +118,7 @@
 </head>
 <body class="min-h-screen">
 
-<!-- LOW-IA / #704 — keyboard-only skip-to-main-content link. Visually
+<!-- LOW-IA / keyboard-only skip-to-main-content link. Visually
      hidden until focused (CSS handles the slide-in animation); first
      interactive element in <body> so a Tab from an empty page focuses
      it before the topbar's ~15 nav stops. Targets `#main` which is
@@ -173,7 +173,7 @@
     <symbol id="icon-arrow-up-right" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></symbol>
     <!-- Lucide: loader (8-spoke spinner — animated by .collecting-block svg in style.css) -->
     <symbol id="icon-loader" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/></symbol>
-    <!-- #377 — admin-tab + profile-tab + user-menu icons. All Lucide
+    <!-- admin-tab + profile-tab + user-menu icons. All Lucide
          shapes; viewBox / stroke / linecap match the existing symbols
          so the wrapper attrs apply uniformly through <use>. -->
     <symbol id="icon-user" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></symbol>
@@ -330,7 +330,7 @@
       <!-- Search input — full width below sm: (drops to its own row via
            flex-wrap order class), constrained to max-w-md on tablet+. -->
       <div class="relative w-full order-last sm:order-none sm:flex-1 sm:max-w-md sm:w-auto">
-        <!-- LOW-A11Y / #711 — visually-hidden label for screen readers.
+        <!-- LOW-A11Y / visually-hidden label for screen readers.
              The placeholder alone is a UA-dependent fallback and not
              every reader announces it consistently. -->
         <label for="topbar-search" class="sr-only" x-text="t('topbar.search_label')"></label>
@@ -576,7 +576,7 @@
                       : refreshInterval === 0 ? t('events.off_label')
                       : t('events.polling_label')"></span>
       </div>
-      <!-- #529 — events-dropped counter chip. Hidden when count is 0;
+      <!-- events-dropped counter chip. Hidden when count is 0;
            renders a small amber chip alongside the SSE pill when the
            bus has dropped events for this tab (fired from the
            `:overflow` SSE handler). One-glance signal that the bus is
@@ -1518,7 +1518,7 @@
           </span>
           <span class="flex items-center gap-1.5 flex-wrap"
                 x-show="(hosts && hosts.length) || Object.keys(hostsProviderErrors || {}).length">
-            <!-- #680 — clickable provider filter chips. Each chip
+            <!-- clickable provider filter chips. Each chip
                  toggles the provider into the active filter set
                  (multi-select OR semantics); the "All" button clears
                  the set; the "No provider" chip filters to curated
@@ -1615,7 +1615,7 @@
               <span x-text="t('hosts_extra_groups.collapse_all')"></span>
             </button>
           </div>
-          <!-- Hosts-toolbar refresh button removed in #498 — the
+          <!-- Hosts-toolbar refresh button removed in the
                topbar refresh icon is now context-aware and triggers
                `loadHosts()` automatically when the Hosts view is
                active. One refresh affordance is plenty. -->
@@ -2087,7 +2087,7 @@
               <div>
                 <template x-if="h.status === 'up' && hostHasTelemetry(h)">
                   <div>
-                    <!-- #730 — desktop bars now self-identify on hover.
+                    <!-- desktop bars now self-identify on hover.
                          Pre-fix the desktop view's bars had only stale-
                          state tooltips; an operator zooming on a row
                          without the table header in view couldn't tell
@@ -2880,7 +2880,7 @@
                               </template>
                             </span>
                           </template>
-                          <!-- #605 — orphaned-credential badge. When the
+                          <!-- orphaned-credential badge. When the
                                credential's stored rp_id doesn't match the
                                page's current hostname, the operator
                                can't use this passkey to sign in (browser
@@ -3640,7 +3640,7 @@
                                    : s.auth_method === 'totp' ? 'pill-success'
                                    : s.auth_method === 'oidc' ? 'pill-info'
                                    : 'pill-muted')">
-                        <!-- UX-ENH-005 / #495 — small Authentik logo
+                        <!-- UX-ENH-005 / small Authentik logo
                              prefix on OIDC rows so operators recognise
                              SSO sessions vs local at a glance. -->
                         <template x-if="s.auth_method === 'oidc'">
@@ -4226,7 +4226,7 @@
           <h3 class="font-semibold text-[13px]" x-text="t('settings.host_stats.title')"></h3>
         </div>
         <p class="text-[11.5px] text-[var(--text-faint)] mb-3" x-text="t('settings.host_stats.desc')"></p>
-        <!-- #562 — provider TABS replace the prior flat list of source
+        <!-- provider TABS replace the prior flat list of source
              checkboxes + sequential config blocks. Each tab is one
              provider's full config in isolation; the master enable
              toggle for that provider lives at the top of its tab body
@@ -4253,7 +4253,7 @@
               <span class="w-1.5 h-1.5 rounded-full"
                     :class="hasHostStatsSource(tab[0]) ? 'dot-on' : 'dot-off'"
                     :title="hasHostStatsSource(tab[0]) ? t('settings.host_stats.tab_active_dot') : t('settings.host_stats.tab_inactive_dot')"></span>
-              <!-- #607 — mono provider icon painted in the operator-
+              <!-- mono provider icon painted in the operator-
                    customised chip colour (#596). Active tab gets the
                    full provider colour; inactive tabs use a muted
                    token-driven foreground so the strip doesn't read
@@ -4347,7 +4347,7 @@
               <span class="text-[11px] text-[var(--text-dim)] ms-auto"
                     x-text="t('admin.config.effective_label', { value: (tuningEffective['tuning_node_exporter_probe_timeout_seconds'] || {}).effective })"></span>
             </div>
-            <!-- #555 — per-section Save removed; main page Save at
+            <!-- per-section Save removed; main page Save at
                  the bottom covers this knob via saveHostStats. -->
           </div>
           <!-- Per-provider chip colour (#596) — operator-customisable
@@ -4663,7 +4663,7 @@
                 </div>
               </div>
             </template>
-            <!-- #555 — per-section Save button removed. The main
+            <!-- per-section Save button removed. The main
                  Save at the bottom of the host_stats panel (inside
                  saveHostStats / hostStatsDirty) now folds these
                  tunable changes into the same POST so operators have
@@ -4842,7 +4842,7 @@
                x-text="t('settings.host_stats.chip_color_hint')"></p>
           </div>
         </div>
-        <!-- #344 — SNMP provider. Sixth host-stats provider for
+        <!-- SNMP provider. Sixth host-stats provider for
              managed switches / routers / printers / UPSes / managed APs
              that speak SNMP v2c/v3 but don't run unix-style agents.
              Mirrors the Webmin tab structure (per-host probe with a
@@ -4860,7 +4860,7 @@
                   :class="hasHostStatsSource('snmp') ? 'pill-ok' : 'pill-muted'"
                   x-text="hasHostStatsSource('snmp') ? t('settings.host_stats.tab_enabled') : t('settings.host_stats.tab_disabled')"></span>
           </div>
-          <!-- #644 — when pysnmp doesn't import cleanly the SPA shows
+          <!-- when pysnmp doesn't import cleanly the SPA shows
                BOTH the generic "package not installed" hint AND the
                actual ImportError text from the server. Operators don't
                have to grep server logs to figure out which symbol or
@@ -5381,7 +5381,7 @@
                   <label class="block text-[10.5px] uppercase tracking-wider text-[var(--text-faint)] mb-1"
                          :title="t('hosts_extra.custom_number_title')"
                          x-text="t('hosts_extra.custom_number_label')"></label>
-                  <!-- #359 — DON'T rebuild the sort on cn blur. Tabbing
+                  <!-- DON'T rebuild the sort on cn blur. Tabbing
                        out of cn used to instantly re-sort the row into
                        its numeric position, which on a paged editor
                        (#331) could move the row to a DIFFERENT page
@@ -5559,7 +5559,7 @@
                 <div class="grid grid-cols-1 md:grid-cols-[auto_2fr_1fr] gap-3 items-end">
                   <label class="inline-flex items-center gap-2 text-[12px] text-[var(--text-dim)] pb-1.5"
                          :class="!row.enabled ? 'opacity-50' : ''">
-                    <!-- #660 — host-level enable gates every per-provider
+                    <!-- host-level enable gates every per-provider
                          enable checkbox. A disabled host cannot have any
                          provider enabled; checkbox is forced unchecked
                          visually + the input is disabled. saveHostsConfig
@@ -6796,7 +6796,7 @@
           <p class="text-[10.5px] text-[var(--text-faint)] mt-1"
              x-text="t('admin_ssh.destructive_hint')"></p>
         </div>
-        <!-- #550 — Test before Save. Operator workflow: configure
+        <!-- Test before Save. Operator workflow: configure
              credentials → verify connectivity against a real host →
              only THEN commit. Putting Save first asked the operator
              to "save first, hope it works second" which inverted the
@@ -7689,7 +7689,7 @@
                   <span class="text-[11px] text-[var(--text-dim)] ms-auto"
                         x-text="t('admin.config.effective_label', { value: (tuningEffective[key] || {}).effective })"></span>
                 </div>
-                <!-- #530 — env-var hint removed. Operator manages tunables
+                <!-- env-var hint removed. Operator manages tunables
                      via Admin → Config; the env-var fallback still exists
                      in `logic/tuning.py:tuning_int` (DB > env > default)
                      for back-compat with first-boot bootstrap and any
@@ -7969,7 +7969,7 @@
                        :title="t('admin_hosts.label_source_asset', { name: (assetForHost(h) && assetForHost(h).name) || '' })"><use href="#icon-package"/></svg>
                 </div>
                 <div class="flex items-center gap-1">
-                  <!-- #760 — quick "Edit in Admin" jump from the host
+                  <!-- quick "Edit in Admin" jump from the host
                        drawer header. Same close-drawer + view-switch +
                        focusHostsConfigRow chain the System card's
                        "+ Add URL" link uses (#719); admin-only since
@@ -8274,7 +8274,7 @@
                           :class="isStaleField(h, 'host_uptime_s') ? 'stale' : ''"
                           :title="isStaleField(h, 'host_uptime_s') ? staleAge(h) : ''">
                         <span x-text="fmtUptimeShort(h.uptime_s)"></span>
-                        <!-- #725a — fresh-reboot badge. Only surfaces
+                        <!-- fresh-reboot badge. Only surfaces
                              when SNMP history caught an uptime backwards-
                              jump in the last 24 h (snmpRebootInfo handles
                              the windowing). Compact warning chip so the
@@ -8545,34 +8545,34 @@
                          device itself reports right now. Mismatch is a
                          signal worth surfacing (swapped hardware not
                          updated in inventory). -->
-                    <template x-if="h.host_model">
+                    <template x-if="h.host_model || isStaleField(h, 'host_model')">
                       <dt class="text-[var(--text-dim)]"
                           :title="t('host_drawer.hardware.snmp_title')"
                           x-text="t('host_drawer.hardware.snmp_model')"></dt>
                     </template>
-                    <template x-if="h.host_model">
+                    <template x-if="h.host_model || isStaleField(h, 'host_model')">
                       <dd class="text-end break-all"
                           :class="isStaleField(h, 'host_model') ? 'stale' : ''"
                           :title="isStaleField(h, 'host_model') ? staleAge(h) : ''"
-                          x-text="h.host_model"></dd>
+                          x-text="h.host_model || '—'"></dd>
                     </template>
-                    <template x-if="h.host_serial">
+                    <template x-if="h.host_serial || isStaleField(h, 'host_serial')">
                       <dt class="text-[var(--text-dim)]"
                           :title="t('host_drawer.hardware.snmp_title')"
                           x-text="t('host_drawer.hardware.snmp_serial')"></dt>
                     </template>
-                    <template x-if="h.host_serial">
+                    <template x-if="h.host_serial || isStaleField(h, 'host_serial')">
                       <dd class="mono text-end break-all text-[var(--text-faint)]"
                           :class="isStaleField(h, 'host_serial') ? 'stale' : ''"
                           :title="isStaleField(h, 'host_serial') ? staleAge(h) : ''"
-                          x-text="h.host_serial"></dd>
+                          x-text="h.host_serial || '—'"></dd>
                     </template>
-                    <template x-if="h.host_firmware">
+                    <template x-if="h.host_firmware || isStaleField(h, 'host_firmware')">
                       <dt class="text-[var(--text-dim)]"
                           :title="t('host_drawer.hardware.snmp_title')"
                           x-text="t('host_drawer.hardware.snmp_firmware')"></dt>
                     </template>
-                    <template x-if="h.host_firmware">
+                    <template x-if="h.host_firmware || isStaleField(h, 'host_firmware')">
                       <dd class="mono text-end break-all"
                           :class="isStaleField(h, 'host_firmware') ? 'stale' : ''"
                           :title="isStaleField(h, 'host_firmware') ? staleAge(h) : ''"
@@ -8715,7 +8715,7 @@
                          class="rounded border border-[var(--border)] bg-[var(--surface)] p-4 md:col-span-6">
                   <h4 class="text-[10.5px] uppercase tracking-wider text-[var(--text-faint)] mb-3"
                       x-text="t('host_drawer.printer.heading')"></h4>
-                  <!-- #757 — printer freshness line. Always visible
+                  <!-- printer freshness line. Always visible
                        when SNMP history exists; renders in `--warning`
                        orange (matches the SNMP chart freshness banner
                        from #744 and the snapshot-stale banner pattern).
@@ -8798,7 +8798,7 @@
                     <template x-for="(iface, i) in networkIfacesBusyVisible(h)" :key="'r' + i">
                       <div class="space-y-1.5">
                         <div class="flex items-baseline gap-2 flex-wrap">
-                          <!-- #701 — oper_status dot when SNMP returned it.
+                          <!-- oper_status dot when SNMP returned it.
                                Up = success token, down = danger token. -->
                           <span x-show="typeof iface === 'object' && iface.oper_status"
                                 class="inline-block w-1.5 h-1.5 rounded-full self-center"
@@ -8809,7 +8809,7 @@
                           <span x-show="typeof iface === 'object' && iface.mac"
                                 class="ip-chip ip-chip--mac"
                                 x-text="iface.mac"></span>
-                          <!-- #701 — SNMP traffic totals. Only rendered
+                          <!-- SNMP traffic totals. Only rendered
                                when the iface row has rx/tx counters
                                (SNMP-derived hosts only). Compact
                                rendering: ↓ rx · ↑ tx, mono so the
@@ -8821,7 +8821,7 @@
                             <span x-text="'↑ ' + fmtBytes(iface.tx_bytes || 0)"></span>
                           </span>
                         </div>
-                        <!-- #701 — stacked rx/tx bar, normalised to the
+                        <!-- stacked rx/tx bar, normalised to the
                              busiest interface on the host. Only rendered
                              when this iface has traffic AND the host has
                              at least one busy interface to scale against. -->
@@ -8842,7 +8842,7 @@
                         </div>
                       </div>
                     </template>
-                    <!-- #718 — Top-N cap on the busy-iface list. When
+                    <!-- Top-N cap on the busy-iface list. When
                          the active list exceeds `networkIfacesBusyCap`
                          (default 10), the rest are hidden behind a
                          per-host "Show all (N)" toggle so a 52-port
@@ -8861,7 +8861,7 @@
                         </button>
                       </div>
                     </template>
-                    <!-- #705 — Idle interfaces (no traffic, no IP).
+                    <!-- Idle interfaces (no traffic, no IP).
                          Same toggle pattern as the Docker veths block
                          below, applied within the "real" group so a
                          32-port switch's empty Port-Channel pool
@@ -8893,7 +8893,7 @@
                          by default behind a toggle keyed per host. On a
                          Docker host with 30+ veths this collapses the
                          drawer from a 50-row wall to a tidy summary.
-                         #723 — when a host has ONLY ONE interface and
+                         when a host has ONLY ONE interface and
                          it's docker/internal (e.g. a thin VM showing
                          just `vmbr0`), the toggle is friction; render
                          the single iface inline AND skip the toggle
@@ -9194,7 +9194,7 @@
                    a provider mapping. -->
               <!-- Chart grid: renders when Beszel matched AND
                    returned history, OR when the host has a node-exporter
-                   URL configured (#289 — host_metrics_sampler writes
+                   URL configured (host_metrics_sampler writes
                    per-host gauges + net rates into host_metrics_samples
                    so NE-only hosts also get historical charts). Hosts
                    with neither show the "link to Beszel / set NE URL"
@@ -9203,13 +9203,13 @@
                    gate no longer needs to consider `h.ping_enabled`
                    since ping-only hosts are served by the standalone
                    row above. -->
-              <!-- #713 — SNMP time-series charts. Three cards for hosts
+              <!-- SNMP time-series charts. Three cards for hosts
                    probed via SNMP whose data isn't covered by the
                    Beszel / NE charts: per-core CPU (multi-line), load
                    averages (3 lines), memory stacked layers. Each
                    card individually gates so a host that returns ONLY
                    per-core CPU + no load avg still gets the CPU card. -->
-              <!-- #739 — Freshness banner for the SNMP chart section.
+              <!-- Freshness banner for the SNMP chart section.
                    When the displayed data came from `host_snmp_samples`
                    (loaded from the table while the live probe is in
                    flight or pending), surface "Updated Xs ago" so the
@@ -9227,7 +9227,7 @@
                   <span x-text="t('host_drawer.snmp_charts.refreshing')"></span>
                 </span>
               </div>
-              <!-- #727 — "Collecting first samples" hint when the
+              <!-- "Collecting first samples" hint when the
                    sampler hasn't accumulated 2+ samples yet. SNMP just
                    enabled? Live legend values (CPU%, Load avg, Mem
                    bytes) populate from the live probe immediately, but
@@ -9247,7 +9247,7 @@
               </div>
               <div class="mt-3 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4"
                    x-show="hostHasSnmpCharts(h)">
-                <!-- #717 — Per-core CPU + ssCpuIdle overlay. Matches
+                <!-- Per-core CPU + ssCpuIdle overlay. Matches
                      the Beszel/NE chart cards: viewBox 420×120,
                      gridlines as a path, legend dots with last-value
                      readouts, x-axis timestamps. -->
@@ -9308,7 +9308,7 @@
                   </template>
                 </div>
 
-                <!-- #717 — Load averages — three lines (1m / 5m / 15m)
+                <!-- Load averages — three lines (1m / 5m / 15m)
                      with legend dots + current values in the head. -->
                 <div class="metric-card"
                      x-show="h.host_load_1m || h.host_load_5m || h.host_load_15m
@@ -9371,13 +9371,13 @@
                   </template>
                 </div>
 
-                <!-- #717 — Memory layers: used / cached / buffers / free
+                <!-- Memory layers: used / cached / buffers / free
                      with legend dots + last-known byte values. -->
                 <div class="metric-card"
                      x-show="(h.host_mem_buffers || h.host_mem_cached
                              || (hostSnmpHistory[h.id] && (hostSnmpHistory[h.id].points || []).some(p => p.mem_buffers || p.mem_cached)))">
                   <div class="metric-card-head">
-                    <!-- #725b — generic "B" unit suffix on the title was
+                    <!-- generic "B" unit suffix on the title was
                          redundant once the legend started rendering the
                          actual unit per value (GB / MB). Dropped. The
                          legend + Y-axis use `fmtBytesAt(value, max)`
@@ -9452,7 +9452,7 @@
                   </template>
                 </div>
 
-                <!-- #725b — switch / router total throughput. Two
+                <!-- switch / router total throughput. Two
                      polylines (in / out) computed from the cumulative
                      IF-MIB ifHCInOctets / ifHCOutOctets columns
                      persisted on `host_snmp_samples`. Skip-don't-
@@ -9488,7 +9488,7 @@
                       </span>
                     </div>
                   </div>
-                  <!-- #763 — static-rate headline above the chart so
+                  <!-- static-rate headline above the chart so
                        operators see current rx + tx without parsing
                        the chart line. Same prominence as the printer
                        lifetime page count. Hidden when no live data. -->
@@ -9532,7 +9532,7 @@
                   </template>
                 </div>
 
-                <!-- #725 — per-port throughput. Multi-line chart with
+                <!-- per-port throughput. Multi-line chart with
                      up to top-5 interfaces by latest combined rate
                      (in + out). Each iface gets one line; in / out
                      not stacked — operators want to see absolute per-
@@ -9606,7 +9606,7 @@
                   </template>
                 </div>
 
-                <!-- #769 — per-port utilization LINE chart (replaces
+                <!-- per-port utilization LINE chart (replaces
                      the chip-strip heatmap operator-flagged as
                      unreadable). Top 5 interfaces by current rate
                      (same ranking as the throughput chart) plotted
@@ -9673,7 +9673,7 @@
                   </template>
                 </div>
 
-                <!-- #768 — Pages printed chart REMOVED per operator
+                <!-- Pages printed chart REMOVED per operator
                      request. The Printer card already surfaces the
                      lifetime page count as an 18 px headline (#743);
                      the pages-per-day rate sparkline added marginal
@@ -9849,7 +9849,7 @@
               </div>
 
               <!-- Combined Net In/Out + Disk I/O + Load Average grid.
-                   #318 / #319 / #320 — was 2 separate Net cards; now
+                   #318 / #319 / was 2 separate Net cards; now
                    one Network card with both lines on a shared y-axis,
                    plus Disk I/O + Load Average. Ping was promoted to
                    its own full-width row above the 3-col grid (#599)
@@ -9922,7 +9922,7 @@
                       </div>
                     </div>
                   </template>
-                  <!-- #347 — node-exporter on this host never produced a
+                  <!-- node-exporter on this host never produced a
                        non-null `node_network_*` sample in the window. The
                        generic "no NIC activity" branch below would tell
                        the operator to wait for activity, but the metric
@@ -9990,7 +9990,7 @@
                 </div>
 
                 <!-- Ping latency card was promoted out of this grid in
-                     #599 — see the standalone full-width row above the
+                     see the standalone full-width row above the
                      3-col CPU/Mem/Disk grid. -->
 
                 <!-- ====== Disk I/O (#319) — same dual-line pattern as
@@ -10053,7 +10053,7 @@
                       </div>
                     </div>
                   </template>
-                  <!-- #347 — node-exporter on this host never produced a
+                  <!-- node-exporter on this host never produced a
                        non-null `node_disk_*` sample in the window. The
                        generic "no disk I/O activity" branch below would
                        suggest waiting; the metric is permanently
@@ -10401,7 +10401,7 @@
                   </template>
                 </div>
 
-                <!-- #749 — GPU Power Draw. Average watts across every
+                <!-- GPU Power Draw. Average watts across every
                      GPU on the host, plotted from the per-tick
                      `gpu_pwr` field synthesized in
                      `logic/beszel.py:fetch_system_history`. Card
@@ -10460,7 +10460,7 @@
                   </template>
                 </div>
 
-                <!-- #749 — GPU Usage. Average utilization % across
+                <!-- GPU Usage. Average utilization % across
                      every GPU. -->
                 <div class="metric-card metric-card--gpu"
                      x-show="(h.host_gpus || []).length > 0">
@@ -10512,7 +10512,7 @@
                   </template>
                 </div>
 
-                <!-- #749 — GPU VRAM. Plots the % of VRAM used; legend
+                <!-- GPU VRAM. Plots the % of VRAM used; legend
                      shows used / total bytes via fmtBytes. -->
                 <div class="metric-card metric-card--gpu"
                      x-show="(h.host_gpus || []).length > 0">

@@ -286,7 +286,7 @@ async def notify_with_retry(
 ) -> None:
     """Fire-and-forget `notify` with bounded retry on dispatch failure.
 
-    ENH-009 / #475 — extracted from `host_metrics_sampler._record_failure`'s
+    ENH-009 / extracted from `host_metrics_sampler._record_failure`'s
     inner closure so other callers (login event, future schedule kinds,
     anomaly watchers) get the same retry semantics without copy-pasting.
     `label` is a short tag prepended to error logs so the operator can

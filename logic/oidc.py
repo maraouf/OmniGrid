@@ -478,7 +478,7 @@ async def callback(request: Request):
     except jwt.InvalidIssuerError as e:
         # Dig out the actual iss in the token so the operator can spot
         # trailing-slash / host mismatches without reaching for jwt.io.
-        # ENH-008 / #474 — route through the errors catalog so Apprise +
+        # ENH-008 / route through the errors catalog so Apprise +
         # UI tone come from the structured code instead of raw PyJWT
         # text.
         try:

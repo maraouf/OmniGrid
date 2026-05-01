@@ -472,7 +472,7 @@ async def fetch_system_history(
             "la1":  la1,  # load avg 1m (raw load — backward compat for callers)
             "la5":  la5,  # load avg 5m
             "la15": la15, # load avg 15m
-            # #755 — percent-of-cores variants for the host-drawer
+            # percent-of-cores variants for the host-drawer
             # Load chart (operator wants 0-100 % rendering, not raw
             # 0.18 / 0.22 / 0.18 numbers).
             "la1_pct":  la1_pct,

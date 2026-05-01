@@ -180,7 +180,7 @@ def _resolve_totp_policy() -> dict:
             ) or _TOTP_POLICY_DEFAULTS["totp_lockout_minutes"]
         ),
         "passkeys_allowed":          get_setting_bool(
-            "passkeys_allowed", _TOTP_POLICY_DEFAULTS["passkeys_allowed"],
+            "passkeys_allowed", _TOTP_POLICY_DEFAULTS.get("passkeys_allowed", True),
         ),
     }
     _totp_policy_cache["value"] = resolved
@@ -512,7 +512,7 @@ def init_db():
         CREATE INDEX IF NOT EXISTS idx_host_metrics_samples_host_ts
             ON host_metrics_samples(host_id, ts DESC);
 
-        -- #713 — SNMP-specific time-series. Separate from
+        -- SNMP-specific time-series. Separate from
         -- host_metrics_samples because: (a) SNMP exposes per-core CPU
         -- + buffers/cached memory that the unified `host_metrics_samples`
         -- schema doesn't carry; (b) the rate-derivation contract for
@@ -542,7 +542,7 @@ def init_db():
         CREATE INDEX IF NOT EXISTS idx_host_snmp_samples_host_ts
             ON host_snmp_samples(host_id, ts DESC);
 
-        -- #725 — per-interface SNMP counter samples for switch / router
+        -- per-interface SNMP counter samples for switch / router
         -- per-port throughput charts. One row per (ts, host_id, ifname);
         -- counters are cumulative IF-MIB ifHCInOctets / ifHCOutOctets
         -- (with 32-bit fallback inside the extractor). Chart layer
@@ -615,7 +615,7 @@ def init_db():
         for ddl in (
             "ALTER TABLE history ADD COLUMN actor TEXT DEFAULT 'ui'",
             "ALTER TABLE history ADD COLUMN target_stack TEXT",
-            # #339 — disk I/O rates, derived per-tick by
+            # disk I/O rates, derived per-tick by
             # host_metrics_sampler from node_disk_{read,written}_bytes_total.
             # Same skip-don't-synthesize discipline as the net rate columns;
             # NULL when the delta is out of bounds.
@@ -628,7 +628,7 @@ def init_db():
             # ago" instead of leaving the operator wondering whether
             # the issue may have already cleared.
             "ALTER TABLE host_failure_state ADD COLUMN last_failure_ts REAL",
-            # #725a — host uptime in SECONDS per SNMP probe. Lets the
+            # host uptime in SECONDS per SNMP probe. Lets the
             # drawer surface a current-uptime pill AND detect reboots:
             # when sample[N].uptime_s < sample[N-1].uptime_s the host
             # rebooted in the gap (sysUpTime counter resets at boot).
@@ -636,7 +636,7 @@ def init_db():
             # `host_uptime_s` field convention every other provider
             # uses. Additive — NULL for pre-#725a rows.
             "ALTER TABLE host_snmp_samples ADD COLUMN uptime_s INTEGER",
-            # #725b — switch total throughput. Stored as the cumulative
+            # switch total throughput. Stored as the cumulative
             # IF-MIB ifHCInOctets / ifHCOutOctets sums (excluding
             # loopback / docker-bridge / virtual ifaces — same exclusion
             # set as Beszel / NE). The chart layer computes deltas at
@@ -645,13 +645,13 @@ def init_db():
             # tell "host stopped responding" from "0 bps idle".
             "ALTER TABLE host_snmp_samples ADD COLUMN net_rx_total_bytes INTEGER",
             "ALTER TABLE host_snmp_samples ADD COLUMN net_tx_total_bytes INTEGER",
-            # #146 — printer lifetime page count (Printer-MIB
+            # printer lifetime page count (Printer-MIB
             # prtMarkerLifeCount). Cumulative monotonic counter; the
             # SPA computes per-interval deltas → pages/day for the
             # sparkline + reads the live value as the lifetime
             # headline. NULL for non-printer hosts.
             "ALTER TABLE host_snmp_samples ADD COLUMN printer_page_count INTEGER",
-            # #725 — per-iface link speed (Mbps) so the per-port
+            # per-iface link speed (Mbps) so the per-port
             # utilization heatmap can compute throughput ÷ link
             # capacity. NULL when the agent doesn't expose ifHighSpeed
             # (older IF-MIB-v1-only devices) — heatmap renders such
@@ -998,7 +998,7 @@ async def api_op(op_id: str):
 # generic onmessage listener bump the timestamp on every heartbeat,
 # AND keeps the socket-warm property the comment had.
 # ============================================================================
-# #537 / #538 — both moved to TUNABLES (tuning_sse_heartbeat_seconds,
+# #537 / both moved to TUNABLES (tuning_sse_heartbeat_seconds,
 # tuning_sse_max_lifetime_seconds). Resolve at the consumer site via
 # `tuning.tuning_int(...)` so a Save in Admin → Config takes effect on
 # the next /api/events reconnect — no module-level constants here so a
@@ -1040,7 +1040,7 @@ async def api_events(request: Request):
         # the upgrade succeeded BEFORE waiting for the first organic
         # event. Carries process-level diagnostics that the connection-
         # state indicator surfaces in its tooltip.
-        # #537 — heartbeat cadence is operator-tunable; resolve per
+        # heartbeat cadence is operator-tunable; resolve per
         # connection-open so a Save takes effect on the next reconnect.
         heartbeat_seconds = tuning.tuning_int("tuning_sse_heartbeat_seconds")
         max_lifetime_seconds = tuning.tuning_int("tuning_sse_max_lifetime_seconds")
@@ -1058,7 +1058,7 @@ async def api_events(request: Request):
             queue. Runs as a task so we can race it against the
             heartbeat timer + the disconnect check.
 
-            #535 — `queue.put_nowait` with overflow synthesis: pre-fix
+            `queue.put_nowait` with overflow synthesis: pre-fix
             this awaited an unbounded `queue.put`, so a slow client
             could let the local queue grow without bound while the
             bus's drop-oldest cap (256) stayed satisfied (because we
@@ -1383,7 +1383,7 @@ class SettingsIn(BaseModel):
     oidc_scopes: Optional[str] = None
     oidc_admin_group: Optional[str] = None
     oidc_verify_tls: Optional[bool] = None
-    # ENH-002 / #469 — case-insensitive admin-group claim match. Default
+    # ENH-002 / case-insensitive admin-group claim match. Default
     # True preserves the legacy exact-match contract.
     oidc_group_case_sensitive: Optional[bool] = None
     # Backup retention: keep the N newest .zip files in /app/data/backups;
@@ -1497,8 +1497,6 @@ class SettingsIn(BaseModel):
     weather_label: Optional[str] = None
     weather_lat: Optional[float] = None
     weather_lon: Optional[float] = None
-    show_header_clock: Optional[bool] = None
-    show_header_weather: Optional[bool] = None
     # Open-Meteo upstream — blank uses the public endpoint; admins
     # can point at a self-hosted instance without touching .env.
     open_meteo_url: Optional[str] = None
@@ -1603,72 +1601,72 @@ class SettingsIn(BaseModel):
     tuning_stats_concurrency: Optional[str] = None
     tuning_stats_history_days: Optional[str] = None
     tuning_stats_sample_interval_seconds: Optional[str] = None
-    # #410 — host_metrics_sampler permanent-fail window. Same DB-key
+    # host_metrics_sampler permanent-fail window. Same DB-key
     # naming + bounds-check via TUNABLES as the others.
     tuning_host_permanent_fail_window_seconds: Optional[str] = None
-    # #417 — frontend /api/ops poll cadence in SECONDS (#514 — was
+    # frontend /api/ops poll cadence in SECONDS (was
     # `tuning_ops_poll_interval_ms`; renamed for operator-friendly UI).
     # The SPA reads the effective value (× 1000) via /api/me's
     # `client_config.ops_poll_ms` and uses it as the setTimeout delay
     # between consecutive ops polls.
     tuning_ops_poll_interval_seconds: Optional[str] = None
-    # #424 — persistent-log retention in days. Daily files under
+    # persistent-log retention in days. Daily files under
     # /app/data/logs/ older than this get deleted by the lifespan
     # _log_pruner_loop().
     tuning_log_retention_days: Optional[str] = None
-    # #467 — host-snapshots read-side cache TTL (seconds). The SPA fans
+    # host-snapshots read-side cache TTL (seconds). The SPA fans
     # out N parallel /api/hosts/one/{id} per refresh; caching the
     # snapshot-table read for a few seconds collapses N reads into 1.
     tuning_host_snapshots_cache_ttl_seconds: Optional[str] = None
-    # #506 — concurrency cap on the SPA's per-host /api/hosts/one/<id>
+    # concurrency cap on the SPA's per-host /api/hosts/one/<id>
     # fan-out in `loadHosts()`. Read on /api/me into
     # `me.client_config.hosts_parallel_fetch`.
     tuning_hosts_parallel_fetch: Optional[str] = None
-    # #537 / #538 — SSE heartbeat cadence + connection lifetime cap.
+    # #537 / SSE heartbeat cadence + connection lifetime cap.
     tuning_sse_heartbeat_seconds: Optional[str] = None
     tuning_sse_max_lifetime_seconds: Optional[str] = None
-    # #539 — Webmin probe outer budget (shared by /api/hosts and
+    # Webmin probe outer budget (shared by /api/hosts and
     # /api/hosts/one).
     tuning_webmin_probe_budget_seconds: Optional[str] = None
-    # #540 — node-exporter per-host probe timeout (shared by /api/hosts,
+    # node-exporter per-host probe timeout (shared by /api/hosts,
     # /api/hosts/one, the debug endpoint, and host_metrics_sampler).
     tuning_node_exporter_probe_timeout_seconds: Optional[str] = None
-    # #541 / #542 — frontend SSE knobs delivered via /api/me's
+    # #541 / frontend SSE knobs delivered via /api/me's
     # client_config (× 1000 ms conversion in main.py).
     tuning_sse_idle_threshold_seconds: Optional[str] = None
     tuning_pollops_sse_keepalive_seconds: Optional[str] = None
-    # #543 — login rate-limit policy (3 knobs).
+    # login rate-limit policy (3 knobs).
     tuning_rate_limit_max_failures: Optional[str] = None
     tuning_rate_limit_window_seconds: Optional[str] = None
     tuning_rate_limit_lockout_seconds: Optional[str] = None
-    # #547 / #546 — outer host-provider cache + per-host Webmin caches.
+    # #547 / outer host-provider cache + per-host Webmin caches.
     tuning_host_provider_cache_ttl_seconds: Optional[str] = None
     tuning_webmin_host_cache_ttl_seconds: Optional[str] = None
     tuning_webmin_host_fail_cache_ttl_seconds: Optional[str] = None
-    # #548 — host_metrics_sampler per-tick NE probe concurrency.
+    # host_metrics_sampler per-tick NE probe concurrency.
     tuning_host_metrics_probe_concurrency: Optional[str] = None
-    # #549 — shared (Webmin + SSH) per-(host, user) auth-failure cool-down.
+    # shared (Webmin + SSH) per-(host, user) auth-failure cool-down.
     tuning_auth_failure_cooldown_seconds: Optional[str] = None
-    # #343 — Ping host-stats provider knobs.
+    # Ping host-stats provider knobs.
     tuning_ping_interval_seconds: Optional[str] = None
     tuning_ping_concurrency: Optional[str] = None
     tuning_ping_probe_timeout_seconds: Optional[str] = None
     tuning_ping_cooldown_seconds: Optional[str] = None
-    # #344 / #656 — SNMP host-stats provider knobs. SettingsIn must list
+    # #344 / SNMP host-stats provider knobs. SettingsIn must list
     # them so the POST /api/settings validator stops Pydantic v2's
     # extra="ignore" default from silently dropping them on save.
     tuning_snmp_probe_timeout_seconds: Optional[str] = None
     tuning_snmp_concurrency: Optional[str] = None
-    # #659 — SNMP per-host cache TTLs, distinct from the Webmin pair.
+    # SNMP per-host cache TTLs, distinct from the Webmin pair.
     tuning_snmp_host_cache_ttl_seconds: Optional[str] = None
     tuning_snmp_host_fail_cache_ttl_seconds: Optional[str] = None
-    # #678 — dedicated SNMP unreachable cool-down (was sharing the
+    # dedicated SNMP unreachable cool-down (was sharing the
     # auth-failure cool-down with Webmin / SSH).
     tuning_snmp_unreachable_cooldown_seconds: Optional[str] = None
-    # #770 — SNMP-specific sample interval; 0 = use the global stats
+    # SNMP-specific sample interval; 0 = use the global stats
     # interval, > 0 = SNMP probes run on their own cadence.
     tuning_snmp_sample_interval_seconds: Optional[str] = None
-    # #695 — stat-bar thresholds (frontend-consumed via /api/me).
+    # stat-bar thresholds (frontend-consumed via /api/me).
     tuning_stat_bar_warn_pct: Optional[str] = None
     tuning_stat_bar_crit_pct: Optional[str] = None
     # -----------------------------------------------------------------
@@ -1772,7 +1770,7 @@ async def api_get_settings(request: Request):
             str(_TOTP_POLICY_DEFAULTS["totp_lockout_minutes"]),
         ) or _TOTP_POLICY_DEFAULTS["totp_lockout_minutes"]),
         "passkeys_allowed":          get_setting_bool(
-            "passkeys_allowed", _TOTP_POLICY_DEFAULTS["passkeys_allowed"],
+            "passkeys_allowed", _TOTP_POLICY_DEFAULTS.get("passkeys_allowed", True),
         ),
         # Open-Meteo upstream (Admin → General). Returned in the
         # clear so the input round-trips and reloads persisted. Blank
@@ -1892,7 +1890,7 @@ async def api_get_settings(request: Request):
             "v3_priv_key_set":     bool(get_setting("snmp_v3_priv_key", "")),
             "aliases":             json.loads(get_setting("snmp_aliases", "{}") or "{}"),
             "has_snmp_support":    (lambda: __import__("logic.snmp", fromlist=["has_snmp_support"]).has_snmp_support())(),
-            # #644 — surface the actual ImportError text from logic.snmp's
+            # surface the actual ImportError text from logic.snmp's
             # module-level import block so the SPA's hint can show the
             # ROOT CAUSE instead of just "package not installed". Empty
             # string when pysnmp imported cleanly. Operators don't have
@@ -1988,7 +1986,7 @@ async def api_set_settings(
     # the default-true via get_setting_bool). Anything else is a
     # 400 so a typo can't silently disable a category. The notify()
     # gate in logic/ops.py honours these per-event keys.
-    # Derived from the module-level _NOTIFY_EVENT_NAMES tuple (#357 —
+    # Derived from the module-level _NOTIFY_EVENT_NAMES tuple (
     # single source of truth for both admin gates and per-user opt-in).
     _NOTIFY_EVENT_KEYS = tuple(f"notify_event_{n}" for n in _NOTIFY_EVENT_NAMES)
     for _ek in _NOTIFY_EVENT_KEYS:
@@ -2799,11 +2797,11 @@ async def api_set_settings(
         "webmin_verify_tls", "webmin_aliases",
         "node_exporter_enabled", "node_exporter_url_template",
         "node_exporter_overrides",
-        # #343 — Ping. No credential to bust the cred-blob hash with;
+        # Ping. No credential to bust the cred-blob hash with;
         # cache TTL alone catches `ping_enabled` flips after the
         # 10s window, but we still bust on save for instant feedback.
         "ping_enabled", "ping_default_port", "ping_use_icmp",
-        # #344 — SNMP. Defaults + aliases + v3 keys all live under the
+        # SNMP. Defaults + aliases + v3 keys all live under the
         # same per-provider state; any change here invalidates the
         # cred-blob hash so subsequent /api/hosts/one/<id> calls re-
         # probe with the new credentials.
@@ -3113,7 +3111,7 @@ async def api_snmp_test(
     v3_auth = _resolve_field(body, "v3_auth_key", "snmp_v3_auth_key", "")
     v3_priv = _resolve_field(body, "v3_priv_key", "snmp_v3_priv_key", "")
 
-    # #655 — consume tuning_snmp_probe_timeout_seconds. Test endpoint uses
+    # consume tuning_snmp_probe_timeout_seconds. Test endpoint uses
     # max(tunable, 10s) so a tiny tunable doesn't cripple manual smoke probes.
     snmp_timeout = max(10.0, float(tuning.tuning_int("tuning_snmp_probe_timeout_seconds")))
     result = await _snmp.probe_snmp(
@@ -3197,7 +3195,7 @@ async def api_asset_inventory_test(
         or (get_setting("asset_inventory_auth_mode", "") or "oauth2")
     if auth_mode not in ("oauth2", "lifetime_token"):
         auth_mode = "oauth2"
-    # #445 — honour the `asset_inventory_verify_tls` toggle here too.
+    # honour the `asset_inventory_verify_tls` toggle here too.
     # Body wins (so admins can flip the form's checkbox OFF and Test
     # a self-signed asset API before saving); otherwise the persisted
     # setting (default True) applies. Mirrors the OIDC-test shape.
@@ -3690,7 +3688,7 @@ async def api_hosts(force: bool = False):
 # want one round-trip to see the whole fleet). The SPA calls the
 # split pair.
 # ---------------------------------------------------------------------------
-# #547 — cache TTL is now operator-tunable via
+# cache TTL is now operator-tunable via
 # `tuning_host_provider_cache_ttl_seconds`. Default preserved at 10s.
 # Resolved at every consumer site (NOT cached at module import) per
 # the strict-rule contract.
@@ -3714,7 +3712,7 @@ _host_provider_lock = asyncio.Lock()
 # Cache key is the host_id (one Webmin per host — unlike Beszel/Pulse
 # which are multi-tenant). Value is the raw dict returned by
 # probe_webmin so _merge_one_host can fold it the same way.
-# #546 — both Webmin cache TTLs are now operator-tunable via
+# both Webmin cache TTLs are now operator-tunable via
 # `tuning_webmin_host_cache_ttl_seconds` (default 30s, success cache)
 # and `tuning_webmin_host_fail_cache_ttl_seconds` (default 5s, negative
 # cache from #506). Resolved per consumer-site read.
@@ -3813,7 +3811,7 @@ async def _get_host_provider_state(force: bool = False) -> dict:
 
     now = time.time()
     active, cache_key = _compute_cache_key()
-    # #547 — cache TTL is operator-tunable; resolve once at the top of
+    # cache TTL is operator-tunable; resolve once at the top of
     # the function and reuse for both the pre-lock and post-lock checks
     # (within the same call, the value can't legitimately change).
     cache_ttl = tuning.tuning_int("tuning_host_provider_cache_ttl_seconds")
@@ -3830,7 +3828,7 @@ async def _get_host_provider_state(force: bool = False) -> dict:
     # probes, saturating the event loop. Force=true requests still
     # serialise here so a SPA settings-save fan-out doesn't 6× the
     # upstream load either.
-    # #533 — measure the wait so operators can see whether contention
+    # measure the wait so operators can see whether contention
     # is the cause of elevated /api/hosts/one latency vs slow upstreams.
     # First caller bucket-counts in sub-ms (zero wait); subsequent
     # callers in the same fan-out bucket-count in seconds.
@@ -4003,7 +4001,7 @@ async def _merge_one_host(h: dict, state: dict, *, force: bool = False) -> tuple
     probes inline for THIS host only; Beszel/Pulse lookups hit the
     cached batch maps. Returns (merged_dict, providers_hit).
 
-    #531 — when ``force=True``, drop this host's per-host Webmin
+    when ``force=True``, drop this host's per-host Webmin
     caches (success + failure) before the probe block so the next
     `probe_webmin` call hits the wire. Pre-fix `?force=true` only
     bypassed the OUTER `_host_provider_cache`; the 30s success cache
@@ -4051,7 +4049,7 @@ async def _merge_one_host(h: dict, state: dict, *, force: bool = False) -> tuple
         from logic import snmp as _snmp
         row_snmp = h.get("snmp") if isinstance(h.get("snmp"), dict) else {}
         snmp_enabled = row_snmp.get("enabled") is True
-        # #657 — HARD-GATE: probe ONLY when an alias OR a curated `snmp_name`
+        # HARD-GATE: probe ONLY when an alias OR a curated `snmp_name`
         # resolves a target. The previous bare-`h["id"]` fallthrough fanned
         # out probes to every host on fleet-enable, ~all-but-mapped of which
         # timed out. Resolution chain: alias > snmp_name > SKIP.
@@ -4062,7 +4060,7 @@ async def _merge_one_host(h: dict, state: dict, *, force: bool = False) -> tuple
         )
         if snmp_target and snmp_enabled:
             now = time.time()
-            # #659 — SNMP per-host caches use SNMP-specific TTLs (was reusing
+            # SNMP per-host caches use SNMP-specific TTLs (was reusing
             # the Webmin pair; operator changing Webmin TTL silently changed
             # SNMP cache behaviour).
             snmp_success_ttl = tuning.tuning_int("tuning_snmp_host_cache_ttl_seconds")
@@ -4090,7 +4088,7 @@ async def _merge_one_host(h: dict, state: dict, *, force: bool = False) -> tuple
                                or state.get("snmp_v3_auth_key") or "")
                     v3_priv = ((row_snmp.get("v3_priv_key") or "").strip()
                                or state.get("snmp_v3_priv_key") or "")
-                    # #655 — consume tuning_snmp_probe_timeout_seconds.
+                    # consume tuning_snmp_probe_timeout_seconds.
                     snmp_timeout = float(tuning.tuning_int("tuning_snmp_probe_timeout_seconds"))
                     try:
                         result = await _snmp.probe_snmp(
@@ -4129,7 +4127,7 @@ async def _merge_one_host(h: dict, state: dict, *, force: bool = False) -> tuple
             providers_hit.append("beszel")
 
     # Node-exporter (per-host probe).
-    # #540 — operator-tunable timeout via `tuning_node_exporter_probe_timeout_seconds`.
+    # operator-tunable timeout via `tuning_node_exporter_probe_timeout_seconds`.
     if "node_exporter" in active and h.get("ne_url"):
         _ne_timeout = tuning.tuning_int("tuning_node_exporter_probe_timeout_seconds")
         try:
@@ -4149,7 +4147,7 @@ async def _merge_one_host(h: dict, state: dict, *, force: bool = False) -> tuple
         wm_url = state["webmin_aliases"].get(h["id"]) or h.get("webmin_url") or ""
         if wm_url:
             now = time.time()
-            # #546 — both cache TTLs are operator-tunable. Resolved
+            # both cache TTLs are operator-tunable. Resolved
             # once per call (the same TTLs apply across both branches
             # of the if/else below).
             wm_success_ttl = tuning.tuning_int("tuning_webmin_host_cache_ttl_seconds")
@@ -4167,7 +4165,7 @@ async def _merge_one_host(h: dict, state: dict, *, force: bool = False) -> tuple
                 if fail_cached and (now - fail_cached[0]) < wm_fail_ttl:
                     result = fail_cached[1]
                 else:
-                    # #539 — Webmin probe budget is operator-tunable;
+                    # Webmin probe budget is operator-tunable;
                     # shared with the legacy `api_hosts` consumer.
                     _wm_budget = tuning.tuning_int("tuning_webmin_probe_budget_seconds")
                     try:
@@ -4410,7 +4408,7 @@ def _shape_host_api_row(
         "id":              h["id"],
         "name":            h["id"],
         "host":            h["id"],
-        # Empty label is INTENTIONAL post-#621 — frontend's
+        # Empty label is INTENTIONAL post-frontend's
         # `hostDisplayName(h)` falls back to the asset inventory's
         # name when this is blank. The previous `or h["id"]` fallback
         # silently overrode the operator's "use asset name" intent on
@@ -4478,7 +4476,7 @@ def _shape_host_api_row(
         # per call. If that becomes a hotspot we can stash the
         # index on the request via FastAPI Depends().
         "asset":            _resolve_asset_for_host(h.get("custom_number")),
-        # Per-host SSH-enabled flag (#622 — opt-in semantics post
+        # Per-host SSH-enabled flag (opt-in semantics post
         # migration #001). True only when the operator explicitly ticked
         # "Enable SSH for this host" in Admin → Hosts. The drawer's SSH
         # card + common-actions panel render only when this is true.
@@ -4551,7 +4549,7 @@ def _shape_host_api_row(
         "host_location":    s.get("host_location") or "",
         "host_temp_c":      (float(s.get("host_temp_c")) if s.get("host_temp_c") is not None else None),
         "host_upgrade_status": s.get("host_upgrade_status") or "",
-        # #713 — per-core CPU + UCD memory breakdown for the new
+        # per-core CPU + UCD memory breakdown for the new
         # SNMP time-series charts. Empty list / 0 when the host
         # didn't return UCD or hrProcessorLoad walks; frontend gate
         # on length so non-SNMP hosts don't see the cards.
@@ -4611,7 +4609,7 @@ def _failure_state_for_host(host_id: str) -> dict:
         with db_conn() as c:
             cur = c.execute(
                 "SELECT first_failure_ts, consecutive_failures, paused, "
-                "last_error, last_failure_ts "
+                "last_error, last_failure_ts, paused_at "
                 "FROM host_failure_state WHERE host_id = ?",
                 (host_id,),
             )
@@ -4629,6 +4627,7 @@ def _failure_state_for_host(host_id: str) -> dict:
             "consecutive_failures":       0,
             "last_error":                 "",
             "last_failure_ts":            0,
+            "paused_at":                  0,
         }
     # ENH-018 — surface ``last_failure_ts`` so the drawer can render
     # "last error N seconds ago" alongside the existing
@@ -4636,12 +4635,20 @@ def _failure_state_for_host(host_id: str) -> dict:
     # ``first_failure_ts`` for rows that pre-date the column add (the
     # first probe failure on the new schema overwrites the NULL).
     last_ts = row[4] if (len(row) > 4 and row[4] is not None) else row[0]
+    # surface ``paused_at`` so the drawer can render
+    # "auto-paused N hours ago". Pre-fix the SELECT omitted this
+    # column even though the sampler writes it on every paused
+    # transition. Same drift class as the ENH-018 ``last_failure_ts``
+    # add — every additive ALTER TABLE means audit every SELECT
+    # against that table (CLAUDE.md "SQL drift" rule).
+    paused_at = row[5] if (len(row) > 5 and row[5] is not None) else 0
     return {
         "sampling_paused":            bool(row[2]),
         "failure_window_started_at":  int(row[0] or 0),
         "consecutive_failures":       int(row[1] or 0),
         "last_error":                 row[3] or "",
         "last_failure_ts":            int(last_ts or 0),
+        "paused_at":                  int(paused_at or 0),
     }
 
 
@@ -4716,7 +4723,7 @@ async def api_hosts_one(host_id: str, force: bool = False):
     # this budget. 30s comfortably under any reasonable NPM
     # `proxy_read_timeout` (default 60s) so OmniGrid's explicit 504
     # always fires first, never NPM's generic gateway timeout.
-    # #528 — capture probe wall-clock so the SPA can hover-title a
+    # capture probe wall-clock so the SPA can hover-title a
     # "took Xs" hint on the row. Useful when a host shows `unknown`
     # status: operators can see at a glance whether it was a fast 5xx
     # or a slow 30s hang, without grepping logs.
@@ -4777,7 +4784,7 @@ def _load_hosts_config() -> list[dict]:
             continue
         clean.append({
             "id":          hid,
-            # Empty label is INTENTIONAL post-#621 — frontend's
+            # Empty label is INTENTIONAL post-frontend's
             # `hostDisplayName(h)` resolver falls back to the asset
             # inventory's name when this is blank. The previous
             # `or hid` fallback (kept for years pre-asset-inventory)
@@ -4960,14 +4967,14 @@ def _clean_host_snmp(raw: Any) -> dict:
     if not isinstance(raw, dict):
         return {}
     out: dict = {}
-    # #654 — explicit per-host enable flag, parallel to ping.enabled.
+    # explicit per-host enable flag, parallel to ping.enabled.
     # Opt-IN semantics: persist `enabled: True` only when the operator
     # explicitly checked the box; drop the field otherwise so the row
     # JSON stays tight. `_merge_one_host` reads `enabled is True` (no
     # default-true fallback), so a fresh row with snmp_name set but no
     # explicit opt-in does NOT probe — the operator must check the
     # per-host SNMP enable box. Mirrors `_clean_host_ping`'s pattern.
-    # #673 — omission == disabled is INTENTIONAL. The read-side gate
+    # omission == disabled is INTENTIONAL. The read-side gate
     # (`enabled is True`) interprets a missing `enabled` key as OFF
     # rather than ON, so the SPA's strip-blanks pattern that drops
     # `enabled: false` to keep JSON tight stays correct. DON'T re-add
@@ -5088,7 +5095,7 @@ def _save_hosts_config(hosts: list[dict]) -> list[dict]:
             raise HTTPException(400, "host entry is missing 'id'")
         seen[hid] = {
             "id":            hid,
-            # Empty label is INTENTIONAL post-#621 — the SPA's
+            # Empty label is INTENTIONAL post-the SPA's
             # `hostDisplayName(h)` resolver falls back to the asset
             # inventory's name when this is blank. DO NOT auto-fill
             # with `hid` here: that would silently overwrite an empty
@@ -5118,7 +5125,7 @@ def _save_hosts_config(hosts: list[dict]) -> list[dict]:
             "snmp":          _clean_host_snmp(h.get("snmp")),
             "enabled":       bool(h.get("enabled", True)),
         }
-        # #660 — host-level enable gates every per-provider enable.
+        # host-level enable gates every per-provider enable.
         # Defence-in-depth on top of the SPA's strip in saveHostsConfig:
         # if the row is disabled, force every provider's `enabled` flag
         # to drop so a malformed POST (or a future caller bypassing the
@@ -5770,7 +5777,7 @@ async def api_hosts_debug(
         # does so the "Raw" debug dump shows real metric text, not the
         # HTML landing page that bare host:port returns.
         url_canonical = _ne._normalise_ne_url(url_input)
-        # #540 — operator-tunable NE probe timeout.
+        # operator-tunable NE probe timeout.
         _ne_timeout = tuning.tuning_int("tuning_node_exporter_probe_timeout_seconds")
         try:
             async with httpx.AsyncClient(verify=False, timeout=float(_ne_timeout)) as client:
@@ -5931,7 +5938,7 @@ async def api_hosts_debug(
             v3_priv = ((row_snmp.get("v3_priv_key") or "").strip()
                        or get_setting("snmp_v3_priv_key", "") or "")
             try:
-                # #675 — verbose=True surfaces the parsed walks
+                # verbose=True surfaces the parsed walks
                 # (system / cpu / storage / interfaces) so the
                 # debug panel can show what SNMP data is actually
                 # available, not just the connection params.
@@ -5953,7 +5960,7 @@ async def api_hosts_debug(
                     "v3_priv_set": bool(v3_priv),
                     "hosts_keys": sorted((r.get("hosts") or {}).keys()),
                     "error":      r.get("error"),
-                    # #675 — full probed data: every parsed OID, per-row
+                    # full probed data: every parsed OID, per-row
                     # storage table (RAM + disks), per-row interface
                     # counters, and a quick walk-summary header so
                     # operators can see at a glance which OID families
@@ -6778,16 +6785,16 @@ async def api_hosts_snmp_history(
             "mem_buffers": (int(r[8]) if r[8] is not None else None),
             "mem_cached":  (int(r[9]) if r[9] is not None else None),
             "mem_free":    (int(r[10]) if r[10] is not None else None),
-            # #725a — uptime in seconds; NULL for pre-#725a rows.
+            # uptime in seconds; NULL for pre-#725a rows.
             "uptime_s":    (int(r[11]) if r[11] is not None else None),
-            # #725b — cumulative IF-MIB ifHCInOctets / ifHCOutOctets
+            # cumulative IF-MIB ifHCInOctets / ifHCOutOctets
             # sums; NULL for pre-#725b rows or when SNMP didn't return
             # the counters (e.g. switch with hrStorage but no IF-MIB).
             # Chart layer computes per-pair deltas → bps; out-of-bounds
             # / negative deltas (counter wrap, reboot) are skipped.
             "net_rx_total_bytes": (int(r[12]) if r[12] is not None else None),
             "net_tx_total_bytes": (int(r[13]) if r[13] is not None else None),
-            # #146 — printer lifetime page count (Printer-MIB
+            # printer lifetime page count (Printer-MIB
             # prtMarkerLifeCount). Cumulative monotonic counter; the
             # SPA computes deltas → pages-per-day.
             "printer_page_count": (int(r[14]) if r[14] is not None else None),
@@ -6816,12 +6823,17 @@ async def api_hosts_snmp_iface_history(
     since = int(time.time() - h * 3600)
     try:
         with db_conn() as c:
+            # Row-count ceiling — guard against runaway payload on a
+            # 48-port switch × 168-hour window. h * 60 samples/hr × 64
+            # ifaces is a safe upper bound; the index on (host_id, ts
+            # DESC) makes this read fast but the JSON payload + chart-
+            # build loop are still linear in row count.
             rows = c.execute(
                 "SELECT ts, ifname, in_bytes, out_bytes, link_speed_mbps "
                 "FROM host_snmp_iface_samples "
                 "WHERE host_id=? AND ts >= ? "
-                "ORDER BY ifname ASC, ts ASC",
-                (hid, since),
+                "ORDER BY ifname ASC, ts ASC LIMIT ?",
+                (hid, since, h * 60 * 64),
             ).fetchall()
     except Exception as e:
         return {"ifaces": {}, "error": f"snmp_iface_history: {e}"}
@@ -7282,7 +7294,7 @@ def _request_rp_id(request: Request) -> str:
     dev runs. Strip the ``:port`` suffix in every case — RP IDs are
     hostname-only.
 
-    ENH-015 / #480 — the WebAuthn register-finish path calls this
+    ENH-015 / the WebAuthn register-finish path calls this
     twice (directly + via `_request_origin`); cache the resolved value
     on `request.state.rp_id` so the second call is a dict lookup.
     """
@@ -7338,7 +7350,7 @@ def _request_origin(request) -> str:
     proto = (request.headers.get("x-forwarded-proto", "")
              or request.url.scheme or "http").split(",")[0].strip().lower()
     if proto not in ("http", "https"):
-        # ENH-006 / #473 — reject bogus X-Forwarded-Proto values
+        # ENH-006 / reject bogus X-Forwarded-Proto values
         # (e.g. "ftp", "file") instead of silently flipping to https.
         # Falls back to the actual request scheme; logs once so a
         # mis-configured proxy is debuggable from Admin → Logs.
@@ -7372,14 +7384,14 @@ async def api_local_login(
     password: str = Form(...),
 ):
     ip = auth._client_ip(request)
-    # ENH-012 / #478 — check both the IP-only bucket AND the
+    # ENH-012 / check both the IP-only bucket AND the
     # (ip, username) bucket. The latter scopes lockout to the actual
     # user being typo'd at, so a corporate-NAT'd office isn't
     # collateral-damaged by one user's bad password.
     auth.rate_limit_check(ip, username)
     with db_conn() as c:
         u = auth.get_user_by_username(c, username)
-        # #554 — split the failure cases for clearer operator-facing
+        # split the failure cases for clearer operator-facing
         # error messages without disclosing username existence.
         # SECURITY: only specialise the message AFTER a successful
         # password verification; otherwise an attacker could enumerate
@@ -7771,7 +7783,7 @@ async def api_local_login_webauthn_start(
             detail="No passkeys enrolled for this account.",
         )
     rp_id = _request_rp_id(request)
-    # #605 — detect credentials registered under a different domain.
+    # detect credentials registered under a different domain.
     # WebAuthn binds credentials to their RP ID; if the operator
     # migrated OmniGrid between domains, stored credentials are still
     # in the DB but the browser correctly refuses to offer them on the
@@ -7824,7 +7836,7 @@ async def api_local_login_webauthn_start(
         "origin": _request_origin(request),
         "ip": ip,
     })
-    # #602 — surface the per-credential transports being sent so the
+    # surface the per-credential transports being sent so the
     # operator can grep server logs to verify the assertion-options
     # payload includes 'internal' (without it, macOS Safari/Chrome
     # default to the QR/hybrid flow regardless of `hints`).
@@ -7849,7 +7861,7 @@ async def api_local_login_webauthn_start(
         "login_id": login_id,
         "expires_at": expires_at,
         "username": u.username,
-        # #605 — surface the RP-ID mismatch state so the SPA's login
+        # surface the RP-ID mismatch state so the SPA's login
         # form can render a clear hint instead of letting the browser
         # silently fall through to QR. Only fires when EVERY stored
         # credential's rp_id differs from the current rp_id (any
@@ -8108,18 +8120,18 @@ async def api_me(request: Request):
             # consumer keeps its existing ms-based contract. Renaming
             # the SPA field would touch every call site for no gain.
             "ops_poll_ms": tuning.tuning_int("tuning_ops_poll_interval_seconds") * 1000,
-            # #506 — SPA's loadHosts() reads this and uses it as the cap on
+            # SPA's loadHosts() reads this and uses it as the cap on
             # parallel /api/hosts/one/<id> calls during fan-out. Resolved
             # per /api/me round-trip so an Admin → Config save takes
             # effect on the next call.
             "hosts_parallel_fetch": tuning.tuning_int("tuning_hosts_parallel_fetch"),
-            # #541 — SSE freshness-watchdog idle threshold. Stored as
+            # SSE freshness-watchdog idle threshold. Stored as
             # seconds; SPA's `_sseIdleThresholdMs` consumer wants ms.
             "sse_idle_threshold_ms": tuning.tuning_int("tuning_sse_idle_threshold_seconds") * 1000,
-            # #542 — pollOps SSE-up keep-alive cadence. Same ms-conversion
+            # pollOps SSE-up keep-alive cadence. Same ms-conversion
             # pattern as ops_poll_ms (#514) and sse_idle_threshold_ms.
             "pollops_sse_keepalive_ms": tuning.tuning_int("tuning_pollops_sse_keepalive_seconds") * 1000,
-            # #695 — stat-bar warn / crit cutovers. SPA's barLevel /
+            # stat-bar warn / crit cutovers. SPA's barLevel /
             # barColor helpers read these per-call so an Admin → Config
             # save lands on the next render. Stored as integer percent
             # (30..90 / 50..99).
@@ -8137,7 +8149,7 @@ async def api_me(request: Request):
             # ``fallback`` = True only when configured was non-empty
             # but ZoneInfo rejected it.
             "scheduler_tz": schedules.scheduler_tz_state(),
-            # #596 — per-provider chip colours. Hex string per provider,
+            # per-provider chip colours. Hex string per provider,
             # falls back to the SPA's built-in default when the operator
             # hasn't customised. Read once on /api/me and applied to the
             # provider chip via inline `:style` (--chip-bg/-br/-fg).
@@ -8160,7 +8172,7 @@ async def api_me(request: Request):
     # Always included so the SPA can also clear a stale "dismissed" flag
     # once SESSION_SECRET is finally set in the env.
     out["session_secret_auto"] = (auth.auto_secret_warning() is not None)
-    # UX-004 / #370 — bootstrap admin env vars still set in `.env` AFTER the
+    # UX-004 / bootstrap admin env vars still set in `.env` AFTER the
     # users table has been seeded. The bootstrap path is then a harmless
     # no-op on every restart, but two operational risks remain: (a) wiping
     # the DB and restarting would silently re-seed an admin from the env
@@ -8789,7 +8801,7 @@ async def api_me_webauthn_list(
         "auth_source": user.auth_source,
         "supported": True,
         "credentials": out,
-        # #605 — current effective rp_id so the SPA can compare each
+        # current effective rp_id so the SPA can compare each
         # credential's rp_id against the live page's domain WITHOUT
         # the SPA having to re-derive it (the SPA's `location.hostname`
         # would skip X-Forwarded-Host edge cases that `_request_rp_id`
@@ -8915,7 +8927,7 @@ async def api_me_webauthn_register_finish(
                 sign_count=result["sign_count"],
                 transports=result["transports"],
                 friendly_name=friendly,
-                # #605 — stamp the rp_id this credential was registered
+                # stamp the rp_id this credential was registered
                 # under so login can detect "credential registered under
                 # a different domain" later. ``state["rp_id"]`` came
                 # from `_request_rp_id(request)` at register-start

@@ -238,7 +238,7 @@ def curated_snmp_hosts() -> list[dict]:
     gates on ``snmp.enabled === True`` AND a non-empty ``snmp_name`` (or
     a global ``snmp_aliases`` mapping that resolves the host id — caller
     layers the alias lookup on top). Per-host opt-in matches the SPA's
-    contract from #654 — `enabled is True` is the read-side gate.
+    contract from `enabled is True` is the read-side gate.
 
     Returns ``{id, snmp_name, ssh}`` per row. The caller resolves global
     SNMP defaults (community / version / port / v3 keys) so this helper

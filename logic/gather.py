@@ -190,11 +190,17 @@ def invalidate_cache(reason: Optional[str] = None) -> None:
 _BARE_SNAPSHOT_KEYS = frozenset({
     "mounts", "interfaces",
     "package_updates_count", "package_updates",
-    # #757 — printer state preserved across SNMP probe outages so the
+    # Printer state preserved across SNMP probe outages so the
     # Printer card keeps showing the last-known supplies / page count
     # / console message instead of disappearing when the device goes
     # offline. Same stale-marker treatment the chart cards use.
     "printer_supplies", "printer_page_count", "printer_console_msg",
+    # Every provider (Beszel / Pulse / SNMP / NE / Webmin) emits
+    # `network_ifaces`. Pre-fix it wasn't in the whitelist and
+    # didn't auto-qualify (no `host_` prefix), so per-iface chip strip
+    # + per-port heatmap blanked out on probe outage instead of
+    # falling back to the snapshot with the stale-data warning.
+    "network_ifaces",
 })
 
 
@@ -215,22 +221,12 @@ def _is_snapshot_key(key) -> bool:
     return key in _BARE_SNAPSHOT_KEYS
 
 
-# Backwards-compat alias — preserved for any external import path that
-# may have grown a reference to ``_HOST_SNAPSHOT_KEYS``. The frontend's
-# ``CURATED_REFRESH_FIELDS`` and CLAUDE.md still document the canonical
-# set; callers should prefer ``_is_snapshot_key`` for new code.
-_HOST_SNAPSHOT_KEYS = (
-    "host_cpu_percent", "host_mem_total", "host_mem_used",
-    "host_disk_total", "host_disk_used",
-    "host_boot_ts", "host_uptime_s",
-    "host_platform", "host_os", "host_kernel", "host_arch",
-    "host_cpu_cores", "host_cpu_model",
-    "mounts", "interfaces",
-    "package_updates_count", "package_updates",
-    "host_load_1m", "host_load_5m", "host_load_15m",
-    "host_swap_used", "host_swap_percent",
-    "host_temperatures",
-)
+# Legacy `_HOST_SNAPSHOT_KEYS` tuple removed. Callers should use
+# `_is_snapshot_key(key)` directly. The hand-maintained tuple drifted
+# stale every time a new `host_*` field shipped (gpus / battery_*  /
+# load_percent / ups_status / temperatures / etc.) — `_is_snapshot_key`
+# auto-qualifies via the `host_` prefix + `_BARE_SNAPSHOT_KEYS` so
+# there's no drift to maintain.
 
 
 def save_host_snapshots(nodes_info: dict) -> int:
@@ -912,20 +908,20 @@ async def _gather_impl() -> None:
             except ValueError:
                 snmp_aliases_raw = {}
             snmp_hosts_cfg = _load_hosts_config_for_gather()
-            # #655 — per-tick reads of probe-timeout + concurrency-cap tunables.
+            # per-tick reads of probe-timeout + concurrency-cap tunables.
             snmp_timeout = float(_tuning.tuning_int("tuning_snmp_probe_timeout_seconds"))
             snmp_sem = asyncio.Semaphore(_tuning.tuning_int("tuning_snmp_concurrency"))
 
             async def _one_snmp(h: str):
                 row = _match_hosts_row(h, snmp_hosts_cfg)
-                # #654 — per-host opt-in gate. Skip when the row lacks
+                # per-host opt-in gate. Skip when the row lacks
                 # `snmp.enabled === True` so disabled hosts (and the
                 # default) don't fan out probes.
                 row_snmp = (row.get("snmp") if row and isinstance(row.get("snmp"), dict)
                             else {})
                 if row_snmp.get("enabled") is not True:
                     return h, None
-                # #657 — HARD-GATE on alias OR snmp_name. Bare-`h` fallthrough
+                # HARD-GATE on alias OR snmp_name. Bare-`h` fallthrough
                 # was a perf cliff: fleet-enable on a 200-host fleet fanned
                 # out 200 SNMP probes, ~all-but-mapped of which timed out.
                 target_host = (
@@ -1004,7 +1000,7 @@ async def _gather_impl() -> None:
                 async def _ne_probe(h):
                     # Resolution order for the target URL:
                     #   1. explicit per-host override from the overrides map
-                    #   2. hosts_config row's `ne_url` (#144 — lets
+                    #   2. hosts_config row's `ne_url` (lets
                     #      operators curate the exporter URL per host
                     #      without touching the global template)
                     #   3. template with {host} + {ip} substitution

@@ -90,7 +90,7 @@ _auth_settings_cache: dict = {}
 _auth_settings_cache_valid = False
 
 # Rate limit: failed local logins per IP within the window → lockout.
-# #543 — operator-tunable via Admin → Process tunables. Resolved per
+# operator-tunable via Admin → Process tunables. Resolved per
 # call (NOT cached at import) so a Save in Admin → Config takes effect
 # on the next failed-login attempt without a restart. The historical
 # defaults (5 failures / 15 min / 15 min lockout) live in TUNABLES.
@@ -890,7 +890,7 @@ def list_user_credentials(
             "created_at": r["created_at"],
             "last_used_at": r["last_used_at"],
             "sign_count": int(r["sign_count"] or 0),
-            # #605 — empty string means "registered before the column
+            # empty string means "registered before the column
             # was added" (no rp_id stamp); read-side treats blank as
             # "unknown — assume current rp_id matches" so legacy rows
             # don't trigger spurious mismatch banners.
@@ -932,7 +932,7 @@ def get_credential_by_credential_id(
     if not r:
         return None
     ts = (r["transports"] or "").strip()
-    # #663 — rp_id added so the helper stays in sync with the schema
+    # rp_id added so the helper stays in sync with the schema
     # post-#605's additive ALTER. Login-finish doesn't currently consume
     # the field (expected_rp_id comes from the challenge dict), but a
     # future caller wanting to detect "credential matches login but not
@@ -1243,7 +1243,7 @@ def slide_session_if_needed(
         "UPDATE sessions SET last_seen_at=?, expires_at=? WHERE token_id=?",
         (now, new_expires_at, token_id),
     )
-    # ENH-020 / #485 — publish a session:renewed event so the SPA tab
+    # ENH-020 / publish a session:renewed event so the SPA tab
     # can update its "session expires in X" tooltip in real time
     # without polling. Best-effort: never let a publish failure block
     # the slide. Resolve the user_id from the session row so the SPA
@@ -1323,7 +1323,7 @@ def _username_key(ip: str, username: Optional[str]) -> Optional[str]:
 def rate_limit_check(ip: str, username: Optional[str] = None) -> None:
     """Raise 429 if THIS IP or the (ip, username) tuple is locked out.
 
-    ENH-012 / #478 — pre-fix the limiter keyed solely on IP, so a
+    ENH-012 / pre-fix the limiter keyed solely on IP, so a
     single corporate-NAT'd office got locked out for ANY user's typo.
     Now both buckets are checked; lockout fires when either trips.
     """
@@ -1353,7 +1353,7 @@ def rate_limit_record_failure(ip: str, username: Optional[str] = None) -> None:
     uk = _username_key(ip, username)
     if uk:
         keys.append(uk)
-    # #543 — resolve per-call so a Save in Admin → Config takes effect
+    # resolve per-call so a Save in Admin → Config takes effect
     # immediately without a restart. tuning_int caches via the
     # auth-settings cache, so this is sub-microsecond per call.
     from logic import tuning as _tuning
@@ -1449,7 +1449,7 @@ def _resolve_user(request: Request, db_conn_factory) -> tuple[Optional[User], Op
     auth_h = request.headers.get("authorization", "")
     if auth_h.startswith("Bearer "):
         raw = auth_h[7:].strip()
-        # ENH-013 / #479 — defensive try/except so a transient SQLite
+        # ENH-013 / defensive try/except so a transient SQLite
         # BUSY / OperationalError doesn't escape the middleware as a
         # 500. Treat any DB failure as "auth failed" — the caller's
         # request gets a clean 401 (or proceeds anonymously if the

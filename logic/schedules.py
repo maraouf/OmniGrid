@@ -171,7 +171,7 @@ def _next_fixed_time_run(
          no recorded run for it → next = today's anchor (fire now).
          Grace = ``TICK_INTERVAL_SECONDS * 2`` (≈120s by default) so a
          scheduler tick that lands ~30 seconds after the anchor still
-         catches today's fire window. See note_todo #211 — without
+         catches today's fire window. See note_todo without
          the grace window, daily / weekly / monthly schedules never
          fired because the strictly-less-than check skipped the
          anchor on every tick that landed after it.
@@ -1097,7 +1097,7 @@ async def _run_prune_logs(params: dict) -> tuple[str, Awaitable[tuple[int, str]]
             # crash on a non-int. Clamping to the same
             # [1, 365] range as TUNABLES["tuning_log_retention_days"]
             # keeps the schedule UI consistent with Admin → Config.
-            _, _default, _lo, _hi = _tuning_mod.TUNABLES["tuning_log_retention_days"]
+            _, _, _lo, _hi = _tuning_mod.TUNABLES["tuning_log_retention_days"]
             override = params.get("days") if isinstance(params, dict) else None
             if override is not None and str(override).strip():
                 try:
