@@ -7660,6 +7660,29 @@ function app() {
       if (n < 50) return 'warn';
       return '';
     },
+    // Battery status enum (from PowerNet-MIB upsBasicBatteryStatus).
+    // Operator-requested: render as a coloured pill instead of the
+    // raw "battery-normal" string. battery-normal → green (pill-ok),
+    // battery-low → amber (pill-update), battery-in-fault → red
+    // (pill-error), unknown → grey (pill-unknown). Mirror of
+    // `upsStatusPillClass` for the output-status badge.
+    upsBatteryStatusPillClass(status) {
+      const s = String(status || '').toLowerCase();
+      if (s === 'battery-normal') return 'pill-ok';
+      if (s === 'battery-low') return 'pill-update';
+      if (s === 'battery-in-fault') return 'pill-error';
+      return 'pill-unknown';
+    },
+    upsBatteryStatusLabel(status) {
+      // Pretty-print the snake-case enum from PowerNet-MIB. i18n keys
+      // exist for the canonical set; unknown values fall through to
+      // the raw enum string. Same shape as `upsStatusLabel` so the
+      // label / pill pair stays consistent across translations.
+      const s = String(status || '').toLowerCase();
+      const key = `host_drawer.ups.battery_${s.replace(/-/g, '_')}`;
+      const translated = this.t(key);
+      return (translated && translated !== key) ? translated : (status || '');
+    },
     fmtUpsRuntime(seconds) {
       const s = +seconds;
       if (!Number.isFinite(s) || s <= 0) return '—';
@@ -14037,6 +14060,87 @@ function app() {
         out[i] = db / dt;
       }
       return out;
+    },
+    // APC UPS Output Load % over the picker window (#820).
+    // Renders the percentage of UPS capacity in use — e.g. 13% on a
+    // 10 kVA Smart-UPS RT means the connected gear is drawing ~1.3 kVA.
+    // Reads `load_percent` from `host_snmp_samples` rows; NULL slots
+    // (host wasn't a UPS yet, or sample didn't include the OID) are
+    // omitted via `_snmpPolyPoints`. Y-axis pinned to 100% so a busy
+    // UPS doesn't auto-rescale.
+    snmpUpsLoadLine(hostId) {
+      const series = (this.hostSnmpHistory[hostId] || {}).points || [];
+      if (!series.length) return '';
+      const vals = series.map(p => (p.load_percent != null ? +p.load_percent : null));
+      const times = series.map(p => p.ts);
+      return this._snmpPolyPoints(vals, 100, { times });
+    },
+    // True when at least 2 samples have a non-null load_percent —
+    // gates the Output Load chart card (single-point can't form a line).
+    snmpHasUpsLoad(hostId) {
+      const series = (this.hostSnmpHistory[hostId] || {}).points || [];
+      let n = 0;
+      for (const p of series) {
+        if (p.load_percent != null) {
+          n++;
+          if (n >= 2) return true;
+        }
+      }
+      return false;
+    },
+    // APC UPS Battery % over the picker window. Same shape as the
+    // load helper; pinned to 100%. Renders the discharge curve when
+    // the UPS is on battery + the recharge curve afterwards.
+    snmpUpsBatteryLine(hostId) {
+      const series = (this.hostSnmpHistory[hostId] || {}).points || [];
+      if (!series.length) return '';
+      const vals = series.map(p => (p.battery_percent != null ? +p.battery_percent : null));
+      const times = series.map(p => p.ts);
+      return this._snmpPolyPoints(vals, 100, { times });
+    },
+    snmpHasUpsBattery(hostId) {
+      const series = (this.hostSnmpHistory[hostId] || {}).points || [];
+      let n = 0;
+      for (const p of series) {
+        if (p.battery_percent != null) {
+          n++;
+          if (n >= 2) return true;
+        }
+      }
+      return false;
+    },
+    // APC UPS Battery temperature (°C) over the picker window. Auto-
+    // ranges so a flat-ish 36°C line still has vertical movement
+    // — caller passes Math.max(50, observed_max) so a normal-range
+    // host renders ~36 / 40 / 50 ticks instead of all-0..100.
+    snmpUpsBatteryTempLine(hostId) {
+      const series = (this.hostSnmpHistory[hostId] || {}).points || [];
+      if (!series.length) return '';
+      const vals = series.map(p => (p.battery_temp_c != null ? +p.battery_temp_c : null));
+      const times = series.map(p => p.ts);
+      let m = 0;
+      for (const v of vals) if (v != null && v > m) m = v;
+      return this._snmpPolyPoints(vals, Math.max(50, m), { times });
+    },
+    snmpUpsBatteryTempMax(hostId) {
+      const series = (this.hostSnmpHistory[hostId] || {}).points || [];
+      let m = 0;
+      for (const p of series) {
+        const v = p.battery_temp_c;
+        if (v != null && v > m) m = v;
+      }
+      return Math.max(50, m);
+    },
+    snmpHasUpsBatteryTemp(hostId) {
+      const series = (this.hostSnmpHistory[hostId] || {}).points || [];
+      let n = 0;
+      for (const p of series) {
+        if (p.battery_temp_c != null) {
+          n++;
+          if (n >= 2) return true;
+        }
+      }
+      return false;
     },
     snmpThroughputLine(hostId, dir) {
       const vals = this.snmpThroughputBpsSeries(hostId, dir);
