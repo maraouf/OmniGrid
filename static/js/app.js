@@ -13704,6 +13704,17 @@ function app() {
         || ((+h.printer_page_count || 0) > 0);
       if (looksLikePrinter && h.printer_page_count != null) return true;
       if (h.host_net_rx_total_bytes != null || h.host_net_tx_total_bytes != null) return true;
+      // #820 — APC UPS hosts (Smart-UPS, Back-UPS, etc.) often expose
+      // PowerNet-MIB load / battery / temperature OIDs but neither
+      // hrStorage NOR IF-MIB. Without this branch the SNMP chart grid
+      // wrapper hid for basic UPS models, taking the new UPS chart
+      // cards down with it. Live values arriving on the API row is
+      // enough to open the grid; the per-card x-show then decides
+      // whether each individual card renders.
+      if (typeof h.host_load_percent === 'number'
+          || typeof h.host_battery_percent === 'number'
+          || typeof h.host_battery_temp_c === 'number'
+          || (h.host_ups_status && String(h.host_ups_status).trim())) return true;
       return !!((h.host_cpu_per_core || []).length > 0
                 || h.host_load_1m || h.host_load_5m || h.host_load_15m
                 || h.host_mem_buffers || h.host_mem_cached);
@@ -14076,8 +14087,9 @@ function app() {
       return this._snmpPolyPoints(vals, 100, { times });
     },
     // True when at least 2 samples have a non-null load_percent —
-    // gates the Output Load chart card (single-point can't form a line).
-    snmpHasUpsLoad(hostId) {
+    // used internally by the chart-body template to switch between
+    // the polyline and the "Collecting data" placeholder.
+    snmpHasUpsLoadHistory(hostId) {
       const series = (this.hostSnmpHistory[hostId] || {}).points || [];
       let n = 0;
       for (const p of series) {
@@ -14085,6 +14097,21 @@ function app() {
           n++;
           if (n >= 2) return true;
         }
+      }
+      return false;
+    },
+    // True when the UPS Load card should RENDER. Returns true on
+    // live host_load_percent OR ≥1 historical sample. Card body uses
+    // `snmpHasUpsLoadHistory` to decide between polyline and the
+    // "Collecting…" hint. Pre-#820 follow-up the card hid until the
+    // sampler accumulated 2 ticks (~10 min on default cadence) — long
+    // enough for operators to assume nothing was being recorded.
+    snmpHasUpsLoad(hostId) {
+      const drawer = this.drawerHost && this.drawerHost.id === hostId ? this.drawerHost : null;
+      if (drawer && typeof drawer.host_load_percent === 'number') return true;
+      const series = (this.hostSnmpHistory[hostId] || {}).points || [];
+      for (const p of series) {
+        if (p.load_percent != null) return true;
       }
       return false;
     },
@@ -14098,7 +14125,7 @@ function app() {
       const times = series.map(p => p.ts);
       return this._snmpPolyPoints(vals, 100, { times });
     },
-    snmpHasUpsBattery(hostId) {
+    snmpHasUpsBatteryHistory(hostId) {
       const series = (this.hostSnmpHistory[hostId] || {}).points || [];
       let n = 0;
       for (const p of series) {
@@ -14106,6 +14133,15 @@ function app() {
           n++;
           if (n >= 2) return true;
         }
+      }
+      return false;
+    },
+    snmpHasUpsBattery(hostId) {
+      const drawer = this.drawerHost && this.drawerHost.id === hostId ? this.drawerHost : null;
+      if (drawer && typeof drawer.host_battery_percent === 'number') return true;
+      const series = (this.hostSnmpHistory[hostId] || {}).points || [];
+      for (const p of series) {
+        if (p.battery_percent != null) return true;
       }
       return false;
     },
@@ -14131,7 +14167,7 @@ function app() {
       }
       return Math.max(50, m);
     },
-    snmpHasUpsBatteryTemp(hostId) {
+    snmpHasUpsBatteryTempHistory(hostId) {
       const series = (this.hostSnmpHistory[hostId] || {}).points || [];
       let n = 0;
       for (const p of series) {
@@ -14139,6 +14175,15 @@ function app() {
           n++;
           if (n >= 2) return true;
         }
+      }
+      return false;
+    },
+    snmpHasUpsBatteryTemp(hostId) {
+      const drawer = this.drawerHost && this.drawerHost.id === hostId ? this.drawerHost : null;
+      if (drawer && typeof drawer.host_battery_temp_c === 'number') return true;
+      const series = (this.hostSnmpHistory[hostId] || {}).points || [];
+      for (const p of series) {
+        if (p.battery_temp_c != null) return true;
       }
       return false;
     },
