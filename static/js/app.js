@@ -8418,7 +8418,9 @@ function app() {
             { keys: ['/'],       label: _t('hotkeys.items.focus_search'),   run: () => this.$refs.searchBox?.focus() },
             { keys: ['1'],       label: _t('hotkeys.items.view_stacks'),    run: () => this.view = 'stacks' },
             { keys: ['2'],       label: _t('hotkeys.items.view_services'),  run: () => this.view = 'services' },
-            { keys: ['3'],       label: _t('hotkeys.items.view_history'),   run: () => this.view = 'history' },
+            { keys: ['3'],       label: _t('hotkeys.items.view_nodes'),     run: () => this.view = 'nodes' },
+            { keys: ['4'],       label: _t('hotkeys.items.view_hosts'),     run: () => this.view = 'hosts' },
+            { keys: ['5'],       label: _t('hotkeys.items.view_history'),   run: () => this.view = 'history' },
             { keys: ['?'],       label: _t('hotkeys.items.show_help'),      run: () => this.showHotkeys = true },
             { keys: ['Esc'],     label: _t('hotkeys.items.close_clear'),    run: null, note: _t('hotkeys.items.close_clear_note') },
           ],
@@ -12982,6 +12984,20 @@ function app() {
     snmpHasEnoughHistory(hostId) {
       const series = (this.hostSnmpHistory[hostId] || {}).points || [];
       return series.length >= 2;
+    },
+    // #765 — true when at least one interface has computable
+    // utilization % (history sample with link_speed_mbps known). The
+    // heatmap card uses this to decide between rendering chips with
+    // util% colours vs the "Collecting data..." spinner. Pre-fix the
+    // chips rendered from live ifaces immediately but always grey
+    // (link speed null) — looked broken. Now waits until at least
+    // one chip can show a meaningful colour.
+    snmpHasIfaceUtilization(hostId, h) {
+      const names = this.snmpAllIfacesSorted(hostId, h);
+      for (const n of names) {
+        if (this.snmpIfaceUtilizationPct(hostId, n, h) != null) return true;
+      }
+      return false;
     },
     // Polyline points for one iface's bps series scaled to refMax.
     snmpIfaceLine(hostId, ifname, dir, refMax) {
