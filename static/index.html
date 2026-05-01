@@ -8697,12 +8697,23 @@
                          class="rounded border border-[var(--border)] bg-[var(--surface)] p-4 md:col-span-6">
                   <h4 class="text-[10.5px] uppercase tracking-wider text-[var(--text-faint)] mb-3"
                       x-text="t('host_drawer.printer.heading')"></h4>
+                  <!-- #757 — stale banner when printer state was
+                       restored from snapshot (SNMP probe failed since
+                       last refresh). Same orange warning treatment
+                       the chart cards use; tells the operator how
+                       long ago the data was real. Stale state is
+                       detected via the same `_stale_fields` markers
+                       chart cards consume. -->
+                  <div x-show="isStaleField(h, 'printer_supplies') || isStaleField(h, 'printer_page_count')"
+                       class="mb-3 text-[11px] flex items-center gap-2 text-[var(--warning)]">
+                    <svg width="11" height="11" aria-hidden="true"><use href="#icon-clock"/></svg>
+                    <span x-text="t('host_drawer.printer.stale_banner', { age: staleAge(h) })"></span>
+                  </div>
                   <!-- Operator-flagged: surface the lifetime page count
                        prominently inside the box rather than as small
-                       greyed sub-text in the heading. Value rendered in
-                       a larger, more visible font matched to the rest
-                       of the drawer's "headline number" style. -->
-                  <div x-show="h.printer_page_count" class="mb-3 flex items-baseline gap-2">
+                       greyed sub-text in the heading. -->
+                  <div x-show="h.printer_page_count" class="mb-3 flex items-baseline gap-2"
+                       :class="isStaleField(h, 'printer_page_count') ? 'stale' : ''">
                     <span class="text-[18px] font-semibold mono"
                           x-text="(+h.printer_page_count || 0).toLocaleString()"></span>
                     <span class="text-[11.5px] text-[var(--text-dim)]"
@@ -9248,25 +9259,31 @@
                       </span>
                     </div>
                   </div>
-                  <div class="metric-card-body">
-                    <div class="metric-y-axis">
-                      <template x-for="(l, i) in yAxisPercent()" :key="'cpu-y-' + i"><span x-text="l"></span></template>
+                  <template x-if="snmpHasEnoughHistory(h.id)">
+                    <div class="metric-card-body">
+                      <div class="metric-y-axis">
+                        <template x-for="(l, i) in yAxisPercent()" :key="'cpu-y-' + i"><span x-text="l"></span></template>
+                      </div>
+                      <svg class="metric-svg" viewBox="0 0 420 120" preserveAspectRatio="none" aria-hidden="true">
+                        <line class="metric-grid" x1="0" y1="30" x2="420" y2="30"/>
+                        <line class="metric-grid" x1="0" y1="60" x2="420" y2="60"/>
+                        <line class="metric-grid" x1="0" y1="90" x2="420" y2="90"/>
+                        <template x-for="(line, i) in snmpCpuPerCoreLines(h.id)" :key="'cpu-' + i">
+                          <polyline fill="none" stroke="var(--info)" stroke-opacity="0.55" stroke-width="1" :points="line"></polyline>
+                        </template>
+                        <polyline fill="none" stroke="var(--success)" stroke-width="1.5" :points="snmpCpuUsedPctLine(h.id)"></polyline>
+                      </svg>
+                      <div class="metric-x-axis">
+                        <template x-for="(l, i) in snmpXAxis(h.id, 5)" :key="'cpu-x-' + i"><span x-text="l"></span></template>
+                      </div>
                     </div>
-                    <svg class="metric-svg" viewBox="0 0 420 120" preserveAspectRatio="none" aria-hidden="true">
-                      <line class="metric-grid" x1="0" y1="30" x2="420" y2="30"/>
-                      <line class="metric-grid" x1="0" y1="60" x2="420" y2="60"/>
-                      <line class="metric-grid" x1="0" y1="90" x2="420" y2="90"/>
-                      <template x-for="(line, i) in snmpCpuPerCoreLines(h.id)" :key="'cpu-' + i">
-                        <polyline fill="none" stroke="var(--info)" stroke-opacity="0.55" stroke-width="1" :points="line"></polyline>
-                      </template>
-                      <polyline fill="none" stroke="var(--success)" stroke-width="1.5"
-                                :points="snmpCpuUsedPctLine(h.id)"
-                                x-show="(hostSnmpHistory[h.id] && hostSnmpHistory[h.id].points || []).length > 0"></polyline>
-                    </svg>
-                    <div class="metric-x-axis">
-                      <template x-for="(l, i) in snmpXAxis(h.id, 5)" :key="'cpu-x-' + i"><span x-text="l"></span></template>
+                  </template>
+                  <template x-if="!snmpHasEnoughHistory(h.id)">
+                    <div class="collecting-block">
+                      <svg aria-hidden="true"><use href="#icon-refresh-ccw"/></svg>
+                      <div><div x-text="t('loading.collecting_data')"></div></div>
                     </div>
-                  </div>
+                  </template>
                 </div>
 
                 <!-- #717 — Load averages — three lines (1m / 5m / 15m)
@@ -9306,22 +9323,30 @@
                       </span>
                     </div>
                   </div>
-                  <div class="metric-card-body">
-                    <div class="metric-y-axis">
-                      <template x-for="(l, i) in yAxisPercent()" :key="'snmp-load-y-' + i"><span x-text="l"></span></template>
+                  <template x-if="snmpHasEnoughHistory(h.id)">
+                    <div class="metric-card-body">
+                      <div class="metric-y-axis">
+                        <template x-for="(l, i) in yAxisPercent()" :key="'snmp-load-y-' + i"><span x-text="l"></span></template>
+                      </div>
+                      <svg class="metric-svg" viewBox="0 0 420 120" preserveAspectRatio="none" aria-hidden="true">
+                        <line class="metric-grid" x1="0" y1="30" x2="420" y2="30"/>
+                        <line class="metric-grid" x1="0" y1="60" x2="420" y2="60"/>
+                        <line class="metric-grid" x1="0" y1="90" x2="420" y2="90"/>
+                        <polyline fill="none" stroke="var(--success)" stroke-width="1.5" :points="snmpLoadLine(h.id, 'load_1m')"></polyline>
+                        <polyline fill="none" stroke="var(--warning)" stroke-width="1" :points="snmpLoadLine(h.id, 'load_5m')"></polyline>
+                        <polyline fill="none" stroke="var(--info)" stroke-width="1" :points="snmpLoadLine(h.id, 'load_15m')"></polyline>
+                      </svg>
+                      <div class="metric-x-axis">
+                        <template x-for="(l, i) in snmpXAxis(h.id, 5)" :key="'load-x-' + i"><span x-text="l"></span></template>
+                      </div>
                     </div>
-                    <svg class="metric-svg" viewBox="0 0 420 120" preserveAspectRatio="none" aria-hidden="true">
-                      <line class="metric-grid" x1="0" y1="30" x2="420" y2="30"/>
-                      <line class="metric-grid" x1="0" y1="60" x2="420" y2="60"/>
-                      <line class="metric-grid" x1="0" y1="90" x2="420" y2="90"/>
-                      <polyline fill="none" stroke="var(--success)" stroke-width="1.5" :points="snmpLoadLine(h.id, 'load_1m')"></polyline>
-                      <polyline fill="none" stroke="var(--warning)" stroke-width="1" :points="snmpLoadLine(h.id, 'load_5m')"></polyline>
-                      <polyline fill="none" stroke="var(--info)" stroke-width="1" :points="snmpLoadLine(h.id, 'load_15m')"></polyline>
-                    </svg>
-                    <div class="metric-x-axis">
-                      <template x-for="(l, i) in snmpXAxis(h.id, 5)" :key="'load-x-' + i"><span x-text="l"></span></template>
+                  </template>
+                  <template x-if="!snmpHasEnoughHistory(h.id)">
+                    <div class="collecting-block">
+                      <svg aria-hidden="true"><use href="#icon-refresh-ccw"/></svg>
+                      <div><div x-text="t('loading.collecting_data')"></div></div>
                     </div>
-                  </div>
+                  </template>
                 </div>
 
                 <!-- #717 — Memory layers: used / cached / buffers / free
@@ -9374,34 +9399,35 @@
                       </span>
                     </div>
                   </div>
-                  <div class="metric-card-body">
-                    <!-- #720 — fall back to history-derived max when
-                         the live `host_mem_total` hasn't populated
-                         yet (operator-flagged: Y-axis was reading
-                         "0 B / 0 B / 0" while waiting on the probe).
-                         #725b — Y-axis labels use `fmtBytesAt(v, max)`
-                         (instead of `fmtBytes`) so all three labels
-                         share the same unit family — pre-fix the axis
-                         showed "2.0 GB / 1018 MB / 0" which read as
-                         misaligned scale tiers. -->
-                    <div class="metric-y-axis">
-                      <span x-text="fmtBytesAt(snmpMemMax(h), snmpMemMax(h))"></span>
-                      <span x-text="fmtBytesAt(snmpMemMax(h) / 2, snmpMemMax(h))"></span>
-                      <span>0</span>
+                  <template x-if="snmpHasEnoughHistory(h.id)">
+                    <div class="metric-card-body">
+                      <!-- Y-axis labels use `fmtBytesAt(v, max)` so all
+                           three labels share the same unit family. -->
+                      <div class="metric-y-axis">
+                        <span x-text="fmtBytesAt(snmpMemMax(h), snmpMemMax(h))"></span>
+                        <span x-text="fmtBytesAt(snmpMemMax(h) / 2, snmpMemMax(h))"></span>
+                        <span>0</span>
+                      </div>
+                      <svg class="metric-svg" viewBox="0 0 420 120" preserveAspectRatio="none" aria-hidden="true">
+                        <line class="metric-grid" x1="0" y1="30" x2="420" y2="30"/>
+                        <line class="metric-grid" x1="0" y1="60" x2="420" y2="60"/>
+                        <line class="metric-grid" x1="0" y1="90" x2="420" y2="90"/>
+                        <polyline fill="none" stroke="var(--danger)"  stroke-width="1.5" :points="snmpMemArea(h.id, 'used')"></polyline>
+                        <polyline fill="none" stroke="var(--warning)" stroke-width="1"   :points="snmpMemArea(h.id, 'cached')"></polyline>
+                        <polyline fill="none" stroke="var(--info)"    stroke-width="1"   :points="snmpMemArea(h.id, 'buffers')"></polyline>
+                        <polyline fill="none" stroke="var(--success)" stroke-width="1"   :points="snmpMemArea(h.id, 'free')"></polyline>
+                      </svg>
+                      <div class="metric-x-axis">
+                        <template x-for="(l, i) in snmpXAxis(h.id, 5)" :key="'mem-x-' + i"><span x-text="l"></span></template>
+                      </div>
                     </div>
-                    <svg class="metric-svg" viewBox="0 0 420 120" preserveAspectRatio="none" aria-hidden="true">
-                      <line class="metric-grid" x1="0" y1="30" x2="420" y2="30"/>
-                      <line class="metric-grid" x1="0" y1="60" x2="420" y2="60"/>
-                      <line class="metric-grid" x1="0" y1="90" x2="420" y2="90"/>
-                      <polyline fill="none" stroke="var(--danger)"  stroke-width="1.5" :points="snmpMemArea(h.id, 'used')"></polyline>
-                      <polyline fill="none" stroke="var(--warning)" stroke-width="1"   :points="snmpMemArea(h.id, 'cached')"></polyline>
-                      <polyline fill="none" stroke="var(--info)"    stroke-width="1"   :points="snmpMemArea(h.id, 'buffers')"></polyline>
-                      <polyline fill="none" stroke="var(--success)" stroke-width="1"   :points="snmpMemArea(h.id, 'free')"></polyline>
-                    </svg>
-                    <div class="metric-x-axis">
-                      <template x-for="(l, i) in snmpXAxis(h.id, 5)" :key="'mem-x-' + i"><span x-text="l"></span></template>
+                  </template>
+                  <template x-if="!snmpHasEnoughHistory(h.id)">
+                    <div class="collecting-block">
+                      <svg aria-hidden="true"><use href="#icon-refresh-ccw"/></svg>
+                      <div><div x-text="t('loading.collecting_data')"></div></div>
                     </div>
-                  </div>
+                  </template>
                 </div>
 
                 <!-- #725b — switch / router total throughput. Two
@@ -9440,23 +9466,31 @@
                       </span>
                     </div>
                   </div>
-                  <div class="metric-card-body">
-                    <div class="metric-y-axis">
-                      <span x-text="fmtBytesAt(snmpThroughputMaxBps(h.id), snmpThroughputMaxBps(h.id)) + '/s'"></span>
-                      <span x-text="fmtBytesAt(snmpThroughputMaxBps(h.id) / 2, snmpThroughputMaxBps(h.id)) + '/s'"></span>
-                      <span>0</span>
+                  <template x-if="snmpHasEnoughHistory(h.id)">
+                    <div class="metric-card-body">
+                      <div class="metric-y-axis">
+                        <span x-text="fmtBytesAt(snmpThroughputMaxBps(h.id), snmpThroughputMaxBps(h.id)) + '/s'"></span>
+                        <span x-text="fmtBytesAt(snmpThroughputMaxBps(h.id) / 2, snmpThroughputMaxBps(h.id)) + '/s'"></span>
+                        <span>0</span>
+                      </div>
+                      <svg class="metric-svg" viewBox="0 0 420 120" preserveAspectRatio="none" aria-hidden="true">
+                        <line class="metric-grid" x1="0" y1="30" x2="420" y2="30"/>
+                        <line class="metric-grid" x1="0" y1="60" x2="420" y2="60"/>
+                        <line class="metric-grid" x1="0" y1="90" x2="420" y2="90"/>
+                        <polyline fill="none" stroke="var(--success)" stroke-width="1.5" :points="snmpThroughputLine(h.id, 'rx')"></polyline>
+                        <polyline fill="none" stroke="var(--info)"    stroke-width="1.5" :points="snmpThroughputLine(h.id, 'tx')"></polyline>
+                      </svg>
+                      <div class="metric-x-axis">
+                        <template x-for="(l, i) in snmpXAxis(h.id, 5)" :key="'thr-x-' + i"><span x-text="l"></span></template>
+                      </div>
                     </div>
-                    <svg class="metric-svg" viewBox="0 0 420 120" preserveAspectRatio="none" aria-hidden="true">
-                      <line class="metric-grid" x1="0" y1="30" x2="420" y2="30"/>
-                      <line class="metric-grid" x1="0" y1="60" x2="420" y2="60"/>
-                      <line class="metric-grid" x1="0" y1="90" x2="420" y2="90"/>
-                      <polyline fill="none" stroke="var(--success)" stroke-width="1.5" :points="snmpThroughputLine(h.id, 'rx')"></polyline>
-                      <polyline fill="none" stroke="var(--info)"    stroke-width="1.5" :points="snmpThroughputLine(h.id, 'tx')"></polyline>
-                    </svg>
-                    <div class="metric-x-axis">
-                      <template x-for="(l, i) in snmpXAxis(h.id, 5)" :key="'thr-x-' + i"><span x-text="l"></span></template>
+                  </template>
+                  <template x-if="!snmpHasEnoughHistory(h.id)">
+                    <div class="collecting-block">
+                      <svg aria-hidden="true"><use href="#icon-refresh-ccw"/></svg>
+                      <div><div x-text="t('loading.collecting_data')"></div></div>
                     </div>
-                  </div>
+                  </template>
                 </div>
 
                 <!-- #725 — per-port throughput. Multi-line chart with
@@ -9493,31 +9527,39 @@
                       </template>
                     </div>
                   </div>
-                  <div class="metric-card-body">
-                    <div class="metric-y-axis">
-                      <span x-text="fmtBytesAt(snmpIfaceMaxBps(h.id), snmpIfaceMaxBps(h.id)) + '/s'"></span>
-                      <span x-text="fmtBytesAt(snmpIfaceMaxBps(h.id) / 2, snmpIfaceMaxBps(h.id)) + '/s'"></span>
-                      <span>0</span>
+                  <template x-if="snmpHasIfaceHistory(h.id)">
+                    <div class="metric-card-body">
+                      <div class="metric-y-axis">
+                        <span x-text="fmtBytesAt(snmpIfaceMaxBps(h.id), snmpIfaceMaxBps(h.id)) + '/s'"></span>
+                        <span x-text="fmtBytesAt(snmpIfaceMaxBps(h.id) / 2, snmpIfaceMaxBps(h.id)) + '/s'"></span>
+                        <span>0</span>
+                      </div>
+                      <svg class="metric-svg" viewBox="0 0 420 120" preserveAspectRatio="none" aria-hidden="true">
+                        <line class="metric-grid" x1="0" y1="30" x2="420" y2="30"/>
+                        <line class="metric-grid" x1="0" y1="60" x2="420" y2="60"/>
+                        <line class="metric-grid" x1="0" y1="90" x2="420" y2="90"/>
+                        <template x-for="(iface, idx) in snmpTopIfacesByThroughput(h.id, 5)" :key="'pp-in-' + iface.name">
+                          <polyline fill="none" stroke-width="1.5"
+                                    :stroke="['var(--success)','var(--info)','var(--warning)','var(--danger)','var(--primary)'][idx % 5]"
+                                    :points="snmpIfaceLine(h.id, iface.name, 'in', snmpIfaceMaxBps(h.id))"></polyline>
+                        </template>
+                        <template x-for="(iface, idx) in snmpTopIfacesByThroughput(h.id, 5)" :key="'pp-out-' + iface.name">
+                          <polyline fill="none" stroke-width="1" stroke-dasharray="3,2"
+                                    :stroke="['var(--success)','var(--info)','var(--warning)','var(--danger)','var(--primary)'][idx % 5]"
+                                    :points="snmpIfaceLine(h.id, iface.name, 'out', snmpIfaceMaxBps(h.id))"></polyline>
+                        </template>
+                      </svg>
+                      <div class="metric-x-axis">
+                        <template x-for="(l, i) in snmpXAxis(h.id, 5)" :key="'pp-x-' + i"><span x-text="l"></span></template>
+                      </div>
                     </div>
-                    <svg class="metric-svg" viewBox="0 0 420 120" preserveAspectRatio="none" aria-hidden="true">
-                      <line class="metric-grid" x1="0" y1="30" x2="420" y2="30"/>
-                      <line class="metric-grid" x1="0" y1="60" x2="420" y2="60"/>
-                      <line class="metric-grid" x1="0" y1="90" x2="420" y2="90"/>
-                      <template x-for="(iface, idx) in snmpTopIfacesByThroughput(h.id, 5)" :key="'pp-in-' + iface.name">
-                        <polyline fill="none" stroke-width="1.5"
-                                  :stroke="['var(--success)','var(--info)','var(--warning)','var(--danger)','var(--primary)'][idx % 5]"
-                                  :points="snmpIfaceLine(h.id, iface.name, 'in', snmpIfaceMaxBps(h.id))"></polyline>
-                      </template>
-                      <template x-for="(iface, idx) in snmpTopIfacesByThroughput(h.id, 5)" :key="'pp-out-' + iface.name">
-                        <polyline fill="none" stroke-width="1" stroke-dasharray="3,2"
-                                  :stroke="['var(--success)','var(--info)','var(--warning)','var(--danger)','var(--primary)'][idx % 5]"
-                                  :points="snmpIfaceLine(h.id, iface.name, 'out', snmpIfaceMaxBps(h.id))"></polyline>
-                      </template>
-                    </svg>
-                    <div class="metric-x-axis">
-                      <template x-for="(l, i) in snmpXAxis(h.id, 5)" :key="'pp-x-' + i"><span x-text="l"></span></template>
+                  </template>
+                  <template x-if="!snmpHasIfaceHistory(h.id)">
+                    <div class="collecting-block">
+                      <svg aria-hidden="true"><use href="#icon-refresh-ccw"/></svg>
+                      <div><div x-text="t('loading.collecting_data')"></div></div>
                     </div>
-                  </div>
+                  </template>
                 </div>
 
                 <!-- #725 slice 4 — per-port utilization heatmap. One
@@ -9613,22 +9655,30 @@
                       </span>
                     </div>
                   </div>
-                  <div class="metric-card-body">
-                    <div class="metric-y-axis">
-                      <span x-text="Math.round(snmpPagesPerDayMax(h.id)).toLocaleString()"></span>
-                      <span x-text="Math.round(snmpPagesPerDayMax(h.id) / 2).toLocaleString()"></span>
-                      <span>0</span>
+                  <template x-if="snmpHasEnoughHistory(h.id) && snmpPagesPerDayMax(h.id) > 0">
+                    <div class="metric-card-body">
+                      <div class="metric-y-axis">
+                        <span x-text="Math.round(snmpPagesPerDayMax(h.id)).toLocaleString()"></span>
+                        <span x-text="Math.round(snmpPagesPerDayMax(h.id) / 2).toLocaleString()"></span>
+                        <span>0</span>
+                      </div>
+                      <svg class="metric-svg" viewBox="0 0 420 120" preserveAspectRatio="none" aria-hidden="true">
+                        <line class="metric-grid" x1="0" y1="30" x2="420" y2="30"/>
+                        <line class="metric-grid" x1="0" y1="60" x2="420" y2="60"/>
+                        <line class="metric-grid" x1="0" y1="90" x2="420" y2="90"/>
+                        <polyline fill="none" stroke="var(--info)" stroke-width="1.5" :points="snmpPagesPerDayLine(h.id)"></polyline>
+                      </svg>
+                      <div class="metric-x-axis">
+                        <template x-for="(l, i) in snmpXAxis(h.id, 5)" :key="'pg-x-' + i"><span x-text="l"></span></template>
+                      </div>
                     </div>
-                    <svg class="metric-svg" viewBox="0 0 420 120" preserveAspectRatio="none" aria-hidden="true">
-                      <line class="metric-grid" x1="0" y1="30" x2="420" y2="30"/>
-                      <line class="metric-grid" x1="0" y1="60" x2="420" y2="60"/>
-                      <line class="metric-grid" x1="0" y1="90" x2="420" y2="90"/>
-                      <polyline fill="none" stroke="var(--info)" stroke-width="1.5" :points="snmpPagesPerDayLine(h.id)"></polyline>
-                    </svg>
-                    <div class="metric-x-axis">
-                      <template x-for="(l, i) in snmpXAxis(h.id, 5)" :key="'pg-x-' + i"><span x-text="l"></span></template>
+                  </template>
+                  <template x-if="!(snmpHasEnoughHistory(h.id) && snmpPagesPerDayMax(h.id) > 0)">
+                    <div class="collecting-block">
+                      <svg aria-hidden="true"><use href="#icon-refresh-ccw"/></svg>
+                      <div><div x-text="t('loading.collecting_data')"></div></div>
                     </div>
-                  </div>
+                  </template>
                 </div>
               </div>
 
