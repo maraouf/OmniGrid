@@ -1595,6 +1595,7 @@
     "printer": {
       "heading": "Printer",
       "page_count": "{count} pages printed",
+      "pages_label": "pages printed (lifetime)",
       "supply_unknown": "Supply"
     },
     "disks": {

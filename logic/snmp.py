@@ -285,6 +285,11 @@ _OID_IF_IN_OCTETS_32  = "1.3.6.1.2.1.2.2.1.10"
 _OID_IF_OUT_OCTETS_32 = "1.3.6.1.2.1.2.2.1.16"
 _OID_IF_HC_IN_OCTETS  = "1.3.6.1.2.1.31.1.1.1.6"
 _OID_IF_HC_OUT_OCTETS = "1.3.6.1.2.1.31.1.1.1.10"
+# IF-MIB::ifHighSpeed — link speed in MEGAbits per second (Mbps).
+# Derived from the older 32-bit ifSpeed (bps) when the device only
+# supports IF-MIB v1; ifHighSpeed handles 10G+ links cleanly. Powers
+# the per-port utilization heatmap (#725 slice 4).
+_OID_IF_HIGH_SPEED    = "1.3.6.1.2.1.31.1.1.1.15"
 
 # HOST-RESOURCES-MIB hrStorageType OID prefixes — the value of an
 # hrStorageType row points at one of these well-known OIDs.
@@ -1364,6 +1369,11 @@ async def probe_snmp(
         if_hc_out_task = _snmp_walk(engine, auth, target, _OID_IF_HC_OUT_OCTETS)
         if_in_task = _snmp_walk(engine, auth, target, _OID_IF_IN_OCTETS_32)
         if_out_task = _snmp_walk(engine, auth, target, _OID_IF_OUT_OCTETS_32)
+        # #725 — IF-MIB::ifHighSpeed (Mbps) for the per-port utilization
+        # heatmap. Devices that don't expose ifHighSpeed simply return
+        # an empty walk; per-iface link_speed_mbps stays None and the
+        # heatmap renders the iface in grey ("unknown speed").
+        if_speed_task = _snmp_walk(engine, auth, target, _OID_IF_HIGH_SPEED)
         # #681 — ENTITY-MIB physical-component walks. Vendor-agnostic
         # source for model name / serial / firmware on enterprise gear.
         ent_descr_task = _snmp_walk(engine, auth, target, _OID_ENT_DESCR)
@@ -1439,6 +1449,7 @@ async def probe_snmp(
             if_descr_task, if_oper_task,
             if_hc_in_task, if_hc_out_task,
             if_in_task, if_out_task,
+            if_speed_task,
             ent_descr_task, ent_name_task, ent_serial_task,
             ent_model_task, ent_fw_task,
             dell_vendor_task, cisco_hw_task,
@@ -1463,6 +1474,7 @@ async def probe_snmp(
      st_type, st_desc, st_unit, st_size, st_used,
      if_descr, if_oper,
      if_hc_in, if_hc_out, if_in, if_out,
+     if_high_speed,
      ent_descr, ent_name, ent_serial, ent_model, ent_fw,
      dell_vendor_get, cisco_hw_get,
      cisco_mem_used_walk, cisco_mem_free_walk, cisco_mem_name_walk,

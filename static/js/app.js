@@ -13006,10 +13006,16 @@ function app() {
       if (hist && Array.isArray(hist.points) && hist.points.length > 0) return true;
       // #138 / #732 — also return true when the host reports printer
       // page-count OR IF-MIB net counters (printers / switches /
-      // routers without CPU / memory MIBs). Without this, the printer
-      // pages chart and the throughput chart never render their card
-      // because the outer grid's gate suppresses them.
-      if (h.printer_page_count != null) return true;
+      // routers without CPU / memory MIBs). Page-count gate requires
+      // a real printer signature (supplies / console msg / non-zero
+      // count) — APC UPSes and routers can answer prtMarkerLifeCount
+      // with 0, which previously triggered the printer chart on
+      // non-printer gear.
+      const supplies = h.printer_supplies || [];
+      const looksLikePrinter = (Array.isArray(supplies) && supplies.length > 0)
+        || !!(h.printer_console_msg && String(h.printer_console_msg).trim())
+        || ((+h.printer_page_count || 0) > 0);
+      if (looksLikePrinter && h.printer_page_count != null) return true;
       if (h.host_net_rx_total_bytes != null || h.host_net_tx_total_bytes != null) return true;
       return !!((h.host_cpu_per_core || []).length > 0
                 || h.host_load_1m || h.host_load_5m || h.host_load_15m
@@ -13174,20 +13180,44 @@ function app() {
       const vals = series.map(p => p.cpu_used_pct ?? 0);
       return this._snmpPolyPoints(vals, 100);
     },
+    // Operator-flagged: SNMP Load chart should render as % of cores
+    // rather than raw `load_1m=0.18` numbers. Converts each load
+    // value to a percentage via cores resolved from the host (live
+    // `host_cpu_per_core` length OR cores) — falls back to 1 (treat
+    // as single-core) when cores is unknown so behaviour matches
+    // the pre-conversion chart for hosts that don't expose cores.
+    // 100 % cap so a busy 4-core box (load=8 → 200%) still fits the
+    // chart without auto-rescaling the Y-axis.
+    snmpCoresFor(hostId) {
+      const h = this.drawerHost && this.drawerHost.id === hostId ? this.drawerHost : null;
+      if (h) {
+        const c = (h.host_cpu_per_core || []).length || h.cpu_cores || h.cores;
+        if (c && c > 0) return c;
+      }
+      const series = (this.hostSnmpHistory[hostId] || {}).points || [];
+      for (const p of series) {
+        const c = (p.cpu_per_core || []).length;
+        if (c > 0) return c;
+      }
+      return 1;
+    },
     snmpLoadLine(hostId, key) {
       const series = (this.hostSnmpHistory[hostId] || {}).points || [];
-      const vals = series.map(p => p[key] ?? 0);
-      // Auto-scale load — typical idle is < 1, busy can hit > cores.
-      const max = Math.max(1, ...vals);
-      return this._snmpPolyPoints(vals, max);
+      const cores = this.snmpCoresFor(hostId);
+      const vals = series.map(p => Math.min(100, ((p[key] ?? 0) / cores) * 100));
+      return this._snmpPolyPoints(vals, 100);
     },
     snmpLoadMax(hostId) {
-      const series = (this.hostSnmpHistory[hostId] || {}).points || [];
-      let max = 1;
-      for (const p of series) {
-        max = Math.max(max, p.load_1m || 0, p.load_5m || 0, p.load_15m || 0);
-      }
-      return max;
+      // Always 100 % now — chart Y-axis stays fixed so a busy machine
+      // doesn't auto-rescale every tick.
+      return 100;
+    },
+    // Legend / live value as percent (0..100, capped). Operator wants
+    // "12 %" not "0.18".
+    snmpLoadPctLive(hostId, liveLoad) {
+      const cores = this.snmpCoresFor(hostId);
+      const pct = Math.max(0, Math.min(100, ((+liveLoad || 0) / cores) * 100));
+      return pct;
     },
     snmpMemArea(hostId, key) {
       // For the memory chart — render each layer as a polyline, scaled
@@ -13327,38 +13357,44 @@ function app() {
       if (stats && stats.max > 0) return stats.max.toFixed(2);
       return (live || 0).toFixed(2);
     },
-    // List of providers currently ENABLED globally — used to render
-    // the "no data from any enabled provider" banner so it only
-    // mentions providers the operator has actually turned on. Reads
-    // `host_stats_source` (CSV) plus the per-source enable flags.
-    // Operator-flagged: banner used to claim "Webmin" was checked
-    // even when Webmin was disabled, which made it look like a bug
-    // rather than a "host not yet wired" state.
-    enabledProvidersList() {
-      const labels = {
-        beszel: 'Beszel',
-        pulse: 'Pulse',
-        node_exporter: 'node-exporter',
-        webmin: 'Webmin',
-        snmp: 'SNMP',
-        ping: 'Ping',
-      };
-      const sources = ((this.settings && this.settings.host_stats_source) || '')
-        .split(',').map(s => s.trim()).filter(Boolean);
+    // List of providers actually wired ON THIS HOST — drives the
+    // "no data" banner so it only names providers the operator has
+    // configured a target for on the specific row. Pre-fix the
+    // banner read from the global `host_stats_source` CSV which
+    // claimed Webmin/SNMP were checked even on hosts that had no
+    // Webmin/SNMP target name set — confusing.
+    enabledProvidersList(h) {
+      if (!h) return this.t('hosts_extra.no_data.no_providers') || 'any provider';
       const out = [];
-      for (const k of ['pulse', 'beszel', 'node_exporter', 'webmin', 'snmp', 'ping']) {
-        if (sources.includes(k)) out.push(labels[k]);
-      }
+      if ((h.beszel_id || h.beszel_name || '').trim()) out.push('Beszel');
+      if ((h.pulse_name || '').trim()) out.push('Pulse');
+      if ((h.ne_url || '').trim()) out.push('node-exporter');
+      if ((h.webmin_name || h.webmin_url || '').trim()) out.push('Webmin');
+      if (h.snmp_enabled === true && (h.snmp_name || '').trim()) out.push('SNMP');
+      if (h.ping_enabled === true) out.push('Ping');
       if (!out.length) return this.t('hosts_extra.no_data.no_providers') || 'any provider';
       if (out.length === 1) return out[0];
       if (out.length === 2) return out[0] + ' or ' + out[1];
       return out.slice(0, -1).join(', ') + ', or ' + out[out.length - 1];
     },
     snmpHasPageCount(hostId, h) {
-      // Live live `h.printer_page_count` OR ANY history row carrying
-      // a non-null page count. Either way, the printer card is
-      // worth rendering.
-      if (h && h.printer_page_count != null) return true;
+      // Show the printer pages chart ONLY when the host looks like a
+      // real printer — APC UPSes, switches and other non-printer SNMP
+      // gear can occasionally answer OID 1.3.6.1.2.1.43.10.2.1.4.1.1
+      // (prtMarkerLifeCount) with 0, which previously triggered the
+      // chart card on a UPS. Gate on a printer signature: at least one
+      // supply row OR a console message OR a NON-ZERO page count
+      // (treat 0 as "agent reported a Printer-MIB OID but isn't really
+      // a printer").
+      if (!h) return false;
+      const supplies = h.printer_supplies || [];
+      const hasSupplies = Array.isArray(supplies) && supplies.length > 0;
+      const hasConsole = !!(h.printer_console_msg && String(h.printer_console_msg).trim());
+      const hasNonZeroLive = (+h.printer_page_count || 0) > 0;
+      if (!hasSupplies && !hasConsole && !hasNonZeroLive) return false;
+      // At this point the host smells like a printer — show the chart
+      // if the live value is set OR history has a non-null reading.
+      if (h.printer_page_count != null) return true;
       const series = (this.hostSnmpHistory[hostId] || {}).points || [];
       for (const p of series) {
         if (p.printer_page_count != null) return true;
