@@ -29,6 +29,51 @@ Items that have shipped to the live deploy as a PATCH bump but haven't
 yet been rolled into a numbered `MINOR` release. When the operator cuts
 the next release, this whole block becomes the `[X.Y.0]` entry below.
 
+### Added
+
+- GPU chart cards in the host drawer for hosts with discrete GPUs (Beszel agent reports `stats.g`). Three new cards: GPU Power Draw (W, average across GPUs), GPU Usage (%, average utilization), GPU VRAM (% of VRAM used, legend shows used / total bytes). Cards hidden on non-GPU hosts. Backend normalises Beszel's inconsistent unit convention (used in GB, total in MB) to bytes uniformly. History endpoint emits per-tick aggregates so polylines populate immediately.
+- Switch-specific SNMP charts on the host drawer. Total throughput chart with in / out polylines from cumulative ifHCInOctets / ifHCOutOctets sums, with skip-don't-synthesize on counter wrap or reboot. Per-port throughput multi-line chart showing the top 5 interfaces by current rate (solid = in, dashed = out, color-cycled). Per-port utilization heatmap showing every interface as a colored chip with name + util %, color-graded against link capacity (green < 50 % < amber < 85 % < red, grey for unknown speed / idle). Uptime trend with reboot detection — drawer's System card uptime row renders a "Rebooted Xh ago" badge when the SNMP uptime counter walks backwards. Per-iface counter persistence in a new `host_snmp_iface_samples` table; ifHighSpeed walk added to the SNMP probe.
+- Printer pages-printed sparkline chart for hosts that report Printer-MIB `prtMarkerLifeCount` (HP, Brother, Canon, Epson, Xerox, etc.). Pages-per-day rate derived from adjacent samples with absurd-rate guards. Lifetime page count repositioned inside the Printer card body at 18 px semibold mono with a "pages printed (lifetime)" caption.
+- Hardware inventory rows in the host drawer's Hardware card now surface SNMP-reported model / serial / firmware (entPhysicalTable + vendor MIB walks), distinct from the asset-inventory rows so operators can spot hardware swaps not yet recorded in inventory.
+- Faded amber warning triangle (⚠) prefix on every stale text element. Existing dashed-underline + dim opacity weren't immediately recognisable as "cached data". Triangle uses Unicode `⚠` at 0.85 em, scoped via `.stale:not(.stat-bar)::before` so it doesn't double-render inside stat-bars.
+
+### Changed
+
+- Chart-source help-circle tooltip simplified — returns ONLY the active primary provider for each chart instead of "Beszel agent (X) (fallback chain: …)" or "node-exporter fills Net I/O when Beszel returns zero". The chart renders from one provider's data at a time; calling out fallbacks read like data was somehow merged.
+- Chart title order unified across every host-drawer chart card: `name → [unit] → tooltip`. Auto-scaling byte-rate charts (Total throughput, Per-port throughput, Disk I/O, Bandwidth, Network) dropped their `B/s` chip — `fmtBytes` already auto-scales the legend + Y-axis to KB/s / MB/s / GB/s, so a static `B/s` chip read as a contradiction. Fixed-unit charts keep their chip (CPU `%`, Memory `%`, Disk `%`, Load `load`, Swap `%`, Temperature `°C`, GPU Power `W`, GPU Usage `%`, GPU VRAM `%`, Per-port utilization `%`, Pages `pages/day`, Ping `ms`, SNMP CPU `%`, SNMP Load `%`).
+- Help-circle metric-source tooltip added to every chart that lacked one — Ping chart and the SNMP CPU / Load / Memory / Throughput / Pages / Per-port chart cards. Audit clean: every chart title carries a source tooltip.
+- SNMP Load chart now renders as % of cores (capped at 100) instead of raw load values like 0.18 / 0.22, matching the percent-of-cap convention CPU and Memory cards use. Y-axis uses standard 0 / 50 / 100 ticks.
+- SNMP freshness banner ("Last sample 1m ago") always renders in warning orange instead of switching from grey at the staleness threshold. The freshness signal is visible at every cadence so operators don't need to interpret colour to know when the last probe ran.
+- "Time-series sourced from Beszel or node-exporter" hint banner suppressed on hosts whose SNMP charts are rendering — the canonical `hostHasSnmpCharts(h)` predicate gates the banner.
+- "Could not match this host" banner now lists ONLY providers wired for that specific host (Beszel id / Pulse name / NE URL / Webmin name / SNMP enabled+name / Ping enabled). Previously listed every globally-enabled provider, which was misleading on partially-configured rows.
+- Warming-up banner ("Collecting first samples...") now reads the actual configured sampler interval instead of a static "~5 min" literal. SPA reads `tuning_stats_sample_interval_seconds` via `me.client_config`.
+- Beszel Load avg chart title now carries a `load` unit chip (matching CPU / Memory / Disk's `%` chip pattern). Was missing the visible unit indicator.
+- Hosts-toolbar Open Beszel / Open Pulse links reliably float to the trailing edge via a flex-spacer pattern that works regardless of inner cluster width.
+- Printer supply names render brand acronyms (HP, IBM, AMD, etc.) and SKU codes (alphanumeric tokens like 3JA27A) in ALL CAPS while normal words stay Title Case. `titleCase()` rule extension covers every consumer.
+
+### Fixed
+
+- Permanently-flat chart cards (Disk I/O, Net I/O) now hide entirely after one hour of accumulated history with all-zero readings. SNMP-only hosts that don't expose per-mount IOPS were rendering a flat 0-line "Disk idle" forever, which read like "data is loading" instead of "this provider doesn't surface this metric". Hosts in warm-up keep showing the chart.
+- Per-port utilization heatmap renders chips immediately from the live `network_ifaces[]` payload instead of waiting two sampler ticks for the iface_history table to accumulate. Same loopback / docker / veth exclusion the sampler uses so chip count matches the throughput chart.
+- Printer pages chart hidden on non-printer SNMP hosts. APC UPSes and routers were rendering the chart card because they answered the Printer-MIB OID with 0; the gate now requires a real printer signature (supplies / console message / non-zero page count).
+- SNMP Load chart legend no longer shows 0.00 while the chart line clearly has non-zero peaks — legend uses peak across the window when the live value is 0.
+- SNMP Memory chart Y-axis no longer reads "0 B / 0 B / 0" while waiting on the live probe — derives the upper bound from history when live `host_mem_total` is missing.
+- SNMP Memory chart legend + Y-axis now share one unit family (was rendering "1.9 GB" next to "1012 MB" — visually misaligned tiers). New `fmtBytesAt(value, refMax)` helper picks the unit ONCE from the reference max.
+- SNMP-only nodes no longer see the misleading "Time-series charts are sourced from Beszel or node-exporter…" banner.
+- Temperature chart now shows the standard "Collecting data..." spinner during warm-up. Was the only chart card without a fallback during the warm-up window.
+- Friendlier hosts_config save-side error messages for duplicate id and duplicate custom_number — plain English instead of "hosts_config: duplicate id — X, Y, Z. Each host must have a unique id."
+- Single-interface unhide — host with exactly 1 docker / internal interface (and no other ifaces) now renders that iface inline instead of behind the "Hide N Docker / internal interface(s)" toggle.
+- "+ Add URL" link in the host drawer's System card now lands on the specific host's row in Admin → Hosts (was navigating to the generic Hosts page with no row expanded).
+- Per-field stale styling sharpened — opacity 0.55 → 0.45, plus desaturation and a dashed underline, so cached values read as visibly different at a glance instead of just "slightly dimmer". Stat-bar dashed border thickened and switched to warning orange to match the cached-data banner.
+- SNMP charts on freshly-enabled hosts show a "Collecting first samples — chart will populate after the next sampler tick" hint instead of looking broken.
+- SNMP uptime trend + reboot detection — uptime row in System card renders a compact "Rebooted Xh ago" badge when adjacent SNMP uptime counters walk backwards within a 24 h window.
+- Hosts-page CPU / Memory / Disk bars self-identify on hover via tooltips that include metric name + percent + bytes + stale age. Was easy to misread the Memory bar as a disk on rows where the Memory bar was at 99 %.
+- Hosts-page CPU / Mem / Disk percentages now render as integers (`Math.round`) instead of `73.84579584587 %`. CPU's one-decimal text display retained.
+- Hosts-page SNMP chip respects the per-host opt-in flag — backend emits `snmp_enabled`, all three frontend gates require both `snmp_name` AND `snmp_enabled === true`.
+- SNMP CPU / Load / Memory chart cards hidden when host also has Beszel or node-exporter enabled (avoids redundant disagreeing values from the coarser SNMP cadence).
+- SNMP interface list capped at top 10 by traffic with a per-host "Show {count} more" toggle (busy-by-traffic-desc sort preserved; show-idle / docker toggles unchanged).
+- Printer card supply bars render in their mapped brand colour (cyan / magenta / yellow / black / waste-grey) instead of all-grey. Supply names render Title Case via `titleCase()` helper.
+
 ### Fixed
 
 - SNMP walks no longer crash on pysnmp 7.x. Pre-fix every `_snmp_walk` call raised `TypeError: 'async for' requires an object with __aiter__ method, got coroutine` because pysnmp 7.x's `bulk_cmd` returns a coroutine (single response), not an async iterator. The Admin → Logs view spammed errors continuously for every walk on every SNMP-probed host (~17 walks × N hosts × every gather cadence). The import resolver now picks up `bulk_walk_cmd` / `walk_cmd` (7.x walk APIs) when present; `_snmp_walk` uses `bulkWalkCmd or bulkCmd` so pysnmp ≤6.x's legacy iterator-style `bulkCmd` still works as the fallback.
