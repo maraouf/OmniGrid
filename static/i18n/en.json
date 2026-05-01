@@ -1494,6 +1494,10 @@
       "title": "Showing cached data — provider unavailable",
       "body": "Last live update {age} ago. {count} field(s) restored from the snapshot — values dimmed below are not live."
     },
+    "actions": {
+      "edit_in_admin": "Edit",
+      "edit_in_admin_title": "Open this host's row in Admin → Hosts"
+    },
     "system": {
       "heading": "System",
       "hostname": "Hostname",

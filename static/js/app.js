@@ -13481,23 +13481,32 @@ function app() {
       // gear can occasionally answer OID 1.3.6.1.2.1.43.10.2.1.4.1.1
       // (prtMarkerLifeCount) with 0, which previously triggered the
       // chart card on a UPS. Gate on a printer signature: at least one
-      // supply row OR a console message OR a NON-ZERO page count
-      // (treat 0 as "agent reported a Printer-MIB OID but isn't really
-      // a printer").
+      // supply row OR a console message OR a NON-ZERO page count from
+      // EITHER the live row OR history (DB-backed fast-path so the
+      // card appears immediately on drawer open instead of waiting
+      // for the 10-30s live SNMP probe to land).
       if (!h) return false;
       const supplies = h.printer_supplies || [];
       const hasSupplies = Array.isArray(supplies) && supplies.length > 0;
       const hasConsole = !!(h.printer_console_msg && String(h.printer_console_msg).trim());
       const hasNonZeroLive = (+h.printer_page_count || 0) > 0;
-      if (!hasSupplies && !hasConsole && !hasNonZeroLive) return false;
-      // At this point the host smells like a printer — show the chart
-      // if the live value is set OR history has a non-null reading.
+      const hasNonZeroHist = this.snmpLatestPageCount(hostId) > 0;
+      if (!hasSupplies && !hasConsole && !hasNonZeroLive && !hasNonZeroHist) return false;
       if (h.printer_page_count != null) return true;
+      return hasNonZeroHist;
+    },
+    // #764 — read the most-recent non-null `printer_page_count` from
+    // the persisted SNMP history. Lets the Printer card surface a
+    // lifetime page count immediately on drawer open from DB-backed
+    // history instead of waiting for the live SNMP probe (10-30s
+    // round trip). Falls back to 0 when no history exists.
+    snmpLatestPageCount(hostId) {
       const series = (this.hostSnmpHistory[hostId] || {}).points || [];
-      for (const p of series) {
-        if (p.printer_page_count != null) return true;
+      for (let i = series.length - 1; i >= 0; i--) {
+        const v = series[i].printer_page_count;
+        if (v != null && v > 0) return v;
       }
-      return false;
+      return 0;
     },
     async loadHostHistory(systemId, hostId) {
       // Preserve whatever series we already have so the chart doesn't
@@ -13943,6 +13952,17 @@ function app() {
       const digits = n >= 100 ? 0 : n >= 10 ? 1 : 2;
       return n.toFixed(digits) + ' ' + units[u] + '/s';
     },
+    // #758 — return a Y-axis bytes formatter pinned to the unit
+    // family of `refMax`. Use as `yAxisAuto(max, _fmtAxisBytesAt(max))`
+    // so every tick (top + interpolated middles + 0) renders in the
+    // same unit, instead of `_fmtAxisBytes`'s per-value auto-scale
+    // (operator-flagged: `MB/s` chip with ticks `4.0 MB/s / 2.0 MB/s
+    // / 0` is fine, but `KB/s` near-zero ticks mixed with MB/s top
+    // tick is broken).
+    _fmtAxisBytesAt(refMax) {
+      const fmtAt = this.fmtBytesAt.bind(this);
+      return (v) => (v <= 0 ? '0 B/s' : fmtAt(v, refMax) + '/s');
+    },
     _fmtAxisTime(ts) {
       if (!ts) return '';
       const d = new Date(ts * 1000);
@@ -14239,9 +14259,14 @@ function app() {
           minRaw: lo, maxRaw: hi,
         };
       }
+      // Operator-flagged: when `lo = 0` and `hi` is a non-zero MB/s
+      // value, `fmtBytes` rendered `0 B/s` next to `19 MB/s` —
+      // different units in the same chart's legend. Lock both
+      // formatted values to the unit family of `hi` (the chart's
+      // max) via `fmtBytesAt`.
       return {
-        min: this.fmtBytes(lo) + '/s',
-        max: this.fmtBytes(hi) + '/s',
+        min: this.fmtBytesAt(lo, hi) + '/s',
+        max: this.fmtBytesAt(hi, hi) + '/s',
         minRaw: lo, maxRaw: hi,
       };
     },

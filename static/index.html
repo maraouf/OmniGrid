@@ -7964,9 +7964,23 @@
                        aria-hidden="true"
                        :title="t('admin_hosts.label_source_asset', { name: (assetForHost(h) && assetForHost(h).name) || '' })"><use href="#icon-package"/></svg>
                 </div>
-                <button @click="closeHostDrawer()"
-                        class="btn btn-ghost text-base leading-none"
-                        :title="t('actions.close') || 'Close'">✕</button>
+                <div class="flex items-center gap-1">
+                  <!-- #760 — quick "Edit in Admin" jump from the host
+                       drawer header. Same close-drawer + view-switch +
+                       focusHostsConfigRow chain the System card's
+                       "+ Add URL" link uses (#719); admin-only since
+                       only admins can edit the curated host list. -->
+                  <button x-show="me && me.role === 'admin'"
+                          @click="(() => { const _hid = h.id; closeHostDrawer(); view='admin'; openAdminTab('hosts').then(() => focusHostsConfigRow(_hid)); })()"
+                          class="btn btn-ghost text-[11.5px] flex items-center gap-1.5"
+                          :title="t('host_drawer.actions.edit_in_admin_title')">
+                    <svg width="13" height="13" aria-hidden="true"><use href="#icon-sliders"/></svg>
+                    <span x-text="t('host_drawer.actions.edit_in_admin')"></span>
+                  </button>
+                  <button @click="closeHostDrawer()"
+                          class="btn btn-ghost text-base leading-none"
+                          :title="t('actions.close') || 'Close'">✕</button>
+                </div>
               </div>
               <!-- Permanent-fail banner (#383) — fires when the
                    host_metrics_sampler has auto-paused this host after
@@ -9466,6 +9480,23 @@
                       </span>
                     </div>
                   </div>
+                  <!-- #763 — static-rate headline above the chart so
+                       operators see current rx + tx without parsing
+                       the chart line. Same prominence as the printer
+                       lifetime page count. Hidden when no live data. -->
+                  <div x-show="snmpThroughputLast(h.id, 'rx') > 0 || snmpThroughputLast(h.id, 'tx') > 0"
+                       class="px-4 pb-2 flex items-baseline gap-3 text-[12px]">
+                    <span class="flex items-baseline gap-1.5">
+                      <span class="text-[var(--success)]">↓</span>
+                      <span class="text-[16px] font-semibold mono"
+                            x-text="fmtBytesAt(snmpThroughputLast(h.id, 'rx'), snmpThroughputMaxBps(h.id)) + '/s'"></span>
+                    </span>
+                    <span class="flex items-baseline gap-1.5">
+                      <span class="text-[var(--info)]">↑</span>
+                      <span class="text-[16px] font-semibold mono"
+                            x-text="fmtBytesAt(snmpThroughputLast(h.id, 'tx'), snmpThroughputMaxBps(h.id)) + '/s'"></span>
+                    </span>
+                  </div>
                   <template x-if="snmpHasEnoughHistory(h.id)">
                     <div class="metric-card-body">
                       <div class="metric-y-axis">
@@ -9534,20 +9565,25 @@
                         <span x-text="fmtBytesAt(snmpIfaceMaxBps(h.id) / 2, snmpIfaceMaxBps(h.id)) + '/s'"></span>
                         <span>0</span>
                       </div>
+                      <!-- Alpine `<template x-for>` doesn't work inside
+                           SVG (template elements are HTML-only) — same
+                           constraint the Temperature chart hits. Render
+                           5 fixed in-polylines + 5 fixed out-polylines
+                           by index instead so the chart actually draws. -->
                       <svg class="metric-svg" viewBox="0 0 420 120" preserveAspectRatio="none" aria-hidden="true">
                         <line class="metric-grid" x1="0" y1="30" x2="420" y2="30"/>
                         <line class="metric-grid" x1="0" y1="60" x2="420" y2="60"/>
                         <line class="metric-grid" x1="0" y1="90" x2="420" y2="90"/>
-                        <template x-for="(iface, idx) in snmpTopIfacesByThroughput(h.id, 5)" :key="'pp-in-' + iface.name">
-                          <polyline fill="none" stroke-width="1.5"
-                                    :stroke="['var(--success)','var(--info)','var(--warning)','var(--danger)','var(--primary)'][idx % 5]"
-                                    :points="snmpIfaceLine(h.id, iface.name, 'in', snmpIfaceMaxBps(h.id))"></polyline>
-                        </template>
-                        <template x-for="(iface, idx) in snmpTopIfacesByThroughput(h.id, 5)" :key="'pp-out-' + iface.name">
-                          <polyline fill="none" stroke-width="1" stroke-dasharray="3,2"
-                                    :stroke="['var(--success)','var(--info)','var(--warning)','var(--danger)','var(--primary)'][idx % 5]"
-                                    :points="snmpIfaceLine(h.id, iface.name, 'out', snmpIfaceMaxBps(h.id))"></polyline>
-                        </template>
+                        <polyline fill="none" stroke-width="1.5" stroke="var(--success)" :points="(snmpTopIfacesByThroughput(h.id, 5)[0] ? snmpIfaceLine(h.id, snmpTopIfacesByThroughput(h.id, 5)[0].name, 'in', snmpIfaceMaxBps(h.id)) : '')"></polyline>
+                        <polyline fill="none" stroke-width="1.5" stroke="var(--info)"    :points="(snmpTopIfacesByThroughput(h.id, 5)[1] ? snmpIfaceLine(h.id, snmpTopIfacesByThroughput(h.id, 5)[1].name, 'in', snmpIfaceMaxBps(h.id)) : '')"></polyline>
+                        <polyline fill="none" stroke-width="1.5" stroke="var(--warning)" :points="(snmpTopIfacesByThroughput(h.id, 5)[2] ? snmpIfaceLine(h.id, snmpTopIfacesByThroughput(h.id, 5)[2].name, 'in', snmpIfaceMaxBps(h.id)) : '')"></polyline>
+                        <polyline fill="none" stroke-width="1.5" stroke="var(--danger)"  :points="(snmpTopIfacesByThroughput(h.id, 5)[3] ? snmpIfaceLine(h.id, snmpTopIfacesByThroughput(h.id, 5)[3].name, 'in', snmpIfaceMaxBps(h.id)) : '')"></polyline>
+                        <polyline fill="none" stroke-width="1.5" stroke="var(--primary)" :points="(snmpTopIfacesByThroughput(h.id, 5)[4] ? snmpIfaceLine(h.id, snmpTopIfacesByThroughput(h.id, 5)[4].name, 'in', snmpIfaceMaxBps(h.id)) : '')"></polyline>
+                        <polyline fill="none" stroke-width="1" stroke-dasharray="3,2" stroke="var(--success)" :points="(snmpTopIfacesByThroughput(h.id, 5)[0] ? snmpIfaceLine(h.id, snmpTopIfacesByThroughput(h.id, 5)[0].name, 'out', snmpIfaceMaxBps(h.id)) : '')"></polyline>
+                        <polyline fill="none" stroke-width="1" stroke-dasharray="3,2" stroke="var(--info)"    :points="(snmpTopIfacesByThroughput(h.id, 5)[1] ? snmpIfaceLine(h.id, snmpTopIfacesByThroughput(h.id, 5)[1].name, 'out', snmpIfaceMaxBps(h.id)) : '')"></polyline>
+                        <polyline fill="none" stroke-width="1" stroke-dasharray="3,2" stroke="var(--warning)" :points="(snmpTopIfacesByThroughput(h.id, 5)[2] ? snmpIfaceLine(h.id, snmpTopIfacesByThroughput(h.id, 5)[2].name, 'out', snmpIfaceMaxBps(h.id)) : '')"></polyline>
+                        <polyline fill="none" stroke-width="1" stroke-dasharray="3,2" stroke="var(--danger)"  :points="(snmpTopIfacesByThroughput(h.id, 5)[3] ? snmpIfaceLine(h.id, snmpTopIfacesByThroughput(h.id, 5)[3].name, 'out', snmpIfaceMaxBps(h.id)) : '')"></polyline>
+                        <polyline fill="none" stroke-width="1" stroke-dasharray="3,2" stroke="var(--primary)" :points="(snmpTopIfacesByThroughput(h.id, 5)[4] ? snmpIfaceLine(h.id, snmpTopIfacesByThroughput(h.id, 5)[4].name, 'out', snmpIfaceMaxBps(h.id)) : '')"></polyline>
                       </svg>
                       <div class="metric-x-axis">
                         <template x-for="(l, i) in snmpXAxis(h.id, 5)" :key="'pp-x-' + i"><span x-text="l"></span></template>
@@ -9603,21 +9639,29 @@
                       </span>
                     </div>
                   </div>
-                  <div class="mt-2 flex flex-wrap gap-1.5">
-                    <template x-for="ifname in snmpAllIfacesSorted(h.id, h)" :key="'hm-' + ifname">
-                      <span class="inline-flex items-center gap-1.5 px-2 py-1 rounded text-[10.5px] mono"
-                            :style="'background:' + snmpIfaceHeatmapColor(snmpIfaceUtilizationPct(h.id, ifname, h)) + '; color:var(--text-on-accent)'"
-                            :title="ifname + ': ' + (snmpIfaceUtilizationPct(h.id, ifname, h) != null
-                                                      ? Math.round(snmpIfaceUtilizationPct(h.id, ifname, h)) + '% of '
-                                                        + snmpIfaceLinkSpeedMbps(h.id, ifname, h) + ' Mbps'
-                                                      : 'link speed unknown')">
-                        <span x-text="ifname"></span>
-                        <span x-show="snmpIfaceUtilizationPct(h.id, ifname, h) != null"
-                              class="opacity-90"
-                              x-text="Math.round(snmpIfaceUtilizationPct(h.id, ifname, h) || 0) + '%'"></span>
-                      </span>
-                    </template>
-                  </div>
+                  <template x-if="snmpAllIfacesSorted(h.id, h).length > 0">
+                    <div class="mt-2 flex flex-wrap gap-1.5">
+                      <template x-for="ifname in snmpAllIfacesSorted(h.id, h)" :key="'hm-' + ifname">
+                        <span class="inline-flex items-center gap-1.5 px-2 py-1 rounded text-[10.5px] mono"
+                              :style="'background:' + snmpIfaceHeatmapColor(snmpIfaceUtilizationPct(h.id, ifname, h)) + '; color:var(--text-on-accent)'"
+                              :title="ifname + ': ' + (snmpIfaceUtilizationPct(h.id, ifname, h) != null
+                                                        ? Math.round(snmpIfaceUtilizationPct(h.id, ifname, h)) + '% of '
+                                                          + snmpIfaceLinkSpeedMbps(h.id, ifname, h) + ' Mbps'
+                                                        : 'link speed unknown')">
+                          <span x-text="ifname"></span>
+                          <span x-show="snmpIfaceUtilizationPct(h.id, ifname, h) != null"
+                                class="opacity-90"
+                                x-text="Math.round(snmpIfaceUtilizationPct(h.id, ifname, h) || 0) + '%'"></span>
+                        </span>
+                      </template>
+                    </div>
+                  </template>
+                  <template x-if="snmpAllIfacesSorted(h.id, h).length === 0">
+                    <div class="collecting-block">
+                      <svg aria-hidden="true"><use href="#icon-refresh-ccw"/></svg>
+                      <div><div x-text="t('loading.collecting_data')"></div></div>
+                    </div>
+                  </template>
                 </div>
 
                 <!-- #146 — printer pages-printed chart. Sparkline of
@@ -9900,7 +9944,7 @@
                   <template x-if="hostChart(hostHistoryKey(h), 'nr') && hostChartMax(hostHistoryKey(h), ['nr','ns']) > 0">
                     <div class="metric-card-body">
                       <div class="metric-y-axis">
-                        <template x-for="(l, i) in yAxisAuto(hostChartMax(hostHistoryKey(h), ['nr','ns']), _fmtAxisBytes)" :key="i">
+                        <template x-for="(l, i) in yAxisAuto(hostChartMax(hostHistoryKey(h), ['nr','ns']), _fmtAxisBytesAt(hostChartMax(hostHistoryKey(h), ['nr','ns']))) " :key="i">
                           <span x-text="l"></span>
                         </template>
                       </div>
@@ -10036,7 +10080,7 @@
                   <template x-if="hostChart(hostHistoryKey(h), 'dr') && hostChartMax(hostHistoryKey(h), ['dr','dw']) > 0">
                     <div class="metric-card-body">
                       <div class="metric-y-axis">
-                        <template x-for="(l, i) in yAxisAuto(hostChartMax(hostHistoryKey(h), ['dr','dw']), _fmtAxisBytes)" :key="i">
+                        <template x-for="(l, i) in yAxisAuto(hostChartMax(hostHistoryKey(h), ['dr','dw']), _fmtAxisBytesAt(hostChartMax(hostHistoryKey(h), ['dr','dw']))) " :key="i">
                           <span x-text="l"></span>
                         </template>
                       </div>
@@ -10158,6 +10202,12 @@
                       </div>
                     </div>
                   </template>
+                  <template x-if="!hostChart(hostHistoryKey(h), 'la1_pct')">
+                    <div class="collecting-block">
+                      <svg aria-hidden="true"><use href="#icon-refresh-ccw"/></svg>
+                      <div><div x-text="t('loading.collecting_data')"></div></div>
+                    </div>
+                  </template>
                 </div>
 
                 <!-- ====== Bandwidth (#322) — single-line aggregate of
@@ -10195,7 +10245,7 @@
                   <template x-if="hostChart(hostHistoryKey(h), 'net')">
                     <div class="metric-card-body">
                       <div class="metric-y-axis">
-                        <template x-for="(l, i) in yAxisAuto(hostChart(hostHistoryKey(h), 'net').max, _fmtAxisBytes)" :key="i">
+                        <template x-for="(l, i) in yAxisAuto(hostChart(hostHistoryKey(h), 'net').max, _fmtAxisBytesAt(hostChart(hostHistoryKey(h), 'net').max)) " :key="i">
                           <span x-text="l"></span>
                         </template>
                       </div>
@@ -10208,6 +10258,12 @@
                           <span x-text="l"></span>
                         </template>
                       </div>
+                    </div>
+                  </template>
+                  <template x-if="!hostChart(hostHistoryKey(h), 'net')">
+                    <div class="collecting-block">
+                      <svg aria-hidden="true"><use href="#icon-refresh-ccw"/></svg>
+                      <div><div x-text="t('loading.collecting_data')"></div></div>
                     </div>
                   </template>
                 </div>
@@ -10257,6 +10313,12 @@
                           <span x-text="l"></span>
                         </template>
                       </div>
+                    </div>
+                  </template>
+                  <template x-if="!hostChart(hostHistoryKey(h), 's')">
+                    <div class="collecting-block">
+                      <svg aria-hidden="true"><use href="#icon-refresh-ccw"/></svg>
+                      <div><div x-text="t('loading.collecting_data')"></div></div>
                     </div>
                   </template>
                 </div>
@@ -10417,7 +10479,7 @@
                       </template>
                     </div>
                   </div>
-                  <template x-if="hostChart(hostHistoryKey(h), 'gpu_pwr')">
+                  <template x-if="hostChartMax(hostHistoryKey(h), ['gpu_pwr']) > 0">
                     <div class="metric-card-body">
                       <div class="metric-y-axis">
                         <template x-for="(l, i) in yAxisAuto(hostChartMax(hostHistoryKey(h), ['gpu_pwr']), n => Math.round(n) + ' W')" :key="i">
@@ -10433,6 +10495,12 @@
                       <div class="metric-x-axis">
                         <template x-for="(l, i) in xAxisFromSeries(hostHistoryKey(h), 5)" :key="i"><span x-text="l"></span></template>
                       </div>
+                    </div>
+                  </template>
+                  <template x-if="!(hostChartMax(hostHistoryKey(h), ['gpu_pwr']) > 0)">
+                    <div class="collecting-block">
+                      <svg aria-hidden="true"><use href="#icon-refresh-ccw"/></svg>
+                      <div><div x-text="t('loading.collecting_data')"></div></div>
                     </div>
                   </template>
                 </div>
@@ -10465,7 +10533,7 @@
                       </template>
                     </div>
                   </div>
-                  <template x-if="hostChart(hostHistoryKey(h), 'gpu_usage')">
+                  <template x-if="hostChart(hostHistoryKey(h), 'gpu_usage') && (hostHistory[hostHistoryKey(h)] && (hostHistory[hostHistoryKey(h)].series || []).length >= 2)">
                     <div class="metric-card-body">
                       <div class="metric-y-axis">
                         <template x-for="(l, i) in yAxisPercent()" :key="i"><span x-text="l"></span></template>
@@ -10479,6 +10547,12 @@
                       <div class="metric-x-axis">
                         <template x-for="(l, i) in xAxisFromSeries(hostHistoryKey(h), 5)" :key="i"><span x-text="l"></span></template>
                       </div>
+                    </div>
+                  </template>
+                  <template x-if="!(hostChart(hostHistoryKey(h), 'gpu_usage') && (hostHistory[hostHistoryKey(h)] && (hostHistory[hostHistoryKey(h)].series || []).length >= 2))">
+                    <div class="collecting-block">
+                      <svg aria-hidden="true"><use href="#icon-refresh-ccw"/></svg>
+                      <div><div x-text="t('loading.collecting_data')"></div></div>
                     </div>
                   </template>
                 </div>
@@ -10512,7 +10586,7 @@
                       </template>
                     </div>
                   </div>
-                  <template x-if="hostChart(hostHistoryKey(h), 'gpu_vram_pct')">
+                  <template x-if="hostChart(hostHistoryKey(h), 'gpu_vram_pct') && (hostHistory[hostHistoryKey(h)] && (hostHistory[hostHistoryKey(h)].series || []).length >= 2)">
                     <div class="metric-card-body">
                       <div class="metric-y-axis">
                         <template x-for="(l, i) in yAxisPercent()" :key="i"><span x-text="l"></span></template>
@@ -10526,6 +10600,12 @@
                       <div class="metric-x-axis">
                         <template x-for="(l, i) in xAxisFromSeries(hostHistoryKey(h), 5)" :key="i"><span x-text="l"></span></template>
                       </div>
+                    </div>
+                  </template>
+                  <template x-if="!(hostChart(hostHistoryKey(h), 'gpu_vram_pct') && (hostHistory[hostHistoryKey(h)] && (hostHistory[hostHistoryKey(h)].series || []).length >= 2))">
+                    <div class="collecting-block">
+                      <svg aria-hidden="true"><use href="#icon-refresh-ccw"/></svg>
+                      <div><div x-text="t('loading.collecting_data')"></div></div>
                     </div>
                   </template>
                 </div>
