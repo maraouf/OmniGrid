@@ -12745,6 +12745,12 @@ function app() {
       if (host.snmp_enabled && !this.hostSnmpHistory[host.id]) {
         this.loadHostSnmpHistory(host.id, 1);
       }
+      // #725 — per-interface SNMP history powers the per-port
+      // throughput chart on switches / routers. Same gate + cadence
+      // as the per-host SNMP history call above.
+      if (host.snmp_enabled && !this.hostSnmpIfaceHistory[host.id]) {
+        this.loadHostSnmpIfaceHistory(host.id, 1);
+      }
       // Dedicated drawer-history poll (#365) — keeps the chart series +
       // the `Updated Xs ago` freshness label in sync regardless of
       // whether the operator has the host-list poll enabled (when
@@ -12858,6 +12864,121 @@ function app() {
         };
       }
     },
+    // #725 — Per-interface SNMP counter history. One entry per host,
+    // each storing { ifaces: { ifname: [points] }, loading, error,
+    // loadedAt }. Powers the per-port throughput chart on switches /
+    // routers. Same loading-flag + back-compat pattern as
+    // `hostSnmpHistory` so chart cards don't flicker.
+    hostSnmpIfaceHistory: {},
+    async loadHostSnmpIfaceHistory(hostId, hours) {
+      if (!hostId) return;
+      const h = +hours || 1;
+      const prev = this.hostSnmpIfaceHistory[hostId] || {};
+      this.hostSnmpIfaceHistory[hostId] = {
+        loading: true,
+        error: prev.error || '',
+        ifaces: prev.ifaces && typeof prev.ifaces === 'object' ? prev.ifaces : {},
+        loadedAt: prev.loadedAt || 0,
+      };
+      try {
+        const r = await fetch(
+          `/api/hosts/${encodeURIComponent(hostId)}/snmp/iface_history?hours=${h}`
+        );
+        if (!r.ok) {
+          this.hostSnmpIfaceHistory[hostId] = {
+            loading: false, error: `HTTP ${r.status}`,
+            ifaces: prev.ifaces || {}, loadedAt: prev.loadedAt || 0,
+          };
+          return;
+        }
+        const d = await r.json();
+        this.hostSnmpIfaceHistory[hostId] = {
+          loading: false,
+          error: d.error || '',
+          ifaces: (d.ifaces && typeof d.ifaces === 'object') ? d.ifaces : {},
+          loadedAt: Date.now(),
+        };
+      } catch (e) {
+        this.hostSnmpIfaceHistory[hostId] = {
+          loading: false, error: String(e),
+          ifaces: prev.ifaces || {}, loadedAt: prev.loadedAt || 0,
+        };
+      }
+    },
+    // Compute per-interface bps series from the cumulative counters.
+    // Returns { in: [bps...], out: [bps...], times: [ts...] } aligned
+    // to the points length. Skip-don't-synthesize on out-of-bounds
+    // deltas: same bounds as `snmpThroughputBpsSeries`.
+    snmpIfaceBpsSeries(hostId, ifname) {
+      const ifaces = (this.hostSnmpIfaceHistory[hostId] || {}).ifaces || {};
+      const series = ifaces[ifname] || [];
+      if (series.length < 2) return { in: [], out: [], times: [] };
+      const inBps = new Array(series.length).fill(0);
+      const outBps = new Array(series.length).fill(0);
+      const times = series.map(p => p.ts);
+      for (let i = 1; i < series.length; i++) {
+        const a = series[i - 1], b = series[i];
+        const dt = (b.ts || 0) - (a.ts || 0);
+        if (dt < 1 || dt > 3600) continue;
+        const ai = a.in_bytes, bi = b.in_bytes;
+        if (ai != null && bi != null) {
+          const di = bi - ai;
+          if (di >= 0 && di <= 10 * 1024 * 1024 * 1024) inBps[i] = di / dt;
+        }
+        const ao = a.out_bytes, bo = b.out_bytes;
+        if (ao != null && bo != null) {
+          const dout = bo - ao;
+          if (dout >= 0 && dout <= 10 * 1024 * 1024 * 1024) outBps[i] = dout / dt;
+        }
+      }
+      return { in: inBps, out: outBps, times };
+    },
+    // Top N interfaces by latest combined throughput. Returns array of
+    // { name, lastIn, lastOut, total } sorted desc. Used to pick which
+    // ports to plot on the per-port chart so 48-port switches don't
+    // produce 96 noisy lines.
+    snmpTopIfacesByThroughput(hostId, n) {
+      const ifaces = (this.hostSnmpIfaceHistory[hostId] || {}).ifaces || {};
+      const out = [];
+      for (const name of Object.keys(ifaces)) {
+        const s = this.snmpIfaceBpsSeries(hostId, name);
+        let lastIn = 0, lastOut = 0;
+        for (let i = s.in.length - 1; i >= 0; i--) {
+          if (s.in[i] > 0) { lastIn = s.in[i]; break; }
+        }
+        for (let i = s.out.length - 1; i >= 0; i--) {
+          if (s.out[i] > 0) { lastOut = s.out[i]; break; }
+        }
+        const total = lastIn + lastOut;
+        if (total > 0) out.push({ name, lastIn, lastOut, total });
+      }
+      out.sort((a, b) => b.total - a.total);
+      return out.slice(0, n || 5);
+    },
+    snmpHasIfaceHistory(hostId) {
+      const ifaces = (this.hostSnmpIfaceHistory[hostId] || {}).ifaces || {};
+      for (const name of Object.keys(ifaces)) {
+        if ((ifaces[name] || []).length >= 2) return true;
+      }
+      return false;
+    },
+    // Polyline points for one iface's bps series scaled to refMax.
+    snmpIfaceLine(hostId, ifname, dir, refMax) {
+      const s = this.snmpIfaceBpsSeries(hostId, ifname);
+      const vals = (dir === 'in' ? s.in : s.out);
+      if (!vals.length) return '';
+      return this._snmpPolyPoints(vals, refMax || 1);
+    },
+    snmpIfaceMaxBps(hostId) {
+      const ifaces = (this.hostSnmpIfaceHistory[hostId] || {}).ifaces || {};
+      let m = 0;
+      for (const name of Object.keys(ifaces)) {
+        const s = this.snmpIfaceBpsSeries(hostId, name);
+        for (const v of s.in)  if (v > m) m = v;
+        for (const v of s.out) if (v > m) m = v;
+      }
+      return m;
+    },
     // True when this host has SNMP data worth charting (per-core CPU
     // OR load avg OR buffers/cached). Drives the gate on the new
     // chart cards so non-SNMP hosts don't see them.
@@ -12883,6 +13004,13 @@ function app() {
       // can see how stale the displayed data is.
       const hist = this.hostSnmpHistory[h.id];
       if (hist && Array.isArray(hist.points) && hist.points.length > 0) return true;
+      // #138 / #732 — also return true when the host reports printer
+      // page-count OR IF-MIB net counters (printers / switches /
+      // routers without CPU / memory MIBs). Without this, the printer
+      // pages chart and the throughput chart never render their card
+      // because the outer grid's gate suppresses them.
+      if (h.printer_page_count != null) return true;
+      if (h.host_net_rx_total_bytes != null || h.host_net_tx_total_bytes != null) return true;
       return !!((h.host_cpu_per_core || []).length > 0
                 || h.host_load_1m || h.host_load_5m || h.host_load_15m
                 || h.host_mem_buffers || h.host_mem_cached);
@@ -13178,7 +13306,15 @@ function app() {
     snmpWarmingUpText() {
       const sec = (this.me && this.me.client_config && this.me.client_config.stats_sample_interval_seconds) || 300;
       const minutes = Math.max(1, Math.round(sec / 60));
-      return this.t('host_drawer.snmp_charts.warming_up', { minutes });
+      let s = this.t('host_drawer.snmp_charts.warming_up', { minutes });
+      // Defensive: if i18n's interpolation didn't substitute (older
+      // browser-cached bundle, helper called pre-load, etc.) — replace
+      // manually so the literal `{minutes}` placeholder never reaches
+      // the operator's screen.
+      if (typeof s === 'string' && s.indexOf('{minutes}') >= 0) {
+        s = s.split('{minutes}').join(String(minutes));
+      }
+      return s;
     },
     // Legend value for SNMP load lines. Operator-flagged: reading
     // `last` showed 0.00 while the chart line clearly had a non-zero

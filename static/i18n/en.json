@@ -1638,7 +1638,11 @@
       "legend_mem_free": "Free",
       "throughput_title": "Total throughput",
       "legend_throughput_in": "In",
-      "legend_throughput_out": "Out"
+      "legend_throughput_out": "Out",
+      "pages_title": "Pages printed",
+      "legend_lifetime": "Lifetime",
+      "legend_pages_per_day": "Pages / day",
+      "per_port_title": "Per-port throughput (top 5 by current rate, solid = in, dashed = out)"
     },
     "charts": {
       "cpu": "CPU %",

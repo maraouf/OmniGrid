@@ -9061,7 +9061,7 @@
                    the Ping latency chart as their time-series source
                    so this hint is misleading there; the gate now
                    excludes `h.ping_enabled`. -->
-              <div x-show="!h.beszel_id && !h.ne_url && !h.ping_enabled && !h.snmp_name && !h.snmp_enabled && h.status === 'up' && (h.providers || []).length > 0"
+              <div x-show="!h.beszel_id && !h.ne_url && !h.ping_enabled && !hostHasSnmpCharts(h) && !h.snmp_name && !h.snmp_enabled && h.status === 'up' && (h.providers || []).length > 0"
                    class="mt-4 text-[11.5px] text-[var(--text-faint)] italic">
                 <span x-text="t('host_drawer.charts.no_source_hint_prefix')"></span>
                 <a href="#" @click.prevent="openAdminTab('hosts')"
@@ -9451,6 +9451,67 @@
                     </svg>
                     <div class="metric-x-axis">
                       <template x-for="(l, i) in snmpXAxis(h.id, 5)" :key="'thr-x-' + i"><span x-text="l"></span></template>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- #725 — per-port throughput. Multi-line chart with
+                     up to top-5 interfaces by latest combined rate
+                     (in + out). Each iface gets one line; in / out
+                     not stacked — operators want to see absolute per-
+                     port throughput. Hidden when fewer than 2 ticks
+                     of iface history exist. -->
+                <div class="metric-card md:col-span-2 lg:col-span-3"
+                     x-show="snmpHasIfaceHistory(h.id)">
+                  <div class="metric-card-head">
+                    <div class="metric-card-title">
+                      <span x-text="t('host_drawer.snmp_charts.per_port_title')"></span>
+                      <span class="metric-source-help" :title="metricSource(h, 'snmp_throughput')"
+                            @click.stop="toggleMetricTooltip(h, 'snmp_per_port')"
+                            @keydown.escape.window="metricTooltipOpen = null">
+                        <svg width="12" height="12" aria-hidden="true"><use href="#icon-help-circle"/></svg>
+                        <span class="metric-source-tooltip"
+                              x-show="metricTooltipOpen === metricTooltipKey(h, 'snmp_per_port')"
+                              x-cloak @click.stop
+                              x-transition.opacity.duration.120ms
+                              x-text="metricSource(h, 'snmp_throughput')"></span>
+                      </span>
+                    </div>
+                    <div class="metric-card-stats" style="gap:8px; flex-wrap:wrap">
+                      <template x-for="(iface, idx) in snmpTopIfacesByThroughput(h.id, 5)" :key="'pp-leg-' + iface.name">
+                        <span class="text-[11px]">
+                          <span class="metric-legend-dot"
+                                :style="'background:' + ['var(--success)','var(--info)','var(--warning)','var(--danger)','var(--primary)'][idx % 5]"></span>
+                          <span class="font-semibold" x-text="iface.name"></span>
+                          <span class="text-[var(--text-faint)]"
+                                x-text="' ' + fmtBytes(iface.lastIn) + '/s ↓ ' + fmtBytes(iface.lastOut) + '/s ↑'"></span>
+                        </span>
+                      </template>
+                    </div>
+                  </div>
+                  <div class="metric-card-body">
+                    <div class="metric-y-axis">
+                      <span x-text="fmtBytes(snmpIfaceMaxBps(h.id)) + '/s'"></span>
+                      <span x-text="fmtBytes(snmpIfaceMaxBps(h.id) / 2) + '/s'"></span>
+                      <span>0</span>
+                    </div>
+                    <svg class="metric-svg" viewBox="0 0 420 120" preserveAspectRatio="none" aria-hidden="true">
+                      <line class="metric-grid" x1="0" y1="30" x2="420" y2="30"/>
+                      <line class="metric-grid" x1="0" y1="60" x2="420" y2="60"/>
+                      <line class="metric-grid" x1="0" y1="90" x2="420" y2="90"/>
+                      <template x-for="(iface, idx) in snmpTopIfacesByThroughput(h.id, 5)" :key="'pp-in-' + iface.name">
+                        <polyline fill="none" stroke-width="1.5"
+                                  :stroke="['var(--success)','var(--info)','var(--warning)','var(--danger)','var(--primary)'][idx % 5]"
+                                  :points="snmpIfaceLine(h.id, iface.name, 'in', snmpIfaceMaxBps(h.id))"></polyline>
+                      </template>
+                      <template x-for="(iface, idx) in snmpTopIfacesByThroughput(h.id, 5)" :key="'pp-out-' + iface.name">
+                        <polyline fill="none" stroke-width="1" stroke-dasharray="3,2"
+                                  :stroke="['var(--success)','var(--info)','var(--warning)','var(--danger)','var(--primary)'][idx % 5]"
+                                  :points="snmpIfaceLine(h.id, iface.name, 'out', snmpIfaceMaxBps(h.id))"></polyline>
+                      </template>
+                    </svg>
+                    <div class="metric-x-axis">
+                      <template x-for="(l, i) in snmpXAxis(h.id, 5)" :key="'pp-x-' + i"><span x-text="l"></span></template>
                     </div>
                   </div>
                 </div>
