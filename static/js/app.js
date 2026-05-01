@@ -12790,6 +12790,49 @@ function app() {
       }
       return out;
     },
+    // List of paused provider names for one host (#797 / UX-ENH-003).
+    // Used by the drawer's "Resume all (N)" rollup button to enumerate
+    // every chip currently in Paused state. Returns an empty array
+    // when no provider is paused — the rollup hides cleanly.
+    pausedProvidersFor(h) {
+      if (!h) return [];
+      const map = h.provider_pause_state;
+      if (!map || typeof map !== 'object') return [];
+      const out = [];
+      for (const name of Object.keys(map)) {
+        const row = map[name];
+        if (row && row.paused) out.push(name);
+      }
+      return out;
+    },
+    // Resume-all action for the drawer rollup. Fans out
+    // `resumeProvider(h, name)` calls in parallel for every currently-
+    // paused provider on this host. Optimistic UI clears each row's
+    // pause state immediately so the chips flip back without waiting
+    // for the per-call SSE round-trip; per-call errors land in the
+    // toast layer individually so a partial-failure case is visible
+    // ("Resumed 4 of 6 providers; 2 failed"). Admin-only — the button
+    // hides when the operator isn't admin.
+    async resumeAllProviders(host) {
+      if (!host || !host.id) return;
+      const paused = this.pausedProvidersFor(host);
+      if (!paused.length) return;
+      const total = paused.length;
+      const results = await Promise.allSettled(
+        paused.map((name) => this.resumeProvider(host, name)),
+      );
+      const failed = results.filter((r) => r.status === 'rejected').length;
+      const ok = total - failed;
+      if (failed === 0) {
+        this.showToast(this.t('hosts_extra.provider_resume_all_done', {
+          count: ok, host: this.hostDisplayName(host) || host.id,
+        }), 'success');
+      } else {
+        this.showToast(this.t('hosts_extra.provider_resume_all_partial', {
+          ok, total, failed, host: this.hostDisplayName(host) || host.id,
+        }), 'warning');
+      }
+    },
     // Per-(provider, host) auto-pause lookup (#797). Returns the
     // pause-state row for `name` on `h`, or null when the provider
     // isn't paused for this host. Backend populates

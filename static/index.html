@@ -8520,6 +8520,8 @@
                                       class="text-[10.5px] px-2 py-0.5 rounded border bg-[var(--surface-2)] border-[var(--border-bright)] text-[var(--text)] hover:bg-[var(--row-hover)] hover:border-[var(--primary)] disabled:opacity-50 disabled:cursor-wait inline-flex items-center gap-1"
                                       @click="resumeProvider(h, agent.name)"
                                       :disabled="providerResumeBusy[h.id + ':' + agent.name]"
+                                      :aria-label="t('hosts_extra.provider_resume_aria', { provider: agent.name })"
+                                      :aria-keyshortcuts="'Enter'"
                                       :title="t('hosts_extra.provider_resume_title', { provider: agent.name })">
                                 <svg width="9" height="9" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
                                   <polygon points="5 3 19 12 5 21 5 3"/>
@@ -8542,6 +8544,28 @@
                         </div>
                       </template>
                     </div>
+                    <!-- "Resume all (N)" rollup. Renders only when ≥ 2
+                         providers on this host are currently paused —
+                         a single-paused host already has one Resume
+                         button on its chip, so the rollup would be
+                         redundant. Admin-only. Pairs with the per-chip
+                         Resume button: this fans out the same action
+                         to every paused chip in one click. -->
+                    <template x-if="isAdmin() && pausedProvidersFor(h).length >= 2">
+                      <div class="mt-3 pt-3 border-t border-[var(--border)] flex items-center justify-end">
+                        <button type="button"
+                                class="text-[11px] px-2.5 py-1 rounded border bg-[color-mix(in_srgb,var(--warning)_10%,transparent)] border-[color-mix(in_srgb,var(--warning)_50%,var(--border))] text-[var(--text)] hover:bg-[color-mix(in_srgb,var(--warning)_18%,transparent)] hover:border-[var(--warning)] inline-flex items-center gap-1.5"
+                                @click="resumeAllProviders(h)"
+                                :aria-label="t('hosts_extra.provider_resume_all_aria', { count: pausedProvidersFor(h).length })"
+                                :aria-keyshortcuts="'Enter'"
+                                :title="t('hosts_extra.provider_resume_all_title')">
+                          <svg width="11" height="11" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                            <polygon points="5 3 19 12 5 21 5 3"/>
+                          </svg>
+                          <span x-text="t('hosts_extra.provider_resume_all', { count: pausedProvidersFor(h).length })"></span>
+                        </button>
+                      </div>
+                    </template>
                   </section>
                 </template>
 

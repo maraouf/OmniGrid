@@ -1446,6 +1446,12 @@
     "provider_resume": "Resume",
     "provider_resuming": "…",
     "provider_resume_title": "Clear the {provider} auto-pause for this host so probes start running again. The next failed probe will start a fresh failure counter.",
+    "provider_resume_aria": "Resume {provider} probes for this host (press Enter)",
+    "provider_resume_all": "Resume all ({count})",
+    "provider_resume_all_title": "Clear the auto-pause on every paused provider for this host in one click. Each cleared row starts a fresh failure counter on the next probe.",
+    "provider_resume_all_aria": "Resume all {count} paused providers for this host (press Enter)",
+    "provider_resume_all_done": "Resumed {count} providers for {host}",
+    "provider_resume_all_partial": "Resumed {ok} of {total} providers for {host}; {failed} failed",
     "provider_resumed": "{provider} resumed for {host}",
     "provider_resume_failed": "Failed to resume {provider}: {error}",
     "provider_last_ok": "Updated {age} ago",
@@ -1619,6 +1625,7 @@
       "iface_down": "Interface down",
       "iface_bar_title": "rx {rx} · tx {tx} since boot",
       "counter_32_title": "Device returned 32-bit byte counters (no ifHCInOctets / ifHCOutOctets). On a 1 Gbps link these wrap every ~17 s at line rate — the throughput chart can silently miscount under-wrap traffic. Upgrade the device firmware or accept the limitation; 64-bit (HC) counters are SNMPv2c+."
+    },
     "ups": {
       "heading": "UPS",
       "battery": "Battery",
