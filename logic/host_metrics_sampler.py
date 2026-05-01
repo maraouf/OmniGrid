@@ -60,7 +60,7 @@ _MAX_DELTA_BYTES   = 10 * 1024 * 1024 * 1024  # 10 GB
 _last_counters: dict[str, tuple] = {}  # host_id → variable-length tuple
 
 
-# #548 — concurrency cap is operator-tunable via
+# concurrency cap is operator-tunable via
 # `tuning_host_metrics_probe_concurrency` (default 8, range 1-64).
 # Resolved per-tick at the consumer below; module-level constant
 # removed so a tunable change takes effect on the very next tick.
@@ -370,7 +370,7 @@ async def _record_failure(host_id: str, now: float, error: str) -> None:
                       f"{int(now - first_ts)}s of consecutive failures "
                       f"({new_fails} attempts) — operator must POST "
                       f"/api/hosts/{host_id}/resume-sampling to resume")
-                # #411 — fire-and-forget Apprise notification on the
+                # fire-and-forget Apprise notification on the
                 # pause transition. ``asyncio.create_task`` is the
                 # supported API since 3.7; it requires a running loop
                 # in scope which we're guaranteed inside this async
@@ -378,7 +378,7 @@ async def _record_failure(host_id: str, now: float, error: str) -> None:
                 # moves on — the pause itself is the load-bearing
                 # side effect.
                 #
-                # #441 — emit-once-with-one-retry. If the first
+                # emit-once-with-one-retry. If the first
                 # `notify()` raises (Apprise URL down, network blip,
                 # apprise-api 5xx), wait 60s and try again ONCE. We
                 # deliberately don't loop forever (would spam if
@@ -395,7 +395,7 @@ async def _record_failure(host_id: str, now: float, error: str) -> None:
                         f"Last error: {err_short or '—'}. "
                         f"Resume manually from the host drawer's banner."
                     )
-                    # ENH-009 / #475 — uses the shared retry helper in
+                    # ENH-009 / uses the shared retry helper in
                     # logic.ops so login-event / scheduler / anomaly-watcher
                     # paths get the same semantics. `label` distinguishes
                     # this chain in Admin → Logs.
@@ -557,7 +557,7 @@ async def _probe_one(
 
 
 async def _probe_one_snmp(host: dict, sem: asyncio.Semaphore) -> None:
-    """#679 — Probe one SNMP host on the sampler tick to record per-host
+    """Probe one SNMP host on the sampler tick to record per-host
     failure state for the auto-pause behaviour, mirroring the NE pattern.
 
     Failure tracking uses a prefixed key (``snmp:{host_id}``) so the
@@ -632,7 +632,7 @@ async def _probe_one_snmp(host: dict, sem: asyncio.Semaphore) -> None:
             return
         # Success — clear any in-flight failure tracking.
         _clear_failure(snmp_key)
-        # #713 — write a sample into host_snmp_samples for the
+        # write a sample into host_snmp_samples for the
         # time-series chart cards (CPU per-core, load avg, memory
         # stacked-area). Skip-don't-synthesize: when mem_total didn't
         # come back, we don't insert a row. Storing zeros would mask
@@ -642,13 +642,13 @@ async def _probe_one_snmp(host: dict, sem: asyncio.Semaphore) -> None:
             stats = next(iter((r.get("hosts") or {}).values()), None)
             if stats:
                 mem_total = int(stats.get("host_mem_total") or 0)
-                # #725b — switches / routers that don't expose hrStorage
+                # switches / routers that don't expose hrStorage
                 # still report IF-MIB counters; insert when EITHER
                 # mem_total OR net totals are present, so the throughput
                 # chart populates on devices that don't surface memory.
                 rx_raw_present = stats.get("host_net_rx_total_bytes") is not None
                 tx_raw_present = stats.get("host_net_tx_total_bytes") is not None
-                # #146 — printer hosts may report ONLY prtMarkerLifeCount
+                # printer hosts may report ONLY prtMarkerLifeCount
                 # (no mem, no IF-MIB). Insert the row so the sparkline
                 # has data to plot.
                 page_count_present = stats.get("printer_page_count") is not None
@@ -656,12 +656,12 @@ async def _probe_one_snmp(host: dict, sem: asyncio.Semaphore) -> None:
                     cores = stats.get("host_cpu_per_core") or []
                     cpu_used = stats.get("host_cpu_percent")
                     cpu_used_pct = float(cpu_used) if cpu_used is not None else None
-                    # #725a — uptime in seconds (NULL when sysUpTime
+                    # uptime in seconds (NULL when sysUpTime
                     # didn't come back; lets the drawer detect reboots
                     # by comparing adjacent rows).
                     uptime_raw = stats.get("host_uptime_s")
                     uptime_s = int(uptime_raw) if uptime_raw is not None else None
-                    # #725b — total net counters (IF-MIB ifHCInOctets /
+                    # total net counters (IF-MIB ifHCInOctets /
                     # ifHCOutOctets sums). NULL when neither came back so
                     # the chart layer can tell "host idle" from "host
                     # stopped responding."
@@ -669,7 +669,7 @@ async def _probe_one_snmp(host: dict, sem: asyncio.Semaphore) -> None:
                     tx_raw = stats.get("host_net_tx_total_bytes")
                     rx_total = int(rx_raw) if rx_raw is not None else None
                     tx_total = int(tx_raw) if tx_raw is not None else None
-                    # #146 — printer lifetime page count. NULL for
+                    # printer lifetime page count. NULL for
                     # non-printer SNMP hosts.
                     page_raw = stats.get("printer_page_count")
                     page_count = int(page_raw) if page_raw is not None else None
@@ -700,7 +700,7 @@ async def _probe_one_snmp(host: dict, sem: asyncio.Semaphore) -> None:
                                 page_count,
                             ),
                         )
-                        # #725 — per-interface counter snapshot for the
+                        # per-interface counter snapshot for the
                         # switch / router per-port throughput chart.
                         # Skip pseudo NICs (loopback / docker / veth)
                         # via the same prefix list the totals use; one
@@ -757,13 +757,13 @@ def _prune_old_samples() -> int:
         with db_conn() as c:
             cur = c.execute("DELETE FROM host_metrics_samples WHERE ts < ?", (cutoff,))
             removed = cur.rowcount or 0
-            # #713 — prune host_snmp_samples on the same cadence /
+            # prune host_snmp_samples on the same cadence /
             # window. SNMP sample rows are denser than host_metrics
             # rows (they're written every successful tick) so the
             # retention budget gets eaten faster otherwise.
             cur2 = c.execute("DELETE FROM host_snmp_samples WHERE ts < ?", (cutoff,))
             removed += cur2.rowcount or 0
-            # #725 — per-iface SNMP rows are denser still (one row per
+            # per-iface SNMP rows are denser still (one row per
             # active interface per tick); same retention window.
             cur3 = c.execute("DELETE FROM host_snmp_iface_samples WHERE ts < ?", (cutoff,))
             removed += cur3.rowcount or 0
@@ -796,7 +796,7 @@ async def host_metrics_sampler_loop() -> None:
                 hosts = _load_curated_hosts()
                 if hosts:
                     sem = asyncio.Semaphore(tuning.tuning_int("tuning_host_metrics_probe_concurrency"))
-                    # #540 — operator-tunable timeout shared with the
+                    # operator-tunable timeout shared with the
                     # other NE consumers in main.py. Pre-fix this was
                     # 15s while the other sites used 10s — drift class.
                     _ne_timeout = tuning.tuning_int("tuning_node_exporter_probe_timeout_seconds")
@@ -805,13 +805,13 @@ async def host_metrics_sampler_loop() -> None:
                             *(_probe_one(client, h, sem) for h in hosts),
                             return_exceptions=True,
                         )
-            # #679 — SNMP-aware permanent-fail tracking. Independent of
+            # SNMP-aware permanent-fail tracking. Independent of
             # the NE block above (a host can have NE off + SNMP on, or
             # both, or neither). Failure-state rows are keyed
             # `snmp:<host_id>` so SNMP / NE streaks stay separate. A
             # paused SNMP host skips the probe entirely on subsequent
             # ticks until the operator clears the row.
-            # #768 — SNMP cadence is independent of NE when
+            # SNMP cadence is independent of NE when
             # `tuning_snmp_sample_interval_seconds > 0`. Falls back to
             # the global stats interval when 0 so legacy deployments
             # keep their existing behaviour.
@@ -972,7 +972,7 @@ def history_series(host_id: str, hours: int) -> list[dict]:
         nr = r.get("net_rx_bps") or 0.0
         ns = r.get("net_tx_bps") or 0.0
         net = nr + ns
-        # Disk I/O rates added in #339 — backfilled to 0 for rows
+        # Disk I/O rates added in backfilled to 0 for rows
         # written before the column existed, so old history points
         # render flat until the new sampler ticks land.
         dr = r.get("disk_read_bps")  or 0.0

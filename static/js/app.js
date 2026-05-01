@@ -115,18 +115,18 @@ const CURATED_REFRESH_FIELDS = new Set([
   'host_cpu_cores', 'host_cpu_model',
   'host_uptime_s', 'host_boot_ts',
   // Per-mount + per-NIC detail.
-  'mounts', 'interfaces',
+  'mounts', 'interfaces', 'network_ifaces',
   // Package updates.
   'package_updates_count', 'package_updates',
   // Load average.
   'host_load_1m', 'host_load_5m', 'host_load_15m',
   // Stale-marker bookkeeping.
   '_stale_fields', '_stale_ts',
-  // #528 — probe wall-clock for the status-dot hover-title.
+  // probe wall-clock for the status-dot hover-title.
   '_probe_elapsed_ms',
   // Service-summary surface (Beszel systemd_services rollup).
   'host_services',
-  // #343 — Ping (TCP/ICMP). ping_enabled is curated (per-host opt-in
+  // Ping (TCP/ICMP). ping_enabled is curated (per-host opt-in
   // flag from hosts_config[].ping.enabled) but it shapes the SPA's
   // reactive gates — openHostDrawer reads it to decide whether to
   // call loadHostPingHistory; the chart card's x-show gates on it
@@ -137,12 +137,12 @@ const CURATED_REFRESH_FIELDS = new Set([
   // ping_loss_pct are the per-tick probe state that drives the
   // header chips (red Unreachable / amber X% loss).
   'ping_enabled', 'ping_alive', 'ping_rtt_ms', 'ping_loss_pct',
-  // #344 — SNMP. snmp_name is curated (per-host alias to the SNMP-
+  // SNMP. snmp_name is curated (per-host alias to the SNMP-
   // reachable target). Fetched on each /api/hosts response so the
   // chip in providerStates(h) tracks the operator's mapping. Probe
   // outputs (CPU/mem/disk/uptime) flow through the existing host_*
   // schema fields above and don't need their own row here.
-  // #714 — `snmp_enabled` (per-host opt-in flag) MUST also be in this
+  // `snmp_enabled` (per-host opt-in flag) MUST also be in this
   // overlay set. Without it the in-place reconcile preserves the
   // stale `true` value on rows where the operator just unticked the
   // enable box, leaving the SNMP chip rendered indefinitely until
@@ -235,7 +235,7 @@ function app() {
     _sseConnected: false,
     _sseLastEventTs: 0,
     _sseIdleThresholdMs: 30000,
-    // #529 — running tally of `:overflow` events received this session.
+    // running tally of `:overflow` events received this session.
     // Renders a small amber chip alongside the SSE pill when > 0 so
     // operators can see "events have been dropped" without watching
     // the console. Reset to 0 only on full page reload (per-tab state).
@@ -283,7 +283,7 @@ function app() {
     // before the first /api/hosts/list call resolves. Skeleton renders
     // until this flips, then the real empty states take over.
     hostsInitialLoaded: false,
-    // #603 — IntersectionObserver-driven lazy fetch for /api/hosts/one/{id}.
+    // IntersectionObserver-driven lazy fetch for /api/hosts/one/{id}.
     // For fleets of 100+ hosts the historical "fan out every row at
     // page load" pattern burned backend probes + sockets for rows
     // the operator never scrolls to. The observer (lazy-created in
@@ -318,7 +318,7 @@ function app() {
     // rather than reassigning the array). Null = drawer closed.
     drawerHost: null,
     hostsSearch: '',
-    // #680 — clickable provider filter on the Hosts toolbar. Set of
+    // clickable provider filter on the Hosts toolbar. Set of
     // active filters (provider names + 'none' for "no provider mapped")
     // — empty Set means show everything. Multi-select with OR semantics:
     // a host matches when it carries ANY of the selected providers (or
@@ -495,7 +495,7 @@ function app() {
     // localStorage so the operator's chosen cadence survives a
     // browser refresh — previously it reset to 0 on every reload.
     //
-    // #486 — `refreshInterval` is now the canonical operator-set
+    // `refreshInterval` is now the canonical operator-set
     // cadence; legacy `autoRefresh` (items poll) and `statsInterval`
     // (stats poll) are mirrored to it on every change so the existing
     // pollers don't need to be rewired. Migration: prefer existing
@@ -538,9 +538,9 @@ function app() {
                 passkeys_allowed: true },
     schedulerSaving: false,
     openMeteoSaving: false,
-    scheduleSaving: false,   // #558 — schedule modal Save button
-    retentionSaving: false,  // #558 — Backups → retention save
-    // #556 — in-flight flags for Admin tab Save buttons. Each toggles
+    scheduleSaving: false,   // schedule modal Save button
+    retentionSaving: false,  // Backups → retention save
+    // in-flight flags for Admin tab Save buttons. Each toggles
     // around the corresponding save function so the button shows
     // "Saving…" + disabled state during the POST. Standardised
     // pattern matching #555's hostStatsSaving — operator request
@@ -607,12 +607,12 @@ function app() {
     beszelTestResult: null,
     pulseTestResult: null,
     webminTestResult: null,
-    // #343 — Ping test widget state. `pingTestHostId` is the curated
+    // Ping test widget state. `pingTestHostId` is the curated
     // host_id picked from the dropdown of opted-in hosts; `pingTestResult`
     // mirrors the shape of the others (pending / ok / detail).
     pingTestHostId: '',
     pingTestResult: null,
-    // #344 / #649 — SNMP test widget state. UX unified with the Ping
+    // #344 / SNMP test widget state. UX unified with the Ping
     // test (#343) — the picker shows curated hosts that have an
     // `snmp_name` mapped, mirroring `pingTestHostId` instead of a
     // free-text host input. `testSnmpConnection` resolves the row's
@@ -714,65 +714,65 @@ function app() {
       'tuning_stats_concurrency',
       'tuning_stats_history_days',
       'tuning_stats_sample_interval_seconds',
-      // #410 — permanent-fail window (was a separate card with its own
+      // permanent-fail window (was a separate card with its own
       // Save button until the operator asked for it to be a regular
       // tunable). Backend's `_record_failure` reads it via
       // `tuning_int("tuning_host_permanent_fail_window_seconds")`.
       'tuning_host_permanent_fail_window_seconds',
-      // #417 — frontend /api/ops poll cadence in SECONDS (#514 — was
+      // frontend /api/ops poll cadence in SECONDS (was
       // `tuning_ops_poll_interval_ms` until the operator pointed out
       // that ms forced a manual conversion when tuning). Backend
       // multiplies by 1000 in `client_config.ops_poll_ms` so pollOps()
       // still consumes ms in its setTimeout. Resolved per-tick so a
       // Save here takes effect on the next cycle after /api/me re-flows.
       'tuning_ops_poll_interval_seconds',
-      // #424 — persistent-log retention in days. Rendered in
+      // persistent-log retention in days. Rendered in
       // Admin → Logs (Files sub-tab) instead of the generic Process
       // tunables form so operators looking at the daily log files
       // have the retention knob ready to hand. The tunable is still
       // wired through TUNABLES + SettingsIn + i18n; just not shown
       // here. Same `tuningForm` / `tuningEffective` / `saveTuning`
       // Alpine state, so no separate plumbing needed.
-      // #467 — host_snapshots read-side cache TTL in seconds. Was
+      // host_snapshots read-side cache TTL in seconds. Was
       // missing from this list (#516) so the Admin → Process tunables
       // form silently omitted the row.
       'tuning_host_snapshots_cache_ttl_seconds',
-      // #506 — SPA loadHosts() concurrency cap on per-host
+      // SPA loadHosts() concurrency cap on per-host
       // /api/hosts/one/<id> fan-out. Read on /api/me into
       // `me.client_config.hosts_parallel_fetch`.
       'tuning_hosts_parallel_fetch',
-      // #537 / #538 — SSE heartbeat cadence + connection lifetime.
+      // #537 / SSE heartbeat cadence + connection lifetime.
       'tuning_sse_heartbeat_seconds',
       'tuning_sse_max_lifetime_seconds',
-      // #539 — Webmin probe outer budget. Rendered in
+      // Webmin probe outer budget. Rendered in
       // Settings → Host stats (Webmin section) instead of the generic
       // Process tunables form so operators editing Webmin creds have
       // the budget knob ready to hand. Same `tuningForm` /
       // `tuningEffective` / `saveTuning` Alpine state — just rendered
       // in two places only when configured.
-      // #540 — node-exporter per-host probe timeout. Rendered in
+      // node-exporter per-host probe timeout. Rendered in
       // Settings → Host stats → Node-exporter section instead of
       // the generic Process tunables form so operators editing NE
       // config have the timeout knob ready to hand. Same
       // `tuningForm` / `tuningEffective` / `saveTuning` Alpine
       // state — just rendered in the domain-specific home (#552).
-      // #541 / #542 — frontend SSE knobs delivered via /api/me.
+      // #541 / frontend SSE knobs delivered via /api/me.
       'tuning_sse_idle_threshold_seconds',
       'tuning_pollops_sse_keepalive_seconds',
-      // #543 — login rate-limit policy.
+      // login rate-limit policy.
       'tuning_rate_limit_max_failures',
       'tuning_rate_limit_window_seconds',
       'tuning_rate_limit_lockout_seconds',
-      // #547 — outer host-provider cache.
+      // outer host-provider cache.
       'tuning_host_provider_cache_ttl_seconds',
-      // #546 — per-host Webmin caches MOVED to Settings → Host stats
+      // per-host Webmin caches MOVED to Settings → Host stats
       // → Webmin section per operator request (#553). See
       // `relocatedTuningKeys` below — they keep the same Alpine
       // state via the union helper, just don't render in the
       // generic Process tunables form.
-      // #548 — host_metrics_sampler per-tick NE probe concurrency.
+      // host_metrics_sampler per-tick NE probe concurrency.
       'tuning_host_metrics_probe_concurrency',
-      // #549 — shared auth-failure cool-down.
+      // shared auth-failure cool-down.
       'tuning_auth_failure_cooldown_seconds',
     ],
     // Tunables rendered OUTSIDE the generic Process tunables form
@@ -793,23 +793,23 @@ function app() {
       'tuning_node_exporter_probe_timeout_seconds', // → Settings → Host stats → NE (#552)
       'tuning_webmin_host_cache_ttl_seconds',     // → Settings → Host stats → Webmin (#553)
       'tuning_webmin_host_fail_cache_ttl_seconds',// → Settings → Host stats → Webmin (#553)
-      // #343 — Ping provider tunables (rendered in Host stats → Ping).
+      // Ping provider tunables (rendered in Host stats → Ping).
       'tuning_ping_interval_seconds',
       'tuning_ping_concurrency',
       'tuning_ping_probe_timeout_seconds',
       'tuning_ping_cooldown_seconds',
-      // #344 — SNMP provider tunables (rendered in Host stats → SNMP).
+      // SNMP provider tunables (rendered in Host stats → SNMP).
       'tuning_snmp_probe_timeout_seconds',
       'tuning_snmp_concurrency',
-      // #659 — SNMP per-host cache TTLs, distinct from Webmin's pair.
+      // SNMP per-host cache TTLs, distinct from Webmin's pair.
       'tuning_snmp_host_cache_ttl_seconds',
       'tuning_snmp_host_fail_cache_ttl_seconds',
-      // #678 — dedicated SNMP unreachable cool-down (was sharing the
+      // dedicated SNMP unreachable cool-down (was sharing the
       // auth-failure cool-down with Webmin / SSH).
       'tuning_snmp_unreachable_cooldown_seconds',
-      // #770 — SNMP-specific sample interval (0 = use global cadence).
+      // SNMP-specific sample interval (0 = use global cadence).
       'tuning_snmp_sample_interval_seconds',
-      // #695 — stat-bar warn / crit thresholds (frontend-consumed).
+      // stat-bar warn / crit thresholds (frontend-consumed).
       'tuning_stat_bar_warn_pct',
       'tuning_stat_bar_crit_pct',
     ],
@@ -874,7 +874,7 @@ function app() {
     // covers the CLIENT side separately.
     passkeys: {
       loaded: false, supported: false, list: [], busy: false,
-      // #605 — server-derived effective rp_id (request.url.hostname or
+      // server-derived effective rp_id (request.url.hostname or
       // X-Forwarded-Host). Profile → Security compares each
       // credential's stored rp_id against this so cross-domain
       // passkeys (orphaned by a domain migration) get the red
@@ -973,7 +973,7 @@ function app() {
     editingSchedule: null,
     // Admin view state
     adminTab: 'users',
-    // #562 — Settings → Host stats provider tabs. Persists in
+    // Settings → Host stats provider tabs. Persists in
     // localStorage so the page returns to the operator's view on
     // refresh. Default falls through to the first ENABLED provider on
     // first load (handled by `setHostStatsTab` / `loadSettings`'s
@@ -982,7 +982,7 @@ function app() {
     hostStatsTab: (() => {
       try {
         const v = localStorage.getItem('hostStatsTab');
-        // #645 — `'snmp'` was missing from the init-time whitelist when
+        // `'snmp'` was missing from the init-time whitelist when
         // the SNMP provider landed (#344), so any operator who picked
         // the SNMP tab got reset to `'beszel'` on every refresh
         // (the setter wrote `'snmp'` correctly, but the IIFE filtered
@@ -1060,7 +1060,7 @@ function app() {
           }
           this.me = m;
           this.syncProfileForm();
-          // #313 — apply per-user UI prefs from the server so the
+          // apply per-user UI prefs from the server so the
           // weather/clock toggles (etc.) sync across devices for the
           // same login. Runs AFTER `me` lands so applyServerUiPrefs
           // can read this.me.ui_prefs.
@@ -1076,14 +1076,14 @@ function app() {
           if (typeof this._headerPrefsSnapshot === 'function') {
             this._headerPrefsBaseline = this._headerPrefsSnapshot();
           }
-          // #345 — fetch TOTP status alongside /api/me so the Profile
+          // fetch TOTP status alongside /api/me so the Profile
           // section can render its 2FA card without a click-induced
           // round-trip. Authentik users (no local password) skip the
           // call; the server short-circuits its response either way.
           if (typeof this.loadTotpStatus === 'function') {
             this.loadTotpStatus();
           }
-          // #381 — same pattern for the passkeys list.
+          // same pattern for the passkeys list.
           if (typeof this.loadPasskeys === 'function') {
             this.loadPasskeys();
           }
@@ -1117,7 +1117,7 @@ function app() {
           // (with its brief loading-spinner flash on every row)
           // is part of the "live updates" they wanted to silence.
           if (this.statsInterval > 0) {
-            // #454 — when SSE is healthy, host:row_updated /
+            // when SSE is healthy, host:row_updated /
             // host:failure_state_changed events drive refreshHostRow
             // directly. The interval still fires (so the freshness
             // tooltip ticks + we resume polling within one cadence
@@ -1158,7 +1158,7 @@ function app() {
       this.$watch('hostsConfigPage', v => {
         try { localStorage.setItem('hostsConfigPage', String(v)); } catch {}
       });
-      // #440 — `pagedHostsConfig` clamps lazily inside a getter (can't
+      // `pagedHostsConfig` clamps lazily inside a getter (can't
       // mutate state there without breaking Alpine reactivity), which
       // means `hostsConfigPage` can sit at 5 while the rendered page
       // is actually 3 of 3 (last filtered row trimmed). Watch the
@@ -1875,7 +1875,7 @@ function app() {
         const r = await fetch('/api/schedules');
         if (!r.ok) return;
         const d = await r.json();
-        // #439 — in-place reconcile (keyed on id) instead of wholesale
+        // in-place reconcile (keyed on id) instead of wholesale
         // reassignment so any auto-refresh pass doesn't tear down the
         // row's expanded-detail / inline-edit state.
         this._reconcileById(this.schedules, d.schedules || []);
@@ -1900,7 +1900,7 @@ function app() {
         const r = await fetch(url);
         if (!r.ok) return;
         const d = await r.json();
-        // #439 — in-place reconcile keyed on op_id when present;
+        // in-place reconcile keyed on op_id when present;
         // synthetic ops (op_id is null on legacy rows / direct
         // gather-refresh writes) get a stable composite key from
         // (name + ts) so the reconciler can still match them across
@@ -2167,7 +2167,7 @@ function app() {
       let params;
       try { params = this._parseParamsText(e.params_text); }
       catch (err) { this.showToast(err.message, 'error'); return; }
-      // UX-BUG-003 / #488 — prune_logs `days` validator. Backend
+      // UX-BUG-003 / prune_logs `days` validator. Backend
       // clamps to TUNABLES bounds [1, 365] silently; surfacing the
       // validation here lets the operator see "must be 1..365"
       // before they hit Save and see a generic "saved" toast on a
@@ -2404,7 +2404,7 @@ function app() {
         : 'none';
     },
 
-    // #562 — Settings → Host stats provider tab switcher. Persists the
+    // Settings → Host stats provider tab switcher. Persists the
     // chosen tab in localStorage so the page returns to the operator's
     // view on refresh. Mirrors the existing `setRefreshInterval` /
     // localStorage shape.
@@ -2430,11 +2430,11 @@ function app() {
         'pulse_url', 'pulse_token', 'pulse_verify_tls',
         'webmin_url', 'webmin_user', 'webmin_password',
         'webmin_verify_tls',
-        // #343 — ping provider settings flow through the same dirty
+        // ping provider settings flow through the same dirty
         // tracker so saveHostStats picks them up alongside the other
         // providers' fields.
         'ping_enabled', 'ping_default_port', 'ping_use_icmp',
-        // #344 — SNMP. v3 secret keys behave like beszel_password /
+        // SNMP. v3 secret keys behave like beszel_password /
         // webmin_password — `_set` flag indicates persisted state, the
         // `*_key` strings are blanked on the form so any typed value
         // marks dirty. The aliases JSON also rides this dirty list.
@@ -2442,7 +2442,7 @@ function app() {
         'snmp_default_port', 'snmp_v3_user',
         'snmp_v3_auth_key', 'snmp_v3_priv_key',
         'snmp_aliases_json',
-        // #596 — per-provider chip colour overrides.
+        // per-provider chip colour overrides.
         'provider_color_beszel', 'provider_color_pulse',
         'provider_color_node_exporter', 'provider_color_webmin',
         'provider_color_ping', 'provider_color_snmp',
@@ -2453,7 +2453,7 @@ function app() {
     },
     // Cheap dirty check — called from the template every render. String
     // comparison is O(length) which is trivial for the ~15-key subset.
-    // #555 — dirty also when any of the 3 tunables that live in this
+    // dirty also when any of the 3 tunables that live in this
     // panel (Webmin probe budget + 2 cache TTLs + NE timeout) has an
     // unsaved change. tuningDirty() walks _allTuningKeys() so it
     // catches the relocated keys correctly.
@@ -2576,7 +2576,7 @@ function app() {
         }
         payload.webmin_aliases = this.settings.webmin_aliases || {};
       }
-      // #343 — ping provider. No secrets, so we always include the
+      // ping provider. No secrets, so we always include the
       // fields if the master toggle is on; backend bounds-checks the
       // port. When the source isn't active, the master toggle still
       // round-trips so the operator's saved port + transport are
@@ -2593,7 +2593,7 @@ function app() {
       if (this.settings.ping_use_icmp !== undefined) {
         payload.ping_use_icmp = !!this.settings.ping_use_icmp;
       }
-      // #344 — SNMP provider. Defaults always round-trip (so the
+      // SNMP provider. Defaults always round-trip (so the
       // operator's saved community / version / port survive an
       // enable/disable cycle). v3 keys follow the keep-current-if-blank
       // contract — only POSTed when the user actually types a value.
@@ -2640,7 +2640,7 @@ function app() {
         }
         payload.snmp_aliases = aliases;
       }
-      // #596 — per-provider chip colour overrides. Always packed into
+      // per-provider chip colour overrides. Always packed into
       // the payload (even when blank → backend treats blank as "clear
       // the override"). Hex validation is done server-side; the colour
       // input element naturally produces #RRGGBB so a malformed value
@@ -2654,7 +2654,7 @@ function app() {
           payload[k] = (this.settings[k] || '').trim();
         }
       }
-      // #555 — fold in any dirty tunables that live on this panel
+      // fold in any dirty tunables that live on this panel
       // (Webmin probe budget + cache TTLs, NE probe timeout). The
       // backend's /api/settings POST is the same endpoint the
       // dedicated saveTuning() uses, so packaging them in the same
@@ -2724,7 +2724,7 @@ function app() {
           // Re-capture baseline so the dirty indicator clears now that
           // the server has the same values we just sent.
           this._hostStatsBaseline = this._hostStatsSnapshot();
-          // #555 — also re-baseline the tuning form (we just POSTed
+          // also re-baseline the tuning form (we just POSTed
           // the same values) so `tuningDirty()` flips back to false
           // and the unified Save button loses its amber ring.
           // loadTuning() does both: re-fetch /api/admin/tuning and
@@ -3155,7 +3155,7 @@ function app() {
           await navigator.clipboard.writeText(body);
         } else {
           // Fallback — dispatch a textarea + execCommand('copy').
-          // #711 — `position: fixed` + `opacity: 0` + `pointer-events: none`
+          // `position: fixed` + `opacity: 0` + `pointer-events: none`
           // is RTL-clean (no inset / left to flip) AND off-screen for
           // sighted users. Pre-fix used `left: -9999px` which placed
           // the textarea off the wrong edge under RTL — invisible
@@ -3224,13 +3224,13 @@ function app() {
         'ssh', 'portainer', 'i18n', 'ops', 'schedules', 'gather',
         'node_exporter', 'ne', 'oidc', 'auth', 'backup', 'stats',
         'deploy', 'version',
-        // #345 — TOTP / 2FA state changes (enrol / verify / lockout
+        // TOTP / 2FA state changes (enrol / verify / lockout
         // / admin-disable). Shares the OIDC accent token via CSS.
         'totp',
-        // #381 — WebAuthn / passkey state changes. Same OIDC accent
+        // WebAuthn / passkey state changes. Same OIDC accent
         // family — both share the security domain.
         'webauthn',
-        // #344 — SNMP host-stats provider diagnostics.
+        // SNMP host-stats provider diagnostics.
         'snmp',
       ]);
       // Replace [xxx] at the start of (or inside) the line. Allow
@@ -3528,7 +3528,7 @@ function app() {
           supported: !!j.supported,
           list: Array.isArray(j.credentials) ? j.credentials : [],
           busy: false,
-          // #605 — server's effective rp_id; Profile → Security uses
+          // server's effective rp_id; Profile → Security uses
           // it as the comparison anchor for the orphaned-credential
           // badge. Lower-cased so the SPA's `pk.rp_id !== current`
           // check is stable when storage trimmed-and-lowered the
@@ -3779,7 +3779,7 @@ function app() {
         const qr = window.qrcode(0, 'M');
         qr.addData(uri);
         qr.make();
-        // #437 — parse the SVG via DOMParser + adopt its <svg> root
+        // parse the SVG via DOMParser + adopt its <svg> root
         // instead of `el.innerHTML = ...`. qrcode-generator's output
         // is trusted local lib data, but `innerHTML` is the
         // documented red-flag pattern for content-from-data flows;
@@ -4155,7 +4155,7 @@ function app() {
       // dirty (operator still saved locally; the cross-device sync
       // can retry on the next save).
       this._headerPrefsBaseline = this._headerPrefsSnapshot();
-      // #313 — also push to server-side per-user prefs so the same
+      // also push to server-side per-user prefs so the same
       // toggles persist cross-device for the same login. Fire-and-
       // forget; localStorage stays the fast path on subsequent loads,
       // but /api/me's ui_prefs is the cross-device source of truth
@@ -4181,7 +4181,7 @@ function app() {
       // expect a visual "saved" signal.
       if (this.showToast) this.showToast(this.t('toasts_extra.topbar_saved'), 'success');
     },
-    // #313 — apply server-side ui_prefs onto local state. Called from
+    // apply server-side ui_prefs onto local state. Called from
     // init() right after /api/me lands. Server is the cross-device
     // source of truth; localStorage is the fast-path cache that gets
     // overwritten when the server has a non-empty pref.
@@ -4471,7 +4471,7 @@ function app() {
         try { await this.loadStats(); }
         finally { this._pollEnd(); }
         if (this.statsInterval > 0) {
-          // #454 — when SSE is healthy the backend pushes a
+          // when SSE is healthy the backend pushes a
           // ``stats:refreshed`` hint after every gather_stats() write;
           // the listener kicks loadStats() then. The fallback timer
           // fires only every 5 minutes as a safety net for the case
@@ -4579,7 +4579,7 @@ function app() {
     },
     pollSparks() {
       if (this._sparksTimer) clearInterval(this._sparksTimer);
-      // #486 — Off mode kills the sparks timer too. The picker's
+      // Off mode kills the sparks timer too. The picker's
       // "static snapshot" promise must hold for sparklines as well as
       // every other chart. Live and interval modes stay at the 5min
       // baseline because sparklines are coarse 24h aggregates that
@@ -4688,7 +4688,7 @@ function app() {
         const r = await fetch('/api/items' + (force ? '?force=true' : ''));
         if (!r.ok) throw new Error(await r.text());
         const d = await r.json();
-        // #418 — in-place reconcile for items + stacks instead of
+        // in-place reconcile for items + stacks instead of
         // wholesale array reassignment. Keeps Alpine from tearing
         // down each row's checkbox state, <details> open/closed
         // state, and inline-style nodes on every poll. Items are
@@ -4789,13 +4789,13 @@ function app() {
           snmp_aliases:           (d.snmp && d.snmp.aliases) || {},
           snmp_aliases_json:      JSON.stringify((d.snmp && d.snmp.aliases) || {}, null, 2),
           snmp_has_snmp_support:  !!(d.snmp && d.snmp.has_snmp_support),
-          // #644 — actual ImportError text from logic/snmp.py's module-
+          // actual ImportError text from logic/snmp.py's module-
           // level pysnmp import block. Empty when pysnmp imported
           // cleanly. Surfaced inline in the SPA's "package missing"
           // hint so operators see the ROOT CAUSE without grepping
           // server logs.
           snmp_import_error:      (d.snmp && d.snmp.import_error) || '',
-          // #596 — per-provider chip colour overrides. Empty string
+          // per-provider chip colour overrides. Empty string
           // means "use the SPA default" (see providerColor() helper).
           provider_color_beszel:        d.provider_color_beszel        || '',
           provider_color_pulse:         d.provider_color_pulse         || '',
@@ -4868,7 +4868,7 @@ function app() {
             // Default ON when the backend hasn't surfaced it yet (first load
             // after the migration); otherwise reflect whatever's persisted.
             verify_tls:    this.oidcStatus.verify_tls !== false,
-            // ENH-002 / #469 — case-insensitive admin-group claim match.
+            // ENH-002 / case-insensitive admin-group claim match.
             // Default true (legacy exact-match contract) so existing
             // deploys are no-ops; flip false in the form when the IdP
             // returns mixed-case group names that don't match the
@@ -5194,7 +5194,7 @@ function app() {
         this.webminTestResult = { pending: false, ok: false, detail: this.t('toasts.network_error') };
       }
     },
-    // #343 — list of curated hosts that have ping enabled. Pulled from
+    // list of curated hosts that have ping enabled. Pulled from
     // the in-memory `hostsConfig` (loaded by the Hosts admin tab) so
     // the picker stays in sync with the row-level toggles without an
     // extra round-trip.
@@ -5242,7 +5242,7 @@ function app() {
         this.pingTestResult = { pending: false, ok: false, detail: this.t('toasts.network_error') };
       }
     },
-    // #344 / #649 — list of curated hosts that have SNMP mapped (a
+    // #344 / list of curated hosts that have SNMP mapped (a
     // non-empty `snmp_name` row field). Pulled from the in-memory
     // `hostsConfig` (loaded by the Hosts admin tab) so the picker
     // stays in sync with the row-level config without an extra
@@ -5253,13 +5253,13 @@ function app() {
       return rows
         .filter(h => h && h.enabled !== false && h.id
                      && (h.snmp_name || '').trim()
-                     // #654 — explicit opt-in: SNMP probes only run
+                     // explicit opt-in: SNMP probes only run
                      // when the operator checks the per-host enable
                      // box. Default-OFF mirrors ping.enabled.
                      && !!(h.snmp && h.snmp.enabled === true))
         .map(h => ({ id: h.id, label: this.hostDisplayName(h) || h.id }));
     },
-    // #344 / #649 — SNMP test widget. UX-unified with the Ping test
+    // #344 / SNMP test widget. UX-unified with the Ping test
     // (#343): operator picks a curated SNMP-mapped host from the
     // dropdown, the helper looks up the row's `snmp_name` (target IP /
     // hostname) + per-row overrides (community / version / port /
@@ -5910,7 +5910,7 @@ function app() {
         } else if (this.terminalState !== 'error') {
           this.terminalState = 'disconnected';
         }
-        // UX-BUG-004 / #489 — map close codes to user-friendly i18n
+        // UX-BUG-004 / map close codes to user-friendly i18n
         // reasons. 4400-4403 each have distinct backend-side meanings;
         // surfacing the close-reason string via specific keys lets
         // operators behind a misconfigured NPM see "X-Forwarded-Host
@@ -6051,7 +6051,7 @@ function app() {
       }
     },
     async saveSettings() {
-      if (this.settingsSaving) return;  // #556 — guard against double-click
+      if (this.settingsSaving) return;  // guard against double-click
       this.settingsSaving = true;
       try {
         // Per-event notification toggles are stored on
@@ -6323,7 +6323,7 @@ function app() {
     },
     async saveTuning() {
       if (this.tuningSaving) return;
-      // UX-BUG-005 / #490 — client-side integer + bounds validation
+      // UX-BUG-005 / client-side integer + bounds validation
       // before posting. Pre-fix the input was `type="number"` (rejects
       // letters) BUT the form still accepted decimals like "1.5" which
       // the backend silently truncated through the int cast. Now an
@@ -6543,7 +6543,7 @@ function app() {
       try {
         const r = await fetch('/api/history?' + this._historyQueryParams({ paging: true }).toString());
         const d = await r.json();
-        // #444 — in-place reconcile keyed on history row `id` (auto-
+        // in-place reconcile keyed on history row `id` (auto-
         // increment PK from the `history` table) so each page change
         // doesn't tear down every row's expanded `<details>` state +
         // inline-style nodes for the entire table. Same helper as
@@ -6698,7 +6698,7 @@ function app() {
         // real disconnect and the next tick at the slow cadence
         // resumes regular polling.
         const fastMs = (this.me && this.me.client_config && this.me.client_config.ops_poll_ms) || 1500;
-        // #486 — honour the unified picker's "Off" mode here too. Pre-fix
+        // honour the unified picker's "Off" mode here too. Pre-fix
         // pollOps kept firing at `fastMs` even when the operator chose
         // Off, breaking the picker's promise of "no updates at all".
         // Now: Off → don't reschedule; Live → 30s keep-alive; interval
@@ -6708,7 +6708,7 @@ function app() {
           this._opsTimer = null;
           return;
         }
-        // #542 — SSE-up keep-alive cadence is operator-tunable via
+        // SSE-up keep-alive cadence is operator-tunable via
         // `tuning_pollops_sse_keepalive_seconds`. Backend × 1000 in
         // `client_config.pollops_sse_keepalive_ms`. Defensive `|| 30000`
         // covers the brief window before /api/me hydrates.
@@ -6742,7 +6742,7 @@ function app() {
     // never reassign reactive arrays from an event handler (would tear
     // every chart SVG / <details> / inline-style node down on each
     // event, defeating the entire purpose of moving from poll → push).
-    // #486 — explicit disconnect so the cadence picker can fully turn
+    // explicit disconnect so the cadence picker can fully turn
     // SSE off when the operator chooses "Off" or an interval. Without
     // this, picking Off left the SSE pipe alive and the Live pill
     // stayed green even though the operator's mental model is "no
@@ -6799,7 +6799,7 @@ function app() {
         onAny();
         console.log('[live] event=hello (bus upgrade confirmed)');
       });
-      // #561 — `keepalive` heartbeat. Server emits one every
+      // `keepalive` heartbeat. Server emits one every
       // tuning_sse_heartbeat_seconds during quiet windows so the
       // freshness watchdog clock keeps advancing and we don't false-
       // flip to polling-fallback. `onAny()` updates `_sseLastEventTs`;
@@ -6815,7 +6815,7 @@ function app() {
         onAny();
         this._sseDropped += 1;
         console.warn('[live] event=:overflow — subscriber queue dropped events; reconciling via REST (total dropped this session: ' + this._sseDropped + ')');
-        // #527 — operator-visible signal. Pre-fix this lived in
+        // operator-visible signal. Pre-fix this lived in
         // DevTools console only; an overflow means "your tab missed
         // events; we just reconciled via REST" — worth a non-intrusive
         // amber toast so the operator sees the flap and can correlate
@@ -6863,16 +6863,21 @@ function app() {
           const id = (data.payload && data.payload.id) || '';
           console.log('[live] event=host:row_updated id=' + id);
           if (!id) return;
-          // Reuse the existing per-host refresher so we go through the
-          // same in-place reconcile path (CURATED_REFRESH_FIELDS-style
-          // field-by-field assignment). Forced flag bypasses the 10s
-          // provider-state cache so the freshly-published data lands.
-          if (typeof this.refreshHostRow === 'function') {
-            // #532 — force: true so the refresh bypasses the 10s
-            // provider-state cache. SSE-driven refreshes are
-            // "fresh state landed" signals; pairs with #531's
-            // backend-side force-clears the per-host Webmin caches.
-            this.refreshHostRow(id, { force: true }).catch(() => {});
+          // Route through the SHARED queue + worker pool so a burst
+          // of N events (sampler tick affecting many hosts) coalesces
+          // through the existing 200ms debounce + shares the cap.
+          // Pre-fix `refreshHostRow` was called directly here,
+          // bypassing both worker pools — bursts could exceed the
+          // operator-set parallel cap.
+          this._hostObserverPending = this._hostObserverPending || new Set();
+          this._hostObserverPending.add(id);
+          if (typeof this._scheduleHostObserverFlush === 'function') {
+            this._scheduleHostObserverFlush();
+          } else if (typeof this._runHostRefreshQueue === 'function') {
+            // Fallback path if the IO observer hasn't initialised yet
+            // (e.g. browsers without IntersectionObserver). Direct
+            // enqueue still goes through the shared worker pool.
+            this._runHostRefreshQueue([id]).catch(() => {});
           }
         } catch (_) {}
       });
@@ -6883,16 +6888,16 @@ function app() {
           const id = (data.payload && data.payload.host_id) || '';
           console.log('[live] event=host:failure_state_changed id=' + id);
           if (!id) return;
-          if (typeof this.refreshHostRow === 'function') {
-            // #532 — force: true so the refresh bypasses the 10s
-            // provider-state cache. SSE-driven refreshes are
-            // "fresh state landed" signals; pairs with #531's
-            // backend-side force-clears the per-host Webmin caches.
-            this.refreshHostRow(id, { force: true }).catch(() => {});
+          this._hostObserverPending = this._hostObserverPending || new Set();
+          this._hostObserverPending.add(id);
+          if (typeof this._scheduleHostObserverFlush === 'function') {
+            this._scheduleHostObserverFlush();
+          } else if (typeof this._runHostRefreshQueue === 'function') {
+            this._runHostRefreshQueue([id]).catch(() => {});
           }
         } catch (_) {}
       });
-      // #496 — host_metrics_sampler publishes this on every NE
+      // host_metrics_sampler publishes this on every NE
       // sample INSERT. Refresh the drawer chart only when (a) it's
       // currently open AND (b) the open host matches the event's
       // host_id. Per-host filter is critical: 50 sampled hosts firing
@@ -6918,7 +6923,7 @@ function app() {
           )).catch(() => {});
         } catch (_) {}
       });
-      // #343 — ping_sampler publishes this on every INSERT. Drives the
+      // ping_sampler publishes this on every INSERT. Drives the
       // RTT chip + (V2) the drawer Ping chart. Per-host filter same as
       // history_appended. We use refreshHostRow so the row's
       // ping_alive / ping_rtt_ms fields update without a full poll.
@@ -6932,7 +6937,7 @@ function app() {
           if (typeof this.refreshHostRow === 'function') {
             this.refreshHostRow(id, { force: false }).catch(() => {});
           }
-          // #563 — push the new sample into the open drawer's ping
+          // push the new sample into the open drawer's ping
           // chart so Live mode is genuinely push-driven (no fallback
           // timer needed when SSE is healthy). Same shape as the
           // host:history_appended handler for #496.
@@ -6960,7 +6965,7 @@ function app() {
         // state intact.
         try { this.loadHistory && this.loadHistory(); } catch (_) {}
       });
-      // #523 — session-cookie sliding window. Backend's
+      // session-cookie sliding window. Backend's
       // `slide_session_if_needed` publishes this when it bumps the
       // cookie's expiry past the renewal threshold. SPA refreshes
       // `me.session_expires_at` (if exposed by /api/me) so any UI hint
@@ -7003,7 +7008,7 @@ function app() {
       this._sseFreshnessTimer = setInterval(() => {
         if (!this._sseLastEventTs) return;
         const idle = Date.now() - this._sseLastEventTs;
-        // #541 — operator-tunable via `tuning_sse_idle_threshold_seconds`,
+        // operator-tunable via `tuning_sse_idle_threshold_seconds`,
         // delivered as `client_config.sse_idle_threshold_ms`. Defensive
         // fallback to the historical 30000 covers the brief window
         // before /api/me hydrates AND any consumer of the legacy
@@ -7083,7 +7088,7 @@ function app() {
       }, seconds * 1000);
     },
 
-    // #486 — single canonical cadence-setter. Three modes mapped to
+    // single canonical cadence-setter. Three modes mapped to
     // the picker's five buttons:
     //
     //   -1   "Live"   — SSE connection ON, every chart updates via
@@ -7155,7 +7160,7 @@ function app() {
           }, ms);
         }
       }
-      // #563 — ping history timer follows the same picker cadence.
+      // ping history timer follows the same picker cadence.
       // Live mode is push-driven by the `host:ping_sampled` SSE
       // handler so no timer needed; Off → no timer; interval → poll
       // at the operator's chosen cadence.
@@ -7353,7 +7358,7 @@ function app() {
       if (!h || !h.id) return;
       this.networkIfacesShowDocker[h.id] = !this.networkIfacesShowDocker[h.id];
     },
-    // #705 — busy / idle split for switches that expose 30+ ports via
+    // busy / idle split for switches that expose 30+ ports via
     // SNMP. The default "real" list mixes meaningful interfaces
     // (eth0 / vlan2 / tun1 — has traffic OR an IP) with idle ports
     // (Port-Channel21..32, unused TwoPointFiveGigabitEthernet ports —
@@ -7388,7 +7393,7 @@ function app() {
       if (!h || !h.id) return;
       this.networkIfacesShowIdle[h.id] = !this.networkIfacesShowIdle[h.id];
     },
-    // #718 — Cap the busy-iface list to the top 10 by traffic, with a
+    // Cap the busy-iface list to the top 10 by traffic, with a
     // per-host "Show all (N)" toggle. Switches with 52+ ports overflow
     // the drawer even after the show-idle filter; the operator wants
     // the loudest 10 by default and can opt into the rest.
@@ -7407,7 +7412,7 @@ function app() {
       const busy = this.networkIfacesActivityPartition(h).busy;
       return Math.max(0, busy.length - this.networkIfacesBusyCap);
     },
-    // #701 — per-interface SNMP traffic helpers. SNMP-derived
+    // per-interface SNMP traffic helpers. SNMP-derived
     // `network_ifaces[]` rows carry `rx_bytes` / `tx_bytes` /
     // `oper_status`; node-exporter / Beszel / Pulse rows have
     // `name` + `mac` + `addrs` but no traffic counters. Helpers
@@ -7454,7 +7459,7 @@ function app() {
       const ifaces = this.networkIfacesPartition(h).real || [];
       return ifaces.some(i => this.hostIfaceHasTraffic(i));
     },
-    // #703 — UPS card helpers (APC PowerNet-MIB). Pill class for the
+    // UPS card helpers (APC PowerNet-MIB). Pill class for the
     // status badge, level class for the battery gauge (matching the
     // .stat-bar warn/crit convention), and human-readable runtime
     // formatter. All gracefully handle missing data; the card itself
@@ -7499,7 +7504,7 @@ function app() {
       const remMins = mins % 60;
       return remMins ? `${hrs}h ${remMins}m` : `${hrs}h`;
     },
-    // #702 — Printer-MIB supply card helpers. Per-supply colour is
+    // Printer-MIB supply card helpers. Per-supply colour is
     // hand-mapped from common toner names (cyan / magenta / yellow /
     // black / waste); falls through to a neutral colour for unmapped
     // supplies. Level class follows the .stat-bar warn/crit
@@ -7582,7 +7587,7 @@ function app() {
         node_exporter: '#f59e0b',  // amber  (matches pill-update hue)
         webmin:        '#a78bfa',  // purple (distinct slot for the 4th provider)
         ping:          '#06b6d4',  // cyan   (distinct from amber + green; was conflating with exporter)
-        snmp:          '#ec4899',  // pink   (#344 — sixth provider; distinct from the existing five)
+        snmp:          '#ec4899',  // pink   (sixth provider; distinct from the existing five)
       };
       // Live admin-form value first (reactive on every keystroke / save).
       const live = ((this.settings || {})['provider_color_' + name] || '').trim();
@@ -7723,7 +7728,7 @@ function app() {
       return Array.isArray(sf) && sf.indexOf(field) !== -1;
     },
     staleAge(obj) {
-      // UX-BUG-002 / #487 — return a clean fallback when `_stale_ts`
+      // UX-BUG-002 / return a clean fallback when `_stale_ts`
       // is 0 / missing / non-numeric. Pre-fix `fmtAgo` would either
       // render "Updated NaN ago" or empty string, depending on which
       // branch hit first; either way it's noise on a tooltip.
@@ -8607,11 +8612,11 @@ function app() {
           // doesn't reactively create it piecemeal (which would break
           // the dirty tracker).
           if (!row.ssh || typeof row.ssh !== 'object') row.ssh = {};
-          // #343 — same defensive default for the per-host ping
+          // same defensive default for the per-host ping
           // sub-object so Alpine bindings can read row.ping.enabled
           // without an undefined-chain on first render.
           if (!row.ping || typeof row.ping !== 'object') row.ping = {};
-          // #344 — same defensive default for the per-host SNMP
+          // same defensive default for the per-host SNMP
           // override sub-object. Bare `snmp_name` (string) is separate
           // and lives on the row directly; the `snmp` dict is only used
           // when the operator wants to override the global community /
@@ -8662,7 +8667,7 @@ function app() {
           beszel: Array.isArray(d.beszel) ? d.beszel : [],
           pulse:  Array.isArray(d.pulse)  ? d.pulse  : [],
           webmin: Array.isArray(d.webmin) ? d.webmin : [],
-          // #344 — SNMP discovery surfaces the configured aliases'
+          // SNMP discovery surfaces the configured aliases'
           // values (TARGETS, not curated row ids). Empty by default.
           snmp:   Array.isArray(d.snmp)   ? d.snmp   : [],
         };
@@ -8773,7 +8778,7 @@ function app() {
       const start = (page - 1) * per;
       return all.slice(start, start + per);
     },
-    // #440 — normaliser invoked from $watch handlers in `init()`.
+    // normaliser invoked from $watch handlers in `init()`.
     // Reads the same total-pages math `pagedHostsConfig` uses and
     // resets `hostsConfigPage` if it's out of bounds, so the visible
     // state (Page X / Y indicator) matches the rendered slice.
@@ -8803,7 +8808,7 @@ function app() {
     },
     hostsConfigPrevPage() { this.hostsConfigGoToPage(this.hostsConfigPage - 1); },
     hostsConfigNextPage() { this.hostsConfigGoToPage(this.hostsConfigPage + 1); },
-    // #719 — Jump to and expand a specific row by id in the
+    // Jump to and expand a specific row by id in the
     // Admin → Hosts editor. Used by deep-link affordances like the
     // host drawer's "+ Add URL" link so the operator lands directly
     // on the row they wanted to edit (page-skipping + chevron-
@@ -8864,7 +8869,7 @@ function app() {
       this.hostsConfigSortedOrder = idxs;
     },
 
-    // #359 — fired on `@focusout` of the host-card wrapper. Defers
+    // fired on `@focusout` of the host-card wrapper. Defers
     // the cn-driven sort/page-jump until the operator has fully left
     // the row card (not just blurred the cn input mid-edit).
     //
@@ -9100,7 +9105,7 @@ function app() {
     // Admin → Hosts editor.
     rowHasProviderMapping(row) {
       if (!row) return false;
-      // #654 — SNMP gating mirrors ping's explicit opt-in: probe
+      // SNMP gating mirrors ping's explicit opt-in: probe
       // only when `snmp.enabled === true`. Default-OFF (no fallback
       // to "snmp_name set means enabled") so a fresh row with the
       // checkbox unchecked doesn't claim a provider mapping.
@@ -9132,7 +9137,7 @@ function app() {
             pulse_name:  (row.pulse_name  || '').trim(),
             ne_url:      (row.ne_url      || '').trim(),
             webmin_url:  (row.webmin_url  || '').trim(),
-            // #650 — SNMP + Ping forwarded to /api/hosts/test so the
+            // SNMP + Ping forwarded to /api/hosts/test so the
             // per-row test reflects the SAME providers the live probe
             // chain runs. Without this, SNMP-only rows reported "all
             // skipped" + ping-only rows skipped their reachability check.
@@ -9378,7 +9383,7 @@ function app() {
         pulse_name: '',
         webmin_name: '',
         webmin_url: '',
-        // #344 — SNMP target alias. Blank = no SNMP for this host.
+        // SNMP target alias. Blank = no SNMP for this host.
         snmp_name: '',
         snmp: {},
         url: '',
@@ -9387,7 +9392,7 @@ function app() {
         ip: '',
         // Per-host SSH overrides — empty object = use global defaults.
         ssh: {},
-        // #343 — Per-host ping opt-in. Default OFF; operator flips to
+        // Per-host ping opt-in. Default OFF; operator flips to
         // probe this host. Empty object = use global defaults
         // (ping_default_port + ping_use_icmp).
         ping: {},
@@ -9628,7 +9633,7 @@ function app() {
         const slug = aliases[h.icon.toLowerCase()] || h.icon;
         return this._themeIcon('/img/icons/' + slug + '.svg');
       }
-      // #669 — when the operator has cleared the display label
+      // when the operator has cleared the display label
       // (which falls back to assetForHost(h).name per #621), the icon
       // resolver loses its primary "this is a Synology / Dell / ..."
       // signal because h.label is empty. Fold the asset's name +
@@ -10298,7 +10303,7 @@ function app() {
         if (typeof sshIn.password === 'string' && sshIn.password !== '') {
           sshOut.password = sshIn.password;
         }
-        // Per-host SSH is OPT-IN as of #622 — only the explicit
+        // Per-host SSH is OPT-IN as of only the explicit
         // `enabled: true` flag survives the round-trip. Absence (or
         // `enabled: false`) means SSH is OFF for the host.
         //
@@ -10329,7 +10334,7 @@ function app() {
         // empty, so we only persist explicit overrides.
         const snmpIn = h.snmp || {};
         const snmpOut = {};
-        // #654 — explicit opt-IN. Persist `enabled: true` only when
+        // explicit opt-IN. Persist `enabled: true` only when
         // the operator checked the box; drop the field otherwise so
         // the persisted JSON stays tight. Backend's _clean_host_snmp
         // mirrors this contract (only persists when raw value is
@@ -10348,7 +10353,7 @@ function app() {
           const sval = String(snmpIn[k] || '').trim();
           if (sval) snmpOut[k] = sval;
         }
-        // #660 — host-level enable gates every per-provider enable.
+        // host-level enable gates every per-provider enable.
         // A disabled host cannot have any provider enabled. Strip
         // each per-provider `enabled` flag here so reload comes back
         // consistent (no stale `ssh.enabled: true` on a row whose main
@@ -10908,7 +10913,7 @@ function app() {
           );
         }
       } catch (_) {}
-      // Same Alpine select-mount race as #230 — when sub-group rows
+      // Same Alpine select-mount race as when sub-group rows
       // re-enter the DOM after un-collapsing, each row's <select>
       // mounts BEFORE the inner x-for finishes rendering its
       // <option> elements (populated from `topLevelGroupNames`).
@@ -11522,7 +11527,7 @@ function app() {
       this.assetTestResult = { pending: true };
       const mode = (this.assetForm.auth_mode === 'lifetime_token')
                      ? 'lifetime_token' : 'oauth2';
-      // #445 — send the in-flight verify_tls so admins can flip the
+      // send the in-flight verify_tls so admins can flip the
       // form's checkbox OFF and Test a self-signed asset API before
       // saving (mirrors testOidcConnection's shape).
       const body = { auth_mode: mode, verify_tls: !!this.assetForm.verify_tls };
@@ -11942,7 +11947,7 @@ function app() {
     //      simultaneous Webmin+NE probes). Each response splices its
     //      row back into `this.hosts`, flipping _loading false and
     //      filling in stats. Alpine's proxy picks up the mutation.
-    // #603 — IntersectionObserver-driven lazy fetch for host rows.
+    // IntersectionObserver-driven lazy fetch for host rows.
     // Called by each row's `x-init` (mobile + desktop templates) so
     // every mounted `[data-host-id]` element registers with a single
     // shared observer. On first intersection, the row's id lands in
@@ -11955,7 +11960,7 @@ function app() {
     _ensureHostRowObserver() {
       if (this._hostRowObserver) return this._hostRowObserver;
       if (typeof IntersectionObserver === 'undefined') return null;
-      // #661 — observer hits collect into a pending Set + debounce
+      // observer hits collect into a pending Set + debounce
       // by 200 ms before flushing. Rapid scroll past a long list
       // (e.g. 200-host fleet) coalesces into one queue load instead
       // of firing 50+ concurrent fetches in <500 ms (the prior
@@ -11965,13 +11970,20 @@ function app() {
       // which honours the SAME PARALLEL cap as loadHosts'
       // poll-driven fan-out.
       this._hostObserverPending = this._hostObserverPending || new Set();
-      const flush = () => {
-        this._hostObserverFlushTimer = null;
-        const ids = [...(this._hostObserverPending || new Set())];
-        this._hostObserverPending = new Set();
-        if (!ids.length) return;
-        for (const id of ids) this._hostSeenIds.add(id);
-        this._runHostRefreshQueue(ids).catch(() => {});
+      // Named method on `this` so SSE event handlers can also call
+      // it directly to coalesce bursts through the SAME debounce +
+      // shared worker pool. Pre-fix the flush was a closure-local
+      // helper that the SSE path couldn't reach.
+      this._scheduleHostObserverFlush = () => {
+        if (this._hostObserverFlushTimer) clearTimeout(this._hostObserverFlushTimer);
+        this._hostObserverFlushTimer = setTimeout(() => {
+          this._hostObserverFlushTimer = null;
+          const ids = [...(this._hostObserverPending || new Set())];
+          this._hostObserverPending = new Set();
+          if (!ids.length) return;
+          for (const id of ids) this._hostSeenIds.add(id);
+          this._runHostRefreshQueue(ids).catch(() => {});
+        }, 200);
       };
       const handle = (entries) => {
         for (const entry of entries) {
@@ -11981,8 +11993,7 @@ function app() {
           if (this._hostSeenIds.has(id)) continue;
           this._hostObserverPending.add(id);
         }
-        if (this._hostObserverFlushTimer) clearTimeout(this._hostObserverFlushTimer);
-        this._hostObserverFlushTimer = setTimeout(flush, 200);
+        this._scheduleHostObserverFlush();
       };
       this._hostRowObserver = new IntersectionObserver(handle, {
         rootMargin: '200px 0px 200px 0px',
@@ -12005,28 +12016,61 @@ function app() {
       }
       obs.observe(el);
     },
-    // #661 — concurrency-capped queue runner shared between the IO
+    // concurrency-capped queue runner shared between the IO
     // observer's debounced flush and loadHosts' poll-driven fan-out.
     // Resolves PARALLEL the same way loadHosts does (per-call read of
     // `me.client_config.hosts_parallel_fetch`, fallback 6) so an
     // operator's Admin → Config Save takes effect on the next call.
     async _runHostRefreshQueue(ids) {
-      const queue = (ids || []).filter(Boolean);
-      if (!queue.length) return;
+      // Push every requested id onto the SHARED queue and spawn
+      // workers only up to the cap. Pre-fix this had its own private
+      // queue + pool independent of the polling-path pool, so a
+      // burst of `_runHostRefreshQueue(...)` during an active
+      // `loadHosts(...)` doubled the in-flight count beyond the cap.
+      // Same anti-pattern applies to direct `refreshHostRow` calls
+      // from SSE event handlers — those should also push here via
+      // `_hostObserverPending.add(id) + scheduleFlush()` so every
+      // path shares one cap.
+      for (const id of (ids || [])) if (id) this._enqueueHostRefresh(id);
+      await this._ensureHostRefreshWorkers();
+    },
+    // Shared queue + worker count used by ALL host-refresh call sites
+    // (lazy IO observer, SSE event handlers, polling fan-out). Capped
+    // by `me.client_config.hosts_parallel_fetch` regardless of caller.
+    _hostRefreshQueue: null,
+    _hostRefreshWorkerCount: 0,
+    _enqueueHostRefresh(id) {
+      this._hostRefreshQueue = this._hostRefreshQueue || [];
+      // Cheap dedupe: skip if already queued. Uses indexOf since the
+      // queue is bounded by host count; for fleets > 200 hosts a
+      // Set-backed mirror would be a future optimisation.
+      if (this._hostRefreshQueue.indexOf(id) === -1) {
+        this._hostRefreshQueue.push(id);
+      }
+    },
+    async _ensureHostRefreshWorkers() {
       const PARALLEL = (this.me && this.me.client_config
                         && this.me.client_config.hosts_parallel_fetch) || 6;
+      const need = Math.max(0, PARALLEL - this._hostRefreshWorkerCount);
+      if (!need) return;
+      const queue = this._hostRefreshQueue || [];
+      const slots = Math.min(need, queue.length);
+      if (!slots) return;
       const worker = async () => {
-        while (queue.length) {
-          const id = queue.shift();
-          if (!id) break;
-          try { await this.refreshHostRow(id); }
-          catch (_) { /* per-row failure stays isolated */ }
+        this._hostRefreshWorkerCount += 1;
+        try {
+          while (this._hostRefreshQueue && this._hostRefreshQueue.length) {
+            const id = this._hostRefreshQueue.shift();
+            if (!id) break;
+            try { await this.refreshHostRow(id); }
+            catch (_) { /* per-row failure stays isolated */ }
+          }
+        } finally {
+          this._hostRefreshWorkerCount -= 1;
         }
       };
       const workers = [];
-      for (let i = 0; i < Math.min(PARALLEL, queue.length); i++) {
-        workers.push(worker());
-      }
+      for (let i = 0; i < slots; i++) workers.push(worker());
       await Promise.all(workers);
     },
 
@@ -12075,16 +12119,16 @@ function app() {
           'label', 'icon', 'custom_number', 'url',
           'beszel_name', 'pulse_name', 'ne_url', 'webmin_name',
           'ssh_enabled', 'asset',
-          // #343 — ping_enabled needs to flow through the skeleton
+          // ping_enabled needs to flow through the skeleton
           // path so drawerHost.ping_enabled is truthy when the
           // operator first clicks a ping-enabled row. Otherwise the
           // openHostDrawer gate fails and loadHostPingHistory never
           // fires (chart stays "Collecting data…" forever).
           'ping_enabled',
-          // #344 — SNMP target alias. Curated overlay so the per-host
+          // SNMP target alias. Curated overlay so the per-host
           // chip in providerStates(h) renders correctly off the
           // skeleton row (before the per-host probe lands).
-          // #714 — `snmp_enabled` (per-host opt-in flag) added so an
+          // `snmp_enabled` (per-host opt-in flag) added so an
           // un-ticked save flips the chip off on the next refresh
           // instead of staying stuck on the previous `true` state.
           'snmp_name', 'snmp_enabled',
@@ -12173,7 +12217,7 @@ function app() {
       // re-run the same backend logic that already stamped them
       // unconfigured in the LIST response. Saves a round trip per
       // dead row and prevents the dot from flashing yellow→grey.
-      // #603 — for fleets larger than ~50 hosts the auto fan-out was
+      // for fleets larger than ~50 hosts the auto fan-out was
       // a perf cliff: 200 rows × per-probe time burned background
       // CPU + sockets even for off-screen rows the operator never
       // looks at. Filter the fan-out to hosts that the
@@ -12191,27 +12235,20 @@ function app() {
       this._hostSeenIds = new Set(
         [...(this._hostSeenIds || [])].filter(id => _validIds.has(id))
       );
-      const queue = this.hosts
+      // Hand the queue to the SHARED worker pool — single source of
+      // concurrency truth across polling, IO observer, and SSE event
+      // handlers. Pre-fix this had its own worker pool independent
+      // of `_runHostRefreshQueue`'s, so combined fan-out could
+      // exceed the operator-set cap when both paths fired in the
+      // same window.
+      const queueIds = this.hosts
         .filter(h => h.status !== 'unconfigured' && this._hostSeenIds.has(h.id))
         .map(h => h.id);
-      // #506 — concurrency cap is now operator-tunable via Admin →
-      // Config (`tuning_hosts_parallel_fetch`). Resolved per call so a
-      // Save takes effect on the next refresh after /api/me re-flows.
-      // Defensive default falls back to 6 (the historical hardcoded
-      // value) if the field hasn't been hydrated yet.
-      const PARALLEL = (this.me && this.me.client_config
-                        && this.me.client_config.hosts_parallel_fetch) || 6;
-      const worker = async () => {
-        while (queue.length) {
-          const id = queue.shift();
-          if (!id) break;
-          await this.refreshHostRow(id);
-        }
-      };
-      const workers = [];
-      for (let i = 0; i < Math.min(PARALLEL, this.hosts.length); i++) {
-        workers.push(worker());
-      }
+      for (const id of queueIds) this._enqueueHostRefresh(id);
+      // Fire-and-forget — page paints as workers complete; history
+      // pre-fetch (below) runs in parallel with the per-host stat
+      // fetches.
+      this._ensureHostRefreshWorkers();
       // Don't await workers — page paints as they complete. But fire
       // the history pre-fetch for pre-expanded hosts right away so
       // the drawer chart populates in parallel with the per-host
@@ -12311,7 +12348,7 @@ function app() {
         // fleet the spam would be worse than the missing data.
       }
     },
-    // #680 — toggle a provider in the Hosts-toolbar filter set.
+    // toggle a provider in the Hosts-toolbar filter set.
     // Multi-select OR semantics. The synthetic 'none' name filters
     // to hosts without ANY provider mapped (curated rows that exist
     // for inventory but have no live data source).
@@ -12357,7 +12394,7 @@ function app() {
       if (!active && !err) {
         return { visible: false, cls: '', icon: '', title: '', styled: false };
       }
-      // #704 — tooltip titles routed through i18n.
+      // tooltip titles routed through i18n.
       if (err) {
         return {
           visible: true, cls: 'pill-error', icon: '✗',
@@ -12547,7 +12584,7 @@ function app() {
     // toolbar count badge.
     hostHasAgent(h) {
       if (!h) return false;
-      // #714 — SNMP gates on `snmp_enabled === true` per #654's
+      // SNMP gates on `snmp_enabled === true` per #654's
       // opt-in contract; the bare `snmp_name` is no longer enough.
       return !!(h.beszel_name || h.pulse_name || h.ne_url
                 || h.webmin_name || h.ping_enabled
@@ -12590,7 +12627,7 @@ function app() {
       if (h.ne_url)       out.push({ name: 'node_exporter', label: 'node-exporter' });
       if (h.webmin_name)  out.push({ name: 'webmin',        label: 'Webmin' });
       if (h.ping_enabled) out.push({ name: 'ping',          label: 'Ping' });
-      // #714 — per #654's opt-in contract, render the SNMP chip ONLY
+      // per #654's opt-in contract, render the SNMP chip ONLY
       // when both the alias is set AND the operator has explicitly
       // ticked "Enable SNMP for this host". Pre-fix the chip rendered
       // on every row whose snmp_name had ever been typed, even when
@@ -12624,7 +12661,7 @@ function app() {
       if (this.hostsHideUnconfigured) {
         list = list.filter(h => this.hostHasAgent(h));
       }
-      // #680 — provider filter (toolbar chips). Empty set = show all
+      // provider filter (toolbar chips). Empty set = show all
       // (status quo). Otherwise OR-match across the selected provider
       // names; the synthetic 'none' name matches hosts that have NO
       // provider field configured, so operators can isolate
@@ -12741,7 +12778,7 @@ function app() {
       if (drawerKey && (host.beszel_id || host.ne_url) && !this.hostHistory[drawerKey]) {
         this.loadHostHistory(host.beszel_id || '', host.id);
       }
-      // #563 — ping history is a separate fetch (different endpoint,
+      // ping history is a separate fetch (different endpoint,
       // different key namespace). Only loads when the host has opted
       // in via per-host `ping_enabled`; the chart card itself is
       // hidden via `x-show="h.ping_enabled"` for non-opted hosts.
@@ -12749,7 +12786,7 @@ function app() {
       if (pingKey && host.ping_enabled && !this.hostHistory[pingKey]) {
         this.loadHostPingHistory(host.id);
       }
-      // #713 / #739 — SNMP history (separate endpoint, separate state
+      // #713 / SNMP history (separate endpoint, separate state
       // map). Load EAGERLY when the host has SNMP enabled, BEFORE the
       // live probe completes — the host_snmp_samples table already
       // carries previous samples written by the sampler, so charts
@@ -12760,7 +12797,7 @@ function app() {
       if (host.snmp_enabled && !this.hostSnmpHistory[host.id]) {
         this.loadHostSnmpHistory(host.id, 1);
       }
-      // #725 — per-interface SNMP history powers the per-port
+      // per-interface SNMP history powers the per-port
       // throughput chart on switches / routers. Same gate + cadence
       // as the per-host SNMP history call above.
       if (host.snmp_enabled && !this.hostSnmpIfaceHistory[host.id]) {
@@ -12803,7 +12840,7 @@ function app() {
           ));
         }, ms);
       }
-      // #563 — ping history timer. Live mode is push-driven by the
+      // ping history timer. Live mode is push-driven by the
       // host:ping_sampled SSE handler so no fallback timer needed
       // when SSE is healthy; for Off / interval modes the same
       // pickup-cadence rules apply as for the main history timer.
@@ -12837,7 +12874,7 @@ function app() {
         this._drawerPingTimer = null;
       }
     },
-    // #713 — SNMP time-series state. Keyed per-host (no Beszel-id
+    // SNMP time-series state. Keyed per-host (no Beszel-id
     // fallback because SNMP probes are always per-host). Reads from
     // the new `/api/hosts/{id}/snmp/history` endpoint that wraps the
     // `host_snmp_samples` table written by the sampler. Same loading-
@@ -12879,7 +12916,7 @@ function app() {
         };
       }
     },
-    // #725 — Per-interface SNMP counter history. One entry per host,
+    // Per-interface SNMP counter history. One entry per host,
     // each storing { ifaces: { ifname: [points] }, loading, error,
     // loadedAt }. Powers the per-port throughput chart on switches /
     // routers. Same loading-flag + back-compat pattern as
@@ -12928,8 +12965,13 @@ function app() {
       const ifaces = (this.hostSnmpIfaceHistory[hostId] || {}).ifaces || {};
       const series = ifaces[ifname] || [];
       if (series.length < 2) return { in: [], out: [], times: [] };
-      const inBps = new Array(series.length).fill(0);
-      const outBps = new Array(series.length).fill(0);
+      // skip-don't-synthesize. Same null-slot pattern as
+      // `snmpThroughputBpsSeries`. First slot null (no predecessor);
+      // any out-of-bounds delta (wrap / reboot / gap > 1h / null
+      // counter / > 10 GB) leaves the slot null instead of plotting
+      // a synthesized 0 that visually merges with a real idle iface.
+      const inBps = new Array(series.length).fill(null);
+      const outBps = new Array(series.length).fill(null);
       const times = series.map(p => p.ts);
       for (let i = 1; i < series.length; i++) {
         const a = series[i - 1], b = series[i];
@@ -12977,7 +13019,7 @@ function app() {
       }
       return false;
     },
-    // #759 — true when this host's SNMP history has accumulated enough
+    // true when this host's SNMP history has accumulated enough
     // points to draw a polyline (≥ 2 ticks). Used to gate the
     // "Collecting data..." spinner block that every SNMP chart card
     // shows during warm-up — operator-flagged that pre-fix every
@@ -12987,7 +13029,7 @@ function app() {
       const series = (this.hostSnmpHistory[hostId] || {}).points || [];
       return series.length >= 2;
     },
-    // #765 — true when at least one interface has computable
+    // true when at least one interface has computable
     // utilization % (history sample with link_speed_mbps known). The
     // heatmap card uses this to decide between rendering chips with
     // util% colours vs the "Collecting data..." spinner. Pre-fix the
@@ -13010,7 +13052,7 @@ function app() {
       }
       return false;
     },
-    // #769 — per-iface utilization series (% of link capacity) over
+    // per-iface utilization series (% of link capacity) over
     // time. Walks `snmpIfaceBpsSeries` and divides each point by the
     // iface's link capacity (Mbps × 1e6 / 8 = bytes/sec). Returns []
     // when link speed unknown — caller guards on length before
@@ -13023,9 +13065,14 @@ function app() {
       const linkBps = link * 1_000_000 / 8;
       if (linkBps <= 0) return [];
       const s = this.snmpIfaceBpsSeries(hostId, ifname);
-      const out = new Array(s.in.length).fill(0);
+      // null-aware. When the underlying bps series has a
+      // counter-wrap / gap slot (null), propagate the null so
+      // `_snmpPolyPoints` skips it instead of plotting 0 %.
+      const out = new Array(s.in.length).fill(null);
       for (let i = 0; i < s.in.length; i++) {
-        const peak = Math.max(s.in[i] || 0, s.out[i] || 0);
+        const inV = s.in[i], outV = s.out[i];
+        if (inV == null && outV == null) continue;
+        const peak = Math.max(inV || 0, outV || 0);
         out[i] = Math.min(100, (peak / linkBps) * 100);
       }
       return out;
@@ -13134,7 +13181,7 @@ function app() {
     // chart cards so non-SNMP hosts don't see them.
     hostHasSnmpCharts(h) {
       if (!h) return false;
-      // #716 — SNMP CPU / Load / Memory charts are SUPPRESSED when
+      // SNMP CPU / Load / Memory charts are SUPPRESSED when
       // the host also has Beszel or node-exporter enabled. Both
       // providers carry the same data with a smoother time-series
       // surface AND their own existing chart cards (CPU % / Memory %
@@ -13146,7 +13193,7 @@ function app() {
       // SNMP cards EXCLUSIVE to SNMP-only hosts (managed switches,
       // UPSes, NVRs, embedded routers without an OmniGrid agent).
       if (h.beszel_id || h.ne_url) return false;
-      // #739 — also return true when historical SNMP samples exist
+      // also return true when historical SNMP samples exist
       // for this host even before the LIVE probe has populated
       // `host_*` fields. Lets the chart cards render the
       // last-known series during the 10-20s probe window instead
@@ -13154,7 +13201,7 @@ function app() {
       // can see how stale the displayed data is.
       const hist = this.hostSnmpHistory[h.id];
       if (hist && Array.isArray(hist.points) && hist.points.length > 0) return true;
-      // #138 / #732 — also return true when the host reports printer
+      // #138 / also return true when the host reports printer
       // page-count OR IF-MIB net counters (printers / switches /
       // routers without CPU / memory MIBs). Page-count gate requires
       // a real printer signature (supplies / console msg / non-zero
@@ -13171,7 +13218,7 @@ function app() {
                 || h.host_load_1m || h.host_load_5m || h.host_load_15m
                 || h.host_mem_buffers || h.host_mem_cached);
     },
-    // #725a — Detect a reboot in the SNMP uptime history. Walks the
+    // Detect a reboot in the SNMP uptime history. Walks the
     // points pairwise from latest to oldest looking for the LAST
     // backwards-jump in `uptime_s` (each adjacent pair where N's value
     // is less than N-1's = a reboot in that window). Returns
@@ -13207,7 +13254,7 @@ function app() {
       if (detected && detected.age_s > 86400) return null;
       return detected;
     },
-    // #720 — Memory chart Y-axis upper bound. Prefer the LIVE
+    // Memory chart Y-axis upper bound. Prefer the LIVE
     // `host_mem_total` (Beszel/NE-style absolute), fall back to the
     // max `mem_total` in history points so the axis renders sensibly
     // before the live probe completes. Final fallback is the highest
@@ -13232,7 +13279,7 @@ function app() {
       }
       return max;
     },
-    // #739 — Freshness label for the SNMP chart section. Returns
+    // Freshness label for the SNMP chart section. Returns
     // `{age_s, label, stale}` or null when there's no data yet.
     // `stale` is true once age exceeds 2× the host_snmp sampler
     // cadence (~5min), used to amber-tint the label so the
@@ -13257,17 +13304,30 @@ function app() {
     // existing Beszel / NE chart cards (#717) so the SNMP charts
     // render at the same scale + gridline density as their cousins.
     _snmpPolyPoints(values, max) {
+      // null-aware. Skip-don't-synthesize: when a counter-rate
+      // helper passes a null at a wrap / reboot / gap point, OMIT it
+      // from the polyline points string instead of plotting it as 0.
+      // Polyline bridges from the previous valid point to the next —
+      // not a true gap (would need <path> with M commands), but it
+      // never plots a fake "0 bps idle" segment that visually buries
+      // the wrap signal. CPU per-core / load polylines that fill
+      // empty slots with 0 still work because 0 IS a meaningful
+      // "load=0" value for those series.
       if (!values || !values.length) return '';
       const m = max !== undefined ? max : Math.max(0.0001, ...values.filter(v => v != null));
       const n = values.length;
       const w = 420, hh = 120;
-      return values.map((v, i) => {
+      const out = [];
+      for (let i = 0; i < n; i++) {
+        const v = values[i];
+        if (v == null) continue;
         const x = (i / Math.max(1, n - 1)) * w;
         const y = hh - ((+v || 0) / m) * hh;
-        return `${x.toFixed(1)},${y.toFixed(1)}`;
-      }).join(' ');
+        out.push(`${x.toFixed(1)},${y.toFixed(1)}`);
+      }
+      return out.join(' ');
     },
-    // #717 — Min/Max/Last over a series field. Returns null when the
+    // Min/Max/Last over a series field. Returns null when the
     // series is empty so the legend's `x-show` short-circuits to
     // hidden. Mirrors the shape of `hostMetricStats(...)` so the
     // template binding reads the same.
@@ -13289,7 +13349,7 @@ function app() {
       }
       return { min, max, last: vals[vals.length - 1] };
     },
-    // #717 — Five evenly-spaced X-axis timestamp labels for the
+    // Five evenly-spaced X-axis timestamp labels for the
     // bottom of the chart. Matches the existing `xAxisFromSeries`
     // call shape on Beszel / NE cards.
     snmpXAxis(hostId, n) {
@@ -13383,7 +13443,7 @@ function app() {
       const vals = series.map(p => p[fieldKey] || 0);
       return this._snmpPolyPoints(vals, maxTotal);
     },
-    // #725b — derive per-tick throughput series in bytes/sec from the
+    // derive per-tick throughput series in bytes/sec from the
     // cumulative IF-MIB ifHCInOctets / ifHCOutOctets samples. Skip-
     // don't-synthesize: out-of-bounds deltas (negative = counter
     // reset / reboot, near-zero timespan, hour-plus gap, absurd byte
@@ -13395,7 +13455,13 @@ function app() {
       const series = (this.hostSnmpHistory[hostId] || {}).points || [];
       if (series.length < 2) return [];
       const fieldKey = 'net_' + dir + '_total_bytes';
-      const out = new Array(series.length).fill(0);
+      // skip-don't-synthesize: out-of-bounds deltas (counter
+      // wrap, reboot, gap, null) emit `null` so `_snmpPolyPoints`
+      // omits the point from the polyline. Pre-fix this filled with
+      // 0 — visually identical to a real "0 bps idle" segment,
+      // burying the wrap signal. First-sample slot stays null too
+      // (no predecessor to diff against).
+      const out = new Array(series.length).fill(null);
       for (let i = 1; i < series.length; i++) {
         const a = series[i - 1], b = series[i];
         const dt = (b.ts || 0) - (a.ts || 0);
@@ -13437,7 +13503,7 @@ function app() {
       }
       return false;
     },
-    // #146 — printer pages-printed sparkline. Series of pages-per-day
+    // printer pages-printed sparkline. Series of pages-per-day
     // rates derived from adjacent samples of `printer_page_count`
     // (Printer-MIB prtMarkerLifeCount, monotonic). Skip-don't-
     // synthesize on out-of-bounds deltas (negative = printer reset
@@ -13547,7 +13613,7 @@ function app() {
       if (h.printer_page_count != null) return true;
       return hasNonZeroHist;
     },
-    // #764 — read the most-recent non-null `printer_page_count` from
+    // read the most-recent non-null `printer_page_count` from
     // the persisted SNMP history. Lets the Printer card surface a
     // lifetime page count immediately on drawer open from DB-backed
     // history instead of waiting for the live SNMP probe (10-30s
@@ -13649,6 +13715,24 @@ function app() {
       const key = this.hostHistoryKey(h);
       const entry = this.hostHistory[key];
       if (!entry || !entry.loadedAt) return '';
+      // Don't render "Updated Xs ago" on a permanently-flat series.
+      // A SNMP-only host with no Beszel/NE wired keeps `loadedAt`
+      // updated by the polling loop even though the series is
+      // empty / all-zero — operator reads "Updated 2s ago" as
+      // "fresh data" but there's nothing to look at. Suppress the
+      // freshness label when fewer than 2 history points exist OR
+      // when every point is zero across the canonical metric keys.
+      const series = entry.series || [];
+      if (series.length < 2) return '';
+      const sentinel = ['cpu','mp','dp','net','dr','dw','la1_pct','temp_max','gpu_pwr','gpu_usage','gpu_vram_pct'];
+      let hasData = false;
+      for (const r of series) {
+        for (const k of sentinel) {
+          if ((+r[k] || 0) > 0) { hasData = true; break; }
+        }
+        if (hasData) break;
+      }
+      if (!hasData) return '';
       // `hostHistoryNow` is bumped on a 30s timer; touching it inside
       // the getter means Alpine re-evaluates whenever it ticks.
       const now = this.hostHistoryNow || Date.now();
@@ -13666,7 +13750,7 @@ function app() {
         count: Math.floor(ageS / 3600),
       });
     },
-    // UX-ENH-002 / #492 — absolute-time tooltip companion for the
+    // UX-ENH-002 / absolute-time tooltip companion for the
     // relative "Updated Xs ago" label. Operators correlating a chart
     // anomaly with Grafana / Prometheus dashboards need a stable
     // anchor — the relative label drifts every second, the ISO string
@@ -13706,7 +13790,7 @@ function app() {
       return h.beszel_id || h.id || '';
     },
 
-    // #563 — separate key namespace for the ping-latency drawer chart.
+    // separate key namespace for the ping-latency drawer chart.
     // Stored as a sibling slot in `hostHistory` so the existing chart
     // helpers (`hostChart` / `hostChartMax` / `hostMetricStats`) work
     // unmodified — they read `entry.series[<idx>][key]`, where key is
@@ -13719,7 +13803,7 @@ function app() {
       return 'ping:' + h.id;
     },
 
-    // #563 — fetch /api/hosts/{id}/ping/history for the host whose
+    // fetch /api/hosts/{id}/ping/history for the host whose
     // drawer is open and store as `entry.series` on a separate
     // namespace so the existing chart helpers work without changes.
     // Mirrors `loadHostHistory`'s shape: stamp `loadedAt` for the
@@ -13970,7 +14054,7 @@ function app() {
 
     setHostHistoryRange(hours) {
       this.hostHistoryRange = hours;
-      // Reload the open drawer host's history (#323 — the range
+      // Reload the open drawer host's history (the range
       // buttons did nothing because this only iterated `hostsExpanded`,
       // which is the legacy inline-expansion state. The actual viewer
       // is the slide-out drawer keyed on `drawerHost`).
@@ -14004,7 +14088,7 @@ function app() {
       const digits = n >= 100 ? 0 : n >= 10 ? 1 : 2;
       return n.toFixed(digits) + ' ' + units[u] + '/s';
     },
-    // #758 — return a Y-axis bytes formatter pinned to the unit
+    // return a Y-axis bytes formatter pinned to the unit
     // family of `refMax`. Use as `yAxisAuto(max, _fmtAxisBytesAt(max))`
     // so every tick (top + interpolated middles + 0) renders in the
     // same unit, instead of `_fmtAxisBytes`'s per-value auto-scale
@@ -14151,7 +14235,7 @@ function app() {
       }
       return m;
     },
-    // #750 — "permanently flat" detector. Returns true when the chart
+    // "permanently flat" detector. Returns true when the chart
     // has accumulated enough history (default ≥ 12 points = 1 hour at
     // a 5-min cadence) AND every point across the listed fields is 0.
     // Caller uses this to HIDE chart cards whose data source is
@@ -14396,7 +14480,7 @@ function app() {
       return 'var(--text-faint)';
     },
 
-    // #528 — hover-title for the host status dot. Surfaces the probe
+    // hover-title for the host status dot. Surfaces the probe
     // wall-clock so operators can tell whether an `unknown` status
     // came from a fast 5xx or a slow 30s hang. Backend stamps
     // `_probe_elapsed_ms` on every `/api/hosts/one/{id}` response;

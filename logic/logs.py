@@ -65,7 +65,7 @@ def _resolved_tz():
 
     Resolution mirrors `_today_log_path()` exactly so rotation,
     pruning, and filename-date parsing all agree on what "today"
-    means (#457 — fixes the BUG-002 desync where rotation moved to
+    means (fixes the BUG-002 desync where rotation moved to
     local-tz in #452 but the pruner stayed on UTC, producing a
     one-day-late delete window in non-UTC offsets). Returns None
     when neither the DB setting nor a usable local clock are

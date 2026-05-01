@@ -38,7 +38,8 @@ Built as a friendlier replacement for Diun Dash plus the tab-jumping between Por
 ### Host telemetry & inventory
 - **Curated host list** — operator-defined inventory under Admin → Hosts; each row maps to one or more provider-specific identifiers.
 - **Six monitoring providers** (any combination): Beszel Hub (Pocketbase), Pulse (Proxmox), Prometheus node-exporter (Linux + FreeBSD), Webmin / Miniserv, Ping (TCP-connect or ICMP echo for reachability + RTT), SNMP (v2c / v3 USM for managed switches / routers / UPSes / printers). Cross-provider fallback merges stats with a "most-specific wins" rule + per-host snapshots so a flaky agent doesn't blank the chart. Per-provider chip colour customisable in Settings → Providers.
-- **Time-series charts** — CPU / Memory / Disk usage / Disk I/O (Linux + FreeBSD `node_devstat_*`) / Network In/Out / Bandwidth / Load 1m/5m/15m / Swap, with 1h / 6h / 24h / 7d range picker and a live "Updated Xs ago" freshness label.
+- **Time-series charts** — CPU / Memory / Disk usage / Disk I/O (Linux + FreeBSD `node_devstat_*`) / Network In/Out / Bandwidth / Load 1m/5m/15m (rendered as % of cores) / Swap / Temperature (per-sensor lines from `stats.t`) / GPU Power / GPU Usage / GPU VRAM (NVIDIA / AMD via Beszel `stats.g`), with 1h / 6h / 24h / 7d range picker, dynamic unit chips that lock to one family (legend + Y-axis + chip stay aligned across magnitudes), permanently-flat charts auto-hide after a 1 h soak, and a live "Updated Xs ago" freshness label.
+- **Switch / managed-gear telemetry** (SNMP) — total throughput line chart, per-port throughput multi-line chart (top 5 by current rate, solid in / dashed out), per-port utilization line chart (% of link capacity from `ifHighSpeed`), uptime trend with reboot detection, hardware inventory rows from `entPhysicalTable` (model / serial / firmware), printer toner / ink supplies + lifetime page count headline + console message via Printer-MIB.
 - **Host drawer detail** — hardware (vendor / model / serial / OS / kernel / arch), network interfaces, mounted filesystems, package-update count, systemd service status, optional asset-inventory join (model / serial / location from a third-party asset API).
 - **Host groups** — operator-assigned `custom_number` ranges bucket curated hosts into collapsible sections (e.g. "Gateways 1-4", "VMs 100-199").
 
@@ -158,6 +159,7 @@ Any HTTPS-terminating proxy works — Nginx Proxy Manager, Traefik, Caddy, plain
 | `STATS_CONCURRENCY` | `16` | Parallel `/containers/{id}/stats` calls. |
 | `STATS_HISTORY_DAYS` | `7` | Retention window for the time-series tables (`stats_samples` / `host_metrics_samples` / `host_net_samples`). |
 | `STATS_SAMPLE_INTERVAL_SECONDS` | `300` | How often the lifespan samplers snapshot into the time-series tables. |
+| `SNMP_SAMPLE_INTERVAL_SECONDS` | `0` | SNMP-specific sample interval. `0` inherits the global `STATS_SAMPLE_INTERVAL_SECONDS`; any value `30..3600` overrides for SNMP probes only (printers can poll hourly while switches poll every minute). |
 | `HOST_PERMANENT_FAIL_WINDOW_SECONDS` | `900` | `host_metrics_sampler` auto-pause window after consecutive probe failures. |
 | `OPS_POLL_INTERVAL_SECONDS` | `2` | SPA `/api/ops` poll cadence in seconds; multiplied × 1000 before delivery via `/api/me`'s `client_config.ops_poll_ms` (renamed from `OPS_POLL_INTERVAL_MS` in #514 for operator-friendly admin UI). |
 | `LOG_RETENTION_DAYS` | `7` | Persistent-log retention for `/app/data/logs/` (pruned hourly). |

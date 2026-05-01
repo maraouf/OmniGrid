@@ -71,7 +71,7 @@ except ImportError:
     _HAS_BS4 = False
 
 
-# #549 — cool-down duration shared with logic/ssh.py via
+# cool-down duration shared with logic/ssh.py via
 # `tuning_auth_failure_cooldown_seconds` (default 300, range 5-3600).
 # Per-(base_url, user) key avoids locking out global creds when ONE
 # Miniserv has stale auth. The Cooldown timer's seconds parameter
@@ -962,7 +962,7 @@ def extract_package_updates(root: ET.Element) -> dict:
                 break
             except ValueError:
                 continue
-    # Element-style: walk children and count or tally. #433 — scope
+    # Element-style: walk children and count or tally. scope
     # the walk to the first `<updates>` / `<packages>` / `<pkglist>`
     # parent's DIRECT children when one exists, so unrelated nested
     # elements with these tag names (operator's custom theme,

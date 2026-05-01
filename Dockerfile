@@ -51,7 +51,7 @@ COPY . /app
 ARG VERSION=0.0.0-dev
 RUN echo "$VERSION" > /app/VERSION.txt
 
-# #672 — `image.source` is a build-time placeholder. The deploy
+# `image.source` is a build-time placeholder. The deploy
 # pipeline (`.forgejo/workflows/deploy.yml`) overrides it via
 # `docker build --label org.opencontainers.image.source=<real-url>` at
 # build time so the image actually pushed to the registry carries the

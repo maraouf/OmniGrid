@@ -160,7 +160,7 @@
     --log-tag-backup:           #84cc16;
     --log-tag-stats:            #60a5fa;
     --log-tag-deploy:           #fbbf24;
-    /* #344 — SNMP host-stats provider. Distinct hot-pink to keep it
+    /* SNMP host-stats provider. Distinct hot-pink to keep it
        separate from SSH (which uses pink at #ec4899) and the chip
        colour token (also pink #ec4899). Operators see SNMP log noise
        most often during initial provisioning; a sharp colour helps
@@ -276,7 +276,7 @@
     --chip-fg: var(--text-dim);
     --provider-icon-url: none;
     --provider-icon-size: 14px;
-    /* #701 — per-iface SNMP traffic bar widths. Both default 0 so an
+    /* per-iface SNMP traffic bar widths. Both default 0 so an
      * un-styled `.iface-bar` renders empty (no rendered tracks); the
      * `:style="hostIfaceBarStyle(...)"` binding overrides per row. */
     --rx-pct: 0%;
@@ -401,7 +401,7 @@
     --log-tag-backup:           #4d7c0f;
     --log-tag-stats:            #2563eb;
     --log-tag-deploy:           #b45309;
-    /* #344 — SNMP. Darker rose for AA contrast on the light surface. */
+    /* SNMP. Darker rose for AA contrast on the light surface. */
     --log-tag-snmp:             #be123c;
 
     /* Per-segment disk palette — light-theme variants. Same darker
@@ -1085,7 +1085,7 @@ button:disabled {
     font-size: var(--fs-xs);
     color: var(--text-dim);
     border: 1px solid var(--border);
-    /* #592 — chips are single-line compact tokens. Without these two
+    /* chips are single-line compact tokens. Without these two
      * rules the browser wraps multi-word chip content (e.g. the
      * History view's `gather refresh` op_type chip after the
      * `_` → ` ` replacement) at the whitespace, producing a tall
@@ -1137,7 +1137,7 @@ button:disabled {
     border-color: var(--chip-br);
 }
 
-/* #680 — `.chip-active` adds a subtle ring + slight lift on top of
+/* `.chip-active` adds a subtle ring + slight lift on top of
  * any existing `.chip.pill-*` colouring, signalling that the chip is
  * currently selected as a Hosts-toolbar filter. Multi-select friendly:
  * several chips can be active at once. The ring uses the chip's own
@@ -1208,17 +1208,24 @@ button.chip:hover {
     mask-repeat: no-repeat;
     -webkit-mask-position: center;
     mask-position: center;
-    /* Two-pass alignment fix. Pass 1: shifted icon down 1 px because
-     * font ascent > descent appeared to lift the icon above text
-     * optical centre. Pass 2: operator screenshot showed icons now
-     * sat ~1 px LOW (over-corrected). Removed the `top: 1px` and
-     * left `align-self: center` so the parent's `items-center`
-     * handles vertical alignment without a manual nudge. The
-     * `align-self` is redundant with the parent's `items-center`
-     * but kept for explicitness so a future refactor that swaps
-     * the parent away from flex doesn't silently break the
-     * alignment. */
+    /* Three-pass alignment fix. P1 added `top: 1px` to icon (icons
+     * looked high). P2 removed it (icons looked low). P3: operator
+     * confirmed icon is correct, the TEXT needs to move up ~2 px
+     * to optically center with the icon. Adjacent-sibling rule
+     * below shifts every span after `.provider-icon` up 2 px so
+     * text and icon visually align without nudging the icon itself.
+     * `align-self: center` on the icon stays for parent-flex
+     * explicitness. */
     align-self: center;
+}
+/* Bump every text label that follows a `.provider-icon` up 2 px so
+ * its baseline visually centers with the icon midline (font ascent
+ * > descent leaves the box-centered text optically below the
+ * icon's midpoint). Scoped to chips that actually contain a
+ * provider icon — generic chips elsewhere are untouched. */
+.provider-icon ~ span {
+    position: relative;
+    top: -2px;
 }
 
 /* ---------------------------------------------------------------------------
@@ -1404,7 +1411,7 @@ details summary::-webkit-details-marker {
    readable without dismissing the dim. Also applied to host-drawer
    <dd> elements via the same isStaleField() / isStale() helpers. */
 .stale {
-    /* #724 — bumped from opacity:0.55 → 0.45 plus a dashed underline
+    /* bumped from opacity:0.55 → 0.45 plus a dashed underline
        + slight desaturation so the operator can spot a cached value at
        a glance instead of having to scan for "is this slightly dimmer
        than its neighbour". Hover lifts everything (opacity → 0.9,
@@ -1447,7 +1454,7 @@ details summary::-webkit-details-marker {
     content: "";
     position: absolute;
     inset: 0;
-    /* #724 — thicker dashed border (was 1px → 1.5px) + warning-tone
+    /* thicker dashed border (was 1px → 1.5px) + warning-tone
        so the cached bar reads as a visible alert overlay rather than a
        subtle border. Matches the "Showing cached data" banner colour. */
     border: 1.5px dashed var(--warning);
@@ -3096,7 +3103,7 @@ details summary::-webkit-details-marker {
 .dot-on  { background: var(--success); }
 .dot-off { background: var(--text-faint); }
 
-/* NIT-A11Y / #711 — host-status dot classes. Status comes from a
+/* NIT-A11Y / host-status dot classes. Status comes from a
  * closed enum (six values: up / down / paused / loading /
  * unconfigured / unknown), so a class-driven approach is cleaner
  * than the inline `:style="background: …"` pattern AND opens the
@@ -3180,7 +3187,7 @@ button:focus:not(:focus-visible) {
     transform: translateY(0);
 }
 
-/* #701 — per-interface stacked rx/tx traffic bar in the host drawer's
+/* per-interface stacked rx/tx traffic bar in the host drawer's
  * Network card. Two coloured spans inside a thin track, normalised to
  * the busiest interface on the host so the operator can see at a glance
  * which NIC is dominating traffic. Widths are runtime-injected via
@@ -3738,7 +3745,7 @@ body.login {
     background: var(--text-faint);
 }
 
-/* UX-ENH-001 / #491 — distinct "reconnecting" state. The dot ticks
+/* UX-ENH-001 / distinct "reconnecting" state. The dot ticks
    amber instead of red so operators see "we're trying" rather than
    "we gave up". Animation reuses the existing sse-pulse keyframes. */
 .sse-pill--reconnecting {
@@ -3751,7 +3758,7 @@ body.login {
     animation: sse-pulse 1.6s ease-in-out infinite;
 }
 
-/* #486 — Off mode. The picker explicitly stopped every poll, so
+/* Off mode. The picker explicitly stopped every poll, so
    the pill goes neutral grey to match the operator's mental model
    "nothing is updating". No animation; this is a STATIC state. */
 .sse-pill--off {
@@ -3763,7 +3770,7 @@ body.login {
     background: var(--text-faint);
 }
 
-/* #486 — interval mode, idle (between ticks). Same visual weight as
+/* interval mode, idle (between ticks). Same visual weight as
    --fallback (grey) but the dot is the consistent "polling" colour. */
 .sse-pill--polling-idle {
     color: var(--text-dim);
@@ -3775,7 +3782,7 @@ body.login {
     transition: background 120ms ease-out;
 }
 
-/* #486 — interval mode, fetch in flight. The dot strobes green for
+/* interval mode, fetch in flight. The dot strobes green for
    the EXACT duration of the network round-trip so operators see
    "the system polled just now". Class flip is gated on
    `_pollFlashing`, which `_pollStart()` / `_pollEnd()` toggle around
@@ -4431,7 +4438,7 @@ select.field-invalid {
     color: var(--primary);
 }
 
-/* #529 — events-dropped counter chip alongside the SSE pill. Renders
+/* events-dropped counter chip alongside the SSE pill. Renders
  * only when `_sseDropped > 0` (one-glance signal that the bus has
  * dropped frames for this tab). Amber accent intentionally distinct
  * from the SSE pill's green/grey palette so the operator's eye

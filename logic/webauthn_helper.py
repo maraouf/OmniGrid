@@ -98,7 +98,7 @@ _FRIENDLY_NAME_MAX = 64
 _FRIENDLY_NAME_RE = re.compile(r"^[\x20-\x7E -￿]{1,64}$")
 
 
-# #670 — hoisted from per-loop scope. Both constants used to live
+# hoisted from per-loop scope. Both constants used to live
 # inside verify_registration / make_authentication_options and were
 # re-allocated per credential evaluation. Moving to module scope
 # saves the allocation on every webauthn ceremony.
@@ -260,7 +260,7 @@ def verify_registration(
         t.lower() for t in transports_raw
         if isinstance(t, str) and t.lower() in _ALLOWED_TRANSPORTS
     ]
-    # #601 — when the browser doesn't emit `response.transports` (older
+    # when the browser doesn't emit `response.transports` (older
     # Chrome / 1Password / various enterprise WebAuthn implementations),
     # fall back to inferring from `authenticatorAttachment`. The top-
     # level field on the PublicKeyCredential reports 'platform' for
@@ -311,7 +311,7 @@ def make_authentication_options(
         if not cid:
             continue
         ts = c.get("transports") or []
-        # #601 / #602 — Safari/Chrome on macOS default to the hybrid
+        # #601 / Safari/Chrome on macOS default to the hybrid
         # (QR) flow at assertion time when a credential's stored
         # transports list is missing `internal` (common when the
         # browser emitted `["hybrid"]` only at registration, OR when
@@ -331,7 +331,7 @@ def make_authentication_options(
         # `["hybrid"]`-only stored case.
         ts_set = {t for t in ts if isinstance(t, str)}
         ts_set.update({"internal", "hybrid"})
-        # #602 — order matters: WebAuthn defines `transports` as an
+        # order matters: WebAuthn defines `transports` as an
         # ORDERED sequence of preferred transports, and several
         # browsers (notably Safari on macOS) use the FIRST listed
         # transport as the default-UI hint. Sorted alphabetically the
@@ -363,7 +363,7 @@ def make_authentication_options(
     options = generate_authentication_options(
         rp_id=rp_id,
         allow_credentials=allow,
-        # #604 — escalated from PREFERRED to REQUIRED. With PREFERRED,
+        # escalated from PREFERRED to REQUIRED. With PREFERRED,
         # Chrome on macOS could satisfy the assertion via the hybrid
         # (QR) flow without a biometric — and with QR available as
         # an option, Chrome's picker DEFAULTED to it for our two-

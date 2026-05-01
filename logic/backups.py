@@ -124,7 +124,7 @@ def create_backup(prefix: str = "omnigrid-backup") -> dict:
         db_tmp = os.path.join(tmp, "omnigrid.db")
         _snapshot_db_to(db_tmp)
 
-        # ENH-010 / #476 — record the schema_migrations head so the
+        # ENH-010 / record the schema_migrations head so the
         # restore path (#477) can detect "this backup was taken on a
         # newer schema; upgrade OmniGrid first" and refuse with a
         # clear error instead of silently restoring incompatible data.
@@ -263,7 +263,7 @@ def restore_from_file(path: str) -> dict:
     ensure_dirs()
     _validate_zip_entries(path)
 
-    # ENH-011 / #477 — refuse a restore from a backup taken on a NEWER
+    # ENH-011 / refuse a restore from a backup taken on a NEWER
     # schema head than the running app. The DB swap itself succeeds
     # (SQLite reads are forgiving), but the running code expects the
     # old shape and operators end up debugging "why is the schedules

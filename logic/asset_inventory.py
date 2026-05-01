@@ -28,7 +28,7 @@ import httpx
 
 from logic import errors as _err
 
-# #442 — track the operator's `DB_PATH` data dir convention. Reading
+# track the operator's `DB_PATH` data dir convention. Reading
 # DB_PATH lazily via os.environ keeps the constant import-time-safe
 # even when the variable is set by docker-compose only. Defaults to
 # the legacy `/app/data/asset_inventory.json` when DB_PATH is unset
@@ -258,7 +258,7 @@ def _normalize_code(raw: Any) -> str:
     """
     s = str(raw or "").strip()
     m = _CODE_PREFIX_RE.match(s)
-    # #432 — Real upstream codes are positive ints. Don't lstrip a
+    # Real upstream codes are positive ints. Don't lstrip a
     # leading `-`; that would let `Ex-1686` through (`s[m.end():] = "-1686"`,
     # after lstrip is `"1686"` which would falsely match `_ERR_NO_RECORDS`).
     # `.isdigit()` alone correctly rejects negatives.

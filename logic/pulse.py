@@ -507,7 +507,7 @@ def extract_node_stats(node: dict) -> dict:
     host_boot_ts = (time.time() - uptime) if uptime > 0 else None
     cpu_pct = _num(node.get("cpu")) * 100  # Pulse emits 0..1
     kernel = str(node.get("kernel") or "")
-    # #430 — Pulse's node payload doesn't carry arch, so the extractor
+    # Pulse's node payload doesn't carry arch, so the extractor
     # used to return empty. Infer `x86_64` when the kernel ends with
     # `-pve` (Proxmox stock kernels are almost always x86_64). NE /
     # Beszel still override when the operator runs an agent on the

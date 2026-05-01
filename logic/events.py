@@ -156,7 +156,7 @@ def publish(
     into the caller (an Operation handler, a sampler, the gather loop).
     Logged loudly so a regression in event shape doesn't go silent.
     """
-    # #536 — request-correlation log line at every publish site.
+    # request-correlation log line at every publish site.
     # Instrumenting here (single point) instead of each of the 12 call
     # sites means new publishers automatically get the trace. Identity
     # hint mirrors the failure-path's lookup order so the log line
@@ -172,7 +172,7 @@ def publish(
     try:
         bus.publish(type_, payload, ts)
     except Exception as e:
-        # ENH-018 / #483 — include a payload identity hint in the
+        # ENH-018 / include a payload identity hint in the
         # error log so operators can correlate a regressed publish to
         # which op / host / schedule it referenced. `id` is the most
         # common identity field across the published event shapes

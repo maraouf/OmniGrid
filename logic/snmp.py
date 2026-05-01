@@ -100,7 +100,7 @@ _unreachable_cooldown = _Cooldown(
     seconds_fn=lambda: _tuning.tuning_int("tuning_snmp_unreachable_cooldown_seconds")
 )
 
-# #671 — module-level SnmpEngine singleton. pysnmp HLAPI engines carry
+# module-level SnmpEngine singleton. pysnmp HLAPI engines carry
 # per-engine state (USM key cache, message-id state); allocating one
 # fresh per probe wasted ~2-3 ms × N concurrent × every gather cadence.
 # Lazy-init under an asyncio.Lock so the first concurrent burst doesn't
@@ -129,7 +129,7 @@ _OID_SYS_UPTIME    = "1.3.6.1.2.1.1.3.0"
 _OID_SYS_CONTACT   = "1.3.6.1.2.1.1.4.0"
 _OID_SYS_NAME      = "1.3.6.1.2.1.1.5.0"
 _OID_SYS_LOCATION  = "1.3.6.1.2.1.1.6.0"
-# #681 — ENTITY-MIB physical-component table. Vendor-agnostic surface
+# ENTITY-MIB physical-component table. Vendor-agnostic surface
 # for model name / serial number / firmware version on enterprise gear
 # (Cisco / Dell iDRAC / HP / Juniper / etc.) that doesn't necessarily
 # implement Host Resources MIB. Walk by sub-tree so we get every
@@ -142,7 +142,7 @@ _OID_ENT_SERIAL_NUM   = "1.3.6.1.2.1.47.1.1.1.1.11"
 _OID_ENT_MODEL_NAME   = "1.3.6.1.2.1.47.1.1.1.1.13"
 _OID_ENT_PHYS_CLASS   = "1.3.6.1.2.1.47.1.1.1.1.5"
 
-# #682 — Vendor-private MIBs for hosts whose SNMP profile blocks the
+# Vendor-private MIBs for hosts whose SNMP profile blocks the
 # standard MIB-II / Host Resources / ENTITY-MIB surfaces. iDRAC v6+ in
 # particular returns nothing useful from sysDescr / hrStorage / ifTable /
 # ENTITY-MIB on the default community profile, but exposes rich data
@@ -184,7 +184,7 @@ _DELL_STATUS_LABELS = {
     4: "non-critical", 5: "critical", 6: "non-recoverable",
 }
 
-# #683 — APC PowerNet-MIB (UPS / PDU). Smart-UPS family answers under
+# APC PowerNet-MIB (UPS / PDU). Smart-UPS family answers under
 # 1.3.6.1.4.1.318.x. Standard UPS-MIB (RFC 1628) is sometimes also
 # present but APC's PowerNet OIDs carry more detail (battery temp,
 # runtime in TimeTicks, load% per-phase). One probe pass covers
@@ -215,7 +215,7 @@ _APC_OUTPUT_STATUS_LABELS = {
     11: "sleeping-until", 12: "on-smart-trim",
 }
 
-# #684 — UCD-SNMP-MIB (1.3.6.1.4.1.2021.x). The universal Linux
+# UCD-SNMP-MIB (1.3.6.1.4.1.2021.x). The universal Linux
 # net-snmp surface — present on basically every Linux distro running
 # net-snmp (DD-WRT / OpenWrt / Synology / generic embedded boxes that
 # don't ship Beszel/NE agents). Sometimes the only useful surface on
@@ -223,7 +223,7 @@ _APC_OUTPUT_STATUS_LABELS = {
 _OID_UCD_MEM_TOTAL_REAL = "1.3.6.1.4.1.2021.4.5.0"
 _OID_UCD_MEM_AVAIL_REAL = "1.3.6.1.4.1.2021.4.6.0"
 _OID_UCD_MEM_TOTAL_FREE = "1.3.6.1.4.1.2021.4.11.0"
-# #713 — buffers + cached for the stacked-area memory chart.
+# buffers + cached for the stacked-area memory chart.
 # memShared (4.13) is rarely populated on modern Linux so skipped.
 _OID_UCD_MEM_BUFFER     = "1.3.6.1.4.1.2021.4.14.0"
 _OID_UCD_MEM_CACHED     = "1.3.6.1.4.1.2021.4.15.0"
@@ -239,7 +239,7 @@ _OID_UCD_DSK_TOTAL   = "1.3.6.1.4.1.2021.9.1.6"   # KB
 _OID_UCD_DSK_USED    = "1.3.6.1.4.1.2021.9.1.8"   # KB
 _OID_UCD_DSK_PERCENT = "1.3.6.1.4.1.2021.9.1.9"
 
-# #685 — SYNOLOGY-MIB. DSM-based NAS (DiskStation, RackStation, etc.).
+# SYNOLOGY-MIB. DSM-based NAS (DiskStation, RackStation, etc.).
 # DSM 7+ also implements Host Resources MIB; these OIDs add identity +
 # DSM-specific health surface (temperature, upgrade-available flag).
 _OID_SYNO_MODEL_NAME    = "1.3.6.1.4.1.6574.1.5.5.0"
@@ -260,7 +260,7 @@ _SYNO_UPGRADE_LABELS = {
     3: "checking", 4: "disconnected", 5: "other",
 }
 
-# #702 — Printer-MIB (RFC 1759 / 3805). Universal printer surface —
+# Printer-MIB (RFC 1759 / 3805). Universal printer surface —
 # HP / Brother / Canon / Epson / Xerox / Konica all implement it.
 # `prtMarkerLifeCount` is the lifetime page count (single GET);
 # `prtMarkerSupplies*` are per-supply walks (one row per toner /
@@ -566,7 +566,7 @@ async def _snmp_walk(engine, auth, target, base_oid: str,
     Uses GETBULK (SNMP v2c+) for efficiency; on v1 fallback this would
     need rewriting to GETNEXT but we don't support v1.
 
-    #687 — pysnmp 7.x split the bulk-walk path off `bulk_cmd`. In 7.x:
+    pysnmp 7.x split the bulk-walk path off `bulk_cmd`. In 7.x:
       - `bulk_cmd(...)` returns a coroutine that yields ONE response —
         NOT iterable. ``async for`` over it raises
         "TypeError: 'async for' requires an object with __aiter__,
@@ -588,9 +588,20 @@ async def _snmp_walk(engine, auth, target, base_oid: str,
     )
     try:
         async for errorIndication, errorStatus, errorIndex, varBinds in iterator:
-            if errorIndication or errorStatus:
-                print(f"[snmp] WALK error on {base_oid}: "
-                      f"{errorIndication or errorStatus}")
+            if errorIndication:
+                # Connection-level error (timeout, agent restart mid-walk,
+                # transport gone). Keep whatever varBinds we already
+                # collected — preserves a partial 149/200 iface walk
+                # rather than discarding the whole list.
+                print(f"[snmp] WALK errorIndication on {base_oid}: "
+                      f"{errorIndication}; returning {len(out)} partial varBinds")
+                return out
+            if errorStatus:
+                # Per-row agent-side error (noSuchObject etc.). Stop the
+                # walk but preserve nothing past this point — the agent
+                # is rejecting the request shape.
+                print(f"[snmp] WALK errorStatus on {base_oid}: "
+                      f"{errorStatus.prettyPrint()}")
                 break
             if not varBinds:
                 break
@@ -687,14 +698,14 @@ def extract_sys_info(get_result: dict) -> dict:
         out["host_uptime_s"] = uptime_s
         if uptime_s > 0:
             out["host_boot_ts"] = float(time.time() - uptime_s)
-    # #681 — sysContact / sysLocation are operator-set on most managed
+    # sysContact / sysLocation are operator-set on most managed
     # gear; expose them as host_* fields so the drawer can surface
     # "owned by ops@example.com" / "rack 12 / shelf 4" hints.
     if contact:
         out["host_contact"] = contact
     if location:
         out["host_location"] = location
-    # #686 — Ubiquiti UniFi switches / APs / routers return ONLY
+    # Ubiquiti UniFi switches / APs / routers return ONLY
     # sysDescr ("USW-Enterprise-8-PoE, 7.4.1.16850") and have no
     # useful vendor-private MIB. Detect the comma-then-version-string
     # convention and pull model + firmware out of sysDescr when other
@@ -716,7 +727,7 @@ def extract_sys_info(get_result: dict) -> dict:
 
 
 def extract_vendor_info(walks: dict, existing: Optional[dict] = None) -> dict:
-    """#682 — DELL-RAC-MIB + Cisco vendor-MIB extractor.
+    """DELL-RAC-MIB + Cisco vendor-MIB extractor.
 
     Fills `host_model` / `host_serial` / `host_firmware` / `host_health`
     when ENTITY-MIB and the standard MIBs left them empty. Designed to
@@ -780,7 +791,7 @@ def extract_vendor_info(walks: dict, existing: Optional[dict] = None) -> dict:
         if loads:
             out["host_cpu_percent"] = float(sum(loads)) / len(loads)
     # ---- APC PowerNet-MIB (UPS) -------------------------------------
-    # #683 — Smart-UPS RT, Back-UPS, BR-series, rack PDUs all live
+    # Smart-UPS RT, Back-UPS, BR-series, rack PDUs all live
     # under 1.3.6.1.4.1.318.x. The full surface adds host_ups_status,
     # host_battery_*, host_load_percent — these don't conflict with
     # any existing host_* field and are ONLY emitted by APC gear, so
@@ -820,7 +831,7 @@ def extract_vendor_info(walks: dict, existing: Optional[dict] = None) -> dict:
         if apc_load > 0 or apc_output_status > 0:
             out["host_load_percent"] = float(apc_load)
     # ---- UCD-SNMP-MIB (Linux net-snmp) ------------------------------
-    # #684 — DD-WRT / OpenWrt / generic Linux without Beszel/NE pick
+    # DD-WRT / OpenWrt / generic Linux without Beszel/NE pick
     # up CPU% (100 - ssCpuIdle), memory (KB → bytes), 1/5/15-min load
     # average (centi-load → float), and per-mount disk via dskTable.
     ucd_mem = walks.get("ucd_mem_cpu") or {}
@@ -828,7 +839,7 @@ def extract_vendor_info(walks: dict, existing: Optional[dict] = None) -> dict:
         mem_total_kb = _coerce_int(ucd_mem.get(_OID_UCD_MEM_TOTAL_REAL))
         mem_avail_kb = _coerce_int(ucd_mem.get(_OID_UCD_MEM_AVAIL_REAL))
         mem_free_kb  = _coerce_int(ucd_mem.get(_OID_UCD_MEM_TOTAL_FREE))
-        # #713 — buffers + cached for the stacked-area memory chart.
+        # buffers + cached for the stacked-area memory chart.
         mem_buffer_kb = _coerce_int(ucd_mem.get(_OID_UCD_MEM_BUFFER))
         mem_cached_kb = _coerce_int(ucd_mem.get(_OID_UCD_MEM_CACHED))
         if mem_total_kb > 0 and not existing.get("host_mem_total"):
@@ -843,7 +854,7 @@ def extract_vendor_info(walks: dict, existing: Optional[dict] = None) -> dict:
                 out["host_mem_used"] = mem_used
                 out["host_mem_avail"] = avail
                 out["host_mem_percent"] = (mem_used / mem_total * 100.0) if mem_total else 0.0
-        # #713 — surface raw buffers / cached / free in bytes for the
+        # surface raw buffers / cached / free in bytes for the
         # stacked-area chart. Always emit when the OID returned a value,
         # independent of the host_mem_* gates above.
         if mem_buffer_kb > 0:
@@ -880,7 +891,7 @@ def extract_vendor_info(walks: dict, existing: Optional[dict] = None) -> dict:
         if 3 in load_by_idx and not existing.get("host_load_15m"):
             out["host_load_15m"] = load_by_idx[3]
     # ---- SYNOLOGY-MIB (DSM NAS) -------------------------------------
-    # #685 — DSM 7+ also implements Host Resources MIB; these OIDs
+    # DSM 7+ also implements Host Resources MIB; these OIDs
     # add the NAS-specific identity + the system temperature + an
     # upgrade-available signal. Picks up DiskStation / RackStation
     # gear where the operator hasn't (yet) deployed an OmniGrid agent.
@@ -906,7 +917,7 @@ def extract_vendor_info(walks: dict, existing: Optional[dict] = None) -> dict:
             syno_upgrade, f"status={syno_upgrade}"
         )
     # ---- Printer-MIB (HP / Brother / Canon / Epson / Xerox / etc.) ---
-    # #702 — universal printer surface. Picks up any device whose SNMP
+    # universal printer surface. Picks up any device whose SNMP
     # agent implements RFC 1759 / 3805 — basically every networked
     # office / home-office printer. Emits `printer_page_count` (int),
     # `printer_console_msg` (str — "Replace toner Y" / "Paper jam" /
@@ -987,7 +998,7 @@ def extract_vendor_info(walks: dict, existing: Optional[dict] = None) -> dict:
 
 
 def extract_entity_info(walk_results: dict) -> dict:
-    """#681 — Shape ENTITY-MIB walks into host_model / host_serial /
+    """Shape ENTITY-MIB walks into host_model / host_serial /
     host_firmware. Picks the FIRST non-empty value across every walked
     physical-entry index (chassis-level info typically lives at
     entPhysicalIndex=1, but the entry can be deeper on stackable
@@ -1094,7 +1105,7 @@ def extract_storage(
         type_oid = _coerce_str(types.get(idx))
         desc = _coerce_str(descs.get(idx))
         if type_oid == _OID_HR_TYPE_RAM:
-            # #664 — unit-normalisation heuristic for older Cisco IOS-XE
+            # unit-normalisation heuristic for older Cisco IOS-XE
             # (and similar agents) that report `Units=1, Size=<KB-count>`
             # for RAM. Naive `Units × Size` math stores 2 MB instead of
             # 2 GB. Heuristic: hrStorageType=RAM with total_bytes < 16 MiB
@@ -1175,6 +1186,15 @@ def extract_interfaces(
         if not name:
             continue
         oper = opers.get(idx, 1)  # 1 = up
+        # Counter width tag so the chart helper knows whether to apply
+        # 64-bit or 32-bit wrap detection. ifHCInOctets is 64-bit
+        # (wraps at 2^64 ≈ 18 EB — never in practice); ifInOctets
+        # fallback is 32-bit (wraps at 4.29 GB — possible under
+        # sustained ≥ 1 GB/s). The 10 GB chart-side delta cap can't
+        # catch wrap-then-stable on a 32-bit-only switch (delta would
+        # be ~4 GB, under the cap, looks legit). Marking the source
+        # lets the chart cap tighter on 32-bit ifaces.
+        hc_present = in_hc.get(idx) is not None or out_hc.get(idx) is not None
         rx = in_hc.get(idx) or in_32.get(idx) or 0
         tx = out_hc.get(idx) or out_32.get(idx) or 0
         speed_mbps = speeds.get(idx) or None  # None when ifHighSpeed not exposed
@@ -1185,6 +1205,7 @@ def extract_interfaces(
             "oper_status": "up" if oper == 1 else "down",
             "rx_bytes": rx,
             "tx_bytes": tx,
+            "counter_width": 64 if hc_present else 32,
         }
         if speed_mbps:
             iface_row["link_speed_mbps"] = speed_mbps
@@ -1248,11 +1269,11 @@ def extract_stats(
         iface_walks.get("out_32") or {},
         iface_walks.get("high_speed") or {},
     ))
-    # #681 — ENTITY-MIB pass. Vendor-agnostic; emits host_model /
+    # ENTITY-MIB pass. Vendor-agnostic; emits host_model /
     # host_serial / host_firmware when the agent answers.
     if entity_walks:
         stats.update(extract_entity_info(entity_walks))
-    # #682 — Vendor-private MIB pass. Dell DELL-RAC-MIB + Cisco
+    # Vendor-private MIB pass. Dell DELL-RAC-MIB + Cisco
     # CISCO-MEMORY-POOL-MIB / CISCO-PROCESS-MIB. Only fills fields the
     # earlier passes left empty (a Beszel/NE-mapped Linux box probed
     # over SNMP keeps the richer kernel/arch/uptime data; an iDRAC
@@ -1339,7 +1360,7 @@ async def probe_snmp(
                      f"snmp_v3_user or fall back to v2c",
         }
 
-    # #671 — reuse the module-level SnmpEngine singleton instead of
+    # reuse the module-level SnmpEngine singleton instead of
     # allocating a fresh one per probe.
     engine = await _get_snmp_engine()
     try:
@@ -1358,7 +1379,7 @@ async def probe_snmp(
     # `bulkCmd` call carries its own request ID.
     # ----------------------------------------------------------------
     try:
-        # #681 — sys GET expanded with sysContact + sysLocation; new
+        # sys GET expanded with sysContact + sysLocation; new
         # ENTITY-MIB walks added so device model / serial / firmware
         # come back even on agents that don't expose Host Resources MIB.
         sys_task = _snmp_get(engine, auth, target, [
@@ -1377,19 +1398,19 @@ async def probe_snmp(
         if_hc_out_task = _snmp_walk(engine, auth, target, _OID_IF_HC_OUT_OCTETS)
         if_in_task = _snmp_walk(engine, auth, target, _OID_IF_IN_OCTETS_32)
         if_out_task = _snmp_walk(engine, auth, target, _OID_IF_OUT_OCTETS_32)
-        # #725 — IF-MIB::ifHighSpeed (Mbps) for the per-port utilization
+        # IF-MIB::ifHighSpeed (Mbps) for the per-port utilization
         # heatmap. Devices that don't expose ifHighSpeed simply return
         # an empty walk; per-iface link_speed_mbps stays None and the
         # heatmap renders the iface in grey ("unknown speed").
         if_speed_task = _snmp_walk(engine, auth, target, _OID_IF_HIGH_SPEED)
-        # #681 — ENTITY-MIB physical-component walks. Vendor-agnostic
+        # ENTITY-MIB physical-component walks. Vendor-agnostic
         # source for model name / serial / firmware on enterprise gear.
         ent_descr_task = _snmp_walk(engine, auth, target, _OID_ENT_DESCR)
         ent_name_task = _snmp_walk(engine, auth, target, _OID_ENT_NAME)
         ent_serial_task = _snmp_walk(engine, auth, target, _OID_ENT_SERIAL_NUM)
         ent_model_task = _snmp_walk(engine, auth, target, _OID_ENT_MODEL_NAME)
         ent_fw_task = _snmp_walk(engine, auth, target, _OID_ENT_SOFTWARE_REV)
-        # #682 — Vendor-private MIB GETs/walks. Each agent silently
+        # Vendor-private MIB GETs/walks. Each agent silently
         # returns "noSuchObject" when the OID isn't supported, so a
         # non-Dell / non-Cisco device incurs only the round-trip cost
         # of a few extra UDP packets — no error path.
@@ -1408,7 +1429,7 @@ async def probe_snmp(
         cisco_mem_free_task = _snmp_walk(engine, auth, target, _OID_CISCO_MEM_POOL_FREE)
         cisco_mem_name_task = _snmp_walk(engine, auth, target, _OID_CISCO_MEM_POOL_NAME)
         cisco_cpu_task = _snmp_walk(engine, auth, target, _OID_CISCO_CPU_TOTAL_5SEC)
-        # #683 — APC PowerNet-MIB. One GET covers identity + battery +
+        # APC PowerNet-MIB. One GET covers identity + battery +
         # output. Non-APC devices return noSuchObject; extractor tolerates.
         apc_vendor_task = _snmp_get(engine, auth, target, [
             _OID_APC_UPS_MODEL, _OID_APC_UPS_NAME,
@@ -1417,7 +1438,7 @@ async def probe_snmp(
             _OID_APC_UPS_BATT_TEMP_C, _OID_APC_UPS_BATT_RUNTIME,
             _OID_APC_UPS_OUTPUT_STATUS, _OID_APC_UPS_OUTPUT_LOAD,
         ])
-        # #684 — UCD-SNMP-MIB. Memory + CPU% (by mode) GETs; load
+        # UCD-SNMP-MIB. Memory + CPU% (by mode) GETs; load
         # average + dskTable walks. Non-net-snmp devices return empty.
         ucd_mem_cpu_task = _snmp_get(engine, auth, target, [
             _OID_UCD_MEM_TOTAL_REAL, _OID_UCD_MEM_AVAIL_REAL, _OID_UCD_MEM_TOTAL_FREE,
@@ -1429,12 +1450,12 @@ async def probe_snmp(
         ucd_dsk_total_task = _snmp_walk(engine, auth, target, _OID_UCD_DSK_TOTAL)
         ucd_dsk_used_task = _snmp_walk(engine, auth, target, _OID_UCD_DSK_USED)
         ucd_dsk_pct_task = _snmp_walk(engine, auth, target, _OID_UCD_DSK_PERCENT)
-        # #685 — SYNOLOGY-MIB. One GET covers identity + system status.
+        # SYNOLOGY-MIB. One GET covers identity + system status.
         syno_vendor_task = _snmp_get(engine, auth, target, [
             _OID_SYNO_MODEL_NAME, _OID_SYNO_SERIAL_NUMBER, _OID_SYNO_DSM_VERSION,
             _OID_SYNO_SYSTEM_STATUS, _OID_SYNO_SYSTEM_TEMP, _OID_SYNO_UPGRADE_AVAIL,
         ])
-        # #702 — Printer-MIB. Page count + console message GET; per-
+        # Printer-MIB. Page count + console message GET; per-
         # supply walks (description / max / level). Non-printer agents
         # return empty for all of these; extractor tolerates.
         prt_basic_task = _snmp_get(engine, auth, target, [
@@ -1444,7 +1465,7 @@ async def probe_snmp(
         prt_supply_max_task   = _snmp_walk(engine, auth, target, _OID_PRT_SUPPLIES_MAX_CAP)
         prt_supply_level_task = _snmp_walk(engine, auth, target, _OID_PRT_SUPPLIES_LEVEL)
 
-        # #658 — wrap the gather in wait_for so the TimeoutError catch
+        # wrap the gather in wait_for so the TimeoutError catch
         # becomes reachable (asyncio.gather alone can't raise TimeoutError
         # without wait_for) AND the caller earns a wall-clock guarantee.
         # Budget = (timeout + 2s) × 2 — covers UDP retransmits per
@@ -1493,11 +1514,11 @@ async def probe_snmp(
      prt_basic_get, prt_supply_descr_walk,
      prt_supply_max_walk, prt_supply_level_walk) = results
 
-    # #681 — entity walks count toward the "any data" gate so a switch
+    # entity walks count toward the "any data" gate so a switch
     # that answers ONLY entPhysicalSerialNum (no sysDescr / no ifTable)
     # still passes the cool-down clear. ENTITY-MIB-only is a real
     # config — some agents are locked down to Entity-MIB only.
-    # #682 — vendor-private OIDs also count: an iDRAC's whole identity
+    # vendor-private OIDs also count: an iDRAC's whole identity
     # surface lives under DELL-RAC-MIB, so a successful chassis-tag
     # GET is enough signal that the host is alive even when every
     # standard MIB-II / Host-Resources / ENTITY-MIB walk came back empty.
@@ -1569,7 +1590,7 @@ async def probe_snmp(
         "error": None,
     }
     if verbose:
-        # #675 — surface the parsed walks so the host-drawer debug
+        # surface the parsed walks so the host-drawer debug
         # panel can answer "what SNMP data is actually available?".
         # Pretty-print every value via _coerce_str so the JSON
         # serialiser doesn't choke on pysnmp's ASN.1 wrapper objects.
@@ -1593,7 +1614,7 @@ async def probe_snmp(
             )
         except Exception:  # noqa: BLE001
             iface_rows = []
-        # #681 — entity rows for the verbose surface. Each physical
+        # entity rows for the verbose surface. Each physical
         # entry is one row keyed by entPhysicalIndex with name / model /
         # serial / firmware aligned.
         entity_rows = []
@@ -1612,7 +1633,7 @@ async def probe_snmp(
             "iface_rows": iface_rows,
             "entity_count": len(ent_descr or {}),
             "entity_rows": entity_rows,
-            # #682 — vendor-private MIB visibility. Dell GETs render as
+            # vendor-private MIB visibility. Dell GETs render as
             # one block of OID → string-pretty-printed values; Cisco
             # walks render per-pool / per-engine. Operators can confirm
             # at a glance whether the iDRAC's chassis service tag came
@@ -1665,7 +1686,7 @@ async def probe_snmp(
 
 def _summarise_entity_rows(descrs: dict, names: dict, serials: dict,
                            models: dict, firmwares: dict) -> list[dict]:
-    """#681 — Per-physical-entry row summary from ENTITY-MIB walks.
+    """Per-physical-entry row summary from ENTITY-MIB walks.
     Indexed by the trailing entPhysicalIndex so descr / name / serial /
     model / firmware align per row.
     """

@@ -108,7 +108,7 @@ DEFAULT_DESTRUCTIVE_PATTERNS = (
 )
 
 # Auth cool-down — keyed by (host_id, user). Mirrors logic/webmin.py.
-# Centralised in `logic/cooldown.py` per CONS-004. #549 — duration is
+# Centralised in `logic/cooldown.py` per CONS-004. duration is
 # now operator-tunable via `tuning_auth_failure_cooldown_seconds`,
 # shared with Webmin so a single Save propagates to both consumers.
 from logic.cooldown import Cooldown
