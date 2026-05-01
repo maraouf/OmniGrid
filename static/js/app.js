@@ -8206,6 +8206,17 @@ function app() {
     // it, fmtBytes picks per-value (e.g. "1012 MB" next to "1.9 GB"
     // looks misaligned because the per-value picks land on different
     // tiers). Operator-flagged for the SNMP Memory chart at 2026-05-01.
+    // Return the unit symbol (B / KB / MB / GB / TB) that `fmtBytes` /
+    // `fmtBytesAt` would pick for a value of magnitude `n`. Used by
+    // chart title chips so the chip always matches what the legend +
+    // Y-axis actually render — operator-flagged that a static `B/s` /
+    // `B` chip looked wrong next to a `1.2 MB/s` legend value.
+    unitForBytes(n) {
+      const u = ['B', 'KB', 'MB', 'GB', 'TB'];
+      let v = Math.max(0, +n || 0), i = 0;
+      while (v >= 1024 && i < u.length - 1) { v /= 1024; i++; }
+      return u[i];
+    },
     fmtBytesAt(n, refMax) {
       if (n == null) return '—';
       const u = ['B','KB','MB','GB','TB'];

@@ -9339,7 +9339,7 @@
                          "1012 MB" next to "1.9 GB" — visually
                          misaligned). -->
                     <div class="metric-card-title">
-                      <span x-text="t('host_drawer.snmp_charts.mem_title')"></span>
+                      <span x-text="t('host_drawer.snmp_charts.mem_title')"></span><span class="unit" x-text="unitForBytes(snmpMemMax(h))"></span>
                       <span class="metric-source-help" :title="metricSource(h, 'snmp_memory')"
                             @click.stop="toggleMetricTooltip(h, 'snmp_memory')"
                             @keydown.escape.window="metricTooltipOpen = null">
@@ -9415,7 +9415,7 @@
                      x-show="snmpHasThroughput(h.id)">
                   <div class="metric-card-head">
                     <div class="metric-card-title">
-                      <span x-text="t('host_drawer.snmp_charts.throughput_title')"></span>
+                      <span x-text="t('host_drawer.snmp_charts.throughput_title')"></span><span class="unit" x-text="unitForBytes(snmpThroughputMaxBps(h.id)) + '/s'"></span>
                       <span class="metric-source-help" :title="metricSource(h, 'snmp_throughput')"
                             @click.stop="toggleMetricTooltip(h, 'snmp_throughput')"
                             @keydown.escape.window="metricTooltipOpen = null">
@@ -9469,7 +9469,7 @@
                      x-show="snmpHasIfaceHistory(h.id) || (h.network_ifaces && h.network_ifaces.length > 0)">
                   <div class="metric-card-head">
                     <div class="metric-card-title">
-                      <span x-text="t('host_drawer.snmp_charts.per_port_title')"></span>
+                      <span x-text="t('host_drawer.snmp_charts.per_port_title')"></span><span class="unit" x-text="unitForBytes(snmpIfaceMaxBps(h.id)) + '/s'"></span>
                       <span class="metric-source-help" :title="metricSource(h, 'snmp_throughput')"
                             @click.stop="toggleMetricTooltip(h, 'snmp_per_port')"
                             @keydown.escape.window="metricTooltipOpen = null">
@@ -9821,7 +9821,7 @@
                      :class="hostChartMax(hostHistoryKey(h), ['nr','ns']) === 0 ? 'metric-card--flat' : ''">
                   <div class="metric-card-head">
                     <div class="metric-card-title">
-                      <span x-text="t('hosts_extra.metrics.network')"></span>
+                      <span x-text="t('hosts_extra.metrics.network')"></span><span class="unit" x-text="unitForBytes(hostChartMax(hostHistoryKey(h), ['nr','ns'])) + '/s'"></span>
                       <span class="metric-source-help" :title="metricSource(h, 'network')"
                             @click.stop="toggleMetricTooltip(h, 'network')"
                             @keydown.escape.window="metricTooltipOpen = null">
@@ -9957,7 +9957,7 @@
                      :class="hostChartMax(hostHistoryKey(h), ['dr','dw']) === 0 ? 'metric-card--flat' : ''">
                   <div class="metric-card-head">
                     <div class="metric-card-title">
-                      <span x-text="t('hosts_extra.metrics.disk_io')"></span>
+                      <span x-text="t('hosts_extra.metrics.disk_io')"></span><span class="unit" x-text="unitForBytes(hostChartMax(hostHistoryKey(h), ['dr','dw'])) + '/s'"></span>
                       <span class="metric-source-help" :title="metricSource(h, 'disk_io')"
                             @click.stop="toggleMetricTooltip(h, 'disk_io')"
                             @keydown.escape.window="metricTooltipOpen = null">
@@ -10123,7 +10123,7 @@
                      x-show="hostMetricStats(hostHistoryKey(h), 'net', false) && hostMetricStats(hostHistoryKey(h), 'net', false).maxRaw > 0">
                   <div class="metric-card-head">
                     <div class="metric-card-title">
-                      <span x-text="t('hosts_extra.metrics.bandwidth')"></span>
+                      <span x-text="t('hosts_extra.metrics.bandwidth')"></span><span class="unit" x-text="unitForBytes(hostChartMax(hostHistoryKey(h), ['net'])) + '/s'"></span>
                       <span class="metric-source-help" :title="metricSource(h, 'bandwidth')"
                             @click.stop="toggleMetricTooltip(h, 'bandwidth')"
                             @keydown.escape.window="metricTooltipOpen = null">
