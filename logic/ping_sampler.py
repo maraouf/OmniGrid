@@ -151,7 +151,27 @@ async def _probe_one(host: dict, sem: asyncio.Semaphore) -> None:
     empty row in /api/hosts (ping_alive=null forever).
     """
     async with sem:
+        # Per-(ping, host) auto-pause short-circuit (#804). Skip the
+        # probe entirely when operator has marked this host paused.
+        # Done HERE not at the loop level so the failure-state row is
+        # checked per-host every tick (cheap SELECT).
+        from logic.host_metrics_sampler import (
+            record_provider_outcome as _rec_pause_outcome,
+        )
+        try:
+            from logic.db import db_conn as _dbc
+            with _dbc() as _c:
+                _r = _c.execute(
+                    "SELECT paused FROM host_failure_state WHERE host_id=?",
+                    (f"ping:{host['id']}",),
+                ).fetchone()
+            if _r and _r[0]:
+                return
+        except Exception:
+            pass  # DB blip — let the probe run
         timeout_s = float(tuning.tuning_int("tuning_ping_probe_timeout_seconds"))
+        ping_pause_rounds = tuning.tuning_int("tuning_ping_failure_pause_rounds")
+        sampler_error: str = ""
         try:
             result = await _ping.probe_ping(
                 host["host"], port=host["port"],
@@ -172,6 +192,21 @@ async def _probe_one(host: dict, sem: asyncio.Semaphore) -> None:
                 "loss_pct":   100.0,
                 "error":      err,
             }
+            # Sampler-level error (DNS failure, ICMP perm-denied,
+            # transport setup failure, etc.) — count toward auto-pause.
+            # Distinct from the alive=False case below: alive=False is
+            # the actual data the operator wants surfaced, not a fault.
+            sampler_error = err
+        # Auto-pause accounting (#804): only sampler errors count;
+        # plain alive=False is the data, not a fault.
+        if sampler_error:
+            await _rec_pause_outcome(
+                host["id"], "ping", False,
+                error=sampler_error,
+                round_threshold=ping_pause_rounds,
+            )
+        else:
+            await _rec_pause_outcome(host["id"], "ping", True)
         ts = int(time.time())
         try:
             with db_conn() as c:

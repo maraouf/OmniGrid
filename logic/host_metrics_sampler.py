@@ -308,11 +308,59 @@ def _get_failure_state(host_id: str) -> Optional[dict]:
     }
 
 
-async def _record_failure(host_id: str, now: float, error: str) -> None:
+def _split_failure_key(key: str) -> tuple[str, Optional[str]]:
+    """Split a failure-state row key into ``(bare_host_id, provider)``.
+
+    The table uses two key conventions side-by-side:
+      - bare ``host_id`` for whole-host pauses (#383 NE-mapped sampler).
+      - prefixed ``<provider>:<host_id>`` for per-(provider, host)
+        pauses (#797 / #804) so a host with broken SNMP but healthy
+        Beszel only marks ONE chip paused.
+
+    Returns ``(host_id, provider)`` for prefixed keys, ``(host_id, None)``
+    for bare keys. Used by SSE publishers to emit the BARE host_id +
+    a separate ``provider`` field — the SPA's ``refreshHostRow(id)``
+    needs the bare id (otherwise ``/api/hosts/one/snmp:web01`` 404s
+    silently). Reserved provider names live in the
+    ``_PROVIDER_PREFIXES`` frozen set so a bare host_id that happens
+    to contain a colon (e.g. an IPv6 literal — currently not used as a
+    host_id anywhere but defence-in-depth) doesn't get mis-split.
+    """
+    if ":" not in key:
+        return key, None
+    head, _, tail = key.partition(":")
+    if head in _PROVIDER_PREFIXES:
+        return tail, head
+    return key, None
+
+
+# Frozen set of provider names that prefix `host_failure_state` rows.
+# Extend whenever a new provider gets the auto-pause contract — keep
+# in sync with `main._PROVIDER_AUTO_PAUSE_NAMES`. Both lists could be
+# derived from `tuning.TUNABLES` in a future refactor.
+_PROVIDER_PREFIXES = frozenset((
+    "beszel", "pulse", "node_exporter", "webmin", "ping", "snmp",
+))
+
+
+async def _record_failure(
+    host_id: str, now: float, error: str,
+    *, round_threshold: Optional[int] = None,
+) -> None:
     """Increment the failure counter, stamp first_failure_ts on the
-    first failure of a new streak, auto-pause when the window is
+    first failure of a new streak, auto-pause when the threshold is
     exceeded. Called from `_probe_one` whenever a probe attempt fails
     (network error OR exporter_error response).
+
+    Two pause-trigger modes:
+      - Default (NE / Webmin / etc.): time-window based. Pauses after
+        ``tuning_host_permanent_fail_window_seconds`` of consecutive
+        failures. Operator-friendly when probe cadence is fixed.
+      - ``round_threshold`` (SNMP): pauses after N consecutive failed
+        rounds regardless of wall-clock. Operator-friendly when probe
+        cadence varies (SNMP printers may poll hourly, switches every
+        minute — "5 rounds" means the same UX commitment in both cases).
+        Pass 0 to disable auto-pause entirely (just record the failure).
 
     Async because the auto-pause transition fires an Apprise
     notification via ``asyncio.create_task`` — ``create_task`` requires
@@ -357,7 +405,14 @@ async def _record_failure(host_id: str, now: float, error: str) -> None:
                 return
             first_ts, fails, paused = row[0], row[1], bool(row[2])
             new_fails = fails + 1
-            should_pause = (not paused) and (now - first_ts >= window)
+            if round_threshold is not None and round_threshold > 0:
+                should_pause = (not paused) and (new_fails >= round_threshold)
+            elif round_threshold == 0:
+                # 0 = auto-pause disabled (operator opted out via
+                # tuning_snmp_failure_pause_rounds=0). Just record.
+                should_pause = False
+            else:
+                should_pause = (not paused) and (now - first_ts >= window)
             if should_pause:
                 c.execute(
                     "UPDATE host_failure_state SET consecutive_failures = ?, "
@@ -366,10 +421,20 @@ async def _record_failure(host_id: str, now: float, error: str) -> None:
                     (new_fails, now, now, err_short, host_id),
                 )
                 paused_minutes = max(1, int((now - first_ts) // 60))
+                # Per-(provider, host) pauses use prefixed keys
+                # (`snmp:web01`); whole-host pauses use bare host_id.
+                # Split here so SSE publish + Apprise body + the resume
+                # URL hint reference the BARE host_id (the SPA's
+                # `refreshHostRow(id)` 404s on prefixed). The provider
+                # name (when present) carries through as a separate
+                # field for chip rendering.
+                bare_host, provider = _split_failure_key(host_id)
                 print(f"[host_metrics_sampler] {host_id!r} AUTO-PAUSED after "
                       f"{int(now - first_ts)}s of consecutive failures "
                       f"({new_fails} attempts) — operator must POST "
-                      f"/api/hosts/{host_id}/resume-sampling to resume")
+                      f"/api/hosts/{bare_host}"
+                      f"{('/provider/' + provider + '/resume') if provider else '/resume-sampling'}"
+                      f" to resume")
                 # fire-and-forget Apprise notification on the
                 # pause transition. ``asyncio.create_task`` is the
                 # supported API since 3.7; it requires a running loop
@@ -388,14 +453,23 @@ async def _record_failure(host_id: str, now: float, error: str) -> None:
                 # the notification is best-effort cake on top).
                 try:
                     from logic.ops import notify_with_retry as _notify_with_retry
-                    title = f"⚠ Host sampling paused: {host_id}"
-                    body = (
-                        f"{host_id} has been unreachable for {paused_minutes} min "
-                        f"after {new_fails} consecutive probe failures. "
-                        f"Last error: {err_short or '—'}. "
-                        f"Resume manually from the host drawer's banner."
-                    )
-                    # ENH-009 / uses the shared retry helper in
+                    if provider:
+                        title = f"⚠ Provider paused: {bare_host} ({provider})"
+                        body = (
+                            f"{provider} probes for {bare_host} have failed "
+                            f"{new_fails} consecutive rounds (~{paused_minutes} min). "
+                            f"Last error: {err_short or '—'}. "
+                            f"Resume manually from the {provider} chip in the host drawer."
+                        )
+                    else:
+                        title = f"⚠ Host sampling paused: {bare_host}"
+                        body = (
+                            f"{bare_host} has been unreachable for {paused_minutes} min "
+                            f"after {new_fails} consecutive probe failures. "
+                            f"Last error: {err_short or '—'}. "
+                            f"Resume manually from the host drawer's banner."
+                        )
+                    # uses the shared retry helper in
                     # logic.ops so login-event / scheduler / anomaly-watcher
                     # paths get the same semantics. `label` distinguishes
                     # this chain in Admin → Logs.
@@ -410,15 +484,20 @@ async def _record_failure(host_id: str, now: float, error: str) -> None:
                     print(f"[host_metrics_sampler] {host_id!r} notify dispatch failed: {e}")
                 # SSE — paused transition. SPA reacts by re-fetching the
                 # one host (banner appears in the drawer immediately
-                # instead of waiting for the next 15s host poll).
+                # instead of waiting for the next 15s host poll). Always
+                # publish the BARE host_id so `refreshHostRow(id)` works;
+                # surface the provider name as a separate optional field.
                 try:
                     from logic import events as _events
-                    _events.publish("host:failure_state_changed", {
-                        "host_id": host_id,
+                    payload = {
+                        "host_id": bare_host,
                         "paused": True,
                         "consecutive_failures": new_fails,
                         "last_error": err_short,
-                    })
+                    }
+                    if provider:
+                        payload["provider"] = provider
+                    _events.publish("host:failure_state_changed", payload)
                 except Exception as ee:
                     print(f"[events] host:failure_state_changed publish failed: {ee}")
             else:
@@ -429,6 +508,60 @@ async def _record_failure(host_id: str, now: float, error: str) -> None:
                 )
     except Exception as e:
         print(f"[host_metrics_sampler] {host_id!r} failure-state write error: {e}")
+
+
+async def record_provider_outcome(
+    host_id: str, provider: str, ok: bool,
+    *, error: str = "", round_threshold: int = 0,
+) -> None:
+    """Generic per-(provider, host) outcome recorder (#804 + #785).
+
+    Wraps `_record_failure` / `_clear_failure` so probe sites for ANY
+    provider become a one-liner. Use this at every per-host probe
+    boundary that wants the auto-pause + manual-resume contract:
+
+        ok = bool(stats and not stats.get("exporter_error"))
+        await record_provider_outcome(
+            h["id"], "node_exporter", ok,
+            error="" if ok else (stats.get("exporter_error") or "no response"),
+            round_threshold=tuning.tuning_int("tuning_node_exporter_failure_pause_rounds"),
+        )
+
+    On success: clears the failure-state row keyed `<provider>:<host_id>`
+    AND upserts `host_provider_last_ok` with the current timestamp so
+    the SPA can render "Updated Xm ago" on the chip.
+    On failure: increments the consecutive-failure counter; flips the
+    `paused` flag when ``round_threshold > 0`` and the count reaches
+    threshold. ``round_threshold == 0`` disables auto-pause (only
+    records the failure for diagnostic surface). Failure does NOT
+    touch last_ok_ts — the operator wants to see when the LAST good
+    probe was, not when the most recent attempt happened.
+
+    Empty / falsy `host_id` or `provider` is a no-op so callers don't
+    need defensive guards.
+    """
+    if not host_id or not provider:
+        return
+    key = f"{provider}:{host_id}"
+    if ok:
+        _clear_failure(key)
+        # Stamp the last-ok timestamp. Best-effort — a DB blip here
+        # doesn't break the probe flow.
+        try:
+            now_ts = int(time.time())
+            with db_conn() as c:
+                c.execute(
+                    "INSERT OR REPLACE INTO host_provider_last_ok "
+                    "(host_id, last_ok_ts) VALUES (?, ?)",
+                    (key, now_ts),
+                )
+        except Exception as e:
+            print(f"[host_metrics_sampler] {key} last_ok upsert failed: {e}")
+    else:
+        await _record_failure(
+            key, time.time(), error,
+            round_threshold=round_threshold,
+        )
 
 
 def _clear_failure(host_id: str) -> None:
@@ -448,12 +581,16 @@ def _clear_failure(host_id: str) -> None:
     if had_row:
         # SSE — only publish when something actually cleared. Most ticks
         # are no-ops (no failure row in the first place) so this avoids
-        # one event per host per tick on a healthy fleet.
+        # one event per host per tick on a healthy fleet. Split the
+        # prefixed key so the SPA's `refreshHostRow(id)` lookup uses
+        # the BARE host_id (otherwise `/api/hosts/one/snmp:web01` 404s).
+        bare_host, provider = _split_failure_key(host_id)
         try:
             from logic import events as _events
-            _events.publish("host:failure_state_changed", {
-                "host_id": host_id, "paused": False, "cleared": True,
-            })
+            payload = {"host_id": bare_host, "paused": False, "cleared": True}
+            if provider:
+                payload["provider"] = provider
+            _events.publish("host:failure_state_changed", payload)
         except Exception as e:
             print(f"[events] host:failure_state_changed clear publish failed: {e}")
 
@@ -614,6 +751,10 @@ async def _probe_one_snmp(host: dict, sem: asyncio.Semaphore) -> None:
                    or _get_setting("snmp_v3_priv_key", "") or "")
         snmp_timeout = float(tuning.tuning_int("tuning_snmp_probe_timeout_seconds"))
         now = time.time()
+        # Round-count auto-pause threshold (#797). 0 = disabled
+        # (operator opted out). Per-tick read so an Admin → Config save
+        # takes effect on the next tick without restart.
+        snmp_pause_rounds = tuning.tuning_int("tuning_snmp_failure_pause_rounds")
         try:
             r = await _snmp.probe_snmp(
                 snmp_target,
@@ -623,15 +764,35 @@ async def _probe_one_snmp(host: dict, sem: asyncio.Semaphore) -> None:
             )
         except Exception as e:  # noqa: BLE001
             print(f"[host_metrics_sampler] {snmp_key} probe error: {e}")
-            await _record_failure(snmp_key, now, str(e))
+            await record_provider_outcome(
+                hid, "snmp", False,
+                error=str(e), round_threshold=snmp_pause_rounds,
+            )
             return
         if r.get("error") and not r.get("hosts"):
             err = r["error"]
+            # Cool-down short-circuit isn't a real failure event —
+            # the probe was SKIPPED, not attempted. Don't count it
+            # toward the auto-pause threshold; just log + return.
+            # Real probe failures (timeout, network error, agent
+            # rejection) DO count. Structured-skip detection: prefer
+            # `r.get("skipped_cooldown")` when the probe wires it;
+            # fall back to substring for legacy.
+            if r.get("skipped_cooldown") or (isinstance(err, str) and "cool-down" in err):
+                print(f"[host_metrics_sampler] {snmp_key} cool-down skip: {err}")
+                return
             print(f"[host_metrics_sampler] {snmp_key} snmp error: {err}")
-            await _record_failure(snmp_key, now, str(err))
+            await record_provider_outcome(
+                hid, "snmp", False,
+                error=str(err), round_threshold=snmp_pause_rounds,
+            )
             return
-        # Success — clear any in-flight failure tracking.
-        _clear_failure(snmp_key)
+        # Success — route through `record_provider_outcome` so the
+        # `host_provider_last_ok` UPSERT lands (chip "Updated Xm ago"
+        # subtitle depends on it). Bare `_clear_failure(snmp_key)`
+        # would clear the failure row but skip the last_ok stamp,
+        # leaving the chip subtitle invisible forever.
+        await record_provider_outcome(hid, "snmp", True)
         # write a sample into host_snmp_samples for the
         # time-series chart cards (CPU per-core, load avg, memory
         # stacked-area). Skip-don't-synthesize: when mem_total didn't

@@ -426,6 +426,20 @@ try:
         "usmNoPrivProtocol",
     )
     _HAS_SNMP = True
+    # Surface which walk function the resolver picked + which pysnmp
+    # namespace we landed in, so operators debugging "walk hangs" /
+    # "walk truncates" can confirm the active code path without
+    # poking at the import resolver. bulkWalkCmd is the 7.x async-
+    # iterator path; bulkCmd is the legacy ≤6.x iterator-style
+    # fallback. Module-level ONE-LINE log on import.
+    try:
+        _walk_fn_for_log = bulkWalkCmd or bulkCmd
+        _walk_fn_name    = getattr(_walk_fn_for_log, "__name__", "unknown")
+        _ns_used         = locals().get("_SNMP_HLAPI_NS", "unknown")
+        print(f"[snmp] walk function resolved: {_walk_fn_name} "
+              f"(pysnmp ns={_ns_used})")
+    except Exception:
+        pass
 except Exception as _e:
     _HAS_SNMP = False
     _SNMP_IMPORT_ERROR = f"{type(_e).__name__}: {_e}"
@@ -1344,6 +1358,10 @@ async def probe_snmp(
             "hosts": {},
             "error": f"snmp: in cool-down ({int(cd)}s remaining) — "
                      f"host was unreachable on the previous probe",
+            # Structured marker — see logic/webmin.py for the rationale.
+            # Auto-pause counters check this to avoid counting a cool-
+            # down skip toward the threshold.
+            "skipped_cooldown": True,
         }
 
     auth = _build_auth_data(

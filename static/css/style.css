@@ -1218,14 +1218,14 @@ button.chip:hover {
      * explicitness. */
     align-self: center;
 }
-/* Bump every text label that follows a `.provider-icon` up 2 px so
+/* Bump every text label that follows a `.provider-icon` up 3 px so
  * its baseline visually centers with the icon midline (font ascent
  * > descent leaves the box-centered text optically below the
  * icon's midpoint). Scoped to chips that actually contain a
  * provider icon — generic chips elsewhere are untouched. */
 .provider-icon ~ span {
     position: relative;
-    top: -2px;
+    top: -3px;
 }
 
 /* ---------------------------------------------------------------------------
@@ -1439,6 +1439,16 @@ details summary::-webkit-details-marker {
     text-decoration: none;
     display: inline-block;
     vertical-align: -1px;
+}
+/* When the drawer is in bulk-stale mode (an entire provider went down,
+ * not just a transient one-key blip), suppress the per-field warning
+ * triangle so the operator gets ONE clear signal — the top-of-drawer
+ * banner — instead of every <dl> row carrying its own triangle. The
+ * .stale class still fires (dimmed text, dashed underline, tooltip on
+ * hover) so individual cached values are visually distinct; only the
+ * triangle prefix collapses. */
+.host-drawer.bulk-stale .stale:not(.stat-bar)::before {
+    content: none;
 }
 .stale:hover {
     opacity: 0.9;
