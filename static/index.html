@@ -9699,11 +9699,21 @@
                       </span>
                     </div>
                   </div>
-                  <template x-if="snmpHasEnoughHistory(h.id) && snmpPagesPerDayMax(h.id) > 0">
+                  <!-- #766 — chart body renders as soon as we have a
+                       lifetime page count to display (live OR history).
+                       Pre-fix the gate also required `snmpPagesPerDayMax
+                       > 0` which only happens after at least 2 history
+                       samples accumulate WITH non-zero deltas — the
+                       chart stayed in spinner state for hours when the
+                       printer was idle (zero pages printed between
+                       ticks → max=0 → spinner). Lifetime number is
+                       always meaningful; pages-per-day line draws once
+                       deltas accumulate but doesn't gate the card. -->
+                  <template x-if="((+h.printer_page_count || 0) > 0) || snmpLatestPageCount(h.id) > 0">
                     <div class="metric-card-body">
                       <div class="metric-y-axis">
-                        <span x-text="Math.round(snmpPagesPerDayMax(h.id)).toLocaleString()"></span>
-                        <span x-text="Math.round(snmpPagesPerDayMax(h.id) / 2).toLocaleString()"></span>
+                        <span x-text="Math.round(Math.max(1, snmpPagesPerDayMax(h.id))).toLocaleString()"></span>
+                        <span x-text="Math.round(Math.max(1, snmpPagesPerDayMax(h.id)) / 2).toLocaleString()"></span>
                         <span>0</span>
                       </div>
                       <svg class="metric-svg" viewBox="0 0 420 120" preserveAspectRatio="none" aria-hidden="true">
@@ -9717,7 +9727,7 @@
                       </div>
                     </div>
                   </template>
-                  <template x-if="!(snmpHasEnoughHistory(h.id) && snmpPagesPerDayMax(h.id) > 0)">
+                  <template x-if="!((+h.printer_page_count || 0) > 0 || snmpLatestPageCount(h.id) > 0)">
                     <div class="collecting-block">
                       <svg aria-hidden="true"><use href="#icon-refresh-ccw"/></svg>
                       <div><div x-text="t('loading.collecting_data')"></div></div>

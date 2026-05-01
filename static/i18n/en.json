@@ -1136,6 +1136,8 @@
       "focus_search": "Focus search",
       "view_stacks": "Stacks view",
       "view_services": "Services view",
+      "view_nodes": "Nodes view",
+      "view_hosts": "Hosts view",
       "view_history": "History view",
       "show_help": "Show this help",
       "close_clear": "Close / clear",
