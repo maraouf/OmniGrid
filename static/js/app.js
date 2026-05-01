@@ -12973,6 +12973,16 @@ function app() {
       }
       return false;
     },
+    // #759 — true when this host's SNMP history has accumulated enough
+    // points to draw a polyline (≥ 2 ticks). Used to gate the
+    // "Collecting data..." spinner block that every SNMP chart card
+    // shows during warm-up — operator-flagged that pre-fix every
+    // SNMP chart rendered an empty grid + axis labels with no
+    // indication that data was being collected.
+    snmpHasEnoughHistory(hostId) {
+      const series = (this.hostSnmpHistory[hostId] || {}).points || [];
+      return series.length >= 2;
+    },
     // Polyline points for one iface's bps series scaled to refMax.
     snmpIfaceLine(hostId, ifname, dir, refMax) {
       const s = this.snmpIfaceBpsSeries(hostId, ifname);
