@@ -12824,19 +12824,30 @@ function app() {
       // implementation are deliberately dropped — the colour now
       // flows from the operator-settable provider_color_* settings,
       // not from a fixed visual mapping that conflated providers.
+      //
+      // #816: every per-host enable check is paired with a fleet-level
+      // `hasHostStatsSource(<provider>)` gate. A provider that's
+      // disabled at the fleet level (operator un-ticked it in
+      // Settings → Host stats) MUST NOT render its chip even when
+      // the per-host alias / enable flag are still populated —
+      // pre-#816 a stale SNMP chip with a Paused state still appeared
+      // on hosts where SNMP was globally disabled, while the per-chip
+      // Resume was disabled (busy-flag stuck) and the rollup-Resume
+      // was enabled. Filtering at the chip-render gate makes the
+      // contradictory state impossible by construction.
       if (!h) return [];
       const out = [];
-      if (h.beszel_name)  out.push({ name: 'beszel',        label: 'Beszel' });
-      if (h.pulse_name)   out.push({ name: 'pulse',         label: 'Pulse' });
-      if (h.ne_url)       out.push({ name: 'node_exporter', label: 'node-exporter' });
-      if (h.webmin_name)  out.push({ name: 'webmin',        label: 'Webmin' });
-      if (h.ping_enabled) out.push({ name: 'ping',          label: 'Ping' });
+      if (h.beszel_name && this.hasHostStatsSource('beszel'))               out.push({ name: 'beszel',        label: 'Beszel' });
+      if (h.pulse_name && this.hasHostStatsSource('pulse'))                 out.push({ name: 'pulse',         label: 'Pulse' });
+      if (h.ne_url && this.hasHostStatsSource('node_exporter'))             out.push({ name: 'node_exporter', label: 'node-exporter' });
+      if (h.webmin_name && this.hasHostStatsSource('webmin'))               out.push({ name: 'webmin',        label: 'Webmin' });
+      if (h.ping_enabled && this.hasHostStatsSource('ping'))                out.push({ name: 'ping',          label: 'Ping' });
       // per #654's opt-in contract, render the SNMP chip ONLY
       // when both the alias is set AND the operator has explicitly
       // ticked "Enable SNMP for this host". Pre-fix the chip rendered
       // on every row whose snmp_name had ever been typed, even when
       // the operator un-ticked the enable box and saved.
-      if (h.snmp_name && h.snmp_enabled === true) {
+      if (h.snmp_name && h.snmp_enabled === true && this.hasHostStatsSource('snmp')) {
         out.push({ name: 'snmp', label: 'SNMP' });
       }
       return out;
@@ -12869,6 +12880,61 @@ function app() {
         if (row && row.paused) out.push(name);
       }
       return out;
+    },
+    // #816 — Single-source-of-truth predicates for every Resume affordance
+    // in the host drawer. Pre-#816 the per-chip Resume gated on the busy
+    // flag (`providerResumeBusy[host:provider]`), the rollup gated on
+    // pausedProvidersFor.length, and the whole-host Resume sampling
+    // gated on `h._resumeBusy`. Three independent predicates produced
+    // the operator-visible bug where the per-chip button was disabled
+    // while the rollup remained enabled, even though both targeted the
+    // same provider on the same host.
+    //
+    // Contract:
+    //   canResume(h, name)  — per-chip / per-provider Resume button.
+    //                          Allowed when admin + the chip is paused
+    //                          + neither the per-provider busy flag NOR
+    //                          the whole-host busy flag is set.
+    //   canResumeAny(h)     — "Resume all" rollup buttons (top banner +
+    //                          bottom of card). Allowed when admin + at
+    //                          least one provider is paused + NO per-
+    //                          provider busy is set across the paused
+    //                          set + whole-host isn't busy. So clicking
+    //                          one per-chip Resume disables the rollup
+    //                          for the duration, and vice versa — the
+    //                          two affordances can never disagree.
+    //   canResumeHost(h)    — whole-host Resume sampling button.
+    //                          Allowed when admin + the host is paused +
+    //                          neither host-busy NOR any per-provider
+    //                          busy on this host is set.
+    canResume(h, name) {
+      if (!h || !name || !this.isAdmin()) return false;
+      if (!this.agentPauseInfo(h, name)) return false;
+      if (this.providerResumeBusy[h.id + ':' + name]) return false;
+      if (h._resumeBusy) return false;
+      return true;
+    },
+    canResumeAny(h) {
+      if (!h || !this.isAdmin()) return false;
+      const paused = this.pausedProvidersFor(h);
+      if (!paused.length) return false;
+      if (h._resumeBusy) return false;
+      const hostId = h.id;
+      for (const name of paused) {
+        if (this.providerResumeBusy[hostId + ':' + name]) return false;
+      }
+      return true;
+    },
+    canResumeHost(h) {
+      if (!h || !this.isAdmin()) return false;
+      if (!h.sampling_paused) return false;
+      if (h._resumeBusy) return false;
+      const hostId = h.id;
+      const paused = this.pausedProvidersFor(h);
+      for (const name of paused) {
+        if (this.providerResumeBusy[hostId + ':' + name]) return false;
+      }
+      return true;
     },
     // Resume-all action for the drawer rollup. Fans out
     // `resumeProvider(h, name)` calls in parallel for every currently-
@@ -13155,6 +13221,15 @@ function app() {
           if (k.startsWith(prefix)) this.providerResumeBusy[k] = false;
         }
       } catch (_) { /* ignore */ }
+      // #816 — defensive clear of the whole-host Resume sampling busy
+      // flag. Mirror of the providerResumeBusy clear above. Without
+      // this, a previous click whose await never resolved (network
+      // freeze, page hidden during fetch, browser killed the request)
+      // left `h._resumeBusy` stuck `true` so the Resume sampling
+      // button on the whole-host pause banner rendered disabled
+      // forever. The 30s safety timer in resumeHostSampling closes
+      // the same window from the other end.
+      if (host._resumeBusy) host._resumeBusy = false;
       // Load history once per (host, range). Subsequent re-opens of
       // the same host reuse the cached series until the range picker
       // forces a refetch. Same logic the legacy inline-expansion used.
@@ -13464,7 +13539,13 @@ function app() {
     snmpIfaceUtilizationLine(hostId, ifname, h) {
       const vals = this.snmpIfaceUtilizationSeries(hostId, ifname, h);
       if (!vals.length) return '';
-      return this._snmpPathGapped(vals, 100);
+      // #815 — pull timestamps from the underlying iface series so the
+      // utilization polyline renders against the drawer-shared time
+      // domain. snmpIfaceUtilizationSeries derives from snmpIfaceBpsSeries
+      // which exposes parallel `times`, identical length to the values
+      // array.
+      const s = this.snmpIfaceBpsSeries(hostId, ifname);
+      return this._snmpPathGapped(vals, 100, { times: s.times });
     },
     // Gap-aware path string for one iface's bps series scaled to refMax.
     // Consumer renders via SVG `<path :d>` not `<polyline :points>` so
@@ -13473,7 +13554,7 @@ function app() {
       const s = this.snmpIfaceBpsSeries(hostId, ifname);
       const vals = (dir === 'in' ? s.in : s.out);
       if (!vals.length) return '';
-      return this._snmpPathGapped(vals, refMax || 1);
+      return this._snmpPathGapped(vals, refMax || 1, { times: s.times });
     },
     snmpIfaceMaxBps(hostId) {
       const ifaces = (this.hostSnmpIfaceHistory[hostId] || {}).ifaces || {};
@@ -13689,7 +13770,26 @@ function app() {
     // chart spans the full SVG viewBox. ViewBox 420×120 matches the
     // existing Beszel / NE chart cards (#717) so the SNMP charts
     // render at the same scale + gridline density as their cousins.
-    _snmpPolyPoints(values, max) {
+    // #815 — Unified drawer time-domain for every host-drawer chart.
+    // Returns the [tMinSec, tMaxSec] window the picker has selected
+    // (1h / 6h / 24h / 7d) anchored to "now" so every chart renders
+    // against the SAME visual x-axis. Pre-#815 each helper computed
+    // x by sample-INDEX (`x = i / (n-1) * w`), which made each
+    // chart's leftmost pixel mean "the oldest sample I have" — varied
+    // across providers (NE 4 samples / 38 min, Beszel 12 / 55 min,
+    // SNMP 60 / 60 min) so spikes never aligned vertically across
+    // cards. Time-based x makes leftmost = "now - rangeMs" universally
+    // and a sparse provider's polyline simply starts mid-axis where
+    // its earliest sample landed. Width / height kept at the existing
+    // `_snmpPolyPoints` constants (w=420 hh=120) so card paddings &
+    // axis labels stay calibrated.
+    _drawerTimeDomain() {
+      const rangeHours = Number(this.hostHistoryRange) || 1;
+      const tMaxSec = Math.floor(Date.now() / 1000);
+      const tMinSec = tMaxSec - (rangeHours * 3600);
+      return { tMinSec, tMaxSec, w: 420, hh: 120 };
+    },
+    _snmpPolyPoints(values, max, opts) {
       // null-aware. Skip-don't-synthesize: when a counter-rate
       // helper passes a null at a wrap / reboot / gap point, OMIT it
       // from the polyline points string instead of plotting it as 0.
@@ -13703,15 +13803,34 @@ function app() {
       // instead of bridges). This helper stays for the legacy
       // `<polyline points>` consumers (CPU per-core / load) which
       // never emit nulls.
+      //
+      // #815 unified time-domain — when `opts.times` (parallel array
+      // of epoch SECONDS) is supplied, x is computed against the
+      // drawer-shared [tMin, tMax] window so this chart's pixel
+      // coordinates match every other chart in the open drawer. When
+      // `times` is absent, falls back to the legacy index-based
+      // scaling for un-migrated callers.
       if (!values || !values.length) return '';
       const m = max !== undefined ? max : Math.max(0.0001, ...values.filter(v => v != null));
       const n = values.length;
-      const w = 420, hh = 120;
+      const times = opts && opts.times;
+      const dom = (times && times.length === n) ? this._drawerTimeDomain() : null;
+      const w = dom ? dom.w : 420;
+      const hh = dom ? dom.hh : 120;
+      const span = dom ? Math.max(1, dom.tMaxSec - dom.tMinSec) : 1;
       const out = [];
       for (let i = 0; i < n; i++) {
         const v = values[i];
         if (v == null) continue;
-        const x = (i / Math.max(1, n - 1)) * w;
+        let x;
+        if (dom) {
+          const ts = Number(times[i]) || 0;
+          if (!ts) continue;
+          x = ((ts - dom.tMinSec) / span) * w;
+          if (x < 0 || x > w) continue;
+        } else {
+          x = (i / Math.max(1, n - 1)) * w;
+        }
         const y = hh - ((+v || 0) / m) * hh;
         out.push(`${x.toFixed(1)},${y.toFixed(1)}`);
       }
@@ -13725,11 +13844,18 @@ function app() {
     // elements when the series has many gaps. Consumers swap their
     // `<polyline points="...">` for `<path d="...">` and bind the
     // result here.
-    _snmpPathGapped(values, max) {
+    //
+    // #815 unified time-domain — same `opts.times` contract as
+    // `_snmpPolyPoints`.
+    _snmpPathGapped(values, max, opts) {
       if (!values || !values.length) return '';
       const m = max !== undefined ? max : Math.max(0.0001, ...values.filter(v => v != null));
       const n = values.length;
-      const w = 420, hh = 120;
+      const times = opts && opts.times;
+      const dom = (times && times.length === n) ? this._drawerTimeDomain() : null;
+      const w = dom ? dom.w : 420;
+      const hh = dom ? dom.hh : 120;
+      const span = dom ? Math.max(1, dom.tMaxSec - dom.tMinSec) : 1;
       const out = [];
       let needMove = true;
       for (let i = 0; i < n; i++) {
@@ -13739,7 +13865,15 @@ function app() {
           needMove = true;
           continue;
         }
-        const x = (i / Math.max(1, n - 1)) * w;
+        let x;
+        if (dom) {
+          const ts = Number(times[i]) || 0;
+          if (!ts) { needMove = true; continue; }
+          x = ((ts - dom.tMinSec) / span) * w;
+          if (x < 0 || x > w) { needMove = true; continue; }
+        } else {
+          x = (i / Math.max(1, n - 1)) * w;
+        }
         const y = hh - ((+v || 0) / m) * hh;
         out.push(`${needMove ? 'M' : 'L'}${x.toFixed(1)},${y.toFixed(1)}`);
         needMove = false;
@@ -13771,15 +13905,22 @@ function app() {
     // Five evenly-spaced X-axis timestamp labels for the
     // bottom of the chart. Matches the existing `xAxisFromSeries`
     // call shape on Beszel / NE cards.
+    //
+    // #815 — Switched to drawer-unified [tMin, tMax] window so SNMP
+    // chart axis labels match Beszel / NE / Ping cards on the same
+    // pixel positions. Pre-#815 SNMP labels reflected actual sample
+    // timestamps; post-fix they reflect the picker's selected range
+    // (1h / 6h / 24h / 7d) anchored to "now".
     snmpXAxis(hostId, n) {
       const series = (this.hostSnmpHistory[hostId] || {}).points || [];
       n = n || 5;
       if (series.length < 2) return Array(n).fill('');
+      const dom = this._drawerTimeDomain();
+      const span = Math.max(1, dom.tMaxSec - dom.tMinSec);
       const out = [];
       for (let i = 0; i < n; i++) {
-        const idx = Math.round((series.length - 1) * (i / (n - 1)));
-        const ts = series[idx] && series[idx].ts;
-        out.push(ts ? this._snmpFmtAxisTime(ts) : '');
+        const ts = dom.tMinSec + Math.round((i / (n - 1)) * span);
+        out.push(this._snmpFmtAxisTime(ts));
       }
       return out;
     },
@@ -13798,16 +13939,18 @@ function app() {
       // reboot changed core count); render only the consistent prefix.
       const numCores = (series.find(p => (p.cpu_per_core || []).length) || {}).cpu_per_core?.length || 0;
       const out = [];
+      const times = series.map(p => p.ts);
       for (let i = 0; i < numCores; i++) {
         const vals = series.map(p => (p.cpu_per_core || [])[i] ?? 0);
-        out.push(this._snmpPolyPoints(vals, 100));
+        out.push(this._snmpPolyPoints(vals, 100, { times }));
       }
       return out;
     },
     snmpCpuUsedPctLine(hostId) {
       const series = (this.hostSnmpHistory[hostId] || {}).points || [];
       const vals = series.map(p => p.cpu_used_pct ?? 0);
-      return this._snmpPolyPoints(vals, 100);
+      const times = series.map(p => p.ts);
+      return this._snmpPolyPoints(vals, 100, { times });
     },
     // Operator-flagged: SNMP Load chart should render as % of cores
     // rather than raw `load_1m=0.18` numbers. Converts each load
@@ -13834,7 +13977,8 @@ function app() {
       const series = (this.hostSnmpHistory[hostId] || {}).points || [];
       const cores = this.snmpCoresFor(hostId);
       const vals = series.map(p => Math.min(100, ((p[key] ?? 0) / cores) * 100));
-      return this._snmpPolyPoints(vals, 100);
+      const times = series.map(p => p.ts);
+      return this._snmpPolyPoints(vals, 100, { times });
     },
     snmpLoadMax(hostId) {
       // Always 100 % now — chart Y-axis stays fixed so a busy machine
@@ -13860,7 +14004,8 @@ function app() {
       if (!maxTotal) return '';
       const fieldKey = 'mem_' + key;
       const vals = series.map(p => p[fieldKey] || 0);
-      return this._snmpPolyPoints(vals, maxTotal);
+      const times = series.map(p => p.ts);
+      return this._snmpPolyPoints(vals, maxTotal, { times });
     },
     // derive per-tick throughput series in bytes/sec from the
     // cumulative IF-MIB ifHCInOctets / ifHCOutOctets samples. Skip-
@@ -13897,10 +14042,12 @@ function app() {
       const vals = this.snmpThroughputBpsSeries(hostId, dir);
       if (!vals.length) return '';
       const m = this.snmpThroughputMaxBps(hostId);
+      const series = (this.hostSnmpHistory[hostId] || {}).points || [];
+      const times = series.map(p => p.ts);
       // Gap-aware path so wrap / reboot / gap nulls render as visual
       // breaks instead of straight-line bridges. Consumer must use
       // SVG <path :d> not <polyline :points>.
-      return this._snmpPathGapped(vals, m || 1);
+      return this._snmpPathGapped(vals, m || 1, { times });
     },
     snmpThroughputMaxBps(hostId) {
       const rx = this.snmpThroughputBpsSeries(hostId, 'rx');
@@ -14294,6 +14441,13 @@ function app() {
     async resumeHostSampling(h) {
       if (!h || !h.id || h._resumeBusy) return;
       h._resumeBusy = true;
+      // Safety timer — mirrors #810's per-provider safety. Even if
+      // `await fetch` hangs forever (browser network freeze, broken
+      // proxy holding the connection), the button gets re-enabled
+      // after 30s. Prevents the stuck-disabled state operators hit
+      // when the page came back from a network blip with the busy
+      // flag still set (#816).
+      const safetyTimer = setTimeout(() => { h._resumeBusy = false; }, 30000);
       try {
         const r = await fetch('/api/hosts/' + encodeURIComponent(h.id) + '/resume-sampling', {
           method: 'POST',
@@ -14306,6 +14460,16 @@ function app() {
           h.consecutive_failures = 0;
           h.last_error = '';
           this.showToast(this.t('hosts_extra.permanent_fail.resumed_toast', { host: this.hostDisplayName(h) || h.id }), 'success');
+          // #816 — whole-host pause supersedes per-provider pause. When
+          // the operator clicks Resume on the whole-host banner, also
+          // walk the paused-providers set on this host and clear each
+          // (parallel via resumeAllProviders). One click clears every
+          // pause layer for the host — pre-fix the operator had to click
+          // both Resume sampling AND Resume all to fully recover.
+          const stillPaused = this.pausedProvidersFor(h);
+          if (stillPaused.length > 0) {
+            this.resumeAllProviders(h).catch(() => {});
+          }
           // Refresh the host record to pick up backend's view + any
           // new probe results that landed during the API roundtrip.
           // ``force: true`` busts the 10s provider-state cache so the
@@ -14322,6 +14486,7 @@ function app() {
       } catch (err) {
         this.showToast(this.t('hosts_extra.permanent_fail.resume_failed_toast', { host: this.hostDisplayName(h) || h.id, error: String(err) }), 'error');
       } finally {
+        clearTimeout(safetyTimer);
         h._resumeBusy = false;
       }
     },
@@ -14557,14 +14722,26 @@ function app() {
     },
     // Pick up to 5 evenly-spaced timestamps from the series and format
     // them as HH:MM strings for the X-axis below the chart.
+    //
+    // #815 — Switched from "evenly-spaced points across the actual
+    // sample series" to "evenly-spaced ticks across the drawer's
+    // unified [tMin, tMax] window". Pre-#815 a chart with 4 sparse
+    // samples got 4 axis labels equal to those sample times; a chart
+    // with 60 dense samples got 5 labels evenly spaced through them.
+    // Two cards next to each other showed different label times for
+    // the same horizontal pixel — making "where was my spike" hard to
+    // read across providers. Post-fix every chart's axis labels are
+    // [tMin, …, tMax] so the same pixel position means the same
+    // wall-clock time across every drawer chart.
     xAxisFromSeries(systemId, slots = 5) {
       const entry = this.hostHistory[systemId];
       if (!entry || !entry.series || entry.series.length < 2) return [];
-      const s = entry.series;
+      const dom = this._drawerTimeDomain();
+      const span = Math.max(1, dom.tMaxSec - dom.tMinSec);
       const out = [];
       for (let i = 0; i < slots; i++) {
-        const idx = Math.round(i * (s.length - 1) / (slots - 1));
-        out.push(this._fmtAxisTime(s[idx]?.t));
+        const ts = dom.tMinSec + Math.round((i / (slots - 1)) * span);
+        out.push(this._fmtAxisTime(ts));
       }
       return out;
     },
@@ -14594,12 +14771,38 @@ function app() {
       // Optional forced range — e.g. CPU/Mem/Disk charts clamp to 0..100.
       if (opts.min !== undefined) lo = opts.min;
       if (opts.max !== undefined) hi = opts.max;
-      const step = (W - PAD_X * 2) / (pts.length - 1);
+      // #815 — Unified drawer time-domain. When every point has a `t`
+      // timestamp (epoch seconds — set by the loader on every Beszel/NE/
+      // Ping fetch), the leftmost pixel of every host-drawer chart now
+      // means "the start of the picker window" (now - rangeMs) and the
+      // rightmost means "now". Sparse-sample providers (e.g. NE with 4
+      // samples/hour) start mid-axis at their earliest sample instead
+      // of stretching to fill the full width — letting operators visually
+      // compare spikes across cards on the same time-grid. Falls back
+      // to the legacy index-based stepping when no timestamps are
+      // available (defence-in-depth: the loader has emitted `t` since
+      // Beszel landed; index fallback only fires if a future change to
+      // hostHistory loaders forgets to stamp it).
+      const usableW = W - PAD_X * 2;
       const usableH = H - PAD_T - PAD_B;
-      const xy = pts.map((v, i) => {
-        const n = Number(v) || 0;
+      const dom = this._drawerTimeDomain();
+      const tSpan = Math.max(1, dom.tMaxSec - dom.tMinSec);
+      const haveTimes = entry.series.every(r => Number(r && r.t) > 0);
+      const xy = entry.series.map((r, i) => {
+        const n = Number(r[key]) || 0;
+        let x;
+        if (haveTimes) {
+          const ts = Number(r.t) || 0;
+          // Out-of-range samples render at the clamped edge so the
+          // line meets the axis cleanly; the polyline doesn't extend
+          // beyond [PAD_X, W - PAD_X].
+          x = PAD_X + Math.max(0, Math.min(1, (ts - dom.tMinSec) / tSpan)) * usableW;
+        } else {
+          const step = usableW / Math.max(1, entry.series.length - 1);
+          x = PAD_X + i * step;
+        }
         return {
-          x: PAD_X + i * step,
+          x,
           y: PAD_T + usableH - ((n - lo) / (hi - lo || 1)) * usableH,
         };
       });
@@ -14774,8 +14977,17 @@ function app() {
       hi = Math.ceil(hi + 5);
       if (hi - lo < 10) hi = lo + 10;
       const sortedNames = Array.from(sensorNames).sort();
-      const step = (W - PAD_X * 2) / (entry.series.length - 1);
+      const usableW = W - PAD_X * 2;
       const usableH = H - PAD_T - PAD_B;
+      // #815 — Unified drawer time-domain. Same contract as `hostChart`:
+      // when every series row has a `t` epoch-seconds timestamp, x is
+      // computed against the picker window so this chart's pixels align
+      // with every other drawer chart. Index-based fallback for any
+      // future loader regression that forgets to stamp `t`.
+      const dom = this._drawerTimeDomain();
+      const tSpan = Math.max(1, dom.tMaxSec - dom.tMinSec);
+      const haveTimes = entry.series.every(r => Number(r && r.t) > 0);
+      const stepFallback = usableW / Math.max(1, entry.series.length - 1);
       // Five-token palette, matched to the slug list returned in
       // dByColor below. Index = sensor's position in sortedNames; %5
       // wraps when a host has more sensors than colours.
@@ -14795,7 +15007,13 @@ function app() {
             if (cur) { segs.push(cur); cur = ''; }
             continue;
           }
-          const x = PAD_X + i * step;
+          let x;
+          if (haveTimes) {
+            const ts = Number(entry.series[i].t) || 0;
+            x = PAD_X + Math.max(0, Math.min(1, (ts - dom.tMinSec) / tSpan)) * usableW;
+          } else {
+            x = PAD_X + i * stepFallback;
+          }
           const y = PAD_T + usableH - ((v - lo) / (hi - lo || 1)) * usableH;
           cur += (cur ? ' L' : 'M') + x.toFixed(1) + ',' + y.toFixed(1);
         }

@@ -1105,9 +1105,26 @@
                   </template>
                 </td>
                 <td class="hidden lg:table-cell text-[11.5px] mono text-dim" x-text="fmtAgo(uptimeFor(item))"></td>
-                <td class="hidden xl:table-cell text-[11.5px] text-[var(--text-faint)] truncate max-w-[140px]"
-                    :title="nodeSummary(item) || ''"
-                    x-text="nodeSummary(item) || '—'"></td>
+                <td class="hidden xl:table-cell col-node">
+                  <template x-if="topologyGroups(item).length">
+                    <div class="topology-map">
+                      <template x-for="group in topologyGroups(item)" :key="group.node">
+                        <span class="topology-node"
+                              :title="group.node + ' — ' + group.chips.length + ' replica' + (group.chips.length===1 ? '' : 's')">
+                          <span class="topology-host" x-text="group.node"></span>
+                          <template x-for="(c, i) in group.chips" :key="i">
+                            <span class="topology-chip"
+                                  :class="'topology-' + (c.state || 'unknown')"
+                                  :title="(c.state || 'unknown') + (c.err ? ': ' + c.err : '')"></span>
+                          </template>
+                        </span>
+                      </template>
+                    </div>
+                  </template>
+                  <template x-if="!topologyGroups(item).length">
+                    <span class="text-[11.5px] text-[var(--text-faint)]">—</span>
+                  </template>
+                </td>
                 <td class="align-right" @click.stop>
                   <div class="flex items-center justify-end gap-1.5">
                     <button x-show="isAdmin() && item.status==='update' && canUpdate(item)"
@@ -8095,7 +8112,7 @@
                          x-text="hostLastFailureAge(h)"></div>
                   </div>
                   <button @click="resumeHostSampling(h)"
-                          :disabled="h._resumeBusy"
+                          :disabled="!canResumeHost(h)"
                           class="btn btn-soft text-[11.5px] flex-shrink-0"
                           x-text="h._resumeBusy ? t('hosts_extra.permanent_fail.resume_busy') : t('hosts_extra.permanent_fail.resume_button')"></button>
                 </div>
@@ -8134,12 +8151,21 @@
                    state is more actionable: stale data is "I should
                    investigate"; paused providers is "I should click
                    Resume". Hidden when the host is disabled
-                   (sampling-suppressed banner takes precedence) AND
-                   only shows when the operator can actually act
-                   (admin). The "Resume all" button reuses
-                   `resumeAllProviders` from the bottom-of-card rollup
-                   (UX-ENH-003) so the two affordances stay in lock-step. -->
-              <template x-if="h.enabled !== false && isAdmin() && pausedProvidersFor(h).length > 0">
+                   (sampling-suppressed banner takes precedence), when
+                   whole-host sampling is paused (banner above already
+                   conveys an actionable Resume + #816 wires that
+                   Resume to also clear paused providers — surfacing
+                   both banners with two contradictory enable-states
+                   is what operators reported as confusing), AND only
+                   shows when the operator can actually act (admin).
+                   The "Resume all" button reuses `resumeAllProviders`
+                   from the bottom-of-card rollup (UX-ENH-003) so the
+                   two affordances stay in lock-step. Disabled gate
+                   shares `canResumeAny(h)` with the bottom-of-card
+                   rollup + per-chip buttons (#816) so a stuck busy
+                   flag never produces "top button enabled, per-chip
+                   button disabled". -->
+              <template x-if="h.enabled !== false && !h.sampling_paused && isAdmin() && pausedProvidersFor(h).length > 0">
                 <div class="flex items-start justify-between gap-3 rounded-md p-3 text-[12px] mb-4 bg-[color-mix(in_srgb,var(--warning)_14%,transparent)] border border-[color-mix(in_srgb,var(--warning)_60%,var(--border))]">
                   <div class="flex items-start gap-3 min-w-0">
                     <svg width="16" height="16" class="text-[var(--warning)] flex-shrink-0 mt-0.5" aria-hidden="true"><use href="#icon-pause"/></svg>
@@ -8151,8 +8177,9 @@
                     </div>
                   </div>
                   <button type="button"
-                          class="text-[11px] font-medium px-3 py-1 rounded border bg-[color-mix(in_srgb,var(--warning)_22%,transparent)] border-[color-mix(in_srgb,var(--warning)_70%,var(--border))] text-[var(--text)] hover:bg-[color-mix(in_srgb,var(--warning)_32%,transparent)] hover:border-[var(--warning)] inline-flex items-center gap-1.5 flex-shrink-0 cursor-pointer"
+                          class="text-[11px] font-medium px-3 py-1 rounded border bg-[color-mix(in_srgb,var(--warning)_22%,transparent)] border-[color-mix(in_srgb,var(--warning)_70%,var(--border))] text-[var(--text)] hover:bg-[color-mix(in_srgb,var(--warning)_32%,transparent)] hover:border-[var(--warning)] disabled:opacity-50 disabled:cursor-wait inline-flex items-center gap-1.5 flex-shrink-0 cursor-pointer"
                           @click="resumeAllProviders(h)"
+                          :disabled="!canResumeAny(h)"
                           :aria-label="t('hosts_extra.provider_resume_all_aria', { count: pausedProvidersFor(h).length })"
                           :aria-keyshortcuts="'Enter'"
                           :title="t('hosts_extra.provider_resume_all_title')">
@@ -8552,7 +8579,7 @@
                               <button type="button"
                                       class="text-[10.5px] font-medium px-2 py-0.5 rounded border bg-[color-mix(in_srgb,var(--warning)_18%,transparent)] border-[color-mix(in_srgb,var(--warning)_60%,var(--border))] text-[var(--text)] hover:bg-[color-mix(in_srgb,var(--warning)_28%,transparent)] hover:border-[var(--warning)] disabled:opacity-50 disabled:cursor-wait inline-flex items-center gap-1 cursor-pointer"
                                       @click="resumeProvider(h, agent.name)"
-                                      :disabled="providerResumeBusy[h.id + ':' + agent.name]"
+                                      :disabled="!canResume(h, agent.name)"
                                       :aria-label="t('hosts_extra.provider_resume_aria', { provider: agent.name })"
                                       :aria-keyshortcuts="'Enter'"
                                       :title="t('hosts_extra.provider_resume_title', { provider: agent.name })">
@@ -8587,8 +8614,9 @@
                     <template x-if="isAdmin() && pausedProvidersFor(h).length >= 2">
                       <div class="mt-3 pt-3 border-t border-[var(--border)] flex items-center justify-end">
                         <button type="button"
-                                class="text-[11px] px-2.5 py-1 rounded border bg-[color-mix(in_srgb,var(--warning)_10%,transparent)] border-[color-mix(in_srgb,var(--warning)_50%,var(--border))] text-[var(--text)] hover:bg-[color-mix(in_srgb,var(--warning)_18%,transparent)] hover:border-[var(--warning)] inline-flex items-center gap-1.5"
+                                class="text-[11px] px-2.5 py-1 rounded border bg-[color-mix(in_srgb,var(--warning)_10%,transparent)] border-[color-mix(in_srgb,var(--warning)_50%,var(--border))] text-[var(--text)] hover:bg-[color-mix(in_srgb,var(--warning)_18%,transparent)] hover:border-[var(--warning)] disabled:opacity-50 disabled:cursor-wait inline-flex items-center gap-1.5"
                                 @click="resumeAllProviders(h)"
+                                :disabled="!canResumeAny(h)"
                                 :aria-label="t('hosts_extra.provider_resume_all_aria', { count: pausedProvidersFor(h).length })"
                                 :aria-keyshortcuts="'Enter'"
                                 :title="t('hosts_extra.provider_resume_all_title')">
@@ -9271,15 +9299,17 @@
 
               <!-- Time-range picker — segmented buttons. Range applies
                    to ALL chart cards in the drawer (CPU / Mem / Disk /
-                   Net / Disk-IO / Load + Ping). `setHostHistoryRange`
-                   re-fires both `loadHostHistory` (Beszel/NE charts)
-                   AND `loadHostPingHistory` (#585) so picker clicks
-                   refresh every series in lock-step. Gate widened to
-                   include `h.ping_enabled` so ping-only hosts also
-                   see the picker; the freshness label that follows
-                   it now reflects whichever loader updated last. -->
+                   Net / Disk-IO / Load + Ping + SNMP). `setHostHistoryRange`
+                   re-fires `loadHostHistory` (Beszel/NE), `loadHostPingHistory`
+                   (#585), and `loadHostSnmpHistory` / `loadHostSnmpIfaceHistory`
+                   (#813) so picker clicks refresh every series in
+                   lock-step. Gate widened over time: `h.ping_enabled`
+                   for ping-only hosts, `hostHasSnmpCharts(h)` for SNMP-
+                   only hosts (managed switches / UPSes / NVRs / embedded
+                   routers — no Beszel/NE so the original gate hid the
+                   picker even though SNMP charts were rendering below). -->
               <div class="mt-4 flex items-center gap-2 flex-wrap"
-                   x-show="((h.beszel_id || h.ne_url) && h.status === 'up' && (h.providers || []).length > 0) || h.ping_enabled">
+                   x-show="((h.beszel_id || h.ne_url) && h.status === 'up' && (h.providers || []).length > 0) || h.ping_enabled || hostHasSnmpCharts(h)">
                 <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true"><use href="#icon-clock"/></svg>
                 <div class="range-seg">
                   <button type="button" :class="hostHistoryRange === 1 ? 'active' : ''"
