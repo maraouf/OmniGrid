@@ -12961,6 +12961,13 @@ function app() {
       const key = host.id + ':' + name;
       if (this.providerResumeBusy[key]) return;
       this.providerResumeBusy[key] = true;
+      // Safety timer — even if `await fetch` hangs forever (browser
+      // network freeze, broken proxy holding the connection, etc.),
+      // the button gets re-enabled after 30s. Prevents the
+      // "click-once-stuck-forever" footgun that operator hit.
+      const safetyTimer = setTimeout(() => {
+        this.providerResumeBusy[key] = false;
+      }, 30000);
       try {
         const r = await fetch(
           '/api/hosts/' + encodeURIComponent(host.id)
@@ -12995,6 +13002,7 @@ function app() {
           error: String(e),
         }), 'error');
       } finally {
+        clearTimeout(safetyTimer);
         this.providerResumeBusy[key] = false;
       }
     },
@@ -13132,6 +13140,21 @@ function app() {
     openHostDrawer(host) {
       if (!host) return;
       this.drawerHost = host;
+      // Defensive clear of any `providerResumeBusy` flags for this
+      // host — covers the edge case where a previous click on the
+      // Resume button left the flag stuck true (e.g. fetch hung,
+      // browser killed the request mid-await, page navigation
+      // interrupted the await). Without this, the per-chip Resume
+      // button stays disabled forever even though no resume is
+      // actually in flight. Also runs the same prefix-clear in
+      // _runHostDrawerOpen for tabs reopening drawers after a long
+      // idle.
+      try {
+        const prefix = host.id + ':';
+        for (const k of Object.keys(this.providerResumeBusy || {})) {
+          if (k.startsWith(prefix)) this.providerResumeBusy[k] = false;
+        }
+      } catch (_) { /* ignore */ }
       // Load history once per (host, range). Subsequent re-opens of
       // the same host reuse the cached series until the range picker
       // forces a refetch. Same logic the legacy inline-expansion used.
@@ -14453,6 +14476,7 @@ function app() {
 
     setHostHistoryRange(hours) {
       this.hostHistoryRange = hours;
+      const hrs = Math.max(1, Math.min(168, Number(hours) || 1));
       // Reload the open drawer host's history (the range
       // buttons did nothing because this only iterated `hostsExpanded`,
       // which is the legacy inline-expansion state. The actual viewer
@@ -14460,11 +14484,27 @@ function app() {
       if (this.drawerHost && (this.drawerHost.beszel_id || this.drawerHost.ne_url)) {
         this.loadHostHistory(this.drawerHost.beszel_id || '', this.drawerHost.id);
       }
-      // Ping chart shares the same range picker (#343 follow-up). When
-      // the operator switches between 1h / 6h / 24h / 7d, the ping
-      // series re-fetches alongside CPU / Mem / Disk / Net / Disk-IO.
+      // Ping chart shares the same range picker. When the operator
+      // switches between 1h / 6h / 24h / 7d, the ping series re-fetches
+      // alongside CPU / Mem / Disk / Net / Disk-IO.
       if (this.drawerHost && this.drawerHost.ping_enabled) {
         this.loadHostPingHistory(this.drawerHost.id);
+      }
+      // SNMP charts (CPU per-core, load, memory stacked-area, total
+      // throughput, per-port throughput, per-port utilization, printer
+      // pages) ALL render off `hostSnmpHistory[hostId].points` +
+      // `hostSnmpIfaceHistory[hostId].ifaces`. Pre-fix the range picker
+      // was wired ONLY to Beszel/NE/Ping — clicking 6h/24h/7d on an
+      // SNMP-only host left the SNMP chart cards stuck at the initial
+      // 1h window. Re-fetch both SNMP series here so the picker drives
+      // every chart card on the host uniformly.
+      if (this.drawerHost && this.drawerHost.snmp_enabled) {
+        if (typeof this.loadHostSnmpHistory === 'function') {
+          this.loadHostSnmpHistory(this.drawerHost.id, hrs);
+        }
+        if (typeof this.loadHostSnmpIfaceHistory === 'function') {
+          this.loadHostSnmpIfaceHistory(this.drawerHost.id, hrs);
+        }
       }
       // Also handle any legacy expanded rows (kept for back-compat —
       // the inline-expansion code path is mostly dead but not yet

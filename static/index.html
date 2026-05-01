@@ -4309,10 +4309,7 @@
                other fields above. -->
           <div class="mt-3 pt-3 border-t border-[var(--border)] space-y-3"
                x-show="tuningLoaded">
-            <template x-for="key in [
-              'tuning_node_exporter_probe_timeout_seconds',
-              'tuning_node_exporter_failure_pause_rounds',
-            ]" :key="key">
+            <template x-for="key in _perProviderTuneKeys.node_exporter" :key="key">
               <div class="space-y-1">
                 <label class="block text-[11px] font-medium"
                        x-text="t('admin.config.fields.' + key + '.label')"></label>
@@ -4324,7 +4321,7 @@
                          :placeholder="tuningPlaceholder(key)"
                          :min="(tuningEffective[key] || {}).min"
                          :max="(tuningEffective[key] || {}).max"
-                         :disabled="!isAdmin() || tuningSaving || !hasHostStatsSource('node_exporter')"
+                         :disabled="tuneKnobDisabled('node_exporter')"
                          class="w-32 mono text-[12px]">
                   <div class="bounds-chips" role="group"
                        :aria-label="t('admin.config.bounds.group_label')">
@@ -4444,10 +4441,10 @@
           </div>
           <p class="text-[10.5px] text-[var(--text-faint)]"
              x-text="t('settings.host_stats.beszel_naming_hint')"></p>
-          <!-- Beszel auto-pause threshold (#804). -->
+          <!-- Beszel auto-pause threshold. -->
           <div class="mt-3 pt-3 border-t border-[var(--border)] space-y-3"
                x-show="tuningLoaded">
-            <template x-for="key in ['tuning_beszel_failure_pause_rounds']" :key="key">
+            <template x-for="key in _perProviderTuneKeys.beszel" :key="key">
               <div class="space-y-1">
                 <label class="block text-[11px] font-medium"
                        x-text="t('admin.config.fields.' + key + '.label')"></label>
@@ -4459,7 +4456,7 @@
                          :placeholder="tuningPlaceholder(key)"
                          :min="(tuningEffective[key] || {}).min"
                          :max="(tuningEffective[key] || {}).max"
-                         :disabled="!isAdmin() || tuningSaving || !hasHostStatsSource('beszel')"
+                         :disabled="tuneKnobDisabled('beszel')"
                          class="w-32 mono text-[12px]">
                   <div class="bounds-chips" role="group"
                        :aria-label="t('admin.config.bounds.group_label')">
@@ -4567,10 +4564,10 @@
                     x-text="(pulseTestResult && pulseTestResult.pending) ? t('settings.host_stats.pulse_testing') : t('settings.host_stats.pulse_test_button')"></button>
           </div>
           <p class="text-[10.5px] text-[var(--text-faint)]" x-text="t('settings.host_stats.pulse_aliases_hint')"></p>
-          <!-- Pulse auto-pause threshold (#804). -->
+          <!-- Pulse auto-pause threshold. -->
           <div class="mt-3 pt-3 border-t border-[var(--border)] space-y-3"
                x-show="tuningLoaded">
-            <template x-for="key in ['tuning_pulse_failure_pause_rounds']" :key="key">
+            <template x-for="key in _perProviderTuneKeys.pulse" :key="key">
               <div class="space-y-1">
                 <label class="block text-[11px] font-medium"
                        x-text="t('admin.config.fields.' + key + '.label')"></label>
@@ -4582,7 +4579,7 @@
                          :placeholder="tuningPlaceholder(key)"
                          :min="(tuningEffective[key] || {}).min"
                          :max="(tuningEffective[key] || {}).max"
-                         :disabled="!isAdmin() || tuningSaving || !hasHostStatsSource('pulse')"
+                         :disabled="tuneKnobDisabled('pulse')"
                          class="w-32 mono text-[12px]">
                   <div class="bounds-chips" role="group"
                        :aria-label="t('admin.config.bounds.group_label')">
@@ -4704,12 +4701,7 @@
                full tuningForm regardless of which knob changed). -->
           <div class="mt-3 pt-3 border-t border-[var(--border)] space-y-3"
                x-show="tuningLoaded">
-            <template x-for="key in [
-              'tuning_webmin_probe_budget_seconds',
-              'tuning_webmin_host_cache_ttl_seconds',
-              'tuning_webmin_host_fail_cache_ttl_seconds',
-              'tuning_webmin_failure_pause_rounds',
-            ]" :key="key">
+            <template x-for="key in _perProviderTuneKeys.webmin" :key="key">
               <div class="space-y-1">
                 <label class="block text-[11px] font-medium"
                        x-text="t('admin.config.fields.' + key + '.label')"></label>
@@ -4721,7 +4713,7 @@
                          :placeholder="tuningPlaceholder(key)"
                          :min="(tuningEffective[key] || {}).min"
                          :max="(tuningEffective[key] || {}).max"
-                         :disabled="!isAdmin() || tuningSaving || !hasHostStatsSource('webmin')"
+                         :disabled="tuneKnobDisabled('webmin')"
                          class="w-32 mono text-[12px]">
                   <div class="bounds-chips" role="group"
                        :aria-label="t('admin.config.bounds.group_label')">
@@ -4855,13 +4847,7 @@
                operators tweaking ping have everything to hand. -->
           <div class="mt-3 pt-3 border-t border-[var(--border)] space-y-3"
                x-show="tuningLoaded">
-            <template x-for="key in [
-              'tuning_ping_interval_seconds',
-              'tuning_ping_concurrency',
-              'tuning_ping_probe_timeout_seconds',
-              'tuning_ping_cooldown_seconds',
-              'tuning_ping_failure_pause_rounds',
-            ]" :key="key">
+            <template x-for="key in _perProviderTuneKeys.ping" :key="key">
               <div class="space-y-1">
                 <label class="block text-[11px] font-medium"
                        x-text="t('admin.config.fields.' + key + '.label')"></label>
@@ -4873,7 +4859,7 @@
                          :placeholder="tuningPlaceholder(key)"
                          :min="(tuningEffective[key] || {}).min"
                          :max="(tuningEffective[key] || {}).max"
-                         :disabled="!isAdmin() || tuningSaving || !hasHostStatsSource('ping')"
+                         :disabled="tuneKnobDisabled('ping')"
                          class="w-32 mono text-[12px]">
                   <div class="bounds-chips" role="group"
                        :aria-label="t('admin.config.bounds.group_label')">
@@ -5083,15 +5069,7 @@
                state pattern as the other relocated tunables. -->
           <div class="mt-3 pt-3 border-t border-[var(--border)] space-y-3"
                x-show="tuningLoaded">
-            <template x-for="key in [
-              'tuning_snmp_probe_timeout_seconds',
-              'tuning_snmp_concurrency',
-              'tuning_snmp_sample_interval_seconds',
-              'tuning_snmp_unreachable_cooldown_seconds',
-              'tuning_snmp_host_cache_ttl_seconds',
-              'tuning_snmp_host_fail_cache_ttl_seconds',
-              'tuning_snmp_failure_pause_rounds',
-            ]" :key="key">
+            <template x-for="key in _perProviderTuneKeys.snmp" :key="key">
               <div class="space-y-1">
                 <label class="block text-[11px] font-medium"
                        x-text="t('admin.config.fields.' + key + '.label')"></label>
@@ -5103,7 +5081,7 @@
                          :placeholder="tuningPlaceholder(key)"
                          :min="(tuningEffective[key] || {}).min"
                          :max="(tuningEffective[key] || {}).max"
-                         :disabled="!isAdmin() || tuningSaving || !hasHostStatsSource('snmp')"
+                         :disabled="tuneKnobDisabled('snmp')"
                          class="w-32 mono text-[12px]">
                   <div class="bounds-chips" role="group"
                        :aria-label="t('admin.config.bounds.group_label')">
@@ -8077,18 +8055,41 @@
                    minutes since the streak started + a Resume button
                    that clears the marker via POST /api/hosts/{id}/
                    resume-sampling. -->
-              <template x-if="h.sampling_paused">
+              <!-- Disabled-host banner takes precedence over the
+                   sampling-paused banner. Operator-feedback: when a
+                   host is BOTH disabled AND auto-paused, the disabled
+                   state is the actionable signal — "Sampling paused
+                   (113h since last probe)" reads like an outage that
+                   needs investigating, but actually nothing's been
+                   probed because the operator turned the host off.
+                   Renders for any disabled host (whether paused or
+                   not) so the operator never sees a phantom-pause
+                   reading. Re-enable in Admin → Hosts to dismiss. -->
+              <template x-if="h.enabled === false">
+                <div class="flex items-start gap-3 bg-[var(--surface-3)] border border-[var(--border)] rounded-md p-3 text-[12px] mb-4">
+                  <svg width="16" height="16" class="text-[var(--text-dim)] flex-shrink-0 mt-0.5" aria-hidden="true"><use href="#icon-pause"/></svg>
+                  <div class="min-w-0 flex-1">
+                    <div class="font-semibold text-[var(--text)]"
+                         x-text="t('host_drawer.disabled_banner.title')"></div>
+                    <div class="text-[var(--text-dim)] mt-0.5"
+                         x-text="t('host_drawer.disabled_banner.body')"></div>
+                  </div>
+                </div>
+              </template>
+              <!-- Whole-host sampling-paused banner — only when the
+                   host is ENABLED (otherwise the disabled-host banner
+                   above already conveys the state more accurately). -->
+              <template x-if="h.enabled !== false && h.sampling_paused">
                 <div class="flex items-start gap-3 bg-[color-mix(in_srgb,var(--danger)_10%,transparent)] border border-[color-mix(in_srgb,var(--danger)_40%,var(--border))] rounded-md p-3 text-[12px] mb-4">
                   <svg width="16" height="16" class="text-[var(--danger)] flex-shrink-0 mt-0.5" aria-hidden="true"><use href="#icon-alert-triangle"/></svg>
                   <div class="min-w-0 flex-1">
                     <div class="text-[var(--text)]"
                          x-text="t('hosts_extra.permanent_fail.drawer_banner', { minutes: hostFailureMinutes(h), error: (h.last_error || '—') })"></div>
-                    <!-- ENH-018 — "last probe N seconds ago" sub-line so
-                         the operator can spot a host that's been
-                         paused-but-the-issue-may-have-cleared without
-                         an immediate Resume click. Hidden when the
-                         backend hasn't emitted last_failure_ts yet
-                         (pre-schema or row genuinely absent). -->
+                    <!-- "last probe N seconds ago" sub-line so the operator
+                         can spot a host that's been paused-but-the-issue-
+                         may-have-cleared without an immediate Resume click.
+                         Hidden when the backend hasn't emitted last_failure_ts
+                         yet (pre-schema or row genuinely absent). -->
                     <div x-show="hostLastFailureAge(h)"
                          class="text-[11px] text-[var(--text-faint)] mt-1"
                          x-text="hostLastFailureAge(h)"></div>
@@ -8125,6 +8126,43 @@
                    this number live?" before the operator chases a ghost
                    metric. The drawer cards themselves dim individual
                    fields via the `.stale` CSS class via :class binding. -->
+              <!-- Top-of-drawer "N providers paused" banner — Option C
+                   from the host-disable design (operator chose: don't
+                   auto-clear failure-state on host re-enable, instead
+                   surface a prominent affordance to do it manually).
+                   Renders ABOVE the stale banner because the paused
+                   state is more actionable: stale data is "I should
+                   investigate"; paused providers is "I should click
+                   Resume". Hidden when the host is disabled
+                   (sampling-suppressed banner takes precedence) AND
+                   only shows when the operator can actually act
+                   (admin). The "Resume all" button reuses
+                   `resumeAllProviders` from the bottom-of-card rollup
+                   (UX-ENH-003) so the two affordances stay in lock-step. -->
+              <template x-if="h.enabled !== false && isAdmin() && pausedProvidersFor(h).length > 0">
+                <div class="flex items-start justify-between gap-3 rounded-md p-3 text-[12px] mb-4 bg-[color-mix(in_srgb,var(--warning)_14%,transparent)] border border-[color-mix(in_srgb,var(--warning)_60%,var(--border))]">
+                  <div class="flex items-start gap-3 min-w-0">
+                    <svg width="16" height="16" class="text-[var(--warning)] flex-shrink-0 mt-0.5" aria-hidden="true"><use href="#icon-pause"/></svg>
+                    <div class="min-w-0">
+                      <div class="font-semibold text-[var(--text)]"
+                           x-text="t('host_drawer.paused_banner.title', { count: pausedProvidersFor(h).length })"></div>
+                      <div class="text-[var(--text-dim)] mt-0.5"
+                           x-text="t('host_drawer.paused_banner.body', { providers: pausedProvidersFor(h).join(', ') })"></div>
+                    </div>
+                  </div>
+                  <button type="button"
+                          class="text-[11px] font-medium px-3 py-1 rounded border bg-[color-mix(in_srgb,var(--warning)_22%,transparent)] border-[color-mix(in_srgb,var(--warning)_70%,var(--border))] text-[var(--text)] hover:bg-[color-mix(in_srgb,var(--warning)_32%,transparent)] hover:border-[var(--warning)] inline-flex items-center gap-1.5 flex-shrink-0 cursor-pointer"
+                          @click="resumeAllProviders(h)"
+                          :aria-label="t('hosts_extra.provider_resume_all_aria', { count: pausedProvidersFor(h).length })"
+                          :aria-keyshortcuts="'Enter'"
+                          :title="t('hosts_extra.provider_resume_all_title')">
+                    <svg width="11" height="11" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                      <polygon points="5 3 19 12 5 21 5 3"/>
+                    </svg>
+                    <span x-text="t('hosts_extra.provider_resume_all', { count: pausedProvidersFor(h).length })"></span>
+                  </button>
+                </div>
+              </template>
               <template x-if="isStale(h)">
                 <div class="flex items-start gap-3 rounded-md p-3 text-[12px] mb-4"
                      :class="isAllStale(h)
@@ -8512,7 +8550,7 @@
                                    chip, making the interactive boundary
                                    ambiguous. -->
                               <button type="button"
-                                      class="text-[10.5px] px-2 py-0.5 rounded border bg-[var(--surface-2)] border-[var(--border-bright)] text-[var(--text)] hover:bg-[var(--row-hover)] hover:border-[var(--primary)] disabled:opacity-50 disabled:cursor-wait inline-flex items-center gap-1"
+                                      class="text-[10.5px] font-medium px-2 py-0.5 rounded border bg-[color-mix(in_srgb,var(--warning)_18%,transparent)] border-[color-mix(in_srgb,var(--warning)_60%,var(--border))] text-[var(--text)] hover:bg-[color-mix(in_srgb,var(--warning)_28%,transparent)] hover:border-[var(--warning)] disabled:opacity-50 disabled:cursor-wait inline-flex items-center gap-1 cursor-pointer"
                                       @click="resumeProvider(h, agent.name)"
                                       :disabled="providerResumeBusy[h.id + ':' + agent.name]"
                                       :aria-label="t('hosts_extra.provider_resume_aria', { provider: agent.name })"
