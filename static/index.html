@@ -8711,17 +8711,21 @@
                          class="rounded border border-[var(--border)] bg-[var(--surface)] p-4 md:col-span-6">
                   <h4 class="text-[10.5px] uppercase tracking-wider text-[var(--text-faint)] mb-3"
                       x-text="t('host_drawer.printer.heading')"></h4>
-                  <!-- #757 — stale banner when printer state was
-                       restored from snapshot (SNMP probe failed since
-                       last refresh). Same orange warning treatment
-                       the chart cards use; tells the operator how
-                       long ago the data was real. Stale state is
-                       detected via the same `_stale_fields` markers
-                       chart cards consume. -->
-                  <div x-show="isStaleField(h, 'printer_supplies') || isStaleField(h, 'printer_page_count')"
+                  <!-- #757 — printer freshness line. Always visible
+                       when SNMP history exists; renders in `--warning`
+                       orange (matches the SNMP chart freshness banner
+                       from #744 and the snapshot-stale banner pattern).
+                       Operators wanted explicit "last refreshed Xm
+                       ago" visibility on the printer card whether or
+                       not the data was actually stale — the original
+                       gate (only when isStaleField fires) was invisible
+                       in normal operation. -->
+                  <div x-show="snmpHistoryFreshness(h) || isStaleField(h, 'printer_supplies') || isStaleField(h, 'printer_page_count')"
                        class="mb-3 text-[11px] flex items-center gap-2 text-[var(--warning)]">
                     <svg width="11" height="11" aria-hidden="true"><use href="#icon-clock"/></svg>
-                    <span x-text="t('host_drawer.printer.stale_banner', { age: staleAge(h) })"></span>
+                    <span x-text="(isStaleField(h, 'printer_supplies') || isStaleField(h, 'printer_page_count'))
+                                    ? t('host_drawer.printer.stale_banner', { age: staleAge(h) })
+                                    : (snmpHistoryFreshness(h) ? t('host_drawer.snmp_charts.freshness', { age: snmpHistoryFreshness(h).label }) : '')"></span>
                   </div>
                   <!-- Operator-flagged: surface the lifetime page count
                        prominently inside the box rather than as small
