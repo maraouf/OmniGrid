@@ -793,7 +793,6 @@
               <th class="col-mem hidden md:table-cell" x-text="t('columns.memory')"></th>
               <th class="col-disk hidden xl:table-cell" x-text="t('columns.disk')"></th>
               <th class="col-uptime hidden lg:table-cell" x-text="t('columns.uptime')"></th>
-              <th class="col-node hidden xl:table-cell" x-text="t('columns.node')"></th>
               <th class="col-action" x-text="t('columns.action')"></th>
             </tr>
           </thead>
@@ -836,7 +835,6 @@
                 <td class="hidden xl:table-cell text-[11.5px] mono text-dim col-disk"
                     x-text="stackStats(stack).hasSize ? fmtBytes(stackStats(stack).sizeRoot) : '—'"></td>
                 <td class="hidden lg:table-cell"></td>
-                <td class="hidden xl:table-cell"></td>
                 <td class="align-right" @click.stop>
                   <!-- Header "Update stack" button only renders when the
                        stack is COLLAPSED. Expanding the stack reveals
@@ -952,9 +950,6 @@
                     </template>
                   </td>
                   <td class="hidden lg:table-cell text-[11.5px] mono text-dim" x-text="fmtAgo(uptimeFor(item))"></td>
-                  <td class="hidden xl:table-cell text-[11.5px] text-[var(--text-faint)] truncate max-w-[140px]"
-                    :title="nodeSummary(item) || ''"
-                    x-text="nodeSummary(item) || '—'"></td>
                   <td class="align-right" @click.stop>
                     <div class="flex items-center justify-end gap-1.5">
                       <button x-show="isAdmin() && item.status==='update' && canUpdate(item)"
