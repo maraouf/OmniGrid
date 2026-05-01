@@ -190,6 +190,11 @@ def invalidate_cache(reason: Optional[str] = None) -> None:
 _BARE_SNAPSHOT_KEYS = frozenset({
     "mounts", "interfaces",
     "package_updates_count", "package_updates",
+    # #757 — printer state preserved across SNMP probe outages so the
+    # Printer card keeps showing the last-known supplies / page count
+    # / console message instead of disappearing when the device goes
+    # offline. Same stale-marker treatment the chart cards use.
+    "printer_supplies", "printer_page_count", "printer_console_msg",
 })
 
 
