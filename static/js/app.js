@@ -153,6 +153,35 @@ const CURATED_REFRESH_FIELDS = new Set([
   // a hard refresh. Mirrors `ssh_enabled` and `ping_enabled` further
   // up in this list.
   'snmp_name', 'snmp_enabled',
+  // APC UPS via PowerNet-MIB. Pre-fix these fell through to the
+  // generic-assign loop which only writes keys present in `host`,
+  // so a probe that didn't extract them (SNMP timeout, basic UPS
+  // model, etc.) couldn't CLEAR a stale value — but the bigger
+  // problem was the card gate `x-show="!!(h.host_ups_status)"` saw
+  // empty string and hid the entire UPS info card. Explicit overlay
+  // collapses missing keys to null so the gate behaves predictably
+  // AND a recovered probe overwrites cleanly. Operator-reported
+  // (#823): UPS card hidden on a host where the SNMP probe was
+  // working; root cause was the row being initialised pre-card-gate
+  // before the probe had finished, with no subsequent overlay
+  // because the field wasn't in this set.
+  'host_ups_status', 'host_battery_status',
+  'host_battery_percent', 'host_battery_runtime_s',
+  'host_battery_temp_c', 'host_load_percent',
+  // Hardware identity rows (model / serial / firmware / vendor) —
+  // populated by the SNMP entityPhysical walk and a few vendor-
+  // specific OIDs. Same reason as the UPS fields: explicit overlay
+  // so they collapse to null when a probe goes missing instead of
+  // sticking a stale value indefinitely.
+  'host_model', 'host_serial', 'host_firmware', 'host_vendor',
+  // Printer-MIB rollups (#824). Supplies array + lifetime page
+  // counter + console message — same overlay-explicit contract so
+  // the printer card's row gates evaluate cleanly. Stale snapshot
+  // fallback paints these dim with the .stale class via the
+  // `isStaleField(h, '<key>')` gate; without these in the refresh
+  // overlay the card body row gates couldn't tell "stale snapshot"
+  // from "never had data".
+  'printer_supplies', 'printer_page_count', 'printer_console_msg',
 ]);
 
 function app() {
