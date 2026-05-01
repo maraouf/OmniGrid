@@ -700,6 +700,43 @@ async def _probe_one_snmp(host: dict, sem: asyncio.Semaphore) -> None:
                                 page_count,
                             ),
                         )
+                        # #725 — per-interface counter snapshot for the
+                        # switch / router per-port throughput chart.
+                        # Skip pseudo NICs (loopback / docker / veth)
+                        # via the same prefix list the totals use; one
+                        # row per active iface per tick. Counters are
+                        # cumulative — chart layer computes deltas.
+                        loopback_prefixes = (
+                            "lo", "docker", "veth", "br-", "cni",
+                            "flannel", "cali", "vmnet", "tap", "tun",
+                            "ovs",
+                        )
+                        ifaces = stats.get("network_ifaces") or []
+                        if ifaces:
+                            iface_rows = []
+                            for iface in ifaces:
+                                name = (iface.get("name") or "").strip()
+                                if not name:
+                                    continue
+                                nlc = name.lower()
+                                if any(nlc.startswith(p) for p in loopback_prefixes):
+                                    continue
+                                rx = iface.get("rx_bytes")
+                                tx = iface.get("tx_bytes")
+                                if rx is None and tx is None:
+                                    continue
+                                iface_rows.append((
+                                    int(now), hid, name,
+                                    int(rx) if rx is not None else None,
+                                    int(tx) if tx is not None else None,
+                                ))
+                            if iface_rows:
+                                c.executemany(
+                                    "INSERT OR REPLACE INTO host_snmp_iface_samples "
+                                    "(ts, host_id, ifname, in_bytes, out_bytes) "
+                                    "VALUES (?, ?, ?, ?, ?)",
+                                    iface_rows,
+                                )
         except Exception as e:  # noqa: BLE001
             print(f"[host_metrics_sampler] {snmp_key} snmp_sample insert failed: {e}")
 
@@ -717,6 +754,10 @@ def _prune_old_samples() -> int:
             # retention budget gets eaten faster otherwise.
             cur2 = c.execute("DELETE FROM host_snmp_samples WHERE ts < ?", (cutoff,))
             removed += cur2.rowcount or 0
+            # #725 — per-iface SNMP rows are denser still (one row per
+            # active interface per tick); same retention window.
+            cur3 = c.execute("DELETE FROM host_snmp_iface_samples WHERE ts < ?", (cutoff,))
+            removed += cur3.rowcount or 0
             return removed
     except Exception as e:
         print(f"[host_metrics_sampler] prune failed: {e}")

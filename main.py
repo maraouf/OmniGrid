@@ -542,6 +542,23 @@ def init_db():
         CREATE INDEX IF NOT EXISTS idx_host_snmp_samples_host_ts
             ON host_snmp_samples(host_id, ts DESC);
 
+        -- #725 — per-interface SNMP counter samples for switch / router
+        -- per-port throughput charts. One row per (ts, host_id, ifname);
+        -- counters are cumulative IF-MIB ifHCInOctets / ifHCOutOctets
+        -- (with 32-bit fallback inside the extractor). Chart layer
+        -- computes per-pair deltas → bps and applies skip-don't-
+        -- synthesize on out-of-bounds (counter wrap, reboot, gap).
+        CREATE TABLE IF NOT EXISTS host_snmp_iface_samples (
+            ts        INTEGER NOT NULL,
+            host_id   TEXT    NOT NULL,
+            ifname    TEXT    NOT NULL,
+            in_bytes  INTEGER,
+            out_bytes INTEGER,
+            PRIMARY KEY (ts, host_id, ifname)
+        );
+        CREATE INDEX IF NOT EXISTS idx_host_snmp_iface_samples_host_ts
+            ON host_snmp_iface_samples(host_id, ts DESC);
+
         -- Last-known per-host nodes_info blob (Beszel / Pulse /
         -- node-exporter / Webmin merged). Written at the end of every
         -- successful gather, read at startup AND on every gather to
@@ -6757,6 +6774,49 @@ async def api_hosts_snmp_history(
             "printer_page_count": (int(r[14]) if r[14] is not None else None),
         })
     return {"points": points, "error": None}
+
+
+@app.get("/api/hosts/{host_id}/snmp/iface_history")
+async def api_hosts_snmp_iface_history(
+    host_id: str, hours: int = 1,
+    _admin: auth.User = Depends(auth.require_admin),
+):
+    """Per-interface SNMP counter history for one host (#725).
+
+    Returns ``{ifaces: {ifname: [points...]}, error: null}`` with one
+    series per interface. Each point carries ``ts`` + ``in_bytes`` +
+    ``out_bytes`` (cumulative IF-MIB counters; the chart layer
+    computes per-pair deltas → bps with skip-don't-synthesize on
+    out-of-bounds). Empty dict when this host has never been
+    SNMP-probed for interfaces. Window clamped to 1..168 hours.
+    """
+    h = max(1, min(168, int(hours or 1)))
+    hid = (host_id or "").strip()
+    if not hid:
+        return {"ifaces": {}, "error": "host_id required"}
+    since = int(time.time() - h * 3600)
+    try:
+        with db_conn() as c:
+            rows = c.execute(
+                "SELECT ts, ifname, in_bytes, out_bytes "
+                "FROM host_snmp_iface_samples "
+                "WHERE host_id=? AND ts >= ? "
+                "ORDER BY ifname ASC, ts ASC",
+                (hid, since),
+            ).fetchall()
+    except Exception as e:
+        return {"ifaces": {}, "error": f"snmp_iface_history: {e}"}
+    ifaces: dict = {}
+    for r in rows:
+        ifname = r[1]
+        if ifname not in ifaces:
+            ifaces[ifname] = []
+        ifaces[ifname].append({
+            "ts": int(r[0]),
+            "in_bytes":  (int(r[2]) if r[2] is not None else None),
+            "out_bytes": (int(r[3]) if r[3] is not None else None),
+        })
+    return {"ifaces": ifaces, "error": None}
 
 
 class PingTestIn(BaseModel):
