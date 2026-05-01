@@ -195,6 +195,13 @@ TUNABLES: dict[str, tuple[str, int, int, int]] = {
     # for SNMP keep their behaviour until they explicitly tune this
     # one. Range 30..3600.
     "tuning_snmp_unreachable_cooldown_seconds": ("SNMP_UNREACHABLE_COOLDOWN_SECONDS", 300, 30, 3600),
+    # #768 — SNMP-specific sample interval (seconds). 0 = use the global
+    # `tuning_stats_sample_interval_seconds` (legacy behaviour); any
+    # non-zero value within the range overrides the global for SNMP
+    # probes only. Operator-flagged that SNMP devices often need a
+    # different cadence than Beszel/NE hosts — printers can poll
+    # hourly, switches every minute. Range 0 (use global) OR 30..3600.
+    "tuning_snmp_sample_interval_seconds": ("SNMP_SAMPLE_INTERVAL_SECONDS", 0, 0, 3600),
     # #695 — stat-bar threshold cutovers. Pre-fix the SPA's `barLevel`
     # / `barColor` helpers hardcoded 60 (warn) and 85 (crit). Operators
     # running CPU-saturated workloads where 80% steady is normal want

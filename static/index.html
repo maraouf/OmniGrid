@@ -9602,12 +9602,15 @@
                   </template>
                 </div>
 
-                <!-- #725 slice 4 — per-port utilization heatmap. One
-                     cell per interface, color-graded against link
-                     capacity (max(in, out) bps × 8 ÷ link_bps × 100):
-                     grey = unknown speed / idle, green < 50 < amber
-                     < 85 < red. Hidden when no iface has both
-                     throughput AND ifHighSpeed. -->
+                <!-- #769 — per-port utilization LINE chart (replaces
+                     the chip-strip heatmap operator-flagged as
+                     unreadable). Top 5 interfaces by current rate
+                     (same ranking as the throughput chart) plotted
+                     as utilization % of link capacity. Y-axis 0-100%.
+                     Spinner shows during warm-up. Same 10-fixed-
+                     polyline-by-index pattern as per-port throughput
+                     since `<template x-for>` doesn't work inside
+                     `<svg>`. -->
                 <div class="metric-card md:col-span-2 lg:col-span-3"
                      x-show="snmpHasIfaceHistory(h.id) || (h.network_ifaces && h.network_ifaces.length > 0)">
                   <div class="metric-card-head">
@@ -9624,43 +9627,41 @@
                               x-text="metricSource(h, 'snmp_throughput')"></span>
                       </span>
                     </div>
-                    <div class="metric-card-stats" style="gap:10px">
-                      <span class="text-[10.5px] flex items-center gap-1">
-                        <span class="inline-block w-2.5 h-2.5 rounded-sm" style="background: var(--success)"></span>
-                        <span x-text="t('host_drawer.snmp_charts.heatmap_legend_low')"></span>
-                      </span>
-                      <span class="text-[10.5px] flex items-center gap-1">
-                        <span class="inline-block w-2.5 h-2.5 rounded-sm" style="background: var(--warning)"></span>
-                        <span x-text="t('host_drawer.snmp_charts.heatmap_legend_med')"></span>
-                      </span>
-                      <span class="text-[10.5px] flex items-center gap-1">
-                        <span class="inline-block w-2.5 h-2.5 rounded-sm" style="background: var(--danger)"></span>
-                        <span x-text="t('host_drawer.snmp_charts.heatmap_legend_high')"></span>
-                      </span>
-                      <span class="text-[10.5px] flex items-center gap-1">
-                        <span class="inline-block w-2.5 h-2.5 rounded-sm" style="background: var(--surface-3); border: 1px solid var(--border)"></span>
-                        <span x-text="t('host_drawer.snmp_charts.heatmap_legend_idle')"></span>
-                      </span>
-                    </div>
-                  </div>
-                  <template x-if="snmpAllIfacesSorted(h.id, h).length > 0">
-                    <div class="mt-2 flex flex-wrap gap-1.5">
-                      <template x-for="ifname in snmpAllIfacesSorted(h.id, h)" :key="'hm-' + ifname">
-                        <span class="inline-flex items-center gap-1.5 px-2 py-1 rounded text-[10.5px] mono"
-                              :style="'background:' + snmpIfaceHeatmapColor(snmpIfaceUtilizationPct(h.id, ifname, h)) + '; color:var(--text-on-accent)'"
-                              :title="ifname + ': ' + (snmpIfaceUtilizationPct(h.id, ifname, h) != null
-                                                        ? Math.round(snmpIfaceUtilizationPct(h.id, ifname, h)) + '% of '
-                                                          + snmpIfaceLinkSpeedMbps(h.id, ifname, h) + ' Mbps'
-                                                        : 'link speed unknown')">
-                          <span x-text="ifname"></span>
-                          <span x-show="snmpIfaceUtilizationPct(h.id, ifname, h) != null"
-                                class="opacity-90"
-                                x-text="Math.round(snmpIfaceUtilizationPct(h.id, ifname, h) || 0) + '%'"></span>
+                    <div class="metric-card-stats" style="gap:8px; flex-wrap:wrap">
+                      <template x-for="(iface, idx) in snmpTopIfacesByThroughput(h.id, 5)" :key="'util-leg-' + iface.name">
+                        <span class="text-[11px]">
+                          <span class="metric-legend-dot"
+                                :style="'background:' + ['var(--success)','var(--info)','var(--warning)','var(--danger)','var(--primary)'][idx % 5]"></span>
+                          <span class="font-semibold" x-text="iface.name"></span>
+                          <span class="text-[var(--text-faint)]"
+                                x-text="snmpIfaceUtilizationPct(h.id, iface.name, h) != null
+                                          ? ' ' + Math.round(snmpIfaceUtilizationPct(h.id, iface.name, h)) + '%'
+                                          : ''"></span>
                         </span>
                       </template>
                     </div>
+                  </div>
+                  <template x-if="snmpHasIfaceUtilization(h.id, h)">
+                    <div class="metric-card-body">
+                      <div class="metric-y-axis">
+                        <template x-for="(l, i) in yAxisPercent()" :key="'util-y-' + i"><span x-text="l"></span></template>
+                      </div>
+                      <svg class="metric-svg" viewBox="0 0 420 120" preserveAspectRatio="none" aria-hidden="true">
+                        <line class="metric-grid" x1="0" y1="30" x2="420" y2="30"/>
+                        <line class="metric-grid" x1="0" y1="60" x2="420" y2="60"/>
+                        <line class="metric-grid" x1="0" y1="90" x2="420" y2="90"/>
+                        <polyline fill="none" stroke-width="1.5" stroke="var(--success)" :points="(snmpTopIfacesByThroughput(h.id, 5)[0] ? snmpIfaceUtilizationLine(h.id, snmpTopIfacesByThroughput(h.id, 5)[0].name, h) : '')"></polyline>
+                        <polyline fill="none" stroke-width="1.5" stroke="var(--info)"    :points="(snmpTopIfacesByThroughput(h.id, 5)[1] ? snmpIfaceUtilizationLine(h.id, snmpTopIfacesByThroughput(h.id, 5)[1].name, h) : '')"></polyline>
+                        <polyline fill="none" stroke-width="1.5" stroke="var(--warning)" :points="(snmpTopIfacesByThroughput(h.id, 5)[2] ? snmpIfaceUtilizationLine(h.id, snmpTopIfacesByThroughput(h.id, 5)[2].name, h) : '')"></polyline>
+                        <polyline fill="none" stroke-width="1.5" stroke="var(--danger)"  :points="(snmpTopIfacesByThroughput(h.id, 5)[3] ? snmpIfaceUtilizationLine(h.id, snmpTopIfacesByThroughput(h.id, 5)[3].name, h) : '')"></polyline>
+                        <polyline fill="none" stroke-width="1.5" stroke="var(--primary)" :points="(snmpTopIfacesByThroughput(h.id, 5)[4] ? snmpIfaceUtilizationLine(h.id, snmpTopIfacesByThroughput(h.id, 5)[4].name, h) : '')"></polyline>
+                      </svg>
+                      <div class="metric-x-axis">
+                        <template x-for="(l, i) in snmpXAxis(h.id, 5)" :key="'util-x-' + i"><span x-text="l"></span></template>
+                      </div>
+                    </div>
                   </template>
-                  <template x-if="snmpAllIfacesSorted(h.id, h).length === 0">
+                  <template x-if="!snmpHasIfaceUtilization(h.id, h)">
                     <div class="collecting-block">
                       <svg aria-hidden="true"><use href="#icon-refresh-ccw"/></svg>
                       <div><div x-text="t('loading.collecting_data')"></div></div>
@@ -9668,76 +9669,12 @@
                   </template>
                 </div>
 
-                <!-- #146 — printer pages-printed chart. Sparkline of
-                     pages-per-day computed from adjacent samples of
-                     printer_page_count (Printer-MIB prtMarkerLifeCount,
-                     monotonic). Lifetime headline reads the live
-                     value. Hidden when neither live nor history has a
-                     page count (non-printer SNMP hosts). -->
-                <div class="metric-card"
-                     x-show="snmpHasPageCount(h.id, h)">
-                  <div class="metric-card-head">
-                    <div class="metric-card-title">
-                      <span x-text="t('host_drawer.snmp_charts.pages_title')"></span><span class="unit">pages/day</span>
-                      <span class="metric-source-help" :title="metricSource(h, 'snmp_throughput')"
-                            @click.stop="toggleMetricTooltip(h, 'snmp_pages')"
-                            @keydown.escape.window="metricTooltipOpen = null">
-                        <svg width="12" height="12" aria-hidden="true"><use href="#icon-help-circle"/></svg>
-                        <span class="metric-source-tooltip"
-                              x-show="metricTooltipOpen === metricTooltipKey(h, 'snmp_pages')"
-                              x-cloak @click.stop
-                              x-transition.opacity.duration.120ms
-                              x-text="metricSource(h, 'snmp_throughput')"></span>
-                      </span>
-                    </div>
-                    <div class="metric-card-stats" style="gap:8px">
-                      <span x-show="h.printer_page_count">
-                        <span class="metric-legend-dot" style="background: var(--text-faint)"></span>
-                        <span x-text="t('host_drawer.snmp_charts.legend_lifetime')"></span>
-                        <span class="legend-val" x-text="(+h.printer_page_count || 0).toLocaleString()"></span>
-                      </span>
-                      <span x-show="snmpPagesPerDayLast(h.id) > 0">
-                        <span class="metric-legend-dot" style="background: var(--info)"></span>
-                        <span x-text="t('host_drawer.snmp_charts.legend_pages_per_day')"></span>
-                        <span class="legend-val" x-text="Math.round(snmpPagesPerDayLast(h.id)).toLocaleString()"></span>
-                      </span>
-                    </div>
-                  </div>
-                  <!-- #766 — chart body renders as soon as we have a
-                       lifetime page count to display (live OR history).
-                       Pre-fix the gate also required `snmpPagesPerDayMax
-                       > 0` which only happens after at least 2 history
-                       samples accumulate WITH non-zero deltas — the
-                       chart stayed in spinner state for hours when the
-                       printer was idle (zero pages printed between
-                       ticks → max=0 → spinner). Lifetime number is
-                       always meaningful; pages-per-day line draws once
-                       deltas accumulate but doesn't gate the card. -->
-                  <template x-if="((+h.printer_page_count || 0) > 0) || snmpLatestPageCount(h.id) > 0">
-                    <div class="metric-card-body">
-                      <div class="metric-y-axis">
-                        <span x-text="Math.round(Math.max(1, snmpPagesPerDayMax(h.id))).toLocaleString()"></span>
-                        <span x-text="Math.round(Math.max(1, snmpPagesPerDayMax(h.id)) / 2).toLocaleString()"></span>
-                        <span>0</span>
-                      </div>
-                      <svg class="metric-svg" viewBox="0 0 420 120" preserveAspectRatio="none" aria-hidden="true">
-                        <line class="metric-grid" x1="0" y1="30" x2="420" y2="30"/>
-                        <line class="metric-grid" x1="0" y1="60" x2="420" y2="60"/>
-                        <line class="metric-grid" x1="0" y1="90" x2="420" y2="90"/>
-                        <polyline fill="none" stroke="var(--info)" stroke-width="1.5" :points="snmpPagesPerDayLine(h.id)"></polyline>
-                      </svg>
-                      <div class="metric-x-axis">
-                        <template x-for="(l, i) in snmpXAxis(h.id, 5)" :key="'pg-x-' + i"><span x-text="l"></span></template>
-                      </div>
-                    </div>
-                  </template>
-                  <template x-if="!((+h.printer_page_count || 0) > 0 || snmpLatestPageCount(h.id) > 0)">
-                    <div class="collecting-block">
-                      <svg aria-hidden="true"><use href="#icon-refresh-ccw"/></svg>
-                      <div><div x-text="t('loading.collecting_data')"></div></div>
-                    </div>
-                  </template>
-                </div>
+                <!-- #768 — Pages printed chart REMOVED per operator
+                     request. The Printer card already surfaces the
+                     lifetime page count as an 18 px headline (#743);
+                     the pages-per-day rate sparkline added marginal
+                     value for the cost of a permanently-spinner card
+                     on idle printers. -->
               </div>
 
               <div class="mt-3 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4"

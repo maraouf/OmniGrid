@@ -12999,6 +12999,31 @@ function app() {
       }
       return false;
     },
+    // #769 — per-iface utilization series (% of link capacity) over
+    // time. Walks `snmpIfaceBpsSeries` and divides each point by the
+    // iface's link capacity (Mbps × 1e6 / 8 = bytes/sec). Returns []
+    // when link speed unknown — caller guards on length before
+    // rendering. Used by the per-port utilization LINE chart that
+    // replaced the chip-strip heatmap (operator-flagged that the
+    // chip layout was misread as a broken chart).
+    snmpIfaceUtilizationSeries(hostId, ifname, h) {
+      const link = this.snmpIfaceLinkSpeedMbps(hostId, ifname, h);
+      if (!link) return [];
+      const linkBps = link * 1_000_000 / 8;
+      if (linkBps <= 0) return [];
+      const s = this.snmpIfaceBpsSeries(hostId, ifname);
+      const out = new Array(s.in.length).fill(0);
+      for (let i = 0; i < s.in.length; i++) {
+        const peak = Math.max(s.in[i] || 0, s.out[i] || 0);
+        out[i] = Math.min(100, (peak / linkBps) * 100);
+      }
+      return out;
+    },
+    snmpIfaceUtilizationLine(hostId, ifname, h) {
+      const vals = this.snmpIfaceUtilizationSeries(hostId, ifname, h);
+      if (!vals.length) return '';
+      return this._snmpPolyPoints(vals, 100);
+    },
     // Polyline points for one iface's bps series scaled to refMax.
     snmpIfaceLine(hostId, ifname, dir, refMax) {
       const s = this.snmpIfaceBpsSeries(hostId, ifname);
