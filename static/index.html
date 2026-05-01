@@ -8194,7 +8194,8 @@
                 <div class="flex items-start gap-3 rounded-md p-3 text-[12px] mb-4"
                      :class="isAllStale(h)
                        ? 'bg-[color-mix(in_srgb,var(--warning)_14%,transparent)] border border-[color-mix(in_srgb,var(--warning)_60%,var(--border))]'
-                       : 'bg-[color-mix(in_srgb,var(--warning)_8%,transparent)] border border-[color-mix(in_srgb,var(--warning)_40%,var(--border))]'">
+                       : 'bg-[color-mix(in_srgb,var(--warning)_8%,transparent)] border border-[color-mix(in_srgb,var(--warning)_40%,var(--border))]'"
+                     :title="(h._stale_fields || []).join(', ')">
                   <svg width="16" height="16" class="text-[var(--warning)] flex-shrink-0 mt-0.5" aria-hidden="true"><use href="#icon-clock"/></svg>
                   <div class="min-w-0">
                     <div class="font-semibold text-[var(--text)]"
@@ -8203,6 +8204,21 @@
                          x-text="isAllStale(h)
                            ? t('host_drawer.stale.body_bulk', { age: staleAge(h) })
                            : t('host_drawer.stale.body', { age: staleAge(h), count: (h._stale_fields || []).length })"></div>
+                    <!-- Surface the actual stale field names (#825).
+                         Operator-reported phantom banner: "1 field(s)
+                         restored" while every chip showed Updated 2m
+                         ago. The 1 field was off-screen in some card
+                         the operator wasn't looking at, so the banner
+                         seemed wrong. Listing the field names here AND
+                         in the title attribute means operators can
+                         always see which field is the snapshot
+                         contributor — matches the rest of the drawer's
+                         transparency contract (debug data button,
+                         provider chip subtitles, etc.). Fields are
+                         shown mono since they're code identifiers. -->
+                    <div x-show="(h._stale_fields || []).length > 0"
+                         class="text-[10.5px] text-[var(--text-faint)] mono mt-1 break-all"
+                         x-text="(h._stale_fields || []).join(', ')"></div>
                   </div>
                 </div>
               </template>
@@ -8857,13 +8873,25 @@
                      red above 40°C (APC's "warm" threshold for SLA cells),
                      battery percent shows red below 20% and amber below
                      50%, runtime uses fmtUpsRuntime for the human format. -->
-                <!-- Card gate is `host_ups_status` truthy STRING, NOT
-                     "battery_percent !== undefined". Post-#687 the
-                     API row whitelist always emits the field as
-                     `null` for non-UPS hosts, and `null !== undefined`
-                     is True — which made the card render on every
-                     non-UPS host until tightened. -->
-                <section x-show="!!(h.host_ups_status)"
+                <!-- Card gate fires on ANY UPS field truthy — pre-fix
+                     the gate required `host_ups_status` to be a non-
+                     empty string, but a UPS whose SNMP probe extracted
+                     battery_percent + battery_temp_c but not the output-
+                     status OID (some basic Smart-UPS models) had the
+                     entire card hidden despite having usable data. The
+                     section also surfaces when the values are stale
+                     (snapshot fallback), so a probe outage doesn't
+                     blank the card. Live OR stale on any single field
+                     is enough. (#823) -->
+                <section x-show="!!(h.host_ups_status)
+                                 || typeof h.host_battery_percent === 'number'
+                                 || typeof h.host_battery_temp_c === 'number'
+                                 || typeof h.host_load_percent === 'number'
+                                 || h.host_battery_runtime_s
+                                 || h.host_battery_status
+                                 || isStaleField(h, 'host_ups_status')
+                                 || isStaleField(h, 'host_battery_percent')
+                                 || isStaleField(h, 'host_load_percent')"
                          class="rounded border border-[var(--border)] bg-[var(--surface)] p-4 md:col-span-6">
                   <h4 class="text-[10.5px] uppercase tracking-wider text-[var(--text-faint)] mb-3 flex items-center gap-2">
                     <span x-text="t('host_drawer.ups.heading')"></span>
@@ -8941,12 +8969,17 @@
                 </section>
 
                 <!-- PRINTER — Printer-MIB toner / supply levels (#702).
-                     Rendered ONLY when the host probed via SNMP returned
-                     `printer_supplies` rows. Each supply renders as a
+                     Section gate fires on EITHER live data OR cached
+                     snapshot data so the card stays visible while the
+                     SNMP provider is unreachable (#824, mirrors #819's
+                     UPS-card stale handling). Each supply renders as a
                      horizontal bar showing fill level (current/max);
                      the colour comes from the supply description (cyan /
                      magenta / yellow / black / waste). -->
-                <section x-show="(h.printer_supplies || []).length > 0"
+                <section x-show="(h.printer_supplies || []).length > 0
+                                 || isStaleField(h, 'printer_supplies')
+                                 || isStaleField(h, 'printer_page_count')
+                                 || h.printer_page_count"
                          class="rounded border border-[var(--border)] bg-[var(--surface)] p-4 md:col-span-6">
                   <h4 class="text-[10.5px] uppercase tracking-wider text-[var(--text-faint)] mb-3"
                       x-text="t('host_drawer.printer.heading')"></h4>
@@ -8969,14 +9002,18 @@
                   <!-- Operator-flagged: surface the lifetime page count
                        prominently inside the box rather than as small
                        greyed sub-text in the heading. -->
-                  <div x-show="h.printer_page_count" class="mb-3 flex items-baseline gap-2"
-                       :class="isStaleField(h, 'printer_page_count') ? 'stale' : ''">
+                  <div x-show="h.printer_page_count || isStaleField(h, 'printer_page_count')"
+                       class="mb-3 flex items-baseline gap-2"
+                       :class="isStaleField(h, 'printer_page_count') ? 'stale' : ''"
+                       :title="isStaleField(h, 'printer_page_count') ? staleAge(h) : ''">
                     <span class="text-[18px] font-semibold mono"
                           x-text="(+h.printer_page_count || 0).toLocaleString()"></span>
                     <span class="text-[11.5px] text-[var(--text-dim)]"
                           x-text="t('host_drawer.printer.pages_label')"></span>
                   </div>
-                  <div class="space-y-2.5">
+                  <div class="space-y-2.5"
+                       :class="isStaleField(h, 'printer_supplies') ? 'stale' : ''"
+                       :title="isStaleField(h, 'printer_supplies') ? staleAge(h) : ''">
                     <template x-for="(supply, i) in (h.printer_supplies || [])" :key="'p' + i">
                       <div class="space-y-1">
                         <div class="flex items-center justify-between text-[12px]">
@@ -9002,8 +9039,10 @@
                         </div>
                       </div>
                     </template>
-                    <div x-show="h.printer_console_msg"
+                    <div x-show="h.printer_console_msg || isStaleField(h, 'printer_console_msg')"
                          class="pt-2 mt-2 border-t border-dashed border-[var(--border)] text-[11.5px] text-[var(--text-dim)] mono"
+                         :class="isStaleField(h, 'printer_console_msg') ? 'stale' : ''"
+                         :title="isStaleField(h, 'printer_console_msg') ? staleAge(h) : ''"
                          x-text="h.printer_console_msg"></div>
                   </div>
                 </section>

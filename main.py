@@ -5051,16 +5051,62 @@ async def api_hosts_list(force: bool = False):
     by the SPA right after a successful host-stats settings save so
     the operator sees the new provider state without waiting up to
     10s for the next natural cache miss (#367 / UX-001).
+
+    Snapshot-first render: each row is pre-populated with the
+    last-known `host_*` fields from the persisted `host_snapshots`
+    table, with `_stale_fields` / `_stale_ts` markers stamped so the
+    SPA renders dimmed values + "X minutes ago" tooltips immediately
+    on page load. The per-host fan-out via `/api/hosts/one/{id}`
+    upgrades each row from stale to fresh as it lands. Operators
+    perceive the page as instant on every repeat visit instead of
+    waiting through the cold-cache cliff. First-time visit (empty
+    snapshot table) falls through to the legacy skeleton behaviour.
     """
+    from logic.gather import (
+        load_host_snapshots as _load_snaps,
+        apply_host_snapshot_fallback as _fallback,
+    )
     curated = _load_hosts_config()
     state = await _get_host_provider_state(force=force)
     any_enabled = bool(state["active"])
 
-    hosts = [
-        _shape_host_api_row(h, {}, [], any_provider_enabled=any_enabled)
-        for h in curated
-        if h.get("enabled", True)
-    ]
+    # Load every snapshot once per request — cheap (single SQLite read,
+    # ~ms) and amortised across the N curated rows. Build a dict keyed
+    # by host id so `apply_host_snapshot_fallback`'s short-hostname
+    # tolerance kicks in if the snapshot was keyed by `dockerpve` while
+    # the curated id is `dockerpve.example.com` (or vice versa).
+    snapshots = {}
+    try:
+        snapshots = _load_snaps() or {}
+    except Exception:
+        snapshots = {}
+
+    hosts = []
+    for h in curated:
+        if not h.get("enabled", True):
+            continue
+        # Empty per-host merged dict; the fallback fills `host_*` /
+        # `mounts` / `interfaces` from the snapshot when present and
+        # stamps `_stale_fields` so the SPA renders dimmed values.
+        # When the snapshot for this host doesn't exist (first boot,
+        # operator added the row but it hasn't been gathered yet),
+        # the fallback is a no-op and the row reverts to the legacy
+        # skeleton shape.
+        merged: dict = {}
+        if snapshots:
+            container = {h["id"]: merged}
+            try:
+                _fallback(container, snapshots)
+            except Exception:
+                pass
+            merged = container[h["id"]]
+        # Providers list is empty for snapshot-only rows — the SPA's
+        # stale-rendering pipeline cues off `_stale_fields` not the
+        # providers list. The next `/api/hosts/one/{id}` refresh
+        # populates `providers` with the live hits.
+        hosts.append(_shape_host_api_row(
+            h, merged, [], any_provider_enabled=any_enabled,
+        ))
     agg_error = "; ".join(f"{k}: {v}" for k, v in state["errors"].items()) or None
     return {
         "configured":      bool(state["active"]),
