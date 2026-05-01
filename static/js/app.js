@@ -791,6 +791,46 @@ function app() {
     // form-seed + dirty-track + POST — caught by operator after
     // shipping #550 (Log retention card was reading empty + Save was
     // a no-op).
+    // Per-provider knob lists (UX-ENH-002 partial DRY). Single source
+    // of truth for which tunables render in each provider's admin panel
+    // — adding a new knob is one entry here instead of editing each
+    // panel's inline x-for array. Each panel references via
+    // `_perProviderTuneKeys.<provider>`. Mirrored into `relocatedTuningKeys`
+    // below so the form-seed + dirty-track + POST flows pick them up.
+    _perProviderTuneKeys: {
+      node_exporter: [
+        'tuning_node_exporter_probe_timeout_seconds',
+        'tuning_node_exporter_failure_pause_rounds',
+      ],
+      beszel: [
+        'tuning_beszel_failure_pause_rounds',
+      ],
+      pulse: [
+        'tuning_pulse_failure_pause_rounds',
+      ],
+      webmin: [
+        'tuning_webmin_probe_budget_seconds',
+        'tuning_webmin_host_cache_ttl_seconds',
+        'tuning_webmin_host_fail_cache_ttl_seconds',
+        'tuning_webmin_failure_pause_rounds',
+      ],
+      snmp: [
+        'tuning_snmp_probe_timeout_seconds',
+        'tuning_snmp_concurrency',
+        'tuning_snmp_sample_interval_seconds',
+        'tuning_snmp_unreachable_cooldown_seconds',
+        'tuning_snmp_host_cache_ttl_seconds',
+        'tuning_snmp_host_fail_cache_ttl_seconds',
+        'tuning_snmp_failure_pause_rounds',
+      ],
+      ping: [
+        'tuning_ping_interval_seconds',
+        'tuning_ping_concurrency',
+        'tuning_ping_probe_timeout_seconds',
+        'tuning_ping_cooldown_seconds',
+        'tuning_ping_failure_pause_rounds',
+      ],
+    },
     relocatedTuningKeys: [
       'tuning_log_retention_days',                // → Admin → Logs (#550)
       'tuning_webmin_probe_budget_seconds',       // → Settings → Host stats → Webmin (#550)
@@ -2414,6 +2454,17 @@ function app() {
     hasHostStatsSource(name) {
       const raw = this.settings.host_stats_source || '';
       return raw.split(',').map(s => s.trim()).includes(name);
+    },
+    // UX-ENH-002 — single source of truth for the disabled gate
+    // shared by every per-provider admin panel's tuning-knob inputs.
+    // Pre-fix each panel inlined `!isAdmin() || tuningSaving ||
+    // !hasHostStatsSource('<provider>')` — same predicate, six times,
+    // with the provider name as the only delta. Centralising means a
+    // future change to the gate (e.g. add a master tuning-locked
+    // setting) lands in one place. Each panel's inputs bind via
+    // `:disabled="tuneKnobDisabled('<provider>')"`.
+    tuneKnobDisabled(provider) {
+      return !this.isAdmin() || this.tuningSaving || !this.hasHostStatsSource(provider);
     },
     toggleHostStatsSource(name, on) {
       const current = new Set(
@@ -12794,12 +12845,26 @@ function app() {
     // Used by the drawer's "Resume all (N)" rollup button to enumerate
     // every chip currently in Paused state. Returns an empty array
     // when no provider is paused — the rollup hides cleanly.
+    //
+    // FILTERS against `hostEnabledAgents(h)` so providers that are
+    // NOT currently enabled on this host don't surface as paused —
+    // the orphan-row sweep on host-config save (BUG-006) handles
+    // host-level orphans, but this guard handles the per-host
+    // provider-toggle case (operator disabled SNMP on this row but
+    // the failure-state row from the previous probes still exists).
+    // Without this filter, "Resume all (2)" can render on a host
+    // that only has Ping enabled because old SNMP / Webmin failure
+    // rows still match the host_id suffix.
     pausedProvidersFor(h) {
       if (!h) return [];
       const map = h.provider_pause_state;
       if (!map || typeof map !== 'object') return [];
+      const enabledNames = new Set(
+        (this.hostEnabledAgents(h) || []).map((a) => a && a.name).filter(Boolean),
+      );
       const out = [];
       for (const name of Object.keys(map)) {
+        if (!enabledNames.has(name)) continue;
         const row = map[name];
         if (row && row.paused) out.push(name);
       }
@@ -12847,6 +12912,17 @@ function app() {
       if (!map || typeof map !== 'object') return null;
       const row = map[name];
       if (!row || !row.paused) return null;
+      // Match `pausedProvidersFor` — only surface paused state for
+      // providers that are CURRENTLY enabled on this host. Stale
+      // failure-state rows from a previously-enabled provider that
+      // the operator has since disabled would otherwise render an
+      // amber chip + Resume button on a chip that wouldn't render
+      // at all. Cheap enabledNames lookup; called per-chip so this
+      // is hot path.
+      const enabledNames = new Set(
+        (this.hostEnabledAgents(h) || []).map((a) => a && a.name).filter(Boolean),
+      );
+      if (!enabledNames.has(name)) return null;
       return row;
     },
     // Last-OK timestamp for a (host, provider) pair. Returns 0 when
