@@ -1721,6 +1721,7 @@
       "heatmap_legend_low": "< 50%",
       "heatmap_legend_med": "50-85%",
       "heatmap_legend_high": "≥ 85%",
+      "heatmap_assumed_speed": "Link speed not reported by SNMP agent (no ifHighSpeed) — utilization computed against an assumed 100 Mbps. Percentages are approximate.",
       "heatmap_legend_idle": "idle / unknown speed"
     },
     "charts": {

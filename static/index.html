@@ -9939,7 +9939,8 @@
                     </div>
                     <div class="metric-card-stats" style="gap:8px; flex-wrap:wrap">
                       <template x-for="(iface, idx) in snmpTopIfacesByThroughput(h.id, 5)" :key="'util-leg-' + iface.name">
-                        <span class="text-[11px]">
+                        <span class="text-[11px]"
+                              :title="snmpIfaceLinkSpeedAssumed(h.id, iface.name, h) ? t('host_drawer.snmp_charts.heatmap_assumed_speed') : ''">
                           <span class="metric-legend-dot"
                                 :style="'background:' + ['var(--success)','var(--info)','var(--warning)','var(--danger)','var(--primary)'][idx % 5]"></span>
                           <span class="font-semibold" x-text="iface.name"></span>
@@ -9947,6 +9948,13 @@
                                 x-text="snmpIfaceUtilizationPct(h.id, iface.name, h) != null
                                           ? ' ' + Math.round(snmpIfaceUtilizationPct(h.id, iface.name, h)) + '%'
                                           : ''"></span>
+                          <!-- Asterisk + tooltip when the link speed
+                               was assumed (no ifHighSpeed from agent).
+                               Operators see "(assumed 100 Mbps)" on
+                               hover so the percentage is read as
+                               approximate, not authoritative. -->
+                          <span x-show="snmpIfaceLinkSpeedAssumed(h.id, iface.name, h)"
+                                class="text-[var(--warning)]">*</span>
                         </span>
                       </template>
                     </div>
