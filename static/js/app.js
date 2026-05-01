@@ -13548,16 +13548,16 @@ function app() {
     // (link speed null) — looked broken. Now waits until at least
     // one chip can show a meaningful colour.
     snmpHasIfaceUtilization(hostId, h) {
-      // True only when at least one iface has BOTH a known link
-      // speed AND ≥ 2 ticks of bps history (so the polyline can
-      // actually draw something). Pre-fix this returned true as
-      // soon as link_speed_mbps was known regardless of bps data,
-      // which produced an empty chart with 0 % values rendered
-      // instead of the warm-up spinner.
+      // True when at least one iface has ≥ 2 ticks of bps history.
+      // Link speed used for the divisor is either the agent-reported
+      // ifHighSpeed (preferred) or a 100 Mbps fallback assumption
+      // (#827) — printers / embedded gear that don't expose
+      // ifHighSpeed previously had this card stuck at "Collecting…"
+      // forever. The fallback divisor is announced in the legend
+      // tooltip so operators know the percentages are an
+      // approximation on those hosts.
       const names = this.snmpAllIfacesSorted(hostId, h);
       for (const n of names) {
-        const link = this.snmpIfaceLinkSpeedMbps(hostId, n, h);
-        if (!link) continue;
         const s = this.snmpIfaceBpsSeries(hostId, n);
         if (s.in.length >= 2 || s.out.length >= 2) return true;
       }
@@ -13571,8 +13571,13 @@ function app() {
     // replaced the chip-strip heatmap (operator-flagged that the
     // chip layout was misread as a broken chart).
     snmpIfaceUtilizationSeries(hostId, ifname, h) {
-      const link = this.snmpIfaceLinkSpeedMbps(hostId, ifname, h);
-      if (!link) return [];
+      // #827 — fall back to a 100 Mbps assumption when ifHighSpeed
+      // isn't exposed (printers / embedded gear). The percentages
+      // are then approximate but the polyline RENDERS instead of
+      // staying empty forever. snmpIfaceLinkSpeedAssumed() flags
+      // the assumption for legend display.
+      const link = this.snmpIfaceLinkSpeedMbps(hostId, ifname, h)
+                  || this._DEFAULT_IFACE_LINK_MBPS;
       const linkBps = link * 1_000_000 / 8;
       if (linkBps <= 0) return [];
       const s = this.snmpIfaceBpsSeries(hostId, ifname);
@@ -13635,11 +13640,24 @@ function app() {
       }
       return null;
     },
+    // 100 Mbps fallback when ifHighSpeed isn't exposed (#827) —
+    // printers / embedded gear with no managed-NIC reporting still
+    // produce a percentage on the per-port utilization chart instead
+    // of leaving the card stuck at "Collecting data…". The chart's
+    // legend tooltip surfaces "(assumed 100 Mbps)" via
+    // `snmpIfaceLinkSpeedAssumed` so operators know the divisor is
+    // approximate on those hosts.
+    _DEFAULT_IFACE_LINK_MBPS: 100,
+    snmpIfaceLinkSpeedAssumed(hostId, ifname, h) {
+      return !this.snmpIfaceLinkSpeedMbps(hostId, ifname, h);
+    },
     // Utilization % for one iface = max(in, out) bps × 8 ÷ link_bps × 100.
-    // Returns null when link speed unknown so the heatmap can render
-    // those ifaces in grey ("speed unknown") instead of mis-implying 0%.
+    // Falls back to a 100 Mbps assumption when link speed unknown
+    // (#827) — pre-fix this returned null so the percent legend stayed
+    // blank on printers and the line chart stayed empty forever.
     snmpIfaceUtilizationPct(hostId, ifname, h) {
-      const link = this.snmpIfaceLinkSpeedMbps(hostId, ifname, h);
+      const link = this.snmpIfaceLinkSpeedMbps(hostId, ifname, h)
+                  || this._DEFAULT_IFACE_LINK_MBPS;
       if (!link) return null;
       const s = this.snmpIfaceBpsSeries(hostId, ifname);
       let lastIn = 0, lastOut = 0;
