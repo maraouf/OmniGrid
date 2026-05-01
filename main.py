@@ -4507,6 +4507,16 @@ def _shape_host_api_row(
         # field was being silently dropped before — extract_stats
         # produced it but it never reached the SPA without this line.
         "host_temperatures": dict(s.get("host_temperatures") or {}),
+        # Per-GPU stats — Beszel agents emit `stats.g` as a per-GPU
+        # dict; `_flatten_gpus` normalises into a list of
+        # `{index, name, vram_used_bytes, vram_total_bytes,
+        # usage_percent, power_watts}`. Empty list when the host has
+        # no discrete GPU; frontend GPU chart cards gate on
+        # `host_gpus.length > 0`. Same drift class as
+        # `host_temperatures` — extract_stats produced the field but
+        # it was being silently dropped on the API boundary because
+        # this whitelist didn't include it.
+        "host_gpus":         list(s.get("host_gpus") or []),
         # Service summary (#321) — Beszel agents that run with the
         # systemd extension emit a list of service objects. The
         # extractor normalises into `{total, failed, failed_names}`.

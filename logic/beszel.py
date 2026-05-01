@@ -408,6 +408,22 @@ async def fetch_system_history(
             la15 = _num(la[2]) if len(la) > 2 else 0.0
         else:
             la1 = la5 = la15 = 0.0
+        # Load → percent-of-cores so the chart can render with a 0-100
+        # Y-axis (operator-flagged: raw load values like 0.18 looked
+        # ambiguous next to CPU% / Memory% cards). Same convention the
+        # SNMP Load chart uses. Cores resolved from the system_stats
+        # row's threads count when present, falling back to 1 (treat
+        # as single-core) so a busy load on an unknown-core machine
+        # still surfaces.
+        # cores resolution: per-tick `cpus` array length is the
+        # most-reliable signal in a `system_stats` row (info.c lives in
+        # `system.info`, not `stats`); fall back to explicit `c` /
+        # `threads` if a future agent emits them, then 1.
+        cpus_arr = stats.get("cpus") if isinstance(stats.get("cpus"), list) else []
+        cores = max(1, len(cpus_arr) or int(_num(stats.get("c")) or _num(stats.get("threads")) or 1))
+        la1_pct  = min(100.0, (la1  / cores) * 100.0)
+        la5_pct  = min(100.0, (la5  / cores) * 100.0)
+        la15_pct = min(100.0, (la15 / cores) * 100.0)
         # Compute per-sensor temperatures ONCE per point. Earlier ship
         # called ``_flatten_temperatures(stats.get("t"))`` three times
         # (one for ``temps``, two for ``temp_max``). On a 168h history
@@ -453,9 +469,15 @@ async def fetch_system_history(
             "net": net,  # preferred aggregate for the net chart
             "dr":  dr,   # disk read bytes/s (host-wide, summed across mounts)
             "dw":  dw,   # disk write bytes/s
-            "la1":  la1,  # load avg 1m
+            "la1":  la1,  # load avg 1m (raw load — backward compat for callers)
             "la5":  la5,  # load avg 5m
             "la15": la15, # load avg 15m
+            # #755 — percent-of-cores variants for the host-drawer
+            # Load chart (operator wants 0-100 % rendering, not raw
+            # 0.18 / 0.22 / 0.18 numbers).
+            "la1_pct":  la1_pct,
+            "la5_pct":  la5_pct,
+            "la15_pct": la15_pct,
             # Swap usage % — Beszel agents emit `s` for swap percent
             # used (0..100). Hosts without a swap configured emit 0
             # consistently → chart hides on the frontend gate.

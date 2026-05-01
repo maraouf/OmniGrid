@@ -9431,19 +9431,19 @@
                       <span>
                         <span class="metric-legend-dot" style="background: var(--success)"></span>
                         <span x-text="t('host_drawer.snmp_charts.legend_throughput_in')"></span>
-                        <span class="legend-val" x-text="fmtBytes(snmpThroughputLast(h.id, 'rx')) + '/s'"></span>
+                        <span class="legend-val" x-text="fmtBytesAt(snmpThroughputLast(h.id, 'rx'), snmpThroughputMaxBps(h.id)) + '/s'"></span>
                       </span>
                       <span>
                         <span class="metric-legend-dot" style="background: var(--info)"></span>
                         <span x-text="t('host_drawer.snmp_charts.legend_throughput_out')"></span>
-                        <span class="legend-val" x-text="fmtBytes(snmpThroughputLast(h.id, 'tx')) + '/s'"></span>
+                        <span class="legend-val" x-text="fmtBytesAt(snmpThroughputLast(h.id, 'tx'), snmpThroughputMaxBps(h.id)) + '/s'"></span>
                       </span>
                     </div>
                   </div>
                   <div class="metric-card-body">
                     <div class="metric-y-axis">
-                      <span x-text="fmtBytes(snmpThroughputMaxBps(h.id)) + '/s'"></span>
-                      <span x-text="fmtBytes(snmpThroughputMaxBps(h.id) / 2) + '/s'"></span>
+                      <span x-text="fmtBytesAt(snmpThroughputMaxBps(h.id), snmpThroughputMaxBps(h.id)) + '/s'"></span>
+                      <span x-text="fmtBytesAt(snmpThroughputMaxBps(h.id) / 2, snmpThroughputMaxBps(h.id)) + '/s'"></span>
                       <span>0</span>
                     </div>
                     <svg class="metric-svg" viewBox="0 0 420 120" preserveAspectRatio="none" aria-hidden="true">
@@ -9488,15 +9488,15 @@
                                 :style="'background:' + ['var(--success)','var(--info)','var(--warning)','var(--danger)','var(--primary)'][idx % 5]"></span>
                           <span class="font-semibold" x-text="iface.name"></span>
                           <span class="text-[var(--text-faint)]"
-                                x-text="' ' + fmtBytes(iface.lastIn) + '/s ↓ ' + fmtBytes(iface.lastOut) + '/s ↑'"></span>
+                                x-text="' ' + fmtBytesAt(iface.lastIn, snmpIfaceMaxBps(h.id)) + '/s ↓ ' + fmtBytesAt(iface.lastOut, snmpIfaceMaxBps(h.id)) + '/s ↑'"></span>
                         </span>
                       </template>
                     </div>
                   </div>
                   <div class="metric-card-body">
                     <div class="metric-y-axis">
-                      <span x-text="fmtBytes(snmpIfaceMaxBps(h.id)) + '/s'"></span>
-                      <span x-text="fmtBytes(snmpIfaceMaxBps(h.id) / 2) + '/s'"></span>
+                      <span x-text="fmtBytesAt(snmpIfaceMaxBps(h.id), snmpIfaceMaxBps(h.id)) + '/s'"></span>
+                      <span x-text="fmtBytesAt(snmpIfaceMaxBps(h.id) / 2, snmpIfaceMaxBps(h.id)) + '/s'"></span>
                       <span>0</span>
                     </div>
                     <svg class="metric-svg" viewBox="0 0 420 120" preserveAspectRatio="none" aria-hidden="true">
@@ -10051,10 +10051,10 @@
                      is a single-axis metric where extra width
                      improves readability. -->
                 <div class="metric-card metric-card--cpu"
-                     x-show="hostChartMax(hostHistoryKey(h), ['la1','la5','la15']) > 0">
+                     x-show="hostChartMax(hostHistoryKey(h), ['la1_pct','la5_pct','la15_pct','la1','la5','la15']) > 0">
                   <div class="metric-card-head">
                     <div class="metric-card-title">
-                      <span x-text="t('hosts_extra.metrics.load_avg')"></span><span class="unit">load</span>
+                      <span x-text="t('hosts_extra.metrics.load_avg')"></span><span class="unit">%</span>
                       <span class="metric-source-help" :title="metricSource(h, 'load_avg')"
                             @click.stop="toggleMetricTooltip(h, 'load_avg')"
                             @keydown.escape.window="metricTooltipOpen = null">
@@ -10068,38 +10068,38 @@
                       </span>
                     </div>
                     <div class="metric-card-stats" style="gap:8px">
-                      <span x-show="hostMetricStats(hostHistoryKey(h), 'la1', false)">
+                      <span x-show="hostMetricStats(hostHistoryKey(h), 'la1_pct', false)">
                         <span class="metric-legend-dot" style="background: var(--metric-cpu)"></span>1m
-                        <span class="legend-val" x-text="hostMetricStats(hostHistoryKey(h), 'la1', false) ? Number(hostMetricStats(hostHistoryKey(h), 'la1', false).maxRaw).toFixed(2) : ''"></span>
+                        <span class="legend-val" x-text="hostMetricStats(hostHistoryKey(h), 'la1_pct', false) ? Math.round(hostMetricStats(hostHistoryKey(h), 'la1_pct', false).maxRaw) + '%' : ''"></span>
                       </span>
-                      <span x-show="hostMetricStats(hostHistoryKey(h), 'la5', false)">
+                      <span x-show="hostMetricStats(hostHistoryKey(h), 'la5_pct', false)">
                         <span class="metric-legend-dot" style="background: var(--metric-mem)"></span>5m
-                        <span class="legend-val" x-text="hostMetricStats(hostHistoryKey(h), 'la5', false) ? Number(hostMetricStats(hostHistoryKey(h), 'la5', false).maxRaw).toFixed(2) : ''"></span>
+                        <span class="legend-val" x-text="hostMetricStats(hostHistoryKey(h), 'la5_pct', false) ? Math.round(hostMetricStats(hostHistoryKey(h), 'la5_pct', false).maxRaw) + '%' : ''"></span>
                       </span>
-                      <span x-show="hostMetricStats(hostHistoryKey(h), 'la15', false)">
+                      <span x-show="hostMetricStats(hostHistoryKey(h), 'la15_pct', false)">
                         <span class="metric-legend-dot" style="background: var(--metric-disk)"></span>15m
-                        <span class="legend-val" x-text="hostMetricStats(hostHistoryKey(h), 'la15', false) ? Number(hostMetricStats(hostHistoryKey(h), 'la15', false).maxRaw).toFixed(2) : ''"></span>
+                        <span class="legend-val" x-text="hostMetricStats(hostHistoryKey(h), 'la15_pct', false) ? Math.round(hostMetricStats(hostHistoryKey(h), 'la15_pct', false).maxRaw) + '%' : ''"></span>
                       </span>
                     </div>
                   </div>
-                  <template x-if="hostChart(hostHistoryKey(h), 'la1')">
+                  <template x-if="hostChart(hostHistoryKey(h), 'la1_pct')">
                     <div class="metric-card-body">
                       <!-- Y-axis to match CPU/Mem/Disk card height + alignment.
                            Without this column-1 cell rendered empty and the
                            SVG visually shifted, making the chart look shorter. -->
                       <div class="metric-y-axis">
-                        <template x-for="(l, i) in yAxisAuto(hostChartMax(hostHistoryKey(h), ['la1','la5','la15']), v => Number(v).toFixed(2))" :key="i">
+                        <template x-for="(l, i) in yAxisPercent()" :key="i">
                           <span x-text="l"></span>
                         </template>
                       </div>
                       <svg class="metric-svg" viewBox="0 0 420 120" preserveAspectRatio="none">
-                        <path class="metric-grid" :d="hostChart(hostHistoryKey(h), 'la1', { min: 0, max: hostChartMax(hostHistoryKey(h), ['la1','la5','la15']), height: 120 }).gridPath" fill="none"/>
+                        <path class="metric-grid" :d="hostChart(hostHistoryKey(h), 'la1_pct', { min: 0, max: 100, height: 120 }).gridPath" fill="none"/>
                         <polyline class="metric-line" style="color: var(--metric-cpu)"
-                                  :points="hostChart(hostHistoryKey(h), 'la1', { min: 0, max: hostChartMax(hostHistoryKey(h), ['la1','la5','la15']), height: 120 }).points"/>
+                                  :points="hostChart(hostHistoryKey(h), 'la1_pct', { min: 0, max: 100, height: 120 }).points"/>
                         <polyline class="metric-line" style="color: var(--metric-mem)"
-                                  :points="hostChart(hostHistoryKey(h), 'la5', { min: 0, max: hostChartMax(hostHistoryKey(h), ['la1','la5','la15']), height: 120 }).points"/>
+                                  :points="hostChart(hostHistoryKey(h), 'la5_pct', { min: 0, max: 100, height: 120 }).points"/>
                         <polyline class="metric-line" style="color: var(--metric-disk)"
-                                  :points="hostChart(hostHistoryKey(h), 'la15', { min: 0, max: hostChartMax(hostHistoryKey(h), ['la1','la5','la15']), height: 120 }).points"/>
+                                  :points="hostChart(hostHistoryKey(h), 'la15_pct', { min: 0, max: 100, height: 120 }).points"/>
                       </svg>
                       <div class="metric-x-axis">
                         <template x-for="(l, i) in xAxisFromSeries(hostHistoryKey(h), 5)" :key="i">
