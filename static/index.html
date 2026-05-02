@@ -854,11 +854,15 @@
          `tuning_swarm_agent_unhealthy_threshold`). Common cause: the
          Swarm manager bounced and the Portainer agents on workers
          didn't re-register cleanly. Operator-fix copy points at the
-         force-update of the agent service. Visible on Stacks + Hosts
-         + Services + Nodes views — the per-row stats are blank on
-         all four when the agent is the bottleneck. -->
+         force-update of the agent service. Visible on Stacks +
+         Services + Nodes views — the per-row container stats go
+         blank on those three when the agent is the bottleneck. The
+         Hosts view is intentionally excluded: host-stats providers
+         (Beszel / Pulse / NE / Webmin / SNMP / Ping) don't go
+         through Portainer's agent at all, so a Portainer-agent
+         outage doesn't degrade host data. -->
     <div x-show="(unhealthyAgents || []).length > 0 &&
-                 (view==='stacks' || view==='services' || view==='hosts' || view==='nodes')"
+                 (view==='stacks' || view==='services' || view==='nodes')"
          class="mx-5 mb-3 px-4 py-3 rounded-md flex items-start gap-3"
          style="background: color-mix(in srgb, var(--warning) 12%, transparent);
                 border: 1px solid color-mix(in srgb, var(--warning) 38%, transparent);
