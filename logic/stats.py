@@ -237,19 +237,30 @@ async def _one_container_stats(
     have the cid; a connection error means the agent isn't deployed
     on that node at all and there's no API path through Portainer).
     """
+    # Per-use reads of the timeout knobs so a Save in Admin → Config
+    # takes effect on the next gather without a restart. Defaults are
+    # 12s targeted / 10s untargeted (see TUNABLES). Pre-#872 the
+    # targeted timeout was hardcoded 4s — operator-reported that
+    # Portainer's agent forwarding to busy worker nodes routinely
+    # exceeded 4s, so the call would time out and the untargeted
+    # fallback would 404 (manager doesn't have the worker's cid),
+    # ultimately rendering as `—` in the UI even though the agent
+    # would have responded if given more time.
+    targeted_to = float(tuning.tuning_int("tuning_stats_targeted_timeout_seconds"))
+    untargeted_to = float(tuning.tuning_int("tuning_stats_untargeted_timeout_seconds"))
     url = f"{portainer.PORTAINER_URL}{ep}/containers/{cid}/stats?stream=false"
     targeted_status: Optional[int] = None
     targeted_err: Optional[str] = None
     if node:
         try:
-            r = await client.get(url, headers=portainer.headers(agent_target=node), timeout=4.0)
+            r = await client.get(url, headers=portainer.headers(agent_target=node), timeout=targeted_to)
             if r.status_code == 200:
                 return _parse_stats_payload(r.json())
             targeted_status = r.status_code
         except Exception as e:
             targeted_err = f"{type(e).__name__}: {e}"
     try:
-        r = await client.get(url, headers=portainer.headers(), timeout=10.0)
+        r = await client.get(url, headers=portainer.headers(), timeout=untargeted_to)
         if r.status_code == 200:
             return _parse_stats_payload(r.json())
         if node:
