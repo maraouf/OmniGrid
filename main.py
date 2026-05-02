@@ -1820,6 +1820,7 @@ class SettingsIn(BaseModel):
     tuning_snmp_probe_timeout_seconds: Optional[str] = None
     tuning_snmp_concurrency: Optional[str] = None
     tuning_snmp_wall_clock_budget_seconds: Optional[str] = None
+    tuning_snmp_per_host_walk_concurrency: Optional[str] = None
     # SNMP per-host cache TTLs, distinct from the Webmin pair.
     tuning_snmp_host_cache_ttl_seconds: Optional[str] = None
     tuning_snmp_host_fail_cache_ttl_seconds: Optional[str] = None

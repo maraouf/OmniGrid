@@ -1877,7 +1877,24 @@ async def probe_snmp(
             timeout + 5.0,
             float(_tuning.tuning_int("tuning_snmp_wall_clock_budget_seconds")),
         )
-        results = await asyncio.wait_for(asyncio.gather(
+        # Per-host walk concurrency cap. Default 1 (fully serialised
+        # — CLI-equivalent wire-level pattern) protects slow BMC-class
+        # agents (iDRAC9, IPMI, low-power embedded snmpd) from UDP
+        # receive-queue overflow when 60+ concurrent bulk requests
+        # arrive simultaneously. Raise to 8-16 in Admin → Config for
+        # fast snmpd's (Cisco / Synology / linux net-snmp) to recover
+        # the parallelism win — a 60-OID probe at 100ms RTT serialises
+        # to ~6s wall-clock at concurrency=1 vs ~0.5s at concurrency=16.
+        walk_concurrency = max(
+            1, int(_tuning.tuning_int("tuning_snmp_per_host_walk_concurrency"))
+        )
+        walk_sem = asyncio.Semaphore(walk_concurrency)
+
+        async def _bounded(coro):
+            async with walk_sem:
+                return await coro
+
+        all_tasks = [
             sys_task, cpu_task,
             st_type_task, st_desc_task, st_unit_task, st_size_task, st_used_task,
             if_descr_task, if_oper_task,
@@ -1908,6 +1925,9 @@ async def probe_snmp(
             dell_vd_name_task, dell_vd_state_task,
             dell_vd_size_task, dell_vd_layout_task,
             dell_bios_version_task, dell_bios_date_task,
+        ]
+        results = await asyncio.wait_for(asyncio.gather(
+            *(_bounded(t) for t in all_tasks),
             return_exceptions=False,
         ), timeout=wall_clock_budget)
     except asyncio.TimeoutError:

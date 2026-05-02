@@ -910,6 +910,7 @@ function app() {
       snmp: [
         'tuning_snmp_probe_timeout_seconds',
         'tuning_snmp_wall_clock_budget_seconds',
+        'tuning_snmp_per_host_walk_concurrency',
         'tuning_snmp_concurrency',
         'tuning_snmp_sample_interval_seconds',
         'tuning_snmp_unreachable_cooldown_seconds',
@@ -939,6 +940,7 @@ function app() {
       // SNMP provider tunables (rendered in Host stats → SNMP).
       'tuning_snmp_probe_timeout_seconds',
       'tuning_snmp_wall_clock_budget_seconds',
+      'tuning_snmp_per_host_walk_concurrency',
       'tuning_snmp_concurrency',
       // SNMP per-host cache TTLs, distinct from Webmin's pair.
       'tuning_snmp_host_cache_ttl_seconds',

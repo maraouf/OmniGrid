@@ -860,6 +860,10 @@
           "label": "SNMP wall-clock probe budget (seconds)",
           "help": "Total wall-clock budget for ONE SNMP probe against ONE host. The probe fans out ~60 OID operations (sysName / hrStorage / hrProcessorLoad / ifTable / ENTITY-MIB plus vendor-private MIBs for Dell / Cisco / APC / UCD / Synology / HP printer / Dell-RAC); pysnmp serialises the wire-level UDP packets through one transport so total wall-clock is roughly (round-trips × RTT). Operator-reported case: WD MyCloud / network printer / low-power NAS with ~500 ms RTT × 60 ops ≈ 30 s, blowing past the previous hardcoded 14 s budget on every cycle and tripping the auto-pause threshold. Default 60 s leaves margin for the slowest legitimate device. Lower if your SNMP fleet is uniformly fast (LAN switches answer in < 5 s easily); raise to 120-300 s if you have unusually slow embedded gear. Range 5..600."
         },
+        "tuning_snmp_per_host_walk_concurrency": {
+          "label": "SNMP per-host walk concurrency",
+          "help": "Caps how many _snmp_get / _snmp_walk operations OmniGrid sends in parallel against ONE host. Default 1 (fully serialised — CLI-equivalent wire-level pattern) protects slow BMC-class agents (iDRAC9, IPMI, low-power embedded snmpd) from UDP receive-queue overflow when 60+ concurrent bulk requests arrive simultaneously — observed pattern is `[snmp] WALK errorIndication: No SNMP response received before timeout` for ~15 of ~60 OID branches per probe. Raise to 8-16 if your fleet is uniformly fast (Cisco / Synology / linux net-snmp): a 60-OID probe at 100 ms RTT serialises to ~6 s wall-clock at concurrency=1 vs ~0.5 s at concurrency=16. Range 1..16. Default 1."
+        },
         "tuning_snmp_concurrency": {
           "label": "SNMP probe concurrency",
           "help": "Maximum parallel SNMP probes the gather + per-host-merge paths run in one tick. Default 16 — comfortable on a 50-host SNMP fleet through 16 workers in ~3 batches. Lower if your network gear's CPU is fragile (some older switches lock up under > 8 parallel SNMP requests); raise on a beefy fleet of well-provisioned UPSes / routers. Range 1..128."
