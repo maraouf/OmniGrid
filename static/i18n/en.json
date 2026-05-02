@@ -1199,6 +1199,7 @@
       "view_hosts": "Hosts view",
       "view_history": "History view",
       "show_help": "Show this help",
+      "notifications": "Open notifications",
       "close_clear": "Close / clear",
       "close_clear_note": "modal → drawer → selection → filters",
       "refresh_cached": "Refresh (cached)",

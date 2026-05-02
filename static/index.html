@@ -2272,6 +2272,7 @@
             <!-- Detail drawer (#239) lives at top-level — see
                  the HOST DETAIL DRAWER block near the bottom of
                  this file. -->
+                </div><!-- /host-row wrapper from desktop template (line 2017) -->
               </div><!-- /per-row wrapper from bucketRenderList template -->
             </template>
           </div>
@@ -12198,10 +12199,21 @@
           <div class="flex flex-wrap gap-2 items-center text-[12px]">
             <span class="text-[var(--text-faint)]" x-text="t('notifications.filter_severity')"></span>
             <div role="radiogroup" :aria-label="t('notifications.filter_severity')" class="flex gap-1">
+              <!-- Per-severity colouring: each chip carries the brand
+                   pill class for its severity (info/success/warning/error)
+                   so operators see at a glance which filter is which.
+                   The "all" chip stays neutral. The currently-selected
+                   chip layers `chip-active` on top — bumps brightness +
+                   draws an inset ring so the active state is unmissable
+                   even at a quick glance. -->
               <template x-for="sev in ['all','info','success','warning','error']" :key="sev">
                 <button role="radio" :aria-checked="notificationsFilterSeverity === sev"
                         @click="notificationsFilterSeverity = sev; loadNotifications()"
-                        :class="notificationsFilterSeverity === sev ? 'chip chip-active' : 'chip'"
+                        :class="[
+                          'chip',
+                          sev === 'info' ? 'pill-info' : (sev === 'success' ? 'pill-ok' : (sev === 'warning' ? 'pill-update' : (sev === 'error' ? 'pill-error' : ''))),
+                          notificationsFilterSeverity === sev ? 'chip-active' : ''
+                        ]"
                         x-text="sev === 'all' ? t('filters.all') : t('notifications.severity.' + sev)"></button>
               </template>
             </div>

@@ -9127,6 +9127,7 @@ function app() {
             { keys: ['4'],       label: _t('hotkeys.items.view_hosts'),     run: () => this.view = 'hosts' },
             { keys: ['5'],       label: _t('hotkeys.items.view_history'),   run: () => this.view = 'history' },
             { keys: ['?'],       label: _t('hotkeys.items.show_help'),      run: () => this.showHotkeys = true },
+            { keys: ['n'],       label: _t('hotkeys.items.notifications'),  run: () => this.openNotificationsPopup() },
             { keys: ['Esc'],     label: _t('hotkeys.items.close_clear'),    run: null, note: _t('hotkeys.items.close_clear_note') },
           ],
         },
@@ -9172,6 +9173,7 @@ function app() {
       if (e.key === 'Escape') {
         if (this.userMenuOpen) { this.userMenuOpen = false; e.preventDefault(); return; }
         if (this.showHotkeys) { this.showHotkeys = false; e.preventDefault(); return; }
+        if (this.showNotificationsPopup) { this.showNotificationsPopup = false; e.preventDefault(); return; }
         // Terminal modal owns ALL keystrokes when active EXCEPT Esc.
         // Closing on Esc is the universal "get me out" affordance even
         // though it would otherwise be a legitimate keystroke for the
