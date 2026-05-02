@@ -1663,6 +1663,33 @@ details summary::-webkit-details-marker {
     min-height: 220px;
 }
 
+/* Wide variant — chart cards that need to span more than one column
+   on the multi-column SNMP chart grid. Used by the Dell server-temps
+   chart (#848 phase 3) since N polylines + a multi-row legend reads
+   poorly in a single-column slot. */
+.metric-card--wide {
+    grid-column: 1 / -1;
+}
+
+/* Per-card legend grid — Dell server-temps chart's per-probe legend
+   sits below the SVG and wraps to multi-row when probe count
+   exceeds what fits in one line. Each item is a small flex row with
+   the colour dot + name + last-reading value. */
+.metric-legend-grid {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--s-3);
+    font-size: 11px;
+    color: var(--text-dim);
+    margin-top: var(--s-1);
+}
+
+.metric-legend-item {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--s-1);
+}
+
 .metric-card-head {
     display: flex;
     align-items: baseline;
@@ -4413,6 +4440,72 @@ select.field-invalid {
     column-gap: var(--s-4);
     row-gap: var(--s-2);
     align-items: baseline;
+}
+
+/* Dell server-health card grid — fan / temp / PSU / voltage /
+   physical-disk / virtual-disk mini-tables (#848 phase 2). Two-column
+   responsive layout that drops to one column at narrow widths so an
+   8-fan grid + a 4-temp grid each get their own row on a sub-720px
+   drawer. Each subsection is its own card with a small heading + a
+   list of name / value / status-pill rows. The grid template uses
+   minmax(0, 1fr) so the children can shrink without overflowing the
+   drawer's content width. */
+.server-health-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(min(280px, 100%), 1fr));
+    gap: var(--s-3);
+}
+
+.server-health-section {
+    border: 1px solid var(--border);
+    border-radius: var(--r-md);
+    background: var(--surface-2);
+    padding: var(--s-3);
+    min-width: 0;
+}
+
+.server-health-section.stale {
+    opacity: 0.7;
+    border-style: dashed;
+}
+
+.server-health-section-title {
+    font-size: 10.5px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--text-faint);
+    margin-bottom: var(--s-2);
+}
+
+.server-health-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: var(--s-1);
+}
+
+.server-health-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto auto;
+    align-items: center;
+    column-gap: var(--s-3);
+    font-size: 11.5px;
+    padding: 1px 0;
+}
+
+.server-health-row-name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--text);
+}
+
+.server-health-row-value {
+    color: var(--text-dim);
+    text-align: end;
+    font-variant-numeric: tabular-nums;
 }
 
 [dir="rtl"] .host-drawer {

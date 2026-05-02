@@ -575,6 +575,26 @@ def init_db():
         CREATE INDEX IF NOT EXISTS idx_host_snmp_iface_samples_host_ts
             ON host_snmp_iface_samples(host_id, ts DESC);
 
+        -- Per-temperature-probe history for Dell server hosts (#848
+        -- phase 3). One row per (ts, host_id, probe_idx); the
+        -- temperatureProbeTable typically reports 4-12 probes per
+        -- server (Inlet / Exhaust / CPU1 / CPU2 / chipset / etc.) and
+        -- the chart card renders one polyline per probe. probe_name
+        -- denormalised onto every row so the chart can label the
+        -- legend without joining back to the latest per-probe row.
+        -- value_c is degrees Celsius (already converted from MIB's
+        -- deci-degC at extraction time).
+        CREATE TABLE IF NOT EXISTS host_snmp_temp_samples (
+            ts         INTEGER NOT NULL,
+            host_id    TEXT    NOT NULL,
+            probe_idx  TEXT    NOT NULL,
+            probe_name TEXT,
+            value_c    REAL,
+            PRIMARY KEY (ts, host_id, probe_idx)
+        );
+        CREATE INDEX IF NOT EXISTS idx_host_snmp_temp_samples_host_probe_ts
+            ON host_snmp_temp_samples(host_id, probe_idx, ts DESC);
+
         -- Last-known per-host nodes_info blob (Beszel / Pulse /
         -- node-exporter / Webmin merged). Written at the end of every
         -- successful gather, read at startup AND on every gather to
@@ -7781,6 +7801,54 @@ async def api_hosts_snmp_iface_history(
             "link_speed_mbps": (int(r[4]) if r[4] is not None else None),
         })
     return {"ifaces": ifaces, "error": None}
+
+
+@app.get("/api/hosts/{host_id}/snmp/temp_history")
+async def api_hosts_snmp_temp_history(
+    host_id: str, hours: int = 1,
+    _admin: auth.User = Depends(auth.require_admin),
+):
+    """Per-temperature-probe SNMP history for one host (#848 phase 3).
+
+    Returns ``{probes: {probe_idx: {name, points: [...]}}, error: null}``
+    with one series per probe (probe_idx is the trailing OID index,
+    stable across ticks; probe_name is the human-readable label like
+    "Inlet Temp" / "CPU1 Temp"). Each point carries ``ts`` + ``c``
+    (degrees Celsius). Window clamped to 1..168 hours; row-count ceiling
+    is hours × 60 × 16 (assume up to 16 probes per server which covers
+    every Dell PowerEdge generation we've seen).
+    """
+    h = max(1, min(168, int(hours or 1)))
+    hid = (host_id or "").strip()
+    if not hid:
+        return {"probes": {}, "error": "host_id required"}
+    since = int(time.time() - h * 3600)
+    try:
+        with db_conn() as c:
+            rows = c.execute(
+                "SELECT ts, probe_idx, probe_name, value_c "
+                "FROM host_snmp_temp_samples "
+                "WHERE host_id=? AND ts >= ? "
+                "ORDER BY probe_idx ASC, ts ASC LIMIT ?",
+                (hid, since, h * 60 * 16),
+            ).fetchall()
+    except Exception as e:
+        return {"probes": {}, "error": f"snmp_temp_history: {e}"}
+    probes: dict = {}
+    for r in rows:
+        idx = str(r[1] or "")
+        if not idx:
+            continue
+        name = r[2] or f"temp-{idx}"
+        bucket = probes.setdefault(idx, {"name": name, "points": []})
+        # Pick the freshest probe_name we've seen — operator-renamed
+        # probes (rare) propagate forward this way.
+        bucket["name"] = name
+        bucket["points"].append({
+            "ts": int(r[0]),
+            "c":  (float(r[3]) if r[3] is not None else None),
+        })
+    return {"probes": probes, "error": None}
 
 
 class PingTestIn(BaseModel):

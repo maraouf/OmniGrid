@@ -169,6 +169,105 @@ _OID_DELL_GLOBAL_SYS_STATUS   = "1.3.6.1.4.1.674.10892.5.4.200.10.1.4.1"
 # answer the host-system OIDs, others only chassis — probe both.
 _OID_DELL_SYSTEM_SERVICE_TAG  = "1.3.6.1.4.1.674.10892.5.4.300.10.1.11.1"
 _OID_DELL_SYSTEM_MODEL_NAME   = "1.3.6.1.4.1.674.10892.5.4.300.10.1.9.1"
+# Dell systemBIOSTable — BIOS version + release date per BIOS slot
+# (almost always one row per server). 5.4.300.50.1.x.
+_OID_DELL_BIOS_VERSION        = "1.3.6.1.4.1.674.10892.5.4.300.50.1.8"
+_OID_DELL_BIOS_RELEASE_DATE   = "1.3.6.1.4.1.674.10892.5.4.300.50.1.7"
+# Dell coolingDeviceTable (fans). One row per fan; 5.4.700.12.1.x:
+#   .5 = coolingDeviceStatus (enum)
+#   .6 = coolingDeviceReading (RPM)
+#   .7 = coolingDeviceType (enum: 3=fan, 4=blower, 10=cooled-air-fan, etc.)
+#   .8 = coolingDeviceLocationName (string)
+_OID_DELL_FAN_STATUS    = "1.3.6.1.4.1.674.10892.5.4.700.12.1.5"
+_OID_DELL_FAN_READING   = "1.3.6.1.4.1.674.10892.5.4.700.12.1.6"
+_OID_DELL_FAN_TYPE      = "1.3.6.1.4.1.674.10892.5.4.700.12.1.7"
+_OID_DELL_FAN_LOCATION  = "1.3.6.1.4.1.674.10892.5.4.700.12.1.8"
+# Dell temperatureProbeTable. 5.4.700.20.1.x:
+#   .5 = temperatureProbeStatus (enum)
+#   .6 = temperatureProbeReading (deci-degC; 232 = 23.2 °C)
+#   .7 = temperatureProbeType (enum)
+#   .8 = temperatureProbeLocationName (string — e.g. "CPU1 Temp", "Inlet Temp")
+_OID_DELL_TEMP_STATUS   = "1.3.6.1.4.1.674.10892.5.4.700.20.1.5"
+_OID_DELL_TEMP_READING  = "1.3.6.1.4.1.674.10892.5.4.700.20.1.6"
+_OID_DELL_TEMP_TYPE     = "1.3.6.1.4.1.674.10892.5.4.700.20.1.7"
+_OID_DELL_TEMP_LOCATION = "1.3.6.1.4.1.674.10892.5.4.700.20.1.8"
+# Dell powerSupplyTable. 5.4.600.12.1.x:
+#   .5 = powerSupplyStatus (enum)
+#   .6 = powerSupplyOutputWatts (deci-watts; 7500 = 750 W per Dell MIB)
+#   .7 = powerSupplyType (enum: AC / DC)
+#   .8 = powerSupplyLocationName
+#   .12 = powerSupplyConfigurationErrorType (mismatch / not-redundant / etc.)
+_OID_DELL_PSU_STATUS    = "1.3.6.1.4.1.674.10892.5.4.600.12.1.5"
+_OID_DELL_PSU_WATTS     = "1.3.6.1.4.1.674.10892.5.4.600.12.1.6"
+_OID_DELL_PSU_TYPE      = "1.3.6.1.4.1.674.10892.5.4.600.12.1.7"
+_OID_DELL_PSU_LOCATION  = "1.3.6.1.4.1.674.10892.5.4.600.12.1.8"
+# Dell voltageProbeTable. 5.4.600.20.1.x:
+#   .5 = voltageProbeStatus
+#   .6 = voltageProbeReading (millivolts)
+#   .8 = voltageProbeLocationName
+_OID_DELL_VOLT_STATUS   = "1.3.6.1.4.1.674.10892.5.4.600.20.1.5"
+_OID_DELL_VOLT_READING  = "1.3.6.1.4.1.674.10892.5.4.600.20.1.6"
+_OID_DELL_VOLT_LOCATION = "1.3.6.1.4.1.674.10892.5.4.600.20.1.8"
+# Dell amperageProbeTable — also carries PSU input watts on iDRAC9+.
+# 5.4.600.30.1.x:
+#   .5 = amperageProbeStatus
+#   .6 = amperageProbeReading (deci-amperes for current probes; watts
+#         direct for type=23 system-power probes)
+#   .7 = amperageProbeType (24=power-consumption, 23=watts, 1-3=current)
+#   .8 = amperageProbeLocationName
+_OID_DELL_AMP_STATUS    = "1.3.6.1.4.1.674.10892.5.4.600.30.1.5"
+_OID_DELL_AMP_READING   = "1.3.6.1.4.1.674.10892.5.4.600.30.1.6"
+_OID_DELL_AMP_TYPE      = "1.3.6.1.4.1.674.10892.5.4.600.30.1.7"
+_OID_DELL_AMP_LOCATION  = "1.3.6.1.4.1.674.10892.5.4.600.30.1.8"
+# Dell physicalDiskTable — per-disk identity + state + capacity.
+# 5.5.1.20.130.4.1.x:
+#   .2 = physicalDiskName ("Physical Disk 0:1:0")
+#   .4 = physicalDiskState (enum: 1=ready, 2=failed, 3=online, 4=offline,
+#        5=degraded, 6=recovering, 7=removed, 8=rebuild, 11=foreign,
+#        13=clear, 14=blocked, 15=non-raid, 16=ready-removed, etc.)
+#   .6 = physicalDiskCapacityInMB (megabytes)
+#   .10 = physicalDiskSerialNo
+#   .11 = physicalDiskRevision
+_OID_DELL_PD_NAME       = "1.3.6.1.4.1.674.10892.5.5.1.20.130.4.1.2"
+_OID_DELL_PD_STATE      = "1.3.6.1.4.1.674.10892.5.5.1.20.130.4.1.4"
+_OID_DELL_PD_CAPACITY   = "1.3.6.1.4.1.674.10892.5.5.1.20.130.4.1.6"
+_OID_DELL_PD_SERIAL     = "1.3.6.1.4.1.674.10892.5.5.1.20.130.4.1.10"
+_OID_DELL_PD_REVISION   = "1.3.6.1.4.1.674.10892.5.5.1.20.130.4.1.11"
+# Dell virtualDiskTable (RAID arrays). 5.5.1.20.140.1.1.x:
+#   .2  = virtualDiskName
+#   .4  = virtualDiskState (1=ready, 2=failed, 3=online, 4=offline,
+#         5=degraded, 6=verifying, etc.)
+#   .6  = virtualDiskSizeInMB
+#   .13 = virtualDiskLayout (1=concat, 2=raid-0, 3=raid-1, 4=raid-5,
+#         5=raid-6, 6=raid-10, 7=raid-50, 8=raid-60)
+_OID_DELL_VD_NAME       = "1.3.6.1.4.1.674.10892.5.5.1.20.140.1.1.2"
+_OID_DELL_VD_STATE      = "1.3.6.1.4.1.674.10892.5.5.1.20.140.1.1.4"
+_OID_DELL_VD_SIZE       = "1.3.6.1.4.1.674.10892.5.5.1.20.140.1.1.6"
+_OID_DELL_VD_LAYOUT     = "1.3.6.1.4.1.674.10892.5.5.1.20.140.1.1.13"
+
+# Dell physicalDiskState enum — only the values seen in practice.
+_DELL_PD_STATE_LABELS = {
+    0: "unknown", 1: "ready", 2: "failed", 3: "online", 4: "offline",
+    5: "degraded", 6: "recovering", 7: "removed", 8: "rebuild",
+    11: "foreign", 13: "clear", 14: "blocked", 15: "non-raid",
+    16: "ready-foreign",
+}
+# Dell virtualDiskState enum.
+_DELL_VD_STATE_LABELS = {
+    0: "unknown", 1: "ready", 2: "failed", 3: "online", 4: "offline",
+    5: "degraded", 6: "verifying", 7: "resynching",
+    8: "regenerating", 9: "failed-redundancy",
+}
+# Dell virtualDiskLayout enum — the canonical RAID levels.
+_DELL_VD_LAYOUT_LABELS = {
+    1: "concat", 2: "RAID-0", 3: "RAID-1", 4: "RAID-5",
+    5: "RAID-6", 6: "RAID-10", 7: "RAID-50", 8: "RAID-60",
+}
+# Dell amperageProbeType enum. 23=system-board-power-consumption (watts),
+# 24=power-consumption (cumulative). Probes with type 1-3 are pure
+# current readings (deci-amperes). Used by the extractor to decide
+# whether the .6 reading is a power value vs a current value.
+_DELL_AMP_TYPE_WATTS = {23, 24, 25, 26}
 # Cisco — covers SG300 / SG350 / SG500 / Catalyst / Nexus.
 # productHardwareVer is SG300-specific (under enterprises.9.6.1.101);
 # memory pool + CPU% are common across the Cisco family.
@@ -1008,6 +1107,218 @@ def extract_vendor_info(walks: dict, existing: Optional[dict] = None) -> dict:
                 out["host_disk_used"] = disk_used_sum
                 out["host_disk_free"] = max(0, disk_total_sum - disk_used_sum)
                 out["host_disk_percent"] = (disk_used_sum / disk_total_sum * 100.0) if disk_total_sum else 0.0
+    # ---- Dell server health tables (iDRAC) --------------------------
+    # Walk-paired extractors. Each emits a per-row list keyed by the
+    # OID-trailing index. Empty walks → field absent (caller's snapshot
+    # / merge layer treats absent as "no data" cleanly).
+    def _row_index(oid: str, prefix: str) -> str:
+        # Trailing index for an instance OID under `prefix`.
+        # `1.3.6.1.4.1.674.10892.5.4.700.20.1.6.1.1` under prefix
+        # `...20.1.6` → "1.1".
+        if oid.startswith(prefix + "."):
+            return oid[len(prefix) + 1:]
+        return oid.rsplit(".", 1)[-1]
+
+    # Fans — coolingDeviceTable.
+    fan_readings = walks.get("dell_fan_reading") or {}
+    if fan_readings:
+        fan_status = walks.get("dell_fan_status") or {}
+        fan_loc = walks.get("dell_fan_loc") or {}
+        rows: list[dict] = []
+        for oid, v in fan_readings.items():
+            idx = _row_index(oid, _OID_DELL_FAN_READING)
+            rpm = _coerce_int(v)
+            status_oid = f"{_OID_DELL_FAN_STATUS}.{idx}"
+            loc_oid = f"{_OID_DELL_FAN_LOCATION}.{idx}"
+            status = _coerce_int(fan_status.get(status_oid))
+            location = _coerce_str(fan_loc.get(loc_oid)).strip()
+            rows.append({
+                "idx":      idx,
+                "name":     location or f"fan-{idx}",
+                "rpm":      rpm if rpm > 0 else None,
+                "status":   _DELL_STATUS_LABELS.get(status, "unknown"),
+            })
+        if rows:
+            out["host_dell_fans"] = rows
+
+    # Temperature probes — temperatureProbeTable.
+    temp_readings = walks.get("dell_temp_reading") or {}
+    if temp_readings:
+        temp_status = walks.get("dell_temp_status") or {}
+        temp_loc = walks.get("dell_temp_loc") or {}
+        rows: list[dict] = []
+        for oid, v in temp_readings.items():
+            idx = _row_index(oid, _OID_DELL_TEMP_READING)
+            decideg = _coerce_int(v)
+            # MIB stores deci-degrees C; -7000 / 65535 are sentinel
+            # "no reading" values on the lower / upper rails.
+            celsius = decideg / 10.0 if -1000 < decideg < 2000 else None
+            status_oid = f"{_OID_DELL_TEMP_STATUS}.{idx}"
+            loc_oid = f"{_OID_DELL_TEMP_LOCATION}.{idx}"
+            status = _coerce_int(temp_status.get(status_oid))
+            location = _coerce_str(temp_loc.get(loc_oid)).strip()
+            rows.append({
+                "idx":      idx,
+                "name":     location or f"temp-{idx}",
+                "celsius":  celsius,
+                "status":   _DELL_STATUS_LABELS.get(status, "unknown"),
+            })
+        if rows:
+            out["host_dell_temps"] = rows
+
+    # Power supplies — powerSupplyTable.
+    psu_status_walk = walks.get("dell_psu_status") or {}
+    if psu_status_walk:
+        psu_watts_walk = walks.get("dell_psu_watts") or {}
+        psu_loc_walk = walks.get("dell_psu_loc") or {}
+        rows: list[dict] = []
+        for oid, v in psu_status_walk.items():
+            idx = _row_index(oid, _OID_DELL_PSU_STATUS)
+            status = _coerce_int(v)
+            watts_oid = f"{_OID_DELL_PSU_WATTS}.{idx}"
+            loc_oid = f"{_OID_DELL_PSU_LOCATION}.{idx}"
+            # Per Dell MIB powerSupplyOutputWatts is in deci-watts on
+            # iDRAC9; older firmware reports plain watts. Heuristic: a
+            # value > 4000 is almost certainly deci-watts (a real PSU
+            # never sustains 4 kW); divide by 10. Lower → trust as-is.
+            raw_watts = _coerce_int(psu_watts_walk.get(watts_oid))
+            watts = (raw_watts / 10.0) if raw_watts > 4000 else float(raw_watts)
+            location = _coerce_str(psu_loc_walk.get(loc_oid)).strip()
+            rows.append({
+                "idx":      idx,
+                "name":     location or f"psu-{idx}",
+                "watts":    watts if watts > 0 else None,
+                "status":   _DELL_STATUS_LABELS.get(status, "unknown"),
+            })
+        if rows:
+            out["host_dell_psus"] = rows
+
+    # Voltage probes — voltageProbeTable.
+    volt_readings = walks.get("dell_volt_reading") or {}
+    if volt_readings:
+        volt_status = walks.get("dell_volt_status") or {}
+        volt_loc = walks.get("dell_volt_loc") or {}
+        rows: list[dict] = []
+        for oid, v in volt_readings.items():
+            idx = _row_index(oid, _OID_DELL_VOLT_READING)
+            mv = _coerce_int(v)
+            status_oid = f"{_OID_DELL_VOLT_STATUS}.{idx}"
+            loc_oid = f"{_OID_DELL_VOLT_LOCATION}.{idx}"
+            status = _coerce_int(volt_status.get(status_oid))
+            location = _coerce_str(volt_loc.get(loc_oid)).strip()
+            rows.append({
+                "idx":      idx,
+                "name":     location or f"volt-{idx}",
+                "millivolts": mv if mv > 0 else None,
+                "status":   _DELL_STATUS_LABELS.get(status, "unknown"),
+            })
+        if rows:
+            out["host_dell_voltages"] = rows
+
+    # Amperage / power-consumption probes — amperageProbeTable.
+    # On iDRAC9+ this also surfaces system-power watts (type=24);
+    # the extractor splits that into host_dell_power_watts (chassis
+    # total) when available.
+    amp_readings = walks.get("dell_amp_reading") or {}
+    if amp_readings:
+        amp_status = walks.get("dell_amp_status") or {}
+        amp_loc = walks.get("dell_amp_loc") or {}
+        amp_type = walks.get("dell_amp_type") or {}
+        rows: list[dict] = []
+        for oid, v in amp_readings.items():
+            idx = _row_index(oid, _OID_DELL_AMP_READING)
+            reading = _coerce_int(v)
+            status_oid = f"{_OID_DELL_AMP_STATUS}.{idx}"
+            loc_oid = f"{_OID_DELL_AMP_LOCATION}.{idx}"
+            type_oid = f"{_OID_DELL_AMP_TYPE}.{idx}"
+            status = _coerce_int(amp_status.get(status_oid))
+            location = _coerce_str(amp_loc.get(loc_oid)).strip()
+            ptype = _coerce_int(amp_type.get(type_oid))
+            is_watts = ptype in _DELL_AMP_TYPE_WATTS
+            rows.append({
+                "idx":      idx,
+                "name":     location or f"amp-{idx}",
+                "reading":  reading if reading > 0 else None,
+                "unit":     "W" if is_watts else "dA",
+                "status":   _DELL_STATUS_LABELS.get(status, "unknown"),
+            })
+            # First system-power probe (type=24 — pwrConsumption) wins
+            # the chassis-total field.
+            if is_watts and reading > 0 and "host_dell_power_watts" not in out:
+                out["host_dell_power_watts"] = reading
+        if rows:
+            out["host_dell_amperages"] = rows
+
+    # Physical disks — physicalDiskTable.
+    pd_names = walks.get("dell_pd_name") or {}
+    if pd_names:
+        pd_state_walk = walks.get("dell_pd_state") or {}
+        pd_capacity = walks.get("dell_pd_capacity") or {}
+        pd_serial = walks.get("dell_pd_serial") or {}
+        pd_revision = walks.get("dell_pd_revision") or {}
+        rows: list[dict] = []
+        for oid, v in pd_names.items():
+            idx = _row_index(oid, _OID_DELL_PD_NAME)
+            name = _coerce_str(v).strip()
+            state_oid = f"{_OID_DELL_PD_STATE}.{idx}"
+            cap_oid = f"{_OID_DELL_PD_CAPACITY}.{idx}"
+            ser_oid = f"{_OID_DELL_PD_SERIAL}.{idx}"
+            rev_oid = f"{_OID_DELL_PD_REVISION}.{idx}"
+            state = _coerce_int(pd_state_walk.get(state_oid))
+            capacity_mb = _coerce_int(pd_capacity.get(cap_oid))
+            serial_no = _coerce_str(pd_serial.get(ser_oid)).strip()
+            firmware_rev = _coerce_str(pd_revision.get(rev_oid)).strip()
+            rows.append({
+                "idx":         idx,
+                "name":        name or f"disk-{idx}",
+                "state":       _DELL_PD_STATE_LABELS.get(state, f"state={state}"),
+                "capacity_mb": capacity_mb if capacity_mb > 0 else None,
+                "serial":      serial_no,
+                "firmware":    firmware_rev,
+            })
+        if rows:
+            out["host_dell_phys_disks"] = rows
+
+    # Virtual disks — virtualDiskTable.
+    vd_names = walks.get("dell_vd_name") or {}
+    if vd_names:
+        vd_state_walk = walks.get("dell_vd_state") or {}
+        vd_size = walks.get("dell_vd_size") or {}
+        vd_layout_walk = walks.get("dell_vd_layout") or {}
+        rows: list[dict] = []
+        for oid, v in vd_names.items():
+            idx = _row_index(oid, _OID_DELL_VD_NAME)
+            name = _coerce_str(v).strip()
+            state_oid = f"{_OID_DELL_VD_STATE}.{idx}"
+            size_oid = f"{_OID_DELL_VD_SIZE}.{idx}"
+            layout_oid = f"{_OID_DELL_VD_LAYOUT}.{idx}"
+            state = _coerce_int(vd_state_walk.get(state_oid))
+            size_mb = _coerce_int(vd_size.get(size_oid))
+            layout = _coerce_int(vd_layout_walk.get(layout_oid))
+            rows.append({
+                "idx":     idx,
+                "name":    name or f"vd-{idx}",
+                "state":   _DELL_VD_STATE_LABELS.get(state, f"state={state}"),
+                "size_mb": size_mb if size_mb > 0 else None,
+                "layout":  _DELL_VD_LAYOUT_LABELS.get(layout, ""),
+            })
+        if rows:
+            out["host_dell_virt_disks"] = rows
+
+    # System BIOS — systemBIOSTable; pick the first non-empty version.
+    bios_versions = walks.get("dell_bios_version") or {}
+    if bios_versions:
+        for _, v in bios_versions.items():
+            ver = _coerce_str(v).strip()
+            if ver:
+                out["host_bios_version"] = ver
+                break
+        bios_dates = walks.get("dell_bios_date") or {}
+        for _, v in (bios_dates or {}).items():
+            d = _coerce_str(v).strip()
+            if d:
+                out["host_bios_date"] = d
+                break
     return out
 
 
@@ -1440,6 +1751,39 @@ async def probe_snmp(
             _OID_DELL_SYSTEM_SERVICE_TAG,
             _OID_DELL_SYSTEM_MODEL_NAME,
         ])
+        # Dell server health tables (iDRAC) — fans, temps, PSUs,
+        # voltages, amperage, physical / virtual disks, BIOS. Empty walks
+        # on non-Dell agents; per-table extractor is tolerant.
+        dell_fan_status_task   = _snmp_walk(engine, auth, target, _OID_DELL_FAN_STATUS)
+        dell_fan_reading_task  = _snmp_walk(engine, auth, target, _OID_DELL_FAN_READING)
+        dell_fan_type_task     = _snmp_walk(engine, auth, target, _OID_DELL_FAN_TYPE)
+        dell_fan_loc_task      = _snmp_walk(engine, auth, target, _OID_DELL_FAN_LOCATION)
+        dell_temp_status_task  = _snmp_walk(engine, auth, target, _OID_DELL_TEMP_STATUS)
+        dell_temp_reading_task = _snmp_walk(engine, auth, target, _OID_DELL_TEMP_READING)
+        dell_temp_type_task    = _snmp_walk(engine, auth, target, _OID_DELL_TEMP_TYPE)
+        dell_temp_loc_task     = _snmp_walk(engine, auth, target, _OID_DELL_TEMP_LOCATION)
+        dell_psu_status_task   = _snmp_walk(engine, auth, target, _OID_DELL_PSU_STATUS)
+        dell_psu_watts_task    = _snmp_walk(engine, auth, target, _OID_DELL_PSU_WATTS)
+        dell_psu_type_task     = _snmp_walk(engine, auth, target, _OID_DELL_PSU_TYPE)
+        dell_psu_loc_task      = _snmp_walk(engine, auth, target, _OID_DELL_PSU_LOCATION)
+        dell_volt_status_task  = _snmp_walk(engine, auth, target, _OID_DELL_VOLT_STATUS)
+        dell_volt_reading_task = _snmp_walk(engine, auth, target, _OID_DELL_VOLT_READING)
+        dell_volt_loc_task     = _snmp_walk(engine, auth, target, _OID_DELL_VOLT_LOCATION)
+        dell_amp_status_task   = _snmp_walk(engine, auth, target, _OID_DELL_AMP_STATUS)
+        dell_amp_reading_task  = _snmp_walk(engine, auth, target, _OID_DELL_AMP_READING)
+        dell_amp_type_task     = _snmp_walk(engine, auth, target, _OID_DELL_AMP_TYPE)
+        dell_amp_loc_task      = _snmp_walk(engine, auth, target, _OID_DELL_AMP_LOCATION)
+        dell_pd_name_task      = _snmp_walk(engine, auth, target, _OID_DELL_PD_NAME)
+        dell_pd_state_task     = _snmp_walk(engine, auth, target, _OID_DELL_PD_STATE)
+        dell_pd_capacity_task  = _snmp_walk(engine, auth, target, _OID_DELL_PD_CAPACITY)
+        dell_pd_serial_task    = _snmp_walk(engine, auth, target, _OID_DELL_PD_SERIAL)
+        dell_pd_revision_task  = _snmp_walk(engine, auth, target, _OID_DELL_PD_REVISION)
+        dell_vd_name_task      = _snmp_walk(engine, auth, target, _OID_DELL_VD_NAME)
+        dell_vd_state_task     = _snmp_walk(engine, auth, target, _OID_DELL_VD_STATE)
+        dell_vd_size_task      = _snmp_walk(engine, auth, target, _OID_DELL_VD_SIZE)
+        dell_vd_layout_task    = _snmp_walk(engine, auth, target, _OID_DELL_VD_LAYOUT)
+        dell_bios_version_task = _snmp_walk(engine, auth, target, _OID_DELL_BIOS_VERSION)
+        dell_bios_date_task    = _snmp_walk(engine, auth, target, _OID_DELL_BIOS_RELEASE_DATE)
         cisco_hw_task = _snmp_get(engine, auth, target, [
             _OID_CISCO_PRODUCT_HW_VER,
         ])
@@ -1507,6 +1851,20 @@ async def probe_snmp(
             ucd_dsk_pct_task, syno_vendor_task,
             prt_basic_task, prt_supply_descr_task,
             prt_supply_max_task, prt_supply_level_task,
+            dell_fan_status_task, dell_fan_reading_task,
+            dell_fan_type_task, dell_fan_loc_task,
+            dell_temp_status_task, dell_temp_reading_task,
+            dell_temp_type_task, dell_temp_loc_task,
+            dell_psu_status_task, dell_psu_watts_task,
+            dell_psu_type_task, dell_psu_loc_task,
+            dell_volt_status_task, dell_volt_reading_task, dell_volt_loc_task,
+            dell_amp_status_task, dell_amp_reading_task,
+            dell_amp_type_task, dell_amp_loc_task,
+            dell_pd_name_task, dell_pd_state_task, dell_pd_capacity_task,
+            dell_pd_serial_task, dell_pd_revision_task,
+            dell_vd_name_task, dell_vd_state_task,
+            dell_vd_size_task, dell_vd_layout_task,
+            dell_bios_version_task, dell_bios_date_task,
             return_exceptions=False,
         ), timeout=wall_clock_budget)
     except asyncio.TimeoutError:
@@ -1530,7 +1888,21 @@ async def probe_snmp(
      ucd_dsk_path_walk, ucd_dsk_total_walk, ucd_dsk_used_walk,
      ucd_dsk_pct_walk, syno_vendor_get,
      prt_basic_get, prt_supply_descr_walk,
-     prt_supply_max_walk, prt_supply_level_walk) = results
+     prt_supply_max_walk, prt_supply_level_walk,
+     dell_fan_status_walk, dell_fan_reading_walk,
+     dell_fan_type_walk, dell_fan_loc_walk,
+     dell_temp_status_walk, dell_temp_reading_walk,
+     dell_temp_type_walk, dell_temp_loc_walk,
+     dell_psu_status_walk, dell_psu_watts_walk,
+     dell_psu_type_walk, dell_psu_loc_walk,
+     dell_volt_status_walk, dell_volt_reading_walk, dell_volt_loc_walk,
+     dell_amp_status_walk, dell_amp_reading_walk,
+     dell_amp_type_walk, dell_amp_loc_walk,
+     dell_pd_name_walk, dell_pd_state_walk, dell_pd_capacity_walk,
+     dell_pd_serial_walk, dell_pd_revision_walk,
+     dell_vd_name_walk, dell_vd_state_walk,
+     dell_vd_size_walk, dell_vd_layout_walk,
+     dell_bios_version_walk, dell_bios_date_walk) = results
 
     # entity walks count toward the "any data" gate so a switch
     # that answers ONLY entPhysicalSerialNum (no sysDescr / no ifTable)
@@ -1545,7 +1917,10 @@ async def probe_snmp(
             or cisco_cpu_walk
             or apc_vendor_get or ucd_mem_cpu_get or ucd_load_walk
             or ucd_dsk_total_walk or syno_vendor_get
-            or prt_basic_get or prt_supply_descr_walk):
+            or prt_basic_get or prt_supply_descr_walk
+            or dell_fan_reading_walk or dell_temp_reading_walk
+            or dell_psu_status_walk or dell_pd_name_walk or dell_vd_name_walk
+            or dell_bios_version_walk):
         # Every walk came back empty — typically a wrong community or
         # the host doesn't speak SNMP on the expected port.
         _arm_cooldown(host_clean, port_int)
@@ -1591,6 +1966,36 @@ async def probe_snmp(
             "prt_supply_descr": prt_supply_descr_walk,
             "prt_supply_max":   prt_supply_max_walk,
             "prt_supply_level": prt_supply_level_walk,
+            "dell_fan_status":   dell_fan_status_walk,
+            "dell_fan_reading":  dell_fan_reading_walk,
+            "dell_fan_type":     dell_fan_type_walk,
+            "dell_fan_loc":      dell_fan_loc_walk,
+            "dell_temp_status":  dell_temp_status_walk,
+            "dell_temp_reading": dell_temp_reading_walk,
+            "dell_temp_type":    dell_temp_type_walk,
+            "dell_temp_loc":     dell_temp_loc_walk,
+            "dell_psu_status":   dell_psu_status_walk,
+            "dell_psu_watts":    dell_psu_watts_walk,
+            "dell_psu_type":     dell_psu_type_walk,
+            "dell_psu_loc":      dell_psu_loc_walk,
+            "dell_volt_status":  dell_volt_status_walk,
+            "dell_volt_reading": dell_volt_reading_walk,
+            "dell_volt_loc":     dell_volt_loc_walk,
+            "dell_amp_status":   dell_amp_status_walk,
+            "dell_amp_reading":  dell_amp_reading_walk,
+            "dell_amp_type":     dell_amp_type_walk,
+            "dell_amp_loc":      dell_amp_loc_walk,
+            "dell_pd_name":      dell_pd_name_walk,
+            "dell_pd_state":     dell_pd_state_walk,
+            "dell_pd_capacity":  dell_pd_capacity_walk,
+            "dell_pd_serial":    dell_pd_serial_walk,
+            "dell_pd_revision":  dell_pd_revision_walk,
+            "dell_vd_name":      dell_vd_name_walk,
+            "dell_vd_state":     dell_vd_state_walk,
+            "dell_vd_size":      dell_vd_size_walk,
+            "dell_vd_layout":    dell_vd_layout_walk,
+            "dell_bios_version": dell_bios_version_walk,
+            "dell_bios_date":    dell_bios_date_walk,
         },
     )
 
@@ -1674,6 +2079,39 @@ async def probe_snmp(
             "vendor_printer_supply_descr": _stringify(prt_supply_descr_walk),
             "vendor_printer_supply_max":   _stringify(prt_supply_max_walk),
             "vendor_printer_supply_level": _stringify(prt_supply_level_walk),
+            # Dell server health tables — fans, temps, PSUs, voltages,
+            # amperage, physical / virtual disks, BIOS. Empty walks on
+            # non-Dell agents so safe to always include.
+            "vendor_dell_fan_status":   _stringify(dell_fan_status_walk),
+            "vendor_dell_fan_reading":  _stringify(dell_fan_reading_walk),
+            "vendor_dell_fan_type":     _stringify(dell_fan_type_walk),
+            "vendor_dell_fan_loc":      _stringify(dell_fan_loc_walk),
+            "vendor_dell_temp_status":  _stringify(dell_temp_status_walk),
+            "vendor_dell_temp_reading": _stringify(dell_temp_reading_walk),
+            "vendor_dell_temp_type":    _stringify(dell_temp_type_walk),
+            "vendor_dell_temp_loc":     _stringify(dell_temp_loc_walk),
+            "vendor_dell_psu_status":   _stringify(dell_psu_status_walk),
+            "vendor_dell_psu_watts":    _stringify(dell_psu_watts_walk),
+            "vendor_dell_psu_type":     _stringify(dell_psu_type_walk),
+            "vendor_dell_psu_loc":      _stringify(dell_psu_loc_walk),
+            "vendor_dell_volt_status":  _stringify(dell_volt_status_walk),
+            "vendor_dell_volt_reading": _stringify(dell_volt_reading_walk),
+            "vendor_dell_volt_loc":     _stringify(dell_volt_loc_walk),
+            "vendor_dell_amp_status":   _stringify(dell_amp_status_walk),
+            "vendor_dell_amp_reading":  _stringify(dell_amp_reading_walk),
+            "vendor_dell_amp_type":     _stringify(dell_amp_type_walk),
+            "vendor_dell_amp_loc":      _stringify(dell_amp_loc_walk),
+            "vendor_dell_pd_name":      _stringify(dell_pd_name_walk),
+            "vendor_dell_pd_state":     _stringify(dell_pd_state_walk),
+            "vendor_dell_pd_capacity":  _stringify(dell_pd_capacity_walk),
+            "vendor_dell_pd_serial":    _stringify(dell_pd_serial_walk),
+            "vendor_dell_pd_revision":  _stringify(dell_pd_revision_walk),
+            "vendor_dell_vd_name":      _stringify(dell_vd_name_walk),
+            "vendor_dell_vd_state":     _stringify(dell_vd_state_walk),
+            "vendor_dell_vd_size":      _stringify(dell_vd_size_walk),
+            "vendor_dell_vd_layout":    _stringify(dell_vd_layout_walk),
+            "vendor_dell_bios_version": _stringify(dell_bios_version_walk),
+            "vendor_dell_bios_date":    _stringify(dell_bios_date_walk),
             "walk_summary": {
                 "sys_keys": len(sys_get or {}),
                 "cpu_rows": len(cpu_walk or {}),
@@ -1697,6 +2135,14 @@ async def probe_snmp(
                 "vendor_synology_keys": len(syno_vendor_get or {}),
                 "vendor_printer_basic_keys": len(prt_basic_get or {}),
                 "vendor_printer_supply_rows": len(prt_supply_descr_walk or {}),
+                "vendor_dell_fan_rows":  len(dell_fan_reading_walk or {}),
+                "vendor_dell_temp_rows": len(dell_temp_reading_walk or {}),
+                "vendor_dell_psu_rows":  len(dell_psu_status_walk or {}),
+                "vendor_dell_volt_rows": len(dell_volt_reading_walk or {}),
+                "vendor_dell_amp_rows":  len(dell_amp_reading_walk or {}),
+                "vendor_dell_pd_rows":   len(dell_pd_name_walk or {}),
+                "vendor_dell_vd_rows":   len(dell_vd_name_walk or {}),
+                "vendor_dell_bios_rows": len(dell_bios_version_walk or {}),
             },
         }
     return out

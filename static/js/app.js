@@ -182,6 +182,19 @@ const CURATED_REFRESH_FIELDS = new Set([
   // overlay the card body row gates couldn't tell "stale snapshot"
   // from "never had data".
   'printer_supplies', 'printer_page_count', 'printer_console_msg',
+  // Dell iDRAC server-health surface (DELL-RAC-MIB tables —
+  // coolingDevice / temperatureProbe / powerSupply / voltageProbe /
+  // amperage / physical+virtual disk / systemBIOS). Per-row arrays so
+  // the drawer can render fan / temp / PSU grids; chassis-power +
+  // BIOS scalars feed the Hardware card. Same overlay contract as the
+  // UPS fields above — explicit so a missed probe doesn't leave stale
+  // grids on screen and snapshot fallback can repopulate via the
+  // `host_*` predicate without a second whitelist edit.
+  'host_dell_fans', 'host_dell_temps', 'host_dell_psus',
+  'host_dell_voltages', 'host_dell_amperages',
+  'host_dell_phys_disks', 'host_dell_virt_disks',
+  'host_dell_power_watts',
+  'host_bios_version', 'host_bios_date',
 ]);
 
 function app() {
@@ -7712,6 +7725,52 @@ function app() {
       const translated = this.t(key);
       return (translated && translated !== key) ? translated : (status || '');
     },
+    // Dell server-health pill helpers (#848 phase 2). All four lean
+    // on the standard Dell Systems Management Server Health enum
+    // (ok / non-critical / critical / non-recoverable / unknown /
+    // other). Two flavours: server-health row status (fans / temps /
+    // PSUs / voltages — string label like "ok" / "critical") and
+    // physical/virtual disk state (string label like "online" /
+    // "rebuild" / "failed"). The pill-* token family is reused so
+    // the colour family matches every other status pill in the SPA.
+    dellHealthPillClass(status) {
+      const s = String(status || '').toLowerCase();
+      if (s === 'ok') return 'pill-ok';
+      if (s === 'non-critical') return 'pill-update';
+      if (s === 'critical' || s === 'non-recoverable') return 'pill-error';
+      return 'pill-unknown';
+    },
+    dellHealthLabel(status) {
+      // i18n key family mirrors upsBatteryStatusLabel — unknown values
+      // pass through verbatim instead of crashing.
+      const s = String(status || '').toLowerCase();
+      const key = `host_drawer.server_health.status_${s.replace(/-/g, '_')}`;
+      const translated = this.t(key);
+      return (translated && translated !== key) ? translated : (status || '');
+    },
+    // Physical-disk state pill — `online` / `ready` map to ok-green;
+    // `rebuild` / `recovering` / `non-raid` map to amber; failure
+    // states (`failed` / `offline` / `degraded` / `removed`) map to
+    // red. `foreign` / `blocked` / `clear` are advisory states the
+    // operator usually wants to see — amber.
+    dellPdStatePillClass(state) {
+      const s = String(state || '').toLowerCase();
+      if (s === 'online' || s === 'ready') return 'pill-ok';
+      if (s === 'failed' || s === 'offline' || s === 'degraded' || s === 'removed') return 'pill-error';
+      if (s === 'rebuild' || s === 'recovering' || s === 'foreign'
+          || s === 'blocked' || s === 'clear' || s === 'non-raid'
+          || s === 'ready-foreign') return 'pill-update';
+      return 'pill-unknown';
+    },
+    // Virtual-disk state pill — same colour convention.
+    dellVdStatePillClass(state) {
+      const s = String(state || '').toLowerCase();
+      if (s === 'online' || s === 'ready') return 'pill-ok';
+      if (s === 'failed' || s === 'offline' || s === 'failed-redundancy') return 'pill-error';
+      if (s === 'degraded' || s === 'verifying' || s === 'resynching'
+          || s === 'regenerating') return 'pill-update';
+      return 'pill-unknown';
+    },
     fmtUpsRuntime(seconds) {
       const s = +seconds;
       if (!Number.isFinite(s) || s <= 0) return '—';
@@ -13483,6 +13542,13 @@ function app() {
       if (host.snmp_enabled && _cacheStale(this.hostSnmpIfaceHistory[host.id])) {
         this.loadHostSnmpIfaceHistory(host.id, this.hostHistoryRange || 1);
       }
+      // Per-temperature-probe history powers the multi-line
+      // temperature chart card on Dell server hosts (#848 phase 3).
+      // Same gate + cadence; non-Dell hosts get an empty `probes`
+      // object back so the chart card stays hidden cleanly.
+      if (host.snmp_enabled && _cacheStale(this.hostSnmpTempHistory[host.id])) {
+        this.loadHostSnmpTempHistory(host.id, this.hostHistoryRange || 1);
+      }
       // Dedicated drawer-history poll (#365) — keeps the chart series +
       // the `Updated Xs ago` freshness label in sync regardless of
       // whether the operator has the host-list poll enabled (when
@@ -13593,6 +13659,45 @@ function app() {
         this.hostSnmpHistory[hostId] = {
           loading: false, error: String(e),
           points: prev.points || [], loadedAt: prev.loadedAt || 0,
+        };
+      }
+    },
+    // Per-temperature-probe history for Dell server hosts (#848
+    // phase 3). Same shape as hostSnmpIfaceHistory but keyed by
+    // probe_idx. `probes: { idx: { name, points: [{ts, c}, …] } }`.
+    hostSnmpTempHistory: {},
+    async loadHostSnmpTempHistory(hostId, hours) {
+      if (!hostId) return;
+      const h = +hours || 1;
+      const prev = this.hostSnmpTempHistory[hostId] || {};
+      this.hostSnmpTempHistory[hostId] = {
+        loading: true,
+        error: prev.error || '',
+        probes: prev.probes && typeof prev.probes === 'object' ? prev.probes : {},
+        loadedAt: prev.loadedAt || 0,
+      };
+      try {
+        const r = await fetch(
+          `/api/hosts/${encodeURIComponent(hostId)}/snmp/temp_history?hours=${h}`
+        );
+        if (!r.ok) {
+          this.hostSnmpTempHistory[hostId] = {
+            loading: false, error: `HTTP ${r.status}`,
+            probes: prev.probes || {}, loadedAt: prev.loadedAt || 0,
+          };
+          return;
+        }
+        const d = await r.json();
+        this.hostSnmpTempHistory[hostId] = {
+          loading: false,
+          error: d.error || '',
+          probes: (d.probes && typeof d.probes === 'object') ? d.probes : {},
+          loadedAt: Date.now(),
+        };
+      } catch (e) {
+        this.hostSnmpTempHistory[hostId] = {
+          loading: false, error: String(e),
+          probes: prev.probes || {}, loadedAt: prev.loadedAt || 0,
         };
       }
     },
@@ -13931,6 +14036,12 @@ function app() {
           || typeof h.host_battery_percent === 'number'
           || typeof h.host_battery_temp_c === 'number'
           || (h.host_ups_status && String(h.host_ups_status).trim())) return true;
+      // #848 phase 3 — Dell server hosts whose only SNMP surface is
+      // the temperatureProbeTable (no CPU / mem / IF-MIB; the iDRAC's
+      // standard MIB-II is locked down). Live host_dell_temps OR
+      // historical temp samples is enough to mount the grid wrapper.
+      if (Array.isArray(h.host_dell_temps) && h.host_dell_temps.length) return true;
+      if (this.dellHasTempHistory && this.dellHasTempHistory(h.id)) return true;
       return !!((h.host_cpu_per_core || []).length > 0
                 || h.host_load_1m || h.host_load_5m || h.host_load_15m
                 || h.host_mem_buffers || h.host_mem_cached);
@@ -14402,6 +14513,100 @@ function app() {
         if (p.battery_temp_c != null) return true;
       }
       return false;
+    },
+    // Dell server temperature-probe chart helpers (#848 phase 3).
+    // Multi-line — one polyline per probe, sharing a single y-axis
+    // (max across all probes) so spikes on Inlet vs Exhaust are
+    // visually comparable. Each probe gets a distinct hue from a small
+    // palette; the legend below the chart pairs name + last reading.
+    dellTempProbes(hostId) {
+      // Sorted probe metadata for the chart + legend. Returns an array
+      // of `{idx, name, points, last_c, color}` — empty when the host
+      // has no temp history yet. Sort key: probe_idx (string-natural)
+      // so Inlet (1.x) renders above Exhaust (2.x) consistently.
+      const entry = this.hostSnmpTempHistory[hostId] || {};
+      const probes = entry.probes || {};
+      const out = [];
+      const palette = [
+        'var(--info)', 'var(--warning)', 'var(--success)',
+        'var(--danger)', 'var(--primary)', '#a78bfa',
+        '#ec4899', '#06b6d4',
+      ];
+      let i = 0;
+      const idxs = Object.keys(probes).sort((a, b) => {
+        const na = a.split('.').map(n => +n || 0);
+        const nb = b.split('.').map(n => +n || 0);
+        for (let k = 0; k < Math.max(na.length, nb.length); k++) {
+          const da = na[k] || 0, db = nb[k] || 0;
+          if (da !== db) return da - db;
+        }
+        return 0;
+      });
+      for (const idx of idxs) {
+        const p = probes[idx] || {};
+        const pts = Array.isArray(p.points) ? p.points : [];
+        let lastC = null;
+        for (let j = pts.length - 1; j >= 0; j--) {
+          if (pts[j].c != null) { lastC = pts[j].c; break; }
+        }
+        out.push({
+          idx,
+          name: p.name || `temp-${idx}`,
+          points: pts,
+          last_c: lastC,
+          color: palette[i % palette.length],
+        });
+        i++;
+      }
+      return out;
+    },
+    dellTempMaxC(hostId) {
+      let m = 0;
+      const entry = this.hostSnmpTempHistory[hostId] || {};
+      const probes = entry.probes || {};
+      for (const idx of Object.keys(probes)) {
+        const pts = (probes[idx] || {}).points || [];
+        for (const pt of pts) {
+          if (pt.c != null && pt.c > m) m = pt.c;
+        }
+      }
+      // Domain floor — 60°C is a sensible upper bound for an
+      // idle / lightly-loaded server so a flat 30-40°C line still has
+      // visible vertical movement against the same axis as a loaded
+      // host hitting 65-70°C.
+      return Math.max(60, m);
+    },
+    dellTempLine(hostId, points) {
+      // SVG polyline points for one probe's series, normalised against
+      // the chart's shared y-max. Re-uses _snmpPolyPoints so the
+      // unified time-domain (1h / 6h / 24h / 7d) lines up with every
+      // other drawer chart.
+      if (!Array.isArray(points) || !points.length) return '';
+      const vals = points.map(p => (p.c != null ? +p.c : null));
+      const times = points.map(p => p.ts);
+      const max = this.dellTempMaxC(hostId);
+      return this._snmpPolyPoints(vals, max, { times });
+    },
+    dellHasTempHistory(hostId) {
+      const entry = this.hostSnmpTempHistory[hostId] || {};
+      const probes = entry.probes || {};
+      let total = 0;
+      for (const idx of Object.keys(probes)) {
+        total += ((probes[idx] || {}).points || []).length;
+        if (total >= 2) return true;
+      }
+      return false;
+    },
+    dellHasTemps(hostId) {
+      // Card-render gate. True when the live drawer payload has
+      // host_dell_temps OR the temp history has any rows. Mirrors the
+      // UPS gate's "live OR history" predicate so the card stays
+      // mounted when the live probe is briefly empty.
+      const drawer = this.drawerHost && this.drawerHost.id === hostId ? this.drawerHost : null;
+      if (drawer && Array.isArray(drawer.host_dell_temps) && drawer.host_dell_temps.length) return true;
+      const entry = this.hostSnmpTempHistory[hostId] || {};
+      const probes = entry.probes || {};
+      return Object.keys(probes).length > 0;
     },
     snmpThroughputLine(hostId, dir) {
       const vals = this.snmpThroughputBpsSeries(hostId, dir);
@@ -15060,6 +15265,9 @@ function app() {
           }
           if (typeof this.loadHostSnmpIfaceHistory === 'function') {
             tasks.push(this.loadHostSnmpIfaceHistory(this.drawerHost.id, hrs));
+          }
+          if (typeof this.loadHostSnmpTempHistory === 'function') {
+            tasks.push(this.loadHostSnmpTempHistory(this.drawerHost.id, hrs));
           }
         }
         // Also handle any legacy expanded rows (kept for back-compat —

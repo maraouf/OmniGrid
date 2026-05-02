@@ -2,6 +2,18 @@
 
 First MINOR cut after the `1.0.0` baseline — rolls up **97 closed issues** under the 1.1.0 milestone. Every entry shipped to the live deploy as a PATCH bump on the daily CI cadence; this MINOR bundles them under a single tag for rollback / changelog purposes.
 
+### Highlights
+
+- **Drawer-based host UX**: row-expansion converted to a slide-out drawer with explicit 12-col grid + slide animation; host details, debug panel and SSH-run toggles all live in the new drawer surface.
+- **Host historical charts from node-exporter** — Prometheus/Grafana-lite path for NE-only hosts. New chart card grid: CPU/Memory/Disk + Bandwidth + Disk I/O + Load Average (1m/5m/15m).
+- **Live xterm.js SSH terminal** in Admin → Hosts (admin-only WSS to a backend asyncssh PTY).
+- **Asset API integration** on host rows — model/serial/location autofill button + dirty-state tracking.
+- **Schedules infrastructure** — daily / weekly / monthly schedules now actually fire (grace window added).
+- **Vendor icons batch** — ~30 new vendor icons (Aqara, ASUS, Alienware, Amazon Fire TV, Bose, Chromecast, HDHomeRun, Humax, J-Tech Digital, Kaonmedia, Nixplay, Samsung family rationalisation, +14-icon brand batch).
+- **Admin master toggles** for Apprise / Open-Meteo / Portainer / SSH; child controls disable when the master is off; unified Save + dirty-pill pattern across every Admin tab.
+- **Multi-database scaffolding** (laying the groundwork for non-SQLite backends).
+- **i18n infrastructure** — `actions.close` and friends, every shipped string now flows through `t()`.
+
 ### Hosts editor & Host groups
 
 - Host rows joined against an external asset API for model / serial / location, with autofill button + dirty-... (#3) [Enhancement]
