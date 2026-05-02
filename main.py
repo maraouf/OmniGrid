@@ -4524,16 +4524,36 @@ async def _merge_one_host(h: dict, state: dict, *, force: bool = False) -> tuple
     # 5 minutes after the last probe even though SNMP says Updated 7m
     # ago". Write the snapshot from the per-host probe path AS WELL
     # so any host that ever has a successful probe gets a fallback
-    # source. We only persist when at least one host_* field is
-    # meaningful — empty / no-data merged dicts skip the write so we
-    # don't overwrite a good snapshot with a transient empty probe.
+    # source.
+    #
+    # Gate (#830 follow-up): persist ONLY when at least one snapshot-
+    # eligible field is LIVE (not from fallback). Pre-fix the gate
+    # was "any meaningful host_* field present" — that fired even
+    # when EVERY field came from `apply_host_snapshot_fallback`
+    # above, so the snapshot's `ts` kept refreshing to "now" on every
+    # 15s drawer poll even when no live data had been recorded for
+    # minutes. Operator-reported: printer card freshness label
+    # ("3m ago") disagreed with the SNMP chart freshness label
+    # ("6m ago") because the snapshot ts kept getting touched while
+    # the underlying samples table (which the chart freshness reads)
+    # tracked the actual last-live-probe correctly. Now the snapshot
+    # only persists when at least one snapshot-eligible field came
+    # from a LIVE provider — i.e. is meaningful AND not in
+    # `_stale_fields`. Entirely-fallback merges skip the write so
+    # the existing snapshot's `ts` stays at the genuine last-live
+    # timestamp.
     try:
         from logic.gather import (
             save_host_snapshots as _save_snaps,
             _is_snapshot_key as _snap_key,
         )
         from logic.merge import is_meaningful as _is_mean
-        if any(_snap_key(k) and _is_mean(v) for k, v in merged.items()):
+        stale_set = set(merged.get("_stale_fields") or [])
+        has_live_field = any(
+            _snap_key(k) and _is_mean(v) and k not in stale_set
+            for k, v in merged.items()
+        )
+        if has_live_field:
             _save_snaps({h["id"]: merged})
     except Exception as e:  # noqa: BLE001
         print(f"[hosts] snapshot save failed for {h.get('id')!r}: {e}")
