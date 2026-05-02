@@ -1615,7 +1615,8 @@
       "snmp_model": "Model (SNMP)",
       "snmp_serial": "Serial (SNMP)",
       "snmp_firmware": "Firmware (SNMP)",
-      "snmp_title": "Reported by the device via SNMP entPhysicalTable / vendor MIBs"
+      "snmp_title": "Reported by the device via SNMP entPhysicalTable / vendor MIBs",
+      "bios_version": "BIOS"
     },
     "asset": {
       "location_title": "Location (from asset inventory)",
@@ -1678,6 +1679,23 @@
       "status_timed_sleeping": "Timed sleeping",
       "status_unknown": "Unknown"
     },
+    "server_health": {
+      "heading": "Server health",
+      "fans": "Fans",
+      "temperatures": "Temperature probes",
+      "psus": "Power supplies",
+      "voltages": "Voltage probes",
+      "physical_disks": "Physical disks",
+      "virtual_disks": "Virtual disks",
+      "rpm": "RPM",
+      "power_consumption": "Power",
+      "status_ok": "OK",
+      "status_non_critical": "Warning",
+      "status_critical": "Critical",
+      "status_non_recoverable": "Non-recoverable",
+      "status_unknown": "Unknown",
+      "status_other": "Other"
+    },
     "printer": {
       "heading": "Printer",
       "page_count": "{count} pages printed",
@@ -1733,6 +1751,7 @@
       "ups_battery_legend": "Battery",
       "ups_battery_temp_title": "UPS battery temperature",
       "ups_battery_temp_legend": "Temp",
+      "dell_temps_title": "Server temperatures",
       "pages_title": "Pages printed",
       "legend_lifetime": "Lifetime",
       "legend_pages_per_day": "Pages / day",

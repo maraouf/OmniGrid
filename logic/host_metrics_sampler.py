@@ -930,6 +930,36 @@ async def _probe_one_snmp(host: dict, sem: asyncio.Semaphore) -> None:
                                     "VALUES (?, ?, ?, ?, ?, ?)",
                                     iface_rows,
                                 )
+                        # Per-temperature-probe sample rows for Dell
+                        # server hosts (#848 phase 3). One row per probe
+                        # per tick when the SNMP probe extracted any
+                        # temperatureProbeTable entries with a valid
+                        # celsius reading. Skip-don't-synthesize: rows
+                        # whose `celsius` came back None (sentinel /
+                        # disconnected probe) are NOT inserted, so a
+                        # temporary read failure on probe N doesn't
+                        # paper its line over with a flat zero.
+                        temps = stats.get("host_dell_temps") or []
+                        if temps:
+                            temp_rows = []
+                            for row in temps:
+                                cel = row.get("celsius")
+                                if cel is None:
+                                    continue
+                                idx = str(row.get("idx") or "")
+                                if not idx:
+                                    continue
+                                name = row.get("name") or f"temp-{idx}"
+                                temp_rows.append((
+                                    int(now), hid, idx, name, float(cel),
+                                ))
+                            if temp_rows:
+                                c.executemany(
+                                    "INSERT OR REPLACE INTO host_snmp_temp_samples "
+                                    "(ts, host_id, probe_idx, probe_name, value_c) "
+                                    "VALUES (?, ?, ?, ?, ?)",
+                                    temp_rows,
+                                )
         except Exception as e:  # noqa: BLE001
             print(f"[host_metrics_sampler] {snmp_key} snmp_sample insert failed: {e}")
 
@@ -951,6 +981,12 @@ def _prune_old_samples() -> int:
             # active interface per tick); same retention window.
             cur3 = c.execute("DELETE FROM host_snmp_iface_samples WHERE ts < ?", (cutoff,))
             removed += cur3.rowcount or 0
+            # Per-temperature-probe rows on Dell server hosts (#848
+            # phase 3). Multi-row-per-tick (typically 4-12 probes per
+            # iDRAC) so the retention budget gets consumed quickly on a
+            # fleet of servers; same window as the rest.
+            cur4 = c.execute("DELETE FROM host_snmp_temp_samples WHERE ts < ?", (cutoff,))
+            removed += cur4.rowcount or 0
             return removed
     except Exception as e:
         print(f"[host_metrics_sampler] prune failed: {e}")
