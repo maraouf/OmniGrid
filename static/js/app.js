@@ -8822,6 +8822,29 @@ function app() {
       return parts.length ? parts.join(' · ') : '';
     },
     openDrawer(item) { this.drawerItem = item; },
+    // Body-scroll lock helper (#835). Called from the Alpine root's
+    // `x-effect` whenever any drawer-state changes — sets / clears a
+    // `.drawer-scroll-lock` class on BOTH html and body so the scroll
+    // viewport (which varies by browser — Chrome on html, Safari on
+    // body) doesn't accept wheel input while a drawer is open. The
+    // CSS rule pairs `overflow: hidden !important` on the class so it
+    // wins against the existing `overflow-x: clip` rule. Three reactive
+    // arguments (`drawerHost` / `drawerItem` / `drawerNode`) are
+    // passed in so Alpine's effect tracker registers reads of all
+    // three; without that an IIFE wrapping the same logic might
+    // miss the dependency tracking.
+    _applyDrawerScrollLock(host, item, node) {
+      const lock = !!(host || item || node);
+      const html = document.documentElement;
+      const body = document.body;
+      if (lock) {
+        html.classList.add('drawer-scroll-lock');
+        body.classList.add('drawer-scroll-lock');
+      } else {
+        html.classList.remove('drawer-scroll-lock');
+        body.classList.remove('drawer-scroll-lock');
+      }
+    },
 
     // --- Admin → Hosts: curated host list editor ---
     async loadHostsConfig() {

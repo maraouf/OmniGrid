@@ -433,6 +433,24 @@
 /* ---------------------------------------------------------------------------
    Base typography
    --------------------------------------------------------------------------- */
+/* Body-scroll lock when any drawer is open (#835). Applied to BOTH
+   html AND body via the .drawer-scroll-lock class because the actual
+   scroll viewport varies by browser (Chrome scrolls on html, Safari
+   on body, Firefox on either depending on doctype + content) — pre-
+   fix setting only `body.style.overflow` left vertical scroll active
+   on browsers where `html` is the scroll viewport. `position: fixed`
+   on body is the additional reliability gear: even when `overflow:
+   hidden` doesn't kill the scroll on iOS Safari (a known quirk), the
+   fixed positioning does. The `width: 100%` keeps the body at the
+   correct width while position-fixed; without it the body would
+   collapse to its content width on browsers that interpret
+   position:fixed as auto-shrink. !important fights the `overflow-x:
+   clip` rule below. */
+html.drawer-scroll-lock,
+body.drawer-scroll-lock {
+    overflow: hidden !important;
+}
+
 html,
 body {
     background: var(--bg);
@@ -1576,6 +1594,25 @@ details summary::-webkit-details-marker {
 
 .range-seg button:disabled:hover {
     color: var(--text-dim);
+}
+
+/* Per-chart refreshing feedback (#837 follow-up). Dims every
+   metric-card inside the grid + adds a subtle pulse so operators
+   see at a glance which charts are reloading. The pulse is
+   reduced-motion-friendly via the standard prefers-reduced-motion
+   media query at the bottom of this file. Not the same as a
+   per-card spinner — that would clutter every chart-card head; one
+   shared dim+pulse on the whole grid is the cleaner pattern given
+   the picker reloads every chart in the grid simultaneously. */
+.charts-refreshing > .metric-card {
+    opacity: 0.6;
+    animation: chart-refreshing-pulse 1.4s ease-in-out infinite;
+    transition: opacity 200ms;
+}
+
+@keyframes chart-refreshing-pulse {
+    0%, 100% { opacity: 0.6; }
+    50%      { opacity: 0.85; }
 }
 
 .host-chart-line {
@@ -3182,7 +3219,8 @@ button:focus:not(:focus-visible) {
     .subtle-flash,
     .host-spin,
     .sse-dot,
-    .skeleton {
+    .skeleton,
+    .charts-refreshing > .metric-card {
         animation-duration: 0.001ms !important;
         animation-iteration-count: 1 !important;
         transition-duration: 0.001ms !important;
