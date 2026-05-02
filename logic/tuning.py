@@ -263,6 +263,15 @@ TUNABLES: dict[str, tuple[str, int, int, int]] = {
     # reading is still a crit.
     "tuning_stat_bar_warn_pct": ("STAT_BAR_WARN_PCT", 60, 30, 90),
     "tuning_stat_bar_crit_pct": ("STAT_BAR_CRIT_PCT", 85, 50, 99),
+    # In-app notifications retention window (days). The
+    # `prune_notifications` schedule kind reads this to delete rows from
+    # the `notifications` table older than `now - days * 86400`. Default
+    # 90d — operators want a longer trail than persistent logs (7d) so
+    # they can see "what happened last quarter" in the Notifications page
+    # without exporting to an external log store. Min 1d (a daily run
+    # would otherwise have nothing to prune); max ~10y as the same
+    # runaway-disk safety net other retention knobs carry.
+    "tuning_notification_retention_days": ("NOTIFICATION_RETENTION_DAYS", 90, 1, 3650),
 }
 
 

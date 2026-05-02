@@ -476,6 +476,12 @@ async def _record_failure(
                     asyncio.create_task(_notify_with_retry(
                         title, body, "error",
                         event="host_paused",
+                        target_kind="host", target_id=str(bare_host),
+                        metadata={
+                            "provider": provider or "",
+                            "consecutive_failures": int(new_fails),
+                            "paused_minutes": int(paused_minutes),
+                        },
                         retries=1,
                         retry_after=60.0,
                         label=f"host_metrics_sampler {host_id!r}",
