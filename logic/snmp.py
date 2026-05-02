@@ -1629,6 +1629,7 @@ async def probe_snmp(
     timeout: float = 5.0,
     active_sources: Optional[set[str]] = None,
     verbose: bool = False,
+    bypass_cooldown: bool = False,
 ) -> dict:
     """Probe one SNMP-speaking host. See module docstring for the contract.
 
@@ -1663,17 +1664,26 @@ async def probe_snmp(
     if not (1 <= port_int <= 65535):
         port_int = 161
 
-    cd = _in_cooldown(host_clean, port_int)
-    if cd is not None:
-        return {
-            "hosts": {},
-            "error": f"snmp: in cool-down ({int(cd)}s remaining) — "
-                     f"host was unreachable on the previous probe",
-            # Structured marker — see logic/webmin.py for the rationale.
-            # Auto-pause counters check this to avoid counting a cool-
-            # down skip toward the threshold.
-            "skipped_cooldown": True,
-        }
+    # Cool-down throttles AUTOMATIC background probes (sampler /
+    # gather fan-out) when a host is unreachable, so the next 5
+    # minutes of routine ticks don't burn UDP timeouts in parallel.
+    # Operator-initiated tests (Admin → Hosts → Test connection)
+    # MUST bypass — the operator clicked Test specifically to
+    # validate connectivity NOW, and gating their click on the
+    # cool-down means they can never see whether their fix worked
+    # until the cool-down expires.
+    if not bypass_cooldown:
+        cd = _in_cooldown(host_clean, port_int)
+        if cd is not None:
+            return {
+                "hosts": {},
+                "error": f"snmp: in cool-down ({int(cd)}s remaining) — "
+                         f"host was unreachable on the previous probe",
+                # Structured marker — see logic/webmin.py for the rationale.
+                # Auto-pause counters check this to avoid counting a cool-
+                # down skip toward the threshold.
+                "skipped_cooldown": True,
+            }
 
     auth = _build_auth_data(
         version=version,

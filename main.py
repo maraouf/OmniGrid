@@ -3351,7 +3351,24 @@ async def api_snmp_test(
         v3_auth_key=v3_auth,
         v3_priv_key=v3_priv,
         timeout=snmp_timeout,
+        # Operator clicked Test — bypass the unreachable-cool-down so
+        # they can validate connectivity NOW even if the last automatic
+        # probe failed and armed the 5-min throttle. Without this, an
+        # operator fixing an SNMP misconfig (community / port / v3
+        # creds) could never re-test until the cool-down expired.
+        bypass_cooldown=True,
     )
+    # If the operator-initiated probe succeeded, clear any pending
+    # cool-down so the next automatic sampler tick picks up the host
+    # immediately instead of waiting another 5 min for the throttle
+    # to age out. The cool-down clear inside probe_snmp itself only
+    # fires when the probe actually got data — so a 200-but-empty
+    # response doesn't reset the throttle by accident.
+    if result.get("hosts") and not result.get("error"):
+        try:
+            _snmp._clear_cooldown(host, port)
+        except Exception:
+            pass
     if result.get("error") and not result.get("hosts"):
         return {"ok": False,
                 "detail": _humanise_probe_error(result["error"], "SNMP")}
