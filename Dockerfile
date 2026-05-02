@@ -12,7 +12,7 @@
 # PATCH, and passes the result via --build-arg VERSION. Local builds
 # without the arg fall back to "0.0.0-dev" (visible signal in the UI).
 
-FROM python:3.12-slim
+FROM python:3.14-slim
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
