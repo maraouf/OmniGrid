@@ -88,7 +88,12 @@ updates:
   # Dependabot's docker ecosystem only bumps within the matched tag
   # pattern, so the Dockerfile's `FROM python:3.14-slim` line drives
   # what Dependabot tracks. Update that line manually when you want
-  # to move to a newer Python minor.
+  # to move to a newer Python minor; the Dockerfile's transient
+  # build-deps block (build-essential / libffi-dev / libssl-dev,
+  # purged after pip install) handles missing cp3X wheels by falling
+  # back to sdist compilation, so a fresh-minor bump won't fail at
+  # pod boot just because a heavy native dep hasn't published the
+  # new ABI's wheel yet.
   - package-ecosystem: "docker"
     directory: "/"
     schedule:

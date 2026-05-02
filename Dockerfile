@@ -22,15 +22,19 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 WORKDIR /app
 
 # Python deps in their own layer so source-only changes hit the cache.
-# python:3.14-slim is the current minor line at build time. If a future
-# dep needs to compile from source (e.g. a wheel that hasn't published a
-# 3.14 build yet on a transitional bump), add a transient build-deps
-# block here:
-#   RUN apt-get update && apt-get install -y --no-install-recommends \
-#         build-essential libffi-dev libssl-dev \
-#       && pip install -r requirements.txt \
-#       && apt-get purge -y build-essential libffi-dev libssl-dev \
-#       && apt-get autoremove -y && rm -rf /var/lib/apt/lists/*
+# python:3.14-slim was bumped from 3.12 — bcrypt / cryptography
+# (transitive: PyJWT[crypto] + asyncssh) routinely lag a Python
+# minor by weeks-to-months in their cp3X wheel publishing on PyPI.
+# When pip can't find a binary wheel for the running interpreter it
+# falls to sdist, which needs the standard C build chain. The slim
+# image deliberately strips it; we install + purge in one layer so
+# missing wheels compile transparently without bloating the final
+# image. Linger cost: ~30-60s longer build when wheels ARE available
+# for every dep (apt download + index update); zero runtime cost
+# (purge-then-autoremove drops the layer's growth before commit).
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends build-essential libffi-dev libssl-dev \
+ && rm -rf /var/lib/apt/lists/*
 COPY requirements.txt /app/requirements.txt
 # Always upgrade to the latest pip available at build time. A pip
 # release that breaks resolution would surface immediately as a failed
@@ -40,7 +44,9 @@ COPY requirements.txt /app/requirements.txt
 # If you ever need to pin (e.g. reproducing an exact historic image),
 # replace `pip` with `pip==<version>` on the upgrade line.
 RUN pip install --upgrade pip \
- && pip install -r /app/requirements.txt
+ && pip install -r /app/requirements.txt \
+ && apt-get purge -y --auto-remove build-essential libffi-dev libssl-dev \
+ && rm -rf /var/lib/apt/lists/*
 
 # Source. .dockerignore filters dev-only files BEFORE this COPY runs.
 COPY . /app
