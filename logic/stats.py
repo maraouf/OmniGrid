@@ -30,8 +30,31 @@ from logic.db import db_conn
 _stats_cache: dict = {"stats": {}, "ts": 0.0}
 
 
+# Per-Swarm-node "agent appears unreachable" tracker — populated at
+# the end of every successful `gather_stats` based on what fraction
+# of task-derived cids on each node returned stats. After N consecutive
+# gathers where the node had running tasks but ZERO successful stats
+# calls, surfaces in `/api/stats` as `unhealthy_agents` so the SPA
+# banner can flag the operator. Common cause: Swarm manager bounced,
+# Portainer agents on workers didn't re-register cleanly. Operator
+# fix: `docker service update --force <portainer-agent-service>` on
+# the manager. Auto-restart is tracked separately for LATER.
+#
+# Shape: {hostname: {fails: int, since_ts: float, task_cids: int}}
+#   - fails: consecutive bad gathers
+#   - since_ts: epoch of FIRST bad gather (how long has this been broken?)
+#   - task_cids: how many task-derived cids were observed on the node
+#                during the most recent bad gather (operator-facing
+#                hint for "N containers worth of metrics are missing")
+_agent_health: dict[str, dict] = {}
+
+
 def get_stats_cache() -> dict:
     return _stats_cache
+
+
+def get_agent_health() -> dict:
+    return _agent_health
 
 
 def seed_stats_cache_from_db() -> int:
@@ -220,6 +243,7 @@ def _parse_stats_payload(s: dict) -> dict:
 
 async def _one_container_stats(
     client: httpx.AsyncClient, ep: str, cid: str, node: Optional[str] = None,
+    *, fallback_nodes: Optional[list[str]] = None,
 ) -> Optional[dict]:
     """One-shot Docker stats for a running container. Returns None on failure.
 
@@ -284,27 +308,67 @@ async def _one_container_stats(
             # total worst-case at targeted_to + 1s overhead so a fleet
             # of 100 stats calls doesn't blow the gather wall-clock.
             await asyncio.sleep(0.3 + 0.4 * attempt)
+    untargeted_status: Optional[int] = None
+    untargeted_err: Optional[str] = None
     try:
         r = await client.get(url, headers=portainer.headers(), timeout=untargeted_to)
         if r.status_code == 200:
             return _parse_stats_payload(r.json())
-        if node:
-            print(f"[stats] {cid[:12]} no stats — "
-                  f"agent_target={node} status={targeted_status or 'err'}"
-                  f"{' (' + targeted_err + ')' if targeted_err else ''}, "
-                  f"untargeted status={r.status_code}")
-        else:
-            print(f"[stats] {cid[:12]} no stats — untargeted status={r.status_code}")
-        return None
+        untargeted_status = r.status_code
     except Exception as e:
-        if node:
-            print(f"[stats] {cid[:12]} no stats — "
-                  f"agent_target={node} status={targeted_status or 'err'}"
-                  f"{' (' + targeted_err + ')' if targeted_err else ''}, "
-                  f"untargeted err: {type(e).__name__}: {e}")
-        else:
-            print(f"[stats] {cid[:12]}: {type(e).__name__}: {e}")
-        return None
+        untargeted_err = f"{type(e).__name__}: {e}"
+
+    # Brute-force fallback — try each OTHER known Swarm hostname as
+    # agent_target. Catches the case where the tasks-endpoint NodeID
+    # points at a node whose Portainer agent doesn't actually host
+    # the cid (stale scheduler state, container moved between nodes
+    # mid-gather, or per-node /containers/json gap that left the cid
+    # off the resolved-node sweep). Single-attempt per fallback host
+    # — no retry — so a 5-node fleet pays at most 4 extra calls per
+    # failing cid. Skips the originally-tried `node` to avoid double-
+    # billing the retry that already happened.
+    fallback_used: Optional[str] = None
+    fallback_status_map: dict[str, int] = {}
+    if fallback_nodes:
+        for alt in fallback_nodes:
+            if alt == node or not alt:
+                continue
+            try:
+                r = await client.get(
+                    url, headers=portainer.headers(agent_target=alt),
+                    timeout=targeted_to,
+                )
+                if r.status_code == 200:
+                    fallback_used = alt
+                    payload = _parse_stats_payload(r.json())
+                    print(f"[stats] {cid[:12]} fallback agent_target={alt} succeeded "
+                          f"(originally resolved to {node!r})")
+                    return payload
+                fallback_status_map[alt] = r.status_code
+            except Exception as e:
+                fallback_status_map[alt] = -1
+                print(f"[stats] {cid[:12]} fallback agent_target={alt} err: "
+                      f"{type(e).__name__}: {e}")
+
+    # All paths exhausted — log a single diagnostic line that captures
+    # every attempt's status code so the operator can see exactly
+    # which agent has the cid (or doesn't).
+    parts = []
+    if node:
+        parts.append(f"agent_target={node} status={targeted_status or 'err'}"
+                     + (f" ({targeted_err})" if targeted_err else ""))
+    if untargeted_status is not None:
+        parts.append(f"untargeted status={untargeted_status}")
+    elif untargeted_err:
+        parts.append(f"untargeted err: {untargeted_err}")
+    if fallback_status_map:
+        fb_parts = ", ".join(f"{h}={s}" for h, s in fallback_status_map.items())
+        parts.append(f"fallback {{{fb_parts}}}")
+    if parts:
+        print(f"[stats] {cid[:12]} no stats — " + "; ".join(parts))
+    else:
+        print(f"[stats] {cid[:12]} no stats")
+    return None
 
 
 async def gather_stats() -> None:
@@ -482,13 +546,62 @@ async def gather_stats() -> None:
                   f"not present in container list (worker-node visibility gap)")
 
         sem = asyncio.Semaphore(portainer.stats_concurrency())
+        # Brute-force fallback list — every Swarm hostname OmniGrid
+        # knows about. Passed to `_one_container_stats` as the last-
+        # ditch retry pool when both the resolved-node agent_target
+        # and untargeted call fail. Built once and reused across
+        # every fetch so we don't pay the dict.values() cost per cid.
+        all_hostnames: list[str] = list(hostnames)
 
         async def fetch(cid: str):
             async with sem:
-                return cid, await _one_container_stats(client, ep, cid, node_by_cid.get(cid))
+                return cid, await _one_container_stats(
+                    client, ep, cid, node_by_cid.get(cid),
+                    fallback_nodes=all_hostnames,
+                )
 
         results = await asyncio.gather(*(fetch(cid) for cid in running_cids))
         stats_by_cid = {cid: s for cid, s in results if s}
+
+        # Per-Swarm-node agent-health bookkeeping. After every gather,
+        # tally per-host stats success vs total task-derived cids. A
+        # node is "tried this gather" if it had ≥1 running task cid;
+        # "passing" if at least one of those returned stats; "failing"
+        # if every one returned None. Failing nodes increment the
+        # consecutive-failure counter; passing nodes reset to 0. Once
+        # the counter crosses `tuning_swarm_agent_unhealthy_threshold`,
+        # the SPA banner fires. Common cause: Swarm manager bounced,
+        # Portainer agents on workers didn't re-register cleanly.
+        per_node_total: dict[str, int] = {}
+        per_node_passed: dict[str, int] = {}
+        for cid in running_cids:
+            n = node_by_cid.get(cid)
+            if not n:
+                continue
+            per_node_total[n] = per_node_total.get(n, 0) + 1
+            if cid in stats_by_cid:
+                per_node_passed[n] = per_node_passed.get(n, 0) + 1
+        now_ts = time.time()
+        for host in list(_agent_health.keys()):
+            # Stale entry — host no longer in this gather's set; let
+            # it age out so a removed node doesn't pin the banner.
+            if host not in per_node_total:
+                _agent_health.pop(host, None)
+        for host, total in per_node_total.items():
+            passed = per_node_passed.get(host, 0)
+            if passed > 0:
+                # Any single success resets the counter — agent is alive.
+                _agent_health.pop(host, None)
+            else:
+                cur = _agent_health.get(host) or {
+                    "fails": 0, "since_ts": now_ts, "task_cids": total,
+                }
+                cur["fails"] = cur.get("fails", 0) + 1
+                cur["task_cids"] = total
+                # since_ts is set on the FIRST bad gather, kept stable
+                # so the SPA can show "broken for X minutes".
+                cur.setdefault("since_ts", now_ts)
+                _agent_health[host] = cur
 
         out: dict[str, dict] = {}
         for item in items_cache["items"]:
