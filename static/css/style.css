@@ -1156,29 +1156,42 @@ button:disabled {
     border-color: var(--chip-br);
 }
 
-/* `.chip-active` highlights a chip as the currently-selected
- * filter (Hosts-toolbar provider chips, notifications-popup severity
- * chips, etc.). Pre-fix used a 1px inset ring + 8% brightness — too
- * subtle on top of the tinted `.pill-*` backgrounds, operators
- * couldn't tell which severity was selected at a glance. Post-fix:
- * (1) a 2px outline ring in `currentColor` with a 2px offset so a
- *     visible halo sits OUTSIDE the chip border (independent of the
- *     pill's tinted bg / border so it stays prominent regardless of
- *     severity colour);
- * (2) a 2px inset shadow in the SAME colour so the chip itself reads
- *     as "pressed in" / focus-visible, complementing the outer halo;
- * (3) `font-weight: 600` so the label visibly bolds — colour-blind
- *     operators get a non-colour signal too;
- * (4) brightness bump retained for hover/active polish. Multi-select
- *     friendly — several chips can be active at once (Hosts toolbar
- *     uses this). Removing the chip from the filter set reverts to
- *     the base style. */
+/* `.chip-active` highlights a chip as the currently-selected filter
+ * (Hosts-toolbar provider chips, notifications-popup severity chips,
+ * etc.). The earlier "outline halo + inset ring" treatment was too
+ * heavy and operators called it ugly; a thin solid border + bold
+ * label + a small leading dot in the chip's own colour gives a clean
+ * "selected" cue without competing with the chip's pill colour.
+ * - `border` becomes a 1px solid in `currentColor` (the chip's text
+ *   colour, which matches the pill family). On a `.pill-error` chip
+ *   that's red; on `.pill-info` it's blue; on the neutral "All" chip
+ *   it falls back to `--text-dim`.
+ * - `font-weight: 600` so the label bolds — gives colour-blind
+ *   operators a non-colour signal too.
+ * - The `::before` dot is the operator-suggested visual cue: a small
+ *   solid disc in `currentColor` rendered inside the chip just before
+ *   the label. It only appears on `.chip-active` and disappears the
+ *   moment the chip is deselected.
+ * - `margin-inline-end` keeps RTL clean. */
 .chip.chip-active {
-    outline: 2px solid currentColor;
-    outline-offset: 2px;
-    box-shadow: 0 0 0 2px currentColor inset, 0 1px 3px var(--label-shadow);
+    border-color: currentColor;
     font-weight: 600;
-    filter: brightness(1.08);
+}
+.chip.chip-active::before {
+    content: '';
+    display: inline-block;
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: currentColor;
+    margin-inline-end: var(--s-2);
+    vertical-align: middle;
+    /* Pull the baseline up a hair so the dot visually centres against
+     * the lowercase label height — the label sits at ~70% of the chip
+     * box because of the 11.5px font + line-height inheritance, so the
+     * dot's geometric centre would otherwise track the box centre and
+     * read as slightly low. */
+    transform: translateY(-1px);
 }
 button.chip {
     /* Override <button>'s inherited bold/center alignment so chips
