@@ -34,11 +34,14 @@ the next release, this whole block becomes the `[X.Y.0]` entry below.
 
 ### Internal
 
+- CI workflow moved to Node.js 24 ahead of the September 2026 Node 20 removal. `.github/workflows/publish-ghcr.yml` sets `FORCE_JAVASCRIPT_ACTIONS_TO_NODE24="true"` at workflow scope so every JS-based step (`actions/checkout` / `docker/*`) runs on the supported runtime end-to-end. Dependabot's internal graph-build jobs need the same switch via a repo-level Actions variable; documented in `.github/dependabot.yml`'s comment block since the workflow `env:` doesn't reach Dependabot's runner.
 - `logic.ops.notify(...)` now accepts optional `target_kind` / `target_id` / `metadata` kwargs that flow into the in-app store's metadata column. Existing call sites are back-compat — the new kwargs default to None and the legacy three-positional signature still works. Five `_do_*` op handlers and four user-login paths thread the new kwargs so the in-app rows carry actionable target hints (host id, stack id, container id, login method).
 - New `notifications` SQLite table with indexes on `ts DESC` and a partial index on `read_at IS NULL` for the unread-count probe. Auth + retention plumbed through the standard four-place hydration audit (SettingsIn / api_get_settings / api_set_settings / loadSettings) so the per-medium toggles round-trip cleanly across browser tabs.
 
 ### Fixed
 
+- Notifications popup capped via server-side pagination — Prev / Next swap one page at a time so a fleet with 1000+ notifications never piles them all into the DOM. "Showing A–B of N (page X of Y)" footer + Prev / Next buttons; the response replaces the in-memory list (no client-side accumulation).
+- `.chip-active` style now visibly distinct on top of severity-tinted chip backgrounds. Pre-fix the 1px inset ring + 8% brightness bump was lost against `.pill-error` / `.pill-ok` / `.pill-update` / `.pill-info` — operators clicked a severity filter in the notifications popup and couldn't tell which was selected. Post-fix: 2px outline halo + 2px inset shadow + bold label.
 - Off-by-one `</div>` in `static/index.html` (introduced in the drawer-extraction refactor) closed; div counts balance at 1228/1228. The "Element div is not closed" IDE warning resolves.
 - Notification popup severity filter chips now carry per-severity brand colours (info=blue, success=green, warning=amber, error=red) so the selected level is visually unmistakable; the active chip also gets an inset ring + brightness bump via the existing `chip-active` class.
 - New keyboard shortcut `n` opens the notifications popup. Esc closes it (alongside the existing modal/drawer/selection/filter cascade).

@@ -68,6 +68,8 @@
     "filter_event": "Event:",
     "filter_unread_only": "Unread only",
     "unread_count": "{count} unread",
+    "showing_count": "Showing {from}–{to} of {total} (page {page} of {pages})",
+    "load_more": "Load more",
     "severity": {
       "info": "Info",
       "warning": "Warning",

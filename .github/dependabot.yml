@@ -13,6 +13,24 @@
 # review queue.
 #
 # Reference: https://docs.github.com/en/code-security/dependabot/dependabot-version-updates/configuration-options-for-the-dependabot.yml-file
+#
+# Run Dependabot's internal jobs on Node.js 24 (not 20)
+# ─────────────────────────────────────────────────────
+# Dependabot's GitHub-internal jobs (update-pip-graph / update-npm-graph
+# / update-docker-graph) run under `github/dependabot-action@main`,
+# which currently defaults to Node 20. Node 20 will be REMOVED from
+# the GitHub runners in September 2026. Switch the runtime to Node 24
+# now by setting a repo-level Actions variable in the GitHub UI:
+#   Settings → Secrets and variables → Actions → Variables → New
+#   Name:  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24
+#   Value: true
+# That makes every JS-based action — including Dependabot's internal
+# jobs — execute on Node 24 immediately. Setting it inside this YAML
+# does NOT work because Dependabot's runner ignores repo-side workflow
+# files; the variable must live at the repo / org level.
+#
+# Once Node 24 becomes the runner default (mid-2026), the variable
+# is redundant and can be removed.
 
 version: 2
 updates:
