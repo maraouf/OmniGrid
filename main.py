@@ -6947,6 +6947,12 @@ async def api_hosts_debug(
                     v3_priv_key=v3_priv,
                     timeout=10.0, active_sources=active,
                     verbose=True,
+                    # Debug panel is operator-initiated (admin opened
+                    # the host drawer's debug section) — bypass the
+                    # unreachable cool-down so the panel always shows
+                    # a real probe result rather than the throttle
+                    # placeholder. Same rationale as `/api/snmp/test`.
+                    bypass_cooldown=True,
                 )
                 providers_raw["snmp"] = {
                     "target":     snmp_target,
