@@ -56,7 +56,7 @@ For every TODO item:
 2. Implement.
 3. Move the row to `## Pending Validation` (`[?]`) once the code is on
    disk and smoke-checks pass locally.
-4. Push to `main`. The Forgejo Actions pipeline (`.forgejo/workflows/deploy.yml`):
+4. Push to `main`. The CI pipeline (`.forgejo/workflows/deploy.yml`):
    - rsyncs the build context to `/opt/omnigrid/app` on the Swarm manager,
    - resolves the previous version from THREE sources and picks the
      highest semver:
@@ -68,7 +68,7 @@ For every TODO item:
      3. **Highest existing `omnigrid:<X.Y.Z>` tag** in the local image
         registry on the manager (covers post-rollback scenarios).
    - increments PATCH by 1, runs `docker build --build-arg VERSION=<new>`,
-     pushes `omnigrid:<new>` + `omnigrid:latest` to the Forgejo container
+     pushes `omnigrid:<new>` + `omnigrid:latest` to the container
      registry, and `docker service update --force --image <reg>:<new>` rolls
      the running task in zero-downtime via Swarm's `start-first` +
      `failure_action: rollback` update_config.

@@ -1,8 +1,7 @@
 # Contributing to OmniGrid
 
 Thanks for taking the time to look at OmniGrid. This file is the short
-on-ramp for outside contributors; the deep architectural reference is
-[`CLAUDE.md`](CLAUDE.md), and operator-facing runbooks live under
+on-ramp for outside contributors; operator-facing runbooks live under
 [`docs/`](docs/).
 
 OmniGrid is a small project maintained as a homelab tool first and a
@@ -88,8 +87,7 @@ The fast path for a feature proposal is a GitHub issue with:
 
 For larger ideas (new host-stats provider, new auth method, new
 storage backend, etc.) the issue + design conversation should land
-**before** the PR — there's an existing canonical "add a host-stats
-provider" checklist in `CLAUDE.md` that proposals can lean on.
+**before** the PR so we can align on shape and scope before code lands.
 
 ## Local development
 
@@ -128,8 +126,8 @@ with defaults and migration notes.
 
 ## Conventions you need to know
 
-The full conventions list is in [`CLAUDE.md`](CLAUDE.md) — please skim
-it before your first PR. The non-obvious ones:
+A few load-bearing conventions are worth knowing before your first PR.
+The non-obvious ones:
 
 - **i18n is strict.** Every user-visible string in HTML / JS goes
   through `t('key.path')` and lives in `static/i18n/en.json`. Hardcoded

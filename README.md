@@ -15,7 +15,7 @@ A Portainer-native operations dashboard for Docker Swarm clusters **and the bare
 
 Built as a friendlier replacement for Diun Dash plus the tab-jumping between Portainer / Beszel / Grafana / SSH that homelab clusters tend to grow. Diun only **observes**; OmniGrid **acts**.
 
-📋 **Releases & changelog:** see [`CHANGELOG.md`](CHANGELOG.md) for the full per-version release notes (Keep a Changelog format). Per-version links jump to the matching Forgejo milestone. The release cadence (PATCH on every deploy, periodic operator-cut MINORs) is documented in [`docs/RELEASE_PROCESS.md`](docs/RELEASE_PROCESS.md).
+📋 **Releases & changelog:** see [`CHANGELOG.md`](CHANGELOG.md) for the full per-version release notes (Keep a Changelog format). Per-version links jump to the matching milestone. The release cadence (PATCH on every deploy, periodic operator-cut MINORs) is documented in [`docs/RELEASE_PROCESS.md`](docs/RELEASE_PROCESS.md).
 
 <!-- Screenshots live under `docs/screenshots/` — see the gallery below
      for the full set. The hero shot is the Nodes view (Stacks grouped
@@ -63,7 +63,7 @@ Built as a friendlier replacement for Diun Dash plus the tab-jumping between Por
 
 ### Deploy story
 - **No Docker socket** — every Docker call goes through Portainer's REST API.
-- **Image-build deploy** (#609) — Forgejo Actions pipeline rsyncs the build context (Dockerfile + source + `node_modules/`) to the Swarm manager, builds an `omnigrid:<version>` image there, pushes to a Forgejo container registry, and force-updates the Swarm service onto the new tag. Each version is pinned in Swarm's task spec so manual rollback has a discrete tag to point at.
+- **Image-build deploy** (#609) — CI pipeline rsyncs the build context (Dockerfile + source + `node_modules/`) to the Swarm manager, builds an `omnigrid:<version>` image there, pushes to a container registry, and force-updates the Swarm service onto the new tag. Each version is pinned in Swarm's task spec so manual rollback has a discrete tag to point at.
 - **Self-healing** — Swarm `update_config: start-first, failure_action: rollback, monitor: 30s` so a failed deploy auto-rolls back (the same template OmniGrid recommends for services it manages).
 
 ## Architecture
@@ -88,7 +88,7 @@ Built as a friendlier replacement for Diun Dash plus the tab-jumping between Por
 
 ## Deploy
 
-The canonical production deploy is the Forgejo Actions pipeline at `.forgejo/workflows/deploy.yml` — push to `main`, the runner rsyncs the build context to the Swarm manager, builds the `omnigrid:<version>` image there, pushes to the configured registry, and force-updates the running stack. Full operator runbook (runner setup, deploy-key rotation, registry credentials, manual rollback) lives in [`docs/guidelines/deploy.md`](docs/guidelines/deploy.md).
+The canonical production deploy is the CI pipeline at `.forgejo/workflows/deploy.yml` — push to `main`, the runner rsyncs the build context to the Swarm manager, builds the `omnigrid:<version>` image there, pushes to the configured registry, and force-updates the running stack. Full operator runbook (runner setup, deploy-key rotation, registry credentials, manual rollback) lives in [`docs/guidelines/deploy.md`](docs/guidelines/deploy.md).
 
 For a one-off / manual stand-up:
 
@@ -274,7 +274,7 @@ Full schema for each endpoint lives in `main.py` — every route is decorated wi
 
 ## Updating OmniGrid itself
 
-The Forgejo Actions pipeline handles the full update flow: `git push origin main` rsyncs the build context, runs `docker build --build-arg VERSION=<new>` on the manager, pushes the tag to the registry, and force-updates the running service onto it. CI also auto-bumps PATCH on every successful deploy. See [`docs/guidelines/deploy.md`](docs/guidelines/deploy.md) for the full runbook.
+The CI pipeline handles the full update flow: `git push origin main` rsyncs the build context, runs `docker build --build-arg VERSION=<new>` on the manager, pushes the tag to the registry, and force-updates the running service onto it. CI also auto-bumps PATCH on every successful deploy. See [`docs/guidelines/deploy.md`](docs/guidelines/deploy.md) for the full runbook.
 
 For manual updates without the pipeline, rsync the build context to the manager and rebuild + redeploy:
 
