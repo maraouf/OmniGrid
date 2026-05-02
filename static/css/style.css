@@ -1564,6 +1564,20 @@ details summary::-webkit-details-marker {
     background: var(--surface);
 }
 
+/* Disabled state while the picker's underlying loaders are in
+   flight (#837). The cursor flips to wait so the affordance signals
+   "in progress, please wait" rather than "broken / locked out".
+   Hover styling is suppressed so the button doesn't appear
+   interactive during the busy window. */
+.range-seg button:disabled {
+    opacity: 0.5;
+    cursor: wait;
+}
+
+.range-seg button:disabled:hover {
+    color: var(--text-dim);
+}
+
 .host-chart-line {
     fill: none;
     stroke: currentColor;

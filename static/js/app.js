@@ -14856,47 +14856,74 @@ function app() {
       return primary;
     },
 
-    setHostHistoryRange(hours) {
+    // Busy flag (#837). True while the picker's underlying loaders
+    // are in flight — bound to each picker button's `:disabled` so
+    // operators can't queue rapid 1h → 6h → 24h clicks while the
+    // first fetch is still resolving (the SPA used to lag the chart
+    // updates and present inconsistent data on slow networks). Cleared
+    // in a `finally` even on fetch errors so a flapped picker recovers.
+    hostHistoryRangeBusy: false,
+    async setHostHistoryRange(hours) {
+      // Ignore re-clicks while a previous picker click is still
+      // resolving — the buttons are also disabled in the markup but
+      // belt-and-braces against keyboard / programmatic invocations.
+      if (this.hostHistoryRangeBusy) return;
       this.hostHistoryRange = hours;
       const hrs = Math.max(1, Math.min(168, Number(hours) || 1));
-      // Reload the open drawer host's history (the range
-      // buttons did nothing because this only iterated `hostsExpanded`,
-      // which is the legacy inline-expansion state. The actual viewer
-      // is the slide-out drawer keyed on `drawerHost`).
-      if (this.drawerHost && (this.drawerHost.beszel_id || this.drawerHost.ne_url)) {
-        this.loadHostHistory(this.drawerHost.beszel_id || '', this.drawerHost.id);
-      }
-      // Ping chart shares the same range picker. When the operator
-      // switches between 1h / 6h / 24h / 7d, the ping series re-fetches
-      // alongside CPU / Mem / Disk / Net / Disk-IO.
-      if (this.drawerHost && this.drawerHost.ping_enabled) {
-        this.loadHostPingHistory(this.drawerHost.id);
-      }
-      // SNMP charts (CPU per-core, load, memory stacked-area, total
-      // throughput, per-port throughput, per-port utilization, printer
-      // pages) ALL render off `hostSnmpHistory[hostId].points` +
-      // `hostSnmpIfaceHistory[hostId].ifaces`. Pre-fix the range picker
-      // was wired ONLY to Beszel/NE/Ping — clicking 6h/24h/7d on an
-      // SNMP-only host left the SNMP chart cards stuck at the initial
-      // 1h window. Re-fetch both SNMP series here so the picker drives
-      // every chart card on the host uniformly.
-      if (this.drawerHost && this.drawerHost.snmp_enabled) {
-        if (typeof this.loadHostSnmpHistory === 'function') {
-          this.loadHostSnmpHistory(this.drawerHost.id, hrs);
+      this.hostHistoryRangeBusy = true;
+      // Safety timer — if any single loader hangs forever (network
+      // freeze, broken proxy holding the connection), the busy flag
+      // would otherwise stick true. 30s mirrors the per-host probe
+      // budget (#506); the operator regains control even when a fetch
+      // never resolves.
+      const safetyTimer = setTimeout(() => {
+        this.hostHistoryRangeBusy = false;
+      }, 30000);
+      try {
+        const tasks = [];
+        // Reload the open drawer host's history.
+        if (this.drawerHost && (this.drawerHost.beszel_id || this.drawerHost.ne_url)) {
+          tasks.push(this.loadHostHistory(this.drawerHost.beszel_id || '', this.drawerHost.id));
         }
-        if (typeof this.loadHostSnmpIfaceHistory === 'function') {
-          this.loadHostSnmpIfaceHistory(this.drawerHost.id, hrs);
+        // Ping chart shares the same range picker. When the operator
+        // switches between 1h / 6h / 24h / 7d, the ping series re-fetches
+        // alongside CPU / Mem / Disk / Net / Disk-IO.
+        if (this.drawerHost && this.drawerHost.ping_enabled) {
+          tasks.push(this.loadHostPingHistory(this.drawerHost.id));
         }
-      }
-      // Also handle any legacy expanded rows (kept for back-compat —
-      // the inline-expansion code path is mostly dead but not yet
-      // removed; covering both means the range works wherever the
-      // user clicks it from).
-      for (const name of (this.hostsExpanded || [])) {
-        const host = (this.hosts || []).find(h => h.host === name);
-        if (host && (host.beszel_id || host.ne_url)) {
-          this.loadHostHistory(host.beszel_id || '', host.id);
+        // SNMP charts (CPU per-core, load, memory stacked-area, total
+        // throughput, per-port throughput, per-port utilization, printer
+        // pages) ALL render off `hostSnmpHistory[hostId].points` +
+        // `hostSnmpIfaceHistory[hostId].ifaces`. Pre-fix the range picker
+        // was wired ONLY to Beszel/NE/Ping — clicking 6h/24h/7d on an
+        // SNMP-only host left the SNMP chart cards stuck at the initial
+        // 1h window. Re-fetch both SNMP series here so the picker drives
+        // every chart card on the host uniformly.
+        if (this.drawerHost && this.drawerHost.snmp_enabled) {
+          if (typeof this.loadHostSnmpHistory === 'function') {
+            tasks.push(this.loadHostSnmpHistory(this.drawerHost.id, hrs));
+          }
+          if (typeof this.loadHostSnmpIfaceHistory === 'function') {
+            tasks.push(this.loadHostSnmpIfaceHistory(this.drawerHost.id, hrs));
+          }
         }
+        // Also handle any legacy expanded rows (kept for back-compat —
+        // the inline-expansion code path is mostly dead but not yet
+        // removed; covering both means the range works wherever the
+        // user clicks it from).
+        for (const name of (this.hostsExpanded || [])) {
+          const host = (this.hosts || []).find(h => h.host === name);
+          if (host && (host.beszel_id || host.ne_url)) {
+            tasks.push(this.loadHostHistory(host.beszel_id || '', host.id));
+          }
+        }
+        // `allSettled` so one failing loader doesn't leave the picker
+        // stuck disabled — a 5xx on Pulse history shouldn't prevent
+        // the operator from swapping back to 1h.
+        if (tasks.length) await Promise.allSettled(tasks);
+      } finally {
+        clearTimeout(safetyTimer);
+        this.hostHistoryRangeBusy = false;
       }
     },
     // --- Axis-label helpers used by the metric-card template ---
