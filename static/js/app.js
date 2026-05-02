@@ -858,11 +858,9 @@ function app() {
       'tuning_host_metrics_probe_concurrency',
       // shared auth-failure cool-down.
       'tuning_auth_failure_cooldown_seconds',
-      // In-app notifications retention (#855). Drives the
-      // prune_notifications schedule kind. Independent from
-      // `tuning_log_retention_days` because operators want a longer
-      // trail on the Notifications page than the persistent-log files.
-      'tuning_notification_retention_days',
+      // tuning_notification_retention_days relocated → Admin → Notifications
+      //   (lives next to the per-medium / per-event toggles where operators
+      //    expect to find it; `relocatedTuningKeys` carries it through Save).
     ],
     // Tunables rendered OUTSIDE the generic Process tunables form
     // (#550, #552, #553). Same `tuningForm` / `tuningEffective` /
@@ -962,6 +960,12 @@ function app() {
       // stat-bar warn / crit thresholds (frontend-consumed).
       'tuning_stat_bar_warn_pct',
       'tuning_stat_bar_crit_pct',
+      // In-app notifications retention — rendered inline in Admin →
+      // Notifications next to the per-medium / per-event toggles
+      // (was in the generic Process tunables form previously, but
+      // operators editing notification config wanted the retention
+      // dial in the same place).
+      'tuning_notification_retention_days',
     ],
     tuningForm: {},
     tuningEffective: {},

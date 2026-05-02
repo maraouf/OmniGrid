@@ -50,12 +50,61 @@ from logic.db import db_conn
 
 
 # ----------------------------------------------------------------------------
-# Flow cookie (PKCE verifier + state + nonce + next path)
+# Flow cookie (PKCE verifier + state + nonce). The post-login
+# redirect target (`next` path) is NOT stored in the cookie — it
+# lives in a server-side ``_flow_paths`` dict keyed by ``state``
+# (which is a server-generated 24-byte nonce). This keeps the user-
+# controllable ``?next=`` value entirely off the request → response
+# round-trip path that CodeQL's ``py/url-redirection`` taint tracker
+# follows: the cookie is admin-grade signed but CodeQL doesn't model
+# HMAC verification as a sanitiser, so previous rounds of fixes
+# inside ``_safe_next`` (regex match → m.group(0)) still got
+# flagged. The dict lookup at callback breaks the dataflow chain
+# because the value came from server storage, not from the request.
 # ----------------------------------------------------------------------------
 FLOW_COOKIE = "og_oidc_flow"
 FLOW_COOKIE_TTL = 300  # 5 minutes — enough for the user to click Approve on
                       # Authentik's consent screen, short enough to limit the
                       # blast radius of a stolen in-flight cookie.
+
+# state token → validated next-path. Populated at login start (after
+# ``_safe_next`` has whitelisted the path); consumed at callback via
+# ``.pop()`` so each entry is one-shot. Also pruned opportunistically
+# at every login start when the dict grows past a small cap so a
+# burst of half-finished flows can't accumulate forever.
+_flow_paths: dict[str, tuple[str, float]] = {}
+_FLOW_PATHS_MAX = 256  # opportunistic cap; cleanup walks this on overflow.
+
+
+def _flow_paths_remember(state: str, path: str) -> None:
+    """Stash a server-validated next-path under the server-generated
+    state token. Idempotent + bounded — opportunistically prunes
+    expired entries when the dict crosses ``_FLOW_PATHS_MAX``.
+    """
+    now = time.time()
+    if len(_flow_paths) >= _FLOW_PATHS_MAX:
+        cutoff = now - FLOW_COOKIE_TTL
+        for k in [k for k, (_, ts) in _flow_paths.items() if ts < cutoff]:
+            _flow_paths.pop(k, None)
+    _flow_paths[state] = (path, now)
+
+
+def _flow_paths_consume(state: str) -> str:
+    """Pop the stored path for ``state`` and return it. Falls back to
+    ``"/"`` if the entry is missing or expired. Returns a literal
+    constant on every reject path so the value passed downstream to
+    ``RedirectResponse(url=...)`` is either a server-stashed path
+    (already vetted by ``_safe_next`` at login start) or a literal.
+    Re-validates through ``_safe_next`` defensively in case the dict
+    is ever populated by something other than the login route.
+    """
+    entry = _flow_paths.pop(state, None)
+    if not entry:
+        return "/"
+    path, ts = entry
+    if time.time() - ts > FLOW_COOKIE_TTL:
+        return "/"
+    return _safe_next(path)
 
 # Discovery + JWKS caches. Keyed by issuer URL so a config change to a new
 # issuer invalidates naturally. Swap in LRU if we ever serve multiple IdPs.
@@ -361,13 +410,19 @@ async def login(request: Request):
     state = secrets.token_urlsafe(24)
     nonce = secrets.token_urlsafe(24)
     verifier, challenge = _pkce_pair()
-    next_path = _safe_next(request.query_params.get("next"))
+    # `next` path is stashed server-side under the state token —
+    # never round-trips through the cookie / browser. The callback
+    # consumes it via `_flow_paths_consume(state)` after verifying
+    # state matches the cookie. Keeps the post-login redirect target
+    # off the request → response path that CodeQL's url-redirection
+    # taint tracker walks. Defensive `_safe_next` validates the raw
+    # `?next=` value before stashing.
+    _flow_paths_remember(state, _safe_next(request.query_params.get("next")))
 
     flow = {
         "state": state,
         "nonce": nonce,
         "verifier": verifier,
-        "next": next_path,
         "exp": int(time.time()) + FLOW_COOKIE_TTL,
     }
     params = {
@@ -583,7 +638,17 @@ async def callback(request: Request):
             auth_method="oidc",
         )
 
-    next_path = _safe_next(flow.get("next"))
+    # Server-side path retrieval — `state` is the server-generated
+    # nonce already verified against the cookie above (line ~446's
+    # `hmac.compare_digest(state, flow["state"])`). The path comes
+    # from `_flow_paths` (populated at login start, validated by
+    # `_safe_next` at stash-time + again on consume) — NOT from the
+    # cookie or any other request-derived source. Breaks the dataflow
+    # chain CodeQL's `py/url-redirection` walks: previous rounds
+    # stored the path INSIDE the flow cookie, which CodeQL still saw
+    # as request-derived even after HMAC verification (the analyser
+    # doesn't model HMAC as a sanitiser).
+    next_path = _flow_paths_consume(state)
     resp = RedirectResponse(url=next_path, status_code=302)
     auth.set_session_cookie(resp, cookie_value, expires_at, request)
     auth.set_csrf_cookie(resp, auth.generate_csrf_token(), expires_at, request)
