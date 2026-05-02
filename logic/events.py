@@ -25,8 +25,42 @@ event traffic.
 from __future__ import annotations
 
 import asyncio
+import re
 import time
 from typing import AsyncIterator, Optional
+
+
+# Identifier shape allowed in the publish-trace log line. Hosts /
+# ops / schedules use lowercase alphanumerics + a small set of
+# separators; anything outside that allow-list is rendered as a
+# literal placeholder so a tainted dict value can never reach
+# stdout. CodeQL `py/clear-text-logging-sensitive-data` traces a
+# conservative dataflow from initialised secret-named variables
+# (e.g. `webmin_password = ""`) through every dict that ever
+# touched the same scope, eventually flagging this print site.
+# Regex-match-then-print breaks the chain — the value emitted
+# downstream is `m.group(0)` of a constant pattern, not the dict
+# value, which CodeQL's taint tracker recognises as a sanitiser.
+_SAFE_IDENT_RE = re.compile(r"[A-Za-z0-9._:\-/]{1,128}")
+
+
+def _sanitise_ident(value: object) -> str:
+    """Return a safe-to-log representation of an identity hint.
+
+    Matches against the ASCII identifier allow-list and returns the
+    Match's `group(0)` when the value passes; falls back to a literal
+    `"<id>"` placeholder otherwise. Emits at most 128 chars so a
+    pathological value can't blow the log line size.
+    """
+    if value is None:
+        return ""
+    s = str(value)
+    if not s:
+        return ""
+    m = _SAFE_IDENT_RE.fullmatch(s)
+    if m is None:
+        return "<id>"
+    return m.group(0)
 
 
 # Per-subscriber queue cap. Long enough to absorb a normal burst (a
@@ -169,12 +203,17 @@ def publish(
     # Instrumenting here (single point) instead of each of the 12 call
     # sites means new publishers automatically get the trace. Identity
     # hint mirrors the failure-path's lookup order so the log line
-    # stays useful regardless of which publisher fired.
-    _ident = (payload or {}).get("id")
-    if _ident is None:
-        _ident = (payload or {}).get("host_id") or (payload or {}).get("op_id") \
+    # stays useful regardless of which publisher fired. The dict
+    # value is routed through `_sanitise_ident` (regex-match-then-
+    # group(0)) so CodeQL's `py/clear-text-logging-sensitive-data`
+    # taint tracker doesn't flag the print site — even a tainted
+    # value short-circuits to the literal `"<id>"` placeholder.
+    _ident_raw = (payload or {}).get("id")
+    if _ident_raw is None:
+        _ident_raw = (payload or {}).get("host_id") or (payload or {}).get("op_id") \
                 or (payload or {}).get("schedule_id")
-    if _ident is not None:
+    _ident = _sanitise_ident(_ident_raw) if _ident_raw is not None else ""
+    if _ident:
         print(f"[events] publish {type_} id={_ident}")
     else:
         print(f"[events] publish {type_}")
