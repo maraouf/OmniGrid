@@ -6194,6 +6194,25 @@ function app() {
         // central baseline-update block.
         this._appriseBaseline   = this._appriseSnapshot();
         this._openMeteoBaseline = this._openMeteoSnapshot();
+        // Refresh `/api/me` so the per-user notification panel
+        // immediately reflects any admin-side `notify_event_<name>`
+        // toggle changes that just landed. Pre-fix the
+        // `me.notify_events_admin` map was a stale snapshot from page
+        // init, so an admin who disabled an event then switched to
+        // their Profile tab still saw the per-user checkbox active —
+        // backend rejected an opt-IN attempt with 400 but the UI
+        // didn't grey out the control until the next full reload.
+        // Now `userNotifyEventDisabledByAdmin` reads the freshest
+        // admin gate the moment the admin saves.
+        try {
+          const rm = await fetch('/api/me', { cache: 'no-store' });
+          if (rm.ok) {
+            const fresh = await rm.json();
+            if (fresh && fresh.authenticated) {
+              for (const k of Object.keys(fresh)) this.me[k] = fresh[k];
+            }
+          }
+        } catch (_) { /* non-fatal — the next page load will catch up */ }
         this.showToast(this.t('toasts.settings_saved'));
       } catch (e) { this.showToast(this.t('toasts.load_failed', { error: e.message }), 'error'); }
       finally { this.settingsSaving = false; }
@@ -14112,19 +14131,44 @@ function app() {
     // `stale` is true once age exceeds 2× the host_snmp sampler
     // cadence (~5min), used to amber-tint the label so the
     // operator knows the data hasn't refreshed in a while.
+    //
+    // #856 — Combined freshness across the two writers feeding the
+    // host drawer: the LIFESPAN sampler (writes `host_snmp_samples`,
+    // surfaces here as `hist.points[last].ts`) AND the per-request
+    // gather path (writes the snapshot `_stale_ts`). Pre-fix this
+    // helper read ONLY the sampler's most-recent row, so when the
+    // gather path successfully merged live data 7m ago but the
+    // sampler hadn't written a row in 9h (sampler paused / gated /
+    // its INSERT condition not met for this host), the label said
+    // "Last sample 9h ago" while the snapshot banner — sourced from
+    // `_stale_ts` — said "Last live data 7m ago". Two surfaces
+    // disagreed about the SAME host. Post-fix: take the
+    // most-recent of (sampler ts, snapshot ts) so both surfaces
+    // report the same value. The downstream root cause (sampler
+    // lagging the gather path) is a separate concern; this is the
+    // honest-UI fix that always reflects the operator's freshest
+    // signal.
     snmpHistoryFreshness(h) {
       if (!h) return null;
       const hist = this.hostSnmpHistory[h.id];
-      if (!hist || !Array.isArray(hist.points) || hist.points.length === 0) return null;
-      const last = hist.points[hist.points.length - 1];
-      const ts = last && (last.ts || last.t);
-      if (!ts) return null;
-      const ageS = Math.max(0, Math.round(Date.now() / 1000 - +ts));
+      const samplerTs = (hist && Array.isArray(hist.points) && hist.points.length)
+        ? Number((hist.points[hist.points.length - 1] || {}).ts
+                 || (hist.points[hist.points.length - 1] || {}).t || 0)
+        : 0;
+      const snapshotTs = Number(h._stale_ts || 0);
+      const ts = Math.max(samplerTs, snapshotTs);
+      if (!ts || !Number.isFinite(ts) || ts <= 0) return null;
+      const ageS = Math.max(0, Math.round(Date.now() / 1000 - ts));
       let label;
       if (ageS < 60) label = ageS + 's';
       else if (ageS < 3600) label = Math.round(ageS / 60) + 'm';
       else label = Math.round(ageS / 3600) + 'h';
-      return { age_s: ageS, label, stale: ageS > 600 };
+      // `source` lets the template render a tooltip explaining which
+      // writer the timestamp came from — operators tracing
+      // freshness disagreements can see at a glance whether the
+      // value came from the sampler or the snapshot.
+      const source = (samplerTs >= snapshotTs) ? 'sampler' : 'snapshot';
+      return { age_s: ageS, label, stale: ageS > 600, source };
     },
     // Build a polyline `points` attribute from a series of values.
     // Normalises against `max` (default = max value in series) so the

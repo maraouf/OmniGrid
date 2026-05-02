@@ -1725,6 +1725,8 @@
     },
     "snmp_charts": {
       "freshness": "Last sample {age} ago",
+      "freshness_source_sampler": "Source: time-series sampler (host_snmp_samples). The lifespan-managed sampler writes a row on each tick when the probe returns non-empty data.",
+      "freshness_source_snapshot": "Source: snapshot (last successful per-request gather). The snapshot is updated whenever a live probe returns at least one host_* field.",
       "refreshing": "Refreshing…",
       "warming_up": "Collecting first samples — chart will populate after the next sampler tick (~{minutes} min). Live values show in the legend.",
       "cpu_title": "CPU per-core",

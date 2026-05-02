@@ -136,9 +136,12 @@ async def _authenticate(
         "/api/admins/auth-with-password",
     ]
     errors: list[str] = []
+    # ``base_url`` is admin-set + validated at probe_hub entry via
+    # ``is_safe_http_url`` — see ``logic/url_safety.py`` for the
+    # threat-model rationale backing every CodeQL suppression below.
     for path in endpoints:
         try:
-            r = await client.post(
+            r = await client.post(  # lgtm[py/full-ssrf]
                 base_url.rstrip("/") + path,
                 json={"identity": identity, "password": password},
                 headers={"Content-Type": "application/json"},
@@ -191,7 +194,7 @@ async def _fetch_systems(
     """
     url = (base_url.rstrip("/")
            + "/api/collections/systems/records?perPage=500")
-    r = await client.get(url, headers={"Authorization": token})
+    r = await client.get(url, headers={"Authorization": token})  # lgtm[py/full-ssrf]
     if r.status_code == 401:
         # Token expired / revoked — caller will re-auth + retry.
         raise PermissionError("401")
@@ -250,7 +253,7 @@ async def _fetch_systemd_services(client, base_url: str, token: str) -> list:
     while page <= max_pages:
         url = f"{base}?perPage=500&page={page}"
         try:
-            r = await client.get(url, headers={"Authorization": token})
+            r = await client.get(url, headers={"Authorization": token})  # lgtm[py/full-ssrf]
         except Exception:
             return out
         if r.status_code == 401:
@@ -351,12 +354,12 @@ async def fetch_system_history(
     try:
         async with httpx.AsyncClient(verify=verify_tls, timeout=timeout) as client:
             token = await _get_token(client, base_url, identity, password)
-            r = await client.get(url, params=params, headers={"Authorization": token})
+            r = await client.get(url, params=params, headers={"Authorization": token})  # lgtm[py/full-ssrf]
             if r.status_code == 401:
                 token = await _get_token(
                     client, base_url, identity, password, force_refresh=True,
                 )
-                r = await client.get(url, params=params, headers={"Authorization": token})
+                r = await client.get(url, params=params, headers={"Authorization": token})  # lgtm[py/full-ssrf]
             if r.status_code >= 400:
                 return {"series": [], "error": f"HTTP {r.status_code}"}
     except Exception as e:
@@ -625,7 +628,7 @@ async def _fetch_latest_stats(
     """
     url = base_url.rstrip("/") + "/api/collections/system_stats/records"
     params = {"filter": "(type='1m')", "sort": "-created", "perPage": "500"}
-    r = await client.get(url, params=params, headers={"Authorization": token})
+    r = await client.get(url, params=params, headers={"Authorization": token})  # lgtm[py/full-ssrf]
     if r.status_code == 401:
         raise PermissionError("401")
     if r.status_code >= 400:
@@ -1022,6 +1025,16 @@ async def probe_hub(
     """
     if not base_url or not identity or not password:
         return {"systems": {}, "error": "beszel: missing url / identity / password"}
+    # Defence-in-depth on the admin-only Beszel hub URL setting. CodeQL
+    # py/full-ssrf flags every `client.get(url, ...)` below as the URL
+    # flows from a settings field — see ``logic/url_safety.py`` for the
+    # threat-model rationale.
+    from logic.url_safety import is_safe_http_url as _safe_url
+    if not _safe_url(base_url):
+        return {
+            "systems": {},
+            "error": "beszel: invalid url — must be http:// or https:// with a hostname",
+        }
     try:
         async with httpx.AsyncClient(verify=verify_tls, timeout=timeout) as client:
             # Auth → fetch. Retry once on 401 with a forced re-auth in

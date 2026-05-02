@@ -3013,8 +3013,8 @@
               <span class="text-[12px] text-[var(--text)]"
                     x-text="t('admin.notifications.events.' + g.label)"></span>
               <div class="flex items-center gap-3">
-                <label class="flex items-center gap-1.5 text-[11.5px] cursor-pointer select-none"
-                       :class="userNotifyEventDisabledByAdmin(g.success) ? 'opacity-50' : ''"
+                <label class="flex items-center gap-1.5 text-[11.5px] select-none"
+                       :class="userNotifyEventDisabledByAdmin(g.success) ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'"
                        :title="userNotifyEventDisabledByAdmin(g.success) ? t('profile.notifications.disabled_by_admin') : ''">
                   <input type="checkbox"
                          :checked="profileForm.notify_events[g.success.replace(/^notify_event_/, '')]"
@@ -3022,8 +3022,8 @@
                          :disabled="userNotifyEventDisabledByAdmin(g.success)">
                   <span class="text-[var(--text-dim)]" x-text="t('admin.notifications.events.success')"></span>
                 </label>
-                <label class="flex items-center gap-1.5 text-[11.5px] cursor-pointer select-none"
-                       :class="userNotifyEventDisabledByAdmin(g.failure) ? 'opacity-50' : ''"
+                <label class="flex items-center gap-1.5 text-[11.5px] select-none"
+                       :class="userNotifyEventDisabledByAdmin(g.failure) ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'"
                        :title="userNotifyEventDisabledByAdmin(g.failure) ? t('profile.notifications.disabled_by_admin') : ''">
                   <input type="checkbox"
                          :checked="profileForm.notify_events[g.failure.replace(/^notify_event_/, '')]"
@@ -3044,8 +3044,8 @@
             <div class="flex items-center justify-between gap-3 py-1">
               <span class="text-[12px] text-[var(--text)]"
                     x-text="t('admin.notifications.events.' + e.label)"></span>
-              <label class="flex items-center gap-1.5 text-[11.5px] cursor-pointer select-none"
-                     :class="userNotifyEventDisabledByAdmin(e.key) ? 'opacity-50' : ''"
+              <label class="flex items-center gap-1.5 text-[11.5px] select-none"
+                     :class="userNotifyEventDisabledByAdmin(e.key) ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'"
                      :title="userNotifyEventDisabledByAdmin(e.key) ? t('profile.notifications.disabled_by_admin') : ''">
                 <input type="checkbox"
                        :checked="profileForm.notify_events[e.key.replace(/^notify_event_/, '')]"
@@ -3065,8 +3065,8 @@
             <div class="flex items-center justify-between gap-3 py-1">
               <span class="text-[12px] text-[var(--text)]"
                     x-text="t('admin.notifications.events.' + e.label)"></span>
-              <label class="flex items-center gap-1.5 text-[11.5px] cursor-pointer select-none"
-                     :class="userNotifyEventDisabledByAdmin(e.key) ? 'opacity-50' : ''"
+              <label class="flex items-center gap-1.5 text-[11.5px] select-none"
+                     :class="userNotifyEventDisabledByAdmin(e.key) ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'"
                      :title="userNotifyEventDisabledByAdmin(e.key) ? t('profile.notifications.disabled_by_admin') : ''">
                 <input type="checkbox"
                        :checked="profileForm.notify_events[e.key.replace(/^notify_event_/, '')]"
@@ -9325,12 +9325,11 @@
                        not the data was actually stale — the original
                        gate (only when isStaleField fires) was invisible
                        in normal operation. -->
-                  <div x-show="snmpHistoryFreshness(h) || isStaleField(h, 'printer_supplies') || isStaleField(h, 'printer_page_count')"
-                       class="mb-3 text-[11px] flex items-center gap-2 text-[var(--warning)]">
+                  <div x-show="snmpHistoryFreshness(h)"
+                       class="mb-3 text-[11px] flex items-center gap-2 text-[var(--warning)]"
+                       :title="snmpHistoryFreshness(h) ? t('host_drawer.snmp_charts.freshness_source_' + snmpHistoryFreshness(h).source) : ''">
                     <svg width="11" height="11" aria-hidden="true"><use href="#icon-clock"/></svg>
-                    <span x-text="(isStaleField(h, 'printer_supplies') || isStaleField(h, 'printer_page_count'))
-                                    ? t('host_drawer.printer.stale_banner', { age: staleAge(h) })
-                                    : (snmpHistoryFreshness(h) ? t('host_drawer.snmp_charts.freshness', { age: snmpHistoryFreshness(h).label }) : '')"></span>
+                    <span x-text="snmpHistoryFreshness(h) ? t('host_drawer.snmp_charts.freshness', { age: snmpHistoryFreshness(h).label }) : ''"></span>
                   </div>
                   <!-- Operator-flagged: surface the lifetime page count
                        prominently inside the box rather than as small

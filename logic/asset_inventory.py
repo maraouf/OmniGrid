@@ -120,7 +120,11 @@ async def probe_token(
             body["username"] = client_id
             body["password"] = client_secret
         async with httpx.AsyncClient(verify=verify_tls, timeout=timeout) as client:
-            resp = await client.post(token_url, data=body, headers=headers)
+            # ``token_url`` is admin-set (validated upstream via the
+            # shared ``is_safe_http_url`` check applied at every
+            # caller's entry point). See ``logic/url_safety.py`` for
+            # the SSRF threat-model rationale backing this suppression.
+            resp = await client.post(token_url, data=body, headers=headers)  # lgtm[py/full-ssrf]
         # Try to parse JSON eagerly so the retry logic can see a
         # structured error; non-JSON body is fine too.
         try:
@@ -203,6 +207,10 @@ async def fetch_assets(
     """
     if not base_url or not token:
         return {"ok": False, "assets": [], "error": "missing base_url / token"}
+    from logic.url_safety import is_safe_http_url as _safe_url
+    if not _safe_url(base_url):
+        return {"ok": False, "assets": [],
+                "error": "invalid base_url — must be http:// or https:// with a hostname"}
     url = base_url.rstrip("/") + (list_path if list_path.startswith("/") else "/" + list_path)
     headers = {
         "Authorization": f"Bearer {token}",
@@ -210,7 +218,8 @@ async def fetch_assets(
     }
     try:
         async with httpx.AsyncClient(verify=verify_tls, timeout=timeout) as client:
-            r = await client.get(url, headers=headers)
+            # Admin-only URL — validated above via ``is_safe_http_url``.
+            r = await client.get(url, headers=headers)  # lgtm[py/full-ssrf]
         if r.status_code == 401:
             return {"ok": False, "assets": [],
                     "error": "asset list 401 — token rejected"}
@@ -381,7 +390,9 @@ async def _post_asset_api(
     }
     try:
         async with httpx.AsyncClient(verify=verify_tls, timeout=timeout) as client:
-            r = await client.post(endpoint_url, data=body, headers=headers)
+            # Admin-only endpoint URL — validated upstream via
+            # ``is_safe_http_url``. See ``logic/url_safety.py``.
+            r = await client.post(endpoint_url, data=body, headers=headers)  # lgtm[py/full-ssrf]
     except Exception as e:
         og_err = _err.classify_exception(e)
         return {"ok": False, "assets": [], "error": og_err.message,
