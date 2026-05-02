@@ -1037,8 +1037,8 @@ function app() {
       { id: 'portainer',      label: 'Portainer',       icon: 'portainer' },
       { id: 'oidc',           label: 'Authentik OIDC',  icon: 'authentik' },
       { id: 'host_stats',     label: 'Host stats',      icon: 'activity' },
-      { id: 'hosts',          label: 'Hosts',           icon: 'server' },
       { id: 'host_groups',    label: 'Host Groups',     icon: 'layers' },
+      { id: 'hosts',          label: 'Hosts',           icon: 'server' },
       { id: 'ssh',            label: 'SSH',             icon: 'terminal' },
       { id: 'assets',         label: 'Asset inventory', icon: 'package' },
       { id: 'schedules',      label: 'Schedules',       icon: 'calendar' },
@@ -9444,10 +9444,13 @@ function app() {
           // triggers the "still typing in ID is causing refresh"
           // symptom). Persisted into hostsConfig so subsequent
           // reconciliation passes preserve identity even when the
-          // sort order changes.
-          if (!row._uid) {
-            row._uid = 'r' + Math.random().toString(36).slice(2, 10) + Date.now().toString(36);
-          }
+          // sort order changes. Uses `crypto.randomUUID()` (universally
+          // supported in modern browsers) — the value is a UI-only
+          // identifier, not a security secret, but the
+          // crypto-strength source silences the CodeQL
+          // `js/insecure-randomness` flag and removes any chance of
+          // collision in fleets with thousands of rows.
+          if (!row._uid) row._uid = this._mintRowUid();
         }
         this.hostsConfigDirty = false;
         this.rebuildHostsConfigOrder();
@@ -10118,24 +10121,19 @@ function app() {
         if (primary) {
           row.id = _stripDomain(primary);
           filled.push('id');
-          // Mirror the label convenience from onHostRowEdit so first
-          // fill doesn't leave a blank label behind.
-          if (!(row.label || '').trim()) {
-            // asset.name is a better label than the FQDN when both exist.
-            row.label = String(asset.name || primary).trim();
-            filled.push('label');
-          }
         }
       }
-      if (!(row.label || '').trim()) {
-        const label = asset.name
-          || ((asset.vendor && asset.model) ? `${asset.vendor} ${asset.model}` : '')
-          || asset.vendor || asset.model || '';
-        if (label) {
-          row.label = String(label).trim();
-          filled.push('label');
-        }
-      }
+      // NOTE: `row.label` deliberately NOT auto-populated from the
+      // asset record. Operator-flagged: pre-fix the label was filled
+      // from `asset.name` / `vendor model` / `vendor` on import, but
+      // operators want to fill it themselves so it captures their
+      // own naming convention rather than whatever shape the upstream
+      // asset DB happens to carry. Empty label falls through cleanly
+      // — `hostDisplayName(h)` already prefers `id` when label is
+      // blank, and `iconUrlFor()` walks id + label + provider names
+      // for icon resolution. If you ever want bulk-prefill behaviour
+      // back, add a separate "Auto-fill labels from asset" button
+      // rather than re-enabling on import.
       // URL — first port whose service_name looks like an http(s) link.
       // Ports without a URL-shaped service_name are skipped.
       if (!(row.url || '').trim() && Array.isArray(asset.ports)) {
@@ -10214,7 +10212,7 @@ function app() {
         enabled: true,
         // Stable identity for x-for keying (matches the loadHostsConfig
         // hydration path).
-        _uid: 'r' + Math.random().toString(36).slice(2, 10) + Date.now().toString(36),
+        _uid: this._mintRowUid(),
       });
       this.hostsConfigDirty = true;
       this.rebuildHostsConfigOrder();
@@ -10253,6 +10251,25 @@ function app() {
     // guards kick in) AND clears any stale per-row Test result so
     // green ticks don't linger next to fields the operator is
     // currently fixing.
+    // Mint a stable, collision-free per-row UID for the Admin → Hosts
+    // editor. Used as the `<template x-for :key>` so Alpine never tears
+    // down + re-mounts a row mid-edit (which would lose input focus +
+    // collapse expanded sections). Prefer `crypto.randomUUID()` —
+    // universally supported in modern browsers + cryptographically
+    // strong, which silences the `js/insecure-randomness` CodeQL flag
+    // even though the value is UI-only and not a security secret.
+    // Fallback path covers the (vanishingly rare) case of a browser
+    // without `crypto.randomUUID` — a `Math.random` + `Date.now`
+    // composite isn't crypto-strength but is fine for a UI tracking
+    // key and won't crash the SPA.
+    _mintRowUid() {
+      try {
+        if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+          return 'r' + crypto.randomUUID();
+        }
+      } catch (_) { /* unreachable on supported browsers */ }
+      return 'r' + Math.random().toString(36).slice(2, 10) + Date.now().toString(36);  // codeql[js/insecure-randomness] — UI key only
+    },
     markHostRowDirty(idx) {
       this.hostsConfigDirty = true;
       if (this.hostsTestResults && this.hostsTestResults[idx]) {
@@ -10268,7 +10285,15 @@ function app() {
       const row = this.hostsConfig[idx];
       if (!row) return;
       if (field === 'id') {
-        if (!row.label) row.label = value;
+        // Operator-flagged: do NOT auto-fill `row.label` from the
+        // typed id. Pre-fix the editor mirrored the id into the label
+        // on the first keystroke so a blank label always defaulted to
+        // the id value; operator wants to leave the label alone so it
+        // reflects their own naming convention rather than the host
+        // identifier. Empty label falls through cleanly — every
+        // consumer (`hostDisplayName(h)` / `iconUrlFor()` / the
+        // keyword-scan icon resolver) prefers `id` when label is
+        // blank.
         // Promote the implicit "empty-id rows always render expanded"
         // rule to an EXPLICIT entry in hostsConfigExpanded the moment
         // any character lands in the ID field. Without this, typing
@@ -10296,6 +10321,18 @@ function app() {
     //      auto-match without the operator setting an icon manually.
     hostIconUrl(h) {
       if (!h) return '';
+      // Sentinel "no icon" values — operator sets one of these when the
+      // auto keyword-scan picks the WRONG brand icon and they want to
+      // render no icon at all rather than the wrong one (e.g. a host
+      // whose label happens to contain "syno" matched the Synology
+      // icon by accident). Returning empty hides the `<img>` via every
+      // consumer's `x-show="hostIconUrl(h)"` gate. Anything else falls
+      // through to the existing override → exact-slug → keyword-scan
+      // resolver chain. Case-insensitive, whitespace-tolerant.
+      const _icon = (h.icon || '').trim().toLowerCase();
+      if (['none', '-', 'off', 'false', 'no', 'disabled', 'hidden'].includes(_icon)) {
+        return '';
+      }
       if (h.icon) {
         // Normalise: bare slug → absolute /img/icons/<slug>.svg.
         // Slug aliases cover the common "wrong name" cases where the
@@ -11260,8 +11297,7 @@ function app() {
         for (const row of this.hostsConfig) {
           row.webmin_url = webminAliases[row.id] || '';
           if (!row.ssh || typeof row.ssh !== 'object') row.ssh = {};
-          row._uid = oldUidById[row.id]
-            || ('r' + Math.random().toString(36).slice(2, 10) + Date.now().toString(36));
+          row._uid = oldUidById[row.id] || this._mintRowUid();
         }
         this.rebuildHostsConfigOrder();
         // Persist the derived webmin_aliases in settings so the probe

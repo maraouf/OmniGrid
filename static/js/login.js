@@ -86,10 +86,35 @@ function applyI18nDom() {
   }
 
   function nextPath() {
-    const p = new URLSearchParams(location.search).get('next') || '/';
-    // Reject absolute / protocol-relative URLs — open-redirect defense.
-    if (!p.startsWith('/') || p.startsWith('//')) return '/';
-    return p;
+    // Open-redirect defence — every consumer of `nextPath()` flows the
+    // value into `location.href`, so an attacker-controlled `?next=`
+    // query param could otherwise navigate the just-authenticated
+    // session at an arbitrary domain (phishing). Hardening (closes
+    // CodeQL `js/client-side-unvalidated-url-redirection`):
+    //   1. Reject anything that isn't `/`-prefixed (absolute URLs).
+    //   2. Reject `//host` (protocol-relative — same risk as 1).
+    //   3. Reject `/\\host` and `\\host` (browsers normalise backslashes
+    //      to forward slashes in URL parsing — `/\\evil.com` becomes
+    //      `//evil.com` and breaks (1) + (2)'s naive substring check).
+    //   4. As a final defence-in-depth, resolve the value against
+    //      `location.origin` via the `URL` constructor and confirm the
+    //      result still lives at the SAME origin — catches every
+    //      remaining edge case (e.g. `/​//evil.com` zero-width
+    //      tricks, IDN homographs, mixed-encoding nasties).
+    // Falls back to `/` (the SPA root) on any rejection.
+    const raw = new URLSearchParams(location.search).get('next') || '/';
+    if (!raw.startsWith('/')) return '/';
+    if (raw.startsWith('//') || raw.startsWith('/\\') || raw.startsWith('\\')) return '/';
+    try {
+      const resolved = new URL(raw, location.origin);
+      if (resolved.origin !== location.origin) return '/';
+      // Strip the origin so the return value remains a path-only
+      // string that downstream `location.href = nextPath()` consumers
+      // treat as a same-origin nav unconditionally.
+      return resolved.pathname + resolved.search + resolved.hash;
+    } catch (_) {
+      return '/';
+    }
   }
 
   // Show version so operators can sanity-check which build is live.

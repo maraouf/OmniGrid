@@ -142,7 +142,20 @@ async def _get_bearer(client: httpx.AsyncClient, www_auth: str, repo: str) -> Op
         if exp > time.time():
             return t
     auth = None
-    if "docker.io" in realm and DOCKERHUB_USER and DOCKERHUB_TOKEN:
+    # CodeQL py/incomplete-url-substring-sanitization: the previous
+    # `"docker.io" in realm` substring check would match a malicious
+    # `realm` like `https://attacker.example/docker.io/token` and send
+    # the Dockerhub credentials to the attacker's host. Switch to a
+    # proper hostname parse + exact suffix match so the check only
+    # passes for `auth.docker.io` (the canonical Dockerhub auth realm)
+    # and any `*.docker.io` subdomain Docker may rotate to in future.
+    try:
+        from urllib.parse import urlparse as _urlparse
+        _host = (_urlparse(realm).hostname or "").lower()
+    except Exception:
+        _host = ""
+    _is_dockerhub = (_host == "docker.io" or _host.endswith(".docker.io"))
+    if _is_dockerhub and DOCKERHUB_USER and DOCKERHUB_TOKEN:
         auth = (DOCKERHUB_USER, DOCKERHUB_TOKEN)
     try:
         r = await client.get(realm, params={"service": service, "scope": scope}, auth=auth)

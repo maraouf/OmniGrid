@@ -270,12 +270,58 @@ async def gather_stats() -> None:
     print(f"[stats] gather_stats start: items={len(items_cache['items'])}")
     async with httpx.AsyncClient(verify=portainer.VERIFY_TLS, timeout=30.0) as client:
         ep = f"/api/endpoints/{portainer.PORTAINER_ENDPOINT_ID}/docker"
+
+        # Container LIST — per-node sweep when the Swarm has 2+ nodes. The
+        # unrouted ``/containers/json`` call returns only the manager's
+        # containers in modern Portainer agent-mode endpoints, which means
+        # worker-node containers (e.g. a single-replica service pinned to a
+        # worker) never enter ``svc_by_cid`` / ``size_root_by_cid`` /
+        # ``running_cids`` — the per-item walk finds no CID matching the
+        # service and ``has_stats`` / ``has_size`` stay False. The
+        # ``_one_container_stats`` agent-target dance below is correct but
+        # never gets invoked because the CID is missing from the LIST to
+        # begin with. Solution mirrors ``logic.gather.py``'s own per-node
+        # sweep at line 1142+: fan out per host, dedup by Id, derive
+        # cid → host directly from which sweep returned the entry.
+        # Single-node deploys keep the unrouted fast-path.
+        nodes_by_id = items_cache.get("nodes") or {}
+        hostnames = [h for h in nodes_by_id.values() if h]
+        sweep_node_by_cid: dict[str, str] = {}
+        containers: list = []
         try:
-            containers = await portainer.pg(client, f"{ep}/containers/json?all=1&size=1")
+            if len(hostnames) >= 2:
+                async def _per_node(h: str):
+                    try:
+                        return h, await portainer.pg(
+                            client,
+                            f"{ep}/containers/json?all=1&size=1",
+                            agent_target=h,
+                        )
+                    except Exception as e:
+                        print(f"[stats] gather_stats: per-node list for {h} FAILED: "
+                              f"{type(e).__name__}: {e}")
+                        return h, []
+                per_node = await asyncio.gather(*(_per_node(h) for h in hostnames))
+                seen: dict[str, dict] = {}
+                for h, lst in per_node:
+                    for c in (lst or []):
+                        cid = c.get("Id")
+                        if not cid or cid in seen:
+                            continue
+                        seen[cid] = c
+                        sweep_node_by_cid[cid] = h
+                containers = list(seen.values())
+                print(f"[stats] gather_stats: per-node sweep hosts={hostnames} "
+                      f"sizes={[len(lst) for _, lst in per_node]} "
+                      f"merged={len(containers)}")
+            else:
+                containers = await portainer.pg(
+                    client, f"{ep}/containers/json?all=1&size=1",
+                )
+                print(f"[stats] gather_stats: containers fetched={len(containers)}")
         except Exception as e:
             print(f"[stats] gather_stats: containers fetch FAILED: {type(e).__name__}: {e}")
             containers = []
-        print(f"[stats] gather_stats: containers fetched={len(containers)}")
 
         # Track two sizes per container:
         #   size_root = full image size on disk (SizeRootFs). Always non-zero and
@@ -285,19 +331,19 @@ async def gather_stats() -> None:
         size_root_by_cid: dict[str, int] = {}
         size_rw_by_cid: dict[str, int] = {}
         svc_by_cid: dict[str, Optional[str]] = {}
-        # cid → hostname. Priority order (authoritative → heuristic), same
-        # as gather.py's resolver:
-        #   1. `com.docker.swarm.node.id` label — Swarm's own scheduler
-        #      wrote this; the most reliable signal for anything Swarm-
-        #      managed (services, global, orphan task containers).
-        #   2. task_node_by_id via the task-ID label — fallback for
+        # cid → hostname. Priority order (authoritative → heuristic):
+        #   1. per-node sweep result above — when present, this is the
+        #      DEFINITIVE answer because the container only appeared in
+        #      that node's per-node response.
+        #   2. ``com.docker.swarm.node.id`` label — Swarm's own scheduler
+        #      wrote this; reliable for anything Swarm-managed.
+        #   3. task_node_by_id via the task-ID label — fallback for
         #      older Swarm versions that don't stamp node.id on the
         #      container itself.
-        #   3. container_node_by_id from gather's per-node sweep —
+        #   4. container_node_by_id from gather's per-node sweep —
         #      only signal we have for plain compose containers.
         # _one_container_stats falls back to the untargeted request on
         # failure, so a wrong hint only costs one extra call.
-        nodes_by_id = items_cache.get("nodes") or {}
         task_node_by_id = items_cache.get("task_node_by_id") or {}
         container_node_by_id = items_cache.get("container_node_by_id") or {}
         node_by_cid: dict[str, Optional[str]] = {}
@@ -308,9 +354,10 @@ async def gather_stats() -> None:
             size_rw_by_cid[cid] = c.get("SizeRw", 0) or 0
             labels = c.get("Labels") or {}
             svc_by_cid[cid] = labels.get("com.docker.swarm.service.id")
-            # Swarm node.id label (authoritative) first.
-            node_id_label = labels.get("com.docker.swarm.node.id")
-            node = nodes_by_id.get(node_id_label) if node_id_label else None
+            node = sweep_node_by_cid.get(cid)
+            if not node:
+                node_id_label = labels.get("com.docker.swarm.node.id")
+                node = nodes_by_id.get(node_id_label) if node_id_label else None
             if not node:
                 task_id = labels.get("com.docker.swarm.task.id")
                 node = task_node_by_id.get(task_id) if task_id else None
