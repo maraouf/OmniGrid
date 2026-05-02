@@ -4283,7 +4283,39 @@ async def _merge_one_host(h: dict, state: dict, *, force: bool = False) -> tuple
                         _snmp_host_fail_cache[h["id"]] = (now, result)
                         _snmp_host_cache.pop(h["id"], None)
                         err = result.get("error") or "empty hosts map"
-                        print(f"[hosts] snmp probe failed for {h.get('id')!r}: {err}")
+                        err_str = str(err)
+                        # Cool-down responses are SKIPS, not real
+                        # failures (#840). Pre-fix the log line read
+                        # "[hosts] snmp probe failed for 'idrac': ..."
+                        # which the persistent-log severity classifier
+                        # in `logic/logs.py:_severity_for` matched on
+                        # the word "failed" → painted as ERROR in
+                        # Admin → Logs. Cool-down on every drawer poll
+                        # then floods the ERROR bucket with red lines
+                        # despite nothing actually going wrong. Branch
+                        # the log: cool-down skips use the verb
+                        # "skipped" (no "fail/error" keywords → INFO
+                        # severity); real failures keep "failed" →
+                        # ERROR. Both include the resolved SNMP target
+                        # alongside the host id so operators tracing
+                        # back-off can see what hostname / IP was
+                        # being probed without knowing the host_id →
+                        # snmp_name mapping by heart.
+                        skipped = (
+                            result.get("skipped_cooldown")
+                            or ("cool-down" in err_str)
+                        )
+                        target_str = snmp_target or h.get("id") or "?"
+                        if skipped:
+                            print(
+                                f"[hosts] snmp probe skipped (cool-down) "
+                                f"for {h.get('id')!r} → {target_str}: {err}"
+                            )
+                        else:
+                            print(
+                                f"[hosts] snmp probe failed "
+                                f"for {h.get('id')!r} → {target_str}: {err}"
+                            )
             hosts_map = result.get("hosts") or {}
             if hosts_map:
                 stats = next(iter(hosts_map.values()))
@@ -4439,7 +4471,23 @@ async def _merge_one_host(h: dict, state: dict, *, force: bool = False) -> tuple
                         # consulted.
                         _webmin_host_cache.pop(h["id"], None)
                         err = result.get("error") or "empty hosts map"
-                        print(f"[hosts] webmin probe failed for {h.get('id')!r}: {err}")
+                        # Same severity / target-clarity branch as the
+                        # SNMP block (#840). Cool-down skips use the
+                        # verb "skipped" so the persistent-log
+                        # severity classifier doesn't flag them as
+                        # ERROR; real failures keep "failed". Both
+                        # include the resolved Webmin URL alongside
+                        # the host id so operators tracing back-off
+                        # can see WHAT was being probed.
+                        err_str = str(err)
+                        skipped = result.get("skipped_cooldown") or ("cool-down" in err_str)
+                        wm_target = wm_url or h.get("id") or "?"
+                        if skipped:
+                            print(f"[hosts] webmin probe skipped (cool-down) "
+                                  f"for {h.get('id')!r} → {wm_target}: {err}")
+                        else:
+                            print(f"[hosts] webmin probe failed "
+                                  f"for {h.get('id')!r} → {wm_target}: {err}")
                         # Per-(webmin, host) auto-pause counter.
                         # Cool-down responses are SKIPPED (probe wasn't
                         # actually attempted) so they don't count toward
@@ -4448,8 +4496,6 @@ async def _merge_one_host(h: dict, state: dict, *, force: bool = False) -> tuple
                         # probe wires it; fall back to substring match for
                         # legacy. Real failures (HTTP 5xx, timeout,
                         # connection refused, agent rejection) DO count.
-                        err_str = str(err)
-                        skipped = result.get("skipped_cooldown") or ("cool-down" in err_str)
                         if not skipped:
                             try:
                                 from logic.host_metrics_sampler import (
@@ -5327,7 +5373,7 @@ def _load_hosts_config() -> list[dict]:
             "custom_number": _coerce_int(h.get("custom_number")),
             # Free-text IP field — operator-maintained, not auto-derived
             # from `ne_url` / DNS / asset inventory. Stored as-typed so
-            # the operator can put "192.168.2.1", "10.0.0.5/24", or
+            # the operator can put "192.X.X.X", "192.X.X.X/24", or
             # "fe80::1" and we don't second-guess. No filter impact
             # today; captured so the Hosts drawer can display it and
             # a future group-filter iteration can parse it.

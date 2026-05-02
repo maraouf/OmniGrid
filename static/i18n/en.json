@@ -1352,7 +1352,24 @@
     "replica_one": "{count} replica",
     "replica_many": "{count} replicas",
     "node_title": "{node} — {count} replica",
-    "node_title_many": "{node} — {count} replicas"
+    "node_title_many": "{node} — {count} replicas",
+    "chip_tooltip_with_error": "{state}: {err}",
+    "state_running": "running",
+    "state_failed": "failed",
+    "state_rejected": "rejected",
+    "state_orphaned": "orphaned",
+    "state_pending": "pending",
+    "state_allocated": "allocated",
+    "state_assigned": "assigned",
+    "state_accepted": "accepted",
+    "state_preparing": "preparing",
+    "state_starting": "starting",
+    "state_ready": "ready",
+    "state_shutdown": "shutdown",
+    "state_complete": "complete",
+    "state_remove": "remove",
+    "state_new": "new",
+    "state_unknown": "unknown"
   },
   "units": {
     "bytes": {
@@ -1542,7 +1559,8 @@
     },
     "paused_banner": {
       "title": "{count} provider(s) auto-paused on this host",
-      "body": "Probes are stopped for: {providers}. Failure-state is preserved — click Resume all to clear and let the next sampler tick re-probe."
+      "body": "Probes are stopped for: {providers}. Failure-state is preserved — click Resume all to clear and let the next sampler tick re-probe.",
+      "view_counters": "↓ View counters & state"
     },
     "disabled_banner": {
       "title": "Host is disabled — sampling suppressed",
@@ -1732,7 +1750,11 @@
       "net_out": "Net Out B/s",
       "no_source_hint_prefix": "Time-series charts are sourced from Beszel or node-exporter. Link this host to a Beszel system OR set its node-exporter URL in ",
       "admin_hosts_link": "Admin → Hosts",
-      "no_source_hint_suffix": " to see CPU / Memory / Disk / Net history here."
+      "no_source_hint_suffix": " to see CPU / Memory / Disk / Net history here.",
+      "range_1h": "1h",
+      "range_6h": "6h",
+      "range_24h": "24h",
+      "range_7d": "7d"
     }
   },
   "debug_panel": {
@@ -1745,6 +1767,8 @@
     "refresh": "⟳ Refresh",
     "refresh_title": "Re-run probes",
     "copy_title": "Copy to clipboard",
+    "copy_default_label": "debug data",
+    "copy_prompt_fallback": "Copy {label} (Cmd/Ctrl+C):",
     "error_prefix": "Error: {error}",
     "labels": {
       "raw_pulse": "Raw · Pulse",
@@ -1761,7 +1785,9 @@
       "normalized_snmp": "Normalized · SNMP",
       "merged": "Merged (best-of)",
       "rendered": "Rendered (/api/hosts)",
-      "counters": "Counters & state"
+      "counters": "Counters & state",
+      "asset_raw": "Asset · Raw",
+      "asset_shape": "Asset · Shape"
     },
     "hints": {
       "merged": "after _merge_best",

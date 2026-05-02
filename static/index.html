@@ -878,12 +878,12 @@
                         <div x-show="topologyGroups(item).length" class="topology-map">
                           <template x-for="group in topologyGroups(item)" :key="group.node">
                             <span class="topology-node"
-                                  :title="group.node + ' — ' + group.chips.length + ' replica' + (group.chips.length===1 ? '' : 's')">
+                                  :title="topologyNodeTooltip(group)">
                               <span class="topology-host" x-text="group.node"></span>
                               <template x-for="(c, i) in group.chips" :key="i">
                                 <span class="topology-chip"
                                       :class="'topology-' + (c.state || 'unknown')"
-                                      :title="(c.state || 'unknown') + (c.err ? ': ' + c.err : '')"></span>
+                                      :title="topologyChipTooltip(c)"></span>
                               </template>
                             </span>
                           </template>
@@ -1111,12 +1111,12 @@
                     <div class="topology-map">
                       <template x-for="group in topologyGroups(item)" :key="group.node">
                         <span class="topology-node"
-                              :title="group.node + ' — ' + group.chips.length + ' replica' + (group.chips.length===1 ? '' : 's')">
+                              :title="topologyNodeTooltip(group)">
                           <span class="topology-host" x-text="group.node"></span>
                           <template x-for="(c, i) in group.chips" :key="i">
                             <span class="topology-chip"
                                   :class="'topology-' + (c.state || 'unknown')"
-                                  :title="(c.state || 'unknown') + (c.err ? ': ' + c.err : '')"></span>
+                                  :title="topologyChipTooltip(c)"></span>
                           </template>
                         </span>
                       </template>
@@ -8186,6 +8186,21 @@
                            x-text="t('host_drawer.paused_banner.title', { count: pausedProvidersFor(h).length })"></div>
                       <div class="text-[var(--text-dim)] mt-0.5"
                            x-text="t('host_drawer.paused_banner.body', { providers: pausedProvidersFor(h).join(', ') })"></div>
+                      <!-- "View counters" jump-link surfaces the
+                           debug-panel role at the top of the drawer
+                           when an investigation is warranted. The
+                           debug panel itself stays at its natural
+                           position (bottom of drawer) but operators
+                           don't have to scroll the whole drawer to
+                           discover it. Clicking opens the panel +
+                           scrolls it into view via
+                           `jumpToHostDebug(h.id)`; admin-only because
+                           the debug panel is admin-only. -->
+                      <button type="button"
+                              x-show="settings && settings.debug_panel_enabled !== false"
+                              @click="jumpToHostDebug(h.id)"
+                              class="mt-1 text-[11px] underline-offset-2 hover:underline text-[var(--text-faint)] hover:text-[var(--warning)] cursor-pointer inline-flex items-center gap-1"
+                              x-text="t('host_drawer.paused_banner.view_counters')"></button>
                     </div>
                   </div>
                   <button type="button"
@@ -8669,7 +8684,28 @@
                      routers / 5G modems). Each row inside is gated
                      on its own field so cards stay tidy when only
                      one source contributes data. -->
-                <section x-show="h.status === 'up' || assetForHost(h)" class="rounded border border-[var(--border)] bg-[var(--surface)] p-4 md:col-span-6">
+                <!-- Section gate now also fires on snapshot-fallback
+                     hits so cached hardware values (cpu_model /
+                     mem_total / disk_total / serial / model / firmware
+                     / vendor / swap_used) stay mounted when every
+                     live provider is offline. Mirrors the symmetry
+                     introduced for UPS / Printer / Network cards
+                     (#823 / #824) — the operator's last-known view of
+                     the hardware shouldn't disappear just because the
+                     SNMP / NE / Webmin probes are temporarily failing,
+                     since the snapshot fallback is exactly what's
+                     supposed to bridge that gap. -->
+                <section x-show="h.status === 'up'
+                                 || assetForHost(h)
+                                 || isStaleField(h, 'host_cpu_model')
+                                 || isStaleField(h, 'host_mem_total')
+                                 || isStaleField(h, 'host_disk_total')
+                                 || isStaleField(h, 'host_serial')
+                                 || isStaleField(h, 'host_model')
+                                 || isStaleField(h, 'host_firmware')
+                                 || isStaleField(h, 'host_vendor')
+                                 || isStaleField(h, 'host_swap_used')"
+                         class="rounded border border-[var(--border)] bg-[var(--surface)] p-4 md:col-span-6">
                   <h4 class="text-[10.5px] uppercase tracking-wider text-[var(--text-faint)] mb-3" x-text="t('host_drawer.hardware.heading')"></h4>
                   <dl class="drawer-dl text-[12px]">
                     <template x-if="h.cpu_model">
@@ -9406,16 +9442,20 @@
                 <div class="range-seg">
                   <button type="button" :class="hostHistoryRange === 1 ? 'active' : ''"
                           :disabled="hostHistoryRangeBusy"
-                          @click="setHostHistoryRange(1)">1h</button>
+                          @click="setHostHistoryRange(1)"
+                          x-text="t('host_drawer.charts.range_1h')"></button>
                   <button type="button" :class="hostHistoryRange === 6 ? 'active' : ''"
                           :disabled="hostHistoryRangeBusy"
-                          @click="setHostHistoryRange(6)">6h</button>
+                          @click="setHostHistoryRange(6)"
+                          x-text="t('host_drawer.charts.range_6h')"></button>
                   <button type="button" :class="hostHistoryRange === 24 ? 'active' : ''"
                           :disabled="hostHistoryRangeBusy"
-                          @click="setHostHistoryRange(24)">24h</button>
+                          @click="setHostHistoryRange(24)"
+                          x-text="t('host_drawer.charts.range_24h')"></button>
                   <button type="button" :class="hostHistoryRange === 168 ? 'active' : ''"
                           :disabled="hostHistoryRangeBusy"
-                          @click="setHostHistoryRange(168)">7d</button>
+                          @click="setHostHistoryRange(168)"
+                          x-text="t('host_drawer.charts.range_7d')"></button>
                 </div>
                 <!-- Subtle data-freshness hint (#363) — only shows after
                      the first successful fetch. Ticks every 30s via the
@@ -9483,7 +9523,7 @@
                               x-text="metricSource(h, 'ping')"></span>
                       </span>
                     </div>
-                    <div class="metric-card-stats" style="gap:8px">
+                    <div class="metric-card-stats">
                       <span x-show="h.ping_alive === false"
                             class="chip pill-error text-[10.5px] px-1.5 py-0"
                             x-text="t('hosts_extra.metrics.ping_down')"></span>
@@ -9625,7 +9665,7 @@
                               x-text="metricSource(h, 'snmp_cpu')"></span>
                       </span>
                     </div>
-                    <div class="metric-card-stats" style="gap:8px">
+                    <div class="metric-card-stats">
                       <span x-show="snmpStats(h.id, 'cpu_used_pct')">
                         <span class="metric-legend-dot" style="background: var(--success)"></span>
                         <span x-text="t('host_drawer.snmp_charts.legend_used')"></span>
@@ -9683,7 +9723,7 @@
                               x-text="metricSource(h, 'snmp_load')"></span>
                       </span>
                     </div>
-                    <div class="metric-card-stats" style="gap:8px">
+                    <div class="metric-card-stats">
                       <span>
                         <span class="metric-legend-dot" style="background: var(--success)"></span>
                         <span x-text="t('host_drawer.snmp_charts.legend_load_1m')"></span>
@@ -9754,7 +9794,7 @@
                               x-text="metricSource(h, 'snmp_memory')"></span>
                       </span>
                     </div>
-                    <div class="metric-card-stats" style="gap:8px">
+                    <div class="metric-card-stats">
                       <span x-show="snmpStats(h.id, 'mem_used')">
                         <span class="metric-legend-dot" style="background: var(--danger)"></span>
                         <span x-text="t('host_drawer.snmp_charts.legend_mem_used')"></span>
@@ -9831,7 +9871,7 @@
                               x-text="metricSource(h, 'snmp_throughput')"></span>
                       </span>
                     </div>
-                    <div class="metric-card-stats" style="gap:8px">
+                    <div class="metric-card-stats">
                       <span>
                         <span class="metric-legend-dot" style="background: var(--success)"></span>
                         <span x-text="t('host_drawer.snmp_charts.legend_throughput_in')"></span>
@@ -9910,7 +9950,7 @@
                               x-text="metricSource(h, 'snmp_throughput')"></span>
                       </span>
                     </div>
-                    <div class="metric-card-stats" style="gap:8px; flex-wrap:wrap">
+                    <div class="metric-card-stats">
                       <template x-for="(iface, idx) in snmpTopIfacesByThroughput(h.id, 5)" :key="'pp-leg-' + iface.name">
                         <span class="text-[11px]">
                           <span class="metric-legend-dot"
@@ -9987,22 +10027,29 @@
                               x-text="metricSource(h, 'snmp_throughput')"></span>
                       </span>
                     </div>
-                    <div class="metric-card-stats" style="gap:8px; flex-wrap:wrap">
+                    <div class="metric-card-stats">
                       <template x-for="(iface, idx) in snmpTopIfacesByThroughput(h.id, 5)" :key="'util-leg-' + iface.name">
                         <span class="text-[11px]"
                               :title="snmpIfaceLinkSpeedAssumed(h.id, iface.name, h) ? t('host_drawer.snmp_charts.heatmap_assumed_speed') : ''">
                           <span class="metric-legend-dot"
                                 :style="'background:' + ['var(--success)','var(--info)','var(--warning)','var(--danger)','var(--primary)'][idx % 5]"></span>
                           <span class="font-semibold" x-text="iface.name"></span>
+                          <!-- Percentage prefixed with `~` when the
+                               link speed was assumed (no ifHighSpeed
+                               from agent) so the approximation lives
+                               in the value itself, not just the
+                               trailing asterisk + colour cue. CLAUDE.md
+                               "colour is never the sole carrier of
+                               meaning" — the `~` doubles up the signal
+                               for operators who don't notice the warn-
+                               coloured `*`. The asterisk + hover
+                               tooltip still surface the full "assumed
+                               100 Mbps" caveat for operators who want
+                               the detail. -->
                           <span class="text-[var(--text-faint)]"
                                 x-text="snmpIfaceUtilizationPct(h.id, iface.name, h) != null
-                                          ? ' ' + Math.round(snmpIfaceUtilizationPct(h.id, iface.name, h)) + '%'
+                                          ? ' ' + (snmpIfaceLinkSpeedAssumed(h.id, iface.name, h) ? '~' : '') + Math.round(snmpIfaceUtilizationPct(h.id, iface.name, h)) + '%'
                                           : ''"></span>
-                          <!-- Asterisk + tooltip when the link speed
-                               was assumed (no ifHighSpeed from agent).
-                               Operators see "(assumed 100 Mbps)" on
-                               hover so the percentage is read as
-                               approximate, not authoritative. -->
                           <span x-show="snmpIfaceLinkSpeedAssumed(h.id, iface.name, h)"
                                 class="text-[var(--warning)]">*</span>
                         </span>
@@ -10058,7 +10105,7 @@
                     <div class="metric-card-title">
                       <span x-text="t('host_drawer.snmp_charts.ups_load_title')"></span><span class="unit">%</span>
                     </div>
-                    <div class="metric-card-stats" style="gap:8px"
+                    <div class="metric-card-stats"
                          x-show="typeof h.host_load_percent === 'number'">
                       <span>
                         <span class="metric-legend-dot" style="background: var(--warning)"></span>
@@ -10100,7 +10147,7 @@
                     <div class="metric-card-title">
                       <span x-text="t('host_drawer.snmp_charts.ups_battery_title')"></span><span class="unit">%</span>
                     </div>
-                    <div class="metric-card-stats" style="gap:8px"
+                    <div class="metric-card-stats"
                          x-show="typeof h.host_battery_percent === 'number'">
                       <span>
                         <span class="metric-legend-dot" style="background: var(--success)"></span>
@@ -10144,7 +10191,7 @@
                     <div class="metric-card-title">
                       <span x-text="t('host_drawer.snmp_charts.ups_battery_temp_title')"></span><span class="unit">°C</span>
                     </div>
-                    <div class="metric-card-stats" style="gap:8px"
+                    <div class="metric-card-stats"
                          x-show="typeof h.host_battery_temp_c === 'number'">
                       <span>
                         <span class="metric-legend-dot" style="background: var(--danger)"></span>
@@ -10158,7 +10205,7 @@
                       <div class="metric-y-axis">
                         <span x-text="snmpUpsBatteryTempMax(h.id).toFixed(0) + '°'"></span>
                         <span x-text="(snmpUpsBatteryTempMax(h.id) / 2).toFixed(0) + '°'"></span>
-                        <span>0°</span>
+                        <span x-text="'0°'"></span>
                       </div>
                       <svg class="metric-svg" viewBox="0 0 420 120" preserveAspectRatio="none" aria-hidden="true">
                         <line class="metric-grid" x1="0" y1="30" x2="420" y2="30"/>
@@ -10383,7 +10430,7 @@
                               x-text="metricSource(h, 'network')"></span>
                       </span>
                     </div>
-                    <div class="metric-card-stats" style="gap:8px">
+                    <div class="metric-card-stats">
                       <span x-show="hostMetricStats(hostHistoryKey(h), 'nr', false)">
                         <span class="metric-legend-dot" style="background: var(--metric-net)"></span>
                         <span x-text="t('hosts_extra.metrics.net_in')"></span>
@@ -10519,7 +10566,7 @@
                               x-text="metricSource(h, 'disk_io')"></span>
                       </span>
                     </div>
-                    <div class="metric-card-stats" style="gap:8px">
+                    <div class="metric-card-stats">
                       <span x-show="hostMetricStats(hostHistoryKey(h), 'dr', false)">
                         <span class="metric-legend-dot" style="background: var(--metric-net)"></span>
                         <span x-text="t('hosts_extra.metrics.read')"></span>
@@ -10616,7 +10663,7 @@
                               x-text="metricSource(h, 'load_avg')"></span>
                       </span>
                     </div>
-                    <div class="metric-card-stats" style="gap:8px">
+                    <div class="metric-card-stats">
                       <span x-show="hostMetricStats(hostHistoryKey(h), 'la1_pct', false)">
                         <span class="metric-legend-dot" style="background: var(--metric-cpu)"></span>1m
                         <span class="legend-val" x-text="hostMetricStats(hostHistoryKey(h), 'la1_pct', false) ? Math.round(hostMetricStats(hostHistoryKey(h), 'la1_pct', false).maxRaw) + '%' : ''"></span>
@@ -10924,7 +10971,7 @@
                               x-text="metricSource(h, 'gpu')"></span>
                       </span>
                     </div>
-                    <div class="metric-card-stats" style="gap:8px">
+                    <div class="metric-card-stats">
                       <template x-for="(gpu, i) in (h.host_gpus || [])" :key="'gpw' + i">
                         <span class="text-[11px]">
                           <span class="metric-legend-dot" style="background: var(--warning)"></span>
@@ -10978,7 +11025,7 @@
                               x-text="metricSource(h, 'gpu')"></span>
                       </span>
                     </div>
-                    <div class="metric-card-stats" style="gap:8px">
+                    <div class="metric-card-stats">
                       <template x-for="(gpu, i) in (h.host_gpus || [])" :key="'gus' + i">
                         <span class="text-[11px]">
                           <span class="metric-legend-dot" style="background: var(--success)"></span>
@@ -11030,7 +11077,7 @@
                               x-text="metricSource(h, 'gpu')"></span>
                       </span>
                     </div>
-                    <div class="metric-card-stats" style="gap:8px">
+                    <div class="metric-card-stats">
                       <template x-for="(gpu, i) in (h.host_gpus || [])" :key="'gvr' + i">
                         <span class="text-[11px]">
                           <span class="metric-legend-dot" style="background: var(--info)"></span>
@@ -11131,7 +11178,7 @@
                               <span class="host-debug-label host-debug-label--rendered" x-text="t('debug_panel.labels.counters')"></span>
                               <span class="host-debug-hint" x-text="t('debug_panel.hints.counters')"></span>
                               <button type="button" class="host-debug-copy"
-                                      @click="copyDebugJson(hostsDebug[h.id].counters, 'Counters')"
+                                      @click="copyDebugJson(hostsDebug[h.id].counters, 'debug_panel.labels.counters')"
                                       :title="t('debug_panel.copy_title')">
                                 <svg width="12" height="12" aria-hidden="true"><use href="#icon-copy"/></svg>
                               </button>
@@ -11142,7 +11189,7 @@
                             <header class="host-debug-box-head">
                               <span class="host-debug-label host-debug-label--pulse" x-text="t('debug_panel.labels.raw_pulse')"></span>
                               <button type="button" class="host-debug-copy"
-                                      @click="copyDebugJson(hostsDebug[h.id].providers_raw?.pulse, 'Raw · Pulse')"
+                                      @click="copyDebugJson(hostsDebug[h.id].providers_raw?.pulse, 'debug_panel.labels.raw_pulse')"
                                       :title="t('debug_panel.copy_title')">
                                 <svg width="12" height="12" aria-hidden="true"><use href="#icon-copy"/></svg>
                               </button>
@@ -11153,7 +11200,7 @@
                             <header class="host-debug-box-head">
                               <span class="host-debug-label host-debug-label--beszel" x-text="t('debug_panel.labels.raw_beszel')"></span>
                               <button type="button" class="host-debug-copy"
-                                      @click="copyDebugJson(hostsDebug[h.id].providers_raw?.beszel, 'Raw · Beszel')"
+                                      @click="copyDebugJson(hostsDebug[h.id].providers_raw?.beszel, 'debug_panel.labels.raw_beszel')"
                                       :title="t('debug_panel.copy_title')">
                                 <svg width="12" height="12" aria-hidden="true"><use href="#icon-copy"/></svg>
                               </button>
@@ -11164,7 +11211,7 @@
                             <header class="host-debug-box-head">
                               <span class="host-debug-label host-debug-label--ne" x-text="t('debug_panel.labels.raw_ne')"></span>
                               <button type="button" class="host-debug-copy"
-                                      @click="copyDebugJson(hostsDebug[h.id].providers_raw?.node_exporter, 'Raw · node-exporter')"
+                                      @click="copyDebugJson(hostsDebug[h.id].providers_raw?.node_exporter, 'debug_panel.labels.raw_ne')"
                                       :title="t('debug_panel.copy_title')">
                                 <svg width="12" height="12" aria-hidden="true"><use href="#icon-copy"/></svg>
                               </button>
@@ -11175,7 +11222,7 @@
                             <header class="host-debug-box-head">
                               <span class="host-debug-label host-debug-label--webmin" x-text="t('debug_panel.labels.raw_webmin')"></span>
                               <button type="button" class="host-debug-copy"
-                                      @click="copyDebugJson(hostsDebug[h.id].providers_raw?.webmin, 'Raw · Webmin')"
+                                      @click="copyDebugJson(hostsDebug[h.id].providers_raw?.webmin, 'debug_panel.labels.raw_webmin')"
                                       :title="t('debug_panel.copy_title')">
                                 <svg width="12" height="12" aria-hidden="true"><use href="#icon-copy"/></svg>
                               </button>
@@ -11186,7 +11233,7 @@
                             <header class="host-debug-box-head">
                               <span class="host-debug-label host-debug-label--ping" x-text="t('debug_panel.labels.raw_ping')"></span>
                               <button type="button" class="host-debug-copy"
-                                      @click="copyDebugJson(hostsDebug[h.id].providers_raw?.ping, 'Raw · Ping')"
+                                      @click="copyDebugJson(hostsDebug[h.id].providers_raw?.ping, 'debug_panel.labels.raw_ping')"
                                       :title="t('debug_panel.copy_title')">
                                 <svg width="12" height="12" aria-hidden="true"><use href="#icon-copy"/></svg>
                               </button>
@@ -11197,7 +11244,7 @@
                             <header class="host-debug-box-head">
                               <span class="host-debug-label host-debug-label--snmp" x-text="t('debug_panel.labels.raw_snmp')"></span>
                               <button type="button" class="host-debug-copy"
-                                      @click="copyDebugJson(hostsDebug[h.id].providers_raw?.snmp, 'Raw · SNMP')"
+                                      @click="copyDebugJson(hostsDebug[h.id].providers_raw?.snmp, 'debug_panel.labels.raw_snmp')"
                                       :title="t('debug_panel.copy_title')">
                                 <svg width="12" height="12" aria-hidden="true"><use href="#icon-copy"/></svg>
                               </button>
@@ -11209,7 +11256,7 @@
                               <span class="host-debug-label host-debug-label--merged" x-text="t('debug_panel.labels.merged')"></span>
                               <span class="host-debug-hint" x-text="t('debug_panel.hints.merged')"></span>
                               <button type="button" class="host-debug-copy"
-                                      @click="copyDebugJson(hostsDebug[h.id].merged, 'Merged')"
+                                      @click="copyDebugJson(hostsDebug[h.id].merged, 'debug_panel.labels.merged')"
                                       :title="t('debug_panel.copy_title')">
                                 <svg width="12" height="12" aria-hidden="true"><use href="#icon-copy"/></svg>
                               </button>
@@ -11221,7 +11268,7 @@
                               <span class="host-debug-label host-debug-label--rendered" x-text="t('debug_panel.labels.rendered')"></span>
                               <span class="host-debug-hint" x-text="t('debug_panel.hints.rendered')"></span>
                               <button type="button" class="host-debug-copy"
-                                      @click="copyDebugJson(hostsDebug[h.id].rendered, 'Rendered')"
+                                      @click="copyDebugJson(hostsDebug[h.id].rendered, 'debug_panel.labels.rendered')"
                                       :title="t('debug_panel.copy_title')">
                                 <svg width="12" height="12" aria-hidden="true"><use href="#icon-copy"/></svg>
                               </button>
@@ -11232,7 +11279,7 @@
                             <header class="host-debug-box-head">
                               <span class="host-debug-label host-debug-label--pulse" x-text="t('debug_panel.labels.normalized_pulse')"></span>
                               <button type="button" class="host-debug-copy"
-                                      @click="copyDebugJson(hostsDebug[h.id].providers_normalized?.pulse, 'Normalized · Pulse')"
+                                      @click="copyDebugJson(hostsDebug[h.id].providers_normalized?.pulse, 'debug_panel.labels.normalized_pulse')"
                                       :title="t('debug_panel.copy_title')">
                                 <svg width="12" height="12" aria-hidden="true"><use href="#icon-copy"/></svg>
                               </button>
@@ -11243,7 +11290,7 @@
                             <header class="host-debug-box-head">
                               <span class="host-debug-label host-debug-label--beszel" x-text="t('debug_panel.labels.normalized_beszel')"></span>
                               <button type="button" class="host-debug-copy"
-                                      @click="copyDebugJson(hostsDebug[h.id].providers_normalized?.beszel, 'Normalized · Beszel')"
+                                      @click="copyDebugJson(hostsDebug[h.id].providers_normalized?.beszel, 'debug_panel.labels.normalized_beszel')"
                                       :title="t('debug_panel.copy_title')">
                                 <svg width="12" height="12" aria-hidden="true"><use href="#icon-copy"/></svg>
                               </button>
@@ -11254,7 +11301,7 @@
                             <header class="host-debug-box-head">
                               <span class="host-debug-label host-debug-label--ne" x-text="t('debug_panel.labels.normalized_ne')"></span>
                               <button type="button" class="host-debug-copy"
-                                      @click="copyDebugJson(hostsDebug[h.id].providers_normalized?.node_exporter, 'Normalized · node-exporter')"
+                                      @click="copyDebugJson(hostsDebug[h.id].providers_normalized?.node_exporter, 'debug_panel.labels.normalized_ne')"
                                       :title="t('debug_panel.copy_title')">
                                 <svg width="12" height="12" aria-hidden="true"><use href="#icon-copy"/></svg>
                               </button>
@@ -11265,7 +11312,7 @@
                             <header class="host-debug-box-head">
                               <span class="host-debug-label host-debug-label--webmin" x-text="t('debug_panel.labels.normalized_webmin')"></span>
                               <button type="button" class="host-debug-copy"
-                                      @click="copyDebugJson(hostsDebug[h.id].providers_normalized?.webmin, 'Normalized · Webmin')"
+                                      @click="copyDebugJson(hostsDebug[h.id].providers_normalized?.webmin, 'debug_panel.labels.normalized_webmin')"
                                       :title="t('debug_panel.copy_title')">
                                 <svg width="12" height="12" aria-hidden="true"><use href="#icon-copy"/></svg>
                               </button>
@@ -11276,7 +11323,7 @@
                             <header class="host-debug-box-head">
                               <span class="host-debug-label host-debug-label--ping" x-text="t('debug_panel.labels.normalized_ping')"></span>
                               <button type="button" class="host-debug-copy"
-                                      @click="copyDebugJson(hostsDebug[h.id].providers_normalized?.ping, 'Normalized · Ping')"
+                                      @click="copyDebugJson(hostsDebug[h.id].providers_normalized?.ping, 'debug_panel.labels.normalized_ping')"
                                       :title="t('debug_panel.copy_title')">
                                 <svg width="12" height="12" aria-hidden="true"><use href="#icon-copy"/></svg>
                               </button>
@@ -11287,7 +11334,7 @@
                             <header class="host-debug-box-head">
                               <span class="host-debug-label host-debug-label--snmp" x-text="t('debug_panel.labels.normalized_snmp')"></span>
                               <button type="button" class="host-debug-copy"
-                                      @click="copyDebugJson(hostsDebug[h.id].providers_normalized?.snmp, 'Normalized · SNMP')"
+                                      @click="copyDebugJson(hostsDebug[h.id].providers_normalized?.snmp, 'debug_panel.labels.normalized_snmp')"
                                       :title="t('debug_panel.copy_title')">
                                 <svg width="12" height="12" aria-hidden="true"><use href="#icon-copy"/></svg>
                               </button>
@@ -11304,7 +11351,7 @@
                             <header class="host-debug-box-head">
                               <span class="host-debug-label host-debug-label--merged">Asset (raw)</span>
                               <button type="button" class="host-debug-copy"
-                                      @click="copyDebugJson(rawAssetForHost(h), 'Asset · Raw')"
+                                      @click="copyDebugJson(rawAssetForHost(h), 'debug_panel.labels.asset_raw')"
                                       :title="t('debug_panel.copy_title')">
                                 <svg width="12" height="12" aria-hidden="true"><use href="#icon-copy"/></svg>
                               </button>
@@ -11317,7 +11364,7 @@
                             <header class="host-debug-box-head">
                               <span class="host-debug-label host-debug-label--merged">Asset (shape)</span>
                               <button type="button" class="host-debug-copy"
-                                      @click="copyDebugJson(assetForHost(h), 'Asset · Shape')"
+                                      @click="copyDebugJson(assetForHost(h), 'debug_panel.labels.asset_shape')"
                                       :title="t('debug_panel.copy_title')">
                                 <svg width="12" height="12" aria-hidden="true"><use href="#icon-copy"/></svg>
                               </button>

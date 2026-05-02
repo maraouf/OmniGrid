@@ -8666,6 +8666,40 @@ function app() {
       }
       return Array.from(by.entries()).map(([node, chips]) => ({ node, chips }));
     },
+    // i18n-aware topology pill tooltips (#843 follow-up). Pre-fix
+    // both the Stacks and Services views inlined `:title="group.node
+    // + ' — ' + group.chips.length + ' replica' + (count===1 ? '' :
+    // 's')"` — the JS template-literal i18n leak that travels with
+    // helper-reuse (the Services view's #814 copy duplicated the
+    // pre-existing Stacks tooltip). Plural concatenation never
+    // translates cleanly. Singular / plural pick at call-time so
+    // languages with non-binary plural rules can extend via locale-
+    // override.
+    topologyNodeTooltip(group) {
+      const count = (group && group.chips && group.chips.length) || 0;
+      const node = (group && group.node) || '';
+      // Reuses existing topology.node_title / node_title_many keys
+      // (added pre-#814 for a different consumer; the i18n bundle
+      // already covers the singular/plural split). Pluralization
+      // picks at call-time so non-binary plural locales can extend
+      // their bundle without touching JS.
+      const key = count === 1 ? 'topology.node_title' : 'topology.node_title_many';
+      return this.t(key, { node, count });
+    },
+    topologyChipTooltip(chip) {
+      const state = (chip && chip.state) || 'unknown';
+      const err = chip && chip.err ? String(chip.err) : '';
+      // i18n-translated state label (chip.state is one of the Swarm
+      // task-state strings — translate via a known-state key family;
+      // unknown values fall through to the raw enum). When an error
+      // string is present, append it inline.
+      const stateKey = `topology.state_${state.replace(/-/g, '_')}`;
+      let stateLabel = this.t(stateKey);
+      if (stateLabel === stateKey) stateLabel = state;
+      return err
+        ? this.t('topology.chip_tooltip_with_error', { state: stateLabel, err })
+        : stateLabel;
+    },
     // --- Keyboard shortcuts ---------------------------------------------
     // Single source of truth — the help modal renders straight from this.
     // Each entry: { keys: ['r'], label: 'Refresh', run: () => {...} }.
@@ -12750,6 +12784,25 @@ function app() {
         }
       }
     },
+    // Jump to the host-drawer debug panel from another surface
+    // (#843 follow-up — paused-providers banner has a "View counters"
+    // link). Forces the panel OPEN (no toggle, since the operator's
+    // intent here is "show me", not "flip"), triggers the lazy load
+    // if cold, then scrolls. Idempotent — calling twice on an already-
+    // open panel is a no-op except for the re-scroll, which is what
+    // you want when the operator clicks the link a second time.
+    async jumpToHostDebug(hostId) {
+      if (!hostId) return;
+      if (!this.hostsDebugOpen[hostId]) {
+        this.hostsDebugOpen = { ...this.hostsDebugOpen, [hostId]: true };
+        if (!this.hostsDebug[hostId] && !this.hostsDebugLoading[hostId]) {
+          // Don't await — let the scroll happen now, the panel will
+          // populate when the fetch lands.
+          this.loadHostDebug(hostId).catch(() => {});
+        }
+      }
+      this._scrollHostSectionIntoView(`debug-${hostId}`);
+    },
     // Smooth-scrolls the host-drawer's inner scroller so the named
     // section (`data-host-section="<kind>-<host_id>"`) lands near the
     // top (#364). Plain `scrollIntoView({block:'start'})` worked in
@@ -12841,12 +12894,37 @@ function app() {
         this.showToast(this.t('toasts_extra.nothing_to_copy'), 'warning');
         return;
       }
+      // Resolve the label through i18n (#843 follow-up). Pre-fix call
+      // sites passed English literals like 'Counters' / 'Raw · Pulse'
+      // — both the toast AND the prompt() fallback embedded that raw
+      // English regardless of locale. Now: call sites pass an i18n
+      // KEY (e.g. 'debug_panel.labels.counters') and the helper
+      // resolves it. Backwards-compat: if the resolved value matches
+      // the raw key (i.e. no translation found), fall back to a
+      // generic "debug data" string — also i18n'd. Empty / falsy
+      // labels also fall through to that default.
+      let resolvedLabel = '';
+      if (label) {
+        const candidate = this.t(label);
+        // `t()` returns the key itself when no translation is found
+        // — treat that as "label was a raw string, not an i18n key"
+        // and use it verbatim so old callers keep working.
+        resolvedLabel = (candidate === label && !label.includes('.'))
+          ? label
+          : candidate;
+      }
+      if (!resolvedLabel) {
+        resolvedLabel = this.t('debug_panel.copy_default_label');
+      }
       try {
         await navigator.clipboard.writeText(text);
-        this.showToast(this.t('toasts_extra.copied', { label: label || 'debug data' }), 'success');
+        this.showToast(this.t('toasts_extra.copied', { label: resolvedLabel }), 'success');
       } catch (_) {
-        // Fallback — let the user copy manually.
-        window.prompt('Copy ' + (label || 'debug data') + ' (Cmd/Ctrl+C):', text);
+        // Fallback — let the user copy manually. Wrap the entire
+        // English "Copy <label> (Cmd/Ctrl+C):" string in i18n too so
+        // non-en operators get a translated prompt header.
+        const promptHead = this.t('debug_panel.copy_prompt_fallback', { label: resolvedLabel });
+        window.prompt(promptHead, text);
       }
     },
     // Filtered view for the Hosts table — search matches host id,
