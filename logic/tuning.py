@@ -225,6 +225,20 @@ TUNABLES: dict[str, tuple[str, int, int, int]] = {
     # for even the slowest device while still bounding the gather's
     # parallel-host fan-out. Range 5..600s.
     "tuning_snmp_wall_clock_budget_seconds": ("SNMP_WALL_CLOCK_BUDGET_SECONDS", 60, 5, 600),
+    # Per-host walk concurrency — caps how many `_snmp_get` /
+    # `_snmp_walk` operations fan out against ONE host inside
+    # `probe_snmp`. Default 1 (fully serialised, CLI-equivalent
+    # behaviour) chosen for safety: slow BMC-class agents (iDRAC9,
+    # IPMI, low-power embedded snmpd) have limited UDP receive
+    # queues and lose packets when 60+ concurrent bulk requests
+    # arrive simultaneously — observed pattern is `[snmp] WALK
+    # errorIndication: No SNMP response received before timeout`
+    # for ~15 of ~60 OID branches per probe. Operators with fast
+    # snmpd's (cisco / synology / linux net-snmp) can raise this
+    # to 8-16 to get back the parallelism win; the gather wall-
+    # clock drops from ~6s @ concurrency=1 to ~0.5s @ concurrency=16
+    # on a 60-OID probe. Range 1..16.
+    "tuning_snmp_per_host_walk_concurrency": ("SNMP_PER_HOST_WALK_CONCURRENCY", 1, 1, 16),
     # SNMP per-host caches, distinct from the Webmin TTL knobs.
     # Pre-#659 the SNMP per-host caches reused tuning_webmin_host_cache_ttl_seconds /
     # tuning_webmin_host_fail_cache_ttl_seconds — operator changing the
