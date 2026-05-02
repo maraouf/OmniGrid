@@ -9383,14 +9383,27 @@
               <div class="mt-4 flex items-center gap-2 flex-wrap"
                    x-show="((h.beszel_id || h.ne_url) && h.status === 'up' && (h.providers || []).length > 0) || h.ping_enabled || hostHasSnmpCharts(h)">
                 <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true"><use href="#icon-clock"/></svg>
+                <!-- Buttons disabled while the picker's underlying
+                     loaders are in flight (#837). Prevents the operator
+                     from rapid-clicking 1h → 6h → 24h while the first
+                     fetch is still resolving — pre-fix the SPA lagged
+                     the chart updates on slow networks and presented
+                     inconsistent data because each pending fetch
+                     finished out of order. The CSS disabled-state
+                     styling is inherited from the `.range-seg button`
+                     base rule. -->
                 <div class="range-seg">
                   <button type="button" :class="hostHistoryRange === 1 ? 'active' : ''"
+                          :disabled="hostHistoryRangeBusy"
                           @click="setHostHistoryRange(1)">1h</button>
                   <button type="button" :class="hostHistoryRange === 6 ? 'active' : ''"
+                          :disabled="hostHistoryRangeBusy"
                           @click="setHostHistoryRange(6)">6h</button>
                   <button type="button" :class="hostHistoryRange === 24 ? 'active' : ''"
+                          :disabled="hostHistoryRangeBusy"
                           @click="setHostHistoryRange(24)">24h</button>
                   <button type="button" :class="hostHistoryRange === 168 ? 'active' : ''"
+                          :disabled="hostHistoryRangeBusy"
                           @click="setHostHistoryRange(168)">7d</button>
                 </div>
                 <!-- Subtle data-freshness hint (#363) — only shows after
