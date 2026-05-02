@@ -874,10 +874,30 @@ async def api_stats(force: bool = False):
     now = time.time()
     if force or not _stats_cache["stats"] or (now - _stats_cache["ts"] > tuning.tuning_int("tuning_stats_cache_ttl_seconds")):
         await _gather_stats()
+    # Swarm agent unhealthy detection — surfaces every node where
+    # the per-node `_agent_health` consecutive-failure counter has
+    # crossed the operator-tunable threshold. SPA renders a banner
+    # in Stacks / Hosts views with operator-fix copy. Empty list on
+    # healthy fleet (most common case). See `logic/stats.py` for the
+    # detection logic at the end of `gather_stats`.
+    from logic.stats import get_agent_health as _get_agent_health
+    threshold = tuning.tuning_int("tuning_swarm_agent_unhealthy_threshold")
+    health_map = _get_agent_health() or {}
+    unhealthy_agents = [
+        {
+            "host":         host,
+            "fails":        int(state.get("fails", 0)),
+            "since_ts":     float(state.get("since_ts", 0.0)),
+            "task_cids":    int(state.get("task_cids", 0)),
+        }
+        for host, state in health_map.items()
+        if int(state.get("fails", 0)) >= threshold
+    ]
     return {
         "stats": _stats_cache["stats"],
         "ts": _stats_cache["ts"],
         "age": int(now - _stats_cache["ts"]) if _stats_cache["ts"] else None,
+        "unhealthy_agents": unhealthy_agents,
     }
 
 
@@ -1716,6 +1736,7 @@ class SettingsIn(BaseModel):
     tuning_stats_concurrency: Optional[str] = None
     tuning_stats_targeted_timeout_seconds: Optional[str] = None
     tuning_stats_untargeted_timeout_seconds: Optional[str] = None
+    tuning_swarm_agent_unhealthy_threshold: Optional[str] = None
     tuning_stats_history_days: Optional[str] = None
     tuning_stats_sample_interval_seconds: Optional[str] = None
     # host_metrics_sampler permanent-fail window. Same DB-key

@@ -744,6 +744,10 @@
           "label": "Stats fetch timeout — untargeted (seconds)",
           "help": "How long to wait for /containers/{id}/stats?stream=false when the call has NO X-PortainerAgent-Target header (asks the manager's daemon directly). Used as a fallback when the targeted call fails — manager-local containers respond directly here; worker-node cids return 404 (manager doesn't have them, no agent to route via). Lower it to fail-fast on workers; raise it if your manager is slow. Range 1..60s. Default 10s."
         },
+        "tuning_swarm_agent_unhealthy_threshold": {
+          "label": "Swarm agent unhealthy threshold (gather cycles)",
+          "help": "Number of consecutive gather cycles where a Swarm node had >=1 running task container but ZERO successful /stats calls before the SPA flags the node's Portainer agent as unhealthy via the banner in the Stacks / Hosts views. Default 3 — covers transient hub blips without spamming the banner. Lower for faster operator feedback (1 = banner on first bad gather, can flicker). Raise for noisy fleets where one bad gather isn't worth surfacing. Range 1..20."
+        },
         "tuning_stats_history_days": {
           "label": "Time-series retention (days)",
           "help": "How long every time-series table (stats_samples, host_net_samples, host_metrics_samples) keeps rows before the hourly pruner deletes them. Drives the inline sparklines on the Stacks view + the Hosts drawer's CPU / Memory / Disk / Net history charts. Lower it when SQLite is growing too large on a small disk (each sample row is ~80 bytes, but a 60-host fleet sampled every 5min for 30d adds up). Raise it for longer-term graphs. Default 7d. Bumping this RETROACTIVELY surfaces older data immediately (no backfill — rows already exist, the cutoff just moves)."
@@ -1194,6 +1198,11 @@
     "last_updated": "Last updated",
     "copy": "copy",
     "copied": "Copied to clipboard"
+  },
+  "swarm_agent_banner": {
+    "title": "Portainer agent unreachable on {count} Swarm node(s)",
+    "body": "Swarm tasks claim containers are running on these nodes, but every stats call has failed for the last few gather cycles. The most likely cause is that the Portainer agent on these nodes failed to re-register after a manager restart. Force-restart the agent service on the manager to clear it:",
+    "row": "{host} — agent unreachable for {fails} consecutive gather(s); {cids} container(s) affected"
   },
   "hotkeys": {
     "title": "Keyboard shortcuts",

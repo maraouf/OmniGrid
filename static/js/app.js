@@ -241,6 +241,11 @@ function app() {
                     ? Math.max(10, Math.min(500, parseInt(localStorage.getItem('historyPerPage') || '50', 10) || 50))
                     : 50),
     stats: {}, _statsTimer: null, _maxSize: 1,
+    // Swarm agent unhealthy banner — populated by `loadStats` from
+    // `/api/stats`'s `unhealthy_agents` field. Each entry is
+    // `{host, fails, since_ts, task_cids}`. Banner renders at the
+    // top of Stacks + Hosts views when the array is non-empty.
+    unhealthyAgents: [],
     sparks: {}, _sparksTimer: null,
     version: '',
     // Topbar clock + weather widgets. Per-browser preferences kept in
@@ -796,6 +801,7 @@ function app() {
       'tuning_stats_concurrency',
       'tuning_stats_targeted_timeout_seconds',
       'tuning_stats_untargeted_timeout_seconds',
+      'tuning_swarm_agent_unhealthy_threshold',
       'tuning_stats_history_days',
       'tuning_stats_sample_interval_seconds',
       // permanent-fail window (was a separate card with its own
@@ -4586,6 +4592,12 @@ function app() {
         }
         const d = await r.json();
         this.stats = d.stats || {};
+        // Swarm agent unhealthy detection — populated by gather_stats
+        // when a Swarm node has consecutive bad gather cycles (every
+        // task-derived cid on the node returned None). Empty array on
+        // healthy fleet (most common case). The SPA banner in Stacks
+        // / Hosts views renders when the array is non-empty.
+        this.unhealthyAgents = Array.isArray(d.unhealthy_agents) ? d.unhealthy_agents : [];
         // Unconditional "what arrived" line so the operator can spot
         // the disconnect between server-side `/api/stats` (which may
         // return rich data) and what the SPA actually has in

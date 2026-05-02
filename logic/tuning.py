@@ -39,6 +39,18 @@ TUNABLES: dict[str, tuple[str, int, int, int]] = {
     # would block the whole gather behind one slow container.
     "tuning_stats_targeted_timeout_seconds":   ("STATS_TARGETED_TIMEOUT_SECONDS", 12, 1, 60),
     "tuning_stats_untargeted_timeout_seconds": ("STATS_UNTARGETED_TIMEOUT_SECONDS", 10, 1, 60),
+    # Swarm agent unhealthy-banner threshold. After N consecutive
+    # gather cycles where a Swarm node had ≥1 running task cid but
+    # ZERO successful `/containers/{cid}/stats` calls (across the
+    # resolved-node agent_target retry, untargeted fallback, AND
+    # the brute-force every-other-host fallback), the SPA flags the
+    # node's Portainer agent as unhealthy via the banner in the
+    # Stacks / Hosts views. Default 3 — covers transient hub blips
+    # without spamming the banner; lower for faster operator
+    # feedback at the cost of more false-positive flickers; raise
+    # for noisy fleets where one bad gather isn't worth surfacing.
+    # Range 1..20.
+    "tuning_swarm_agent_unhealthy_threshold": ("SWARM_AGENT_UNHEALTHY_THRESHOLD", 3, 1, 20),
     "tuning_stats_history_days":            ("STATS_HISTORY_DAYS",             7,  1,  365),
     "tuning_stats_sample_interval_seconds": ("STATS_SAMPLE_INTERVAL_SECONDS", 300, 30,  3600),
     # host_metrics_sampler permanent-fail window. After this many
