@@ -1830,10 +1830,20 @@ async def probe_snmp(
         # wrap the gather in wait_for so the TimeoutError catch
         # becomes reachable (asyncio.gather alone can't raise TimeoutError
         # without wait_for) AND the caller earns a wall-clock guarantee.
-        # Budget = (timeout + 2s) × 2 — covers UDP retransmits per
-        # outstanding GET/walk plus a small overhead margin so a partial
-        # responder doesn't run forever past the per-OID timeout.
-        wall_clock_budget = max(5.0, (timeout + 2.0) * 2)
+        # Budget is operator-tunable via
+        # ``tuning_snmp_wall_clock_budget_seconds`` (default 60s) —
+        # the previous hardcoded ``(timeout + 2.0) * 2`` formula was
+        # too tight for slow embedded snmpd (WD MyCloud / network
+        # printers / low-power NAS): the probe fans out ~60 OID
+        # operations sequentially-on-the-wire, so a 500ms RTT on a
+        # slow device blows past the old 14s budget on every cycle
+        # and trips the auto-pause threshold. The floor is still
+        # the per-OID timeout + 5s safety margin so a misconfigured
+        # tiny budget can't undercut the per-OID retry window.
+        wall_clock_budget = max(
+            timeout + 5.0,
+            float(_tuning.tuning_int("tuning_snmp_wall_clock_budget_seconds")),
+        )
         results = await asyncio.wait_for(asyncio.gather(
             sys_task, cpu_task,
             st_type_task, st_desc_task, st_unit_task, st_size_task, st_used_task,

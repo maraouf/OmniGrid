@@ -736,6 +736,14 @@
           "label": "Container stats concurrency",
           "help": "Maximum parallel /containers/{id}/stats?stream=false calls to the Docker daemon (via Portainer) during one stats gather. Each call costs ~50-200ms, so a fleet with 80 running containers can take 5+ seconds even at this concurrency. Lower it on a slow / loaded Swarm manager so the stats sweep doesn't compete with normal Docker scheduling. Raise it on a fast manager with many containers so the sweep finishes inside the SPA's 30s poll cadence. Default 16."
         },
+        "tuning_stats_targeted_timeout_seconds": {
+          "label": "Stats fetch timeout — agent-targeted (seconds)",
+          "help": "How long to wait for /containers/{id}/stats?stream=false when the call carries an X-PortainerAgent-Target header (forwarded to a specific Swarm node). Bumped from 4s to 12s after operator-reported worker-node stats coming back empty: Portainer's agent forwarding can take longer than 4s on busy nodes, the call would time out, the untargeted fallback would 404 (manager doesn't have the worker's cid), and the UI rendered as `—` even though the agent would have responded if given more time. Lower it if your Portainer agents are fast and you want to fail-fast on dead workers. Raise it if you see repeated TimeoutError in the [stats] logs. Range 1..60s. Default 12s."
+        },
+        "tuning_stats_untargeted_timeout_seconds": {
+          "label": "Stats fetch timeout — untargeted (seconds)",
+          "help": "How long to wait for /containers/{id}/stats?stream=false when the call has NO X-PortainerAgent-Target header (asks the manager's daemon directly). Used as a fallback when the targeted call fails — manager-local containers respond directly here; worker-node cids return 404 (manager doesn't have them, no agent to route via). Lower it to fail-fast on workers; raise it if your manager is slow. Range 1..60s. Default 10s."
+        },
         "tuning_stats_history_days": {
           "label": "Time-series retention (days)",
           "help": "How long every time-series table (stats_samples, host_net_samples, host_metrics_samples) keeps rows before the hourly pruner deletes them. Drives the inline sparklines on the Stacks view + the Hosts drawer's CPU / Memory / Disk / Net history charts. Lower it when SQLite is growing too large on a small disk (each sample row is ~80 bytes, but a 60-host fleet sampled every 5min for 30d adds up). Raise it for longer-term graphs. Default 7d. Bumping this RETROACTIVELY surfaces older data immediately (no backfill — rows already exist, the cutoff just moves)."
@@ -841,8 +849,12 @@
           "help": "After TWO consecutive timeout-batches against the same host:port, the probe arms a cool-down — subsequent ticks skip that pair until the cool-down expires. Cuts wire traffic against permanently-unreachable hosts without removing them from the chart entirely. Default 300 seconds (5 minutes). Lower for fast-recovery detection; raise to suppress probes against a host that's been down for hours. Range 30..3600."
         },
         "tuning_snmp_probe_timeout_seconds": {
-          "label": "SNMP per-probe timeout (seconds)",
-          "help": "Wall-clock budget for ONE SNMP GET / GETBULK round-trip. The probe fires a sysName/sysDescr/sysUpTime GET plus several walks (hrStorage / hrProcessorLoad / ifTable) in parallel under this budget. Default 5 seconds — enough for slow embedded devices to ack on UDP without stalling the gather pipeline on a dead host. Lower if your fleet is purely on-LAN with < 50 ms RTTs; raise for cross-WAN devices or chatty UPS units that are slow to respond. Range 1..60."
+          "label": "SNMP per-OID timeout (seconds)",
+          "help": "pysnmp's per-OID UDP timeout — applied to EACH GET / GETBULK round-trip independently. Default 5 seconds — enough for slow embedded devices to ack a single packet without stalling the gather pipeline on a truly dead host. This is NOT the wall-clock budget for the whole probe; that's `SNMP wall-clock probe budget` below. Lower this for fast-fail behaviour on dead hosts; raise it on flaky high-RTT links. Range 1..60."
+        },
+        "tuning_snmp_wall_clock_budget_seconds": {
+          "label": "SNMP wall-clock probe budget (seconds)",
+          "help": "Total wall-clock budget for ONE SNMP probe against ONE host. The probe fans out ~60 OID operations (sysName / hrStorage / hrProcessorLoad / ifTable / ENTITY-MIB plus vendor-private MIBs for Dell / Cisco / APC / UCD / Synology / HP printer / Dell-RAC); pysnmp serialises the wire-level UDP packets through one transport so total wall-clock is roughly (round-trips × RTT). Operator-reported case: WD MyCloud / network printer / low-power NAS with ~500 ms RTT × 60 ops ≈ 30 s, blowing past the previous hardcoded 14 s budget on every cycle and tripping the auto-pause threshold. Default 60 s leaves margin for the slowest legitimate device. Lower if your SNMP fleet is uniformly fast (LAN switches answer in < 5 s easily); raise to 120-300 s if you have unusually slow embedded gear. Range 5..600."
         },
         "tuning_snmp_concurrency": {
           "label": "SNMP probe concurrency",

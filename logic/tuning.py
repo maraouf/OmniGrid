@@ -21,6 +21,24 @@ TUNABLES: dict[str, tuple[str, int, int, int]] = {
     "tuning_stats_cache_ttl_seconds":       ("STATS_CACHE_TTL_SECONDS",       30,  5,  3600),
     "tuning_registry_concurrency":          ("REGISTRY_CONCURRENCY",           8,  1,  64),
     "tuning_stats_concurrency":             ("STATS_CONCURRENCY",             16,  1,  128),
+    # Per-container stats fetch timeouts. `_one_container_stats` makes
+    # up to two HTTP calls per running container per gather:
+    #   1. Targeted (with `X-PortainerAgent-Target=<host>`) — fast-fail
+    #      so we don't hang the gather on a dead worker. Bumped from
+    #      4s to 12s after operator-reported worker-node stats coming
+    #      back empty: Portainer's agent forwarding can take longer
+    #      than 4s on busy nodes, the call would time out, and the
+    #      untargeted fallback would 404 (manager doesn't have the
+    #      worker's cid).
+    #   2. Untargeted (no agent-target header) — fallback when the
+    #      targeted call fails. Manager-local containers respond
+    #      directly; worker-node cids return 404 here. 10s default.
+    # Both knobs operator-tunable so a flaky / slow Portainer setup
+    # can be loosened without a redeploy. Range 1..60s — anything
+    # under 1s is too short for the round-trip; anything over 60s
+    # would block the whole gather behind one slow container.
+    "tuning_stats_targeted_timeout_seconds":   ("STATS_TARGETED_TIMEOUT_SECONDS", 12, 1, 60),
+    "tuning_stats_untargeted_timeout_seconds": ("STATS_UNTARGETED_TIMEOUT_SECONDS", 10, 1, 60),
     "tuning_stats_history_days":            ("STATS_HISTORY_DAYS",             7,  1,  365),
     "tuning_stats_sample_interval_seconds": ("STATS_SAMPLE_INTERVAL_SECONDS", 300, 30,  3600),
     # host_metrics_sampler permanent-fail window. After this many
@@ -177,6 +195,24 @@ TUNABLES: dict[str, tuple[str, int, int, int]] = {
     # an unreachable host, same purpose as the auth one).
     "tuning_snmp_probe_timeout_seconds": ("SNMP_PROBE_TIMEOUT_SECONDS", 5, 1, 60),
     "tuning_snmp_concurrency":           ("SNMP_CONCURRENCY", 16, 1, 128),
+    # Wall-clock budget for ONE probe against ONE host. The probe fans
+    # out ~60 SNMP GET / WALK operations (sys / HR / IF / ENTITY +
+    # vendor-private MIBs for Dell / Cisco / APC / UCD / Synology /
+    # HP printer / Dell-RAC). pysnmp serialises the wire-level UDP
+    # packets through one engine + transport target, so the total
+    # wall-clock is roughly (number_of_round_trips × RTT). On a slow
+    # embedded snmpd (WD MyCloud, low-power NAS, network printers)
+    # an RTT of 500ms × 60 round-trips ≈ 30s — and that's BEFORE any
+    # retries kick in. Pre-this-knob the budget was hardcoded as
+    # `max(5.0, (timeout + 2.0) * 2)` which with the default timeout
+    # of 5s came out to 14s — far too short for slow devices,
+    # operators reported `snmp: timeout against <host>:161` on every
+    # cycle for these hosts, hitting the 5-failures auto-pause
+    # threshold and only succeeding after a manual resume (which gave
+    # the probe a quiet cache-empty moment). Default 60s is plenty
+    # for even the slowest device while still bounding the gather's
+    # parallel-host fan-out. Range 5..600s.
+    "tuning_snmp_wall_clock_budget_seconds": ("SNMP_WALL_CLOCK_BUDGET_SECONDS", 60, 5, 600),
     # SNMP per-host caches, distinct from the Webmin TTL knobs.
     # Pre-#659 the SNMP per-host caches reused tuning_webmin_host_cache_ttl_seconds /
     # tuning_webmin_host_fail_cache_ttl_seconds — operator changing the

@@ -1476,6 +1476,7 @@ class SettingsIn(BaseModel):
     open_meteo_enabled: Optional[bool] = None
     portainer_enabled: Optional[bool] = None
     ssh_enabled: Optional[bool] = None
+    asset_inventory_enabled: Optional[bool] = None
     apprise_url: Optional[str] = None
     apprise_tag: Optional[str] = None
     portainer_public_url: Optional[str] = None
@@ -1713,6 +1714,8 @@ class SettingsIn(BaseModel):
     tuning_stats_cache_ttl_seconds: Optional[str] = None
     tuning_registry_concurrency: Optional[str] = None
     tuning_stats_concurrency: Optional[str] = None
+    tuning_stats_targeted_timeout_seconds: Optional[str] = None
+    tuning_stats_untargeted_timeout_seconds: Optional[str] = None
     tuning_stats_history_days: Optional[str] = None
     tuning_stats_sample_interval_seconds: Optional[str] = None
     # host_metrics_sampler permanent-fail window. Same DB-key
@@ -1771,6 +1774,7 @@ class SettingsIn(BaseModel):
     # extra="ignore" default from silently dropping them on save.
     tuning_snmp_probe_timeout_seconds: Optional[str] = None
     tuning_snmp_concurrency: Optional[str] = None
+    tuning_snmp_wall_clock_budget_seconds: Optional[str] = None
     # SNMP per-host cache TTLs, distinct from the Webmin pair.
     tuning_snmp_host_cache_ttl_seconds: Optional[str] = None
     tuning_snmp_host_fail_cache_ttl_seconds: Optional[str] = None
@@ -1875,6 +1879,7 @@ async def api_get_settings(request: Request):
         "open_meteo_enabled": (get_setting("open_meteo_enabled", "true") or "true").lower() == "true",
         "portainer_enabled":  (get_setting("portainer_enabled",  "true") or "true").lower() == "true",
         "ssh_enabled":        (get_setting("ssh_enabled",        "true") or "true").lower() == "true",
+        "asset_inventory_enabled": (get_setting("asset_inventory_enabled", "true") or "true").lower() == "true",
         "apprise_url": get_setting("apprise_url", ""),
         "apprise_tag": get_setting("apprise_tag", ""),
         # Per-event notification toggles. Resolved through
@@ -2157,6 +2162,9 @@ async def _api_set_settings_inner(s, request, _portainer):
         set_setting("portainer_enabled", "true" if s.portainer_enabled else "false")
     if s.ssh_enabled is not None:
         set_setting("ssh_enabled", "true" if s.ssh_enabled else "false")
+    if s.asset_inventory_enabled is not None:
+        set_setting("asset_inventory_enabled",
+                    "true" if s.asset_inventory_enabled else "false")
     if s.apprise_url is not None: set_setting("apprise_url", s.apprise_url)
     if s.apprise_tag is not None: set_setting("apprise_tag", s.apprise_tag)
     # Per-event notification toggles. Each value MUST be
@@ -3377,6 +3385,17 @@ async def api_snmp_test(
 # Asset inventory (ticket #78) — <asset-api-host> OAuth2 client_credentials. Manual
 # refresh only; reads go through the file cache at /app/data/asset_inventory.json.
 # ----------------------------------------------------------------------------
+def _is_asset_inventory_enabled() -> bool:
+    """Master-switch gate for the Asset Inventory integration. Default
+    True so existing deploys don't change behaviour. When false the
+    three /api/asset-inventory endpoints short-circuit and the
+    asset_inventory_refresh schedule kind no-ops — the persisted
+    credentials stay in the settings table so the operator can flip
+    back on without re-typing. Mirrors the apprise / portainer / ssh /
+    open_meteo gate pattern."""
+    return (get_setting("asset_inventory_enabled", "true") or "true").lower() == "true"
+
+
 @app.get("/api/asset-inventory")
 async def api_asset_inventory(_admin: auth.User = Depends(auth.require_admin)):
     """Admin-only: return the cached asset inventory snapshot.
@@ -3386,6 +3405,12 @@ async def api_asset_inventory(_admin: auth.User = Depends(auth.require_admin)):
     UI can render an empty state without special-casing HTTP 404.
     """
     from logic import asset_inventory as _ai
+    if not _is_asset_inventory_enabled():
+        # Short-circuit when the master switch is off — the SPA's host
+        # drawer + Admin → Hosts auto-fill paths consume `ok` and treat
+        # disabled / failed identically (empty assets list).
+        return {"ok": False, "ts": 0, "count": 0, "assets": [],
+                "error": "asset_inventory_disabled"}
     return _ai.load_cache()
 
 
@@ -3395,6 +3420,10 @@ async def api_asset_inventory_test(
     _admin: auth.User = Depends(auth.require_admin),
 ):
     """Admin-only: validate asset-inventory credentials end-to-end.
+
+    Test still runs even when the master switch is off — operators
+    need to verify credentials BEFORE flipping the switch back on.
+    Refresh / read paths honour the gate; this one doesn't.
 
     Accepts unsaved form values or falls back to the persisted settings
     when a field is blank. Branches on ``auth_mode``:
@@ -3502,6 +3531,9 @@ async def api_asset_inventory_refresh(
     new count and timestamp.
     """
     from logic import asset_inventory as _ai
+    if not _is_asset_inventory_enabled():
+        return {"ok": False, "count": 0, "ts": 0,
+                "error": "asset_inventory_disabled"}
     base_url = (get_setting("asset_inventory_base_url", "") or "").strip().rstrip("/")
     auth_mode = (get_setting("asset_inventory_auth_mode", "") or "oauth2").strip().lower()
     if auth_mode not in ("oauth2", "lifetime_token"):

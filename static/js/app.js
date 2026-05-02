@@ -794,6 +794,8 @@ function app() {
       'tuning_stats_cache_ttl_seconds',
       'tuning_registry_concurrency',
       'tuning_stats_concurrency',
+      'tuning_stats_targeted_timeout_seconds',
+      'tuning_stats_untargeted_timeout_seconds',
       'tuning_stats_history_days',
       'tuning_stats_sample_interval_seconds',
       // permanent-fail window (was a separate card with its own
@@ -899,6 +901,7 @@ function app() {
       ],
       snmp: [
         'tuning_snmp_probe_timeout_seconds',
+        'tuning_snmp_wall_clock_budget_seconds',
         'tuning_snmp_concurrency',
         'tuning_snmp_sample_interval_seconds',
         'tuning_snmp_unreachable_cooldown_seconds',
@@ -927,6 +930,7 @@ function app() {
       'tuning_ping_cooldown_seconds',
       // SNMP provider tunables (rendered in Host stats → SNMP).
       'tuning_snmp_probe_timeout_seconds',
+      'tuning_snmp_wall_clock_budget_seconds',
       'tuning_snmp_concurrency',
       // SNMP per-host cache TTLs, distinct from Webmin's pair.
       'tuning_snmp_host_cache_ttl_seconds',
@@ -1587,6 +1591,11 @@ function app() {
       const f = this.assetForm || {};
       const s = this.assetStatus || {};
       const norm = v => (v == null ? '' : String(v));
+      // Master switch (#204) — toggle change is dirty even when no
+      // form field changed. Compared against the server-supplied
+      // baseline captured into `assetStatus.enabled` by loadSettings.
+      const enabledBaseline = (s.enabled !== false);
+      if ((this.settings && (this.settings.asset_inventory_enabled !== false)) !== enabledBaseline) return true;
       // Status's auth_mode comes through as 'lifetime_token' or anything-else;
       // form normalises to 'oauth2' as the default fallback.
       const baseAuth = (s.auth_mode === 'lifetime_token') ? 'lifetime_token' : 'oauth2';
@@ -4999,6 +5008,7 @@ function app() {
           open_meteo_enabled: d.open_meteo_enabled !== false,
           portainer_enabled:  d.portainer_enabled  !== false,
           ssh_enabled:        d.ssh_enabled        !== false,
+          asset_inventory_enabled: d.asset_inventory_enabled !== false,
           // Admin → Hosts toggle that controls visibility of the
           // host-drawer debug-data panel. Default true keeps the
           // legacy admin behaviour for fresh installs / pre-toggle

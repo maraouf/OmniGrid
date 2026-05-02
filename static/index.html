@@ -5525,7 +5525,7 @@
                      @click.stop keeps the click from toggling the row
                      back to collapsed. -->
                 <button type="button"
-                        x-show="!isReadonly() && isHostConfigExpanded(row) && hostRowHasAssetMatch(row)"
+                        x-show="!isReadonly() && isHostConfigExpanded(row) && hostRowHasAssetMatch(row) && (settings.asset_inventory_enabled !== false)"
                         @click.stop="autofillHostRowFromAsset(idx)"
                         class="host-row-autofill-chip"
                         :title="t('admin_hosts.autofill.button_title')">
@@ -6503,12 +6503,40 @@
            cache at /app/data/asset_inventory.json is the source of
            truth that the host drawer reads. -->
       <section x-show="adminTab==='assets'" class="bg-[var(--surface)] border border-[var(--border)] rounded-md p-5">
-        <div class="flex items-center gap-2 mb-2">
-          <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true"><use href="#icon-package"/></svg>
-          <h3 class="font-semibold text-[13px]" x-text="t('admin_assets.title')"></h3>
+        <div class="flex items-center justify-between gap-2 mb-2">
+          <div class="flex items-center gap-2">
+            <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true"><use href="#icon-package"/></svg>
+            <h3 class="font-semibold text-[13px]" x-text="t('admin_assets.title')"></h3>
+          </div>
+          <span class="chip"
+                :class="settings.asset_inventory_enabled ? 'pill-ok' : 'pill-muted'"
+                x-text="settings.asset_inventory_enabled ? t('admin_integrations.enabled_pill') : t('admin_integrations.disabled_pill')"></span>
         </div>
         <p class="text-[11.5px] text-[var(--text-faint)] mb-3 leading-snug max-w-[720px]"
            x-text="t('admin_assets.intro')"></p>
+        <!-- Master switch (#204 pattern). Disables /api/asset-inventory
+             reads + refreshes + scheduled refreshes in the backend
+             without erasing the credentials — flip back on to resume.
+             The "Test connection" button still works while disabled
+             so the operator can verify creds before re-enabling. -->
+        <label class="flex items-center gap-2 text-[12.5px] cursor-pointer mb-3 select-none">
+          <input type="checkbox" x-model="settings.asset_inventory_enabled"
+                 :disabled="isReadonly()">
+          <span class="font-medium" x-text="t('admin_integrations.enabled_label')"></span>
+          <span class="text-[11px] text-[var(--text-faint)]"
+                x-text="settings.asset_inventory_enabled ? '' : t('admin_integrations.disabled_hint')"></span>
+        </label>
+
+        <!-- Master-toggle gate. Wrapping the form content in a
+             `<fieldset :disabled>` cascades to every nested input /
+             button via the HTML spec, so we don't have to thread
+             `|| !settings.asset_inventory_enabled` through every
+             `:disabled` binding. The Test / Save / Refresh buttons
+             live OUTSIDE this fieldset (Test still runs while
+             disabled so creds can be verified before re-enabling;
+             Save commits the toggle flip; Refresh respects the
+             state via its own per-button gate below). -->
+        <fieldset :disabled="!settings.asset_inventory_enabled" class="contents">
 
         <!-- Auth mode selector — segmented control. -->
         <div class="mb-3">
@@ -6672,6 +6700,7 @@
                x-text="t('admin_assets.edit_url_help')"></p>
           </div>
         </div>
+        </fieldset>
 
         <div class="flex items-center gap-2 flex-wrap">
           <button x-show="isAdmin()" @click="testAssetConnection()"
@@ -6701,7 +6730,8 @@
           </span>
           <button x-show="isAdmin()" @click="refreshAssetCache()"
                   class="btn btn-ghost text-[12px]"
-                  :disabled="assetRefreshing">
+                  :disabled="assetRefreshing || !settings.asset_inventory_enabled"
+                  :title="!settings.asset_inventory_enabled ? t('admin_integrations.disabled_hint') : ''">
             <span x-show="!assetRefreshing" x-text="t('admin_assets.refresh')"></span>
             <span x-show="assetRefreshing" class="flex items-center gap-1"><span class="spin"></span><span x-text="t('admin_assets.refreshing')"></span></span>
           </button>
