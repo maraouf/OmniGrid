@@ -367,6 +367,60 @@ async def gather_stats() -> None:
             if (c.get("State") or "").lower() == "running":
                 running_cids.append(cid)
 
+        # Tasks-driven backfill — load-bearing for Swarm setups where
+        # Portainer's ``/containers/json`` (even per-node with
+        # ``X-PortainerAgent-Target``) doesn't expose worker-node
+        # containers at all. The Tasks API is Swarm's own state, not
+        # the per-node Docker daemon's, so it's visible from the
+        # manager regardless of agent topology — every running task
+        # carries ``Status.ContainerStatus.ContainerID`` + ``NodeID``.
+        # We use that to build (cid, node, service_id) tuples
+        # AUTHORITATIVELY, then call ``_one_container_stats`` per
+        # tuple. CPU + memory will work; ``size_root`` / ``size_rw``
+        # remain 0 for tasks whose cid was never in the containers
+        # list (no per-node ``size=1`` data to read), which is the
+        # acceptable trade-off — disk size is secondary; CPU + memory
+        # are what the operator reads first.
+        try:
+            tasks = await portainer.pg(client, f"{ep}/tasks")
+        except Exception as e:
+            print(f"[stats] gather_stats: tasks fetch FAILED: {type(e).__name__}: {e}")
+            tasks = []
+        tasks_added = 0
+        for t in (tasks or []):
+            status = t.get("Status") or {}
+            if status.get("State") != "running":
+                continue
+            cstat = status.get("ContainerStatus") or {}
+            tcid = cstat.get("ContainerID") or ""
+            if not tcid:
+                continue
+            nid = t.get("NodeID")
+            tnode = nodes_by_id.get(nid) if nid else None
+            tsid = t.get("ServiceID") or None
+            # Wire the task into the running-stats pipeline regardless
+            # of whether the cid was already in the merged container
+            # list. If it WAS in the list, we just refine the node
+            # mapping (tasks-derived NodeID is more authoritative than
+            # the per-node sweep when both disagree). If it WASN'T, we
+            # add it with empty size info but a real node hint, so the
+            # subsequent ``_one_container_stats`` call routes correctly.
+            if tcid not in svc_by_cid:
+                svc_by_cid[tcid] = tsid
+                size_root_by_cid.setdefault(tcid, 0)
+                size_rw_by_cid.setdefault(tcid, 0)
+                running_cids.append(tcid)
+                tasks_added += 1
+            elif tsid and not svc_by_cid.get(tcid):
+                svc_by_cid[tcid] = tsid
+            # Task-derived node beats every other source — the
+            # scheduler authored the assignment.
+            if tnode:
+                node_by_cid[tcid] = tnode
+        if tasks_added:
+            print(f"[stats] gather_stats: tasks added {tasks_added} cid(s) "
+                  f"not present in container list (worker-node visibility gap)")
+
         sem = asyncio.Semaphore(portainer.stats_concurrency())
 
         async def fetch(cid: str):

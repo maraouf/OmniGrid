@@ -3644,8 +3644,11 @@ def _humanise_probe_error(raw: str, target_label: str) -> str:
     # instead of a `webmin: ...` raw prefix.
     if "auth cool-down" in low or "auth cooldown" in low:
         # Try to pull the seconds-remaining; fall through to a generic
-        # message when the probe didn't include it.
-        m = re.search(r"(\d+)s remaining", low)
+        # message when the probe didn't include it. Digit count is
+        # bounded to 10 (≈ 317 years in seconds, plenty for any cool-
+        # down value) — closes CodeQL py/polynomial-redos which flagged
+        # the unbounded `\d+` running on user-influenced probe text.
+        m = re.search(r"(\d{1,10})s remaining", low)
         if m:
             return (f"{target_label} auth is in cool-down ({m.group(1)}s remaining) — "
                     f"a previous Test failed; wait it out before retrying")
