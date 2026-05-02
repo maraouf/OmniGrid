@@ -302,12 +302,16 @@ function app() {
     // a belt-and-braces safety check on top of EventSource's onerror
     // (which doesn't always fire on silent half-open sockets).
     _sseFreshnessTimer: null,
-    view: (['stacks','services','nodes','hosts','history','notifications','settings','admin'].includes(localStorage.getItem('view')) ? localStorage.getItem('view') : 'stacks'),
-    // In-app notifications (#855). Loaded via /api/notifications when
-    // the operator opens the Notifications view OR via SSE pushes
+    view: (['stacks','services','nodes','hosts','history','settings','admin'].includes(localStorage.getItem('view')) ? localStorage.getItem('view') : 'stacks'),
+    // In-app notifications (#855). Surfaces as a POPUP overlay (NOT a
+    // top-level view) — operators wanted a quick check + dismiss without
+    // navigating away from whatever they were doing. Same modal pattern
+    // as the hotkeys help dialog. Loaded via /api/notifications when
+    // the operator opens the popup OR via SSE pushes
     // (notification:created / :read / :deleted). The avatar-bar
     // unread chip pulls from `notificationsUnread` independently of the
-    // list — that count is global, the list view filters can scope.
+    // list — that count is global, the popup's filters can scope.
+    showNotificationsPopup: false,
     notifications: [],
     notificationsUnread: 0,
     notificationsTotal: 0,
@@ -550,7 +554,18 @@ function app() {
     // Per-system time-series cache keyed by Beszel record id.
     // Shape: { [system_id]: { loading, error, series: [{t,cpu,mp,dp,b,...}] } }
     hostHistory: {},
-    hostHistoryRange: 1,  // hours — matches img_8's "Last 1 hour" default
+    // Operator's selected drawer-chart range (1 / 6 / 24 / 168 hours).
+    // Persisted to `localStorage.hostHistoryRange` so a page refresh
+    // doesn't snap them back to the 1h default — operators leaving the
+    // drawer on 7d while glancing away expected the picker to remember.
+    // Validated against the four canonical values; anything else falls
+    // back to 1.
+    hostHistoryRange: (() => {
+      try {
+        const v = +localStorage.getItem('hostHistoryRange');
+        return [1, 6, 24, 168].includes(v) ? v : 1;
+      } catch (_) { return 1; }
+    })(),
     // Wall-clock millis ticked every 30s by init() — drives the
     // "Updated Xm ago" freshness hint in the host-drawer chart-grid
     // header (#363). Reactive so Alpine re-evaluates the helper.
@@ -1232,6 +1247,11 @@ function app() {
       // /settings/profile, etc). Run the one-time parse BEFORE wiring
       // the watchers so the initial assign doesn't spam pushState.
       this._applyRouteFromPath();
+      // Persist the drawer-chart range so a refresh doesn't snap the
+      // picker back to 1h. Same pattern as the `view` watcher below.
+      this.$watch('hostHistoryRange', v => {
+        try { localStorage.setItem('hostHistoryRange', String(v)); } catch (_) {}
+      });
       this.$watch('view', v => {
         localStorage.setItem('view', v);
         this._pushRoute();
@@ -1262,15 +1282,20 @@ function app() {
           clearInterval(this._hostsTimer);
           this._hostsTimer = null;
         }
-        // Notifications view (#855). Lazy-load on first entry; the
-        // 30s polling fallback only fires when SSE is disconnected
-        // (push-driven updates land via _handleNotificationCreated).
-        if (v === 'notifications') {
-          this.loadNotifications();
+      });
+
+      // Notifications popup (#855). Lazy-load on open; the 30s polling
+      // fallback only fires when SSE is disconnected (push-driven
+      // updates land via _handleNotificationCreated). Driven by
+      // `showNotificationsPopup` since the popup is no longer a
+      // top-level view (operators wanted a quick check + return to
+      // current work without losing their place).
+      this.$watch('showNotificationsPopup', open => {
+        if (open) {
           if (this._notificationsPollHandle) clearInterval(this._notificationsPollHandle);
           this._notificationsPollHandle = setInterval(() => {
             if (this._sseConnected) return;
-            if (this.view === 'notifications') this.loadNotifications();
+            if (this.showNotificationsPopup) this.loadNotifications();
           }, 30000);
         } else if (this._notificationsPollHandle) {
           clearInterval(this._notificationsPollHandle);
@@ -6821,6 +6846,16 @@ function app() {
       }
       return params.toString();
     },
+    // Open the notifications popup (#855 follow-up). Loads the latest
+    // page on every open so the operator's quick-check doesn't show
+    // stale data — the SSE-driven badge keeps the count current while
+    // the popup is closed, but the row list itself only refreshes on
+    // open / explicit Reload click. Mirrors the hotkeys-modal pattern:
+    // backdrop click and Esc close the dialog.
+    openNotificationsPopup() {
+      this.showNotificationsPopup = true;
+      this.loadNotifications();
+    },
     async loadNotifications() {
       this.notificationsLoading = true;
       try {
@@ -6868,7 +6903,7 @@ function app() {
       // filters — so an "errors only" view doesn't flicker an info row
       // in for one cycle.
       if (this._notificationPassesFilters(payload)
-          && this.view === 'notifications') {
+          && this.showNotificationsPopup) {
         // Avoid double-insert if operator pulled the same row via
         // loadNotifications between dispatch + SSE arrival.
         const exists = (this.notifications || []).some(n => n.id === payload.id);
