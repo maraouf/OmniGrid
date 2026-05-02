@@ -87,6 +87,7 @@ import asyncio
 import time
 from typing import Optional
 
+from logic import tuning as _tuning
 # Cool-down on consecutive timeouts. Different lever than the Webmin /
 # SSH 401 cool-down (no auth challenge in SNMP — there's no credential
 # lockout to defend against). Pre-#678 we shared
@@ -95,7 +96,7 @@ from typing import Optional
 # dedicated `tuning_snmp_unreachable_cooldown_seconds` (default 300s,
 # range 30..3600). Per-(host, port) key.
 from logic.cooldown import Cooldown as _Cooldown
-from logic import tuning as _tuning
+
 _unreachable_cooldown = _Cooldown(
     seconds_fn=lambda: _tuning.tuning_int("tuning_snmp_unreachable_cooldown_seconds")
 )
@@ -693,11 +694,23 @@ async def _snmp_walk(engine, auth, target, base_oid: str,
         return {}
     out: dict[str, object] = {}
     walk_fn = bulkWalkCmd or bulkCmd
+    # `lexicographicMode=True` lets pysnmp continue past sub-tree
+    # boundaries; we then filter by `oid_s.startswith(base_oid)` on
+    # the way out. Operator-reported case: iDRAC9 returns Dell-RAC-MIB
+    # table rows (cooling devices, temps, PSUs, etc.) correctly via
+    # both GETBULK + GETNEXT from the CLI, but pysnmp's lex-mode-False
+    # was returning 0 rows — likely a strict sub-tree-boundary check
+    # tripping on the iDRAC's reply OID format. Lex-mode-True + manual
+    # prefix filter recovers the rows; cost is one extra round-trip
+    # at the end of each walk (the trailing OID outside the sub-tree
+    # is fetched + discarded). Acceptable for the slow vendor-private
+    # walks that were broken; legitimate sub-tree boundaries are
+    # still respected via the `startswith` filter below.
     iterator = walk_fn(
         engine, auth, target, ContextData(),
         0, 25,  # nonRepeaters, maxRepetitions
         ObjectType(ObjectIdentity(base_oid)),
-        lexicographicMode=False,
+        lexicographicMode=True,
     )
     try:
         async for errorIndication, errorStatus, errorIndex, varBinds in iterator:
@@ -718,16 +731,26 @@ async def _snmp_walk(engine, auth, target, base_oid: str,
                 break
             if not varBinds:
                 break
+            # Track whether ANY varBind in this batch was outside the
+            # sub-tree — once we see an out-of-tree OID, the walk has
+            # crossed the boundary and we should stop. lex-mode-True
+            # would otherwise walk us through the entire MIB.
+            crossed_boundary = False
             for oid, val in varBinds:
                 oid_s = str(oid)
                 if not oid_s.startswith(base_oid):
-                    return out
+                    crossed_boundary = True
+                    break
                 prn = val.prettyPrint() if hasattr(val, "prettyPrint") else str(val)
                 if prn in ("noSuchObject", "noSuchInstance", "endOfMibView"):
                     continue
                 out[oid_s] = val
                 if len(out) >= max_rows:
                     return out
+            if crossed_boundary:
+                # Past the sub-tree — break out of the async-for so
+                # we don't walk the entire MIB under lex-mode-True.
+                break
     except (asyncio.CancelledError, KeyboardInterrupt):
         # MED-005 — same cancellation contract as _snmp_get.
         raise

@@ -884,6 +884,28 @@
           <code class="mono text-[11px]"
                 x-text="'docker service update --force <portainer-agent-service>'"></code>
         </div>
+        <!-- Admin-only one-click restart. Auto-discovers the
+             Portainer agent service by image prefix + name pattern
+             (see logic/ops.py:discover_swarm_agent_service). On
+             ambiguous discovery the op fails with a list of every
+             candidate so the operator picks rather than risking
+             auto-restart of the wrong service. -->
+        <div class="mt-2 flex items-center gap-2 flex-wrap" x-show="isAdmin()">
+          <button type="button" class="btn btn-soft text-[12px]"
+                  @click="restartSwarmAgent()"
+                  :disabled="!!swarmAgentRestartBusy">
+            <svg width="12" height="12" aria-hidden="true"
+                 :class="swarmAgentRestartBusy ? 'animate-spin' : ''">
+              <use href="#icon-rotate-cw"/>
+            </svg>
+            <span x-show="!swarmAgentRestartBusy"
+                  x-text="t('swarm_agent_banner.restart_button')"></span>
+            <span x-show="swarmAgentRestartBusy"
+                  x-text="t('swarm_agent_banner.restart_in_flight')"></span>
+          </button>
+          <span class="text-[10.5px] text-[var(--text-faint)]"
+                x-text="t('swarm_agent_banner.restart_help')"></span>
+        </div>
       </div>
     </div>
 
@@ -7889,6 +7911,21 @@
               <button @click="logSelectedFile=''" class="btn btn-ghost text-[11px]"
                       x-text="t('actions.close')"></button>
             </div>
+            <!-- Text filter — same input as the Live (stdout) tab.
+                 Reuses the shared `logFilter` state so a query typed
+                 in either tab carries across, matching the existing
+                 `logSeverityFilter` cross-tab pattern. Filters
+                 substring-match against the line body + [tag] prefix
+                 in `filteredLogFileLines`. -->
+            <div class="flex flex-wrap items-center gap-2">
+              <input type="search" x-model.debounce.200ms="logFilter"
+                     :placeholder="t('admin.logs.filter_placeholder')"
+                     class="text-[12px] min-w-[180px] flex-1">
+              <button x-show="logFilter" @click="logFilter=''"
+                      class="btn btn-ghost text-[11px]"
+                      :title="t('admin.logs.filter_clear')"
+                      x-text="t('admin.logs.filter_clear')"></button>
+            </div>
             <!-- Severity filter pill bar — same shape as the Live tab.
                  Reuses the shared `logSeverityFilter` state so toggling
                  a level in either tab carries across, but counts come
@@ -8827,17 +8864,34 @@
                 <template x-if="hostEnabledAgents(h).length">
                   <section class="rounded border border-[var(--border)] bg-[var(--surface)] p-4 md:col-span-6">
                     <h4 class="text-[10.5px] uppercase tracking-wider text-[var(--text-faint)] mb-3" x-text="t('host_drawer.system.agents')"></h4>
-                    <div class="flex items-center gap-1.5 flex-wrap">
+                    <!-- Top-aligned: chips have variable height because some
+                         carry a Resume button + "Updated Xm ago" subtitle
+                         while others don't. `items-start` keeps the
+                         baseline of every chip flush at the top so the
+                         row reads as a list rather than a centered
+                         constellation of differently-sized pills. -->
+                    <div class="flex items-start gap-1.5 flex-wrap">
                       <template x-for="agent in hostEnabledAgents(h)" :key="agent.name">
                         <!-- Wrapper so the per-provider Paused badge + Resume
-                             button (#797) sit beside the chip + the "Updated
-                             Xm ago" last-OK subtitle (#785) sits below. -->
+                             button sit beside the chip + the "Updated
+                             Xm ago" last-OK subtitle sits below. -->
                         <div class="inline-flex flex-col items-start gap-0.5">
                           <span class="inline-flex items-center gap-1">
+                            <!-- Chip colour mirrors the per-host provider
+                                 state used by the outer Hosts row + the
+                                 mobile chip strip — failing → pill-error
+                                 (red), paused → pill-warning (orange),
+                                 healthy → pill-custom + providerChipStyle
+                                 (operator-customised brand colour).
+                                 Pre-fix the drawer chip ignored the
+                                 failing state and showed brand colour
+                                 even when the outside chip was red,
+                                 visually contradicting the host's actual
+                                 health. -->
                             <span class="chip text-[11px] px-2 py-0.5"
-                                  :class="agentPauseInfo(h, agent.name) ? 'pill-warning' : 'pill-custom'"
-                                  :style="agentPauseInfo(h, agent.name) ? '' : providerChipStyle(agent.name)"
-                                  :title="agentPauseInfo(h, agent.name) ? t('hosts_extra.provider_paused', { provider: agent.name, count: agentPauseInfo(h, agent.name).consecutive_failures, error: agentPauseInfo(h, agent.name).last_error || '—' }) : ''"
+                                  :class="agentStateClass(h, agent.name)"
+                                  :style="agentStateStyle(h, agent.name)"
+                                  :title="agentStateTitle(h, agent.name)"
                                   x-text="agent.label"></span>
                             <template x-if="agentPauseInfo(h, agent.name) && isAdmin()">
                               <!-- Visual separator + button styling

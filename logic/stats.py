@@ -22,7 +22,6 @@ from logic import portainer
 from logic import tuning
 from logic.db import db_conn
 
-
 # The cache main.py's /api/stats route reads. Structure:
 #   stats: {item_id: {cpu_percent, mem_usage, mem_limit, size_root, size_rw,
 #                     has_stats, has_size}}
@@ -510,6 +509,10 @@ async def gather_stats() -> None:
             print(f"[stats] gather_stats: tasks fetch FAILED: {type(e).__name__}: {e}")
             tasks = []
         tasks_added = 0
+        # Cids known ONLY via the Swarm tasks endpoint (not in the
+        # per-node container sweep). Used by the agent-health
+        # detection at the end of this function — see comment there.
+        _task_derived_cids: set[str] = set()
         for t in (tasks or []):
             status = t.get("Status") or {}
             if status.get("State") != "running":
@@ -535,6 +538,18 @@ async def gather_stats() -> None:
                 svc_by_cid[tcid] = tsid
                 running_cids.append(tcid)
                 tasks_added += 1
+                # Mark this cid as TASK-DERIVED (i.e. only visible
+                # via the Swarm tasks API, not the per-node container
+                # sweep). The agent-health detection below counts
+                # ONLY these toward "worker agent unhealthy" because
+                # they're the ONLY cids whose /stats call genuinely
+                # requires the worker's Portainer agent to respond.
+                # Manager-aggregated cids (in the per-node sweep)
+                # might respond via Swarm visibility on the manager
+                # even when the worker's agent is dead — counting
+                # them would reset the failure tally and suppress
+                # the banner.
+                _task_derived_cids.add(tcid)
             elif tsid and not svc_by_cid.get(tcid):
                 svc_by_cid[tcid] = tsid
             # Task-derived node beats every other source — the
@@ -564,17 +579,29 @@ async def gather_stats() -> None:
         stats_by_cid = {cid: s for cid, s in results if s}
 
         # Per-Swarm-node agent-health bookkeeping. After every gather,
-        # tally per-host stats success vs total task-derived cids. A
-        # node is "tried this gather" if it had ≥1 running task cid;
-        # "passing" if at least one of those returned stats; "failing"
-        # if every one returned None. Failing nodes increment the
-        # consecutive-failure counter; passing nodes reset to 0. Once
-        # the counter crosses `tuning_swarm_agent_unhealthy_threshold`,
-        # the SPA banner fires. Common cause: Swarm manager bounced,
-        # Portainer agents on workers didn't re-register cleanly.
+        # tally per-host stats success vs total TASK-DERIVED cids
+        # (cids that are only visible via the Swarm tasks API, NOT
+        # the per-node container sweep). Counting only task-derived
+        # cids is critical: a worker node typically has BOTH manager-
+        # aggregated cids (visible to the manager via Swarm
+        # visibility, /stats responds via the manager) AND task-only
+        # cids (the worker's actual containers — /stats requires the
+        # worker's agent). The manager-aggregated cids respond fine
+        # even when the worker's agent is dead, so counting them
+        # would reset the failure tally and suppress the banner. A
+        # node is "tried this gather" if it has ≥1 task-derived cid;
+        # "passing" if at least one of those task-derived cids
+        # returned stats; "failing" if every task-derived cid
+        # returned None. Failing nodes increment the consecutive-
+        # failure counter; passing nodes reset to 0. Once the counter
+        # crosses `tuning_swarm_agent_unhealthy_threshold`, the SPA
+        # banner fires. Common cause: Swarm manager bounced, Portainer
+        # agents on workers didn't re-register cleanly.
         per_node_total: dict[str, int] = {}
         per_node_passed: dict[str, int] = {}
         for cid in running_cids:
+            if cid not in _task_derived_cids:
+                continue
             n = node_by_cid.get(cid)
             if not n:
                 continue
