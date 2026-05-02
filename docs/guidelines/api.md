@@ -199,6 +199,9 @@ type:
 | `history:appended` | A new row was written to the `history` table. | `{id, ts, op_type, target_name, target_id, target_stack, status, duration, error, actor}` |
 | `session:renewed` | A cookie session was slid forward (sliding-window refresh near expiry). | `{user_id, expires_at, ts}` |
 | `settings:updated` | An admin Save through `POST /api/settings` committed. | `{version, client_id?}` — version is the new `_settings_version` int; `client_id` is the originating tab's UUID (when present, the originating tab self-filters via `_isSelfEvent`). |
+| `notification:created` | A new in-app notification row was inserted by the `app` notification medium. | `{id, ts, event, severity, title, body, actor, target_kind, target_id, unread_count}` — payload carries a self-contained snapshot so the SPA can prepend without an extra round-trip; `unread_count` is the canonical count post-insert. |
+| `notification:read` | One notification row (or all unread, when `bulk=true`) was marked read. | `{id?, read_at, unread_count, bulk?}` — `id=null + bulk=true` means a `read-all` fired. Originating tab self-filters via `client_id`. |
+| `notification:deleted` | One notification row was deleted (admin scrub or schedule prune). | `{id, unread_count}` — originating tab self-filters via `client_id`. |
 | `:overflow` | Synthetic — the per-subscriber queue dropped events. | `{}` — react with a one-shot REST refresh. |
 | `reconnect` | Synthetic — server hit `_SSE_MAX_LIFETIME_SECONDS` (6h cap, #464) and is asking the client to re-upgrade so the auth middleware fires again. | `{}` — `EventSource` reconnects automatically; bespoke clients should drop the connection and reopen. |
 

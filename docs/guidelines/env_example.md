@@ -101,6 +101,13 @@ OPS_POLL_INTERVAL_SECONDS=2
 # older than this are deleted by an hourly sweep.
 LOG_RETENTION_DAYS=7
 
+# In-app notifications retention (days). The `prune_notifications`
+# schedule kind sweeps rows from the `notifications` table older than
+# this. Default 90 — operators usually want a longer trail than logs
+# (7d) so quarterly review of "what happened" is possible without
+# exporting to an external store.
+NOTIFICATION_RETENTION_DAYS=90
+
 # Host-snapshots read-side cache TTL (seconds). The SPA fans out N
 # parallel /api/hosts/one/{id} per refresh; caching the snapshot-table
 # read collapses N reads into 1. Set 0 to disable.
@@ -326,6 +333,7 @@ Quick index of every env var OmniGrid reads, grouped by scope:
 | `HOST_PERMANENT_FAIL_WINDOW_SECONDS` | Runtime  | `900`                | host_metrics_sampler auto-pause window.                                          |
 | `OPS_POLL_INTERVAL_SECONDS`       | Runtime     | `2`                  | SPA's /api/ops poll cadence in seconds; multiplied × 1000 before delivery via `client_config.ops_poll_ms`. Renamed from the legacy `OPS_POLL_INTERVAL_MS` for operator-friendly admin UI. |
 | `LOG_RETENTION_DAYS`              | Runtime     | `7`                  | Persistent-log retention.                                                        |
+| `NOTIFICATION_RETENTION_DAYS`     | Runtime     | `90`                 | In-app notifications retention. Drives the `prune_notifications` schedule kind. |
 | `HOST_SNAPSHOTS_CACHE_TTL_SECONDS` | Runtime    | `5`                  | host_snapshots read-cache TTL.                                                   |
 | `HOSTS_PARALLEL_FETCH`            | Runtime     | `6`                  | SPA fan-out concurrency cap on `/api/hosts/one/{id}`.                            |
 | `PING_INTERVAL_SECONDS`           | Runtime     | `60`                 | Ping sampler tick cadence.                                                       |
