@@ -184,7 +184,7 @@ async def prometheus_metrics():
 ```
 
 It still needs to be registered **before** the `StaticFiles` catch-all at the bottom of `main.py`,
-or it never gets reached. See `CLAUDE.md` "Conventions worth knowing" for both rules.
+or it never gets reached.
 
 ## Prometheus scrape config
 
@@ -310,4 +310,3 @@ You should see `HELP` / `TYPE` lines for the metrics listed above.
 - `logic/metrics.py` — registry + metric objects + `populate_from_cache()` +
   `register_cache_age_collector()`.
 - `main.py` — `@app.get("/metrics")` handler + `_lifespan` wiring.
-- `CLAUDE.md` → "Conventions worth knowing" — mount-order rule.

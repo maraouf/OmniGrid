@@ -1,7 +1,7 @@
 # Env var reference — OmniGrid
 
 The real `.env` lives at the repo root and IS tracked in git. The repo is private (self-hosted
-Forgejo), so operational secrets live alongside code rather than in a server-only file. CI ships
+Git), so operational secrets live alongside code rather than in a server-only file. CI ships
 `.env` via rsync to `/opt/omnigrid/app/.env`; the bind mount `/opt/omnigrid/app:/app:ro` makes
 it visible inside the container at `/app/.env`, where `main.py`'s first lines load it via
 `python-dotenv` before any `os.getenv()` runs. `docker-compose.yml` deliberately does NOT use
@@ -57,9 +57,9 @@ DB_PATH=/app/data/omnigrid.db
 > which falls back to the code default. UI changes take effect on the
 > next consumer read (per-request for TTLs, per-tick for samplers — one
 > tick lag). The authoritative list of tunables lives in
-> `logic/tuning.py:TUNABLES`. **Strict rule (CLAUDE.md):** every operator-
-> tunable value goes through TUNABLES — no hardcoded magic numbers in
-> Python / JS / HTML. Add new knobs there, not as code constants.
+> `logic/tuning.py:TUNABLES`. **Strict rule:** every operator-tunable
+> value goes through TUNABLES — no hardcoded magic numbers in Python /
+> JS / HTML. Add new knobs there, not as code constants.
 
 ```ini
 # Items cache TTL — how long _gather() results stay valid before the next

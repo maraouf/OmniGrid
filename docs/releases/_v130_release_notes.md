@@ -301,7 +301,7 @@ Third MINOR cut on top of `1.2.0` — rolls up **316 closed issues** under the 1
 - Three stale references to `tuning_ops_poll_interval_ms` / `OPS_POLL_INTERVAL_MS` cleaned up in `README.md`,... (#253) [Bug]
 - deploy.yml — replaced `actions/checkout@v4` with a manual SHA-256-compatible clone step (#305) [Bug]
 - Hardened deploy.yml version-source resolution — code-complete (#334) [Enhancement]
-- Extend deploy.yml to also push the built image to Forgejo's container registry (#335) [Enhancement]
+- Extend deploy.yml to also push the built image to the container registry (#335) [Enhancement]
 - Dockerfile OCI `image.source` label now carries a multi-line LABEL comment cross-referencing... (#383) [Enhancement]
 - `_clean_host_snmp` now carries an explicit comment documenting that omission == disabled (#384) [Enhancement]
 
@@ -348,7 +348,7 @@ Third MINOR cut on top of `1.2.0` — rolls up **316 closed issues** under the 1
 - Nodes-section source-count chip overcount — fixed both sides (#323) [Enhancement]
 - Split `cloudflared` from `cloudflare` "solved now" (#325) [Bug]
 - Three-front fix shipped (#332) [Bug]
-- Flip Swarm to PULL from Forgejo registry instead of using local-only tags (#336) [Enhancement]
+- Flip Swarm to PULL from the container registry instead of using local-only tags (#336) [Enhancement]
 - Removed Admin → Version page + GET/POST `/api/admin/version` endpoints (#337) [Bug]
 - Title-row spacing unified across ALL admin tabs to the dominant `mb-2` pattern (#339) [Bug]
 - Admin → Sessions tab spacing unified — `space-y-3` → `space-y-4` (matches Users / Tokens / Notifications... (#340) [Enhancement]

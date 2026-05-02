@@ -520,7 +520,7 @@ Mitigations (pick one):
 
 ## Secret storage: `.env` tracked in git, app loads it at startup
 
-This repo is private (self-hosted Forgejo), so `.env` is committed at the repo root alongside
+This repo is private (self-hosted Git), so `.env` is committed at the repo root alongside
 `main.py` / `logic/auth.py` and ships via the normal CI rsync pipeline to
 `/opt/omnigrid/app/.env` on the manager. After the image-build deploy migration (#609) the
 `.env` is no longer baked into the image — it rides a per-file bind mount declared in

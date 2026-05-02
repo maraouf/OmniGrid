@@ -1,6 +1,6 @@
 # Deploy runbook — OmniGrid
 
-Forgejo Actions deployment setup. **Image-build deploy** — the in-tree `Dockerfile` bakes
+CI deployment setup. **Image-build deploy** — the in-tree `Dockerfile` bakes
 deps + source + static assets + `node_modules/` into an `omnigrid:<version>` image; the
 pipeline builds on the Swarm manager itself and rolls the new tag in via `docker stack
 deploy` + `docker service update --force`.
@@ -40,10 +40,10 @@ We deliberately do NOT create a second forgejo-runner. The existing `home-runner
 | --------- | -------------------------------------------------------------------------------------------- |
 | Repo      | Usable by ONE repo only (the default in the original TelegramHomeBot setup notes).            |
 | User/Org  | Usable by every repo you own.                                                                 |
-| Instance  | Usable by every repo on Forgejo (admin-only). **Chosen.**                                     |
+| Instance  | Usable by every repo on the CI host (admin-only). **Chosen.**                                 |
 
 **Decision**: register at INSTANCE scope. One runner, one registration, every current and future
-repo on this Forgejo instance can use it without any per-repo dance. Requires site-admin access
+repo on this CI instance can use it without any per-repo dance. Requires site-admin access
 (you have it, it's your box).
 
 If `home-runner` is currently registered at the repo level for another project (e.g.
@@ -55,20 +55,20 @@ TelegramHomeBot), re-register it at instance scope.
    runner reuses the same display name (`home-runner`) so every existing workflow's
    `runs-on: home-runner` keeps working with zero edits.
 
-   Forgejo UI → TelegramHomeBot → Settings → Actions → Runners → delete `home-runner`.
+   CI UI → TelegramHomeBot → Settings → Actions → Runners → delete `home-runner`.
 
-2. **Get an INSTANCE-level token** in the Forgejo UI:
+2. **Get an INSTANCE-level token** in the CI UI:
 
    Site Administration → Actions → Runners → "Create new Runner".
 
    | Field       | Value                                                                                                                                                                                                                                                             |
    | ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
    | Name        | `home-runner` (keep the same name).                                                                                                                                                                                                                                |
-   | Description | Shared self-hosted runner on `git.example.com` (Debian 13, amd64). Instance-level; used by every repo on this Forgejo for rsync+ssh deploys to home-lab hosts (TelegramHomeBot → `automation.example.com`, OmniGrid → `docker.example.com`, etc). |
+   | Description | Shared self-hosted runner on `git.example.com` (Debian 13, amd64). Instance-level; used by every repo on this CI for rsync+ssh deploys to home-lab hosts (TelegramHomeBot → `automation.example.com`, OmniGrid → `docker.example.com`, etc). |
 
    Copy the entire `server:` YAML block.
 
-   **Note on labels (Forgejo 15.x)**: the registration dialog no longer has a Labels field.
+   **Note on labels** (current CI release): the registration dialog no longer has a Labels field.
    Labels are declared by the runner daemon itself in `/opt/forgejo-runner/config.yml`, using
    the format `<name>:<runtime>`:
 
@@ -134,7 +134,7 @@ deploys are fine; actually parallel deploys to different hosts rarely matter.
 ## Deploy SSH keys — one per target host
 
 Both original deploy keys (for `automation.example.com` and `docker.example.com`) were `shred`'d on
-disk right after being pasted into their Forgejo secrets. We now rebuild with cleaner isolation:
+disk right after being pasted into their CI secrets. We now rebuild with cleaner isolation:
 one key per target, private half living only inside that project's `DEPLOY_SSH_KEY` secret.
 
 | Key                          | Target                     | Project         |
@@ -175,8 +175,8 @@ ssh -i .ssh/forgejo_deploy_docker \
 #    in the next section BEFORE running step 5.
 cat .ssh/forgejo_deploy_docker
 
-# 5) Once saved to Forgejo, wipe the on-disk private copy. Public half
-#    (.pub) stays for reference.
+# 5) Once saved as a repo secret, wipe the on-disk private copy.
+#    Public half (.pub) stays for reference.
 shred -u .ssh/forgejo_deploy_docker
 exit
 ```
@@ -209,11 +209,11 @@ ssh -i .ssh/forgejo_deploy_automation \
 
 # 4) Capture the private key — paste this entire blob into the
 #    TelegramHomeBot repo's DEPLOY_SSH_KEY secret
-#    (Forgejo UI -> <owner>/TelegramHomeBot -> Settings -> Actions
+#    (CI UI -> <owner>/TelegramHomeBot -> Settings -> Actions
 #     -> Secrets -> DEPLOY_SSH_KEY -> edit/replace value) BEFORE step 5.
 cat .ssh/forgejo_deploy_automation
 
-# 5) Wipe the on-disk private copy once Forgejo has it.
+# 5) Wipe the on-disk private copy once the CI has it.
 shred -u .ssh/forgejo_deploy_automation
 
 # 6) OPTIONAL: prune the stale authorized_keys entry from the OLD
@@ -232,7 +232,7 @@ exit
 Every `DEPLOY_SSH_KEY` secret stays at REPO scope (OmniGrid, TelegramHomeBot). Do NOT promote
 either key to user scope — that re-couples the two projects.
 
-## 1. Forgejo secrets & variables
+## 1. CI secrets & variables
 
 **Prerequisites** (from the [Deploy SSH keys](#deploy-ssh-keys--one-per-target-host) section
 above):
@@ -260,7 +260,7 @@ cat /opt/forgejo-runner/.ssh/forgejo_deploy_automation
 exit
 ```
 
-Copy each blob (BEGIN/END lines inclusive) into the corresponding Forgejo secret in the steps
+Copy each blob (BEGIN/END lines inclusive) into the corresponding CI secret in the steps
 below.
 
 ### Why we set these
@@ -278,7 +278,7 @@ ${{ vars.SERVICE_NAME  || '' }}
 The secret is required — without it the Configure SSH step fails immediately. The variables are
 optional (the `|| default` fallbacks are the production values). Setting them anyway is worth it
 because (a) you can change the target host/path without editing the workflow, and (b) the
-Forgejo UI shows the live configuration for whoever looks.
+CI UI shows the live configuration for whoever looks.
 
 ### Scope
 
@@ -309,9 +309,9 @@ The pasted blob MUST include:
 <trailing newline>
 ```
 
-Click "Add Secret". Forgejo masks the value immediately after save — you cannot view it again.
-If you screwed up the paste, just "Edit" the secret (Forgejo lets you overwrite the value even
-when it can't read it back) or regenerate the key from section A.
+Click "Add Secret". The CI UI masks the value immediately after save — you cannot view it
+again. If you screwed up the paste, just "Edit" the secret (the CI UI lets you overwrite the
+value even when it can't read it back) or regenerate the key from section A.
 
 ### 1.2 Add the OmniGrid variables
 
@@ -542,7 +542,7 @@ should only flow operator → host, never the other way).
 Either:
 
 - Push a commit to `main` (any change, even a whitespace nudge), OR
-- In Forgejo: OmniGrid → Actions → "Deploy to Swarm" → Run workflow (requires the
+- In the CI UI: OmniGrid → Actions → "Deploy to Swarm" → Run workflow (requires the
   `workflow_dispatch` trigger, already present in `deploy.yml`).
 
 Watch the run. Expected behaviour:
