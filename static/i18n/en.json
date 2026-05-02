@@ -108,6 +108,8 @@
     "errors": "Errors",
     "unknown": "Unknown",
     "ignored": "Ignored",
+    "health_group_label": "Filter by health",
+    "status_group_label": "Filter by status",
     "expand_all": "Expand all",
     "collapse_all": "Collapse all",
     "expand_collapse_title": "Expand / collapse every stack (shortcuts: e / c)",
@@ -1754,7 +1756,12 @@
       "range_1h": "1h",
       "range_6h": "6h",
       "range_24h": "24h",
-      "range_7d": "7d"
+      "range_7d": "7d",
+      "range_picker_label": "Time range",
+      "range_1h_aria": "Last 1 hour",
+      "range_6h_aria": "Last 6 hours",
+      "range_24h_aria": "Last 24 hours",
+      "range_7d_aria": "Last 7 days"
     }
   },
   "debug_panel": {
@@ -1767,6 +1774,7 @@
     "refresh": "⟳ Refresh",
     "refresh_title": "Re-run probes",
     "copy_title": "Copy to clipboard",
+    "copy_aria": "Copy {label} to clipboard",
     "copy_default_label": "debug data",
     "copy_prompt_fallback": "Copy {label} (Cmd/Ctrl+C):",
     "error_prefix": "Error: {error}",

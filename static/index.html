@@ -640,17 +640,32 @@
          BELOW the SYNC/STATS pickers (order-5) and ABOVE the search
          input (order-last). Desktop unchanged via `sm:order-none`. -->
     <div x-show="view==='stacks' || view==='services' || view==='nodes'" class="px-5 pb-3 max-w-full mx-auto w-full flex items-center gap-2 flex-wrap order-6 sm:order-none">
-      <div class="flex items-center gap-1.5 flex-wrap">
+      <div class="flex items-center gap-1.5 flex-wrap"
+           role="radiogroup"
+           :aria-label="t('filters.health_group_label')"
+           @keydown="_radiogroupArrowKey($event)">
         <button @click="healthFilter='';statusFilter=''"
+                role="radio"
+                :aria-checked="!healthFilter && !statusFilter"
+                :tabindex="(!healthFilter && !statusFilter) ? 0 : -1"
                 :class="(!healthFilter && !statusFilter) ? 'active' : ''"
                 class="filter-chip"><span x-text="t('filters.all')"></span> <span class="count" x-text="items.length"></span></button>
         <button @click="healthFilter='healthy';statusFilter=''"
+                role="radio"
+                :aria-checked="healthFilter==='healthy'"
+                :tabindex="healthFilter==='healthy' ? 0 : -1"
                 :class="healthFilter==='healthy' ? 'active' : ''"
                 class="filter-chip"><span class="dot dot-healthy inline-block me-1.5"></span><span x-text="t('filters.online')"></span> <span class="count" x-text="counts.healthy"></span></button>
         <button @click="healthFilter='degraded';statusFilter=''"
+                role="radio"
+                :aria-checked="healthFilter==='degraded'"
+                :tabindex="healthFilter==='degraded' ? 0 : -1"
                 :class="healthFilter==='degraded' ? 'active' : ''"
                 class="filter-chip"><span class="dot dot-degraded inline-block me-1.5"></span><span x-text="t('filters.degraded')"></span> <span class="count" x-text="counts.degraded"></span></button>
         <button @click="healthFilter='offline';statusFilter=''"
+                role="radio"
+                :aria-checked="healthFilter==='offline'"
+                :tabindex="healthFilter==='offline' ? 0 : -1"
                 :class="healthFilter==='offline' ? 'active' : ''"
                 class="filter-chip"><span class="dot dot-offline inline-block me-1.5"></span><span x-text="t('filters.offline')"></span> <span class="count" x-text="counts.offline"></span></button>
       </div>
@@ -661,20 +676,38 @@
            Natural row break already separates the two groups visually. -->
       <span class="hidden sm:inline-block w-px h-5 bg-[var(--border)] mx-1"></span>
 
-      <div class="flex items-center gap-1.5 flex-wrap">
+      <div class="flex items-center gap-1.5 flex-wrap"
+           role="radiogroup"
+           :aria-label="t('filters.status_group_label')"
+           @keydown="_radiogroupArrowKey($event)">
         <button @click="statusFilter='update';healthFilter=''"
+                role="radio"
+                :aria-checked="statusFilter==='update'"
+                :tabindex="statusFilter==='update' ? 0 : -1"
                 :class="statusFilter==='update' ? 'active' : ''"
                 class="filter-chip"><span class="dot dot-update inline-block me-1.5"></span><span x-text="t('filters.updates')"></span> <span class="count" x-text="counts.update"></span></button>
         <button @click="statusFilter='up-to-date';healthFilter=''"
+                role="radio"
+                :aria-checked="statusFilter==='up-to-date'"
+                :tabindex="statusFilter==='up-to-date' ? 0 : -1"
                 :class="statusFilter==='up-to-date' ? 'active' : ''"
                 class="filter-chip"><span x-text="t('filters.uptodate')"></span> <span class="count" x-text="counts.uptodate"></span></button>
         <button @click="statusFilter='error';healthFilter=''"
+                role="radio"
+                :aria-checked="statusFilter==='error'"
+                :tabindex="statusFilter==='error' ? 0 : -1"
                 :class="statusFilter==='error' ? 'active' : ''"
                 class="filter-chip"><span class="dot dot-error inline-block me-1.5"></span><span x-text="t('filters.errors')"></span> <span class="count" x-text="counts.error"></span></button>
         <button @click="statusFilter='unknown';healthFilter=''"
+                role="radio"
+                :aria-checked="statusFilter==='unknown'"
+                :tabindex="statusFilter==='unknown' ? 0 : -1"
                 :class="statusFilter==='unknown' ? 'active' : ''"
                 class="filter-chip"><span x-text="t('filters.unknown')"></span> <span class="count" x-text="counts.unknown"></span></button>
         <button @click="statusFilter='ignored';healthFilter=''"
+                role="radio"
+                :aria-checked="statusFilter==='ignored'"
+                :tabindex="statusFilter==='ignored' ? 0 : -1"
                 :class="statusFilter==='ignored' ? 'active' : ''"
                 class="filter-chip"><span x-text="t('filters.ignored')"></span> <span class="count" x-text="counts.ignored"></span></button>
       </div>
@@ -8114,6 +8147,7 @@
                   </div>
                   <button @click="resumeHostSampling(h)"
                           :disabled="!canResumeHost(h)"
+                          :aria-busy="h._resumeBusy ? 'true' : 'false'"
                           class="btn btn-soft text-[11.5px] flex-shrink-0"
                           x-text="h._resumeBusy ? t('hosts_extra.permanent_fail.resume_busy') : t('hosts_extra.permanent_fail.resume_button')"></button>
                 </div>
@@ -8623,6 +8657,7 @@
                                       class="text-[10.5px] font-medium px-2 py-0.5 rounded border bg-[color-mix(in_srgb,var(--warning)_18%,transparent)] border-[color-mix(in_srgb,var(--warning)_60%,var(--border))] text-[var(--text)] hover:bg-[color-mix(in_srgb,var(--warning)_28%,transparent)] hover:border-[var(--warning)] disabled:opacity-50 disabled:cursor-wait inline-flex items-center gap-1 cursor-pointer"
                                       @click="resumeProvider(h, agent.name)"
                                       :disabled="!canResume(h, agent.name)"
+                                      :aria-busy="providerResumeBusy[h.id + ':' + agent.name] ? 'true' : 'false'"
                                       :aria-label="t('hosts_extra.provider_resume_aria', { provider: agent.name })"
                                       :aria-keyshortcuts="'Enter'"
                                       :title="t('hosts_extra.provider_resume_title', { provider: agent.name })">
@@ -8977,6 +9012,11 @@
                           :title="isStaleField(h, 'host_battery_percent') ? staleAge(h) : ''">
                         <div class="flex items-center justify-end gap-2">
                           <div class="stat-bar w-24"
+                               role="progressbar"
+                               aria-valuemin="0"
+                               aria-valuemax="100"
+                               :aria-valuenow="(+h.host_battery_percent || 0).toFixed(0)"
+                               :aria-valuetext="(+h.host_battery_percent || 0).toFixed(0) + '% — ' + t('host_drawer.ups.battery')"
                                :class="upsBatteryLevel(h.host_battery_percent)"
                                :style="'--w:' + (h.host_battery_percent || 0) + '%'">
                             <div class="fill"></div>
@@ -8994,6 +9034,11 @@
                           :title="isStaleField(h, 'host_load_percent') ? staleAge(h) : ''">
                         <div class="flex items-center justify-end gap-2">
                           <div class="stat-bar w-24"
+                               role="progressbar"
+                               aria-valuemin="0"
+                               aria-valuemax="100"
+                               :aria-valuenow="(+h.host_load_percent || 0).toFixed(0)"
+                               :aria-valuetext="(+h.host_load_percent || 0).toFixed(0) + '% — ' + t('host_drawer.ups.load')"
                                :class="barLevel(h.host_load_percent)"
                                :style="'--w:' + (h.host_load_percent || 0) + '%'">
                             <div class="fill"></div>
@@ -9439,20 +9484,36 @@
                      finished out of order. The CSS disabled-state
                      styling is inherited from the `.range-seg button`
                      base rule. -->
-                <div class="range-seg">
-                  <button type="button" :class="hostHistoryRange === 1 ? 'active' : ''"
+                <div class="range-seg"
+                     role="radiogroup"
+                     :aria-label="t('host_drawer.charts.range_picker_label')"
+                     :aria-busy="hostHistoryRangeBusy ? 'true' : 'false'"
+                     @keydown="_radiogroupArrowKey($event)">
+                  <button type="button" role="radio" :class="hostHistoryRange === 1 ? 'active' : ''"
+                          :aria-checked="hostHistoryRange === 1"
+                          :aria-label="t('host_drawer.charts.range_1h_aria')"
+                          :tabindex="hostHistoryRange === 1 ? 0 : -1"
                           :disabled="hostHistoryRangeBusy"
                           @click="setHostHistoryRange(1)"
                           x-text="t('host_drawer.charts.range_1h')"></button>
-                  <button type="button" :class="hostHistoryRange === 6 ? 'active' : ''"
+                  <button type="button" role="radio" :class="hostHistoryRange === 6 ? 'active' : ''"
+                          :aria-checked="hostHistoryRange === 6"
+                          :aria-label="t('host_drawer.charts.range_6h_aria')"
+                          :tabindex="hostHistoryRange === 6 ? 0 : -1"
                           :disabled="hostHistoryRangeBusy"
                           @click="setHostHistoryRange(6)"
                           x-text="t('host_drawer.charts.range_6h')"></button>
-                  <button type="button" :class="hostHistoryRange === 24 ? 'active' : ''"
+                  <button type="button" role="radio" :class="hostHistoryRange === 24 ? 'active' : ''"
+                          :aria-checked="hostHistoryRange === 24"
+                          :aria-label="t('host_drawer.charts.range_24h_aria')"
+                          :tabindex="hostHistoryRange === 24 ? 0 : -1"
                           :disabled="hostHistoryRangeBusy"
                           @click="setHostHistoryRange(24)"
                           x-text="t('host_drawer.charts.range_24h')"></button>
-                  <button type="button" :class="hostHistoryRange === 168 ? 'active' : ''"
+                  <button type="button" role="radio" :class="hostHistoryRange === 168 ? 'active' : ''"
+                          :aria-checked="hostHistoryRange === 168"
+                          :aria-label="t('host_drawer.charts.range_7d_aria')"
+                          :tabindex="hostHistoryRange === 168 ? 0 : -1"
                           :disabled="hostHistoryRangeBusy"
                           @click="setHostHistoryRange(168)"
                           x-text="t('host_drawer.charts.range_7d')"></button>
@@ -11179,6 +11240,7 @@
                               <span class="host-debug-hint" x-text="t('debug_panel.hints.counters')"></span>
                               <button type="button" class="host-debug-copy"
                                       @click="copyDebugJson(hostsDebug[h.id].counters, 'debug_panel.labels.counters')"
+                                      :aria-label="copyAriaLabel('debug_panel.labels.counters')"
                                       :title="t('debug_panel.copy_title')">
                                 <svg width="12" height="12" aria-hidden="true"><use href="#icon-copy"/></svg>
                               </button>
@@ -11190,6 +11252,7 @@
                               <span class="host-debug-label host-debug-label--pulse" x-text="t('debug_panel.labels.raw_pulse')"></span>
                               <button type="button" class="host-debug-copy"
                                       @click="copyDebugJson(hostsDebug[h.id].providers_raw?.pulse, 'debug_panel.labels.raw_pulse')"
+                                      :aria-label="copyAriaLabel('debug_panel.labels.raw_pulse')"
                                       :title="t('debug_panel.copy_title')">
                                 <svg width="12" height="12" aria-hidden="true"><use href="#icon-copy"/></svg>
                               </button>
@@ -11201,6 +11264,7 @@
                               <span class="host-debug-label host-debug-label--beszel" x-text="t('debug_panel.labels.raw_beszel')"></span>
                               <button type="button" class="host-debug-copy"
                                       @click="copyDebugJson(hostsDebug[h.id].providers_raw?.beszel, 'debug_panel.labels.raw_beszel')"
+                                      :aria-label="copyAriaLabel('debug_panel.labels.raw_beszel')"
                                       :title="t('debug_panel.copy_title')">
                                 <svg width="12" height="12" aria-hidden="true"><use href="#icon-copy"/></svg>
                               </button>
@@ -11212,6 +11276,7 @@
                               <span class="host-debug-label host-debug-label--ne" x-text="t('debug_panel.labels.raw_ne')"></span>
                               <button type="button" class="host-debug-copy"
                                       @click="copyDebugJson(hostsDebug[h.id].providers_raw?.node_exporter, 'debug_panel.labels.raw_ne')"
+                                      :aria-label="copyAriaLabel('debug_panel.labels.raw_ne')"
                                       :title="t('debug_panel.copy_title')">
                                 <svg width="12" height="12" aria-hidden="true"><use href="#icon-copy"/></svg>
                               </button>
@@ -11223,6 +11288,7 @@
                               <span class="host-debug-label host-debug-label--webmin" x-text="t('debug_panel.labels.raw_webmin')"></span>
                               <button type="button" class="host-debug-copy"
                                       @click="copyDebugJson(hostsDebug[h.id].providers_raw?.webmin, 'debug_panel.labels.raw_webmin')"
+                                      :aria-label="copyAriaLabel('debug_panel.labels.raw_webmin')"
                                       :title="t('debug_panel.copy_title')">
                                 <svg width="12" height="12" aria-hidden="true"><use href="#icon-copy"/></svg>
                               </button>
@@ -11234,6 +11300,7 @@
                               <span class="host-debug-label host-debug-label--ping" x-text="t('debug_panel.labels.raw_ping')"></span>
                               <button type="button" class="host-debug-copy"
                                       @click="copyDebugJson(hostsDebug[h.id].providers_raw?.ping, 'debug_panel.labels.raw_ping')"
+                                      :aria-label="copyAriaLabel('debug_panel.labels.raw_ping')"
                                       :title="t('debug_panel.copy_title')">
                                 <svg width="12" height="12" aria-hidden="true"><use href="#icon-copy"/></svg>
                               </button>
@@ -11245,6 +11312,7 @@
                               <span class="host-debug-label host-debug-label--snmp" x-text="t('debug_panel.labels.raw_snmp')"></span>
                               <button type="button" class="host-debug-copy"
                                       @click="copyDebugJson(hostsDebug[h.id].providers_raw?.snmp, 'debug_panel.labels.raw_snmp')"
+                                      :aria-label="copyAriaLabel('debug_panel.labels.raw_snmp')"
                                       :title="t('debug_panel.copy_title')">
                                 <svg width="12" height="12" aria-hidden="true"><use href="#icon-copy"/></svg>
                               </button>
@@ -11257,6 +11325,7 @@
                               <span class="host-debug-hint" x-text="t('debug_panel.hints.merged')"></span>
                               <button type="button" class="host-debug-copy"
                                       @click="copyDebugJson(hostsDebug[h.id].merged, 'debug_panel.labels.merged')"
+                                      :aria-label="copyAriaLabel('debug_panel.labels.merged')"
                                       :title="t('debug_panel.copy_title')">
                                 <svg width="12" height="12" aria-hidden="true"><use href="#icon-copy"/></svg>
                               </button>
@@ -11269,6 +11338,7 @@
                               <span class="host-debug-hint" x-text="t('debug_panel.hints.rendered')"></span>
                               <button type="button" class="host-debug-copy"
                                       @click="copyDebugJson(hostsDebug[h.id].rendered, 'debug_panel.labels.rendered')"
+                                      :aria-label="copyAriaLabel('debug_panel.labels.rendered')"
                                       :title="t('debug_panel.copy_title')">
                                 <svg width="12" height="12" aria-hidden="true"><use href="#icon-copy"/></svg>
                               </button>
@@ -11280,6 +11350,7 @@
                               <span class="host-debug-label host-debug-label--pulse" x-text="t('debug_panel.labels.normalized_pulse')"></span>
                               <button type="button" class="host-debug-copy"
                                       @click="copyDebugJson(hostsDebug[h.id].providers_normalized?.pulse, 'debug_panel.labels.normalized_pulse')"
+                                      :aria-label="copyAriaLabel('debug_panel.labels.normalized_pulse')"
                                       :title="t('debug_panel.copy_title')">
                                 <svg width="12" height="12" aria-hidden="true"><use href="#icon-copy"/></svg>
                               </button>
@@ -11291,6 +11362,7 @@
                               <span class="host-debug-label host-debug-label--beszel" x-text="t('debug_panel.labels.normalized_beszel')"></span>
                               <button type="button" class="host-debug-copy"
                                       @click="copyDebugJson(hostsDebug[h.id].providers_normalized?.beszel, 'debug_panel.labels.normalized_beszel')"
+                                      :aria-label="copyAriaLabel('debug_panel.labels.normalized_beszel')"
                                       :title="t('debug_panel.copy_title')">
                                 <svg width="12" height="12" aria-hidden="true"><use href="#icon-copy"/></svg>
                               </button>
@@ -11302,6 +11374,7 @@
                               <span class="host-debug-label host-debug-label--ne" x-text="t('debug_panel.labels.normalized_ne')"></span>
                               <button type="button" class="host-debug-copy"
                                       @click="copyDebugJson(hostsDebug[h.id].providers_normalized?.node_exporter, 'debug_panel.labels.normalized_ne')"
+                                      :aria-label="copyAriaLabel('debug_panel.labels.normalized_ne')"
                                       :title="t('debug_panel.copy_title')">
                                 <svg width="12" height="12" aria-hidden="true"><use href="#icon-copy"/></svg>
                               </button>
@@ -11313,6 +11386,7 @@
                               <span class="host-debug-label host-debug-label--webmin" x-text="t('debug_panel.labels.normalized_webmin')"></span>
                               <button type="button" class="host-debug-copy"
                                       @click="copyDebugJson(hostsDebug[h.id].providers_normalized?.webmin, 'debug_panel.labels.normalized_webmin')"
+                                      :aria-label="copyAriaLabel('debug_panel.labels.normalized_webmin')"
                                       :title="t('debug_panel.copy_title')">
                                 <svg width="12" height="12" aria-hidden="true"><use href="#icon-copy"/></svg>
                               </button>
@@ -11324,6 +11398,7 @@
                               <span class="host-debug-label host-debug-label--ping" x-text="t('debug_panel.labels.normalized_ping')"></span>
                               <button type="button" class="host-debug-copy"
                                       @click="copyDebugJson(hostsDebug[h.id].providers_normalized?.ping, 'debug_panel.labels.normalized_ping')"
+                                      :aria-label="copyAriaLabel('debug_panel.labels.normalized_ping')"
                                       :title="t('debug_panel.copy_title')">
                                 <svg width="12" height="12" aria-hidden="true"><use href="#icon-copy"/></svg>
                               </button>
@@ -11335,6 +11410,7 @@
                               <span class="host-debug-label host-debug-label--snmp" x-text="t('debug_panel.labels.normalized_snmp')"></span>
                               <button type="button" class="host-debug-copy"
                                       @click="copyDebugJson(hostsDebug[h.id].providers_normalized?.snmp, 'debug_panel.labels.normalized_snmp')"
+                                      :aria-label="copyAriaLabel('debug_panel.labels.normalized_snmp')"
                                       :title="t('debug_panel.copy_title')">
                                 <svg width="12" height="12" aria-hidden="true"><use href="#icon-copy"/></svg>
                               </button>
@@ -11352,6 +11428,7 @@
                               <span class="host-debug-label host-debug-label--merged">Asset (raw)</span>
                               <button type="button" class="host-debug-copy"
                                       @click="copyDebugJson(rawAssetForHost(h), 'debug_panel.labels.asset_raw')"
+                                      :aria-label="copyAriaLabel('debug_panel.labels.asset_raw')"
                                       :title="t('debug_panel.copy_title')">
                                 <svg width="12" height="12" aria-hidden="true"><use href="#icon-copy"/></svg>
                               </button>
@@ -11365,6 +11442,7 @@
                               <span class="host-debug-label host-debug-label--merged">Asset (shape)</span>
                               <button type="button" class="host-debug-copy"
                                       @click="copyDebugJson(assetForHost(h), 'debug_panel.labels.asset_shape')"
+                                      :aria-label="copyAriaLabel('debug_panel.labels.asset_shape')"
                                       :title="t('debug_panel.copy_title')">
                                 <svg width="12" height="12" aria-hidden="true"><use href="#icon-copy"/></svg>
                               </button>
@@ -11512,6 +11590,7 @@
                                 x-text="t('hosts_extra_ssh.result_duration') + ': ' + (sshResult[h.id].duration_ms || 0) + 'ms' + (sshResult[h.id].dry_run ? ' · dry-run' : '')"></span>
                           <button type="button" class="host-debug-copy"
                                   @click="copySshOutput(h.id)"
+                                  :aria-label="t('hosts_extra_ssh.result_copy')"
                                   :title="t('hosts_extra_ssh.result_copy')">
                             <svg width="12" height="12" aria-hidden="true"><use href="#icon-copy"/></svg>
                           </button>
@@ -11839,14 +11918,25 @@
 
   <!-- ================== TOAST ================== -->
   <!--suppress XmlUnboundNsPrefix, HtmlUnknownAttribute -->
+  <!-- Logical-property classes (`end-4` / `border-s-4`) replace
+       physical `right-4` / `border-l-4` so the toast slides in from
+       the trailing edge in RTL locales (Arabic / Hebrew) without
+       extra rules. ARIA: `role="status"` + `aria-live="polite"` +
+       `aria-atomic="true"` so screen readers announce the toast as
+       it appears; error toasts upgrade to `role="alert"` +
+       `aria-live="assertive"` so they're announced immediately
+       (matches the user-visible tonal urgency of red toasts). -->
   <div x-show="toast"
+       :role="toastType === 'error' ? 'alert' : 'status'"
+       :aria-live="toastType === 'error' ? 'assertive' : 'polite'"
+       aria-atomic="true"
        x-transition:enter="transition ease-out duration-200"
        x-transition:enter-start="opacity-0 translate-y-4"
        x-transition:enter-end="opacity-100 translate-y-0"
        x-transition:leave="transition ease-in duration-150"
        x-transition:leave-start="opacity-100"
        x-transition:leave-end="opacity-0"
-       class="fixed bottom-4 right-4 bg-[var(--surface)] border-l-4 px-4 py-2.5 rounded-md shadow-2xl z-[60] max-w-[90vw]"
+       class="fixed bottom-4 end-4 bg-[var(--surface)] border-s-4 px-4 py-2.5 rounded-md shadow-2xl z-[60] max-w-[90vw]"
        :class="toastType==='error' ? 'border-[var(--danger)]' : 'border-[var(--success)]'">
     <div class="text-[12.5px]" x-text="toast"></div>
   </div>

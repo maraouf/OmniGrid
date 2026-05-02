@@ -8880,6 +8880,46 @@ function app() {
       }
     },
 
+    // WAI-ARIA radiogroup keyboard pattern. Bind on the wrapper
+    // element via `@keydown="_radiogroupArrowKey($event)"`. Implements
+    // the canonical contract: ArrowLeft/Up → previous radio (with
+    // wrap), ArrowRight/Down → next radio, Home → first, End → last.
+    // RTL flips Left/Right semantics so the LOGICAL direction stays
+    // intact (visual-left in RTL is "next"). Skips disabled radios.
+    // Each move both focuses the next radio and triggers its click
+    // handler so selection follows focus per the radiogroup pattern.
+    // Roving tabindex (only the checked radio is tab-reachable) is
+    // wired per-radio at the markup level via `:tabindex="..."`.
+    _radiogroupArrowKey(ev) {
+      const key = ev.key;
+      if (key !== 'ArrowLeft' && key !== 'ArrowRight'
+          && key !== 'ArrowUp' && key !== 'ArrowDown'
+          && key !== 'Home' && key !== 'End') return;
+      const group = ev.currentTarget;
+      const radios = Array.from(group.querySelectorAll('[role="radio"]')).filter(r => !r.disabled);
+      if (!radios.length) return;
+      ev.preventDefault();
+      let isRtl = false;
+      try { isRtl = group.matches(':dir(rtl)'); }
+      catch (_e) {
+        isRtl = (document.documentElement.dir === 'rtl' || document.body.dir === 'rtl');
+      }
+      let idx = radios.indexOf(document.activeElement);
+      if (idx < 0) idx = radios.findIndex(r => r.getAttribute('aria-checked') === 'true');
+      if (idx < 0) idx = 0;
+      let next = idx;
+      if (key === 'Home') next = 0;
+      else if (key === 'End') next = radios.length - 1;
+      else {
+        let dir = (key === 'ArrowRight' || key === 'ArrowDown') ? 1 : -1;
+        if (isRtl && (key === 'ArrowLeft' || key === 'ArrowRight')) dir = -dir;
+        next = (idx + dir + radios.length) % radios.length;
+      }
+      const target = radios[next];
+      target.focus();
+      target.click();
+    },
+
     // --- Admin → Hosts: curated host list editor ---
     async loadHostsConfig() {
       // Guard against clobbering unsaved edits. The operator can hit
@@ -12888,6 +12928,20 @@ function app() {
     // Clipboard copy button — pretty-prints the payload and shows a
     // quick toast. Falls back to a prompt() if the Clipboard API is
     // unavailable (old Safari, file:// protocol).
+    // aria-label helper for the host-debug-copy buttons — resolves
+    // the inner label key (e.g. `debug_panel.labels.counters`) and
+    // wraps in the `debug_panel.copy_aria` template ("Copy {label}
+    // to clipboard"). Pre-fix the copy buttons were icon-only with
+    // a `:title` (hover-only) — screen readers announced "button
+    // button button" because the SVG is `aria-hidden="true"` and no
+    // accessible name was bound. Per CLAUDE.md "icon-only buttons
+    // need aria-label". This helper lets every copy button bind a
+    // single one-line aria-label without duplicating the t()
+    // composition at every site.
+    copyAriaLabel(labelKey) {
+      const inner = labelKey ? this.t(labelKey) : this.t('debug_panel.copy_default_label');
+      return this.t('debug_panel.copy_aria', { label: inner });
+    },
     async copyDebugJson(v, label) {
       const text = this.fmtDebugJson(v);
       if (!text) {

@@ -43,6 +43,8 @@ the next release, this whole block becomes the `[X.Y.0]` entry below.
 
 ### Changed
 
+- WAI-ARIA radiogroup keyboard navigation now wires the three on-page radiogroups (host-drawer range picker + Health filter chips + Status filter chips). New `_radiogroupArrowKey` Alpine helper on each wrapper handles Arrow Right/Down → next, Arrow Left/Up → previous (RTL-flipped automatically), Home → first, End → last. Selection follows focus per the canonical radiogroup pattern. Each radio also carries roving tabindex (`:tabindex="<is_checked> ? 0 : -1"`) so each group is a single tab stop rather than N tab stops — keyboard users now Tab into the group then Arrow within, instead of Tab-cycling through every chip.
+- Accessibility batch — seven A11Y findings from the latest UX review pass. (a) Range picker (1h / 6h / 24h / 7d) is now a proper radiogroup with `role="radiogroup"` on the wrapper, `role="radio"` + `aria-checked` per button, and `aria-busy` so screen readers announce the in-flight state during refresh instead of treating the four buttons as unrelated. (b) Debug-panel copy buttons (17 sites + the SSH-history copy) now carry localised `aria-label` so the icon-only buttons announce as "Copy <section>" instead of just "button". (c) Toast container now has `role="status"`, `aria-live="polite"`, `aria-atomic="true"`, and uses logical edge classes (`end-4`, `border-s-4`) so toasts announce + slide to the correct edge in RTL languages. (d) Filter chip groups (Health + Status, plus mobile equivalents on the Hosts view) now render as radiogroups with localised group labels — pre-fix screen readers heard "All button, Healthy button, Degraded button…" with no indication that they form a mutually-exclusive selector. (e) UPS battery + load stat-bars now bind `role="progressbar"` + `aria-valuemin/max/now/text` so screen readers announce the percentage. The remaining stat-bars elsewhere in the app (CPU / Mem / Disk / Network / Mount-fill / Password-strength) are deferred to a later global retrofit pass via a small `.stat-bar` template helper. (f) Resume buttons (whole-host Resume sampling button + per-provider chip Resume) now bind `aria-busy` so screen readers announce the in-flight state instead of treating the label flip from "Resume Now" → "Resuming…" as two distinct buttons.
 - Time-range picker (1h / 6h / 24h / 7d) on the host drawer now disables its buttons while the underlying loaders are in flight. Pre-fix operators could rapid-click between ranges while the first fetch was still resolving — on slow networks responses landed out of order and presented inconsistent chart data. Picker now awaits every loader via `Promise.allSettled` and reuses the picker's busy flag for `:disabled` binding; one failing loader doesn't lock the picker.
 - Host / item / node drawers now lock body-scroll while open. Previously, scroll-wheel input over the page background could drift the underlying view while the operator interacted with the drawer. Affects all three drawer surfaces: Hosts, Stacks/Services items, and the Nodes-view drawer.
 - "Counters & state" section in the host drawer's debug panel moved to the first position. Operators investigating a host issue almost always want to see failure-state + per-provider pause status + sample row counts before wading through the raw provider JSON.
@@ -342,178 +344,178 @@ Second MINOR cut on top of `1.1.0` — rolls up **118 closed issues** under the 
 
 ### Authentication, passkeys & 2FA
 
-- User force-2FA toggle from Admin → Users table (#361)
-- Enrolment QR was rendering at full container width (~600-800px on desktop). qrcode-generator SVG has no int... (#362)
-- FIDO2 passkeys as a 2FA factor alongside TOTP (#363)
-- QR rendering bug — TOTP enrolment QR was showing the raw `otpauth://...` URI instead of an actual QR code (#364)
-- The TOTP / 2FA policy section (master toggle + per-role required + lockout window) moves out of Admin → Con... (#366)
-- Button + dirty indicator on Admin → Authentication tab TOTP/2FA section (#368)
-- Profile section icons — About card heading gets `#icon-id-card`; Two-factor card heading swapped its inline... (#376)
-- Six text buttons (`→ readonly` / `Disable` / `Reset pw` / `Disable 2FA` / `Force 2FA` / `Delete`) replaced... (#382)
-- Users table status pills (Active / Disabled / admin / readonly / 2FA On / Off / Required) were rendering co... (#411)
-- Master toggle for passkey enrolment + login (`passkeys_allowed`, default true) (#413)
-- Wraps Duo's `webauthn>=2.0` package via `logic/webauthn_helper.py`; routes `GET /api/me/webauthn`, `POST /a... (#415)
-- Enrolment didn't reliably surface the password-manager save sheet (1Password / Bitwarden / iCloud Keychain) (#416)
-- Enrolment was failing with `SecurityError` behind NPM. `_request_rp_id` was reading `request.url.hostname`... (#417)
-- Profile → Passkeys card: "Add a passkey" button sat flush against the bottom of the enrolled-keys list with... (#419)
-- Sessions table now shows the 2FA method each session was authenticated with (Password / Password + TOTP / P... (#420)
-- `passkeys_allowed` now returned by `api_get_settings` next to the TOTP-policy fields (#453)
-- 17-enhancement sweep across OIDC / events / metrics / TOTP / Webmin / WebAuthn (#458)
-- Passkey transports rendered as inline chips (#493)
+- User force-2FA toggle from Admin → Users table (#114)
+- Enrolment QR was rendering at full container width (~600-800px on desktop). qrcode-generator SVG has no int... (#115)
+- FIDO2 passkeys as a 2FA factor alongside TOTP (#116)
+- QR rendering bug — TOTP enrolment QR was showing the raw `otpauth://...` URI instead of an actual QR code (#117)
+- The TOTP / 2FA policy section (master toggle + per-role required + lockout window) moves out of Admin → Con... (#119)
+- Button + dirty indicator on Admin → Authentication tab TOTP/2FA section (#121)
+- Profile section icons — About card heading gets `#icon-id-card`; Two-factor card heading swapped its inline... (#128)
+- Six text buttons (`→ readonly` / `Disable` / `Reset pw` / `Disable 2FA` / `Force 2FA` / `Delete`) replaced... (#133)
+- Users table status pills (Active / Disabled / admin / readonly / 2FA On / Off / Required) were rendering co... (#156)
+- Master toggle for passkey enrolment + login (`passkeys_allowed`, default true) (#158)
+- Wraps Duo's `webauthn>=2.0` package via `logic/webauthn_helper.py`; routes `GET /api/me/webauthn`, `POST /a... (#160)
+- Enrolment didn't reliably surface the password-manager save sheet (1Password / Bitwarden / iCloud Keychain) (#161)
+- Enrolment was failing with `SecurityError` behind NPM. `_request_rp_id` was reading `request.url.hostname`... (#162)
+- Profile → Passkeys card: "Add a passkey" button sat flush against the bottom of the enrolled-keys list with... (#164)
+- Sessions table now shows the 2FA method each session was authenticated with (Password / Password + TOTP / P... (#165)
+- `passkeys_allowed` now returned by `api_get_settings` next to the TOTP-policy fields (#196)
+- 17-enhancement sweep across OIDC / events / metrics / TOTP / Webmin / WebAuthn (#199)
+- Passkey transports rendered as inline chips (#213)
 
 ### OIDC / SSO
 
-- Style mono icons for Admin → Portainer + Admin → OIDC (Authentik) (#405)
-- `/api/oidc/test` now respects the in-flight `verify_tls` checkbox from the OIDC settings form instead of al... (#432)
-- `_validate_id_token` in `logic/oidc.py` was feeding the unverified id_token header's `alg` straight into Py... (#434)
-- `_validate_id_token` in `logic/oidc.py` now logs `[oidc] kid=... not in cached jwks (#441)
-- `_validate_id_token._find_key` now rejects `kid is None` instead of silently picking `keys[0]` (#460)
-- OIDC flow cookie now deleted on every callback failure path via `HTTPException(headers=...)` (#461)
-- `verify_authentication` now actually performs the sign-counter regression guard the docstring promised (#462)
+- Style mono icons for Admin → Portainer + Admin → OIDC (Authentik) (#150)
+- `/api/oidc/test` now respects the in-flight `verify_tls` checkbox from the OIDC settings form instead of al... (#176)
+- `_validate_id_token` in `logic/oidc.py` was feeding the unverified id_token header's `alg` straight into Py... (#178)
+- `_validate_id_token` in `logic/oidc.py` now logs `[oidc] kid=... not in cached jwks (#185)
+- `_validate_id_token._find_key` now rejects `kid is None` instead of silently picking `keys[0]` (#200)
+- OIDC flow cookie now deleted on every callback failure path via `HTTPException(headers=...)` (#201)
+- `verify_authentication` now actually performs the sign-counter regression guard the docstring promised (#202)
 
 ### Real-time / event stream
 
-- SSE pill gains a third "reconnecting" state with amber pulse (#491)
-- Time event stream replacing the SPA's polling loops (#494)
+- SSE pill gains a third "reconnecting" state with amber pulse (#211)
+- Time event stream replacing the SPA's polling loops (#214)
 
 ### Logs view & retention
 
-- Logs view gained a severity multi-select filter (Error / Warning / Success / Info) (#401)
-- Logs on disk + configurable retention (#407)
-- Tab Admin → Logs viewer + new `prune_logs` scheduler kind (#408)
-- Logs → Files tab now renders log files with the same colourisation as the Live tab (#409)
-- `_run_prune_logs` schedule kind in `logic/schedules.py` accepted an admin-supplied `params.days` without a... (#435)
-- `_run_prune_logs` schedule history rows now record the resolved `days` value in `target_name` (`"42 log fil... (#444)
-- `prune_old_logs` cutoff math + filename-date parse now route through a shared `_resolved_tz()` helper s (#452)
+- Logs view gained a severity multi-select filter (Error / Warning / Success / Info) (#146)
+- Logs on disk + configurable retention (#152)
+- Tab Admin → Logs viewer + new `prune_logs` scheduler kind (#153)
+- Logs → Files tab now renders log files with the same colourisation as the Live tab (#154)
+- `_run_prune_logs` schedule kind in `logic/schedules.py` accepted an admin-supplied `params.days` without a... (#179)
+- `_run_prune_logs` schedule history rows now record the resolved `days` value in `target_name` (`"42 log fil... (#188)
+- `prune_old_logs` cutoff math + filename-date parse now route through a shared `_resolved_tz()` helper s (#195)
 
 ### Schedules & automation
 
-- `/api/ops` poll cadence is now a tunable (Admin → Config → "Ops poll cadence (ms)"). Backed by `tuning_ops_... (#400)
-- Schedules ("Prune debian13docker", "Refresh fleet cache") were re-seeding on every container boot even afte... (#414)
-- Rows could get stuck "running" forever after a lifespan cancel mid-run. `fire_schedule()` records `(last_op... (#431)
-- **Unified topbar refresh cadence** (#486). Replaced the separate SYNC + STATS pickers with ONE control offe... (#486)
+- `/api/ops` poll cadence is now a tunable (Admin → Config → "Ops poll cadence (ms)"). Backed by `tuning_ops_... (#145)
+- Schedules ("Prune debian13docker", "Refresh fleet cache") were re-seeding on every container boot even afte... (#159)
+- Rows could get stuck "running" forever after a lifespan cancel mid-run. `fire_schedule()` records `(last_op... (#175)
+- **Unified topbar refresh cadence** (#206). Replaced the separate SYNC + STATS pickers with ONE control offe... (#206)
 
 ### Notifications
 
-- Notifications admin tab into Notifications + General; per-event notification toggles. `logic/ops.py:notify(... (#354)
-- Notification (#355)
-- When a notification fires for a specific user (per-event opt-in path with `actor_username`), the configured... (#390)
-- Host_paused" notification event fires when `host_metrics_sampler` auto-pauses a host after the configured f... (#395)
-- Success notification title now includes the new version number (#396)
-- `notify(event=...)` was hardcoding the per-event admin-gate default to `True`, but `_NOTIFY_EVENT_DEFAULTS`... (#425)
+- Notifications admin tab into Notifications + General; per-event notification toggles. `logic/ops.py:notify(... (#107)
+- Notification (#108)
+- When a notification fires for a specific user (per-event opt-in path with `actor_username`), the configured... (#138)
+- Host_paused" notification event fires when `host_metrics_sampler` auto-pauses a host after the configured f... (#142)
+- Success notification title now includes the new version number (#143)
+- `notify(event=...)` was hardcoding the per-event admin-gate default to `True`, but `_NOTIFY_EVENT_DEFAULTS`... (#169)
 
 ### Hosts editor & Host groups
 
-- Subgroup in Admin → Host Groups now scrolls the new row into view + focuses the name input (#360)
-- View: parent group labels now render in `--text-dim` (slightly faded) so sub-group labels stand out as the... (#455)
-- Stale-data badges in the Hosts UI (#496)
+- Subgroup in Admin → Host Groups now scrolls the new row into view + focuses the name input (#113)
+- View: parent group labels now render in `--text-dim` (slightly faded) so sub-group labels stand out as the... (#197)
+- Stale-data badges in the Hosts UI (#216)
 
 ### Drawer, charts & Node Exporter
 
-- `loadHostHistory` now stamps `loadedAt = Date.now()` on every successful HTTP 2xx, regardless of whethe (#346)
-- Chart "?" data-source icons in host drawer (#377)
-- Chart `?` icons now resolve a definitive per-host label instead of a generic "Beszel OR node-exporter" string (#378)
-- Host metric-source tooltip now correctly resolves `cpu` and `load_avg` to node-exporter for NE-only hosts (... (#388)
-- Tooltip cropped at the host-drawer start edge on left-column metric cards (regression visible after #394) (#393)
-- Chart in the host drawer for hosts whose Beszel agent emits thermal sensors (e.g (#422)
-- Chart upgraded to multi-line + Y-axis scale (#423)
-- Chart polylines were invisible AND y-axis labels rendered out of bounds (#428)
-- `refreshHostRow` in the SPA leaked stale fields when `/api/hosts/one/{id}` omitted a key (#433). The origin... (#433)
-- Card legend chips overflowed the chart's right edge on hosts with many thermal sensors (8 cores) (#438)
-- Host cards reported memory as 1024× the real value on Webmin module variants whose `mem_total` / `memory_to... (#447)
-- Host drawer "Updated Xs ago" label gains absolute-ISO tooltip for Grafana correlation (#492)
+- `loadHostHistory` now stamps `loadedAt = Date.now()` on every successful HTTP 2xx, regardless of whethe (#100)
+- Chart "?" data-source icons in host drawer (#129)
+- Chart `?` icons now resolve a definitive per-host label instead of a generic "Beszel OR node-exporter" string (#130)
+- Host metric-source tooltip now correctly resolves `cpu` and `load_avg` to node-exporter for NE-only hosts (... (#137)
+- Tooltip cropped at the host-drawer start edge on left-column metric cards (#141)
+- Chart in the host drawer for hosts whose Beszel agent emits thermal sensors (e.g (#166)
+- Chart upgraded to multi-line + Y-axis scale (#167)
+- Chart polylines were invisible AND y-axis labels rendered out of bounds (#172)
+- `refreshHostRow` in the SPA leaked stale fields when `/api/hosts/one/{id}` omitted a key (#177). The origin... (#177)
+- Card legend chips overflowed the chart's right edge on hosts with many thermal sensors (8 cores) (#182)
+- Host cards reported memory as 1024× the real value on Webmin module variants whose `mem_total` / `memory_to... (#190)
+- Host drawer "Updated Xs ago" label gains absolute-ISO tooltip for Grafana correlation (#212)
 
 ### Stats sampler & metrics infra
 
-- `host_net_sampler` was ignoring the permanent-fail auto-pause. The metrics sampler already skipped paused h... (#406)
-- `stats_samples` was gaining duplicate rows for the most-recent sample of each item after every container re... (#424)
-- `_HOST_SNAPSHOT_KEYS` whitelist in `logic/gather.py` was dropping real provider-emitted fields, so when a p... (#426)
-- `_record_failure` in `logic/host_metrics_sampler.py` was sync but reached for `asyncio.get_event_loop()` to... (#436)
-- `resumeHostSampling` force-refreshes immediately after the operator un-pauses a host so the first post- (#437)
-- `_get_host_provider_state` cache key in `main.py` now includes the active-sources tuple. Previously a setti... (#439)
-- `_get_failure_state` (`logic/host_metrics_sampler.py`) docstring cleaned up (#445)
-- Host-snapshots read-side cache (#449)
-- `_get_failure_state` in `logic/host_metrics_sampler.py` lagged the schema after #445 added `host_failure_st... (#450)
-- _warned_no_mounts` set replaced with a 1024-entry FIFO-evicting `OrderedDict` (#468)
-- StaleAge guard for missing `_stale_ts` (#487)
+- `host_net_sampler` was ignoring the permanent-fail auto-pause. The metrics sampler already skipped paused h... (#151)
+- `stats_samples` was gaining duplicate rows for the most-recent sample of each item after every container re... (#168)
+- `_HOST_SNAPSHOT_KEYS` whitelist in `logic/gather.py` was dropping real provider-emitted fields, so when a p... (#170)
+- `_record_failure` in `logic/host_metrics_sampler.py` was sync but reached for `asyncio.get_event_loop()` to... (#180)
+- `resumeHostSampling` force-refreshes immediately after the operator un-pauses a host so the first post- (#181)
+- `_get_host_provider_state` cache key in `main.py` now includes the active-sources tuple. Previously a setti... (#183)
+- `_get_failure_state` (`logic/host_metrics_sampler.py`) docstring cleaned up (#189)
+- Host-snapshots read-side cache (#192)
+- `_get_failure_state` in `logic/host_metrics_sampler.py` lagged the schema after #189 added `host_failure_st... (#193)
+- _warned_no_mounts` set replaced with a 1024-entry FIFO-evicting `OrderedDict` (#205)
+- StaleAge guard for missing `_stale_ts` (#207)
 
 ### Beszel / Pulse / Webmin / Portainer
 
-- `_flatten_temperatures` was being called THREE times per point in `logic/beszel.py:fetch_system_history` (o... (#440)
-- Fetch_system_history` in `logic/beszel.py` was building the PocketBase filter via f-string interpolation (#448)
+- `_flatten_temperatures` was being called THREE times per point in `logic/beszel.py:fetch_system_history` (o... (#184)
+- Fetch_system_history` in `logic/beszel.py` was building the PocketBase filter via f-string interpolation (#191)
 
 ### Admin & Settings pages
 
-- Admin env-vars-still-set warning banner (#350)
-- Admin → Version copy + the deploy.yml bump-step note. `patch_label` drops the "(CI-managed)" suffix; `patch... (#352)
-- Two-layer scoping (admin global + per-user) (#357)
-- Becomes a settings-sidebar peer of Profile / Ignore list / Language. `settingsSections` gets `{id:'notifica... (#365)
-- Settings-sidebar peer of Profile / Notifications / Ignore list / Language (#367)
-- Save-button copy across admin tabs (#370)
-- Header icons on Admin + Settings views (#371)
-- Intro paragraph ("User accounts, active sessions, and API tokens (#374)
-- Every admin tab's primary heading now renders its matching `adminSections[i].icon` next to the title using... (#379)
-- Users / Sessions / Tokens intro paragraph moved from above the section boxes to below them, so the start of... (#402)
-- Log (Admin → History) now uses server-side paging instead of fetching the whole filtered set up to a 500-ro... (#429)
-- Admin → Config tuning fields client-side integer + bounds validation (#490)
+- Admin env-vars-still-set warning banner (#104)
+- Admin → Version copy + the deploy.yml bump-step note. `patch_label` drops the "(CI-managed)" suffix; `patch... (#105)
+- Two-layer scoping (admin global + per-user) (#110)
+- Becomes a settings-sidebar peer of Profile / Ignore list / Language. `settingsSections` gets `{id:'notifica... (#118)
+- Settings-sidebar peer of Profile / Notifications / Ignore list / Language (#120)
+- Save-button copy across admin tabs (#123)
+- Header icons on Admin + Settings views (#124)
+- Intro paragraph ("User accounts, active sessions, and API tokens (#127)
+- Every admin tab's primary heading now renders its matching `adminSections[i].icon` next to the title using... (#131)
+- Users / Sessions / Tokens intro paragraph moved from above the section boxes to below them, so the start of... (#147)
+- Log (Admin → History) now uses server-side paging instead of fetching the whole filtered set up to a 500-ro... (#173)
+- Admin → Config tuning fields client-side integer + bounds validation (#210)
 
 ### Topbar, login & branding
 
-- Topbar widgets card always showed "Unsaved" indicator on page open. `_headerPrefsBaseline` was initialised... (#359)
-- Logo inside the source chip on the Profile page (#372)
-- Schedules (Scheduled + Queue), and Create-User / Create-Token card headers now carry matching icons consist... (#386)
-- Reload" banner was appending `_v=` to the URL on every click instead of replacing it (URL grew as `?_v=1.1.... (#404)
-- Assertion verifier rejected with "Unexpected client data origin" when NPM rewrites the `Host` header to its... (#418)
-- Every hardcoded English string flagged on the SPA + login page now flows through `t('key.path')` (#430)
+- Topbar widgets card always showed "Unsaved" indicator on page open. `_headerPrefsBaseline` was initialised... (#112)
+- Logo inside the source chip on the Profile page (#125)
+- Schedules (Scheduled + Queue), and Create-User / Create-Token card headers now carry matching icons consist... (#136)
+- Reload" banner was appending `_v=` to the URL on every click instead of replacing it (URL grew as `?_v=1.1.... (#149)
+- Assertion verifier rejected with "Unexpected client data origin" when NPM rewrites the `Host` header to its... (#163)
+- Every hardcoded English string flagged on the SPA + login page now flows through `t('key.path')` (#174)
 
 ### Vendor icons
 
-- Three returns in `iconUrlFor` plus `hostIconUrl`'s explicit-override path AND keyword-scan path (stack/item... (#495)
+- Three returns in `iconUrlFor` plus `hostIconUrl`'s explicit-override path AND keyword-scan path (stack/item... (#215)
 
 ### Filters, badges & status pills
 
-- Symbol>` dedup on `static/index.html`. 15 unique icons (copy / chevron-right / chevron-down / chevron-up /... (#358)
-- "Unsaved" pill text now flashes subtly on a 2s opacity cycle (1 → 0.55 → 1, ease-in-out) (#369)
-- Both flipped from `pill-success` (bright green) to `pill-ok` (subtle muted-green) (#383)
-- Fail marker for chronically-down hosts (#384)
-- `is_meaningful(False)` returned False because Python's `bool ⊂ int` made `isinstance(False, int)` true and... (#451)
-- Updates badge on the Stacks nav button (#498)
+- Symbol>` dedup on `static/index.html`. 15 unique icons (copy / chevron-right / chevron-down / chevron-up /... (#111)
+- "Unsaved" pill text now flashes subtly on a 2s opacity cycle (1 → 0.55 → 1, ease-in-out) (#122)
+- Both flipped from `pill-success` (bright green) to `pill-ok` (subtle muted-green) (#134)
+- Fail marker for chronically-down hosts (#135)
+- `is_meaningful(False)` returned False because Python's `bool ⊂ int` made `isinstance(False, int)` true and... (#194)
+- Updates badge on the Stacks nav button (#217)
 
 ### Mobile / responsive UX
 
-- Pinch-zoom is now actually disabled on iOS Safari, not just on Android. iOS Safari deliberately ignores the... (#381)
+- Pinch-zoom is now actually disabled on iOS Safari, not just on Android. iOS Safari deliberately ignores the... (#132)
 
 ### API endpoints & backend helpers
 
-- `/api/hosts/one/{host_id}` now accepts `?force=true` to bypass the 10s provider-state cache, mirroring the... (#347)
-- Test endpoints surface human-readable failure summaries instead of raw upstream stack traces (#349)
-- Version page now edits every component (MAJOR / MINOR / PATCH) and writes the values straight to `VERSION.txt` (#353)
-- Timezone fallback now surfaces in `/api/me`'s `client_config.scheduler_tz` (`{configured, resolved, fallbac... (#442)
-- Passkeys_allowed in api_get_settings (#456)
+- `/api/hosts/one/{host_id}` now accepts `?force=true` to bypass the 10s provider-state cache, mirroring the... (#101)
+- Test endpoints surface human-readable failure summaries instead of raw upstream stack traces (#103)
+- Version page now edits every component (MAJOR / MINOR / PATCH) and writes the values straight to `VERSION.txt` (#106)
+- Timezone fallback now surfaces in `/api/me`'s `client_config.scheduler_tz` (`{configured, resolved, fallbac... (#186)
+- Passkeys_allowed in api_get_settings (#198)
 
 ### Documentation
 
-- Documentation refresh pass — 5 docs files modified to match the recently-shipped feature waves: PII leak in... (#373)
+- Documentation refresh pass — 5 docs files modified to match the recently-shipped feature waves: PII leak in... (#126)
 
 ### Internal cleanup, refactor & bug sweeps
 
-- Field error on a filtered-out row no longer silently no-ops. `focusFirstFieldError` in `static/js/app.js` e... (#348)
-- Startup robustness pass. (a): `seed_stats_cache_from_db` and `seed_nodes_info_from_snapshots` moved into a... (#392)
-- Tab primary action buttons unified (#412)
-- Dead-code cleanup from (#427)
-- `_HOST_SNAPSHOT_KEYS` is no longer a hand-maintained tuple drift class. Replaced with an `_is_snapshot_key(... (#443)
-- 10-bug sweep shipped in one batch (#465)
-- Five UX-bugs and five UX-enhancements shipped together (#487–#495). was already fixed via #456 (passkeys_al... (#488)
+- Field error on a filtered-out row no longer silently no-ops. `focusFirstFieldError` in `static/js/app.js` e... (#102)
+- Startup robustness pass. (a): `seed_stats_cache_from_db` and `seed_nodes_info_from_snapshots` moved into a... (#140)
+- Tab primary action buttons unified (#157)
+- Dead-code cleanup from (#171)
+- `_HOST_SNAPSHOT_KEYS` is no longer a hand-maintained tuple drift class. Replaced with an `_is_snapshot_key(... (#187)
+- 10-bug sweep shipped in one batch (#203)
+- Five UX-bugs and five UX-enhancements shipped together (#207–#215). was already fixed via #198 (passkeys_al... (#208)
 
 ### Other improvements & fixes
 
-- Editor: typing `custom_number` into a row + tabbing out no longer reorders the row mid-edit. cn `@input` no... (#356)
-- `host_permanent_fail_window_seconds` was kept as a SettingsIn field, GET-side resolver row, and POST-side v... (#391)
-- Dot flicker on the Hosts view's 15s poll cycle (#397)
-- Notifications event grid: "Host sampling auto-paused" split out of the Security events group into its own "... (#403)
-- Edit modal: `kind` + `cadence_mode` dropdowns weren't preselecting the saved value (the documented Alpine s... (#410)
-- Pointer on every clickable button (#466)
-- SSH terminal close-code toasts (4400/4401/4402/4403) with origin-mismatch path showing NPM-debug guidance (#489)
+- Editor: typing `custom_number` into a row + tabbing out no longer reorders the row mid-edit. cn `@input` no... (#109)
+- `host_permanent_fail_window_seconds` was kept as a SettingsIn field, GET-side resolver row, and POST-side v... (#139)
+- Dot flicker on the Hosts view's 15s poll cycle (#144)
+- Notifications event grid: "Host sampling auto-paused" split out of the Security events group into its own "... (#148)
+- Edit modal: `kind` + `cadence_mode` dropdowns weren't preselecting the saved value (the documented Alpine s... (#155)
+- Pointer on every clickable button (#204)
+- SSH terminal close-code toasts (4400/4401/4402/4403) with origin-mismatch path showing NPM-debug guidance (#209)
 
 ## [1.1.0] — 2026-04-26
 
@@ -521,136 +523,136 @@ First MINOR cut after the `1.0.0` baseline — rolls up **97 closed issues** und
 
 ### Hosts editor & Host groups
 
-- Host rows joined against an external asset API for model / serial / location, with autofill button + dirty-... (#161)
-- Toggle for host-drawer Debug data panel (#162)
-- The first character into a host row's ID collapses the panel (#169)
-- Range pre-fill on +Add host group (#173)
-- "Collapse all" button visual fix (#195)
-- "+ Add sub-group" quick button on parent host groups (#196)
-- `+ Add sub-group` parent dropdown didn't reflect the chosen parent (#205)
-- Group range error message wasn't showing (#218)
-- `Show children` parent dropdown adjustment + Expand all / Collapse all bulk buttons (#225)
-- Host drawer polish — explicit 12-col grid with `col-span-6` cards, slide animation switched from Alpine x-t... (#248)
-- Hosts count badge on the "Hide hosts without agents" filter (#272)
-- Groups + sub-groups now HIDDEN when "Hide hosts without agents" filter is on (preference reversed from #279) (#279)
-- Service summary in HOST DRAWER (#302)
-- Range filter on host drawer charts now triggers refetch (#304)
-- Usage chart in host drawer (Beszel) (#307)
-- For the Admin → Hosts editor (122 hosts → 200+ projected) (#311)
-- Hosts editor page across reloads / tab nav (#320)
-- Only host drawer: Disk I/O + Network charts now distinguish "no activity in window" from "node-exporter doe... (#327)
-- Pagination + sticky action bar mirroring the Hosts editor (#328)
-- Debug + SSH-run toggles in the host drawer now scroll the just-expanded body to the top of the drawer viewport (#339)
-- Hosts / Host groups action bar now matches the editor section's width AND pins correctly to the viewport bo... (#340)
+- Host rows joined against an external asset API for model / serial / location, with autofill button + dirty-... (#3)
+- Toggle for host-drawer Debug data panel (#4)
+- The first character into a host row's ID collapses the panel (#8)
+- Range pre-fill on +Add host group (#11)
+- "Collapse all" button visual fix (#14)
+- "+ Add sub-group" quick button on parent host groups (#15)
+- `+ Add sub-group` parent dropdown didn't reflect the chosen parent (#19)
+- Group range error message wasn't showing (#23)
+- `Show children` parent dropdown adjustment + Expand all / Collapse all bulk buttons (#27)
+- Host drawer polish — explicit 12-col grid with `col-span-6` cards, slide animation switched from Alpine x-t... (#34)
+- Hosts count badge on the "Hide hosts without agents" filter (#40)
+- Groups + sub-groups now HIDDEN when "Hide hosts without agents" filter is on (preference reversed from #45) (#45)
+- Service summary in HOST DRAWER (#64)
+- Range filter on host drawer charts now triggers refetch (#66)
+- Usage chart in host drawer (Beszel) (#68)
+- For the Admin → Hosts editor (122 hosts → 200+ projected) (#72)
+- Hosts editor page across reloads / tab nav (#79)
+- Only host drawer: Disk I/O + Network charts now distinguish "no activity in window" from "node-exporter doe... (#85)
+- Pagination + sticky action bar mirroring the Hosts editor (#86)
+- Debug + SSH-run toggles in the host drawer now scroll the just-expanded body to the top of the drawer viewport (#96)
+- Hosts / Host groups action bar now matches the editor section's width AND pins correctly to the viewport bo... (#97)
 
 ### Drawer, charts & Node Exporter
 
-- View: CPU sparkline invisible on idle nodes (#209)
-- Row expansion converted to slide-out drawer (#217)
-- Sparks self-diagnostic + `app().statsDebug()` console helper (#251)
-- Host historical graphs from node-exporter (Prometheus/Grafana-lite path for NE-only hosts) (#273)
-- Mem/Disk chart Alpine errors fixed (SVG <template> doesn't work) (#283)
-- Subtitle reflects actual stats picker + polling cadence honors it (#289)
-- In + Net Out combined into one chart shipped (#299)
-- Disk I/O chart shipped (#300)
-- Average chart shipped (1m / 5m / 15m) (#301)
-- Bandwidth chart shipped (#303)
-- Line chart legend values no longer all-red (#305)
-- Theme + hotkeys pushed down by stats picker (#313)
-- I/O chart hidden for NE-only hosts (#318)
-- Only host Disk I/O chart now populates from `node_disk_{read,written}_bytes_total` counters (#319)
-- Drawer "No NIC activity" hint now branches on whether node-exporter is in play, not on whether Beszel is ma... (#321)
-- Only host Disk I/O chart was stuck on perpetual `0 B/s` for NAS / RAID boxes (Synology, TrueNAS, OPNsense).... (#324)
-- Disk I/O support for NE-only hosts (#331). `parse_disk_counters` now falls back to `node_devstat_bytes_tota... (#331)
-- Drawer charts now show a subtle `Updated Xs/m/h ago` freshness hint beside the time-range picker (#338)
+- View: CPU sparkline invisible on idle nodes (#21)
+- Row expansion converted to slide-out drawer (#22)
+- Sparks self-diagnostic + `app().statsDebug()` console helper (#35)
+- Host historical graphs from node-exporter (Prometheus/Grafana-lite path for NE-only hosts) (#41)
+- Mem/Disk chart Alpine errors fixed (SVG <template> doesn't work) (#47)
+- Subtitle reflects actual stats picker + polling cadence honors it (#52)
+- In + Net Out combined into one chart shipped (#61)
+- Disk I/O chart shipped (#62)
+- Average chart shipped (1m / 5m / 15m) (#63)
+- Bandwidth chart shipped (#65)
+- Line chart legend values no longer all-red (#67)
+- Theme + hotkeys pushed down by stats picker (#73)
+- I/O chart hidden for NE-only hosts (#77)
+- Only host Disk I/O chart now populates from `node_disk_{read,written}_bytes_total` counters (#78)
+- Drawer "No NIC activity" hint now branches on whether node-exporter is in play, not on whether Beszel is ma... (#80)
+- Only host Disk I/O chart was stuck on perpetual `0 B/s` for NAS / RAID boxes (Synology, TrueNAS, OPNsense).... (#82)
+- Disk I/O support for NE-only hosts (#89). `parse_disk_counters` now falls back to `node_devstat_bytes_tota... (#89)
+- Drawer charts now show a subtle `Updated Xs/m/h ago` freshness hint beside the time-range picker (#95)
 
 ### Admin pages: Apprise / Open-Meteo / Portainer / SSH / Debug / Sessions
 
-- Admin-only xterm.js viewport over WSS to a backend asyncssh PTY (#160)
-- Debug-panel toggle removed from Admin → Hosts (#172)
-- Service "enabled" master switches for Apprise, Open-Meteo, Portainer, SSH (#194)
-- Admin → all tabs — master-toggle treatment unified: child controls disable when the master is off; Apprise... (#201)
-- Admin tabs use Save button + show "Unsaved" indicator (Apprise / Open-Meteo / Portainer / SSH) (#206)
-- Api/items` 500 scope bug (#266)
-- Inventory dirty pill unified with other admin tabs (#285)
-- 4 admin-tab dirty flags unified to smart-getter pattern (#286)
-- Meteo Save button moved below the URL input (#288)
-- Admin → Config tab — UI override for the 6 process-level tunables (#317)
-- Admin → Debug tab: smart-getter dirty pattern + Save button (#322)
-- _format_provider_test_summary()` in `main.py` keeps the Pulse + Beszel test-connection response shape ident... (#334)
+- Admin-only xterm.js viewport over WSS to a backend asyncssh PTY (#2)
+- Debug-panel toggle removed from Admin → Hosts (#10)
+- Service "enabled" master switches for Apprise, Open-Meteo, Portainer, SSH (#13)
+- Admin → all tabs — master-toggle treatment unified: child controls disable when the master is off; Apprise... (#18)
+- Admin tabs use Save button + show "Unsaved" indicator (Apprise / Open-Meteo / Portainer / SSH) (#20)
+- Api/items` 500 scope bug (#37)
+- Inventory dirty pill unified with other admin tabs (#49)
+- 4 admin-tab dirty flags unified to smart-getter pattern (#50)
+- Meteo Save button moved below the URL input (#51)
+- Admin → Config tab — UI override for the 6 process-level tunables (#76)
+- Admin → Debug tab: smart-getter dirty pattern + Save button (#81)
+- _format_provider_test_summary()` in `main.py` keeps the Pulse + Beszel test-connection response shape ident... (#91)
 
 ### Schedules
 
-- Daily / weekly / monthly schedules now actually fire (grace window added (#198)
-- weekly npm audit + node_modules served via allowlist (was wildcard mount) (#292)
+- Daily / weekly / monthly schedules now actually fire (grace window added (#16)
+- weekly npm audit + node_modules served via allowlist (was wildcard mount) (#55)
 
 ### Topbar, login & branding
 
-- Topbar split into two rows (Option A) (#165)
-- Clock + weather repositioned LEFT of the user avatar (#170)
-- Brand icons batch — 14 new icons + keyword wiring (#243)
-- Humax brand icon added (#275)
-- Clean wordmark for `samsung`, corporate mark to `samsung-electronics` (#276)
-- Kaonmedia brand icon added (#277)
-- Header "Update stack" button hides when stack is expanded (#281)
-- Mobile topbar phase 1 — no more horizontal page scroll on iPhone (#293)
-- Toolbar + Nodes header wrap cleanly on mobile (#294)
-- Topbar widgets prefs follow the dirty-pattern (no auto-save on toggle) (#297)
-- Avatar lifts up to row 1, clock+weather take their own row (#298)
-- Utility belt merged into header flow + language above SYNC (#309)
-- Page logo no longer shows a white halo at the rounded corners (#336). `static/login.html` swapped from the... (#336)
+- Topbar split into two rows (Option A) (#7)
+- Clock + weather repositioned LEFT of the user avatar (#9)
+- Brand icons batch — 14 new icons + keyword wiring (#32)
+- Humax brand icon added (#42)
+- Clean wordmark for `samsung`, corporate mark to `samsung-electronics` (#43)
+- Kaonmedia brand icon added (#44)
+- Header "Update stack" button hides when stack is expanded (#46)
+- Mobile topbar phase 1 — no more horizontal page scroll on iPhone (#56)
+- Toolbar + Nodes header wrap cleanly on mobile (#57)
+- Topbar widgets prefs follow the dirty-pattern (no auto-save on toggle) (#59)
+- Avatar lifts up to row 1, clock+weather take their own row (#60)
+- Utility belt merged into header flow + language above SYNC (#70)
+- Page logo no longer shows a white halo at the rounded corners (#93). `static/login.html` swapped from the... (#93)
 
 ### Vendor icons
 
-- ~30 new vendor icons added across multiple batches (Aqara, ASUS, Alienware, Amazon Fire TV, Bose, Chromecas... (#164)
-- HDHomeRun + J-Tech Digital + Nixplay (#310)
+- ~30 new vendor icons added across multiple batches (Aqara, ASUS, Alienware, Amazon Fire TV, Bose, Chromecas... (#6)
+- HDHomeRun + J-Tech Digital + Nixplay (#71)
 
 ### Documentation
 
-- `CHANGELOG.md` (this file) at the repo root, in Keep-a-Changelog format, with `[Unreleased]` + `[1.0.0]` ba... (#330)
-- `README.md` ref updated from `notes/note_authentik.txt` to `notes/guidelines/authentik.md` (#335)
-- Operator-private hostnames in shipped docs and code comments with example.com placeholders (#337)
+- `CHANGELOG.md` (this file) at the repo root, in Keep-a-Changelog format, with `[Unreleased]` + `[1.0.0]` ba... (#88)
+- `README.md` ref updated from `notes/note_authentik.txt` to `notes/guidelines/authentik.md` (#92)
+- Operator-private hostnames in shipped docs and code comments with example.com placeholders (#94)
 
 ### Filters, badges & status pills
 
-- Paused"` status now correctly maps to `"down"` (#269)
-- Colour cleanly + always show "0 failed" (#314)
-- Filter bar (Stacks / Services / Nodes views): the divider between the health and status filter groups no lo... (#326)
+- Paused"` status now correctly maps to `"down"` (#38)
+- Colour cleanly + always show "0 failed" (#74)
+- Filter bar (Stacks / Services / Nodes views): the divider between the health and status filter groups no lo... (#84)
 
 ### Internationalisation & translations
 
-- `actions.close` i18n key (#236)
+- `actions.close` i18n key (#29)
 
 ### Database / migrations / data
 
-- Type ShortName field name confirmed + backend exposes `type_short` (#223)
-- schema-migration infrastructure (logic/migrations.py) (#291)
-- User UI prefs sync (cross-device) (#296)
-- Scaffolding for multi-database support (#315)
+- Type ShortName field name confirmed + backend exposes `type_short` (#26)
+- schema-migration infrastructure (logic/migrations.py) (#54)
+- User UI prefs sync (cross-device) (#58)
+- Scaffolding for multi-database support (#75)
 
 ### Internal / refactor / code review
 
-- Host Groups editor — collapsible children, NUMBER input moved to the natural Tab-order column, group headin... (#163)
-- Signature-based dedupe (#182)
-- Short detection widened + diagnostic added (#199)
-- Reverts/cleanup follow-ups from this session (#221)
-- Fix turn from the code-review report (#240)
-- **Code-review compliance batches** (closed all of (#245)
-- surface SESSION_SECRET-auto-generated warning to admins (#290)
-- Fresh full-code-review pass (#325)
-- Model switched back to SemVer `MAJOR.MINOR.PATCH` after a brief stint with the `MAJOR.MINOR`-only model (#329)
+- Host Groups editor — collapsible children, NUMBER input moved to the natural Tab-order column, group headin... (#5)
+- Signature-based dedupe (#12)
+- Short detection widened + diagnostic added (#17)
+- Reverts/cleanup follow-ups from this session (#24)
+- Fix turn from the code-review report (#31)
+- **Code-review compliance batches** (closed all of (#33)
+- surface SESSION_SECRET-auto-generated warning to admins (#53)
+- Fresh full-code-review pass (#83)
+- Model switched back to SemVer `MAJOR.MINOR.PATCH` after a brief stint with the `MAJOR.MINOR`-only model (#87)
 
 ### Other improvements & fixes
 
-- `hostStatsSourceEnabled()` field name typo (#157)
-- Provider outages no longer blank the page (#222)
-- The `_deriveTypeShort` JS acronym fallback (#232)
-- Block agent-memory paths under `static/` (#238)
-- Text-compaction fix (img_3.png) (#258)
-- Filter Docker / k8s / Proxmox internal interfaces behind a toggle (#271)
-- Password field is not contained in a form" warning silenced (#284)
-- Paginate + add per-system match diagnostic (#308)
-- _load_curated_hosts` between the two NE samplers (#332)
+- `hostStatsSourceEnabled()` field name typo (#1)
+- Provider outages no longer blank the page (#25)
+- The `_deriveTypeShort` JS acronym fallback (#28)
+- Block agent-memory paths under `static/` (#30)
+- Text-compaction fix (img_3.png) (#36)
+- Filter Docker / k8s / Proxmox internal interfaces behind a toggle (#39)
+- Password field is not contained in a form" warning silenced (#48)
+- Paginate + add per-system match diagnostic (#69)
+- _load_curated_hosts` between the two NE samplers (#90)
 
 ## [1.0.0] — 2026-03-21
 
