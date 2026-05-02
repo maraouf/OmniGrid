@@ -8577,6 +8577,12 @@ function app() {
         'gitsync-connector':           'gitsync',
         'gitsync-connector_connector': 'gitsync',
         'gitsync_connector':           'gitsync',
+        // Linux Mint short forms — bare slug AND hyphenated alias both
+        // resolve to the canonical linuxmint.svg. Mirrors the
+        // hostIconUrl alias map per CLAUDE.md's "BOTH alias maps" rule
+        // so item / stack contexts get the same forgiveness.
+        'mint':                        'linuxmint',
+        'linux-mint':                  'linuxmint',
       };
       // Prefix patterns — one entry covers all siblings of a product
       // (authentik outposts: ak-outpost-authentik-ldap-outpost, etc.).
@@ -10259,16 +10265,29 @@ function app() {
     // strong, which silences the `js/insecure-randomness` CodeQL flag
     // even though the value is UI-only and not a security secret.
     // Fallback path covers the (vanishingly rare) case of a browser
-    // without `crypto.randomUUID` — a `Math.random` + `Date.now`
-    // composite isn't crypto-strength but is fine for a UI tracking
-    // key and won't crash the SPA.
+    // without `crypto.randomUUID` — uses `crypto.getRandomValues` (a
+    // cryptographically strong PRNG, the primitive that backs randomUUID
+    // itself), available in every browser that ships modern JS. No
+    // `Math.random` anywhere so CodeQL js/insecure-randomness has no
+    // surface left to flag.
     _mintRowUid() {
       try {
         if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
           return 'r' + crypto.randomUUID();
         }
-      } catch (_) { /* unreachable on supported browsers */ }
-      return 'r' + Math.random().toString(36).slice(2, 10) + Date.now().toString(36);  // codeql[js/insecure-randomness] — UI key only
+        if (typeof crypto !== 'undefined' && typeof crypto.getRandomValues === 'function') {
+          const buf = new Uint8Array(8);
+          crypto.getRandomValues(buf);
+          let hex = '';
+          for (let i = 0; i < buf.length; i++) hex += buf[i].toString(16).padStart(2, '0');
+          return 'r' + hex;
+        }
+      } catch (_) { /* unreachable on any spec-compliant browser */ }
+      // Last-resort: a monotonic counter scoped to the page session.
+      // Not random, but unique within one tab — good enough for an Alpine
+      // x-for :key that only needs intra-render uniqueness.
+      this._uidCounter = (this._uidCounter | 0) + 1;
+      return 'r' + Date.now().toString(36) + '_' + this._uidCounter.toString(36);
     },
     markHostRowDirty(idx) {
       this.hostsConfigDirty = true;
@@ -10384,6 +10403,8 @@ function app() {
           'my-book-live':    'wd',
           'syno':            'synology',
           'dsm':             'synology',
+          'mint':            'linuxmint',
+          'linux-mint':      'linuxmint',
           'synology-dsm':    'synology',
           'meraki':          'cisco',
           'cisco-asa':       'cisco',
@@ -10926,11 +10947,18 @@ function app() {
         // Hardware brands
         ['lenovo',                'lenovo'],
         ['veeam',                 'veeam'],
-        // Linux distros
+        // Linux distros. Longer / more-specific phrases first per the
+        // load-bearing keyword-ordering rule, else `mint` would match
+        // before `linux mint`. The whitespace-padded ` mint ` short
+        // form (added below) protects against substring false-matches
+        // inside hostnames like `webmint`, `intermint`, etc.
         ['debian',                'debian'],
         ['ubuntu',                'ubuntu'],
         ['linux mint',            'linuxmint'],
+        ['linux-mint',            'linuxmint'],
         ['linuxmint',             'linuxmint'],
+        [' mint ',                'linuxmint'],
+        ['mint os',               'linuxmint'],
         ['kali linux',            'kali'],
         ['kali',                  'kali'],
         // Meta / Oculus VR

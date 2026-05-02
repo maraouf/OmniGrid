@@ -83,10 +83,12 @@ updates:
     versioning-strategy: "increase"
 
   # ----- Docker base image (Dockerfile) ----------------------------
-  # Bumps `python:3.12-slim` to newer 3.12 patch images automatically.
-  # Stays on 3.12 (won't auto-bump to 3.13) because we don't pin the
-  # Python minor version here — Dependabot's docker ecosystem only
-  # bumps within the matched tag pattern.
+  # Bumps `python:3.14-slim` to newer 3.14 patch images automatically.
+  # Minor-version jumps (3.14 → 3.15 etc.) are operator-controlled —
+  # Dependabot's docker ecosystem only bumps within the matched tag
+  # pattern, so the Dockerfile's `FROM python:3.14-slim` line drives
+  # what Dependabot tracks. Update that line manually when you want
+  # to move to a newer Python minor.
   - package-ecosystem: "docker"
     directory: "/"
     schedule:

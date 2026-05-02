@@ -19,7 +19,7 @@ services:
       - "9500:8088"
 
     # Container timezone. Python's zoneinfo module reads /etc/localtime,
-    # but the python:3.12-slim base ships UTC and tzdata isn't
+    # but the python:3.14-slim base ships UTC and tzdata isn't
     # guaranteed. Setting TZ here makes `time.localtime()` and the
     # scheduler's `scheduler_timezone` default align with the operator's
     # wall clock instead of UTC. Match this to wherever OmniGrid runs.
@@ -32,7 +32,7 @@ services:
     # SocketPermissionError and logic/ping.py falls back to TCP-connect
     # at probe time (still functional, just no ICMP). Granting NET_RAW
     # only marginally widens attack surface because the container
-    # already runs as root via python:3.12-slim's default user; if
+    # already runs as root via python:3.14-slim's default user; if
     # you ever switch to a non-root image, drop this and add `user: 0`
     # only where required.
     cap_add:

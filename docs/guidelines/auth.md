@@ -499,7 +499,7 @@ CID=$(docker ps -qf name=omnigrid_omnigrid)
 HASH=$(docker exec -it $CID python3 -c \
   "import bcrypt; print(bcrypt.hashpw(b'YOUR-PW', bcrypt.gensalt(12)).decode())")
 # Write on the host against the bind-mounted DB — the container is
-# python:3.12-slim and has no sqlite3 CLI.
+# python:3.14-slim and has no sqlite3 CLI.
 sudo sqlite3 /opt/omnigrid/data/omnigrid.db \
   "INSERT INTO users(username,role,auth_source,password_hash,created_at) \
    VALUES('admin','admin','local','$HASH',strftime('%s','now'));"

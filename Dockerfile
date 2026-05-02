@@ -12,7 +12,7 @@
 # PATCH, and passes the result via --build-arg VERSION. Local builds
 # without the arg fall back to "0.0.0-dev" (visible signal in the UI).
 
-FROM python:3.12-slim
+FROM python:3.14-slim
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
@@ -22,10 +22,10 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 WORKDIR /app
 
 # Python deps in their own layer so source-only changes hit the cache.
-# python:3.12-slim ships pre-built wheels for every dep we currently
-# pin (cryptography / bcrypt / asyncssh / icmplib all have arm64 +
-# x86_64 wheels on PyPI). If a future dep needs to compile from source,
-# add a transient build-deps block here:
+# python:3.14-slim is the current minor line at build time. If a future
+# dep needs to compile from source (e.g. a wheel that hasn't published a
+# 3.14 build yet on a transitional bump), add a transient build-deps
+# block here:
 #   RUN apt-get update && apt-get install -y --no-install-recommends \
 #         build-essential libffi-dev libssl-dev \
 #       && pip install -r requirements.txt \
