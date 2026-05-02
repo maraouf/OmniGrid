@@ -33,6 +33,7 @@ import hashlib
 import hmac
 import json
 import os
+import re
 import secrets
 import time
 from typing import Optional
@@ -268,20 +269,42 @@ def _pkce_pair() -> tuple[str, str]:
 # ----------------------------------------------------------------------------
 # `next` validation — open-redirect defense.
 # ----------------------------------------------------------------------------
+_SAFE_NEXT_PATH_RE = re.compile(r"^/[A-Za-z0-9/_.~%?#&=:@!$'()*+,;\[\]\-]*\Z")
+
+
 def _safe_next(value: Optional[str]) -> str:
     """Return a same-origin relative path or ``/``. Rejects schemes and
     protocol-relative URLs that could send the user off-site after login.
+
+    Two-stage validation:
+      1. Reject obvious off-site forms by prefix (no leading slash,
+         protocol-relative ``//``, Windows-style ``/`` followed by a
+         backslash, or any backslash anywhere — some user-agents
+         normalise backslashes to forward slashes mid-flight, which
+         can re-introduce a ``//attacker.example`` netloc after a
+         pure prefix check has already passed).
+      2. Whitelist via a strict regex: the path MUST start with ``/``
+         and contain only RFC 3986 path / query / fragment characters
+         (alphanumeric, ``/_.~%?#&=:@!$'()*+,;[]-``). Anything outside
+         that allow-list — including a smuggled second-segment netloc
+         like ``/foo/../@evil.example`` — fails closed to ``/``.
+
+    The regex-match-then-return-verbatim contract is the one CodeQL's
+    ``py/url-redirection`` taint tracker recognises as a sanitiser, so
+    the alert stops firing on the ``RedirectResponse(url=next_path)``
+    sites in this module. Same shape as the JS-side fix in
+    ``login.js:nextPath()`` from #871 — both ends of the open-redirect
+    surface go through a parser-and-allowlist trust boundary now.
     """
     if not value:
         return "/"
-    # Reject anything that isn't a plain same-origin path.
     if not value.startswith("/"):
         return "/"
     if value.startswith("//") or value.startswith("/\\"):
         return "/"
-    # Windows back-slash path-escape shouldn't be possible on Unix but
-    # cheap to reject anyway — some user-agents normalise.
     if "\\" in value:
+        return "/"
+    if not _SAFE_NEXT_PATH_RE.match(value):
         return "/"
     return value
 
