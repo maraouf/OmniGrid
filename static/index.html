@@ -12275,6 +12275,34 @@
               </article>
             </template>
           </div>
+          <!-- Server-side pagination — each Prev / Next click is a
+               fresh /api/notifications fetch with the appropriate
+               offset; the response REPLACES the in-memory list so a
+               fleet with 1000+ notifications never piles them all into
+               the DOM. "Showing items A–B of N" makes the cap visible.
+               Hidden when the total fits in a single page. -->
+          <div x-show="!notificationsLoading && notificationsTotal > 0"
+               class="flex items-center justify-between gap-3 pt-3 border-t border-[var(--border)] text-[11.5px]">
+            <span class="text-[var(--text-faint)]"
+                  x-text="t('notifications.showing_count', {
+                            from: (notificationsOffset || 0) + 1,
+                            to:   (notificationsOffset || 0) + (notifications.length || 0),
+                            total: notificationsTotal,
+                            page: notificationsPage(),
+                            pages: notificationsPageCount()
+                          })"></span>
+            <div class="flex items-center gap-1.5"
+                 x-show="notificationsTotal > (notificationsLimit || 50)">
+              <button @click="notificationsPrevPage()"
+                      :disabled="!notificationsHasPrev() || notificationsLoading"
+                      class="btn btn-soft text-[11.5px]"
+                      x-text="t('pagination.prev')"></button>
+              <button @click="notificationsNextPage()"
+                      :disabled="!notificationsHasNext() || notificationsLoading"
+                      class="btn btn-soft text-[11.5px]"
+                      x-text="t('pagination.next')"></button>
+            </div>
+          </div>
         </div>
       </div>
     </div>

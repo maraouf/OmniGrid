@@ -1156,15 +1156,28 @@ button:disabled {
     border-color: var(--chip-br);
 }
 
-/* `.chip-active` adds a subtle ring + slight lift on top of
- * any existing `.chip.pill-*` colouring, signalling that the chip is
- * currently selected as a Hosts-toolbar filter. Multi-select friendly:
- * several chips can be active at once. The ring uses the chip's own
- * border colour at increased opacity so the active state inherits the
- * per-provider hue instead of competing with it. Removing the chip
- * from the filter set reverts to the base style. */
+/* `.chip-active` highlights a chip as the currently-selected
+ * filter (Hosts-toolbar provider chips, notifications-popup severity
+ * chips, etc.). Pre-fix used a 1px inset ring + 8% brightness — too
+ * subtle on top of the tinted `.pill-*` backgrounds, operators
+ * couldn't tell which severity was selected at a glance. Post-fix:
+ * (1) a 2px outline ring in `currentColor` with a 2px offset so a
+ *     visible halo sits OUTSIDE the chip border (independent of the
+ *     pill's tinted bg / border so it stays prominent regardless of
+ *     severity colour);
+ * (2) a 2px inset shadow in the SAME colour so the chip itself reads
+ *     as "pressed in" / focus-visible, complementing the outer halo;
+ * (3) `font-weight: 600` so the label visibly bolds — colour-blind
+ *     operators get a non-colour signal too;
+ * (4) brightness bump retained for hover/active polish. Multi-select
+ *     friendly — several chips can be active at once (Hosts toolbar
+ *     uses this). Removing the chip from the filter set reverts to
+ *     the base style. */
 .chip.chip-active {
-    box-shadow: 0 0 0 1px currentColor inset, 0 1px 2px var(--label-shadow);
+    outline: 2px solid currentColor;
+    outline-offset: 2px;
+    box-shadow: 0 0 0 2px currentColor inset, 0 1px 3px var(--label-shadow);
+    font-weight: 600;
     filter: brightness(1.08);
 }
 button.chip {

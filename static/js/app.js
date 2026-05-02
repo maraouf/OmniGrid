@@ -6854,9 +6854,18 @@ function app() {
     // backdrop click and Esc close the dialog.
     openNotificationsPopup() {
       this.showNotificationsPopup = true;
+      // Reset offset so a re-open after closing always starts at the
+      // newest page; the previously-loaded extra rows from a prior
+      // "Load more" cycle would otherwise pile up indefinitely.
+      this.notificationsOffset = 0;
       this.loadNotifications();
     },
     async loadNotifications() {
+      // Operator-initiated reload (open / Reload button / filter
+      // change) — always start from the first page. The "Load more"
+      // path uses `loadMoreNotifications` which preserves the
+      // existing list and only appends.
+      this.notificationsOffset = 0;
       this.notificationsLoading = true;
       try {
         const r = await fetch('/api/notifications?' + this.notificationsQuery());
@@ -6866,13 +6875,56 @@ function app() {
         }
         const d = await r.json();
         // Replace the list — operator-initiated reload is the only call
-        // path; SSE pushes use _handleNotificationCreated for in-place
-        // prepend without reassigning the array.
+        // path here; SSE pushes use _handleNotificationCreated for
+        // in-place prepend without reassigning the array.
         this.notifications = Array.isArray(d.items) ? d.items : [];
         this.notificationsTotal = Number.isFinite(d.total) ? d.total : 0;
         this.notificationsUnread = Number.isFinite(d.unread_count) ? d.unread_count : 0;
       } catch (e) {
         console.warn('[notifications] loadNotifications failed', e);
+      }
+      this.notificationsLoading = false;
+    },
+    // Server-side pagination — Prev / Next swap the visible list to a
+    // different page (limit / offset are server-driven). Caps each page
+    // at `notificationsLimit` rows so a fleet with 1000+ notifications
+    // never loads more than one page-worth at a time; the browser's
+    // memory and DOM cost stays constant regardless of total count.
+    // Page navigation REPLACES the in-memory list (no client-side
+    // accumulation) — each click is a fresh server fetch with the
+    // appropriate offset, the response replaces `this.notifications`,
+    // and the previous page's rows are released for GC.
+    notificationsPage()      { return Math.floor((this.notificationsOffset || 0) / (this.notificationsLimit || 50)) + 1; },
+    notificationsPageCount() {
+      const limit = this.notificationsLimit || 50;
+      const total = this.notificationsTotal || 0;
+      return Math.max(1, Math.ceil(total / limit));
+    },
+    notificationsHasNext()   { return this.notificationsPage() < this.notificationsPageCount(); },
+    notificationsHasPrev()   { return (this.notificationsOffset || 0) > 0; },
+    async notificationsNextPage() {
+      if (this.notificationsLoading || !this.notificationsHasNext()) return;
+      this.notificationsOffset = (this.notificationsOffset || 0) + (this.notificationsLimit || 50);
+      await this._reloadNotificationsPage();
+    },
+    async notificationsPrevPage() {
+      if (this.notificationsLoading || !this.notificationsHasPrev()) return;
+      const prev = (this.notificationsOffset || 0) - (this.notificationsLimit || 50);
+      this.notificationsOffset = Math.max(0, prev);
+      await this._reloadNotificationsPage();
+    },
+    async _reloadNotificationsPage() {
+      this.notificationsLoading = true;
+      try {
+        const r = await fetch('/api/notifications?' + this.notificationsQuery());
+        if (!r.ok) { this.notificationsLoading = false; return; }
+        const d = await r.json();
+        // Page-replace, not append — keeps DOM cost constant.
+        this.notifications = Array.isArray(d.items) ? d.items : [];
+        if (Number.isFinite(d.total)) this.notificationsTotal = d.total;
+        if (Number.isFinite(d.unread_count)) this.notificationsUnread = d.unread_count;
+      } catch (e) {
+        console.warn('[notifications] page change failed', e);
       }
       this.notificationsLoading = false;
     },

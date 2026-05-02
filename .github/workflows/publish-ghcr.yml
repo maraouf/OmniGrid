@@ -1,4 +1,4 @@
-name: Publish to GHCR (minor releases)
+name: Publish to GHCR (major releases)
 
 # Publishes the OmniGrid image to GitHub Container Registry (ghcr.io)
 # only on MINOR-release tags. The Forgejo daily-PATCH cadence
@@ -63,6 +63,18 @@ on:
 permissions:
   contents: read
   packages: write
+
+# Run every JS-based action (actions/checkout, docker/setup-buildx,
+# docker/login, docker/build-push) on Node.js 24. Node 20 is the
+# current default but is being removed from GitHub runners in
+# September 2026; this env opts the workflow into Node 24 now so the
+# steps run on a supported runtime end-to-end. Dependabot's INTERNAL
+# graph-build jobs (`update-pip-graph` / `update-npm-graph` /
+# `update-docker-graph`) need the same switch via a repo-level Actions
+# variable — see `.github/dependabot.yml` for the operator-side step,
+# since this file's `env:` doesn't propagate into Dependabot's runner.
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
 
 jobs:
   publish:
