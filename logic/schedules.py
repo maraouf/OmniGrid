@@ -1145,6 +1145,75 @@ async def _run_prune_logs(params: dict) -> tuple[str, Awaitable[tuple[int, str]]
     return op_id, task  # type: ignore[return-value]
 
 
+async def _run_prune_notifications(
+    params: dict,
+) -> tuple[str, Awaitable[tuple[int, str]]]:
+    """Sweep the ``notifications`` table and delete rows older than
+    ``tuning_notification_retention_days`` (or ``params.days`` if the
+    schedule row carries an explicit override). Idempotent — running
+    twice in a minute just produces a second history row with 0 rows
+    deleted. Mirrors the prune_logs pattern: no Operation, writes a
+    history row directly so the run shows up in the History tab + the
+    schedules queue.
+    """
+    op_id = "sched-" + secrets.token_hex(4)
+
+    async def runner() -> tuple[int, str]:
+        from logic import tuning as _tuning_mod
+
+        started = time.time()
+        status = "success"
+        err: Optional[str] = None
+        removed = 0
+        days: Optional[int] = None
+        try:
+            _, _, _lo, _hi = _tuning_mod.TUNABLES["tuning_notification_retention_days"]
+            override = params.get("days") if isinstance(params, dict) else None
+            if override is not None and str(override).strip():
+                try:
+                    days = int(str(override).strip())
+                except ValueError:
+                    days = _tuning_mod.tuning_int("tuning_notification_retention_days")
+            else:
+                days = _tuning_mod.tuning_int("tuning_notification_retention_days")
+            days = max(_lo, min(_hi, days))
+            cutoff = int(time.time()) - days * 86400
+            with db_conn() as c:
+                cur = c.execute(
+                    "DELETE FROM notifications WHERE ts < ?", (cutoff,),
+                )
+                removed = int(cur.rowcount or 0)
+        except Exception as e:
+            status = "error"
+            err = str(e)
+            print(f"[scheduler] prune_notifications failed: {e}")
+
+        duration = int(time.time() - started)
+        target_suffix = f" (days={days})" if days is not None else ""
+        target_name = f"{removed} notification(s){target_suffix}"
+        try:
+            with db_conn() as c:
+                c.execute(
+                    "INSERT INTO history "
+                    "(ts, op_type, target_name, target_id, target_stack, "
+                    " status, duration, events, error, actor) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    (
+                        started, "prune_notifications",
+                        target_name,
+                        op_id, None,
+                        status, duration,
+                        "[]", err, SCHEDULER_ACTOR,
+                    ),
+                )
+        except Exception as e:
+            print(f"[scheduler] prune_notifications history write dropped: {e}")
+        return (duration, status)
+
+    task = asyncio.create_task(runner())
+    return op_id, task  # type: ignore[return-value]
+
+
 SCHEDULE_KINDS: dict[str, KindRunner] = {
     "prune_node":                _run_prune_node,
     "prune_all_nodes":           _run_prune_all_nodes,
@@ -1152,6 +1221,7 @@ SCHEDULE_KINDS: dict[str, KindRunner] = {
     "backup":                    _run_backup,
     "asset_inventory_refresh":   _run_asset_inventory_refresh,
     "prune_logs":                _run_prune_logs,
+    "prune_notifications":       _run_prune_notifications,
 }
 
 

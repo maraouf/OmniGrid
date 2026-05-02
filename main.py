@@ -655,6 +655,36 @@ def init_db():
         );
         CREATE INDEX IF NOT EXISTS idx_ping_samples_host_ts
             ON ping_samples(host_id, ts DESC);
+
+        -- In-app notifications store. One row per notification dispatched
+        -- through `logic.ops.notify`'s `app` medium (sibling of the
+        -- existing `apprise` medium). Drives the avatar badge unread-count,
+        -- the Notifications page, and SSE pushes. Pruned on schedule
+        -- (`prune_notifications` kind) by `tuning_notification_retention_days`.
+        -- `severity` mirrors the four levels operators see in the persistent
+        -- log viewer (info / warning / error / success). `metadata` is a
+        -- free-form JSON blob the renderer can read for richer formatting
+        -- (icons, links, durations) without breaking the column shape.
+        -- `read_at` NULL = unread; epoch seconds when the operator marked it
+        -- read. Index on read_at where NULL gives the unread-count probe an
+        -- O(unread) scan rather than O(total).
+        CREATE TABLE IF NOT EXISTS notifications (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            ts          INTEGER NOT NULL,
+            event       TEXT    NOT NULL,
+            severity    TEXT    NOT NULL,
+            title       TEXT    NOT NULL,
+            body        TEXT    NOT NULL,
+            actor       TEXT,
+            target_kind TEXT,
+            target_id   TEXT,
+            metadata    TEXT,
+            read_at     INTEGER
+        );
+        CREATE INDEX IF NOT EXISTS idx_notifications_ts
+            ON notifications(ts DESC);
+        CREATE INDEX IF NOT EXISTS idx_notifications_unread
+            ON notifications(read_at) WHERE read_at IS NULL;
         COMMIT;
         """)
         # Idempotent column additions for existing deployments. SQLite pre-3.35
@@ -1764,6 +1794,9 @@ class SettingsIn(BaseModel):
     # stat-bar thresholds (frontend-consumed via /api/me).
     tuning_stat_bar_warn_pct: Optional[str] = None
     tuning_stat_bar_crit_pct: Optional[str] = None
+    # In-app notifications retention window (days). Drives the
+    # prune_notifications schedule kind.
+    tuning_notification_retention_days: Optional[str] = None
     # -----------------------------------------------------------------
     # Per-event notification toggles. Each maps to one of the
     # 12 (event group × success/failure) notify() call sites in
@@ -1790,6 +1823,16 @@ class SettingsIn(BaseModel):
     # System event (#411) — fires when host_metrics_sampler auto-pauses
     # a host after the configured failure window. Default ON.
     notify_event_host_paused: Optional[str] = None
+    # -----------------------------------------------------------------
+    # Per-medium master switches. The dispatcher in `logic/ops.py:notify`
+    # fans out to every enabled medium; flipping one of these false
+    # silences that channel WITHOUT disabling the event entirely. Both
+    # default true for back-compat. Stored as "true" / "false" strings
+    # alongside notify_event_* so they share the same hydration drift
+    # audit (CLAUDE.md "Settings hydration drift class").
+    # -----------------------------------------------------------------
+    notify_medium_app: Optional[str] = None
+    notify_medium_apprise: Optional[str] = None
     # -----------------------------------------------------------------
     # TOTP / 2FA policies (#345). Master toggle plus role-scoped
     # required-flags plus lockout knobs. Authentik users are excluded
@@ -1855,6 +1898,17 @@ async def api_get_settings(request: Request):
         # System event (#411) — fires when host_metrics_sampler auto-
         # pauses a host after the failure window. Default ON.
         "notify_event_host_paused":               get_setting_bool("notify_event_host_paused", True),
+        # Per-medium master switches (#855). Defaults from
+        # NOTIFY_MEDIUM_DEFAULTS (both ON for back-compat); operators
+        # flip individually from Admin → Notifications.
+        "notify_medium_app":     get_setting_bool(
+            "notify_medium_app",
+            _ops_mod.NOTIFY_MEDIUM_DEFAULTS.get("app", True),
+        ),
+        "notify_medium_apprise": get_setting_bool(
+            "notify_medium_apprise",
+            _ops_mod.NOTIFY_MEDIUM_DEFAULTS.get("apprise", True),
+        ),
         # TOTP / 2FA policy (#345). Five fields driving the multi-step
         # login flow + Profile enrolment guards + Admin -> Users action
         # enablement. Defaults preserve "no 2FA required" semantics so
@@ -2124,6 +2178,24 @@ async def _api_set_settings_inner(s, request, _portainer):
                 detail=f"{_ek} must be 'true', 'false', or '' (clear).",
             )
         set_setting(_ek, _norm)
+    # Per-medium master switches (#855). Same "true" / "false" / ""
+    # contract as the per-event toggles above so the SPA's existing
+    # boolean-cast pattern works unchanged. Bouncing through the
+    # NOTIFY_MEDIUM_NAMES tuple keeps the validator additive — adding a
+    # third medium adds one entry there + one SettingsIn field; this
+    # block needs no edit.
+    for _mn in _ops_mod.NOTIFY_MEDIUM_NAMES:
+        _key = f"notify_medium_{_mn}"
+        _v = getattr(s, _key, None)
+        if _v is None:
+            continue
+        _norm = (_v or "").strip().lower()
+        if _norm not in ("", "true", "false"):
+            raise HTTPException(
+                status_code=400,
+                detail=f"{_key} must be 'true', 'false', or '' (clear).",
+            )
+        set_setting(_key, _norm)
     # TOTP / 2FA policy (#345). Booleans persisted as "true" / "false";
     # ints bounds-checked then stored as decimal strings (matches the
     # tuning_* shape from #337). Same dirty + Save UI pattern as the
@@ -7947,6 +8019,199 @@ async def api_notify_test(_admin: auth.User = Depends(auth.require_admin)):
     return {"status": "sent"}
 
 
+# ============================================================================
+# In-app notifications store (#855). Sibling of the Apprise medium —
+# `logic.ops:notify` writes a row through the `app` medium on every
+# enabled event AND publishes ``notification:created`` over SSE so the
+# avatar badge + Notifications page update without polling. Routes are
+# admin-only; bearer-token clients can poll on the same cookie/CSRF
+# contract every other /api/ endpoint uses.
+# ============================================================================
+def _shape_notification_row(r) -> dict:
+    """Cast a SQLite Row into the API JSON shape. Centralised so the
+    list / SSE / mark-read paths all return the same field set.
+    """
+    md_raw = r["metadata"] if "metadata" in r.keys() else None
+    md_obj: Optional[dict] = None
+    if md_raw:
+        try:
+            md_obj = json.loads(md_raw)
+        except (TypeError, ValueError):
+            md_obj = None
+    return {
+        "id":          int(r["id"]),
+        "ts":          int(r["ts"]),
+        "event":       r["event"] or "",
+        "severity":    r["severity"] or "info",
+        "title":       r["title"] or "",
+        "body":        r["body"] or "",
+        "actor":       r["actor"],
+        "target_kind": r["target_kind"],
+        "target_id":   r["target_id"],
+        "metadata":    md_obj,
+        "read_at":     int(r["read_at"]) if r["read_at"] is not None else None,
+    }
+
+
+@app.get("/api/notifications")
+async def api_notifications_list(
+    limit: int = 50,
+    offset: int = 0,
+    unread_only: bool = False,
+    event: Optional[str] = None,
+    severity: Optional[str] = None,
+    _admin: auth.User = Depends(auth.require_admin),
+):
+    """Paginated list of in-app notifications, newest first.
+
+    Filters compose with AND. ``limit`` is clamped to 1..200 (the SPA's
+    default page size is 50; the upper cap keeps a bearer-token client
+    from accidentally requesting the full table). Unread badge state is
+    surfaced via ``unread_count`` regardless of the active filter so the
+    SPA's avatar pill always reflects the global count.
+    """
+    try:
+        limit_i = max(1, min(200, int(limit)))
+    except (TypeError, ValueError):
+        limit_i = 50
+    try:
+        offset_i = max(0, int(offset))
+    except (TypeError, ValueError):
+        offset_i = 0
+    where_parts: list[str] = []
+    params: list = []
+    if unread_only:
+        where_parts.append("read_at IS NULL")
+    if event:
+        where_parts.append("event = ?")
+        params.append(str(event)[:100])
+    if severity:
+        sev = str(severity).strip().lower()
+        if sev in ("info", "warning", "error", "success"):
+            where_parts.append("severity = ?")
+            params.append(sev)
+    where_sql = (" WHERE " + " AND ".join(where_parts)) if where_parts else ""
+    with db_conn() as c:
+        rows = c.execute(
+            "SELECT id, ts, event, severity, title, body, actor, "
+            "target_kind, target_id, metadata, read_at "
+            f"FROM notifications{where_sql} "
+            "ORDER BY ts DESC, id DESC LIMIT ? OFFSET ?",
+            (*params, limit_i, offset_i),
+        ).fetchall()
+        total_row = c.execute(
+            f"SELECT COUNT(*) AS n FROM notifications{where_sql}",
+            tuple(params),
+        ).fetchone()
+        unread_row = c.execute(
+            "SELECT COUNT(*) AS n FROM notifications WHERE read_at IS NULL"
+        ).fetchone()
+    return {
+        "items":        [_shape_notification_row(r) for r in rows],
+        "total":        int(total_row["n"]) if total_row else 0,
+        "unread_count": int(unread_row["n"]) if unread_row else 0,
+        "limit":        limit_i,
+        "offset":       offset_i,
+    }
+
+
+@app.post("/api/notifications/{nid}/read")
+async def api_notifications_mark_read(
+    nid: int,
+    request: Request,
+    _admin: auth.User = Depends(auth.require_admin),
+):
+    """Mark one notification row as read. Idempotent — already-read rows
+    return 200 with the existing ``read_at``. 404 when the id doesn't
+    exist so the SPA can prune ghost rows from a stale local cache.
+    """
+    now = int(time.time())
+    with db_conn() as c:
+        row = c.execute(
+            "SELECT id, read_at FROM notifications WHERE id = ?", (nid,),
+        ).fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="notification not found")
+        if row["read_at"] is None:
+            c.execute(
+                "UPDATE notifications SET read_at = ? WHERE id = ?", (now, nid),
+            )
+            read_at = now
+        else:
+            read_at = int(row["read_at"])
+        unread_row = c.execute(
+            "SELECT COUNT(*) AS n FROM notifications WHERE read_at IS NULL"
+        ).fetchone()
+        unread_count = int(unread_row["n"]) if unread_row else 0
+    # Push the new unread count over SSE so other tabs update their
+    # badge without a round-trip. Self-filter via X-OmniGrid-Client-Id
+    # so the originating tab doesn't echo-flicker its own click.
+    try:
+        _events.publish(
+            "notification:read",
+            {"id": nid, "read_at": read_at, "unread_count": unread_count},
+            client_id=_request_client_id(request),
+        )
+    except Exception as _e:
+        print(f"[notify] read SSE publish dropped: {_e}")
+    return {"id": nid, "read_at": read_at, "unread_count": unread_count}
+
+
+@app.post("/api/notifications/read-all")
+async def api_notifications_mark_all_read(
+    request: Request,
+    _admin: auth.User = Depends(auth.require_admin),
+):
+    """Mark every unread notification as read. Returns the count that
+    was flipped so the SPA can show a "Marked N as read" toast and the
+    badge zeros out atomically.
+    """
+    now = int(time.time())
+    with db_conn() as c:
+        cur = c.execute(
+            "UPDATE notifications SET read_at = ? WHERE read_at IS NULL", (now,),
+        )
+        count = int(cur.rowcount or 0)
+    try:
+        _events.publish(
+            "notification:read",
+            {"id": None, "read_at": now, "unread_count": 0, "bulk": True},
+            client_id=_request_client_id(request),
+        )
+    except Exception as _e:
+        print(f"[notify] read-all SSE publish dropped: {_e}")
+    return {"count": count, "unread_count": 0}
+
+
+@app.delete("/api/notifications/{nid}")
+async def api_notifications_delete(
+    nid: int,
+    request: Request,
+    _admin: auth.User = Depends(auth.require_admin),
+):
+    """Admin-only delete one notification. Operators rarely need this —
+    the prune_notifications schedule sweeps old rows automatically — but
+    a one-off "scrub the test row" workflow is occasionally useful.
+    """
+    with db_conn() as c:
+        cur = c.execute("DELETE FROM notifications WHERE id = ?", (nid,))
+        if cur.rowcount == 0:
+            raise HTTPException(status_code=404, detail="notification not found")
+        unread_row = c.execute(
+            "SELECT COUNT(*) AS n FROM notifications WHERE read_at IS NULL"
+        ).fetchone()
+        unread_count = int(unread_row["n"]) if unread_row else 0
+    try:
+        _events.publish(
+            "notification:deleted",
+            {"id": nid, "unread_count": unread_count},
+            client_id=_request_client_id(request),
+        )
+    except Exception as _e:
+        print(f"[notify] delete SSE publish dropped: {_e}")
+    return {"id": nid, "deleted": True, "unread_count": unread_count}
+
+
 @app.get("/api/healthz")
 async def healthz():
     # Re-read VERSION.txt per request so operator edits on the server
@@ -8546,6 +8811,8 @@ async def api_local_login(
         "info",
         event="user_login",
         actor_username=u.username,
+        target_kind="user", target_id=u.username,
+        metadata={"ip": ip, "method": "local"},
         label=f"user_login (local) {u.username!r}",
     ))
     return resp
@@ -8666,9 +8933,11 @@ async def api_local_login_totp(
             "info",
             event="user_login",
             actor_username=u.username,
+            target_kind="user", target_id=u.username,
+            metadata={"ip": ip, "method": "local_totp"},
         )
     except Exception as _e:
-        print(f"[notify] user_login (totp) failed: {_e}")
+        print(f"[notify] user_login (totp) dropped: {_e}")
     return resp
 
 
@@ -8730,9 +8999,11 @@ async def api_local_login_totp_setup_confirm(
             "info",
             event="user_login",
             actor_username=u.username,
+            target_kind="user", target_id=u.username,
+            metadata={"ip": ip, "method": "local_totp_setup"},
         )
     except Exception as _e:
-        print(f"[notify] user_login (totp setup) failed: {_e}")
+        print(f"[notify] user_login (totp setup) dropped: {_e}")
     return resp
 
 
@@ -8999,9 +9270,11 @@ async def api_local_login_webauthn_finish(
             "info",
             event="user_login",
             actor_username=u.username,
+            target_kind="user", target_id=u.username,
+            metadata={"ip": ip, "method": "local_passkey"},
         )
     except Exception as _e:
-        print(f"[notify] user_login (webauthn) failed: {_e}")
+        print(f"[notify] user_login (webauthn) dropped: {_e}")
     return resp
 
 

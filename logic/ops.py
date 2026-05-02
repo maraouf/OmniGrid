@@ -5,7 +5,7 @@ restart container, remove container) wrap Portainer calls with:
 
   - structured event logging via :class:`Operation.log`
   - persistent history row on completion (``persist_history``)
-  - Apprise notification on success/failure
+  - notification fan-out via :func:`notify` (Apprise + in-app store)
   - gather-cache invalidation so the UI re-polls after the mutation
 
 The ``ops`` dict + ``ops_order`` list hold the last 50 operations in
@@ -14,11 +14,28 @@ source of truth for history (the ``history`` SQLite table is). If ops
 ever need to outlive a process restart, wire a persistence hook in
 :func:`new_op`, but the single-replica invariant (CLAUDE.md) makes
 in-memory fine for now.
+
+Notification dispatcher
+-----------------------
+:func:`notify` is the single entry point used by every _do_* handler
+plus the host_metrics_sampler / login paths. It resolves the per-event
+toggle (``notify_event_<name>``), then fans out to every enabled
+medium in :data:`NOTIFY_MEDIUMS`. Mediums today: ``app`` (in-app
+store backed by the ``notifications`` table) and ``apprise`` (HTTP
+POST to the operator's Apprise instance). Each medium honours its own
+admin-side enable flag (``notify_medium_<name>``) — the per-event
+toggle gates the WHOLE notification, the per-medium toggle gates ONE
+delivery channel without disabling the event entirely.
+
+Adding a medium: see CLAUDE.md "Canonical extension pattern: add a
+notification medium" — six steps (module + dispatcher + toggle + UI
++ i18n + CHANGELOG).
 """
+import asyncio
 import json
 import time
 import uuid
-from typing import Optional
+from typing import Awaitable, Callable, Optional
 
 import httpx
 
@@ -55,6 +72,38 @@ NOTIFY_EVENT_DEFAULTS = {
     name: (False if name == "user_login" else True)
     for name in NOTIFY_EVENT_NAMES
 }
+
+
+# Per-medium default state. Mirrors the per-event defaults map above so
+# `api_get_settings` has a single source of truth + the dispatcher
+# below can short-circuit a missing-row read to the same value the
+# admin form would render. Both mediums default ON so existing deploys
+# upgrade with both channels live; operators flip individually from
+# Admin → Notifications.
+NOTIFY_MEDIUM_NAMES = ("app", "apprise")
+NOTIFY_MEDIUM_DEFAULTS = {name: True for name in NOTIFY_MEDIUM_NAMES}
+
+
+# Mapping from operation status hints to the four-level severity
+# taxonomy used by the in-app store + log viewer. Kept narrow on
+# purpose — every caller passes one of "info" / "success" / "error"
+# / "warning" today; anything outside that set falls through to
+# "info" so a typo doesn't leak into the DB.
+_VALID_SEVERITIES = ("info", "warning", "error", "success")
+
+
+def _coerce_severity(status: Optional[str]) -> str:
+    s = (status or "info").strip().lower()
+    if s in _VALID_SEVERITIES:
+        return s
+    # legacy / Apprise-side "failure" alias.
+    if s in ("fail", "failure", "err", "danger"):
+        return "error"
+    if s in ("warn", "alert"):
+        return "warning"
+    if s == "ok":
+        return "success"
+    return "info"
 
 
 def _human_bytes(n: int) -> str:
@@ -187,49 +236,200 @@ def persist_history(op: Operation) -> None:
 
 
 # ---------------------------------------------------------------------
-# Apprise notifications — fired on success/failure of every _do_* op.
-# Settings come from the DB (get_setting) so operators can change the
-# Apprise URL/tag live without restart.
+# Notification dispatcher — fired on success/failure of every _do_* op,
+# the host_metrics_sampler auto-pause path, and login events. Resolves
+# the per-event toggle, then fans out to every enabled MEDIUM. Each
+# medium has its own enable flag in the DB (notify_medium_<name>); the
+# admin form in Admin → Notifications drives both flags. App-medium
+# writes a row + publishes notification:created over SSE; Apprise
+# medium does the legacy HTTP POST.
 # ---------------------------------------------------------------------
-async def notify(title: str, body: str, status: str = "info", *,
-                 event: Optional[str] = None,
-                 actor_username: Optional[str] = None) -> None:
-    # Honour the per-service master switch (#204). When apprise is
-    # disabled in Admin → Notifications, short-circuit BEFORE the
-    # configured-url check so an operator with a stored URL but the
-    # toggle off doesn't fire notifications. The URL stays in the
-    # settings table — flipping the toggle back on resumes service
-    # without requiring re-typing.
+
+
+async def _notify_medium_apprise(
+    *, title: str, body: str, severity: str,
+    event: Optional[str], actor_username: Optional[str],
+    target_kind: Optional[str], target_id: Optional[str],
+    metadata: Optional[dict],
+) -> dict:
+    """Existing fire-and-forget Apprise dispatcher, lifted from the
+    original :func:`notify`. Returns a structured ``{ok, skipped, ...}``
+    dict so the caller can log per-medium outcomes.
+    """
     if (get_setting("apprise_enabled", "true") or "true").lower() != "true":
-        print("[notify] skipped — apprise disabled in Admin → Notifications")
-        return
+        # Master toggle keeps the legacy short-circuit semantics; the
+        # operator might have wanted to keep the app medium live while
+        # silencing Apprise without flipping the per-medium switch.
+        print("[notify] apprise skipped — apprise disabled in Admin → Notifications")
+        return {"ok": False, "skipped": "apprise_disabled"}
     url = get_setting("apprise_url", "")
     if not url:
-        print("[notify] skipped — no apprise_url configured")
-        return
-    # Per-event opt-out. When event is provided AND the matching
-    # setting is "false", short-circuit. None = always-send (legacy
-    # callers + the test button).
+        print("[notify] apprise skipped — no apprise_url configured")
+        return {"ok": False, "skipped": "no_url"}
+    # Per-user routing override (#356) — mailto recipient lookup. The
+    # per-event + per-user opt-out gates have already fired in the outer
+    # dispatcher; here we only need the email lookup. Defensive try so a
+    # DB blip on the user lookup doesn't tank the dispatch.
+    user_email: Optional[str] = None
+    if event and actor_username:
+        try:
+            from logic import auth as _auth
+            with db_conn() as _c:
+                _u = _auth.get_user_by_username(_c, actor_username)
+                if _u and _u.id >= 0:
+                    user_email = (getattr(_u, "email", "") or "").strip() or None
+        except Exception as _e:
+            print(f"[notify] apprise user-email lookup failed for '{actor_username}': {_e}")
+    tag = get_setting("apprise_tag", "")
+    body = body or title  # Apprise rejects empty bodies.
+    try:
+        async with httpx.AsyncClient(verify=portainer.VERIFY_TLS, timeout=15.0) as client:
+            payload = {
+                "title": title,
+                "body": body,
+                "type": (
+                    "success" if severity == "success"
+                    else "failure" if severity == "error"
+                    else "warning" if severity == "warning"
+                    else "info"
+                ),
+            }
+            if tag:
+                payload["tag"] = tag
+            if user_email:
+                payload["to"] = user_email
+            r = await client.post(url, json=payload)
+            if r.status_code >= 400:
+                print(f"[notify] apprise FAILED {r.status_code} → {url} body={r.text[:200]}")
+                return {"ok": False, "status": r.status_code, "body": r.text[:200]}
+            print(f"[notify] apprise ok {r.status_code} → {url} tag={tag!r}")
+            return {"ok": True, "status": r.status_code}
+    except Exception as e:
+        print(f"[notify] apprise ERROR → {url}: {e}")
+        return {"ok": False, "error": str(e)}
+
+
+async def _notify_medium_app(
+    *, title: str, body: str, severity: str,
+    event: Optional[str], actor_username: Optional[str],
+    target_kind: Optional[str], target_id: Optional[str],
+    metadata: Optional[dict],
+) -> dict:
+    """In-app notification store medium. Synchronous SQLite INSERT into
+    ``notifications`` + SSE publish ``notification:created`` so the
+    avatar badge + Notifications page update without a poll round-trip.
+    """
+    ts = int(time.time())
+    body = body or title
+    md_json: Optional[str] = None
+    if metadata is not None:
+        try:
+            md_json = json.dumps(metadata, ensure_ascii=False)[:8192]
+        except (TypeError, ValueError) as e:
+            print(f"[notify] app metadata not JSON-serialisable, dropping: {e}")
+            md_json = None
+    try:
+        with db_conn() as c:
+            cur = c.execute(
+                "INSERT INTO notifications "
+                "(ts, event, severity, title, body, actor, target_kind, target_id, metadata, read_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)",
+                (
+                    ts, event or "", severity, title or "", body,
+                    actor_username, target_kind, target_id, md_json,
+                ),
+            )
+            new_id = cur.lastrowid
+            unread_row = c.execute(
+                "SELECT COUNT(*) AS n FROM notifications WHERE read_at IS NULL"
+            ).fetchone()
+            unread_count = int(unread_row["n"]) if unread_row else 0
+    except Exception as e:
+        print(f"[notify] app INSERT failed: {e}")
+        return {"ok": False, "error": str(e)}
+    payload = {
+        "id": new_id,
+        "ts": ts,
+        "event": event or "",
+        "severity": severity,
+        "title": title or "",
+        "body": body,
+        "actor": actor_username,
+        "target_kind": target_kind,
+        "target_id": target_id,
+        "unread_count": unread_count,
+    }
+    try:
+        events.publish("notification:created", payload)
+    except Exception as e:
+        # SSE publish failures must not break the dispatch — the DB row
+        # is the source of truth, the SPA's polling fallback will pick
+        # it up on the next /api/notifications round-trip. Verb stays
+        # off the ERROR-severity regex per CLAUDE.md.
+        print(f"[notify] app SSE publish dropped: {e}")
+    print(f"[notify] app ok id={new_id} event={event!r} severity={severity}")
+    return {"ok": True, "id": new_id, "unread_count": unread_count}
+
+
+# Medium dispatcher map. Add a new medium by writing
+# ``logic/notify_<medium>.py`` exposing an ``async def send(...)`` of
+# the same shape and registering here. CLAUDE.md "Canonical extension
+# pattern: add a notification medium" is the full contract.
+MediumSender = Callable[..., Awaitable[dict]]
+NOTIFY_MEDIUMS: dict[str, MediumSender] = {
+    "app":     _notify_medium_app,
+    "apprise": _notify_medium_apprise,
+}
+
+
+def _is_medium_enabled(medium: str) -> bool:
+    """Per-medium master switch lookup. Defaults from
+    :data:`NOTIFY_MEDIUM_DEFAULTS` so a fresh deploy fires every medium
+    until the operator opts out from Admin → Notifications.
+    """
+    default_on = NOTIFY_MEDIUM_DEFAULTS.get(medium, True)
+    return get_setting_bool(f"notify_medium_{medium}", default=default_on)
+
+
+async def notify(
+    title: str, body: str, status: str = "info", *,
+    event: Optional[str] = None,
+    actor_username: Optional[str] = None,
+    target_kind: Optional[str] = None,
+    target_id: Optional[str] = None,
+    metadata: Optional[dict] = None,
+) -> None:
+    """Fire one notification through every enabled medium in parallel.
+
+    Back-compat: every existing call site of ``notify(title, body, status,
+    event=..., actor_username=...)`` still works unchanged. The new
+    ``target_kind`` / ``target_id`` / ``metadata`` kwargs are optional
+    and feed the in-app store's renderer (event icon, deep-link target).
+
+    Resolution order:
+      1. Per-event toggle (``notify_event_<event>``) — when the operator
+         disabled this event in Admin → Notifications, short-circuit
+         BEFORE any medium fires. ``event=None`` (test button, legacy
+         callers) skips this gate so the test path always fires.
+      2. Per-user opt-out (``user_notify_prefs``) — same legacy contract.
+      3. Per-medium master switch (``notify_medium_<medium>``) — fan-out
+         skips disabled mediums but other mediums still fire.
+
+    Mediums fire via ``asyncio.gather(return_exceptions=True)`` so a
+    failure in one (Apprise host down, DB write race) doesn't drop the
+    delivery on the others.
+    """
+    severity = _coerce_severity(status)
+    # Per-event admin gate.
     if event:
         default_on = NOTIFY_EVENT_DEFAULTS.get(event, True)
         if get_setting_bool(f"notify_event_{event}", default=default_on) is False:
             print(f"[notify] skipped — event '{event}' disabled by operator")
             return
-    # Per-user opt-out (#357). Only consulted when an actor is supplied
-    # AND the admin gate above passed. A user who hasn't touched their
-    # prefs defaults to the admin state (i.e. send) — meaningful to
-    # opt-out of an event the admin allows. Token "actors" (negative
-    # ids in the User model — username "token:NAME") and unknown users
-    # don't carry per-user prefs and fall through to the legacy path.
-    # Per-user routing override (#356). When an actor is supplied AND the
-    # user has an `email` set on their record, override the configured
-    # Apprise URL's recipient via the POST body's `to=` field — Apprise's
-    # mailto:// handler treats `to=` as a query-time recipient override
-    # so a single configured `mailto://relay@host` URL can fan out to
-    # different addresses per actor. For non-recipient-aware schemes
-    # (Discord webhook, Slack incoming, Telegram bot) Apprise just
-    # ignores `to=` so this is safe to always send.
-    user_email: Optional[str] = None
+    # Per-user opt-out (#357). Logged once, gates ALL mediums for THIS
+    # actor — mirrors the previous behaviour. Token / system actors
+    # (negative ids) skip the per-user lookup so scheduler-fired
+    # notifications still land.
     if event and actor_username:
         try:
             from logic import auth as _auth
@@ -243,43 +443,42 @@ async def notify(title: str, body: str, status: str = "info", *,
                             f"opted out of '{event}'"
                         )
                         return
-                    user_email = (getattr(_u, "email", "") or "").strip() or None
         except Exception as _e:
             # Defensive: never let a pref lookup failure break the
-            # admin-gate decision. Falls through to the legacy
-            # admin-only path.
+            # admin-gate decision.
             print(f"[notify] user-pref lookup failed for '{actor_username}': {_e}")
-    tag = get_setting("apprise_tag", "")
-    # Apprise requires a non-empty body. If our ops didn't produce one, echo
-    # the title so the notification isn't rejected as malformed.
-    body = body or title
-    try:
-        async with httpx.AsyncClient(verify=portainer.VERIFY_TLS, timeout=15.0) as client:
-            payload = {
-                "title": title,
-                "body": body,
-                "type": "success" if status == "success" else "failure" if status == "error" else "info",
-            }
-            if tag:
-                # Apprise-API accepts `tag` (splits on comma/space internally).
-                payload["tag"] = tag
-            if user_email:
-                # Apprise mailto handler honours `to=` as a recipient
-                # override; non-mailto schemes silently ignore it.
-                payload["to"] = user_email
-            r = await client.post(url, json=payload)
-            if r.status_code >= 400:
-                print(f"[notify] FAILED {r.status_code} → {url} body={r.text[:200]}")
-            else:
-                print(f"[notify] ok {r.status_code} → {url} tag={tag!r}")
-    except Exception as e:
-        print(f"[notify] ERROR → {url}: {e}")
+    # Build the per-medium dispatch list (skip disabled).
+    senders: list[Awaitable[dict]] = []
+    fired_mediums: list[str] = []
+    for medium_name, sender in NOTIFY_MEDIUMS.items():
+        if not _is_medium_enabled(medium_name):
+            print(f"[notify] medium '{medium_name}' disabled — skipped")
+            continue
+        senders.append(sender(
+            title=title, body=body, severity=severity,
+            event=event, actor_username=actor_username,
+            target_kind=target_kind, target_id=target_id,
+            metadata=metadata,
+        ))
+        fired_mediums.append(medium_name)
+    if not senders:
+        print("[notify] no mediums enabled — every channel dropped")
+        return
+    results = await asyncio.gather(*senders, return_exceptions=True)
+    for medium_name, result in zip(fired_mediums, results):
+        if isinstance(result, Exception):
+            # Verb avoids the ERROR-severity classifier regex per
+            # CLAUDE.md — `dropped` reads as an outcome, not a failure.
+            print(f"[notify] medium '{medium_name}' dropped: {result}")
 
 
 async def notify_with_retry(
     title: str, body: str, status: str = "info", *,
     event: Optional[str] = None,
     actor_username: Optional[str] = None,
+    target_kind: Optional[str] = None,
+    target_id: Optional[str] = None,
+    metadata: Optional[dict] = None,
     retries: int = 1,
     retry_after: float = 60.0,
     label: str = "notify",
@@ -303,20 +502,24 @@ async def notify_with_retry(
             await notify(
                 title, body, status,
                 event=event, actor_username=actor_username,
+                target_kind=target_kind, target_id=target_id,
+                metadata=metadata,
             )
             if attempt > 0:
                 print(f"[{label}] retry succeeded on attempt {attempt + 1}")
             return
         except Exception as e:
             if attempt >= retries:
-                print(f"[{label}] notify failed (giving up after "
+                # `dropped` keeps the persistent-log severity classifier
+                # off the ERROR bucket — caller already sees a
+                # per-medium ERROR line on the actual delivery failure.
+                print(f"[{label}] notify dropped (giving up after "
                       f"{attempt + 1} attempts): {e}")
                 return
-            print(f"[{label}] notify primary failed: {e} — "
+            print(f"[{label}] notify primary deferred: {e} — "
                   f"retrying in {retry_after:.0f}s")
             try:
-                import asyncio as _asyncio
-                await _asyncio.sleep(retry_after)
+                await asyncio.sleep(retry_after)
             except Exception:
                 return
 
@@ -356,12 +559,14 @@ async def do_update_stack(op: Operation, stack_id: int) -> None:
             f"✅ Stack updated: {op.target_name}",
             f"Duration: {op.to_dict()['duration']:.1f}s", "success",
             event="stack_update_success", actor_username=op.actor,
+            target_kind="stack", target_id=str(op.target_id),
         )
     except Exception as e:
         op.log(str(e), "error")
         op.done("error", str(e))
         await notify(f"❌ Stack update failed: {op.target_name}", str(e)[:500], "error",
-                     event="stack_update_failure", actor_username=op.actor)
+                     event="stack_update_failure", actor_username=op.actor,
+                     target_kind="stack", target_id=str(op.target_id))
     finally:
         persist_history(op)
         gather.invalidate_cache()
@@ -383,12 +588,14 @@ async def do_update_container(op: Operation, container_id: str) -> None:
             op.log("Container recreated", "success")
         op.done("success")
         await notify(f"✅ Container updated: {op.target_name}", "", "success",
-                     event="container_update_success", actor_username=op.actor)
+                     event="container_update_success", actor_username=op.actor,
+                     target_kind="container", target_id=str(op.target_id))
     except Exception as e:
         op.log(str(e), "error")
         op.done("error", str(e))
         await notify(f"❌ Container update failed: {op.target_name}", str(e)[:500], "error",
-                     event="container_update_failure", actor_username=op.actor)
+                     event="container_update_failure", actor_username=op.actor,
+                     target_kind="container", target_id=str(op.target_id))
     finally:
         persist_history(op)
         gather.invalidate_cache()
@@ -409,12 +616,14 @@ async def do_restart_container(op: Operation, container_id: str) -> None:
             op.log("Container restarted", "success")
         op.done("success")
         await notify(f"🔄 Container restarted: {op.target_name}", "", "success",
-                     event="container_restart_success", actor_username=op.actor)
+                     event="container_restart_success", actor_username=op.actor,
+                     target_kind="container", target_id=str(op.target_id))
     except Exception as e:
         op.log(str(e), "error")
         op.done("error", str(e))
         await notify(f"❌ Container restart failed: {op.target_name}", str(e)[:500], "error",
-                     event="container_restart_failure", actor_username=op.actor)
+                     event="container_restart_failure", actor_username=op.actor,
+                     target_kind="container", target_id=str(op.target_id))
     finally:
         persist_history(op)
         gather.invalidate_cache()
@@ -448,12 +657,14 @@ async def do_remove_container(op: Operation, container_id: str) -> None:
                 op.log("Container removed", "success")
         op.done("success")
         await notify(f"🗑 Container removed: {op.target_name}", "", "success",
-                     event="container_remove_success", actor_username=op.actor)
+                     event="container_remove_success", actor_username=op.actor,
+                     target_kind="container", target_id=str(op.target_id))
     except Exception as e:
         op.log(str(e), "error")
         op.done("error", str(e))
         await notify(f"❌ Container remove failed: {op.target_name}", str(e)[:500], "error",
-                     event="container_remove_failure", actor_username=op.actor)
+                     event="container_remove_failure", actor_username=op.actor,
+                     target_kind="container", target_id=str(op.target_id))
     finally:
         persist_history(op)
         gather.invalidate_cache()
@@ -482,12 +693,14 @@ async def do_restart_service(op: Operation, service_id: str) -> None:
             op.log("Service restart triggered", "success")
         op.done("success")
         await notify(f"🔄 Service restarted: {op.target_name}", "", "success",
-                     event="service_restart_success", actor_username=op.actor)
+                     event="service_restart_success", actor_username=op.actor,
+                     target_kind="service", target_id=str(op.target_id))
     except Exception as e:
         op.log(str(e), "error")
         op.done("error", str(e))
         await notify(f"❌ Service restart failed: {op.target_name}", str(e)[:500], "error",
-                     event="service_restart_failure", actor_username=op.actor)
+                     event="service_restart_failure", actor_username=op.actor,
+                     target_kind="service", target_id=str(op.target_id))
     finally:
         persist_history(op)
         gather.invalidate_cache()
@@ -565,13 +778,16 @@ async def do_prune_node(op: Operation, hostname: str) -> dict:
             f"{totals['volumes']} volumes",
             "success",
             event="prune_success", actor_username=op.actor,
+            target_kind="host", target_id=hostname,
+            metadata={"reclaimed_bytes": totals["space_reclaimed"], **totals},
         )
         return totals
     except Exception as e:
         op.log(str(e), "error")
         op.done("error", str(e))
         await notify(f"❌ Prune failed on {hostname}", str(e)[:500], "error",
-                     event="prune_failure", actor_username=op.actor)
+                     event="prune_failure", actor_username=op.actor,
+                     target_kind="host", target_id=hostname)
         return totals
     finally:
         persist_history(op)
