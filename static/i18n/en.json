@@ -938,6 +938,7 @@
       "count": "{n} visible / {total} buffered",
       "auto_refresh": "Auto-refresh",
       "filter_placeholder": "Filter lines…",
+      "filter_clear": "Clear filter",
       "clear": "Clear",
       "cleared": "Log buffer cleared",
       "clear_prompt_title": "Clear in-memory log buffer?",
@@ -1202,7 +1203,13 @@
   "swarm_agent_banner": {
     "title": "Portainer agent unreachable on {count} Swarm node(s)",
     "body": "Swarm tasks claim containers are running on these nodes, but every stats call has failed for the last few gather cycles. The most likely cause is that the Portainer agent on these nodes failed to re-register after a manager restart. Force-restart the agent service on the manager to clear it:",
-    "row": "{host} — agent unreachable for {fails} consecutive gather(s); {cids} container(s) affected"
+    "row": "{host} — agent unreachable for {fails} consecutive gather(s); {cids} container(s) affected",
+    "restart_button": "Restart agent service",
+    "restart_in_flight": "Queuing…",
+    "restart_help": "Auto-discovers the Portainer agent service and force-updates it. Op shows in the queue + history.",
+    "restart_queued": "Agent restart queued — see ops queue / history for progress",
+    "confirm_title": "Restart Portainer agent service?",
+    "confirm_text": "This will force-update the Portainer agent global service. Every node's agent task respawns and re-registers with the manager. Workload services are not touched. The agent service is auto-discovered (by image prefix + name pattern); if multiple candidates are found the op fails with a list so you can pick manually."
   },
   "hotkeys": {
     "title": "Keyboard shortcuts",

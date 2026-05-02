@@ -832,6 +832,7 @@ _do_restart_service = _ops_mod.do_restart_service
 _do_restart_container = _ops_mod.do_restart_container
 _do_remove_container = _ops_mod.do_remove_container
 _do_prune_node = _ops_mod.do_prune_node
+_do_restart_swarm_agent = _ops_mod.do_restart_swarm_agent
 
 
 # ============================================================================
@@ -1066,6 +1067,29 @@ async def api_remove_container(
     op = new_op("remove_container", container_id, name,
                 target_stack=stack, actor=_actor_from(request))
     bg.add_task(_do_remove_container, op, container_id)
+    return {"op_id": op.id}
+
+
+@app.post("/api/swarm/restart-agent")
+async def api_swarm_restart_agent(
+    bg: BackgroundTasks, request: Request,
+    _admin: auth.User = Depends(auth.require_admin),
+):
+    """Admin-only: force-restart the Portainer agent global service.
+
+    Operator-triggered companion to the unhealthy-agent banner. The
+    agent service is auto-discovered (image-prefix + name fallback —
+    see `logic/ops.py:discover_swarm_agent_service`); on ambiguous
+    discovery the op fails with a listing of every candidate so the
+    operator can pick rather than risk auto-restarting the wrong
+    service. Same Operation flow as `/api/restart/service/<id>` —
+    op_id polling, history row, Apprise + in-app notifications.
+    """
+    # Provisional target_id / target_name — discover_swarm_agent_service
+    # fills in the real values as part of the op's logged steps.
+    op = new_op("swarm_agent_restart", "", "<portainer-agent>",
+                actor=_actor_from(request))
+    bg.add_task(_do_restart_swarm_agent, op)
     return {"op_id": op.id}
 
 

@@ -246,6 +246,10 @@ function app() {
     // `{host, fails, since_ts, task_cids}`. Banner renders at the
     // top of Stacks + Hosts views when the array is non-empty.
     unhealthyAgents: [],
+    // In-flight flag for the unhealthy-agent banner's "Restart agent
+    // service" button. Disables the button + flips the icon to a
+    // spinner while the op runs. Cleared on success / failure toast.
+    swarmAgentRestartBusy: false,
     sparks: {}, _sparksTimer: null,
     version: '',
     // Topbar clock + weather widgets. Per-browser preferences kept in
@@ -3335,8 +3339,19 @@ function app() {
       const sev = this.logSeverityFilter || {};
       const allOn = this.logSeverityLevels.every(k => sev[k]);
       const lines = this.parsedLogFileLines();
-      if (allOn) return lines;
-      return lines.filter(l => !!sev[this.logSeverityFor(l)]);
+      // Text filter — same shape as the live (stdout) tab. Reuses
+      // `logFilter` so a query typed in either tab carries across,
+      // matching the existing `logSeverityFilter` cross-tab pattern.
+      // Case-insensitive substring match against the rendered body
+      // + tag prefix; matches the Live tab's filter exactly.
+      const q = (this.logFilter || '').trim().toLowerCase();
+      const filterByText = (l) => {
+        if (!q) return true;
+        const body = (l && (l.body || l.msg || '')) + ' ' + (l && l.tag ? '[' + l.tag + ']' : '');
+        return body.toLowerCase().includes(q);
+      };
+      if (allOn) return q ? lines.filter(filterByText) : lines;
+      return lines.filter(l => !!sev[this.logSeverityFor(l)] && filterByText(l));
     },
     // Per-level count for the Files-tab pill chips.
     logFileSeverityCount(level) {
@@ -13737,6 +13752,56 @@ function app() {
     // row via `_provider_pause_state_for_host(host_id)`. Used by the
     // host drawer's Enabled-agents card to render Paused styling +
     // the Resume button (admin-only).
+    // Drawer-chip state-class resolver — mirrors the outer Hosts-row
+    // provider chip (`providerStates(h)` → 'failing'/'paused'/'ok')
+    // so the drawer's "ENABLED AGENTS" pills reflect the SAME state
+    // colour the operator sees outside the drawer. Failing → pill-error
+    // (red), paused → pill-warning (orange), otherwise pill-custom
+    // (operator-customised brand colour via providerChipStyle).
+    _agentStateFor(h, name) {
+      if (!h || !name) return 'ok';
+      // Try the providerStates list first — same data the outer chip
+      // strip consumes. Falls back to agentPauseInfo for older code
+      // paths that don't populate providerStates.
+      try {
+        const states = (typeof this.providerStates === 'function')
+          ? this.providerStates(h) : [];
+        if (Array.isArray(states)) {
+          const match = states.find(p => p && p.name === name);
+          if (match && (match.state === 'failing' || match.state === 'paused')) {
+            return match.state;
+          }
+        }
+      } catch (_) { /* fall through to pause-info fallback */ }
+      if (this.agentPauseInfo(h, name)) return 'paused';
+      return 'ok';
+    },
+    agentStateClass(h, name) {
+      const s = this._agentStateFor(h, name);
+      if (s === 'failing') return 'pill-error';
+      if (s === 'paused')  return 'pill-warning';
+      return 'pill-custom';
+    },
+    agentStateStyle(h, name) {
+      const s = this._agentStateFor(h, name);
+      if (s === 'failing' || s === 'paused') return '';
+      return this.providerChipStyle(name);
+    },
+    agentStateTitle(h, name) {
+      const s = this._agentStateFor(h, name);
+      if (s === 'paused') {
+        const info = this.agentPauseInfo(h, name) || {};
+        return this.t('hosts_extra.provider_paused', {
+          provider: name,
+          count: info.consecutive_failures || 0,
+          error: info.last_error || '—',
+        });
+      }
+      if (s === 'failing') {
+        return this.t('hosts_extra.provider_failing', { provider: name });
+      }
+      return '';
+    },
     agentPauseInfo(h, name) {
       if (!h || !name) return null;
       const map = h.provider_pause_state;
@@ -16646,6 +16711,35 @@ function app() {
       } catch (e) {
         this._clearBusy(key);
         this.showToast(this.t('toasts.failed_with_error', { error: e.message }), 'error');
+      }
+    },
+    // Unhealthy-agent banner's one-click force-restart of the
+    // Portainer agent service. Backend auto-discovers the service
+    // by image-prefix + name pattern; on ambiguous discovery the op
+    // surfaces the candidate list and refuses to auto-pick.
+    async restartSwarmAgent() {
+      const ok = await this.confirmDialog({
+        title: this.t('swarm_agent_banner.confirm_title'),
+        text:  this.t('swarm_agent_banner.confirm_text'),
+        icon: 'warning',
+        confirmText: this.t('swarm_agent_banner.restart_button'),
+        confirmColor: this._cssVar('--warning'),
+      });
+      if (!ok) return;
+      if (this.swarmAgentRestartBusy) return;
+      this.swarmAgentRestartBusy = true;
+      try {
+        const r = await fetch('/api/swarm/restart-agent', { method: 'POST' });
+        if (!r.ok) throw new Error(await r.text());
+        this.showToast(this.t('swarm_agent_banner.restart_queued'));
+        this.pollOpsNow();
+      } catch (e) {
+        this.showToast(this.t('toasts.failed_with_error', { error: e.message }), 'error');
+      } finally {
+        // Cleared after a short delay so the spinner stays visible
+        // long enough for the operator to see it fired (the actual
+        // op runs in the background and surfaces in the ops queue).
+        setTimeout(() => { this.swarmAgentRestartBusy = false; }, 1200);
       }
     },
     async bulkRestart() {

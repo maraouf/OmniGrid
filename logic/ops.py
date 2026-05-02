@@ -42,7 +42,6 @@ import httpx
 from logic import events, gather, metrics, portainer
 from logic.db import db_conn, get_setting, get_setting_bool
 
-
 MAX_OPS = 50
 
 
@@ -63,6 +62,8 @@ NOTIFY_EVENT_NAMES = (
     "container_remove_failure",
     "service_restart_success",
     "service_restart_failure",
+    "swarm_agent_restart_success",
+    "swarm_agent_restart_failure",
     "prune_success",
     "prune_failure",
     "user_login",
@@ -701,6 +702,125 @@ async def do_restart_service(op: Operation, service_id: str) -> None:
         await notify(f"❌ Service restart failed: {op.target_name}", str(e)[:500], "error",
                      event="service_restart_failure", actor_username=op.actor,
                      target_kind="service", target_id=str(op.target_id))
+    finally:
+        persist_history(op)
+        gather.invalidate_cache()
+
+
+async def discover_swarm_agent_service(client: httpx.AsyncClient) -> tuple[Optional[str], Optional[str], list[dict]]:
+    """Walk every Swarm service, identify the Portainer agent service.
+
+    Returns ``(service_id, service_name, matches)`` —
+      - On exactly one match: ``(id, name, [match_summary])``.
+      - On zero matches: ``(None, None, [])``.
+      - On multiple matches: ``(None, None, [{id, name, image}, ...])``
+        so the caller can render a clear error listing every candidate
+        and let the operator pick — auto-restarting the wrong service
+        is not safe.
+
+    Match heuristic:
+      1. Image starts with one of the canonical Portainer agent
+         repositories (``portainer/agent``, ``portainer/agent-ce``,
+         ``portainer-ee/agent``). The image is the strongest signal —
+         operator-renamed services keep their image label.
+      2. Fallback: service name CONTAINS ``portainer`` AND ``agent``
+         (case-insensitive). Catches operator-renamed services that
+         use a non-canonical image (e.g. a pinned digest with no tag).
+    """
+    ep = f"/api/endpoints/{portainer.PORTAINER_ENDPOINT_ID}/docker"
+    services = await portainer.pg(client, f"{ep}/services")
+    canonical_image_prefixes = (
+        "portainer/agent", "portainer/agent-ce",
+        "portainer-ee/agent", "portainer-ce/agent",
+    )
+    matches: list[dict] = []
+    for svc in services or []:
+        spec = svc.get("Spec") or {}
+        name = spec.get("Name") or ""
+        cs = ((spec.get("TaskTemplate") or {}).get("ContainerSpec") or {})
+        image = cs.get("Image") or ""
+        # Image-prefix match — strip any tag / digest suffix first.
+        image_repo = image.split("@", 1)[0].split(":", 1)[0].lower()
+        is_canonical = any(image_repo.startswith(p) for p in canonical_image_prefixes)
+        # Name fallback — case-insensitive substring match on both
+        # `portainer` and `agent`. Avoids false-positives on services
+        # named just `agent` or just `portainer` (the latter is
+        # typically Portainer SERVER, not the per-node agent).
+        nm = name.lower()
+        is_name_match = ("portainer" in nm) and ("agent" in nm)
+        if is_canonical or is_name_match:
+            matches.append({"id": svc.get("ID"), "name": name, "image": image})
+    if not matches:
+        return None, None, []
+    if len(matches) > 1:
+        return None, None, matches
+    return matches[0]["id"], matches[0]["name"], matches
+
+
+async def do_restart_swarm_agent(op: Operation) -> None:
+    """Force-update the Portainer agent global service so every node
+    restart-spawns its agent task and re-registers with the manager.
+
+    Wraps the same `service update` mechanic as `do_restart_service`
+    but discovers the target service automatically. On ambiguous
+    discovery (multiple Portainer-agent services), records the
+    candidates in the op log + errors out so the operator can pick
+    rather than risk restarting the wrong service.
+    """
+    try:
+        async with httpx.AsyncClient(verify=portainer.VERIFY_TLS, timeout=300.0) as client:
+            op.log("Discovering Portainer agent service")
+            sid, sname, matches = await discover_swarm_agent_service(client)
+            if not matches:
+                raise RuntimeError(
+                    "No Portainer agent service found — looked for image "
+                    "prefix portainer/agent OR service name containing both "
+                    "'portainer' and 'agent'. If you renamed the service or "
+                    "use a non-canonical image, restart it manually via "
+                    "`docker service update --force <service-name>` on the manager.")
+            if len(matches) > 1:
+                listing = "; ".join(f"{m['name']} ({m['image']})" for m in matches)
+                raise RuntimeError(
+                    f"Multiple Portainer agent candidates found — refusing "
+                    f"to auto-pick. Candidates: {listing}. Restart manually "
+                    f"via `docker service update --force <name>`.")
+            # Single match — proceed.
+            op.target_id = str(sid)
+            op.target_name = sname or "<portainer-agent>"
+            op.log(f"Match: {sname} (id {sid})")
+            ep = f"/api/endpoints/{portainer.PORTAINER_ENDPOINT_ID}/docker"
+            svc = await portainer.pg(client, f"{ep}/services/{sid}")
+            version = svc["Version"]["Index"]
+            spec = svc["Spec"]
+            tt = spec.setdefault("TaskTemplate", {})
+            tt["ForceUpdate"] = int(tt.get("ForceUpdate", 0)) + 1
+            op.log(f"Bumping ForceUpdate to {tt['ForceUpdate']}")
+            r = await client.post(
+                f"{portainer.PORTAINER_URL}{ep}/services/{sid}/update?version={version}",
+                json=spec, headers=portainer.headers(),
+            )
+            if r.status_code >= 400:
+                raise RuntimeError(f"HTTP {r.status_code}: {r.text[:300]}")
+            op.log("Agent service restart triggered — re-registration "
+                   "happens as each node's task respawns", "success")
+        op.done("success")
+        await notify(
+            f"🔄 Portainer agent restarted: {op.target_name}",
+            "Force-update applied; agents on every node will respawn "
+            "and re-register with the manager.",
+            "success",
+            event="swarm_agent_restart_success", actor_username=op.actor,
+            target_kind="service", target_id=str(op.target_id),
+        )
+    except Exception as e:
+        op.log(str(e), "error")
+        op.done("error", str(e))
+        await notify(
+            f"❌ Portainer agent restart failed: {op.target_name or '<discovery>'}",
+            str(e)[:500], "error",
+            event="swarm_agent_restart_failure", actor_username=op.actor,
+            target_kind="service", target_id=str(op.target_id or ""),
+        )
     finally:
         persist_history(op)
         gather.invalidate_cache()
