@@ -302,7 +302,28 @@ function app() {
     // a belt-and-braces safety check on top of EventSource's onerror
     // (which doesn't always fire on silent half-open sockets).
     _sseFreshnessTimer: null,
-    view: (['stacks','services','nodes','hosts','history','settings','admin'].includes(localStorage.getItem('view')) ? localStorage.getItem('view') : 'stacks'),
+    view: (['stacks','services','nodes','hosts','history','notifications','settings','admin'].includes(localStorage.getItem('view')) ? localStorage.getItem('view') : 'stacks'),
+    // In-app notifications (#855). Loaded via /api/notifications when
+    // the operator opens the Notifications view OR via SSE pushes
+    // (notification:created / :read / :deleted). The avatar-bar
+    // unread chip pulls from `notificationsUnread` independently of the
+    // list — that count is global, the list view filters can scope.
+    notifications: [],
+    notificationsUnread: 0,
+    notificationsTotal: 0,
+    notificationsLoading: false,
+    notificationsLimit: 50,
+    notificationsOffset: 0,
+    // Filter state — persisted in-memory only; a reload starts with
+    // every severity visible and unread-only off so operators land on
+    // a complete view rather than an accidentally-empty page.
+    notificationsFilterSeverity: 'all',  // all | info | warning | error | success
+    notificationsFilterEvent:    'all',
+    notificationsFilterUnread:   false,
+    // Polling fallback for bearer-token clients (SSE skips them per
+    // CLAUDE.md). Always running but no-ops when the view isn't open
+    // and SSE is healthy.
+    _notificationsPollHandle: null,
     search: '', statusFilter: '', healthFilter: '',
     sortField: 'name', sortDir: 'asc',
     selected: [],
@@ -820,6 +841,11 @@ function app() {
       'tuning_host_metrics_probe_concurrency',
       // shared auth-failure cool-down.
       'tuning_auth_failure_cooldown_seconds',
+      // In-app notifications retention (#855). Drives the
+      // prune_notifications schedule kind. Independent from
+      // `tuning_log_retention_days` because operators want a longer
+      // trail on the Notifications page than the persistent-log files.
+      'tuning_notification_retention_days',
     ],
     // Tunables rendered OUTSIDE the generic Process tunables form
     // (#550, #552, #553). Same `tuningForm` / `tuningEffective` /
@@ -1236,6 +1262,20 @@ function app() {
           clearInterval(this._hostsTimer);
           this._hostsTimer = null;
         }
+        // Notifications view (#855). Lazy-load on first entry; the
+        // 30s polling fallback only fires when SSE is disconnected
+        // (push-driven updates land via _handleNotificationCreated).
+        if (v === 'notifications') {
+          this.loadNotifications();
+          if (this._notificationsPollHandle) clearInterval(this._notificationsPollHandle);
+          this._notificationsPollHandle = setInterval(() => {
+            if (this._sseConnected) return;
+            if (this.view === 'notifications') this.loadNotifications();
+          }, 30000);
+        } else if (this._notificationsPollHandle) {
+          clearInterval(this._notificationsPollHandle);
+          this._notificationsPollHandle = null;
+        }
       });
       this.$watch('settingsSection', v => {
         localStorage.setItem('settingsSection', v);
@@ -1309,6 +1349,10 @@ function app() {
       await this.refresh();
       await this.loadHistory();
       this.loadVersion();
+      // Prime the avatar's unread badge before the operator opens
+      // the Notifications view. Cheap probe (1-row LIMIT) — see
+      // loadNotificationsUnread.
+      this.loadNotificationsUnread();
       // Asset inventory — load the cached asset list once on boot so
       // the drawer can surface matched rows (vendor / model / serial /
       // location) without an extra round-trip per row-expand. Silent
@@ -4946,6 +4990,13 @@ function app() {
         for (const k of (this.notifyEventKeys || [])) {
           this.settings[k] = !!d[k];
         }
+        // Per-medium master switches (#855). Default true when the
+        // backend hasn't shipped the field yet (older builds) so the
+        // SPA's checkbox doesn't silently default to OFF on a fresh
+        // upgrade; matches `NOTIFY_MEDIUM_DEFAULTS` server-side.
+        for (const k of (this.notifyMediumKeys || [])) {
+          this.settings[k] = (d[k] !== false);
+        }
         // TOTP / 2FA policy (#345). Hydrate the five fields so the
         // Admin -> Config tab can render the inputs + the existing
         // saveSettings flow can ship the values back.
@@ -6180,6 +6231,11 @@ function app() {
         for (const k of (this.notifyEventKeys || [])) {
           if (k in payload) payload[k] = payload[k] ? 'true' : 'false';
         }
+        // Per-medium master switches share the same string-on-the-wire
+        // contract (true/false/clear) as the per-event toggles above.
+        for (const k of (this.notifyMediumKeys || [])) {
+          if (k in payload) payload[k] = payload[k] ? 'true' : 'false';
+        }
         const r = await fetch('/api/settings', {
           method: 'POST', headers: {'Content-Type':'application/json'},
           body: JSON.stringify(payload),
@@ -6242,6 +6298,14 @@ function app() {
       'notify_event_user_login',
       'notify_event_host_paused',
     ],
+    // Per-medium master switches. Mirrors `NOTIFY_MEDIUM_NAMES` in
+    // logic/ops.py. Adding a third medium adds one entry here +
+    // NOTIFY_MEDIUM_NAMES + SettingsIn + api_get_settings hydration
+    // (CLAUDE.md "Settings hydration drift class" four-place audit).
+    notifyMediumKeys: [
+      'notify_medium_app',
+      'notify_medium_apprise',
+    ],
     // Group rows for the events grid — label key + (success_key,
     // failure_key) pair. Drives the markup render so the table stays
     // declarative.
@@ -6267,11 +6331,14 @@ function app() {
       const s = this.settings || {};
       const events = {};
       for (const k of this.notifyEventKeys) events[k] = !!s[k];
+      const mediums = {};
+      for (const k of (this.notifyMediumKeys || [])) mediums[k] = !!s[k];
       return JSON.stringify({
         enabled: !!s.apprise_enabled,
         url:     s.apprise_url || '',
         tag:     s.apprise_tag || '',
         events,
+        mediums,
       });
     },
     appriseDirty()   { return this._appriseBaseline   !== this._appriseSnapshot(); },
@@ -6740,6 +6807,192 @@ function app() {
       await this.loadHistory();
       this.showToast(this.t('toasts.history_cleared'));
     },
+    // ---------------- in-app notifications (#855) ----------------
+    notificationsQuery() {
+      const params = new URLSearchParams();
+      params.set('limit', String(this.notificationsLimit || 50));
+      params.set('offset', String(this.notificationsOffset || 0));
+      if (this.notificationsFilterUnread) params.set('unread_only', 'true');
+      if (this.notificationsFilterSeverity && this.notificationsFilterSeverity !== 'all') {
+        params.set('severity', this.notificationsFilterSeverity);
+      }
+      if (this.notificationsFilterEvent && this.notificationsFilterEvent !== 'all') {
+        params.set('event', this.notificationsFilterEvent);
+      }
+      return params.toString();
+    },
+    async loadNotifications() {
+      this.notificationsLoading = true;
+      try {
+        const r = await fetch('/api/notifications?' + this.notificationsQuery());
+        if (!r.ok) {
+          this.notificationsLoading = false;
+          return;
+        }
+        const d = await r.json();
+        // Replace the list — operator-initiated reload is the only call
+        // path; SSE pushes use _handleNotificationCreated for in-place
+        // prepend without reassigning the array.
+        this.notifications = Array.isArray(d.items) ? d.items : [];
+        this.notificationsTotal = Number.isFinite(d.total) ? d.total : 0;
+        this.notificationsUnread = Number.isFinite(d.unread_count) ? d.unread_count : 0;
+      } catch (e) {
+        console.warn('[notifications] loadNotifications failed', e);
+      }
+      this.notificationsLoading = false;
+    },
+    // Lightweight unread-count probe — doesn't fetch the list, just the
+    // count. Used by init() so the avatar badge has a count BEFORE the
+    // operator opens the view.
+    async loadNotificationsUnread() {
+      try {
+        const r = await fetch('/api/notifications?limit=1&unread_only=true');
+        if (!r.ok) return;
+        const d = await r.json();
+        this.notificationsUnread = Number.isFinite(d.unread_count) ? d.unread_count : 0;
+      } catch (_) {}
+    },
+    // SSE handler — published from logic/ops.py:_notify_medium_app on
+    // every successful INSERT. Prepends in place; the list array isn't
+    // reassigned so Alpine's row template doesn't tear DOM down.
+    _handleNotificationCreated(payload) {
+      if (!payload || !payload.id) return;
+      // Bump global unread count (server stamps the canonical count
+      // into the payload; trust it over local counter math).
+      if (Number.isFinite(payload.unread_count)) {
+        this.notificationsUnread = payload.unread_count;
+      } else {
+        this.notificationsUnread = (this.notificationsUnread || 0) + 1;
+      }
+      // Prepend to the visible list ONLY when it'd pass the active
+      // filters — so an "errors only" view doesn't flicker an info row
+      // in for one cycle.
+      if (this._notificationPassesFilters(payload)
+          && this.view === 'notifications') {
+        // Avoid double-insert if operator pulled the same row via
+        // loadNotifications between dispatch + SSE arrival.
+        const exists = (this.notifications || []).some(n => n.id === payload.id);
+        if (!exists) {
+          this.notifications.unshift({
+            id:          payload.id,
+            ts:          payload.ts,
+            event:       payload.event || '',
+            severity:    payload.severity || 'info',
+            title:       payload.title || '',
+            body:        payload.body || '',
+            actor:       payload.actor || null,
+            target_kind: payload.target_kind || null,
+            target_id:   payload.target_id || null,
+            metadata:    null,
+            read_at:     null,
+          });
+          this.notificationsTotal = (this.notificationsTotal || 0) + 1;
+          // Trim to prevent unbounded growth when the view stays open
+          // for hours (SSE bursts during a deploy can deliver dozens).
+          const cap = (this.notificationsLimit || 50) * 4;
+          if (this.notifications.length > cap) {
+            this.notifications.length = cap;
+          }
+        }
+      }
+    },
+    _handleNotificationRead(payload) {
+      if (!payload) return;
+      if (Number.isFinite(payload.unread_count)) {
+        this.notificationsUnread = payload.unread_count;
+      }
+      const ts = Number.isFinite(payload.read_at) ? payload.read_at : Math.floor(Date.now() / 1000);
+      if (payload.bulk) {
+        for (const n of (this.notifications || [])) {
+          if (n.read_at == null) n.read_at = ts;
+        }
+      } else if (payload.id) {
+        const row = (this.notifications || []).find(n => n.id === payload.id);
+        if (row && row.read_at == null) row.read_at = ts;
+      }
+    },
+    _handleNotificationDeleted(payload) {
+      if (!payload || !payload.id) return;
+      const i = (this.notifications || []).findIndex(n => n.id === payload.id);
+      if (i >= 0) this.notifications.splice(i, 1);
+      if (Number.isFinite(payload.unread_count)) {
+        this.notificationsUnread = payload.unread_count;
+      }
+    },
+    _notificationPassesFilters(n) {
+      if (!n) return false;
+      if (this.notificationsFilterUnread && n.read_at != null) return false;
+      if (this.notificationsFilterSeverity && this.notificationsFilterSeverity !== 'all'
+          && n.severity !== this.notificationsFilterSeverity) {
+        return false;
+      }
+      if (this.notificationsFilterEvent && this.notificationsFilterEvent !== 'all'
+          && n.event !== this.notificationsFilterEvent) {
+        return false;
+      }
+      return true;
+    },
+    notificationEventOptions() {
+      const seen = new Set();
+      const out = [];
+      for (const n of (this.notifications || [])) {
+        if (n.event && !seen.has(n.event)) {
+          seen.add(n.event);
+          out.push(n.event);
+        }
+      }
+      out.sort();
+      return out;
+    },
+    async markNotificationRead(id) {
+      // Optimistic flip — find row + stamp read_at locally so the
+      // chevron / badge dim immediately. Roll back on a non-2xx.
+      const row = (this.notifications || []).find(n => n.id === id);
+      const prev = row ? row.read_at : null;
+      if (row && row.read_at == null) {
+        row.read_at = Math.floor(Date.now() / 1000);
+        if (this.notificationsUnread > 0) this.notificationsUnread -= 1;
+      }
+      try {
+        const r = await fetch('/api/notifications/' + encodeURIComponent(id) + '/read', {
+          method: 'POST',
+        });
+        if (!r.ok) throw new Error(await r.text());
+        const d = await r.json();
+        if (row && Number.isFinite(d.read_at)) row.read_at = d.read_at;
+        if (Number.isFinite(d.unread_count)) this.notificationsUnread = d.unread_count;
+      } catch (e) {
+        // Roll back on failure so the operator sees the actual state.
+        if (row) row.read_at = prev;
+        if (prev == null) this.notificationsUnread = (this.notificationsUnread || 0) + 1;
+        this.showToast(this.t('toasts.load_failed', { error: e.message }), 'error');
+      }
+    },
+    async markAllNotificationsRead() {
+      try {
+        const r = await fetch('/api/notifications/read-all', { method: 'POST' });
+        if (!r.ok) throw new Error(await r.text());
+        const d = await r.json();
+        const ts = Math.floor(Date.now() / 1000);
+        for (const n of (this.notifications || [])) {
+          if (n.read_at == null) n.read_at = ts;
+        }
+        this.notificationsUnread = 0;
+        this.showToast(this.t('notifications.marked_all_read', { count: d.count || 0 })
+          || ('Marked ' + (d.count || 0) + ' as read'));
+      } catch (e) {
+        this.showToast(this.t('toasts.load_failed', { error: e.message }), 'error');
+      }
+    },
+    notificationDotClass(severity) {
+      // Severity → CSS class name. The class itself is defined in
+      // style.css with the matching token-backed colour.
+      const sev = (severity || 'info').toLowerCase();
+      if (['info', 'warning', 'error', 'success'].includes(sev)) {
+        return 'notification-dot notification-dot--' + sev;
+      }
+      return 'notification-dot notification-dot--info';
+    },
     pollOps() {
       if (this._opsTimer) clearTimeout(this._opsTimer);
       if (!this._opLingerUntil) this._opLingerUntil = {};
@@ -7130,6 +7383,48 @@ function app() {
         // reconcile (#444) keeps each row's <details> open/closed
         // state intact.
         try { this.loadHistory && this.loadHistory(); } catch (_) {}
+      });
+      // In-app notification dispatched by the `app` medium in
+      // logic/ops.py:notify(). Self-filter is intentionally OFF so
+      // EVERY tab gets the badge bump — operators want the badge to
+      // tick even on the tab that triggered the op (the dispatcher
+      // doesn't carry an X-OmniGrid-Client-Id, samplers + scheduler
+      // are the most common publishers).
+      es.addEventListener('notification:created', (e) => {
+        onAny();
+        try {
+          const data = JSON.parse(e.data || '{}');
+          const p = data.payload || {};
+          console.log('[live] event=notification:created id=' + (p.id || ''));
+          if (typeof this._handleNotificationCreated === 'function') {
+            this._handleNotificationCreated(p);
+          }
+        } catch (_) {}
+      });
+      // Mark-read / mark-all-read echoes. Self-filter via the standard
+      // _isSelfEvent path so the tab that issued the click doesn't
+      // re-paint over its own optimistic update.
+      es.addEventListener('notification:read', (e) => {
+        onAny();
+        if (this._isSelfEvent(e)) return;
+        try {
+          const data = JSON.parse(e.data || '{}');
+          const p = data.payload || {};
+          if (typeof this._handleNotificationRead === 'function') {
+            this._handleNotificationRead(p);
+          }
+        } catch (_) {}
+      });
+      es.addEventListener('notification:deleted', (e) => {
+        onAny();
+        if (this._isSelfEvent(e)) return;
+        try {
+          const data = JSON.parse(e.data || '{}');
+          const p = data.payload || {};
+          if (typeof this._handleNotificationDeleted === 'function') {
+            this._handleNotificationDeleted(p);
+          }
+        } catch (_) {}
       });
       // Settings changed — published by api_set_settings with the
       // originating tab's client_id. Self-filter via _isSelfEvent
