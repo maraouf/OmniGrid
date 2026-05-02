@@ -3342,13 +3342,16 @@ function app() {
       // Text filter — same shape as the live (stdout) tab. Reuses
       // `logFilter` so a query typed in either tab carries across,
       // matching the existing `logSeverityFilter` cross-tab pattern.
-      // Case-insensitive substring match against the rendered body
-      // + tag prefix; matches the Live tab's filter exactly.
+      // Case-insensitive substring match against the parsed line's
+      // `text` field (parsedLogFileLines emits {ts, stream, level,
+      // text} — earlier draft of this filter checked `body`/`msg`
+      // which the file path doesn't populate, so every query
+      // returned zero rows).
       const q = (this.logFilter || '').trim().toLowerCase();
       const filterByText = (l) => {
         if (!q) return true;
-        const body = (l && (l.body || l.msg || '')) + ' ' + (l && l.tag ? '[' + l.tag + ']' : '');
-        return body.toLowerCase().includes(q);
+        const text = (l && (l.text || l.body || l.msg || '')) + '';
+        return text.toLowerCase().includes(q);
       };
       if (allOn) return q ? lines.filter(filterByText) : lines;
       return lines.filter(l => !!sev[this.logSeverityFor(l)] && filterByText(l));

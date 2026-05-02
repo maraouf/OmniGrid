@@ -609,16 +609,39 @@ async def gather_stats() -> None:
             if cid in stats_by_cid:
                 per_node_passed[n] = per_node_passed.get(n, 0) + 1
         now_ts = time.time()
+        # Diagnostic log line — operator-requested visibility into why
+        # the agent-unhealthy banner does or doesn't fire after an
+        # agent recovery. Surfaces the per-host task-derived tally
+        # this gather + which hosts are currently in `_agent_health`.
+        # Empty per_node_total + non-empty `_agent_health` would
+        # indicate a stale entry that should be popped this tick.
+        if _agent_health or per_node_total:
+            current_health = ",".join(
+                f"{h}:{(_agent_health[h] or {}).get('fails', 0)}"
+                for h in _agent_health.keys()
+            ) or "<none>"
+            tally = ",".join(
+                f"{h}:{p}/{t}"
+                for h, t in per_node_total.items()
+                for p in (per_node_passed.get(h, 0),)
+            ) or "<none>"
+            print(f"[stats] agent_health: tally task_cids/passed={tally} current={current_health}")
         for host in list(_agent_health.keys()):
             # Stale entry — host no longer in this gather's set; let
             # it age out so a removed node doesn't pin the banner.
             if host not in per_node_total:
-                _agent_health.pop(host, None)
+                popped = _agent_health.pop(host, None)
+                if popped:
+                    print(f"[stats] agent_health: cleared {host} (no task-derived cids this gather; "
+                          f"prior fails={popped.get('fails', 0)})")
         for host, total in per_node_total.items():
             passed = per_node_passed.get(host, 0)
             if passed > 0:
                 # Any single success resets the counter — agent is alive.
-                _agent_health.pop(host, None)
+                popped = _agent_health.pop(host, None)
+                if popped:
+                    print(f"[stats] agent_health: cleared {host} (recovered, {passed}/{total} cids "
+                          f"passed; prior fails={popped.get('fails', 0)})")
             else:
                 cur = _agent_health.get(host) or {
                     "fails": 0, "since_ts": now_ts, "task_cids": total,
