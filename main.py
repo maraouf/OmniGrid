@@ -4942,6 +4942,27 @@ def _shape_host_api_row(
         "printer_page_count":      int(s.get("printer_page_count") or 0),
         "printer_supplies":        list(s.get("printer_supplies") or []),
         "printer_console_msg":     s.get("printer_console_msg") or "",
+        # Dell server-health (#848 phase 1). Populated by
+        # `extract_vendor_info` only when the SNMP probe walked back
+        # non-empty DELL-RAC-MIB rows — non-Dell agents return empty
+        # lists / 0 / "" and the SPA's "Server health" card render
+        # gate hides cleanly. Same drift class as `host_temperatures`
+        # / `host_gpus` above: extract_vendor_info populated these,
+        # the snapshot fallback restored them, the SPA's
+        # `CURATED_REFRESH_FIELDS` whitelist tracked them, but they
+        # never reached the SPA without this explicit row entry —
+        # which is exactly what the operator hit (the card never
+        # rendered for their iDRAC host).
+        "host_dell_fans":          list(s.get("host_dell_fans") or []),
+        "host_dell_temps":         list(s.get("host_dell_temps") or []),
+        "host_dell_psus":          list(s.get("host_dell_psus") or []),
+        "host_dell_voltages":      list(s.get("host_dell_voltages") or []),
+        "host_dell_amperages":     list(s.get("host_dell_amperages") or []),
+        "host_dell_phys_disks":    list(s.get("host_dell_phys_disks") or []),
+        "host_dell_virt_disks":    list(s.get("host_dell_virt_disks") or []),
+        "host_dell_power_watts":   (float(s.get("host_dell_power_watts")) if s.get("host_dell_power_watts") is not None else None),
+        "host_bios_version":       s.get("host_bios_version") or "",
+        "host_bios_date":          s.get("host_bios_date") or "",
         # Network interfaces — already populated by extract_interfaces;
         # added explicitly here so the SNMP path's rx_bytes / tx_bytes /
         # oper_status make it through to the SPA. node-exporter / Beszel

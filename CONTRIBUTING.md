@@ -57,7 +57,7 @@ Before opening an issue, please check:
 1. The [README](README.md) "Features" and "Configuration" sections.
 2. The [`CHANGELOG.md`](CHANGELOG.md) — your bug may already be fixed
    in `[Unreleased]`.
-3. Existing GitHub issues (open + closed).
+3. Existing issues on the project's git host (open + closed).
 
 A useful bug report includes:
 
@@ -78,7 +78,7 @@ session tokens, API keys, OIDC client secrets, SSH passphrases, etc.
 
 ## Proposing features
 
-The fast path for a feature proposal is a GitHub issue with:
+The fast path for a feature proposal is an issue on the project's git host with:
 
 1. The user-visible problem you want solved (one paragraph).
 2. A sketch of where the change lands (which file/module, roughly
@@ -207,8 +207,8 @@ A "needs changes" review isn't a rejection; it's a chance to refine.
 - Use the imperative mood: `add X`, `fix Y`, `refactor Z`.
 - Keep the subject line under ~70 characters; wrap the body at 72.
 - **Don't include `#NNN` issue numbers in commit messages or in code
-  comments.** GitHub auto-links them and they rot when the project
-  moves between issue trackers — describe the WHY in prose.
+  comments.** Most git hosts auto-link them and they rot when the
+  project moves between issue trackers — describe the WHY in prose.
 - Squash before merge if your branch has fixup commits, or just let
   the maintainer squash-merge — both work.
 
@@ -235,9 +235,9 @@ availability of OmniGrid deployments — **please don't open a public
 issue.** Instead:
 
 1. Email the maintainer directly via the address listed on the
-   GitHub profile, or
-2. Open a [GitHub security advisory](https://docs.github.com/en/code-security/security-advisories)
-   on this repo (private to maintainers).
+   maintainer's profile on the project's git host, or
+2. Open a private security advisory on the project's git host (most
+   hosts support this — visible only to maintainers until published).
 
 Include reproduction steps, the affected version range, and what
 mitigations / workarounds you've identified. I'll acknowledge within

@@ -4,7 +4,7 @@
 
 npm is used on the DEV MACHINE ONLY. The server never runs npm or node.
 
-- `package.json` + `package-lock.json` — committed, dev-only metadata (`.forgejo/workflows/deploy.yml` excludes
+- `package.json` + `package-lock.json` — committed, dev-only metadata (the deploy workflow excludes
   them from rsync).
 - `node_modules/` — committed AND shipped to the server via rsync. Served at `/node_modules/`
   by an **allowlist-gated route** in `main.py` (`api_node_modules` + `_NPM_ALLOWED` set,
@@ -23,9 +23,8 @@ npm is used on the DEV MACHINE ONLY. The server never runs npm or node.
 Everything is "pre-built by upstream" — no compile step, no bundler, no `npm run vendor`.
 Upgrading is just `npm install` + commit.
 
-A weekly **npm audit** workflow (`.forgejo/workflows/npm-audit.yml`) runs `npm audit` against
-the lockfile on a cron schedule and Apprise-pings on findings — it is a passive monitor, no
-auto-fix.
+A weekly **npm audit** CI workflow runs `npm audit` against the lockfile on a cron schedule and
+Apprise-pings on findings — it is a passive monitor, no auto-fix.
 
 ## Dependencies currently pinned
 

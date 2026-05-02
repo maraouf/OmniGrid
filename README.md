@@ -88,7 +88,7 @@ Built as a friendlier replacement for Diun Dash plus the tab-jumping between Por
 
 ## Deploy
 
-The canonical production deploy is the CI pipeline at `.forgejo/workflows/deploy.yml` — push to `main`, the runner rsyncs the build context to the Swarm manager, builds the `omnigrid:<version>` image there, pushes to the configured registry, and force-updates the running stack. Full operator runbook (runner setup, deploy-key rotation, registry credentials, manual rollback) lives in [`docs/guidelines/deploy.md`](docs/guidelines/deploy.md).
+The canonical production deploy is the CI pipeline — push to `main`, the runner rsyncs the build context to the Swarm manager, builds the `omnigrid:<version>` image there, pushes to the configured registry, and force-updates the running stack. Full operator runbook (runner setup, deploy-key rotation, registry credentials, manual rollback) lives in [`docs/guidelines/deploy.md`](docs/guidelines/deploy.md).
 
 For a one-off / manual stand-up:
 

@@ -49,14 +49,11 @@ the build wasn't versioned.
 
 ## Daily flow (PATCH — continuous)
 
-For every TODO item:
+For every change:
 
-1. Add a `[ ]` row to `notes/note_todo.txt` Pending block (per the lifecycle
-   rule documented in `CLAUDE.md`).
-2. Implement.
-3. Move the row to `## Pending Validation` (`[?]`) once the code is on
-   disk and smoke-checks pass locally.
-4. Push to `main`. The CI pipeline (`.forgejo/workflows/deploy.yml`):
+1. Implement.
+2. Smoke-check locally.
+3. Push to `main`. The CI pipeline:
    - rsyncs the build context to `/opt/omnigrid/app` on the Swarm manager,
    - resolves the previous version from THREE sources and picks the
      highest semver:
@@ -74,9 +71,8 @@ For every TODO item:
      `failure_action: rollback` update_config.
    - asserts `/api/version` equals the freshly-built tag — catches the
      edge case where the build succeeded but Swarm rolled back.
-5. Operator validates on the live deploy. On confirmation, cut the row
-   from `## Pending Validation` to `## Done` (`[x]`).
-6. Add a one-line entry under `CHANGELOG.md`'s `## [Unreleased]` block
+4. Validate on the live deploy.
+5. Add a one-line entry under `CHANGELOG.md`'s `## [Unreleased]` block
    in the appropriate category (Added / Changed / Fixed / Internal /
    Removed / Deprecated / Security):
 
@@ -87,9 +83,8 @@ For every TODO item:
 
    CHANGELOG entries describe the change in plain prose. Do NOT include
    `#NNN` cross-references in CHANGELOG.md — the file ships in the public
-   release surface, where `#NNN` markdown auto-renders as a GitHub-issue
-   link, but the numbers in `note_todo.txt` are an INTERNAL TODO ID space
-   that would resolve to the wrong tracker.
+   release surface, where `#NNN` markdown auto-renders as an issue link
+   on most git hosts.
 
 That's it for daily work. No tags, no release notes, no manual version
 edits — every PATCH ships silently to the live deploy and is documented
@@ -182,15 +177,11 @@ Process:
 - **`VERSION.txt`** at repo root — dev-time hint AND file-grounded floor
   for the deploy pipeline's version resolver (Source B). Hand-edit to
   seed MAJOR / MINOR bumps.
-- **`.forgejo/workflows/deploy.yml`** — the `Build image, deploy stack,
-  force update, verify` step contains the three-source version resolver
-  and the bump bash. Legacy migrations from 2-part (`1.49`) and earlier
-  3-part (`2.x.y`) formats are handled inline.
+- **CI deploy workflow** — the `Build image, deploy stack, force update,
+  verify` step contains the three-source version resolver and the bump
+  bash. Legacy migrations from 2-part (`1.49`) and earlier 3-part
+  (`2.x.y`) formats are handled inline.
 - **`CHANGELOG.md`** at repo root — the public-facing release log.
-- **`notes/note_todo.txt`** — per-task implementation detail. CHANGELOG
-  entries don't reference TODO IDs (they'd auto-link to GitHub issues on
-  the public release surface); operator-private references stay in
-  `note_todo.txt` itself.
 - **`notes/MIGRATIONS.md`** — only created when a MAJOR release ships.
 
 ## Why this works for OmniGrid

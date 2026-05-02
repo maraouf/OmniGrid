@@ -6,8 +6,8 @@ in this directory ships in the public repo.
 For the project overview and quick-start, see the
 [root README](../README.md).
 For release notes, see the [root CHANGELOG](../CHANGELOG.md) — kept at the
-repository root by convention so git hosts (GitHub / Forgejo / GitLab) and
-toolchains (npm / PyPI / packagers) auto-detect it.
+repository root by convention so git hosts and toolchains (npm / PyPI /
+packagers) auto-detect it.
 
 ## Guidelines
 
@@ -18,7 +18,7 @@ Step-by-step runbooks for each integration / subsystem.
 | [`guidelines/auth.md`](guidelines/auth.md) | Local accounts + sessions + API tokens — bootstrap the first admin, manage users, rotate `SESSION_SECRET`. |
 | [`guidelines/passkeys.md`](guidelines/passkeys.md) | WebAuthn / FIDO2 passkeys as a 2FA method — enrolment, login, recovery, troubleshooting. |
 | [`guidelines/authentik.md`](guidelines/authentik.md) | Authentik OIDC SSO setup. Settings live in the DB; this walks the IdP-side configuration end to end. |
-| [`guidelines/deploy.md`](guidelines/deploy.md) | Production deploy via the Forgejo Actions pipeline (image-build + registry push + force-update, #609). Runner setup, deploy-key rotation, version-bump model, manual rollback, reverse-proxy timeouts, troubleshooting. |
+| [`guidelines/deploy.md`](guidelines/deploy.md) | Production deploy via the CI pipeline (image-build + registry push + force-update, #609). Runner setup, deploy-key rotation, version-bump model, manual rollback, reverse-proxy timeouts, troubleshooting. |
 | [`guidelines/env_example.md`](guidelines/env_example.md) | Every supported `.env` key with defaults, scope, and migration notes. |
 | [`guidelines/metrics_guide.md`](guidelines/metrics_guide.md) | Prometheus `/metrics` schema + Grafana dashboard import notes. |
 | [`guidelines/scheduler.md`](guidelines/scheduler.md) | Scheduler kinds (`gather_refresh` / `prune_node` / `prune_all_nodes` / `backup` / `asset_inventory_refresh` / `prune_logs`), endpoints, safety properties. |
@@ -43,9 +43,9 @@ walkthroughs). Add new screenshots here at sensible names (`hosts-view.png`,
 
 ## Conventions
 
-- **Public-shippable content only.** Anything operator-private (`note_todo.txt`,
-  `notes/notes.txt`, `notes/forgejo_runner_config.yml`, the `.claude/agent-memory/**`
-  dirs, the deploy `.env`, the live Grafana dashboard) stays under `notes/` or is
+- **Public-shippable content only.** Anything operator-private (working
+  scratch notes, runner config, the `.claude/agent-memory/**` dirs, the
+  deploy `.env`, the live Grafana dashboard) stays under `notes/` or is
   gitignored. The audit grep is documented in `CLAUDE.md`'s
   "Operator-private hostnames" convention bullet.
 - **Hostname / IP placeholders.** `*.example.com` (RFC 2606 reserved domain)

@@ -9810,10 +9810,10 @@
                       <span x-show="h.ping_alive === false"
                             class="chip pill-error text-[10.5px] px-1.5 py-0"
                             x-text="t('hosts_extra.metrics.ping_down')"></span>
-                      <span x-show="h.ping_alive === true && (h.ping_loss_pct || 0) > 0"
+                      <span x-show="hostPingWindowLoss(hostPingHistoryKey(h)) > 0"
                             class="chip pill-update text-[10.5px] px-1.5 py-0"
                             :title="t('hosts_extra.metrics.ping_loss_title')"
-                            x-text="(h.ping_loss_pct || 0).toFixed(0) + '% loss'"></span>
+                            x-text="hostPingWindowLoss(hostPingHistoryKey(h)) + '% loss'"></span>
                       <span x-show="hostMetricStats(hostPingHistoryKey(h), 'rtt', false)">
                         <span class="metric-legend-dot" style="background: var(--success)"></span>
                         <span x-text="t('hosts_extra.metrics.ping_rtt')"></span>
@@ -9831,8 +9831,8 @@
                       </div>
                       <svg class="metric-svg" viewBox="0 0 420 120" preserveAspectRatio="none">
                         <path class="metric-grid" :d="hostChart(hostPingHistoryKey(h), 'rtt', { min: 0, max: hostChartMax(hostPingHistoryKey(h), ['rtt']), height: 120 }).gridPath" fill="none"/>
-                        <polyline class="metric-line" style="color: var(--success)"
-                                  :points="hostChart(hostPingHistoryKey(h), 'rtt', { min: 0, max: hostChartMax(hostPingHistoryKey(h), ['rtt']), height: 120 }).points"/>
+                        <path class="metric-line" style="color: var(--success)"
+                                  :d="hostChart(hostPingHistoryKey(h), 'rtt', { min: 0, max: hostChartMax(hostPingHistoryKey(h), ['rtt']), height: 120 }).pathGapped"/>
                       </svg>
                       <div class="metric-x-axis">
                         <template x-for="(l, i) in xAxisFromSeries(hostPingHistoryKey(h), 5)" :key="i">
@@ -9970,9 +9970,9 @@
                         <line class="metric-grid" x1="0" y1="60" x2="420" y2="60"/>
                         <line class="metric-grid" x1="0" y1="90" x2="420" y2="90"/>
                         <template x-for="(line, i) in snmpCpuPerCoreLines(h.id)" :key="'cpu-' + i">
-                          <polyline fill="none" stroke="var(--info)" stroke-opacity="0.55" stroke-width="1" :points="line"></polyline>
+                          <path fill="none" stroke="var(--info)" stroke-opacity="0.55" stroke-width="1" :d="line"></path>
                         </template>
-                        <polyline fill="none" stroke="var(--success)" stroke-width="1.5" :points="snmpCpuUsedPctLine(h.id)"></polyline>
+                        <path fill="none" stroke="var(--success)" stroke-width="1.5" :d="snmpCpuUsedPctLine(h.id)"></path>
                       </svg>
                       <div class="metric-x-axis">
                         <template x-for="(l, i) in snmpXAxis(h.id, 5)" :key="'cpu-x-' + i"><span x-text="l"></span></template>
@@ -10033,9 +10033,9 @@
                         <line class="metric-grid" x1="0" y1="30" x2="420" y2="30"/>
                         <line class="metric-grid" x1="0" y1="60" x2="420" y2="60"/>
                         <line class="metric-grid" x1="0" y1="90" x2="420" y2="90"/>
-                        <polyline fill="none" stroke="var(--success)" stroke-width="1.5" :points="snmpLoadLine(h.id, 'load_1m')"></polyline>
-                        <polyline fill="none" stroke="var(--warning)" stroke-width="1" :points="snmpLoadLine(h.id, 'load_5m')"></polyline>
-                        <polyline fill="none" stroke="var(--info)" stroke-width="1" :points="snmpLoadLine(h.id, 'load_15m')"></polyline>
+                        <path fill="none" stroke="var(--success)" stroke-width="1.5" :d="snmpLoadLine(h.id, 'load_1m')"></path>
+                        <path fill="none" stroke="var(--warning)" stroke-width="1" :d="snmpLoadLine(h.id, 'load_5m')"></path>
+                        <path fill="none" stroke="var(--info)" stroke-width="1" :d="snmpLoadLine(h.id, 'load_15m')"></path>
                       </svg>
                       <div class="metric-x-axis">
                         <template x-for="(l, i) in snmpXAxis(h.id, 5)" :key="'load-x-' + i"><span x-text="l"></span></template>
@@ -10113,10 +10113,10 @@
                         <line class="metric-grid" x1="0" y1="30" x2="420" y2="30"/>
                         <line class="metric-grid" x1="0" y1="60" x2="420" y2="60"/>
                         <line class="metric-grid" x1="0" y1="90" x2="420" y2="90"/>
-                        <polyline fill="none" stroke="var(--danger)"  stroke-width="1.5" :points="snmpMemArea(h.id, 'used')"></polyline>
-                        <polyline fill="none" stroke="var(--warning)" stroke-width="1"   :points="snmpMemArea(h.id, 'cached')"></polyline>
-                        <polyline fill="none" stroke="var(--info)"    stroke-width="1"   :points="snmpMemArea(h.id, 'buffers')"></polyline>
-                        <polyline fill="none" stroke="var(--success)" stroke-width="1"   :points="snmpMemArea(h.id, 'free')"></polyline>
+                        <path fill="none" stroke="var(--danger)"  stroke-width="1.5" :d="snmpMemArea(h.id, 'used')"></path>
+                        <path fill="none" stroke="var(--warning)" stroke-width="1"   :d="snmpMemArea(h.id, 'cached')"></path>
+                        <path fill="none" stroke="var(--info)"    stroke-width="1"   :d="snmpMemArea(h.id, 'buffers')"></path>
+                        <path fill="none" stroke="var(--success)" stroke-width="1"   :d="snmpMemArea(h.id, 'free')"></path>
                       </svg>
                       <div class="metric-x-axis">
                         <template x-for="(l, i) in snmpXAxis(h.id, 5)" :key="'mem-x-' + i"><span x-text="l"></span></template>
@@ -10406,7 +10406,7 @@
                         <line class="metric-grid" x1="0" y1="30" x2="420" y2="30"/>
                         <line class="metric-grid" x1="0" y1="60" x2="420" y2="60"/>
                         <line class="metric-grid" x1="0" y1="90" x2="420" y2="90"/>
-                        <polyline fill="none" stroke="var(--warning)" stroke-width="1.5" :points="snmpUpsLoadLine(h.id)"></polyline>
+                        <path fill="none" stroke="var(--warning)" stroke-width="1.5" :d="snmpUpsLoadLine(h.id)"></path>
                       </svg>
                       <div class="metric-x-axis">
                         <template x-for="(l, i) in snmpXAxis(h.id, 5)" :key="'ups-load-x-' + i"><span x-text="l"></span></template>
@@ -10448,7 +10448,7 @@
                         <line class="metric-grid" x1="0" y1="30" x2="420" y2="30"/>
                         <line class="metric-grid" x1="0" y1="60" x2="420" y2="60"/>
                         <line class="metric-grid" x1="0" y1="90" x2="420" y2="90"/>
-                        <polyline fill="none" stroke="var(--success)" stroke-width="1.5" :points="snmpUpsBatteryLine(h.id)"></polyline>
+                        <path fill="none" stroke="var(--success)" stroke-width="1.5" :d="snmpUpsBatteryLine(h.id)"></path>
                       </svg>
                       <div class="metric-x-axis">
                         <template x-for="(l, i) in snmpXAxis(h.id, 5)" :key="'ups-batt-x-' + i"><span x-text="l"></span></template>
@@ -10494,7 +10494,7 @@
                         <line class="metric-grid" x1="0" y1="30" x2="420" y2="30"/>
                         <line class="metric-grid" x1="0" y1="60" x2="420" y2="60"/>
                         <line class="metric-grid" x1="0" y1="90" x2="420" y2="90"/>
-                        <polyline fill="none" stroke="var(--danger)" stroke-width="1.5" :points="snmpUpsBatteryTempLine(h.id)"></polyline>
+                        <path fill="none" stroke="var(--danger)" stroke-width="1.5" :d="snmpUpsBatteryTempLine(h.id)"></path>
                       </svg>
                       <div class="metric-x-axis">
                         <template x-for="(l, i) in snmpXAxis(h.id, 5)" :key="'ups-temp-x-' + i"><span x-text="l"></span></template>
@@ -10536,9 +10536,9 @@
                         <line class="metric-grid" x1="0" y1="60" x2="420" y2="60"/>
                         <line class="metric-grid" x1="0" y1="90" x2="420" y2="90"/>
                         <template x-for="probe in dellTempProbes(h.id)" :key="'dell-temp-line-' + probe.idx">
-                          <polyline fill="none" stroke-width="1.5"
+                          <path fill="none" stroke-width="1.5"
                                     :stroke="probe.color"
-                                    :points="dellTempLine(h.id, probe.points)"></polyline>
+                                    :d="dellTempLine(h.id, probe.points)"></path>
                         </template>
                       </svg>
                       <div class="metric-x-axis">
@@ -10613,7 +10613,7 @@
                              precomputes `gridPath` to avoid the issue. -->
                         <path class="metric-grid" :d="hostChart(hostHistoryKey(h), 'cpu', { min: 0, max: 100, height: 120 }).gridPath" fill="none"/>
                         <path class="metric-area" :d="hostChart(hostHistoryKey(h), 'cpu', { min: 0, max: 100, height: 120 }).area"/>
-                        <polyline class="metric-line" :points="hostChart(hostHistoryKey(h), 'cpu', { min: 0, max: 100, height: 120 }).points"/>
+                        <path class="metric-line" :d="hostChart(hostHistoryKey(h), 'cpu', { min: 0, max: 100, height: 120 }).pathGapped"/>
                       </svg>
                       <div class="metric-x-axis">
                         <template x-for="(l, i) in xAxisFromSeries(hostHistoryKey(h), 5)" :key="i">
@@ -10665,7 +10665,7 @@
                       </div>
                       <svg class="metric-svg" viewBox="0 0 420 120" preserveAspectRatio="none">
                         <path class="metric-area" :d="hostChart(hostHistoryKey(h), 'mp', { min: 0, max: 100, height: 120 }).area"/>
-                        <polyline class="metric-line" :points="hostChart(hostHistoryKey(h), 'mp', { min: 0, max: 100, height: 120 }).points"/>
+                        <path class="metric-line" :d="hostChart(hostHistoryKey(h), 'mp', { min: 0, max: 100, height: 120 }).pathGapped"/>
                       </svg>
                       <div class="metric-x-axis">
                         <template x-for="(l, i) in xAxisFromSeries(hostHistoryKey(h), 5)" :key="i">
@@ -10716,7 +10716,7 @@
                       </div>
                       <svg class="metric-svg" viewBox="0 0 420 120" preserveAspectRatio="none">
                         <path class="metric-area" :d="hostChart(hostHistoryKey(h), 'dp', { min: 0, max: 100, height: 120 }).area"/>
-                        <polyline class="metric-line" :points="hostChart(hostHistoryKey(h), 'dp', { min: 0, max: 100, height: 120 }).points"/>
+                        <path class="metric-line" :d="hostChart(hostHistoryKey(h), 'dp', { min: 0, max: 100, height: 120 }).pathGapped"/>
                       </svg>
                       <div class="metric-x-axis">
                         <template x-for="(l, i) in xAxisFromSeries(hostHistoryKey(h), 5)" :key="i">
@@ -10798,10 +10798,10 @@
                              uses `metric-net` color; Out uses
                              `metric-net-out` so they're visually
                              distinguishable on the legend. -->
-                        <polyline class="metric-line" style="color: var(--metric-net)"
-                                  :points="hostChart(hostHistoryKey(h), 'nr', { min: 0, max: hostChartMax(hostHistoryKey(h), ['nr','ns']), height: 120 }).points"/>
-                        <polyline class="metric-line" style="color: var(--metric-net-out)"
-                                  :points="hostChart(hostHistoryKey(h), 'ns', { min: 0, max: hostChartMax(hostHistoryKey(h), ['nr','ns']), height: 120 }).points"/>
+                        <path class="metric-line" style="color: var(--metric-net)"
+                                  :d="hostChart(hostHistoryKey(h), 'nr', { min: 0, max: hostChartMax(hostHistoryKey(h), ['nr','ns']), height: 120 }).pathGapped"/>
+                        <path class="metric-line" style="color: var(--metric-net-out)"
+                                  :d="hostChart(hostHistoryKey(h), 'ns', { min: 0, max: hostChartMax(hostHistoryKey(h), ['nr','ns']), height: 120 }).pathGapped"/>
                       </svg>
                       <div class="metric-x-axis">
                         <template x-for="(l, i) in xAxisFromSeries(hostHistoryKey(h), 5)" :key="i">
@@ -10929,10 +10929,10 @@
                       </div>
                       <svg class="metric-svg" viewBox="0 0 420 120" preserveAspectRatio="none">
                         <path class="metric-grid" :d="hostChart(hostHistoryKey(h), 'dr', { min: 0, max: hostChartMax(hostHistoryKey(h), ['dr','dw']), height: 120 }).gridPath" fill="none"/>
-                        <polyline class="metric-line" style="color: var(--metric-net)"
-                                  :points="hostChart(hostHistoryKey(h), 'dr', { min: 0, max: hostChartMax(hostHistoryKey(h), ['dr','dw']), height: 120 }).points"/>
-                        <polyline class="metric-line" style="color: var(--metric-net-out)"
-                                  :points="hostChart(hostHistoryKey(h), 'dw', { min: 0, max: hostChartMax(hostHistoryKey(h), ['dr','dw']), height: 120 }).points"/>
+                        <path class="metric-line" style="color: var(--metric-net)"
+                                  :d="hostChart(hostHistoryKey(h), 'dr', { min: 0, max: hostChartMax(hostHistoryKey(h), ['dr','dw']), height: 120 }).pathGapped"/>
+                        <path class="metric-line" style="color: var(--metric-net-out)"
+                                  :d="hostChart(hostHistoryKey(h), 'dw', { min: 0, max: hostChartMax(hostHistoryKey(h), ['dr','dw']), height: 120 }).pathGapped"/>
                       </svg>
                       <div class="metric-x-axis">
                         <template x-for="(l, i) in xAxisFromSeries(hostHistoryKey(h), 5)" :key="i">
@@ -11031,12 +11031,12 @@
                       </div>
                       <svg class="metric-svg" viewBox="0 0 420 120" preserveAspectRatio="none">
                         <path class="metric-grid" :d="hostChart(hostHistoryKey(h), 'la1_pct', { min: 0, max: 100, height: 120 }).gridPath" fill="none"/>
-                        <polyline class="metric-line" style="color: var(--metric-cpu)"
-                                  :points="hostChart(hostHistoryKey(h), 'la1_pct', { min: 0, max: 100, height: 120 }).points"/>
-                        <polyline class="metric-line" style="color: var(--metric-mem)"
-                                  :points="hostChart(hostHistoryKey(h), 'la5_pct', { min: 0, max: 100, height: 120 }).points"/>
-                        <polyline class="metric-line" style="color: var(--metric-disk)"
-                                  :points="hostChart(hostHistoryKey(h), 'la15_pct', { min: 0, max: 100, height: 120 }).points"/>
+                        <path class="metric-line" style="color: var(--metric-cpu)"
+                                  :d="hostChart(hostHistoryKey(h), 'la1_pct', { min: 0, max: 100, height: 120 }).pathGapped"/>
+                        <path class="metric-line" style="color: var(--metric-mem)"
+                                  :d="hostChart(hostHistoryKey(h), 'la5_pct', { min: 0, max: 100, height: 120 }).pathGapped"/>
+                        <path class="metric-line" style="color: var(--metric-disk)"
+                                  :d="hostChart(hostHistoryKey(h), 'la15_pct', { min: 0, max: 100, height: 120 }).pathGapped"/>
                       </svg>
                       <div class="metric-x-axis">
                         <template x-for="(l, i) in xAxisFromSeries(hostHistoryKey(h), 5)" :key="i">
@@ -11094,7 +11094,7 @@
                       </div>
                       <svg class="metric-svg" viewBox="0 0 420 120" preserveAspectRatio="none">
                         <path class="metric-area" :d="hostChart(hostHistoryKey(h), 'net', { min: 0, height: 120 }).area"/>
-                        <polyline class="metric-line" :points="hostChart(hostHistoryKey(h), 'net', { min: 0, height: 120 }).points"/>
+                        <path class="metric-line" :d="hostChart(hostHistoryKey(h), 'net', { min: 0, height: 120 }).pathGapped"/>
                       </svg>
                       <div class="metric-x-axis">
                         <template x-for="(l, i) in xAxisFromSeries(hostHistoryKey(h), 5)" :key="i">
@@ -11149,7 +11149,7 @@
                       </div>
                       <svg class="metric-svg" viewBox="0 0 420 120" preserveAspectRatio="none">
                         <path class="metric-area" :d="hostChart(hostHistoryKey(h), 's', { min: 0, max: 100, height: 120 }).area"/>
-                        <polyline class="metric-line" :points="hostChart(hostHistoryKey(h), 's', { min: 0, max: 100, height: 120 }).points"/>
+                        <path class="metric-line" :d="hostChart(hostHistoryKey(h), 's', { min: 0, max: 100, height: 120 }).pathGapped"/>
                       </svg>
                       <div class="metric-x-axis">
                         <template x-for="(l, i) in xAxisFromSeries(hostHistoryKey(h), 5)" :key="i">
@@ -11332,8 +11332,8 @@
                       <svg class="metric-svg" viewBox="0 0 420 120" preserveAspectRatio="none" aria-hidden="true">
                         <path class="metric-grid"
                               :d="hostChart(hostHistoryKey(h), 'gpu_pwr', { min: 0, max: hostChartMax(hostHistoryKey(h), ['gpu_pwr']), height: 120 }).gridPath" fill="none"/>
-                        <polyline class="metric-line" style="color: var(--warning)" fill="none"
-                                  :points="hostChart(hostHistoryKey(h), 'gpu_pwr', { min: 0, max: hostChartMax(hostHistoryKey(h), ['gpu_pwr']), height: 120 }).points"/>
+                        <path class="metric-line" style="color: var(--warning)" fill="none"
+                                  :d="hostChart(hostHistoryKey(h), 'gpu_pwr', { min: 0, max: hostChartMax(hostHistoryKey(h), ['gpu_pwr']), height: 120 }).pathGapped"/>
                       </svg>
                       <div class="metric-x-axis">
                         <template x-for="(l, i) in xAxisFromSeries(hostHistoryKey(h), 5)" :key="i"><span x-text="l"></span></template>
@@ -11384,8 +11384,8 @@
                       <svg class="metric-svg" viewBox="0 0 420 120" preserveAspectRatio="none" aria-hidden="true">
                         <path class="metric-grid"
                               :d="hostChart(hostHistoryKey(h), 'gpu_usage', { min: 0, max: 100, height: 120 }).gridPath" fill="none"/>
-                        <polyline class="metric-line" style="color: var(--success)" fill="none"
-                                  :points="hostChart(hostHistoryKey(h), 'gpu_usage', { min: 0, max: 100, height: 120 }).points"/>
+                        <path class="metric-line" style="color: var(--success)" fill="none"
+                                  :d="hostChart(hostHistoryKey(h), 'gpu_usage', { min: 0, max: 100, height: 120 }).pathGapped"/>
                       </svg>
                       <div class="metric-x-axis">
                         <template x-for="(l, i) in xAxisFromSeries(hostHistoryKey(h), 5)" :key="i"><span x-text="l"></span></template>
@@ -11437,8 +11437,8 @@
                       <svg class="metric-svg" viewBox="0 0 420 120" preserveAspectRatio="none" aria-hidden="true">
                         <path class="metric-grid"
                               :d="hostChart(hostHistoryKey(h), 'gpu_vram_pct', { min: 0, max: 100, height: 120 }).gridPath" fill="none"/>
-                        <polyline class="metric-line" style="color: var(--info)" fill="none"
-                                  :points="hostChart(hostHistoryKey(h), 'gpu_vram_pct', { min: 0, max: 100, height: 120 }).points"/>
+                        <path class="metric-line" style="color: var(--info)" fill="none"
+                                  :d="hostChart(hostHistoryKey(h), 'gpu_vram_pct', { min: 0, max: 100, height: 120 }).pathGapped"/>
                       </svg>
                       <div class="metric-x-axis">
                         <template x-for="(l, i) in xAxisFromSeries(hostHistoryKey(h), 5)" :key="i"><span x-text="l"></span></template>

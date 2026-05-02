@@ -20,23 +20,33 @@ Categories per release follow Keep a Changelog:
 - **Security** — fixes for vulnerabilities.
 - **Internal** — refactors, doc work, build / CI changes that don't touch user-facing behaviour. (Non-standard but useful for a homelab tool where most work is internal.)
 
-Each entry references its TODO ID (`#NNN`) so the full implementation
-detail in `notes/note_todo.txt` is one click away.
-
 ## [Unreleased]
 
 Items that have shipped to the live deploy as a PATCH bump but haven't
 yet been rolled into a numbered `MINOR` release. When the operator cuts
 the next release, this whole block becomes the `[X.Y.0]` entry below.
 
+### Fixed
+
+- Apprise "Provider paused" / "Host sampling paused" titles now use the colour emoji warning glyph (⚠️) instead of the mono B&W variant — yellow triangle is visible at a glance in Apprise inboxes / Slack / Telegram alongside the rest of the operator's notifications instead of blending into the line.
+
+### Security
+
+- Defence-in-depth on the Webmin probe: new URL validator rejects any `webmin_url` that isn't http/https with a hostname, so a typoed admin-set value (file://, javascript:, etc.) short-circuits before any httpx call. CodeQL py/full-ssrf flag triaged as a false positive — `base_url` is admin-only DB input, not public form data — but the validator + suppression annotations make the rationale explicit.
+
+### Fixed
+
+- iDRAC drawer's Server health card now actually renders. Backend probe + snapshot fallback + frontend whitelist were all wired correctly, but the 10 `host_dell_*` fields were missing from `_shape_host_api_row` so they were silently dropped at the API boundary — the SPA always received `undefined` and the render gate evaluated false. Adding the fields to the row builder lets the card mount on any host whose SNMP probe walked back DELL-RAC-MIB rows. Same drift class CLAUDE.md flags for `host_temperatures` / `host_gpus`.
+- Drawer charts no longer bridge across multi-hour sampling gaps with a single fake-smooth line. Operator-reported case: power-failure outage left the Ping chart drawing a continuous line from the last pre-outage sample to the first recovery sample, painting "down for hours" as "fading from X to Y". New auto-detected gap threshold (median sample interval × 2.5, 60s floor) breaks the rendered line at every long gap so the discontinuity is visible. Applied to the Ping / CPU / Memory / Disk / Network / Net I/O / Disk I/O / Load / GPU / Service-status charts, every SNMP chart (per-core CPU / CPU% / load / memory / per-port throughput / utilization / UPS load / battery / battery temp), the Dell server-temperature chart, and the host temperatures chart. Provider-agnostic — works for Beszel, node-exporter, Ping, and SNMP series alike. Area-fill paths also break at gaps so the fill doesn't bridge either. Underlying samplers were already correctly skipping out-of-bounds counter deltas per the skip-don't-synthesize rule; this fix is purely in the rendering layer.
+- Ping packet-loss chip now reflects window-aggregated loss instead of the latest single tick. New `hostPingWindowLoss(systemId)` helper walks the loaded ping history series for the chart's selected range and returns `Math.round(100 × down_count / received_count)`. Missing samples (sampler not running, OmniGrid down) count as "no data" — NOT 100% loss — so the operator's multi-hour-OmniGrid-outage scenario shows 0% over a window where every received sample is alive. Pairs with the gap-aware chart fix above so the visual + the badge agree on what "no data" means.
+
 ### Changed
 
-- Public docs genericized: "Forgejo Actions" / "Forgejo UI" / "Forgejo registry" / "Forgejo secrets" / "self-hosted Forgejo" prose mentions across README.md, docs/RELEASE_PROCESS.md, the v1.3.0 release notes, docs/guidelines/auth.md, docs/guidelines/env_example.md, and docs/guidelines/deploy.md replaced with neutral terms (CI / CI UI / container registry / repo secrets / self-hosted Git) so the public mirror doesn't lean on a specific git host. Literal on-disk artefacts in the deploy runbook (`.forgejo/workflows/`, `forgejo-runner` user / home dir, `forgejo_deploy_*` SSH key names, sudoers drop-in) are intentionally left intact because they describe real system state.
 
 ### Added
 
-- `SECURITY.md` at the repo root — concise security policy that GitHub auto-detects (renders the "Report a vulnerability" workflow on the Security tab). Covers supported versions (only the latest MINOR receives security fixes — the single-replica home-lab deploy story means operators run one cut at a time), private reporting channels (maintainer email via the GitHub profile or a GitHub security advisory — never a public issue), what to include in a report (version, repro, impact, mitigations, redacted logs), response targets (72h acknowledgement, two-week fix-or-published-advisory window for confirmed issues, credit by default), in-scope categories (auth bypass, RCE / SSRF / path traversal, role escalation, credential leakage including operator-private hostnames in the public mirror, XSS), out-of-scope items (third-party CVEs tracked upstream, DoS from out-of-bounds tunables, attacks requiring already-compromised host access, deploys with defences explicitly disabled), and a hardening-runbook pointer block into `docs/guidelines/` (auth / passkeys / authentik / deploy). `CONTRIBUTING.md`'s "Security disclosure" section continues to summarise the process for contributors arriving via the on-ramp.
-- `CONTRIBUTING.md` at the repo root — concise contributor on-ramp for outside collaboration on GitHub. Covers project scope (single-replica + no build step + no formal test suite are deliberate constraints), bug-report template, feature-proposal flow, local dev setup, the load-bearing conventions outsiders need to know up front (i18n strict via `t()`, CSS strict via tokens, RTL via logical properties, long-running tasks in `_lifespan`, counter-rate samplers skip rather than synthesize, brand-icon onboarding from official sources), PR process (small PRs, exercise UI before submitting, update `[Unreleased]` but don't touch operator-private files), commit-message guidance, SemVer cadence pointer, security-disclosure channel, and a short code-of-conduct closer.
+- `SECURITY.md` at the repo root — concise security policy that the public git host auto-detects (renders the "Report a vulnerability" workflow on the Security tab). Covers supported versions (only the latest MINOR receives security fixes — the single-replica home-lab deploy story means operators run one cut at a time), private reporting channels (maintainer email or a private security advisory on the git host — never a public issue), what to include in a report (version, repro, impact, mitigations, redacted logs), response targets (72h acknowledgement, two-week fix-or-published-advisory window for confirmed issues, credit by default), in-scope categories (auth bypass, RCE / SSRF / path traversal, role escalation, credential leakage including operator-private hostnames in the public mirror, XSS), out-of-scope items (third-party CVEs tracked upstream, DoS from out-of-bounds tunables, attacks requiring already-compromised host access, deploys with defences explicitly disabled), and a hardening-runbook pointer block into `docs/guidelines/` (auth / passkeys / authentik / deploy). `CONTRIBUTING.md`'s "Security disclosure" section continues to summarise the process for contributors arriving via the on-ramp.
+- `CONTRIBUTING.md` at the repo root — concise contributor on-ramp for outside collaboration on the public mirror. Covers project scope (single-replica + no build step + no formal test suite are deliberate constraints), bug-report template, feature-proposal flow, local dev setup, the load-bearing conventions outsiders need to know up front (i18n strict via `t()`, CSS strict via tokens, RTL via logical properties, long-running tasks in `_lifespan`, counter-rate samplers skip rather than synthesize, brand-icon onboarding from official sources), PR process (small PRs, exercise UI before submitting, update `[Unreleased]` but don't touch operator-private files), commit-message guidance, SemVer cadence pointer, security-disclosure channel, and a short code-of-conduct closer.
 - Dell iDRAC server-health SNMP coverage. The SNMP probe now walks DELL-RAC-MIB's coolingDevice / temperatureProbe / powerSupply / voltageProbe / amperage / physicalDisk / virtualDisk / systemBIOS tables alongside the existing chassis-identity GET; the host drawer surfaces the data through a new "Server health" card with six subsections (fans, temperatures, power supplies, voltages, physical disks, virtual disks), each rendering name + value + status-pill rows with the standard Dell health enum colour mapping. Chassis-total power consumption surfaces as a pill in the section header. BIOS version + release date land on the existing Hardware card. Stale-fallback wiring across every subsection so cached values stay visible during a brief SNMP outage with the standard dimmed / "X minutes ago" treatment.
 - Per-temperature-probe time-series chart on the host drawer for Dell servers. New `host_snmp_temp_samples` table backs the sampler; the chart card renders a polyline per probe (Inlet / Exhaust / CPU1 / CPU2 / etc.) sharing a single y-axis with a compact below-chart legend pairing probe name and last reading. Auto-ranged to max(60°C, observed max) so a normal-range server still has visible vertical movement. Picks up the existing 1h / 6h / 24h / 7d range picker so the time domain stays unified with every other drawer chart. New endpoint `GET /api/hosts/{id}/snmp/temp_history?hours=N` returns the per-probe series; admin-only.
 
@@ -311,7 +321,7 @@ Third MINOR cut on top of `1.2.0` — rolls up **316 closed issues** under the 1
 - Login UI — 403 detail now surfaced (#291) [Enhancement]
 - Login UI — password field cleared on every failed login attempt (#292) [Bug]
 - `get_credential_by_credential_id` SELECT in `logic/auth.py` now includes `rp_id` (#374) [Bug]
-- `.forgejo/workflows/deploy.yml` redirects `docker login` stderr to `/dev/null` (#385) [Enhancement]
+- Deploy workflow redirects `docker login` stderr to `/dev/null` (#385) [Enhancement]
 - A11Y review LOW + NIT findings (#413) [Enhancement]
 
 ### Filters, badges & status pills
@@ -339,11 +349,11 @@ Third MINOR cut on top of `1.2.0` — rolls up **316 closed issues** under the 1
 
 ### Documentation
 
-- Fix `CHANGELOG.md` release-page links on GitHub (#245) [Bug]
+- Fix `CHANGELOG.md` release-page links on the public git host (#245) [Bug]
 - Three stale references to `tuning_ops_poll_interval_ms` / `OPS_POLL_INTERVAL_MS` cleaned up in `README.md`,... (#253) [Bug]
 - deploy.yml — replaced `actions/checkout@v4` with a manual SHA-256-compatible clone step (#305) [Bug]
 - Hardened deploy.yml version-source resolution — code-complete (#334) [Enhancement]
-- Extend deploy.yml to also push the built image to Forgejo's container registry (#335) [Enhancement]
+- Extend deploy.yml to also push the built image to the container registry (#335) [Enhancement]
 - Dockerfile OCI `image.source` label now carries a multi-line LABEL comment cross-referencing... (#383) [Enhancement]
 - `_clean_host_snmp` now carries an explicit comment documenting that omission == disabled (#384) [Enhancement]
 
@@ -375,7 +385,7 @@ Third MINOR cut on top of `1.2.0` — rolls up **316 closed issues** under the 1
 - Fix fan-out 504s from `/api/hosts/one/<id>` saturating NPM's upstream pool (#244) [Enhancement]
 - No-static-config rule + first knob converted (`PARALLEL` → `tuning_hosts_parallel_fetch`) (#246) [Enhancement]
 - Admin → Process tunables — fixed hardcoded "six" subtitle + rewrote every help string with detailed use-case... (#247) [Bug]
-- switched from relative paths to absolute GitHub URLs (#250) [Bug]
+- switched from relative paths to absolute git-host URLs (#250) [Bug]
 - `_get_host_provider_state` re-computes `active` + `cred_blob` + `cache_key` INSIDE `_host_provider_lock` via... (#252) [Enhancement]
 - `_webmin_host_cache.pop(h["id"], None)` also fires on failure-write branch (#255) [Bug]
 - Fix — added `tuning_host_snapshots_cache_ttl_seconds` to the SPA's `tuningKeys` array (#258) [Enhancement]
@@ -390,11 +400,11 @@ Third MINOR cut on top of `1.2.0` — rolls up **316 closed issues** under the 1
 - Nodes-section source-count chip overcount — fixed both sides (#323) [Enhancement]
 - Split `cloudflared` from `cloudflare` "solved now" (#325) [Bug]
 - Three-front fix shipped (#332) [Bug]
-- Flip Swarm to PULL from Forgejo registry instead of using local-only tags (#336) [Enhancement]
+- Flip Swarm to PULL from the container registry instead of using local-only tags (#336) [Enhancement]
 - Removed Admin → Version page + GET/POST `/api/admin/version` endpoints (#337) [Bug]
 - Title-row spacing unified across ALL admin tabs to the dominant `mb-2` pattern (#339) [Bug]
 - Admin → Sessions tab spacing unified — `space-y-3` → `space-y-4` (matches Users / Tokens / Notifications... (#340) [Enhancement]
-- Added `.github/dependabot.yml` for automated dep-bump PRs when the repo is mirrored to GitHub (#343) [Enhancement]
+- Automated dep-bump PR config added for the public mirror (#343) [Enhancement]
 - Fixed the digest-mismatch ✕ status on OmniGrid's own row (#344) [Bug]
 - CRITICAL: cross-host SSH toggle bug — ticking row A's checkbox auto-enabled OTHER rows that didn't have an... (#348) [Enhancement]
 - Digest-mismatch root cause + real fix (#344 follow-up; #117 investigation result) (#349) [Bug]
@@ -763,17 +773,13 @@ First MINOR cut after the `1.0.0` baseline — rolls up **97 closed issues** und
 
 Baseline release — first version under the SemVer + `CHANGELOG.md`
 cadence (see `docs/RELEASE_PROCESS.md`). The changelog story starts
-here; implementation detail for everything that shipped before this
-baseline lives in `notes/note_todo.txt` under the `## Done` block,
-keyed by stable `#NNN` TODO IDs.
+here.
 
 <!-- Version link references — root-relative paths (start with `/`).
 
- Both GitHub and Forgejo's markdown renderers rewrite links starting with `/` as paths relative to the REPO root, not the host root. So `/releases/tag/v1.2.0` resolves to:
- - `https://github.com/<owner>/<repo>/releases/tag/v1.2.0` on GitHub
- - `https://<forgejo-host>/<owner>/<repo>/releases/tag/v1.2.0` on Forgejo Same source line works on both hosts — no operator-specific domain or username baked in (privacy rule satisfied), no `..`-count to tune per renderer (the previous fix attempts in #507/#512/#513 chased this for several rounds).
+ Both git-host markdown renderers rewrite links starting with `/` as paths relative to the REPO root, not the host root. So `/releases/tag/v1.2.0` resolves to `https://<host>/<owner>/<repo>/releases/tag/v1.2.0` on either platform — same source line works on both hosts. No operator-specific domain or username baked in (privacy rule satisfied), no `..`-count to tune per renderer (the previous fix attempts in #507/#512/#513 chased this for several rounds).
 
- Why not relative paths: GitHub uses `<host>/<owner>/<repo>/blob/<branch>/` (4 segments before the file) so 2 `..` resolves correctly; Forgejo uses `.../src/branch/<branch>/` (5 segments) AND its renderer can drop `..` traversal that would escape the file's directory. No `..`-count satisfies both. Root-relative sidesteps this entirely.
+ Why not relative paths: one git host uses `<host>/<owner>/<repo>/blob/<branch>/` (4 segments before the file) so 2 `..` resolves correctly; another uses `.../src/branch/<branch>/` (5 segments) AND its renderer can drop `..` traversal that would escape the file's directory. No `..`-count satisfies both. Root-relative sidesteps this entirely.
 
  We don't have a v1.0.0 release tag (no `[1.0.0]` link target on purpose); the heading above renders as `## [1.0.0]` text, which is fine. The `[Unreleased]` link points at the milestones view since no release page exists yet.
 -->
