@@ -50,9 +50,30 @@
     "nodes": "Nodes",
     "hosts": "Hosts",
     "history": "History",
+    "notifications": "Notifications",
     "settings": "Settings",
     "admin": "Admin",
     "stacks_updates_title": "{count} pending update(s)"
+  },
+  "avatar": {
+    "unread_badge_aria": "{count} unread notifications"
+  },
+  "notifications": {
+    "heading": "Notifications",
+    "empty": "No notifications yet — events fire here as they happen.",
+    "mark_read": "Mark read",
+    "mark_all_read": "Mark all read",
+    "marked_all_read": "Marked {count} as read",
+    "filter_severity": "Severity:",
+    "filter_event": "Event:",
+    "filter_unread_only": "Unread only",
+    "unread_count": "{count} unread",
+    "severity": {
+      "info": "Info",
+      "warning": "Warning",
+      "error": "Error",
+      "success": "Success"
+    }
   },
   "topbar": {
     "search_placeholder": "Search resources, stacks, images…  (/)",
@@ -646,6 +667,10 @@
       "subtitle": "UI-side service settings that don't fit auth, hosts, scheduling, or notifications. Today: Open-Meteo (topbar weather widget). Future home for any other ambient/UI integrations."
     },
     "notifications": {
+      "mediums_title": "Delivery channels",
+      "medium_help": "Each enabled event fans out to every channel below. Turn one off to silence it without disabling events globally — for example keep in-app on while quieting Apprise during a maintenance window.",
+      "medium_app": "In-app notifications page",
+      "medium_apprise": "Apprise (external)",
       "events": {
         "title": "Per-event notifications",
         "subtitle": "Enable / disable specific notification events. Test notifications always send regardless of these toggles.",
@@ -728,6 +753,10 @@
         "tuning_log_retention_days": {
           "label": "Log retention (days)",
           "help": "How long persistent log files at /app/data/logs/omnigrid-YYYY-MM-DD.log are kept before the hourly pruner sweep deletes them. The in-memory ring buffer in Admin → Logs (Live tab) is INDEPENDENT — it always shows the last 2000 lines from the current process and is unaffected by this setting. Lower it if disk space is tight; raise it for longer audit trails / forensic windows. Default 7d. Pruner clamps to (1, 365) at consume time so a corrupt DB row can't disable the sweep entirely."
+        },
+        "tuning_notification_retention_days": {
+          "label": "Notifications retention (days)",
+          "help": "How long rows in the in-app notifications store are kept before the prune_notifications schedule kind deletes them. Drives the badge / Notifications page time horizon. Independent from log retention so operators can keep a multi-month notifications trail (audit / quarterly review) without inflating the daily log file disk usage. Lower it on a tiny SQLite footprint; raise it for longer audit trails. Default 90 days. Pruner clamps to the (1, 3650) range at consume time so a corrupt DB row can't disable the sweep entirely. Takes effect on the next prune_notifications run; a manual Run-now from Admin → Schedules applies the new value immediately."
         },
         "tuning_host_snapshots_cache_ttl_seconds": {
           "label": "Host snapshots cache TTL (seconds)",
