@@ -292,7 +292,7 @@
     --col-cpu: 90px;
     --col-mem: 170px;
     --col-disk: 90px;
-    --col-node: 140px;
+    --col-node: 200px;
     --col-action: 150px;
 }
 
@@ -433,19 +433,20 @@
 /* ---------------------------------------------------------------------------
    Base typography
    --------------------------------------------------------------------------- */
-/* Body-scroll lock when any drawer is open (#835). Applied to BOTH
-   html AND body via the .drawer-scroll-lock class because the actual
-   scroll viewport varies by browser (Chrome scrolls on html, Safari
-   on body, Firefox on either depending on doctype + content) — pre-
-   fix setting only `body.style.overflow` left vertical scroll active
-   on browsers where `html` is the scroll viewport. `position: fixed`
-   on body is the additional reliability gear: even when `overflow:
-   hidden` doesn't kill the scroll on iOS Safari (a known quirk), the
-   fixed positioning does. The `width: 100%` keeps the body at the
-   correct width while position-fixed; without it the body would
-   collapse to its content width on browsers that interpret
-   position:fixed as auto-shrink. !important fights the `overflow-x:
-   clip` rule below. */
+/* Body-scroll lock when any drawer is open. Applied to BOTH html AND
+   body because the actual scroll viewport varies by browser (Chrome
+   scrolls on html, Safari on body, Firefox on either depending on
+   doctype + content) — setting overflow on only one of them left
+   vertical scroll active on the other. `!important` fights the
+   `overflow-x: clip` rule on the base `html, body` selector below.
+   Known limitation: iOS Safari can still leak momentum-scroll past
+   `overflow: hidden` in some configurations. The full belt-and-braces
+   fix is `position: fixed; top: -<scrollY>px; width: 100%;` on body
+   with JS-side scroll-position capture / restore on unlock — not
+   shipped here because the operator's primary deploy is desktop and
+   the JS-side scroll restoration adds non-trivial complexity. If a
+   future operator hits the iOS leak, the JS lock helper in
+   `static/js/app.js` is the right place to add it. */
 html.drawer-scroll-lock,
 body.drawer-scroll-lock {
     overflow: hidden !important;
@@ -1770,7 +1771,18 @@ details summary::-webkit-details-marker {
     display: flex;
     flex-wrap: wrap;
     justify-content: flex-end;
-    gap: var(--s-2);
+    /* Bumped base gap from --s-2 (4px) to --s-4 (8px) — 14 chart
+       cards previously inlined `style="gap:8px"` because the multi-
+       legend layout needed more breathing room than the original
+       Min/Max-only stat row. Promoting the 8px to a class rule
+       eliminates the inline-style drift class flagged in the
+       2026-05-02 UX review (CSS-HIGH). The Min/Max-only consumers
+       (6 sites) gain the same 8px spacing — barely-perceptible
+       widening, consistent rhythm. If a specific card needs a
+       tighter gap going forward, it overrides via a modifier class
+       (e.g. `.metric-card-stats--tight { gap: var(--s-2); }`)
+       rather than reaching for an inline style. */
+    gap: var(--s-4);
     align-items: baseline;
     /* min-width:0 lets this flex child shrink past its intrinsic
        content width when the head wraps; without it Chromium / Safari
@@ -2926,7 +2938,13 @@ details summary::-webkit-details-marker {
     display: inline-flex;
     align-items: center;
     gap: var(--s-2);
-    padding: 1px var(--s-3) 1px 5px;
+    /* Token-discipline: inline-start used to be a hardcoded 5px
+       which doesn't fit the --s-* family — collapsed to 1px /
+       var(--s-3) shorthand for token rhythm. The 1px top/bottom
+       values stay sub-token because no spacing token covers a 1px
+       nudge and these chips deliberately want to be tight against
+       the chip-row's baseline. */
+    padding: 1px var(--s-3);
     background: var(--surface-2);
     border: 1px solid var(--border);
     border-radius: var(--r-md);
@@ -3224,6 +3242,14 @@ button:focus:not(:focus-visible) {
         animation-duration: 0.001ms !important;
         animation-iteration-count: 1 !important;
         transition-duration: 0.001ms !important;
+    }
+    /* Restore full opacity on the chart cards for reduced-motion
+       users — the static 0.6 baseline (without the pulse animation
+       to communicate "loading") drops --text-dim below WCAG AA at
+       ~2.3:1 against --surface. The inline "Refreshing…" pill next
+       to the range picker is the canonical busy cue for these users. */
+    .charts-refreshing > .metric-card {
+        opacity: 1 !important;
     }
 }
 
@@ -4010,7 +4036,13 @@ body.login {
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    padding: 3px;
+    /* Token-discipline: was 3px (no --s-* token at that size). Used
+       --s-1 (2px) for token rhythm — the 1px visual delta is
+       imperceptible against the 12×12 SVG glyph this button wraps
+       and the resulting 16×16 effective tap target stays close to
+       the original. If a thumb-size button pattern recurs at 3px,
+       define a --s-half token rather than restoring this literal. */
+    padding: var(--s-1);
     background: transparent;
     border: 1px solid transparent;
     border-radius: var(--r-sm);

@@ -160,11 +160,14 @@ Any HTTPS-terminating proxy works — Nginx Proxy Manager, Traefik, Caddy, plain
 | `STATS_HISTORY_DAYS` | `7` | Retention window for the time-series tables (`stats_samples` / `host_metrics_samples` / `host_net_samples`). |
 | `STATS_SAMPLE_INTERVAL_SECONDS` | `300` | How often the lifespan samplers snapshot into the time-series tables. |
 | `SNMP_SAMPLE_INTERVAL_SECONDS` | `0` | SNMP-specific sample interval. `0` inherits the global `STATS_SAMPLE_INTERVAL_SECONDS`; any value `30..3600` overrides for SNMP probes only (printers can poll hourly while switches poll every minute). |
+| `SNMP_HOST_CACHE_TTL_SECONDS` / `SNMP_HOST_FAIL_CACHE_TTL_SECONDS` | `30` / `5` | Per-host SNMP success / failure probe cache TTLs. Distinct from the Webmin pair so a Webmin tweak can't silently re-tune SNMP. |
+| `SNMP_UNREACHABLE_COOLDOWN_SECONDS` | `300` | SNMP-specific unreachable cool-down. Distinct from `AUTH_FAILURE_COOLDOWN_SECONDS` (no auth challenge to lock out against). |
+| `STAT_BAR_WARN_PCT` / `STAT_BAR_CRIT_PCT` | `60` / `85` | Hosts-view stat-bar amber / red threshold percentages. Edit live from Admin → Config; the SPA reads via `/api/me`'s `client_config.stat_bar_warn_pct`. |
 | `HOST_PERMANENT_FAIL_WINDOW_SECONDS` | `900` | `host_metrics_sampler` auto-pause window after consecutive probe failures. |
-| `OPS_POLL_INTERVAL_SECONDS` | `2` | SPA `/api/ops` poll cadence in seconds; multiplied × 1000 before delivery via `/api/me`'s `client_config.ops_poll_ms` (renamed from `OPS_POLL_INTERVAL_MS` in #514 for operator-friendly admin UI). |
+| `OPS_POLL_INTERVAL_SECONDS` | `2` | SPA `/api/ops` poll cadence in seconds; multiplied × 1000 before delivery via `/api/me`'s `client_config.ops_poll_ms` (renamed from the legacy `OPS_POLL_INTERVAL_MS` for operator-friendly admin UI). |
 | `LOG_RETENTION_DAYS` | `7` | Persistent-log retention for `/app/data/logs/` (pruned hourly). |
 | `HOST_SNAPSHOTS_CACHE_TTL_SECONDS` | `5` | Read-side cache TTL on `host_snapshots` to collapse parallel `/api/hosts/one/{id}` reads (set 0 to disable). |
-| `HOSTS_PARALLEL_FETCH` | `6` | Concurrency cap on the SPA's `/api/hosts/one/{id}` fan-out (read on `/api/me` as `client_config.hosts_parallel_fetch`; #508). |
+| `HOSTS_PARALLEL_FETCH` | `6` | Concurrency cap on the SPA's `/api/hosts/one/{id}` fan-out (read on `/api/me` as `client_config.hosts_parallel_fetch`). |
 
 The authoritative table is [`logic/tuning.py:TUNABLES`](logic/tuning.py); the env-var names above are mirrored from there. Every operator-tunable value lives in `TUNABLES` — no hardcoded magic numbers in Python / JS / HTML. Add new knobs there, never as code constants.
 

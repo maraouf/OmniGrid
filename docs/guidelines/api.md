@@ -192,7 +192,6 @@ type:
 | `op:completed` | Op terminates (success / error). | `{id, op_type, status, target_name, error, duration}` |
 | `cache:invalidated` | Items cache has been marked stale (post-op refresh, settings save). | `{reason}` |
 | `stats:refreshed` | `gather_stats()` finished a cycle. | `{items, with_stats, with_size, ts}` — hint only; consumers refetch via `/api/stats`. |
-| `host:row_updated` | A curated host's row state changed (provider data refreshed mid-tick). | `{id}` — hint only; consumers refetch the row via `/api/hosts/one/{id}`. |
 | `host:failure_state_changed` | Host sampler paused / cleared a host OR per-(provider, host) auto-pause flipped. | `{host_id, paused, consecutive_failures?, last_error?, cleared?, provider?}` — `provider` present for per-provider transitions (`snmp` / `webmin` / etc.). `host_id` is ALWAYS the bare id (the SPA's `/api/hosts/one/{id}` lookup needs the bare value, not the prefixed key the table stores). |
 | `host:history_appended` | A new row was inserted into `host_metrics_samples` for a curated host. | `{host_id, ts}` — hint only; consumers refetch the full window via `/api/hosts/history`. |
 | `host:ping_sampled` | New ping sample landed in `ping_samples` for a curated host. | `{host_id, alive, rtt_ms, loss_pct, ts}` — hint only; consumers refetch via `/api/hosts/{id}/ping/history`. |
@@ -306,6 +305,16 @@ curl -sS -H "Authorization: Bearer $TOKEN" \
   | jq '.hosts[] | {id, label, status, providers}'
 ```
 
+`/api/hosts/list` does **snapshot-first render**: every row is pre-populated
+from the persisted `host_snapshots` table with `_stale_fields` /
+`_stale_ts` markers stamped. The SPA's existing stale-rendering pipeline
+(dimmed values + "X minutes ago" tooltip) kicks in automatically so a
+repeat visit paints instantly with cached values, then upgrades silently
+as `/api/hosts/one/{id}` fan-out lands. First-time visits with an empty
+snapshot table fall through to the legacy skeleton shape. Bearer-token
+clients see the same stale markers and can decide whether to trust them
+or force-fetch via `?force=true`.
+
 For full telemetry on one host (cached 10s server-side; per-host probe budget is 30s — beyond that the endpoint returns a 504 with `detail: "per-host probe budget exceeded (30s) for <id>"` so OmniGrid's explicit 504 always fires before NPM's generic 60s `proxy_read_timeout`):
 
 ```bash
@@ -319,9 +328,11 @@ curl -sS -H "Authorization: Bearer $TOKEN" \
   "https://omnigrid.example.com/api/hosts/one/host01?force=true"
 ```
 
-Concurrent fan-out from a SPA / dashboard tile is single-flight on the server: the first cold-cache caller pays the Beszel + Pulse hub probe, every parallel caller within the same window awaits and reuses the populated cache (#506). The SPA caps its own fan-out via `client_config.hosts_parallel_fetch` (`/api/me`) — see "Client config" below. Lazy fetch (#603): the SPA only calls `/api/hosts/one/{id}` for rows that enter the viewport (IntersectionObserver with a 200 px above/below `rootMargin`) instead of fanning out at page load — bearer-token scrapers polling on a fixed cadence don't get this optimisation and should still consider `?force=true` carefully.
+Concurrent fan-out from a SPA / dashboard tile is single-flight on the server: the first cold-cache caller pays the Beszel + Pulse hub probe, every parallel caller within the same window awaits and reuses the populated cache. The SPA caps its own fan-out via `client_config.hosts_parallel_fetch` (`/api/me`) — see "Client config" below. Lazy fetch: the SPA only calls `/api/hosts/one/{id}` for rows that enter the viewport (IntersectionObserver with a 200 px above/below `rootMargin`) instead of fanning out at page load — bearer-token scrapers polling on a fixed cadence don't get this optimisation and should still consider `?force=true` carefully.
 
-The legacy `/api/hosts` endpoint composes `/list` + `/one` per-row and shares the same single-flight + Webmin success/fail caches (#524). It's the lowest-friction shape for one-call dashboard scrapers (Homarr widget, Grafana JSON-API panel) that want one round-trip for the whole fleet — but at the cost of waiting for every per-host probe before returning. Prefer the split endpoints for SPA-style UIs.
+`/api/hosts/one/{id}` also writes to `host_snapshots` after a successful merge: when at least one snapshot-eligible field came from a LIVE provider (i.e. is meaningful AND not in `_stale_fields`), the merged dict is persisted so the next `/api/hosts/list` render falls back to it cleanly. Entirely-fallback merges (every snapshot-eligible field came from the snapshot itself) skip the write — the snapshot's `ts` only advances on real live data, so the freshness banner ("Last live data Xm ago") matches the SNMP / time-series chart's own freshness label.
+
+The legacy `/api/hosts` endpoint composes `/list` + `/one` per-row and shares the same single-flight + Webmin success/fail caches. It's the lowest-friction shape for one-call dashboard scrapers (Homarr widget, Grafana JSON-API panel) that want one round-trip for the whole fleet — but at the cost of waiting for every per-host probe before returning. Prefer the split endpoints for SPA-style UIs.
 
 For time-series charts (1 / 6 / 24 / 168 hour windows):
 
