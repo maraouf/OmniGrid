@@ -176,13 +176,10 @@ it before your first PR. The non-obvious ones:
    Fixed / Removed / Deprecated / Security / Internal). Don't include
    `#NNN` issue refs in CHANGELOG bullets — those belong in the PR
    description.
-5. **Don't update `notes/note_todo.txt`.** That file is the project
-   maintainer's working log and is updated as part of the merge
-   workflow. PRs against `notes/` won't be merged.
-6. **Don't bump `VERSION.txt` or the `[Unreleased]` heading.** PATCH
+5. **Don't bump `VERSION.txt` or the `[Unreleased]` heading.** PATCH
    bumps happen automatically on CI deploy; MINOR / MAJOR cuts are
    operator-controlled per the [Release Process](docs/RELEASE_PROCESS.md).
-7. **Self-review your diff.** Skim the unified diff one final time
+6. **Self-review your diff.** Skim the unified diff one final time
    before pushing — extra console logs, debug prints, commented-out
    code, half-finished comments tend to land in PRs that rush the
    final review.
