@@ -26,6 +26,17 @@ Items that have shipped to the live deploy as a PATCH bump but haven't
 yet been rolled into a numbered `MINOR` release. When the operator cuts
 the next release, this whole block becomes the `[X.Y.0]` entry below.
 
+### Added
+
+- In-app notifications. Every event that already fires through Apprise (stack / container / service / prune ops, login, host sampling auto-pause) now also writes a row into a new `notifications` SQLite table. A Notifications view (linked from the user-avatar dropdown) renders the rows newest-first with severity dots, event icons, mark-read / mark-all-read controls, and severity / event / unread filter chips. The avatar shows an unread-count badge that ticks live over SSE (`notification:created` / `:read` / `:deleted` event types), with a 30s polling fallback for bearer-token clients.
+- Per-medium notification toggles. Admin → Notifications gains two checkboxes — "In-app" and "Apprise" — that gate each delivery channel independently of the per-event toggles. Both default ON for back-compat. The dispatcher in `logic/ops.py:notify` fans out to every enabled medium in parallel via `asyncio.gather`, so a failure in one channel doesn't drop delivery on the others. CLAUDE.md gains a "Canonical extension pattern: add a notification medium" bullet codifying the six-step contract for adding a third medium.
+- New `prune_notifications` schedule kind that sweeps notifications older than `tuning_notification_retention_days` (default 90 days). Operator-tunable from Admin → Config; admin-creatable from Admin → Schedules with the existing cron picker.
+
+### Internal
+
+- `logic.ops.notify(...)` now accepts optional `target_kind` / `target_id` / `metadata` kwargs that flow into the in-app store's metadata column. Existing call sites are back-compat — the new kwargs default to None and the legacy three-positional signature still works. Five `_do_*` op handlers and four user-login paths thread the new kwargs so the in-app rows carry actionable target hints (host id, stack id, container id, login method).
+- New `notifications` SQLite table with indexes on `ts DESC` and a partial index on `read_at IS NULL` for the unread-count probe. Auth + retention plumbed through the standard four-place hydration audit (SettingsIn / api_get_settings / api_set_settings / loadSettings) so the per-medium toggles round-trip cleanly across browser tabs.
+
 ### Fixed
 
 - Apprise "Provider paused" / "Host sampling paused" titles now use the colour emoji warning glyph (⚠️) instead of the mono B&W variant — yellow triangle is visible at a glance in Apprise inboxes / Slack / Telegram alongside the rest of the operator's notifications instead of blending into the line.
