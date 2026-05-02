@@ -252,13 +252,38 @@ async def _one_container_stats(
     targeted_status: Optional[int] = None
     targeted_err: Optional[str] = None
     if node:
-        try:
-            r = await client.get(url, headers=portainer.headers(agent_target=node), timeout=targeted_to)
-            if r.status_code == 200:
-                return _parse_stats_payload(r.json())
-            targeted_status = r.status_code
-        except Exception as e:
-            targeted_err = f"{type(e).__name__}: {e}"
+        # Retry-on-500 loop for the agent-targeted call. Operator-
+        # observed pattern: with 16 concurrent stats requests fanning
+        # through one Portainer Swarm-agent forwarder, a small subset
+        # 500s with empty body — likely transient overload of the
+        # agent's per-target queue rather than the container being
+        # gone (the container WAS in the per-node sweep moments
+        # earlier, and `?stream=true` with one frame typically works
+        # on retry). Two short retries with linear backoff catch the
+        # transient case without hanging the gather on a genuinely
+        # broken cid (which 500s persistently → falls through to the
+        # untargeted call → 404 → diagnostic log).
+        for attempt in range(3):
+            try:
+                r = await client.get(
+                    url, headers=portainer.headers(agent_target=node),
+                    timeout=targeted_to,
+                )
+                if r.status_code == 200:
+                    return _parse_stats_payload(r.json())
+                targeted_status = r.status_code
+                # Only retry on 5xx — 404 means the agent doesn't have
+                # the cid, which won't change with a retry.
+                if r.status_code < 500 or attempt == 2:
+                    break
+            except Exception as e:
+                targeted_err = f"{type(e).__name__}: {e}"
+                if attempt == 2:
+                    break
+            # Linear backoff between attempts: 0.3s, 0.7s. Keeps the
+            # total worst-case at targeted_to + 1s overhead so a fleet
+            # of 100 stats calls doesn't blow the gather wall-clock.
+            await asyncio.sleep(0.3 + 0.4 * attempt)
     try:
         r = await client.get(url, headers=portainer.headers(), timeout=untargeted_to)
         if r.status_code == 200:
