@@ -269,44 +269,50 @@ def _pkce_pair() -> tuple[str, str]:
 # ----------------------------------------------------------------------------
 # `next` validation — open-redirect defense.
 # ----------------------------------------------------------------------------
-_SAFE_NEXT_PATH_RE = re.compile(r"^/[A-Za-z0-9/_.~%?#&=:@!$'()*+,;\[\]\-]*\Z")
+_SAFE_NEXT_PATH_RE = re.compile(r"/[A-Za-z0-9/_.~%?#&=:@!$'()*+,;\[\]\-]*")
+_SAFE_NEXT_FALLBACK = "/"
 
 
 def _safe_next(value: Optional[str]) -> str:
-    """Return a same-origin relative path or ``/``. Rejects schemes and
-    protocol-relative URLs that could send the user off-site after login.
+    """Return a same-origin relative path or ``/``.
 
-    Two-stage validation:
+    Three-stage validation chosen to satisfy CodeQL's
+    ``py/url-redirection`` taint tracker (regex-allow-list-then-take-
+    Match.group is the contract it recognises; previous attempts
+    using `re.match` + return value verbatim were still flagged):
+
       1. Reject obvious off-site forms by prefix (no leading slash,
          protocol-relative ``//``, Windows-style ``/`` followed by a
          backslash, or any backslash anywhere — some user-agents
          normalise backslashes to forward slashes mid-flight, which
          can re-introduce a ``//attacker.example`` netloc after a
          pure prefix check has already passed).
-      2. Whitelist via a strict regex: the path MUST start with ``/``
-         and contain only RFC 3986 path / query / fragment characters
-         (alphanumeric, ``/_.~%?#&=:@!$'()*+,;[]-``). Anything outside
-         that allow-list — including a smuggled second-segment netloc
-         like ``/foo/../@evil.example`` — fails closed to ``/``.
+      2. ``re.fullmatch`` the value against an allow-list of RFC 3986
+         path / query / fragment characters. Anything outside that set
+         — including a smuggled second-segment netloc like
+         ``/foo/../@evil.example`` — fails closed.
+      3. Return ``m.group(0)`` rather than the original ``value``, so
+         the returned string flows from a Match object instead of the
+         raw user input. This is the canonical CodeQL sanitiser
+         pattern and matches the JS-side ``login.js:nextPath()`` fix
+         from #871.
 
-    The regex-match-then-return-verbatim contract is the one CodeQL's
-    ``py/url-redirection`` taint tracker recognises as a sanitiser, so
-    the alert stops firing on the ``RedirectResponse(url=next_path)``
-    sites in this module. Same shape as the JS-side fix in
-    ``login.js:nextPath()`` from #871 — both ends of the open-redirect
-    surface go through a parser-and-allowlist trust boundary now.
+    Defensive fallback constant ``_SAFE_NEXT_FALLBACK`` (``"/"``) is
+    used for every reject path so the return values are either a
+    Match-derived substring or a literal — never the raw input.
     """
     if not value:
-        return "/"
+        return _SAFE_NEXT_FALLBACK
     if not value.startswith("/"):
-        return "/"
+        return _SAFE_NEXT_FALLBACK
     if value.startswith("//") or value.startswith("/\\"):
-        return "/"
+        return _SAFE_NEXT_FALLBACK
     if "\\" in value:
-        return "/"
-    if not _SAFE_NEXT_PATH_RE.match(value):
-        return "/"
-    return value
+        return _SAFE_NEXT_FALLBACK
+    m = _SAFE_NEXT_PATH_RE.fullmatch(value)
+    if m is None:
+        return _SAFE_NEXT_FALLBACK
+    return m.group(0)
 
 
 # ----------------------------------------------------------------------------

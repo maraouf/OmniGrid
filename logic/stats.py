@@ -229,22 +229,45 @@ async def _one_container_stats(
     aggregation doesn't resolve the container. On any failure, fall back
     to the untargeted call so we don't regress containers that today
     work fine without a target header.
+
+    Both branches log the response status / error code on failure —
+    when the per-service stats row reads as ``—`` for a worker-node
+    container, the diagnostic line in Admin → Logs is the primary
+    path for figuring out why (e.g. ``404`` means the agent doesn't
+    have the cid; a connection error means the agent isn't deployed
+    on that node at all and there's no API path through Portainer).
     """
     url = f"{portainer.PORTAINER_URL}{ep}/containers/{cid}/stats?stream=false"
+    targeted_status: Optional[int] = None
+    targeted_err: Optional[str] = None
     if node:
         try:
             r = await client.get(url, headers=portainer.headers(agent_target=node), timeout=4.0)
             if r.status_code == 200:
                 return _parse_stats_payload(r.json())
-        except Exception:
-            pass
+            targeted_status = r.status_code
+        except Exception as e:
+            targeted_err = f"{type(e).__name__}: {e}"
     try:
         r = await client.get(url, headers=portainer.headers(), timeout=10.0)
-        if r.status_code != 200:
-            return None
-        return _parse_stats_payload(r.json())
+        if r.status_code == 200:
+            return _parse_stats_payload(r.json())
+        if node:
+            print(f"[stats] {cid[:12]} no stats — "
+                  f"agent_target={node} status={targeted_status or 'err'}"
+                  f"{' (' + targeted_err + ')' if targeted_err else ''}, "
+                  f"untargeted status={r.status_code}")
+        else:
+            print(f"[stats] {cid[:12]} no stats — untargeted status={r.status_code}")
+        return None
     except Exception as e:
-        print(f"[stats] {cid[:12]}: {e}")
+        if node:
+            print(f"[stats] {cid[:12]} no stats — "
+                  f"agent_target={node} status={targeted_status or 'err'}"
+                  f"{' (' + targeted_err + ')' if targeted_err else ''}, "
+                  f"untargeted err: {type(e).__name__}: {e}")
+        else:
+            print(f"[stats] {cid[:12]}: {type(e).__name__}: {e}")
         return None
 
 
@@ -403,12 +426,13 @@ async def gather_stats() -> None:
             # list. If it WAS in the list, we just refine the node
             # mapping (tasks-derived NodeID is more authoritative than
             # the per-node sweep when both disagree). If it WASN'T, we
-            # add it with empty size info but a real node hint, so the
-            # subsequent ``_one_container_stats`` call routes correctly.
+            # add it WITHOUT a size_root_by_cid entry — leaving size
+            # dicts unpopulated keeps ``has_size=False`` on the per-
+            # item walk so disk renders as ``—`` (unknown) rather than
+            # the misleading ``0 B``. CPU + memory go through the
+            # separate stats fetch which doesn't depend on size data.
             if tcid not in svc_by_cid:
                 svc_by_cid[tcid] = tsid
-                size_root_by_cid.setdefault(tcid, 0)
-                size_rw_by_cid.setdefault(tcid, 0)
                 running_cids.append(tcid)
                 tasks_added += 1
             elif tsid and not svc_by_cid.get(tcid):
