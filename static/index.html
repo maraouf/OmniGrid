@@ -460,17 +460,27 @@
                 class="flex items-center gap-1 p-1 rounded-full hover:bg-[var(--surface-2)] transition"
                 :title="me ? t('app.signed_in_as') + ' ' + me.username : ''"
                 :aria-expanded="userMenuOpen">
-          <span class="user-avatar relative" :style="'--avatar-hue:' + avatarHue()">
-            <!-- User-uploaded image takes priority. Falls back to the
-                 hue+initial generated avatar when no upload exists or
-                 when the upload 404s (e.g. file deleted out-of-band). -->
-            <template x-if="me && me.avatar_url">
-              <img :src="me.avatar_url" alt="" class="user-avatar-img"
-                   @error="me.avatar_url = null">
-            </template>
-            <template x-if="!(me && me.avatar_url)">
-              <span x-text="initial()"></span>
-            </template>
+          <!-- Wrapper provides the positioning anchor for the unread
+               badge. Pre-fix the badge lived INSIDE `.user-avatar` and
+               got clipped by its `overflow: hidden` (which keeps the
+               uploaded avatar image inside the circular boundary) so
+               operators saw only a small sliver of the badge in the
+               corner. Moving the badge OUTSIDE the avatar — but inside
+               this `relative` wrapper — keeps the image clip behaviour
+               while letting the badge render in full above the circle. -->
+          <span class="relative">
+            <span class="user-avatar" :style="'--avatar-hue:' + avatarHue()">
+              <!-- User-uploaded image takes priority. Falls back to the
+                   hue+initial generated avatar when no upload exists or
+                   when the upload 404s (e.g. file deleted out-of-band). -->
+              <template x-if="me && me.avatar_url">
+                <img :src="me.avatar_url" alt="" class="user-avatar-img"
+                     @error="me.avatar_url = null">
+              </template>
+              <template x-if="!(me && me.avatar_url)">
+                <span x-text="initial()"></span>
+              </template>
+            </span>
             <!-- Unread-notifications badge (#855). Shows the count
                  (capped at 99+) when any notifications are unread.
                  Hidden entirely at 0 — operators don't want a "0" pill
@@ -502,7 +512,7 @@
                so the operator sees the count without leaving the
                dropdown. The chip is hidden at 0 so a clean state
                doesn't look like dead UI. -->
-          <button @click="userMenuOpen=false; view='notifications'" class="user-menu-item user-menu-item-with-badge">
+          <button @click="userMenuOpen=false; openNotificationsPopup()" class="user-menu-item user-menu-item-with-badge">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
             <span x-text="t('nav.notifications')"></span>
             <span class="user-menu-item-badge" x-show="(notificationsUnread || 0) > 0"
@@ -2484,102 +2494,9 @@
       </div>
     </div>
 
-    <!-- ===== NOTIFICATIONS VIEW ===== -->
-    <!-- In-app notifications surface (#855). Sibling of the History view —
-         lists every event that fired through the `app` medium of
-         `logic/ops.py:notify`. Filter chips (severity / event /
-         unread-only) compose AND. Mark-read updates are optimistic with
-         backend rollback, and SSE keeps the list current without polling
-         when the live channel is healthy (30s polling fallback otherwise). -->
-    <div x-show="view==='notifications'" class="space-y-3">
-      <div class="flex flex-wrap justify-between items-center gap-2">
-        <div>
-          <h2 class="font-semibold text-[15px]" x-text="t('notifications.heading')"></h2>
-          <div class="text-[11px] text-[var(--text-faint)]">
-            <span x-text="t('notifications.unread_count', { count: notificationsUnread })"></span>
-          </div>
-        </div>
-        <div class="flex flex-wrap gap-2 items-center">
-          <button @click="loadNotifications()" class="btn btn-ghost text-[12px]" x-text="t('actions.reload')"></button>
-          <button @click="markAllNotificationsRead()" class="btn btn-soft text-[12px]"
-                  :disabled="(notificationsUnread || 0) === 0"
-                  x-text="t('notifications.mark_all_read')"></button>
-        </div>
-      </div>
-
-      <!-- Filter chips. The severity radiogroup uses ARIA `radiogroup`
-           per CLAUDE.md "Filter chips need aria-pressed when used as
-           toggles" — radio semantic because the choices are mutually
-           exclusive (one severity at a time, NOT multi-select). -->
-      <div class="flex flex-wrap gap-2 items-center text-[12px]">
-        <span class="text-[var(--text-faint)]" x-text="t('notifications.filter_severity')"></span>
-        <div role="radiogroup" :aria-label="t('notifications.filter_severity')" class="flex gap-1">
-          <template x-for="sev in ['all','info','success','warning','error']" :key="sev">
-            <button role="radio" :aria-checked="notificationsFilterSeverity === sev"
-                    @click="notificationsFilterSeverity = sev; loadNotifications()"
-                    :class="notificationsFilterSeverity === sev ? 'chip chip-active' : 'chip'"
-                    x-text="sev === 'all' ? t('filters.all') : t('notifications.severity.' + sev)"></button>
-          </template>
-        </div>
-
-        <span class="text-[var(--text-faint)] ms-2" x-text="t('notifications.filter_event')"></span>
-        <select x-model="notificationsFilterEvent" @change="loadNotifications()"
-                class="text-[12px]">
-          <option value="all" x-text="t('filters.all')"></option>
-          <template x-for="ev in notificationEventOptions()" :key="ev">
-            <option :value="ev" x-text="ev"></option>
-          </template>
-        </select>
-
-        <label class="ms-2 inline-flex items-center gap-1">
-          <input type="checkbox" x-model="notificationsFilterUnread"
-                 @change="loadNotifications()">
-          <span x-text="t('notifications.filter_unread_only')"></span>
-        </label>
-      </div>
-
-      <div x-show="notificationsLoading" class="loading-state">
-        <span class="spin-lg" aria-hidden="true"></span>
-        <span x-text="t('loading.section')"></span>
-      </div>
-
-      <div x-show="!notificationsLoading && notifications.length === 0"
-           class="text-center py-16 text-[var(--text-faint)] text-sm"
-           x-text="t('notifications.empty')"></div>
-
-      <div x-show="!notificationsLoading && notifications.length > 0"
-           class="space-y-2">
-        <template x-for="n in notifications" :key="n.id">
-          <article class="notification-row"
-                   :class="(n.read_at == null) ? 'notification-row--unread' : 'notification-row--read'"
-                   :data-severity="n.severity || 'info'">
-            <span :class="notificationDotClass(n.severity)" aria-hidden="true"></span>
-            <div class="notification-row-body">
-              <div class="notification-row-header">
-                <span class="notification-row-title" x-text="n.title || n.event || ''"></span>
-                <span class="notification-row-meta">
-                  <span class="text-[11px] text-[var(--text-faint)]" x-text="fmtAgo(n.ts * 1000)"></span>
-                  <button x-show="n.read_at == null"
-                          @click="markNotificationRead(n.id)"
-                          class="btn btn-ghost text-[11px]"
-                          x-text="t('notifications.mark_read')"></button>
-                </span>
-              </div>
-              <div class="notification-row-sub" x-show="n.body" x-text="n.body"></div>
-              <div class="notification-row-footer">
-                <span class="chip" x-show="n.event" x-text="n.event"></span>
-                <span class="text-[11px] text-[var(--text-faint)]"
-                      x-show="n.actor"
-                      x-text="'@' + n.actor"></span>
-                <span class="text-[11px] text-[var(--text-faint)]"
-                      x-show="n.target_kind && n.target_id"
-                      x-text="n.target_kind + ': ' + n.target_id"></span>
-              </div>
-            </div>
-          </article>
-        </template>
-      </div>
-    </div>
+    <!-- (NOTIFICATIONS popup lives next to the HOTKEYS modal at the bottom
+         of this file — operators wanted a quick check + return to current
+         work without losing their place.) -->
 
     <!-- ===== SETTINGS VIEW ===== -->
     <div x-show="view==='settings'" class="page-layout">
@@ -12239,6 +12156,113 @@
         </div>
         <div class="p-4 border-t border-[var(--border)] flex justify-end">
           <button @click="lastCreatedToken = null" class="btn btn-primary text-[12px]" x-text="t('admin.token_modal.saved')"></button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ================== NOTIFICATIONS POPUP ==================
+       In-app notifications surface (#855). Operators wanted a quick
+       check + dismiss without losing their place on whatever view they
+       were on, so this is a modal overlay (same pattern as the hotkeys
+       modal below) rather than a top-level view. Click the avatar →
+       Notifications to open; backdrop click or Esc closes. SSE keeps
+       the list current while open; 30s polling fallback otherwise. -->
+  <div x-show="showNotificationsPopup" class="fixed inset-0 z-50 fade-in" x-cloak>
+    <div @click="showNotificationsPopup=false" class="absolute inset-0 backdrop-strong"></div>
+    <div class="relative flex items-start justify-center p-4 h-full overflow-auto scrollbar"
+         role="dialog" aria-modal="true" :aria-label="t('notifications.heading')"
+         @keydown.escape.window="showNotificationsPopup=false">
+      <div class="bg-[var(--surface)] border border-[var(--border)] rounded-md max-w-3xl w-full max-h-[90vh] overflow-y-auto scrollbar mt-[5vh]">
+        <div class="p-4 border-b border-[var(--border)] flex justify-between items-center sticky top-0 bg-[var(--surface)] z-10">
+          <div>
+            <h2 class="text-[15px] font-semibold" x-text="t('notifications.heading')"></h2>
+            <div class="text-[11px] text-[var(--text-faint)] mt-0.5">
+              <span x-text="t('notifications.unread_count', { count: notificationsUnread })"></span>
+            </div>
+          </div>
+          <div class="flex items-center gap-2">
+            <button @click="loadNotifications()" class="btn btn-ghost text-[12px]" x-text="t('actions.reload')"></button>
+            <button @click="markAllNotificationsRead()" class="btn btn-soft text-[12px]"
+                    :disabled="(notificationsUnread || 0) === 0"
+                    x-text="t('notifications.mark_all_read')"></button>
+            <button @click="showNotificationsPopup=false" class="btn btn-ghost"
+                    :aria-label="t('actions.close')">✕</button>
+          </div>
+        </div>
+        <div class="p-4 space-y-3">
+          <!-- Filter chips. The severity radiogroup uses ARIA `radiogroup`
+               per CLAUDE.md "Filter chips need aria-pressed when used as
+               toggles" — radio semantic because the choices are mutually
+               exclusive (one severity at a time, NOT multi-select). -->
+          <div class="flex flex-wrap gap-2 items-center text-[12px]">
+            <span class="text-[var(--text-faint)]" x-text="t('notifications.filter_severity')"></span>
+            <div role="radiogroup" :aria-label="t('notifications.filter_severity')" class="flex gap-1">
+              <template x-for="sev in ['all','info','success','warning','error']" :key="sev">
+                <button role="radio" :aria-checked="notificationsFilterSeverity === sev"
+                        @click="notificationsFilterSeverity = sev; loadNotifications()"
+                        :class="notificationsFilterSeverity === sev ? 'chip chip-active' : 'chip'"
+                        x-text="sev === 'all' ? t('filters.all') : t('notifications.severity.' + sev)"></button>
+              </template>
+            </div>
+
+            <span class="text-[var(--text-faint)] ms-2" x-text="t('notifications.filter_event')"></span>
+            <select x-model="notificationsFilterEvent" @change="loadNotifications()"
+                    class="text-[12px]">
+              <option value="all" x-text="t('filters.all')"></option>
+              <template x-for="ev in notificationEventOptions()" :key="ev">
+                <option :value="ev" x-text="ev"></option>
+              </template>
+            </select>
+
+            <label class="ms-2 inline-flex items-center gap-1">
+              <input type="checkbox" x-model="notificationsFilterUnread"
+                     @change="loadNotifications()">
+              <span x-text="t('notifications.filter_unread_only')"></span>
+            </label>
+          </div>
+
+          <div x-show="notificationsLoading" class="loading-state">
+            <span class="spin-lg" aria-hidden="true"></span>
+            <span x-text="t('loading.section')"></span>
+          </div>
+
+          <div x-show="!notificationsLoading && notifications.length === 0"
+               class="text-center py-16 text-[var(--text-faint)] text-sm"
+               x-text="t('notifications.empty')"></div>
+
+          <div x-show="!notificationsLoading && notifications.length > 0"
+               class="space-y-2">
+            <template x-for="n in notifications" :key="n.id">
+              <article class="notification-row"
+                       :class="(n.read_at == null) ? 'notification-row--unread' : 'notification-row--read'"
+                       :data-severity="n.severity || 'info'">
+                <span :class="notificationDotClass(n.severity)" aria-hidden="true"></span>
+                <div class="notification-row-body">
+                  <div class="notification-row-header">
+                    <span class="notification-row-title" x-text="n.title || n.event || ''"></span>
+                    <span class="notification-row-meta">
+                      <span class="text-[11px] text-[var(--text-faint)]" x-text="fmtAgo(n.ts * 1000)"></span>
+                      <button x-show="n.read_at == null"
+                              @click="markNotificationRead(n.id)"
+                              class="btn btn-ghost text-[11px]"
+                              x-text="t('notifications.mark_read')"></button>
+                    </span>
+                  </div>
+                  <div class="notification-row-sub" x-show="n.body" x-text="n.body"></div>
+                  <div class="notification-row-footer">
+                    <span class="chip" x-show="n.event" x-text="n.event"></span>
+                    <span class="text-[11px] text-[var(--text-faint)]"
+                          x-show="n.actor"
+                          x-text="'@' + n.actor"></span>
+                    <span class="text-[11px] text-[var(--text-faint)]"
+                          x-show="n.target_kind && n.target_id"
+                          x-text="n.target_kind + ': ' + n.target_id"></span>
+                  </div>
+                </div>
+              </article>
+            </template>
+          </div>
         </div>
       </div>
     </div>
