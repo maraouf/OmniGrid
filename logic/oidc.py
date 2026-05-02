@@ -186,11 +186,18 @@ async def test_discovery(issuer_url: str, verify_tls: Optional[bool] = None) -> 
     """
     if not issuer_url:
         return {"ok": False, "status": 0, "detail": "Issuer URL is empty"}
+    # Defence-in-depth on the admin-only OIDC issuer URL. CodeQL
+    # py/full-ssrf flags `client.get(url)` below — see
+    # ``logic/url_safety.py`` for the threat-model rationale.
+    from logic.url_safety import is_safe_http_url as _safe_url
+    if not _safe_url(issuer_url):
+        return {"ok": False, "status": 0,
+                "detail": "Issuer URL must be http:// or https:// with a hostname"}
     url = issuer_url.rstrip("/") + "/.well-known/openid-configuration"
     effective_verify = _verify_tls() if verify_tls is None else bool(verify_tls)
     try:
         async with httpx.AsyncClient(timeout=10.0, verify=effective_verify) as client:
-            r = await client.get(url)
+            r = await client.get(url)  # lgtm[py/full-ssrf]
         if r.status_code == 200:
             # Basic sanity check: discovery doc must advertise the three
             # endpoints we rely on, otherwise the flow will 500 later.

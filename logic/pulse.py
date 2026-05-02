@@ -101,8 +101,12 @@ async def _fetch_version(client: httpx.AsyncClient, base_url: str, token: str) -
     if cached is not None:
         return cached
     try:
+        # ``base_url`` is admin-set (validated at the probe_pulse entry
+        # point via ``is_safe_http_url``) and not public input — see
+        # ``logic/url_safety.py`` for the threat-model note backing the
+        # CodeQL suppression below.
         url = base_url.rstrip("/") + "/api/version"
-        r = await client.get(url, headers=_headers(token))
+        r = await client.get(url, headers=_headers(token))  # lgtm[py/full-ssrf]
         if r.status_code != 200:
             return None
         body = r.json()
@@ -271,10 +275,14 @@ async def _fetch_state(
     """
     paths = ("/api/state", "/api/v1/state", "/api/nodes")
     last_err: Optional[str] = None
+    # ``base_url`` is admin-set (validated at the probe_pulse entry
+    # point via ``is_safe_http_url``) and not public input — see
+    # ``logic/url_safety.py`` for the threat-model note backing the
+    # CodeQL suppression below.
     for p in paths:
         url = base_url.rstrip("/") + p
         try:
-            r = await client.get(url, headers=_headers(token))
+            r = await client.get(url, headers=_headers(token))  # lgtm[py/full-ssrf]
         except Exception as e:
             last_err = f"{p}: {e}"
             continue
@@ -553,6 +561,16 @@ async def probe_pulse(
     """
     if not base_url or not token:
         return {"hosts": {}, "error": "pulse: missing url or token"}
+    # Defence-in-depth on the admin-only Pulse URL setting. CodeQL
+    # py/full-ssrf flags `client.get(url, ...)` inside `_fetch_state` —
+    # see ``logic/url_safety.py`` for the threat-model rationale and
+    # the suppression markers on the call sites.
+    from logic.url_safety import is_safe_http_url as _safe_url
+    if not _safe_url(base_url):
+        return {
+            "hosts": {},
+            "error": "pulse: invalid url — must be http:// or https:// with a hostname",
+        }
     # ENH-013 (#428) — set the module-level base-url hint BEFORE we
     # call any extractor so `_value_is_gib(..., base_url)` consults
     # the right cache entry. Probe `/api/version` once per (base_url)

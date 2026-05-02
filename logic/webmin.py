@@ -88,32 +88,10 @@ _auth_cooldown_timer = _Cooldown(
 
 # Threat model for the URL parameter: ``base_url`` is operator-set
 # via the admin-only ``/api/settings`` endpoint (require_admin gate +
-# CSRF) — it is NOT public-facing input. Defence-in-depth: reject any
-# scheme other than http/https so a typoed config can't accidentally
-# request file:// / javascript: / data: URIs. CodeQL flags the GET /
-# POST inside _session_login as a full-SSRF candidate; suppression
-# annotations on those call sites point back to this validator.
-_ALLOWED_SCHEMES = ("http://", "https://")
-
-
-def _validate_webmin_url(url: str) -> bool:
-    """Return True if ``url`` is a safe http/https URL with a hostname.
-
-    Used by ``probe_webmin`` to short-circuit before any HTTP request
-    when the operator misconfigured a Webmin URL. Cheap string check —
-    callers don't need to handle the rejection beyond returning an
-    error dict to the gather layer.
-    """
-    if not url or not isinstance(url, str):
-        return False
-    s = url.strip().lower()
-    if not s.startswith(_ALLOWED_SCHEMES):
-        return False
-    # Strip the scheme and check the remainder has a non-empty host
-    # component. ``http://`` alone with no host is rejected.
-    rest = s.split("://", 1)[1] if "://" in s else ""
-    host = rest.split("/", 1)[0].split("?", 1)[0]
-    return bool(host)
+# CSRF) — it is NOT public-facing input. Defence-in-depth + CodeQL
+# suppression rationale lives in ``logic/url_safety.py``; the validator
+# below is the alias every probe module uses.
+from logic.url_safety import is_safe_http_url as _validate_webmin_url
 
 # Plural → singular for _json_to_element's list wrapping. Webmin JSON
 # responses use plural keys for arrays ("mounts", "updates") but the
@@ -265,7 +243,7 @@ async def _fetch_xml(
     """
     url = base_url.rstrip("/") + path
     try:
-        r = await client.get(url)
+        r = await client.get(url)  # lgtm[py/full-ssrf]
     except Exception as e:
         return None, f"{path}: {e}"
     if r.status_code == 401:
@@ -386,7 +364,7 @@ async def _fetch_json(
     """
     url = base_url.rstrip("/") + path
     try:
-        r = await client.get(url)
+        r = await client.get(url)  # lgtm[py/full-ssrf]
     except Exception as e:
         return None, f"{path}: {e}"
     if r.status_code == 401:
@@ -663,7 +641,7 @@ async def _fetch_html_scrape(
         return None, f"{path}: bs4 unavailable — pip install beautifulsoup4"
     url = base_url.rstrip("/") + path
     try:
-        r = await client.get(url)
+        r = await client.get(url)  # lgtm[py/full-ssrf]
     except Exception as e:
         return None, f"{path}: {e}"
     if r.status_code == 401:
