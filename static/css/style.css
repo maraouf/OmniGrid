@@ -3369,6 +3369,141 @@ button:focus:not(:focus-visible) {
     background: var(--pill-error-bg);
 }
 
+/* In-app notifications (#855). The avatar badge sits on top-right of
+   the avatar circle; the menu-item badge sits at the end of its row.
+   Both pull `--danger` so the unread state lines up with the existing
+   "needs attention" colour family (matches the History view's failed-
+   op chip). Sizing intentionally compact — small enough to not eat
+   into the avatar glyph, big enough for two digits + "+". */
+.user-avatar-badge {
+    position: absolute;
+    top: -3px;
+    inset-inline-end: -3px;
+    min-width: 16px;
+    height: 16px;
+    padding: 0 var(--s-2);
+    border-radius: 999px;
+    background: var(--danger);
+    color: var(--text-on-primary);
+    font-size: var(--fs-xs);
+    font-weight: 600;
+    line-height: 16px;
+    text-align: center;
+    box-shadow: 0 0 0 2px var(--surface);
+    pointer-events: none;
+}
+
+.user-menu-item-with-badge {
+    position: relative;
+}
+
+.user-menu-item-badge {
+    margin-inline-start: auto;
+    min-width: 18px;
+    height: 18px;
+    padding: 0 var(--s-2);
+    border-radius: 999px;
+    background: var(--danger);
+    color: var(--text-on-primary);
+    font-size: var(--fs-xs);
+    font-weight: 600;
+    line-height: 18px;
+    text-align: center;
+}
+
+/* Notifications view rows. Read / unread share the same scaffold;
+   unread adds a subtle surface-2 background plus a left accent bar in
+   the severity colour. The dot in front of the title is the same family
+   the persistent-log severity pills use, so operators see one colour
+   language across log + notifications. */
+.notification-row {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: var(--s-4);
+    align-items: start;
+    padding: var(--s-4) var(--s-5);
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--r-md);
+    transition: background 0.1s;
+}
+
+.notification-row--unread {
+    background: var(--surface-2);
+    border-inline-start-width: 3px;
+    border-inline-start-color: var(--info);
+}
+
+.notification-row--unread[data-severity="success"] {
+    border-inline-start-color: var(--success);
+}
+
+.notification-row--unread[data-severity="warning"] {
+    border-inline-start-color: var(--warning);
+}
+
+.notification-row--unread[data-severity="error"] {
+    border-inline-start-color: var(--danger);
+}
+
+.notification-row--read {
+    opacity: 0.85;
+}
+
+.notification-dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 999px;
+    margin-top: 6px;
+    background: var(--info);
+    flex-shrink: 0;
+}
+
+.notification-dot--info    { background: var(--info); }
+.notification-dot--success { background: var(--success); }
+.notification-dot--warning { background: var(--warning); }
+.notification-dot--error   { background: var(--danger); }
+
+.notification-row-body {
+    display: flex;
+    flex-direction: column;
+    gap: var(--s-2);
+    min-width: 0;
+}
+
+.notification-row-header {
+    display: flex;
+    align-items: center;
+    gap: var(--s-3);
+    flex-wrap: wrap;
+}
+
+.notification-row-title {
+    font-weight: 600;
+    font-size: var(--fs-sm);
+    color: var(--text);
+}
+
+.notification-row-meta {
+    margin-inline-start: auto;
+    display: flex;
+    align-items: center;
+    gap: var(--s-3);
+}
+
+.notification-row-sub {
+    font-size: var(--fs-sm);
+    color: var(--text-dim);
+    line-height: 1.4;
+}
+
+.notification-row-footer {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--s-3);
+    align-items: center;
+}
+
 /* ==========================================================================
    Login page (static/login.html). All layout tokens come from :root —
    no hardcoded colors or sizes per the token rule in CLAUDE.md.
