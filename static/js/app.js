@@ -2028,6 +2028,12 @@ function app() {
         // (tuning_webmin_probe_budget_seconds); ensure tuning state
         // is available the first time the operator visits.
         if (tab === 'host_stats' && !this.tuningLoaded) await this.loadTuning();
+        // Notifications tab now hosts the relocated
+        // tuning_notification_retention_days card; same lazy-load
+        // pattern as host_stats so the bounds-chips + effective-value
+        // chip render on first visit instead of waiting for the
+        // operator to bounce through Admin → Config first.
+        if (tab === 'notifications' && !this.tuningLoaded) await this.loadTuning();
         // The Ping test-target picker reads from `hostsConfig` (loaded
         // by the Hosts admin tab). When the operator opens the host_stats
         // tab without ever visiting Admin → Hosts in this session, the
