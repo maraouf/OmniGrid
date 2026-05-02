@@ -269,7 +269,7 @@ Third MINOR cut on top of `1.2.0` — rolls up **316 closed issues** under the 1
 - Login UI — 403 detail now surfaced (#291) [Enhancement]
 - Login UI — password field cleared on every failed login attempt (#292) [Bug]
 - `get_credential_by_credential_id` SELECT in `logic/auth.py` now includes `rp_id` (#374) [Bug]
-- `.forgejo/workflows/deploy.yml` redirects `docker login` stderr to `/dev/null` (#385) [Enhancement]
+- Deploy workflow redirects `docker login` stderr to `/dev/null` (#385) [Enhancement]
 - A11Y review LOW + NIT findings (#413) [Enhancement]
 
 ### Filters, badges & status pills
@@ -297,7 +297,7 @@ Third MINOR cut on top of `1.2.0` — rolls up **316 closed issues** under the 1
 
 ### Documentation
 
-- Fix `CHANGELOG.md` release-page links on GitHub (#245) [Bug]
+- Fix `CHANGELOG.md` release-page links on the public git host (#245) [Bug]
 - Three stale references to `tuning_ops_poll_interval_ms` / `OPS_POLL_INTERVAL_MS` cleaned up in `README.md`,... (#253) [Bug]
 - deploy.yml — replaced `actions/checkout@v4` with a manual SHA-256-compatible clone step (#305) [Bug]
 - Hardened deploy.yml version-source resolution — code-complete (#334) [Enhancement]
@@ -333,7 +333,7 @@ Third MINOR cut on top of `1.2.0` — rolls up **316 closed issues** under the 1
 - Fix fan-out 504s from `/api/hosts/one/<id>` saturating NPM's upstream pool (#244) [Enhancement]
 - No-static-config rule + first knob converted (`PARALLEL` → `tuning_hosts_parallel_fetch`) (#246) [Enhancement]
 - Admin → Process tunables — fixed hardcoded "six" subtitle + rewrote every help string with detailed use-case... (#247) [Bug]
-- switched from relative paths to absolute GitHub URLs (#250) [Bug]
+- switched from relative paths to absolute git-host URLs (#250) [Bug]
 - `_get_host_provider_state` re-computes `active` + `cred_blob` + `cache_key` INSIDE `_host_provider_lock` via... (#252) [Enhancement]
 - `_webmin_host_cache.pop(h["id"], None)` also fires on failure-write branch (#255) [Bug]
 - Fix — added `tuning_host_snapshots_cache_ttl_seconds` to the SPA's `tuningKeys` array (#258) [Enhancement]
@@ -352,7 +352,7 @@ Third MINOR cut on top of `1.2.0` — rolls up **316 closed issues** under the 1
 - Removed Admin → Version page + GET/POST `/api/admin/version` endpoints (#337) [Bug]
 - Title-row spacing unified across ALL admin tabs to the dominant `mb-2` pattern (#339) [Bug]
 - Admin → Sessions tab spacing unified — `space-y-3` → `space-y-4` (matches Users / Tokens / Notifications... (#340) [Enhancement]
-- Added `.github/dependabot.yml` for automated dep-bump PRs when the repo is mirrored to GitHub (#343) [Enhancement]
+- Automated dep-bump PR config added for the public mirror (#343) [Enhancement]
 - Fixed the digest-mismatch ✕ status on OmniGrid's own row (#344) [Bug]
 - CRITICAL: cross-host SSH toggle bug — ticking row A's checkbox auto-enabled OTHER rows that didn't have an... (#348) [Enhancement]
 - Digest-mismatch root cause + real fix (#344 follow-up; #117 investigation result) (#349) [Bug]

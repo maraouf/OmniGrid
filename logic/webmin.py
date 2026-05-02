@@ -85,6 +85,36 @@ _auth_cooldown_timer = _Cooldown(
     seconds_fn=lambda: _tuning.tuning_int("tuning_auth_failure_cooldown_seconds")
 )
 
+
+# Threat model for the URL parameter: ``base_url`` is operator-set
+# via the admin-only ``/api/settings`` endpoint (require_admin gate +
+# CSRF) — it is NOT public-facing input. Defence-in-depth: reject any
+# scheme other than http/https so a typoed config can't accidentally
+# request file:// / javascript: / data: URIs. CodeQL flags the GET /
+# POST inside _session_login as a full-SSRF candidate; suppression
+# annotations on those call sites point back to this validator.
+_ALLOWED_SCHEMES = ("http://", "https://")
+
+
+def _validate_webmin_url(url: str) -> bool:
+    """Return True if ``url`` is a safe http/https URL with a hostname.
+
+    Used by ``probe_webmin`` to short-circuit before any HTTP request
+    when the operator misconfigured a Webmin URL. Cheap string check —
+    callers don't need to handle the rejection beyond returning an
+    error dict to the gather layer.
+    """
+    if not url or not isinstance(url, str):
+        return False
+    s = url.strip().lower()
+    if not s.startswith(_ALLOWED_SCHEMES):
+        return False
+    # Strip the scheme and check the remainder has a non-empty host
+    # component. ``http://`` alone with no host is rejected.
+    rest = s.split("://", 1)[1] if "://" in s else ""
+    host = rest.split("/", 1)[0].split("?", 1)[0]
+    return bool(host)
+
 # Plural → singular for _json_to_element's list wrapping. Webmin JSON
 # responses use plural keys for arrays ("mounts", "updates") but the
 # XML-based extractors iterate looking for singular tags ("mount",
@@ -135,12 +165,17 @@ async def _session_login(
     every outcome so operators can diagnose via Admin → Logs when
     Basic-auth fallback doesn't rescue the probe either.
     """
+    # ``base_url`` is admin-set (not public input) and validated by
+    # ``_validate_webmin_url`` at the probe_webmin entry point. The
+    # CodeQL py/full-ssrf flag on the GET/POST below is a false positive
+    # for OmniGrid's threat model — see the module-level note next to
+    # ``_ALLOWED_SCHEMES``.
     login_url = base_url.rstrip("/") + "/session_login.cgi"
     # Step 1 — GET to arm the testing cookie. Miniserv may send this
     # cookie on the login page body; we don't care about the body
     # itself, only that httpx captures the Set-Cookie.
     try:
-        r1 = await client.get(
+        r1 = await client.get(  # lgtm[py/full-ssrf]
             login_url,
             headers={"Referer": base_url.rstrip("/") + "/"},
         )
@@ -155,7 +190,7 @@ async def _session_login(
     # bare "login successful" page and skip setting the cookie on
     # subsequent redirects.
     try:
-        r2 = await client.post(
+        r2 = await client.post(  # lgtm[py/full-ssrf]
             login_url,
             data={"user": user, "pass": password, "save": "1", "page": "/"},
             headers={
@@ -1215,6 +1250,11 @@ async def probe_webmin(
     """
     if not base_url or not user or not password:
         return {"hosts": {}, "error": "webmin: missing url / user / password"}
+    if not _validate_webmin_url(base_url):
+        return {
+            "hosts": {},
+            "error": "webmin: invalid url — must be http:// or https:// with a hostname",
+        }
     cd = _in_cooldown(base_url, user)
     if cd is not None:
         return {

@@ -7,7 +7,6 @@ deploy` + `docker service update --force`.
 
 | Field           | Value                                                       |
 | --------------- | ----------------------------------------------------------- |
-| Workflow        | `.forgejo/workflows/deploy.yml`                             |
 | Target          | `pi@docker.example.com:/opt/omnigrid/app` (build context)   |
 | Runner          | `home-runner` on `git.example.com` (shared, INSTANCE scope) |
 | Build           | `docker build --build-arg VERSION=<new> -t omnigrid:<new>` (on the manager) |

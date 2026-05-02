@@ -29,10 +29,11 @@ no long-term-support branch.
 **Please don't open a public issue or PR for security findings.**
 Instead, use one of the private channels:
 
-1. **Email the maintainer** at the address listed on the
-   [GitHub profile](https://github.com/m-a-raouf), or
-2. **Open a [GitHub security advisory](https://docs.github.com/en/code-security/security-advisories/guidance-on-reporting-and-writing-information-about-vulnerabilities/privately-reporting-a-security-vulnerability)**
-   on this repository (visible only to maintainers until published).
+1. **Email the maintainer** at the address listed on the maintainer's
+   profile on the project's git host, or
+2. **Open a private security advisory** on the project's git host
+   (most hosts support this — visible only to maintainers until
+   published).
 
 Either channel works; the security advisory route is preferred because
 it gives us a private space to coordinate the fix and credit before

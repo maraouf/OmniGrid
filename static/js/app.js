@@ -14150,6 +14150,36 @@ function app() {
       const tMinSec = tMaxSec - (rangeHours * 3600);
       return { tMinSec, tMaxSec, w: 420, hh: 120 };
     },
+    // Auto-derive a "this is a gap" threshold (seconds) from the actual
+    // sample cadence. Median Δt × 2.5 covers natural sampler jitter
+    // (tick alignment / skew, occasional doubled ticks) but flags
+    // genuine outage-class gaps. 60s floor so a fast sampler doesn't
+    // false-positive on a one-tick hiccup. Used by every chart helper
+    // to break the rendered line at long gaps so a multi-hour host
+    // outage (power failure, network drop, manual shutdown) renders as
+    // a visual discontinuity instead of one fake-smooth line bridging
+    // the dead period. Provider-agnostic — works whether the series
+    // came from Beszel (variable tier cadence), NE (5min), Ping
+    // (configurable), or SNMP (5min default), because the threshold is
+    // derived from the data itself rather than hard-coded per source.
+    _detectGapThresholdSec(times) {
+      if (!times || times.length < 3) return null;
+      const deltas = [];
+      let prev = 0;
+      for (const t of times) {
+        const ts = Number(t) || 0;
+        if (!ts) continue;
+        if (prev > 0) {
+          const dt = ts - prev;
+          if (dt > 0) deltas.push(dt);
+        }
+        prev = ts;
+      }
+      if (deltas.length < 2) return null;
+      deltas.sort((a, b) => a - b);
+      const median = deltas[Math.floor(deltas.length / 2)];
+      return Math.max(60, median * 2.5);
+    },
     _snmpPolyPoints(values, max, opts) {
       // null-aware. Skip-don't-synthesize: when a counter-rate
       // helper passes a null at a wrap / reboot / gap point, OMIT it
@@ -14214,30 +14244,45 @@ function app() {
       const n = values.length;
       const times = opts && opts.times;
       const dom = (times && times.length === n) ? this._drawerTimeDomain() : null;
+      const gapThr = times ? this._detectGapThresholdSec(times) : null;
       const w = dom ? dom.w : 420;
       const hh = dom ? dom.hh : 120;
       const span = dom ? Math.max(1, dom.tMaxSec - dom.tMinSec) : 1;
       const out = [];
       let needMove = true;
+      let prevTs = 0;
       for (let i = 0; i < n; i++) {
         const v = values[i];
         if (v == null) {
           // Null = gap. Next valid point starts a fresh sub-path.
           needMove = true;
+          prevTs = 0;
           continue;
         }
         let x;
+        let curTs = 0;
         if (dom) {
-          const ts = Number(times[i]) || 0;
-          if (!ts) { needMove = true; continue; }
-          x = ((ts - dom.tMinSec) / span) * w;
-          if (x < 0 || x > w) { needMove = true; continue; }
+          curTs = Number(times[i]) || 0;
+          if (!curTs) { needMove = true; prevTs = 0; continue; }
+          x = ((curTs - dom.tMinSec) / span) * w;
+          if (x < 0 || x > w) { needMove = true; prevTs = 0; continue; }
         } else {
           x = (i / Math.max(1, n - 1)) * w;
+        }
+        // Time-gap break — when consecutive valid samples are separated
+        // by > gapThreshold seconds, emit M (moveto) instead of L
+        // (lineto) so the rendered line breaks. Catches multi-hour host
+        // outages where the underlying sampler simply stopped writing
+        // rows for a stretch — pre-fix the line bridged the dead period
+        // as a single fake-smooth segment, painting "down for hours" as
+        // "fading from X to Y".
+        if (!needMove && gapThr && prevTs > 0 && curTs > 0 && (curTs - prevTs) > gapThr) {
+          needMove = true;
         }
         const y = hh - ((+v || 0) / m) * hh;
         out.push(`${needMove ? 'M' : 'L'}${x.toFixed(1)},${y.toFixed(1)}`);
         needMove = false;
+        prevTs = curTs;
       }
       return out.join(' ');
     },
@@ -14303,7 +14348,7 @@ function app() {
       const times = series.map(p => p.ts);
       for (let i = 0; i < numCores; i++) {
         const vals = series.map(p => (p.cpu_per_core || [])[i] ?? 0);
-        out.push(this._snmpPolyPoints(vals, 100, { times }));
+        out.push(this._snmpPathGapped(vals, 100, { times }));
       }
       return out;
     },
@@ -14311,7 +14356,7 @@ function app() {
       const series = (this.hostSnmpHistory[hostId] || {}).points || [];
       const vals = series.map(p => p.cpu_used_pct ?? 0);
       const times = series.map(p => p.ts);
-      return this._snmpPolyPoints(vals, 100, { times });
+      return this._snmpPathGapped(vals, 100, { times });
     },
     // Operator-flagged: SNMP Load chart should render as % of cores
     // rather than raw `load_1m=0.18` numbers. Converts each load
@@ -14339,7 +14384,7 @@ function app() {
       const cores = this.snmpCoresFor(hostId);
       const vals = series.map(p => Math.min(100, ((p[key] ?? 0) / cores) * 100));
       const times = series.map(p => p.ts);
-      return this._snmpPolyPoints(vals, 100, { times });
+      return this._snmpPathGapped(vals, 100, { times });
     },
     snmpLoadMax(hostId) {
       // Always 100 % now — chart Y-axis stays fixed so a busy machine
@@ -14366,7 +14411,7 @@ function app() {
       const fieldKey = 'mem_' + key;
       const vals = series.map(p => p[fieldKey] || 0);
       const times = series.map(p => p.ts);
-      return this._snmpPolyPoints(vals, maxTotal, { times });
+      return this._snmpPathGapped(vals, maxTotal, { times });
     },
     // derive per-tick throughput series in bytes/sec from the
     // cumulative IF-MIB ifHCInOctets / ifHCOutOctets samples. Skip-
@@ -14411,7 +14456,7 @@ function app() {
       if (!series.length) return '';
       const vals = series.map(p => (p.load_percent != null ? +p.load_percent : null));
       const times = series.map(p => p.ts);
-      return this._snmpPolyPoints(vals, 100, { times });
+      return this._snmpPathGapped(vals, 100, { times });
     },
     // True when at least 2 samples have a non-null load_percent —
     // used internally by the chart-body template to switch between
@@ -14450,7 +14495,7 @@ function app() {
       if (!series.length) return '';
       const vals = series.map(p => (p.battery_percent != null ? +p.battery_percent : null));
       const times = series.map(p => p.ts);
-      return this._snmpPolyPoints(vals, 100, { times });
+      return this._snmpPathGapped(vals, 100, { times });
     },
     snmpHasUpsBatteryHistory(hostId) {
       const series = (this.hostSnmpHistory[hostId] || {}).points || [];
@@ -14483,7 +14528,7 @@ function app() {
       const times = series.map(p => p.ts);
       let m = 0;
       for (const v of vals) if (v != null && v > m) m = v;
-      return this._snmpPolyPoints(vals, Math.max(50, m), { times });
+      return this._snmpPathGapped(vals, Math.max(50, m), { times });
     },
     snmpUpsBatteryTempMax(hostId) {
       const series = (this.hostSnmpHistory[hostId] || {}).points || [];
@@ -14577,15 +14622,16 @@ function app() {
       return Math.max(60, m);
     },
     dellTempLine(hostId, points) {
-      // SVG polyline points for one probe's series, normalised against
-      // the chart's shared y-max. Re-uses _snmpPolyPoints so the
-      // unified time-domain (1h / 6h / 24h / 7d) lines up with every
-      // other drawer chart.
+      // SVG path `d` for one probe's series, normalised against the
+      // chart's shared y-max. Re-uses _snmpPathGapped so the unified
+      // time-domain (1h / 6h / 24h / 7d) lines up with every other
+      // drawer chart AND so multi-hour sampling gaps render as visual
+      // breaks instead of fake-smooth bridges across the dead period.
       if (!Array.isArray(points) || !points.length) return '';
       const vals = points.map(p => (p.c != null ? +p.c : null));
       const times = points.map(p => p.ts);
       const max = this.dellTempMaxC(hostId);
-      return this._snmpPolyPoints(vals, max, { times });
+      return this._snmpPathGapped(vals, max, { times });
     },
     dellHasTempHistory(hostId) {
       const entry = this.hostSnmpTempHistory[hostId] || {};
@@ -14668,7 +14714,9 @@ function app() {
       const vals = this.snmpPagesPerDaySeries(hostId);
       if (!vals.length) return '';
       const m = Math.max(0.0001, ...vals);
-      return this._snmpPolyPoints(vals, m || 1);
+      const series = (this.hostSnmpHistory[hostId] || {}).points || [];
+      const times = series.map(p => p.ts);
+      return this._snmpPathGapped(vals, m || 1, { times });
     },
     snmpPagesPerDayMax(hostId) {
       const vals = this.snmpPagesPerDaySeries(hostId);
@@ -15414,13 +15462,59 @@ function app() {
         };
       });
       const points = xy.map(p => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' ');
+      // Gap-aware path — same coordinates as `points` but emits M
+      // (moveto) instead of L (lineto) at every long sampling gap so
+      // the rendered line breaks. Catches multi-hour host outages
+      // where Beszel / NE / Ping samplers simply stopped writing rows
+      // — pre-fix the line bridged the dead period as one fake-smooth
+      // segment, painting "down for hours" as "fading from X to Y".
+      // Threshold auto-derived from the median sample interval × 2.5
+      // so the same logic works whatever provider produced the series.
+      // Consumers swap `<polyline :points="hostChart(...).points">`
+      // for `<path class="metric-line" :d="hostChart(...).pathGapped">`.
+      const seriesTs = haveTimes ? entry.series.map(r => Number(r.t) || 0) : null;
+      const gapThr = seriesTs ? this._detectGapThresholdSec(seriesTs) : null;
+      const gapSegs = [];
+      let prevSegT = 0;
+      for (let i = 0; i < xy.length; i++) {
+        const curT = seriesTs ? (seriesTs[i] || 0) : 0;
+        const isGap = (gapThr && i > 0 && prevSegT > 0 && curT > 0 && (curT - prevSegT) > gapThr);
+        gapSegs.push((i === 0 || isGap ? 'M' : 'L') + xy[i].x.toFixed(1) + ',' + xy[i].y.toFixed(1));
+        prevSegT = curT;
+      }
+      const pathGapped = gapSegs.join(' ');
       // Area path — polyline + closure back to baseline so we can fill
-      // under the curve. Baseline is the chart's bottom.
+      // under the curve. Baseline is the chart's bottom. Gap-aware:
+      // each contiguous run is filled separately (closes back to
+      // baseline before the next run starts) so a multi-hour gap
+      // doesn't produce a single fake-smooth filled trapezoid bridging
+      // the dead period.
       const baseY = (H - PAD_B).toFixed(1);
-      const area = 'M'
-        + `${xy[0].x.toFixed(1)},${baseY} `
-        + xy.map(p => `L${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' ')
-        + ` L${xy[xy.length - 1].x.toFixed(1)},${baseY} Z`;
+      const areaSegs = [];
+      let runStartIdx = -1;
+      const closeRun = (endIdx) => {
+        if (runStartIdx < 0 || endIdx < runStartIdx) return;
+        let seg = `M${xy[runStartIdx].x.toFixed(1)},${baseY}`;
+        for (let j = runStartIdx; j <= endIdx; j++) {
+          seg += ` L${xy[j].x.toFixed(1)},${xy[j].y.toFixed(1)}`;
+        }
+        seg += ` L${xy[endIdx].x.toFixed(1)},${baseY} Z`;
+        areaSegs.push(seg);
+      };
+      let prevAreaT = 0;
+      for (let i = 0; i < xy.length; i++) {
+        const curT = seriesTs ? (seriesTs[i] || 0) : 0;
+        const isGap = (gapThr && i > 0 && prevAreaT > 0 && curT > 0 && (curT - prevAreaT) > gapThr);
+        if (isGap) {
+          closeRun(i - 1);
+          runStartIdx = i;
+        } else if (runStartIdx < 0) {
+          runStartIdx = i;
+        }
+        prevAreaT = curT;
+      }
+      closeRun(xy.length - 1);
+      const area = areaSegs.join(' ');
       // Horizontal reference ticks — three evenly-spaced gridlines so
       // the eye has something to anchor the peaks against.
       const ticks = [0.25, 0.5, 0.75].map(frac => ({
@@ -15446,6 +15540,7 @@ function app() {
       const cur = Number(pts[pts.length - 1]) || 0;
       return {
         points,
+        pathGapped,
         area,
         ticks,
         gridPath,
@@ -15601,9 +15696,16 @@ function app() {
       const slugs = ['primary', 'warning', 'danger', 'success', 'info'];
       const dByColor = { primary: '', warning: '', danger: '', success: '', info: '' };
       const lines = [];
+      // Time-gap break threshold — derived from the series cadence so
+      // a multi-hour outage breaks the line for every sensor, not just
+      // those whose individual sample happens to be missing at the
+      // gap boundary.
+      const seriesTs = haveTimes ? entry.series.map(r => Number(r && r.t) || 0) : null;
+      const gapThr = seriesTs ? this._detectGapThresholdSec(seriesTs) : null;
       sortedNames.forEach((name, idx) => {
         const segs = [];   // SVG path data — handles missing samples
         let cur = '';
+        let prevTs = 0;
         for (let i = 0; i < entry.series.length; i++) {
           const t = entry.series[i] && entry.series[i].temps;
           const v = t && Number(t[name]);
@@ -15612,17 +15714,27 @@ function app() {
             // starts a new sub-path so we don't synthesise a slope
             // through a gap.
             if (cur) { segs.push(cur); cur = ''; }
+            prevTs = 0;
             continue;
           }
           let x;
+          let curTs = 0;
           if (haveTimes) {
-            const ts = Number(entry.series[i].t) || 0;
-            x = PAD_X + Math.max(0, Math.min(1, (ts - dom.tMinSec) / tSpan)) * usableW;
+            curTs = Number(entry.series[i].t) || 0;
+            x = PAD_X + Math.max(0, Math.min(1, (curTs - dom.tMinSec) / tSpan)) * usableW;
           } else {
             x = PAD_X + i * stepFallback;
           }
+          // Time-gap break — if the previous valid point was more than
+          // `gapThr` seconds ago, start a fresh sub-path so the
+          // rendered line doesn't bridge the dead period.
+          if (cur && gapThr && prevTs > 0 && curTs > 0 && (curTs - prevTs) > gapThr) {
+            segs.push(cur);
+            cur = '';
+          }
           const y = PAD_T + usableH - ((v - lo) / (hi - lo || 1)) * usableH;
           cur += (cur ? ' L' : 'M') + x.toFixed(1) + ',' + y.toFixed(1);
+          prevTs = curTs;
         }
         if (cur) segs.push(cur);
         const d = segs.join(' ');
@@ -15641,6 +15753,30 @@ function app() {
       const mid = lo + (hi - lo) / 2;
       const yAxis = [hi, mid, lo].map(v => Math.round(v) + '°');
       return { lines, dByColor, yAxis, min: lo, max: hi, sortedNames };
+    },
+    // Window-aggregated packet-loss for the Ping chart's loss chip.
+    // Pre-fix the chip read `h.ping_loss_pct` directly — that field
+    // reflects the LATEST single probe's loss only, which is
+    // meaningless when the operator is looking at a 24h / 7d window
+    // (the chip claimed the whole-window loss but described one tick).
+    // Window-correct definition: of the samples we have IN the window,
+    // how many were `alive=false`? `loss% = down_count / received_count
+    // × 100`. Missing samples (sampler not running, OmniGrid down,
+    // host outage where the sampler couldn't write rows) count as
+    // "no data" — NOT 100% loss — so a multi-hour OmniGrid outage
+    // followed by recovery shows 0% over a window where every received
+    // sample is alive=true. Returns null when there are no samples
+    // (chip hides via the `> 0` gate).
+    hostPingWindowLoss(systemId) {
+      const entry = this.hostHistory[systemId];
+      if (!entry || !entry.series || !entry.series.length) return null;
+      let total = 0, down = 0;
+      for (const r of entry.series) {
+        total++;
+        if (r && r.alive === false) down++;
+      }
+      if (!total) return null;
+      return Math.round(100 * down / total);
     },
     hostMetricStats(systemId, key, asPct = true) {
       const entry = this.hostHistory[systemId];

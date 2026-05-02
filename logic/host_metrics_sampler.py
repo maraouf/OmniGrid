@@ -454,7 +454,7 @@ async def _record_failure(
                 try:
                     from logic.ops import notify_with_retry as _notify_with_retry
                     if provider:
-                        title = f"⚠ Provider paused: {bare_host} ({provider})"
+                        title = f"⚠️ Provider paused: {bare_host} ({provider})"
                         body = (
                             f"{provider} probes for {bare_host} have failed "
                             f"{new_fails} consecutive rounds (~{paused_minutes} min). "
@@ -462,7 +462,7 @@ async def _record_failure(
                             f"Resume manually from the {provider} chip in the host drawer."
                         )
                     else:
-                        title = f"⚠ Host sampling paused: {bare_host}"
+                        title = f"⚠️ Host sampling paused: {bare_host}"
                         body = (
                             f"{bare_host} has been unreachable for {paused_minutes} min "
                             f"after {new_fails} consecutive probe failures. "
