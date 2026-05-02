@@ -1,0 +1,144 @@
+name: Publish to GHCR (minor releases)
+
+# Publishes the OmniGrid image to GitHub Container Registry (ghcr.io)
+# only on MINOR-release tags. The Forgejo daily-PATCH cadence
+# (`v1.2.1`, `v1.2.2`, …) is filtered out by the tag pattern below;
+# only `v1.1.0`, `v1.2.0`, `v1.3.0`-style bundles end up on GHCR.
+# This keeps the package list short and meaningful — one entry per
+# operator-curated MINOR release rather than one per daily build.
+#
+# Trigger surfaces
+# ────────────────
+#   * push of a tag matching `v<MAJOR>.<MINOR>.0` (the connector
+#     mirrors Forgejo tags to GitHub, so cutting `v1.4.0` on Forgejo
+#     reaches GitHub and fires this workflow automatically).
+#   * `workflow_dispatch` for manual republish — handy if a previous
+#     run failed or the tag was created before this workflow existed.
+#
+# Tag layout on GHCR for a `v1.4.0` build
+# ───────────────────────────────────────
+#     ghcr.io/<owner>/<repo>:1.4.0   ← full semver, immutable
+#     ghcr.io/<owner>/<repo>:1.4     ← floating "latest patch on this minor"
+#     ghcr.io/<owner>/<repo>:latest  ← floating "newest minor we've shipped"
+#
+# Auth
+# ────
+# Uses the runner-issued `GITHUB_TOKEN` — no PAT to manage. Requires
+# `permissions: packages: write` on this job. First-time setup: in the
+# GitHub repo Settings → Actions → General → Workflow permissions,
+# confirm "Read and write permissions" is enabled (or rely on the
+# explicit `permissions:` block below, which works regardless).
+#
+# `--provenance=false` is LOAD-BEARING
+# ─────────────────────────────────────
+# Same reasoning as `.forgejo/workflows/deploy.yml` — without it,
+# BuildKit wraps the image in an OCI image-index with a SLSA
+# provenance attestation, and any tooling that compares "local digest
+# vs registry digest" reports a permanent false-positive drift
+# (the registry returns the index's digest, `docker pull` stores the
+# sub-manifest's digest). Single flat manifest = matched digests.
+#
+# Build-context parity with the Forgejo deploy
+# ────────────────────────────────────────────
+# `--build-arg VERSION=<semver>` and the `org.opencontainers.image.source`
+# label are kept identical to the Forgejo build so an image pulled
+# from GHCR is functionally interchangeable with one pulled from the
+# Forgejo registry. The label points at the GitHub repo URL here
+# (Forgejo's points at the Forgejo repo URL); both forms satisfy the
+# OCI spec.
+
+on:
+  push:
+    tags:
+      # Matches v1.0.0, v1.1.0, ..., v2.0.0 — anything ending in `.0`.
+      # Patch tags like v1.2.3 do NOT match and so don't trigger this.
+      - 'v[0-9]+.[0-9]+.0'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Semver to publish (e.g. 1.4.0). Must end in .0.'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Resolve version + sanity-gate the .0 suffix
+        # Belt-and-braces: the tag pattern above already excludes patch
+        # releases, but workflow_dispatch lets a human type any string.
+        # Refuse anything that isn't a clean MINOR release.
+        id: ver
+        run: |
+          set -eu
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            VERSION="${{ inputs.version }}"
+          else
+            VERSION="${GITHUB_REF#refs/tags/v}"
+          fi
+          if ! echo "$VERSION" | grep -Eq '^[0-9]+\.[0-9]+\.0$'; then
+            echo "::error::version '${VERSION}' is not a minor release — must match <MAJOR>.<MINOR>.0"
+            exit 1
+          fi
+          MINOR="${VERSION%.0}"   # 1.4.0 → 1.4
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "minor=${MINOR}"     >> "$GITHUB_OUTPUT"
+          echo "[publish-ghcr] resolved version=${VERSION}  minor=${MINOR}"
+
+      - name: Resolve lowercase image path
+        # GHCR rejects mixed-case image paths; ${{ github.repository }}
+        # preserves the user's casing (e.g. "Owner/OmniGrid"), so
+        # pre-lowercase the whole owner/repo path defensively.
+        id: img
+        run: |
+          set -eu
+          NAME=$(echo '${{ github.repository }}' | tr '[:upper:]' '[:lower:]')
+          echo "name=${NAME}" >> "$GITHUB_OUTPUT"
+          echo "[publish-ghcr] target=ghcr.io/${NAME}"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./Dockerfile
+          push: true
+          # See header comment — required for digest-stability across
+          # registry and local docker. Drop only if you also drop the
+          # equivalent flag in .forgejo/workflows/deploy.yml.
+          provenance: false
+          build-args: |
+            VERSION=${{ steps.ver.outputs.version }}
+          labels: |
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.version=${{ steps.ver.outputs.version }}
+            org.opencontainers.image.revision=${{ github.sha }}
+          tags: |
+            ghcr.io/${{ steps.img.outputs.name }}:${{ steps.ver.outputs.version }}
+            ghcr.io/${{ steps.img.outputs.name }}:${{ steps.ver.outputs.minor }}
+            ghcr.io/${{ steps.img.outputs.name }}:latest
+
+      - name: Summary
+        if: success()
+        run: |
+          echo "### ✅ Published to GHCR" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "* \`ghcr.io/${{ steps.img.outputs.name }}:${{ steps.ver.outputs.version }}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "* \`ghcr.io/${{ steps.img.outputs.name }}:${{ steps.ver.outputs.minor }}\`"   >> "$GITHUB_STEP_SUMMARY"
+          echo "* \`ghcr.io/${{ steps.img.outputs.name }}:latest\`"                            >> "$GITHUB_STEP_SUMMARY"

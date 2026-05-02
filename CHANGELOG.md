@@ -39,6 +39,9 @@ the next release, this whole block becomes the `[X.Y.0]` entry below.
 
 ### Fixed
 
+- Off-by-one `</div>` in `static/index.html` (introduced in the drawer-extraction refactor) closed; div counts balance at 1228/1228. The "Element div is not closed" IDE warning resolves.
+- Notification popup severity filter chips now carry per-severity brand colours (info=blue, success=green, warning=amber, error=red) so the selected level is visually unmistakable; the active chip also gets an inset ring + brightness bump via the existing `chip-active` class.
+- New keyboard shortcut `n` opens the notifications popup. Esc closes it (alongside the existing modal/drawer/selection/filter cascade).
 - Avatar unread-notifications badge now renders fully visible above the avatar circle. Pre-fix the badge was clipped to a tiny dot because it was a child of `.user-avatar` (whose `overflow: hidden` keeps the uploaded image inside the circular boundary). Wrapping the avatar + badge in a sibling `.relative` anchor keeps the image clip behaviour while letting the badge render outside it.
 - Drawer-chart range picker (1h / 6h / 24h / 7d) now persists across refresh via `localStorage.hostHistoryRange`. Pre-fix the operator's selection snapped back to the 1h default on every page reload.
 - Profile → Notifications now greys out per-user toggles in real time when the admin globally disables an event in Admin → Notifications. Pre-fix the same-session admin saw their per-user checkbox stay actionable until the next full page reload — the SPA's `me.notify_events_admin` map was a stale page-init snapshot and didn't update when settings landed. Backend was already rejecting opt-IN attempts for globally-disabled events with 400; the UI now matches. Cursor switches to `not-allowed` on disabled labels for an extra visual cue alongside the opacity dim and the "Disabled by admin" tooltip.
