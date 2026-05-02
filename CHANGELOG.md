@@ -60,7 +60,7 @@ Third MINOR cut on top of `1.2.0` — rolls up **316 closed issues** under the 1
 - requirements.txt — bumped three floor-pinned deps to current PyPI latest (#295) [Enhancement]
 - WebAuthn passkey QR-only on macOS — multi-pass investigation, root cause was RP-ID change (#330) [Enhancement]
 - Authentication tab now has Enabled/Disabled pill + remaining width outliers across admin tabs unified (#342) [Enhancement]
-- WebAuthn RP-ID mismatch detection — operator validated (#359) [Enhancement]
+- WebAuthn RP-ID mismatch detection (#359) [Enhancement]
 - WebAuthn `verify_authentication` 0/0 sign-counter check comment rewritten to match actual code behaviour —... (#373) [Enhancement]
 - Defensive `.get(key, default)` swap across every `_TOTP_POLICY_DEFAULTS[...]` and... (#492) [Enhancement]
 
@@ -87,22 +87,22 @@ Third MINOR cut on top of `1.2.0` — rolls up **316 closed issues** under the 1
 
 ### SNMP
 
-- SNMP host-stats provider (sixth in the family) — operator validated (#361) [Enhancement]
-- SNMP per-host enable checkbox persistence fixed — operator validated (#363) [Enhancement]
-- SNMP raw + normalized panels added to host-drawer "Show debug data" — operator validated (#364) [Enhancement]
-- Per-host "Enable SNMP for this host" checkbox flipped from default-on to OPT-IN — operator validated (#365) [Enhancement]
+- SNMP host-stats provider (sixth in the family) (#361) [Enhancement]
+- SNMP per-host enable checkbox persistence fixed (#363) [Enhancement]
+- SNMP raw + normalized panels added to host-drawer "Show debug data" (#364) [Enhancement]
+- Per-host "Enable SNMP for this host" checkbox flipped from default-on to OPT-IN (#365) [Enhancement]
 - SNMP `tuning_snmp_probe_timeout_seconds` + `tuning_snmp_concurrency` are now actually consumed — operator... (#366) [Bug]
-- SNMP tunables added to `SettingsIn` Pydantic model — operator validated (#367) [Bug]
-- SNMP per-host probe targeting hard-gated on alias OR `snmp_name` — operator validated (#368) [Enhancement]
-- SNMP `probe_snmp` `try/except asyncio.TimeoutError` now reachable — operator validated (#369) [Enhancement]
-- SNMP per-host cache TTL knobs separated from Webmin's — operator validated (#370) [Enhancement]
-- `_snmp_get` / `_snmp_walk` log exception type at WARNING + carve out cancellation — operator validated (#376) [Bug]
-- SNMP debug-panel raw payload expanded — operator validated (#386) [Enhancement]
-- Dedicated `tuning_snmp_unreachable_cooldown_seconds` knob — operator validated (#389) [Enhancement]
-- SNMP-aware `host_metrics_sampler` — operator validated (#392) [Enhancement]
-- UCD-SNMP-MIB OIDs (1.3.6.1.4.1.2021.x) for embedded Linux — operator validated (#395) [Enhancement]
-- SNMP walks no longer crash on pysnmp 7.x — operator validated (#398) [Bug]
-- APC UPS card in host drawer — operator validated (#412) [Enhancement]
+- SNMP tunables added to `SettingsIn` Pydantic model (#367) [Bug]
+- SNMP per-host probe targeting hard-gated on alias OR `snmp_name` (#368) [Enhancement]
+- SNMP `probe_snmp` `try/except asyncio.TimeoutError` now reachable (#369) [Enhancement]
+- SNMP per-host cache TTL knobs separated from Webmin's (#370) [Enhancement]
+- `_snmp_get` / `_snmp_walk` log exception type at WARNING + carve out cancellation (#376) [Bug]
+- SNMP debug-panel raw payload expanded (#386) [Enhancement]
+- Dedicated `tuning_snmp_unreachable_cooldown_seconds` knob (#389) [Enhancement]
+- SNMP-aware `host_metrics_sampler` (#392) [Enhancement]
+- UCD-SNMP-MIB OIDs (1.3.6.1.4.1.2021.x) for embedded Linux (#395) [Enhancement]
+- SNMP walks no longer crash on pysnmp 7.x (#398) [Bug]
+- APC UPS card in host drawer (#412) [Enhancement]
 - Per-interface SNMP traffic chart in host drawer — oper-status dot, ↓rx · ↑tx mono span, stacked bar... (#415) [Enhancement]
 - Hosts-page SNMP chip respects per-host opt-in flag (#422) [Enhancement]
 - SNMP CPU/Load/Memory cards hidden when host also has Beszel or node-exporter (avoids redundant disagreeing... (#424) [Enhancement]
@@ -157,9 +157,9 @@ Third MINOR cut on top of `1.2.0` — rolls up **316 closed issues** under the 1
 - Drawer second chart-grid wrapper now also opens for `h.ping_enabled` (#319) [Enhancement]
 - Ping legend ms-formatting fix in host-drawer chart card (#320) [Bug]
 - Ping chart x-axis labels were blank — fixed (#321) [Bug]
-- Per-provider chip colour customisation in Settings → Providers — operator validated (#326) [Enhancement]
-- Hosts header provider-chip strip now includes ping — operator validated (#328) [Bug]
-- Host drawer Ping latency chart promoted to its own full-width row above CPU/Memory/Disk — operator validated... (#329) [Enhancement]
+- Per-provider chip colour customisation in Settings → Providers (#326) [Enhancement]
+- Hosts header provider-chip strip now includes ping (#328) [Bug]
+- Host drawer Ping latency chart promoted to its own full-width row above CPU/Memory/Disk.. (#329) [Enhancement]
 - Per-row provider chips on the Admin → Hosts EDITOR (the small `beszel`/`pulse`/`exporter`/`webmin`/`ping`... (#346) [Enhancement]
 - Provider chips on the Hosts page header toolbar (top strip showing beszel/pulse/node_exporter/webmin/ping)... (#352) [Enhancement]
 - SSH "Enable for this host" checkbox moved from RIGHT to LEFT of the SSH section, matching the Ping section's... (#355) [Enhancement]
@@ -167,13 +167,13 @@ Third MINOR cut on top of `1.2.0` — rolls up **316 closed issues** under the 1
 
 ### UPS / battery
 
-- APC PowerNet-MIB OIDs (1.3.6.1.4.1.318.x) for Smart-UPS family — operator validated (#394) [Enhancement]
+- APC PowerNet-MIB OIDs (1.3.6.1.4.1.318.x) for Smart-UPS family (#394) [Enhancement]
 - APC UPS card refinements in the host drawer (#515) [Enhancement]
 - APC UPS over-time charts (Output Load %, Battery %, Battery Temperature) in the host drawer (#516) [Enhancement]
 
 ### Printer
 
-- Printer-MIB walks added — operator validated (#409) [Enhancement]
+- Printer-MIB walks added (#409) [Enhancement]
 - Printer card supply bars now render in their mapped brand colour (cyan/magenta/yellow/black/waste-grey)... (#423) [Enhancement]
 - Printer supply names render brand acronyms + SKU codes ALL CAPS — `titleCase()` rule extension (#436) [Enhancement]
 - Printer pages-printed sparkline + lifetime headline (#439) [Enhancement]
@@ -191,10 +191,10 @@ Third MINOR cut on top of `1.2.0` — rolls up **316 closed issues** under the 1
 - `_AUTH_COOLDOWN_SECONDS` duplicated across `logic/webmin.py:74` AND `logic/ssh.py:111` unified under one... (#280) [Enhancement]
 - Move Webmin cache TTLs to Settings → Host stats → Webmin section (#285) [Enhancement]
 - Settings → Host stats — unified Save (#289) [Enhancement]
-- Admin Save button standardisation (Phase-1 + Phase-2, merged) (#290) [Enhancement]
+- Admin Save button standardisation — in-flight + disabled state across Notifications / Portainer / OIDC + audit of ~10 other Save buttons + saveSchedule / saveRetention modal Saves + saveSshSettings label normalisation (#290) 
 - Settings → Host stats tab labels simplified per operator request — three keys in `static/i18n/en.json`... (#298) [Enhancement]
 - UI consistency — Apprise (Notifications) + SSH admin tabs now have an "Enabled" / "Disabled" pill next to the... (#338) [Enhancement]
-- UX review batch — operator validated (#410) [Enhancement]
+- UX review batch — i18n hardcoded-string sweep, drawer/modal A11Y dialog roles, global focus-visible ring, prefers-reduced-motion expansion, skip-link utility, and /admin/hosts hard-href fix (#410) 
 - Beszel + Pulse Test buttons pinned right via grid layout (`grid-cols-[1fr_auto]` + `justify-self-end`) (#414) [Enhancement]
 - Hosts-toolbar Open Beszel / Open Pulse buttons floating to the trailing edge — three-pass fix landing on... (#440) [Bug]
 - Beszel Load avg chart shows `load` unit chip in title (#455) [Enhancement]
@@ -207,10 +207,10 @@ Third MINOR cut on top of `1.2.0` — rolls up **316 closed issues** under the 1
 
 ### Provider chips & icons
 
-- Per-provider chip colours apply reactively in Hosts page + drawer — operator validated (#327) [Enhancement]
+- Per-provider chip colours apply reactively in Hosts page + drawer (#327) [Enhancement]
 - Provider icons (mono SVG) in Settings → Providers tab strip + Admin → Hosts collapsed-card chip strip —... (#362) [Enhancement]
-- Hosts-page header provider chips became clickable filters — operator validated (#391) [Enhancement]
-- Provider tab strip dot now uses `.dot-on` / `.dot-off` utility classes — operator validated (#407) [Enhancement]
+- Hosts-page header provider chips became clickable filters (#391) [Enhancement]
+- Provider tab strip dot now uses `.dot-on` / `.dot-off` utility classes (#407) [Enhancement]
 - Per-port utilization heatmap. ifHighSpeed walk + `link_speed_mbps` persistence +... (#451) [Enhancement]
 - `network_ifaces` added to `_BARE_SNAPSHOT_KEYS` so per-iface chip strip + per-port heatmap fall back to... (#476) [Enhancement]
 - Per-iface 32-bit counter degraded badge on the host drawer's network-iface chip strip (#491) [Enhancement]
@@ -226,7 +226,7 @@ Third MINOR cut on top of `1.2.0` — rolls up **316 closed issues** under the 1
 - History view's OP cell chip wraps `gather refresh` (and any multi-word op_type) onto two lines, looking... (#322) [Bug]
 - Cloudflare brand icon shipped — `static/img/icons/cloudflare.svg` from homarr-labs/dashboard-icons (orange... (#324) [Enhancement]
 - Tiny 9px package icon next to display name when sourced from asset inventory (operator-typed labels show no... (#357) [Enhancement]
-- Stat-bar warn / crit thresholds operator-tunable — operator validated (#406) [Enhancement]
+- Stat-bar warn / crit thresholds operator-tunable (#406) [Enhancement]
 - IDEA — Drawer focus-trap helper (`_focusTrap(el)`) (#417) [Enhancement]
 - "+ Add URL" link in host drawer System card lands on the specific host's row in Admin → Hosts (#428) [Enhancement]
 - Hardware inventory rows (host_model / host_serial / host_firmware) added to drawer Hardware card (#437) [Enhancement]
@@ -260,7 +260,7 @@ Third MINOR cut on top of `1.2.0` — rolls up **316 closed issues** under the 1
 - Perf — short-TTL cache on `load_host_snapshots()` (default 5s, admin-tunable via... (#230) [Bug]
 - Debounce on the Hosts-view filter input (#242) [Enhancement]
 - Admin → Hosts collapsed-card layout fixes (#316) [Bug]
-- Hosts page lazy-loaded probe fetch via IntersectionObserver — operator validated (#331) [Enhancement]
+- Hosts page lazy-loaded probe fetch via IntersectionObserver (#331) [Enhancement]
 - Hosts + Host_groups + Providers admin tabs aligned to the standardised pattern (#341) [Enhancement]
 - SSH icon repositioned to RIGHT of the Admin → Hosts editor row header (was on the LEFT) (#345) [Enhancement]
 - Per-host SSH flipped from opt-out (`ssh.disabled=true`) to opt-in (`ssh.enabled=true`) (#347) [Enhancement]
@@ -287,12 +287,12 @@ Third MINOR cut on top of `1.2.0` — rolls up **316 closed issues** under the 1
 
 ### Schedules & automation
 
-- SnmpEngine module-level singleton — operator validated (#382) [Bug]
+- SnmpEngine module-level singleton (#382) [Bug]
 - Warming-up banner reads configured sampler interval — three-pass fix landing on `snmpWarmingUpText()` helper... (#443) [Bug]
 
 ### Mobile / responsive UX
 
-- `extract_storage` unit-normalisation heuristic for hrStorageType=RAM — operator validated (#375) [Enhancement]
+- `extract_storage` unit-normalisation heuristic for hrStorageType=RAM (#375) [Enhancement]
 - Host mobile-card `.host-mobile-card-metric .name` font bumped 9.5px → 10.5px and letter-spacing 0.5px → 0.3px... (#405) [Bug]
 
 ### Topbar, login & branding
@@ -304,13 +304,13 @@ Third MINOR cut on top of `1.2.0` — rolls up **316 closed issues** under the 1
 - Login error fix — disabled-user case now returns specific 403 "Account is disabled (#288) [Bug]
 - Login UI — 403 detail now surfaced (#291) [Enhancement]
 - Login UI — password field cleared on every failed login attempt (#292) [Bug]
-- `get_credential_by_credential_id` SELECT in `logic/auth.py` now includes `rp_id` — operator validated (#374) [Bug]
-- `.forgejo/workflows/deploy.yml` redirects `docker login` stderr to `/dev/null` — operator validated (#385) [Enhancement]
-- A11Y review LOW + NIT findings — operator validated (#413) [Enhancement]
+- `get_credential_by_credential_id` SELECT in `logic/auth.py` now includes `rp_id` (#374) [Bug]
+- `.forgejo/workflows/deploy.yml` redirects `docker login` stderr to `/dev/null` (#385) [Enhancement]
+- A11Y review LOW + NIT findings (#413) [Enhancement]
 
 ### Filters, badges & status pills
 
-- Clickable `button.chip` chips meet `--touch-target-min` on phones (≤768px viewport) — operator validated (#399) [Enhancement]
+- Clickable `button.chip` chips meet `--touch-target-min` on phones (≤768px viewport) (#399) [Enhancement]
 - IDEA — Provider filter chip "Solo" via Shift-click (#418) [Enhancement]
 - IDEA — CHANGELOG "What's New" badge after deploy (#420) [Enhancement]
 
@@ -339,7 +339,7 @@ Third MINOR cut on top of `1.2.0` — rolls up **316 closed issues** under the 1
 - Hardened deploy.yml version-source resolution — code-complete (#334) [Enhancement]
 - Extend deploy.yml to also push the built image to Forgejo's container registry (#335) [Enhancement]
 - Dockerfile OCI `image.source` label now carries a multi-line LABEL comment cross-referencing... (#383) [Enhancement]
-- `_clean_host_snmp` now carries an explicit comment documenting that omission == disabled — operator validated (#384) [Enhancement]
+- `_clean_host_snmp` now carries an explicit comment documenting that omission == disabled (#384) [Enhancement]
 
 ### Internal cleanup, refactor & bug sweeps
 
@@ -382,8 +382,8 @@ Third MINOR cut on top of `1.2.0` — rolls up **316 closed issues** under the 1
 - Convention-violations housekeeping notes — closing for record (no work to ship) (#279) [Bug]
 - Sorted Process tunables form alphabetically by translated label (#281) [Enhancement]
 - Nodes-section source-count chip overcount — fixed both sides (#323) [Enhancement]
-- Split `cloudflared` from `cloudflare` — operator validated "solved now" (#325) [Bug]
-- Three-front fix shipped + operator validated (#332) [Bug]
+- Split `cloudflared` from `cloudflare` "solved now" (#325) [Bug]
+- Three-front fix shipped (#332) [Bug]
 - Flip Swarm to PULL from Forgejo registry instead of using local-only tags (#336) [Enhancement]
 - Removed Admin → Version page + GET/POST `/api/admin/version` endpoints (#337) [Bug]
 - Title-row spacing unified across ALL admin tabs to the dominant `mb-2` pattern (#339) [Bug]
@@ -396,20 +396,20 @@ Third MINOR cut on top of `1.2.0` — rolls up **316 closed issues** under the 1
 - Long display labels now ellipsis-truncate with `min-w-0 max-w-[280px] truncate` instead of pushing the SSH... (#354) [Enhancement]
 - SSH icon (and any other binding that reads from row data) was returning STALE state until a hard refresh... (#356) [Bug]
 - Legacy `/api/hosts` refactored to compose `_get_host_provider_state` + `_merge_one_host` — operator... (#360) [Enhancement]
-- Lazy IO observer fan-out now honours `tuning_hosts_parallel_fetch` concurrency cap — operator validated (#372) [Enhancement]
-- Renamed `for c in creds:` → `for cred in creds:` in `api_local_login_webauthn_start` — operator validated (#377) [Enhancement]
+- Lazy IO observer fan-out now honours `tuning_hosts_parallel_fetch` concurrency cap (#372) [Enhancement]
+- Renamed `for c in creds:` → `for cred in creds:` in `api_local_login_webauthn_start` (#377) [Enhancement]
 - Host icon resolution now reads `assetForHost(h).name` / `type_short` / `vendor` / `model` as additional... (#380) [Bug]
-- `probe_snmp` reads ENTITY-MIB physical-entry walks + sysContact / sysLocation — operator validated (#390) [Enhancement]
+- `probe_snmp` reads ENTITY-MIB physical-entry walks + sysContact / sysLocation (#390) [Enhancement]
 - `probe_snmp` extended with Dell DELL-RAC-MIB (iDRAC) + Cisco CISCO-MEMORY-POOL-MIB / CISCO-PROCESS-MIB /... (#393) [Enhancement]
-- SYNOLOGY-MIB OIDs (1.3.6.1.4.1.6574.x) for DSM-based NAS — operator validated (#396) [Enhancement]
-- Ubiquiti UniFi switch / AP sysDescr "MODEL, FIRMWARE" parser — operator validated (#397) [Enhancement]
-- `var(--provider-icon-size, 14px)` fallback literal removed from `.provider-icon` — operator validated (#400) [Enhancement]
+- SYNOLOGY-MIB OIDs (1.3.6.1.4.1.6574.x) for DSM-based NAS (#396) [Enhancement]
+- Ubiquiti UniFi switch / AP sysDescr "MODEL, FIRMWARE" parser (#397) [Enhancement]
+- `var(--provider-icon-size, 14px)` fallback literal removed from `.provider-icon` (#400) [Enhancement]
 - `rgba(0, 0, 0, 0.18)` literal on `.log-sev-pill.is-active .log-sev-count` replaced with new... (#401) [Enhancement]
 - `--r-pill: 999px` token added; all 7 `border-radius: 999px` literals migrated to `var(--r-pill)` — operator... (#402) [Enhancement]
 - Typography token family declared on `:root` — `--fs-xs` (11px) / `--fs-sm` (12px) / `--fs-md` (13px) /... (#403) [Enhancement]
 - Profile-modal avatar moved from inline `:style="'background: hsl(...)'"` to sanctioned `--avatar-hue`... (#404) [Enhancement]
 - SweetAlert2 overrides token-ised — `13px` → `var(--fs-md)`, `12px` → `var(--fs-sm)`, `8px 18px` → `var(--s-3)... (#408) [Enhancement]
-- Network card "idle interfaces" toggle for switches — operator validated (#411) [Enhancement]
+- Network card "idle interfaces" toggle for switches (#411) [Enhancement]
 - IDEA — Density toggle (compact/comfortable/spacious) (#419) [Enhancement]
 - Hosts-page CPU/Mem/Disk percentages now render as integers (`Math.round`) instead of `73.84579584587%` (#421) [Enhancement]
 - Single-interface unhide — host with exactly 1 docker/internal iface (and no busy / idle ifaces) now renders... (#427) [Enhancement]
