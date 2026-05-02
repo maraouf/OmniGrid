@@ -12183,7 +12183,16 @@
             </div>
           </div>
           <div class="flex items-center gap-2">
-            <button @click="loadNotifications()" class="btn btn-ghost text-[12px]" x-text="t('actions.reload')"></button>
+            <!-- Reload icon (circular arrows) — matches the refresh
+                 affordance the operator already recognises from the
+                 stacks toolbar / drawer chart-grid. SVG sits inside
+                 the button alongside an `aria-label` so screen
+                 readers announce the action. -->
+            <button @click="loadNotifications()" class="btn btn-ghost text-[12px] inline-flex items-center gap-1.5"
+                    :aria-label="t('actions.reload')" :title="t('actions.reload')">
+              <svg width="14" height="14" aria-hidden="true"><use href="#icon-refresh-ccw"/></svg>
+              <span x-text="t('actions.reload')"></span>
+            </button>
             <button @click="markAllNotificationsRead()" class="btn btn-soft text-[12px]"
                     :disabled="(notificationsUnread || 0) === 0"
                     x-text="t('notifications.mark_all_read')"></button>
@@ -12191,49 +12200,53 @@
                     :aria-label="t('actions.close')">✕</button>
           </div>
         </div>
-        <div class="p-4 space-y-3">
-          <!-- Filter chips. The severity radiogroup uses ARIA `radiogroup`
-               per CLAUDE.md "Filter chips need aria-pressed when used as
-               toggles" — radio semantic because the choices are mutually
-               exclusive (one severity at a time, NOT multi-select). -->
-          <div class="flex flex-wrap gap-2 items-center text-[12px]">
-            <span class="text-[var(--text-faint)]" x-text="t('notifications.filter_severity')"></span>
-            <div role="radiogroup" :aria-label="t('notifications.filter_severity')" class="flex gap-1">
-              <!-- Per-severity colouring: each chip carries the brand
-                   pill class for its severity (info/success/warning/error)
-                   so operators see at a glance which filter is which.
-                   The "all" chip stays neutral. The currently-selected
-                   chip layers `chip-active` on top — bumps brightness +
-                   draws an inset ring so the active state is unmissable
-                   even at a quick glance. -->
-              <template x-for="sev in ['all','info','success','warning','error']" :key="sev">
-                <button role="radio" :aria-checked="notificationsFilterSeverity === sev"
-                        @click="notificationsFilterSeverity = sev; loadNotifications()"
-                        :class="[
-                          'chip',
-                          sev === 'info' ? 'pill-info' : (sev === 'success' ? 'pill-ok' : (sev === 'warning' ? 'pill-update' : (sev === 'error' ? 'pill-error' : ''))),
-                          notificationsFilterSeverity === sev ? 'chip-active' : ''
-                        ]"
-                        x-text="sev === 'all' ? t('filters.all') : t('notifications.severity.' + sev)"></button>
-              </template>
-            </div>
 
-            <span class="text-[var(--text-faint)] ms-2" x-text="t('notifications.filter_event')"></span>
-            <select x-model="notificationsFilterEvent" @change="loadNotifications()"
-                    class="text-[12px]">
-              <option value="all" x-text="t('filters.all')"></option>
-              <template x-for="ev in notificationEventOptions()" :key="ev">
-                <option :value="ev" x-text="ev"></option>
-              </template>
-            </select>
-
-            <label class="ms-2 inline-flex items-center gap-1">
-              <input type="checkbox" x-model="notificationsFilterUnread"
-                     @change="loadNotifications()">
-              <span x-text="t('notifications.filter_unread_only')"></span>
-            </label>
+        <!-- Filter bar — lives INSIDE the sticky header (not the
+             scrolling body) so severity / event / unread-only stay
+             visible as the operator pages through long lists. The
+             severity radiogroup uses ARIA `radiogroup` per CLAUDE.md
+             "Filter chips need aria-pressed when used as toggles" —
+             radio semantic because the choices are mutually exclusive
+             (one severity at a time, NOT multi-select). -->
+        <div class="px-4 py-3 border-b border-[var(--border)] sticky top-[57px] bg-[var(--surface)] z-10 flex flex-wrap gap-2 items-center text-[12px]">
+          <span class="text-[var(--text-faint)]" x-text="t('notifications.filter_severity')"></span>
+          <div role="radiogroup" :aria-label="t('notifications.filter_severity')" class="flex gap-1">
+            <!-- Per-severity colouring: each chip carries the brand
+                 pill class for its severity (info/success/warning/error)
+                 so operators see at a glance which filter is which.
+                 The "all" chip stays neutral. The currently-selected
+                 chip layers `chip-active` on top — adds a leading dot
+                 + thin border in the chip's own colour + bold label so
+                 the active state is unmissable but visually subtle. -->
+            <template x-for="sev in ['all','info','success','warning','error']" :key="sev">
+              <button role="radio" :aria-checked="notificationsFilterSeverity === sev"
+                      @click="notificationsFilterSeverity = sev; loadNotifications()"
+                      :class="[
+                        'chip',
+                        sev === 'info' ? 'pill-info' : (sev === 'success' ? 'pill-ok' : (sev === 'warning' ? 'pill-update' : (sev === 'error' ? 'pill-error' : ''))),
+                        notificationsFilterSeverity === sev ? 'chip-active' : ''
+                      ]"
+                      x-text="sev === 'all' ? t('filters.all') : t('notifications.severity.' + sev)"></button>
+            </template>
           </div>
 
+          <span class="text-[var(--text-faint)] ms-2" x-text="t('notifications.filter_event')"></span>
+          <select x-model="notificationsFilterEvent" @change="loadNotifications()"
+                  class="text-[12px]">
+            <option value="all" x-text="t('filters.all')"></option>
+            <template x-for="ev in notificationEventOptions()" :key="ev">
+              <option :value="ev" x-text="ev"></option>
+            </template>
+          </select>
+
+          <label class="ms-2 inline-flex items-center gap-1">
+            <input type="checkbox" x-model="notificationsFilterUnread"
+                   @change="loadNotifications()">
+            <span x-text="t('notifications.filter_unread_only')"></span>
+          </label>
+        </div>
+
+        <div class="p-4 space-y-3">
           <div x-show="notificationsLoading" class="loading-state">
             <span class="spin-lg" aria-hidden="true"></span>
             <span x-text="t('loading.section')"></span>
