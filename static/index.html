@@ -11547,7 +11547,14 @@
                           <div class="host-debug-meta">
                             <span x-text="t('debug_panel.active_providers')"></span>
                             <template x-for="p in (hostsDebug[h.id].active_providers || [])" :key="p">
-                              <span class="host-debug-tag" x-text="p"></span>
+                              <span class="chip pill-custom"
+                                    :style="providerChipStyle(p)"
+                                    :title="p">
+                                <span class="provider-icon"
+                                      :style="providerIconStyle(p)"
+                                      aria-hidden="true"></span>
+                                <span x-text="p === 'node_exporter' ? 'exporter' : p"></span>
+                              </span>
                             </template>
                             <template x-if="(hostsDebug[h.id].active_providers || []).length === 0">
                               <span class="host-debug-tag host-debug-tag--warn" x-text="t('debug_panel.none')"></span>

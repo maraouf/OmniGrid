@@ -3643,14 +3643,25 @@ def _humanise_probe_error(raw: str, target_label: str) -> str:
     # so the operator gets actionable copy ("locked out for X seconds")
     # instead of a `webmin: ...` raw prefix.
     if "auth cool-down" in low or "auth cooldown" in low:
-        # Try to pull the seconds-remaining; fall through to a generic
-        # message when the probe didn't include it. Digit count is
-        # bounded to 10 (≈ 317 years in seconds, plenty for any cool-
-        # down value) — closes CodeQL py/polynomial-redos which flagged
-        # the unbounded `\d+` running on user-influenced probe text.
-        m = re.search(r"(\d{1,10})s remaining", low)
-        if m:
-            return (f"{target_label} auth is in cool-down ({m.group(1)}s remaining) — "
+        # Pull "<N>s remaining" via plain string scanning — no regex.
+        # The previous `re.search(r"(\d+)s remaining", low)` (and even
+        # the bounded `\d{1,10}` follow-up) tripped CodeQL
+        # py/polynomial-redos because the haystack flows from
+        # /api/snmp/test's body. Walking the string by hand and
+        # capping the digit run at 10 chars eliminates the regex
+        # entirely; same behaviour for legitimate inputs, fixed-time
+        # for pathological ones.
+        idx = low.find("s remaining")
+        digits = ""
+        if idx > 0:
+            end = idx
+            start = idx
+            # Cap the walk so a million-byte digit run can't degrade.
+            while start > 0 and low[start - 1].isdigit() and (end - start) < 10:
+                start -= 1
+            digits = low[start:end]
+        if digits.isdigit():
+            return (f"{target_label} auth is in cool-down ({digits}s remaining) — "
                     f"a previous Test failed; wait it out before retrying")
         return f"{target_label} auth is in cool-down — wait a few minutes before retrying"
     if "all modules failed" in low:
