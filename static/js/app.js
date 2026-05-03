@@ -8411,27 +8411,43 @@ function app() {
       const translated = this.t(key);
       return (translated && translated !== key) ? translated : (status || '');
     },
-    // Physical-disk state pill — `online` / `ready` map to ok-green;
-    // `rebuild` / `recovering` / `non-raid` map to amber; failure
-    // states (`failed` / `offline` / `degraded` / `removed`) map to
-    // red. `foreign` / `blocked` / `clear` are advisory states the
-    // operator usually wants to see — amber.
+    // Physical-disk state pill — Dell OMSA arrayDiskState labels.
+    // Healthy: `online` / `ready` → green. Failure: `failed` / `offline`
+    // / `degraded` / `removed` / `fault` → red. Transient / advisory:
+    // `rebuilding` / `replacing` / `replaced` / `foreign` / `blocked`
+    // / `non-raid` / `read-only` / `uncertified` / `smart-alert` /
+    // `predictive-failure` → amber. Legacy spellings (`rebuild` /
+    // `recovering` / `clear` / `ready-foreign`) preserved for back-compat.
     dellPdStatePillClass(state) {
       const s = String(state || '').toLowerCase();
       if (s === 'online' || s === 'ready') return 'pill-ok';
-      if (s === 'failed' || s === 'offline' || s === 'degraded' || s === 'removed') return 'pill-error';
-      if (s === 'rebuild' || s === 'recovering' || s === 'foreign'
-          || s === 'blocked' || s === 'clear' || s === 'non-raid'
-          || s === 'ready-foreign') return 'pill-update';
+      if (s === 'failed' || s === 'offline' || s === 'degraded'
+          || s === 'removed' || s === 'fault') return 'pill-error';
+      if (s === 'rebuild' || s === 'rebuilding' || s === 'recovering'
+          || s === 'replacing' || s === 'replaced'
+          || s === 'foreign' || s === 'blocked' || s === 'clear'
+          || s === 'non-raid' || s === 'ready-foreign'
+          || s === 'read-only' || s === 'uncertified'
+          || s === 'smart-alert' || s === 'predictive-failure') return 'pill-update';
       return 'pill-unknown';
     },
-    // Virtual-disk state pill — same colour convention.
+    // Virtual-disk state pill — Dell OMSA virtualDiskState labels.
+    // Healthy: `online` / `ready` → green. Failure: `failed` / `offline`
+    // / `failed-redundancy` / `permanently-degraded` → red. Transient:
+    // `degraded` / `verifying` / `resynching` / `regenerating` /
+    // `rebuilding` / `formatting` / `reconstructing` / `initializing` /
+    // `background-init` / `degraded-redundancy` → amber.
     dellVdStatePillClass(state) {
       const s = String(state || '').toLowerCase();
       if (s === 'online' || s === 'ready') return 'pill-ok';
-      if (s === 'failed' || s === 'offline' || s === 'failed-redundancy') return 'pill-error';
+      if (s === 'failed' || s === 'offline'
+          || s === 'failed-redundancy'
+          || s === 'permanently-degraded') return 'pill-error';
       if (s === 'degraded' || s === 'verifying' || s === 'resynching'
-          || s === 'regenerating') return 'pill-update';
+          || s === 'regenerating' || s === 'rebuilding'
+          || s === 'formatting' || s === 'reconstructing'
+          || s === 'initializing' || s === 'background-init'
+          || s === 'degraded-redundancy') return 'pill-update';
       return 'pill-unknown';
     },
     fmtUpsRuntime(seconds) {
@@ -16233,6 +16249,10 @@ function app() {
         snmp_memory: ['snmp'],
         snmp_load:   ['snmp'],
         snmp_pages:  ['snmp'],
+        // Dell server temperatures come from the iDRAC's
+        // temperatureProbeTable walk (1.3.6.1.4.1.674.10892.5.4.700.20).
+        // SNMP-only — no Beszel / NE crossover.
+        dell_temps:  ['snmp'],
         // Ping is its own thing — TCP / ICMP probe per host.
         ping:        ['ping'],
       };

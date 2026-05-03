@@ -229,12 +229,29 @@ def _is_snapshot_key(key) -> bool:
 # there's no drift to maintain.
 
 
+def _is_urlish(v) -> bool:
+    """True when v looks like an http(s) URL string. Used to keep a
+    stale iDRAC chassis URL from sticking in ``host_firmware`` across
+    restarts — pre-#938 the URL OID was mapped to host_firmware before
+    the URL-detection routing landed, and the persisted value lingered
+    in ``host_snapshots`` even after probes correctly route it to
+    ``host_idrac_url``. Strip on both write AND read paths so the next
+    successful gather scrubs the stale row idempotently.
+    """
+    if not isinstance(v, str):
+        return False
+    s = v.strip().lower()
+    return s.startswith(("http://", "https://"))
+
+
 def save_host_snapshots(nodes_info: dict) -> int:
     """Upsert one row per host into ``host_snapshots``.
 
     JSON-encodes the merged ``nodes_info[host]`` dict. Strips fields
     starting with ``_`` (the stale-marker bookkeeping) so a restart
     doesn't read its own marker noise back as canonical data.
+    Also strips URL-shaped values from ``host_firmware`` (#938) so a
+    pre-#899 stale URL leak gets cleaned up on the next gather.
     Returns the number of rows written.
     """
     if not nodes_info:
@@ -245,6 +262,8 @@ def save_host_snapshots(nodes_info: dict) -> int:
         if not isinstance(info, dict) or not info:
             continue
         clean = {k: v for k, v in info.items() if not str(k).startswith("_")}
+        if _is_urlish(clean.get("host_firmware")):
+            clean.pop("host_firmware", None)
         try:
             blob = json.dumps(clean, default=str)
         except (TypeError, ValueError):
@@ -391,6 +410,15 @@ def apply_host_snapshot_fallback(
             if not _is_snapshot_key(key):
                 continue
             if _is_meaningful(info.get(key)):
+                continue
+            # Skip URL-shaped values for host_firmware (#938) — pre-#899
+            # the iDRAC chassis URL was mapped to host_firmware before
+            # URL detection routed it to host_idrac_url. Already-persisted
+            # snapshots can carry the stale URL forever; the write-path
+            # filter in save_host_snapshots scrubs it on the next gather,
+            # but until then this guard keeps the SPA from rendering
+            # "Firmware: https://<host>:443" in the Hardware card.
+            if key == "host_firmware" and _is_urlish(v):
                 continue
             if _is_meaningful(v):
                 info[key] = v
