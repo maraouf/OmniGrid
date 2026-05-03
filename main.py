@@ -3407,6 +3407,23 @@ async def api_snmp_test(
     vendors_test = _clean_vendors_input(
         body.get("vendors") if isinstance(body, dict) else None
     )
+    # Per-host wall_clock_budget — Test runs the probe with the
+    # operator's per-host override (if set) so the smoke test runs
+    # under the SAME budget the live probe will use. Same NPM
+    # ceiling as the debug panel: Test traverses
+    # browser → NPM → OmniGrid, so the global tunable's higher value
+    # (operators commonly set 120s for the internal sampler) is
+    # capped at the proxy-safe ceiling here. Per-host override can
+    # decrease but not raise above the cap.
+    wcb_test_raw = body.get("wall_clock_budget") if isinstance(body, dict) else None
+    try:
+        wcb_test = float(wcb_test_raw) if wcb_test_raw else None
+    except (TypeError, ValueError):
+        wcb_test = None
+    _TEST_BUDGET_CAP = 50.0
+    wcb_resolved = (
+        min(_TEST_BUDGET_CAP, wcb_test) if wcb_test else _TEST_BUDGET_CAP
+    )
 
     # consume tuning_snmp_probe_timeout_seconds. Test endpoint uses
     # max(tunable, 10s) so a tiny tunable doesn't cripple manual smoke probes.
@@ -3428,6 +3445,7 @@ async def api_snmp_test(
         bypass_cooldown=True,
         walk_concurrency=walk_conc_test,
         vendors=vendors_test,
+        wall_clock_budget=wcb_resolved,
     )
     # If the operator-initiated probe succeeded, clear any pending
     # cool-down so the next automatic sampler tick picks up the host
@@ -4631,6 +4649,18 @@ async def _merge_one_host(h: dict, state: dict, *, force: bool = False) -> tuple
                 stats = next(iter(hosts_map.values()))
                 _merge_best(merged, stats)
                 providers_hit.append("snmp")
+                # Capture the auto-detected vendor set from the probe
+                # diagnostic so the Admin → Hosts editor can render
+                # "Auto-detect last result: <vendors>" below the
+                # vendor checkbox group. Helps operators new to SNMP
+                # decide between trusting auto-detect vs setting an
+                # explicit override.
+                av = result.get("active_vendors")
+                if isinstance(av, list) and av:
+                    merged["host_snmp_active_vendors"] = list(av)
+                avs = result.get("active_vendors_source")
+                if isinstance(avs, str) and avs:
+                    merged["host_snmp_active_vendors_source"] = avs
 
     # Beszel.
     # HARD-GATE on explicit `beszel_name` (#832 — same fix as Pulse
@@ -5253,6 +5283,15 @@ def _shape_host_api_row(
         "host_dell_power_watts":   (float(s.get("host_dell_power_watts")) if s.get("host_dell_power_watts") is not None else None),
         "host_bios_version":       s.get("host_bios_version") or "",
         "host_bios_date":          s.get("host_bios_date") or "",
+        # Last-observed SNMP auto-detect result — captured from the
+        # most recent successful probe's diagnostic. Drives the
+        # "Auto-detect last result: <vendors>" hint below the Vendor
+        # MIBs checkbox group in the Admin → Hosts editor so operators
+        # can see what auto-detect picked before deciding whether to
+        # set an explicit override. Empty list when the host has never
+        # been probed successfully or no SNMP override is set.
+        "host_snmp_active_vendors":        list(s.get("host_snmp_active_vendors") or []),
+        "host_snmp_active_vendors_source": s.get("host_snmp_active_vendors_source") or "",
         # Network interfaces — already populated by extract_interfaces;
         # added explicitly here so the SNMP path's rx_bytes / tx_bytes /
         # oper_status make it through to the SPA. node-exporter / Beszel
@@ -6675,14 +6714,47 @@ async def api_hosts_test(
                 port = snmp_port or int(get_setting("snmp_default_port", "161") or "161")
             except (TypeError, ValueError):
                 port = 161
+            # Per-host overrides forwarded from the SPA's testHostRow
+            # so the per-row Test mirrors the live probe path. Pre-fix
+            # this only honoured target+community+version+port and
+            # silently used the GLOBAL walk_concurrency / wall_clock
+            # tunables — which surfaced as "Test failed: HTTP 504"
+            # for slow iDRAC chassis where the operator's 120s global
+            # budget exceeded NPM's proxy_read_timeout. Now: per-host
+            # walk_concurrency / vendors honoured; per-host
+            # wall_clock_budget capped at 50s (NPM proxy ceiling).
+            v3_user_t = (body.get("snmp_v3_user")  or "").strip() or (get_setting("snmp_v3_user", "") or "")
+            v3_auth_t = (body.get("snmp_v3_auth_key") or "").strip() or (get_setting("snmp_v3_auth_key", "") or "")
+            v3_priv_t = (body.get("snmp_v3_priv_key") or "").strip() or (get_setting("snmp_v3_priv_key", "") or "")
+            try:
+                walk_conc_t = int(body.get("snmp_walk_concurrency") or 0) or None
+            except (TypeError, ValueError):
+                walk_conc_t = None
+            try:
+                wcb_t_raw = float(body.get("snmp_wall_clock_budget") or 0) or None
+            except (TypeError, ValueError):
+                wcb_t_raw = None
+            _ROW_TEST_BUDGET_CAP = 50.0
+            wcb_t = (
+                min(_ROW_TEST_BUDGET_CAP, wcb_t_raw)
+                if wcb_t_raw else _ROW_TEST_BUDGET_CAP
+            )
+            vendors_t = _clean_vendors_input(body.get("snmp_vendors"))
             r = await _snmp.probe_snmp(
                 snmp_target,
                 community=community,
                 version=version,
                 port=port,
-                v3_user=get_setting("snmp_v3_user", "") or "",
-                v3_auth_key=get_setting("snmp_v3_auth_key", "") or "",
-                v3_priv_key=get_setting("snmp_v3_priv_key", "") or "",
+                v3_user=v3_user_t,
+                v3_auth_key=v3_auth_t,
+                v3_priv_key=v3_priv_t,
+                walk_concurrency=walk_conc_t,
+                vendors=vendors_t,
+                wall_clock_budget=wcb_t,
+                # Operator clicked Test — bypass the unreachable
+                # cool-down so a recent failure doesn't gate the smoke
+                # probe.
+                bypass_cooldown=True,
             )
             if r.get("error") and not r.get("hosts"):
                 out["snmp"] = {"ok": False, "skipped": False,
@@ -6932,6 +7004,35 @@ async def api_hosts_debug(
                 # Per-host vendor MIB selector. None = auto-detect from
                 # sysDescr; explicit list = bypass auto-detect.
                 vendors_kick = _clean_vendors_input(row_snmp_kick.get("vendors"))
+                # Per-host wall_clock_budget override (#918) capped at
+                # the debug-path ceiling. The DEBUG-PATH budget is
+                # deliberately tighter than the sampler-path budget
+                # because the debug panel traverses
+                # browser → NPM → OmniGrid (NPM's `proxy_read_timeout`
+                # default is 60s; raising the global SNMP budget above
+                # that surfaces as HTTP 504 from NPM, NOT a useful
+                # error). The internal sampler path runs lifespan-side,
+                # never touches NPM, so its budget is uncapped via the
+                # global tunable. Operators with a 120s+ global
+                # tunable have set it for the sampler — the debug
+                # panel ceiling stays at 50s so the proxied request
+                # always completes within the NPM window. Per-host
+                # override can DECREASE the budget below 50s but not
+                # raise it above. The operator's recovery for slow
+                # iDRAC chassis is to bump the per-host
+                # `snmp.walk_concurrency` (the probe finishes faster),
+                # NOT to raise the budget — the error message already
+                # prompts that path.
+                wcb_kick = row_snmp_kick.get("wall_clock_budget")
+                try:
+                    wcb_kick_f = float(wcb_kick) if wcb_kick else None
+                except (TypeError, ValueError):
+                    wcb_kick_f = None
+                _DEBUG_BUDGET_CAP = 50.0
+                wcb_resolved = (
+                    min(_DEBUG_BUDGET_CAP, wcb_kick_f)
+                    if wcb_kick_f else _DEBUG_BUDGET_CAP
+                )
                 snmp_task = asyncio.create_task(_snmp.probe_snmp(
                     target_kick,
                     community=community_kick,
@@ -6946,14 +7047,7 @@ async def api_hosts_debug(
                     active_sources=active,
                     verbose=True,
                     bypass_cooldown=True,
-                    # 50s wall-clock budget for the debug path —
-                    # gives slow BMC-class agents (iDRAC9 / IPMI /
-                    # printers) headroom for the full ~67-OID walk
-                    # at the safety-default concurrency=1. Sampler /
-                    # gather paths still use the operator-tunable
-                    # `tuning_snmp_wall_clock_budget_seconds`
-                    # (default 60s).
-                    wall_clock_budget=50.0,
+                    wall_clock_budget=wcb_resolved,
                 ))
                 snmp_meta = {
                     "target": target_kick,
