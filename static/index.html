@@ -18,6 +18,13 @@
      1Password vault items) and the .ico-style 192/512 hints. -->
 <link rel="icon" type="image/png" sizes="512x512" href="/img/logo/omnigrid.png">
 <link rel="icon" type="image/svg+xml" href="/img/logo/omnigrid.svg">
+<!-- UI sprite preload — every <use href="/img/ui-sprite.svg#icon-..."/>
+     reference depends on this single same-origin file. The preload hint
+     starts the fetch in parallel with the HTML parse so icons appear
+     without a flash-of-unstyled-icon when the first paint runs. The
+     `as="image"` + `type="image/svg+xml"` pair matches what
+     `<use href="*.svg#id">` actually fetches under the hood. -->
+<link rel="preload" as="image" type="image/svg+xml" href="/img/ui-sprite.svg">
 <link rel="apple-touch-icon" href="/img/logo/omnigrid.png">
 <link rel="shortcut icon" href="/img/logo/omnigrid.png">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='7' fill='%233b82f6'/><g stroke='white' stroke-opacity='0.45' stroke-width='1.2' stroke-linecap='round'><line x1='8' y1='16' x2='24' y2='16'/><line x1='16' y1='8' x2='16' y2='24'/><line x1='8' y1='8' x2='24' y2='24'/><line x1='24' y1='8' x2='8' y2='24'/></g><g fill='white'><circle cx='8' cy='8' r='1.8'/><circle cx='24' cy='8' r='1.8'/><circle cx='8' cy='24' r='1.8'/><circle cx='24' cy='24' r='1.8'/><circle cx='16' cy='8' r='2'/><circle cx='16' cy='24' r='2'/><circle cx='8' cy='16' r='2'/><circle cx='24' cy='16' r='2'/><circle cx='16' cy='16' r='3.2'/></g></svg>">
@@ -125,120 +132,7 @@
      declared as the role="main" landmark below. -->
 <a href="#main" class="skip-link" x-text="t('app.skip_to_main')"></a>
 
-<!-- ================== ICON SYMBOL LIBRARY ==================
-     Reused via <use href="#icon-..."/>. Keeping them here rather than
-     inlined per-call shrinks index.html by hundreds of lines and ensures
-     every "edit"/"copy"/"chevron" icon stays visually consistent.
-     Hidden via inline display:none on the wrapper — symbols never render
-     directly, only via <use>. Each symbol declares only viewBox; the
-     calling <svg> wrapper supplies width/height/class and any stroke /
-     stroke-width overrides (which inherit through <use> into the symbol's
-     children, since the children carry no stroke-* attrs of their own). -->
-<svg width="0" height="0" style="position:absolute" aria-hidden="true">
-  <defs>
-    <!-- Each symbol bakes the canonical Lucide presentation attrs
-         (fill="none", stroke="currentColor", stroke-width="2",
-         stroke-linecap="round", stroke-linejoin="round") so callers
-         only need width/height/class on the <svg> wrapper. To override
-         stroke-width (e.g. 2.2 / 2.4 / 3) the caller sets it on the
-         wrapper — presentation attrs inherit through <use> into the
-         symbol's children, which carry no stroke-* attrs of their own. -->
-    <!-- Lucide: copy -->
-    <symbol id="icon-copy" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></symbol>
-    <!-- Lucide: chevron-right (RTL-flippable via .flip-rtl on caller) -->
-    <symbol id="icon-chevron-right" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></symbol>
-    <!-- Lucide: chevron-down -->
-    <symbol id="icon-chevron-down" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></symbol>
-    <!-- Lucide: chevron-up -->
-    <symbol id="icon-chevron-up" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="18 15 12 9 6 15"/></symbol>
-    <!-- Lucide: refresh-ccw (rotated arrows around clockwise loop) -->
-    <symbol id="icon-refresh-ccw" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></symbol>
-    <!-- Lucide: rotate-cw (single arrow looping clockwise) -->
-    <symbol id="icon-rotate-cw" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 0 1 15.5-6.36L22 8"/><path d="M22 3v5h-5"/><path d="M22 12a9 9 0 0 1-15.5 6.36L3 16"/><path d="M2 21v-5h5"/></symbol>
-    <!-- Lucide: trash -->
-    <symbol id="icon-trash" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m3 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6h14z"/></symbol>
-    <!-- Lucide: info (circle with i) -->
-    <symbol id="icon-info" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></symbol>
-    <!-- Lucide: clock -->
-    <symbol id="icon-clock" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></symbol>
-    <!-- Lucide: help-circle -->
-    <symbol id="icon-help-circle" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><path d="M12 17h.01"/></symbol>
-    <!-- Lucide: alert-triangle -->
-    <symbol id="icon-alert-triangle" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></symbol>
-    <!-- Lucide: search -->
-    <symbol id="icon-search" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></symbol>
-    <!-- Lucide: lock -->
-    <symbol id="icon-lock" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></symbol>
-    <!-- Lucide: arrow-up-right (small "open in new tab" hint, no surrounding box) -->
-    <symbol id="icon-arrow-up-right" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></symbol>
-    <!-- Lucide: loader (8-spoke spinner — animated by .collecting-block svg in style.css) -->
-    <symbol id="icon-loader" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/></symbol>
-    <!-- admin-tab + profile-tab + user-menu icons. All Lucide
-         shapes; viewBox / stroke / linecap match the existing symbols
-         so the wrapper attrs apply uniformly through <use>. -->
-    <symbol id="icon-user" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></symbol>
-    <symbol id="icon-users" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></symbol>
-    <symbol id="icon-settings" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></symbol>
-    <symbol id="icon-shield" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></symbol>
-    <symbol id="icon-log-out" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></symbol>
-    <symbol id="icon-sliders" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/><line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/><line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/><line x1="1" y1="14" x2="7" y2="14"/><line x1="9" y1="8" x2="15" y2="8"/><line x1="17" y1="16" x2="23" y2="16"/></symbol>
-    <symbol id="icon-monitor" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></symbol>
-    <symbol id="icon-key" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"/></symbol>
-    <symbol id="icon-bell" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></symbol>
-    <symbol id="icon-box" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></symbol>
-    <symbol id="icon-id-card" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="M7 15h0M2 9.5h20"/><path d="M14 14h6M14 10h6"/></symbol>
-    <symbol id="icon-activity" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></symbol>
-    <symbol id="icon-server" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="2" width="20" height="8" rx="2" ry="2"/><rect x="2" y="14" width="20" height="8" rx="2" ry="2"/><line x1="6" y1="6" x2="6.01" y2="6"/><line x1="6" y1="18" x2="6.01" y2="18"/></symbol>
-    <symbol id="icon-layers" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/></symbol>
-    <symbol id="icon-terminal" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></symbol>
-    <symbol id="icon-package" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="16.5" y1="9.4" x2="7.5" y2="4.21"/><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></symbol>
-    <symbol id="icon-calendar" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></symbol>
-    <symbol id="icon-archive" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="21 8 21 21 3 21 3 8"/><rect x="1" y="3" width="22" height="5"/><line x1="10" y1="12" x2="14" y2="12"/></symbol>
-    <symbol id="icon-file-text" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></symbol>
-    <symbol id="icon-tag" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/><line x1="7" y1="7" x2="7.01" y2="7"/></symbol>
-    <symbol id="icon-bug" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="8" y="6" width="8" height="14" rx="4"/><path d="M19 7l-3 2"/><path d="M5 7l3 2"/><path d="M19 13h-3"/><path d="M5 13h3"/><path d="M19 19l-3-2"/><path d="M5 19l3-2"/><path d="M9 6V3"/><path d="M15 6V3"/></symbol>
-    <!-- Lucide: arrow-down-to-line (downward arrow with floor — visual metaphor for "lower bound / minimum"). Used in Admin → Process tunables bounds chips. -->
-    <symbol id="icon-arrow-down-to-line" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 17V3"/><path d="m6 11 6 6 6-6"/><path d="M19 21H5"/></symbol>
-    <!-- Lucide: arrow-up-to-line (upward arrow with ceiling — visual metaphor for "upper bound / maximum"). -->
-    <symbol id="icon-arrow-up-to-line" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 3h14"/><path d="m18 13-6-6-6 6"/><path d="M12 7v14"/></symbol>
-    <!-- Lucide: target (concentric circles + center dot — visual metaphor for "default value / what you'd land on if you cleared the override"). -->
-    <symbol id="icon-target" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/></symbol>
-
-    <!-- Brand-shaped mono icons for Admin sidebar tabs. Both
-         use currentColor so they inherit the same line-icon styling
-         as the other sidebar entries. Portainer is a solid bold "P"
-         with the signature accent square. Authentik is a mono port
-         of the official "key entering a castle" mark (key eye on the
-         left, body with battlement cutouts at top and a doorway at
-         bottom) drawn as a single even-odd-filled path. They live
-         alongside the line-style Lucide icons rather than under
-         /img/icons/ because they're sprites consumed via <use href>. -->
-    <symbol id="icon-portainer" viewBox="0 0 24 24" fill="currentColor" stroke="none">
-      <!-- Bold "P": vertical stem 4-12 wide, with a rounded bowl on top.
-           Matches the silhouette of Portainer's logomark. -->
-      <path d="M4 3 H12 a6 6 0 0 1 0 12 H8 v6 H4 V3 Z M8 7 V11 H12 a2 2 0 0 0 0 -4 H8 Z"/>
-      <!-- Signature accent square (the small magenta box, mono'd). -->
-      <rect x="14.5" y="16.5" width="5" height="5"/>
-    </symbol>
-    <symbol id="icon-authentik" viewBox="0 0 24 24" fill="currentColor" stroke="none" fill-rule="nonzero">
-      <!-- Authentik's "key entering a castle" mark, ported to mono.
-           Source: Streamline icons / Authentik brand. Body is one
-           path: outer rounded square (clockwise) with a doorway notch
-           at the bottom + a cutout subpath (counter-clockwise) whose
-           top edge has three downward battlement protrusions, giving
-           the merlon look without separate merlon shapes. Key is an
-           almond eye + thin shaft drawn as separate solid shapes that
-           abut the body's left edge. Nonzero fill keeps overlaps
-           solid so the eye+shaft merge cleanly at the junction. -->
-      <path d="
-        M 11 3 H 20 a 3 3 0 0 1 3 3 V 18 a 3 3 0 0 1 -3 3 H 17 V 18 H 12 V 21 H 11 a 3 3 0 0 1 -3 -3 V 6 a 3 3 0 0 1 3 -3 Z
-        M 9.5 6 V 14 H 21.5 V 6 H 18.4 V 10 H 17 V 6 H 15.4 V 10 H 14 V 6 H 12.4 V 10 H 11 V 6 Z
-      "/>
-      <ellipse cx="3.2" cy="12" rx="2.3" ry="2.5"/>
-      <rect x="5" y="11.4" width="3" height="1.2"/>
-    </symbol>
-  </defs>
-</svg>
+<!-- ICON SYMBOL LIBRARY moved to static/img/ui-sprite.svg (2026-05-03) — every <use href="/img/ui-sprite.svg#icon-..."/> reference resolves through that same-origin file. Preload <link> in the <head> kicks off the fetch in parallel with the HTML parse. Adding a new icon: edit static/img/ui-sprite.svg, NOT this file. -->
 
 <div x-data="app()" x-init="init()" x-cloak class="flex flex-col min-h-screen"
      x-effect="_applyDrawerScrollLock(drawerHost, drawerItem, drawerNode)">
@@ -360,7 +254,7 @@
                 @click="bulkRemoveAll()"
                 class="btn btn-danger-outline"
                 :title="t('topbar.cleanup_title', { count: removableAll().length })">
-          <svg width="13" height="13" stroke-width="2.2" aria-hidden="true"><use href="#icon-trash"/></svg>
+          <svg width="13" height="13" stroke-width="2.2" aria-hidden="true"><use href="/img/ui-sprite.svg#icon-trash"/></svg>
           <span class="text-[11px]"><span x-text="t('actions.cleanup')"></span> <span x-text="removableAll().length"></span></span>
         </button>
         <!-- Refresh button hidden on mobile — auto-refresh + browser
@@ -384,7 +278,7 @@
                 class="btn btn-ghost text-[12px] hidden sm:inline-flex items-center gap-1.5"
                 :title="t('topbar.refresh_title')">
           <svg width="13" height="13" aria-hidden="true"
-               :class="(view==='hosts' ? hostsLoading : loading) ? 'animate-spin' : ''"><use href="#icon-rotate-cw"/></svg>
+               :class="(view==='hosts' ? hostsLoading : loading) ? 'animate-spin' : ''"><use href="/img/ui-sprite.svg#icon-rotate-cw"/></svg>
           <span x-show="!(view==='hosts' ? hostsLoading : loading)" x-text="t('actions.refresh')"></span>
           <span x-show="view==='hosts' ? hostsLoading : loading" x-text="t('actions.refreshing')"></span>
         </button>
@@ -396,7 +290,7 @@
                 @click="reloadForNewVersion()"
                 class="btn btn-primary text-[11px] flex items-center gap-1.5 animate-pulse"
                 :title="t('topbar_extra.new_version_title', { version: newVersionString })">
-          <svg width="12" height="12" aria-hidden="true"><use href="#icon-refresh-ccw"/></svg>
+          <svg width="12" height="12" aria-hidden="true"><use href="/img/ui-sprite.svg#icon-refresh-ccw"/></svg>
           <span x-text="t('topbar_extra.new_version')"></span>
         </button>
       </div>
@@ -492,7 +386,7 @@
                   x-text="(notificationsUnread > 99) ? '99+' : notificationsUnread"></span>
           </span>
           <svg width="10" height="10" stroke-width="2.5" aria-hidden="true"
-               class="text-[var(--text-dim)]" :class="userMenuOpen && 'rotate-180'"><use href="#icon-chevron-down"/></svg>
+               class="text-[var(--text-dim)]" :class="userMenuOpen && 'rotate-180'"><use href="/img/ui-sprite.svg#icon-chevron-down"/></svg>
         </button>
 
         <!-- Dropdown -->
@@ -527,7 +421,7 @@
             <span x-text="t('user_menu.admin')"></span>
           </button>
           <button @click="userMenuOpen=false; showHotkeys=true" class="user-menu-item">
-            <svg width="14" height="14" aria-hidden="true"><use href="#icon-help-circle"/></svg>
+            <svg width="14" height="14" aria-hidden="true"><use href="/img/ui-sprite.svg#icon-help-circle"/></svg>
             <span x-text="t('user_menu.hotkeys')"></span>
           </button>
           <div class="border-t border-[var(--border)]"></div>
@@ -616,36 +510,29 @@
       <div class="sse-drops-pill order-4 sm:order-none"
            x-show="_sseDropped > 0"
            :title="t('events.dropped_title', { count: _sseDropped })">
-        <svg width="12" height="12" aria-hidden="true"><use href="#icon-alert-triangle"/></svg>
+        <svg width="12" height="12" aria-hidden="true"><use href="/img/ui-sprite.svg#icon-alert-triangle"/></svg>
         <span x-text="t('events.dropped_label', { count: _sseDropped })"></span>
       </div>
       <!-- Theme + Hotkeys — small icon buttons. On mobile they live at
            order-4 alongside the language picker so they don't get
            shoved to a new row by the wide SYNC/STATS pills below. -->
       <button @click="cycleTheme()" :title="t('topbar.theme_title', { pref: themePref })" class="btn btn-soft order-4 sm:order-none">
-        <!-- Moon for dark, sun for light, sun+moon split (crescent over sun) for auto. -->
+        <!-- Moon for dark, sun for light, split-circle for auto. All
+             three reference shared <symbol> defs in static/img/ui-sprite.svg
+             so the topbar stays terse and the icons match the rest of
+             the UI iconography convention. -->
         <template x-if="themePref==='dark'">
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+          <svg width="13" height="13" aria-hidden="true"><use href="/img/ui-sprite.svg#icon-theme-moon"/></svg>
         </template>
         <template x-if="themePref==='light'">
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/></svg>
+          <svg width="13" height="13" aria-hidden="true"><use href="/img/ui-sprite.svg#icon-theme-sun"/></svg>
         </template>
         <template x-if="themePref==='auto'">
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M12 8a2.83 2.83 0 0 0 4 4 4 4 0 1 1-4-4"/>
-            <path d="M12 2v2"/>
-            <path d="M12 20v2"/>
-            <path d="m4.9 4.9 1.4 1.4"/>
-            <path d="m17.7 17.7 1.4 1.4"/>
-            <path d="M2 12h2"/>
-            <path d="M20 12h2"/>
-            <path d="m6.3 17.7-1.4 1.4"/>
-            <path d="m19.1 4.9-1.4 1.4"/>
-          </svg>
+          <svg width="13" height="13" aria-hidden="true"><use href="/img/ui-sprite.svg#icon-theme-auto"/></svg>
         </template>
       </button>
       <button @click="showHotkeys=true" class="btn btn-soft order-4 sm:order-none" :title="t('topbar.hotkeys_title')">
-        <svg width="13" height="13" aria-hidden="true"><use href="#icon-help-circle"/></svg>
+        <svg width="13" height="13" aria-hidden="true"><use href="/img/ui-sprite.svg#icon-help-circle"/></svg>
       </button>
       <!-- Language picker. Compact <select> — the richer UI lives in
            Settings → Language. Rendered from I18N.languages which is
@@ -753,12 +640,12 @@
            :title="t('filters.expand_collapse_title')">
         <button @click="view==='stacks' ? expandAllStacks() : view==='nodes' ? expandAllNodes() : expandAllHosts()"
                 class="px-2.5 py-1 rounded text-[11px] font-medium text-[var(--text-dim)] hover:text-[var(--text)] transition flex items-center gap-1.5">
-          <svg width="10" height="10" stroke-width="2.4" aria-hidden="true"><use href="#icon-chevron-down"/></svg>
+          <svg width="10" height="10" stroke-width="2.4" aria-hidden="true"><use href="/img/ui-sprite.svg#icon-chevron-down"/></svg>
           <span x-text="t('filters.expand_all')"></span>
         </button>
         <button @click="view==='stacks' ? collapseAllStacks() : view==='nodes' ? collapseAllNodes() : collapseAllHosts()"
                 class="px-2.5 py-1 rounded text-[11px] font-medium text-[var(--text-dim)] hover:text-[var(--text)] transition flex items-center gap-1.5">
-          <svg width="10" height="10" stroke-width="2.4" aria-hidden="true"><use href="#icon-chevron-up"/></svg>
+          <svg width="10" height="10" stroke-width="2.4" aria-hidden="true"><use href="/img/ui-sprite.svg#icon-chevron-up"/></svg>
           <span x-text="t('filters.collapse_all')"></span>
         </button>
       </div>
@@ -798,7 +685,7 @@
          operators should be reminded each restart that sessions died. -->
     <div x-show="me && me.role === 'admin' && me.session_secret_auto && !sessionSecretWarningDismissed"
          class="rounded-md border border-[var(--warning)] bg-[color-mix(in_srgb,var(--warning)_10%,var(--surface))] px-4 py-2.5 mb-3 flex items-start gap-3 text-[12.5px]">
-      <svg width="16" height="16" class="text-[var(--warning)] flex-shrink-0 mt-0.5" aria-hidden="true"><use href="#icon-alert-triangle"/></svg>
+      <svg width="16" height="16" class="text-[var(--warning)] flex-shrink-0 mt-0.5" aria-hidden="true"><use href="/img/ui-sprite.svg#icon-alert-triangle"/></svg>
       <div class="flex-1 min-w-0">
         <div class="font-semibold text-[var(--text)]" x-text="t('warnings.session_secret_auto.title')"></div>
         <div class="text-[var(--text-dim)] mt-0.5" x-text="t('warnings.session_secret_auto.body')"></div>
@@ -815,7 +702,7 @@
          disk. Same dismissable shape as the SESSION_SECRET banner. -->
     <div x-show="me && me.role === 'admin' && me.bootstrap_env_still_set && !bootstrapEnvWarningDismissed"
          class="rounded-md border border-[var(--warning)] bg-[color-mix(in_srgb,var(--warning)_10%,var(--surface))] px-4 py-2.5 mb-3 flex items-start gap-3 text-[12.5px]">
-      <svg width="16" height="16" class="text-[var(--warning)] flex-shrink-0 mt-0.5" aria-hidden="true"><use href="#icon-alert-triangle"/></svg>
+      <svg width="16" height="16" class="text-[var(--warning)] flex-shrink-0 mt-0.5" aria-hidden="true"><use href="/img/ui-sprite.svg#icon-alert-triangle"/></svg>
       <div class="flex-1 min-w-0">
         <div class="font-semibold text-[var(--text)]" x-text="t('warnings.bootstrap_env_still_set.title')"></div>
         <div class="text-[var(--text-dim)] mt-0.5" x-text="t('warnings.bootstrap_env_still_set.body')"></div>
@@ -837,11 +724,11 @@
         <span x-text="t('bulk.update')"></span> (<span x-text="selectionUpdatable().length"></span>)
       </button>
       <button x-show="selectionRestartable().length > 0" @click="bulkRestart()" class="btn btn-soft text-[12px]">
-        <svg width="11" height="11" stroke-width="2.2" aria-hidden="true"><use href="#icon-rotate-cw"/></svg>
+        <svg width="11" height="11" stroke-width="2.2" aria-hidden="true"><use href="/img/ui-sprite.svg#icon-rotate-cw"/></svg>
         <span x-text="t('bulk.restart')"></span> (<span x-text="selectionRestartable().length"></span>)
       </button>
       <button x-show="selectionRemovable().length > 0" @click="bulkRemove()" class="btn btn-danger-outline text-[12px]">
-        <svg width="11" height="11" stroke-width="2.2" aria-hidden="true"><use href="#icon-trash"/></svg>
+        <svg width="11" height="11" stroke-width="2.2" aria-hidden="true"><use href="/img/ui-sprite.svg#icon-trash"/></svg>
         <span x-text="t('bulk.remove')"></span> (<span x-text="selectionRemovable().length"></span>)
       </button>
       <button @click="selected=[]" class="btn btn-ghost text-[12px]" x-text="t('bulk.clear')"></button>
@@ -868,7 +755,7 @@
                 border: 1px solid color-mix(in srgb, var(--warning) 38%, transparent);
                 color: var(--text);">
       <svg width="18" height="18" class="text-[var(--warning)] mt-0.5 shrink-0"
-           aria-hidden="true"><use href="#icon-alert-triangle"/></svg>
+           aria-hidden="true"><use href="/img/ui-sprite.svg#icon-alert-triangle"/></svg>
       <div class="flex-1 text-[12.5px] leading-snug">
         <div class="font-semibold text-[var(--warning)] mb-1"
              x-text="t('swarm_agent_banner.title', { count: (unhealthyAgents || []).length })"></div>
@@ -900,7 +787,7 @@
                   :disabled="!!swarmAgentRestartBusy">
             <svg width="12" height="12" aria-hidden="true"
                  :class="swarmAgentRestartBusy ? 'animate-spin' : ''">
-              <use href="#icon-rotate-cw"/>
+              <use href="/img/ui-sprite.svg#icon-rotate-cw"/>
             </svg>
             <span x-show="!swarmAgentRestartBusy"
                   x-text="t('swarm_agent_banner.restart_button')"></span>
@@ -1103,7 +990,7 @@
                               :title="t('actions.restart_force_title')">
                         <template x-if="isRestartBusy(item)"><span class="spin"></span></template>
                         <template x-if="!isRestartBusy(item)">
-                          <svg width="11" height="11" stroke-width="2.2" aria-hidden="true"><use href="#icon-rotate-cw"/></svg>
+                          <svg width="11" height="11" stroke-width="2.2" aria-hidden="true"><use href="/img/ui-sprite.svg#icon-rotate-cw"/></svg>
                         </template>
                       </button>
                       <button x-show="isAdmin() && item.removable"
@@ -1111,7 +998,7 @@
                               :disabled="isItemBusy(item)"
                               class="btn btn-danger-outline text-[11px]"
                               :title="t('actions.remove_container_title')">
-                        <svg width="11" height="11" stroke-width="2.2" aria-hidden="true"><use href="#icon-trash"/></svg>
+                        <svg width="11" height="11" stroke-width="2.2" aria-hidden="true"><use href="/img/ui-sprite.svg#icon-trash"/></svg>
                       </button>
                     </div>
                   </td>
@@ -1135,7 +1022,7 @@
       </div>
       <div x-show="!loading && items.length === 0 && portainerConfigured === false"
            class="rounded border border-[var(--warning)] bg-[var(--surface-2)] px-4 py-3 text-[12.5px] text-[var(--text-dim)] flex items-start gap-3">
-        <svg width="18" height="18" class="text-[var(--warning)] flex-shrink-0 mt-0.5" aria-hidden="true"><use href="#icon-info"/></svg>
+        <svg width="18" height="18" class="text-[var(--warning)] flex-shrink-0 mt-0.5" aria-hidden="true"><use href="/img/ui-sprite.svg#icon-info"/></svg>
         <div class="min-w-0 flex-1">
           <div class="font-semibold text-[var(--text)]" x-text="t('empty.portainer_not_configured.title')"></div>
           <div class="mt-1" x-text="t('empty.portainer_not_configured.body')"></div>
@@ -1278,7 +1165,7 @@
                             :title="t('actions.restart_force_title')">
                       <template x-if="isRestartBusy(item)"><span class="spin"></span></template>
                       <template x-if="!isRestartBusy(item)">
-                        <svg width="11" height="11" stroke-width="2.2" aria-hidden="true"><use href="#icon-rotate-cw"/></svg>
+                        <svg width="11" height="11" stroke-width="2.2" aria-hidden="true"><use href="/img/ui-sprite.svg#icon-rotate-cw"/></svg>
                       </template>
                     </button>
                     <button x-show="isAdmin() && item.removable"
@@ -1286,7 +1173,7 @@
                             :disabled="isItemBusy(item)"
                             class="btn btn-danger-outline text-[11px]"
                             :title="t('actions.remove_container_title')">
-                      <svg width="11" height="11" stroke-width="2.2" aria-hidden="true"><use href="#icon-trash"/></svg>
+                      <svg width="11" height="11" stroke-width="2.2" aria-hidden="true"><use href="/img/ui-sprite.svg#icon-trash"/></svg>
                     </button>
                   </div>
                 </td>
@@ -1309,7 +1196,7 @@
       </div>
       <div x-show="!loading && items.length === 0 && portainerConfigured === false"
            class="rounded border border-[var(--warning)] bg-[var(--surface-2)] px-4 py-3 text-[12.5px] text-[var(--text-dim)] flex items-start gap-3">
-        <svg width="18" height="18" class="text-[var(--warning)] flex-shrink-0 mt-0.5" aria-hidden="true"><use href="#icon-info"/></svg>
+        <svg width="18" height="18" class="text-[var(--warning)] flex-shrink-0 mt-0.5" aria-hidden="true"><use href="/img/ui-sprite.svg#icon-info"/></svg>
         <div class="min-w-0 flex-1">
           <div class="font-semibold text-[var(--text)]" x-text="t('empty.portainer_not_configured.title')"></div>
           <div class="mt-1" x-text="t('empty.portainer_not_configured.body')"></div>
@@ -1345,7 +1232,7 @@
                  space — name on its own line, subtitle below it. -->
             <div @click="toggleNode(node.name)"
                  class="flex items-center gap-3 flex-1 min-w-0 cursor-pointer">
-              <svg width="13" height="13" aria-hidden="true" class="text-[var(--text-dim)] transition-transform flex-shrink-0" :class="isNodeExpanded(node.name) ? 'rotate-90' : ''"><use href="#icon-chevron-right"/></svg>
+              <svg width="13" height="13" aria-hidden="true" class="text-[var(--text-dim)] transition-transform flex-shrink-0" :class="isNodeExpanded(node.name) ? 'rotate-90' : ''"><use href="/img/ui-sprite.svg#icon-chevron-right"/></svg>
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-[var(--text-dim)] flex-shrink-0">
                 <rect x="2" y="2" width="20" height="8" rx="2"/>
                 <rect x="2" y="14" width="20" height="8" rx="2"/>
@@ -1415,10 +1302,10 @@
                       :disabled="isPruneBusy(node.name)"
                       class="btn btn-danger-outline text-[11px]"
                       :title="t('nodes.prune_button_title', { node: node.name })">
-                <template x-if="isPruneBusy(node.name)"><span class="flex items-center gap-1"><span class="spin"></span>Pruning…</span></template>
+                <template x-if="isPruneBusy(node.name)"><span class="flex items-center gap-1"><span class="spin"></span><span x-text="t('nodes.pruning_label')"></span></span></template>
                 <template x-if="!isPruneBusy(node.name)"><span class="flex items-center gap-1">
-                  <svg width="11" height="11" aria-hidden="true"><use href="#icon-trash"/></svg>
-                  Prune
+                  <svg width="11" height="11" aria-hidden="true"><use href="/img/ui-sprite.svg#icon-trash"/></svg>
+                  <span x-text="t('nodes.prune_label')"></span>
                 </span></template>
               </button>
             </div>
@@ -1598,7 +1485,7 @@
       </div>
       <div x-show="!loading && items.length === 0 && portainerConfigured === false"
            class="rounded border border-[var(--warning)] bg-[var(--surface-2)] px-4 py-3 text-[12.5px] text-[var(--text-dim)] flex items-start gap-3">
-        <svg width="18" height="18" class="text-[var(--warning)] flex-shrink-0 mt-0.5" aria-hidden="true"><use href="#icon-info"/></svg>
+        <svg width="18" height="18" class="text-[var(--warning)] flex-shrink-0 mt-0.5" aria-hidden="true"><use href="/img/ui-sprite.svg#icon-info"/></svg>
         <div class="min-w-0 flex-1">
           <div class="font-semibold text-[var(--text)]" x-text="t('empty.portainer_not_configured.title')"></div>
           <div class="mt-1" x-text="t('empty.portainer_not_configured.body')"></div>
@@ -1738,12 +1625,12 @@
                class="flex items-center gap-1 bg-[var(--surface-2)] rounded-md p-0.5 border border-[var(--border)]">
             <button @click="expandAllHosts()"
                     class="px-2.5 py-1 rounded text-[11px] font-medium text-[var(--text-dim)] hover:text-[var(--text)] transition flex items-center gap-1.5">
-              <svg width="10" height="10" stroke-width="2.4" aria-hidden="true"><use href="#icon-chevron-down"/></svg>
+              <svg width="10" height="10" stroke-width="2.4" aria-hidden="true"><use href="/img/ui-sprite.svg#icon-chevron-down"/></svg>
               <span x-text="t('filters.expand_all')"></span>
             </button>
             <button @click="collapseAllHosts()"
                     class="px-2.5 py-1 rounded text-[11px] font-medium text-[var(--text-dim)] hover:text-[var(--text)] transition flex items-center gap-1.5">
-              <svg width="10" height="10" stroke-width="2.4" aria-hidden="true"><use href="#icon-chevron-up"/></svg>
+              <svg width="10" height="10" stroke-width="2.4" aria-hidden="true"><use href="/img/ui-sprite.svg#icon-chevron-up"/></svg>
               <span x-text="t('filters.collapse_all')"></span>
             </button>
           </div>
@@ -1754,13 +1641,13 @@
             <button @click="expandAllGroups()"
                     :title="t('hosts_extra_groups.expand_all_title')"
                     class="px-2.5 py-1 rounded text-[11px] font-medium text-[var(--text-dim)] hover:text-[var(--text)] transition flex items-center gap-1.5">
-              <svg width="10" height="10" stroke-width="2.4" aria-hidden="true"><use href="#icon-chevron-down"/></svg>
+              <svg width="10" height="10" stroke-width="2.4" aria-hidden="true"><use href="/img/ui-sprite.svg#icon-chevron-down"/></svg>
               <span x-text="t('hosts_extra_groups.expand_all')"></span>
             </button>
             <button @click="collapseAllGroups()"
                     :title="t('hosts_extra_groups.collapse_all_title')"
                     class="px-2.5 py-1 rounded text-[11px] font-medium text-[var(--text-dim)] hover:text-[var(--text)] transition flex items-center gap-1.5">
-              <svg width="10" height="10" stroke-width="2.4" aria-hidden="true"><use href="#icon-chevron-up"/></svg>
+              <svg width="10" height="10" stroke-width="2.4" aria-hidden="true"><use href="/img/ui-sprite.svg#icon-chevron-up"/></svg>
               <span x-text="t('hosts_extra_groups.collapse_all')"></span>
             </button>
           </div>
@@ -1784,7 +1671,7 @@
                :title="t('hosts_extra.open_beszel_title')">
               <img src="/img/icons/beszel.svg" alt="" width="14" height="14" class="rounded-sm">
               <span x-text="t('hosts_extra.open_beszel')"></span>
-              <svg width="10" height="10" class="opacity-60" aria-hidden="true"><use href="#icon-arrow-up-right"/></svg>
+              <svg width="10" height="10" class="opacity-60" aria-hidden="true"><use href="/img/ui-sprite.svg#icon-arrow-up-right"/></svg>
             </a>
             <a :href="settings.pulse_url || '#'" target="_blank" rel="noopener"
                x-show="settings.pulse_url"
@@ -1792,7 +1679,7 @@
                :title="t('hosts_extra.open_pulse_title')">
               <img src="/img/icons/pulse.svg" alt="" width="14" height="14" class="rounded-sm">
               <span x-text="t('hosts_extra.open_pulse')"></span>
-              <svg width="10" height="10" class="opacity-60" aria-hidden="true"><use href="#icon-arrow-up-right"/></svg>
+              <svg width="10" height="10" class="opacity-60" aria-hidden="true"><use href="/img/ui-sprite.svg#icon-arrow-up-right"/></svg>
             </a>
           </div>
         </div>
@@ -1820,7 +1707,7 @@
            dropdown off-screen. `min-w-[180px]` on the search keeps it
            usable when the row wraps. -->
       <div x-show="hostsConfigured && hosts.length > 0" class="flex items-center gap-2 flex-wrap">
-        <svg width="14" height="14" class="text-[var(--text-faint)]" aria-hidden="true"><use href="#icon-search"/></svg>
+        <svg width="14" height="14" class="text-[var(--text-faint)]" aria-hidden="true"><use href="/img/ui-sprite.svg#icon-search"/></svg>
         <input type="search" x-model.debounce.150ms="hostsSearch"
                class="flex-1 min-w-[180px] text-[12.5px] py-1.5"
                :placeholder="t('hosts_extra.filter_placeholder')">
@@ -1874,7 +1761,7 @@
             <div x-show="hostGroups.length > 0"
                  @click="toggleGroup(bucket.group ? bucket.group.name : '')"
                  class="host-group-heading flex items-center gap-2 mt-3 mb-1 px-2 py-1.5 rounded cursor-pointer select-none bg-[var(--surface-2)] border border-[var(--border)]">
-              <svg width="11" height="11" aria-hidden="true" class="text-[var(--text-dim)] transition-transform flip-rtl" :style="isGroupCollapsed(bucket.group ? bucket.group.name : '') ? '' : 'transform: rotate(90deg)'"><use href="#icon-chevron-right"/></svg>
+              <svg width="11" height="11" aria-hidden="true" class="text-[var(--text-dim)] transition-transform flip-rtl" :style="isGroupCollapsed(bucket.group ? bucket.group.name : '') ? '' : 'transform: rotate(90deg)'"><use href="/img/ui-sprite.svg#icon-chevron-right"/></svg>
               <!-- Parent label uses --text-dim (slightly faded) so sub-
                    group labels (which inherit full --text) stand out
                    as the more specific row. Operator request — visual
@@ -1905,7 +1792,7 @@
                 <div x-show="h._sub_heading && !isGroupCollapsed(bucket.group ? bucket.group.name : '')"
                      @click="toggleGroup(h._sub_group ? h._sub_group.name : '')"
                      class="host-group-heading flex items-center gap-2 mt-2 mb-1 ms-4 px-2 py-1.5 rounded cursor-pointer select-none bg-[var(--surface)] border border-[var(--border)]">
-                  <svg width="11" height="11" aria-hidden="true" class="text-[var(--text-dim)] transition-transform flip-rtl" :style="(h._sub_group && isGroupCollapsed(h._sub_group.name)) ? '' : 'transform: rotate(90deg)'"><use href="#icon-chevron-right"/></svg>
+                  <svg width="11" height="11" aria-hidden="true" class="text-[var(--text-dim)] transition-transform flip-rtl" :style="(h._sub_group && isGroupCollapsed(h._sub_group.name)) ? '' : 'transform: rotate(90deg)'"><use href="/img/ui-sprite.svg#icon-chevron-right"/></svg>
                   <span class="font-semibold text-[11.5px]" x-text="h._sub_group ? hostGroupHeading(h._sub_group) : ''"></span>
                   <div class="flex items-center gap-2 ms-auto" x-show="h._sub_group">
                     <span class="pill pill-info text-[10px] mono"
@@ -1947,12 +1834,12 @@
                        width="13" height="13"
                        class="text-[var(--danger)] flex-shrink-0"
                        :title="t('hosts_extra.permanent_fail.badge_title', { minutes: hostFailureMinutes(h) })"
-                       aria-hidden="true"><use href="#icon-alert-triangle"/></svg>
+                       aria-hidden="true"><use href="/img/ui-sprite.svg#icon-alert-triangle"/></svg>
                   <svg x-show="!h.sampling_paused && isStale(h)"
                        width="12" height="12"
                        class="text-[var(--warning)] flex-shrink-0"
                        :title="t('hosts_extra.stale_marker.badge_title', { age: staleAge(h) })"
-                       aria-hidden="true"><use href="#icon-clock"/></svg>
+                       aria-hidden="true"><use href="/img/ui-sprite.svg#icon-clock"/></svg>
                 </div>
                 <span class="sub" x-text="h.host + ' · ' + (h.os || h.platform || '—')"></span>
               </div>
@@ -2047,7 +1934,7 @@
             <div x-show="hostGroups.length > 0"
                  @click="toggleGroup(bucket.group ? bucket.group.name : '')"
                  class="host-group-heading flex items-center gap-2 px-4 py-2 border-b border-[var(--border)] bg-[var(--surface-2)] cursor-pointer select-none">
-              <svg width="11" height="11" aria-hidden="true" class="text-[var(--text-dim)] transition-transform flip-rtl" :style="isGroupCollapsed(bucket.group ? bucket.group.name : '') ? '' : 'transform: rotate(90deg)'"><use href="#icon-chevron-right"/></svg>
+              <svg width="11" height="11" aria-hidden="true" class="text-[var(--text-dim)] transition-transform flip-rtl" :style="isGroupCollapsed(bucket.group ? bucket.group.name : '') ? '' : 'transform: rotate(90deg)'"><use href="/img/ui-sprite.svg#icon-chevron-right"/></svg>
               <!-- Parent label uses --text-dim (slightly faded) so sub-
                    group labels (which inherit full --text) stand out
                    as the more specific row. -->
@@ -2075,7 +1962,7 @@
                 <div x-show="h._sub_heading && !isGroupCollapsed(bucket.group ? bucket.group.name : '')"
                      @click="toggleGroup(h._sub_group ? h._sub_group.name : '')"
                      class="host-group-heading flex items-center gap-2 px-4 py-2 ps-10 border-b border-[var(--border)] bg-[var(--surface)] cursor-pointer select-none">
-                  <svg width="11" height="11" aria-hidden="true" class="text-[var(--text-dim)] transition-transform flip-rtl" :style="(h._sub_group && isGroupCollapsed(h._sub_group.name)) ? '' : 'transform: rotate(90deg)'"><use href="#icon-chevron-right"/></svg>
+                  <svg width="11" height="11" aria-hidden="true" class="text-[var(--text-dim)] transition-transform flip-rtl" :style="(h._sub_group && isGroupCollapsed(h._sub_group.name)) ? '' : 'transform: rotate(90deg)'"><use href="/img/ui-sprite.svg#icon-chevron-right"/></svg>
                   <span class="font-semibold text-[12px]" x-text="h._sub_group ? hostGroupHeading(h._sub_group) : ''"></span>
                   <div class="flex items-center gap-2 ms-auto" x-show="h._sub_group">
                     <span class="pill pill-info text-[10px] mono"
@@ -2101,7 +1988,7 @@
                  @click="toggleHost(h.host)">
               <!-- Chevron + status dot -->
               <div class="flex items-center gap-1.5">
-                <svg width="11" height="11" aria-hidden="true" class="text-[var(--text-dim)] transition-transform" :class="isHostExpanded(h.host) ? 'rotate-90' : (isHostExpandable(h) ? '' : 'opacity-30')"><use href="#icon-chevron-right"/></svg>
+                <svg width="11" height="11" aria-hidden="true" class="text-[var(--text-dim)] transition-transform" :class="isHostExpanded(h.host) ? 'rotate-90' : (isHostExpandable(h) ? '' : 'opacity-30')"><use href="/img/ui-sprite.svg#icon-chevron-right"/></svg>
                 <template x-if="h._loading">
                   <span class="host-loading-spinner" aria-hidden="true"></span>
                 </template>
@@ -2143,7 +2030,7 @@
                          width="14" height="14"
                          class="text-[var(--danger)] flex-shrink-0"
                          :title="t('hosts_extra.permanent_fail.badge_title', { minutes: hostFailureMinutes(h) })"
-                         aria-hidden="true"><use href="#icon-alert-triangle"/></svg>
+                         aria-hidden="true"><use href="/img/ui-sprite.svg#icon-alert-triangle"/></svg>
                     <!-- Stale-data badge. Fires when one or
                          more provider went down and the row is
                          showing values restored from the persisted
@@ -2156,7 +2043,7 @@
                          width="13" height="13"
                          class="text-[var(--warning)] flex-shrink-0"
                          :title="t('hosts_extra.stale_marker.badge_title', { age: staleAge(h) })"
-                         aria-hidden="true"><use href="#icon-clock"/></svg>
+                         aria-hidden="true"><use href="/img/ui-sprite.svg#icon-clock"/></svg>
                     <!-- Per-host provider chips. Red when provider is
                          globally enabled AND mapped to this host but
                          didn't return data (paused / unreachable / 401).
@@ -2576,7 +2463,7 @@
     <div x-show="view==='settings'" class="page-layout">
       <aside class="page-sidebar">
         <div class="page-sidebar-header">
-          <svg width="14" height="14" class="page-sidebar-header-icon" aria-hidden="true"><use href="#icon-settings"/></svg>
+          <svg width="14" height="14" class="page-sidebar-header-icon" aria-hidden="true"><use href="/img/ui-sprite.svg#icon-settings"/></svg>
           <span x-text="t('settings.title')"></span>
         </div>
         <template x-for="s in settingsSections" :key="s.id">
@@ -2592,7 +2479,7 @@
         <!-- Readonly banner — clarifies why save buttons are missing. -->
         <div x-show="isReadonly()"
              class="bg-[var(--surface-2)] border border-[var(--border-bright)] rounded-md px-4 py-2 text-[12px] text-[var(--text-dim)] flex items-center gap-2">
-          <svg width="14" height="14" aria-hidden="true"><use href="#icon-lock"/></svg>
+          <svg width="14" height="14" aria-hidden="true"><use href="/img/ui-sprite.svg#icon-lock"/></svg>
           <span x-text="t('settings.readonly_banner')"></span>
         </div>
 
@@ -2633,7 +2520,7 @@
         <!-- Identity + account info card -->
         <section class="bg-[var(--surface)] border border-[var(--border)] rounded-md p-5">
           <div class="flex items-center gap-2 mb-4">
-            <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true"><use href="#icon-user"/></svg>
+            <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true"><use href="/img/ui-sprite.svg#icon-user"/></svg>
             <h3 class="font-semibold text-[13px]" x-text="t('settings.profile.account')"></h3>
           </div>
           <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -2665,7 +2552,7 @@
         <!-- About card — editable display name + bio + email -->
         <section class="bg-[var(--surface)] border border-[var(--border)] rounded-md p-5 lg:col-span-2">
           <div class="flex items-center gap-2 mb-4">
-            <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true"><use href="#icon-id-card"/></svg>
+            <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true"><use href="/img/ui-sprite.svg#icon-id-card"/></svg>
             <h3 class="font-semibold text-[13px]" x-text="t('settings.profile.about')"></h3>
           </div>
           <div class="space-y-3">
@@ -2711,7 +2598,7 @@
              independent). Changes take effect immediately on blur. -->
         <section class="bg-[var(--surface)] border border-[var(--border)] rounded-md p-5 lg:col-span-2">
           <div class="flex items-center gap-2 mb-4">
-            <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true"><use href="#icon-clock"/></svg>
+            <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true"><use href="/img/ui-sprite.svg#icon-clock"/></svg>
             <h3 class="font-semibold text-[13px]" x-text="t('topbar_widgets.title')"></h3>
           </div>
           <p class="text-[11.5px] text-[var(--text-faint)] mb-4">
@@ -2794,7 +2681,7 @@
         <!-- Security card — change password (local users only) -->
         <section class="bg-[var(--surface)] border border-[var(--border)] rounded-md p-5">
           <div class="flex items-center gap-2 mb-4">
-            <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true"><use href="#icon-lock"/></svg>
+            <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true"><use href="/img/ui-sprite.svg#icon-lock"/></svg>
             <h3 class="font-semibold text-[13px]" x-text="t('settings.profile.security')"></h3>
           </div>
           <template x-if="me && me.source === 'local'">
@@ -2870,7 +2757,7 @@
         <section class="bg-[var(--surface)] border border-[var(--border)] rounded-md p-5"
                  x-show="me && me.source === 'local'">
           <div class="flex items-center gap-2 mb-4">
-            <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true"><use href="#icon-shield"/></svg>
+            <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true"><use href="/img/ui-sprite.svg#icon-shield"/></svg>
             <h3 class="font-semibold text-[13px]" x-text="t('settings.profile.totp.title')"></h3>
             <span x-show="totp.required" class="totp-required-pill" x-text="t('settings.profile.totp.required_pill')"></span>
           </div>
@@ -2995,7 +2882,7 @@
         <section class="bg-[var(--surface)] border border-[var(--border)] rounded-md p-5"
                  x-show="me && me.source === 'local'">
           <div class="flex items-center gap-2 mb-3">
-            <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true"><use href="#icon-key"/></svg>
+            <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true"><use href="/img/ui-sprite.svg#icon-key"/></svg>
             <h3 class="font-semibold text-[13px]" x-text="t('settings.profile.passkeys.title')"></h3>
           </div>
           <p class="text-[11.5px] text-[var(--text-faint)] leading-relaxed mb-3"
@@ -3091,7 +2978,7 @@
         <section class="bg-[var(--surface)] border border-[var(--border)] rounded-md p-5"
                  x-show="me && me.source === 'authentik'">
           <div class="flex items-center gap-2 mb-2">
-            <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true"><use href="#icon-shield"/></svg>
+            <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true"><use href="/img/ui-sprite.svg#icon-shield"/></svg>
             <h3 class="font-semibold text-[13px]" x-text="t('settings.profile.totp.title')"></h3>
           </div>
           <p class="text-[12.5px] text-[var(--text-dim)]"
@@ -3112,7 +2999,7 @@
            fields via the same Save button → single dirty indicator. -->
       <section x-show="settingsSection === 'notifications'" class="bg-[var(--surface)] border border-[var(--border)] rounded-md p-5">
         <div class="flex items-center gap-2 mb-1">
-          <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true"><use href="#icon-bell"/></svg>
+          <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true"><use href="/img/ui-sprite.svg#icon-bell"/></svg>
           <h3 class="font-semibold text-[13px]" x-text="t('profile.notifications.title')"></h3>
         </div>
         <p class="text-[11.5px] text-[var(--text-faint)] mb-3" x-text="t('profile.notifications.subtitle_per_medium')"></p>
@@ -3138,7 +3025,7 @@
                       @contextmenu.prevent="toggleUserNotifyMediumColumn(m, false)"
                       :title="t('profile.notifications.column_header_hint')">
                 <span x-text="t('admin.notifications.medium_' + m)"></span>
-                <svg x-show="!notifyMediumIsGloballyEnabled(m)" width="10" height="10" class="opacity-70" aria-hidden="true"><use href="#icon-alert-triangle"/></svg>
+                <svg x-show="!notifyMediumIsGloballyEnabled(m)" width="10" height="10" class="opacity-70" aria-hidden="true"><use href="/img/ui-sprite.svg#icon-alert-triangle"/></svg>
               </button>
             </div>
           </template>
@@ -3455,7 +3342,7 @@
 
       <section x-show="settingsSection === 'ignores'" class="bg-[var(--surface)] border border-[var(--border)] rounded-md p-5">
         <div class="flex items-center gap-2 mb-2">
-          <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true"><use href="#icon-trash"/></svg>
+          <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true"><use href="/img/ui-sprite.svg#icon-trash"/></svg>
           <h3 class="font-semibold text-[13px]" x-text="t('settings.ignores.title')"></h3>
         </div>
         <p class="text-[11.5px] text-[var(--text-faint)] mb-3">
@@ -3605,7 +3492,7 @@
            appear here automatically on next reload. -->
       <section x-show="settingsSection === 'language'" class="bg-[var(--surface)] border border-[var(--border)] rounded-md p-5">
         <div class="flex items-center gap-2 mb-2">
-          <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true"><use href="#icon-info"/></svg>
+          <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true"><use href="/img/ui-sprite.svg#icon-info"/></svg>
           <h3 class="font-semibold text-[13px]" x-text="t('settings.language.title')"></h3>
         </div>
         <p class="text-[11.5px] text-[var(--text-faint)] mb-3" x-text="t('settings.language.description')"></p>
@@ -3620,7 +3507,7 @@
 
       <section x-show="settingsSection === 'shortcuts'" class="bg-[var(--surface)] border border-[var(--border)] rounded-md p-5">
         <div class="flex items-center gap-2 mb-2">
-          <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true"><use href="#icon-help-circle"/></svg>
+          <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true"><use href="/img/ui-sprite.svg#icon-help-circle"/></svg>
           <h3 class="font-semibold text-[13px]" x-text="t('settings.shortcuts.title')"></h3>
         </div>
         <p class="text-[11.5px] text-[var(--text-faint)] mb-2" x-html="t('settings.shortcuts.hint')"></p>
@@ -3646,7 +3533,7 @@
       </div>
       <aside class="page-sidebar">
         <div class="page-sidebar-header">
-          <svg width="14" height="14" class="page-sidebar-header-icon" aria-hidden="true"><use href="#icon-shield"/></svg>
+          <svg width="14" height="14" class="page-sidebar-header-icon" aria-hidden="true"><use href="/img/ui-sprite.svg#icon-shield"/></svg>
           <span x-text="t('nav.admin')"></span>
         </div>
         <template x-for="s in adminSections" :key="s.id">
@@ -3662,7 +3549,7 @@
       <div x-show="adminTab==='users'" class="space-y-4">
         <section class="bg-[var(--surface)] border border-[var(--border)] rounded-md p-5">
           <div class="flex items-center gap-2 mb-2">
-            <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true"><use href="#icon-user"/></svg>
+            <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true"><use href="/img/ui-sprite.svg#icon-user"/></svg>
             <h3 class="font-semibold text-[13px]" x-text="t('admin.users.create_title')"></h3>
           </div>
           <div class="grid grid-cols-1 md:grid-cols-2 gap-2">
@@ -3690,7 +3577,7 @@
         <section class="bg-[var(--surface)] border border-[var(--border)] rounded-md overflow-hidden">
           <div class="p-4 border-b border-[var(--border)] flex justify-between items-center">
             <div class="flex items-center gap-2">
-              <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true"><use href="#icon-user"/></svg>
+              <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true"><use href="/img/ui-sprite.svg#icon-user"/></svg>
               <h3 class="font-semibold text-[13px]"><span x-text="t('admin.users.list_title')"></span> <span class="text-[var(--text-faint)] font-normal" x-text="'(' + users.length + ')'"></span></h3>
             </div>
             <button @click="loadUsers()" class="btn btn-ghost text-[11px]" x-text="t('actions.reload')"></button>
@@ -3769,7 +3656,7 @@
                       </template>
                       <template x-if="u.auth_source === 'local'">
                         <span class="inline-flex items-center gap-1">
-                          <svg width="12" height="12" aria-hidden="true" class="text-[var(--text-dim)]"><use href="#icon-key"/></svg>
+                          <svg width="12" height="12" aria-hidden="true" class="text-[var(--text-dim)]"><use href="/img/ui-sprite.svg#icon-key"/></svg>
                           <span class="pill"
                                 :class="(u.passkey_count || 0) > 0 ? 'pill-success' : 'pill-muted'"
                                 :title="(u.passkey_count || 0) > 0
@@ -3792,18 +3679,18 @@
                         <button @click="toggleUserRole(u)" class="user-action-btn"
                                 :title="u.role==='admin' ? t('admin.users.make_readonly') : t('admin.users.make_admin')"
                                 :aria-label="u.role==='admin' ? t('admin.users.make_readonly') : t('admin.users.make_admin')">
-                          <svg width="14" height="14" aria-hidden="true"><use href="#icon-arrow-up-right"/></svg>
+                          <svg width="14" height="14" aria-hidden="true"><use href="/img/ui-sprite.svg#icon-arrow-up-right"/></svg>
                         </button>
                         <button @click="toggleUserDisabled(u)" class="user-action-btn"
                                 :title="u.disabled ? t('admin.users.enable') : t('admin.users.disable')"
                                 :aria-label="u.disabled ? t('admin.users.enable') : t('admin.users.disable')">
-                          <svg width="14" height="14" aria-hidden="true"><use href="#icon-lock"/></svg>
+                          <svg width="14" height="14" aria-hidden="true"><use href="/img/ui-sprite.svg#icon-lock"/></svg>
                         </button>
                         <button x-show="u.auth_source==='local'" @click="resetUserPassword(u)"
                                 class="user-action-btn"
                                 :title="t('admin.users.reset_pw_title')"
                                 :aria-label="t('admin.users.reset_pw')">
-                          <svg width="14" height="14" aria-hidden="true"><use href="#icon-key"/></svg>
+                          <svg width="14" height="14" aria-hidden="true"><use href="/img/ui-sprite.svg#icon-key"/></svg>
                         </button>
                         <span class="user-action-sep" x-show="u.auth_source==='local'"></span>
                         <!-- Disable 2FA — admin override. Visible
@@ -3815,7 +3702,7 @@
                                 class="user-action-btn user-action-btn--warning"
                                 :title="t('admin.users.totp_disable_title')"
                                 :aria-label="t('admin.users.totp_disable')">
-                          <svg width="14" height="14" aria-hidden="true"><use href="#icon-shield"/></svg>
+                          <svg width="14" height="14" aria-hidden="true"><use href="/img/ui-sprite.svg#icon-shield"/></svg>
                         </button>
                         <!-- Force / Unforce 2FA — per-user policy
                              override. Audited via history.
@@ -3826,14 +3713,14 @@
                                 class="user-action-btn"
                                 :title="t('admin.users.totp_force_title')"
                                 :aria-label="t('admin.users.totp_force')">
-                          <svg width="14" height="14" aria-hidden="true"><use href="#icon-shield"/></svg>
+                          <svg width="14" height="14" aria-hidden="true"><use href="/img/ui-sprite.svg#icon-shield"/></svg>
                         </button>
                         <button x-show="u.auth_source==='local' && u.totp_force_required"
                                 @click="adminForceTotp(u, false)"
                                 class="user-action-btn user-action-btn--warning"
                                 :title="t('admin.users.totp_unforce_title')"
                                 :aria-label="t('admin.users.totp_unforce')">
-                          <svg width="14" height="14" aria-hidden="true"><use href="#icon-shield"/></svg>
+                          <svg width="14" height="14" aria-hidden="true"><use href="/img/ui-sprite.svg#icon-shield"/></svg>
                         </button>
                         <span class="user-action-sep"></span>
                         <button @click="deleteUser(u)"
@@ -3841,7 +3728,7 @@
                                 :disabled="me && u.id === me.id ? true : false"
                                 :title="me && u.id === me.id ? t('admin.users.delete_self_title') : t('admin.users.delete_title')"
                                 :aria-label="t('actions.delete')">
-                          <svg width="14" height="14" aria-hidden="true"><use href="#icon-trash"/></svg>
+                          <svg width="14" height="14" aria-hidden="true"><use href="/img/ui-sprite.svg#icon-trash"/></svg>
                         </button>
                       </div>
                     </td>
@@ -3862,7 +3749,7 @@
           <div class="p-5 border-b border-[var(--border)] flex justify-between items-center">
             <div>
               <div class="flex items-center gap-2 mb-2">
-                <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true"><use href="#icon-monitor"/></svg>
+                <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true"><use href="/img/ui-sprite.svg#icon-monitor"/></svg>
                 <h3 class="font-semibold text-[13px]"><span x-text="t('admin.sessions.active_title')"></span> <span class="text-[var(--text-faint)] font-normal" x-text="'(' + sessions.length + ')'"></span></h3>
               </div>
               <p class="text-[11.5px] text-[var(--text-faint)]" x-text="t('admin.sessions.hint')"></p>
@@ -3945,7 +3832,7 @@
       <div x-show="adminTab==='tokens'" class="space-y-4">
         <section class="bg-[var(--surface)] border border-[var(--border)] rounded-md p-5">
           <div class="flex items-center gap-2 mb-2">
-            <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true"><use href="#icon-key"/></svg>
+            <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true"><use href="/img/ui-sprite.svg#icon-key"/></svg>
             <h3 class="font-semibold text-[13px]" x-text="t('admin.tokens.create_title')"></h3>
           </div>
           <p class="text-[11.5px] text-[var(--text-faint)] mb-3" x-text="t('admin.tokens.create_hint')"></p>
@@ -3962,7 +3849,7 @@
         <section class="bg-[var(--surface)] border border-[var(--border)] rounded-md overflow-hidden">
           <div class="p-4 border-b border-[var(--border)] flex justify-between items-center">
             <div class="flex items-center gap-2">
-              <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true"><use href="#icon-key"/></svg>
+              <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true"><use href="/img/ui-sprite.svg#icon-key"/></svg>
               <h3 class="font-semibold text-[13px]"><span x-text="t('admin.tokens.list_title')"></span> <span class="text-[var(--text-faint)] font-normal" x-text="'(' + tokens.length + ')'"></span></h3>
             </div>
             <button @click="loadTokens()" class="btn btn-ghost text-[11px]" x-text="t('actions.reload')"></button>
@@ -4026,7 +3913,7 @@
         <div class="flex items-start justify-between">
           <div>
             <div class="flex items-center gap-2 mb-2">
-              <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true"><use href="#icon-bell"/></svg>
+              <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true"><use href="/img/ui-sprite.svg#icon-bell"/></svg>
               <h3 class="font-semibold text-[13px]" x-text="t('settings.notifications.title')"></h3>
             </div>
             <p class="text-[11.5px] text-[var(--text-faint)] mb-3">
@@ -4207,7 +4094,7 @@
         <hr class="my-4 border-[var(--border)]" x-show="tuningLoaded">
         <div x-show="tuningLoaded" class="bg-[var(--surface-2)] border border-[var(--border)] rounded-md p-4">
           <div class="flex items-center gap-2 mb-2">
-            <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true"><use href="#icon-clock"/></svg>
+            <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true"><use href="/img/ui-sprite.svg#icon-clock"/></svg>
             <h4 class="font-semibold text-[12.5px]"
                 x-text="t('admin.config.fields.tuning_notification_retention_days.label')"></h4>
           </div>
@@ -4225,17 +4112,17 @@
                  :aria-label="t('admin.config.bounds.group_label')">
               <span class="bounds-chip bounds-chip--min"
                     :title="t('admin.config.bounds.min_title')">
-                <svg width="11" height="11" aria-hidden="true"><use href="#icon-arrow-down-to-line"/></svg>
+                <svg width="11" height="11" aria-hidden="true"><use href="/img/ui-sprite.svg#icon-arrow-down-to-line"/></svg>
                 <span x-text="(tuningEffective['tuning_notification_retention_days'] || {}).min"></span>
               </span>
               <span class="bounds-chip bounds-chip--max"
                     :title="t('admin.config.bounds.max_title')">
-                <svg width="11" height="11" aria-hidden="true"><use href="#icon-arrow-up-to-line"/></svg>
+                <svg width="11" height="11" aria-hidden="true"><use href="/img/ui-sprite.svg#icon-arrow-up-to-line"/></svg>
                 <span x-text="(tuningEffective['tuning_notification_retention_days'] || {}).max"></span>
               </span>
               <span class="bounds-chip bounds-chip--default"
                     :title="t('admin.config.bounds.default_title')">
-                <svg width="11" height="11" aria-hidden="true"><use href="#icon-target"/></svg>
+                <svg width="11" height="11" aria-hidden="true"><use href="/img/ui-sprite.svg#icon-target"/></svg>
                 <span x-text="(tuningEffective['tuning_notification_retention_days'] || {}).default"></span>
               </span>
             </div>
@@ -4264,7 +4151,7 @@
            don't belong under auth, hosts, scheduling, or notifications. -->
       <section x-show="adminTab==='general'" class="bg-[var(--surface)] border border-[var(--border)] rounded-md p-5">
         <div class="flex items-center gap-2 mb-2">
-          <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true"><use href="#icon-sliders"/></svg>
+          <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true"><use href="/img/ui-sprite.svg#icon-sliders"/></svg>
           <h3 class="font-semibold text-[13px]" x-text="t('admin.general.title')"></h3>
         </div>
         <p class="text-[11.5px] text-[var(--text-faint)] mb-3" x-text="t('admin.general.subtitle')"></p>
@@ -4319,7 +4206,7 @@
           <div class="flex items-start justify-between">
             <div>
               <div class="flex items-center gap-2 mb-2">
-                <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true"><use href="#icon-portainer"/></svg>
+                <img :src="_themeIcon('/img/icons/portainer.svg')" alt="" width="14" height="14" class="rounded-sm" aria-hidden="true">
                 <h3 class="font-semibold text-[13px]" x-text="t('settings.portainer.connection_title')"></h3>
               </div>
               <p class="text-[11.5px] text-[var(--text-faint)] mb-3" x-text="t('settings.portainer.connection_desc')"></p>
@@ -4436,7 +4323,7 @@
         <div class="flex items-start justify-between">
           <div>
             <div class="flex items-center gap-2 mb-2">
-              <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true"><use href="#icon-authentik"/></svg>
+              <img src="/img/icons/authentik.svg" alt="" width="14" height="14" class="rounded-sm" aria-hidden="true">
               <h3 class="font-semibold text-[13px]" x-text="t('settings.oidc.title')"></h3>
             </div>
             <p class="text-[11.5px] text-[var(--text-faint)] mb-3" x-text="t('settings.oidc.description')"></p>
@@ -4573,7 +4460,7 @@
       <!-- HOST STATS TAB -->
       <section x-show="adminTab==='host_stats'" class="bg-[var(--surface)] border border-[var(--border)] rounded-md p-5">
         <div class="flex items-center gap-2 mb-2">
-          <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true"><use href="#icon-activity"/></svg>
+          <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true"><use href="/img/ui-sprite.svg#icon-activity"/></svg>
           <h3 class="font-semibold text-[13px]" x-text="t('settings.host_stats.title')"></h3>
         </div>
         <p class="text-[11.5px] text-[var(--text-faint)] mb-3" x-text="t('settings.host_stats.desc')"></p>
@@ -4683,17 +4570,17 @@
                        :aria-label="t('admin.config.bounds.group_label')">
                     <span class="bounds-chip bounds-chip--min"
                           :title="t('admin.config.bounds.min_title')">
-                      <svg width="11" height="11" aria-hidden="true"><use href="#icon-arrow-down-to-line"/></svg>
+                      <svg width="11" height="11" aria-hidden="true"><use href="/img/ui-sprite.svg#icon-arrow-down-to-line"/></svg>
                       <span x-text="(tuningEffective[key] || {}).min"></span>
                     </span>
                     <span class="bounds-chip bounds-chip--max"
                           :title="t('admin.config.bounds.max_title')">
-                      <svg width="11" height="11" aria-hidden="true"><use href="#icon-arrow-up-to-line"/></svg>
+                      <svg width="11" height="11" aria-hidden="true"><use href="/img/ui-sprite.svg#icon-arrow-up-to-line"/></svg>
                       <span x-text="(tuningEffective[key] || {}).max"></span>
                     </span>
                     <span class="bounds-chip bounds-chip--default"
                           :title="t('admin.config.bounds.default_title')">
-                      <svg width="11" height="11" aria-hidden="true"><use href="#icon-target"/></svg>
+                      <svg width="11" height="11" aria-hidden="true"><use href="/img/ui-sprite.svg#icon-target"/></svg>
                       <span x-text="(tuningEffective[key] || {}).default"></span>
                     </span>
                   </div>
@@ -4818,17 +4705,17 @@
                        :aria-label="t('admin.config.bounds.group_label')">
                     <span class="bounds-chip bounds-chip--min"
                           :title="t('admin.config.bounds.min_title')">
-                      <svg width="11" height="11" aria-hidden="true"><use href="#icon-arrow-down-to-line"/></svg>
+                      <svg width="11" height="11" aria-hidden="true"><use href="/img/ui-sprite.svg#icon-arrow-down-to-line"/></svg>
                       <span x-text="(tuningEffective[key] || {}).min"></span>
                     </span>
                     <span class="bounds-chip bounds-chip--max"
                           :title="t('admin.config.bounds.max_title')">
-                      <svg width="11" height="11" aria-hidden="true"><use href="#icon-arrow-up-to-line"/></svg>
+                      <svg width="11" height="11" aria-hidden="true"><use href="/img/ui-sprite.svg#icon-arrow-up-to-line"/></svg>
                       <span x-text="(tuningEffective[key] || {}).max"></span>
                     </span>
                     <span class="bounds-chip bounds-chip--default"
                           :title="t('admin.config.bounds.default_title')">
-                      <svg width="11" height="11" aria-hidden="true"><use href="#icon-target"/></svg>
+                      <svg width="11" height="11" aria-hidden="true"><use href="/img/ui-sprite.svg#icon-target"/></svg>
                       <span x-text="(tuningEffective[key] || {}).default"></span>
                     </span>
                   </div>
@@ -4941,17 +4828,17 @@
                        :aria-label="t('admin.config.bounds.group_label')">
                     <span class="bounds-chip bounds-chip--min"
                           :title="t('admin.config.bounds.min_title')">
-                      <svg width="11" height="11" aria-hidden="true"><use href="#icon-arrow-down-to-line"/></svg>
+                      <svg width="11" height="11" aria-hidden="true"><use href="/img/ui-sprite.svg#icon-arrow-down-to-line"/></svg>
                       <span x-text="(tuningEffective[key] || {}).min"></span>
                     </span>
                     <span class="bounds-chip bounds-chip--max"
                           :title="t('admin.config.bounds.max_title')">
-                      <svg width="11" height="11" aria-hidden="true"><use href="#icon-arrow-up-to-line"/></svg>
+                      <svg width="11" height="11" aria-hidden="true"><use href="/img/ui-sprite.svg#icon-arrow-up-to-line"/></svg>
                       <span x-text="(tuningEffective[key] || {}).max"></span>
                     </span>
                     <span class="bounds-chip bounds-chip--default"
                           :title="t('admin.config.bounds.default_title')">
-                      <svg width="11" height="11" aria-hidden="true"><use href="#icon-target"/></svg>
+                      <svg width="11" height="11" aria-hidden="true"><use href="/img/ui-sprite.svg#icon-target"/></svg>
                       <span x-text="(tuningEffective[key] || {}).default"></span>
                     </span>
                   </div>
@@ -5075,17 +4962,17 @@
                        :aria-label="t('admin.config.bounds.group_label')">
                     <span class="bounds-chip bounds-chip--min"
                           :title="t('admin.config.bounds.min_title')">
-                      <svg width="11" height="11" aria-hidden="true"><use href="#icon-arrow-down-to-line"/></svg>
+                      <svg width="11" height="11" aria-hidden="true"><use href="/img/ui-sprite.svg#icon-arrow-down-to-line"/></svg>
                       <span x-text="(tuningEffective[key] || {}).min"></span>
                     </span>
                     <span class="bounds-chip bounds-chip--max"
                           :title="t('admin.config.bounds.max_title')">
-                      <svg width="11" height="11" aria-hidden="true"><use href="#icon-arrow-up-to-line"/></svg>
+                      <svg width="11" height="11" aria-hidden="true"><use href="/img/ui-sprite.svg#icon-arrow-up-to-line"/></svg>
                       <span x-text="(tuningEffective[key] || {}).max"></span>
                     </span>
                     <span class="bounds-chip bounds-chip--default"
                           :title="t('admin.config.bounds.default_title')">
-                      <svg width="11" height="11" aria-hidden="true"><use href="#icon-target"/></svg>
+                      <svg width="11" height="11" aria-hidden="true"><use href="/img/ui-sprite.svg#icon-target"/></svg>
                       <span x-text="(tuningEffective[key] || {}).default"></span>
                     </span>
                   </div>
@@ -5145,7 +5032,7 @@
                   x-text="hasHostStatsSource('ping') ? t('settings.host_stats.tab_enabled') : t('settings.host_stats.tab_disabled')"></span>
           </div>
           <div class="flex items-center gap-2">
-            <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true"><use href="#icon-radio"/></svg>
+            <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true"><use href="/img/ui-sprite.svg#icon-radio"/></svg>
             <h4 class="font-semibold text-[12.5px]"
                 x-text="t('settings.host_stats.ping.section_title')"></h4>
           </div>
@@ -5221,17 +5108,17 @@
                        :aria-label="t('admin.config.bounds.group_label')">
                     <span class="bounds-chip bounds-chip--min"
                           :title="t('admin.config.bounds.min_title')">
-                      <svg width="11" height="11" aria-hidden="true"><use href="#icon-arrow-down-to-line"/></svg>
+                      <svg width="11" height="11" aria-hidden="true"><use href="/img/ui-sprite.svg#icon-arrow-down-to-line"/></svg>
                       <span x-text="(tuningEffective[key] || {}).min"></span>
                     </span>
                     <span class="bounds-chip bounds-chip--max"
                           :title="t('admin.config.bounds.max_title')">
-                      <svg width="11" height="11" aria-hidden="true"><use href="#icon-arrow-up-to-line"/></svg>
+                      <svg width="11" height="11" aria-hidden="true"><use href="/img/ui-sprite.svg#icon-arrow-up-to-line"/></svg>
                       <span x-text="(tuningEffective[key] || {}).max"></span>
                     </span>
                     <span class="bounds-chip bounds-chip--default"
                           :title="t('admin.config.bounds.default_title')">
-                      <svg width="11" height="11" aria-hidden="true"><use href="#icon-target"/></svg>
+                      <svg width="11" height="11" aria-hidden="true"><use href="/img/ui-sprite.svg#icon-target"/></svg>
                       <span x-text="(tuningEffective[key] || {}).default"></span>
                     </span>
                   </div>
@@ -5443,17 +5330,17 @@
                        :aria-label="t('admin.config.bounds.group_label')">
                     <span class="bounds-chip bounds-chip--min"
                           :title="t('admin.config.bounds.min_title')">
-                      <svg width="11" height="11" aria-hidden="true"><use href="#icon-arrow-down-to-line"/></svg>
+                      <svg width="11" height="11" aria-hidden="true"><use href="/img/ui-sprite.svg#icon-arrow-down-to-line"/></svg>
                       <span x-text="(tuningEffective[key] || {}).min"></span>
                     </span>
                     <span class="bounds-chip bounds-chip--max"
                           :title="t('admin.config.bounds.max_title')">
-                      <svg width="11" height="11" aria-hidden="true"><use href="#icon-arrow-up-to-line"/></svg>
+                      <svg width="11" height="11" aria-hidden="true"><use href="/img/ui-sprite.svg#icon-arrow-up-to-line"/></svg>
                       <span x-text="(tuningEffective[key] || {}).max"></span>
                     </span>
                     <span class="bounds-chip bounds-chip--default"
                           :title="t('admin.config.bounds.default_title')">
-                      <svg width="11" height="11" aria-hidden="true"><use href="#icon-target"/></svg>
+                      <svg width="11" height="11" aria-hidden="true"><use href="/img/ui-sprite.svg#icon-target"/></svg>
                       <span x-text="(tuningEffective[key] || {}).default"></span>
                     </span>
                   </div>
@@ -5525,7 +5412,7 @@
              sliver on typical desktops. Spacing matches the
              standardised admin-tab pattern. -->
         <div class="flex items-center gap-2 mb-2">
-          <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true"><use href="#icon-server"/></svg>
+          <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true"><use href="/img/ui-sprite.svg#icon-server"/></svg>
           <h3 class="font-semibold text-[13px]" x-text="t('admin_hosts.heading')"></h3>
         </div>
         <p class="text-[11.5px] text-[var(--text-faint)] mb-3 leading-snug max-w-[720px]"
@@ -5625,7 +5512,7 @@
              visually tedious. Empty input = show all. -->
         <div x-show="!hostsConfigLoading && hostsConfig.length > 3"
              class="flex items-center gap-2 mb-3">
-          <svg width="14" height="14" class="text-[var(--text-faint)]" aria-hidden="true"><use href="#icon-search"/></svg>
+          <svg width="14" height="14" class="text-[var(--text-faint)]" aria-hidden="true"><use href="/img/ui-sprite.svg#icon-search"/></svg>
           <input type="search" x-model.debounce.150ms="hostsConfigFilter"
                  class="flex-1 text-[12.5px] py-1.5"
                  :placeholder="t('admin_hosts.filter_placeholder')">
@@ -5688,7 +5575,7 @@
               <div class="flex items-center gap-2 cursor-pointer select-none flex-wrap"
                    :class="isHostConfigExpanded(row) ? 'mb-3' : ''"
                    @click="toggleHostConfigRow(row)">
-                <svg width="12" height="12" aria-hidden="true" class="text-[var(--text-dim)] transition-transform flip-rtl" :style="isHostConfigExpanded(row) ? 'transform: rotate(90deg)' : ''"><use href="#icon-chevron-right"/></svg>
+                <svg width="12" height="12" aria-hidden="true" class="text-[var(--text-dim)] transition-transform flip-rtl" :style="isHostConfigExpanded(row) ? 'transform: rotate(90deg)' : ''"><use href="/img/ui-sprite.svg#icon-chevron-right"/></svg>
                 <!-- "Click to edit" hint + SSH state dot — bound to
                      the LEFT of the row (right after the chevron) so
                      they stay visible regardless of how long the host
@@ -5751,7 +5638,7 @@
                     <svg x-show="!row.label && assetForHost(row) && assetForHost(row).name"
                          width="9" height="9"
                          class="text-[var(--text-faint)] flex-shrink-0 opacity-70"
-                         aria-hidden="true"><use href="#icon-package"/></svg>
+                         aria-hidden="true"><use href="/img/ui-sprite.svg#icon-package"/></svg>
                   </span>
                 </template>
                 <span x-show="!row.enabled" class="chip text-[9.5px] px-1 py-0 pill-warning" x-text="t('states.disabled')"></span>
@@ -5798,7 +5685,7 @@
                      width="13" height="13"
                      class="text-[var(--success)] flex-shrink-0"
                      aria-hidden="true"
-                     :title="t('admin_hosts.ssh_state.enabled')"><use href="#icon-terminal"/></svg>
+                     :title="t('admin_hosts.ssh_state.enabled')"><use href="/img/ui-sprite.svg#icon-terminal"/></svg>
                 <!-- Asset-inventory autofill — shown in the expanded-row
                      header only. Collapsed rows stay visually quiet; once
                      the operator opens a row to edit it, the chip appears
@@ -6033,7 +5920,7 @@
                            @input="hostsConfig[idx].ssh = Object.assign({}, hostsConfig[idx].ssh || {}, { user: $event.target.value }); markHostRowDirty(idx)"
                            :disabled="isReadonly() || !row.enabled || !(row.ssh && row.ssh.enabled)"
                            class="w-full mono text-[12.5px] py-1.5"
-                           placeholder="(blank = use global default)">
+                           :placeholder="t('common.hint_global_default')">
                   </div>
                   <div>
                     <label class="block text-[10.5px] uppercase tracking-wider text-[var(--text-faint)] mb-1"
@@ -6062,7 +5949,8 @@
                   <div>
                     <label class="block text-[10.5px] uppercase tracking-wider text-[var(--text-faint)] mb-1">
                       SSH password
-                      <span class="text-[10px] normal-case text-[var(--text-faint)] ms-1">(blank = use global)</span>
+                      <span class="text-[10px] normal-case text-[var(--text-faint)] ms-1"
+                            x-text="t('common.hint_global_default')"></span>
                     </label>
                     <input type="password"
                            autocomplete="new-password"
@@ -6173,8 +6061,9 @@
                      class="grid grid-cols-1 md:grid-cols-3 gap-3 items-end mt-3">
                   <div>
                     <label class="block text-[10.5px] uppercase tracking-wider text-[var(--text-faint)] mb-1">
-                      Community
-                      <span class="text-[10px] normal-case text-[var(--text-faint)] ms-1">(blank = global)</span>
+                      <span x-text="t('admin_hosts.snmp_community_label')"></span>
+                      <span class="text-[10px] normal-case text-[var(--text-faint)] ms-1"
+                            x-text="t('common.hint_global_default')"></span>
                     </label>
                     <input type="text"
                            :value="row.snmp && row.snmp.community || ''"
@@ -6220,7 +6109,8 @@
                        power NAS + OpenWrt-class gear. -->
                   <div>
                     <label class="block text-[10.5px] uppercase tracking-wider text-[var(--text-faint)] mb-1"
-                           :title="t('admin_hosts.snmp_walk_concurrency_hint')">Walk concurrency</label>
+                           :title="t('admin_hosts.snmp_walk_concurrency_hint')"
+                           x-text="t('admin_hosts.snmp_walk_concurrency_label')"></label>
                     <input type="number" min="1" max="16"
                            :value="row.snmp && row.snmp.walk_concurrency || ''"
                            @input="hostsConfig[idx].snmp = Object.assign({}, hostsConfig[idx].snmp || {}, { walk_concurrency: $event.target.value ? parseInt($event.target.value, 10) : null }); markHostRowDirty(idx)"
@@ -6361,19 +6251,19 @@
                           class="btn btn-ghost text-[12px] px-2"
                           :class="idx === 0 ? 'opacity-40 cursor-not-allowed' : ''"
                           :title="t('admin_hosts.groups.move_up_title')">
-                    <svg width="11" height="11" stroke-width="2.4" aria-hidden="true"><use href="#icon-chevron-up"/></svg>
+                    <svg width="11" height="11" stroke-width="2.4" aria-hidden="true"><use href="/img/ui-sprite.svg#icon-chevron-up"/></svg>
                   </button>
                   <button x-show="isAdmin()" @click="moveHostRow(idx, +1)"
                           :disabled="idx === hostsConfig.length - 1"
                           class="btn btn-ghost text-[12px] px-2"
                           :class="idx === hostsConfig.length - 1 ? 'opacity-40 cursor-not-allowed' : ''"
                           :title="t('admin_hosts.groups.move_down_title')">
-                    <svg width="11" height="11" stroke-width="2.4" aria-hidden="true"><use href="#icon-chevron-down"/></svg>
+                    <svg width="11" height="11" stroke-width="2.4" aria-hidden="true"><use href="/img/ui-sprite.svg#icon-chevron-down"/></svg>
                   </button>
                   <button x-show="isAdmin()" @click="duplicateHostRow(idx)"
                           class="btn btn-ghost text-[12px] px-2"
                           :title="t('admin_hosts.row.duplicate_title')">
-                    <svg width="11" height="11" aria-hidden="true"><use href="#icon-copy"/></svg>
+                    <svg width="11" height="11" aria-hidden="true"><use href="/img/ui-sprite.svg#icon-copy"/></svg>
                   </button>
                   <button x-show="isAdmin()" @click="removeHostRow(idx)"
                           class="btn btn-ghost text-[12px] text-danger px-2"
@@ -6507,7 +6397,7 @@
              the description paragraphs, `mb-3` on the last
              paragraph for separation from the editor below. -->
         <div class="flex items-center gap-2 mb-2">
-          <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true"><use href="#icon-layers"/></svg>
+          <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true"><use href="/img/ui-sprite.svg#icon-layers"/></svg>
           <h3 class="font-semibold text-[13px]" x-text="t('admin_hosts.groups.heading')"></h3>
         </div>
         <p class="text-[11.5px] text-[var(--text-faint)] mb-2 leading-snug max-w-[720px]"
@@ -6530,7 +6420,7 @@
                   @click="collapseAllHostGroupChildren()"
                   class="host-group-chip host-group-chip--neutral"
                   :title="t('admin_hosts.groups.collapse_all_title') || 'Hide every parent group\'s sub-rows'">
-            <svg width="10" height="10" stroke-width="2.4" aria-hidden="true"><use href="#icon-chevron-down"/>
+            <svg width="10" height="10" stroke-width="2.4" aria-hidden="true"><use href="/img/ui-sprite.svg#icon-chevron-down"/>
             </svg>
             <span x-text="t('admin_hosts.groups.collapse_all') || 'Collapse all children'"></span>
           </button>
@@ -6538,7 +6428,7 @@
                   @click="expandAllHostGroupChildren()"
                   class="host-group-chip host-group-chip--neutral"
                   :title="t('admin_hosts.groups.expand_all_title') || 'Show every parent group\'s sub-rows'">
-            <svg width="10" height="10" stroke-width="2.4" class="flip-rtl" aria-hidden="true" style="transform: rotate(90deg);"><use href="#icon-chevron-right"/></svg>
+            <svg width="10" height="10" stroke-width="2.4" class="flip-rtl" aria-hidden="true" style="transform: rotate(90deg);"><use href="/img/ui-sprite.svg#icon-chevron-right"/></svg>
             <span x-text="t('admin_hosts.groups.expand_all') || 'Expand all children'"></span>
           </button>
         </div>
@@ -6567,7 +6457,7 @@
                         @click="toggleHostGroupChildrenCollapsed(g.name)"
                         class="host-group-chip host-group-chip--neutral"
                         :title="t('admin_hosts.groups.children_toggle_title')">
-                  <svg width="10" height="10" stroke-width="2.4" class="flip-rtl" aria-hidden="true" :style="!isHostGroupChildrenCollapsed(g.name) ? 'transform: rotate(90deg)' : ''"><use href="#icon-chevron-right"/></svg>
+                  <svg width="10" height="10" stroke-width="2.4" class="flip-rtl" aria-hidden="true" :style="!isHostGroupChildrenCollapsed(g.name) ? 'transform: rotate(90deg)' : ''"><use href="/img/ui-sprite.svg#icon-chevron-right"/></svg>
                   <span x-text="(isHostGroupChildrenCollapsed(g.name)
                                   ? t('admin_hosts.groups.children_show')
                                   : t('admin_hosts.groups.children_hide'))
@@ -6706,7 +6596,7 @@
                           class="btn btn-ghost text-[12px] px-2"
                           :class="listIdx === 0 ? 'opacity-40 cursor-not-allowed' : ''"
                           :title="t('admin_hosts.groups.move_up_title')">
-                    <svg width="11" height="11" stroke-width="2.4" aria-hidden="true"><use href="#icon-chevron-up"/></svg>
+                    <svg width="11" height="11" stroke-width="2.4" aria-hidden="true"><use href="/img/ui-sprite.svg#icon-chevron-up"/></svg>
                   </button>
                   <button x-show="isAdmin()" @click="moveHostGroupByListIdx(listIdx, +1)"
                           tabindex="-1"
@@ -6714,7 +6604,7 @@
                           class="btn btn-ghost text-[12px] px-2"
                           :class="listIdx === sortedGroupsForEditor().length - 1 ? 'opacity-40 cursor-not-allowed' : ''"
                           :title="t('admin_hosts.groups.move_down_title')">
-                    <svg width="11" height="11" stroke-width="2.4" aria-hidden="true"><use href="#icon-chevron-down"/></svg>
+                    <svg width="11" height="11" stroke-width="2.4" aria-hidden="true"><use href="/img/ui-sprite.svg#icon-chevron-down"/></svg>
                   </button>
                   <button x-show="isAdmin()" @click="removeHostGroup(origIdx)"
                           tabindex="-1"
@@ -6893,7 +6783,7 @@
       <section x-show="adminTab==='assets'" class="bg-[var(--surface)] border border-[var(--border)] rounded-md p-5">
         <div class="flex items-center justify-between gap-2 mb-2">
           <div class="flex items-center gap-2">
-            <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true"><use href="#icon-package"/></svg>
+            <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true"><use href="/img/ui-sprite.svg#icon-package"/></svg>
             <h3 class="font-semibold text-[13px]" x-text="t('admin_assets.title')"></h3>
           </div>
           <span class="chip"
@@ -7171,7 +7061,7 @@
         <div class="flex items-start justify-between">
           <div>
             <div class="flex items-center gap-2 mb-2">
-              <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true"><use href="#icon-terminal"/></svg>
+              <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true"><use href="/img/ui-sprite.svg#icon-terminal"/></svg>
               <h3 class="font-semibold text-[13px]" x-text="t('admin_ssh.title')"></h3>
             </div>
             <p class="text-[11.5px] text-[var(--text-faint)] mb-3 leading-snug max-w-[720px]"
@@ -7445,7 +7335,7 @@
              cadence anchors through zoneinfo instead. -->
         <section class="bg-[var(--surface)] border border-[var(--border)] rounded-md p-5">
           <div class="flex items-center gap-2 mb-2">
-            <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true"><use href="#icon-calendar"/></svg>
+            <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true"><use href="/img/ui-sprite.svg#icon-calendar"/></svg>
             <h3 class="font-semibold text-[13px]" x-text="t('scheduler_settings.title')"></h3>
           </div>
           <p class="text-[11.5px] text-[var(--text-faint)] mb-3" x-text="t('scheduler_settings.intro')"></p>
@@ -7499,7 +7389,7 @@
         <!-- Create schedule card -->
         <section class="bg-[var(--surface)] border border-[var(--border)] rounded-md p-5">
           <div class="flex items-center gap-2 mb-2">
-            <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true"><use href="#icon-calendar"/></svg>
+            <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true"><use href="/img/ui-sprite.svg#icon-calendar"/></svg>
             <h3 class="font-semibold text-[13px]" x-text="t('admin.schedules.create_title')"></h3>
           </div>
           <p class="text-[11.5px] text-[var(--text-faint)] mb-3" x-text="t('admin.schedules.create_hint')"></p>
@@ -7583,7 +7473,7 @@
         <section class="bg-[var(--surface)] border border-[var(--border)] rounded-md overflow-hidden">
           <div class="p-4 border-b border-[var(--border)] flex justify-between items-center">
             <div class="flex items-center gap-2">
-              <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true"><use href="#icon-calendar"/></svg>
+              <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true"><use href="/img/ui-sprite.svg#icon-calendar"/></svg>
               <h3 class="font-semibold text-[13px]">
                 <span x-text="t('admin.schedules.scheduled_title')"></span>
                 <span class="text-[var(--text-faint)] font-normal" x-text="'(' + schedules.length + ')'"></span>
@@ -7662,7 +7552,7 @@
         <section class="bg-[var(--surface)] border border-[var(--border)] rounded-md overflow-hidden">
           <div class="p-4 border-b border-[var(--border)] flex justify-between items-center gap-3 flex-wrap">
             <div class="flex items-center gap-2">
-              <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true"><use href="#icon-clock"/></svg>
+              <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true"><use href="/img/ui-sprite.svg#icon-clock"/></svg>
               <h3 class="font-semibold text-[13px]">
                 <span x-text="t('admin.schedules.queue_title')"></span>
                 <span class="text-[var(--text-faint)] font-normal" x-text="'(' + scheduleQueueTotal + ')'"></span>
@@ -7850,7 +7740,7 @@
       <div x-show="adminTab==='backups'" class="space-y-4">
         <section class="bg-[var(--surface)] border border-[var(--border)] rounded-md p-5">
           <div class="flex items-center gap-2 mb-2">
-            <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true"><use href="#icon-archive"/></svg>
+            <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true"><use href="/img/ui-sprite.svg#icon-archive"/></svg>
             <h3 class="font-semibold text-[13px]" x-text="t('admin.backups.create_title')"></h3>
           </div>
           <p class="text-[11.5px] text-[var(--text-faint)] mb-3" x-html="t('admin.backups.create_desc')"></p>
@@ -7891,7 +7781,7 @@
         <section class="bg-[var(--surface)] border border-[var(--border)] rounded-md overflow-hidden">
           <div class="p-4 border-b border-[var(--border)] flex justify-between items-center">
             <div class="flex items-center gap-2">
-              <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true"><use href="#icon-archive"/></svg>
+              <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true"><use href="/img/ui-sprite.svg#icon-archive"/></svg>
               <h3 class="font-semibold text-[13px]">
                 <span x-text="t('admin.backups.list_title')"></span> <span class="text-[var(--text-faint)] font-normal" x-text="'(' + backups.length + ')'"></span>
               </h3>
@@ -7951,7 +7841,7 @@
 
         <section x-show="logsSubTab==='live'" class="bg-[var(--surface)] border border-[var(--border)] rounded-md p-4">
           <div class="flex flex-wrap items-center gap-2 mb-3">
-            <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true"><use href="#icon-file-text"/></svg>
+            <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true"><use href="/img/ui-sprite.svg#icon-file-text"/></svg>
             <h3 class="font-semibold text-[13px]" x-text="t('admin.logs.title')"></h3>
             <span class="text-[11px] text-[var(--text-faint)]"
                   x-text="t('admin.logs.count', { n: filteredLogLines().length, total: logLines.length })"></span>
@@ -8051,7 +7941,7 @@
              there. -->
         <section x-show="logsSubTab==='files' && tuningLoaded" class="bg-[var(--surface)] border border-[var(--border)] rounded-md p-4">
           <div class="flex items-center gap-2 mb-3">
-            <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true"><use href="#icon-clock"/></svg>
+            <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true"><use href="/img/ui-sprite.svg#icon-clock"/></svg>
             <h3 class="font-semibold text-[13px]"
                 x-text="t('admin.config.fields.tuning_log_retention_days.label')"></h3>
           </div>
@@ -8069,17 +7959,17 @@
                  :aria-label="t('admin.config.bounds.group_label')">
               <span class="bounds-chip bounds-chip--min"
                     :title="t('admin.config.bounds.min_title')">
-                <svg width="11" height="11" aria-hidden="true"><use href="#icon-arrow-down-to-line"/></svg>
+                <svg width="11" height="11" aria-hidden="true"><use href="/img/ui-sprite.svg#icon-arrow-down-to-line"/></svg>
                 <span x-text="(tuningEffective['tuning_log_retention_days'] || {}).min"></span>
               </span>
               <span class="bounds-chip bounds-chip--max"
                     :title="t('admin.config.bounds.max_title')">
-                <svg width="11" height="11" aria-hidden="true"><use href="#icon-arrow-up-to-line"/></svg>
+                <svg width="11" height="11" aria-hidden="true"><use href="/img/ui-sprite.svg#icon-arrow-up-to-line"/></svg>
                 <span x-text="(tuningEffective['tuning_log_retention_days'] || {}).max"></span>
               </span>
               <span class="bounds-chip bounds-chip--default"
                     :title="t('admin.config.bounds.default_title')">
-                <svg width="11" height="11" aria-hidden="true"><use href="#icon-target"/></svg>
+                <svg width="11" height="11" aria-hidden="true"><use href="/img/ui-sprite.svg#icon-target"/></svg>
                 <span x-text="(tuningEffective['tuning_log_retention_days'] || {}).default"></span>
               </span>
             </div>
@@ -8101,7 +7991,7 @@
 
         <section x-show="logsSubTab==='files'" class="bg-[var(--surface)] border border-[var(--border)] rounded-md p-4 space-y-3">
           <div class="flex flex-wrap items-center gap-2">
-            <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true"><use href="#icon-archive"/></svg>
+            <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true"><use href="/img/ui-sprite.svg#icon-archive"/></svg>
             <h3 class="font-semibold text-[13px]" x-text="t('admin.logs.files_title')"></h3>
             <span class="text-[11px] text-[var(--text-faint)]"
                   x-text="t('admin.logs.files_count', { n: logFiles.length })"></span>
@@ -8242,7 +8132,7 @@
       <div x-show="adminTab==='config'" class="space-y-4">
         <section class="bg-[var(--surface)] border border-[var(--border)] rounded-md p-5">
           <div class="flex items-center gap-2 mb-2">
-            <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true"><use href="#icon-settings"/></svg>
+            <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true"><use href="/img/ui-sprite.svg#icon-settings"/></svg>
             <h3 class="font-semibold text-[13px]" x-text="t('admin.config.title')"></h3>
           </div>
           <p class="text-[11.5px] text-[var(--text-faint)] mb-3 max-w-[720px]"
@@ -8278,17 +8168,17 @@
                        :aria-label="t('admin.config.bounds.group_label')">
                     <span class="bounds-chip bounds-chip--min"
                           :title="t('admin.config.bounds.min_title')">
-                      <svg width="11" height="11" aria-hidden="true"><use href="#icon-arrow-down-to-line"/></svg>
+                      <svg width="11" height="11" aria-hidden="true"><use href="/img/ui-sprite.svg#icon-arrow-down-to-line"/></svg>
                       <span x-text="(tuningEffective[key] || {}).min"></span>
                     </span>
                     <span class="bounds-chip bounds-chip--max"
                           :title="t('admin.config.bounds.max_title')">
-                      <svg width="11" height="11" aria-hidden="true"><use href="#icon-arrow-up-to-line"/></svg>
+                      <svg width="11" height="11" aria-hidden="true"><use href="/img/ui-sprite.svg#icon-arrow-up-to-line"/></svg>
                       <span x-text="(tuningEffective[key] || {}).max"></span>
                     </span>
                     <span class="bounds-chip bounds-chip--default"
                           :title="t('admin.config.bounds.default_title')">
-                      <svg width="11" height="11" aria-hidden="true"><use href="#icon-target"/></svg>
+                      <svg width="11" height="11" aria-hidden="true"><use href="/img/ui-sprite.svg#icon-target"/></svg>
                       <span x-text="(tuningEffective[key] || {}).default"></span>
                     </span>
                   </div>
@@ -8341,7 +8231,7 @@
           <div class="flex items-start justify-between">
             <div>
               <div class="flex items-center gap-2 mb-2">
-                <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true"><use href="#icon-shield"/></svg>
+                <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true"><use href="/img/ui-sprite.svg#icon-shield"/></svg>
                 <h3 class="font-semibold text-[13px]"
                     x-text="t('admin.config.totp.title')"></h3>
               </div>
@@ -8448,7 +8338,7 @@
       <div x-show="adminTab==='debug'" class="space-y-4">
         <section class="bg-[var(--surface)] border border-[var(--border)] rounded-md p-5">
           <div class="flex items-center gap-2 mb-2">
-            <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true"><use href="#icon-bug"/></svg>
+            <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true"><use href="/img/ui-sprite.svg#icon-bug"/></svg>
             <h3 class="font-semibold text-[13px]"
                 x-text="t('admin.debug.title')"></h3>
           </div>
@@ -8572,7 +8462,7 @@
                        width="9" height="9"
                        class="text-[var(--text-faint)] flex-shrink-0 opacity-70"
                        aria-hidden="true"
-                       :title="t('admin_hosts.label_source_asset', { name: (assetForHost(h) && assetForHost(h).name) || '' })"><use href="#icon-package"/></svg>
+                       :title="t('admin_hosts.label_source_asset', { name: (assetForHost(h) && assetForHost(h).name) || '' })"><use href="/img/ui-sprite.svg#icon-package"/></svg>
                 </div>
                 <div class="flex items-center gap-1">
                   <!-- quick "Edit in Admin" jump from the host
@@ -8584,7 +8474,7 @@
                           @click="(() => { const _hid = h.id; closeHostDrawer(); view='admin'; openAdminTab('hosts').then(() => focusHostsConfigRow(_hid)); })()"
                           class="btn btn-ghost text-[11.5px] flex items-center gap-1.5"
                           :title="t('host_drawer.actions.edit_in_admin_title')">
-                    <svg width="13" height="13" aria-hidden="true"><use href="#icon-sliders"/></svg>
+                    <svg width="13" height="13" aria-hidden="true"><use href="/img/ui-sprite.svg#icon-sliders"/></svg>
                     <span x-text="t('host_drawer.actions.edit_in_admin')"></span>
                   </button>
                   <button @click="closeHostDrawer()"
@@ -8610,7 +8500,7 @@
                    reading. Re-enable in Admin → Hosts to dismiss. -->
               <template x-if="h.enabled === false">
                 <div class="flex items-start gap-3 bg-[var(--surface-3)] border border-[var(--border)] rounded-md p-3 text-[12px] mb-4">
-                  <svg width="16" height="16" class="text-[var(--text-dim)] flex-shrink-0 mt-0.5" aria-hidden="true"><use href="#icon-pause"/></svg>
+                  <svg width="16" height="16" class="text-[var(--text-dim)] flex-shrink-0 mt-0.5" aria-hidden="true"><use href="/img/ui-sprite.svg#icon-pause"/></svg>
                   <div class="min-w-0 flex-1">
                     <div class="font-semibold text-[var(--text)]"
                          x-text="t('host_drawer.disabled_banner.title')"></div>
@@ -8624,7 +8514,7 @@
                    above already conveys the state more accurately). -->
               <template x-if="h.enabled !== false && h.sampling_paused">
                 <div class="flex items-start gap-3 bg-[color-mix(in_srgb,var(--danger)_10%,transparent)] border border-[color-mix(in_srgb,var(--danger)_40%,var(--border))] rounded-md p-3 text-[12px] mb-4">
-                  <svg width="16" height="16" class="text-[var(--danger)] flex-shrink-0 mt-0.5" aria-hidden="true"><use href="#icon-alert-triangle"/></svg>
+                  <svg width="16" height="16" class="text-[var(--danger)] flex-shrink-0 mt-0.5" aria-hidden="true"><use href="/img/ui-sprite.svg#icon-alert-triangle"/></svg>
                   <div class="min-w-0 flex-1">
                     <div class="text-[var(--text)]"
                          x-text="t('hosts_extra.permanent_fail.drawer_banner', { minutes: hostFailureMinutes(h), error: (h.last_error || '—') })"></div>
@@ -8666,7 +8556,7 @@
                    neither live nor cached. -->
               <template x-if="(h.providers || []).length === 0 && h.status === 'unknown' && pausedProvidersFor(h).length === 0 && !isStale(h)">
                 <div class="flex items-start gap-3 bg-[var(--surface-3)] border border-[var(--border)] rounded-md p-4 text-[12.5px] mb-4">
-                  <svg width="18" height="18" class="text-[var(--text-dim)] flex-shrink-0 mt-0.5" aria-hidden="true"><use href="#icon-info"/></svg>
+                  <svg width="18" height="18" class="text-[var(--text-dim)] flex-shrink-0 mt-0.5" aria-hidden="true"><use href="/img/ui-sprite.svg#icon-info"/></svg>
                   <div>
                     <div class="font-semibold text-[var(--text)]" x-text="t('hosts_extra.no_data.title')"></div>
                     <div class="text-[var(--text-dim)] mt-1"
@@ -8706,7 +8596,7 @@
               <template x-if="h.enabled !== false && !h.sampling_paused && isAdmin() && pausedProvidersFor(h).length > 0">
                 <div class="flex items-start justify-between gap-3 rounded-md p-3 text-[12px] mb-4 bg-[color-mix(in_srgb,var(--warning)_14%,transparent)] border border-[color-mix(in_srgb,var(--warning)_60%,var(--border))]">
                   <div class="flex items-start gap-3 min-w-0">
-                    <svg width="16" height="16" class="text-[var(--warning)] flex-shrink-0 mt-0.5" aria-hidden="true"><use href="#icon-pause"/></svg>
+                    <svg width="16" height="16" class="text-[var(--warning)] flex-shrink-0 mt-0.5" aria-hidden="true"><use href="/img/ui-sprite.svg#icon-pause"/></svg>
                     <div class="min-w-0">
                       <div class="font-semibold text-[var(--text)]"
                            x-text="t('host_drawer.paused_banner.title', { count: pausedProvidersFor(h).length })"></div>
@@ -8749,7 +8639,7 @@
                        ? 'bg-[color-mix(in_srgb,var(--warning)_14%,transparent)] border border-[color-mix(in_srgb,var(--warning)_60%,var(--border))]'
                        : 'bg-[color-mix(in_srgb,var(--warning)_8%,transparent)] border border-[color-mix(in_srgb,var(--warning)_40%,var(--border))]'"
                      :title="(h._stale_fields || []).join(', ')">
-                  <svg width="16" height="16" class="text-[var(--warning)] flex-shrink-0 mt-0.5" aria-hidden="true"><use href="#icon-clock"/></svg>
+                  <svg width="16" height="16" class="text-[var(--warning)] flex-shrink-0 mt-0.5" aria-hidden="true"><use href="/img/ui-sprite.svg#icon-clock"/></svg>
                   <div class="min-w-0">
                     <div class="font-semibold text-[var(--text)]"
                          x-text="isAllStale(h) ? t('host_drawer.stale.title_bulk') : t('host_drawer.stale.title')"></div>
@@ -9855,7 +9745,7 @@
                   <div x-show="snmpHistoryFreshness(h)"
                        class="mb-3 text-[11px] flex items-center gap-2 text-[var(--warning)]"
                        :title="snmpHistoryFreshness(h) ? t('host_drawer.snmp_charts.freshness_source_' + snmpHistoryFreshness(h).source) : ''">
-                    <svg width="11" height="11" aria-hidden="true"><use href="#icon-clock"/></svg>
+                    <svg width="11" height="11" aria-hidden="true"><use href="/img/ui-sprite.svg#icon-clock"/></svg>
                     <span x-text="snmpHistoryFreshness(h) ? t('host_drawer.snmp_charts.freshness', { age: snmpHistoryFreshness(h).label }) : ''"></span>
                   </div>
                   <!-- Operator-flagged: surface the lifetime page count
@@ -9999,7 +9889,7 @@
                         <button @click="toggleNetworkIfacesBusyAll(h)"
                                 class="text-[11.5px] text-[var(--text-dim)] hover:text-[var(--text)] flex items-center gap-1.5"
                                 :title="t('host_drawer.network.busy_all_toggle_title')">
-                          <svg width="10" height="10" stroke-width="3" aria-hidden="true" :style="networkIfacesShowAllBusy[h.id] ? 'transform: rotate(90deg)' : ''" style="transition: transform 120ms ease-out"><use href="#icon-chevron-right"/></svg>
+                          <svg width="10" height="10" stroke-width="3" aria-hidden="true" :style="networkIfacesShowAllBusy[h.id] ? 'transform: rotate(90deg)' : ''" style="transition: transform 120ms ease-out"><use href="/img/ui-sprite.svg#icon-chevron-right"/></svg>
                           <span x-text="networkIfacesShowAllBusy[h.id]
                                         ? t('host_drawer.network.busy_all_hide', { count: networkIfacesBusyHiddenCount(h) })
                                         : t('host_drawer.network.busy_all_show', { count: networkIfacesBusyHiddenCount(h) })"></span>
@@ -10016,7 +9906,7 @@
                         <button @click="toggleNetworkIfacesIdle(h)"
                                 class="text-[11.5px] text-[var(--text-dim)] hover:text-[var(--text)] flex items-center gap-1.5"
                                 :title="t('host_drawer.network.idle_toggle_title')">
-                          <svg width="10" height="10" stroke-width="3" aria-hidden="true" :style="networkIfacesShowIdle[h.id] ? 'transform: rotate(90deg)' : ''" style="transition: transform 120ms ease-out"><use href="#icon-chevron-right"/></svg>
+                          <svg width="10" height="10" stroke-width="3" aria-hidden="true" :style="networkIfacesShowIdle[h.id] ? 'transform: rotate(90deg)' : ''" style="transition: transform 120ms ease-out"><use href="/img/ui-sprite.svg#icon-chevron-right"/></svg>
                           <span x-text="networkIfacesShowIdle[h.id]
                                         ? t('host_drawer.network.idle_hide', { count: networkIfacesActivityPartition(h).idle.length })
                                         : t('host_drawer.network.idle_show', { count: networkIfacesActivityPartition(h).idle.length })"></span>
@@ -10079,7 +9969,7 @@
                         <button @click="toggleNetworkIfacesDocker(h)"
                                 class="text-[11.5px] text-[var(--text-dim)] hover:text-[var(--text)] flex items-center gap-1.5"
                                 :title="t('host_drawer.network.docker_toggle_title')">
-                          <svg width="10" height="10" stroke-width="3" aria-hidden="true" :style="networkIfacesShowDocker[h.id] ? 'transform: rotate(90deg)' : ''" style="transition: transform 120ms ease-out"><use href="#icon-chevron-right"/></svg>
+                          <svg width="10" height="10" stroke-width="3" aria-hidden="true" :style="networkIfacesShowDocker[h.id] ? 'transform: rotate(90deg)' : ''" style="transition: transform 120ms ease-out"><use href="/img/ui-sprite.svg#icon-chevron-right"/></svg>
                           <span x-text="networkIfacesShowDocker[h.id]
                                         ? t('host_drawer.network.docker_hide', { count: networkIfacesPartition(h).internal.length })
                                         : t('host_drawer.network.docker_show', { count: networkIfacesPartition(h).internal.length })"></span>
@@ -10222,7 +10112,7 @@
                    picker even though SNMP charts were rendering below). -->
               <div class="mt-4 flex items-center gap-2 flex-wrap"
                    x-show="((h.beszel_id || h.ne_url) && h.status === 'up' && (h.providers || []).length > 0) || h.ping_enabled || hostHasSnmpCharts(h)">
-                <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true"><use href="#icon-clock"/></svg>
+                <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true"><use href="/img/ui-sprite.svg#icon-clock"/></svg>
                 <!-- Buttons disabled while the picker's underlying
                      loaders are in flight. Prevents the operator
                      from rapid-clicking 1h → 6h → 24h while the first
@@ -10324,7 +10214,7 @@
                       <span class="metric-source-help" :title="metricSource(h, 'ping')"
                             @click.stop="toggleMetricTooltip(h, 'ping')"
                             @keydown.escape.window="metricTooltipOpen = null">
-                        <svg width="12" height="12" aria-hidden="true"><use href="#icon-help-circle"/></svg>
+                        <svg width="12" height="12" aria-hidden="true"><use href="/img/ui-sprite.svg#icon-help-circle"/></svg>
                         <span class="metric-source-tooltip"
                               x-show="metricTooltipOpen === metricTooltipKey(h, 'ping')"
                               x-cloak @click.stop
@@ -10369,7 +10259,7 @@
                   </template>
                   <template x-if="!hostChart(hostPingHistoryKey(h), 'rtt')">
                     <div class="collecting-block">
-                      <svg aria-hidden="true"><use href="#icon-refresh-ccw"/></svg>
+                      <svg aria-hidden="true"><use href="/img/ui-sprite.svg#icon-refresh-ccw"/></svg>
                       <div>
                         <div x-text="t('loading.collecting_data')"></div>
                       </div>
@@ -10411,7 +10301,7 @@
                    amber after 10 minutes (2× sampler cadence). -->
               <div x-show="hostHasSnmpCharts(h) && snmpHistoryFreshness(h)"
                    class="mt-3 text-[11px] flex items-center gap-2 text-[var(--warning)]">
-                <svg width="11" height="11" aria-hidden="true"><use href="#icon-clock"/></svg>
+                <svg width="11" height="11" aria-hidden="true"><use href="/img/ui-sprite.svg#icon-clock"/></svg>
                 <span x-text="snmpHistoryFreshness(h)
                                 ? t('host_drawer.snmp_charts.freshness', { age: snmpHistoryFreshness(h).label })
                                 : ''"></span>
@@ -10446,7 +10336,7 @@
                                || (hostSnmpHistory[h.id].points || []).length === 0)
                            && !(hostSnmpHistory[h.id] && hostSnmpHistory[h.id].loading)"
                    class="mt-2 text-[11px] flex items-center gap-2 text-[var(--text-faint)]">
-                <svg width="11" height="11" aria-hidden="true"><use href="#icon-info"/></svg>
+                <svg width="11" height="11" aria-hidden="true"><use href="/img/ui-sprite.svg#icon-info"/></svg>
                 <span x-text="snmpWarmingUpText()"></span>
               </div>
               <div class="mt-3 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4"
@@ -10466,7 +10356,7 @@
                       <span class="metric-source-help" :title="metricSource(h, 'snmp_cpu')"
                             @click.stop="toggleMetricTooltip(h, 'snmp_cpu')"
                             @keydown.escape.window="metricTooltipOpen = null">
-                        <svg width="12" height="12" aria-hidden="true"><use href="#icon-help-circle"/></svg>
+                        <svg width="12" height="12" aria-hidden="true"><use href="/img/ui-sprite.svg#icon-help-circle"/></svg>
                         <span class="metric-source-tooltip"
                               x-show="metricTooltipOpen === metricTooltipKey(h, 'snmp_cpu')"
                               x-cloak @click.stop
@@ -10507,7 +10397,7 @@
                   </template>
                   <template x-if="!snmpHasEnoughHistory(h.id)">
                     <div class="collecting-block">
-                      <svg aria-hidden="true"><use href="#icon-refresh-ccw"/></svg>
+                      <svg aria-hidden="true"><use href="/img/ui-sprite.svg#icon-refresh-ccw"/></svg>
                       <div><div x-text="t('loading.collecting_data')"></div></div>
                     </div>
                   </template>
@@ -10524,7 +10414,7 @@
                       <span class="metric-source-help" :title="metricSource(h, 'snmp_load')"
                             @click.stop="toggleMetricTooltip(h, 'snmp_load')"
                             @keydown.escape.window="metricTooltipOpen = null">
-                        <svg width="12" height="12" aria-hidden="true"><use href="#icon-help-circle"/></svg>
+                        <svg width="12" height="12" aria-hidden="true"><use href="/img/ui-sprite.svg#icon-help-circle"/></svg>
                         <span class="metric-source-tooltip"
                               x-show="metricTooltipOpen === metricTooltipKey(h, 'snmp_load')"
                               x-cloak @click.stop
@@ -10570,7 +10460,7 @@
                   </template>
                   <template x-if="!snmpHasEnoughHistory(h.id)">
                     <div class="collecting-block">
-                      <svg aria-hidden="true"><use href="#icon-refresh-ccw"/></svg>
+                      <svg aria-hidden="true"><use href="/img/ui-sprite.svg#icon-refresh-ccw"/></svg>
                       <div><div x-text="t('loading.collecting_data')"></div></div>
                     </div>
                   </template>
@@ -10595,7 +10485,7 @@
                       <span class="metric-source-help" :title="metricSource(h, 'snmp_memory')"
                             @click.stop="toggleMetricTooltip(h, 'snmp_memory')"
                             @keydown.escape.window="metricTooltipOpen = null">
-                        <svg width="12" height="12" aria-hidden="true"><use href="#icon-help-circle"/></svg>
+                        <svg width="12" height="12" aria-hidden="true"><use href="/img/ui-sprite.svg#icon-help-circle"/></svg>
                         <span class="metric-source-tooltip"
                               x-show="metricTooltipOpen === metricTooltipKey(h, 'snmp_memory')"
                               x-cloak @click.stop
@@ -10651,7 +10541,7 @@
                   </template>
                   <template x-if="!snmpHasEnoughHistory(h.id)">
                     <div class="collecting-block">
-                      <svg aria-hidden="true"><use href="#icon-refresh-ccw"/></svg>
+                      <svg aria-hidden="true"><use href="/img/ui-sprite.svg#icon-refresh-ccw"/></svg>
                       <div><div x-text="t('loading.collecting_data')"></div></div>
                     </div>
                   </template>
@@ -10672,7 +10562,7 @@
                       <span class="metric-source-help" :title="metricSource(h, 'snmp_throughput')"
                             @click.stop="toggleMetricTooltip(h, 'snmp_throughput')"
                             @keydown.escape.window="metricTooltipOpen = null">
-                        <svg width="12" height="12" aria-hidden="true"><use href="#icon-help-circle"/></svg>
+                        <svg width="12" height="12" aria-hidden="true"><use href="/img/ui-sprite.svg#icon-help-circle"/></svg>
                         <span class="metric-source-tooltip"
                               x-show="metricTooltipOpen === metricTooltipKey(h, 'snmp_throughput')"
                               x-cloak @click.stop
@@ -10731,7 +10621,7 @@
                   </template>
                   <template x-if="!snmpHasEnoughHistory(h.id)">
                     <div class="collecting-block">
-                      <svg aria-hidden="true"><use href="#icon-refresh-ccw"/></svg>
+                      <svg aria-hidden="true"><use href="/img/ui-sprite.svg#icon-refresh-ccw"/></svg>
                       <div><div x-text="t('loading.collecting_data')"></div></div>
                     </div>
                   </template>
@@ -10751,7 +10641,7 @@
                       <span class="metric-source-help" :title="metricSource(h, 'snmp_throughput')"
                             @click.stop="toggleMetricTooltip(h, 'snmp_per_port')"
                             @keydown.escape.window="metricTooltipOpen = null">
-                        <svg width="12" height="12" aria-hidden="true"><use href="#icon-help-circle"/></svg>
+                        <svg width="12" height="12" aria-hidden="true"><use href="/img/ui-sprite.svg#icon-help-circle"/></svg>
                         <span class="metric-source-tooltip"
                               x-show="metricTooltipOpen === metricTooltipKey(h, 'snmp_per_port')"
                               x-cloak @click.stop
@@ -10805,7 +10695,7 @@
                   </template>
                   <template x-if="!snmpHasIfaceHistory(h.id)">
                     <div class="collecting-block">
-                      <svg aria-hidden="true"><use href="#icon-refresh-ccw"/></svg>
+                      <svg aria-hidden="true"><use href="/img/ui-sprite.svg#icon-refresh-ccw"/></svg>
                       <div><div x-text="t('loading.collecting_data')"></div></div>
                     </div>
                   </template>
@@ -10828,7 +10718,7 @@
                       <span class="metric-source-help" :title="metricSource(h, 'snmp_throughput')"
                             @click.stop="toggleMetricTooltip(h, 'snmp_heatmap')"
                             @keydown.escape.window="metricTooltipOpen = null">
-                        <svg width="12" height="12" aria-hidden="true"><use href="#icon-help-circle"/></svg>
+                        <svg width="12" height="12" aria-hidden="true"><use href="/img/ui-sprite.svg#icon-help-circle"/></svg>
                         <span class="metric-source-tooltip"
                               x-show="metricTooltipOpen === metricTooltipKey(h, 'snmp_heatmap')"
                               x-cloak @click.stop
@@ -10887,7 +10777,7 @@
                   </template>
                   <template x-if="!snmpHasIfaceUtilization(h.id, h)">
                     <div class="collecting-block">
-                      <svg aria-hidden="true"><use href="#icon-refresh-ccw"/></svg>
+                      <svg aria-hidden="true"><use href="/img/ui-sprite.svg#icon-refresh-ccw"/></svg>
                       <div><div x-text="t('loading.collecting_data')"></div></div>
                     </div>
                   </template>
@@ -10941,7 +10831,7 @@
                   </template>
                   <template x-if="!snmpHasUpsLoadHistory(h.id)">
                     <div class="collecting-block">
-                      <svg aria-hidden="true"><use href="#icon-refresh-ccw"/></svg>
+                      <svg aria-hidden="true"><use href="/img/ui-sprite.svg#icon-refresh-ccw"/></svg>
                       <div><div x-text="t('loading.collecting_data')"></div></div>
                     </div>
                   </template>
@@ -10983,7 +10873,7 @@
                   </template>
                   <template x-if="!snmpHasUpsBatteryHistory(h.id)">
                     <div class="collecting-block">
-                      <svg aria-hidden="true"><use href="#icon-refresh-ccw"/></svg>
+                      <svg aria-hidden="true"><use href="/img/ui-sprite.svg#icon-refresh-ccw"/></svg>
                       <div><div x-text="t('loading.collecting_data')"></div></div>
                     </div>
                   </template>
@@ -11029,7 +10919,7 @@
                   </template>
                   <template x-if="!snmpHasUpsBatteryTempHistory(h.id)">
                     <div class="collecting-block">
-                      <svg aria-hidden="true"><use href="#icon-refresh-ccw"/></svg>
+                      <svg aria-hidden="true"><use href="/img/ui-sprite.svg#icon-refresh-ccw"/></svg>
                       <div><div x-text="t('loading.collecting_data')"></div></div>
                     </div>
                   </template>
@@ -11051,7 +10941,7 @@
                       <span class="metric-source-help" :title="metricSource(h, 'dell_temps')"
                             @click.stop="toggleMetricTooltip(h, 'dell_temps')"
                             @keydown.escape.window="metricTooltipOpen = null">
-                        <svg width="12" height="12" aria-hidden="true"><use href="#icon-help-circle"/></svg>
+                        <svg width="12" height="12" aria-hidden="true"><use href="/img/ui-sprite.svg#icon-help-circle"/></svg>
                         <span class="metric-source-tooltip"
                               x-show="metricTooltipOpen === (h.id + ':dell_temps')"
                               x-text="metricSource(h, 'dell_temps')"
@@ -11070,11 +10960,37 @@
                         <line class="metric-grid" x1="0" y1="30" x2="420" y2="30"/>
                         <line class="metric-grid" x1="0" y1="60" x2="420" y2="60"/>
                         <line class="metric-grid" x1="0" y1="90" x2="420" y2="90"/>
-                        <template x-for="probe in dellTempProbes(h.id)" :key="'dell-temp-line-' + probe.idx">
-                          <path fill="none" stroke-width="1.5"
-                                    :stroke="probe.color"
-                                    :d="dellTempLine(h.id, probe.points)"></path>
-                        </template>
+                        <!-- Eight hardcoded paths indexed against dellTempProbes(h.id)[N]
+                             — same fixed-polyline-by-index pattern the per-port chart
+                             uses because Alpine's <template x-for> doesn't work inside
+                             <svg>. Most servers have ≤8 temp probes (Inlet / Exhaust /
+                             CPU1 / CPU2 / + optional chipset / DIMM banks); slots
+                             beyond the host's actual probe count render with empty
+                             stroke + empty d so the renderer skips them cleanly. -->
+                        <path fill="none" stroke-width="1.5"
+                              :stroke="(dellTempProbes(h.id)[0] || {}).color || 'transparent'"
+                              :d="(dellTempProbes(h.id)[0] ? dellTempLine(h.id, dellTempProbes(h.id)[0].points) : '')"></path>
+                        <path fill="none" stroke-width="1.5"
+                              :stroke="(dellTempProbes(h.id)[1] || {}).color || 'transparent'"
+                              :d="(dellTempProbes(h.id)[1] ? dellTempLine(h.id, dellTempProbes(h.id)[1].points) : '')"></path>
+                        <path fill="none" stroke-width="1.5"
+                              :stroke="(dellTempProbes(h.id)[2] || {}).color || 'transparent'"
+                              :d="(dellTempProbes(h.id)[2] ? dellTempLine(h.id, dellTempProbes(h.id)[2].points) : '')"></path>
+                        <path fill="none" stroke-width="1.5"
+                              :stroke="(dellTempProbes(h.id)[3] || {}).color || 'transparent'"
+                              :d="(dellTempProbes(h.id)[3] ? dellTempLine(h.id, dellTempProbes(h.id)[3].points) : '')"></path>
+                        <path fill="none" stroke-width="1.5"
+                              :stroke="(dellTempProbes(h.id)[4] || {}).color || 'transparent'"
+                              :d="(dellTempProbes(h.id)[4] ? dellTempLine(h.id, dellTempProbes(h.id)[4].points) : '')"></path>
+                        <path fill="none" stroke-width="1.5"
+                              :stroke="(dellTempProbes(h.id)[5] || {}).color || 'transparent'"
+                              :d="(dellTempProbes(h.id)[5] ? dellTempLine(h.id, dellTempProbes(h.id)[5].points) : '')"></path>
+                        <path fill="none" stroke-width="1.5"
+                              :stroke="(dellTempProbes(h.id)[6] || {}).color || 'transparent'"
+                              :d="(dellTempProbes(h.id)[6] ? dellTempLine(h.id, dellTempProbes(h.id)[6].points) : '')"></path>
+                        <path fill="none" stroke-width="1.5"
+                              :stroke="(dellTempProbes(h.id)[7] || {}).color || 'transparent'"
+                              :d="(dellTempProbes(h.id)[7] ? dellTempLine(h.id, dellTempProbes(h.id)[7].points) : '')"></path>
                       </svg>
                       <div class="metric-x-axis">
                         <template x-for="(l, i) in snmpXAxis(h.id, 5)" :key="'dell-temp-x-' + i"><span x-text="l"></span></template>
@@ -11083,7 +10999,7 @@
                   </template>
                   <template x-if="!dellHasTempHistory(h.id)">
                     <div class="collecting-block">
-                      <svg aria-hidden="true"><use href="#icon-refresh-ccw"/></svg>
+                      <svg aria-hidden="true"><use href="/img/ui-sprite.svg#icon-refresh-ccw"/></svg>
                       <div><div x-text="t('loading.collecting_data')"></div></div>
                     </div>
                   </template>
@@ -11117,7 +11033,7 @@
                       <span class="metric-source-help" :title="metricSource(h, 'cpu')"
                             @click.stop="toggleMetricTooltip(h, 'cpu')"
                             @keydown.escape.window="metricTooltipOpen = null">
-                        <svg width="12" height="12" aria-hidden="true"><use href="#icon-help-circle"/></svg>
+                        <svg width="12" height="12" aria-hidden="true"><use href="/img/ui-sprite.svg#icon-help-circle"/></svg>
                         <span class="metric-source-tooltip"
                               x-show="metricTooltipOpen === metricTooltipKey(h, 'cpu')"
                               x-cloak
@@ -11159,7 +11075,7 @@
                   </template>
                   <template x-if="!hostChart(hostHistoryKey(h), 'cpu', { min: 0, max: 100 })">
                     <div class="collecting-block">
-                      <svg aria-hidden="true"><use href="#icon-refresh-ccw"/></svg>
+                      <svg aria-hidden="true"><use href="/img/ui-sprite.svg#icon-refresh-ccw"/></svg>
                       <div>
                         <div x-text="t('loading.collecting_data')"></div>
                         <div class="text-[10.5px] text-[var(--text-faint)] not-italic mt-0.5" x-text="t('loading.history_will_appear')"></div>
@@ -11176,7 +11092,7 @@
                       <span class="metric-source-help" :title="metricSource(h, 'memory')"
                             @click.stop="toggleMetricTooltip(h, 'memory')"
                             @keydown.escape.window="metricTooltipOpen = null">
-                        <svg width="12" height="12" aria-hidden="true"><use href="#icon-help-circle"/></svg>
+                        <svg width="12" height="12" aria-hidden="true"><use href="/img/ui-sprite.svg#icon-help-circle"/></svg>
                         <span class="metric-source-tooltip"
                               x-show="metricTooltipOpen === metricTooltipKey(h, 'memory')"
                               x-cloak
@@ -11211,7 +11127,7 @@
                   </template>
                   <template x-if="!hostChart(hostHistoryKey(h), 'mp', { min: 0, max: 100 })">
                     <div class="collecting-block">
-                      <svg aria-hidden="true"><use href="#icon-refresh-ccw"/></svg>
+                      <svg aria-hidden="true"><use href="/img/ui-sprite.svg#icon-refresh-ccw"/></svg>
                       <div>
                         <div x-text="t('loading.collecting_data')"></div>
                       </div>
@@ -11227,7 +11143,7 @@
                       <span class="metric-source-help" :title="metricSource(h, 'disk')"
                             @click.stop="toggleMetricTooltip(h, 'disk')"
                             @keydown.escape.window="metricTooltipOpen = null">
-                        <svg width="12" height="12" aria-hidden="true"><use href="#icon-help-circle"/></svg>
+                        <svg width="12" height="12" aria-hidden="true"><use href="/img/ui-sprite.svg#icon-help-circle"/></svg>
                         <span class="metric-source-tooltip"
                               x-show="metricTooltipOpen === metricTooltipKey(h, 'disk')"
                               x-cloak
@@ -11262,7 +11178,7 @@
                   </template>
                   <template x-if="!hostChart(hostHistoryKey(h), 'dp', { min: 0, max: 100 })">
                     <div class="collecting-block">
-                      <svg aria-hidden="true"><use href="#icon-refresh-ccw"/></svg>
+                      <svg aria-hidden="true"><use href="/img/ui-sprite.svg#icon-refresh-ccw"/></svg>
                       <div>
                         <div x-text="t('loading.collecting_data')"></div>
                       </div>
@@ -11297,7 +11213,7 @@
                       <span class="metric-source-help" :title="metricSource(h, 'network')"
                             @click.stop="toggleMetricTooltip(h, 'network')"
                             @keydown.escape.window="metricTooltipOpen = null">
-                        <svg width="12" height="12" aria-hidden="true"><use href="#icon-help-circle"/></svg>
+                        <svg width="12" height="12" aria-hidden="true"><use href="/img/ui-sprite.svg#icon-help-circle"/></svg>
                         <span class="metric-source-tooltip"
                               x-show="metricTooltipOpen === metricTooltipKey(h, 'network')"
                               x-cloak
@@ -11354,7 +11270,7 @@
                        BEFORE the inactive branch so it wins the race. -->
                   <template x-if="hostChart(hostHistoryKey(h), 'nr') && hostChartMax(hostHistoryKey(h), ['nr','ns']) === 0 && hostCollectorMissing(h, 'net')">
                     <div class="collecting-block">
-                      <svg aria-hidden="true"><use href="#icon-loader"/></svg>
+                      <svg aria-hidden="true"><use href="/img/ui-sprite.svg#icon-loader"/></svg>
                       <div>
                         <div x-text="t('hosts_extra.collectors_missing.net_title')"></div>
                         <div class="text-[10.5px] text-[var(--text-faint)] mt-1"
@@ -11367,7 +11283,7 @@
                   </template>
                   <template x-if="hostChart(hostHistoryKey(h), 'nr') && hostChartMax(hostHistoryKey(h), ['nr','ns']) === 0 && !hostCollectorMissing(h, 'net')">
                     <div class="collecting-block">
-                      <svg aria-hidden="true"><use href="#icon-info"/></svg>
+                      <svg aria-hidden="true"><use href="/img/ui-sprite.svg#icon-info"/></svg>
                       <div>
                         <div x-text="t('hosts_extra.net_inactive.title')"></div>
                         <!-- Source-specific guidance:
@@ -11404,7 +11320,7 @@
                   </template>
                   <template x-if="!hostChart(hostHistoryKey(h), 'nr')">
                     <div class="collecting-block">
-                      <svg aria-hidden="true"><use href="#icon-refresh-ccw"/></svg>
+                      <svg aria-hidden="true"><use href="/img/ui-sprite.svg#icon-refresh-ccw"/></svg>
                       <div>
                         <div x-text="t('loading.collecting_data')"></div>
                       </div>
@@ -11433,7 +11349,7 @@
                       <span class="metric-source-help" :title="metricSource(h, 'disk_io')"
                             @click.stop="toggleMetricTooltip(h, 'disk_io')"
                             @keydown.escape.window="metricTooltipOpen = null">
-                        <svg width="12" height="12" aria-hidden="true"><use href="#icon-help-circle"/></svg>
+                        <svg width="12" height="12" aria-hidden="true"><use href="/img/ui-sprite.svg#icon-help-circle"/></svg>
                         <span class="metric-source-tooltip"
                               x-show="metricTooltipOpen === metricTooltipKey(h, 'disk_io')"
                               x-cloak
@@ -11485,7 +11401,7 @@
                        branch so it wins the race. -->
                   <template x-if="hostChart(hostHistoryKey(h), 'dr') && hostChartMax(hostHistoryKey(h), ['dr','dw']) === 0 && hostCollectorMissing(h, 'disk_io')">
                     <div class="collecting-block">
-                      <svg aria-hidden="true"><use href="#icon-loader"/></svg>
+                      <svg aria-hidden="true"><use href="/img/ui-sprite.svg#icon-loader"/></svg>
                       <div>
                         <div x-text="t('hosts_extra.collectors_missing.disk_io_title')"></div>
                         <div class="text-[10.5px] text-[var(--text-faint)] mt-1"
@@ -11498,7 +11414,7 @@
                   </template>
                   <template x-if="hostChart(hostHistoryKey(h), 'dr') && hostChartMax(hostHistoryKey(h), ['dr','dw']) === 0 && !hostCollectorMissing(h, 'disk_io')">
                     <div class="collecting-block">
-                      <svg aria-hidden="true"><use href="#icon-info"/></svg>
+                      <svg aria-hidden="true"><use href="/img/ui-sprite.svg#icon-info"/></svg>
                       <div>
                         <div x-text="t('hosts_extra.metrics.disk_io_idle')"></div>
                       </div>
@@ -11506,7 +11422,7 @@
                   </template>
                   <template x-if="!hostChart(hostHistoryKey(h), 'dr')">
                     <div class="collecting-block">
-                      <svg aria-hidden="true"><use href="#icon-refresh-ccw"/></svg>
+                      <svg aria-hidden="true"><use href="/img/ui-sprite.svg#icon-refresh-ccw"/></svg>
                       <div>
                         <div x-text="t('loading.collecting_data')"></div>
                       </div>
@@ -11530,7 +11446,7 @@
                       <span class="metric-source-help" :title="metricSource(h, 'load_avg')"
                             @click.stop="toggleMetricTooltip(h, 'load_avg')"
                             @keydown.escape.window="metricTooltipOpen = null">
-                        <svg width="12" height="12" aria-hidden="true"><use href="#icon-help-circle"/></svg>
+                        <svg width="12" height="12" aria-hidden="true"><use href="/img/ui-sprite.svg#icon-help-circle"/></svg>
                         <span class="metric-source-tooltip"
                               x-show="metricTooltipOpen === metricTooltipKey(h, 'load_avg')"
                               x-cloak
@@ -11582,7 +11498,7 @@
                   </template>
                   <template x-if="!hostChart(hostHistoryKey(h), 'la1_pct')">
                     <div class="collecting-block">
-                      <svg aria-hidden="true"><use href="#icon-refresh-ccw"/></svg>
+                      <svg aria-hidden="true"><use href="/img/ui-sprite.svg#icon-refresh-ccw"/></svg>
                       <div><div x-text="t('loading.collecting_data')"></div></div>
                     </div>
                   </template>
@@ -11605,7 +11521,7 @@
                       <span class="metric-source-help" :title="metricSource(h, 'bandwidth')"
                             @click.stop="toggleMetricTooltip(h, 'bandwidth')"
                             @keydown.escape.window="metricTooltipOpen = null">
-                        <svg width="12" height="12" aria-hidden="true"><use href="#icon-help-circle"/></svg>
+                        <svg width="12" height="12" aria-hidden="true"><use href="/img/ui-sprite.svg#icon-help-circle"/></svg>
                         <span class="metric-source-tooltip"
                               x-show="metricTooltipOpen === metricTooltipKey(h, 'bandwidth')"
                               x-cloak
@@ -11640,7 +11556,7 @@
                   </template>
                   <template x-if="!hostChart(hostHistoryKey(h), 'net')">
                     <div class="collecting-block">
-                      <svg aria-hidden="true"><use href="#icon-refresh-ccw"/></svg>
+                      <svg aria-hidden="true"><use href="/img/ui-sprite.svg#icon-refresh-ccw"/></svg>
                       <div><div x-text="t('loading.collecting_data')"></div></div>
                     </div>
                   </template>
@@ -11660,7 +11576,7 @@
                       <span class="metric-source-help" :title="metricSource(h, 'swap')"
                             @click.stop="toggleMetricTooltip(h, 'swap')"
                             @keydown.escape.window="metricTooltipOpen = null">
-                        <svg width="12" height="12" aria-hidden="true"><use href="#icon-help-circle"/></svg>
+                        <svg width="12" height="12" aria-hidden="true"><use href="/img/ui-sprite.svg#icon-help-circle"/></svg>
                         <span class="metric-source-tooltip"
                               x-show="metricTooltipOpen === metricTooltipKey(h, 'swap')"
                               x-cloak
@@ -11695,7 +11611,7 @@
                   </template>
                   <template x-if="!hostChart(hostHistoryKey(h), 's')">
                     <div class="collecting-block">
-                      <svg aria-hidden="true"><use href="#icon-refresh-ccw"/></svg>
+                      <svg aria-hidden="true"><use href="/img/ui-sprite.svg#icon-refresh-ccw"/></svg>
                       <div><div x-text="t('loading.collecting_data')"></div></div>
                     </div>
                   </template>
@@ -11719,7 +11635,7 @@
                       <span class="metric-source-help" :title="metricSource(h, 'temperature')"
                             @click.stop="toggleMetricTooltip(h, 'temperature')"
                             @keydown.escape.window="metricTooltipOpen = null">
-                        <svg width="12" height="12" aria-hidden="true"><use href="#icon-help-circle"/></svg>
+                        <svg width="12" height="12" aria-hidden="true"><use href="/img/ui-sprite.svg#icon-help-circle"/></svg>
                         <span class="metric-source-tooltip"
                               x-show="metricTooltipOpen === metricTooltipKey(h, 'temperature')"
                               x-cloak
@@ -11816,7 +11732,7 @@
                        Disk-IO / Net / Bandwidth / Swap cards use. -->
                   <template x-if="!hostTempChart(hostHistoryKey(h))">
                     <div class="collecting-block">
-                      <svg aria-hidden="true"><use href="#icon-refresh-ccw"/></svg>
+                      <svg aria-hidden="true"><use href="/img/ui-sprite.svg#icon-refresh-ccw"/></svg>
                       <div>
                         <div x-text="t('loading.collecting_data')"></div>
                       </div>
@@ -11839,7 +11755,7 @@
                       <span class="metric-source-help" :title="metricSource(h, 'gpu')"
                             @click.stop="toggleMetricTooltip(h, 'gpu_pwr')"
                             @keydown.escape.window="metricTooltipOpen = null">
-                        <svg width="12" height="12" aria-hidden="true"><use href="#icon-help-circle"/></svg>
+                        <svg width="12" height="12" aria-hidden="true"><use href="/img/ui-sprite.svg#icon-help-circle"/></svg>
                         <span class="metric-source-tooltip"
                               x-show="metricTooltipOpen === metricTooltipKey(h, 'gpu_pwr')"
                               x-cloak @click.stop
@@ -11877,7 +11793,7 @@
                   </template>
                   <template x-if="!(hostChartMax(hostHistoryKey(h), ['gpu_pwr']) > 0)">
                     <div class="collecting-block">
-                      <svg aria-hidden="true"><use href="#icon-refresh-ccw"/></svg>
+                      <svg aria-hidden="true"><use href="/img/ui-sprite.svg#icon-refresh-ccw"/></svg>
                       <div><div x-text="t('loading.collecting_data')"></div></div>
                     </div>
                   </template>
@@ -11893,7 +11809,7 @@
                       <span class="metric-source-help" :title="metricSource(h, 'gpu')"
                             @click.stop="toggleMetricTooltip(h, 'gpu_usage')"
                             @keydown.escape.window="metricTooltipOpen = null">
-                        <svg width="12" height="12" aria-hidden="true"><use href="#icon-help-circle"/></svg>
+                        <svg width="12" height="12" aria-hidden="true"><use href="/img/ui-sprite.svg#icon-help-circle"/></svg>
                         <span class="metric-source-tooltip"
                               x-show="metricTooltipOpen === metricTooltipKey(h, 'gpu_usage')"
                               x-cloak @click.stop
@@ -11929,7 +11845,7 @@
                   </template>
                   <template x-if="!(hostChart(hostHistoryKey(h), 'gpu_usage') && (hostHistory[hostHistoryKey(h)] && (hostHistory[hostHistoryKey(h)].series || []).length >= 2))">
                     <div class="collecting-block">
-                      <svg aria-hidden="true"><use href="#icon-refresh-ccw"/></svg>
+                      <svg aria-hidden="true"><use href="/img/ui-sprite.svg#icon-refresh-ccw"/></svg>
                       <div><div x-text="t('loading.collecting_data')"></div></div>
                     </div>
                   </template>
@@ -11945,7 +11861,7 @@
                       <span class="metric-source-help" :title="metricSource(h, 'gpu')"
                             @click.stop="toggleMetricTooltip(h, 'gpu_vram')"
                             @keydown.escape.window="metricTooltipOpen = null">
-                        <svg width="12" height="12" aria-hidden="true"><use href="#icon-help-circle"/></svg>
+                        <svg width="12" height="12" aria-hidden="true"><use href="/img/ui-sprite.svg#icon-help-circle"/></svg>
                         <span class="metric-source-tooltip"
                               x-show="metricTooltipOpen === metricTooltipKey(h, 'gpu_vram')"
                               x-cloak @click.stop
@@ -11982,7 +11898,7 @@
                   </template>
                   <template x-if="!(hostChart(hostHistoryKey(h), 'gpu_vram_pct') && (hostHistory[hostHistoryKey(h)] && (hostHistory[hostHistoryKey(h)].series || []).length >= 2))">
                     <div class="collecting-block">
-                      <svg aria-hidden="true"><use href="#icon-refresh-ccw"/></svg>
+                      <svg aria-hidden="true"><use href="/img/ui-sprite.svg#icon-refresh-ccw"/></svg>
                       <div><div x-text="t('loading.collecting_data')"></div></div>
                     </div>
                   </template>
@@ -12003,8 +11919,8 @@
                           class="host-debug-toggle host-debug-toggle--accent"
                           @click="toggleHostDebug(h.id)"
                           :aria-expanded="hostsDebugOpen[h.id] ? 'true' : 'false'">
-                    <svg width="12" height="12" class="flip-rtl" aria-hidden="true" :style="hostsDebugOpen[h.id] ? 'transform: rotate(90deg)' : ''"><use href="#icon-chevron-right"/></svg>
-                    <svg width="14" height="14" class="host-debug-toggle-icon" aria-hidden="true"><use href="#icon-bug"/></svg>
+                    <svg width="12" height="12" class="flip-rtl" aria-hidden="true" :style="hostsDebugOpen[h.id] ? 'transform: rotate(90deg)' : ''"><use href="/img/ui-sprite.svg#icon-chevron-right"/></svg>
+                    <svg width="14" height="14" class="host-debug-toggle-icon" aria-hidden="true"><use href="/img/ui-sprite.svg#icon-bug"/></svg>
                     <span x-text="hostsDebugOpen[h.id] ? t('debug_panel.hide') : t('debug_panel.show')"></span>
                     <span class="host-debug-hint" x-show="!hostsDebugOpen[h.id]" x-text="t('debug_panel.hint')"></span>
                   </button>
@@ -12043,7 +11959,7 @@
                                   :disabled="!!hostsDebugLoading[h.id]"
                                   :title="t('debug_panel.refresh_title')">
                             <svg width="14" height="14" aria-hidden="true"
-                                 :class="hostsDebugLoading[h.id] ? 'spin-md' : ''"><use href="#icon-refresh-ccw"/></svg>
+                                 :class="hostsDebugLoading[h.id] ? 'spin-md' : ''"><use href="/img/ui-sprite.svg#icon-refresh-ccw"/></svg>
                             <span x-text="t('debug_panel.refresh')"></span>
                           </button>
                         </div>
@@ -12068,7 +11984,7 @@
                                       @click="copyDebugJson(hostsDebug[h.id].counters, 'debug_panel.labels.counters')"
                                       :aria-label="copyAriaLabel('debug_panel.labels.counters')"
                                       :title="t('debug_panel.copy_title')">
-                                <svg width="12" height="12" aria-hidden="true"><use href="#icon-copy"/></svg>
+                                <svg width="12" height="12" aria-hidden="true"><use href="/img/ui-sprite.svg#icon-copy"/></svg>
                               </button>
                             </header>
                             <pre class="host-debug-json scrollbar" x-text="fmtDebugJson(hostsDebug[h.id].counters)"></pre>
@@ -12080,7 +11996,7 @@
                                       @click="copyDebugJson(hostsDebug[h.id].providers_raw?.pulse, 'debug_panel.labels.raw_pulse')"
                                       :aria-label="copyAriaLabel('debug_panel.labels.raw_pulse')"
                                       :title="t('debug_panel.copy_title')">
-                                <svg width="12" height="12" aria-hidden="true"><use href="#icon-copy"/></svg>
+                                <svg width="12" height="12" aria-hidden="true"><use href="/img/ui-sprite.svg#icon-copy"/></svg>
                               </button>
                             </header>
                             <pre class="host-debug-json scrollbar" x-text="fmtDebugJson(hostsDebug[h.id].providers_raw?.pulse)"></pre>
@@ -12092,7 +12008,7 @@
                                       @click="copyDebugJson(hostsDebug[h.id].providers_raw?.beszel, 'debug_panel.labels.raw_beszel')"
                                       :aria-label="copyAriaLabel('debug_panel.labels.raw_beszel')"
                                       :title="t('debug_panel.copy_title')">
-                                <svg width="12" height="12" aria-hidden="true"><use href="#icon-copy"/></svg>
+                                <svg width="12" height="12" aria-hidden="true"><use href="/img/ui-sprite.svg#icon-copy"/></svg>
                               </button>
                             </header>
                             <pre class="host-debug-json scrollbar" x-text="fmtDebugJson(hostsDebug[h.id].providers_raw?.beszel)"></pre>
@@ -12104,7 +12020,7 @@
                                       @click="copyDebugJson(hostsDebug[h.id].providers_raw?.node_exporter, 'debug_panel.labels.raw_ne')"
                                       :aria-label="copyAriaLabel('debug_panel.labels.raw_ne')"
                                       :title="t('debug_panel.copy_title')">
-                                <svg width="12" height="12" aria-hidden="true"><use href="#icon-copy"/></svg>
+                                <svg width="12" height="12" aria-hidden="true"><use href="/img/ui-sprite.svg#icon-copy"/></svg>
                               </button>
                             </header>
                             <pre class="host-debug-json scrollbar" x-text="fmtDebugJson(hostsDebug[h.id].providers_raw?.node_exporter)"></pre>
@@ -12116,7 +12032,7 @@
                                       @click="copyDebugJson(hostsDebug[h.id].providers_raw?.webmin, 'debug_panel.labels.raw_webmin')"
                                       :aria-label="copyAriaLabel('debug_panel.labels.raw_webmin')"
                                       :title="t('debug_panel.copy_title')">
-                                <svg width="12" height="12" aria-hidden="true"><use href="#icon-copy"/></svg>
+                                <svg width="12" height="12" aria-hidden="true"><use href="/img/ui-sprite.svg#icon-copy"/></svg>
                               </button>
                             </header>
                             <pre class="host-debug-json scrollbar" x-text="fmtDebugJson(hostsDebug[h.id].providers_raw?.webmin)"></pre>
@@ -12128,7 +12044,7 @@
                                       @click="copyDebugJson(hostsDebug[h.id].providers_raw?.ping, 'debug_panel.labels.raw_ping')"
                                       :aria-label="copyAriaLabel('debug_panel.labels.raw_ping')"
                                       :title="t('debug_panel.copy_title')">
-                                <svg width="12" height="12" aria-hidden="true"><use href="#icon-copy"/></svg>
+                                <svg width="12" height="12" aria-hidden="true"><use href="/img/ui-sprite.svg#icon-copy"/></svg>
                               </button>
                             </header>
                             <pre class="host-debug-json scrollbar" x-text="fmtDebugJson(hostsDebug[h.id].providers_raw?.ping)"></pre>
@@ -12140,7 +12056,7 @@
                                       @click="copyDebugJson(hostsDebug[h.id].providers_raw?.snmp, 'debug_panel.labels.raw_snmp')"
                                       :aria-label="copyAriaLabel('debug_panel.labels.raw_snmp')"
                                       :title="t('debug_panel.copy_title')">
-                                <svg width="12" height="12" aria-hidden="true"><use href="#icon-copy"/></svg>
+                                <svg width="12" height="12" aria-hidden="true"><use href="/img/ui-sprite.svg#icon-copy"/></svg>
                               </button>
                             </header>
                             <pre class="host-debug-json scrollbar" x-text="fmtDebugJson(hostsDebug[h.id].providers_raw?.snmp)"></pre>
@@ -12153,7 +12069,7 @@
                                       @click="copyDebugJson(hostsDebug[h.id].merged, 'debug_panel.labels.merged')"
                                       :aria-label="copyAriaLabel('debug_panel.labels.merged')"
                                       :title="t('debug_panel.copy_title')">
-                                <svg width="12" height="12" aria-hidden="true"><use href="#icon-copy"/></svg>
+                                <svg width="12" height="12" aria-hidden="true"><use href="/img/ui-sprite.svg#icon-copy"/></svg>
                               </button>
                             </header>
                             <pre class="host-debug-json scrollbar" x-text="fmtDebugJson(hostsDebug[h.id].merged)"></pre>
@@ -12166,7 +12082,7 @@
                                       @click="copyDebugJson(hostsDebug[h.id].rendered, 'debug_panel.labels.rendered')"
                                       :aria-label="copyAriaLabel('debug_panel.labels.rendered')"
                                       :title="t('debug_panel.copy_title')">
-                                <svg width="12" height="12" aria-hidden="true"><use href="#icon-copy"/></svg>
+                                <svg width="12" height="12" aria-hidden="true"><use href="/img/ui-sprite.svg#icon-copy"/></svg>
                               </button>
                             </header>
                             <pre class="host-debug-json scrollbar" x-text="fmtDebugJson(hostsDebug[h.id].rendered)"></pre>
@@ -12178,7 +12094,7 @@
                                       @click="copyDebugJson(hostsDebug[h.id].providers_normalized?.pulse, 'debug_panel.labels.normalized_pulse')"
                                       :aria-label="copyAriaLabel('debug_panel.labels.normalized_pulse')"
                                       :title="t('debug_panel.copy_title')">
-                                <svg width="12" height="12" aria-hidden="true"><use href="#icon-copy"/></svg>
+                                <svg width="12" height="12" aria-hidden="true"><use href="/img/ui-sprite.svg#icon-copy"/></svg>
                               </button>
                             </header>
                             <pre class="host-debug-json scrollbar" x-text="fmtDebugJson(hostsDebug[h.id].providers_normalized?.pulse)"></pre>
@@ -12190,7 +12106,7 @@
                                       @click="copyDebugJson(hostsDebug[h.id].providers_normalized?.beszel, 'debug_panel.labels.normalized_beszel')"
                                       :aria-label="copyAriaLabel('debug_panel.labels.normalized_beszel')"
                                       :title="t('debug_panel.copy_title')">
-                                <svg width="12" height="12" aria-hidden="true"><use href="#icon-copy"/></svg>
+                                <svg width="12" height="12" aria-hidden="true"><use href="/img/ui-sprite.svg#icon-copy"/></svg>
                               </button>
                             </header>
                             <pre class="host-debug-json scrollbar" x-text="fmtDebugJson(hostsDebug[h.id].providers_normalized?.beszel)"></pre>
@@ -12202,7 +12118,7 @@
                                       @click="copyDebugJson(hostsDebug[h.id].providers_normalized?.node_exporter, 'debug_panel.labels.normalized_ne')"
                                       :aria-label="copyAriaLabel('debug_panel.labels.normalized_ne')"
                                       :title="t('debug_panel.copy_title')">
-                                <svg width="12" height="12" aria-hidden="true"><use href="#icon-copy"/></svg>
+                                <svg width="12" height="12" aria-hidden="true"><use href="/img/ui-sprite.svg#icon-copy"/></svg>
                               </button>
                             </header>
                             <pre class="host-debug-json scrollbar" x-text="fmtDebugJson(hostsDebug[h.id].providers_normalized?.node_exporter)"></pre>
@@ -12214,7 +12130,7 @@
                                       @click="copyDebugJson(hostsDebug[h.id].providers_normalized?.webmin, 'debug_panel.labels.normalized_webmin')"
                                       :aria-label="copyAriaLabel('debug_panel.labels.normalized_webmin')"
                                       :title="t('debug_panel.copy_title')">
-                                <svg width="12" height="12" aria-hidden="true"><use href="#icon-copy"/></svg>
+                                <svg width="12" height="12" aria-hidden="true"><use href="/img/ui-sprite.svg#icon-copy"/></svg>
                               </button>
                             </header>
                             <pre class="host-debug-json scrollbar" x-text="fmtDebugJson(hostsDebug[h.id].providers_normalized?.webmin)"></pre>
@@ -12226,7 +12142,7 @@
                                       @click="copyDebugJson(hostsDebug[h.id].providers_normalized?.ping, 'debug_panel.labels.normalized_ping')"
                                       :aria-label="copyAriaLabel('debug_panel.labels.normalized_ping')"
                                       :title="t('debug_panel.copy_title')">
-                                <svg width="12" height="12" aria-hidden="true"><use href="#icon-copy"/></svg>
+                                <svg width="12" height="12" aria-hidden="true"><use href="/img/ui-sprite.svg#icon-copy"/></svg>
                               </button>
                             </header>
                             <pre class="host-debug-json scrollbar" x-text="fmtDebugJson(hostsDebug[h.id].providers_normalized?.ping)"></pre>
@@ -12238,7 +12154,7 @@
                                       @click="copyDebugJson(hostsDebug[h.id].providers_normalized?.snmp, 'debug_panel.labels.normalized_snmp')"
                                       :aria-label="copyAriaLabel('debug_panel.labels.normalized_snmp')"
                                       :title="t('debug_panel.copy_title')">
-                                <svg width="12" height="12" aria-hidden="true"><use href="#icon-copy"/></svg>
+                                <svg width="12" height="12" aria-hidden="true"><use href="/img/ui-sprite.svg#icon-copy"/></svg>
                               </button>
                             </header>
                             <pre class="host-debug-json scrollbar" x-text="fmtDebugJson(hostsDebug[h.id].providers_normalized?.snmp)"></pre>
@@ -12256,7 +12172,7 @@
                                       @click="copyDebugJson(rawAssetForHost(h), 'debug_panel.labels.asset_raw')"
                                       :aria-label="copyAriaLabel('debug_panel.labels.asset_raw')"
                                       :title="t('debug_panel.copy_title')">
-                                <svg width="12" height="12" aria-hidden="true"><use href="#icon-copy"/></svg>
+                                <svg width="12" height="12" aria-hidden="true"><use href="/img/ui-sprite.svg#icon-copy"/></svg>
                               </button>
                             </header>
                             <pre class="host-debug-json scrollbar" x-text="fmtDebugJson(rawAssetForHost(h))"></pre>
@@ -12270,7 +12186,7 @@
                                       @click="copyDebugJson(assetForHost(h), 'debug_panel.labels.asset_shape')"
                                       :aria-label="copyAriaLabel('debug_panel.labels.asset_shape')"
                                       :title="t('debug_panel.copy_title')">
-                                <svg width="12" height="12" aria-hidden="true"><use href="#icon-copy"/></svg>
+                                <svg width="12" height="12" aria-hidden="true"><use href="/img/ui-sprite.svg#icon-copy"/></svg>
                               </button>
                             </header>
                             <pre class="host-debug-json scrollbar" x-text="fmtDebugJson(assetForHost(h))"></pre>
@@ -12299,8 +12215,8 @@
                           class="host-debug-toggle host-debug-toggle--accent"
                           @click="toggleSshCard(h.id)"
                           :aria-expanded="sshOpen[h.id] ? 'true' : 'false'">
-                    <svg width="12" height="12" class="flip-rtl" aria-hidden="true" :style="sshOpen[h.id] ? 'transform: rotate(90deg)' : ''"><use href="#icon-chevron-right"/></svg>
-                    <svg width="14" height="14" class="host-debug-toggle-icon" aria-hidden="true"><use href="#icon-terminal"/></svg>
+                    <svg width="12" height="12" class="flip-rtl" aria-hidden="true" :style="sshOpen[h.id] ? 'transform: rotate(90deg)' : ''"><use href="/img/ui-sprite.svg#icon-chevron-right"/></svg>
+                    <svg width="14" height="14" class="host-debug-toggle-icon" aria-hidden="true"><use href="/img/ui-sprite.svg#icon-terminal"/></svg>
                     <span x-text="t('hosts_extra_ssh.card_title')"></span>
                     <span class="host-debug-hint ms-2"
                           x-text="!sshStatus[h.id] ? t('hosts_extra_ssh.status_checking')
@@ -12419,7 +12335,7 @@
                                   @click="copySshOutput(h.id)"
                                   :aria-label="t('hosts_extra_ssh.result_copy')"
                                   :title="t('hosts_extra_ssh.result_copy')">
-                            <svg width="12" height="12" aria-hidden="true"><use href="#icon-copy"/></svg>
+                            <svg width="12" height="12" aria-hidden="true"><use href="/img/ui-sprite.svg#icon-copy"/></svg>
                           </button>
                         </header>
                         <div x-show="sshResult[h.id].error" class="host-debug-error"
@@ -12677,10 +12593,14 @@
                  stacks toolbar / drawer chart-grid. SVG sits inside
                  the button alongside an `aria-label` so screen
                  readers announce the action. -->
-            <button @click="loadNotifications()" class="btn btn-ghost text-[12px] inline-flex items-center gap-1.5"
+            <button @click="loadNotifications()"
+                    :disabled="notificationsLoading"
+                    class="btn btn-ghost text-[12px] inline-flex items-center gap-1.5"
                     :aria-label="t('actions.reload')" :title="t('actions.reload')">
-              <svg width="14" height="14" aria-hidden="true"><use href="#icon-refresh-ccw"/></svg>
-              <span x-text="t('actions.reload')"></span>
+              <svg width="14" height="14" aria-hidden="true"
+                   :class="notificationsLoading ? 'animate-spin' : ''"><use href="/img/ui-sprite.svg#icon-refresh-ccw"/></svg>
+              <span x-show="!notificationsLoading" x-text="t('actions.reload')"></span>
+              <span x-show="notificationsLoading" x-text="t('actions.reloading')"></span>
             </button>
             <button @click="markAllNotificationsRead()" class="btn btn-soft text-[12px]"
                     :disabled="(notificationsUnread || 0) === 0"
@@ -12862,8 +12782,7 @@
   <div x-show="terminalModalOpen" class="fixed inset-0 z-50 fade-in" x-cloak>
     <div @click="closeHostTerminal()" class="absolute inset-0 backdrop-strong"></div>
     <div class="relative flex items-center justify-center p-4 h-full overflow-auto">
-      <div class="bg-[var(--surface)] border border-[var(--border)] rounded-md max-w-5xl w-full flex flex-col"
-           style="height: min(85vh, 720px);">
+      <div class="bg-[var(--surface)] border border-[var(--border)] rounded-md max-w-5xl w-full flex flex-col modal-panel--default-height">
         <header class="p-3 border-b border-[var(--border)] flex justify-between items-center bg-[var(--surface)] z-10 flex-shrink-0">
           <div class="flex items-center gap-3 min-w-0">
             <h2 class="text-[14px] font-semibold truncate"
