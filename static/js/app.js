@@ -402,6 +402,11 @@ function app() {
     // `loadHosts` reconcile loop, since rows mutate fields in place
     // rather than reassigning the array). Null = drawer closed.
     drawerHost: null,
+    // Open/closed state for the per-host health-score breakdown
+    // popover inside the drawer. Default closed; the chip in the
+    // drawer header toggles it. Resets to false on closeHostDrawer
+    // so reopening a drawer always lands collapsed.
+    healthPopoverOpen: false,
     hostsSearch: '',
     // clickable provider filter on the Hosts toolbar. Set of
     // active filters (provider names + 'none' for "no provider mapped")
@@ -14618,9 +14623,23 @@ function app() {
     // which looks like "loading" or a broken row). Use this to gate
     // the bars on the host rows (desktop + mobile) and the per-card
     // CPU/Mem/Disk/Net/DiskIO charts in the drawer.
+    //
+    // SNMP counts as telemetry when the host opted-in (`snmp_enabled
+    // === true` is the per-host gate from hosts_config[].snmp). UCD-
+    // net-snmp + hrProcessorLoad cover CPU%, hrStorageRam covers
+    // Memory%; Disk is provider-dependent (some agents expose
+    // dskTable, others don't) but the bar will read 0% honestly —
+    // matches "no disk telemetry from this provider" rather than
+    // hiding the whole row's CPU + Mem signal because of one
+    // missing axis. Pre-fix `hostHasTelemetry` only matched the
+    // four unix-style providers, so SNMP-only hosts (managed
+    // routers, switches, dd-wrt boxes) had stat-bars + sparklines
+    // hidden even though `cpu_percent` / `mem_percent` were filled.
     hostHasTelemetry(h) {
       if (!h) return false;
-      return !!(h.beszel_name || h.pulse_name || h.ne_url || h.webmin_name);
+      return !!(h.beszel_name || h.pulse_name || h.ne_url
+                || h.webmin_name
+                || (h.snmp_name && h.snmp_enabled === true));
     },
     // Display list of agents enabled on a host — used by the drawer's
     // dedicated "Enabled agents" card. Returns rich objects so the
@@ -15251,6 +15270,7 @@ function app() {
     },
     closeHostDrawer() {
       this.drawerHost = null;
+      this.healthPopoverOpen = false;
       if (this._drawerHistoryTimer) {
         clearInterval(this._drawerHistoryTimer);
         this._drawerHistoryTimer = null;
@@ -17626,6 +17646,211 @@ function app() {
     diskPercentOf(h) {
       if (!h || !h.disk_total) return 0;
       return Math.round((h.disk_used / h.disk_total) * 100);
+    },
+    // -------------------- Per-host Health Score --------------------
+    // Synthesises CPU / Memory / Disk / Provider / Pending-Updates
+    // signals into a single 0-100 score per host, with a per-axis
+    // breakdown for the drawer popover. Operator quote: "anything
+    // <80 gets attention this morning" — so the overall score is
+    // worst-axis-wins (min of valid sub-scores), matching that
+    // mental model exactly. A weighted-average alternative would
+    // dilute a single bad axis and bury the actionable signal.
+    //
+    // Each axis returns { key, label, score: 0..100 | null, detail }.
+    // null score means the axis is N/A for this host (no telemetry,
+    // no providers configured, package count missing) and is skipped
+    // from both the overall score and the breakdown list.
+    //
+    // Down / paused hosts short-circuit to a single Status axis
+    // with score=0 — synthesising CPU% on a dead host is meaningless
+    // and "100 / 100 / 0" averages would lie about reachability.
+    healthAxes(h) {
+      if (!h) return [];
+      // Unconfigured / loading rows have nothing to grade — return []
+      // so the chip hides cleanly via `healthScore() == null`.
+      if (h.status === 'unconfigured' || h.status === 'loading') return [];
+      // Down / paused → status axis dominates. Operator's reaction
+      // to a 0 with reason "Sampling paused" is "click in", which
+      // matches what they should be doing for a paused host anyway.
+      if (h.sampling_paused || h.status === 'down') {
+        return [{
+          key: 'status',
+          label: this.t('hosts_extra.health.axis_status'),
+          score: 0,
+          detail: h.sampling_paused
+            ? this.t('hosts_extra.health.status_paused')
+            : this.t('hosts_extra.health.status_down'),
+        }];
+      }
+      const warn = this._statBarWarnPct();
+      const crit = this._statBarCritPct();
+      // Linear ramp: 100 at <=warn, 0 at >=crit, linear between.
+      // Mirrors the existing barLevel() colour cue thresholds so
+      // the chip's amber turn-over lines up with the stat-bar's.
+      const pctScore = (v) => {
+        if (v == null || !Number.isFinite(v)) return null;
+        if (v >= crit) return 0;
+        if (v <= warn) return 100;
+        return Math.round(100 - ((v - warn) / (crit - warn)) * 100);
+      };
+      const axes = [];
+      // CPU
+      if (this.hostHasTelemetry(h) && Number.isFinite(h.cpu_percent)) {
+        const s = pctScore(h.cpu_percent);
+        if (s != null) {
+          axes.push({
+            key: 'cpu',
+            label: this.t('hosts_extra.health.axis_cpu'),
+            score: s,
+            detail: (h.cpu_percent || 0).toFixed(1) + '%',
+          });
+        }
+      }
+      // Memory
+      if (this.hostHasTelemetry(h)) {
+        const mp = Number.isFinite(h.mem_percent) && h.mem_percent > 0
+          ? h.mem_percent : this.memPercentOf(h);
+        if (Number.isFinite(mp) && mp > 0) {
+          const s = pctScore(mp);
+          if (s != null) {
+            axes.push({
+              key: 'memory',
+              label: this.t('hosts_extra.health.axis_memory'),
+              score: s,
+              detail: Math.round(mp) + '%',
+            });
+          }
+        }
+      }
+      // Disk — worst-mount-wins. A 95% / 50% pair scores like 95%
+      // because that one filling mount will start failing writes
+      // while the other looks healthy. Single-mount fallback uses
+      // h.disk_percent directly. Picks the mount with the highest
+      // fill percent and reports its mountpoint in the detail
+      // string so the operator knows which one is hot.
+      if (Array.isArray(h.mounts) && h.mounts.length) {
+        let worstPct = -1;
+        let worstName = '';
+        for (const m of h.mounts) {
+          const fp = this.mountFillPercent(m);
+          if (fp > worstPct) {
+            worstPct = fp;
+            worstName = m.mp || m.path || m.name || '/';
+          }
+        }
+        if (worstPct >= 0) {
+          const s = pctScore(worstPct);
+          if (s != null) {
+            axes.push({
+              key: 'disk',
+              label: this.t('hosts_extra.health.axis_disk'),
+              score: s,
+              detail: Math.round(worstPct) + '% · ' + worstName,
+            });
+          }
+        }
+      } else if (this.hostHasTelemetry(h) && Number.isFinite(h.disk_percent) && h.disk_percent > 0) {
+        const s = pctScore(h.disk_percent);
+        if (s != null) {
+          axes.push({
+            key: 'disk',
+            label: this.t('hosts_extra.health.axis_disk'),
+            score: s,
+            detail: Math.round(h.disk_percent) + '%',
+          });
+        }
+      }
+      // Providers — deduct 25 per failing/paused provider, floored at 0.
+      // Empty list (no providers enabled) returns null so the axis
+      // doesn't drag a Ping-only host's score down to 100/100/0/N/A.
+      const enabledAgents = this.hostEnabledAgents(h);
+      if (enabledAgents.length) {
+        const states = this.providerStates(h) || [];
+        const failing = states.filter(p => p.state === 'failing' || p.state === 'paused');
+        const score = Math.max(0, 100 - failing.length * 25);
+        let detail;
+        if (!failing.length) {
+          detail = this.t('hosts_extra.health.providers_ok', { count: enabledAgents.length });
+        } else {
+          detail = this.t('hosts_extra.health.providers_failing', {
+            count: failing.length,
+            names: failing.map(p => p.name).join(', '),
+          });
+        }
+        axes.push({
+          key: 'providers',
+          label: this.t('hosts_extra.health.axis_providers'),
+          score, detail,
+        });
+      }
+      // Pending updates — bucketed (0/75/45/15) so a host with 100+
+      // pending updates dominates the score even though "pending"
+      // doesn't mean "broken". 0 pending → 100 (axis effectively
+      // n/a). 1-10 → 75 (mild nudge). 11-50 → 45 (something's been
+      // ignored). >50 → 15 (someone hasn't run apt update in months).
+      if (Number.isFinite(h.package_updates_count)) {
+        const n = h.package_updates_count;
+        let score, detail;
+        if (n === 0) {
+          score = 100;
+          detail = this.t('hosts_extra.health.updates_zero');
+        } else if (n <= 10) {
+          score = 75;
+          detail = this.t('hosts_extra.health.updates_pending', { count: n });
+        } else if (n <= 50) {
+          score = 45;
+          detail = this.t('hosts_extra.health.updates_pending', { count: n });
+        } else {
+          score = 15;
+          detail = this.t('hosts_extra.health.updates_pending', { count: n });
+        }
+        axes.push({
+          key: 'updates',
+          label: this.t('hosts_extra.health.axis_updates'),
+          score, detail,
+        });
+      }
+      return axes;
+    },
+    // Worst-axis-wins: returns the lowest sub-score across all valid
+    // axes, or null if no axis is computable for this host.
+    healthScore(h) {
+      const axes = this.healthAxes(h);
+      if (!axes.length) return null;
+      let worst = 100;
+      for (const a of axes) {
+        if (a.score != null && a.score < worst) worst = a.score;
+      }
+      return worst;
+    },
+    // Returns the single lowest-scoring axis — populates the chip
+    // tooltip + the breakdown popover's "Worst axis" callout.
+    healthWorstAxis(h) {
+      const axes = this.healthAxes(h);
+      if (!axes.length) return null;
+      let worst = null;
+      for (const a of axes) {
+        if (a.score == null) continue;
+        if (worst == null || a.score < worst.score) worst = a;
+      }
+      return worst;
+    },
+    // Threshold tier for the chip background colour. 80+ green,
+    // 50-79 amber, <50 red. Aligns with operator's "anything <80
+    // gets attention" mental model — anything green is healthy,
+    // amber is "look later", red is "look now".
+    healthChipClass(score) {
+      if (score == null) return '';
+      if (score < 50) return 'health-chip-bad';
+      if (score < 80) return 'health-chip-warn';
+      return 'health-chip-ok';
+    },
+    // Toggle the breakdown popover open at host-drawer scope. Click
+    // the chip in the drawer header → flips the panel; click again
+    // (or close drawer) closes. State stays on the app() instance
+    // because the popover lives inside the drawer template tree.
+    toggleHealthPopover() {
+      this.healthPopoverOpen = !this.healthPopoverOpen;
     },
     // Segmented-bar helper — percent-full of a single mount, used as
     // the INNER fill width inside an equal-width slot. Each mount

@@ -1826,28 +1826,49 @@
               <div class="host-mobile-card-title">
                 <div class="flex items-center gap-1.5 min-w-0">
                   <span class="label" x-text="hostTypePrefix(h) + hostDisplayName(h)"></span>
+                  <!-- Health score chip — same shape as the desktop
+                       row. Hidden when no axis is computable. -->
+                  <span x-show="healthScore(h) != null"
+                        class="chip text-[10px] px-1.5 py-0 mono health-chip flex-shrink-0"
+                        :class="healthChipClass(healthScore(h))"
+                        :title="t('hosts_extra.health.chip_title', { score: healthScore(h), worst: (healthWorstAxis(h) ? healthWorstAxis(h).label : '—') })"
+                        x-text="healthScore(h)"></span>
                   <!-- Permanent-fail + probe-timeout + stale badges
                        — priority order matches the desktop table:
                        paused (red) > probe_timeout (amber, transient
                        60s back-off) > stale (amber, snapshot
                        fallback). Each gate excludes the higher-
                        priority states so only one badge ever
-                       renders at a time. -->
-                  <svg x-show="h.sampling_paused"
-                       width="13" height="13"
-                       class="text-[var(--danger)] flex-shrink-0"
-                       :title="t('hosts_extra.permanent_fail.badge_title', { minutes: hostFailureMinutes(h) })"
-                       aria-hidden="true"><use href="/img/ui-sprite.svg#icon-alert-triangle"/></svg>
-                  <svg x-show="!h.sampling_paused && h._probe_timeout"
-                       width="12" height="12"
-                       class="text-[var(--warning)] flex-shrink-0"
-                       :title="t('hosts_extra.probe_timeout.badge_title')"
-                       aria-hidden="true"><use href="/img/ui-sprite.svg#icon-clock"/></svg>
-                  <svg x-show="!h.sampling_paused && !h._probe_timeout && isStale(h)"
-                       width="12" height="12"
-                       class="text-[var(--warning)] flex-shrink-0"
-                       :title="t('hosts_extra.stale_marker.badge_title', { age: staleAge(h) })"
-                       aria-hidden="true"><use href="/img/ui-sprite.svg#icon-clock"/></svg>
+                       renders at a time. Wrapped in <span> so the
+                       title attribute fires reliably as a hover
+                       tooltip + screen readers announce it. -->
+                  <span x-show="h.sampling_paused"
+                        role="img"
+                        class="inline-flex flex-shrink-0 cursor-help"
+                        :title="t('hosts_extra.permanent_fail.badge_title_full', { minutes: hostFailureMinutes(h), error: (h.last_error || '—') })"
+                        :aria-label="t('hosts_extra.permanent_fail.badge_title_full', { minutes: hostFailureMinutes(h), error: (h.last_error || '—') })">
+                    <svg width="13" height="13"
+                         class="text-[var(--danger)]"
+                         aria-hidden="true"><use href="/img/ui-sprite.svg#icon-alert-triangle"/></svg>
+                  </span>
+                  <span x-show="!h.sampling_paused && h._probe_timeout"
+                        role="img"
+                        class="inline-flex flex-shrink-0 cursor-help"
+                        :title="t('hosts_extra.probe_timeout.badge_title_full')"
+                        :aria-label="t('hosts_extra.probe_timeout.badge_title_full')">
+                    <svg width="12" height="12"
+                         class="text-[var(--warning)]"
+                         aria-hidden="true"><use href="/img/ui-sprite.svg#icon-clock"/></svg>
+                  </span>
+                  <span x-show="!h.sampling_paused && !h._probe_timeout && isStale(h)"
+                        role="img"
+                        class="inline-flex flex-shrink-0 cursor-help"
+                        :title="t('hosts_extra.stale_marker.badge_title_full', { age: staleAge(h), fields: ((h._stale_fields || []).join(', ') || '—') })"
+                        :aria-label="t('hosts_extra.stale_marker.badge_title_full', { age: staleAge(h), fields: ((h._stale_fields || []).join(', ') || '—') })">
+                    <svg width="12" height="12"
+                         class="text-[var(--warning)]"
+                         aria-hidden="true"><use href="/img/ui-sprite.svg#icon-clock"/></svg>
+                  </span>
                 </div>
                 <span class="sub" x-text="h.host + ' · ' + (h.os || h.platform || '—')"></span>
               </div>
@@ -2045,15 +2066,41 @@
                           x-text="'#' + h.custom_number"></span>
                     <span class="font-semibold text-[13px] mono truncate"
                           x-text="hostTypePrefix(h) + hostDisplayName(h)"></span>
+                    <!-- Health-score chip. Synthesised 0-100 score
+                         across CPU / Memory / Disk / Providers /
+                         Pending Updates. Worst-axis-wins so the
+                         number reflects "what's the worst thing
+                         happening on this host right now". Click
+                         on the row still opens the drawer; the
+                         chip itself doesn't need its own click
+                         handler because the row click already
+                         routes there. -->
+                    <span x-show="healthScore(h) != null"
+                          class="chip text-[10px] px-1.5 py-0 mono health-chip flex-shrink-0"
+                          :class="healthChipClass(healthScore(h))"
+                          :title="t('hosts_extra.health.chip_title', { score: healthScore(h), worst: (healthWorstAxis(h) ? healthWorstAxis(h).label : '—') })"
+                          x-text="healthScore(h)"></span>
+                    <!-- Badges wrapped in <span> so the `title`
+                         attribute fires reliably as a hover tooltip
+                         — Chrome / Firefox honour `title` on
+                         elements but some browsers / extensions /
+                         user-agents skip it on bare <svg>.
+                         The span also gets role="img" + aria-label
+                         so screen readers announce the badge
+                         instead of skipping over silent SVG. -->
                     <!-- Permanent-fail badge. Renders only when
                          the host_metrics_sampler has auto-paused the
                          host after consecutive probe failures. Title
                          spells out the elapsed window in minutes. -->
-                    <svg x-show="h.sampling_paused"
-                         width="14" height="14"
-                         class="text-[var(--danger)] flex-shrink-0"
-                         :title="t('hosts_extra.permanent_fail.badge_title', { minutes: hostFailureMinutes(h) })"
-                         aria-hidden="true"><use href="/img/ui-sprite.svg#icon-alert-triangle"/></svg>
+                    <span x-show="h.sampling_paused"
+                          role="img"
+                          class="inline-flex flex-shrink-0 cursor-help"
+                          :title="t('hosts_extra.permanent_fail.badge_title_full', { minutes: hostFailureMinutes(h), error: (h.last_error || '—') })"
+                          :aria-label="t('hosts_extra.permanent_fail.badge_title_full', { minutes: hostFailureMinutes(h), error: (h.last_error || '—') })">
+                      <svg width="14" height="14"
+                           class="text-[var(--danger)]"
+                           aria-hidden="true"><use href="/img/ui-sprite.svg#icon-alert-triangle"/></svg>
+                    </span>
                     <!-- Probe-timeout badge — fires when the SPA's
                          per-host /api/hosts/one/{id} call returned
                          HTTP 504 (per-host probe budget exceeded).
@@ -2063,11 +2110,15 @@
                          stale (warning) in priority, with its own
                          hourglass glyph so the operator sees a
                          distinct "actively timing out" signal. -->
-                    <svg x-show="!h.sampling_paused && h._probe_timeout"
-                         width="13" height="13"
-                         class="text-[var(--warning)] flex-shrink-0"
-                         :title="t('hosts_extra.probe_timeout.badge_title')"
-                         aria-hidden="true"><use href="/img/ui-sprite.svg#icon-clock"/></svg>
+                    <span x-show="!h.sampling_paused && h._probe_timeout"
+                          role="img"
+                          class="inline-flex flex-shrink-0 cursor-help"
+                          :title="t('hosts_extra.probe_timeout.badge_title_full')"
+                          :aria-label="t('hosts_extra.probe_timeout.badge_title_full')">
+                      <svg width="13" height="13"
+                           class="text-[var(--warning)]"
+                           aria-hidden="true"><use href="/img/ui-sprite.svg#icon-clock"/></svg>
+                    </span>
                     <!-- Stale-data badge. Fires when one or
                          more provider went down and the row is
                          showing values restored from the persisted
@@ -2076,11 +2127,15 @@
                          (paused = --danger red) — so a host that's
                          BOTH paused and stale leads with the more
                          severe state. -->
-                    <svg x-show="!h.sampling_paused && !h._probe_timeout && isStale(h)"
-                         width="13" height="13"
-                         class="text-[var(--warning)] flex-shrink-0"
-                         :title="t('hosts_extra.stale_marker.badge_title', { age: staleAge(h) })"
-                         aria-hidden="true"><use href="/img/ui-sprite.svg#icon-clock"/></svg>
+                    <span x-show="!h.sampling_paused && !h._probe_timeout && isStale(h)"
+                          role="img"
+                          class="inline-flex flex-shrink-0 cursor-help"
+                          :title="t('hosts_extra.stale_marker.badge_title_full', { age: staleAge(h), fields: ((h._stale_fields || []).join(', ') || '—') })"
+                          :aria-label="t('hosts_extra.stale_marker.badge_title_full', { age: staleAge(h), fields: ((h._stale_fields || []).join(', ') || '—') })">
+                      <svg width="13" height="13"
+                           class="text-[var(--warning)]"
+                           aria-hidden="true"><use href="/img/ui-sprite.svg#icon-clock"/></svg>
+                    </span>
                     <!-- Per-host provider chips. Red when provider is
                          globally enabled AND mapped to this host but
                          didn't return data (paused / unreachable / 401).
@@ -8523,6 +8578,21 @@
                        class="text-[var(--text-faint)] flex-shrink-0 opacity-70"
                        aria-hidden="true"
                        :title="t('admin_hosts.label_source_asset', { name: (assetForHost(h) && assetForHost(h).name) || '' })"><use href="/img/ui-sprite.svg#icon-package"/></svg>
+                  <!-- Health-score chip in the drawer header — clicking
+                       it toggles the breakdown popover below. Same
+                       colour tier as the row chip. The button form
+                       is required (vs span) so keyboard nav can
+                       reach it; cursor + hover state come via the
+                       button.health-chip CSS rule. -->
+                  <button x-show="healthScore(h) != null"
+                          @click="toggleHealthPopover()"
+                          type="button"
+                          class="chip text-[10px] px-1.5 py-0 mono health-chip flex-shrink-0"
+                          :class="healthChipClass(healthScore(h))"
+                          :aria-expanded="healthPopoverOpen ? 'true' : 'false'"
+                          :aria-label="t('hosts_extra.health.chip_aria_label')"
+                          :title="t('hosts_extra.health.chip_title', { score: healthScore(h), worst: (healthWorstAxis(h) ? healthWorstAxis(h).label : '—') })"
+                          x-text="healthScore(h)"></button>
                 </div>
                 <div class="flex items-center gap-1">
                   <!-- quick "Edit in Admin" jump from the host
@@ -8725,6 +8795,45 @@
                   </div>
                 </div>
               </template>
+              <!-- Health-score breakdown popover — toggled by the
+                   chip in the drawer header. Lives at host-drawer
+                   scope so it slides in/out with the drawer. Shows
+                   the per-axis sub-scores with mini progress bars
+                   and a "Worst axis" callout so the operator can
+                   instantly identify which dimension is dragging
+                   the overall number down. -->
+              <div x-show="healthPopoverOpen && healthScore(h) != null"
+                   class="health-breakdown-popover">
+                <div class="flex items-center justify-between gap-3 mb-2">
+                  <div class="min-w-0">
+                    <div class="text-[12.5px] font-semibold text-[var(--text)]"
+                         x-text="t('hosts_extra.health.popover_heading')"></div>
+                    <div class="text-[11px] text-[var(--text-dim)] mt-0.5"
+                         x-text="t('hosts_extra.health.popover_subtitle', { score: healthScore(h), count: healthAxes(h).length })"></div>
+                    <div x-show="healthWorstAxis(h)"
+                         class="text-[11px] mt-1"
+                         :class="healthChipClass(healthScore(h)) === 'health-chip-bad' ? 'text-[var(--danger)]' : healthChipClass(healthScore(h)) === 'health-chip-warn' ? 'text-[var(--warning)]' : 'text-[var(--text-dim)]'"
+                         x-text="t('hosts_extra.health.popover_worst', { axis: (healthWorstAxis(h) ? healthWorstAxis(h).label : '—') })"></div>
+                  </div>
+                  <button type="button"
+                          @click="toggleHealthPopover()"
+                          class="btn btn-ghost text-[11.5px]"
+                          :aria-label="t('hosts_extra.health.popover_close')"
+                          :title="t('hosts_extra.health.popover_close')">✕</button>
+                </div>
+                <template x-for="axis in healthAxes(h)" :key="axis.key">
+                  <div class="axis-row text-[11.5px]">
+                    <span class="text-[var(--text)]" x-text="axis.label + ' · ' + axis.detail"></span>
+                    <span class="font-semibold mono"
+                          :class="axis.score < 50 ? 'text-[var(--danger)]' : (axis.score < 80 ? 'text-[var(--warning)]' : 'text-[var(--success)]')"
+                          x-text="axis.score + '/100'"></span>
+                    <div class="axis-bar"
+                         :style="'--w: ' + axis.score + '%; --c: ' + (axis.score < 50 ? 'var(--danger)' : (axis.score < 80 ? 'var(--warning)' : 'var(--success)'))">
+                      <div class="fill"></div>
+                    </div>
+                  </div>
+                </template>
+              </div>
               <!-- Drawer grid — shows whenever we have ANY data
                    worth displaying: live providers OR an asset
                    inventory match. Hosts with NEITHER still see the
@@ -12808,9 +12917,18 @@
   <div x-show="commandPaletteOpen" class="fixed inset-0 z-50 fade-in"
        role="dialog" aria-modal="true" :aria-label="t('command_palette.dialog_label')">
     <div @click="closeCommandPalette()" class="absolute inset-0 backdrop-strong"></div>
-    <div class="relative flex items-start justify-center p-4 h-full overflow-auto scrollbar">
+    <div class="relative flex items-center justify-center p-4 h-full overflow-auto scrollbar">
+      <!-- Inner card uses inline style for max-height instead of
+           Tailwind v4's `max-h-[80vh]` arbitrary class — the in-
+           browser JIT was inconsistent at generating the arbitrary
+           value, leaving the card collapsed to its content height
+           AND with no scrollable overflow on long result lists.
+           The hotkeys modal renders fine because it uses standard
+           classes too — operator-confirmed Ctrl+K wasn't showing
+           the panel even though the keydown was firing. -->
       <div id="cmdpal-card"
-           class="bg-[var(--surface)] border border-[var(--border)] rounded-md max-w-2xl w-full max-h-[80vh] mt-[8vh] flex flex-col overflow-hidden shadow-xl"
+           style="max-height: 80vh;"
+           class="bg-[var(--surface)] border border-[var(--border)] rounded-md max-w-2xl w-full flex flex-col overflow-hidden shadow-xl"
            @click.stop>
         <div class="flex items-center gap-2 p-3 border-b border-[var(--border)]">
           <svg width="16" height="16" class="text-[var(--text-faint)]" aria-hidden="true"><use href="#icon-search"/></svg>

@@ -1567,6 +1567,7 @@
     "probe_title": "Probe took {elapsed} (status: {status})",
     "permanent_fail": {
       "badge_title": "Sampling paused — host has been unreachable for {minutes}m",
+      "badge_title_full": "Sampling paused for {minutes} min · Last error: {error} · Click row to open the drawer and Resume sampling.",
       "drawer_banner": "Sampling paused: this host has been unreachable for {minutes} min. Last error: {error}",
       "last_error_age_seconds": "Last probe attempt {seconds}s ago — not yet retried since pause.",
       "last_error_age_minutes": "Last probe attempt {minutes}m ago — not yet retried since pause.",
@@ -1577,10 +1578,32 @@
       "resume_failed_toast": "Failed to resume sampling for {host}: {error}"
     },
     "stale_marker": {
-      "badge_title": "Showing cached data — provider unavailable. {age}"
+      "badge_title": "Showing cached data — provider unavailable. {age}",
+      "badge_title_full": "Showing cached data from {age}. Stale fields: {fields}. Open the drawer for the full snapshot banner + per-provider state."
     },
     "probe_timeout": {
-      "badge_title": "Per-host probe budget exceeded (HTTP 504) — backed off for ~60s before the next attempt"
+      "badge_title": "Per-host probe budget exceeded (HTTP 504) — backed off for ~60s before the next attempt",
+      "badge_title_full": "Probe took longer than the 30s budget (HTTP 504). Common cause: slow SNMP walk against a chassis with a long iface table, or a Webmin / Beszel hub mid-restart. Auto-retries in ~60s; click row to force a refresh."
+    },
+    "health": {
+      "chip_title": "Health score: {score}/100. Worst axis: {worst}. Click to expand the breakdown.",
+      "chip_aria_label": "Open health breakdown for this host",
+      "popover_heading": "Health breakdown",
+      "popover_subtitle": "Score: {score}/100 · worst-axis-wins across {count} dimension(s)",
+      "popover_worst": "Dragging total down: {axis}",
+      "popover_close": "Close breakdown",
+      "axis_status": "Status",
+      "axis_cpu": "CPU",
+      "axis_memory": "Memory",
+      "axis_disk": "Disk",
+      "axis_providers": "Providers",
+      "axis_updates": "Pending updates",
+      "status_paused": "Sampling paused — host has been unreachable",
+      "status_down": "Host is unreachable",
+      "providers_ok": "{count} provider(s), all reporting",
+      "providers_failing": "{count} provider(s) failing/paused: {names}",
+      "updates_zero": "0 pending — up to date",
+      "updates_pending": "{count} pending package update(s)"
     },
     "sort_label": "Sort",
     "sort_title": "Sort hosts — persisted in this browser",
