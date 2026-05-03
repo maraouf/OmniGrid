@@ -590,6 +590,12 @@ function app() {
     // header. Reactive so Alpine re-evaluates the helper.
     hostHistoryNow: 0,
     showHotkeys: false,
+    // Command palette state (Cmd-K / Ctrl-K). Drops the operator into
+    // any drawer / view / setting from anywhere. Toggle from the
+    // hotkey handler; markup at the bottom of static/index.html.
+    commandPaletteOpen: false,
+    commandPaletteQuery: '',
+    commandPaletteSelectedIdx: 0,
     opsExpanded: true,
     toast: '', toastType: 'success', _tt: null,
     // Auto-refresh cadence (seconds; 0 = off). Persisted to
@@ -9850,6 +9856,7 @@ function app() {
       // Escape works everywhere, including from inside an input — it's the
       // universal "get me out of here" key. Handle it BEFORE any guards.
       if (e.key === 'Escape') {
+        if (this.commandPaletteOpen) { this.closeCommandPalette(); e.preventDefault(); return; }
         if (this.userMenuOpen) { this.userMenuOpen = false; e.preventDefault(); return; }
         if (this.showHotkeys) { this.showHotkeys = false; e.preventDefault(); return; }
         if (this.showNotificationsPopup) { this.showNotificationsPopup = false; e.preventDefault(); return; }
@@ -9869,6 +9876,19 @@ function app() {
         return;
       }
 
+      // Cmd+K / Ctrl+K — universal "go anywhere" palette toggle.
+      // Intercepted BEFORE the modifier-combo bail-out below because
+      // it IS a modifier combo and we WANT to handle it. Works from
+      // inside any input field too (the only modifier combo we claim
+      // — operators expect Cmd-K to work mid-typing in a search box,
+      // matching Linear / Notion / Raycast convention).
+      if ((e.metaKey || e.ctrlKey) && !e.altKey && !e.shiftKey
+          && (e.key === 'k' || e.key === 'K')) {
+        e.preventDefault();
+        if (this.commandPaletteOpen) this.closeCommandPalette();
+        else this.openCommandPalette();
+        return;
+      }
       // Browser / OS combos — never intercept.
       if (e.ctrlKey || e.metaKey || e.altKey) return;
       // Key repeat (holding a key) or IME composition — user is
@@ -9920,6 +9940,252 @@ function app() {
         }
       }
     },
+
+    // ---- Command Palette (Cmd-K / Ctrl-K) ---------------------------
+    // Universal "go anywhere" search dropping the operator into any
+    // drawer / view / setting. Pure-client, fuzzy-matched against the
+    // existing data shapes (this.hosts / this.items / this.stacks)
+    // plus a static admin-route map and the hotkeys list. Activation
+    // dispatches by the result's `kind`: host → openHostDrawer, item
+    // → openItemDrawer, admin → setAdminTab + view='admin', view →
+    // setView, hotkey → no-op (info only). Results are scored:
+    // exact-id match wins, prefix beats substring, and the displayed
+    // label gets a small bonus over secondary fields.
+    openCommandPalette() {
+      this.commandPaletteOpen = true;
+      this.commandPaletteQuery = '';
+      this.commandPaletteSelectedIdx = 0;
+      // Focus the input on the next tick (after Alpine renders the
+      // x-show=true branch). Without the rAF the input isn't in the
+      // DOM yet and the focus call no-ops.
+      this.$nextTick(() => {
+        const input = document.getElementById('cmdpal-input');
+        if (input) input.focus();
+      });
+    },
+    closeCommandPalette() {
+      this.commandPaletteOpen = false;
+      this.commandPaletteQuery = '';
+      this.commandPaletteSelectedIdx = 0;
+    },
+    // Static admin-route map. Each entry navigates to the matching
+    // Admin → <tab> view via setAdminTab. Adding a new admin tab here
+    // surfaces it in the palette without touching anywhere else.
+    _commandAdminRoutes() {
+      // Labels routed through t() so other locales translate cleanly.
+      // Each i18n key lives under `command_palette.admin.<tab>` —
+      // adding a new admin tab needs ONE new key + one entry here.
+      const tabs = [
+        'users', 'sessions', 'tokens', 'schedules', 'hosts',
+        'host_groups', 'ssh', 'logs', 'tuning', 'backups',
+        'notifications', 'asset', 'auth', 'oidc', 'portainer',
+      ];
+      return tabs.map(tab => ({
+        tab,
+        label: this.t('command_palette.admin.' + tab),
+      }));
+    },
+    _commandTopViews() {
+      const views = ['stacks', 'services', 'nodes', 'hosts', 'history'];
+      return views.map(view => ({
+        view,
+        label: this.t('command_palette.view.' + view),
+      }));
+    },
+    // Score a candidate label against the lowercase query. Returns
+    // 0 for no match, 1..100 for varying match quality. Exact = 100,
+    // prefix = 80, word-prefix = 60, substring = 40. Empty query
+    // matches everything at score 1 (so all groups render in default
+    // alphabetical order until the operator types).
+    _commandScoreLabel(label, q) {
+      if (!q) return 1;
+      const lc = String(label || '').toLowerCase();
+      if (!lc) return 0;
+      if (lc === q) return 100;
+      if (lc.startsWith(q)) return 80;
+      // word-prefix: any whitespace/punctuation-separated token starts with q
+      const tokens = lc.split(/[\s_\-./:]+/);
+      for (const t of tokens) {
+        if (t === q) return 90;
+        if (t.startsWith(q)) return 60;
+      }
+      if (lc.includes(q)) return 40;
+      return 0;
+    },
+    // Multi-field scorer — picks the BEST score across N candidate
+    // strings. Lets a host's id match more strongly than its asset
+    // type without each contributing separately.
+    _commandScoreFields(q, ...fields) {
+      let best = 0;
+      for (const f of fields) {
+        const s = this._commandScoreLabel(f, q);
+        if (s > best) best = s;
+      }
+      return best;
+    },
+    commandPaletteResults() {
+      const q = (this.commandPaletteQuery || '').trim().toLowerCase();
+      const results = [];
+      const MAX_PER_GROUP = 8;
+      // Hosts — search id / label / asset name / vendor / model.
+      const hostsList = (this.hosts || []).slice();
+      const scored = hostsList.map(h => {
+        const asset = (typeof this.assetForHost === 'function') ? this.assetForHost(h) : null;
+        const score = this._commandScoreFields(q,
+          h.id, h.label, h.host,
+          asset && asset.name, asset && asset.vendor, asset && asset.model,
+        );
+        return { score, host: h, asset };
+      }).filter(x => x.score > 0)
+        .sort((a, b) => b.score - a.score)
+        .slice(0, MAX_PER_GROUP);
+      for (const x of scored) {
+        const a = x.asset;
+        const sub = a && a.name ? a.name : (x.host.label || '');
+        results.push({
+          kind: 'host',
+          label: this.hostDisplayName(x.host) || x.host.id,
+          sub: (sub && sub !== x.host.id) ? sub : '',
+          payload: x.host,
+          group: 'hosts',
+        });
+      }
+      // Items — stacks, services, containers.
+      const itemsList = (this.items || []).slice();
+      const scoredItems = itemsList.map(i => ({
+        score: this._commandScoreFields(q, i.name, i.target, i.stack),
+        item: i,
+      })).filter(x => x.score > 0)
+        .sort((a, b) => b.score - a.score)
+        .slice(0, MAX_PER_GROUP);
+      for (const x of scoredItems) {
+        results.push({
+          kind: 'item',
+          label: x.item.name || x.item.target,
+          sub: x.item.stack ? ('stack: ' + x.item.stack) : (x.item.type || ''),
+          payload: x.item,
+          group: 'items',
+        });
+      }
+      // Admin routes.
+      const adminScored = this._commandAdminRoutes().map(r => ({
+        score: this._commandScoreLabel(r.label, q),
+        route: r,
+      })).filter(x => x.score > 0)
+        .sort((a, b) => b.score - a.score)
+        .slice(0, MAX_PER_GROUP);
+      for (const x of adminScored) {
+        results.push({
+          kind: 'admin',
+          label: x.route.label,
+          sub: '',
+          payload: x.route.tab,
+          group: 'admin',
+        });
+      }
+      // Top-level views.
+      const viewScored = this._commandTopViews().map(v => ({
+        score: this._commandScoreLabel(v.label, q),
+        view: v,
+      })).filter(x => x.score > 0)
+        .sort((a, b) => b.score - a.score)
+        .slice(0, MAX_PER_GROUP);
+      for (const x of viewScored) {
+        results.push({
+          kind: 'view',
+          label: x.view.label,
+          sub: '',
+          payload: x.view.view,
+          group: 'views',
+        });
+      }
+      // Hotkeys (info only — selecting one doesn't fire it; just
+      // tells the operator the binding exists).
+      const hotkeys = [
+        { key: '/',              desc: this.t('command_palette.hotkey.focus_search') },
+        { key: 'r',              desc: this.t('command_palette.hotkey.refresh_cached') },
+        { key: 'R',              desc: this.t('command_palette.hotkey.refresh_force') },
+        { key: 'n',              desc: this.t('command_palette.hotkey.open_notifications') },
+        { key: '?',              desc: this.t('command_palette.hotkey.show_hotkeys') },
+        { key: 'Esc',            desc: this.t('command_palette.hotkey.escape') },
+        { key: 'Cmd-K / Ctrl-K', desc: this.t('command_palette.hotkey.open_palette') },
+      ];
+      const hkScored = hotkeys.map(hk => ({
+        score: this._commandScoreFields(q, hk.key, hk.desc),
+        hk,
+      })).filter(x => x.score > 0)
+        .sort((a, b) => b.score - a.score)
+        .slice(0, MAX_PER_GROUP);
+      for (const x of hkScored) {
+        results.push({
+          kind: 'hotkey',
+          label: x.hk.desc,
+          sub: x.hk.key,
+          payload: null,
+          group: 'hotkeys',
+        });
+      }
+      // Clamp the selected index so it doesn't point past the end of
+      // a fresh result set after the query changed.
+      if (this.commandPaletteSelectedIdx >= results.length) {
+        this.commandPaletteSelectedIdx = Math.max(0, results.length - 1);
+      }
+      return results;
+    },
+    commandPaletteMove(delta) {
+      const r = this.commandPaletteResults();
+      if (!r.length) return;
+      let i = this.commandPaletteSelectedIdx + delta;
+      if (i < 0) i = r.length - 1;
+      if (i >= r.length) i = 0;
+      this.commandPaletteSelectedIdx = i;
+      // Scroll the selected row into view inside the result list.
+      this.$nextTick(() => {
+        const el = document.querySelector(`[data-cmdpal-idx="${i}"]`);
+        if (el && typeof el.scrollIntoView === 'function') {
+          el.scrollIntoView({ block: 'nearest' });
+        }
+      });
+    },
+    commandPaletteActivate() {
+      const r = this.commandPaletteResults();
+      const sel = r[this.commandPaletteSelectedIdx];
+      if (!sel) return;
+      this.closeCommandPalette();
+      switch (sel.kind) {
+        case 'host':
+          if (typeof this.openHostDrawer === 'function') {
+            this.openHostDrawer(sel.payload);
+          }
+          break;
+        case 'item':
+          if (typeof this.openItemDrawer === 'function') {
+            this.openItemDrawer(sel.payload);
+          } else {
+            this.drawerItem = sel.payload;
+          }
+          break;
+        case 'admin':
+          this.view = 'admin';
+          if (typeof this.setAdminTab === 'function') {
+            this.setAdminTab(sel.payload);
+          } else {
+            this.adminTab = sel.payload;
+          }
+          break;
+        case 'view':
+          if (typeof this.setView === 'function') this.setView(sel.payload);
+          else this.view = sel.payload;
+          break;
+        case 'hotkey':
+          // Info-only — no activation. Could open the hotkeys cheat
+          // sheet but operators usually want to actually invoke
+          // something here, not just see the binding again.
+          this.showHotkeys = true;
+          break;
+      }
+    },
+
     selectionUpdatable() {
       return this.items.filter(i => this.selected.includes(i.id) && i.status === 'update' && this.canUpdate(i));
     },
@@ -10520,19 +10786,36 @@ function app() {
     },
 
     async testAllHostRows() {
+      // Eligibility uses the canonical `rowHasProviderMapping(row)`
+      // helper so the bulk-test set matches the per-row "Test
+      // providers" button's enable rule. Pre-fix the filter only
+      // accepted Beszel / Pulse / NE rows — SNMP-only switches /
+      // Webmin-only Linux boxes / Ping-only routers were silently
+      // excluded from "Test all" even though their per-row Test
+      // button worked. Now any of the six provider mappings (Beszel
+      // / Pulse / NE / Webmin / Ping / SNMP) qualifies.
       const rows = (this.hostsConfig || [])
         .map((row, idx) => ({ row, idx }))
-        .filter(({ row }) =>
-          row.enabled !== false &&
-          ((row.beszel_name || '').trim() ||
-           (row.pulse_name || '').trim() ||
-           (row.ne_url || '').trim())
-        );
+        .filter(({ row }) => row.enabled !== false && this.rowHasProviderMapping(row));
       if (!rows.length) {
         this.showToast(this.t('admin_hosts.test.no_eligible'), 'error');
         return;
       }
       this.hostsTestingAll = true;
+      // Auto-expand every row about to be tested so the per-row
+      // result strip (✓/✗ icons + reason text) is visible without
+      // the operator having to manually expand each row after the
+      // bulk test fires. Mirrors the per-host Test workflow where
+      // the operator is already on the row's expanded body when
+      // they click Test. Pre-fix: results landed in
+      // `hostsTestResults[idx]` correctly but rows that were
+      // collapsed never showed the strip — operator saw only the
+      // aggregate "Tested N rows" toast with no per-row detail.
+      const next = { ...(this.hostsConfigExpanded || {}) };
+      for (const { row } of rows) {
+        if (row && row._uid) next[row._uid] = true;
+      }
+      this.hostsConfigExpanded = next;
       try {
         await Promise.all(rows.map(({ idx }) => this.testHostRow(idx)));
         this.showToast(this.t('admin_hosts.test.tested_n', { count: rows.length }), 'success');
@@ -14657,21 +14940,35 @@ function app() {
           // Asset-record fields layered into the haystack so a host
           // whose display label is auto-derived from the asset
           // inventory (operator hasn't set an explicit label) still
-          // matches when the operator types the asset's stored name /
-          // vendor / model / serial / location. Without this, a host
-          // with id="dc-rack3-r720" + asset.name="Production DB1"
-          // would only match "dc-rack3-r720" — typing "production"
-          // would find nothing.
+          // matches when the operator types the asset's stored
+          // name / vendor / model / serial / location / type. Walk
+          // EVERY enumerable string-ish key on the asset so any
+          // field — including ones added later (asset_tag, ip,
+          // notes, location_path, …) — is searchable without
+          // re-listing them here.
           const asset = this.assetForHost ? (this.assetForHost(h) || null) : null;
-          const assetFields = asset ? [
-            asset.name, asset.vendor, asset.model, asset.serial,
-            asset.location, asset.type_short, asset.type, asset.tag,
-          ] : [];
+          const assetFields = [];
+          if (asset && typeof asset === 'object') {
+            for (const k in asset) {
+              const v = asset[k];
+              if (v == null) continue;
+              if (typeof v === 'string' || typeof v === 'number') {
+                assetFields.push(String(v));
+              }
+            }
+          }
           const hay = [
-            h.host, h.label, h.id, h.platform, h.os, h.kernel,
-            h.beszel_name, h.pulse_name, ...(h.providers || []),
+            h.host, h.label, h.id,
+            h.platform, h.os, h.kernel,
+            h.custom_number,
+            h.beszel_name, h.pulse_name, h.snmp_name, h.webmin_name,
+            h.url, h.icon,
+            h.cpu_model, h.model, h.vendor, h.serial,
+            ...(h.providers || []),
             ...assetFields,
-          ].filter(Boolean).join(' ').toLowerCase();
+          ].filter(v => v !== null && v !== undefined && v !== '')
+           .join(' ')
+           .toLowerCase();
           return hay.includes(q);
         });
       }

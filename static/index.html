@@ -6266,7 +6266,7 @@
                 </button>
                 <div x-show="!!(hostsTestResults[idx] && !hostsTestResults[idx].pending && !hostsTestResults[idx].error)"
                      class="flex flex-wrap gap-3 text-[11px] flex-1">
-                  <template x-for="name in ['beszel','pulse','node_exporter','webmin','snmp']" :key="name">
+                  <template x-for="name in ['beszel','pulse','node_exporter','webmin','snmp','ping']" :key="name">
                     <div x-show="!!(hostsTestResults[idx] && hostsTestResults[idx][name] && !hostsTestResults[idx][name].skipped)"
                          class="flex items-center gap-1.5"
                          :class="(hostsTestResults[idx] && hostsTestResults[idx][name] && hostsTestResults[idx][name].ok) ? 'text-[var(--success)]' : 'text-[var(--danger)]'">
@@ -12770,6 +12770,68 @@
                       x-text="t('pagination.next')"></button>
             </div>
           </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ================== COMMAND PALETTE (Cmd-K / Ctrl-K) ================== -->
+  <!-- Universal "go anywhere" search modal. Toggle from anywhere via
+       Cmd-K / Ctrl-K (handleHotkey wires both). Pure-client fuzzy
+       match against this.hosts / this.items / admin-route map / top-
+       level views / hotkeys list. Activation dispatches by the
+       result's `kind` (see commandPaletteActivate in app.js).
+       Backdrop click + Esc close. ↑/↓ moves selection; Enter
+       activates. -->
+  <div x-show="commandPaletteOpen" class="fixed inset-0 z-50 fade-in"
+       role="dialog" aria-modal="true" :aria-label="t('command_palette.dialog_label')">
+    <div @click="closeCommandPalette()" class="absolute inset-0 backdrop-strong"></div>
+    <div class="relative flex items-start justify-center p-4 pt-[8vh] h-full">
+      <div class="bg-[var(--surface)] border border-[var(--border)] rounded-md w-full max-w-2xl max-h-[80vh] flex flex-col overflow-hidden shadow-xl"
+           @click.stop>
+        <div class="flex items-center gap-2 p-3 border-b border-[var(--border)]">
+          <svg width="16" height="16" class="text-[var(--text-faint)]" aria-hidden="true"><use href="#icon-search"/></svg>
+          <input type="text" id="cmdpal-input"
+                 x-model="commandPaletteQuery"
+                 @input="commandPaletteSelectedIdx = 0"
+                 @keydown.arrow-down.prevent="commandPaletteMove(1)"
+                 @keydown.arrow-up.prevent="commandPaletteMove(-1)"
+                 @keydown.enter.prevent="commandPaletteActivate()"
+                 :placeholder="t('command_palette.placeholder')"
+                 class="flex-1 bg-transparent border-0 outline-none text-[14px] text-[var(--text)] placeholder:text-[var(--text-faint)]"
+                 autocomplete="off" spellcheck="false">
+          <kbd class="text-[10.5px] text-[var(--text-faint)] border border-[var(--border)] rounded px-1.5 py-0.5">Esc</kbd>
+        </div>
+        <div class="overflow-y-auto scrollbar flex-1">
+          <template x-if="commandPaletteResults().length === 0">
+            <div class="p-6 text-center text-[12px] text-[var(--text-faint)]"
+                 x-text="commandPaletteQuery ? t('command_palette.empty_state') : t('command_palette.start_typing')"></div>
+          </template>
+          <template x-if="commandPaletteResults().length > 0">
+            <div>
+              <template x-for="(r, i) in commandPaletteResults()" :key="r.kind + ':' + (r.payload && (r.payload.id || r.payload) || r.label) + ':' + i">
+                <div :data-cmdpal-idx="i"
+                     @click="commandPaletteSelectedIdx = i; commandPaletteActivate()"
+                     @mouseenter="commandPaletteSelectedIdx = i"
+                     class="cmdpal-row px-3 py-2 cursor-pointer flex items-center gap-3 border-b border-[var(--border)] last:border-0"
+                     :class="commandPaletteSelectedIdx === i ? 'cmdpal-row-active' : ''">
+                  <span class="cmdpal-kind-pill text-[10px] uppercase tracking-wider px-1.5 py-0.5 rounded"
+                        :class="'cmdpal-kind-' + r.group"
+                        x-text="t('command_palette.group.' + r.group)"></span>
+                  <span class="flex-1 min-w-0">
+                    <span class="block text-[12.5px] text-[var(--text)] truncate" x-text="r.label"></span>
+                    <span x-show="r.sub" class="block text-[10.5px] text-[var(--text-faint)] truncate mono" x-text="r.sub"></span>
+                  </span>
+                  <span x-show="commandPaletteSelectedIdx === i" class="text-[10.5px] text-[var(--text-faint)]">↵</span>
+                </div>
+              </template>
+            </div>
+          </template>
+        </div>
+        <div class="px-3 py-2 border-t border-[var(--border)] text-[10.5px] text-[var(--text-faint)] flex items-center gap-3 flex-wrap">
+          <span><kbd class="border border-[var(--border)] rounded px-1">↑</kbd> <kbd class="border border-[var(--border)] rounded px-1">↓</kbd> navigate</span>
+          <span><kbd class="border border-[var(--border)] rounded px-1">↵</kbd> select</span>
+          <span><kbd class="border border-[var(--border)] rounded px-1">Esc</kbd> close</span>
         </div>
       </div>
     </div>
