@@ -6939,75 +6939,96 @@ async def api_hosts_debug(
                     sn_aliases = {}
             except ValueError:
                 sn_aliases = {}
+            # HARD-GATE: probe ONLY when an alias OR a curated `snmp_name`
+            # resolves a target — same anti-bare-id-fallthrough rule
+            # `_merge_one_host` enforces. Pre-fix the debug handler fell
+            # back to ``record["id"]`` as the SNMP target on every
+            # SNMP-fleet-enabled deploy, so opening the debug panel for a
+            # ping-only / Beszel-only host fired a 20s SNMP probe against
+            # the host's bare id and timed out — pollutes the panel with a
+            # red SNMP error chip on hosts the operator never enrolled.
+            # Per-host enable gate (#654 contract) ALSO required: SNMP
+            # only fires when the operator explicitly checks the per-host
+            # SNMP enable box. Both gates mirror `_merge_one_host` so
+            # debug always shows what the live row actually probes.
             snmp_target = (
                 sn_aliases.get(record["id"])
                 or (record.get("snmp_name") or "").strip()
-                or record["id"]
+                or ""
             )
-            community = ((row_snmp.get("community") or "").strip()
-                         or (get_setting("snmp_default_community", "") or "public"))
-            version = (((row_snmp.get("version") or "").strip().lower())
-                       or (get_setting("snmp_default_version", "") or "v2c").lower()
-                       or "v2c")
-            try:
-                port = int(row_snmp.get("port")
-                           or get_setting("snmp_default_port", "") or "161")
-            except (TypeError, ValueError):
-                port = 161
-            v3_user = ((row_snmp.get("v3_user") or "").strip()
-                       or get_setting("snmp_v3_user", "") or "")
-            v3_auth = ((row_snmp.get("v3_auth_key") or "").strip()
-                       or get_setting("snmp_v3_auth_key", "") or "")
-            v3_priv = ((row_snmp.get("v3_priv_key") or "").strip()
-                       or get_setting("snmp_v3_priv_key", "") or "")
-            try:
-                # verbose=True surfaces the parsed walks
-                # (system / cpu / storage / interfaces) so the
-                # debug panel can show what SNMP data is actually
-                # available, not just the connection params.
-                r = await _snmp.probe_snmp(
-                    snmp_target,
-                    community=community, version=version, port=port,
-                    v3_user=v3_user, v3_auth_key=v3_auth,
-                    v3_priv_key=v3_priv,
-                    timeout=8.0, active_sources=active,
-                    verbose=True,
-                    # Debug panel is operator-initiated (admin opened
-                    # the host drawer's debug section) — bypass the
-                    # unreachable cool-down so the panel always shows
-                    # a real probe result rather than the throttle
-                    # placeholder. Same rationale as `/api/snmp/test`.
-                    bypass_cooldown=True,
-                    # Cap SNMP wall-clock at 20s for the debug path
-                    # so the cumulative response time of every probe
-                    # in this handler stays under the typical reverse-
-                    # proxy proxy_read_timeout (~60s). Operators
-                    # tuning a slow Dell iDRAC / WD MyCloud / printer
-                    # via Admin → Config still get the full 60s
-                    # default budget on background sampler ticks.
-                    wall_clock_budget=20.0,
-                )
-                providers_raw["snmp"] = {
-                    "target":     snmp_target,
-                    "community":  community,
-                    "version":    version,
-                    "port":       port,
-                    "v3_user":    v3_user,
-                    "v3_auth_set": bool(v3_auth),
-                    "v3_priv_set": bool(v3_priv),
-                    "hosts_keys": sorted((r.get("hosts") or {}).keys()),
-                    "error":      r.get("error"),
-                    # full probed data: every parsed OID, per-row
-                    # storage table (RAM + disks), per-row interface
-                    # counters, and a quick walk-summary header so
-                    # operators can see at a glance which OID families
-                    # the agent answered.
-                    "raw":        r.get("raw") or {},
-                }
-                if r.get("hosts"):
-                    providers_normalized["snmp"] = next(iter(r["hosts"].values()))
-            except Exception as e:  # noqa: BLE001
-                providers_raw["snmp"] = {"_error": str(e)}
+            snmp_enabled = row_snmp.get("enabled") is True
+            if not snmp_target or not snmp_enabled:
+                # Per-host SNMP not configured for THIS host — leave the
+                # raw slot as None so `hasDebugData()` hides the SNMP
+                # block in the panel. Suppresses the spurious 20s
+                # SNMP-against-bare-id probe that the previous bare-id
+                # fallthrough fired on ping-only / Beszel-only hosts.
+                providers_raw["snmp"] = None
+            else:
+                community = ((row_snmp.get("community") or "").strip()
+                             or (get_setting("snmp_default_community", "") or "public"))
+                version = (((row_snmp.get("version") or "").strip().lower())
+                           or (get_setting("snmp_default_version", "") or "v2c").lower()
+                           or "v2c")
+                try:
+                    port = int(row_snmp.get("port")
+                               or get_setting("snmp_default_port", "") or "161")
+                except (TypeError, ValueError):
+                    port = 161
+                v3_user = ((row_snmp.get("v3_user") or "").strip()
+                           or get_setting("snmp_v3_user", "") or "")
+                v3_auth = ((row_snmp.get("v3_auth_key") or "").strip()
+                           or get_setting("snmp_v3_auth_key", "") or "")
+                v3_priv = ((row_snmp.get("v3_priv_key") or "").strip()
+                           or get_setting("snmp_v3_priv_key", "") or "")
+                try:
+                    # verbose=True surfaces the parsed walks
+                    # (system / cpu / storage / interfaces) so the
+                    # debug panel can show what SNMP data is actually
+                    # available, not just the connection params.
+                    r = await _snmp.probe_snmp(
+                        snmp_target,
+                        community=community, version=version, port=port,
+                        v3_user=v3_user, v3_auth_key=v3_auth,
+                        v3_priv_key=v3_priv,
+                        timeout=8.0, active_sources=active,
+                        verbose=True,
+                        # Debug panel is operator-initiated (admin opened
+                        # the host drawer's debug section) — bypass the
+                        # unreachable cool-down so the panel always shows
+                        # a real probe result rather than the throttle
+                        # placeholder. Same rationale as `/api/snmp/test`.
+                        bypass_cooldown=True,
+                        # Cap SNMP wall-clock at 20s for the debug path
+                        # so the cumulative response time of every probe
+                        # in this handler stays under the typical reverse-
+                        # proxy proxy_read_timeout (~60s). Operators
+                        # tuning a slow Dell iDRAC / WD MyCloud / printer
+                        # via Admin → Config still get the full 60s
+                        # default budget on background sampler ticks.
+                        wall_clock_budget=20.0,
+                    )
+                    providers_raw["snmp"] = {
+                        "target":     snmp_target,
+                        "community":  community,
+                        "version":    version,
+                        "port":       port,
+                        "v3_user":    v3_user,
+                        "v3_auth_set": bool(v3_auth),
+                        "v3_priv_set": bool(v3_priv),
+                        "hosts_keys": sorted((r.get("hosts") or {}).keys()),
+                        "error":      r.get("error"),
+                        # full probed data: every parsed OID, per-row
+                        # storage table (RAM + disks), per-row interface
+                        # counters, and a quick walk-summary header so
+                        # operators can see at a glance which OID families
+                        # the agent answered.
+                        "raw":        r.get("raw") or {},
+                    }
+                    if r.get("hosts"):
+                        providers_normalized["snmp"] = next(iter(r["hosts"].values()))
+                except Exception as e:  # noqa: BLE001
+                    providers_raw["snmp"] = {"_error": str(e)}
 
     # ---- Merged (best-of) ----------------------------------------
     merged: dict = {}
