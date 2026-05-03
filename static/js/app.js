@@ -9522,33 +9522,69 @@ function app() {
       if (pct > this._statBarWarnPct()) return 'warn';
       return '';
     },
-    // Tiny inline sparkline for the Hosts row. Returns an SVG `d` path
-    // string scaled to the 60×16 box used by `.host-row-spark` next to
-    // each CPU / Memory / Disk stat-bar. Reuses `hostHistory[key].series`
-    // already fetched by the drawer-history loader — when no series is
-    // loaded yet (dead row, host with no telemetry, or pre-load), returns
-    // empty string and the element renders nothing. Keys map: CPU →
-    // `cpu`, Memory → `mp`, Disk → `dp` (matches the drawer charts).
-    // Values are clamped to 0..100 since these metrics are percentages.
+    // Inline trend sparkline overlaid on each Hosts-row stat-bar.
+    // Pulls from whichever history source the host has — Beszel / NE
+    // (`hostHistory[key].series` with cpu / mp / dp percent fields) OR
+    // SNMP (`hostSnmpHistory[host_id].points` with cpu_used_pct + raw
+    // mem_used / mem_total + raw net counters; we derive percentages
+    // here so the path stays in 0..100% Y space). Returns an empty
+    // string when no source has at least 2 points — caller's `x-show`
+    // gate hides the SVG cleanly.
+    //
+    // The output path uses a fixed 100×16 viewBox and `preserveAspectRatio="none"`
+    // so it stretches to fill whatever width its parent element has —
+    // overlaying the .stat-bar (~70-120px) without per-host width math.
     hostInlineSparkline(h, metric) {
       if (!h) return '';
-      const key = this.hostHistoryKey ? this.hostHistoryKey(h) : (h.beszel_id || h.id || '');
-      if (!key) return '';
-      const entry = this.hostHistory && this.hostHistory[key];
-      if (!entry || !entry.series || entry.series.length < 2) return '';
-      // Map our public metric name to the series field name.
-      const FIELD = { cpu: 'cpu', memory: 'mp', disk: 'dp' };
-      const k = FIELD[metric];
-      if (!k) return '';
-      const W = 60, H = 16;
+      const W = 100, H = 16;
       const PAD_T = 1, PAD_B = 1;
       const usableH = H - PAD_T - PAD_B;
-      const series = entry.series;
+
+      // Try Beszel / NE history first (richest dataset).
+      const FIELD_BNE = { cpu: 'cpu', memory: 'mp', disk: 'dp' };
+      const beszelKey = this.hostHistoryKey ? this.hostHistoryKey(h) : (h.beszel_id || h.id || '');
+      let series = null;
+      let pickValue = null;
+      if (beszelKey) {
+        const e = this.hostHistory && this.hostHistory[beszelKey];
+        const f = FIELD_BNE[metric];
+        if (e && Array.isArray(e.series) && e.series.length >= 2 && f) {
+          series = e.series;
+          pickValue = (r) => Number(r[f]);
+        }
+      }
+
+      // Fallback to SNMP history — the SNMP sampler writes a separate
+      // `host_snmp_samples` table consumed by `hostSnmpHistory[host.id]`.
+      // Field shape differs from Beszel/NE: cpu_used_pct already a
+      // percent; memory comes as raw mem_used / mem_total; disk isn't
+      // recorded in the SNMP series so disk sparklines for SNMP-only
+      // hosts will be empty (correct — the data isn't there).
+      if (!series) {
+        const snmpEntry = this.hostSnmpHistory && this.hostSnmpHistory[h.id];
+        const points = snmpEntry && Array.isArray(snmpEntry.points) ? snmpEntry.points : null;
+        if (points && points.length >= 2) {
+          if (metric === 'cpu') {
+            series = points;
+            pickValue = (p) => Number(p.cpu_used_pct);
+          } else if (metric === 'memory') {
+            series = points;
+            pickValue = (p) => {
+              const tot = Number(p.mem_total) || 0;
+              const used = Number(p.mem_used) || 0;
+              return tot > 0 ? (used / tot) * 100 : NaN;
+            };
+          }
+          // disk: SNMP series doesn't carry it — leave series null.
+        }
+      }
+
+      if (!series || !pickValue) return '';
       const n = series.length;
       const out = [];
       let lastNull = true;
       for (let i = 0; i < n; i++) {
-        const v = Number(series[i][k]);
+        const v = pickValue(series[i]);
         if (!Number.isFinite(v)) { lastNull = true; continue; }
         const clamped = Math.max(0, Math.min(100, v));
         const x = (i / (n - 1)) * W;
@@ -9560,7 +9596,7 @@ function app() {
     },
     // True when the host has at least 2 data points for `metric` so the
     // sparkline has something to draw. Drives the SVG's x-show gate so
-    // dead / unloaded rows don't render an empty 60px placeholder.
+    // dead / unloaded rows don't render an empty placeholder.
     hostHasInlineSpark(h, metric) {
       return !!this.hostInlineSparkline(h, metric);
     },
@@ -13518,26 +13554,43 @@ function app() {
           for (const id of ids) this._hostSeenIds.add(id);
           this._runHostRefreshQueue(ids).catch(() => {});
           // Warm host history for visible rows so the inline 1h-trend
-          // sparkline next to each CPU / Mem / Disk stat-bar has data
-          // to render without waiting for the operator to open the
-          // drawer first. One-shot per host — `loadHostHistory` is a
-          // no-op when history is already present and fresh. Off-screen
-          // hosts never enter the observer's queue, so a 200-host fleet
-          // doesn't pay the prefetch cost up-front.
+          // sparkline overlaid on each CPU / Mem / Disk stat-bar has
+          // data to render without waiting for the operator to open
+          // the drawer. One-shot per host — the loaders are no-ops
+          // when history is already present and fresh. Off-screen
+          // hosts never enter the observer's queue, so a 200-host
+          // fleet doesn't pay the prefetch cost up-front.
+          //
+          // Two sources covered: (1) Beszel / NE history via
+          // `loadHostHistory(beszel_id, host_id)` — feeds the
+          // cpu / mp / dp series; (2) SNMP history via
+          // `loadHostSnmpHistory(host_id)` for SNMP-monitored hosts
+          // (switches / routers / printers) so those rows also get
+          // CPU + Memory sparklines even when no Beszel agent / NE
+          // exporter is configured.
           for (const id of ids) {
             const h = (this.hosts || []).find(x => x && x.id === id);
             if (!h) continue;
-            const key = this.hostHistoryKey(h);
-            if (!key) continue;
-            if (this.hostHistory && this.hostHistory[key]
-                && Array.isArray(this.hostHistory[key].series)
-                && this.hostHistory[key].series.length >= 2) continue;
-            // Only pre-fetch when the host has a Beszel/NE telemetry
-            // source — Ping-only / SNMP-only hosts populate via different
-            // history loaders (snmp_history) and don't feed the inline
-            // CPU/Mem/Disk sparklines anyway.
+            // Beszel / NE prefetch
             if (h.beszel_id || h.ne_url) {
-              try { this.loadHostHistory(h.beszel_id || '', h.id); } catch {}
+              const key = this.hostHistoryKey(h);
+              const cached = key && this.hostHistory && this.hostHistory[key];
+              if (!cached
+                  || !Array.isArray(cached.series)
+                  || cached.series.length < 2) {
+                try { this.loadHostHistory(h.beszel_id || '', h.id); } catch {}
+              }
+            }
+            // SNMP prefetch — independent of Beszel / NE so a host with
+            // ALL three providers gets both series loaded in parallel
+            // and the helper picks whichever lands first.
+            if (h.snmp_enabled && typeof this.loadHostSnmpHistory === 'function') {
+              const snmpCached = this.hostSnmpHistory && this.hostSnmpHistory[h.id];
+              if (!snmpCached
+                  || !Array.isArray(snmpCached.points)
+                  || snmpCached.points.length < 2) {
+                try { this.loadHostSnmpHistory(h.id, 1); } catch {}
+              }
             }
           }
         }, 200);
