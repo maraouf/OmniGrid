@@ -1956,6 +1956,7 @@
   "admin_hosts": {
     "heading": "Hosts",
     "intro": "Define the machines you want to monitor and map each to the names used by every enabled provider. OmniGrid fetches all providers on every refresh and merges the best values per host — missing fields degrade to what the other providers returned.",
+    "snmp_walk_concurrency_hint": "How many SNMP walks run in parallel against THIS host. Blank = the global default (1, the safety floor). Server-class BMCs like Dell iDRAC, Cisco IMC, and Supermicro IPMI handle parallel queries fine and need 4-8 to fit pysnmp's per-walk overhead inside the probe budget. Leave blank for low-power printers / NAS / OpenWrt-class gear that drop UDP packets at higher concurrency.",
     "label_source_asset": "{name} — from asset inventory (no operator label set)",
     "click_to_edit": "Click to edit",
     "discover_button": "Discover from providers",

@@ -6130,6 +6130,32 @@
                            class="w-full mono text-[12.5px] py-1.5"
                            placeholder="161">
                   </div>
+                  <!-- Per-host SNMP walk concurrency override. The
+                       global default is 1 (safety floor for low-power
+                       embedded snmpd's that drop UDP packets at higher
+                       concurrency). Server-class BMCs (Dell iDRAC9 /
+                       iDRAC10, Cisco IMC, Supermicro IPMI) handle
+                       parallel queries fine and benefit dramatically
+                       from > 1 because pysnmp v7's per-walk overhead
+                       serialises ~67 OID branches into 30-50s
+                       wall-clock at concurrency=1. Recommended: 4 for
+                       Dell iDRAC, 8 for fast Cisco / Synology /
+                       linux net-snmp, 1 (default) for printers + low-
+                       power NAS + OpenWrt-class gear. -->
+                  <div>
+                    <label class="block text-[10.5px] uppercase tracking-wider text-[var(--text-faint)] mb-1"
+                           :title="t('admin_hosts.snmp_walk_concurrency_hint')">
+                      Walk concurrency
+                      <span class="text-[10px] normal-case text-[var(--text-faint)] ms-1">(blank = global default)</span>
+                    </label>
+                    <input type="number" min="1" max="32"
+                           :value="row.snmp && row.snmp.walk_concurrency || ''"
+                           @input="hostsConfig[idx].snmp = Object.assign({}, hostsConfig[idx].snmp || {}, { walk_concurrency: $event.target.value ? parseInt($event.target.value, 10) : null }); markHostRowDirty(idx)"
+                           :disabled="isReadonly() || !row.enabled"
+                           class="w-full mono text-[12.5px] py-1.5"
+                           placeholder="1"
+                           :title="t('admin_hosts.snmp_walk_concurrency_hint')">
+                  </div>
                 </div>
               </div>
               <!-- Row 3 — test button + per-provider result line. The

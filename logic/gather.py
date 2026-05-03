@@ -941,6 +941,16 @@ async def _gather_impl() -> None:
                 row_v3_user = (row_snmp.get("v3_user") or "").strip() or v3_user
                 row_v3_auth = (row_snmp.get("v3_auth_key") or "").strip() or v3_auth_key
                 row_v3_priv = (row_snmp.get("v3_priv_key") or "").strip() or v3_priv_key
+                # Per-host walk_concurrency override (server-class BMCs
+                # like Dell iDRAC handle parallel queries fine and need
+                # > 1 to fit pysnmp v7's per-walk overhead inside the
+                # probe budget; safety-floor concurrency=1 stays the
+                # default for low-power embedded snmpd's).
+                row_walk_conc = row_snmp.get("walk_concurrency")
+                try:
+                    row_walk_conc = int(row_walk_conc) if row_walk_conc else None
+                except (TypeError, ValueError):
+                    row_walk_conc = None
                 async with snmp_sem:
                     result = await _snmp.probe_snmp(
                         target_host,
@@ -952,6 +962,7 @@ async def _gather_impl() -> None:
                         v3_priv_key=row_v3_priv,
                         active_sources=active_sources,
                         timeout=snmp_timeout,
+                        walk_concurrency=row_walk_conc,
                     )
                 if result.get("error") and not result.get("hosts"):
                     return h, {"exporter_error": f"snmp: {result['error']}"}

@@ -756,8 +756,17 @@ async def _probe_one_snmp(host: dict, sem: asyncio.Semaphore) -> None:
         v3_priv = ((snmp_cfg.get("v3_priv_key") or "").strip()
                    or _get_setting("snmp_v3_priv_key", "") or "")
         snmp_timeout = float(tuning.tuning_int("tuning_snmp_probe_timeout_seconds"))
+        # Per-host walk_concurrency override (Dell iDRAC / Cisco IMC /
+        # Supermicro IPMI need > 1 to fit pysnmp v7's per-walk overhead
+        # inside the probe budget; safety-floor concurrency=1 stays the
+        # default for low-power embedded snmpd's).
+        row_walk_conc = snmp_cfg.get("walk_concurrency")
+        try:
+            row_walk_conc = int(row_walk_conc) if row_walk_conc else None
+        except (TypeError, ValueError):
+            row_walk_conc = None
         now = time.time()
-        # Round-count auto-pause threshold (#797). 0 = disabled
+        # Round-count auto-pause threshold. 0 = disabled
         # (operator opted out). Per-tick read so an Admin → Config save
         # takes effect on the next tick without restart.
         snmp_pause_rounds = tuning.tuning_int("tuning_snmp_failure_pause_rounds")
@@ -767,6 +776,7 @@ async def _probe_one_snmp(host: dict, sem: asyncio.Semaphore) -> None:
                 community=community, version=version, port=port,
                 v3_user=v3_user, v3_auth_key=v3_auth, v3_priv_key=v3_priv,
                 timeout=snmp_timeout,
+                walk_concurrency=row_walk_conc,
             )
         except Exception as e:  # noqa: BLE001
             print(f"[host_metrics_sampler] {snmp_key} probe error: {e}")

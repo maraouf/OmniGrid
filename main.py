@@ -3384,6 +3384,16 @@ async def api_snmp_test(
     v3_user = _resolve_field(body, "v3_user", "snmp_v3_user", "")
     v3_auth = _resolve_field(body, "v3_auth_key", "snmp_v3_auth_key", "")
     v3_priv = _resolve_field(body, "v3_priv_key", "snmp_v3_priv_key", "")
+    # Per-host walk_concurrency override — Test connection respects
+    # the same per-host knob as the sampler / debug paths so the
+    # operator's smoke test runs at the SAME concurrency the live
+    # probe will use. Falls back to None (= use the global tunable)
+    # when the body doesn't carry a value.
+    walk_conc_test = body.get("walk_concurrency") if isinstance(body, dict) else None
+    try:
+        walk_conc_test = int(walk_conc_test) if walk_conc_test else None
+    except (TypeError, ValueError):
+        walk_conc_test = None
 
     # consume tuning_snmp_probe_timeout_seconds. Test endpoint uses
     # max(tunable, 10s) so a tiny tunable doesn't cripple manual smoke probes.
@@ -3403,6 +3413,7 @@ async def api_snmp_test(
         # operator fixing an SNMP misconfig (community / port / v3
         # creds) could never re-test until the cool-down expired.
         bypass_cooldown=True,
+        walk_concurrency=walk_conc_test,
     )
     # If the operator-initiated probe succeeded, clear any pending
     # cool-down so the next automatic sampler tick picks up the host
@@ -4463,6 +4474,16 @@ async def _merge_one_host(h: dict, state: dict, *, force: bool = False) -> tuple
                                or state.get("snmp_v3_priv_key") or "")
                     # consume tuning_snmp_probe_timeout_seconds.
                     snmp_timeout = float(tuning.tuning_int("tuning_snmp_probe_timeout_seconds"))
+                    # Per-host walk_concurrency override — let server-
+                    # class BMCs (Dell iDRAC, Cisco IMC, Supermicro IPMI)
+                    # opt out of the safety-floor concurrency=1 default
+                    # without affecting flaky low-end agents on the
+                    # same fleet.
+                    snmp_walk_conc = row_snmp.get("walk_concurrency")
+                    try:
+                        snmp_walk_conc = int(snmp_walk_conc) if snmp_walk_conc else None
+                    except (TypeError, ValueError):
+                        snmp_walk_conc = None
                     try:
                         result = await _snmp.probe_snmp(
                             snmp_target,
@@ -4474,6 +4495,7 @@ async def _merge_one_host(h: dict, state: dict, *, force: bool = False) -> tuple
                             v3_priv_key=v3_priv,
                             active_sources=active,
                             timeout=snmp_timeout,
+                            walk_concurrency=snmp_walk_conc,
                         )
                     except Exception as e:  # noqa: BLE001
                         result = {"hosts": {}, "error": f"snmp probe failed: {e}"}
@@ -5732,6 +5754,13 @@ def _clean_host_snmp(raw: Any) -> dict:
       * ``v3_user``   (str)        — overrides ``snmp_v3_user``
       * ``v3_auth_key`` (str)      — overrides ``snmp_v3_auth_key``
       * ``v3_priv_key`` (str)      — overrides ``snmp_v3_priv_key``
+      * ``walk_concurrency`` (1..32) — overrides
+        ``tuning_snmp_per_host_walk_concurrency``. Server-class BMCs
+        (Dell iDRAC, Cisco IMC, Supermicro IPMI) handle parallel
+        queries fine and benefit dramatically from > 1 because pysnmp
+        v7's per-walk overhead serialises ~67 OID branches into 30-50s
+        wall-clock at concurrency=1. Low-power embedded snmpd's stay
+        at the safety-floor default 1 by omitting this field.
 
     Empty / missing input → empty dict (the common case — most rows
     inherit every default). Unknown keys are dropped silently so a
@@ -5776,6 +5805,14 @@ def _clean_host_snmp(raw: Any) -> dict:
         v = (str(raw.get(k) or "")).strip()
         if v:
             out[k] = v
+    walk_conc = raw.get("walk_concurrency")
+    if walk_conc not in (None, "", 0):
+        try:
+            wc = int(walk_conc)
+            if 1 <= wc <= 32:
+                out["walk_concurrency"] = wc
+        except (TypeError, ValueError):
+            pass
     return out
 
 
@@ -6733,6 +6770,17 @@ async def api_hosts_debug(
                                 or get_setting("snmp_v3_auth_key", "") or "")
                 v3_priv_kick = ((row_snmp_kick.get("v3_priv_key") or "").strip()
                                 or get_setting("snmp_v3_priv_key", "") or "")
+                # Per-host walk_concurrency override — Dell iDRAC9 /
+                # iDRAC10 and other server-class BMCs handle parallel
+                # queries fine and benefit dramatically from
+                # concurrency > 1. The safety-floor concurrency=1
+                # default is for low-power embedded snmpd's that drop
+                # UDP packets at higher concurrency.
+                walk_conc_kick = row_snmp_kick.get("walk_concurrency")
+                try:
+                    walk_conc_kick = int(walk_conc_kick) if walk_conc_kick else None
+                except (TypeError, ValueError):
+                    walk_conc_kick = None
                 snmp_task = asyncio.create_task(_snmp.probe_snmp(
                     target_kick,
                     community=community_kick,
@@ -6741,6 +6789,7 @@ async def api_hosts_debug(
                     v3_user=v3_user_kick,
                     v3_auth_key=v3_auth_kick,
                     v3_priv_key=v3_priv_kick,
+                    walk_concurrency=walk_conc_kick,
                     timeout=8.0,
                     active_sources=active,
                     verbose=True,
