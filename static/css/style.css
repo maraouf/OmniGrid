@@ -1233,6 +1233,83 @@ button.chip:hover {
     filter: brightness(1.06);
 }
 
+/* ---------------------------------------------------------------
+ * Per-host Health Score chip — synthesised 0-100 score across
+ * CPU / Memory / Disk / Providers / Pending Updates. Renders in
+ * the Hosts row header (desktop + mobile) and again in the host-
+ * drawer header where it gates the breakdown popover.
+ * Three colour tiers match operator's "anything <80 gets attention"
+ * mental model — green ≥80, amber 50-79, red <50. Border tint is
+ * `color-mix` against the row background so the chip blends with
+ * stat-bar colour cues (same green / amber / red the bars use).
+ * --------------------------------------------------------------- */
+.health-chip {
+    font-weight: 700;
+    border-width: 1px;
+    border-style: solid;
+}
+.health-chip-ok {
+    background: color-mix(in srgb, var(--success) 14%, transparent);
+    border-color: color-mix(in srgb, var(--success) 50%, var(--border));
+    color: var(--success);
+}
+.health-chip-warn {
+    background: color-mix(in srgb, var(--warning) 18%, transparent);
+    border-color: color-mix(in srgb, var(--warning) 60%, var(--border));
+    color: var(--warning);
+}
+.health-chip-bad {
+    background: color-mix(in srgb, var(--danger) 18%, transparent);
+    border-color: color-mix(in srgb, var(--danger) 60%, var(--border));
+    color: var(--danger);
+}
+button.health-chip {
+    cursor: pointer;
+}
+button.health-chip:hover {
+    filter: brightness(1.08);
+}
+
+/* Health-breakdown popover — toggled by the chip in the drawer
+ * header. Lives at host-drawer scope (inside the drawer template
+ * tree) so it slides in/out with the drawer rather than as a
+ * floating element. Uses surface-2 to feel like a callout
+ * separated from the regular drawer cards. Per-axis row stacks
+ * label + score + detail with a tiny inline progress bar. */
+.health-breakdown-popover {
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: var(--r-md);
+    padding: var(--s-3) var(--s-4);
+    margin-bottom: var(--s-4);
+}
+.health-breakdown-popover .axis-row {
+    display: grid;
+    grid-template-columns: 1fr auto 90px;
+    gap: var(--s-3);
+    align-items: center;
+    padding: var(--s-1) 0;
+}
+.health-breakdown-popover .axis-row + .axis-row {
+    border-top: 1px solid var(--border);
+}
+.health-breakdown-popover .axis-bar {
+    position: relative;
+    height: 6px;
+    border-radius: 3px;
+    background: var(--surface-3);
+    overflow: hidden;
+}
+.health-breakdown-popover .axis-bar > .fill {
+    position: absolute;
+    inset-inline-start: 0;
+    top: 0;
+    bottom: 0;
+    width: var(--w, 0%);
+    background: var(--c, var(--success));
+    border-radius: 3px;
+}
+
 /* #680 follow-up — clickable chips must meet the touch-target rule on
  * phones (CLAUDE.md mandates --touch-target-min for mobile interactive
  * elements). The base .chip is 11px font + 2px·6px padding (~18px tall)
