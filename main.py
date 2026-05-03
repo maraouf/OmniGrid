@@ -617,6 +617,8 @@ def init_db():
             mem_buffers   INTEGER,
             mem_cached    INTEGER,
             mem_free      INTEGER,
+            disk_total    INTEGER,
+            disk_used     INTEGER,
             PRIMARY KEY (ts, host_id)
         );
         CREATE INDEX IF NOT EXISTS idx_host_snmp_samples_host_ts
@@ -810,6 +812,21 @@ def init_db():
             "ALTER TABLE host_snmp_samples ADD COLUMN load_percent REAL",
             "ALTER TABLE host_snmp_samples ADD COLUMN battery_percent REAL",
             "ALTER TABLE host_snmp_samples ADD COLUMN battery_temp_c REAL",
+            # Aggregate disk totals — added so SNMP-only hosts can
+            # render the inline disk sparkline. Pre-fix the table
+            # carried CPU + memory + load + UPS + interface data
+            # but no disk percent, so the SPA's hostInlineSparkline
+            # SNMP fallback explicitly skipped disk ("SNMP series
+            # doesn't carry it"). Operator reported on a dd-wrt +
+            # WDMyCloud NAS where the row's disk bar correctly
+            # showed live percent but the sparkline beneath stayed
+            # absent. Sampler now writes both columns; SPA derives
+            # disk % from the pair (matches the `mem_used/mem_total`
+            # branch's pattern). Aggregate values respect the same
+            # exclude-mounts list `extract_storage` honours, so
+            # phantom rows (dd-wrt's `/opt`) don't pollute history.
+            "ALTER TABLE host_snmp_samples ADD COLUMN disk_total INTEGER",
+            "ALTER TABLE host_snmp_samples ADD COLUMN disk_used INTEGER",
         ):
             try:
                 c.execute(ddl)
@@ -8493,7 +8510,7 @@ async def api_hosts_snmp_history(
                 "mem_total, mem_used, mem_buffers, mem_cached, mem_free, "
                 "uptime_s, net_rx_total_bytes, net_tx_total_bytes, "
                 "printer_page_count, load_percent, battery_percent, "
-                "battery_temp_c "
+                "battery_temp_c, disk_total, disk_used "
                 "FROM host_snmp_samples "
                 "WHERE host_id=? AND ts >= ? "
                 "ORDER BY ts ASC LIMIT ?",
@@ -8538,6 +8555,12 @@ async def api_hosts_snmp_history(
             "load_percent":     (float(r[15]) if r[15] is not None else None),
             "battery_percent":  (float(r[16]) if r[16] is not None else None),
             "battery_temp_c":   (float(r[17]) if r[17] is not None else None),
+            # Aggregate disk totals (bytes). Drives the Hosts-row
+            # disk sparkline for SNMP-only hosts. NULL for pre-fix
+            # rows; SPA computes percent as (used / total) * 100
+            # and treats null/0 totals as "no signal".
+            "disk_total":       (int(r[18]) if r[18] is not None else None),
+            "disk_used":        (int(r[19]) if r[19] is not None else None),
         })
     return {"points": points, "error": None}
 

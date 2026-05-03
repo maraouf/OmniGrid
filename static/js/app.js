@@ -9597,8 +9597,19 @@ function app() {
               const used = Number(p.mem_used) || 0;
               return tot > 0 ? (used / tot) * 100 : NaN;
             };
+          } else if (metric === 'disk') {
+            // Disk added to host_snmp_samples — sampler writes
+            // disk_total / disk_used (bytes); we derive percent the
+            // same way the memory branch does. NULL or zero total
+            // → NaN so the path-builder treats it as a gap rather
+            // than a flat-zero hairline.
+            series = points;
+            pickValue = (p) => {
+              const tot = Number(p.disk_total) || 0;
+              const used = Number(p.disk_used) || 0;
+              return tot > 0 ? (used / tot) * 100 : NaN;
+            };
           }
-          // disk: SNMP series doesn't carry it — leave series null.
         }
       }
 

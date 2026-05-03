@@ -417,7 +417,16 @@ def parse_exporter_text(text: str) -> dict:
             value = float(m.group("value"))
         except ValueError:
             continue
-        if name == "node_memtotal_bytes":
+        # Both metric names are observed in the wild:
+        # `node_memory_MemTotal_bytes` is the canonical
+        # node-exporter v1.x camelCase form (mirrors
+        # `node_memory_MemAvailable_bytes`); `node_memtotal_bytes` is
+        # the lowercase form some forks / older builds emit. Accept
+        # both. Operator-reported on a Linux VM running standard
+        # node-exporter where `host_mem_total` was 0 while
+        # `host_mem_avail` was correctly populated — caused by the
+        # previous lowercase-only check missing the canonical name.
+        if name == "node_memtotal_bytes" or name == "node_memory_MemTotal_bytes":
             mem_total = int(value)
         elif name == "node_memory_MemAvailable_bytes":
             mem_avail = int(value)
