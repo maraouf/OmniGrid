@@ -2354,11 +2354,18 @@ details summary::-webkit-details-marker {
 .disk-segmented {
     display: flex;
     width: 100%;
-    height: 10px;
+    /* Match `.stat-bar`'s height + border so multi-mount disk rows
+       don't render visually shorter than the CPU / Memory / single-
+       mount-disk bars on the same row. The segmented variant kicks in
+       only when the host reports multiple mounts; without this match
+       the row's bars stair-step at different heights, breaking the
+       horizontal-rhythm operators rely on for at-a-glance scanning. */
+    height: 16px;
     gap: 1px;
     border-radius: var(--r-sm);
     overflow: hidden;
     background: transparent;
+    border: 1px solid var(--border);
 }
 
 /* Each mount gets one flex slot. The slot itself has a muted
@@ -2615,6 +2622,16 @@ details summary::-webkit-details-marker {
 }
 
 .spark polyline {
+    vector-effect: non-scaling-stroke;
+}
+
+/* Host-row sparklines emit a `<path>` (from `hostInlineSparkline`)
+   instead of a `<polyline>` because the path supports `M` move-tos
+   for null-gap segments — the polyline shape can't break a series
+   cleanly. Same visual contract as the polyline rule above so a
+   stacks/services row and a Hosts row render identical-looking
+   sparklines under the same `.spark` class. */
+.spark path {
     vector-effect: non-scaling-stroke;
 }
 

@@ -323,6 +323,27 @@ async def _lifespan(app: FastAPI):
     ping_sampler = asyncio.create_task(
         _ping_sampler.ping_sampler_loop(), name="ping-sampler",
     )
+    # Pulse-only history sampler — feeds the host-drawer chart grid
+    # AND the inline Hosts-row sparkline for Pulse-only hosts (no
+    # Beszel agent, no node-exporter). Writes to host_pulse_samples;
+    # /api/hosts/history dispatches to host_pulse_sampler.history_series
+    # when the curated row has a `pulse_name` set. Lifespan-only +
+    # skip-don't-synthesize discipline shared with the other samplers.
+    from logic import host_pulse_sampler as _host_pulse_sampler
+    host_pulse_sampler = asyncio.create_task(
+        _host_pulse_sampler.host_pulse_sampler_loop(),
+        name="host-pulse-sampler",
+    )
+    # Webmin-only history sampler — completes the history-parity
+    # picture across providers. Most operators run Webmin alongside
+    # NE so the NE sampler already covers them; this sampler only
+    # matters for the small set of Webmin-only hosts. Same lifespan-
+    # only + skip-don't-synthesize discipline as the other samplers.
+    from logic import host_webmin_sampler as _host_webmin_sampler
+    host_webmin_sampler = asyncio.create_task(
+        _host_webmin_sampler.host_webmin_sampler_loop(),
+        name="host-webmin-sampler",
+    )
     # Persistent-log pruner — sweeps /app/data/logs/ once per
     # hour, deletes any omnigrid-YYYY-MM-DD.log older than the
     # operator-tunable retention window.
@@ -332,7 +353,7 @@ async def _lifespan(app: FastAPI):
     finally:
         # Cancel in reverse-start order. Each cancel + await is wrapped so
         # one failing shutdown step can't starve the next one.
-        for task in (log_pruner, ping_sampler, host_metrics_sampler, host_net_sampler, scheduler, sampler, seed_task):
+        for task in (log_pruner, host_webmin_sampler, host_pulse_sampler, ping_sampler, host_metrics_sampler, host_net_sampler, scheduler, sampler, seed_task):
             task.cancel()
             try:
                 await task
@@ -527,6 +548,49 @@ def init_db():
         );
         CREATE INDEX IF NOT EXISTS idx_host_metrics_samples_host_ts
             ON host_metrics_samples(host_id, ts DESC);
+
+        -- Pulse-only history. Mirrors host_metrics_samples shape so
+        -- the SPA's chart helpers + inline sparkline data-source
+        -- ladder treat Pulse-only hosts identically to NE-only hosts.
+        -- Separate table so a host running BOTH Pulse and NE doesn't
+        -- get double-writes from two samplers — each table has one
+        -- writer, one consumer. Pulse doesn't expose disk read/write
+        -- counters so those columns aren't on this table; the
+        -- history_series envelope returns 0 for those keys instead.
+        CREATE TABLE IF NOT EXISTS host_pulse_samples (
+            ts             INTEGER NOT NULL,
+            host_id        TEXT    NOT NULL,
+            cpu_percent    REAL,
+            mem_total      INTEGER,
+            mem_used       INTEGER,
+            disk_total     INTEGER,
+            disk_used      INTEGER,
+            net_rx_bps     REAL,
+            net_tx_bps     REAL,
+            PRIMARY KEY (ts, host_id)
+        );
+        CREATE INDEX IF NOT EXISTS idx_host_pulse_samples_host_ts
+            ON host_pulse_samples(host_id, ts DESC);
+
+        -- Webmin-only history. Same shape as host_pulse_samples;
+        -- separate table so a host with both Webmin AND NE doesn't
+        -- get double-writes from two samplers. Webmin is per-host
+        -- (Miniserv per target box, like NE); the sampler fans out
+        -- across curated rows with a webmin_url set.
+        CREATE TABLE IF NOT EXISTS host_webmin_samples (
+            ts             INTEGER NOT NULL,
+            host_id        TEXT    NOT NULL,
+            cpu_percent    REAL,
+            mem_total      INTEGER,
+            mem_used       INTEGER,
+            disk_total     INTEGER,
+            disk_used      INTEGER,
+            net_rx_bps     REAL,
+            net_tx_bps     REAL,
+            PRIMARY KEY (ts, host_id)
+        );
+        CREATE INDEX IF NOT EXISTS idx_host_webmin_samples_host_ts
+            ON host_webmin_samples(host_id, ts DESC);
 
         -- SNMP-specific time-series. Separate from
         -- host_metrics_samples because: (a) SNMP exposes per-core CPU
@@ -5014,6 +5078,44 @@ def _resolve_asset_for_host(cn) -> Optional[dict]:
     return _ai.shape_asset(raw) if raw else None
 
 
+def _resolve_ping_target(h: dict) -> Optional[str]:
+    """Mirror of `logic.ping_sampler._curated_ping_hosts`'s target chain.
+
+    Returns the resolved hostname / IP that `probe_ping` will actually
+    use, or None when ping isn't enabled on the row. Surfacing this in
+    the API row (`ping_target`) lets the SPA's `?` info-bubble tooltip
+    name the actual probe target instead of the curated host_id (which
+    is often a label like "ftth" that doesn't resolve via DNS).
+
+    Resolution chain (FIRST non-empty wins):
+      1. `ping.host` (per-host override on the row)
+      2. `ssh.fqdn` (per-host SSH FQDN — most curated rows have this)
+      3. `ssh.host` (alternate SSH-target spelling, legacy)
+      4. parsed hostname from the curated `url` field
+      5. `h.id` (last-resort fallback)
+    """
+    ping_cfg = h.get("ping") if isinstance(h.get("ping"), dict) else {}
+    if not bool(ping_cfg.get("enabled", False)):
+        return None
+    ssh_cfg = h.get("ssh") if isinstance(h.get("ssh"), dict) else {}
+    url_host = ""
+    url_raw = (h.get("url") or "").strip()
+    if url_raw:
+        try:
+            from urllib.parse import urlparse as _urlparse
+            url_host = (_urlparse(url_raw).hostname or "").strip()
+        except (ValueError, TypeError):
+            url_host = ""
+    candidate = (
+        (ping_cfg.get("host") or "").strip()
+        or (ssh_cfg.get("fqdn") or "").strip()
+        or (ssh_cfg.get("host") or "").strip()
+        or url_host
+        or (h.get("id") or "").strip()
+    )
+    return candidate or (h.get("id") or "")
+
+
 def _shape_host_api_row(
     h: dict,
     merged: dict,
@@ -5191,18 +5293,15 @@ def _shape_host_api_row(
         "ping_transport":   ((h.get("ping") or {}).get("transport") or None),
         # Resolved ping TARGET — what `logic.ping_sampler._probe_one`
         # actually feeds to `probe_ping`. Resolution chain mirrors
-        # `logic.db.curated_ping_hosts`: per-host `ssh.fqdn` → per-host
-        # `ssh.host` → curated `id` as last-resort fallback. Surfacing
-        # the resolved value lets the SPA's `?` info-bubble tooltip
-        # tell the operator the actual hostname / IP being probed,
-        # not just the curated host_id (which often can't resolve via
-        # DNS — e.g. bare ids like "ftth" / "router1" that work as
-        # labels but aren't actual DNS records).
-        "ping_target":      (
-            ((h.get("ssh") or {}).get("fqdn")
-             or (h.get("ssh") or {}).get("host")
-             or h["id"]).strip() or h["id"]
-        ) if bool((h.get("ping") or {}).get("enabled", False)) else None,
+        # `logic.ping_sampler._curated_ping_hosts` EXACTLY: per-host
+        # `ping.host` override → `ssh.fqdn` → `ssh.host` → curated
+        # `url`'s hostname → curated `id` as last-resort fallback.
+        # Pre-fix the chain skipped `ping.host` (highest-priority
+        # override) AND the URL-hostname fallback, so the SPA tooltip
+        # reported `h.id` (e.g. "ftth") on rows whose actual probe
+        # target was the URL's hostname (e.g. "ftth.example.com")
+        # parsed from the curated `url` field.
+        "ping_target":      _resolve_ping_target(h),
         "ping_alive":       bool(s.get("host_ping_alive")) if s.get("host_ping_alive") is not None else None,
         "ping_rtt_ms":      (float(s.get("host_ping_rtt_ms")) if s.get("host_ping_rtt_ms") is not None else None),
         "ping_loss_pct":    (float(s.get("host_ping_loss_pct")) if s.get("host_ping_loss_pct") is not None else None),
@@ -8210,18 +8309,83 @@ async def api_hosts_history(system_id: str = "", hours: int = 1, host_id: str = 
     hid = (host_id or "").strip()
 
     if not sid and hid:
-        # NE-only path — read from host_metrics_samples and shape it
-        # into the same envelope Beszel returns.
+        # NE / Pulse path — dispatch on which sampler has rows for
+        # this host. Beszel-only hosts come through the system_id
+        # branch below; the host_id branch is for hosts whose
+        # primary surface is node-exporter OR Pulse.
+        #
+        # Resolution order:
+        #   1. Try host_metrics_sampler first (NE-only host) — most
+        #      common case on this branch.
+        #   2. Fall through to host_pulse_sampler when the curated
+        #      row has a `pulse_name` AND the NE table has no rows
+        #      for this host. Pulse-only hosts (Proxmox VMs without
+        #      a Beszel agent or node-exporter) land here so the
+        #      SPA's chart helpers + inline sparkline see the same
+        #      Beszel-compatible series envelope.
         from logic import host_metrics_sampler as _hms
         try:
             series = _hms.history_series(hid, h)
-            # Per-metric "did the collector ever report?" diagnostic
-            #. Lets the SPA tell "host is just idle" from
-            # "exporter doesn't expose node_disk_* / node_network_*"
-            # — different empty-state copy + different remediation.
             collectors = _hms.series_collectors_present(hid, h)
         except Exception as e:
-            return {"series": [], "error": f"host_metrics_sampler: {e}"}
+            series = []
+            collectors = {}
+            ne_err: Optional[str] = f"host_metrics_sampler: {e}"
+        else:
+            ne_err = None
+        # Provider fallback chain — only consult downstream samplers
+        # when NE has nothing AND the curated row carries the matching
+        # provider's identifier. Avoids unnecessary queries on an
+        # NE-only host that's temporarily empty (no need to mask
+        # "host is idle" with a confusing Pulse / Webmin zero).
+        # Order: Pulse → Webmin. Pulse first because Pulse-only hosts
+        # are more common (Proxmox VMs); Webmin-only hosts are rare.
+        if not series:
+            try:
+                curated = _load_hosts_config()
+            except Exception:
+                curated = []
+            row = next((r for r in curated if r.get("id") == hid), None)
+            if row and (row.get("pulse_name") or "").strip():
+                from logic import host_pulse_sampler as _hps
+                try:
+                    pseries = _hps.history_series(hid, h)
+                except Exception as e:
+                    return {"series": [], "error": f"host_pulse_sampler: {e}"}
+                if pseries:
+                    return {
+                        "series": pseries,
+                        "collectors": {"cpu": True, "mem": True, "fs": True, "net": True, "disk_io": False},
+                        "source": "pulse",
+                        "error": None,
+                    }
+            # Webmin fallback. Curated row carries `webmin_name`
+            # OR has a `webmin_url` mapped via `webmin_aliases`. Either
+            # signal qualifies the host for Webmin history lookup.
+            try:
+                webmin_aliases = json.loads(get_setting("webmin_aliases", "{}") or "{}")
+                if not isinstance(webmin_aliases, dict):
+                    webmin_aliases = {}
+            except ValueError:
+                webmin_aliases = {}
+            if row and (
+                (row.get("webmin_name") or "").strip()
+                or (webmin_aliases.get(hid) or "").strip()
+            ):
+                from logic import host_webmin_sampler as _hws
+                try:
+                    wseries = _hws.history_series(hid, h)
+                except Exception as e:
+                    return {"series": [], "error": f"host_webmin_sampler: {e}"}
+                if wseries:
+                    return {
+                        "series": wseries,
+                        "collectors": {"cpu": True, "mem": True, "fs": True, "net": True, "disk_io": False},
+                        "source": "webmin",
+                        "error": None,
+                    }
+        if ne_err:
+            return {"series": [], "error": ne_err}
         return {"series": series, "collectors": collectors, "error": None}
 
     if not sid:

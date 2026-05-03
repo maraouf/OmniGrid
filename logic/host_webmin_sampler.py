@@ -1,0 +1,364 @@
+"""Per-host historical metrics sampler for Webmin-only hosts.
+
+Sibling of :mod:`logic.host_metrics_sampler` (NE) and
+:mod:`logic.host_pulse_sampler` (Pulse) — same architectural shape,
+same skip-don't-synthesize discipline (CLAUDE.md "Counter-rate
+samplers must SKIP, not synthesize"), but sources its data from
+per-host Miniserv probes.
+
+Why a separate sampler:
+  - Webmin is per-host (one Miniserv per target box, like NE) — NOT
+    a central hub like Beszel / Pulse. Probing is fan-out across
+    curated rows with `webmin_url` set.
+  - Webmin's `extract_stats` shape overlaps NE significantly
+    (cpu_percent / mem_total / mem_used / disk_total / disk_used /
+    mounts / interfaces). Pure-Webmin hosts (rare — Miniserv is
+    usually paired with another provider) get inline Hosts-row
+    sparklines + drawer charts via this sampler.
+  - Forking from `host_metrics_sampler` keeps each sampler simple
+    instead of branching every probe step on "which provider".
+
+Schema mirrors `host_metrics_samples` / `host_pulse_samples` so the
+SPA's chart helpers + inline sparkline data-source ladder treat
+Webmin-only hosts identically to NE / Pulse hosts.
+"""
+from __future__ import annotations
+
+import asyncio
+import json
+import time
+from typing import Optional
+
+from logic import webmin as _webmin
+from logic import tuning
+from logic.db import (
+    db_conn,
+    get_setting,
+    active_host_stats_providers as _active_providers,
+)
+
+
+# Same sanity bounds as host_metrics_sampler / host_pulse_sampler.
+_MIN_DELTA_SECONDS = 60
+_MAX_DELTA_SECONDS = 900
+_MIN_DELTA_BYTES = 0
+_MAX_DELTA_BYTES = 10 * 1024 * 1024 * 1024  # 10 GB
+
+
+# Per-host previous (ts, rx_bytes, tx_bytes) — module-level so the
+# delta math survives across ticks. Cleared on lifespan
+# cancel / restart so the post-restart first delta is correctly
+# SKIPPED.
+_last_counters: dict[str, tuple[float, float, float]] = {}
+
+
+def _curated_webmin_hosts() -> list[dict]:
+    """Curated hosts opted-in for Webmin sampling.
+
+    Walks `hosts_config` for rows whose `webmin_url` (resolved via the
+    `webmin_aliases` settings map) is set. Returns one row per enabled
+    entry as `{id, url}`. Empty list when Webmin isn't a registered
+    provider on the curated row.
+    """
+    raw = get_setting("hosts_config", "") or ""
+    if not raw.strip():
+        return []
+    try:
+        parsed = json.loads(raw)
+    except ValueError:
+        return []
+    if not isinstance(parsed, list):
+        return []
+    try:
+        aliases = json.loads(get_setting("webmin_aliases", "{}") or "{}")
+        if not isinstance(aliases, dict):
+            aliases = {}
+    except ValueError:
+        aliases = {}
+    out: list[dict] = []
+    for row in parsed:
+        if not isinstance(row, dict):
+            continue
+        if not row.get("enabled", True):
+            continue
+        hid = (row.get("id") or "").strip()
+        if not hid:
+            continue
+        # Resolution chain: webmin_aliases[id] → row.webmin_url →
+        # row.webmin_name (last-resort, matches the curated alias
+        # convention some operators use). Empty all three = skip.
+        url = (
+            (aliases.get(hid) or "").strip().rstrip("/")
+            or (row.get("webmin_url") or "").strip().rstrip("/")
+        )
+        if not url:
+            continue
+        out.append({"id": hid, "url": url})
+    return out
+
+
+def _shape_row_for_db(host_id: str, stats: dict, now: float) -> Optional[tuple]:
+    """Compute the persistable row for ONE host's tick.
+
+    Same skip-don't-synthesize rules as the sibling samplers — net
+    deltas out of bounds SKIP the rate fields rather than synthesize
+    0. Returns None when every signal field is null / 0.
+    """
+    cpu = stats.get("host_cpu_percent")
+    mem_total = stats.get("host_mem_total")
+    mem_used = stats.get("host_mem_used")
+    disk_total = stats.get("host_disk_total")
+    disk_used = stats.get("host_disk_used")
+    rx_total = stats.get("host_net_rx_total_bytes")
+    tx_total = stats.get("host_net_tx_total_bytes")
+    nr_bps: Optional[float] = None
+    ns_bps: Optional[float] = None
+    if rx_total is not None and tx_total is not None:
+        prev = _last_counters.get(host_id)
+        try:
+            rx_now = float(rx_total)
+            tx_now = float(tx_total)
+        except (TypeError, ValueError):
+            rx_now = tx_now = None  # type: ignore[assignment]
+        if rx_now is not None and tx_now is not None:
+            if prev is not None:
+                prev_ts, prev_rx, prev_tx = prev
+                ds = now - prev_ts
+                drx = rx_now - prev_rx
+                dtx = tx_now - prev_tx
+                if (_MIN_DELTA_SECONDS <= ds <= _MAX_DELTA_SECONDS
+                        and _MIN_DELTA_BYTES <= drx <= _MAX_DELTA_BYTES
+                        and _MIN_DELTA_BYTES <= dtx <= _MAX_DELTA_BYTES):
+                    nr_bps = drx / ds
+                    ns_bps = dtx / ds
+            _last_counters[host_id] = (now, rx_now, tx_now)
+    has_signal = (
+        (cpu is not None and float(cpu) > 0)
+        or (mem_total is not None and float(mem_total) > 0)
+        or (disk_total is not None and float(disk_total) > 0)
+        or (nr_bps is not None) or (ns_bps is not None)
+    )
+    if not has_signal:
+        return None
+    return (
+        int(now), host_id,
+        float(cpu) if cpu is not None else None,
+        int(mem_total) if mem_total is not None else None,
+        int(mem_used) if mem_used is not None else None,
+        int(disk_total) if disk_total is not None else None,
+        int(disk_used) if disk_used is not None else None,
+        nr_bps, ns_bps,
+    )
+
+
+async def _probe_one_host(client_url: str, user: str, password: str,
+                          verify_tls: bool, timeout: float,
+                          active: set[str]) -> Optional[dict]:
+    """Probe one Webmin host, return its merged host_* stats dict
+    or None when the probe failed / returned empty.
+    """
+    try:
+        result = await _webmin.probe_webmin(
+            client_url, user, password,
+            verify_tls=verify_tls, timeout=timeout,
+            active_sources=active,
+        )
+    except (asyncio.CancelledError, KeyboardInterrupt):
+        raise
+    except Exception as e:  # noqa: BLE001
+        print(f"[host_webmin_sampler] probe failed for {client_url!r}: {e}")
+        return None
+    hosts = result.get("hosts") or {}
+    if not isinstance(hosts, dict) or not hosts:
+        return None
+    # Webmin returns ONE host per call (per-host topology) — take
+    # the first / only entry.
+    return next(iter(hosts.values()))
+
+
+async def _persist_tick(rows: list[tuple]) -> None:
+    if not rows:
+        return
+    try:
+        with db_conn() as c:
+            c.executemany(
+                "INSERT INTO host_webmin_samples "
+                "(ts, host_id, cpu_percent, mem_total, mem_used, "
+                " disk_total, disk_used, net_rx_bps, net_tx_bps) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                rows,
+            )
+    except Exception as e:  # noqa: BLE001
+        print(f"[host_webmin_sampler] persist failed: {e}")
+
+
+async def _prune_old_rows() -> None:
+    days = max(1, int(tuning.tuning_int("tuning_stats_history_days")) or 7)
+    cutoff = int(time.time() - days * 86400)
+    try:
+        with db_conn() as c:
+            c.execute(
+                "DELETE FROM host_webmin_samples WHERE ts < ?", (cutoff,),
+            )
+    except Exception as e:  # noqa: BLE001
+        print(f"[host_webmin_sampler] prune failed: {e}")
+
+
+async def host_webmin_sampler_loop() -> None:
+    """Lifespan-managed Webmin sampler. Dormant when ``webmin`` isn't
+    an active provider OR no curated host has a `webmin_url` set."""
+    print("[host_webmin_sampler] lifespan started")
+    last_prune = 0.0
+    try:
+        while True:
+            interval = max(30, int(tuning.tuning_int("tuning_stats_sample_interval_seconds")) or 300)
+            try:
+                if "webmin" not in _active_providers():
+                    await asyncio.sleep(interval)
+                    continue
+                hosts = _curated_webmin_hosts()
+                if not hosts:
+                    await asyncio.sleep(interval)
+                    continue
+                user = (get_setting("webmin_user", "") or "").strip()
+                password = (get_setting("webmin_password", "") or "").strip()
+                if not user or not password:
+                    # Webmin needs creds; nothing to probe.
+                    await asyncio.sleep(interval)
+                    continue
+                verify_tls = (get_setting("webmin_verify_tls", "false") or "false").lower() == "true"
+                timeout = float(tuning.tuning_int("tuning_webmin_probe_timeout_seconds")) or 8.0
+                active = _active_providers()
+                # Fan out — one probe per curated host, in parallel
+                # via gather. Webmin probes are independent so this
+                # is safe; per-host concurrency matches NE's pattern.
+                tasks = [
+                    _probe_one_host(h["url"], user, password,
+                                    verify_tls, timeout, active)
+                    for h in hosts
+                ]
+                results = await asyncio.gather(*tasks, return_exceptions=True)
+                now = time.time()
+                rows: list[tuple] = []
+                for h, res in zip(hosts, results):
+                    if isinstance(res, BaseException) or not isinstance(res, dict):
+                        continue
+                    row = _shape_row_for_db(h["id"], res, now)
+                    if row is not None:
+                        rows.append(row)
+                if rows:
+                    await _persist_tick(rows)
+                if (now - last_prune) > 3600:
+                    await _prune_old_rows()
+                    last_prune = now
+            except (asyncio.CancelledError, KeyboardInterrupt):
+                raise
+            except Exception as e:  # noqa: BLE001
+                print(f"[host_webmin_sampler] tick error: {e}")
+            await asyncio.sleep(interval)
+    except asyncio.CancelledError:
+        print("[host_webmin_sampler] lifespan cancelled")
+        raise
+
+
+# ---- Read helpers ----
+
+def recent_samples(host_id: str, since_ts: int, limit: int = 500) -> list[dict]:
+    if not host_id:
+        return []
+    try:
+        with db_conn() as c:
+            rows = c.execute(
+                "SELECT ts, cpu_percent, mem_total, mem_used, "
+                "disk_total, disk_used, net_rx_bps, net_tx_bps "
+                "FROM host_webmin_samples WHERE host_id=? AND ts >= ? "
+                "ORDER BY ts ASC LIMIT ?",
+                (host_id, int(since_ts), int(limit)),
+            ).fetchall()
+    except Exception as e:  # noqa: BLE001
+        print(f"[host_webmin_sampler] recent_samples({host_id!r}) failed: {e}")
+        return []
+    out: list[dict] = []
+    for r in rows:
+        out.append({
+            "ts": int(r[0]),
+            "cpu_percent": (float(r[1]) if r[1] is not None else None),
+            "mem_total":   (int(r[2]) if r[2] is not None else None),
+            "mem_used":    (int(r[3]) if r[3] is not None else None),
+            "disk_total":  (int(r[4]) if r[4] is not None else None),
+            "disk_used":   (int(r[5]) if r[5] is not None else None),
+            "net_rx_bps":  (float(r[6]) if r[6] is not None else None),
+            "net_tx_bps":  (float(r[7]) if r[7] is not None else None),
+        })
+    return out
+
+
+def history_series(host_id: str, hours: int) -> list[dict]:
+    """Beszel-compatible series envelope. Field-for-field match with
+    `host_pulse_sampler.history_series` / `host_metrics_sampler.history_series`
+    so the SPA's chart helpers work against this path with no branching.
+    """
+    hours = max(1, min(168, int(hours or 1)))
+    since = int(time.time() - hours * 3600)
+    raw = recent_samples(host_id, since, limit=hours * 60)
+    gib = 1024 ** 3
+    series: list[dict] = []
+    for r in raw:
+        mem_total = r.get("mem_total") or 0
+        mem_used = r.get("mem_used") or 0
+        disk_total = r.get("disk_total") or 0
+        disk_used = r.get("disk_used") or 0
+        nr = r.get("net_rx_bps") or 0.0
+        ns = r.get("net_tx_bps") or 0.0
+        net = nr + ns
+        series.append({
+            "t":   r["ts"],
+            "cpu": r.get("cpu_percent") or 0.0,
+            "mp":  (100.0 * mem_used / mem_total) if mem_total else 0.0,
+            "dp":  (100.0 * disk_used / disk_total) if disk_total else 0.0,
+            "mu":  (mem_used / gib) if mem_used else 0.0,
+            "du":  (disk_used / gib) if disk_used else 0.0,
+            "b":   net,
+            "nr":  nr,
+            "ns":  ns,
+            "net": net,
+            # Webmin doesn't expose per-disk I/O / load avg / swap.
+            "dr":  0.0,
+            "dw":  0.0,
+            "la1": 0.0,
+            "la5": 0.0,
+            "la15": 0.0,
+            "s":   0.0,
+            "su":  0.0,
+        })
+    return series
+
+
+def last_samples(host_id: str, limit: int = 5) -> list[dict]:
+    if not host_id:
+        return []
+    try:
+        with db_conn() as c:
+            rows = c.execute(
+                "SELECT ts, cpu_percent, mem_total, mem_used, "
+                "disk_total, disk_used, net_rx_bps, net_tx_bps "
+                "FROM host_webmin_samples WHERE host_id=? "
+                "ORDER BY ts DESC LIMIT ?",
+                (host_id, int(limit)),
+            ).fetchall()
+    except Exception as e:  # noqa: BLE001
+        print(f"[host_webmin_sampler] last_samples({host_id!r}) failed: {e}")
+        return []
+    out: list[dict] = []
+    for r in rows:
+        out.append({
+            "ts": int(r[0]),
+            "cpu_percent": (float(r[1]) if r[1] is not None else None),
+            "mem_total":   (int(r[2]) if r[2] is not None else None),
+            "mem_used":    (int(r[3]) if r[3] is not None else None),
+            "disk_total":  (int(r[4]) if r[4] is not None else None),
+            "disk_used":   (int(r[5]) if r[5] is not None else None),
+            "net_rx_bps":  (float(r[6]) if r[6] is not None else None),
+            "net_tx_bps":  (float(r[7]) if r[7] is not None else None),
+        })
+    return out
