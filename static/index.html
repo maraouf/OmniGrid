@@ -926,7 +926,7 @@
                   <td class="hidden md:table-cell stat-cell">
                     <template x-if="statsFor(item).has_stats">
                       <div>
-                        <div class="stat-bar" :class="[barLevel(statsFor(item).cpu_percent), isStale(statsFor(item)) ? 'stale' : '']" :style="`--w:${statsFor(item).cpu_percent}%`" :title="staleAge(statsFor(item))">
+                        <div class="stat-bar" x-bind="statBarBind(statsFor(item).cpu_percent, 'columns.cpu')" :class="[barLevel(statsFor(item).cpu_percent), isStale(statsFor(item)) ? 'stale' : '']" :style="`--w:${statsFor(item).cpu_percent}%`" :title="staleAge(statsFor(item))">
                           <div class="fill"></div>
                           <div class="label" x-text="cpuLabel(statsFor(item).cpu_percent)"></div>
                         </div>
@@ -945,7 +945,7 @@
                   <td class="hidden md:table-cell stat-cell">
                     <template x-if="statsFor(item).has_stats">
                       <div>
-                        <div class="stat-bar" :class="[barLevel(memPercent(item)), isStale(statsFor(item)) ? 'stale' : '']" :style="`--w:${memPercent(item)}%`" :title="staleAge(statsFor(item))">
+                        <div class="stat-bar" x-bind="statBarBind(memPercent(item), 'columns.memory')" :class="[barLevel(memPercent(item)), isStale(statsFor(item)) ? 'stale' : '']" :style="`--w:${memPercent(item)}%`" :title="staleAge(statsFor(item))">
                           <div class="fill"></div>
                           <div class="label" x-text="memPercent(item).toFixed(0) + '%'"></div>
                         </div>
@@ -964,7 +964,7 @@
                   </td>
                   <td class="hidden xl:table-cell stat-cell">
                     <template x-if="statsFor(item).has_size">
-                      <div class="stat-bar info" :class="isStale(statsFor(item)) ? 'stale' : ''" :style="`--w:${diskPercent(item)}%`" :title="staleAge(statsFor(item))">
+                      <div class="stat-bar info" x-bind="statBarBind(diskPercent(item), 'columns.disk')" :class="isStale(statsFor(item)) ? 'stale' : ''" :style="`--w:${diskPercent(item)}%`" :title="staleAge(statsFor(item))">
                         <div class="fill"></div>
                         <div class="label" x-text="fmtBytes(statsFor(item).size_root)"></div>
                       </div>
@@ -1094,7 +1094,7 @@
                 </td>
                 <td class="hidden md:table-cell stat-cell">
                   <template x-if="statsFor(item).has_stats">
-                    <div class="stat-bar" :class="[barLevel(statsFor(item).cpu_percent), isStale(statsFor(item)) ? 'stale' : '']" :style="`--w:${statsFor(item).cpu_percent}%`" :title="staleAge(statsFor(item))">
+                    <div class="stat-bar" x-bind="statBarBind(statsFor(item).cpu_percent, 'columns.cpu')" :class="[barLevel(statsFor(item).cpu_percent), isStale(statsFor(item)) ? 'stale' : '']" :style="`--w:${statsFor(item).cpu_percent}%`" :title="staleAge(statsFor(item))">
                       <div class="fill"></div>
                       <div class="label" x-text="cpuLabel(statsFor(item).cpu_percent)"></div>
                     </div>
@@ -1106,7 +1106,7 @@
                 <td class="hidden md:table-cell stat-cell">
                   <template x-if="statsFor(item).has_stats">
                     <div>
-                      <div class="stat-bar" :class="[barLevel(memPercent(item)), isStale(statsFor(item)) ? 'stale' : '']" :style="`--w:${memPercent(item)}%`" :title="staleAge(statsFor(item))">
+                      <div class="stat-bar" x-bind="statBarBind(memPercent(item), 'columns.memory')" :class="[barLevel(memPercent(item)), isStale(statsFor(item)) ? 'stale' : '']" :style="`--w:${memPercent(item)}%`" :title="staleAge(statsFor(item))">
                         <div class="fill"></div>
                         <div class="label" x-text="memPercent(item).toFixed(0) + '%'"></div>
                       </div>
@@ -1119,7 +1119,7 @@
                 </td>
                 <td class="hidden xl:table-cell stat-cell">
                   <template x-if="statsFor(item).has_size">
-                    <div class="stat-bar info" :class="isStale(statsFor(item)) ? 'stale' : ''" :style="`--w:${diskPercent(item)}%`" :title="staleAge(statsFor(item))">
+                    <div class="stat-bar info" x-bind="statBarBind(diskPercent(item), 'columns.disk')" :class="isStale(statsFor(item)) ? 'stale' : ''" :style="`--w:${diskPercent(item)}%`" :title="staleAge(statsFor(item))">
                       <div class="fill"></div>
                       <div class="label" x-text="fmtBytes(statsFor(item).size_root)"></div>
                     </div>
@@ -1328,7 +1328,7 @@
                               ? cpuLabel(nodeCpuPercent(node.name))
                               : '—'"></span>
               </div>
-              <div class="stat-bar"
+              <div class="stat-bar" x-bind="statBarBind(nodeCpuPercent(node.name), 'columns.cpu')"
                    :class="barLevel(nodeCpuPercent(node.name))"
                    :style="'--w: ' + nodeCpuPercent(node.name) + '%'">
                 <div class="fill"></div>
@@ -1365,7 +1365,7 @@
                                 : '—'"></span>
                 </template>
               </div>
-              <div class="stat-bar"
+              <div class="stat-bar" x-bind="statBarBind((nodeStats(node.name).hasHostStats ? hostMemPercent(node.name) : nodeMemPercent(node.name)), 'columns.memory')"
                    :class="barLevel(nodeStats(node.name).hasHostStats ? hostMemPercent(node.name) : nodeMemPercent(node.name))"
                    :style="'--w: ' + (nodeStats(node.name).hasHostStats ? hostMemPercent(node.name) : nodeMemPercent(node.name)) + '%'">
                 <div class="fill"></div>
@@ -1393,7 +1393,7 @@
                                   + fmtBytes(nodeStats(node.name).hostDiskUsed) + ' / '
                                   + fmtBytes(nodeStats(node.name).hostDiskTotal)"></span>
                   </div>
-                  <div class="stat-bar"
+                  <div class="stat-bar" x-bind="statBarBind(hostDiskPercent(node.name), 'columns.disk')"
                        :class="barLevel(hostDiskPercent(node.name))"
                        :style="'--w: ' + hostDiskPercent(node.name) + '%'">
                     <div class="fill"></div>
@@ -1410,7 +1410,7 @@
                     <span class="text-[12px] mono"
                           x-text="nodeStats(node.name).hasSize ? fmtBytes(nodeStats(node.name).dockerDisk) : '—'"></span>
                   </div>
-                  <div class="stat-bar"
+                  <div class="stat-bar" x-bind="statBarBind(nodeDiskPercent(node.name), 'columns.disk')"
                        :class="barLevel(nodeDiskPercent(node.name))"
                        :style="'--w: ' + nodeDiskPercent(node.name) + '%'">
                     <div class="fill"></div>
@@ -1871,7 +1871,7 @@
               <div class="host-mobile-card-metric">
                 <span class="name" x-text="t('columns.cpu')"></span>
                 <span class="value" x-text="(h.cpu_percent || 0).toFixed(1) + '%'"></span>
-                <div class="stat-bar"
+                <div class="stat-bar" x-bind="statBarBind(Math.round(Math.min(100, h.cpu_percent || 0)), 'columns.cpu')"
                      :class="[barLevel(h.cpu_percent), isStaleField(h, 'host_cpu_percent') ? 'stale' : '']"
                      :style="'--w: ' + Math.round(Math.min(100, h.cpu_percent || 0)) + '%'"
                      :title="isStaleField(h, 'host_cpu_percent') ? staleAge(h) : ''">
@@ -1882,7 +1882,7 @@
                 <span class="name" x-text="t('columns.memory')"></span>
                 <span class="value"
                       x-text="Math.round(h.mem_percent || memPercentOf(h)) + '%'"></span>
-                <div class="stat-bar"
+                <div class="stat-bar" x-bind="statBarBind(Math.round(h.mem_percent || memPercentOf(h)), 'columns.memory')"
                      :class="[barLevel(h.mem_percent || memPercentOf(h)), (isStaleField(h, 'host_mem_total') || isStaleField(h, 'host_mem_used')) ? 'stale' : '']"
                      :style="'--w: ' + Math.round(h.mem_percent || memPercentOf(h)) + '%'"
                      :title="(isStaleField(h, 'host_mem_total') || isStaleField(h, 'host_mem_used')) ? staleAge(h) : ''">
@@ -1893,7 +1893,7 @@
                 <span class="name" x-text="t('columns.disk')"></span>
                 <span class="value"
                       x-text="Math.round(h.disk_percent || diskPercentOf(h)) + '%'"></span>
-                <div class="stat-bar"
+                <div class="stat-bar" x-bind="statBarBind(Math.round(h.disk_percent || diskPercentOf(h)), 'columns.disk')"
                      :class="[barLevel(h.disk_percent || diskPercentOf(h)), (isStaleField(h, 'host_disk_total') || isStaleField(h, 'host_disk_used')) ? 'stale' : '']"
                      :style="'--w: ' + Math.round(h.disk_percent || diskPercentOf(h)) + '%'"
                      :title="(isStaleField(h, 'host_disk_total') || isStaleField(h, 'host_disk_used')) ? staleAge(h) : ''">
@@ -2130,7 +2130,7 @@
                          which bar was CPU vs Memory vs Disk just by
                          the colour/level. Title now combines metric
                          name + percent + bytes (where applicable). -->
-                    <div class="stat-bar"
+                    <div class="stat-bar" x-bind="statBarBind(Math.round(Math.min(100, h.cpu_percent || 0)), 'columns.cpu')"
                          :class="[barLevel(h.cpu_percent), isStaleField(h, 'host_cpu_percent') ? 'stale' : '']"
                          :style="'--w: ' + Math.round(Math.min(100, h.cpu_percent || 0)) + '%'"
                          :title="t('columns.cpu') + ': ' + (h.cpu_percent || 0).toFixed(1) + '%' + (h.cores ? ' (' + h.cores + ' cores)' : '') + (isStaleField(h, 'host_cpu_percent') ? ' — ' + staleAge(h) : '')">
@@ -2145,7 +2145,7 @@
               <div>
                 <template x-if="h.status === 'up' && hostHasTelemetry(h)">
                   <div>
-                    <div class="stat-bar"
+                    <div class="stat-bar" x-bind="statBarBind(Math.round(h.mem_percent || memPercentOf(h)), 'columns.memory')"
                          :class="[barLevel(h.mem_percent || memPercentOf(h)), (isStaleField(h, 'host_mem_total') || isStaleField(h, 'host_mem_used')) ? 'stale' : '']"
                          :style="'--w: ' + Math.round(h.mem_percent || memPercentOf(h)) + '%'"
                          :title="t('columns.memory') + ': ' + Math.round(h.mem_percent || memPercentOf(h)) + '%' + (h.mem_total ? ' (' + fmtBytes(h.mem_used) + ' / ' + fmtBytes(h.mem_total) + ')' : '') + ((isStaleField(h, 'host_mem_total') || isStaleField(h, 'host_mem_used')) ? ' — ' + staleAge(h) : '')">
@@ -2183,7 +2183,7 @@
                       </div>
                     </template>
                     <template x-if="(h.mounts || []).length <= 1">
-                      <div class="stat-bar"
+                      <div class="stat-bar" x-bind="statBarBind(Math.round(h.disk_percent || diskPercentOf(h)), 'columns.disk')"
                            :class="[barLevel(h.disk_percent || diskPercentOf(h)), (isStaleField(h, 'host_disk_total') || isStaleField(h, 'host_disk_used')) ? 'stale' : '']"
                            :style="'--w: ' + Math.round(h.disk_percent || diskPercentOf(h)) + '%'"
                            :title="t('columns.disk') + ': ' + Math.round(h.disk_percent || diskPercentOf(h)) + '%' + (h.disk_total ? ' (' + fmtBytes(h.disk_used) + ' / ' + fmtBytes(h.disk_total) + ')' : '') + ((isStaleField(h, 'host_disk_total') || isStaleField(h, 'host_disk_used')) ? ' — ' + staleAge(h) : '')">
@@ -4474,7 +4474,8 @@
              `localStorage.hostStatsTab`. Adding a sixth provider
              (SNMP — #344) is one line on this strip + one new tab
              body below. -->
-        <div class="flex items-center gap-1 border-b border-[var(--border)] mb-4 overflow-x-auto overflow-y-hidden scrollbar">
+        <div class="flex items-center gap-1 border-b border-[var(--border)] mb-4 overflow-x-auto overflow-y-hidden scrollbar"
+             role="tablist" aria-orientation="horizontal" :aria-label="t('settings.host_stats.tablist_label')">
           <template x-for="tab in [
             ['node_exporter', t('settings.host_stats.source_node_exporter')],
             ['beszel',        t('settings.host_stats.source_beszel')],
@@ -4484,6 +4485,15 @@
             ['snmp',          t('settings.host_stats.source_snmp')],
           ]" :key="tab[0]">
             <button @click="setHostStatsTab(tab[0])"
+                    role="tab"
+                    :id="'provider-tab-' + tab[0]"
+                    :aria-selected="hostStatsTab === tab[0] ? 'true' : 'false'"
+                    :aria-controls="'provider-tabpanel-' + tab[0]"
+                    :tabindex="hostStatsTab === tab[0] ? 0 : -1"
+                    @keydown.right.prevent="cycleHostStatsTab(1)"
+                    @keydown.left.prevent="cycleHostStatsTab(-1)"
+                    @keydown.home.prevent="setHostStatsTab(HOST_STATS_TAB_ORDER[0])"
+                    @keydown.end.prevent="setHostStatsTab(HOST_STATS_TAB_ORDER[HOST_STATS_TAB_ORDER.length - 1])"
                     :class="hostStatsTab === tab[0]
                       ? 'text-[var(--text)] border-[var(--primary)]'
                       : 'text-[var(--text-dim)] hover:text-[var(--text)] border-transparent'"
@@ -4511,7 +4521,7 @@
              reads as "saved but inactive" instead of disappearing.
              Operator can audit configured values for a disabled
              provider without flipping it back on. -->
-        <div x-show="hostStatsTab === 'node_exporter'" class="space-y-3" :class="!hasHostStatsSource('node_exporter') ? 'opacity-60' : ''">
+        <div x-show="hostStatsTab === 'node_exporter'" class="space-y-3" role="tabpanel" id="provider-tabpanel-node_exporter" aria-labelledby="provider-tab-node_exporter" :class="!hasHostStatsSource('node_exporter') ? 'opacity-60' : ''">
           <div class="flex items-center justify-between gap-2 pb-2 border-b border-dashed border-[var(--border)]">
             <label class="inline-flex items-center gap-2 text-[12px] font-medium">
               <input type="checkbox" :disabled="isReadonly()"
@@ -4620,7 +4630,7 @@
                x-text="t('settings.host_stats.chip_color_hint')"></p>
           </div>
         </div>
-        <div x-show="hostStatsTab === 'beszel'" class="space-y-3" :class="!hasHostStatsSource('beszel') ? 'opacity-60' : ''">
+        <div x-show="hostStatsTab === 'beszel'" class="space-y-3" role="tabpanel" id="provider-tabpanel-beszel" aria-labelledby="provider-tab-beszel" :class="!hasHostStatsSource('beszel') ? 'opacity-60' : ''">
           <div class="flex items-center justify-between gap-2 pb-2 border-b border-dashed border-[var(--border)]">
             <label class="inline-flex items-center gap-2 text-[12px] font-medium">
               <input type="checkbox" :disabled="isReadonly()"
@@ -4756,7 +4766,7 @@
         <!-- Pulse config — third provider. PVE-only, so it pairs well
              with Beszel (cross-platform) + node-exporter (Linux detail).
              Token is write-only like Beszel's password. -->
-        <div x-show="hostStatsTab === 'pulse'" class="space-y-3" :class="!hasHostStatsSource('pulse') ? 'opacity-60' : ''">
+        <div x-show="hostStatsTab === 'pulse'" class="space-y-3" role="tabpanel" id="provider-tabpanel-pulse" aria-labelledby="provider-tab-pulse" :class="!hasHostStatsSource('pulse') ? 'opacity-60' : ''">
           <div class="flex items-center justify-between gap-2 pb-2 border-b border-dashed border-[var(--border)]">
             <label class="inline-flex items-center gap-2 text-[12px] font-medium">
               <input type="checkbox" :disabled="isReadonly()"
@@ -4881,7 +4891,7 @@
              per-host (edited in the Hosts tab's webmin_aliases map).
              These fields carry the SHARED credentials that probe every
              Webmin endpoint. Password is write-only like the others. -->
-        <div x-show="hostStatsTab === 'webmin'" class="space-y-3" :class="!hasHostStatsSource('webmin') ? 'opacity-60' : ''">
+        <div x-show="hostStatsTab === 'webmin'" class="space-y-3" role="tabpanel" id="provider-tabpanel-webmin" aria-labelledby="provider-tab-webmin" :class="!hasHostStatsSource('webmin') ? 'opacity-60' : ''">
           <div class="flex items-center justify-between gap-2 pb-2 border-b border-dashed border-[var(--border)]">
             <label class="inline-flex items-center gap-2 text-[12px] font-medium">
               <input type="checkbox" :disabled="isReadonly()"
@@ -5019,7 +5029,7 @@
              Defaults flow into per-host config; per-host overrides win.
              Per-host opt-in still gates probing, so this block is the
              "globals" panel. -->
-        <div x-show="hostStatsTab === 'ping'" class="space-y-3" :class="!hasHostStatsSource('ping') ? 'opacity-60' : ''">
+        <div x-show="hostStatsTab === 'ping'" class="space-y-3" role="tabpanel" id="provider-tabpanel-ping" aria-labelledby="provider-tab-ping" :class="!hasHostStatsSource('ping') ? 'opacity-60' : ''">
           <div class="flex items-center justify-between gap-2 pb-2 border-b border-dashed border-[var(--border)]">
             <label class="inline-flex items-center gap-2 text-[12px] font-medium">
               <input type="checkbox" :disabled="isReadonly()"
@@ -5161,7 +5171,7 @@
              Mirrors the Webmin tab structure (per-host probe with a
              per-host alias map) plus a v3-only sub-block for USM
              credentials. -->
-        <div x-show="hostStatsTab === 'snmp'" class="space-y-3" :class="!hasHostStatsSource('snmp') ? 'opacity-60' : ''">
+        <div x-show="hostStatsTab === 'snmp'" class="space-y-3" role="tabpanel" id="provider-tabpanel-snmp" aria-labelledby="provider-tab-snmp" :class="!hasHostStatsSource('snmp') ? 'opacity-60' : ''">
           <div class="flex items-center justify-between gap-2 pb-2 border-b border-dashed border-[var(--border)]">
             <label class="inline-flex items-center gap-2 text-[12px] font-medium">
               <input type="checkbox" :disabled="isReadonly() || !settings.snmp_has_snmp_support"
@@ -7115,9 +7125,8 @@
                     x-show="sshSettings.private_key_set && isAdmin()"
                     @click="clearSshSecret('private_key')"
                     class="ms-auto text-[10.5px] text-[var(--danger)] hover:underline"
-                    :title="t('admin_ssh.clear_key_title')">
-              Clear
-            </button>
+                    :title="t('admin_ssh.clear_key_title')"
+                    x-text="t('admin_ssh.clear_label')"></button>
           </label>
           <textarea x-model="sshSettings.private_key"
                     @input="markSshSettingsDirty()"
@@ -7137,9 +7146,8 @@
                     x-show="sshSettings.passphrase_set && isAdmin()"
                     @click="clearSshSecret('passphrase')"
                     class="ms-auto text-[10.5px] text-[var(--danger)] hover:underline"
-                    :title="t('admin_ssh.clear_passphrase_title')">
-              Clear
-            </button>
+                    :title="t('admin_ssh.clear_passphrase_title')"
+                    x-text="t('admin_ssh.clear_label')"></button>
           </label>
           <input x-model="sshSettings.passphrase" type="password"
                  autocomplete="new-password"
@@ -9432,7 +9440,7 @@
                           :class="isStaleField(h, 'host_battery_percent') ? 'stale' : ''"
                           :title="isStaleField(h, 'host_battery_percent') ? staleAge(h) : ''">
                         <div class="flex items-center justify-end gap-2">
-                          <div class="stat-bar w-24"
+                          <div class="stat-bar w-24" x-bind="statBarBind((h.host_battery_percent || 0), 'hosts_extra.metrics.ups_battery')"
                                role="progressbar"
                                aria-valuemin="0"
                                aria-valuemax="100"
@@ -9454,7 +9462,7 @@
                           :class="isStaleField(h, 'host_load_percent') ? 'stale' : ''"
                           :title="isStaleField(h, 'host_load_percent') ? staleAge(h) : ''">
                         <div class="flex items-center justify-end gap-2">
-                          <div class="stat-bar w-24"
+                          <div class="stat-bar w-24" x-bind="statBarBind((h.host_load_percent || 0), 'hosts_extra.metrics.load_avg')"
                                role="progressbar"
                                aria-valuemin="0"
                                aria-valuemax="100"
@@ -9626,6 +9634,7 @@
                               x-text="'(' + ((h.host_dell_voltages || []).length) + ')'"></span>
                       </div>
                       <ul class="server-health-list mono"
+                          :id="'server-health-volt-' + h.id"
                           :class="(h.host_dell_voltages || []).length > 12 ? 'server-health-list--dense' : ''">
                         <template x-for="row in serverHealthVisibleRows(h.id, 'volt', h.host_dell_voltages || [])" :key="row.idx">
                           <li class="server-health-row"
@@ -9644,6 +9653,8 @@
                       <button x-show="serverHealthCollapsible(h.host_dell_voltages || [])"
                               type="button"
                               class="server-health-toggle"
+                              :aria-expanded="serverHealthIsExpanded(h.id, 'volt')"
+                              :aria-controls="'server-health-volt-' + h.id"
                               @click="toggleServerHealthExpanded(h.id, 'volt')"
                               x-text="serverHealthIsExpanded(h.id, 'volt')
                                         ? t('host_drawer.server_health.show_fewer')
@@ -9661,6 +9672,7 @@
                               x-text="'(' + ((h.host_dell_phys_disks || []).length) + ')'"></span>
                       </div>
                       <ul class="server-health-list mono"
+                          :id="'server-health-pd-' + h.id"
                           :class="(h.host_dell_phys_disks || []).length > 12 ? 'server-health-list--dense' : ''">
                         <template x-for="row in serverHealthVisibleRows(h.id, 'pd', h.host_dell_phys_disks || [])" :key="row.idx">
                           <li class="server-health-row"
@@ -9679,6 +9691,8 @@
                       <button x-show="serverHealthCollapsible(h.host_dell_phys_disks || [])"
                               type="button"
                               class="server-health-toggle"
+                              :aria-expanded="serverHealthIsExpanded(h.id, 'pd')"
+                              :aria-controls="'server-health-pd-' + h.id"
                               @click="toggleServerHealthExpanded(h.id, 'pd')"
                               x-text="serverHealthIsExpanded(h.id, 'pd')
                                         ? t('host_drawer.server_health.show_fewer')
@@ -9781,7 +9795,7 @@
                              its mapped brand colour (cyan / magenta /
                              yellow / black / waste-grey). Set the fill
                              background inline to the resolved colour. -->
-                        <div class="stat-bar"
+                        <div class="stat-bar" x-bind="statBarBind(Math.round(supply.percent || 0))"
                              :class="printerSupplyLevel(supply)"
                              :style="'--w:' + Math.round(supply.percent || 0) + '%'">
                           <div class="fill" :style="'background:' + printerSupplyColor(supply)"></div>
@@ -10029,7 +10043,7 @@
                                       + fmtBytes(h.disk_used) + ' / '
                                       + fmtBytes(h.disk_total)"></span>
                       </div>
-                      <div class="stat-bar mt-1"
+                      <div class="stat-bar mt-1" x-bind="statBarBind(diskPercentOf(h), 'columns.disk')"
                            :class="barLevel(diskPercentOf(h))"
                            :style="'--w: ' + diskPercentOf(h) + '%'">
                         <div class="fill"></div>
@@ -10053,7 +10067,7 @@
                                           + fmtBytes((m.d || 0) * 1024**3)
                                         : ''"></span>
                         </div>
-                        <div class="stat-bar mt-0.5"
+                        <div class="stat-bar mt-0.5" x-bind="statBarBind((m.dp || 0))"
                              :class="barLevel(m.dp || 0)"
                              :style="'--w: ' + (m.dp || 0) + '%'">
                           <div class="fill"></div>
@@ -10211,7 +10225,7 @@
                     <div class="metric-card-title">
                       <span x-text="t('hosts_extra.metrics.ping')"></span>
                       <span class="unit">ms</span>
-                      <span class="metric-source-help" :title="metricSource(h, 'ping')"
+                      <button type="button" class="metric-source-help" :title="metricSource(h, 'ping')" :aria-expanded="metricTooltipOpen === metricTooltipKey(h, 'ping')"
                             @click.stop="toggleMetricTooltip(h, 'ping')"
                             @keydown.escape.window="metricTooltipOpen = null">
                         <svg width="12" height="12" aria-hidden="true"><use href="/img/ui-sprite.svg#icon-help-circle"/></svg>
@@ -10220,7 +10234,7 @@
                               x-cloak @click.stop
                               x-transition.opacity.duration.120ms
                               x-text="metricSource(h, 'ping')"></span>
-                      </span>
+                      </button>
                     </div>
                     <div class="metric-card-stats">
                       <span x-show="h.ping_alive === false"
@@ -10353,7 +10367,7 @@
                   <div class="metric-card-head">
                     <div class="metric-card-title">
                       <span x-text="t('host_drawer.snmp_charts.cpu_title')"></span><span class="unit">%</span>
-                      <span class="metric-source-help" :title="metricSource(h, 'snmp_cpu')"
+                      <button type="button" class="metric-source-help" :title="metricSource(h, 'snmp_cpu')" :aria-expanded="metricTooltipOpen === metricTooltipKey(h, 'snmp_cpu')"
                             @click.stop="toggleMetricTooltip(h, 'snmp_cpu')"
                             @keydown.escape.window="metricTooltipOpen = null">
                         <svg width="12" height="12" aria-hidden="true"><use href="/img/ui-sprite.svg#icon-help-circle"/></svg>
@@ -10362,7 +10376,7 @@
                               x-cloak @click.stop
                               x-transition.opacity.duration.120ms
                               x-text="metricSource(h, 'snmp_cpu')"></span>
-                      </span>
+                      </button>
                     </div>
                     <div class="metric-card-stats">
                       <span x-show="snmpStats(h.id, 'cpu_used_pct')">
@@ -10411,7 +10425,7 @@
                   <div class="metric-card-head">
                     <div class="metric-card-title">
                       <span x-text="t('host_drawer.snmp_charts.load_title')"></span><span class="unit">%</span>
-                      <span class="metric-source-help" :title="metricSource(h, 'snmp_load')"
+                      <button type="button" class="metric-source-help" :title="metricSource(h, 'snmp_load')" :aria-expanded="metricTooltipOpen === metricTooltipKey(h, 'snmp_load')"
                             @click.stop="toggleMetricTooltip(h, 'snmp_load')"
                             @keydown.escape.window="metricTooltipOpen = null">
                         <svg width="12" height="12" aria-hidden="true"><use href="/img/ui-sprite.svg#icon-help-circle"/></svg>
@@ -10420,7 +10434,7 @@
                               x-cloak @click.stop
                               x-transition.opacity.duration.120ms
                               x-text="metricSource(h, 'snmp_load')"></span>
-                      </span>
+                      </button>
                     </div>
                     <div class="metric-card-stats">
                       <span>
@@ -10482,7 +10496,7 @@
                          misaligned). -->
                     <div class="metric-card-title">
                       <span x-text="t('host_drawer.snmp_charts.mem_title')"></span><span class="unit" x-text="unitForBytes(snmpMemMax(h))"></span>
-                      <span class="metric-source-help" :title="metricSource(h, 'snmp_memory')"
+                      <button type="button" class="metric-source-help" :title="metricSource(h, 'snmp_memory')" :aria-expanded="metricTooltipOpen === metricTooltipKey(h, 'snmp_memory')"
                             @click.stop="toggleMetricTooltip(h, 'snmp_memory')"
                             @keydown.escape.window="metricTooltipOpen = null">
                         <svg width="12" height="12" aria-hidden="true"><use href="/img/ui-sprite.svg#icon-help-circle"/></svg>
@@ -10491,7 +10505,7 @@
                               x-cloak @click.stop
                               x-transition.opacity.duration.120ms
                               x-text="metricSource(h, 'snmp_memory')"></span>
-                      </span>
+                      </button>
                     </div>
                     <div class="metric-card-stats">
                       <span x-show="snmpStats(h.id, 'mem_used')">
@@ -10559,7 +10573,7 @@
                   <div class="metric-card-head">
                     <div class="metric-card-title">
                       <span x-text="t('host_drawer.snmp_charts.throughput_title')"></span><span class="unit" x-text="unitForBytes(snmpThroughputMaxBps(h.id)) + '/s'"></span>
-                      <span class="metric-source-help" :title="metricSource(h, 'snmp_throughput')"
+                      <button type="button" class="metric-source-help" :title="metricSource(h, 'snmp_throughput')" :aria-expanded="metricTooltipOpen === metricTooltipKey(h, 'snmp_throughput')"
                             @click.stop="toggleMetricTooltip(h, 'snmp_throughput')"
                             @keydown.escape.window="metricTooltipOpen = null">
                         <svg width="12" height="12" aria-hidden="true"><use href="/img/ui-sprite.svg#icon-help-circle"/></svg>
@@ -10568,7 +10582,7 @@
                               x-cloak @click.stop
                               x-transition.opacity.duration.120ms
                               x-text="metricSource(h, 'snmp_throughput')"></span>
-                      </span>
+                      </button>
                     </div>
                     <div class="metric-card-stats">
                       <span>
@@ -10638,7 +10652,7 @@
                   <div class="metric-card-head">
                     <div class="metric-card-title">
                       <span x-text="t('host_drawer.snmp_charts.per_port_title')"></span><span class="unit" x-text="unitForBytes(snmpIfaceMaxBps(h.id)) + '/s'"></span>
-                      <span class="metric-source-help" :title="metricSource(h, 'snmp_throughput')"
+                      <button type="button" class="metric-source-help" :title="metricSource(h, 'snmp_throughput')" :aria-expanded="metricTooltipOpen === metricTooltipKey(h, 'snmp_throughput')"
                             @click.stop="toggleMetricTooltip(h, 'snmp_per_port')"
                             @keydown.escape.window="metricTooltipOpen = null">
                         <svg width="12" height="12" aria-hidden="true"><use href="/img/ui-sprite.svg#icon-help-circle"/></svg>
@@ -10647,7 +10661,7 @@
                               x-cloak @click.stop
                               x-transition.opacity.duration.120ms
                               x-text="metricSource(h, 'snmp_throughput')"></span>
-                      </span>
+                      </button>
                     </div>
                     <div class="metric-card-stats">
                       <template x-for="(iface, idx) in snmpTopIfacesByThroughput(h.id, 5)" :key="'pp-leg-' + iface.name">
@@ -10715,7 +10729,7 @@
                   <div class="metric-card-head">
                     <div class="metric-card-title">
                       <span x-text="t('host_drawer.snmp_charts.heatmap_title')"></span><span class="unit">%</span>
-                      <span class="metric-source-help" :title="metricSource(h, 'snmp_throughput')"
+                      <button type="button" class="metric-source-help" :title="metricSource(h, 'snmp_throughput')" :aria-expanded="metricTooltipOpen === metricTooltipKey(h, 'snmp_throughput')"
                             @click.stop="toggleMetricTooltip(h, 'snmp_heatmap')"
                             @keydown.escape.window="metricTooltipOpen = null">
                         <svg width="12" height="12" aria-hidden="true"><use href="/img/ui-sprite.svg#icon-help-circle"/></svg>
@@ -10724,7 +10738,7 @@
                               x-cloak @click.stop
                               x-transition.opacity.duration.120ms
                               x-text="metricSource(h, 'snmp_throughput')"></span>
-                      </span>
+                      </button>
                     </div>
                     <div class="metric-card-stats">
                       <template x-for="(iface, idx) in snmpTopIfacesByThroughput(h.id, 5)" :key="'util-leg-' + iface.name">
@@ -10938,7 +10952,7 @@
                   <div class="metric-card-head">
                     <div class="metric-card-title">
                       <span x-text="t('host_drawer.snmp_charts.dell_temps_title')"></span><span class="unit">°C</span>
-                      <span class="metric-source-help" :title="metricSource(h, 'dell_temps')"
+                      <button type="button" class="metric-source-help" :title="metricSource(h, 'dell_temps')" :aria-expanded="metricTooltipOpen === metricTooltipKey(h, 'dell_temps')"
                             @click.stop="toggleMetricTooltip(h, 'dell_temps')"
                             @keydown.escape.window="metricTooltipOpen = null">
                         <svg width="12" height="12" aria-hidden="true"><use href="/img/ui-sprite.svg#icon-help-circle"/></svg>
@@ -10946,7 +10960,7 @@
                               x-show="metricTooltipOpen === (h.id + ':dell_temps')"
                               x-text="metricSource(h, 'dell_temps')"
                               @click.outside="metricTooltipOpen = null"></span>
-                      </span>
+                      </button>
                     </div>
                   </div>
                   <template x-if="dellHasTempHistory(h.id)">
@@ -11030,7 +11044,7 @@
                   <div class="metric-card-head">
                     <div class="metric-card-title">
                       <span>CPU</span><span class="unit">%</span>
-                      <span class="metric-source-help" :title="metricSource(h, 'cpu')"
+                      <button type="button" class="metric-source-help" :title="metricSource(h, 'cpu')" :aria-expanded="metricTooltipOpen === metricTooltipKey(h, 'cpu')"
                             @click.stop="toggleMetricTooltip(h, 'cpu')"
                             @keydown.escape.window="metricTooltipOpen = null">
                         <svg width="12" height="12" aria-hidden="true"><use href="/img/ui-sprite.svg#icon-help-circle"/></svg>
@@ -11040,7 +11054,7 @@
                               @click.stop
                               x-transition.opacity.duration.120ms
                               x-text="metricSource(h, 'cpu')"></span>
-                      </span>
+                      </button>
                     </div>
                     <div class="metric-card-stats"
                          x-show="hostMetricStats(hostHistoryKey(h), 'cpu')">
@@ -11089,7 +11103,7 @@
                   <div class="metric-card-head">
                     <div class="metric-card-title">
                       <span>Memory</span><span class="unit">%</span>
-                      <span class="metric-source-help" :title="metricSource(h, 'memory')"
+                      <button type="button" class="metric-source-help" :title="metricSource(h, 'memory')" :aria-expanded="metricTooltipOpen === metricTooltipKey(h, 'memory')"
                             @click.stop="toggleMetricTooltip(h, 'memory')"
                             @keydown.escape.window="metricTooltipOpen = null">
                         <svg width="12" height="12" aria-hidden="true"><use href="/img/ui-sprite.svg#icon-help-circle"/></svg>
@@ -11099,7 +11113,7 @@
                               @click.stop
                               x-transition.opacity.duration.120ms
                               x-text="metricSource(h, 'memory')"></span>
-                      </span>
+                      </button>
                     </div>
                     <div class="metric-card-stats"
                          x-show="hostMetricStats(hostHistoryKey(h), 'mp')">
@@ -11140,7 +11154,7 @@
                   <div class="metric-card-head">
                     <div class="metric-card-title">
                       <span>Disk</span><span class="unit">%</span>
-                      <span class="metric-source-help" :title="metricSource(h, 'disk')"
+                      <button type="button" class="metric-source-help" :title="metricSource(h, 'disk')" :aria-expanded="metricTooltipOpen === metricTooltipKey(h, 'disk')"
                             @click.stop="toggleMetricTooltip(h, 'disk')"
                             @keydown.escape.window="metricTooltipOpen = null">
                         <svg width="12" height="12" aria-hidden="true"><use href="/img/ui-sprite.svg#icon-help-circle"/></svg>
@@ -11150,7 +11164,7 @@
                               @click.stop
                               x-transition.opacity.duration.120ms
                               x-text="metricSource(h, 'disk')"></span>
-                      </span>
+                      </button>
                     </div>
                     <div class="metric-card-stats"
                          x-show="hostMetricStats(hostHistoryKey(h), 'dp')">
@@ -11210,7 +11224,7 @@
                   <div class="metric-card-head">
                     <div class="metric-card-title">
                       <span x-text="t('hosts_extra.metrics.network')"></span><span class="unit" x-text="unitForBytes(hostChartMax(hostHistoryKey(h), ['nr','ns'])) + '/s'"></span>
-                      <span class="metric-source-help" :title="metricSource(h, 'network')"
+                      <button type="button" class="metric-source-help" :title="metricSource(h, 'network')" :aria-expanded="metricTooltipOpen === metricTooltipKey(h, 'network')"
                             @click.stop="toggleMetricTooltip(h, 'network')"
                             @keydown.escape.window="metricTooltipOpen = null">
                         <svg width="12" height="12" aria-hidden="true"><use href="/img/ui-sprite.svg#icon-help-circle"/></svg>
@@ -11220,7 +11234,7 @@
                               @click.stop
                               x-transition.opacity.duration.120ms
                               x-text="metricSource(h, 'network')"></span>
-                      </span>
+                      </button>
                     </div>
                     <div class="metric-card-stats">
                       <span x-show="hostMetricStats(hostHistoryKey(h), 'nr', false)">
@@ -11346,7 +11360,7 @@
                   <div class="metric-card-head">
                     <div class="metric-card-title">
                       <span x-text="t('hosts_extra.metrics.disk_io')"></span><span class="unit" x-text="unitForBytes(hostChartMax(hostHistoryKey(h), ['dr','dw'])) + '/s'"></span>
-                      <span class="metric-source-help" :title="metricSource(h, 'disk_io')"
+                      <button type="button" class="metric-source-help" :title="metricSource(h, 'disk_io')" :aria-expanded="metricTooltipOpen === metricTooltipKey(h, 'disk_io')"
                             @click.stop="toggleMetricTooltip(h, 'disk_io')"
                             @keydown.escape.window="metricTooltipOpen = null">
                         <svg width="12" height="12" aria-hidden="true"><use href="/img/ui-sprite.svg#icon-help-circle"/></svg>
@@ -11356,7 +11370,7 @@
                               @click.stop
                               x-transition.opacity.duration.120ms
                               x-text="metricSource(h, 'disk_io')"></span>
-                      </span>
+                      </button>
                     </div>
                     <div class="metric-card-stats">
                       <span x-show="hostMetricStats(hostHistoryKey(h), 'dr', false)">
@@ -11443,7 +11457,7 @@
                   <div class="metric-card-head">
                     <div class="metric-card-title">
                       <span x-text="t('hosts_extra.metrics.load_avg')"></span><span class="unit">%</span>
-                      <span class="metric-source-help" :title="metricSource(h, 'load_avg')"
+                      <button type="button" class="metric-source-help" :title="metricSource(h, 'load_avg')" :aria-expanded="metricTooltipOpen === metricTooltipKey(h, 'load_avg')"
                             @click.stop="toggleMetricTooltip(h, 'load_avg')"
                             @keydown.escape.window="metricTooltipOpen = null">
                         <svg width="12" height="12" aria-hidden="true"><use href="/img/ui-sprite.svg#icon-help-circle"/></svg>
@@ -11453,7 +11467,7 @@
                               @click.stop
                               x-transition.opacity.duration.120ms
                               x-text="metricSource(h, 'load_avg')"></span>
-                      </span>
+                      </button>
                     </div>
                     <div class="metric-card-stats">
                       <span x-show="hostMetricStats(hostHistoryKey(h), 'la1_pct', false)">
@@ -11518,7 +11532,7 @@
                   <div class="metric-card-head">
                     <div class="metric-card-title">
                       <span x-text="t('hosts_extra.metrics.bandwidth')"></span><span class="unit" x-text="unitForBytes(hostChartMax(hostHistoryKey(h), ['net'])) + '/s'"></span>
-                      <span class="metric-source-help" :title="metricSource(h, 'bandwidth')"
+                      <button type="button" class="metric-source-help" :title="metricSource(h, 'bandwidth')" :aria-expanded="metricTooltipOpen === metricTooltipKey(h, 'bandwidth')"
                             @click.stop="toggleMetricTooltip(h, 'bandwidth')"
                             @keydown.escape.window="metricTooltipOpen = null">
                         <svg width="12" height="12" aria-hidden="true"><use href="/img/ui-sprite.svg#icon-help-circle"/></svg>
@@ -11528,7 +11542,7 @@
                               @click.stop
                               x-transition.opacity.duration.120ms
                               x-text="metricSource(h, 'bandwidth')"></span>
-                      </span>
+                      </button>
                     </div>
                     <div class="metric-card-stats"
                          x-show="hostMetricStats(hostHistoryKey(h), 'net', false)">
@@ -11573,7 +11587,7 @@
                   <div class="metric-card-head">
                     <div class="metric-card-title">
                       <span x-text="t('hosts_extra.metrics.swap')"></span><span class="unit">%</span>
-                      <span class="metric-source-help" :title="metricSource(h, 'swap')"
+                      <button type="button" class="metric-source-help" :title="metricSource(h, 'swap')" :aria-expanded="metricTooltipOpen === metricTooltipKey(h, 'swap')"
                             @click.stop="toggleMetricTooltip(h, 'swap')"
                             @keydown.escape.window="metricTooltipOpen = null">
                         <svg width="12" height="12" aria-hidden="true"><use href="/img/ui-sprite.svg#icon-help-circle"/></svg>
@@ -11583,7 +11597,7 @@
                               @click.stop
                               x-transition.opacity.duration.120ms
                               x-text="metricSource(h, 'swap')"></span>
-                      </span>
+                      </button>
                     </div>
                     <div class="metric-card-stats"
                          x-show="hostMetricStats(hostHistoryKey(h), 's')">
@@ -11632,7 +11646,7 @@
                   <div class="metric-card-head">
                     <div class="metric-card-title">
                       <span x-text="t('hosts_extra.metrics.temperature')"></span><span class="unit">°C</span>
-                      <span class="metric-source-help" :title="metricSource(h, 'temperature')"
+                      <button type="button" class="metric-source-help" :title="metricSource(h, 'temperature')" :aria-expanded="metricTooltipOpen === metricTooltipKey(h, 'temperature')"
                             @click.stop="toggleMetricTooltip(h, 'temperature')"
                             @keydown.escape.window="metricTooltipOpen = null">
                         <svg width="12" height="12" aria-hidden="true"><use href="/img/ui-sprite.svg#icon-help-circle"/></svg>
@@ -11642,7 +11656,7 @@
                               @click.stop
                               x-transition.opacity.duration.120ms
                               x-text="metricSource(h, 'temperature')"></span>
-                      </span>
+                      </button>
                     </div>
                     <!-- Live per-sensor readout — sorted hottest-first
                          so the operator's eye lands on the worst
@@ -11752,7 +11766,7 @@
                   <div class="metric-card-head">
                     <div class="metric-card-title">
                       <span x-text="t('hosts_extra.metrics.gpu_power')"></span><span class="unit">W</span>
-                      <span class="metric-source-help" :title="metricSource(h, 'gpu')"
+                      <button type="button" class="metric-source-help" :title="metricSource(h, 'gpu')" :aria-expanded="metricTooltipOpen === metricTooltipKey(h, 'gpu')"
                             @click.stop="toggleMetricTooltip(h, 'gpu_pwr')"
                             @keydown.escape.window="metricTooltipOpen = null">
                         <svg width="12" height="12" aria-hidden="true"><use href="/img/ui-sprite.svg#icon-help-circle"/></svg>
@@ -11761,7 +11775,7 @@
                               x-cloak @click.stop
                               x-transition.opacity.duration.120ms
                               x-text="metricSource(h, 'gpu')"></span>
-                      </span>
+                      </button>
                     </div>
                     <div class="metric-card-stats">
                       <template x-for="(gpu, i) in (h.host_gpus || [])" :key="'gpw' + i">
@@ -11806,7 +11820,7 @@
                   <div class="metric-card-head">
                     <div class="metric-card-title">
                       <span x-text="t('hosts_extra.metrics.gpu_usage')"></span><span class="unit">%</span>
-                      <span class="metric-source-help" :title="metricSource(h, 'gpu')"
+                      <button type="button" class="metric-source-help" :title="metricSource(h, 'gpu')" :aria-expanded="metricTooltipOpen === metricTooltipKey(h, 'gpu')"
                             @click.stop="toggleMetricTooltip(h, 'gpu_usage')"
                             @keydown.escape.window="metricTooltipOpen = null">
                         <svg width="12" height="12" aria-hidden="true"><use href="/img/ui-sprite.svg#icon-help-circle"/></svg>
@@ -11815,7 +11829,7 @@
                               x-cloak @click.stop
                               x-transition.opacity.duration.120ms
                               x-text="metricSource(h, 'gpu')"></span>
-                      </span>
+                      </button>
                     </div>
                     <div class="metric-card-stats">
                       <template x-for="(gpu, i) in (h.host_gpus || [])" :key="'gus' + i">
@@ -11858,7 +11872,7 @@
                   <div class="metric-card-head">
                     <div class="metric-card-title">
                       <span x-text="t('hosts_extra.metrics.gpu_vram')"></span><span class="unit">%</span>
-                      <span class="metric-source-help" :title="metricSource(h, 'gpu')"
+                      <button type="button" class="metric-source-help" :title="metricSource(h, 'gpu')" :aria-expanded="metricTooltipOpen === metricTooltipKey(h, 'gpu')"
                             @click.stop="toggleMetricTooltip(h, 'gpu_vram')"
                             @keydown.escape.window="metricTooltipOpen = null">
                         <svg width="12" height="12" aria-hidden="true"><use href="/img/ui-sprite.svg#icon-help-circle"/></svg>
@@ -11867,7 +11881,7 @@
                               x-cloak @click.stop
                               x-transition.opacity.duration.120ms
                               x-text="metricSource(h, 'gpu')"></span>
-                      </span>
+                      </button>
                     </div>
                     <div class="metric-card-stats">
                       <template x-for="(gpu, i) in (h.host_gpus || [])" :key="'gvr' + i">
@@ -12531,8 +12545,9 @@
   <!-- ================== NEW-TOKEN REVEAL MODAL ================== -->
   <div x-show="lastCreatedToken" class="fixed inset-0 z-50 fade-in">
     <div class="absolute inset-0 backdrop-strong"></div>
-    <div class="relative flex items-center justify-center p-4 h-full overflow-auto">
-      <div class="bg-[var(--surface)] border border-[var(--border)] rounded-md max-w-lg w-full">
+    <div class="relative flex items-center justify-center p-4 h-full overflow-auto scrollbar">
+      <div class="bg-[var(--surface)] border border-[var(--border)] rounded-md max-w-lg w-full"
+           role="dialog" aria-modal="true" :aria-label="t('admin.token_modal.title')">
         <div class="p-4 border-b border-[var(--border)]">
           <h2 class="text-[15px] font-semibold" x-text="t('admin.token_modal.title')"></h2>
           <p class="text-[11.5px] text-[var(--text-faint)] mt-0.5" x-text="t('admin.token_modal.hint')"></p>
@@ -12781,8 +12796,9 @@
        lifecycle hooks (openHostTerminal / closeHostTerminal). -->
   <div x-show="terminalModalOpen" class="fixed inset-0 z-50 fade-in" x-cloak>
     <div @click="closeHostTerminal()" class="absolute inset-0 backdrop-strong"></div>
-    <div class="relative flex items-center justify-center p-4 h-full overflow-auto">
-      <div class="bg-[var(--surface)] border border-[var(--border)] rounded-md max-w-5xl w-full flex flex-col modal-panel--default-height">
+    <div class="relative flex items-center justify-center p-4 h-full overflow-auto scrollbar">
+      <div class="bg-[var(--surface)] border border-[var(--border)] rounded-md max-w-5xl w-full flex flex-col modal-panel--default-height"
+           role="dialog" aria-modal="true" :aria-label="t('hosts_extra_ssh.terminal.modal_title', { host: terminalHost && (terminalHost.label || terminalHost.id) || '' })">
         <header class="p-3 border-b border-[var(--border)] flex justify-between items-center bg-[var(--surface)] z-10 flex-shrink-0">
           <div class="flex items-center gap-3 min-w-0">
             <h2 class="text-[14px] font-semibold truncate"
