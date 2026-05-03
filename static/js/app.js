@@ -9951,40 +9951,16 @@ function app() {
         return;
       }
 
-      // Cmd+K / Ctrl+K — universal "go anywhere" palette toggle.
-      // Intercepted BEFORE the modifier-combo bail-out below because
-      // it IS a modifier combo and we WANT to handle it. Works from
-      // inside any input field too (the only modifier combo we claim
-      // — operators expect Cmd-K to work mid-typing in a search box,
-      // matching Linear / Notion / Raycast convention).
-      //
-      // Browser-conflict caveat: Chrome / Edge on Windows + Linux
-      // capture `Ctrl+K` for the omnibox search shortcut (GitHub,
-      // Linear, Slack all hit the same wall). preventDefault() doesn't
-      // beat the omnibox on those browsers, so we ALSO bind Ctrl+/
-      // (matches GitHub's "command palette" combo) and Ctrl+P (matches
-      // Notion / Slack "quick search") as fallbacks. Operator picks
-      // whichever the OS doesn't steal. Mac stays on Cmd+K (no
-      // conflict; Cmd+L is the address-bar shortcut there).
-      // Detect via e.code (KeyK / Slash / KeyP) so non-US layouts
-      // also match — e.key respects layout, e.code is positional.
-      const cmdMod = (e.metaKey || e.ctrlKey) && !e.altKey && !e.shiftKey;
-      const isPaletteCombo = cmdMod && (
-        // Cmd+K / Ctrl+K — primary on Mac, often captured by omnibox
-        // on Windows Chrome / Edge for address-bar search.
-        (e.key === 'k' || e.key === 'K' || e.code === 'KeyK') ||
-        // Ctrl+/ — GitHub's "command palette" shortcut. Universal —
-        // browsers don't claim this combo so it works everywhere
-        // Ctrl+K doesn't. Also catches non-US keyboard layouts where
-        // / is on a different key (we check `e.code === 'Slash'` too).
-        (e.key === '/' || e.code === 'Slash')
-      );
-      if (isPaletteCombo) {
-        e.preventDefault();
-        if (this.commandPaletteOpen) this.closeCommandPalette();
-        else this.openCommandPalette();
-        return;
-      }
+      // Cmd+K / Ctrl+K palette toggle is owned by the capture-phase
+      // listener registered in `init()` (look for `_cmdpal_handled`).
+      // Originally handled here in bubble phase too, which caused a
+      // double-fire when both listeners ran on the same keydown
+      // (operator-reported `was=true` on first press). The sentinel
+      // is the canonical authority now; this branch was REMOVED to
+      // make the keystroke ownership unambiguous regardless of where
+      // focus lives. Capture-phase fires first regardless of focused
+      // element, so the toggle works from inputs / drawers / any
+      // interactive area.
       // Browser / OS combos — never intercept.
       if (e.ctrlKey || e.metaKey || e.altKey) return;
       // Key repeat (holding a key) or IME composition — user is
