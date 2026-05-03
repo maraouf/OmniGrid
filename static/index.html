@@ -9735,9 +9735,11 @@
                         <span class="text-[var(--text-faint)] ms-1"
                               x-text="'(' + ((h.host_dell_voltages || []).length) + ')'"></span>
                       </div>
-                      <ul class="server-health-list mono">
+                      <ul class="server-health-list mono"
+                          :class="(h.host_dell_voltages || []).length > 12 ? 'server-health-list--dense' : ''">
                         <template x-for="row in (h.host_dell_voltages || [])" :key="row.idx">
-                          <li class="server-health-row">
+                          <li class="server-health-row"
+                              :class="(h.host_dell_voltages || []).length > 12 ? 'server-health-row--dense' : ''">
                             <span class="server-health-row-name" x-text="row.name"></span>
                             <span class="server-health-row-value">
                               <span x-show="row.millivolts"
@@ -9761,9 +9763,11 @@
                         <span class="text-[var(--text-faint)] ms-1"
                               x-text="'(' + ((h.host_dell_phys_disks || []).length) + ')'"></span>
                       </div>
-                      <ul class="server-health-list mono">
+                      <ul class="server-health-list mono"
+                          :class="(h.host_dell_phys_disks || []).length > 12 ? 'server-health-list--dense' : ''">
                         <template x-for="row in (h.host_dell_phys_disks || [])" :key="row.idx">
-                          <li class="server-health-row">
+                          <li class="server-health-row"
+                              :class="(h.host_dell_phys_disks || []).length > 12 ? 'server-health-row--dense' : ''">
                             <span class="server-health-row-name" x-text="row.name"></span>
                             <span class="server-health-row-value">
                               <span x-show="row.capacity_mb"
@@ -11030,6 +11034,15 @@
                   <div class="metric-card-head">
                     <div class="metric-card-title">
                       <span x-text="t('host_drawer.snmp_charts.dell_temps_title')"></span><span class="unit">°C</span>
+                      <span class="metric-source-help" :title="metricSource(h, 'dell_temps')"
+                            @click.stop="toggleMetricTooltip(h, 'dell_temps')"
+                            @keydown.escape.window="metricTooltipOpen = null">
+                        <svg width="12" height="12" aria-hidden="true"><use href="#icon-help-circle"/></svg>
+                        <span class="metric-source-tooltip"
+                              x-show="metricTooltipOpen === (h.id + ':dell_temps')"
+                              x-text="metricSource(h, 'dell_temps')"
+                              @click.outside="metricTooltipOpen = null"></span>
+                      </span>
                     </div>
                   </div>
                   <template x-if="dellHasTempHistory(h.id)">
@@ -12011,11 +12024,14 @@
                               <span class="host-debug-tag host-debug-tag--warn" x-text="t('debug_panel.none')"></span>
                             </template>
                           </div>
-                          <button type="button" class="btn btn-ghost text-[11px]"
+                          <button type="button" class="btn btn-ghost text-[11px] inline-flex items-center gap-1"
                                   @click="loadHostDebug(h.id)"
                                   :disabled="!!hostsDebugLoading[h.id]"
-                                  :title="t('debug_panel.refresh_title')"
-                                  x-text="t('debug_panel.refresh')"></button>
+                                  :title="t('debug_panel.refresh_title')">
+                            <svg width="14" height="14" aria-hidden="true"
+                                 :class="hostsDebugLoading[h.id] ? 'spin-md' : ''"><use href="#icon-refresh-ccw"/></svg>
+                            <span x-text="t('debug_panel.refresh')"></span>
+                          </button>
                         </div>
                         <!-- Five columns wrap to two rows on narrow
                              viewports. Each block is independently

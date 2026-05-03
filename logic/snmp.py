@@ -246,18 +246,27 @@ _OID_DELL_VD_STATE      = "1.3.6.1.4.1.674.10892.5.5.1.20.140.1.1.4"
 _OID_DELL_VD_SIZE       = "1.3.6.1.4.1.674.10892.5.5.1.20.140.1.1.6"
 _OID_DELL_VD_LAYOUT     = "1.3.6.1.4.1.674.10892.5.5.1.20.140.1.1.13"
 
-# Dell physicalDiskState enum — only the values seen in practice.
+# Dell physicalDiskState (arrayDiskState) enum — Dell OpenManage Storage MIB
+# uses 1-indexed values. Empirically confirmed against an R730xd / iDRAC8:
+# state=2 = "ready" (disk present, not assigned to any virtual disk),
+# state=3 = "online" (disk active in a RAID array). Pre-fix this dict had
+# 0-indexed values that mapped 2→"failed" / 3→"online", surfacing every
+# healthy unassigned HDD as "failed" in the host drawer's Server health card.
 _DELL_PD_STATE_LABELS = {
-    0: "unknown", 1: "ready", 2: "failed", 3: "online", 4: "offline",
-    5: "degraded", 6: "recovering", 7: "removed", 8: "rebuild",
-    11: "foreign", 13: "clear", 14: "blocked", 15: "non-raid",
-    16: "ready-foreign",
+    1: "unknown", 2: "ready", 3: "online", 4: "foreign", 5: "offline",
+    6: "blocked", 7: "failed", 8: "non-raid", 9: "removed", 10: "read-only",
+    11: "replacing", 12: "replaced", 13: "rebuilding", 14: "uncertified",
+    15: "smart-alert", 16: "fault", 24: "predictive-failure",
 }
-# Dell virtualDiskState enum.
+# Dell virtualDiskState enum — same 1-indexed Dell OMSA convention as the
+# physicalDisk enum above. state=2 = "ready" / state=3 = "online" both
+# render as healthy in iDRAC web UI; "failed" is value 4, NOT 2.
 _DELL_VD_STATE_LABELS = {
-    0: "unknown", 1: "ready", 2: "failed", 3: "online", 4: "offline",
-    5: "degraded", 6: "verifying", 7: "resynching",
-    8: "regenerating", 9: "failed-redundancy",
+    1: "unknown", 2: "ready", 3: "online", 4: "failed", 5: "offline",
+    6: "degraded", 7: "verifying", 8: "resynching", 9: "regenerating",
+    10: "failed-redundancy", 11: "rebuilding", 12: "formatting",
+    13: "reconstructing", 14: "initializing", 15: "background-init",
+    16: "permanently-degraded", 17: "degraded-redundancy",
 }
 # Dell virtualDiskLayout enum — the canonical RAID levels.
 _DELL_VD_LAYOUT_LABELS = {
