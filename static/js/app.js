@@ -4701,29 +4701,6 @@ function app() {
         // healthy fleet (most common case). The SPA banner in Stacks
         // / Hosts views renders when the array is non-empty.
         this.unhealthyAgents = Array.isArray(d.unhealthy_agents) ? d.unhealthy_agents : [];
-        // Unconditional "what arrived" line so the operator can spot
-        // the disconnect between server-side `/api/stats` (which may
-        // return rich data) and what the SPA actually has in
-        // `this.stats` (which the templates read). If this line shows
-        // 0 keys but `curl /api/stats` shows non-zero rows, the SPA
-        // has a parse / state issue, not a backend issue.
-        try {
-          const ids = Object.keys(this.stats);
-          const withStats = ids.filter(id => this.stats[id] && this.stats[id].has_stats).length;
-          const withSize = ids.filter(id => this.stats[id] && this.stats[id].has_size).length;
-          const withStale = ids.filter(id => this.stats[id] && this.stats[id]._stale).length;
-          const sample = ids.slice(0, 2).map(id => ({
-            id,
-            has_stats: !!(this.stats[id] && this.stats[id].has_stats),
-            has_size: !!(this.stats[id] && this.stats[id].has_size),
-            cpu: this.stats[id] && this.stats[id].cpu_percent,
-            mem_used: this.stats[id] && this.stats[id].mem_usage,
-            mem_limit: this.stats[id] && this.stats[id].mem_limit,
-            size_root: this.stats[id] && this.stats[id].size_root,
-            stale: !!(this.stats[id] && this.stats[id]._stale),
-          }));
-          console.log('[stats] loadStats: keys=' + ids.length + ' with_stats=' + withStats + ' with_size=' + withSize + ' stale=' + withStale + ' items=' + (this.items || []).length, sample);
-        } catch (_) { /* never let logging crash the path */ }
         // Self-diagnostic — fires when /api/stats came back with
         // ZERO has_stats=true rows AND we have items loaded. That's
         // the signature of "Portainer's per-container /stats endpoint

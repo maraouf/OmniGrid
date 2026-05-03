@@ -3213,7 +3213,7 @@
                   class="bg-[var(--surface-2)] border border-[var(--border)] rounded px-1.5 py-0.5">
             <option value="" x-text="t('admin.notifications.events.bulk_pattern_skip')"></option>
             <template x-for="m in notifyMediumNames()" :key="m">
-              <option :value="m" x-text="m"></option>
+              <option :value="m" x-text="m.charAt(0).toUpperCase() + m.slice(1)"></option>
             </template>
           </select>
           <span class="text-[var(--text-faint)]"
@@ -3222,7 +3222,7 @@
                   class="bg-[var(--surface-2)] border border-[var(--border)] rounded px-1.5 py-0.5">
             <option value="" x-text="t('admin.notifications.events.bulk_pattern_skip')"></option>
             <template x-for="m in notifyMediumNames()" :key="m">
-              <option :value="m" x-text="m"></option>
+              <option :value="m" x-text="m.charAt(0).toUpperCase() + m.slice(1)"></option>
             </template>
           </select>
           <button type="button"
