@@ -258,15 +258,20 @@ _DELL_PD_STATE_LABELS = {
     11: "replacing", 12: "replaced", 13: "rebuilding", 14: "uncertified",
     15: "smart-alert", 16: "fault", 24: "predictive-failure",
 }
-# Dell virtualDiskState enum — same 1-indexed Dell OMSA convention as the
-# physicalDisk enum above. state=2 = "ready" / state=3 = "online" both
-# render as healthy in iDRAC web UI; "failed" is value 4, NOT 2.
+# Dell virtualDiskState enum — distinct from physicalDiskState (above).
+# Per Dell's StorageManagement MIB (OID 1.3.6.1.4.1.674.10892.5.5.1.20.140.1.1.4)
+# virtual disks have NO "ready" state because a VD is either active in the
+# array (online) or in some failure / transient state — there's no
+# idle-spare equivalent. Empirically confirmed against an R730xd's iDRAC:
+# both VDs (RAID-1 SYS + RAID-5 VD02) report state=2 and read as "Online"
+# in iDRAC web UI. Pre-fix this dict reused the PD enum's 2=ready mapping
+# which surfaced healthy active VDs as "Ready" in the host drawer.
 _DELL_VD_STATE_LABELS = {
-    1: "unknown", 2: "ready", 3: "online", 4: "failed", 5: "offline",
-    6: "degraded", 7: "verifying", 8: "resynching", 9: "regenerating",
-    10: "failed-redundancy", 11: "rebuilding", 12: "formatting",
-    13: "reconstructing", 14: "initializing", 15: "background-init",
-    16: "permanently-degraded", 17: "degraded-redundancy",
+    1: "unknown", 2: "online", 3: "failed", 4: "degraded", 5: "offline",
+    6: "verifying", 7: "resynching", 8: "regenerating",
+    9: "failed-redundancy", 10: "rebuilding", 11: "formatting",
+    12: "reconstructing", 13: "initializing", 14: "background-init",
+    15: "permanently-degraded", 16: "degraded-redundancy",
 }
 # Dell virtualDiskLayout enum — the canonical RAID levels.
 _DELL_VD_LAYOUT_LABELS = {
