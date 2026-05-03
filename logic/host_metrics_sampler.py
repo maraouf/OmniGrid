@@ -879,6 +879,18 @@ async def _probe_one_snmp(host: dict, sem: asyncio.Semaphore) -> None:
                     ups_load_pct = float(load_pct_raw) if load_pct_raw is not None else None
                     ups_batt_pct = float(batt_pct_raw) if batt_pct_raw is not None else None
                     ups_batt_temp = float(batt_temp_raw) if batt_temp_raw is not None else None
+                    # Aggregate disk totals — capture so SNMP-only
+                    # hosts can render the inline disk sparkline. The
+                    # extractor's `host_disk_total` / `host_disk_used`
+                    # already respect the per-host exclude_mounts
+                    # list (dd-wrt's phantom `/opt` is filtered
+                    # before reaching this dict). Stored as bytes;
+                    # disk_percent is derived in the API layer to
+                    # avoid fixed-precision drift across rows.
+                    disk_total_raw = stats.get("host_disk_total")
+                    disk_used_raw = stats.get("host_disk_used")
+                    disk_total_b = int(disk_total_raw) if disk_total_raw is not None else None
+                    disk_used_b = int(disk_used_raw) if disk_used_raw is not None else None
                     with db_conn() as c:
                         c.execute(
                             "INSERT OR REPLACE INTO host_snmp_samples "
@@ -887,8 +899,8 @@ async def _probe_one_snmp(host: dict, sem: asyncio.Semaphore) -> None:
                             "mem_total, mem_used, mem_buffers, mem_cached, mem_free, "
                             "uptime_s, net_rx_total_bytes, net_tx_total_bytes, "
                             "printer_page_count, load_percent, battery_percent, "
-                            "battery_temp_c) "
-                            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                            "battery_temp_c, disk_total, disk_used) "
+                            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                             (
                                 int(now), hid,
                                 json.dumps(list(cores)) if cores else None,
@@ -908,6 +920,8 @@ async def _probe_one_snmp(host: dict, sem: asyncio.Semaphore) -> None:
                                 ups_load_pct,
                                 ups_batt_pct,
                                 ups_batt_temp,
+                                disk_total_b,
+                                disk_used_b,
                             ),
                         )
                         # per-interface counter snapshot for the
