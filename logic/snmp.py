@@ -2002,17 +2002,66 @@ async def probe_snmp(
                     t.cancel()
             await asyncio.gather(*running, return_exceptions=True)
             _arm_cooldown(host_clean, port_int)
+            # Error message surfaces the ACTUAL resolved values for both
+            # tunables — operator can see at a glance whether their per-
+            # host override / global Admin → Config edit is taking
+            # effect, vs being silently shadowed. The "raise" recipe
+            # references the SAME concrete numbers so they don't have
+            # to cross-reference Admin → Config to know what the
+            # current value is before deciding what to bump it to.
+            tunable_walk_global = int(
+                _tuning.tuning_int("tuning_snmp_per_host_walk_concurrency")
+            )
+            tunable_budget_global = int(
+                _tuning.tuning_int("tuning_snmp_wall_clock_budget_seconds")
+            )
+            if walk_concurrency is not None:
+                walk_source = "per-host override"
+                walk_qualifier = (
+                    f"per-host override; global tunable="
+                    f"{tunable_walk_global}"
+                )
+            else:
+                walk_source = "global tunable"
+                walk_qualifier = "global tunable; no per-host override set"
+            if wall_clock_budget is not None:
+                budget_source = "per-call override"
+                budget_qualifier = (
+                    f"per-call override; global tunable="
+                    f"{tunable_budget_global}s"
+                )
+            else:
+                budget_source = "global tunable"
+                budget_qualifier = "global tunable; no per-call override"
             return {
                 "hosts": {},
                 "error": (
                     f"snmp: timeout against {host_clean}:{port_int} "
                     f"({done_count} of {len(running)} OID branches "
-                    f"completed within {int(wall_clock_budget_resolved)}s budget) "
-                    f"— raise tuning_snmp_per_host_walk_concurrency in "
-                    f"Admin → Config (default 1) if the agent handles "
-                    f"parallel queries safely, OR raise "
-                    f"tuning_snmp_wall_clock_budget_seconds (default 60s)"
+                    f"completed within {int(wall_clock_budget_resolved)}s "
+                    f"budget) — current walk concurrency="
+                    f"{walk_concurrency_resolved} ({walk_qualifier}); "
+                    f"current wall-clock budget="
+                    f"{int(wall_clock_budget_resolved)}s "
+                    f"({budget_qualifier}). Raise the per-host "
+                    f"`snmp.walk_concurrency` (Admin → Hosts) for THIS "
+                    f"host if the agent handles parallel queries safely "
+                    f"(recommended: 4 for Dell iDRAC / Cisco IMC / "
+                    f"Supermicro IPMI; 8 for Cisco / Synology / linux "
+                    f"net-snmp), OR raise `tuning_snmp_wall_clock_"
+                    f"budget_seconds` in Admin → Config to give every "
+                    f"probe more time."
                 ),
+                # Structured fields so the SPA / debug panel can render
+                # the diagnostic without parsing the prose.
+                "walk_concurrency_resolved": walk_concurrency_resolved,
+                "walk_concurrency_source":   walk_source,
+                "walk_concurrency_global":   tunable_walk_global,
+                "wall_clock_budget_resolved": int(wall_clock_budget_resolved),
+                "wall_clock_budget_source":   budget_source,
+                "wall_clock_budget_global":   tunable_budget_global,
+                "completed_branches":         done_count,
+                "total_branches":             len(running),
             }
     except (asyncio.CancelledError, KeyboardInterrupt):
         # Outer cancellation (parent task killed). Flush our running
