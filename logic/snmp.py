@@ -1587,8 +1587,8 @@ def extract_interfaces(
     Prefers ifHCInOctets / ifHCOutOctets (64-bit, IF-MIB extension) when
     available; falls through to the 32-bit ifInOctets/ifOutOctets when
     the agent doesn't expose the HC variants. Excludes loopback / docker /
-    veth interfaces from the host-wide totals (per CLAUDE.md's "exclude
-    pseudo NICs from net totals" rule).
+    veth interfaces from the host-wide totals (matches the project-wide
+    "exclude pseudo NICs from net totals" rule).
     """
     out: dict = {}
     if not descr_walk:
@@ -1719,13 +1719,25 @@ def extract_stats(
     # because every other surface returned nothing).
     if vendor_walks:
         stats.update(extract_vendor_info(vendor_walks, existing=stats))
-    # When a richer provider is active for this host AND likely to
-    # report a more accurate CPU/memory snapshot, drop SNMP's coarser
-    # values. SNMP CPU% in particular is often a 5-second average that
-    # spikes wildly compared to Beszel/NE's smoother windows.
-    others = (active_sources or set()) - {"snmp"}
-    if others & {"beszel", "node_exporter", "pulse"}:
-        stats.pop("host_cpu_percent", None)
+    # The previous logic here pop'd host_cpu_percent when ANY richer
+    # provider (beszel / node_exporter / pulse) was in the GLOBAL
+    # active set — even on hosts where that richer provider wasn't
+    # actually configured. Symptom: a Ubiquiti / Cisco / DD-WRT host
+    # that's SNMP-only saw its CPU silently stripped here; the
+    # sampler path (which doesn't pass `active_sources`) wrote
+    # `host_cpu_percent` to history correctly, so the drawer's
+    # per-core CPU chart showed real values while the row's CPU
+    # bar read 0%. The intent ("drop SNMP's coarser CPU when a
+    # smoother provider is also reporting for THIS host") was
+    # right but the implementation gated on the GLOBAL active set
+    # rather than per-host config. The cleaner solution is to rely
+    # on `_merge_best`'s ordering: for hosts with BOTH SNMP and
+    # Beszel/NE/Pulse, the richer provider runs LATER in the merge
+    # and overwrites SNMP's host_cpu_percent automatically (per the
+    # documented host-stats provider merge order). For SNMP-only
+    # hosts, SNMP's value stays. Removing the preemptive pop
+    # makes the row's cpu_percent agree with the sampler-written
+    # history's cpu_used_pct on SNMP-only hosts.
     stats["exporter_error"] = None
     return stats
 

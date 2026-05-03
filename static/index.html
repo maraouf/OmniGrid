@@ -2279,34 +2279,31 @@
               <div>
                 <template x-if="h.status === 'up' && hostHasDiskMetric(h)">
                   <div>
-                    <template x-if="(h.mounts || []).length > 1">
-                      <div class="disk-segmented">
-                        <template x-for="(m, i) in (h.mounts || [])" :key="i">
-                          <div class="disk-segmented-seg"
-                               :title="(m.n || '') + ' · '
-                                       + fmtBytes((m.du || 0) * 1024**3) + ' / '
-                                       + fmtBytes((m.d || 0) * 1024**3)
-                                       + ' (' + Math.round(mountFillPercent(m)) + '%)'">
-                            <div class="disk-segmented-fill"
-                                 :class="'disk-seg-' + mountFillLevel(m)"
-                                 :style="'width: ' + mountFillPercent(m) + '%'"></div>
-                          </div>
-                        </template>
-                      </div>
-                    </template>
-                    <template x-if="(h.mounts || []).length <= 1">
-                      <div class="stat-bar" x-bind="statBarBind(Math.round(h.disk_percent || diskPercentOf(h)), 'columns.disk')"
-                           :class="[barLevel(h.disk_percent || diskPercentOf(h)), (isStaleField(h, 'host_disk_total') || isStaleField(h, 'host_disk_used')) ? 'stale' : '']"
-                           :style="'--w: ' + ((h.disk_percent || diskPercentOf(h)) > 0 ? Math.max(1, Math.round(h.disk_percent || diskPercentOf(h))) : 0) + '%'"
-                           :title="t('columns.disk') + ': ' + fmtPercentLabel(h.disk_percent || diskPercentOf(h)) + (h.disk_total ? ' (' + fmtBytes(h.disk_used) + ' / ' + fmtBytes(h.disk_total) + ')' : '') + ((isStaleField(h, 'host_disk_total') || isStaleField(h, 'host_disk_used')) ? ' — ' + staleAge(h) : '')">
-                        <div class="fill"></div>
-                      </div>
-                      <svg x-show="hostHasInlineSpark(h, 'disk')" class="spark"
-                           :class="hostSparkClass(h, 'disk')"
-                           viewBox="0 0 100 16" preserveAspectRatio="none" aria-hidden="true">
-                        <path fill="none" stroke="currentColor" stroke-width="1" :d="hostInlineSparkline(h, 'disk')"/>
-                      </svg>
-                    </template>
+                    <!-- Single aggregate bar — matches the
+                         label below so the bar visual ALWAYS
+                         reflects the same percentage the operator
+                         reads in text. The previous segmented
+                         multi-mount variant rendered per-mount
+                         fills which diverged from the aggregate
+                         label (dd-wrt's 100%-full squashfs `/`
+                         painted half the bar red while the
+                         aggregate read `<1%` because /opt was
+                         empty); operators read the bar as host
+                         state and expected bar = label.
+                         Per-mount detail stays in the drawer's
+                         mount card AND in the bar's hover title
+                         (worst mount + per-mount used/total). -->
+                    <div class="stat-bar" x-bind="statBarBind(Math.round(h.disk_percent || diskPercentOf(h)), 'columns.disk')"
+                         :class="[barLevel(h.disk_percent || diskPercentOf(h)), (isStaleField(h, 'host_disk_total') || isStaleField(h, 'host_disk_used')) ? 'stale' : '']"
+                         :style="'--w: ' + ((h.disk_percent || diskPercentOf(h)) > 0 ? Math.max(1, Math.round(h.disk_percent || diskPercentOf(h))) : 0) + '%'"
+                         :title="hostDiskBarTitle(h)">
+                      <div class="fill"></div>
+                    </div>
+                    <svg x-show="hostHasInlineSpark(h, 'disk')" class="spark"
+                         :class="hostSparkClass(h, 'disk')"
+                         viewBox="0 0 100 16" preserveAspectRatio="none" aria-hidden="true">
+                      <path fill="none" stroke="currentColor" stroke-width="1" :d="hostInlineSparkline(h, 'disk')"/>
+                    </svg>
                     <div class="text-[10.5px] mono mt-1">
                       <span x-text="fmtPercentLabel(h.disk_percent || diskPercentOf(h))"></span>
                       <span class="text-[var(--text-faint)]" x-show="h.disk_total"
@@ -12954,10 +12951,23 @@
        result's `kind` (see commandPaletteActivate in app.js).
        Backdrop click + Esc close. ↑/↓ moves selection; Enter
        activates. -->
-  <div x-show="commandPaletteOpen" class="fixed inset-0 z-50 fade-in"
+  <!-- Modal display gated by inline :style instead of x-show.
+       Three rounds of operator reports of Ctrl+K not opening the
+       panel; capture-phase listener confirmed the keystroke
+       reaches the page (see init() in app.js) and openCommandPalette
+       is being called. The remaining failure mode is x-show toggling
+       display on this outermost div not propagating through the
+       cascade reliably (Tailwind v4 in-browser JIT also touches
+       inline display in arbitrary-class generation). Explicit
+       `:style="commandPaletteOpen ? '' : 'display:none'"` is the
+       most deterministic gate available — Alpine still reactively
+       re-evaluates on every state change but the assignment is a
+       direct style override that beats every cascade quirk. -->
+  <div :style="commandPaletteOpen ? 'display:flex' : 'display:none'"
+       class="fixed inset-0 z-50 fade-in"
        role="dialog" aria-modal="true" :aria-label="t('command_palette.dialog_label')">
     <div @click="closeCommandPalette()" class="absolute inset-0 backdrop-strong"></div>
-    <div class="relative flex items-center justify-center p-4 h-full overflow-auto scrollbar">
+    <div class="relative flex items-center justify-center p-4 w-full h-full overflow-auto scrollbar">
       <!-- Inner card uses inline style for max-height instead of
            Tailwind v4's `max-h-[80vh]` arbitrary class — the in-
            browser JIT was inconsistent at generating the arbitrary

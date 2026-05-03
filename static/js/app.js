@@ -1416,9 +1416,24 @@ function app() {
         if (!isPaletteCombo) return;
         e.preventDefault();
         e.stopPropagation();
+        console.log('[cmdpal] capture-phase hotkey matched, toggling palette (was=' + this.commandPaletteOpen + ')');
         if (this.commandPaletteOpen) this.closeCommandPalette();
         else this.openCommandPalette();
       }, { capture: true });
+      // Debug escape hatch: expose openCommandPalette + state on
+      // window so the operator can verify the modal renders by
+      // typing `__omnigridOpenPalette()` in the DevTools console.
+      // If that opens the panel, the issue is hotkey detection
+      // (browser pre-empting); if it doesn't, the issue is modal
+      // rendering (Alpine x-show / CSS / scoping). Splits the
+      // diagnostic so the operator can tell which layer is broken.
+      try {
+        window.__omnigridOpenPalette = () => {
+          console.log('[cmdpal] window.__omnigridOpenPalette() called, was=' + this.commandPaletteOpen);
+          this.openCommandPalette();
+          console.log('[cmdpal] open called, commandPaletteOpen now=' + this.commandPaletteOpen);
+        };
+      } catch (_) { /* defensive */ }
       // Click-outside listener for the chart `?` tap-driven tooltip
       //. The trigger spans + tooltip body each call
       // `@click.stop` so they're EXCLUDED from this handler — taps
@@ -9591,15 +9606,28 @@ function app() {
       const n = series.length;
       const out = [];
       let lastNull = true;
+      let sawNonZero = false;
       for (let i = 0; i < n; i++) {
         const v = pickValue(series[i]);
         if (!Number.isFinite(v)) { lastNull = true; continue; }
+        if (v > 0) sawNonZero = true;
         const clamped = Math.max(0, Math.min(100, v));
         const x = (i / (n - 1)) * W;
         const y = PAD_T + usableH - (clamped / 100) * usableH;
         out.push(`${lastNull ? 'M' : 'L'}${x.toFixed(1)},${y.toFixed(1)}`);
         lastNull = false;
       }
+      // Skip rendering a flat-zero line — it draws as an invisible
+      // hairline at the bottom edge of the .spark element and looks
+      // like "no sparkline at all" to the operator. Common cause:
+      // Beszel agents that populate `info.dp` (live disk %) but
+      // don't emit `stats.dp` in their history blob, so the live
+      // bar reads 53% while the historical series is flat-0%. By
+      // returning `''` here we let the gate (`hostHasInlineSpark`)
+      // hide the SVG cleanly so the operator sees "no spark"
+      // unambiguously instead of a misleading hairline. Same rule
+      // for any all-zero series across providers.
+      if (!sawNonZero) return '';
       return out.join(' ');
     },
     // True when the host has at least 2 data points for `metric` so the
@@ -9999,16 +10027,28 @@ function app() {
     // exact-id match wins, prefix beats substring, and the displayed
     // label gets a small bonus over secondary fields.
     openCommandPalette() {
-      this.commandPaletteOpen = true;
-      this.commandPaletteQuery = '';
-      this.commandPaletteSelectedIdx = 0;
+      // Defensive: each step wrapped so a failure in $nextTick /
+      // input.focus() can't prevent the state flip from landing.
+      // The capture-phase keydown handler relied on this method;
+      // an unhandled throw inside `this.$nextTick` (e.g. when the
+      // method is invoked from a non-Alpine context where $nextTick
+      // isn't defined) used to swallow the entire palette open.
+      try { this.commandPaletteOpen = true; } catch (e) { console.error('[cmdpal] open: state flip failed', e); }
+      try { this.commandPaletteQuery = ''; this.commandPaletteSelectedIdx = 0; } catch (_) {}
       // Focus the input on the next tick (after Alpine renders the
-      // x-show=true branch). Without the rAF the input isn't in the
+      // x-show / :style branch). Without rAF the input isn't in the
       // DOM yet and the focus call no-ops.
-      this.$nextTick(() => {
-        const input = document.getElementById('cmdpal-input');
-        if (input) input.focus();
-      });
+      try {
+        const tick = (this && typeof this.$nextTick === 'function')
+          ? this.$nextTick.bind(this)
+          : (fn) => requestAnimationFrame(fn);
+        tick(() => {
+          try {
+            const input = document.getElementById('cmdpal-input');
+            if (input) input.focus();
+          } catch (_) {}
+        });
+      } catch (_) {}
     },
     closeCommandPalette() {
       this.commandPaletteOpen = false;
@@ -14367,6 +14407,30 @@ function app() {
         row._loading = false;
         row._probe_timeout = false;
         row._probe_error = null;
+        // History backfill after first probe lands. The
+        // IntersectionObserver-driven prefetch fires when the row
+        // FIRST scrolls into view — but at that moment the row is
+        // still a skeleton (curated-fields-only from /api/hosts/list)
+        // and its `beszel_id` / `ne_url` / `pulse_name` /
+        // `webmin_name` aren't populated yet, so the observer's
+        // history-loader gate fails and skips. Operator-reported:
+        // sparklines were absent on initial page load and only
+        // appeared after opening + closing the drawer (which has
+        // its own loadHostHistory call). Now that the per-host
+        // probe has landed and the provider fields are present,
+        // kick off the history fetch immediately if the cache is
+        // still empty. Same gate the observer + 15s poll uses.
+        try {
+          if (row.beszel_id || row.ne_url || row.pulse_name || row.webmin_name) {
+            const histKey = this.hostHistoryKey(row);
+            const cached = histKey && this.hostHistory && this.hostHistory[histKey];
+            if (!cached
+                || !Array.isArray(cached.series)
+                || cached.series.length < 2) {
+              this.loadHostHistory(row.beszel_id || '', row.id);
+            }
+          }
+        } catch (_) { /* defensive — never block the probe path */ }
       } catch (_) {
         // Network failure — leave the row in skeleton state so the
         // next loadHosts cycle retries. Silent (no toast): on a big
@@ -14683,23 +14747,57 @@ function app() {
     // Per-metric telemetry gates. Each axis (CPU / Memory / Disk)
     // is gated INDEPENDENTLY so a host that only reports one axis
     // (Cisco SG300 switch via SNMP exposes CPU but no mem/disk;
-    // chassis BMCs like Dell iDRAC expose neither but DO surface
-    // chart data via SNMP samples; printer SNMP agents may expose
-    // only memory) shows just the bars it can fill instead of
-    // hiding all three. `hostHasInlineSpark` also pulls from the
-    // history map, so a metric whose live value is 0 but whose
-    // recorded series is non-flat still shows up. Beszel / Pulse /
-    // NE / Webmin always count for all three because they're host-
-    // OS agents that emit CPU + Mem + Disk uniformly.
+    // chassis BMCs like Dell iDRAC + APC UPS report ZERO of these
+    // axes — only chassis sensors / UPS battery state) shows just
+    // the bars it can fill instead of three together (or none).
+    // Beszel / Pulse / NE / Webmin always count for all three
+    // because they're host-OS agents that emit CPU + Mem + Disk
+    // uniformly.
     _hostUnixAgent(h) {
       return !!(h && (h.beszel_name || h.pulse_name || h.ne_url || h.webmin_name));
+    },
+    // Has the SNMP history series ever recorded a NON-ZERO value
+    // for this metric in the loaded window? Used to gate the bar
+    // visibility so chassis BMCs (iDRAC / APC UPS / managed
+    // switches without hrProcessorLoad) — whose probe writes flat
+    // null / zero cpu_used_pct rows on every tick — don't surface
+    // a CPU bar that looks "loading" but never moves. The previous
+    // gate `hostHasInlineSpark(h, metric)` only required ≥2 finite
+    // values; 0 is finite, so flat-zero history was passing as
+    // "telemetry available". Stricter check requires at least one
+    // strictly-positive sample so a host genuinely at idle (cpu=0
+    // sustained) is correctly hidden alongside hosts that never
+    // reported the metric at all.
+    _hostHasNonZeroSnmpHistory(h, metric) {
+      if (!h) return false;
+      const entry = this.hostSnmpHistory && this.hostSnmpHistory[h.id];
+      const points = entry && Array.isArray(entry.points) ? entry.points : null;
+      if (!points || points.length < 2) return false;
+      if (metric === 'cpu') {
+        for (const p of points) {
+          const v = Number(p && p.cpu_used_pct);
+          if (Number.isFinite(v) && v > 0) return true;
+        }
+        return false;
+      }
+      if (metric === 'memory') {
+        for (const p of points) {
+          const tot = Number(p && p.mem_total) || 0;
+          const used = Number(p && p.mem_used) || 0;
+          if (tot > 0 && used > 0) return true;
+        }
+        return false;
+      }
+      // SNMP history doesn't currently carry disk_percent — disk
+      // axis falls through to live h.disk_total / h.disk_percent.
+      return false;
     },
     hostHasCpuMetric(h) {
       if (!h) return false;
       if (this._hostUnixAgent(h)) return true;
       if (h.snmp_name && h.snmp_enabled === true) {
         const cpu = +h.cpu_percent || 0;
-        return cpu > 0 || this.hostHasInlineSpark(h, 'cpu');
+        return cpu > 0 || this._hostHasNonZeroSnmpHistory(h, 'cpu');
       }
       return false;
     },
@@ -14709,7 +14807,7 @@ function app() {
       if (h.snmp_name && h.snmp_enabled === true) {
         const memTot = +h.mem_total || 0;
         const memPct = +h.mem_percent || 0;
-        return memTot > 0 || memPct > 0 || this.hostHasInlineSpark(h, 'memory');
+        return memTot > 0 || memPct > 0 || this._hostHasNonZeroSnmpHistory(h, 'memory');
       }
       return false;
     },
@@ -14719,7 +14817,7 @@ function app() {
       if (h.snmp_name && h.snmp_enabled === true) {
         const diskTot = +h.disk_total || 0;
         const diskPct = +h.disk_percent || 0;
-        return diskTot > 0 || diskPct > 0 || this.hostHasInlineSpark(h, 'disk');
+        return diskTot > 0 || diskPct > 0;
       }
       return false;
     },
@@ -16090,7 +16188,32 @@ function app() {
         if (v < min) min = v;
         if (v > max) max = v;
       }
-      return { min, max, last: vals[vals.length - 1] };
+      // Operator-reported on a Ubiquiti USW Enterprise switch:
+      // drawer "Used X%" legend showed 100% while the row CPU bar
+      // read 0%. Root cause: this helper used to return the last
+      // NON-NULL value from `vals` (the filtered list), which on
+      // hosts whose probes intermittently return CPU and then go
+      // null can be a stale 100% from hours ago — disconnected
+      // from the latest actual probe. The chart line correctly
+      // plots fresh nulls as 0; the legend should match. Now scan
+      // the FULL series back-to-front for the most recent
+      // non-null point — this is "the most recent KNOWN value at
+      // or before now" rather than "the last value we ever
+      // observed". For all-non-null series the result is
+      // identical to the previous behaviour. `lastIdx` exposed
+      // alongside so callers can detect "last sample is stale"
+      // (when `lastIdx < series.length - 1`).
+      let last = null, lastIdx = -1;
+      for (let i = series.length - 1; i >= 0; i--) {
+        const v = pick(series[i]);
+        if (v !== null && v !== undefined) {
+          last = v;
+          lastIdx = i;
+          break;
+        }
+      }
+      const stale = lastIdx >= 0 && lastIdx < series.length - 1;
+      return { min, max, last, lastIdx, stale };
     },
     // Five evenly-spaced X-axis timestamp labels for the
     // bottom of the chart. Matches the existing `xAxisFromSeries`
@@ -17973,11 +18096,50 @@ function app() {
     // Prefers the provider-supplied `dp` (percent full) when present;
     // falls back to computing from GiB floats (.du / .d) so mounts
     // missing a pre-computed percent still render correctly.
+    // Tooltip for the disk stat-bar on the Hosts row. Shows the
+    // aggregate disk%, the absolute used / total bytes, AND a per-
+    // mount breakdown when there's more than one — operators
+    // hovering see exactly which mount(s) are full without
+    // opening the drawer. Worst-mount callout fires when any
+    // mount is over the warn threshold so a critical mount
+    // surfaces in the tooltip even when the aggregate is low
+    // (dd-wrt's 100%-full squashfs `/` is invisible in the
+    // aggregate but shows up here as "WORST: / at 100%").
+    hostDiskBarTitle(h) {
+      if (!h) return '';
+      const aggPct = h.disk_percent || this.diskPercentOf(h);
+      const parts = [
+        this.t('columns.disk') + ': ' + this.fmtPercentLabel(aggPct),
+      ];
+      if (h.disk_total) {
+        parts.push('(' + this.fmtBytes(h.disk_used) + ' / ' + this.fmtBytes(h.disk_total) + ')');
+      }
+      const mounts = Array.isArray(h.mounts) ? h.mounts : [];
+      if (mounts.length > 1) {
+        let worst = null;
+        for (const m of mounts) {
+          const fp = this.mountFillPercent(m);
+          if (worst == null || fp > this.mountFillPercent(worst)) worst = m;
+        }
+        if (worst && this.mountFillPercent(worst) > this._statBarWarnPct()) {
+          parts.push('— Worst: ' + (worst.n || worst.mountpoint || '?')
+            + ' ' + Math.round(this.mountFillPercent(worst)) + '%');
+        }
+        const lines = mounts.map(m => '  ' + (m.n || m.mountpoint || '?')
+          + ' · ' + Math.round(this.mountFillPercent(m)) + '%');
+        parts.push('\n' + lines.join('\n'));
+      }
+      if (this.isStaleField(h, 'host_disk_total') || this.isStaleField(h, 'host_disk_used')) {
+        parts.push('— ' + this.staleAge(h));
+      }
+      return parts.join(' ').replace(' \n', '\n');
+    },
     // Threshold tier for a single mount's fill — drives the segmented
-    // disk bar's per-segment colour. Mirrors `barLevel(pct)` so a
-    // full mount in a multi-mount host visually screams the same way
-    // a single-mount bar would. Empty / unknown returns 'ok' (green)
-    // so the bar reads as healthy at rest.
+    // disk bar's per-segment colour (kept for callers; row no longer
+    // uses the segmented variant). Mirrors `barLevel(pct)` so a
+    // full mount visually screams the same way a single-mount bar
+    // would. Empty / unknown returns 'ok' (green) so the bar reads
+    // as healthy at rest.
     mountFillLevel(m) {
       const pct = this.mountFillPercent(m);
       if (pct > this._statBarCritPct()) return 'crit';
