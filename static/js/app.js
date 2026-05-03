@@ -1546,16 +1546,40 @@ function app() {
     syncProfileForm() {
       // Called after /api/me loads to populate the editable form. Kept
       // separate from `me` so unsaved edits aren't clobbered on refresh.
-      // Hydrates per-user notification opt-in state (#357) from the
-      // resolved `notify_events` map; rebuilds the baseline snapshot so
-      // the dirty-getter compares against the freshly-loaded values.
+      // Hydrates per-user notification prefs from the resolved
+      // `notify_events` map; rebuilds the baseline snapshot so the
+      // dirty-getter compares against the freshly-loaded values.
+      //
+      // Per-medium granularity: every event normalises to a per-medium
+      // dict `{medium: bool}` for editing simplicity. The wire shape
+      // is mixed (legacy bare-bool OR per-medium dict) — this helper
+      // expands legacy bools to a per-medium dict where every globally-
+      // enabled medium inherits the bool, so the SPA's checkbox grid
+      // always reads from a uniform shape. On save, events whose every
+      // medium reads identically collapse back to a bare bool to keep
+      // the stored payload small.
       const events = {};
       const src = (this.me && this.me.notify_events) || {};
+      const mediums = this.notifyMediumNames();
       for (const k of (this.notifyEventKeys || [])) {
-        // notifyEventKeys carries `notify_event_<name>`; the per-user
-        // map keys are the bare names (matching the data model).
         const bare = k.replace(/^notify_event_/, '');
-        events[bare] = !!src[bare];
+        const v = src[bare];
+        const slot = {};
+        if (v && typeof v === 'object') {
+          // Per-medium dict: copy known mediums, fall back to true for
+          // anything missing (matches the dispatcher's default-on-
+          // missing-medium contract).
+          for (const m of mediums) {
+            slot[m] = (v[m] !== false);
+          }
+        } else {
+          // Legacy bare-bool (or absent): apply uniformly across every
+          // medium. `!!v` collapses undefined → false, false → false,
+          // true → true.
+          const b = !!v;
+          for (const m of mediums) slot[m] = b;
+        }
+        events[bare] = slot;
       }
       this.profileForm = {
         display_name: (this.me && this.me.display_name) || '',
@@ -1657,12 +1681,32 @@ function app() {
           this.showToast(j.detail || this.t('toasts.save_failed'), 'error');
           return;
         }
-        // Per-user notification opt-in (#357). Sent as a separate PATCH
-        // so the admin-gate refusal (400 with detail "Event 'X' is
-        // disabled by admin") surfaces a useful message without rolling
-        // back the profile edit. Backend payload keys are the bare
-        // event names (matching the storage shape inside ui_prefs).
-        const events = this.profileForm.notify_events || {};
+        // Per-user notification opt-in. Sent as a separate PATCH so the
+        // admin-gate refusal (400 with detail "Event 'X' is disabled by
+        // admin") surfaces a useful message without rolling back the
+        // profile edit. Backend payload keys are the bare event names
+        // (matching the storage shape inside ui_prefs).
+        //
+        // Per-medium granularity: profileForm carries every event as
+        // `{medium: bool}`. On save we collapse uniform-bool dicts
+        // (every medium reads the same) back to a bare bool so storage
+        // stays compact AND legacy parsers (operator scripts grepping
+        // ui_prefs.notify_events.<event>) keep working when the user
+        // hasn't routed events per-medium. Mixed dicts pass through
+        // untouched.
+        const formEvents = this.profileForm.notify_events || {};
+        const mediums = this.notifyMediumNames();
+        const events = {};
+        for (const bare in formEvents) {
+          const slot = formEvents[bare];
+          if (slot && typeof slot === 'object') {
+            const vals = mediums.map(m => slot[m] !== false);
+            const allSame = vals.every(v => v === vals[0]);
+            events[bare] = allSame ? !!vals[0] : { ...slot };
+          } else {
+            events[bare] = !!slot;
+          }
+        }
         const r2 = await fetch('/api/me/notify-prefs', {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
@@ -6404,6 +6448,21 @@ function app() {
     notifySamplerEvents: [
       { label: 'host_paused', key: 'notify_event_host_paused' },
     ],
+    // Flattened ops-event row list — every (group, kind) becomes one
+    // row in the Profile→Notifications grid. Computed once-per-render
+    // (no reactive deps; the underlying notifyEventGroups is static)
+    // so Alpine's `<template x-for>` can iterate without nested-template
+    // ambiguity. Each row carries the event-key, the group label, and
+    // the kind (success / failure) so the markup can render the
+    // success/failure pill in its own column.
+    notifyAllOpsRows() {
+      const rows = [];
+      for (const g of this.notifyEventGroups) {
+        rows.push({ key: g.success, label: g.label, kind: 'success' });
+        rows.push({ key: g.failure, label: g.label, kind: 'failure' });
+      }
+      return rows;
+    },
     _appriseSnapshot() {
       const s = this.settings || {};
       const events = {};
@@ -6434,30 +6493,128 @@ function app() {
         this.settings[g.failure] = true;
       }
     },
-    // User-side convenience handlers (#378). Mutate profileForm.notify_events
-    // (the per-user opt-in map keyed by BARE event name — no
-    // notify_event_ prefix) and respect the admin-disabled gate so
-    // the user can't bulk-enable an event the admin has globally
-    // turned off (the backend would 400 such an attempt anyway).
+    // User-side convenience handlers — operate on profileForm.notify_events
+    // (per-user opt-in map keyed by BARE event name — no
+    // notify_event_ prefix). Per-medium granularity: each event's value
+    // is `{medium: bool}` after syncProfileForm normalises it, so each
+    // helper writes uniformly across every medium that's globally
+    // enabled. Admin-disabled events skip — the backend rejects an
+    // opt-in attempt for them with 400.
     _bareEventName(k) { return String(k || '').replace(/^notify_event_/, ''); },
-    setAllUserNotifyEvents(value) {
-      const v = !!value;
+    // Resolved medium list — backend hands the SPA a roster on every
+    // /api/me load. Falls back to the canonical `[app, apprise]` pair
+    // for older deploys / first-paint before /api/me lands.
+    notifyMediumNames() {
+      const list = (this.me && Array.isArray(this.me.notify_mediums))
+        ? this.me.notify_mediums : null;
+      if (list && list.length) return list.map(m => m.name);
+      return ['app', 'apprise'];
+    },
+    notifyMediumIsGloballyEnabled(name) {
+      const list = (this.me && Array.isArray(this.me.notify_mediums))
+        ? this.me.notify_mediums : null;
+      if (!list) return true;  // optimistic — wait for /api/me
+      const row = list.find(m => m.name === name);
+      return row ? !!row.enabled : true;
+    },
+    // Read / write a single (event, medium) checkbox.
+    userNotifyEventValue(eventKey, medium) {
+      const bare = this._bareEventName(eventKey);
+      const slot = (this.profileForm && this.profileForm.notify_events)
+        ? this.profileForm.notify_events[bare] : null;
+      if (slot && typeof slot === 'object') {
+        // Missing medium key defaults to true (matches dispatcher's
+        // default-on-missing-medium contract).
+        return (slot[medium] !== false);
+      }
+      // Defensive: profileForm not yet hydrated.
+      return false;
+    },
+    setUserNotifyEventValue(eventKey, medium, value) {
+      const bare = this._bareEventName(eventKey);
+      const f = this.profileForm || {};
+      if (!f.notify_events) f.notify_events = {};
+      if (!f.notify_events[bare] || typeof f.notify_events[bare] !== 'object') {
+        // Coerce legacy bare-bool slot into the per-medium dict shape so
+        // the rest of the form sees a uniform structure.
+        const prev = !!f.notify_events[bare];
+        const slot = {};
+        for (const m of this.notifyMediumNames()) slot[m] = prev;
+        f.notify_events[bare] = slot;
+      }
+      f.notify_events[bare][medium] = !!value;
+    },
+    // Toggle every medium for a given event in one click — clicking
+    // the event label itself acts as a row-level master switch.
+    toggleUserNotifyEventRow(eventKey, value) {
+      if (this.userNotifyEventDisabledByAdmin(eventKey)) return;
+      const bare = this._bareEventName(eventKey);
+      const f = this.profileForm || {};
+      if (!f.notify_events) f.notify_events = {};
+      const slot = {};
+      for (const m of this.notifyMediumNames()) slot[m] = !!value;
+      f.notify_events[bare] = slot;
+    },
+    // Toggle every event for a given medium in one click — clicking
+    // the medium column header acts as a column-level master switch.
+    // Skips admin-disabled events.
+    toggleUserNotifyMediumColumn(medium, value) {
       const f = this.profileForm || {};
       if (!f.notify_events) f.notify_events = {};
       for (const k of this.notifyEventKeys) {
         if (this.userNotifyEventDisabledByAdmin(k)) continue;
-        f.notify_events[this._bareEventName(k)] = v;
+        const bare = this._bareEventName(k);
+        if (!f.notify_events[bare] || typeof f.notify_events[bare] !== 'object') {
+          const prev = !!f.notify_events[bare];
+          const slot = {};
+          for (const m of this.notifyMediumNames()) slot[m] = prev;
+          f.notify_events[bare] = slot;
+        }
+        f.notify_events[bare][medium] = !!value;
+      }
+    },
+    // Returns true when the event is enabled across EVERY medium —
+    // used to render the row's master-toggle in its checked state.
+    userNotifyEventRowAll(eventKey) {
+      const bare = this._bareEventName(eventKey);
+      const slot = (this.profileForm && this.profileForm.notify_events)
+        ? this.profileForm.notify_events[bare] : null;
+      if (!slot || typeof slot !== 'object') return false;
+      const mediums = this.notifyMediumNames();
+      for (const m of mediums) {
+        if (slot[m] === false) return false;
+      }
+      return true;
+    },
+    setAllUserNotifyEvents(value) {
+      const v = !!value;
+      const f = this.profileForm || {};
+      if (!f.notify_events) f.notify_events = {};
+      const mediums = this.notifyMediumNames();
+      for (const k of this.notifyEventKeys) {
+        if (this.userNotifyEventDisabledByAdmin(k)) continue;
+        const bare = this._bareEventName(k);
+        const slot = {};
+        for (const m of mediums) slot[m] = v;
+        f.notify_events[bare] = slot;
       }
     },
     setUserNotifyEventsErrorsOnly() {
       const f = this.profileForm || {};
       if (!f.notify_events) f.notify_events = {};
+      const mediums = this.notifyMediumNames();
       for (const g of this.notifyEventGroups) {
         if (!this.userNotifyEventDisabledByAdmin(g.success)) {
-          f.notify_events[this._bareEventName(g.success)] = false;
+          const bareS = this._bareEventName(g.success);
+          const slot = {};
+          for (const m of mediums) slot[m] = false;
+          f.notify_events[bareS] = slot;
         }
         if (!this.userNotifyEventDisabledByAdmin(g.failure)) {
-          f.notify_events[this._bareEventName(g.failure)] = true;
+          const bareF = this._bareEventName(g.failure);
+          const slot = {};
+          for (const m of mediums) slot[m] = true;
+          f.notify_events[bareF] = slot;
         }
       }
     },

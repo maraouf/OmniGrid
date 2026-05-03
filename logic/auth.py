@@ -610,12 +610,21 @@ def update_ui_prefs(
 
 
 def get_user_notify_prefs(conn: sqlite3.Connection, user_id: int) -> dict:
-    """Return the per-user notification opt-in map (#357).
+    """Return the per-user notification opt-in map.
 
     Stored as a top-level ``notify_events`` key inside ``users.ui_prefs``
     (no new column — keeps the schema-migration footprint zero). Returns
     an empty dict when the user has never made a per-event choice; the
     caller resolves missing keys against the admin defaults.
+
+    Per-medium granularity: each event's value is EITHER a bare ``bool``
+    (legacy "enabled across every globally-enabled medium") OR a dict
+    ``{medium: bool}`` for per-medium routing (e.g. success-events to
+    Apprise only, failures to In-app only, combinations). Both shapes
+    coexist freely — the dispatcher in ``logic/ops.py:notify`` accepts
+    either. Legacy stored bools survive untouched until the user re-saves
+    the Profile → Notifications panel, at which point the SPA round-trips
+    them through the per-medium shape.
     """
     import json as _json
     row = conn.execute(
@@ -632,7 +641,18 @@ def get_user_notify_prefs(conn: sqlite3.Connection, user_id: int) -> dict:
     raw = prefs.get("notify_events")
     if not isinstance(raw, dict):
         return {}
-    return {str(k): bool(v) for k, v in raw.items()}
+    out: dict = {}
+    for k, v in raw.items():
+        if isinstance(v, bool):
+            out[str(k)] = v
+        elif isinstance(v, dict):
+            # Per-medium dict — keep only bool values (defensive against
+            # a future tampered ui_prefs blob with non-bool sub-values).
+            cleaned_med = {str(mk): bool(mv) for mk, mv in v.items() if isinstance(mv, bool)}
+            out[str(k)] = cleaned_med
+        # Skip any other shape (str, list, None) — equivalent to "no
+        # explicit choice for this event".
+    return out
 
 
 def set_user_notify_prefs(
@@ -641,8 +661,13 @@ def set_user_notify_prefs(
     """Replace the user's ``notify_events`` map with ``prefs`` (read-
     modify-write that preserves every other key in ``ui_prefs``).
 
-    ``prefs`` is a flat ``{event_name: bool}`` dict. Returns the merged
-    map after persistence so the caller can echo it in the response.
+    ``prefs`` accepts a flat ``{event_name: <bool|dict>}`` map. Each
+    value is either a bare ``bool`` (legacy "enabled across every
+    medium") or a ``{medium: bool}`` dict for per-medium routing.
+    Mixed shapes coexist — the SPA may persist some events as dicts and
+    others as legacy bools without confusing the dispatcher.
+
+    Returns the persisted map so the caller can echo it in the response.
     """
     import json as _json
     if not isinstance(prefs, dict):
@@ -658,7 +683,20 @@ def set_user_notify_prefs(
             cur = {}
     except (ValueError, TypeError):
         cur = {}
-    clean = {str(k): bool(v) for k, v in prefs.items()}
+    clean: dict = {}
+    for k, v in prefs.items():
+        ks = str(k)
+        if isinstance(v, bool):
+            clean[ks] = v
+        elif isinstance(v, dict):
+            cleaned_med = {str(mk): bool(mv) for mk, mv in v.items() if isinstance(mv, bool)}
+            # Drop empty dicts — equivalent to "no explicit choice"
+            # so we don't pollute storage with empty objects on edge
+            # cases (e.g. SPA submits {} when every medium box is
+            # cleared then re-checked back to defaults).
+            if cleaned_med:
+                clean[ks] = cleaned_med
+        # Other shapes are dropped — same as "no explicit choice".
     cur["notify_events"] = clean
     conn.execute(
         "UPDATE users SET ui_prefs=? WHERE id=?",
