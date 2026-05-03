@@ -1579,6 +1579,9 @@
     "stale_marker": {
       "badge_title": "Showing cached data — provider unavailable. {age}"
     },
+    "probe_timeout": {
+      "badge_title": "Per-host probe budget exceeded (HTTP 504) — backed off for ~60s before the next attempt"
+    },
     "sort_label": "Sort",
     "sort_title": "Sort hosts — persisted in this browser",
     "hide_unconfigured_label": "Hide hosts without agents",
