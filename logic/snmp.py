@@ -1659,47 +1659,72 @@ def extract_stats(
 # Vendor signatures matched against sysDescr.0 (case-insensitive) for
 # auto-detection. Each entry maps a vendor key (used to gate vendor-
 # specific walks) to a list of substrings any of which marks a positive
-# detection. Order doesn't matter — all keys are evaluated. New entries
-# slot in by adding their walks to ``_VENDOR_WALK_GROUPS`` AND a
-# substring set here.
-_VENDOR_SIGNATURES: dict[str, tuple[str, ...]] = {
+# detection. Order doesn't matter — all keys are evaluated. Adding a
+# seventh vendor today requires touching ~80 lines: declare the OID
+# constants near the top of this module, branch on
+# ``vendor in active_vendors`` inside ``probe_snmp`` (the
+# ``_resolved_*`` placeholder pattern keeps the 67-slot result-unpack
+# stable for skipped vendors), thread a row into the unpack tuple and
+# the ``raw[]`` debug payload, add the vendor's substring set HERE,
+# and add the key to ``_VALID_VENDOR_KEYS``. Future ENH would refactor
+# to a single ``_VENDOR_WALK_GROUPS`` dict that the dispatch iterates,
+# but no such constant exists today.
+# Each entry now carries (needle, weight). Vendor-specific tokens
+# (idrac / poweredge / smart-ups / ciscosystems / synology / brother)
+# score higher than generic OS markers (openwrt / alpine linux), so a
+# Linux-running Cisco IOS device that matches both "ucd" (via
+# "openwrt") AND "cisco" (via "ciscosystems") can be tie-broken to a
+# single primary vendor via ``_detect_primary_vendor`` when an
+# operator wants tighter pruning. The legacy
+# ``_detect_vendors_from_sysdescr`` set-return contract is preserved
+# (still returns every match) — weighting only affects the new
+# "primary" helper.
+_VENDOR_SIGNATURES: dict[str, tuple[tuple[str, int], ...]] = {
     "dell": (
-        "poweredge", "idrac", "openmanage", "dell ", "dell remote access",
+        ("idrac", 100), ("poweredge", 90), ("openmanage", 80),
+        ("dell remote access", 80), ("dell ", 30),
     ),
     "cisco": (
-        "cisco ios", "cisco nx-os", "cisco ios xr", "cisco ios-xe",
-        "ciscosystems", "cisco systems",
+        ("cisco nx-os", 100), ("cisco ios xr", 100), ("cisco ios-xe", 100),
+        ("cisco ios", 90),
+        ("ciscosystems", 80), ("cisco systems", 80),
     ),
     "apc": (
-        "apc web/snmp", "apc network management", "smart-ups", "back-ups",
-        "symmetra", "powernet",
+        ("apc web/snmp", 100), ("apc network management", 100),
+        ("smart-ups", 90), ("symmetra", 90), ("back-ups", 80),
+        ("powernet", 50),
     ),
     "synology": (
-        "synology", "diskstation", "rackstation",
+        ("diskstation", 100), ("rackstation", 100), ("synology", 70),
     ),
     "ucd": (
-        # The bare "linux " / "freebsd " / "debian " / "ubuntu " strings
-        # were dropped because they over-match: a Cisco IOS XE box, a
-        # Dell iDRAC running embedded Linux, and many vendor BMCs all
-        # carry "Linux" in sysDescr — auto-detecting them as `ucd` then
-        # added 6 wasted UCD-SNMP-MIB walks per probe. Anchor to the
-        # actual UCD/net-snmp signatures (the daemon name appears in
-        # sysDescr on Linux distros / OpenWrt / FreeBSD when net-snmp is
-        # the SNMP agent — which IS the case `ucd` extractors target).
-        "ucd-snmp", "net-snmp", "openwrt", "raspbian ", "alpine linux",
+        # Bare "linux " / "freebsd " / "debian " / "ubuntu " were
+        # dropped because they over-match: a Cisco IOS XE box, a Dell
+        # iDRAC running embedded Linux, and many vendor BMCs all carry
+        # "Linux" in sysDescr — auto-detecting them as `ucd` then added
+        # 6 wasted UCD-SNMP-MIB walks per probe. Anchor to the actual
+        # UCD/net-snmp signatures. ``ucd-snmp`` / ``net-snmp`` score
+        # highest because they ARE the daemon being detected; OS
+        # markers stay LOW so a Cisco IOS XE box matching both ``cisco
+        # ios xe`` (weight 100) and ``openwrt`` (weight 30) tie-breaks
+        # to ``cisco`` via ``_detect_primary_vendor``.
+        ("ucd-snmp", 100), ("net-snmp", 100),
+        ("openwrt", 30), ("alpine linux", 30), ("raspbian ", 30),
     ),
     "printer": (
-        # Vendor-keyword + product-line tokens. "samsung " was
-        # over-broad — Samsung NAS appliances and Samsung Smart TVs
-        # both carry "samsung" in sysDescr, and walking Printer-MIB on
-        # them returns noSuchObject for every OID. Tightened to
-        # printer-specific Samsung product-line prefixes (CLP / CLX /
-        # ML / SCX / Xpress / ProXpress / MultiXpress).
-        "hp laserjet", "hp officejet", "brother ", "epson ", "canon ",
-        "kyocera", "ricoh ", "xerox ", "lexmark", "konica minolta",
-        "fuji xerox", "samsung clp", "samsung clx", "samsung ml-",
-        "samsung scx", "samsung xpress", "samsung proxpress",
-        "samsung multixpress",
+        # Vendor-keyword + product-line tokens. ``samsung `` alone was
+        # over-broad — Samsung NAS / Smart TV / phones all carry
+        # "samsung" in sysDescr. Tightened to printer-specific Samsung
+        # product-line prefixes. Vendor-specific product lines score
+        # high; bare brand tokens (without a product-line discriminator)
+        # are excluded.
+        ("hp laserjet", 100), ("hp officejet", 100),
+        ("brother ", 90), ("epson ", 90), ("canon ", 80),
+        ("kyocera", 100), ("ricoh ", 90), ("xerox ", 90),
+        ("lexmark", 100), ("konica minolta", 100), ("fuji xerox", 100),
+        ("samsung clp", 100), ("samsung clx", 100), ("samsung ml-", 100),
+        ("samsung scx", 100), ("samsung xpress", 100),
+        ("samsung proxpress", 100), ("samsung multixpress", 100),
     ),
 }
 
@@ -1721,11 +1746,38 @@ def _detect_vendors_from_sysdescr(sys_descr: str) -> set[str]:
     haystack = sys_descr.lower()
     matched: set[str] = set()
     for vendor, needles in _VENDOR_SIGNATURES.items():
-        for needle in needles:
+        for needle, _weight in needles:
             if needle in haystack:
                 matched.add(vendor)
                 break
     return matched
+
+
+def _detect_primary_vendor(sys_descr: str) -> Optional[str]:
+    """Return the single highest-scoring vendor matched against ``sys_descr``.
+
+    For a fleet that matches multiple vendors against one host (e.g. a
+    Linux-running Cisco IOS XE device matches both ``cisco`` via
+    ``ciscosystems`` AND ``ucd`` via ``openwrt``), the operator can
+    pick a tighter walk set by going through the primary-only path.
+    Vendor-specific tokens score higher than generic OS markers so
+    ``cisco ios xe`` (weight 100) wins over ``openwrt`` (weight 30).
+
+    Returns the vendor key with the maximum aggregate score across all
+    its matching needles, or ``None`` when no signature matches.
+    Ties are broken by stable iteration order of ``_VENDOR_SIGNATURES``.
+    """
+    if not sys_descr:
+        return None
+    haystack = sys_descr.lower()
+    best_vendor: Optional[str] = None
+    best_score = 0
+    for vendor, needles in _VENDOR_SIGNATURES.items():
+        score = sum(weight for needle, weight in needles if needle in haystack)
+        if score > best_score:
+            best_score = score
+            best_vendor = vendor
+    return best_vendor
 
 
 # Valid per-host vendor-override values (passes through to probe_snmp's
@@ -2121,9 +2173,35 @@ async def probe_snmp(
         if walk_concurrency is not None:
             walk_concurrency_resolved = max(1, int(walk_concurrency))
         else:
-            walk_concurrency_resolved = max(
-                1, int(_tuning.tuning_int("tuning_snmp_per_host_walk_concurrency"))
-            )
+            # Per-vendor global default. When ``active_vendors``
+            # resolved to EXACTLY ONE vendor (auto-detect picked one,
+            # no walk-all fallback) AND the vendor's tunable is
+            # non-zero, prefer it over the generic
+            # ``tuning_snmp_per_host_walk_concurrency``. Lets a
+            # homogeneous fleet pin a sensible default per vendor mix
+            # (e.g. 4 for Dell iDRAC, 1 for printers) without forcing
+            # the operator to set per-host overrides on every row.
+            # Single-vendor gate: if auto-detect matched multiple OR
+            # fell through to walk-all (== set(_VALID_VENDOR_KEYS)),
+            # we use the generic default — vendor-specific defaults
+            # only make sense when the agent IS that vendor.
+            vendor_default = 0
+            if (
+                len(active_vendors) == 1
+                and active_vendors != set(_VALID_VENDOR_KEYS)
+            ):
+                only_vendor = next(iter(active_vendors))
+                vendor_key = f"tuning_snmp_walk_concurrency_{only_vendor}"
+                try:
+                    vendor_default = int(_tuning.tuning_int(vendor_key))
+                except (TypeError, ValueError, KeyError):
+                    vendor_default = 0
+            if vendor_default > 0:
+                walk_concurrency_resolved = vendor_default
+            else:
+                walk_concurrency_resolved = max(
+                    1, int(_tuning.tuning_int("tuning_snmp_per_host_walk_concurrency"))
+                )
         walk_sem = asyncio.Semaphore(walk_concurrency_resolved)
         # Placeholder coroutines (``_resolved_value`` / ``_resolved_dict``
         # / ``_resolved_list``) are instant-return — they do no I/O. With
@@ -2148,22 +2226,41 @@ async def probe_snmp(
             # suspension point) so the GC sees a "done" coroutine and
             # stays quiet. ``close()`` is a no-op if the coroutine
             # already started, so the body path is unaffected.
-            try:
+            #
+            # Explicit acquire/release (instead of ``async with walk_sem:``)
+            # makes the placeholder-bypass + cancellation-cleanup paths
+            # read uniformly — each branch is one statement, not nested
+            # under a context manager. The try/finally guarantees
+            # release even if the body raises after a successful
+            # acquire, matching the semantics ``async with`` provided.
+            code_name = getattr(getattr(coro, "cr_code", None), "co_name", "")
+            if code_name in _PLACEHOLDER_NAMES:
                 # Placeholder coroutines bypass the semaphore — they
                 # complete in one step and would otherwise pin the
                 # semaphore behind real walks for no actual concurrency
                 # benefit at walk_concurrency=1.
-                code_name = getattr(getattr(coro, "cr_code", None), "co_name", "")
-                if code_name in _PLACEHOLDER_NAMES:
+                try:
                     return await coro
-                async with walk_sem:
-                    return await coro
+                except BaseException:
+                    try:
+                        coro.close()
+                    except (RuntimeError, GeneratorExit):
+                        pass
+                    raise
+            acquired = False
+            try:
+                await walk_sem.acquire()
+                acquired = True
+                return await coro
             except BaseException:
                 try:
                     coro.close()
                 except (RuntimeError, GeneratorExit):
                     pass
                 raise
+            finally:
+                if acquired:
+                    walk_sem.release()
 
         all_tasks = [
             sys_task, cpu_task,
@@ -2443,9 +2540,28 @@ async def probe_snmp(
           f"disk_total={stats.get('host_disk_total')} "
           f"ifaces={len(stats.get('network_ifaces') or [])}")
 
+    # Vendor-pruning + budget diagnostics surface on the SUCCESS path
+    # too — operators verifying a per-host `vendors` override or
+    # `walk_concurrency` / `wall_clock_budget` override should see
+    # which walks were actually live without having to wait for a
+    # timeout. Same shape as the TimeoutError branch above so the
+    # debug panel can render diagnostics uniformly.
     out = {
         "hosts": {host_key: stats} if host_key else {},
         "error": None,
+        "active_vendors": sorted(active_vendors),
+        "active_vendors_source": (
+            "per-host override" if vendors is not None
+            else (
+                "auto-detected from sysDescr"
+                if _detect_vendors_from_sysdescr(sys_descr_str)
+                else "walk-all fallback (sysDescr empty / unrecognised)"
+            )
+        ),
+        "sys_descr": (sys_descr_str or "")[:200],
+        "skip_entity_mib": skip_entity_mib,
+        "walk_concurrency_resolved": walk_concurrency_resolved,
+        "wall_clock_budget_resolved": int(wall_clock_budget_resolved),
     }
     if verbose:
         # surface the parsed walks so the host-drawer debug

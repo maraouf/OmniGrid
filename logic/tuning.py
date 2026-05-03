@@ -239,6 +239,22 @@ TUNABLES: dict[str, tuple[str, int, int, int]] = {
     # clock drops from ~6s @ concurrency=1 to ~0.5s @ concurrency=16
     # on a 60-OID probe. Range 1..16.
     "tuning_snmp_per_host_walk_concurrency": ("SNMP_PER_HOST_WALK_CONCURRENCY", 1, 1, 16),
+    # Per-vendor walk_concurrency global defaults. When `active_vendors`
+    # auto-detect resolves to EXACTLY ONE vendor AND no per-host
+    # override is set AND the vendor's tunable is non-zero, the
+    # resolver picks the vendor-specific default instead of the generic
+    # `tuning_snmp_per_host_walk_concurrency`. Lets a fleet's global
+    # default match the vendor mix without forcing a compromise: a Dell
+    # iDRAC fleet runs at 4 by default while a printer fleet stays at 1,
+    # without the operator setting per-host overrides on every row.
+    # Default 0 (= disabled, falls through to the generic tunable). Set
+    # to 1..16 to enable. APC excluded — single-GET probe, concurrency
+    # has no effect.
+    "tuning_snmp_walk_concurrency_dell":     ("SNMP_WALK_CONCURRENCY_DELL", 0, 0, 16),
+    "tuning_snmp_walk_concurrency_cisco":    ("SNMP_WALK_CONCURRENCY_CISCO", 0, 0, 16),
+    "tuning_snmp_walk_concurrency_synology": ("SNMP_WALK_CONCURRENCY_SYNOLOGY", 0, 0, 16),
+    "tuning_snmp_walk_concurrency_ucd":      ("SNMP_WALK_CONCURRENCY_UCD", 0, 0, 16),
+    "tuning_snmp_walk_concurrency_printer":  ("SNMP_WALK_CONCURRENCY_PRINTER", 0, 0, 16),
     # SNMP per-host caches, distinct from the Webmin TTL knobs.
     # Pre-#659 the SNMP per-host caches reused tuning_webmin_host_cache_ttl_seconds /
     # tuning_webmin_host_fail_cache_ttl_seconds — operator changing the
