@@ -1825,9 +1825,23 @@ details summary::-webkit-details-marker {
     cursor: help;
     flex-shrink: 0;
     user-select: none;
+    /* Element-type-agnostic reset so the rule applies whether the
+     * caller uses <span> (legacy) or <button> (a11y-improved). The
+     * <button> form gives keyboard focus / Enter+Space activation /
+     * role=button announcement for free; user-agent button chrome
+     * (border, padding, background) is reset here. */
+    background: transparent;
+    border: 0;
+    padding: 0;
+    font: inherit;
 }
 .metric-card-title .metric-source-help:hover {
     color: var(--text-dim);
+}
+.metric-card-title button.metric-source-help:focus-visible {
+    outline: 2px solid var(--primary);
+    outline-offset: 2px;
+    border-radius: 2px;
 }
 
 /* Tap-driven tooltip body — positioned below the `?` icon (or above

@@ -2688,6 +2688,30 @@ function app() {
       this.hostStatsTab = name;
       try { localStorage.setItem('hostStatsTab', name); } catch {}
     },
+    // Single source of truth for the strip's tab order. setHostStatsTab
+    // already validates against this list; cycleHostStatsTab uses it to
+    // implement ←/→ keyboard nav per the WAI-ARIA tablist authoring
+    // pattern. New tabs added here automatically participate in
+    // keyboard navigation.
+    HOST_STATS_TAB_ORDER: ['node_exporter', 'beszel', 'pulse', 'webmin', 'ping', 'snmp'],
+    // Cycle tabs by ±1, wrapping at both ends. Called from each tab
+    // button's @keydown.left / @keydown.right handler. After the tab
+    // switches we focus the newly-active button so the focus ring
+    // tracks selection (per ARIA tablist guidance).
+    cycleHostStatsTab(direction) {
+      const order = this.HOST_STATS_TAB_ORDER;
+      const cur = order.indexOf(this.hostStatsTab);
+      const i = cur < 0 ? 0 : cur;
+      const next = (i + (direction > 0 ? 1 : order.length - 1)) % order.length;
+      this.setHostStatsTab(order[next]);
+      // Re-focus the newly-active tab button so keyboard users see the
+      // focus ring track the selected tab. The button carries an id of
+      // the form `provider-tab-<key>` so the lookup is deterministic.
+      this.$nextTick(() => {
+        const el = document.getElementById('provider-tab-' + order[next]);
+        if (el && typeof el.focus === 'function') el.focus();
+      });
+    },
 
     // Serialise just the host-stats-related subset of settings to a
     // stable string. Used by _hostStatsBaseline and hostStatsDirty()
@@ -8459,13 +8483,20 @@ function app() {
           || s === 'degraded-redundancy') return 'pill-update';
       return 'pill-unknown';
     },
-    // Capitalize a state label for display in pills / labels. "ready" →
-    // "Ready", "non-raid" → "Non-raid". Lower-case at the source-of-truth
-    // (Dell OMSA enum constants) stays the wire-level convention; this
-    // helper is purely cosmetic for the SPA's pill text.
+    // Disk-state pill label resolver — try i18n first, fall back to a
+    // capitalised version of the raw enum string. Mirrors the
+    // dellHealthLabel pattern: `host_drawer.server_health.status_<name>`
+    // is the canonical key family (hyphens become underscores so
+    // `non-raid` → `status_non_raid`). Lower-case at the source-of-truth
+    // (Dell OMSA enum constants in logic/snmp.py) stays the wire format;
+    // this helper applies translation per locale + capitalisation
+    // fallback for novel enum values that don't have a key yet.
     dellStateLabel(state) {
-      const s = String(state || '');
+      const s = String(state || '').toLowerCase();
       if (!s) return '';
+      const key = 'host_drawer.server_health.status_' + s.replace(/-/g, '_');
+      const tr = this.t(key);
+      if (tr && tr !== key) return tr;
       return s.charAt(0).toUpperCase() + s.slice(1);
     },
     // Threshold at which Server health sub-sections (Physical disks /
@@ -8478,6 +8509,26 @@ function app() {
     // multi-column grid (auto-fit minmax(190px, 1fr) → 2-4 columns
     // depending on drawer width × ~2 rows ≈ 6 visible items).
     SERVER_HEALTH_COLLAPSED_LIMIT: 6,
+    // Narrow-viewport row cap. Below 480px the dense multi-column grid
+    // collapses to a single column AND the outer card collapses to a
+    // single column too — leaving the collapsed view at 6 rows still
+    // feels long on a phone. Drop to 3 below 480px so the collapsed
+    // section fits one screen on a phone. Pair this with the existing
+    // `SERVER_HEALTH_COLLAPSED_LIMIT` desktop default in
+    // `effectiveCollapsedLimit()`.
+    SERVER_HEALTH_COLLAPSED_LIMIT_NARROW: 3,
+    SERVER_HEALTH_NARROW_BREAKPOINT_PX: 480,
+    // Resolve the collapsed-row limit per current viewport width. Reads
+    // `window.innerWidth` so it auto-adjusts on rotate / resize without
+    // requiring a manual refresh. Caller (serverHealthVisibleRows) reads
+    // this on every render so the slice tracks the live viewport.
+    effectiveCollapsedLimit() {
+      const w = (typeof window !== 'undefined') ? (window.innerWidth || 0) : 0;
+      if (w > 0 && w < this.SERVER_HEALTH_NARROW_BREAKPOINT_PX) {
+        return this.SERVER_HEALTH_COLLAPSED_LIMIT_NARROW;
+      }
+      return this.SERVER_HEALTH_COLLAPSED_LIMIT;
+    },
     // Returns the slice of rows to render given the host id + section
     // key + the underlying full-list array. When count > threshold AND
     // the section isn't expanded, returns the first N; otherwise
@@ -8489,7 +8540,7 @@ function app() {
       if (rows.length <= this.SERVER_HEALTH_COLLAPSE_THRESHOLD) return rows;
       const key = `${hostId}:${section}`;
       if (this.serverHealthExpanded[key]) return rows;
-      return rows.slice(0, this.SERVER_HEALTH_COLLAPSED_LIMIT);
+      return rows.slice(0, this.effectiveCollapsedLimit());
     },
     // True when the section has more rows than fit in the collapsed
     // view (so the toggle should render). False when count is at or
@@ -9470,6 +9521,29 @@ function app() {
       if (pct > this._statBarCritPct()) return 'crit';
       if (pct > this._statBarWarnPct()) return 'warn';
       return '';
+    },
+    // Single source of truth for stat-bar a11y attrs. Returns a plain
+    // object spread via x-bind so every `.stat-bar` consumer announces
+    // as a real progressbar instead of an empty div. The label key
+    // resolves through `t()` so screen readers get a localised hint
+    // (e.g. "CPU 73%"). Pass null/undefined `pct` for "unknown" — the
+    // resulting valuenow is omitted but valuetext still names the
+    // metric. Replaces 20+ inline rewrites with one helper.
+    statBarBind(pct, labelKey) {
+      const numeric = (typeof pct === 'number' && isFinite(pct))
+        ? Math.max(0, Math.min(100, Math.round(pct)))
+        : null;
+      const label = (labelKey && typeof this.t === 'function') ? this.t(labelKey) : '';
+      const text = numeric == null
+        ? (label || '—')
+        : (label ? `${label} ${numeric}%` : `${numeric}%`);
+      return {
+        role: 'progressbar',
+        'aria-valuemin': '0',
+        'aria-valuemax': '100',
+        'aria-valuenow': numeric == null ? null : String(numeric),
+        'aria-valuetext': text,
+      };
     },
     cpuLabel(pct) {
       return pct >= 10 ? pct.toFixed(0) + '%' : pct.toFixed(1) + '%';
@@ -16383,13 +16457,35 @@ function app() {
         // Ping is its own thing — TCP / ICMP probe per host.
         ping:        ['ping'],
       };
+      // Ping label resolves the per-host transport + port the user
+      // actually configured (or the global defaults when no per-host
+      // override is set). Pre-fix the tooltip read literally
+      // "Ping probe (this host)" with no indication of WHAT was being
+      // probed. ICMP transport renders as "Ping probe (ICMP)"; TCP
+      // transport renders as "Ping probe (TCP :<port>)". Per-host
+      // values come from the API row (`ping_transport` / `ping_port`);
+      // global defaults come from `me.client_config.ping`.
+      let pingLabel = '';
+      if (pingEnabled) {
+        const cfgGlobal = (this.me && this.me.client_config && this.me.client_config.ping) || {};
+        const hostTransport = String((h && h.ping_transport) || '').toLowerCase();
+        const useIcmp = (hostTransport === 'icmp')
+                     || (hostTransport === '' && !!cfgGlobal.use_icmp);
+        if (useIcmp) {
+          pingLabel = 'Ping probe (ICMP)';
+        } else {
+          const port = (h && Number(h.ping_port))
+                       || (cfgGlobal.default_port ? Number(cfgGlobal.default_port) : 443);
+          pingLabel = `Ping probe (TCP :${port})`;
+        }
+      }
       const providers = {
         beszel: beszelLabel ? `Beszel agent (${beszelLabel})` : '',
         pulse:  pulse       ? `Pulse (${pulse})`              : '',
         ne:     ne          ? `node-exporter (${ne})`         : '',
         webmin: webmin      ? `Webmin (${webmin})`            : '',
         snmp:   snmpEnabled ? `SNMP (${snmp})`                : '',
-        ping:   pingEnabled ? `Ping probe (this host)`        : '',
+        ping:   pingLabel,
       };
 
       const order = precedence[key] || ['beszel', 'pulse', 'ne', 'webmin'];

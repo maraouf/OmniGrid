@@ -5181,6 +5181,14 @@ def _shape_host_api_row(
         # enabled for this host. Booleans coerced safely so a
         # null-from-snapshot doesn't crash the spread.
         "ping_enabled":     bool((h.get("ping") or {}).get("enabled", False)),
+        # Per-host ping override values surfaced for the SPA's metricSource
+        # tooltip — pre-fix the tooltip read "Ping probe (this host)" for
+        # every ping-enabled host with no indication of which port /
+        # transport was actually being probed. Empty / null = inherit
+        # global default. Transport is one of `tcp` / `icmp` / null.
+        "ping_port":        (int((h.get("ping") or {}).get("port"))
+                             if (h.get("ping") or {}).get("port") is not None else None),
+        "ping_transport":   ((h.get("ping") or {}).get("transport") or None),
         "ping_alive":       bool(s.get("host_ping_alive")) if s.get("host_ping_alive") is not None else None,
         "ping_rtt_ms":      (float(s.get("host_ping_rtt_ms")) if s.get("host_ping_rtt_ms") is not None else None),
         "ping_loss_pct":    (float(s.get("host_ping_loss_pct")) if s.get("host_ping_loss_pct") is not None else None),
@@ -9933,6 +9941,15 @@ async def api_me(request: Request):
             # resolved global default ("Inherited: 60") instead of a
             # hardcoded literal.
             "snmp_wall_clock_budget_seconds": tuning.tuning_int("tuning_snmp_wall_clock_budget_seconds"),
+            # Global ping defaults. Used by the SPA's metricSource()
+            # tooltip so "Ping probe (TCP :443)" / "Ping probe (ICMP)"
+            # falls back cleanly when a host has no per-host
+            # ping_port / ping_transport override. Mirrors the SNMP
+            # global-default surface pattern above.
+            "ping": {
+                "default_port": int(get_setting("ping_default_port", "443") or "443"),
+                "use_icmp":     get_setting_bool("ping_use_icmp", False),
+            },
             # Scheduler-tz state so the admin Schedules tab can badge
             # "TZ: <name> → falling back to UTC" when the operator typed
             # an invalid IANA name. ``configured`` = raw setting,
