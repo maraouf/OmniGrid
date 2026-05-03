@@ -1931,10 +1931,10 @@
               <div class="host-mobile-card-metric">
                 <span class="name" x-text="t('columns.disk')"></span>
                 <span class="value"
-                      x-text="Math.round(h.disk_percent || diskPercentOf(h)) + '%'"></span>
+                      x-text="fmtPercentLabel(h.disk_percent || diskPercentOf(h))"></span>
                 <div class="stat-bar" x-bind="statBarBind(Math.round(h.disk_percent || diskPercentOf(h)), 'columns.disk')"
                      :class="[barLevel(h.disk_percent || diskPercentOf(h)), (isStaleField(h, 'host_disk_total') || isStaleField(h, 'host_disk_used')) ? 'stale' : '']"
-                     :style="'--w: ' + Math.round(h.disk_percent || diskPercentOf(h)) + '%'"
+                     :style="'--w: ' + ((h.disk_percent || diskPercentOf(h)) > 0 ? Math.max(1, Math.round(h.disk_percent || diskPercentOf(h))) : 0) + '%'"
                      :title="(isStaleField(h, 'host_disk_total') || isStaleField(h, 'host_disk_used')) ? staleAge(h) : ''">
                   <div class="fill"></div>
                 </div>
@@ -2287,8 +2287,8 @@
                     <template x-if="(h.mounts || []).length <= 1">
                       <div class="stat-bar" x-bind="statBarBind(Math.round(h.disk_percent || diskPercentOf(h)), 'columns.disk')"
                            :class="[barLevel(h.disk_percent || diskPercentOf(h)), (isStaleField(h, 'host_disk_total') || isStaleField(h, 'host_disk_used')) ? 'stale' : '']"
-                           :style="'--w: ' + Math.round(h.disk_percent || diskPercentOf(h)) + '%'"
-                           :title="t('columns.disk') + ': ' + Math.round(h.disk_percent || diskPercentOf(h)) + '%' + (h.disk_total ? ' (' + fmtBytes(h.disk_used) + ' / ' + fmtBytes(h.disk_total) + ')' : '') + ((isStaleField(h, 'host_disk_total') || isStaleField(h, 'host_disk_used')) ? ' — ' + staleAge(h) : '')">
+                           :style="'--w: ' + ((h.disk_percent || diskPercentOf(h)) > 0 ? Math.max(1, Math.round(h.disk_percent || diskPercentOf(h))) : 0) + '%'"
+                           :title="t('columns.disk') + ': ' + fmtPercentLabel(h.disk_percent || diskPercentOf(h)) + (h.disk_total ? ' (' + fmtBytes(h.disk_used) + ' / ' + fmtBytes(h.disk_total) + ')' : '') + ((isStaleField(h, 'host_disk_total') || isStaleField(h, 'host_disk_used')) ? ' — ' + staleAge(h) : '')">
                         <div class="fill"></div>
                       </div>
                       <svg x-show="hostHasInlineSpark(h, 'disk')" class="spark"
@@ -2298,7 +2298,7 @@
                       </svg>
                     </template>
                     <div class="text-[10.5px] mono mt-1">
-                      <span x-text="Math.round(h.disk_percent || diskPercentOf(h)) + '%'"></span>
+                      <span x-text="fmtPercentLabel(h.disk_percent || diskPercentOf(h))"></span>
                       <span class="text-[var(--text-faint)]" x-show="h.disk_total"
                             x-text="' (' + fmtBytes(h.disk_used) + '/' + fmtBytes(h.disk_total) + ')'"></span>
                     </div>

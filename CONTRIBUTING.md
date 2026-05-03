@@ -198,7 +198,7 @@ PR description template:
 Closes #<issue number if any>
 ```
 
-The maintainer (currently @m-a-raouf) reviews PRs as time permits —
+The maintainer reviews PRs as time permits —
 typically within a week for focused changes, longer for sprawling ones.
 A "needs changes" review isn't a rejection; it's a chance to refine.
 
