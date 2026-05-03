@@ -1897,7 +1897,7 @@
                  row to just header + status dot so "0%" bars don't
                  imply "loading" on a host that's down. -->
             <div class="host-mobile-card-metrics" x-show="h.status === 'up' && hostHasTelemetry(h)">
-              <div class="host-mobile-card-metric">
+              <div class="host-mobile-card-metric" x-show="hostHasCpuMetric(h)">
                 <span class="name" x-text="t('columns.cpu')"></span>
                 <span class="value" x-text="(h.cpu_percent || 0).toFixed(1) + '%'"></span>
                 <div class="stat-bar" x-bind="statBarBind(Math.round(Math.min(100, h.cpu_percent || 0)), 'columns.cpu')"
@@ -1912,7 +1912,7 @@
                   <path fill="none" stroke="currentColor" stroke-width="1" :d="hostInlineSparkline(h, 'cpu')"/>
                 </svg>
               </div>
-              <div class="host-mobile-card-metric">
+              <div class="host-mobile-card-metric" x-show="hostHasMemMetric(h)">
                 <span class="name" x-text="t('columns.memory')"></span>
                 <span class="value"
                       x-text="Math.round(h.mem_percent || memPercentOf(h)) + '%'"></span>
@@ -1928,7 +1928,7 @@
                   <path fill="none" stroke="currentColor" stroke-width="1" :d="hostInlineSparkline(h, 'memory')"/>
                 </svg>
               </div>
-              <div class="host-mobile-card-metric">
+              <div class="host-mobile-card-metric" x-show="hostHasDiskMetric(h)">
                 <span class="name" x-text="t('columns.disk')"></span>
                 <span class="value"
                       x-text="fmtPercentLabel(h.disk_percent || diskPercentOf(h))"></span>
@@ -2209,11 +2209,13 @@
                    "—" dashes that imply "data is loading" when in
                    reality the host is just down. Status dot + name
                    column alone communicate the state. -->
-              <!-- CPU % — gated on hostHasTelemetry so ping-only
-                   hosts (which can be 'up' via reachability but
-                   contribute no CPU gauge) don't render an empty bar. -->
+              <!-- CPU % — gated on hostHasCpuMetric so a host
+                   that exposes only CPU via SNMP (e.g. Cisco
+                   SG300 switch — CPU history yes, mem/disk no)
+                   shows the CPU bar without dragging mem/disk
+                   along with it. -->
               <div>
-                <template x-if="h.status === 'up' && hostHasTelemetry(h)">
+                <template x-if="h.status === 'up' && hostHasCpuMetric(h)">
                   <div>
                     <!-- desktop bars now self-identify on hover.
                          Pre-fix the desktop view's bars had only stale-
@@ -2238,9 +2240,13 @@
                   </div>
                 </template>
               </div>
-              <!-- Memory % + bytes — same telemetry gate. -->
+              <!-- Memory % + bytes — gated on hostHasMemMetric so
+                   wireless APs / switches that expose only memory
+                   (not CPU/disk) still show this bar, while
+                   hosts that only expose CPU don't render an
+                   empty mem bar at 0%. -->
               <div>
-                <template x-if="h.status === 'up' && hostHasTelemetry(h)">
+                <template x-if="h.status === 'up' && hostHasMemMetric(h)">
                   <div>
                     <div class="stat-bar" x-bind="statBarBind(Math.round(h.mem_percent || memPercentOf(h)), 'columns.memory')"
                          :class="[barLevel(h.mem_percent || memPercentOf(h)), (isStaleField(h, 'host_mem_total') || isStaleField(h, 'host_mem_used')) ? 'stale' : '']"
@@ -2261,13 +2267,17 @@
                   </div>
                 </template>
               </div>
-              <!-- Disk % + bytes — segmented bar when multiple
-                   mounts exist, each stripe a distinct colour
+              <!-- Disk % + bytes — gated on hostHasDiskMetric so
+                   wireless APs / managed switches / chassis BMCs
+                   that don't expose disk via SNMP collapse this
+                   block out instead of showing an empty bar +
+                   "0%" label. Segmented bar when multiple mounts
+                   exist, each stripe a distinct colour
                    proportional to the mount's used portion of the
                    whole pool. Falls back to a plain single-colour
                    bar when the host reports only aggregate totals. -->
               <div>
-                <template x-if="h.status === 'up' && hostHasTelemetry(h)">
+                <template x-if="h.status === 'up' && hostHasDiskMetric(h)">
                   <div>
                     <template x-if="(h.mounts || []).length > 1">
                       <div class="disk-segmented">
@@ -2278,7 +2288,7 @@
                                        + fmtBytes((m.d || 0) * 1024**3)
                                        + ' (' + Math.round(mountFillPercent(m)) + '%)'">
                             <div class="disk-segmented-fill"
-                                 :class="'disk-seg-' + (i % 7)"
+                                 :class="'disk-seg-' + mountFillLevel(m)"
                                  :style="'width: ' + mountFillPercent(m) + '%'"></div>
                           </div>
                         </template>
@@ -6324,6 +6334,36 @@
                      x-show="!(row.snmp && Array.isArray(row.snmp.vendors) && row.snmp.vendors.length) && snmpAutoDetectedVendors(row).length"
                      x-text="t('admin_hosts.snmp_vendors_last_detected', { vendors: snmpAutoDetectedVendors(row).map(v => snmpVendorLabel(v)).join(', ') })"></p>
                 </div>
+              </div>
+              <!-- Per-host mount-exclusion list. SNMP agents
+                   occasionally mis-classify pseudo-filesystems as
+                   fixed disks (dd-wrt's `/opt` 232 GB phantom on a
+                   16 MB router is the canonical case); this textarea
+                   accepts one mount path per line and the backend
+                   filters those rows out of the storage extractor's
+                   output before they pollute host_disk_total /
+                   host_disk_used / mounts[]. The universal pseudo-fs
+                   prefixes (/dev, /proc, /sys, /run, /var/run,
+                   /var/lock, /dev/shm) are filtered automatically
+                   in `logic/snmp.py:_DEFAULT_EXCLUDE_MOUNT_PREFIXES`
+                   so this list is for device-specific phantoms only.
+                   Match is exact OR prefix-with-slash (e.g. `/opt`
+                   matches both `/opt` and `/opt/foo`). Disabled-host
+                   gating mirrors the vendor checkboxes. -->
+              <div class="md:col-span-2 mt-3">
+                <label class="block text-[10.5px] uppercase tracking-wider text-[var(--text-faint)] mb-1"
+                       :title="t('admin_hosts.snmp_exclude_mounts_hint')">
+                  <span :title="t('admin_hosts.snmp_exclude_mounts_hint')"
+                        x-text="t('admin_hosts.snmp_exclude_mounts_label')"></span>
+                </label>
+                <textarea x-model="row.snmp.exclude_mounts_text"
+                          rows="2"
+                          class="w-full mono text-[11.5px]"
+                          :class="(isReadonly() || !row.enabled || !(row.snmp && row.snmp.enabled)) ? 'opacity-50 cursor-not-allowed' : ''"
+                          :disabled="isReadonly() || !row.enabled || !(row.snmp && row.snmp.enabled)"
+                          :placeholder="t('admin_hosts.snmp_exclude_mounts_placeholder')"></textarea>
+                <p class="text-[10.5px] text-[var(--text-faint)] mt-1"
+                   x-text="t('admin_hosts.snmp_exclude_mounts_help')"></p>
               </div>
               <!-- Row 3 — test button + per-provider result line. The
                    result lists each probed provider with a tick or

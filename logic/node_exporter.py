@@ -521,9 +521,23 @@ def parse_exporter_text(text: str) -> dict:
 
     # Finalise mount list — compute used, drop any rows where size is 0
     # (kernel readahead race / unreadable mount).
+    #
+    # ZFS pool dedup: datasets in the same pool report
+    #   size_i  = used_i + pool_avail
+    #   avail_i = pool_avail   (identical across siblings)
+    # so a naive sum across N datasets inflates the apparent total by
+    # (N-1) * pool_avail. Operator on a 14-dataset OPNsense `zroot`
+    # pool saw host_disk_total ≈ 8.7 TB instead of the true 817 GB
+    # (14 × 807 GB avail + sum_used ≈ 11 TB; with the >0 mountpoint
+    # exclusion landing somewhere around 8.7 TB). Fix: count each
+    # ZFS pool's `avail` ONCE (pool keyed by the first segment of the
+    # ZFS dataset name), then sum only the per-dataset `used`. Per-
+    # mount display still shows every dataset's own size/used/avail
+    # so /var/log etc. retain their individual numbers.
     mounts: list[dict] = []
     total_size = 0
     total_free = 0
+    zfs_pool_avail_seen: dict[str, int] = {}
     gib = 1024 ** 3
     for entry in fs.values():
         size = entry.get("size", 0)
@@ -531,13 +545,6 @@ def parse_exporter_text(text: str) -> dict:
         if size <= 0:
             continue
         used = max(0, size - avail)
-        # Emit the SAME shape Beszel's _flatten_efs produces so the
-        # frontend's mount-rendering code can read either provider
-        # without branching: ``n`` (name / mountpoint), ``fs`` (fstype),
-        # ``d``/``du`` (total / used, in GiB to match Beszel), and the
-        # absolute ``size``/``used`` in bytes for callers that want the
-        # precise number. Keeping ``mountpoint`` + ``fstype`` as aliases
-        # preserves any existing callers reading the old shape.
         size_gib = size / gib
         used_gib = used / gib
         dp = (used / size * 100) if size > 0 else 0.0
@@ -553,8 +560,22 @@ def parse_exporter_text(text: str) -> dict:
             "size":       size,
             "used":       used,
         })
-        total_size += size
-        total_free += avail
+        if (entry.get("fstype") or "").lower() == "zfs":
+            device = entry.get("device") or ""
+            pool = device.split("/", 1)[0] if "/" in device else (device or entry["mountpoint"])
+            if pool not in zfs_pool_avail_seen:
+                # First dataset of this pool — counts the pool's
+                # avail + its own used toward the totals.
+                zfs_pool_avail_seen[pool] = avail
+                total_size += avail + used
+                total_free += avail
+            else:
+                # Subsequent datasets — only their own used, the
+                # pool's avail was already counted.
+                total_size += used
+        else:
+            total_size += size
+            total_free += avail
     mounts.sort(key=lambda m: m["n"])
     total_used = max(0, total_size - total_free)
     # Normalise machine label → canonical arch name so the UI's

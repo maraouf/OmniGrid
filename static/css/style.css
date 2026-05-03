@@ -2538,6 +2538,19 @@ details summary::-webkit-details-marker {
 .disk-seg-4 { background: var(--disk-seg-4); color: var(--disk-seg-4); }
 .disk-seg-5 { background: var(--disk-seg-5); color: var(--disk-seg-5); }
 .disk-seg-6 { background: var(--disk-seg-6); color: var(--disk-seg-6); }
+/* Threshold-driven segment fill colours — match the .stat-bar
+ * green / amber / red classes so a near-full mount on a multi-
+ * mount host visually screams the same way a single-mount bar
+ * would. Pre-fix the segment colour was index-based (rainbow
+ * palette) which made a 95%-full /boot indistinguishable from
+ * a 5%-empty /. Operator-reported on a TrueNAS VM with mixed-
+ * fill mounts where the bar looked "60% green-filled" but the
+ * aggregate label read 1.6%. Severity colour conveys actionable
+ * state at a glance; segment SLOT (flex-1 width) still keeps
+ * every mount visible. */
+.disk-seg-ok { background: var(--success); color: var(--success); }
+.disk-seg-warn { background: var(--warning); color: var(--warning); }
+.disk-seg-crit { background: var(--danger); color: var(--danger); }
 
 
 /* "Collecting data…" placeholder shown where a sparkline or chart
