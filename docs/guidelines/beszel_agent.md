@@ -302,17 +302,18 @@ fields set = grey (nothing to probe).
 
 ## Webmin 2.x — three-tier fallback
 
-`logic/webmin.py:_fetch_first_working` now tries XML → JSON →
+`logic/webmin.py:_fetch_first_working` tries XML → JSON →
 HTML-scrape (BeautifulSoup) in that order. Structured alternates fire
 in PARALLEL via `asyncio.as_completed`; the first success cancels
 stragglers; 401 / 403 short-circuits the fallback chain and arms the
-5-min auth cool-down. Per-request `httpx` timeout is 6 s (was 15 s);
-`main.api_hosts` also wraps each Webmin per-host probe in
-`asyncio.wait_for(..., timeout=20.0)` so a hung Miniserv can't bust
-NPM's `proxy_read_timeout`. HTML scrapers:
-`_scrape_package_updates` / `_scrape_mounts` / `_scrape_net` /
-`_scrape_system_status`. New dep: `beautifulsoup4==4.12.3`
-(lazy-imported).
+auth cool-down (default 5 min, tunable via
+`tuning_auth_failure_cooldown_seconds`). Per-request `httpx` timeout
+is 6 s; the per-host probe is wrapped in
+`asyncio.wait_for(..., timeout=tuning_webmin_probe_budget_seconds)`
+(default 20 s) so a hung Miniserv can't bust NPM's `proxy_read_timeout`.
+HTML scrapers: `_scrape_package_updates` / `_scrape_mounts` /
+`_scrape_net` / `_scrape_system_status`. Dep: `beautifulsoup4`
+(pinned in `requirements.txt`, lazy-imported).
 
 ---
 

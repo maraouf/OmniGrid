@@ -6680,7 +6680,7 @@ async def api_hosts_debug(
         verify = (get_setting("beszel_verify_tls", "true") or "true").lower() == "true"
         if hub_url and ident and passw:
             try:
-                async with httpx.AsyncClient(verify=verify, timeout=15.0) as client:
+                async with httpx.AsyncClient(verify=verify, timeout=8.0) as client:
                     token = await _beszel._get_token(client, hub_url, ident, passw)
                     try:
                         records = await _beszel._fetch_systems(client, hub_url, token)
@@ -6740,7 +6740,7 @@ async def api_hosts_debug(
         verify = (get_setting("pulse_verify_tls", "true") or "true").lower() == "true"
         if pulse_url and pulse_tok:
             try:
-                async with httpx.AsyncClient(verify=verify, timeout=15.0) as client:
+                async with httpx.AsyncClient(verify=verify, timeout=8.0) as client:
                     state = await _pulse._fetch_state(client, pulse_url, pulse_tok)
                 probe = await _pulse.probe_pulse(
                     pulse_url, pulse_tok, verify_tls=verify,
@@ -6860,7 +6860,7 @@ async def api_hosts_debug(
             from logic import webmin as _webmin
             try:
                 r = await _webmin.probe_webmin(
-                    wm_url, user, passw, verify_tls=verify, timeout=10.0,
+                    wm_url, user, passw, verify_tls=verify, timeout=8.0,
                     active_sources=active,
                 )
                 providers_raw["webmin"] = {
@@ -6970,7 +6970,7 @@ async def api_hosts_debug(
                     community=community, version=version, port=port,
                     v3_user=v3_user, v3_auth_key=v3_auth,
                     v3_priv_key=v3_priv,
-                    timeout=10.0, active_sources=active,
+                    timeout=8.0, active_sources=active,
                     verbose=True,
                     # Debug panel is operator-initiated (admin opened
                     # the host drawer's debug section) — bypass the
@@ -6978,6 +6978,14 @@ async def api_hosts_debug(
                     # a real probe result rather than the throttle
                     # placeholder. Same rationale as `/api/snmp/test`.
                     bypass_cooldown=True,
+                    # Cap SNMP wall-clock at 20s for the debug path
+                    # so the cumulative response time of every probe
+                    # in this handler stays under the typical reverse-
+                    # proxy proxy_read_timeout (~60s). Operators
+                    # tuning a slow Dell iDRAC / WD MyCloud / printer
+                    # via Admin → Config still get the full 60s
+                    # default budget on background sampler ticks.
+                    wall_clock_budget=20.0,
                 )
                 providers_raw["snmp"] = {
                     "target":     snmp_target,
@@ -7012,12 +7020,25 @@ async def api_hosts_debug(
         if stats:
             _merge_best(merged, stats)
 
-    # ---- Rendered — what /api/hosts would return for this host ---
+    # ---- Rendered — what `_shape_host_api_row` would emit for this
+    # host given the merged dict we just built. Pre-fix this called
+    # `api_hosts()` (full fleet re-probe, then `next(... if h.id == id)`)
+    # which fired EVERY provider against EVERY curated host on every
+    # debug request — a 200-host fleet then re-probed every neighbour
+    # before returning, easily blowing past NPM's 60s proxy_read_timeout.
+    # The shape helper is purely a synchronous projection of merged +
+    # per-host providers_hit, so we can derive `rendered` without any
+    # extra network probe.
     try:
-        live = await api_hosts()
-        rendered = next(
-            (h for h in (live.get("hosts") or []) if h.get("id") == id),
-            None,
+        providers_hit = sorted(
+            p for p, raw in providers_raw.items()
+            if raw is not None and not (
+                isinstance(raw, dict) and "_error" in raw and len(raw) == 1
+            )
+        )
+        rendered = _shape_host_api_row(
+            record, merged, providers_hit,
+            any_provider_enabled=bool(active),
         )
     except Exception as e:
         rendered = {"_error": str(e)}
