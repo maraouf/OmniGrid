@@ -1957,6 +1957,7 @@
     "heading": "Hosts",
     "intro": "Define the machines you want to monitor and map each to the names used by every enabled provider. OmniGrid fetches all providers on every refresh and merges the best values per host — missing fields degrade to what the other providers returned.",
     "snmp_walk_concurrency_hint": "How many SNMP walks run in parallel against THIS host. Blank = the global default (1, the safety floor). Server-class BMCs like Dell iDRAC, Cisco IMC, and Supermicro IPMI handle parallel queries fine and need 4-8 to fit pysnmp's per-walk overhead inside the probe budget. Leave blank for low-power printers / NAS / OpenWrt-class gear that drop UDP packets at higher concurrency.",
+    "snmp_vendors_label": "Vendor MIBs",
     "snmp_vendors_hint": "Which vendor MIBs to walk for THIS host. Leave every box unchecked to auto-detect from sysDescr (covers 95% of agents). Check explicit vendors to bypass auto-detect — useful when sysDescr is stripped, novel hardware, or to force vendor walks the auto-detect would skip. Pruning irrelevant vendor walks drops a Dell iDRAC's 67-walk probe to ~50 walks (~13s saved at concurrency=1).",
     "snmp_vendors_auto": "Auto-detect from sysDescr (no override).",
     "snmp_vendors_explicit": "Override: walking only base + {vendors}. Auto-detect bypassed.",
