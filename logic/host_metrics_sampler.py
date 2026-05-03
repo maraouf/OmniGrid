@@ -144,7 +144,7 @@ def _compute_row(
     if _is_meaningful_number(raw_cpu):
         cpu_percent = float(raw_cpu)
 
-    # CPU-seconds counters for delta-derived %CPU on NE-only hosts (#402).
+    # CPU-seconds counters for delta-derived %CPU on NE-only hosts.
     # Sum across all CPUs all modes for `total`; only mode=idle for `idle`.
     # %CPU = 100 * (1 - (delta_idle / delta_total)).
     cpu_total_secs = stats.get("host_cpu_seconds_total") or 0
@@ -219,7 +219,7 @@ def _compute_row(
                 if _delta_bytes_ok(d_dr) and _delta_bytes_ok(d_dw):
                     dr_rate = d_dr / delta_s
                     dw_rate = d_dw / delta_s
-            # CPU-seconds delta (#402). Skip when:
+            # CPU-seconds delta. Skip when:
             #   - no previous CPU sample (first tick / restart),
             #   - delta_total <= 0 (clock skew / counter reset),
             #   - delta_idle < 0 (counter reset → bogus negative %).
@@ -265,7 +265,7 @@ def _compute_row(
     return row, next_counter
 
 
-# Permanent-fail tracking helpers (#383). Single source of truth lives
+# Permanent-fail tracking helpers. Single source of truth lives
 # in the host_failure_state table; the sampler reads on entry to
 # short-circuit paused hosts AND writes on every probe outcome to
 # advance the counter / clear-on-success / auto-pause when the failure
@@ -277,7 +277,7 @@ def _get_failure_state(host_id: str) -> Optional[dict]:
     consumers (auto-pause logic, future "auto-resume after N hours of
     inactivity" features) see the same shape the API surface does.
     The SELECT used to lag the schema after `last_failure_ts` was
-    added (#461) — `_record_failure` populated it but
+    added — `_record_failure` populated it but
     `_get_failure_state` couldn't read it back, so anyone relying on
     "when was the last attempt?" through this helper got nothing.
     """
@@ -314,7 +314,7 @@ def _split_failure_key(key: str) -> tuple[str, Optional[str]]:
     The table uses two key conventions side-by-side:
       - bare ``host_id`` for whole-host pauses (#383 NE-mapped sampler).
       - prefixed ``<provider>:<host_id>`` for per-(provider, host)
-        pauses (#797 / #804) so a host with broken SNMP but healthy
+        pauses so a host with broken SNMP but healthy
         Beszel only marks ONE chip paused.
 
     Returns ``(host_id, provider)`` for prefixed keys, ``(host_id, None)``
@@ -371,7 +371,7 @@ async def _record_failure(
     sqlite3-sync but the surrounding contract makes the function
     awaitable so the notification dispatch can use the supported API.
     """
-    # Three-tier lookup via the unified Tuning Config (#410): DB > env >
+    # Three-tier lookup via the unified Tuning Config : DB > env >
     # default. ``tuning.tuning_int`` always returns at least the code
     # default, so a fallback here is dead code
     try:
@@ -520,7 +520,7 @@ async def record_provider_outcome(
     host_id: str, provider: str, ok: bool,
     *, error: str = "", round_threshold: int = 0,
 ) -> None:
-    """Generic per-(provider, host) outcome recorder (#804 + #785).
+    """Generic per-(provider, host) outcome recorder.
 
     Wraps `_record_failure` / `_clear_failure` so probe sites for ANY
     provider become a one-liner. Use this at every per-host probe
@@ -615,7 +615,7 @@ async def _probe_one(
     async with sem:
         hid = host["id"]
         ne_url = host["ne_url"]
-        # Permanent-fail short-circuit (#383). Paused hosts skip the
+        # Permanent-fail short-circuit. Paused hosts skip the
         # probe entirely until the operator resumes via the API.
         state = _get_failure_state(hid)
         if state and state["paused"]:
@@ -666,9 +666,9 @@ async def _probe_one(
             print(f"[host_metrics_sampler] {hid!r} DB insert failed: {e}")
             return
         # Successful probe + write — clear any in-flight failure tracking
-        # so a previously-pausing host can recover quietly (#383).
+        # so a previously-pausing host can recover quietly.
         _clear_failure(hid)
-        # SSE push (#496) — broadcast a `host:history_appended` event so
+        # SSE push — broadcast a `host:history_appended` event so
         # any SPA tab with this host's drawer open in Live mode
         # repaints its chart immediately. Payload carries host_id +
         # ts only; the SPA fetches the full window via /api/hosts/history
@@ -841,7 +841,7 @@ async def _probe_one_snmp(host: dict, sem: asyncio.Semaphore) -> None:
                 page_count_present = stats.get("printer_page_count") is not None
                 # APC UPS hosts report load / battery percentages but
                 # may have neither hrStorage nor IF-MIB on basic models
-                # (#820). Without this branch, UPS history rows never
+                #. Without this branch, UPS history rows never
                 # got inserted so the Output Load chart had no data
                 # to plot. host_load_percent extracted from PowerNet
                 # OID 1.3.6.1.4.1.318.1.1.1.4.2.3.0 in `logic/snmp.py`.
@@ -871,7 +871,7 @@ async def _probe_one_snmp(host: dict, sem: asyncio.Semaphore) -> None:
                     # non-printer SNMP hosts.
                     page_raw = stats.get("printer_page_count")
                     page_count = int(page_raw) if page_raw is not None else None
-                    # APC UPS time-series fields (#820). NULL when the
+                    # APC UPS time-series fields. NULL when the
                     # host isn't a UPS or the OIDs didn't come back.
                     load_pct_raw = stats.get("host_load_percent")
                     batt_pct_raw = stats.get("host_battery_percent")
@@ -1023,7 +1023,7 @@ async def host_metrics_sampler_loop() -> None:
     """Lifespan-managed sampler. One tick per
     ``tuning_stats_sample_interval_seconds`` (DB > env > default).
     SNMP probes can have their own cadence via
-    ``tuning_snmp_sample_interval_seconds`` (#768) — when set > 0 they
+    ``tuning_snmp_sample_interval_seconds`` — when set > 0 they
     run only when ``now - last_snmp >= snmp_interval``; when 0 they
     inherit the global cadence (legacy behaviour)."""
     _last_counters.clear()
@@ -1325,7 +1325,7 @@ node_network_transmit_bytes_total{device="eth0"} 500
     assert no_disk_parsed["total_read"]    is None, "no-devices must return None"
     assert no_disk_parsed["total_written"] is None
 
-    # FreeBSD fallback (#352): hosts running the FreeBSD node-exporter
+    # FreeBSD fallback : hosts running the FreeBSD node-exporter
     # port emit `node_devstat_bytes_total{device,type}` instead of
     # `node_disk_*`. Real opnsense scrape sample: ada0 = 4.12 GB
     # read / 14.82 TB write totals, plus a synthetic md98 (memdisk) and

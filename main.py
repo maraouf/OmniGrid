@@ -104,7 +104,7 @@ from logic.ops import (  # noqa: E402
 )
 
 
-# TOTP / 2FA policy defaults (#345). DB > default. Same shape as the
+# TOTP / 2FA policy defaults. DB > default. Same shape as the
 # notify_event_* defaults map above so api_get_settings reads through
 # get_setting / get_setting_bool with these as the fallbacks.
 _TOTP_POLICY_DEFAULTS = {
@@ -113,7 +113,7 @@ _TOTP_POLICY_DEFAULTS = {
     "totp_required_for_users":    False,
     "totp_lockout_max_failures":  5,
     "totp_lockout_minutes":       15,
-    # Passkey master toggle (#432). Mirrors `totp_allowed`. When OFF,
+    # Passkey master toggle. Mirrors `totp_allowed`. When OFF,
     # `register-start` returns 403; existing enrolments stay valid for
     # login until each user revokes (or admin clears via reset).
     "passkeys_allowed":           True,
@@ -279,7 +279,7 @@ async def _lifespan(app: FastAPI):
                 print(f"[boot] seeded {n_hosts} host snapshots from host_snapshots")
         except Exception as e:
             print(f"[boot] seed_nodes_info_from_snapshots failed: {e}")
-        # Orphan sweep on startup (#834). Cleans stale `<provider>:<host_id>`
+        # Orphan sweep on startup. Cleans stale `<provider>:<host_id>`
         # rows from `host_failure_state` + `host_provider_last_ok` where the
         # host has been deleted OR no longer has that provider configured.
         # Pre-#834 these accumulated until the operator re-saved a host config
@@ -315,7 +315,7 @@ async def _lifespan(app: FastAPI):
         _host_metrics_sampler.host_metrics_sampler_loop(),
         name="host-metrics-sampler",
     )
-    # Ping reachability sampler (#343) — TCP-connect (or optional ICMP)
+    # Ping reachability sampler — TCP-connect (or optional ICMP)
     # probes for hosts that opt in via hosts_config[].ping.enabled.
     # Same lifespan-only contract; dormant when "ping" isn't in
     # host_stats_source. Writes to ping_samples; pubs `host:ping_sampled`.
@@ -323,7 +323,7 @@ async def _lifespan(app: FastAPI):
     ping_sampler = asyncio.create_task(
         _ping_sampler.ping_sampler_loop(), name="ping-sampler",
     )
-    # Persistent-log pruner (#424) — sweeps /app/data/logs/ once per
+    # Persistent-log pruner — sweeps /app/data/logs/ once per
     # hour, deletes any omnigrid-YYYY-MM-DD.log older than the
     # operator-tunable retention window.
     log_pruner = asyncio.create_task(_log_pruner_loop(), name="log-pruner")
@@ -607,7 +607,7 @@ def init_db():
             ts REAL NOT NULL,
             data TEXT NOT NULL
         );
-        -- Permanent-fail tracking (#383). One row per host whose
+        -- Permanent-fail tracking. One row per host whose
         -- host_metrics_sampler has hit consecutive probe failures. When
         -- ``paused`` flips to 1, the sampler short-circuits subsequent
         -- ticks (no probe attempt, no log spam) until the operator
@@ -624,7 +624,7 @@ def init_db():
             last_error TEXT
         );
 
-        -- Per-(provider, host) last-successful-probe timestamp (#785).
+        -- Per-(provider, host) last-successful-probe timestamp.
         -- Distinct from host_failure_state which only exists during a
         -- failure streak. last_ok lives ALWAYS — every record_provider_outcome
         -- with ok=True UPSERTs here. host_id uses the same `<provider>:<host_id>`
@@ -637,7 +637,7 @@ def init_db():
             last_ok_ts INTEGER NOT NULL
         );
 
-        -- Ping reachability time-series (#343). Populated by
+        -- Ping reachability time-series. Populated by
         -- logic/ping_sampler.py at tuning_ping_interval_seconds
         -- cadence; pruned to tuning_stats_history_days (reuses the
         -- existing retention knob — no separate ping retention).
@@ -736,7 +736,7 @@ def init_db():
             # (older IF-MIB-v1-only devices) — heatmap renders such
             # ifaces in grey ("unknown speed") instead of red.
             "ALTER TABLE host_snmp_iface_samples ADD COLUMN link_speed_mbps INTEGER",
-            # APC UPS time-series fields (#820). Sampler writes the live
+            # APC UPS time-series fields. Sampler writes the live
             # values per probe so the host drawer can render Output
             # Load %, Battery %, Battery temperature charts over the
             # picker window. NULL for non-UPS hosts. Reads come from
@@ -847,7 +847,7 @@ _stats_sampler_loop = _stats_mod.stats_sampler_loop
 
 
 # ============================================================================
-# Persistent-log pruner (#424). Once per hour, walks /app/data/logs/ and
+# Persistent-log pruner. Once per hour, walks /app/data/logs/ and
 # drops any daily file older than `tuning_log_retention_days`. The first
 # tick is delayed 60s after boot so the lifespan startup has finished
 # emitting its banner lines before the sweep runs (cosmetic).
@@ -973,7 +973,7 @@ def _actor_from(request: Request) -> str:
 
 
 def _request_client_id(request: Optional[Request]) -> Optional[str]:
-    """Extract the per-tab client id from the request headers (#534).
+    """Extract the per-tab client id from the request headers.
 
     SPA's `auth-fetch.js` attaches `X-OmniGrid-Client-Id: <uuid>` on
     every fetch. Backend write-handlers that publish SSE events should
@@ -1281,7 +1281,7 @@ async def api_events(request: Request):
                     # No traffic for the heartbeat window — keep the
                     # socket warm AND give the SPA's freshness watchdog
                     # something to consume so it doesn't false-flip
-                    # to polling-fallback during quiet periods (#561).
+                    # to polling-fallback during quiet periods.
                     # Emitted as a real `event: keepalive` line (NOT a
                     # `: comment` line) because EventSource fires
                     # `onmessage` only for real events; comment lines
@@ -1601,7 +1601,7 @@ class SettingsIn(BaseModel):
     webmin_password: Optional[str] = None
     webmin_verify_tls: Optional[bool] = None
     webmin_aliases: Optional[dict] = None
-    # Ping (#343) — fifth host-stats provider. Reachability + RTT only,
+    # Ping — fifth host-stats provider. Reachability + RTT only,
     # opt-in per host (hosts_config[].ping.enabled). No credentials, no
     # aliases — the provider runs against the host's own id (or the
     # per-host SSH FQDN override). ``ping_default_port`` is the TCP port
@@ -1613,7 +1613,7 @@ class SettingsIn(BaseModel):
     ping_enabled: Optional[bool] = None
     ping_default_port: Optional[int] = None
     ping_use_icmp: Optional[bool] = None
-    # SNMP (#344) — sixth host-stats provider. Per-host probe (no
+    # SNMP — sixth host-stats provider. Per-host probe (no
     # central hub). Defaults are global; per-host overrides live on
     # ``hosts_config[].snmp = {community, version, port, v3_*}``.
     # ``snmp_default_community`` defaults to "public" (the common read-
@@ -1631,7 +1631,7 @@ class SettingsIn(BaseModel):
     snmp_v3_auth_key: Optional[str] = None
     snmp_v3_priv_key: Optional[str] = None
     snmp_aliases: Optional[dict] = None
-    # Per-provider chip color (#596) — operator-customisable hex colour
+    # Per-provider chip color — operator-customisable hex colour
     # for the per-host provider chip rendered in the Hosts view + the
     # drawer's "Enabled agents" card. Each value is a 7-char `#RRGGBB`
     # string OR blank to fall back to the SPA's built-in default. The
@@ -1749,7 +1749,7 @@ class SettingsIn(BaseModel):
     # other admin tools on the drawer remain visible.
     debug_panel_enabled: Optional[bool] = None
     # -----------------------------------------------------------------
-    # Process-level tunables (#337). DB > env > default — see
+    # Process-level tunables. DB > env > default — see
     # logic/tuning.py:TUNABLES. Every field is Optional[str] so blank
     # ("") clears the override and falls back to the env var; missing
     # = "leave alone". Bounds-checked at write time against TUNABLES.
@@ -1870,7 +1870,7 @@ class SettingsIn(BaseModel):
     notify_event_prune_failure: Optional[str] = None
     # Security event — defaults to OFF (login traffic is noisy).
     notify_event_user_login: Optional[str] = None
-    # System event (#411) — fires when host_metrics_sampler auto-pauses
+    # System event — fires when host_metrics_sampler auto-pauses
     # a host after the configured failure window. Default ON.
     notify_event_host_paused: Optional[str] = None
     # -----------------------------------------------------------------
@@ -1884,7 +1884,7 @@ class SettingsIn(BaseModel):
     notify_medium_app: Optional[str] = None
     notify_medium_apprise: Optional[str] = None
     # -----------------------------------------------------------------
-    # TOTP / 2FA policies (#345). Master toggle plus role-scoped
+    # TOTP / 2FA policies. Master toggle plus role-scoped
     # required-flags plus lockout knobs. Authentik users are excluded
     # from every TOTP path -- their IdP handles MFA.
     # -----------------------------------------------------------------
@@ -1893,7 +1893,7 @@ class SettingsIn(BaseModel):
     totp_required_for_users: Optional[bool] = None
     totp_lockout_max_failures: Optional[int] = None
     totp_lockout_minutes: Optional[int] = None
-    # Passkey master toggle (#432). Mirrors totp_allowed.
+    # Passkey master toggle. Mirrors totp_allowed.
     passkeys_allowed: Optional[bool] = None
 
 
@@ -1918,7 +1918,7 @@ async def api_get_settings(request: Request):
         a = auth.get_auth_settings(c)
     p = _portainer.get_portainer_settings()
     return {
-        # Per-service master switches (#204). Default true so existing
+        # Per-service master switches. Default true so existing
         # deploys don't change behaviour — flip false to short-circuit
         # the service in code AND grey out the inputs in the UI.
         "apprise_enabled":    (get_setting("apprise_enabled",    "true") or "true").lower() == "true",
@@ -1946,10 +1946,10 @@ async def api_get_settings(request: Request):
         "notify_event_prune_failure":             get_setting_bool("notify_event_prune_failure", True),
         # Security event — default OFF (login spam is noisy; opt-in).
         "notify_event_user_login":                get_setting_bool("notify_event_user_login", False),
-        # System event (#411) — fires when host_metrics_sampler auto-
+        # System event — fires when host_metrics_sampler auto-
         # pauses a host after the failure window. Default ON.
         "notify_event_host_paused":               get_setting_bool("notify_event_host_paused", True),
-        # Per-medium master switches (#855). Defaults from
+        # Per-medium master switches. Defaults from
         # NOTIFY_MEDIUM_DEFAULTS (both ON for back-compat); operators
         # flip individually from Admin → Notifications.
         "notify_medium_app":     get_setting_bool(
@@ -1960,7 +1960,7 @@ async def api_get_settings(request: Request):
             "notify_medium_apprise",
             _ops_mod.NOTIFY_MEDIUM_DEFAULTS.get("apprise", True),
         ),
-        # TOTP / 2FA policy (#345). Five fields driving the multi-step
+        # TOTP / 2FA policy. Five fields driving the multi-step
         # login flow + Profile enrolment guards + Admin -> Users action
         # enablement. Defaults preserve "no 2FA required" semantics so
         # an upgrade is a no-op until the operator opts in.
@@ -2077,7 +2077,7 @@ async def api_get_settings(request: Request):
             "verify_tls": (get_setting("webmin_verify_tls", "false") or "false").lower() == "true",
             "aliases": json.loads(get_setting("webmin_aliases", "{}") or "{}"),
         },
-        # Ping (#343) — no secrets, so fields round-trip in the clear.
+        # Ping — no secrets, so fields round-trip in the clear.
         # ``has_icmp_support`` reflects whether ``icmplib`` is importable
         # (the container's Python may not have it); the SPA uses this
         # to disable the ICMP toggle with a hint when the package is
@@ -2088,7 +2088,7 @@ async def api_get_settings(request: Request):
             "use_icmp":         get_setting_bool("ping_use_icmp", False),
             "has_icmp_support": (lambda: __import__("logic.ping", fromlist=["has_icmp_support"]).has_icmp_support())(),
         },
-        # SNMP (#344). v3 secret keys follow the write-only ``_set``
+        # SNMP. v3 secret keys follow the write-only ``_set``
         # flag contract; community, version, port, aliases round-trip
         # in the clear (community is technically a credential but it's
         # not a SECRET in the same sense — many operators want to see
@@ -2115,7 +2115,7 @@ async def api_get_settings(request: Request):
                 "_SNMP_IMPORT_ERROR", "",
             ))(),
         },
-        # Per-provider chip colour overrides (#596). Empty string means
+        # Per-provider chip colour overrides. Empty string means
         # "use the SPA's built-in default" — the SPA's `providerColor()`
         # helper falls back to the same default constant. Round-tripped
         # in the clear (not a secret).
@@ -2198,7 +2198,7 @@ async def api_set_settings(
 
 
 async def _api_set_settings_inner(s, request, _portainer):
-    # Per-service master switches (#204). Persisted as "true" / "false"
+    # Per-service master switches. Persisted as "true" / "false"
     # strings to match every other boolean toggle in the settings table.
     if s.apprise_enabled is not None:
         set_setting("apprise_enabled", "true" if s.apprise_enabled else "false")
@@ -2232,7 +2232,7 @@ async def _api_set_settings_inner(s, request, _portainer):
                 detail=f"{_ek} must be 'true', 'false', or '' (clear).",
             )
         set_setting(_ek, _norm)
-    # Per-medium master switches (#855). Same "true" / "false" / ""
+    # Per-medium master switches. Same "true" / "false" / ""
     # contract as the per-event toggles above so the SPA's existing
     # boolean-cast pattern works unchanged. Bouncing through the
     # NOTIFY_MEDIUM_NAMES tuple keeps the validator additive — adding a
@@ -2250,7 +2250,7 @@ async def _api_set_settings_inner(s, request, _portainer):
                 detail=f"{_key} must be 'true', 'false', or '' (clear).",
             )
         set_setting(_key, _norm)
-    # TOTP / 2FA policy (#345). Booleans persisted as "true" / "false";
+    # TOTP / 2FA policy. Booleans persisted as "true" / "false";
     # ints bounds-checked then stored as decimal strings (matches the
     # tuning_* shape from #337). Same dirty + Save UI pattern as the
     # other admin-tab toggles.
@@ -2416,7 +2416,7 @@ async def _api_set_settings_inner(s, request, _portainer):
             if str(k).strip() and str(v).strip()
         }
         set_setting("webmin_aliases", json.dumps(clean))
-    # Ping (#343). No secrets — every field round-trips in the clear.
+    # Ping. No secrets — every field round-trips in the clear.
     # Validation: `ping_default_port` clamped to 1..65535. `ping_enabled`
     # is the master toggle but this acts as documentation only — the
     # provider also has to be in `host_stats_source` to actually probe
@@ -2439,7 +2439,7 @@ async def _api_set_settings_inner(s, request, _portainer):
         set_setting("ping_default_port", str(p))
     if s.ping_use_icmp is not None:
         set_setting("ping_use_icmp", "true" if s.ping_use_icmp else "false")
-    # SNMP (#344). Mirror the webmin / beszel / pulse persistence
+    # SNMP. Mirror the webmin / beszel / pulse persistence
     # contract: community / version / port / aliases round-trip in the
     # clear; v3 user is also clear text; the two v3 keys are write-only
     # (keep current if blank). Validation: port clamped to 1..65535;
@@ -2481,7 +2481,7 @@ async def _api_set_settings_inner(s, request, _portainer):
             if str(k).strip() and str(v).strip()
         }
         set_setting("snmp_aliases", json.dumps(clean))
-    # Per-provider chip colours (#596). Hex string `#RRGGBB` (7 chars,
+    # Per-provider chip colours. Hex string `#RRGGBB` (7 chars,
     # case-insensitive) OR empty/blank to clear the override and fall
     # back to the SPA's built-in default. Any other shape rejected at
     # save time rather than letting an invalid value reach inline
@@ -2622,7 +2622,7 @@ async def _api_set_settings_inner(s, request, _portainer):
             })
         set_setting("ssh_custom_actions", json.dumps(clean_actions))
 
-    # --- Host groups (#93 + #134) -----------------------------------------
+    # --- Host groups -----------------------------------------
     # Each entry: {name, range_start, range_end, order?, parent_name?,
     # ip_range?}. `parent_name` (optional, string) references another
     # group's name to nest under; nesting is fixed at 2 levels so a
@@ -2997,7 +2997,7 @@ async def _api_set_settings_inner(s, request, _portainer):
             auth.set_auth_setting(c, "oidc_client_secret", s.oidc_client_secret)
             auth_changed = True
 
-    # Tuning knobs (#337). Each field is keep-if-None / clear-if-blank /
+    # Tuning knobs. Each field is keep-if-None / clear-if-blank /
     # bounds-check-and-store-if-provided. Bounds come from
     # logic.tuning.TUNABLES so the resolver, the editor, and the
     # validator share one source of truth. Stored as plain strings —
@@ -3089,7 +3089,7 @@ def _settings_version_for_payload() -> int:
 
 
 # ----------------------------------------------------------------------------
-# Process-level tunables (#337). Admin-only read endpoint that surfaces
+# Process-level tunables. Admin-only read endpoint that surfaces
 # the DB / env / default tier per knob plus the resolved effective value.
 # Writes go through the existing POST /api/settings (additive pattern —
 # no new POST per provider). The UI reads this once on tab open to
@@ -3345,7 +3345,7 @@ async def api_snmp_test(
     request: Request,
     _admin: auth.User = Depends(auth.require_admin),
 ):
-    """Admin-only: probe one SNMP host (#344).
+    """Admin-only: probe one SNMP host.
 
     Body fields are all optional — missing values fall through to the
     persisted defaults via ``_resolve_field``, mirroring the test-
@@ -3829,12 +3829,12 @@ async def api_hosts(force: bool = False):
     empty, falls back to auto-discovering from the Beszel / Pulse
     batch maps so the view isn't blank for fresh installs.
 
-    NOTE (#524) — refactored from the original ~975-line inline
+    NOTE — refactored from the original ~975-line inline
     duplication of the Beszel / Pulse / NE / Webmin probe logic to
     compose the protected helper chain (``_get_host_provider_state`` +
     ``_merge_one_host``) per row. Bearer-token scrapers (Homarr widget,
     Grafana, custom dashboards) hitting THIS endpoint now share the
-    SPA's single-flight lock on hub probes (#506) AND the per-host
+    SPA's single-flight lock on hub probes AND the per-host
     Webmin success-cache + 5s fail-cache, so a burst of /api/hosts
     calls can no longer recreate the 504-storm pattern. Response shape
     is byte-for-byte identical to the pre-refactor inline version
@@ -3929,7 +3929,7 @@ async def api_hosts(force: bool = False):
         })
 
     # ---- Shape the response ---------------------------------------
-    # Snapshot fallback (#449) — apply ONCE for every entry whose probes
+    # Snapshot fallback — apply ONCE for every entry whose probes
     # left holes. Loads snapshots in a single DB read, then mutates each
     # entry's merged dict in place, stamping `_stale_fields` /
     # `_stale_ts` on whichever entries had missing fields filled from
@@ -3973,7 +3973,7 @@ async def api_hosts(force: bool = False):
             f"mounts={len(mounts)} ({[m.get('n') or m.get('name') for m in mounts]}) "
             f"nics={len(nics)}"
         )
-        # Share `_shape_host_api_row` with the new endpoints (#458/#459).
+        # Share `_shape_host_api_row` with the new endpoints.
         # Pre-fix the legacy `/api/hosts` built its own inline dict that
         # (a) omitted the `_failure_state_for_host()` spread (sampling_paused
         # + last_failure_ts + consecutive_failures + last_error never
@@ -4014,7 +4014,7 @@ async def api_hosts(force: bool = False):
 
 
 # ---------------------------------------------------------------------------
-# Per-host async loading (see note_todo #79)
+# Per-host async loading
 #
 # The monolithic /api/hosts waits until every provider probe for every
 # host has returned. With Webmin / Pulse / slow node-exporter scrapes
@@ -4042,7 +4042,7 @@ async def api_hosts(force: bool = False):
 # Resolved at every consumer site (NOT cached at module import) per
 # the strict-rule contract.
 _host_provider_cache: dict = {"ts": 0.0, "state": None}
-# Single-flight guard for ``_get_host_provider_state`` (#506). Without
+# Single-flight guard for ``_get_host_provider_state``. Without
 # this, a parallel SPA fan-out of 6 ``/api/hosts/one/<id>`` calls on a
 # cold cache fires 6 independent Beszel hub + Pulse probes (each 15-20s),
 # saturating the event loop AND the upstream NPM connection pool —
@@ -4096,7 +4096,7 @@ def invalidate_host_provider_cache() -> None:
     _webmin_host_cache.clear()
     _webmin_host_fail_cache.clear()
     # SNMP shares the per-host success / failure cache pattern with
-    # Webmin (#344). Bust on every settings-save touching SNMP creds /
+    # Webmin. Bust on every settings-save touching SNMP creds /
     # aliases so the next probe picks up the new community / version /
     # port without waiting out the 30s TTL.
     _snmp_host_cache.clear()
@@ -4125,7 +4125,7 @@ async def _get_host_provider_state(force: bool = False) -> dict:
         # "beszel,pulse" auto-busts the cache. Save paths also call
         # `invalidate_host_provider_cache()` directly for instant
         # feedback; the key match is defence-in-depth.
-        # BUG-010 fix (#416) — credential-blob hash folded into the key
+        # BUG-010 fix — credential-blob hash folded into the key
         # so changing `beszel_password` (without flipping
         # `host_stats_source`) busts the cache too.
         cred_blob = "|".join((
@@ -4142,7 +4142,7 @@ async def _get_host_provider_state(force: bool = False) -> dict:
             get_setting("webmin_verify_tls", "true") or "true",
             get_setting("node_exporter_url_template", "") or "",
             get_setting("node_exporter_overrides", "") or "",
-            # SNMP (#344) — every credential / default that affects
+            # SNMP — every credential / default that affects
             # what the probe sees. v3 keys are the security-sensitive
             # ones; the community + port + version + aliases also
             # belong here so a global default change auto-busts the
@@ -4170,7 +4170,7 @@ async def _get_host_provider_state(force: bool = False) -> dict:
             and (now - _host_provider_cache.get("ts", 0.0)) < cache_ttl):
         return cached
 
-    # Single-flight (#506) — only ONE concurrent caller does the cold-
+    # Single-flight — only ONE concurrent caller does the cold-
     # cache probe; the rest await on the lock and pick up the populated
     # cache via the post-lock re-check below. Pre-fix N parallel
     # /api/hosts/one/<id> calls fired N independent Beszel hub + Pulse
@@ -4184,7 +4184,7 @@ async def _get_host_provider_state(force: bool = False) -> dict:
     _lock_wait_start = time.monotonic()
     async with _host_provider_lock:
         metrics.HOST_PROVIDER_LOCK_WAIT.observe(time.monotonic() - _lock_wait_start)
-        # BUG-004 fix (#518) — RE-COMPUTE active + cache_key inside the
+        # BUG-004 fix — RE-COMPUTE active + cache_key inside the
         # lock. A settings save during the lock-wait could have changed
         # `host_stats_source` or any credential, so the pre-lock values
         # are stale. Without this re-compute, a queued caller would run
@@ -4219,7 +4219,7 @@ async def _do_host_provider_probe(active: set[str], cache_key: tuple) -> dict:
 
     errors: dict[str, str] = {}
 
-    # Beszel + Pulse hub probes run in PARALLEL (#517). Prior sequential
+    # Beszel + Pulse hub probes run in PARALLEL. Prior sequential
     # version made the cold-cache cost Beszel + Pulse = up to 30s alone,
     # exhausting the 30s `/api/hosts/one/<id>` budget before NE + Webmin
     # even started. With `asyncio.gather`, cold-cache cost drops to
@@ -4282,7 +4282,7 @@ async def _do_host_provider_probe(active: set[str], cache_key: tuple) -> dict:
         else:
             errors["webmin"] = "missing user / password"
 
-    # SNMP (#344) — settings-derived defaults flow through state so
+    # SNMP — settings-derived defaults flow through state so
     # `_merge_one_host` doesn't re-read them per host. v3 keys are
     # secrets but stay in the in-process state dict (not the wire); the
     # admin-only `/api/snmp/test` endpoint is the only path that lets
@@ -4329,7 +4329,7 @@ async def _do_host_provider_probe(active: set[str], cache_key: tuple) -> dict:
         "webmin_verify":    webmin_verify,
         "webmin_creds_ok":  webmin_creds_ok,
         "webmin_aliases":   webmin_aliases,
-        # SNMP (#344) — defaults + aliases. Per-host overrides land
+        # SNMP — defaults + aliases. Per-host overrides land
         # later via `hosts_config[].snmp`.
         "snmp_default_community": snmp_default_community,
         "snmp_default_version":   snmp_default_version,
@@ -4370,7 +4370,7 @@ async def _merge_one_host(h: dict, state: dict, *, force: bool = False) -> tuple
     if force:
         _webmin_host_cache.pop(h["id"], None)
         _webmin_host_fail_cache.pop(h["id"], None)
-        # SNMP per-host caches (#344) — same force=true contract as
+        # SNMP per-host caches — same force=true contract as
         # Webmin. Drop both success + fail entries so the next probe
         # block hits the wire and produces a fresh sample.
         _snmp_host_cache.pop(h["id"], None)
@@ -4388,7 +4388,7 @@ async def _merge_one_host(h: dict, state: dict, *, force: bool = False) -> tuple
     # the Pulse probe.
     pulse_key = (h.get("pulse_name") or "").strip()
     if "pulse" in active and pulse_key:
-        # Per-(pulse, host) auto-pause short-circuit (#804).
+        # Per-(pulse, host) auto-pause short-circuit.
         if not _is_provider_paused(h["id"], "pulse"):
             pstats = _pulse.lookup(state["pulse_map"], pulse_key)
             # Hub-fetch-OK gate: only count as a per-host failure when
@@ -4420,13 +4420,13 @@ async def _merge_one_host(h: dict, state: dict, *, force: bool = False) -> tuple
                     round_threshold=tuning.tuning_int("tuning_pulse_failure_pause_rounds"),
                 )
 
-    # SNMP (#344) — runs AFTER Pulse but BEFORE Beszel so the unix-
+    # SNMP — runs AFTER Pulse but BEFORE Beszel so the unix-
     # style providers can override SNMP's coarser data wherever they
     # have visibility. Each curated row can override community / port
     # / version / v3 keys via `hosts_config[].snmp`; falls through to
     # the global defaults from state otherwise. Per-host alias map
     # (Docker hostname → SNMP target) wins over the row's snmp_name.
-    # Per-host enable gate (#654): the row's `snmp.enabled` is an
+    # Per-host enable gate : the row's `snmp.enabled` is an
     # explicit OPT-IN, parallel to ping.enabled. Default-OFF when the
     # flag is missing — the operator must check the per-host SNMP
     # enable box for the probe to fire, even when snmp_name is set.
@@ -4443,7 +4443,7 @@ async def _merge_one_host(h: dict, state: dict, *, force: bool = False) -> tuple
             or (h.get("snmp_name") or "").strip()
             or ""
         )
-        # Per-(snmp, host) auto-pause short-circuit (#797). When the
+        # Per-(snmp, host) auto-pause short-circuit. When the
         # operator-set threshold has been hit on the sampler path the
         # probe is SKIPPED entirely — no cool-down arming, no log spam,
         # no token spend. Operator clears via POST
@@ -4528,7 +4528,7 @@ async def _merge_one_host(h: dict, state: dict, *, force: bool = False) -> tuple
                         err = result.get("error") or "empty hosts map"
                         err_str = str(err)
                         # Cool-down responses are SKIPS, not real
-                        # failures (#840). Pre-fix the log line read
+                        # failures. Pre-fix the log line read
                         # "[hosts] snmp probe failed for 'idrac': ..."
                         # which the persistent-log severity classifier
                         # in `logic/logs.py:_severity_for` matched on
@@ -4573,7 +4573,7 @@ async def _merge_one_host(h: dict, state: dict, *, force: bool = False) -> tuple
     # were never configured for.
     beszel_key = (h.get("beszel_name") or "").strip()
     if "beszel" in active and beszel_key:
-        # Per-(beszel, host) auto-pause short-circuit (#804). Same
+        # Per-(beszel, host) auto-pause short-circuit. Same
         # hub-fetch-OK gate as Pulse so a global hub blip doesn't
         # cascade-pause every host.
         if not _is_provider_paused(h["id"], "beszel"):
@@ -4605,7 +4605,7 @@ async def _merge_one_host(h: dict, state: dict, *, force: bool = False) -> tuple
     # Node-exporter (per-host probe).
     # operator-tunable timeout via `tuning_node_exporter_probe_timeout_seconds`.
     if "node_exporter" in active and h.get("ne_url"):
-        # Per-(node_exporter, host) auto-pause short-circuit (#804).
+        # Per-(node_exporter, host) auto-pause short-circuit.
         if not _is_provider_paused(h["id"], "node_exporter"):
             _ne_timeout = tuning.tuning_int("tuning_node_exporter_probe_timeout_seconds")
             _ne_pause_rounds = tuning.tuning_int("tuning_node_exporter_failure_pause_rounds")
@@ -4638,7 +4638,7 @@ async def _merge_one_host(h: dict, state: dict, *, force: bool = False) -> tuple
     # /api/hosts/one/{id} twice in a minute) skip the repeat probe.
     if "webmin" in active and state["webmin_creds_ok"]:
         wm_url = state["webmin_aliases"].get(h["id"]) or h.get("webmin_url") or ""
-        # Per-(webmin, host) auto-pause short-circuit (#797). Same
+        # Per-(webmin, host) auto-pause short-circuit. Same
         # contract as the SNMP block above — operator clears via POST
         # /api/hosts/{id}/provider/webmin/resume.
         webmin_paused = _is_provider_paused(h["id"], "webmin")
@@ -4655,7 +4655,7 @@ async def _merge_one_host(h: dict, state: dict, *, force: bool = False) -> tuple
             if cached and (now - cached[0]) < wm_success_ttl:
                 result = cached[1]
             else:
-                # Negative-result cache (#506) — short-circuit a recently-
+                # Negative-result cache — short-circuit a recently-
                 # failed probe so a SPA fan-out burst doesn't burn 20s ×
                 # PARALLEL on an unreachable Webmin. Tunable TTL means
                 # recovery is felt within one Hosts-tab refresh cycle
@@ -4715,7 +4715,7 @@ async def _merge_one_host(h: dict, state: dict, *, force: bool = False) -> tuple
                         _webmin_host_cache.pop(h["id"], None)
                         err = result.get("error") or "empty hosts map"
                         # Same severity / target-clarity branch as the
-                        # SNMP block (#840). Cool-down skips use the
+                        # SNMP block. Cool-down skips use the
                         # verb "skipped" so the persistent-log
                         # severity classifier doesn't flag them as
                         # ERROR; real failures keep "failed". Both
@@ -4761,7 +4761,7 @@ async def _merge_one_host(h: dict, state: dict, *, force: bool = False) -> tuple
                 _merge_best(merged, stats)
                 providers_hit.append("webmin")
 
-    # Ping (#343) — fifth provider, runs LAST in the merge chain. Only
+    # Ping — fifth provider, runs LAST in the merge chain. Only
     # consults the LATEST stored sample (the sampler does the actual
     # probing on its own cadence). When this host is opted-out
     # (``hosts_config[].ping.enabled == False``), we deliberately skip —
@@ -4790,7 +4790,7 @@ async def _merge_one_host(h: dict, state: dict, *, force: bool = False) -> tuple
                 # instead of the red "down" the operator expected.
                 providers_hit.append("ping")
 
-    # Snapshot fallback (#449) — when a provider went down mid-session,
+    # Snapshot fallback — when a provider went down mid-session,
     # fill missing host_* fields from the previous gather's persisted
     # snapshot and tag them in `_stale_fields` so the SPA can dim those
     # values. Only fills MISSING fields — live values from this run
@@ -4803,7 +4803,7 @@ async def _merge_one_host(h: dict, state: dict, *, force: bool = False) -> tuple
         print(f"[hosts] snapshot fallback failed for {h.get('id')!r}: {e}")
 
     # Persist the just-merged dict as the snapshot for this host
-    # (#830). Pre-fix, snapshots were only written by the legacy
+    #. Pre-fix, snapshots were only written by the legacy
     # _gather_impl path (the one /api/items uses) which builds
     # nodes_info from Swarm-node hostnames — curated SNMP-only hosts
     # like UPSes / managed switches that aren't Swarm nodes never
@@ -5013,11 +5013,11 @@ def _shape_host_api_row(
         "beszel_name":     h.get("beszel_name") or "",
         "pulse_name":      h.get("pulse_name") or "",
         "ne_url":          h.get("ne_url") or "",
-        # SNMP target alias (#344). Surfaced on the API row so
+        # SNMP target alias. Surfaced on the API row so
         # `providerStates(h)` and `hostHasAgent(h)` can decide whether
         # to render the SNMP chip + count this host as having an agent.
         "snmp_name":       h.get("snmp_name") or "",
-        # Per-host SNMP opt-in flag (#654 + #714). The bug: the SPA's
+        # Per-host SNMP opt-in flag. The bug: the SPA's
         # SNMP chip iterators were gating on `h.snmp_name` alone, so a
         # host with snmp_name set but `snmp.enabled === false` STILL
         # rendered the SNMP chip on the Hosts page. The frontend gates
@@ -5077,7 +5077,7 @@ def _shape_host_api_row(
         # "Enable SSH for this host" in Admin → Hosts. The drawer's SSH
         # card + common-actions panel render only when this is true.
         "ssh_enabled":      bool((h.get("ssh") or {}).get("enabled", False)),
-        # Ping (#343). `ping_enabled` is the per-host opt-in flag (the
+        # Ping. `ping_enabled` is the per-host opt-in flag (the
         # SPA uses it to gate the latency chip + drawer chart). The
         # alive / RTT / loss values come from the merged provider
         # dict — empty when the sampler hasn't run yet OR ping isn't
@@ -5094,7 +5094,7 @@ def _shape_host_api_row(
         "load_1m":          float(s.get("host_load_1m") or 0),
         "load_5m":          float(s.get("host_load_5m") or 0),
         "load_15m":         float(s.get("host_load_15m") or 0),
-        # Per-sensor temperatures (#437). `host_temperatures` is a
+        # Per-sensor temperatures. `host_temperatures` is a
         # `{sensor: celsius}` dict from the Beszel agent's `stats.t`
         # (only present when the agent exposes thermal data — Pi has
         # `cpu_thermal`, Intel/AMD has `package_id_0`, NVMe has
@@ -5114,7 +5114,7 @@ def _shape_host_api_row(
         # it was being silently dropped on the API boundary because
         # this whitelist didn't include it.
         "host_gpus":         list(s.get("host_gpus") or []),
-        # Service summary (#321) — Beszel agents that run with the
+        # Service summary — Beszel agents that run with the
         # systemd extension emit a list of service objects. The
         # extractor normalises into `{total, failed, failed_names}`.
         # Hosts whose agent doesn't track services get
@@ -5153,7 +5153,7 @@ def _shape_host_api_row(
         "host_mem_buffers":  int(s.get("host_mem_buffers") or 0),
         "host_mem_cached":   int(s.get("host_mem_cached") or 0),
         "host_mem_free":     int(s.get("host_mem_free") or 0),
-        # APC PowerNet-MIB UPS (#683 / #703). Present only when the
+        # APC PowerNet-MIB UPS. Present only when the
         # host responded to upsBasicIdentModel / upsBasicOutputStatus.
         "host_ups_status":         s.get("host_ups_status") or "",
         "host_battery_percent":    (float(s.get("host_battery_percent")) if s.get("host_battery_percent") is not None else None),
@@ -5161,7 +5161,7 @@ def _shape_host_api_row(
         "host_battery_temp_c":     (float(s.get("host_battery_temp_c")) if s.get("host_battery_temp_c") is not None else None),
         "host_battery_status":     s.get("host_battery_status") or "",
         "host_load_percent":       (float(s.get("host_load_percent")) if s.get("host_load_percent") is not None else None),
-        # Printer-MIB (#702). Empty list / 0 / "" → frontend cards hide.
+        # Printer-MIB. Empty list / 0 / "" → frontend cards hide.
         "printer_page_count":      int(s.get("printer_page_count") or 0),
         "printer_supplies":        list(s.get("printer_supplies") or []),
         "printer_console_msg":     s.get("printer_console_msg") or "",
@@ -5193,7 +5193,7 @@ def _shape_host_api_row(
         # those merge cleanly via _merge_best (the per-iface dict shape
         # is the same; SNMP just adds the extra rx/tx/oper keys).
         "network_ifaces":  list(s.get("network_ifaces") or []),
-        # Stale-marker bookkeeping (#449). Populated by
+        # Stale-marker bookkeeping. Populated by
         # apply_host_snapshot_fallback when a provider went down and we
         # filled missing host_* fields from the persisted snapshot.
         # SPA's isStale / isStaleField / staleAge helpers consult these
@@ -5203,13 +5203,13 @@ def _shape_host_api_row(
         # markers cleanly when a provider recovers.
         "_stale_fields":   list(s.get("_stale_fields") or []),
         "_stale_ts":       float(s.get("_stale_ts") or 0.0),
-        # Permanent-fail tracking (#383). All four fields are non-zero
+        # Permanent-fail tracking. All four fields are non-zero
         # only when the host_metrics_sampler has recorded consecutive
         # failures for this host. `sampling_paused: true` triggers the
         # frontend banner + table icon; the operator clears via POST
         # /api/hosts/{id}/resume-sampling.
         **_failure_state_for_host(h["id"]),
-        # Per-provider auto-pause state (#797). Populated only when one
+        # Per-provider auto-pause state. Populated only when one
         # or more providers (currently SNMP + Webmin) have a failure-
         # state row keyed `<provider>:<host_id>`. Empty dict for healthy
         # hosts. SPA reads this to render the Paused badge on the
@@ -5220,7 +5220,7 @@ def _shape_host_api_row(
 
 
 def _failure_state_for_host(host_id: str) -> dict:
-    """Read the host_failure_state row for a given host (#383). Returns
+    """Read the host_failure_state row for a given host. Returns
     the four fields when the read succeeds AND the row exists. Returns
     only the falsy defaults when the row genuinely doesn't exist (host
     has never failed). Returns an EMPTY dict on any DB error so the
@@ -5524,7 +5524,7 @@ async def api_hosts_one(host_id: str, force: bool = False):
     batch probes run at most once per TTL window.
 
     ``force=true`` mirrors the parallel param on ``/api/hosts/list``
-    (#347) and bypasses the 10s provider-state cache so a host drawer
+     and bypasses the 10s provider-state cache so a host drawer
     re-opened immediately after Admin → Hosts Save sees fresh provider
     data instead of waiting out the TTL
     """
@@ -5563,7 +5563,7 @@ async def api_hosts_one(host_id: str, force: bool = False):
         h, merged, providers, any_provider_enabled=any_enabled,
     )
     row["_probe_elapsed_ms"] = probe_elapsed_ms
-    # NO SSE publish here (#515). Earlier this endpoint published
+    # NO SSE publish here. Earlier this endpoint published
     # `host:row_updated` so other tabs would see the freshly-merged row
     # — but the SAME tab subscribes to the bus, so the event triggered
     # the SPA's `host:row_updated` listener, which called
@@ -5648,11 +5648,11 @@ def _load_hosts_config() -> list[dict]:
             # single global key). Missing or non-dict values collapse
             # to {} so downstream code can always do dict.get(...).
             "ssh":         _clean_host_ssh(h.get("ssh")),
-            # Per-host ping opt-in (#343). Default OFF — operator opts
+            # Per-host ping opt-in. Default OFF — operator opts
             # in per host. Optional `port` + `transport` overrides
             # cascade over the globals.
             "ping":        _clean_host_ping(h.get("ping")),
-            # SNMP target alias (#344) — Docker hostname → SNMP-reachable
+            # SNMP target alias — Docker hostname → SNMP-reachable
             # name/IP when the curated row's id isn't directly addressable
             # by the SNMP agent. Empty falls through to the global
             # snmp_aliases map and finally to the bare id.
@@ -5720,7 +5720,7 @@ def _clean_host_ssh(raw: Any) -> dict:
     password = str(raw.get("password") or "")
     if password:
         out["password"] = password
-    # New `enabled` flag (#622). ONLY explicit `enabled: true` writes
+    # New `enabled` flag. ONLY explicit `enabled: true` writes
     # the flag through; everything else (absent, false, legacy
     # `disabled` field) leaves the row in the new "OFF until opted in"
     # default. The schema migration in `logic/migrations.py:#001`
@@ -5735,7 +5735,7 @@ def _clean_host_ssh(raw: Any) -> dict:
 
 
 def _clean_host_ping(raw: Any) -> dict:
-    """Normalise the per-host ``ping`` sub-dict (#343).
+    """Normalise the per-host ``ping`` sub-dict.
 
     Accepts ``enabled`` (bool, default False), ``port`` (int 1..65535
     or null = use global ``ping_default_port``), and ``transport``
@@ -5765,7 +5765,7 @@ def _clean_host_ping(raw: Any) -> dict:
 
 
 def _clean_host_snmp(raw: Any) -> dict:
-    """Normalise the per-host ``snmp`` override sub-dict (#344).
+    """Normalise the per-host ``snmp`` override sub-dict.
 
     Accepts every per-host SNMP override on a curated row:
       * ``community`` (str)        — overrides ``snmp_default_community``
@@ -5967,9 +5967,9 @@ def _save_hosts_config(hosts: list[dict]) -> list[dict]:
             # Per-host SSH override block — see _clean_host_ssh for
             # the shape contract. {} when no override is set.
             "ssh":           _clean_host_ssh(h.get("ssh")),
-            # Per-host ping opt-in (#343).
+            # Per-host ping opt-in.
             "ping":          _clean_host_ping(h.get("ping")),
-            # Per-host SNMP target alias + per-row override block (#344).
+            # Per-host SNMP target alias + per-row override block.
             "snmp_name":     (h.get("snmp_name") or "").strip(),
             "snmp":          _clean_host_snmp(h.get("snmp")),
             "enabled":       bool(h.get("enabled", True)),
@@ -6032,7 +6032,7 @@ def _sweep_orphan_provider_state_rows(live_ids: set) -> int:
     """Delete `<provider>:<host_id>` rows in `host_failure_state` and
     `host_provider_last_ok` whose suffix isn't in ``live_ids``. Also
     deletes BARE host_id rows whose value isn't in ``live_ids`` (these
-    come from the whole-host #383 sampler). ALSO (#834) deletes
+    come from the whole-host #383 sampler). ALSO deletes
     per-provider rows where the host EXISTS in ``live_ids`` but the
     provider isn't actually configured on the host's curated row —
     catches orphans like "pulse:apc.example.com" on a host that only has
@@ -6048,7 +6048,7 @@ def _sweep_orphan_provider_state_rows(live_ids: set) -> int:
     if not isinstance(live_ids, set):
         live_ids = set(live_ids or [])
     # Build a per-host "providers configured" map so we can spot orphan
-    # provider-prefixed rows (#834). Mirror the same check
+    # provider-prefixed rows. Mirror the same check
     # `_merge_one_host` uses post-#832 to decide whether to probe each
     # provider for a given host.
     curated = _load_hosts_config()
@@ -6085,7 +6085,7 @@ def _sweep_orphan_provider_state_rows(live_ids: set) -> int:
                     if bare and bare not in live_ids:
                         doomed.append(key)
                         continue
-                    # Per-provider orphan check (#834): provider-prefixed
+                    # Per-provider orphan check : provider-prefixed
                     # row but the host's curated config no longer (or
                     # never) had that provider enabled. Most common path
                     # for these is the pre-#832 fall-through that probed
@@ -6137,7 +6137,7 @@ async def api_hosts_resume_sampling(
             cleared = cur.rowcount or 0
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"resume-sampling failed: {e}")
-    # ENH-012 (#427) — also clear the SSH + Webmin auth cooldowns for
+    # ENH-012 — also clear the SSH + Webmin auth cooldowns for
     # this host so a single resume click recovers from the
     # all-three-providers-paused-on-same-host case (sampler is paused,
     # SSH cooldown still arming, Webmin cooldown still arming). Each
@@ -6212,7 +6212,7 @@ async def api_hosts_provider_resume(
     _u: auth.User = Depends(auth.require_admin),
 ):
     """Admin-only: clear the per-(provider, host) auto-pause marker
-    (#797). Mirrors `/api/hosts/{id}/resume-sampling` but scoped to a
+    . Mirrors `/api/hosts/{id}/resume-sampling` but scoped to a
     single provider — the host-level pause stays intact, only the
     `<provider>:<host_id>` row is removed.
 
@@ -6397,7 +6397,7 @@ async def api_hosts_test(
                 webmin_url = str(aliases.get(row_id, "") or "").strip().rstrip("/")
         except ValueError:
             webmin_url = ""
-    # SNMP test row (#344). Body fields are all optional; defaults flow
+    # SNMP test row. Body fields are all optional; defaults flow
     # through from the global settings the same way other providers do.
     snmp_target = (body.get("snmp_target") or body.get("snmp_name") or "").strip()
     if not snmp_target and row_id:
@@ -6672,7 +6672,7 @@ async def api_hosts_discover(_u: auth.User = Depends(auth.require_admin)):
         if failed and not webmin_names:
             errors["webmin"] = f"{failed} Webmin URL(s) failed to probe"
 
-    # SNMP discovery (#344) — there's no central hub to enumerate so
+    # SNMP discovery — there's no central hub to enumerate so
     # discovery surfaces the configured ``snmp_aliases`` map's keys.
     # Each entry is the curated row's id; the autocomplete value is
     # the alias's TARGET (the SNMP-reachable host/IP). The Admin →
@@ -7068,7 +7068,7 @@ async def api_hosts_debug(
             except Exception as e:
                 providers_raw["webmin"] = {"_error": str(e)}
 
-    # ---- Ping (#343) — most recent samples + the resolved sampler
+    # ---- Ping — most recent samples + the resolved sampler
     #      target so the operator can see exactly what address the
     #      probe is hitting (DNS failure debugging). Only renders
     #      when ping is in active AND this host is opted in. -------
@@ -7206,7 +7206,7 @@ async def api_hosts_debug(
             or (isinstance(record.get("snmp"), dict) and record["snmp"])
         ))
     )
-    # Per-host counters — operator-requested addition (#828). Surfaces
+    # Per-host counters — operator-requested addition. Surfaces
     # failure-state retry counters, per-provider pause / last-ok rows,
     # and time-series row counts so operators can debug "why is my host
     # paused" / "why is my chart empty" without poking the SQLite DB
@@ -7989,7 +7989,7 @@ async def api_hosts_history(system_id: str = "", hours: int = 1, host_id: str = 
         try:
             series = _hms.history_series(hid, h)
             # Per-metric "did the collector ever report?" diagnostic
-            # (#347). Lets the SPA tell "host is just idle" from
+            #. Lets the SPA tell "host is just idle" from
             # "exporter doesn't expose node_disk_* / node_network_*"
             # — different empty-state copy + different remediation.
             collectors = _hms.series_collectors_present(hid, h)
@@ -8018,7 +8018,7 @@ async def api_hosts_ping_history(
     host_id: str, hours: int = 1,
     _admin: auth.User = Depends(auth.require_admin),
 ):
-    """Ping reachability time-series for one curated host (#343).
+    """Ping reachability time-series for one curated host.
 
     Mirrors :func:`api_hosts_history` shape — returns
     ``{points: [...], error: None}`` with one point per
@@ -8046,7 +8046,7 @@ async def api_hosts_snmp_history(
     host_id: str, hours: int = 1,
     _admin: auth.User = Depends(auth.require_admin),
 ):
-    """SNMP time-series for one curated host (#713).
+    """SNMP time-series for one curated host.
 
     Returns ``{points: [...], error: None}`` with one row per
     ``host_snmp_samples`` entry in the window. Each point carries
@@ -8110,7 +8110,7 @@ async def api_hosts_snmp_history(
             # prtMarkerLifeCount). Cumulative monotonic counter; the
             # SPA computes deltas → pages-per-day.
             "printer_page_count": (int(r[14]) if r[14] is not None else None),
-            # APC UPS time-series fields (#820). NULL for non-UPS hosts
+            # APC UPS time-series fields. NULL for non-UPS hosts
             # or pre-#820 rows. Drives the Output Load / Battery /
             # Battery temperature charts in the host drawer's UPS card.
             "load_percent":     (float(r[15]) if r[15] is not None else None),
@@ -8125,7 +8125,7 @@ async def api_hosts_snmp_iface_history(
     host_id: str, hours: int = 1,
     _admin: auth.User = Depends(auth.require_admin),
 ):
-    """Per-interface SNMP counter history for one host (#725).
+    """Per-interface SNMP counter history for one host.
 
     Returns ``{ifaces: {ifname: [points...]}, error: null}`` with one
     series per interface. Each point carries ``ts`` + ``in_bytes`` +
@@ -8235,7 +8235,7 @@ async def api_ping_test(
     body: PingTestIn,
     _admin: auth.User = Depends(auth.require_admin),
 ):
-    """One-shot ping probe against a curated host (#343). Used by the
+    """One-shot ping probe against a curated host. Used by the
     "Test ping" button in Settings → Host stats and the per-host test
     in Admin → Hosts. Always live (no cache); does NOT write to
     ``ping_samples`` so test-clicks don't pollute the chart series.
@@ -8295,7 +8295,7 @@ async def api_notify_test(_admin: auth.User = Depends(auth.require_admin)):
 
 
 # ============================================================================
-# In-app notifications store (#855). Sibling of the Apprise medium —
+# In-app notifications store. Sibling of the Apprise medium —
 # `logic.ops:notify` writes a row through the `app` medium on every
 # enabled event AND publishes ``notification:created`` over SSE so the
 # avatar badge + Notifications page update without polling. Routes are
@@ -8540,7 +8540,7 @@ def _open_meteo_url() -> str:
     string when unset. Callers must treat `""` as "not configured"
     rather than falling back to a default.
 
-    The per-service master switch (#204) `open_meteo_enabled` is
+    The per-service master switch `open_meteo_enabled` is
     consulted first — when disabled, return `""` regardless of what
     URL is stored. This way the URL stays in the settings table for
     when the operator flips back on, but the weather endpoint cleanly
@@ -8689,7 +8689,7 @@ async def api_logs_clear(_admin: auth.User = Depends(auth.require_admin)):
 
 
 # ----------------------------------------------------------------------------
-# Persistent log files (#424 / #425). Daily files under /app/data/logs/.
+# Persistent log files. Daily files under /app/data/logs/.
 # Admin-only. Three routes:
 #   GET /api/admin/logs/files                      — directory listing
 #   GET /api/admin/logs/files/{name}?tail=N        — text body, last N lines (N optional)
@@ -8730,7 +8730,7 @@ async def api_admin_logs_file_download(
 # Registered here — above the StaticFiles catch-all — per CLAUDE.md.
 # ============================================================================
 # ----------------------------------------------------------------------------
-# TOTP / 2FA challenge store (#345). In-memory dict mapping
+# TOTP / 2FA challenge store. In-memory dict mapping
 # challenge_id -> {user_id, kind, secret?, issued_at, expires_at}. Lifespan-
 # scoped because the matching cookie isn't issued until the second step
 # completes. Single-replica pinning (CLAUDE.md) makes this safe.
@@ -8769,7 +8769,7 @@ def _peek_totp_challenge(cid: str) -> Optional[dict]:
 
 
 # ----------------------------------------------------------------------------
-# WebAuthn (passkey) challenge stores (#381). Two flavours, both the same
+# WebAuthn (passkey) challenge stores. Two flavours, both the same
 # in-memory dict shape as the TOTP store -- single-replica deploy makes it
 # safe. Pruned lazily on every read/write.
 #
@@ -8844,7 +8844,7 @@ def _request_rp_id(request: Request) -> str:
     SecurityError. Behind a reverse proxy (NPM in OmniGrid's deploy)
     the upstream connection's URL has the internal hostname (typically
     ``localhost`` or the Docker stack name), which would mismatch the
-    public domain the browser sees and break enrolment (#433).
+    public domain the browser sees and break enrolment.
 
     Resolution order: ``X-Forwarded-Host`` header (what proxies set
     when they want the backend to know the original Host), then the
@@ -8994,7 +8994,7 @@ async def api_local_login(
         policy = _resolve_totp_policy()
         state = auth.get_user_totp_state(c, u.id)
         passkey_count = auth.count_user_credentials(c, u.id)
-        # Master-toggle gates (#432). When admin disables a method,
+        # Master-toggle gates. When admin disables a method,
         # treat enrolled credentials of that type as if they don't
         # exist for login purposes — the method drops from `methods`
         # and is skipped in the has_2fa check. The user's enrolment
@@ -9115,7 +9115,7 @@ async def api_local_login_totp(
         )
     user_id = challenge["user_id"]
     policy = _resolve_totp_policy()
-    # Master toggle (#432). When admin disables TOTP, refuse to verify
+    # Master toggle. When admin disables TOTP, refuse to verify
     # codes from already-enrolled users — defence in depth alongside
     # the api_local_login `methods` filter that already drops 'totp'
     # from the login response. A stale client could still POST here.
@@ -9283,7 +9283,7 @@ async def api_local_login_totp_setup_confirm(
 
 
 # ============================================================================
-# Login passkey routes (#381). Pair with the existing TOTP routes above —
+# Login passkey routes. Pair with the existing TOTP routes above —
 # both consume the same challenge-id minted in api_local_login. The login
 # flow's "second factor" pivots on which method the SPA POSTs back:
 # /api/local-auth/totp for a 6-digit code, /api/local-auth/webauthn-* for
@@ -9321,7 +9321,7 @@ async def api_local_login_webauthn_start(
             status_code=503,
             detail=_err.message_for(_err.AUTH_WEBAUTHN_LIBRARY_MISSING),
         )
-    # Master toggle (#432). Defence-in-depth — the SPA won't offer
+    # Master toggle. Defence-in-depth — the SPA won't offer
     # the passkey method when this is off (login response omits
     # 'webauthn' from `methods`), but a stale client could still try.
     if not _resolve_totp_policy()["passkeys_allowed"]:
@@ -9419,7 +9419,7 @@ async def api_local_login_webauthn_start(
         print(
             f"[webauthn] {u.username} login-start RP-ID mismatch "
             f"current={rp_id!r} orphaned={[(o['friendly_name'], o['rp_id']) for o in orphaned]} "
-            f"matching={len(matching)} (#605)"
+            f"matching={len(matching)} "
         )
     return JSONResponse({
         "options": options,
@@ -9682,7 +9682,7 @@ async def api_me(request: Request):
         # page reload. Add new client-tunables here rather than via a
         # separate endpoint.
         "client_config": {
-            # Tunable is stored as integer seconds (#514) for operator-
+            # Tunable is stored as integer seconds for operator-
             # friendly UI; multiply by 1000 here so the SPA's setTimeout
             # consumer keeps its existing ms-based contract. Renaming
             # the SPA field would touch every call site for no gain.
@@ -9696,7 +9696,7 @@ async def api_me(request: Request):
             # seconds; SPA's `_sseIdleThresholdMs` consumer wants ms.
             "sse_idle_threshold_ms": tuning.tuning_int("tuning_sse_idle_threshold_seconds") * 1000,
             # pollOps SSE-up keep-alive cadence. Same ms-conversion
-            # pattern as ops_poll_ms (#514) and sse_idle_threshold_ms.
+            # pattern as ops_poll_ms and sse_idle_threshold_ms.
             "pollops_sse_keepalive_ms": tuning.tuning_int("tuning_pollops_sse_keepalive_seconds") * 1000,
             # stat-bar warn / crit cutovers. SPA's barLevel /
             # barColor helpers read these per-call so an Admin → Config
@@ -9709,7 +9709,7 @@ async def api_me(request: Request):
             # interval rather than a stale literal). Stored as seconds;
             # the SPA renders minutes for display.
             "stats_sample_interval_seconds": tuning.tuning_int("tuning_stats_sample_interval_seconds"),
-            # SNMP-specific sampler cadence (#833). When > 0, the SNMP
+            # SNMP-specific sampler cadence. When > 0, the SNMP
             # sampler runs at this interval instead of inheriting the
             # global stats_sample_interval. SPA's `snmpWarmingUpText`
             # uses this when non-zero so the "~N min" hint matches the
@@ -9775,7 +9775,7 @@ async def api_me(request: Request):
             "created_at":   profile.get("created_at"),
             "last_login_at": profile.get("last_login_at"),
             "avatar_url":   f"/api/avatars/{profile['avatar_path']}" if profile.get("avatar_path") else None,
-            # Per-user UI prefs (#313). JSON dict — currently carries
+            # Per-user UI prefs. JSON dict — currently carries
             # `headerWeatherEnabled` / `headerClockEnabled` so toggling
             # them on desktop survives the trip to iPhone (or any other
             # browser) for the same login. Empty `{}` for users who've
@@ -9783,7 +9783,7 @@ async def api_me(request: Request):
             # defaults in that case.
             "ui_prefs":     profile.get("ui_prefs") or {},
         })
-        # Per-user notification opt-in map (#357). Two-layer scoping:
+        # Per-user notification opt-in map. Two-layer scoping:
         # the admin gate is shared via ``notify_events_admin`` so the
         # SPA can grey out toggles for events admin has globally
         # disabled; ``notify_events`` is the user's own resolved map
@@ -9828,7 +9828,7 @@ async def api_me(request: Request):
         out["notify_events"] = resolved
         out["notify_events_admin"] = admin_map
         out["notify_mediums"] = notify_mediums
-        # TOTP / 2FA summary (#345). Surfaced on /api/me so the SPA can
+        # TOTP / 2FA summary. Surfaced on /api/me so the SPA can
         # render the Profile section + the "Required by policy" banner
         # without a follow-up round-trip on every page load. Detailed
         # backup-codes payload still ships separately via /api/me/totp.
@@ -9844,7 +9844,7 @@ async def api_me(request: Request):
                 and _totp_required_for(user.role, _totp_policy)
             ),
         }
-        # Passkeys (#381). The SPA uses ``count`` as a quick hint
+        # Passkeys. The SPA uses ``count`` as a quick hint
         # (e.g. show "+ Add passkey" when 0; show the list inline when
         # >0) without the full /api/me/webauthn round-trip. ``supported``
         # is the server-side capability flag (False when the webauthn
@@ -9855,7 +9855,7 @@ async def api_me(request: Request):
                 user.auth_source == "local"
                 and webauthn_h.WEBAUTHN_AVAILABLE
             ),
-            # Admin master toggle (#432). When false, the SPA hides /
+            # Admin master toggle. When false, the SPA hides /
             # disables the "Add a passkey" button. Existing enrolments
             # remain visible + login-eligible until each user revokes.
             "allowed": bool(_totp_policy["passkeys_allowed"]),
@@ -10164,8 +10164,8 @@ def _totp_authentik_guard(user: auth.User) -> None:
 def _totp_required_for_user(user: auth.User) -> bool:
     """Convenience wrapper around _totp_required_for() given a User.
 
-    Honours the global role-based policy (#345) AND the per-user
-    `totp_force_required` admin override (#376). Either one is enough
+    Honours the global role-based policy AND the per-user
+    `totp_force_required` admin override. Either one is enough
     to require 2FA for this user. Authentik users always return False
     here — their auth_source short-circuits TOTP at the call sites.
     """
@@ -10310,7 +10310,7 @@ async def api_me_totp_disable(
     if user.id < 0:
         raise HTTPException(400, "API tokens cannot manage 2FA")
     _totp_authentik_guard(user)
-    # 2FA is satisfied if EITHER TOTP OR a passkey is enrolled (#381). So
+    # 2FA is satisfied if EITHER TOTP OR a passkey is enrolled. So
     # a user with a passkey can self-disable TOTP even when policy
     # requires 2FA. Block ONLY when removing TOTP would leave the user
     # with no 2FA at all under a required-2FA policy.
@@ -10333,7 +10333,7 @@ async def api_me_totp_disable(
 
 
 # ============================================================================
-# Profile -> WebAuthn / passkey management (#381). Cookie-authed; CSRF
+# Profile -> WebAuthn / passkey management. Cookie-authed; CSRF
 # enforced globally by the middleware. Authentik users 400 (their IdP
 # manages MFA). API-token "users" (negative ids) 400.
 # ============================================================================
@@ -10367,7 +10367,7 @@ def _webauthn_self_guard(user: auth.User) -> None:
 class WebauthnClientErrorIn(BaseModel):
     """Body for /api/me/webauthn/client-error — the SPA POSTs this when
     `navigator.credentials.create()` or `.get()` rejects with a
-    DOMException so the failure reason lands in Admin → Logs (#433).
+    DOMException so the failure reason lands in Admin → Logs.
     Fields are all best-effort strings; capped server-side to keep a
     misbehaving client from spamming the buffer.
     """
@@ -10423,7 +10423,7 @@ async def api_me_webauthn_list(
     base64url for display purposes only (stable identifier for the
     revoke button). public_key never leaves the server.
 
-    ``rp_id`` (#605) lets the SPA flag credentials registered under a
+    ``rp_id`` lets the SPA flag credentials registered under a
     different domain (orphaned passkeys that the browser will refuse
     to offer at login). Profile → Security renders an inline badge
     when ``pk.rp_id !== current_rp_id``.
@@ -10480,7 +10480,7 @@ async def api_me_webauthn_register_start(
     are per-user and not consumable across users).
     """
     _webauthn_self_guard(user)
-    # Admin master toggle (#432). Only register-start is gated — list /
+    # Admin master toggle. Only register-start is gated — list /
     # revoke / login still work for already-enrolled keys, mirroring
     # the totp_allowed shape (admin can flip enrolment off without
     # breaking active logins).
@@ -10754,7 +10754,7 @@ async def api_reset_password(
 ):
     """Admin password-reset for a local user.
 
-    Note: this ALSO clears any TOTP enrolment (#345). Operators reset
+    Note: this ALSO clears any TOTP enrolment. Operators reset
     passwords when a user has lost access; that usually means their
     authenticator device is gone too. The user re-enrols via Profile
     after the next login if 2FA is still required by policy.
@@ -10834,7 +10834,7 @@ async def api_admin_totp_force(
     body: TotpForceIn,
     admin: auth.User = Depends(auth.require_admin),
 ):
-    """Admin override: per-user force-2FA flag (#376).
+    """Admin override: per-user force-2FA flag.
 
     Layers ON TOP of the global totp_required_for_admins / _users
     policy — flipping this ON forces 2FA for THIS user even when

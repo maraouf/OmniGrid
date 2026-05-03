@@ -99,11 +99,11 @@ _last_counters: dict[str, tuple[float, int, int]] = {}  # host_id → (ts, rx, t
 def _is_paused(host_id: str) -> bool:
     """Read host_failure_state.paused for a host. True iff the host has
     been auto-paused by host_metrics_sampler's permanent-fail tracker
-    (#383). Same short-circuit host_metrics_sampler uses on its own
+    . Same short-circuit host_metrics_sampler uses on its own
     _probe_one — without this, the net sampler keeps slamming a dead
     NE endpoint long after the metrics sampler has stopped, and the
     operator sees the [host_net_sampler] error spam they thought they
-    silenced (#423). Defensive: any DB error returns False so we don't
+    silenced. Defensive: any DB error returns False so we don't
     accidentally suppress polling for ALL hosts on a transient SQLite
     BUSY.
     """
@@ -132,7 +132,7 @@ async def _probe_one(client: httpx.AsyncClient, host: dict) -> None:
     """Probe NE for one host; insert a sample if sanity checks pass."""
     hid = host["id"]
     ne_url = host["ne_url"]
-    # Permanent-fail short-circuit (#423). Mirror what
+    # Permanent-fail short-circuit. Mirror what
     # host_metrics_sampler._probe_one already does — paused hosts skip
     # the probe entirely until the operator resumes via the API. Without
     # this, the net sampler keeps emitting [host_net_sampler] error

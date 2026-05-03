@@ -235,7 +235,7 @@
        `omnigrid.svg`) so the CSS clip and the SVG's baked-in rounded
        corner align exactly — any other radius leaves a halo where the
        transparent SVG corners reveal the page background through a
-       wider clip (#361). */
+       wider clip. */
     --r-app-logo: 22%;
     /* Vertical clearance for the floating action bars (Hosts editor /
        Host groups editor) above the sticky `.app-footer`. Footer is
@@ -257,14 +257,14 @@
          --c         stat-bar fill colour
          --avatar-hue  user-menu avatar hue (0-359), keyed per username
          --chip-bg / --chip-br / --chip-fg
-                     per-provider chip colour triplet (#596) — set
+                     per-provider chip colour triplet — set
                      inline on .chip.pill-custom from the operator-
                      configured provider colour via color-mix; also
                      reusable by any future component that wants
                      dynamic-colour chips.
          --provider-icon-url / --provider-icon-size
                      mono provider icon painted via CSS mask-image
-                     on `.provider-icon` (#607). URL points at the
+                     on `.provider-icon`. URL points at the
                      SVG file; size defaults to 14px square. Reusable
                      by any future component that wants a recolourable
                      mono SVG glyph. */
@@ -486,7 +486,7 @@ body {
        gestures — which means our `gesturestart` JS listener (in
        index.html) can preventDefault them without fighting the browser.
        Together with the JS handler this kills pinch-zoom on every
-       browser we target (#385). */
+       browser we target. */
     touch-action: pan-x pan-y;
 }
 
@@ -644,7 +644,7 @@ select:focus {
 /* ---------------------------------------------------------------------------
    Buttons
    --------------------------------------------------------------------------- */
-/* Global cursor:pointer for every native <button> (#466). Browsers
+/* Global cursor:pointer for every native <button>. Browsers
    default <button> to `cursor: default`; only <a> gets the hand
    cursor for free. The Tailwind utility `cursor-pointer` works on
    per-button declarations but a runtime-JIT bundle can miss them on
@@ -721,7 +721,7 @@ button:disabled {
     color: var(--text-on-primary);
 }
 
-/* Iconified per-row action buttons (#400). Square, no chrome at rest;
+/* Iconified per-row action buttons. Square, no chrome at rest;
    subtle hover bg keeps the affordance now that text labels are gone.
    Used in Admin → Users actions column (and any future dense action
    row). `--warning` and `--danger` modifiers tint the icon for the
@@ -1021,7 +1021,7 @@ button:disabled {
    tables (Users / Sessions / Tokens) and the Profile modal. These
    were referenced in markup before they had CSS rules, so badges
    silently fell back to the base .pill style with no fill colour
-   (#428). Each one re-uses an existing token family so we don't
+   . Each one re-uses an existing token family so we don't
    introduce new colour literals — no :root edits needed. */
 .pill-success {
     background: var(--pill-ok-bg);
@@ -1141,7 +1141,7 @@ button:disabled {
                      color: var(--pill-offline-fg);
                      border-color: var(--pill-offline-br); }
 
-/* Per-provider custom-color chip (#596). The three CSS variables
+/* Per-provider custom-color chip. The three CSS variables
  * (--chip-bg, --chip-br, --chip-fg) are set inline via Alpine's
  * `:style`, derived from the operator-configured provider color
  * via color-mix in the template. Lets each provider render its own
@@ -1224,7 +1224,7 @@ button.chip:hover {
 }
 
 /* Provider icon — mono SVG painted in the per-provider chip colour
- * via CSS mask-image (#607). Used in (a) Settings → Providers tab
+ * via CSS mask-image. Used in (a) Settings → Providers tab
  * strip next to each tab label, (b) the Hosts row provider chip
  * strip floating right of the host name. The SVG file's fill /
  * stroke don't matter — mask-image uses ALPHA only, so we get a
@@ -1232,7 +1232,7 @@ button.chip:hover {
  * inline per element (`:style="--provider-icon-url: url(/img/icons/<slug>.svg)"`)
  * AND `color: <provider-colour>` on the same element (or its ancestor)
  * so the silhouette picks up the operator-customised hue from
- * `providerColor()` (#596). Size defaults to 14px square; override
+ * `providerColor()`. Size defaults to 14px square; override
  * via `--provider-icon-size`. */
 .provider-icon {
     display: inline-block;
@@ -1311,7 +1311,7 @@ button.chip:hover {
     color: var(--text-dim);
 }
 
-/* Mobile density (#346) — chips wrap aggressively at iPhone width;
+/* Mobile density — chips wrap aggressively at iPhone width;
    tighter padding + smaller font shaves a row or two from the filter
    bar so content reaches the fold sooner. Desktop unaffected. */
 @media (max-width: 640px) {
@@ -1383,7 +1383,7 @@ details summary::-webkit-details-marker {
 
 /* Subtle "Unsaved" pill text — gentle 3.5s opacity fade so the word
    breathes without grabbing focus. Pair the dot with Tailwind's
-   animate-pulse and the text with this. (#386) */
+   animate-pulse and the text with this. */
 @keyframes subtle-flash {
     0%, 100% {
         opacity: 1;
@@ -1635,7 +1635,7 @@ details summary::-webkit-details-marker {
 }
 
 /* Disabled state while the picker's underlying loaders are in
-   flight (#837). The cursor flips to wait so the affordance signals
+   flight. The cursor flips to wait so the affordance signals
    "in progress, please wait" rather than "broken / locked out".
    Hover styling is suppressed so the button doesn't appear
    interactive during the busy window. */
@@ -1759,7 +1759,7 @@ details summary::-webkit-details-marker {
     letter-spacing: -0.2px;
     color: var(--text);
     /* Flex so the title + unit + help-icon stay on one line; previously
-       the icon could drop to row 2 in narrow chart cards (#413). */
+       the icon could drop to row 2 in narrow chart cards. */
     display: inline-flex;
     align-items: center;
     gap: var(--s-2);
@@ -1771,7 +1771,7 @@ details summary::-webkit-details-marker {
     margin-inline-start: 2px;
 }
 
-/* Per-sensor colour swatch in the Temperature card header (#439).
+/* Per-sensor colour swatch in the Temperature card header.
    Background is set inline by Alpine to one of the existing palette
    tokens (--primary / --warning / --danger / --success / --info), so
    no raw colour literal lives here — only sizing. The swatch ties
@@ -1786,7 +1786,7 @@ details summary::-webkit-details-marker {
 }
 
 /* Per-chart "data source" hint icon — sits next to the title with both
-   a hover (`:title`) AND a tap-driven tooltip (#413) so mobile gets
+   a hover (`:title`) AND a tap-driven tooltip so mobile gets
    the hint too. cursor:help signals the affordance; subdued colour
    keeps it from competing with the title typography. */
 .metric-card-title .metric-source-help {
@@ -1805,7 +1805,7 @@ details summary::-webkit-details-marker {
 
 /* Tap-driven tooltip body — positioned below the `?` icon (or above
    when there's no room below). Pointer events on so the operator can
-   tap the body without dismissing. (#413) */
+   tap the body without dismissing. */
 .metric-source-tooltip {
     position: absolute;
     top: calc(100% + 4px);
@@ -1948,7 +1948,7 @@ details summary::-webkit-details-marker {
     grid-row: 1;
     display: block;
     width: 100%;
-    /* Fixed chart height (#601 / #604) — pinning height keeps every
+    /* Fixed chart height — pinning height keeps every
      * chart the same visual size regardless of grid context (3-col,
      * 2-col, or 1-col). `height` alone wasn't enough on the lone-row
      * ping wrapper because the parent grid cell can stretch via
@@ -3153,7 +3153,7 @@ details summary::-webkit-details-marker {
   font-weight: 500;
 }
 
-/* Subtle icon next to each sidebar label (#377). Faint by default so
+/* Subtle icon next to each sidebar label. Faint by default so
    the label still leads visually; hover/active rows let the parent
    `color` cascade through `currentColor` on the SVG <use>, lifting
    the icon to match the text colour. */
@@ -3420,7 +3420,7 @@ button:focus:not(:focus-visible) {
     background: var(--pill-error-bg);
 }
 
-/* In-app notifications (#855). The avatar badge sits on top-right of
+/* In-app notifications. The avatar badge sits on top-right of
    the avatar circle; the menu-item badge sits at the end of its row.
    Both pull `--danger` so the unread state lines up with the existing
    "needs attention" colour family (matches the History view's failed-
@@ -3588,7 +3588,7 @@ body.login {
        `--r-app-logo` token comment. Using `var(--r-xl)` (10px on an
        88px box) clips tighter than the SVG fills and leaves a halo
        where the SVG's transparent corners show the page background
-       (#361). */
+       . */
     border-radius: var(--r-app-logo);
     display: block;
     box-shadow: 0 6px 24px var(--backdrop-strong);
@@ -3746,7 +3746,7 @@ body.login {
     color: var(--text);
 }
 
-/* WebAuthn / passkey button on the login card (#381). Inherits the
+/* WebAuthn / passkey button on the login card. Inherits the
    login-card form-button look but with the primary accent baked in to
    give the passkey path visual weight over the typed-code input. */
 .login-card .login-passkey-wrap {
@@ -3780,7 +3780,7 @@ body.login {
 }
 
 /* ==========================================================================
-   TOTP / 2FA components (#345)
+   TOTP / 2FA components 
    - `.totp-qr`        — login-page QR canvas wrapper (centred SVG).
    - `.totp-secret-row`— secret-string row beneath the QR.
    - `.totp-link`      — "Use a backup code" toggle below the input.
@@ -3922,7 +3922,7 @@ body.login {
 }
 
 /* ==========================================================================
-   Passkey list (#381)
+   Passkey list 
    - `.passkey-list`       — Profile -> Security card list of enrolled keys.
    - `.passkey-item`       — one row (name + meta + revoke button).
    - `.passkey-item__main` — left column (stacks name above meta line).
@@ -3998,7 +3998,7 @@ body.login {
     background: var(--surface-3);
 }
 
-/* Real-time event-stream indicator (#454). Compact pill in the topbar
+/* Real-time event-stream indicator. Compact pill in the topbar
    that flips between live (SSE healthy) and polling (fallback). All
    colour tokens come from existing :root vars — no theme-specific
    literals. */
@@ -4390,7 +4390,7 @@ input[type="radio"] {
     accent-color: var(--primary);
 }
 
-/* Inline field validation (#136) ------------------------------------
+/* Inline field validation ------------------------------------
  * `.field-invalid` sits on form inputs to signal a validation
  * failure: red border + soft red glow so the error is obvious in
  * the form grid. The companion `.field-error-msg` renders the
@@ -4541,7 +4541,7 @@ select.field-invalid {
 }
 
 /* ---------------------------------------------------------------------------
-   Host detail drawer (#239) — the slide-out panel that replaced the
+   Host detail drawer — the slide-out panel that replaced the
    legacy inline row expansion. Markup lives inside the desktop row's
    iteration scope so existing `h.X` references keep working, but the
    .host-drawer class pulls the element OUT of the document flow into a
@@ -4619,7 +4619,7 @@ select.field-invalid {
    share of space and SYSTEM/HARDWARE grew while NETWORK/DISKS got
    squashed to ~70px. The text-compaction fix that survived is
    removing `break-all` from natural-language values like
-   `dmi_vendor`/`dmi_product` (commit comment in note_todo #274). */
+   `dmi_vendor`/`dmi_product`. */
 .drawer-dl {
     display: grid;
     grid-template-columns: auto 1fr;
@@ -4766,7 +4766,7 @@ select.field-invalid {
     color: var(--terminal-status-err-fg);
 }
 
-/* Admin → Process tunables — bounds chips (#510). Three small chips
+/* Admin → Process tunables — bounds chips. Three small chips
  * inline with the input render the min / max / default values, each
  * with a Lucide icon that telegraphs the semantic at a glance:
  *   min     → arrow-down-to-line   (lower bound / floor)

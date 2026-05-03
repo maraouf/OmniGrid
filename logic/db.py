@@ -342,7 +342,7 @@ def curated_ping_hosts() -> list[dict]:
 
 
 def curated_snmp_hosts() -> list[dict]:
-    """Curated ``hosts_config`` rows opted-in for SNMP probing (#679).
+    """Curated ``hosts_config`` rows opted-in for SNMP probing.
 
     Mirror of :func:`curated_ne_hosts` / :func:`curated_ping_hosts` but
     gates on ``snmp.enabled === True`` AND a non-empty ``snmp_name`` (or

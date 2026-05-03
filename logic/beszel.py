@@ -282,7 +282,7 @@ def _pick_stat_type(hours: int) -> str:
     has been aggregated away), which is exactly what the operator
     saw as "the chart only shows the last hour even when I pick 24h".
 
-    Tier picks (#818):
+    Tier picks :
       hours ≤ 1   → ``1m``    (60 rows max)
       hours ≤ 12  → ``10m``   (72 rows max for 12h)
       hours ≤ 48  → ``20m``   (72 rows for 24h, 144 for 48h)
@@ -468,7 +468,7 @@ async def fetch_system_history(
         # (one for ``temps``, two for ``temp_max``). On a 168h history
         # at 1-minute granularity that's 30k+ wasted parses
         temps = _flatten_temperatures(stats.get("t"))
-        # GPU per-tick aggregates (#749). Beszel emits per-GPU dict on
+        # GPU per-tick aggregates. Beszel emits per-GPU dict on
         # every history row — average across GPUs for power / usage
         # (operator-flagged: "GPU Power Draw: Average power consumption
         # of GPUs", "GPU Usage: Average utilization of GPU"); sum
@@ -532,10 +532,10 @@ async def fetch_system_history(
             # rides alongside for the metric-card stats display so the
             # operator can see which sensor is hottest. Missing →
             # empty dict + None scalar; the frontend chart card hides
-            # on `Object.keys(temps).length > 0` (#437).
+            # on `Object.keys(temps).length > 0`.
             "temps":    temps,
             "temp_max": max(temps.values()) if temps else 0.0,
-            # GPU aggregates (#749) — gpu_pwr / gpu_usage / gpu_vram_pct
+            # GPU aggregates — gpu_pwr / gpu_usage / gpu_vram_pct
             # power dedicated per-GPU chart cards. Plus the absolute
             # VRAM used / total (bytes) for the legend value formatting.
             "gpu_pwr":             gpu_pwr_avg,
@@ -715,7 +715,7 @@ def _flatten_network(ni) -> list[dict]:
 
 def _flatten_temperatures(t) -> dict[str, float]:
     """Normalise Beszel's ``stats.t`` into a clean ``{sensor: celsius}``
-    dict (#437). Beszel agents emit ``t`` as a flat dict keyed by
+    dict. Beszel agents emit ``t`` as a flat dict keyed by
     sensor name (e.g. ``{"cpu_thermal": 48.2}`` on Raspberry Pi or any
     Linux host with the `node_thermal_zone_temp` collector). Hosts
     whose agent doesn't expose thermal data omit the field entirely;
@@ -739,7 +739,7 @@ def _flatten_temperatures(t) -> dict[str, float]:
 
 def _flatten_gpus(g) -> list[dict]:
     """Normalise Beszel's ``stats.g`` into a clean ``[{name, vram_used_bytes,
-    vram_total_bytes, usage_percent, power_watts}, ...]`` list (#749).
+    vram_total_bytes, usage_percent, power_watts}, ...]`` list.
 
     Beszel agents emit ``g`` as a dict keyed by GPU index (string) →
     ``{n, mu, mt, u, p}``. Units are inconsistent in the agent payload:
@@ -962,7 +962,7 @@ def extract_stats(info: dict, stats: Optional[dict] = None) -> dict:
         "host_containers":  int(_num(info.get("ct"))),
         # Load average — Beszel agents emit `la` as `[1m, 5m, 15m]` in
         # `stats`. Surfaced as 3 separate fields so the SPA can render
-        # the chart (#320) and the SYSTEM card. Empty / missing →
+        # the chart and the SYSTEM card. Empty / missing →
         # zeros (containers and embedded systems often skip this).
         "host_load_1m":     _load_window(stats.get("la"), 0),
         "host_load_5m":     _load_window(stats.get("la"), 1),
@@ -972,13 +972,13 @@ def extract_stats(info: dict, stats: Optional[dict] = None) -> dict:
         # the swap chart hides on the frontend gate.
         "host_swap_percent": _num(stats.get("s")),
         "host_swap_used":    _num(stats.get("su")),
-        # Temperature sensors (#437). Beszel agents emit `stats.t` as a
+        # Temperature sensors. Beszel agents emit `stats.t` as a
         # dict of `<sensor_name>: <celsius>` (e.g. {"cpu_thermal": 48.2}
         # on a Pi 4 / `node_thermal_zone_temp` on Linux). Hosts whose
         # agent doesn't expose any thermal sensor get an empty dict and
         # the frontend chart card hides cleanly.
         "host_temperatures": _flatten_temperatures(stats.get("t")),
-        # GPUs (#749). Beszel agents emit `stats.g` as a dict keyed by
+        # GPUs. Beszel agents emit `stats.g` as a dict keyed by
         # GPU index → {n, mu, mt, u, p} (name / VRAM used / VRAM total /
         # usage % / power W). Beszel stores `mu` in GB and `mt` in MB
         # (yes, inconsistent — confirmed against agent source). We
@@ -986,7 +986,7 @@ def extract_stats(info: dict, stats: Optional[dict] = None) -> dict:
         # without per-field unit math. Empty list when the host has
         # no discrete GPU.
         "host_gpus":             _flatten_gpus(stats.get("g")),
-        # Service info (#321). Beszel agents emit the systemd-services
+        # Service info. Beszel agents emit the systemd-services
         # data under the field name `systemd_services` (operator
         # confirmed by inspecting the PocketBase admin — initial
         # implementation guessed `services` and got nothing back).
@@ -1055,7 +1055,7 @@ async def probe_hub(
             except Exception as e:
                 print(f"[beszel] warn: fetch stats failed: {e}")
                 latest_stats = {}
-            # systemd_services collection (#321). One record per
+            # systemd_services collection. One record per
             # monitored unit, related to a system via the `system`
             # field. Group here so the per-system loop below can
             # attach a summary in O(1).

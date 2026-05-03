@@ -69,7 +69,7 @@
   // Applies to both the initial fetch AND the CSRF retry path.
   function attachAllHeaders(init) {
     const headers = new Headers(init.headers || {});
-    // X-OmniGrid-Client-Id (#534): per-tab UUID echoed by backend SSE
+    // X-OmniGrid-Client-Id : per-tab UUID echoed by backend SSE
     // publishers so the originating tab can self-filter. Applied on
     // every method (read GETs that trigger SSE-on-the-side need it too).
     if (window.__ogClientId) {

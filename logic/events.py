@@ -191,7 +191,7 @@ def publish(
     into the caller (an Operation handler, a sampler, the gather loop).
     Logged loudly so a regression in event shape doesn't go silent.
 
-    ``client_id`` (#534): when supplied, the SPA tab whose
+    ``client_id`` : when supplied, the SPA tab whose
     ``X-OmniGrid-Client-Id`` header matches will skip the resulting
     SSE event — i.e. "broadcast to other tabs but not to me". Stamped
     into the payload as a top-level ``client_id`` key so the SPA

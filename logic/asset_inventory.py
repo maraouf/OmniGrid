@@ -259,7 +259,7 @@ def _normalize_code(raw: Any) -> str:
 
     Upstream returns codes in any of three shapes depending on the
     action / version: ``"Ex1686"``, ``"ERR_1686"``, ``"Error_1686"``,
-    or bare ``"1686"``. ENH-010 (#425) — the prefix charset is now
+    or bare ``"1686"``. ENH-010 — the prefix charset is now
     `(?i)(?:Ex|ERR_|Error_)` so all three normalise to the bare numeric
     string. Downstream equality checks (``_ERR_NO_RECORDS``, pagination
     tolerance) and error formatters (``[Ex{code}]``) work uniformly

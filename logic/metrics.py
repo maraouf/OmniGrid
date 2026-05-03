@@ -81,7 +81,7 @@ GATHER_DURATION = Histogram(
     buckets=(0.5, 1, 2, 5, 10, 30, 60, 120),
 )
 # `_host_provider_lock` acquire-latency histogram. The lock
-# single-flights cold-cache Beszel + Pulse hub probes (#506); when N
+# single-flights cold-cache Beszel + Pulse hub probes ; when N
 # parallel `/api/hosts/one/<id>` calls land, the second-through-Nth
 # wait here for the first caller's probe to populate the cache. This
 # histogram lets the operator see whether contention is the cause of
@@ -181,7 +181,7 @@ def populate_from_cache(cache: dict) -> None:
 
     # Pre-seed every known (status, type) at 0 so queries against
     # specific label combinations always have a series to match. The
-    # canonical sets live in `logic.gather` (#434) — adding a new
+    # canonical sets live in `logic.gather` — adding a new
     # status / type there pre-seeds the new combinations here without
     # touching this function. Imported lazily to avoid an import cycle
     # at module-load time (gather imports metrics directly).

@@ -33,7 +33,7 @@ class Cooldown:
     ``(base_url, user)``).
 
     The window length may be a fixed number OR a zero-arg callable
-    (#549) — the callable form lets the duration come from a TUNABLES
+     — the callable form lets the duration come from a TUNABLES
     knob that the operator can re-tune at runtime. ``arm()`` invokes
     the callable on each call, so a Save in Admin → Config takes
     effect on the next failed-auth event without a restart. Existing
