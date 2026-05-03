@@ -1473,6 +1473,12 @@
     "state_complete": "complete",
     "state_remove": "remove",
     "state_new": "new",
+    "state_created": "created",
+    "state_paused": "paused",
+    "state_restarting": "restarting",
+    "state_removing": "removing",
+    "state_exited": "exited",
+    "state_dead": "dead",
     "state_unknown": "unknown"
   },
   "units": {

@@ -14654,9 +14654,23 @@ function app() {
       }
       if (q) {
         list = list.filter(h => {
+          // Asset-record fields layered into the haystack so a host
+          // whose display label is auto-derived from the asset
+          // inventory (operator hasn't set an explicit label) still
+          // matches when the operator types the asset's stored name /
+          // vendor / model / serial / location. Without this, a host
+          // with id="dc-rack3-r720" + asset.name="Production DB1"
+          // would only match "dc-rack3-r720" — typing "production"
+          // would find nothing.
+          const asset = this.assetForHost ? (this.assetForHost(h) || null) : null;
+          const assetFields = asset ? [
+            asset.name, asset.vendor, asset.model, asset.serial,
+            asset.location, asset.type_short, asset.type, asset.tag,
+          ] : [];
           const hay = [
             h.host, h.label, h.id, h.platform, h.os, h.kernel,
             h.beszel_name, h.pulse_name, ...(h.providers || []),
+            ...assetFields,
           ].filter(Boolean).join(' ').toLowerCase();
           return hay.includes(q);
         });
