@@ -6105,15 +6105,12 @@
                            placeholder="public">
                   </div>
                   <div>
-                    <label class="block text-[10.5px] uppercase tracking-wider text-[var(--text-faint)] mb-1">
-                      Version
-                      <span class="text-[10px] normal-case text-[var(--text-faint)] ms-1">(blank = global)</span>
-                    </label>
+                    <label class="block text-[10.5px] uppercase tracking-wider text-[var(--text-faint)] mb-1">Version</label>
                     <select :value="row.snmp && row.snmp.version || ''"
                             @change="hostsConfig[idx].snmp = Object.assign({}, hostsConfig[idx].snmp || {}, { version: $event.target.value || null }); markHostRowDirty(idx)"
                             :disabled="isReadonly() || !row.enabled"
                             class="w-full mono text-[12.5px] py-1.5">
-                      <option value="">(default)</option>
+                      <option value="" x-text="t('admin_hosts.provider.ping_transport_default')"></option>
                       <option value="v2c">v2c</option>
                       <option value="v3">v3</option>
                     </select>
