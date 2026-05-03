@@ -9317,7 +9317,7 @@ function app() {
         this.showToast(this.t(
           add ? 'admin_hosts.snmp_vendors_bulk_applied'
               : 'admin_hosts.snmp_vendors_bulk_cleared',
-          { vendor: vendor, count: touched }
+          { vendor: this.snmpVendorLabel(vendor), count: touched }
         ));
       }
     },
