@@ -11442,6 +11442,18 @@ function app() {
           const sval = String(snmpIn[k] || '').trim();
           if (sval) snmpOut[k] = sval;
         }
+        // Per-host SNMP walk_concurrency override. Server-class BMCs
+        // (Dell iDRAC, Cisco IMC, Supermicro IPMI) handle parallel
+        // queries fine and need > 1 to fit pysnmp's per-walk overhead
+        // inside the probe budget. Blank / missing → fall through to
+        // the global tunable default. Range 1..32 mirrors the
+        // backend's _clean_host_snmp validator.
+        if (snmpIn.walk_concurrency) {
+          const wc = parseInt(snmpIn.walk_concurrency, 10);
+          if (Number.isFinite(wc) && wc >= 1 && wc <= 32) {
+            snmpOut.walk_concurrency = wc;
+          }
+        }
         // host-level enable gates every per-provider enable.
         // A disabled host cannot have any provider enabled. Strip
         // each per-provider `enabled` flag here so reload comes back
