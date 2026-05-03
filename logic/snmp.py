@@ -1670,6 +1670,7 @@ async def probe_snmp(
     verbose: bool = False,
     bypass_cooldown: bool = False,
     wall_clock_budget: Optional[float] = None,
+    walk_concurrency: Optional[int] = None,
 ) -> dict:
     """Probe one SNMP-speaking host. See module docstring for the contract.
 
@@ -1902,17 +1903,26 @@ async def probe_snmp(
                 float(_tuning.tuning_int("tuning_snmp_wall_clock_budget_seconds")),
             )
         # Per-host walk concurrency cap. Default 1 (fully serialised
-        # — CLI-equivalent wire-level pattern) protects slow BMC-class
-        # agents (iDRAC9, IPMI, low-power embedded snmpd) from UDP
-        # receive-queue overflow when 60+ concurrent bulk requests
-        # arrive simultaneously. Raise to 8-16 in Admin → Config for
-        # fast snmpd's (Cisco / Synology / linux net-snmp) to recover
-        # the parallelism win — a 60-OID probe at 100ms RTT serialises
-        # to ~6s wall-clock at concurrency=1 vs ~0.5s at concurrency=16.
-        walk_concurrency = max(
-            1, int(_tuning.tuning_int("tuning_snmp_per_host_walk_concurrency"))
-        )
-        walk_sem = asyncio.Semaphore(walk_concurrency)
+        # — CLI-equivalent wire-level pattern) protects slow embedded
+        # snmpd (low-power NAS, network printers, OpenWrt-class gear)
+        # from UDP receive-queue overflow when 60+ concurrent bulk
+        # requests arrive simultaneously. Server-class BMCs (Dell
+        # iDRAC9 / iDRAC10, Cisco IMC, Supermicro IPMI) handle parallel
+        # queries fine and benefit dramatically from concurrency > 1
+        # because pysnmp v7's per-walk setup cost compounds 67× at
+        # concurrency=1 even when the agent itself is fast on the wire.
+        # Per-call ``walk_concurrency`` override (passed from
+        # ``_merge_one_host`` / ``api_hosts_debug`` / ``/api/snmp/test``
+        # via the host's ``snmp.walk_concurrency`` config) wins over
+        # the global tunable so a Dell iDRAC can run at 4-8 without
+        # affecting a flaky printer's safety floor at 1.
+        if walk_concurrency is not None:
+            walk_concurrency_resolved = max(1, int(walk_concurrency))
+        else:
+            walk_concurrency_resolved = max(
+                1, int(_tuning.tuning_int("tuning_snmp_per_host_walk_concurrency"))
+            )
+        walk_sem = asyncio.Semaphore(walk_concurrency_resolved)
 
         async def _bounded(coro):
             # When an outer ``asyncio.wait_for`` cancels the gather,
