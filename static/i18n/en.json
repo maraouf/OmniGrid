@@ -1892,7 +1892,7 @@
     "probing": "Probing providers…",
     "active_providers": "Active providers:",
     "none": "none",
-    "refresh": "⟳ Refresh",
+    "refresh": "Refresh",
     "refresh_title": "Re-run probes",
     "copy_title": "Copy to clipboard",
     "copy_aria": "Copy {label} to clipboard",
