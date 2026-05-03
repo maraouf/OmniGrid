@@ -1826,16 +1826,24 @@
               <div class="host-mobile-card-title">
                 <div class="flex items-center gap-1.5 min-w-0">
                   <span class="label" x-text="hostTypePrefix(h) + hostDisplayName(h)"></span>
-                  <!-- Permanent-fail + stale badges — same priority
-                       order as the desktop table. Paused
-                       is more severe (red) so it wins; stale falls
-                       through with amber when not paused. -->
+                  <!-- Permanent-fail + probe-timeout + stale badges
+                       — priority order matches the desktop table:
+                       paused (red) > probe_timeout (amber, transient
+                       60s back-off) > stale (amber, snapshot
+                       fallback). Each gate excludes the higher-
+                       priority states so only one badge ever
+                       renders at a time. -->
                   <svg x-show="h.sampling_paused"
                        width="13" height="13"
                        class="text-[var(--danger)] flex-shrink-0"
                        :title="t('hosts_extra.permanent_fail.badge_title', { minutes: hostFailureMinutes(h) })"
                        aria-hidden="true"><use href="/img/ui-sprite.svg#icon-alert-triangle"/></svg>
-                  <svg x-show="!h.sampling_paused && isStale(h)"
+                  <svg x-show="!h.sampling_paused && h._probe_timeout"
+                       width="12" height="12"
+                       class="text-[var(--warning)] flex-shrink-0"
+                       :title="t('hosts_extra.probe_timeout.badge_title')"
+                       aria-hidden="true"><use href="/img/ui-sprite.svg#icon-clock"/></svg>
+                  <svg x-show="!h.sampling_paused && !h._probe_timeout && isStale(h)"
                        width="12" height="12"
                        class="text-[var(--warning)] flex-shrink-0"
                        :title="t('hosts_extra.stale_marker.badge_title', { age: staleAge(h) })"
@@ -2046,6 +2054,20 @@
                          class="text-[var(--danger)] flex-shrink-0"
                          :title="t('hosts_extra.permanent_fail.badge_title', { minutes: hostFailureMinutes(h) })"
                          aria-hidden="true"><use href="/img/ui-sprite.svg#icon-alert-triangle"/></svg>
+                    <!-- Probe-timeout badge — fires when the SPA's
+                         per-host /api/hosts/one/{id} call returned
+                         HTTP 504 (per-host probe budget exceeded).
+                         Transient: cleared automatically after the
+                         60s back-off window when the next refresh
+                         lands. Sits between paused (danger) and
+                         stale (warning) in priority, with its own
+                         hourglass glyph so the operator sees a
+                         distinct "actively timing out" signal. -->
+                    <svg x-show="!h.sampling_paused && h._probe_timeout"
+                         width="13" height="13"
+                         class="text-[var(--warning)] flex-shrink-0"
+                         :title="t('hosts_extra.probe_timeout.badge_title')"
+                         aria-hidden="true"><use href="/img/ui-sprite.svg#icon-clock"/></svg>
                     <!-- Stale-data badge. Fires when one or
                          more provider went down and the row is
                          showing values restored from the persisted
@@ -2054,7 +2076,7 @@
                          (paused = --danger red) — so a host that's
                          BOTH paused and stale leads with the more
                          severe state. -->
-                    <svg x-show="!h.sampling_paused && isStale(h)"
+                    <svg x-show="!h.sampling_paused && !h._probe_timeout && isStale(h)"
                          width="13" height="13"
                          class="text-[var(--warning)] flex-shrink-0"
                          :title="t('hosts_extra.stale_marker.badge_title', { age: staleAge(h) })"
@@ -12786,8 +12808,9 @@
   <div x-show="commandPaletteOpen" class="fixed inset-0 z-50 fade-in"
        role="dialog" aria-modal="true" :aria-label="t('command_palette.dialog_label')">
     <div @click="closeCommandPalette()" class="absolute inset-0 backdrop-strong"></div>
-    <div class="relative flex items-start justify-center p-4 pt-[8vh] h-full">
-      <div class="bg-[var(--surface)] border border-[var(--border)] rounded-md w-full max-w-2xl max-h-[80vh] flex flex-col overflow-hidden shadow-xl"
+    <div class="relative flex items-start justify-center p-4 h-full overflow-auto scrollbar">
+      <div id="cmdpal-card"
+           class="bg-[var(--surface)] border border-[var(--border)] rounded-md max-w-2xl w-full max-h-[80vh] mt-[8vh] flex flex-col overflow-hidden shadow-xl"
            @click.stop>
         <div class="flex items-center gap-2 p-3 border-b border-[var(--border)]">
           <svg width="16" height="16" class="text-[var(--text-faint)]" aria-hidden="true"><use href="#icon-search"/></svg>

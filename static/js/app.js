@@ -7696,7 +7696,6 @@ function app() {
           const data = JSON.parse(e.data || '{}');
           const id = (data.payload && data.payload.host_id) || '';
           if (!id) return;
-          console.log('[live] event=host:ping_sampled id=' + id);
           this._hostObserverPending = this._hostObserverPending || new Set();
           this._hostObserverPending.add(id);
           if (typeof this._scheduleHostObserverFlush === 'function') {
@@ -9811,9 +9810,10 @@ function app() {
             { keys: ['3'],       label: _t('hotkeys.items.view_nodes'),     run: () => this.view = 'nodes' },
             { keys: ['4'],       label: _t('hotkeys.items.view_hosts'),     run: () => this.view = 'hosts' },
             { keys: ['5'],       label: _t('hotkeys.items.view_history'),   run: () => this.view = 'history' },
-            { keys: ['?'],       label: _t('hotkeys.items.show_help'),      run: () => this.showHotkeys = true },
-            { keys: ['n'],       label: _t('hotkeys.items.notifications'),  run: () => this.openNotificationsPopup() },
-            { keys: ['Esc'],     label: _t('hotkeys.items.close_clear'),    run: null, note: _t('hotkeys.items.close_clear_note') },
+            { keys: ['?'],       label: _t('hotkeys.items.show_help'),       run: () => this.showHotkeys = true },
+            { keys: ['n'],       label: _t('hotkeys.items.notifications'),   run: () => this.openNotificationsPopup() },
+            { keys: ['Cmd/Ctrl', 'K'], label: _t('hotkeys.items.command_palette'), run: () => this.openCommandPalette() },
+            { keys: ['Esc'],     label: _t('hotkeys.items.close_clear'),     run: null, note: _t('hotkeys.items.close_clear_note') },
           ],
         },
         {
@@ -9882,8 +9882,29 @@ function app() {
       // inside any input field too (the only modifier combo we claim
       // — operators expect Cmd-K to work mid-typing in a search box,
       // matching Linear / Notion / Raycast convention).
-      if ((e.metaKey || e.ctrlKey) && !e.altKey && !e.shiftKey
-          && (e.key === 'k' || e.key === 'K')) {
+      //
+      // Browser-conflict caveat: Chrome / Edge on Windows + Linux
+      // capture `Ctrl+K` for the omnibox search shortcut (GitHub,
+      // Linear, Slack all hit the same wall). preventDefault() doesn't
+      // beat the omnibox on those browsers, so we ALSO bind Ctrl+/
+      // (matches GitHub's "command palette" combo) and Ctrl+P (matches
+      // Notion / Slack "quick search") as fallbacks. Operator picks
+      // whichever the OS doesn't steal. Mac stays on Cmd+K (no
+      // conflict; Cmd+L is the address-bar shortcut there).
+      // Detect via e.code (KeyK / Slash / KeyP) so non-US layouts
+      // also match — e.key respects layout, e.code is positional.
+      const cmdMod = (e.metaKey || e.ctrlKey) && !e.altKey && !e.shiftKey;
+      const isPaletteCombo = cmdMod && (
+        // Cmd+K / Ctrl+K — primary on Mac, often captured by omnibox
+        // on Windows Chrome / Edge for address-bar search.
+        (e.key === 'k' || e.key === 'K' || e.code === 'KeyK') ||
+        // Ctrl+/ — GitHub's "command palette" shortcut. Universal —
+        // browsers don't claim this combo so it works everywhere
+        // Ctrl+K doesn't. Also catches non-US keyboard layouts where
+        // / is on a different key (we check `e.code === 'Slash'` too).
+        (e.key === '/' || e.code === 'Slash')
+      );
+      if (isPaletteCombo) {
         e.preventDefault();
         if (this.commandPaletteOpen) this.closeCommandPalette();
         else this.openCommandPalette();
@@ -14205,27 +14226,52 @@ function app() {
     // hosts array. Preserves _seq and _loading handling so the UI
     // can distinguish "not yet loaded" from "probed but empty".
     async refreshHostRow(id, opts = {}) {
-      // ``opts.force`` propagates to ``/api/hosts/one/{id}?force=true``
-      // (ENH-003). Used after a Save in Admin → Hosts / Host stats so a
+      // ``opts.force`` propagates to ``/api/hosts/one/{id}?force=true``.
+      // Used after a Save in Admin → Hosts / Host stats so a
       // re-opened drawer sees fresh provider data without waiting out
       // the 10s provider-state cache. Default false keeps the polling
       // path cheap.
+      //
+      // 504 back-off — if /api/hosts/one returned 504 in the last
+      // ``_hostRow504BackoffMs`` window for this host, skip the call
+      // entirely. Stops the console-error spam loop where the SNMP
+      // probe budget is exceeded for a slow host (iDRAC / large
+      // switch) and the SPA's IntersectionObserver / drawer poll
+      // hammers the same endpoint every 30s. Operator-initiated
+      // calls (force=true) bypass the back-off so a refresh button
+      // always tries.
+      this._hostRow504BackoffMs = this._hostRow504BackoffMs || 60_000;
+      this._hostRow504Until = this._hostRow504Until || {};
+      const now = Date.now();
+      if (!opts.force && this._hostRow504Until[id] && this._hostRow504Until[id] > now) {
+        return;
+      }
       try {
         const url = '/api/hosts/one/' + encodeURIComponent(id)
                   + (opts && opts.force ? '?force=true' : '');
         const r = await fetch(url);
         if (!r.ok) {
-          // Mark the row as probed but errored so the operator can
-          // spot it. MUTATE in place (not splice) so Alpine doesn't
-          // tear down + re-mount the row — that's what causes the
-          // chart-flicker across 15s polling cycles.
+          // Per-host back-off on 504 specifically — the upstream probe
+          // budget was exceeded (slow SNMP, big OID set). Mark the
+          // host with `_probe_timeout: true` so the row UI can render
+          // a "probe slow" badge instead of the generic unknown
+          // status. 5xx is treated the same way; 4xx clears the
+          // back-off (genuine config error, not a transient slowness).
+          if (r.status === 504 || r.status === 502 || r.status === 503) {
+            this._hostRow504Until[id] = now + this._hostRow504BackoffMs;
+          }
           const row = this.hosts.find(h => h.id === id);
           if (row) {
             row._loading = false;
+            row._probe_timeout = (r.status === 504);
+            row._probe_error = `HTTP ${r.status}`;
             row.status = 'unknown';
           }
           return;
         }
+        // Successful probe — clear any back-off marker so the next
+        // tick polls normally.
+        delete this._hostRow504Until[id];
         const { host } = await r.json();
         if (!host) return;
         const row = this.hosts.find(h => h.id === id);
@@ -14258,6 +14304,8 @@ function app() {
           }
         }
         row._loading = false;
+        row._probe_timeout = false;
+        row._probe_error = null;
       } catch (_) {
         // Network failure — leave the row in skeleton state so the
         // next loadHosts cycle retries. Silent (no toast): on a big
@@ -14969,7 +15017,17 @@ function app() {
           ].filter(v => v !== null && v !== undefined && v !== '')
            .join(' ')
            .toLowerCase();
-          return hay.includes(q);
+          // Multi-word AND search — every whitespace-separated token
+          // must appear somewhere in the haystack, in any order. Pre-
+          // fix the query was treated as one substring, so typing
+          // "cisco switch" missed a host with asset.name="Cisco SG300
+          // 52-Port Gigabit PoE Managed Switch" because the literal
+          // "cisco switch" doesn't appear continuously. Splitting on
+          // whitespace and requiring every token to hit lets the
+          // operator type any combination of words from the host's
+          // various fields and find it.
+          const tokens = q.split(/\s+/).filter(Boolean);
+          return tokens.every(t => hay.includes(t));
         });
       }
 
