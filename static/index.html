@@ -5650,7 +5650,7 @@
                   class="bg-[var(--surface-2)] border border-[var(--border)] rounded px-1.5 py-0.5">
             <option value="" x-text="t('admin_hosts.snmp_vendors_bulk_pick')"></option>
             <template x-for="vendor in snmpVendorKeys()" :key="'bulk_' + vendor">
-              <option :value="vendor" x-text="vendor"></option>
+              <option :value="vendor" x-text="snmpVendorLabel(vendor)"></option>
             </template>
           </select>
           <button type="button"
