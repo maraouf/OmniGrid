@@ -4616,6 +4616,18 @@ async def _merge_one_host(h: dict, state: dict, *, force: bool = False) -> tuple
                         snmp_wcb = float(snmp_wcb) if snmp_wcb else None
                     except (TypeError, ValueError):
                         snmp_wcb = None
+                    # Per-host mount-exclusion list. SNMP agents can
+                    # mis-classify pseudo-filesystems as fixed disks
+                    # (dd-wrt's `/opt` shows up as a 232 GB
+                    # hrStorageFixedDisk on a 16 MB router); the
+                    # operator opts those paths out by listing them
+                    # here. `_DEFAULT_EXCLUDE_MOUNT_PREFIXES` in
+                    # logic/snmp.py covers the universal pseudo-fs
+                    # paths automatically; this list adds anything
+                    # device-specific.
+                    snmp_excludes = row_snmp.get("exclude_mounts") or []
+                    if not isinstance(snmp_excludes, list):
+                        snmp_excludes = []
                     try:
                         result = await _snmp.probe_snmp(
                             snmp_target,
@@ -4630,6 +4642,7 @@ async def _merge_one_host(h: dict, state: dict, *, force: bool = False) -> tuple
                             walk_concurrency=snmp_walk_conc,
                             vendors=snmp_vendors,
                             wall_clock_budget=snmp_wcb,
+                            exclude_mounts=snmp_excludes,
                         )
                     except Exception as e:  # noqa: BLE001
                         result = {"hosts": {}, "error": f"snmp probe failed: {e}"}
@@ -6088,6 +6101,24 @@ def _clean_host_snmp(raw: Any) -> dict:
     cleaned = _clean_vendors_input(raw.get("vendors"))
     if cleaned:
         out["vendors"] = sorted(cleaned)
+    # Per-host mount-exclusion list. Operator-supplied mount paths
+    # to drop from the SNMP storage extractor's output (in addition
+    # to the universal pseudo-fs prefixes in
+    # ``logic.snmp._DEFAULT_EXCLUDE_MOUNT_PREFIXES``). Each entry
+    # is matched as either an EXACT path or a prefix-with-slash
+    # (e.g. ``"/opt"`` matches both bare ``/opt`` AND ``/opt/foo``).
+    # Validates as a list of non-empty strings; non-strings dropped
+    # silently; max 32 entries to keep the per-row blob bounded.
+    raw_excl = raw.get("exclude_mounts")
+    if isinstance(raw_excl, list):
+        cleaned_excl = []
+        for item in raw_excl[:32]:
+            if isinstance(item, str):
+                s = item.strip()
+                if s:
+                    cleaned_excl.append(s)
+        if cleaned_excl:
+            out["exclude_mounts"] = cleaned_excl
     return out
 
 

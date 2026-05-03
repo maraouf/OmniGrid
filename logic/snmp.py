@@ -412,6 +412,26 @@ _OID_HR_TYPE_VIRT_MEM   = "1.3.6.1.2.1.25.2.1.3"  # hrStorageVirtualMemory
 _OID_HR_TYPE_FIXED_DISK = "1.3.6.1.2.1.25.2.1.4"  # hrStorageFixedDisk
 _OID_HR_TYPE_REMOVABLE  = "1.3.6.1.2.1.25.2.1.5"  # hrStorageRemovableDisk
 
+# Mount-path prefixes ALWAYS filtered from hrStorageFixedDisk reports.
+# These are OS pseudo-filesystems (devfs, procfs, sysfs, tmpfs slots)
+# that some SNMP agents mis-classify as fixed disks — they shouldn't
+# count toward host_disk_total even when the agent claims they're real.
+# DD-WRT in particular emits `/opt` as hrStorageFixedDisk with a
+# 232 GB phantom size on a 16 MB router; node_exporter has the same
+# `_EXCLUDED_MOUNT_PREFIXES` family for the same reason. Operators
+# can ADD per-host paths via `hosts_config[].snmp.exclude_mounts`
+# (e.g. `["/opt"]` for the dd-wrt phantom case) but the defaults
+# below apply globally because they're never genuine fixed disks.
+_DEFAULT_EXCLUDE_MOUNT_PREFIXES = (
+    "/dev",       # devfs
+    "/proc",      # procfs
+    "/sys",       # sysfs
+    "/run",       # tmpfs (systemd runtime dir)
+    "/var/run",   # tmpfs (legacy alias)
+    "/var/lock",  # tmpfs (legacy alias)
+    "/dev/shm",   # tmpfs (POSIX shared memory)
+)
+
 # Interface descriptions to skip when computing host-wide rx/tx totals.
 _LOOPBACK_PREFIXES = ("lo", "loopback", "null", "vlan-internal", "docker", "veth")
 
@@ -1441,6 +1461,7 @@ def extract_cpu_percent(walk_result: dict) -> dict:
 def extract_storage(
     type_walk: dict, desc_walk: dict, unit_walk: dict,
     size_walk: dict, used_walk: dict,
+    exclude_mounts: list[str] | None = None,
 ) -> dict:
     """Shape hrStorage rows into host_mem_* + host_disk_* + mounts.
 
@@ -1451,6 +1472,14 @@ def extract_storage(
         host_mem_used.
       - per fixed-disk row, build a `mounts[]` entry with {n, d, du,
         dp} matching the schema other providers emit.
+
+    Excluded mounts (default `_DEFAULT_EXCLUDE_MOUNT_PREFIXES` for OS
+    pseudo-filesystems + the operator's per-host `exclude_mounts`
+    list) are skipped entirely — they don't contribute to
+    `host_disk_total`, `host_disk_used`, or the `mounts[]` array.
+    `exclude_mounts` entries match by EXACT path OR prefix-with-slash
+    (e.g. `/opt` matches both bare `/opt` and `/opt/something`) so
+    the operator can shut down a phantom subtree with one entry.
     """
     if not size_walk:
         return {}
@@ -1461,6 +1490,21 @@ def extract_storage(
     disk_total = 0
     disk_used = 0
     gib = 1024 ** 3
+    # Build the effective exclusion list once. Defaults are PREFIXES
+    # (any mount whose path starts with one of these gets filtered);
+    # operator entries are EXACT or prefix-with-slash matches against
+    # the desc field (which is the mountpoint path).
+    op_excludes = tuple(s.strip() for s in (exclude_mounts or []) if isinstance(s, str) and s.strip())
+    def _excluded(desc: str) -> bool:
+        if not desc:
+            return False
+        for pref in _DEFAULT_EXCLUDE_MOUNT_PREFIXES:
+            if desc == pref or desc.startswith(pref + "/"):
+                return True
+        for op in op_excludes:
+            if desc == op or desc.startswith(op + "/"):
+                return True
+        return False
 
     # Re-key each walk by the index suffix so we can join across them.
     def by_idx(walk: dict, base: str) -> dict[str, object]:
@@ -1495,6 +1539,13 @@ def extract_storage(
             mem_total += total_bytes
             mem_used += used_bytes
         elif type_oid in (_OID_HR_TYPE_FIXED_DISK, _OID_HR_TYPE_REMOVABLE):
+            # Drop pseudo-filesystem rows AND operator-excluded paths
+            # before they pollute the totals. dd-wrt's phantom
+            # `/opt` 232 GB is the canonical example — operator adds
+            # `/opt` to the per-host exclude_mounts and the bogus
+            # mount stops contributing to host_disk_*.
+            if _excluded(desc):
+                continue
             disk_total += total_bytes
             disk_used += used_bytes
             pct = (used_bytes / total_bytes * 100) if total_bytes > 0 else 0.0
@@ -1611,6 +1662,7 @@ def extract_stats(
     active_sources: Optional[set[str]] = None,
     entity_walks: Optional[dict] = None,
     vendor_walks: Optional[dict] = None,
+    exclude_mounts: Optional[list[str]] = None,
 ) -> dict:
     """Compose every per-section extractor into one host_* dict.
 
@@ -1627,6 +1679,13 @@ def extract_stats(
     (``descr`` / ``name`` / ``serial`` / ``model`` / ``firmware``) for
     devices that don't expose Host Resources MIB but DO carry vendor
     identification under entPhysicalEntry.
+
+    ``exclude_mounts`` — operator-supplied list of mount paths to
+    drop from the storage extractor's `mounts[]` AND from the
+    `host_disk_*` totals (in addition to `_DEFAULT_EXCLUDE_MOUNT_PREFIXES`
+    which always apply). Per-host knob via `hosts_config[].snmp.exclude_mounts`
+    lets the operator quash phantom rows the agent mis-reports as
+    fixed disks (dd-wrt's `/opt` 232 GB is the canonical case).
     """
     stats: dict = {}
     stats.update(extract_sys_info(sys_get))
@@ -1637,6 +1696,7 @@ def extract_stats(
         storage_walks.get("unit") or {},
         storage_walks.get("size") or {},
         storage_walks.get("used") or {},
+        exclude_mounts=exclude_mounts,
     ))
     stats.update(extract_interfaces(
         iface_walks.get("descr") or {},
@@ -1817,6 +1877,7 @@ async def probe_snmp(
     wall_clock_budget: Optional[float] = None,
     walk_concurrency: Optional[int] = None,
     vendors: Optional[set[str]] = None,
+    exclude_mounts: Optional[list[str]] = None,
 ) -> dict:
     """Probe one SNMP-speaking host. See module docstring for the contract.
 
@@ -2543,6 +2604,7 @@ async def probe_snmp(
             "dell_bios_version": dell_bios_version_walk,
             "dell_bios_date":    dell_bios_date_walk,
         },
+        exclude_mounts=exclude_mounts,
     )
 
     host_key = stats.get("host_hostname") or host_clean

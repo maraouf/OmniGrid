@@ -1398,6 +1398,27 @@ function app() {
         document.title = this.t('app.name');
       });
       window.addEventListener('keydown', (e) => this.handleHotkey(e));
+      // Capture-phase pre-empt for Cmd-K / Ctrl-K / Ctrl-/ — runs
+      // BEFORE browser UI shortcuts (Chrome's omnibox-search Ctrl+K)
+      // AND before the bubble-phase handleHotkey above. Without this,
+      // some browsers consume the keystroke or focus the address bar
+      // before the page-level handler ever sees the event. Capture
+      // phase is the only reliable way to claim a hotkey that
+      // collides with a browser default. Stops at handleHotkey if
+      // matched so the bubble-phase handler doesn't try to fire it
+      // a second time. All other keys fall through untouched.
+      window.addEventListener('keydown', (e) => {
+        const cmdMod = (e.metaKey || e.ctrlKey) && !e.altKey && !e.shiftKey;
+        const isPaletteCombo = cmdMod && (
+          e.key === 'k' || e.key === 'K' || e.code === 'KeyK' ||
+          e.key === '/' || e.code === 'Slash'
+        );
+        if (!isPaletteCombo) return;
+        e.preventDefault();
+        e.stopPropagation();
+        if (this.commandPaletteOpen) this.closeCommandPalette();
+        else this.openCommandPalette();
+      }, { capture: true });
       // Click-outside listener for the chart `?` tap-driven tooltip
       //. The trigger spans + tooltip body each call
       // `@click.stop` so they're EXCLUDED from this handler — taps
@@ -10357,6 +10378,19 @@ function app() {
           // version / port / v3 keys for THIS host.
           if (!row.snmp || typeof row.snmp !== 'object') row.snmp = {};
           if (typeof row.snmp_name !== 'string') row.snmp_name = '';
+          // Hydrate the per-host mount-exclusion textarea from the
+          // persisted `snmp.exclude_mounts` array. The editor binds
+          // a virtual `exclude_mounts_text` field (one path per
+          // line, easier to type than maintaining a list); save-
+          // side splits + dedupes back into the array shape the
+          // backend stores. Keeps the underlying array around so
+          // a load-without-edit save round-trips cleanly.
+          if (Array.isArray(row.snmp.exclude_mounts) && !row.snmp.exclude_mounts_text) {
+            row.snmp.exclude_mounts_text = row.snmp.exclude_mounts.join('\n');
+          }
+          if (typeof row.snmp.exclude_mounts_text !== 'string') {
+            row.snmp.exclude_mounts_text = '';
+          }
           // Stamp a stable per-row uid the first time we see this
           // row. Used as the x-for :key so DOM elements never tear
           // down + re-mount mid-typing (which loses input focus and
@@ -12224,6 +12258,28 @@ function app() {
               .filter(v => validSet.has(v))
           )).sort();
           if (cleanVendors.length) snmpOut.vendors = cleanVendors;
+        }
+        // Per-host mount-exclusion list. Operator-supplied paths to
+        // drop from the SNMP storage extractor output — covers
+        // device-specific phantoms (dd-wrt's `/opt` reporting
+        // 232 GB on a 16 MB router) on top of the universal
+        // pseudo-fs prefixes that the backend filters by default.
+        // Editor renders one entry per line in a textarea; we
+        // split + trim + dedupe + cap at 32 entries here.
+        if (typeof snmpIn.exclude_mounts_text === 'string') {
+          const lines = snmpIn.exclude_mounts_text
+            .split(/\r?\n|,/)
+            .map(s => s.trim())
+            .filter(s => s.length > 0);
+          const cleanExcl = Array.from(new Set(lines)).slice(0, 32);
+          if (cleanExcl.length) snmpOut.exclude_mounts = cleanExcl;
+        } else if (Array.isArray(snmpIn.exclude_mounts)) {
+          const cleanExcl = Array.from(new Set(
+            snmpIn.exclude_mounts
+              .map(s => String(s || '').trim())
+              .filter(s => s.length > 0)
+          )).slice(0, 32);
+          if (cleanExcl.length) snmpOut.exclude_mounts = cleanExcl;
         }
         // host-level enable gates every per-provider enable.
         // A disabled host cannot have any provider enabled. Strip
@@ -14624,29 +14680,56 @@ function app() {
     // the bars on the host rows (desktop + mobile) and the per-card
     // CPU/Mem/Disk/Net/DiskIO charts in the drawer.
     //
-    // SNMP counts as telemetry only when the agent actually reports
-    // host-resource data (CPU% via UCD or hrProcessorLoad, Memory
-    // total via hrStorageRam). Chassis BMCs like Dell iDRAC / Cisco
-    // IMC / Supermicro IPMI expose SNMP for hardware sensors (fans,
-    // temps, PSU, RAID, BIOS) but NOT host CPU / Memory / Disk —
-    // their `vendor_ucd_mem_cpu` walk is empty. Gating SNMP on
-    // `(h.mem_total > 0 || h.cpu_percent > 0)` keeps the stat-bars
-    // + sparklines lit for OS-class SNMP agents (DD-WRT, OpenWrt,
-    // Linux UCD, Synology) and hidden for chassis BMCs where CPU /
-    // Mem rendering as 0% would mislead the operator into thinking
-    // the host is idle when really the agent doesn't expose those
-    // metrics at all. Beszel / Pulse / NE / Webmin always count
-    // because they're host-OS agents that always cover CPU / Mem.
-    hostHasTelemetry(h) {
+    // Per-metric telemetry gates. Each axis (CPU / Memory / Disk)
+    // is gated INDEPENDENTLY so a host that only reports one axis
+    // (Cisco SG300 switch via SNMP exposes CPU but no mem/disk;
+    // chassis BMCs like Dell iDRAC expose neither but DO surface
+    // chart data via SNMP samples; printer SNMP agents may expose
+    // only memory) shows just the bars it can fill instead of
+    // hiding all three. `hostHasInlineSpark` also pulls from the
+    // history map, so a metric whose live value is 0 but whose
+    // recorded series is non-flat still shows up. Beszel / Pulse /
+    // NE / Webmin always count for all three because they're host-
+    // OS agents that emit CPU + Mem + Disk uniformly.
+    _hostUnixAgent(h) {
+      return !!(h && (h.beszel_name || h.pulse_name || h.ne_url || h.webmin_name));
+    },
+    hostHasCpuMetric(h) {
       if (!h) return false;
-      if (h.beszel_name || h.pulse_name || h.ne_url || h.webmin_name) return true;
+      if (this._hostUnixAgent(h)) return true;
       if (h.snmp_name && h.snmp_enabled === true) {
         const cpu = +h.cpu_percent || 0;
-        const memTot = +h.mem_total || 0;
-        const memPct = +h.mem_percent || 0;
-        return cpu > 0 || memTot > 0 || memPct > 0;
+        return cpu > 0 || this.hostHasInlineSpark(h, 'cpu');
       }
       return false;
+    },
+    hostHasMemMetric(h) {
+      if (!h) return false;
+      if (this._hostUnixAgent(h)) return true;
+      if (h.snmp_name && h.snmp_enabled === true) {
+        const memTot = +h.mem_total || 0;
+        const memPct = +h.mem_percent || 0;
+        return memTot > 0 || memPct > 0 || this.hostHasInlineSpark(h, 'memory');
+      }
+      return false;
+    },
+    hostHasDiskMetric(h) {
+      if (!h) return false;
+      if (this._hostUnixAgent(h)) return true;
+      if (h.snmp_name && h.snmp_enabled === true) {
+        const diskTot = +h.disk_total || 0;
+        const diskPct = +h.disk_percent || 0;
+        return diskTot > 0 || diskPct > 0 || this.hostHasInlineSpark(h, 'disk');
+      }
+      return false;
+    },
+    // Outer container gate: ANY of the three axes has data. Used
+    // by the bars-grid wrapper to mount/unmount the whole block;
+    // each individual bar inside ALSO gates on its own axis so
+    // a CPU-only host doesn't render empty Mem + Disk bars.
+    hostHasTelemetry(h) {
+      if (!h) return false;
+      return this.hostHasCpuMetric(h) || this.hostHasMemMetric(h) || this.hostHasDiskMetric(h);
     },
     // Display list of agents enabled on a host — used by the drawer's
     // dedicated "Enabled agents" card. Returns rich objects so the
@@ -17890,6 +17973,17 @@ function app() {
     // Prefers the provider-supplied `dp` (percent full) when present;
     // falls back to computing from GiB floats (.du / .d) so mounts
     // missing a pre-computed percent still render correctly.
+    // Threshold tier for a single mount's fill — drives the segmented
+    // disk bar's per-segment colour. Mirrors `barLevel(pct)` so a
+    // full mount in a multi-mount host visually screams the same way
+    // a single-mount bar would. Empty / unknown returns 'ok' (green)
+    // so the bar reads as healthy at rest.
+    mountFillLevel(m) {
+      const pct = this.mountFillPercent(m);
+      if (pct > this._statBarCritPct()) return 'crit';
+      if (pct > this._statBarWarnPct()) return 'warn';
+      return 'ok';
+    },
     mountFillPercent(m) {
       if (!m) return 0;
       const dp = Number(m.dp);
