@@ -2,11 +2,14 @@
 
 The real `.env` lives at the repo root and IS tracked in git. The repo is private (self-hosted
 Git), so operational secrets live alongside code rather than in a server-only file. CI ships
-`.env` via rsync to `/opt/omnigrid/app/.env`; the bind mount `/opt/omnigrid/app:/app:ro` makes
-it visible inside the container at `/app/.env`, where `main.py`'s first lines load it via
-`python-dotenv` before any `os.getenv()` runs. `docker-compose.yml` deliberately does NOT use
-Compose's `env_file:` key — the app reads its own config file so Portainer's web-editor stacks
-don't have to resolve a host-side path.
+`.env` via rsync to `/opt/omnigrid/app/.env` on the Swarm manager. Under the image-build deploy
+(see `docs/guidelines/deploy.md`) the file is delivered to the running container via a per-file
+bind mount declared in `docker-compose.yml` (`/opt/omnigrid/app/.env:/app/.env:ro`), so secrets
+stay on the host filesystem (NOT baked into the image — `.dockerignore` excludes `.env` from the
+build context). Inside the container `main.py`'s first lines load `/app/.env` via `python-dotenv`
+before any `os.getenv()` runs. `docker-compose.yml` deliberately does NOT use Compose's
+`env_file:` key — the app reads its own config file so Portainer's web-editor stacks don't have
+to resolve a host-side path.
 
 This file is a curated reference for every key OmniGrid reads, with docs inline. When adding a
 new env var to `main.py` or the `logic/` modules, add it here too so operators and future-you
@@ -75,6 +78,23 @@ REGISTRY_CONCURRENCY=8
 # Parallel /stats calls.
 STATS_CONCURRENCY=16
 
+# Per-container stats fetch timeouts. `_one_container_stats` makes up
+# to two HTTP calls per running container per gather: first with
+# `X-PortainerAgent-Target=<host>` (default 12s — the bumped figure
+# lets Portainer's agent forwarding reach busy worker nodes) and a
+# fallback without the header (default 10s — manager-local containers
+# only). Operator-tunable so a flaky / slow Portainer setup can be
+# loosened without a redeploy.
+STATS_TARGETED_TIMEOUT_SECONDS=12
+STATS_UNTARGETED_TIMEOUT_SECONDS=10
+
+# Swarm-agent unhealthy-banner threshold. After N consecutive gather
+# cycles where a Swarm node had ≥1 running task cid but ZERO
+# successful stats calls, the SPA flags the agent as unhealthy via
+# the banner above the Stacks / Services / Nodes views. Default 3 —
+# covers transient hub blips without spamming the banner. Range 1..20.
+SWARM_AGENT_UNHEALTHY_THRESHOLD=3
+
 # Retention window for every time-series table (stats_samples,
 # host_net_samples, host_metrics_samples). Pruned hourly by each
 # lifespan sampler against the same window.
@@ -127,10 +147,24 @@ PING_CONCURRENCY=16
 PING_PROBE_TIMEOUT_SECONDS=2
 PING_COOLDOWN_SECONDS=300
 
-# SNMP host-stats provider knobs. Same shape as PING — UDP retransmits
-# live under the timeout budget.
+# SNMP host-stats provider knobs. `SNMP_PROBE_TIMEOUT_SECONDS` is the
+# per-OID UDP timeout (fast-fail on truly dead hosts);
+# `SNMP_WALL_CLOCK_BUDGET_SECONDS` is the total budget for ONE probe
+# against ONE host (the probe fans out ~60 OID operations across sys /
+# HR / IF / ENTITY + vendor-private MIBs, and slow embedded snmpd needs
+# more than the per-OID timeout × N round-trips). Default 60s wall-clock
+# is plenty for even slow embedded devices while still bounding gather
+# fan-out. Range 5..600s.
 SNMP_PROBE_TIMEOUT_SECONDS=5
+SNMP_WALL_CLOCK_BUDGET_SECONDS=60
 SNMP_CONCURRENCY=16
+# Per-host walk concurrency — caps how many `_snmp_get` / `_snmp_walk`
+# operations fan out against ONE host inside `probe_snmp`. Default 1
+# (fully serialised, CLI-equivalent) chosen for safety: slow BMC-class
+# agents (iDRAC9, IPMI, low-power embedded snmpd) drop packets when 60+
+# concurrent bulk requests arrive simultaneously. Operators with fast
+# snmpd's (cisco / synology / linux net-snmp) can raise to 8-16. Range 1..16.
+SNMP_PER_HOST_WALK_CONCURRENCY=1
 # SNMP-specific sample interval. 0 (default) = use the global
 # STATS_SAMPLE_INTERVAL_SECONDS for SNMP probes too. >0 = SNMP probes
 # run on their own cadence (range 30..3600). Useful for keeping
@@ -330,6 +364,9 @@ Quick index of every env var OmniGrid reads, grouped by scope:
 | `STATS_CONCURRENCY`               | Runtime     | `16`                 | Parallel `/stats` calls.                                                        |
 | `STATS_HISTORY_DAYS`              | Runtime     | `7`                  | Retention window for `stats_samples`.                                           |
 | `STATS_SAMPLE_INTERVAL_SECONDS`   | Runtime     | `300`                | Sampler cadence.                                                                |
+| `STATS_TARGETED_TIMEOUT_SECONDS`  | Runtime     | `12`                 | Per-container `/stats` timeout WITH `X-PortainerAgent-Target`. Range 1..60.     |
+| `STATS_UNTARGETED_TIMEOUT_SECONDS`| Runtime     | `10`                 | Per-container `/stats` timeout for the manager-local fallback path. Range 1..60. |
+| `SWARM_AGENT_UNHEALTHY_THRESHOLD` | Runtime     | `3`                  | Consecutive failed gather cycles before the unhealthy banner fires. Range 1..20. |
 | `HOST_PERMANENT_FAIL_WINDOW_SECONDS` | Runtime  | `900`                | host_metrics_sampler auto-pause window.                                          |
 | `OPS_POLL_INTERVAL_SECONDS`       | Runtime     | `2`                  | SPA's /api/ops poll cadence in seconds; multiplied × 1000 before delivery via `client_config.ops_poll_ms`. Renamed from the legacy `OPS_POLL_INTERVAL_MS` for operator-friendly admin UI. |
 | `LOG_RETENTION_DAYS`              | Runtime     | `7`                  | Persistent-log retention.                                                        |
@@ -340,8 +377,10 @@ Quick index of every env var OmniGrid reads, grouped by scope:
 | `PING_CONCURRENCY`                | Runtime     | `16`                 | Ping sampler fan-out.                                                            |
 | `PING_PROBE_TIMEOUT_SECONDS`      | Runtime     | `2`                  | Per-probe timeout.                                                               |
 | `PING_COOLDOWN_SECONDS`           | Runtime     | `300`                | Per-(host, port) cool-down on consecutive ping failures.                         |
-| `SNMP_PROBE_TIMEOUT_SECONDS`      | Runtime     | `5`                  | Per-probe wall-clock budget for SNMP UDP queries.                                |
-| `SNMP_CONCURRENCY`                | Runtime     | `16`                 | SNMP probe fan-out cap.                                                          |
+| `SNMP_PROBE_TIMEOUT_SECONDS`      | Runtime     | `5`                  | Per-OID UDP timeout for SNMP queries (fast-fail on dead hosts).                  |
+| `SNMP_WALL_CLOCK_BUDGET_SECONDS`  | Runtime     | `60`                 | Total wall-clock budget for ONE probe against ONE host (~60 OIDs round-trip). Range 5..600. |
+| `SNMP_CONCURRENCY`                | Runtime     | `16`                 | SNMP probe fan-out cap (parallel hosts within one tick).                         |
+| `SNMP_PER_HOST_WALK_CONCURRENCY`  | Runtime     | `1`                  | Per-host walk concurrency inside `probe_snmp`. 1 = serialised (CLI-equivalent). Range 1..16. |
 | `SNMP_SAMPLE_INTERVAL_SECONDS`    | Runtime     | `0`                  | SNMP-specific sample interval; 0 inherits the global stats interval, 30..3600 overrides for SNMP probes only. |
 | `SNMP_HOST_CACHE_TTL_SECONDS`     | Runtime     | `30`                 | Per-host SNMP success-cache TTL. Distinct from Webmin's TTL so a Webmin tweak can't re-tune SNMP. |
 | `SNMP_HOST_FAIL_CACHE_TTL_SECONDS`| Runtime     | `5`                  | Per-host SNMP failure-cache TTL. Tight so recovery is felt within one refresh cycle. |

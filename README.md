@@ -129,6 +129,8 @@ Any HTTPS-terminating proxy works — Nginx Proxy Manager, Traefik, Caddy, plain
 | Standalone compose container | `POST /api/docker/{eid}/containers/{id}/recreate?PullImage=true` |
 | Swarm service without a Portainer-managed stack | Update button disabled. Use Restart (ForceUpdate bump) or redeploy via CLI. |
 | Restart action (drawer) | Bumps `TaskTemplate.ForceUpdate` and calls `POST /services/{id}/update` — same image, fresh tasks |
+| Per-node prune (Hosts / Schedules) | `docker system prune` on the named Swarm node via Portainer's task-routing — cleans dangling images / stopped containers / unused networks |
+| Swarm-agent restart (banner action) | When the unhealthy banner fires (≥ N consecutive cycles of zero stats responses for a node's tasks), one click bumps the Portainer-agent service's `TaskTemplate.ForceUpdate` to roll the failing agent task |
 
 ## Environment variables
 
@@ -157,15 +159,19 @@ Any HTTPS-terminating proxy works — Nginx Proxy Manager, Traefik, Caddy, plain
 | `STATS_CACHE_TTL_SECONDS` | `30` | Per-container stats cache TTL — fresh polling without forcing a full digest re-fetch. |
 | `REGISTRY_CONCURRENCY` | `8` | Parallel remote-digest fetches. |
 | `STATS_CONCURRENCY` | `16` | Parallel `/containers/{id}/stats` calls. |
-| `STATS_HISTORY_DAYS` | `7` | Retention window for the time-series tables (`stats_samples` / `host_metrics_samples` / `host_net_samples`). |
+| `STATS_HISTORY_DAYS` | `7` | Retention window for the time-series tables (`stats_samples` / `host_metrics_samples` / `host_net_samples` / `host_snmp_samples` / `host_snmp_iface_samples` / `host_snmp_temp_samples` / `ping_samples`). |
 | `STATS_SAMPLE_INTERVAL_SECONDS` | `300` | How often the lifespan samplers snapshot into the time-series tables. |
+| `STATS_TARGETED_TIMEOUT_SECONDS` / `STATS_UNTARGETED_TIMEOUT_SECONDS` | `12` / `10` | Per-container `/stats` HTTP timeouts (Portainer-agent-targeted vs untargeted fallback). Bumped from a hardcoded 4 s to fix worker-node stats coming back empty under busy hubs. |
+| `SWARM_AGENT_UNHEALTHY_THRESHOLD` | `3` | Consecutive failed gather cycles before the unhealthy-Swarm-agent banner fires above the Stacks / Services / Nodes views. Range 1–20. |
 | `SNMP_SAMPLE_INTERVAL_SECONDS` | `0` | SNMP-specific sample interval. `0` inherits the global `STATS_SAMPLE_INTERVAL_SECONDS`; any value `30..3600` overrides for SNMP probes only (printers can poll hourly while switches poll every minute). |
+| `SNMP_WALL_CLOCK_BUDGET_SECONDS` / `SNMP_PER_HOST_WALK_CONCURRENCY` | `60` / `1` | SNMP probe wall-clock budget (the ~60-OID fan-out lives under this) and per-host walk concurrency (default 1 = serialised; raise to 8–16 for fast snmpd's). |
 | `SNMP_HOST_CACHE_TTL_SECONDS` / `SNMP_HOST_FAIL_CACHE_TTL_SECONDS` | `30` / `5` | Per-host SNMP success / failure probe cache TTLs. Distinct from the Webmin pair so a Webmin tweak can't silently re-tune SNMP. |
 | `SNMP_UNREACHABLE_COOLDOWN_SECONDS` | `300` | SNMP-specific unreachable cool-down. Distinct from `AUTH_FAILURE_COOLDOWN_SECONDS` (no auth challenge to lock out against). |
 | `STAT_BAR_WARN_PCT` / `STAT_BAR_CRIT_PCT` | `60` / `85` | Hosts-view stat-bar amber / red threshold percentages. Edit live from Admin → Config; the SPA reads via `/api/me`'s `client_config.stat_bar_warn_pct`. |
 | `HOST_PERMANENT_FAIL_WINDOW_SECONDS` | `900` | `host_metrics_sampler` auto-pause window after consecutive probe failures. |
 | `OPS_POLL_INTERVAL_SECONDS` | `2` | SPA `/api/ops` poll cadence in seconds; multiplied × 1000 before delivery via `/api/me`'s `client_config.ops_poll_ms` (renamed from the legacy `OPS_POLL_INTERVAL_MS` for operator-friendly admin UI). |
 | `LOG_RETENTION_DAYS` | `7` | Persistent-log retention for `/app/data/logs/` (pruned hourly). |
+| `NOTIFICATION_RETENTION_DAYS` | `90` | In-app notifications retention in days. Drives the `prune_notifications` schedule kind. |
 | `HOST_SNAPSHOTS_CACHE_TTL_SECONDS` | `5` | Read-side cache TTL on `host_snapshots` to collapse parallel `/api/hosts/one/{id}` reads (set 0 to disable). |
 | `HOSTS_PARALLEL_FETCH` | `6` | Concurrency cap on the SPA's `/api/hosts/one/{id}` fan-out (read on `/api/me` as `client_config.hosts_parallel_fetch`). |
 
@@ -190,6 +196,8 @@ POST   /api/update/container/{id}          recreate w/ pull        → {op_id}
 POST   /api/restart/service/{id}           ForceUpdate bump        → {op_id}
 POST   /api/restart/container/{id}                                  → {op_id}
 POST   /api/remove/container/{id}          delete -fv              → {op_id}
+POST   /api/prune/node/{hostname}          docker system prune     → {op_id}
+POST   /api/swarm/restart-agent            restart Portainer agent → {op_id}
 
 # Operations panel & history
 GET    /api/ops                            list active+recent ops (in-memory, last 50)
@@ -254,6 +262,12 @@ GET                           /api/asset-inventory                   serve cache
 POST                          /api/asset-inventory/test              probe asset-API token
 POST                          /api/asset-inventory/refresh           force a full reload
 
+# In-app notifications
+GET                           /api/notifications                     paginated list (filterable by unread/severity/event)
+POST                          /api/notifications/{id}/read           mark one row read
+POST                          /api/notifications/read-all            mark every unread row read
+DELETE                        /api/notifications/{id}                delete one row (admin)
+
 # Health / metrics / version
 GET    /api/healthz                        always 200 if alive
 GET    /api/version                        {version}
@@ -296,6 +310,28 @@ Or, of course, use OmniGrid itself to update… itself. Fun thought.
   per convention so git hosts and packagers auto-detect it).
 - [`docs/RELEASE_PROCESS.md`](docs/RELEASE_PROCESS.md) — SemVer cadence,
   PATCH auto-bump on deploy, periodic MINOR cuts, MAJOR breaking-change ritual.
+
+## Contributing
+
+Bug reports, focused pull requests, and feature proposals are welcome.
+OmniGrid is maintained as a homelab tool first and a public collaboration
+second, so a quick read of the on-ramp before opening a PR helps make
+sure your work lands smoothly.
+
+- [`CONTRIBUTING.md`](CONTRIBUTING.md) — short contributor on-ramp.
+  Covers project scope (single-replica, no build step, SQLite default by
+  design), how to file a bug or propose a feature, local dev setup, the
+  load-bearing conventions outsiders need to know up front (i18n strict
+  via `t()`, CSS strict via tokens, RTL via logical properties,
+  long-running tasks in `_lifespan`, brand-icon onboarding), pull
+  request process, and the SemVer cadence pointer.
+- [`CODE_OF_CONDUCT.md`](CODE_OF_CONDUCT.md) — Contributor Covenant 2.1.
+  Sets the expectations for participation in issues, PRs, and any other
+  project space. Reports of unacceptable behaviour go to the maintainer
+  email listed in the file.
+- [`SECURITY.md`](SECURITY.md) — security policy. Private reporting
+  channel, supported versions, response targets, and what to include in
+  a vulnerability report.
 
 ## Screenshots
 

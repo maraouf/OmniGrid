@@ -896,8 +896,24 @@ def extract_vendor_info(walks: dict, existing: Optional[dict] = None) -> dict:
         out["host_serial"] = serial
     if model and not existing.get("host_model"):
         out["host_model"] = model
-    if rac_firmware and not existing.get("host_firmware"):
-        out["host_firmware"] = rac_firmware
+    # OID 1.3.6.1.4.1.674.10892.5.1.1.6.0 is `iDRACURL` on iDRAC9/10
+    # (the chassis web management URL like `https://<ip>:443`), NOT
+    # a firmware version string as older Dell-RAC-MIB references
+    # documented. Detect URL-shaped values and route them to a
+    # dedicated `host_idrac_url` field instead of `host_firmware` —
+    # surfaces the management URL as a click-through link in the
+    # host drawer's Hardware card. Real iDRAC firmware versions come
+    # from the systemBIOS walk (`_OID_DELL_BIOS_VERSION` →
+    # `host_dell_bios_version`) which is the operator-facing
+    # firmware string anyway. If the value isn't URL-shaped (older
+    # iDRAC firmware that does emit a plain version here) we keep
+    # the original behaviour for back-compat.
+    if rac_firmware:
+        is_urlish = rac_firmware.lower().startswith(("http://", "https://"))
+        if is_urlish and not existing.get("host_idrac_url"):
+            out["host_idrac_url"] = rac_firmware
+        elif not is_urlish and not existing.get("host_firmware"):
+            out["host_firmware"] = rac_firmware
     if global_status > 0:
         out["host_health"] = _DELL_STATUS_LABELS.get(global_status, f"status={global_status}")
     # ---- Cisco product hardware version -----------------------------
@@ -1653,6 +1669,7 @@ async def probe_snmp(
     active_sources: Optional[set[str]] = None,
     verbose: bool = False,
     bypass_cooldown: bool = False,
+    wall_clock_budget: Optional[float] = None,
 ) -> dict:
     """Probe one SNMP-speaking host. See module docstring for the contract.
 
@@ -1873,10 +1890,17 @@ async def probe_snmp(
         # and trips the auto-pause threshold. The floor is still
         # the per-OID timeout + 5s safety margin so a misconfigured
         # tiny budget can't undercut the per-OID retry window.
-        wall_clock_budget = max(
-            timeout + 5.0,
-            float(_tuning.tuning_int("tuning_snmp_wall_clock_budget_seconds")),
-        )
+        # Per-call override (debug panel passes a tighter budget so the
+        # operator-facing /api/hosts/debug request returns within the
+        # upstream proxy_read_timeout window even when the SNMP probe
+        # alone could otherwise take 60s+ on slow BMC-class agents).
+        if wall_clock_budget is not None:
+            wall_clock_budget_resolved = max(timeout + 5.0, float(wall_clock_budget))
+        else:
+            wall_clock_budget_resolved = max(
+                timeout + 5.0,
+                float(_tuning.tuning_int("tuning_snmp_wall_clock_budget_seconds")),
+            )
         # Per-host walk concurrency cap. Default 1 (fully serialised
         # — CLI-equivalent wire-level pattern) protects slow BMC-class
         # agents (iDRAC9, IPMI, low-power embedded snmpd) from UDP
@@ -1891,8 +1915,27 @@ async def probe_snmp(
         walk_sem = asyncio.Semaphore(walk_concurrency)
 
         async def _bounded(coro):
-            async with walk_sem:
-                return await coro
+            # When an outer ``asyncio.wait_for`` cancels the gather,
+            # any wrapper that hadn't yet acquired ``walk_sem`` gets a
+            # CancelledError BEFORE entering the body — so the
+            # captured ``coro`` is never awaited. Python emits
+            # ``coroutine '...' was never awaited`` on GC for each one.
+            # With ``Semaphore(1)`` and ~67 contenders, that's up to
+            # 66 warnings per timed-out probe. ``coro.close()`` on the
+            # cancellation path runs the captured coroutine to
+            # completion (synthetic ``GeneratorExit`` at its first
+            # suspension point) so the GC sees a "done" coroutine and
+            # stays quiet. ``close()`` is a no-op if the coroutine
+            # already started, so the body path is unaffected.
+            try:
+                async with walk_sem:
+                    return await coro
+            except BaseException:
+                try:
+                    coro.close()
+                except (RuntimeError, GeneratorExit):
+                    pass
+                raise
 
         all_tasks = [
             sys_task, cpu_task,
@@ -1929,7 +1972,7 @@ async def probe_snmp(
         results = await asyncio.wait_for(asyncio.gather(
             *(_bounded(t) for t in all_tasks),
             return_exceptions=False,
-        ), timeout=wall_clock_budget)
+        ), timeout=wall_clock_budget_resolved)
     except asyncio.TimeoutError:
         _arm_cooldown(host_clean, port_int)
         return {"hosts": {}, "error": f"snmp: timeout against {host_clean}:{port_int}"}

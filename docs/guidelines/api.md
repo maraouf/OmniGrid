@@ -203,7 +203,7 @@ type:
 | `notification:read` | One notification row (or all unread, when `bulk=true`) was marked read. | `{id?, read_at, unread_count, bulk?}` — `id=null + bulk=true` means a `read-all` fired. Originating tab self-filters via `client_id`. |
 | `notification:deleted` | One notification row was deleted (admin scrub or schedule prune). | `{id, unread_count}` — originating tab self-filters via `client_id`. |
 | `:overflow` | Synthetic — the per-subscriber queue dropped events. | `{}` — react with a one-shot REST refresh. |
-| `reconnect` | Synthetic — server hit `_SSE_MAX_LIFETIME_SECONDS` (6h cap, #464) and is asking the client to re-upgrade so the auth middleware fires again. | `{}` — `EventSource` reconnects automatically; bespoke clients should drop the connection and reopen. |
+| `reconnect` | Synthetic — server hit the SSE max-lifetime cap (default 6 h, tunable via `tuning_sse_max_lifetime_seconds`) and is asking the client to re-upgrade so the auth middleware fires again. | `{}` — `EventSource` reconnects automatically; bespoke clients should drop the connection and reopen. |
 
 Event names use a `<noun>:<verb>` convention; new event types follow the
 same shape. Payloads are intentionally narrow — consumers that need the
@@ -410,7 +410,10 @@ clients only; bearer doesn't work over WebSockets in stock browser APIs).
 
 OmniGrid joins host rows against an external asset API (model / serial / location). The
 cached payload is served from a JSON file on disk; refresh is admin-triggered (no
-background sampler).
+background sampler). The integration carries a master toggle (`asset_inventory_enabled`,
+default true for back-compat) — when off, `GET` and `refresh` short-circuit with
+`{ok:false, error:'asset_inventory_disabled'}` and the `asset_inventory_refresh` schedule
+kind no-ops.
 
 ```bash
 # Serve the cached asset list
@@ -429,6 +432,61 @@ curl -sS -H "Authorization: Bearer $TOKEN" -X POST \
 
 The upstream contract is documented in [`api_services.md`](api_services.md). Configure the
 token in **Admin → Asset inventory** before calling `refresh`.
+
+### In-app notifications
+
+Every event that fires through Apprise also lands in a SQLite-backed in-app store. The
+SPA renders the rows newest-first in a popup behind the user-avatar dropdown; bearer-token
+clients can pull the same data over REST and subscribe to deltas via SSE
+(`notification:created` / `notification:read` / `notification:deleted`).
+
+```bash
+# Paginated list (newest first). `unread=1` filters to unread only;
+# `severity=error,warning` and `event=stack_update_failure` further narrow.
+curl -sS -H "Authorization: Bearer $TOKEN" \
+  "https://omnigrid.example.com/api/notifications?limit=50&offset=0" | jq
+
+# Mark one row read
+curl -sS -H "Authorization: Bearer $TOKEN" -X POST \
+  https://omnigrid.example.com/api/notifications/123/read | jq
+
+# Mark every unread row read in one call
+curl -sS -H "Authorization: Bearer $TOKEN" -X POST \
+  https://omnigrid.example.com/api/notifications/read-all | jq
+
+# Delete one row (admin-only — admins can scrub anyone's row;
+# the schedule kind `prune_notifications` does retention cleanup)
+curl -sS -H "Authorization: Bearer $TOKEN" -X DELETE \
+  https://omnigrid.example.com/api/notifications/123 | jq
+```
+
+Per-medium toggles (`notify_medium_app` / `notify_medium_apprise`) gate each delivery
+channel independently of the per-event toggles; both default ON. Retention is controlled
+by `tuning_notification_retention_days` (default 90) and the operator-creatable
+`prune_notifications` schedule kind.
+
+### Swarm-agent restart
+
+When the SPA detects a Portainer Swarm agent has been failing per-node container-stats
+calls past `tuning_swarm_agent_unhealthy_threshold` consecutive cycles, the unhealthy
+banner offers a one-click "Restart agent service" button (admin-only). Scripted callers
+can fire the same op:
+
+```bash
+curl -sS -H "Authorization: Bearer $TOKEN" -X POST \
+  https://omnigrid.example.com/api/swarm/restart-agent | jq
+```
+
+Returns `{op_id}`. The op's `op_type` is `swarm_agent_restart`; success / failure fires
+the `swarm_agent_restart_success` / `swarm_agent_restart_failure` notification events.
+
+### Per-node prune
+
+`POST /api/prune/node/{hostname}` runs `docker system prune` on the named Swarm node
+(target resolved via Portainer's task / node listing). Returns `{op_id}`; the
+`prune_node` op writes a `history` row on completion. The schedule kinds `prune_node`
+(per-node) and `prune_all_nodes` (fan-out across every visible hostname) wrap this
+operation for cron-like usage — see [`scheduler.md`](scheduler.md).
 
 ### Version
 
