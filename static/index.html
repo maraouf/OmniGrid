@@ -9737,7 +9737,7 @@
                       </div>
                       <ul class="server-health-list mono"
                           :class="(h.host_dell_voltages || []).length > 12 ? 'server-health-list--dense' : ''">
-                        <template x-for="row in (h.host_dell_voltages || [])" :key="row.idx">
+                        <template x-for="row in serverHealthVisibleRows(h.id, 'volt', h.host_dell_voltages || [])" :key="row.idx">
                           <li class="server-health-row"
                               :class="(h.host_dell_voltages || []).length > 12 ? 'server-health-row--dense' : ''">
                             <span class="server-health-row-name" x-text="row.name"></span>
@@ -9751,6 +9751,13 @@
                           </li>
                         </template>
                       </ul>
+                      <button x-show="serverHealthCollapsible(h.host_dell_voltages || [])"
+                              type="button"
+                              class="server-health-toggle"
+                              @click="toggleServerHealthExpanded(h.id, 'volt')"
+                              x-text="serverHealthIsExpanded(h.id, 'volt')
+                                        ? t('host_drawer.server_health.show_fewer')
+                                        : t('host_drawer.server_health.show_all', { count: (h.host_dell_voltages || []).length })"></button>
                     </div>
 
                     <!-- Physical disks (physicalDiskTable) -->
@@ -9765,7 +9772,7 @@
                       </div>
                       <ul class="server-health-list mono"
                           :class="(h.host_dell_phys_disks || []).length > 12 ? 'server-health-list--dense' : ''">
-                        <template x-for="row in (h.host_dell_phys_disks || [])" :key="row.idx">
+                        <template x-for="row in serverHealthVisibleRows(h.id, 'pd', h.host_dell_phys_disks || [])" :key="row.idx">
                           <li class="server-health-row"
                               :class="(h.host_dell_phys_disks || []).length > 12 ? 'server-health-row--dense' : ''">
                             <span class="server-health-row-name" x-text="row.name"></span>
@@ -9775,10 +9782,17 @@
                               <span x-show="!row.capacity_mb" class="text-[var(--text-faint)]">—</span>
                             </span>
                             <span class="chip text-[10px]" :class="dellPdStatePillClass(row.state)"
-                                  x-text="row.state"></span>
+                                  x-text="dellStateLabel(row.state)"></span>
                           </li>
                         </template>
                       </ul>
+                      <button x-show="serverHealthCollapsible(h.host_dell_phys_disks || [])"
+                              type="button"
+                              class="server-health-toggle"
+                              @click="toggleServerHealthExpanded(h.id, 'pd')"
+                              x-text="serverHealthIsExpanded(h.id, 'pd')
+                                        ? t('host_drawer.server_health.show_fewer')
+                                        : t('host_drawer.server_health.show_all', { count: (h.host_dell_phys_disks || []).length })"></button>
                     </div>
 
                     <!-- Virtual disks (virtualDiskTable) -->
@@ -9806,7 +9820,7 @@
                               <span x-show="!row.size_mb" class="text-[var(--text-faint)]">—</span>
                             </span>
                             <span class="chip text-[10px]" :class="dellVdStatePillClass(row.state)"
-                                  x-text="row.state"></span>
+                                  x-text="dellStateLabel(row.state)"></span>
                           </li>
                         </template>
                       </ul>

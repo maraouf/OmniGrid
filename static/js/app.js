@@ -436,6 +436,11 @@ function app() {
     hostsDebug: {},
     hostsDebugLoading: {},   // {host_id: true} while the fetch is in flight
     hostsDebugOpen: {},      // {host_id: true} = panel is expanded
+    // Per-host expand/collapse state for high-count Server health
+    // sub-sections (Physical disks / Voltages). Default-collapsed when
+    // the section's row count exceeds the dense-layout threshold (12);
+    // operator clicks "Show all (N)" to expand.
+    serverHealthExpanded: {},
     hostsCuratedCount: 0,
     hostsEnabledCount: 0,
     _hostsTimer: null,
@@ -8405,22 +8410,28 @@ function app() {
     },
     dellHealthLabel(status) {
       // i18n key family mirrors upsBatteryStatusLabel — unknown values
-      // pass through verbatim instead of crashing.
+      // capitalise the raw string instead of crashing OR rendering the
+      // raw lowercase wire form ("ok" / "critical").
       const s = String(status || '').toLowerCase();
+      if (!s) return '';
       const key = `host_drawer.server_health.status_${s.replace(/-/g, '_')}`;
       const translated = this.t(key);
-      return (translated && translated !== key) ? translated : (status || '');
+      if (translated && translated !== key) return translated;
+      return s.charAt(0).toUpperCase() + s.slice(1);
     },
     // Physical-disk state pill — Dell OMSA arrayDiskState labels.
-    // Healthy: `online` / `ready` → green. Failure: `failed` / `offline`
-    // / `degraded` / `removed` / `fault` → red. Transient / advisory:
-    // `rebuilding` / `replacing` / `replaced` / `foreign` / `blocked`
-    // / `non-raid` / `read-only` / `uncertified` / `smart-alert` /
-    // `predictive-failure` → amber. Legacy spellings (`rebuild` /
-    // `recovering` / `clear` / `ready-foreign`) preserved for back-compat.
+    // Visual encoding:
+    //   green  (pill-ok)     — `online` (active in a RAID array, healthy)
+    //   blue   (pill-info)   — `ready` (present, idle, available — standby)
+    //   red    (pill-error)  — `failed` / `offline` / `degraded` / `removed` / `fault`
+    //   amber  (pill-update) — every transient / advisory state.
+    // Distinguishing online (active member) from ready (idle spare) lets
+    // operators tell at a glance which disks are CARRYING the array vs
+    // which are sitting idle for hot-swap / hot-spare duty.
     dellPdStatePillClass(state) {
       const s = String(state || '').toLowerCase();
-      if (s === 'online' || s === 'ready') return 'pill-ok';
+      if (s === 'online') return 'pill-ok';
+      if (s === 'ready') return 'pill-info';
       if (s === 'failed' || s === 'offline' || s === 'degraded'
           || s === 'removed' || s === 'fault') return 'pill-error';
       if (s === 'rebuild' || s === 'rebuilding' || s === 'recovering'
@@ -8431,15 +8442,13 @@ function app() {
           || s === 'smart-alert' || s === 'predictive-failure') return 'pill-update';
       return 'pill-unknown';
     },
-    // Virtual-disk state pill — Dell OMSA virtualDiskState labels.
-    // Healthy: `online` / `ready` → green. Failure: `failed` / `offline`
-    // / `failed-redundancy` / `permanently-degraded` → red. Transient:
-    // `degraded` / `verifying` / `resynching` / `regenerating` /
-    // `rebuilding` / `formatting` / `reconstructing` / `initializing` /
-    // `background-init` / `degraded-redundancy` → amber.
+    // Virtual-disk state pill — same online/ready split as physical
+    // disks. `online` = array carrying I/O; `ready` = array initialised
+    // but idle / standby.
     dellVdStatePillClass(state) {
       const s = String(state || '').toLowerCase();
-      if (s === 'online' || s === 'ready') return 'pill-ok';
+      if (s === 'online') return 'pill-ok';
+      if (s === 'ready') return 'pill-info';
       if (s === 'failed' || s === 'offline'
           || s === 'failed-redundancy'
           || s === 'permanently-degraded') return 'pill-error';
@@ -8449,6 +8458,51 @@ function app() {
           || s === 'initializing' || s === 'background-init'
           || s === 'degraded-redundancy') return 'pill-update';
       return 'pill-unknown';
+    },
+    // Capitalize a state label for display in pills / labels. "ready" →
+    // "Ready", "non-raid" → "Non-raid". Lower-case at the source-of-truth
+    // (Dell OMSA enum constants) stays the wire-level convention; this
+    // helper is purely cosmetic for the SPA's pill text.
+    dellStateLabel(state) {
+      const s = String(state || '');
+      if (!s) return '';
+      return s.charAt(0).toUpperCase() + s.slice(1);
+    },
+    // Threshold at which Server health sub-sections (Physical disks /
+    // Voltages) collapse by default. Above this count the dense
+    // multi-column layout kicks in AND a "Show all (N) / Show fewer"
+    // toggle gates the visible row count to keep the panel compact.
+    SERVER_HEALTH_COLLAPSE_THRESHOLD: 12,
+    // First-N rows shown when the section is collapsed. Tuned so the
+    // collapsed view spans roughly two-three rows of the dense
+    // multi-column grid (auto-fit minmax(190px, 1fr) → 2-4 columns
+    // depending on drawer width × ~2 rows ≈ 6 visible items).
+    SERVER_HEALTH_COLLAPSED_LIMIT: 6,
+    // Returns the slice of rows to render given the host id + section
+    // key + the underlying full-list array. When count > threshold AND
+    // the section isn't expanded, returns the first N; otherwise
+    // returns the full array. Section key namespaces the expand state
+    // (`pd` / `volt`) so toggling Physical disks doesn't also expand
+    // Voltages on the same host.
+    serverHealthVisibleRows(hostId, section, rows) {
+      if (!Array.isArray(rows)) return [];
+      if (rows.length <= this.SERVER_HEALTH_COLLAPSE_THRESHOLD) return rows;
+      const key = `${hostId}:${section}`;
+      if (this.serverHealthExpanded[key]) return rows;
+      return rows.slice(0, this.SERVER_HEALTH_COLLAPSED_LIMIT);
+    },
+    // True when the section has more rows than fit in the collapsed
+    // view (so the toggle should render). False when count is at or
+    // below the threshold (no collapse needed).
+    serverHealthCollapsible(rows) {
+      return Array.isArray(rows) && rows.length > this.SERVER_HEALTH_COLLAPSE_THRESHOLD;
+    },
+    serverHealthIsExpanded(hostId, section) {
+      return !!this.serverHealthExpanded[`${hostId}:${section}`];
+    },
+    toggleServerHealthExpanded(hostId, section) {
+      const key = `${hostId}:${section}`;
+      this.serverHealthExpanded[key] = !this.serverHealthExpanded[key];
     },
     fmtUpsRuntime(seconds) {
       const s = +seconds;
@@ -15661,12 +15715,17 @@ function app() {
       return this._snmpPathGapped(vals, max, { times });
     },
     dellHasTempHistory(hostId) {
+      // Require at least one probe with ≥2 points so a polyline has
+      // something to actually draw. Pre-fix this summed points across
+      // probes, so 1 sample × 4 probes = 4 total → gate returned true →
+      // chart slot rendered, but every polyline had 1 point each
+      // (invisible). Result was the legend showing live readings while
+      // the chart looked empty. Per-probe gate keeps the "Collecting
+      // data..." placeholder up until at least one probe has a real line.
       const entry = this.hostSnmpTempHistory[hostId] || {};
       const probes = entry.probes || {};
-      let total = 0;
       for (const idx of Object.keys(probes)) {
-        total += ((probes[idx] || {}).points || []).length;
-        if (total >= 2) return true;
+        if (((probes[idx] || {}).points || []).length >= 2) return true;
       }
       return false;
     },

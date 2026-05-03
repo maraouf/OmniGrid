@@ -1792,7 +1792,9 @@
       "status_critical": "Critical",
       "status_non_recoverable": "Non-recoverable",
       "status_unknown": "Unknown",
-      "status_other": "Other"
+      "status_other": "Other",
+      "show_all": "Show all ({count})",
+      "show_fewer": "Show fewer"
     },
     "printer": {
       "heading": "Printer",

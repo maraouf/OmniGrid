@@ -4749,6 +4749,27 @@ select.field-invalid {
     align-self: center;
 }
 
+/* Show all (N) / Show fewer toggle for high-count Server health
+ * sections. Subtle ghost-button styling so it sits below the row list
+ * without competing visually with the per-row pills. */
+.server-health-toggle {
+    margin-top: var(--s-2);
+    padding: 4px 10px;
+    font-size: 10.5px;
+    color: var(--text-dim);
+    background: transparent;
+    border: 1px dashed var(--border);
+    border-radius: var(--r-sm);
+    cursor: pointer;
+    transition: border-color 120ms ease, color 120ms ease;
+}
+
+.server-health-toggle:hover {
+    border-color: var(--primary);
+    color: var(--primary);
+    border-style: solid;
+}
+
 .server-health-row-name {
     overflow: hidden;
     text-overflow: ellipsis;
