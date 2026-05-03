@@ -1,0 +1,366 @@
+"""Per-host historical metrics sampler for Pulse-only hosts.
+
+Sibling of :mod:`logic.host_metrics_sampler` (which serves the
+node-exporter path) — same architectural shape, same skip-don't-
+synthesize discipline (see CLAUDE.md "Counter-rate samplers must
+SKIP, not synthesize"), but sources its data from a single Pulse
+hub probe per tick instead of per-host node-exporter scrapes.
+
+Why a separate sampler from `host_metrics_sampler`:
+  - Pulse data comes from ONE central API (`/api/state` on the
+    Pulse hub) that returns every host's snapshot in one shot — a
+    fundamentally different probe topology from per-host
+    node-exporter scraping. Forking into a sibling module keeps
+    each sampler simple instead of branching every probe step on
+    "which provider".
+  - Pulse-only hosts (Proxmox VMs / containers without a Beszel
+    agent or node-exporter) have no other history surface — without
+    this module the host-drawer chart grid stays empty AND the
+    inline Hosts-row sparkline renders nothing. With it, the same
+    Beszel-compatible series envelope that
+    `host_metrics_sampler.history_series` emits is available, so
+    the SPA's chart helpers work unchanged.
+
+Schema mirrors `host_metrics_samples` but in its own table so a
+Pulse-and-NE host (rare but possible — operator runs both) doesn't
+write conflicting rows. Each table has one writer, one consumer.
+"""
+from __future__ import annotations
+
+import asyncio
+import time
+from typing import Optional
+
+from logic import pulse as _pulse
+from logic import tuning
+from logic.db import (
+    db_conn,
+    get_setting,
+    get_setting_bool,
+    active_host_stats_providers as _active_providers,
+)
+
+
+# Same sanity bounds + rationale as host_metrics_sampler — see that
+# module's docstring for the full discussion. Out-of-bounds deltas
+# SKIP the row entirely; we never synthesize a 0 (would mask a
+# reboot / counter wrap / clock skew the chart should expose).
+_MIN_DELTA_SECONDS = 60
+_MAX_DELTA_SECONDS = 900
+_MIN_DELTA_BYTES = 0
+_MAX_DELTA_BYTES = 10 * 1024 * 1024 * 1024  # 10 GB
+
+
+# Per-host previous (ts, rx_bytes, tx_bytes) — module-level so the
+# delta math survives across ticks. Cleared on lifespan
+# cancel / restart so the post-restart first delta is correctly
+# SKIPPED rather than stamping a synthesized zero.
+_last_counters: dict[str, tuple[float, float, float]] = {}
+
+
+def _curated_pulse_hosts() -> list[dict]:
+    """Curated hosts opted-in for Pulse — one row per enabled host
+    whose ``pulse_name`` field resolves a target.
+
+    Mirrors ``host_metrics_sampler._load_curated_hosts`` shape. Lives
+    locally because the row-shape is sampler-specific (we need just
+    ``id`` and ``pulse_name``).
+    """
+    import json as _json
+    raw = get_setting("hosts_config", "") or ""
+    if not raw.strip():
+        return []
+    try:
+        parsed = _json.loads(raw)
+    except ValueError:
+        return []
+    if not isinstance(parsed, list):
+        return []
+    out: list[dict] = []
+    for row in parsed:
+        if not isinstance(row, dict):
+            continue
+        if not row.get("enabled", True):
+            continue
+        hid = (row.get("id") or "").strip()
+        pname = (row.get("pulse_name") or "").strip()
+        if not hid or not pname:
+            continue
+        out.append({"id": hid, "pulse_name": pname})
+    return out
+
+
+async def _probe_one_tick() -> dict:
+    """Run ONE probe_pulse() and return ``{name: stats, ...}``.
+
+    Single hub fetch covers every host — no per-host loop. Empty
+    map on failure (probe_pulse never raises). Network errors land
+    here as a logged warning so the sampler tick still completes.
+    """
+    base_url = (get_setting("pulse_url", "") or "").strip()
+    token = (get_setting("pulse_token", "") or "").strip()
+    verify_tls = (get_setting("pulse_verify_tls", "true") or "true").lower() == "true"
+    if not base_url or not token:
+        return {}
+    timeout = float(tuning.tuning_int("tuning_pulse_probe_timeout_seconds")) or 15.0
+    try:
+        result = await _pulse.probe_pulse(
+            base_url, token, verify_tls=verify_tls, timeout=timeout,
+        )
+    except (asyncio.CancelledError, KeyboardInterrupt):
+        raise
+    except Exception as e:  # noqa: BLE001
+        print(f"[host_pulse_sampler] probe_pulse failed: {e}")
+        return {}
+    if result.get("error"):
+        print(f"[host_pulse_sampler] probe error: {result['error']}")
+    hosts = result.get("hosts") or {}
+    return hosts if isinstance(hosts, dict) else {}
+
+
+def _shape_row_for_db(host_id: str, stats: dict, now: float) -> Optional[tuple]:
+    """Compute the persistable row for ONE host's tick.
+
+    Net rates are computed against the previous tick's absolute
+    counters; out-of-bounds deltas (reboot / wrap / clock skew /
+    first-tick) SKIP the rate fields rather than store 0. Returns
+    None when EVERY field is null / 0 / missing — the caller skips
+    the INSERT entirely so empty rows don't poison the series.
+    """
+    cpu = stats.get("host_cpu_percent")
+    mem_total = stats.get("host_mem_total")
+    mem_used = stats.get("host_mem_used")
+    disk_total = stats.get("host_disk_total")
+    disk_used = stats.get("host_disk_used")
+    rx_total = stats.get("host_net_rx_total_bytes")
+    tx_total = stats.get("host_net_tx_total_bytes")
+    nr_bps: Optional[float] = None
+    ns_bps: Optional[float] = None
+    if rx_total is not None and tx_total is not None:
+        prev = _last_counters.get(host_id)
+        try:
+            rx_now = float(rx_total)
+            tx_now = float(tx_total)
+        except (TypeError, ValueError):
+            rx_now = tx_now = None  # type: ignore[assignment]
+        if rx_now is not None and tx_now is not None:
+            if prev is not None:
+                prev_ts, prev_rx, prev_tx = prev
+                ds = now - prev_ts
+                drx = rx_now - prev_rx
+                dtx = tx_now - prev_tx
+                if (_MIN_DELTA_SECONDS <= ds <= _MAX_DELTA_SECONDS
+                        and _MIN_DELTA_BYTES <= drx <= _MAX_DELTA_BYTES
+                        and _MIN_DELTA_BYTES <= dtx <= _MAX_DELTA_BYTES):
+                    nr_bps = drx / ds
+                    ns_bps = dtx / ds
+            _last_counters[host_id] = (now, rx_now, tx_now)
+    # Skip-empty: if every value is null / 0 / missing, don't insert.
+    has_signal = (
+        (cpu is not None and float(cpu) > 0)
+        or (mem_total is not None and float(mem_total) > 0)
+        or (disk_total is not None and float(disk_total) > 0)
+        or (nr_bps is not None) or (ns_bps is not None)
+    )
+    if not has_signal:
+        return None
+    return (
+        int(now), host_id,
+        float(cpu) if cpu is not None else None,
+        int(mem_total) if mem_total is not None else None,
+        int(mem_used) if mem_used is not None else None,
+        int(disk_total) if disk_total is not None else None,
+        int(disk_used) if disk_used is not None else None,
+        nr_bps, ns_bps,
+    )
+
+
+async def _persist_tick(rows: list[tuple]) -> None:
+    if not rows:
+        return
+    try:
+        with db_conn() as c:
+            c.executemany(
+                "INSERT INTO host_pulse_samples "
+                "(ts, host_id, cpu_percent, mem_total, mem_used, "
+                " disk_total, disk_used, net_rx_bps, net_tx_bps) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                rows,
+            )
+    except Exception as e:  # noqa: BLE001
+        print(f"[host_pulse_sampler] persist failed: {e}")
+
+
+async def _prune_old_rows() -> None:
+    """Drop rows older than ``STATS_HISTORY_DAYS`` (default 7)."""
+    days = max(1, int(tuning.tuning_int("tuning_stats_history_days")) or 7)
+    cutoff = int(time.time() - days * 86400)
+    try:
+        with db_conn() as c:
+            c.execute(
+                "DELETE FROM host_pulse_samples WHERE ts < ?", (cutoff,),
+            )
+    except Exception as e:  # noqa: BLE001
+        print(f"[host_pulse_sampler] prune failed: {e}")
+
+
+async def host_pulse_sampler_loop() -> None:
+    """Lifespan-managed sampler. Ticks every
+    ``tuning_stats_sample_interval_seconds``; dormant when ``pulse``
+    isn't an active host-stats provider OR no curated host has
+    ``pulse_name`` set.
+    """
+    print("[host_pulse_sampler] lifespan started")
+    last_prune = 0.0
+    try:
+        while True:
+            interval = max(30, int(tuning.tuning_int("tuning_stats_sample_interval_seconds")) or 300)
+            try:
+                if "pulse" not in _active_providers():
+                    await asyncio.sleep(interval)
+                    continue
+                hosts = _curated_pulse_hosts()
+                if not hosts:
+                    await asyncio.sleep(interval)
+                    continue
+                hub_map = await _probe_one_tick()
+                now = time.time()
+                rows: list[tuple] = []
+                for h in hosts:
+                    hid = h["id"]
+                    pname = h["pulse_name"]
+                    stats = _pulse.lookup(hub_map, pname) if hub_map else None
+                    if not isinstance(stats, dict):
+                        continue
+                    row = _shape_row_for_db(hid, stats, now)
+                    if row is not None:
+                        rows.append(row)
+                if rows:
+                    await _persist_tick(rows)
+                # Hourly retention prune.
+                if (now - last_prune) > 3600:
+                    await _prune_old_rows()
+                    last_prune = now
+            except (asyncio.CancelledError, KeyboardInterrupt):
+                raise
+            except Exception as e:  # noqa: BLE001
+                print(f"[host_pulse_sampler] tick error: {e}")
+            await asyncio.sleep(interval)
+    except asyncio.CancelledError:
+        print("[host_pulse_sampler] lifespan cancelled")
+        raise
+
+
+# ---- Read helpers (consumed by /api/hosts/history dispatch) -----
+
+def recent_samples(host_id: str, since_ts: int, limit: int = 500) -> list[dict]:
+    """Return rows for one host back to ``since_ts`` (epoch s),
+    oldest-first. Empty list when the host has no rows yet.
+    """
+    if not host_id:
+        return []
+    try:
+        with db_conn() as c:
+            rows = c.execute(
+                "SELECT ts, cpu_percent, mem_total, mem_used, "
+                "disk_total, disk_used, net_rx_bps, net_tx_bps "
+                "FROM host_pulse_samples WHERE host_id=? AND ts >= ? "
+                "ORDER BY ts ASC LIMIT ?",
+                (host_id, int(since_ts), int(limit)),
+            ).fetchall()
+    except Exception as e:  # noqa: BLE001
+        print(f"[host_pulse_sampler] recent_samples({host_id!r}) failed: {e}")
+        return []
+    out: list[dict] = []
+    for r in rows:
+        out.append({
+            "ts": int(r[0]),
+            "cpu_percent": (float(r[1]) if r[1] is not None else None),
+            "mem_total":   (int(r[2]) if r[2] is not None else None),
+            "mem_used":    (int(r[3]) if r[3] is not None else None),
+            "disk_total":  (int(r[4]) if r[4] is not None else None),
+            "disk_used":   (int(r[5]) if r[5] is not None else None),
+            "net_rx_bps":  (float(r[6]) if r[6] is not None else None),
+            "net_tx_bps":  (float(r[7]) if r[7] is not None else None),
+        })
+    return out
+
+
+def history_series(host_id: str, hours: int) -> list[dict]:
+    """Beszel-compatible series envelope so the SPA's chart helpers
+    work against the Pulse path with no branching.
+
+    Mirrors ``host_metrics_sampler.history_series``'s output shape
+    field-for-field — same key names (``cpu`` / ``mp`` / ``dp`` / ``mu``
+    / ``du`` / ``b`` / ``nr`` / ``ns`` / ``net`` / ``dr`` / ``dw`` /
+    ``la1`` / ``la5`` / ``la15`` / ``s`` / ``su``). Pulse doesn't expose
+    load avg / swap / per-disk I/O so those return 0; the SPA's per-card
+    ``maxRaw > 0`` gates hide those panels cleanly.
+    """
+    hours = max(1, min(168, int(hours or 1)))
+    since = int(time.time() - hours * 3600)
+    raw = recent_samples(host_id, since, limit=hours * 60)
+    gib = 1024 ** 3
+    series: list[dict] = []
+    for r in raw:
+        mem_total = r.get("mem_total") or 0
+        mem_used = r.get("mem_used") or 0
+        disk_total = r.get("disk_total") or 0
+        disk_used = r.get("disk_used") or 0
+        nr = r.get("net_rx_bps") or 0.0
+        ns = r.get("net_tx_bps") or 0.0
+        net = nr + ns
+        series.append({
+            "t":   r["ts"],
+            "cpu": r.get("cpu_percent") or 0.0,
+            "mp":  (100.0 * mem_used / mem_total) if mem_total else 0.0,
+            "dp":  (100.0 * disk_used / disk_total) if disk_total else 0.0,
+            "mu":  (mem_used / gib) if mem_used else 0.0,
+            "du":  (disk_used / gib) if disk_used else 0.0,
+            "b":   net,
+            "nr":  nr,
+            "ns":  ns,
+            "net": net,
+            # Pulse doesn't expose per-disk I/O / load avg / swap.
+            "dr":  0.0,
+            "dw":  0.0,
+            "la1": 0.0,
+            "la5": 0.0,
+            "la15": 0.0,
+            "s":   0.0,
+            "su":  0.0,
+        })
+    return series
+
+
+def last_samples(host_id: str, limit: int = 5) -> list[dict]:
+    """Newest-first recent rows for the debug endpoint. Mirrors
+    ``host_metrics_sampler.last_samples``'s contract.
+    """
+    if not host_id:
+        return []
+    try:
+        with db_conn() as c:
+            rows = c.execute(
+                "SELECT ts, cpu_percent, mem_total, mem_used, "
+                "disk_total, disk_used, net_rx_bps, net_tx_bps "
+                "FROM host_pulse_samples WHERE host_id=? "
+                "ORDER BY ts DESC LIMIT ?",
+                (host_id, int(limit)),
+            ).fetchall()
+    except Exception as e:  # noqa: BLE001
+        print(f"[host_pulse_sampler] last_samples({host_id!r}) failed: {e}")
+        return []
+    out: list[dict] = []
+    for r in rows:
+        out.append({
+            "ts": int(r[0]),
+            "cpu_percent": (float(r[1]) if r[1] is not None else None),
+            "mem_total":   (int(r[2]) if r[2] is not None else None),
+            "mem_used":    (int(r[3]) if r[3] is not None else None),
+            "disk_total":  (int(r[4]) if r[4] is not None else None),
+            "disk_used":   (int(r[5]) if r[5] is not None else None),
+            "net_rx_bps":  (float(r[6]) if r[6] is not None else None),
+            "net_tx_bps":  (float(r[7]) if r[7] is not None else None),
+        })
+    return out

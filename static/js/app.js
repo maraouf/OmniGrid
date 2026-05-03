@@ -1937,7 +1937,7 @@ function app() {
       // Warm history for every expanded host on bulk-open.
       for (const h of alive) {
         const key = this.hostHistoryKey(h);
-        if (key && (h.beszel_id || h.ne_url) && !this.hostHistory[key]) {
+        if (key && (h.beszel_id || h.ne_url || h.pulse_name || h.webmin_name) && !this.hostHistory[key]) {
           this.loadHostHistory(h.beszel_id || '', h.id);
         }
       }
@@ -9600,6 +9600,21 @@ function app() {
     hostHasInlineSpark(h, metric) {
       return !!this.hostInlineSparkline(h, metric);
     },
+    // Threshold-tier class for a host-row sparkline — mirrors
+    // `sparkClass(item, key)` used by stacks/services rows so a host
+    // sparkline shares the green/amber/red colour with the stat-bar
+    // sitting above it. Falls back to `muted` when telemetry is
+    // missing so the line still renders (visible but neutral) instead
+    // of inheriting the previous row's colour by mistake.
+    hostSparkClass(h, metric) {
+      if (!h) return 'muted';
+      let v;
+      if (metric === 'cpu') v = h.cpu_percent;
+      else if (metric === 'memory') v = h.mem_percent || this.memPercentOf(h);
+      else if (metric === 'disk') v = h.disk_percent || this.diskPercentOf(h);
+      else v = 0;
+      return this.barLevel(v);
+    },
     // Single source of truth for stat-bar a11y attrs. Returns a plain
     // object spread via x-bind so every `.stat-bar` consumer announces
     // as a real progressbar instead of an empty div. The label key
@@ -13572,7 +13587,7 @@ function app() {
             const h = (this.hosts || []).find(x => x && x.id === id);
             if (!h) continue;
             // Beszel / NE prefetch
-            if (h.beszel_id || h.ne_url) {
+            if (h.beszel_id || h.ne_url || h.pulse_name || h.webmin_name) {
               const key = this.hostHistoryKey(h);
               const cached = key && this.hostHistory && this.hostHistory[key];
               if (!cached
@@ -13871,7 +13886,7 @@ function app() {
         // Skipping NE-only hosts here was the bug that left the new
         // historical-charts path unreachable from the bulk-expand
         // entry point.
-        if (key && (host.beszel_id || host.ne_url) && !this.hostHistory[key]) {
+        if (key && (host.beszel_id || host.ne_url || host.pulse_name || host.webmin_name) && !this.hostHistory[key]) {
           this.loadHostHistory(host.beszel_id || '', host.id);
         }
       }
@@ -13888,7 +13903,7 @@ function app() {
       for (const id of (this._hostSeenIds || [])) {
         const host = this.hosts.find(h => h.id === id);
         if (!host) continue;
-        if (host.beszel_id || host.ne_url) {
+        if (host.beszel_id || host.ne_url || host.pulse_name || host.webmin_name) {
           const key = this.hostHistoryKey(host);
           const cached = key && this.hostHistory && this.hostHistory[key];
           if (!cached
@@ -13918,7 +13933,7 @@ function app() {
       // chart values + the freshness stamp stay in sync with the
       // host-list refresh interval.
       if (this.drawerHost
-          && (this.drawerHost.beszel_id || this.drawerHost.ne_url)) {
+          && (this.drawerHost.beszel_id || this.drawerHost.ne_url || this.drawerHost.pulse_name || this.drawerHost.webmin_name)) {
         this.loadHostHistory(
           this.drawerHost.beszel_id || '',
           this.drawerHost.id,
@@ -14792,7 +14807,7 @@ function app() {
       const _cacheStale = (entry) => !entry || !entry.loadedAt
         || (Date.now() - entry.loadedAt) > HISTORY_STALE_MS;
       const drawerKey = this.hostHistoryKey(host);
-      if (drawerKey && (host.beszel_id || host.ne_url)
+      if (drawerKey && (host.beszel_id || host.ne_url || host.pulse_name || host.webmin_name)
           && _cacheStale(this.hostHistory[drawerKey])) {
         this.loadHostHistory(host.beszel_id || '', host.id);
       }
@@ -15282,7 +15297,7 @@ function app() {
       // are coarser than Beszel/NE's per-tick deltas). Keep the
       // SNMP cards EXCLUSIVE to SNMP-only hosts (managed switches,
       // UPSes, NVRs, embedded routers without an OmniGrid agent).
-      if (h.beszel_id || h.ne_url) return false;
+      if (h.beszel_id || h.ne_url || h.pulse_name || h.webmin_name) return false;
       // also return true when historical SNMP samples exist
       // for this host even before the LIVE probe has populated
       // `host_*` fields. Lets the chart cards render the
@@ -16721,7 +16736,7 @@ function app() {
       try {
         const tasks = [];
         // Reload the open drawer host's history.
-        if (this.drawerHost && (this.drawerHost.beszel_id || this.drawerHost.ne_url)) {
+        if (this.drawerHost && (this.drawerHost.beszel_id || this.drawerHost.ne_url || this.drawerHost.pulse_name || this.drawerHost.webmin_name)) {
           tasks.push(this.loadHostHistory(this.drawerHost.beszel_id || '', this.drawerHost.id));
         }
         // Ping chart shares the same range picker. When the operator
@@ -16755,7 +16770,7 @@ function app() {
         // user clicks it from).
         for (const name of (this.hostsExpanded || [])) {
           const host = (this.hosts || []).find(h => h.host === name);
-          if (host && (host.beszel_id || host.ne_url)) {
+          if (host && (host.beszel_id || host.ne_url || host.pulse_name || host.webmin_name)) {
             tasks.push(this.loadHostHistory(host.beszel_id || '', host.id));
           }
         }
