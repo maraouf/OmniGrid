@@ -9198,6 +9198,28 @@ function app() {
       const n = parseInt(v, 10);
       return Number.isFinite(n) && n >= 1 ? String(n) : '1';
     },
+    // Per-host SNMP vendor MIB selector. Empty list = auto-detect from
+    // sysDescr (the common case; covers 95% of agents). Operator can
+    // declare explicit vendors to bypass auto-detect — useful for
+    // agents with stripped sysDescr or to force a vendor's walks. The
+    // backend's _clean_host_snmp validates against the same vendor key
+    // set: dell / cisco / apc / ucd / synology / printer.
+    snmpVendorChecked(row, vendor) {
+      const list = (row && row.snmp && Array.isArray(row.snmp.vendors))
+        ? row.snmp.vendors : [];
+      return list.includes(vendor);
+    },
+    toggleSnmpVendor(idx, vendor, checked) {
+      const cur = this.hostsConfig[idx];
+      const snmp = Object.assign({}, cur.snmp || {});
+      const list = Array.isArray(snmp.vendors) ? snmp.vendors.slice() : [];
+      const set = new Set(list);
+      if (checked) set.add(vendor);
+      else set.delete(vendor);
+      snmp.vendors = Array.from(set).sort();
+      this.hostsConfig[idx].snmp = snmp;
+      this.markHostRowDirty(idx);
+    },
     _statBarCritPct() {
       const v = this.me && this.me.client_config && this.me.client_config.stat_bar_crit_pct;
       const n = parseInt(v, 10);
@@ -11466,6 +11488,21 @@ function app() {
           if (Number.isFinite(wc) && wc >= 1 && wc <= 32) {
             snmpOut.walk_concurrency = wc;
           }
+        }
+        // Per-host vendor MIB selector. Operator-declared list of
+        // vendor MIBs to walk for THIS host (subset of dell / cisco /
+        // apc / ucd / synology / printer). Empty / missing = auto-
+        // detect from sysDescr (the common case). Useful for agents
+        // with stripped sysDescr or to force a vendor's walks even
+        // when auto-detect would skip them.
+        if (Array.isArray(snmpIn.vendors)) {
+          const validSet = new Set(['dell','cisco','apc','ucd','synology','printer']);
+          const cleanVendors = Array.from(new Set(
+            snmpIn.vendors
+              .map(v => String(v || '').trim().toLowerCase())
+              .filter(v => validSet.has(v))
+          )).sort();
+          if (cleanVendors.length) snmpOut.vendors = cleanVendors;
         }
         // host-level enable gates every per-provider enable.
         // A disabled host cannot have any provider enabled. Strip
