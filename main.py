@@ -3396,11 +3396,8 @@ async def api_snmp_test(
         walk_conc_test = None
     # Per-host vendor MIB selector — same payload key the sampler reads.
     # None = auto-detect; explicit list = bypass auto-detect.
-    vendors_test_raw = body.get("vendors") if isinstance(body, dict) else None
-    vendors_test = (
-        set(vendors_test_raw)
-        if isinstance(vendors_test_raw, list) and vendors_test_raw
-        else None
+    vendors_test = _clean_vendors_input(
+        body.get("vendors") if isinstance(body, dict) else None
     )
 
     # consume tuning_snmp_probe_timeout_seconds. Test endpoint uses
@@ -4497,12 +4494,7 @@ async def _merge_one_host(h: dict, state: dict, *, force: bool = False) -> tuple
                     # for agents with stripped sysDescr or to force a
                     # vendor's walks even when auto-detect would skip
                     # them. None = auto-detect (the common case).
-                    snmp_vendors_raw = row_snmp.get("vendors")
-                    snmp_vendors = (
-                        set(snmp_vendors_raw)
-                        if isinstance(snmp_vendors_raw, list) and snmp_vendors_raw
-                        else None
-                    )
+                    snmp_vendors = _clean_vendors_input(row_snmp.get("vendors"))
                     try:
                         result = await _snmp.probe_snmp(
                             snmp_target,
@@ -4522,6 +4514,19 @@ async def _merge_one_host(h: dict, state: dict, *, force: bool = False) -> tuple
                     if (result.get("hosts") or {}):
                         _snmp_host_cache[h["id"]] = (now, result)
                         _snmp_host_fail_cache.pop(h["id"], None)
+                        # Per-(snmp, host) success path. Routes through
+                        # `record_provider_outcome` so the
+                        # `host_provider_last_ok` UPSERT lands — the
+                        # chip's "Updated Xm ago" subtitle reads from
+                        # that table. Mirrors the Webmin sister block.
+                        try:
+                            from logic.host_metrics_sampler import (
+                                record_provider_outcome as _snmp_outcome,
+                            )
+                            await _snmp_outcome(h["id"], "snmp", True)
+                        except Exception as ex:
+                            print(f"[hosts] snmp success-record "
+                                  f"failed for {h.get('id')!r}: {ex}")
                     else:
                         _snmp_host_fail_cache[h["id"]] = (now, result)
                         _snmp_host_cache.pop(h["id"], None)
@@ -4559,6 +4564,28 @@ async def _merge_one_host(h: dict, state: dict, *, force: bool = False) -> tuple
                                 f"[hosts] snmp probe failed "
                                 f"for {h.get('id')!r} → {target_str}: {err}"
                             )
+                        # Per-(snmp, host) auto-pause counter — gated
+                        # on `not skipped` so cool-down skips don't
+                        # count toward the round threshold (the probe
+                        # wasn't actually attempted). Mirrors the
+                        # Webmin sister block. Real failures (timeout,
+                        # auth, no response) DO count.
+                        if not skipped:
+                            try:
+                                from logic.host_metrics_sampler import (
+                                    record_provider_outcome as _snmp_outcome,
+                                )
+                                _snmp_threshold = tuning.tuning_int(
+                                    "tuning_snmp_failure_pause_rounds"
+                                )
+                                await _snmp_outcome(
+                                    h["id"], "snmp", False,
+                                    error=err_str,
+                                    round_threshold=_snmp_threshold,
+                                )
+                            except Exception as ex:
+                                print(f"[hosts] snmp failure-record "
+                                      f"failed for {h.get('id')!r}: {ex}")
             hosts_map = result.get("hosts") or {}
             if hosts_map:
                 stats = next(iter(hosts_map.values()))
@@ -5774,8 +5801,10 @@ def _clean_host_snmp(raw: Any) -> dict:
       * ``v3_user``   (str)        — overrides ``snmp_v3_user``
       * ``v3_auth_key`` (str)      — overrides ``snmp_v3_auth_key``
       * ``v3_priv_key`` (str)      — overrides ``snmp_v3_priv_key``
-      * ``walk_concurrency`` (1..32) — overrides
-        ``tuning_snmp_per_host_walk_concurrency``. Server-class BMCs
+      * ``walk_concurrency`` (1..16) — overrides
+        ``tuning_snmp_per_host_walk_concurrency``. Range matches the
+        global tunable's bounds; pre-fix this clamped to 1..32 which
+        was internally inconsistent with the global 1..16. Server-class BMCs
         (Dell iDRAC, Cisco IMC, Supermicro IPMI) handle parallel
         queries fine and benefit dramatically from > 1 because pysnmp
         v7's per-walk overhead serialises ~67 OID branches into 30-50s
@@ -5829,7 +5858,7 @@ def _clean_host_snmp(raw: Any) -> dict:
     if walk_conc not in (None, "", 0):
         try:
             wc = int(walk_conc)
-            if 1 <= wc <= 32:
+            if 1 <= wc <= 16:
                 out["walk_concurrency"] = wc
         except (TypeError, ValueError):
             pass
@@ -5839,16 +5868,46 @@ def _clean_host_snmp(raw: Any) -> dict:
     # (current default behaviour). Trims the OID set to base + matching
     # vendors so an iDRAC doesn't waste budget walking Cisco / APC /
     # Synology / Printer MIBs that always return noSuchObject.
-    raw_vendors = raw.get("vendors")
-    if isinstance(raw_vendors, list):
-        valid_vendor_set = {"dell", "cisco", "apc", "ucd", "synology", "printer"}
-        clean_vendors = sorted({
-            str(v).strip().lower() for v in raw_vendors
-            if isinstance(v, str) and str(v).strip().lower() in valid_vendor_set
-        })
-        if clean_vendors:
-            out["vendors"] = clean_vendors
+    # Vendor key set is sourced from ``logic.snmp._VALID_VENDOR_KEYS``
+    # (single source of truth — also exposed to the SPA via
+    # ``client_config.snmp_vendor_keys`` on /api/me).
+    cleaned = _clean_vendors_input(raw.get("vendors"))
+    if cleaned:
+        out["vendors"] = sorted(cleaned)
     return out
+
+
+def _clean_vendors_input(raw: Any) -> Optional[set[str]]:
+    """Normalise an SNMP ``vendors`` list to the canonical lowercase set.
+
+    Accepts the raw value from JSON (list-of-strings expected). Returns
+    ``None`` when the input isn't a non-empty list. Otherwise returns a
+    set containing only the entries that (a) are strings, (b) match the
+    canonical vendor key set sourced from
+    ``logic.snmp._VALID_VENDOR_KEYS``. This is the single boundary at
+    which non-string entries are filtered out so callers that consume
+    the result downstream don't need defensive ``isinstance`` checks.
+    """
+    if not isinstance(raw, list) or not raw:
+        return None
+    from logic.snmp import _VALID_VENDOR_KEYS
+    cleaned = {
+        str(v).strip().lower() for v in raw
+        if isinstance(v, str) and str(v).strip().lower() in _VALID_VENDOR_KEYS
+    }
+    return cleaned or None
+
+
+def _snmp_vendor_keys_sorted() -> list[str]:
+    """Return the SNMP vendor key set as a sorted list for /api/me.
+
+    Sourced from ``logic.snmp._VALID_VENDOR_KEYS`` so a vendor added to
+    `_VENDOR_SIGNATURES` automatically surfaces a checkbox in the SPA's
+    Admin → Hosts editor on the next /api/me round-trip without
+    touching the frontend.
+    """
+    from logic.snmp import _VALID_VENDOR_KEYS
+    return sorted(_VALID_VENDOR_KEYS)
 
 
 def _slugify_action(title: str) -> str:
@@ -6818,12 +6877,7 @@ async def api_hosts_debug(
                     walk_conc_kick = None
                 # Per-host vendor MIB selector. None = auto-detect from
                 # sysDescr; explicit list = bypass auto-detect.
-                vendors_raw_kick = row_snmp_kick.get("vendors")
-                vendors_kick = (
-                    set(vendors_raw_kick)
-                    if isinstance(vendors_raw_kick, list) and vendors_raw_kick
-                    else None
-                )
+                vendors_kick = _clean_vendors_input(row_snmp_kick.get("vendors"))
                 snmp_task = asyncio.create_task(_snmp.probe_snmp(
                     target_kick,
                     community=community_kick,
@@ -7196,14 +7250,17 @@ async def api_hosts_debug(
         or (p == "node_exporter" and (record.get("ne_url") or "").strip())
         or (p == "webmin"        and (record.get("webmin_name") or "").strip())
         or (p == "ping"          and bool((record.get("ping") or {}).get("enabled", False)))
-        # SNMP is "active for this host" when EITHER an alias is mapped
-        # OR a per-row snmp_name is set. The provider also runs against
-        # the bare host id when no alias / name is set, but that's the
-        # implicit default — we only mark the row "actively snmp-probed"
-        # when the operator has signalled intent.
+        # SNMP is "active for this host" only when (a) the operator has
+        # mapped a target (alias OR per-row snmp_name) AND (b) the per-row
+        # `snmp.enabled === True` opt-in flag is set. The probe-side gate
+        # in `_merge_one_host` requires both — pre-fix the debug panel
+        # showed SNMP as active even when the operator had explicitly
+        # disabled it for the row, contradicting what the actual probe
+        # would do.
         or (p == "snmp" and bool(
             ((record.get("snmp_name") or "").strip())
-            or (isinstance(record.get("snmp"), dict) and record["snmp"])
+            and isinstance(record.get("snmp"), dict)
+            and record["snmp"].get("enabled") is True
         ))
     )
     # Per-host counters — operator-requested addition. Surfaces
@@ -9741,6 +9798,13 @@ async def api_me(request: Request):
                 "webmin":        get_setting("provider_color_webmin", "")        or "",
                 "ping":          get_setting("provider_color_ping", "")          or "",
             },
+            # Canonical SNMP vendor key set — single source of truth at
+            # ``logic.snmp._VALID_VENDOR_KEYS``. Surfaced so the Admin →
+            # Hosts editor renders one checkbox per vendor without the
+            # SPA hardcoding the list (was duplicated at three sites).
+            # Adding a vendor in `_VENDOR_SIGNATURES` automatically
+            # surfaces a checkbox here on the next /api/me round-trip.
+            "snmp_vendor_keys": _snmp_vendor_keys_sorted(),
         },
     }
     # ARCH-004: surface the SESSION_SECRET-auto-generated state to admins.
@@ -9983,6 +10047,19 @@ async def api_me_notify_prefs(
                 per_medium[str(med_name)] = bool(med_val)
             if per_medium:
                 cleaned[ev_name] = per_medium
+            else:
+                # Empty per-medium dict is treated as "no explicit
+                # choice" and dropped from the merge below — equivalent
+                # to clearing the event's pref. Log it explicitly so an
+                # operator investigating "why did my notify pref not
+                # save?" has a breadcrumb in the persistent log without
+                # having to instrument the SPA. The actor's username is
+                # included so the log line is grep-friendly per user.
+                print(
+                    f"[notify] empty per-medium dict for "
+                    f"'{user.username}'.'{ev_name}' — treated as "
+                    f"'no explicit choice' (event pref unchanged)"
+                )
         else:
             raise HTTPException(
                 status_code=400,

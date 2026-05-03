@@ -1678,13 +1678,28 @@ _VENDOR_SIGNATURES: dict[str, tuple[str, ...]] = {
         "synology", "diskstation", "rackstation",
     ),
     "ucd": (
-        "linux ", "freebsd ", "ucd-snmp", "net-snmp", "openwrt", "debian ",
-        "ubuntu ", "alpine ", "raspbian ",
+        # The bare "linux " / "freebsd " / "debian " / "ubuntu " strings
+        # were dropped because they over-match: a Cisco IOS XE box, a
+        # Dell iDRAC running embedded Linux, and many vendor BMCs all
+        # carry "Linux" in sysDescr — auto-detecting them as `ucd` then
+        # added 6 wasted UCD-SNMP-MIB walks per probe. Anchor to the
+        # actual UCD/net-snmp signatures (the daemon name appears in
+        # sysDescr on Linux distros / OpenWrt / FreeBSD when net-snmp is
+        # the SNMP agent — which IS the case `ucd` extractors target).
+        "ucd-snmp", "net-snmp", "openwrt", "raspbian ", "alpine linux",
     ),
     "printer": (
+        # Vendor-keyword + product-line tokens. "samsung " was
+        # over-broad — Samsung NAS appliances and Samsung Smart TVs
+        # both carry "samsung" in sysDescr, and walking Printer-MIB on
+        # them returns noSuchObject for every OID. Tightened to
+        # printer-specific Samsung product-line prefixes (CLP / CLX /
+        # ML / SCX / Xpress / ProXpress / MultiXpress).
         "hp laserjet", "hp officejet", "brother ", "epson ", "canon ",
         "kyocera", "ricoh ", "xerox ", "lexmark", "konica minolta",
-        "samsung ", "fuji xerox",
+        "fuji xerox", "samsung clp", "samsung clx", "samsung ml-",
+        "samsung scx", "samsung xpress", "samsung proxpress",
+        "samsung multixpress",
     ),
 }
 
@@ -1870,12 +1885,18 @@ async def probe_snmp(
         # pruned. Keeps the unpacking at the bottom of probe_snmp
         # untouched: skipped walks return [] / {} → downstream
         # extractors emit no fields for that vendor (correct).
-        async def _resolved_value(v):
+        # Uniform helper signatures: each placeholder accepts an
+        # optional value with a sensible default. ``_resolved_value``
+        # takes no default because its sole call site always passes the
+        # pre-fetched Phase 0 response; the kwarg form lets future call
+        # sites omit it and get None. ``_resolved_dict`` / `_list`
+        # default to empty containers (the skipped-walk semantics).
+        async def _resolved_value(v=None):
             return v
-        async def _resolved_dict():
-            return {}
-        async def _resolved_list():
-            return []
+        async def _resolved_dict(v=None):
+            return v if v is not None else {}
+        async def _resolved_list(v=None):
+            return v if v is not None else []
         # Re-stamp Phase 0's sys response into the slot the unpack
         # expects so `sys_task` carries the same shape as before.
         sys_task = _resolved_value(sys_resp_phase0)
@@ -2104,6 +2125,15 @@ async def probe_snmp(
                 1, int(_tuning.tuning_int("tuning_snmp_per_host_walk_concurrency"))
             )
         walk_sem = asyncio.Semaphore(walk_concurrency_resolved)
+        # Placeholder coroutines (``_resolved_value`` / ``_resolved_dict``
+        # / ``_resolved_list``) are instant-return — they do no I/O. With
+        # walk_concurrency=1 the semaphore serialises ~30 placeholder
+        # awaits behind every real walk for no reason. Identifying them
+        # by qualname lets ``_bounded`` skip the semaphore entirely so
+        # vendor pruning's "free skip" stays free.
+        _PLACEHOLDER_NAMES = frozenset({
+            "_resolved_value", "_resolved_dict", "_resolved_list",
+        })
 
         async def _bounded(coro):
             # When an outer ``asyncio.wait_for`` cancels the gather,
@@ -2119,6 +2149,13 @@ async def probe_snmp(
             # stays quiet. ``close()`` is a no-op if the coroutine
             # already started, so the body path is unaffected.
             try:
+                # Placeholder coroutines bypass the semaphore — they
+                # complete in one step and would otherwise pin the
+                # semaphore behind real walks for no actual concurrency
+                # benefit at walk_concurrency=1.
+                code_name = getattr(getattr(coro, "cr_code", None), "co_name", "")
+                if code_name in _PLACEHOLDER_NAMES:
+                    return await coro
                 async with walk_sem:
                     return await coro
             except BaseException:

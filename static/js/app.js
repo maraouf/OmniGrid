@@ -7735,11 +7735,22 @@ function app() {
         try { this.loadSettings && this.loadSettings(); } catch (_) {}
         // Also pull /api/me so any client_config-delivered tunable
         // (poll cadences, fan-out caps) reflects the new value
-        // without requiring a page reload.
+        // without requiring a page reload. Field-by-field merge
+        // (matching saveSettings's own /api/me refresh path) so the
+        // cross-tab case doesn't tear down DOM bindings the way a
+        // wholesale ``this.me = d`` would (Alpine Proxy identity
+        // contract — see CLAUDE.md "Frontend reconciles ... in place"
+        // rule). `me.notify_mediums` lives on this dict so the
+        // per-medium grid reflects an admin's toggle flip on every
+        // open tab within one SSE round-trip.
         try {
           fetch('/api/me', { cache: 'no-store' })
             .then(r => r.ok ? r.json() : null)
-            .then(d => { if (d && d.authenticated) this.me = d; })
+            .then(d => {
+              if (d && d.authenticated && this.me) {
+                for (const k of Object.keys(d)) this.me[k] = d[k];
+              }
+            })
             .catch(() => {});
         } catch (_) {}
       });
@@ -9208,6 +9219,20 @@ function app() {
       const list = (row && row.snmp && Array.isArray(row.snmp.vendors))
         ? row.snmp.vendors : [];
       return list.includes(vendor);
+    },
+    // Canonical SNMP vendor key set sourced from /api/me's
+    // client_config.snmp_vendor_keys (single source of truth — backed by
+    // logic/snmp.py:_VALID_VENDOR_KEYS server-side). Adding a vendor in
+    // _VENDOR_SIGNATURES surfaces a checkbox here on the next /api/me
+    // round-trip without any frontend edit. Defence-in-depth fallback to
+    // the historical six keys when /api/me hasn't hydrated yet OR the
+    // server is older than this SPA build.
+    snmpVendorKeys() {
+      const cc = (this.me && this.me.client_config) || {};
+      if (Array.isArray(cc.snmp_vendor_keys) && cc.snmp_vendor_keys.length) {
+        return cc.snmp_vendor_keys;
+      }
+      return ['apc', 'cisco', 'dell', 'printer', 'synology', 'ucd'];
     },
     toggleSnmpVendor(idx, vendor, checked) {
       const cur = this.hostsConfig[idx];

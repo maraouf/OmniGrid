@@ -6163,15 +6163,16 @@
                      concurrency=1). -->
                 <div class="mt-3">
                   <label class="block text-[10.5px] uppercase tracking-wider text-[var(--text-faint)] mb-1"
-                         :title="t('admin_hosts.snmp_vendors_hint')">Vendor MIBs</label>
+                         :title="t('admin_hosts.snmp_vendors_hint')"
+                         x-text="t('admin_hosts.snmp_vendors_label')"></label>
                   <div class="flex flex-wrap gap-3 text-[11.5px]">
-                    <template x-for="vendor in ['dell', 'cisco', 'apc', 'ucd', 'synology', 'printer']" :key="vendor">
+                    <template x-for="vendor in snmpVendorKeys()" :key="vendor">
                       <label class="flex items-center gap-1.5 select-none cursor-pointer"
-                             :class="(isReadonly() || !row.enabled) ? 'opacity-50 cursor-not-allowed' : ''">
+                             :class="(isReadonly() || !row.enabled || !(row.snmp && row.snmp.enabled)) ? 'opacity-50 cursor-not-allowed' : ''">
                         <input type="checkbox"
                                :checked="snmpVendorChecked(row, vendor)"
                                @change="toggleSnmpVendor(idx, vendor, $event.target.checked)"
-                               :disabled="isReadonly() || !row.enabled">
+                               :disabled="isReadonly() || !row.enabled || !(row.snmp && row.snmp.enabled)">
                         <span class="text-[var(--text-dim)] mono" x-text="vendor"></span>
                       </label>
                     </template>

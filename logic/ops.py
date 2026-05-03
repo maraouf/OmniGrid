@@ -451,7 +451,19 @@ async def notify(
     # pre-per-medium behaviour for users who haven't migrated their
     # ui_prefs yet AND for events the user explicitly opted out of in
     # full via the SPA's Disable-all button (still stored as bare bool).
-    if user_event_pref is False:
+    # Defence in depth: a dict-shape pref with every medium explicitly
+    # False is semantically equivalent to a bare-bool False — recognise
+    # it here so the log output stays consistent ("opted out across
+    # every medium" instead of N per-medium "skipped" lines + a "no
+    # mediums enabled" trailer) and the per-medium fan-out below isn't
+    # entered just to be entirely skipped. Empty dicts fall through to
+    # the per-medium fan-out (every medium defaults to True there) —
+    # they're "no explicit choice" rather than "explicit opt-out".
+    if user_event_pref is False or (
+        isinstance(user_event_pref, dict)
+        and user_event_pref
+        and not any(bool(v) for v in user_event_pref.values())
+    ):
         print(
             f"[notify] skipped — user '{actor_username}' opted out of "
             f"'{event}' across every medium"
