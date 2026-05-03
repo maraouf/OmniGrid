@@ -3151,10 +3151,19 @@
                is a single grid line; clean Alpine x-for iteration. -->
           <template x-for="row in notifyAllOpsRows()" :key="row.key">
             <div class="contents">
-              <div class="py-1.5 text-[12px] text-[var(--text)] flex items-center gap-2">
-                <span x-text="t('admin.notifications.events.' + row.label)" class="text-[var(--text-dim)]"></span>
+              <div class="py-1.5 text-[12px] text-[var(--text)] flex items-center gap-2 min-w-0">
+                <!-- :title carries the same translated label so users
+                     hovering a truncated row see the full text in a
+                     tooltip (matters for long French / German labels
+                     that overflow the grid column). truncate + min-w-0
+                     on parent gives the span a real width to clip
+                     against; the title fallback rescues the meaning. -->
+                <span x-text="t('admin.notifications.events.' + row.label)"
+                      :title="t('admin.notifications.events.' + row.label)"
+                      class="text-[var(--text-dim)] truncate"></span>
                 <span class="text-[var(--text-faint)]" x-text="'·'"></span>
                 <span x-text="t('admin.notifications.events.' + row.kind)"
+                      :title="t('admin.notifications.events.' + row.kind)"
                       :class="row.kind === 'failure' ? 'text-[var(--danger)]' : 'text-[var(--success)]'"
                       class="font-medium"></span>
               </div>
@@ -5627,6 +5636,41 @@
                   class="btn btn-ghost text-[11px]" :title="t('hosts_extra.empty.clear_filter')">✕</button>
         </div>
 
+        <!-- Bulk vendor MIB applicator. Operator picks a vendor + clicks
+             Apply to set/clear that vendor's checkbox on every row
+             passing the current filter (scope by Search above to limit
+             the apply set). Saves clicking the same vendor checkbox on
+             20+ iDRAC rows individually. Skips rows with snmp.enabled
+             unset — same gate the per-row checkboxes use. -->
+        <div x-show="!hostsConfigLoading && hostsConfig.length > 3"
+             class="flex items-center gap-2 mb-3 flex-wrap text-[11.5px]">
+          <span class="text-[var(--text-faint)]"
+                x-text="t('admin_hosts.snmp_vendors_bulk_label')"></span>
+          <select x-model="hostsConfigBulkVendor"
+                  class="bg-[var(--surface-2)] border border-[var(--border)] rounded px-1.5 py-0.5">
+            <option value="" x-text="t('admin_hosts.snmp_vendors_bulk_pick')"></option>
+            <template x-for="vendor in snmpVendorKeys()" :key="'bulk_' + vendor">
+              <option :value="vendor" x-text="vendor"></option>
+            </template>
+          </select>
+          <button type="button"
+                  @click="bulkApplySnmpVendor(hostsConfigBulkVendor, true)"
+                  :disabled="!hostsConfigBulkVendor || isReadonly()"
+                  :class="(!hostsConfigBulkVendor || isReadonly()) ? 'opacity-50 cursor-not-allowed' : ''"
+                  class="btn btn-soft"
+                  :title="t('admin_hosts.snmp_vendors_bulk_apply_title', { count: filteredHostsConfig().length })">
+            <span x-text="t('admin_hosts.snmp_vendors_bulk_apply', { count: filteredHostsConfig().length })"></span>
+          </button>
+          <button type="button"
+                  @click="bulkApplySnmpVendor(hostsConfigBulkVendor, false)"
+                  :disabled="!hostsConfigBulkVendor || isReadonly()"
+                  :class="(!hostsConfigBulkVendor || isReadonly()) ? 'opacity-50 cursor-not-allowed' : ''"
+                  class="btn btn-ghost"
+                  :title="t('admin_hosts.snmp_vendors_bulk_clear_title', { count: filteredHostsConfig().length })">
+            <span x-text="t('admin_hosts.snmp_vendors_bulk_clear', { count: filteredHostsConfig().length })"></span>
+          </button>
+        </div>
+
         <div x-show="!hostsConfigLoading" class="space-y-3 hosts-config-page-bottom-pad">
           <template x-for="{ row, idx } in pagedHostsConfig()" :key="row._uid || ('r-' + idx)">
             <div class="border border-[var(--border)] rounded-md bg-[var(--surface-2)] p-3" data-host-card
@@ -6216,9 +6260,31 @@
                      iDRAC's 67-walk probe to ~50 walks (~13s saved at
                      concurrency=1). -->
                 <div class="mt-3">
+                  <!-- Pre-fix the `:title` lived on the bare <label>
+                       and got dropped by some browsers when the label
+                       had x-text content (the title surfaces as a
+                       tooltip on most engines but not all). Wrapping
+                       the label text in an inner <span> with an
+                       explicit `:title` attaches the tooltip to a
+                       text node that EVERY browser surfaces on hover.
+                       The outer label keeps its own :title for
+                       redundancy / future a11y tooling. -->
                   <label class="block text-[10.5px] uppercase tracking-wider text-[var(--text-faint)] mb-1"
-                         :title="t('admin_hosts.snmp_vendors_hint')"
-                         x-text="t('admin_hosts.snmp_vendors_label')"></label>
+                         :title="t('admin_hosts.snmp_vendors_hint')">
+                    <span :title="t('admin_hosts.snmp_vendors_hint')"
+                          x-text="t('admin_hosts.snmp_vendors_label')"></span>
+                  </label>
+                  <!-- Disabled-row hint banner. Pre-fix the LABEL
+                       got `opacity-50 cursor-not-allowed` but the
+                       INPUT itself stayed un-dimmed-looking — operators
+                       saw clickable boxes that didn't respond. Now the
+                       INPUT also dims (same opacity rule applied via
+                       :class), AND a small explainer banner above the
+                       group tells operators exactly which gate is
+                       blocking them. -->
+                  <p class="text-[10.5px] text-[var(--warning)] mt-0 mb-1.5"
+                     x-show="!row.enabled || !(row.snmp && row.snmp.enabled)"
+                     x-text="!row.enabled ? t('admin_hosts.snmp_vendors_host_disabled') : t('admin_hosts.snmp_vendors_snmp_disabled')"></p>
                   <div class="flex flex-wrap gap-3 text-[11.5px]">
                     <template x-for="vendor in snmpVendorKeys()" :key="vendor">
                       <label class="flex items-center gap-1.5 select-none cursor-pointer"
@@ -6226,8 +6292,9 @@
                         <input type="checkbox"
                                :checked="snmpVendorChecked(row, vendor)"
                                @change="toggleSnmpVendor(idx, vendor, $event.target.checked)"
+                               :class="(isReadonly() || !row.enabled || !(row.snmp && row.snmp.enabled)) ? 'opacity-50 cursor-not-allowed' : ''"
                                :disabled="isReadonly() || !row.enabled || !(row.snmp && row.snmp.enabled)">
-                        <span class="text-[var(--text-dim)] mono" x-text="vendor"></span>
+                        <span class="text-[var(--text-dim)]" x-text="snmpVendorLabel(vendor)"></span>
                       </label>
                     </template>
                   </div>
@@ -6236,7 +6303,19 @@
                      x-text="t('admin_hosts.snmp_vendors_auto')"></p>
                   <p class="text-[10.5px] text-[var(--text-faint)] mt-1.5"
                      x-show="row.snmp && Array.isArray(row.snmp.vendors) && row.snmp.vendors.length"
-                     x-text="t('admin_hosts.snmp_vendors_explicit', { vendors: (row.snmp && row.snmp.vendors || []).join(', ') })"></p>
+                     x-text="t('admin_hosts.snmp_vendors_explicit', { vendors: (row.snmp && row.snmp.vendors || []).map(v => snmpVendorLabel(v)).join(', ') })"></p>
+                  <!-- Last observed auto-detected vendor — surfaces what
+                       the most recent successful probe's vendor
+                       auto-detect picked, so operators new to SNMP can
+                       see "auto-detect found dell" before deciding
+                       whether to override. Hidden when no per-host
+                       override is set AND no auto-detect data is
+                       available. The list is sourced from the host's
+                       last successful probe diagnostic via
+                       `snmpAutoDetectedVendors(h)`. -->
+                  <p class="text-[10.5px] text-[var(--text-faint)] mt-1.5"
+                     x-show="!(row.snmp && Array.isArray(row.snmp.vendors) && row.snmp.vendors.length) && snmpAutoDetectedVendors(row).length"
+                     x-text="t('admin_hosts.snmp_vendors_last_detected', { vendors: snmpAutoDetectedVendors(row).map(v => snmpVendorLabel(v)).join(', ') })"></p>
                 </div>
               </div>
               <!-- Row 3 — test button + per-provider result line. The
@@ -11894,10 +11973,11 @@
               <template x-if="me && me.role === 'admin' && (settings && settings.debug_panel_enabled !== false)">
                 <div class="host-debug-panel">
                   <button type="button"
-                          class="host-debug-toggle"
+                          class="host-debug-toggle host-debug-toggle--accent"
                           @click="toggleHostDebug(h.id)"
                           :aria-expanded="hostsDebugOpen[h.id] ? 'true' : 'false'">
                     <svg width="12" height="12" class="flip-rtl" aria-hidden="true" :style="hostsDebugOpen[h.id] ? 'transform: rotate(90deg)' : ''"><use href="#icon-chevron-right"/></svg>
+                    <svg width="14" height="14" class="host-debug-toggle-icon" aria-hidden="true"><use href="#icon-bug"/></svg>
                     <span x-text="hostsDebugOpen[h.id] ? t('debug_panel.hide') : t('debug_panel.show')"></span>
                     <span class="host-debug-hint" x-show="!hostsDebugOpen[h.id]" x-text="t('debug_panel.hint')"></span>
                   </button>
@@ -12186,10 +12266,11 @@
               <template x-if="me && me.role === 'admin' && h.ssh_enabled">
                 <div class="host-debug-panel">
                   <button type="button"
-                          class="host-debug-toggle"
+                          class="host-debug-toggle host-debug-toggle--accent"
                           @click="toggleSshCard(h.id)"
                           :aria-expanded="sshOpen[h.id] ? 'true' : 'false'">
                     <svg width="12" height="12" class="flip-rtl" aria-hidden="true" :style="sshOpen[h.id] ? 'transform: rotate(90deg)' : ''"><use href="#icon-chevron-right"/></svg>
+                    <svg width="14" height="14" class="host-debug-toggle-icon" aria-hidden="true"><use href="#icon-terminal"/></svg>
                     <span x-text="t('hosts_extra_ssh.card_title')"></span>
                     <span class="host-debug-hint ms-2"
                           x-text="!sshStatus[h.id] ? t('hosts_extra_ssh.status_checking')

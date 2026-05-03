@@ -195,6 +195,11 @@ const CURATED_REFRESH_FIELDS = new Set([
   'host_dell_phys_disks', 'host_dell_virt_disks',
   'host_dell_power_watts',
   'host_bios_version', 'host_bios_date',
+  // SNMP auto-detect diagnostic. Surfaces the most-recent
+  // successful probe's vendor result so the Admin → Hosts editor
+  // can render "Auto-detect last result: <vendors>" below the Vendor
+  // MIBs checkbox group. Empty list when the probe never succeeded.
+  'host_snmp_active_vendors', 'host_snmp_active_vendors_source',
 ]);
 
 function app() {
@@ -9270,6 +9275,69 @@ function app() {
         ? row.snmp.vendors : [];
       return list.includes(vendor);
     },
+    // Bulk vendor applicator state — selected vendor for the
+    // "Apply vendor MIB to all visible rows" picker. Empty = "no
+    // vendor chosen, both Apply / Clear disabled".
+    hostsConfigBulkVendor: '',
+    // Apply or clear ``vendor`` on EVERY row that passes the current
+    // hostsConfig filter. ``add=true`` = check the vendor on each row's
+    // snmp.vendors array; ``add=false`` = remove it. Skips rows where
+    // `snmp.enabled !== true` (the per-row checkbox group is gated on
+    // that flag and wouldn't accept the click). Marks each touched row
+    // dirty so the existing Save flow picks them up.
+    bulkApplySnmpVendor(vendor, add) {
+      if (!vendor || this.isReadonly()) return;
+      const validSet = new Set(this.snmpVendorKeys());
+      if (!validSet.has(vendor)) return;
+      let touched = 0;
+      const rows = this.filteredHostsConfig();
+      for (const entry of rows) {
+        const idx = (entry && typeof entry.idx === 'number') ? entry.idx : -1;
+        if (idx < 0) continue;
+        const cur = this.hostsConfig[idx];
+        if (!cur) continue;
+        const snmpIn = cur.snmp || {};
+        if (snmpIn.enabled !== true) continue;
+        const list = Array.isArray(snmpIn.vendors) ? snmpIn.vendors.slice() : [];
+        const set = new Set(list);
+        const had = set.has(vendor);
+        if (add) {
+          if (had) continue;
+          set.add(vendor);
+        } else {
+          if (!had) continue;
+          set.delete(vendor);
+        }
+        const next = Object.assign({}, snmpIn, { vendors: Array.from(set).sort() });
+        this.hostsConfig[idx].snmp = next;
+        this.markHostRowDirty(idx);
+        touched += 1;
+      }
+      if (touched > 0) {
+        this.showToast(this.t(
+          add ? 'admin_hosts.snmp_vendors_bulk_applied'
+              : 'admin_hosts.snmp_vendors_bulk_cleared',
+          { vendor: vendor, count: touched }
+        ));
+      }
+    },
+    // Last auto-detected vendor set for THIS curated row, sourced
+    // from the matching live host's `host_snmp_active_vendors` field
+    // (populated by `_merge_one_host` from the most recent successful
+    // probe's diagnostic). Returns an empty list when (a) the host has
+    // never been probed successfully, OR (b) the host doesn't appear
+    // in the loaded `this.hosts` array (Admin → Hosts editor is open
+    // but the Hosts view hasn't loaded yet — the helper just returns
+    // empty until the row's host data lands). Helps operators new to
+    // SNMP see what auto-detect picked before deciding whether to set
+    // an explicit override.
+    snmpAutoDetectedVendors(row) {
+      if (!row || !row.id) return [];
+      const list = Array.isArray(this.hosts) ? this.hosts : [];
+      const live = list.find(h => h && h.id === row.id);
+      const av = live && live.host_snmp_active_vendors;
+      return Array.isArray(av) ? av.slice() : [];
+    },
     // Canonical SNMP vendor key set sourced from /api/me's
     // client_config.snmp_vendor_keys (single source of truth — backed by
     // logic/snmp.py:_VALID_VENDOR_KEYS server-side). Adding a vendor in
@@ -9283,6 +9351,26 @@ function app() {
         return cc.snmp_vendor_keys;
       }
       return ['apc', 'cisco', 'dell', 'printer', 'synology', 'ucd'];
+    },
+    // Operator-friendly label for an SNMP vendor key. The persisted
+    // values stay lowercase to match `_VALID_VENDOR_KEYS` server-side,
+    // but the rendered checkbox text uses the brand-canonical case
+    // (Dell / Cisco / APC / Synology / Printer / UCD/net-snmp).
+    // Unknown keys fall through to a Title-Case fallback so a future
+    // vendor added on the backend still renders sensibly without a
+    // SPA edit.
+    snmpVendorLabel(key) {
+      const k = String(key || '').trim().toLowerCase();
+      const map = {
+        'apc':      'APC',
+        'cisco':    'Cisco',
+        'dell':     'Dell',
+        'synology': 'Synology',
+        'printer':  'Printer',
+        'ucd':      'UCD/net-snmp',
+      };
+      if (k in map) return map[k];
+      return k ? k[0].toUpperCase() + k.slice(1) : '';
     },
     toggleSnmpVendor(idx, vendor, checked) {
       const cur = this.hostsConfig[idx];
@@ -10272,6 +10360,15 @@ function app() {
         [idx]: { pending: true },
       };
       try {
+        // Forward the row's per-host SNMP overrides so the test
+        // probe runs under the SAME config the live probe / sampler
+        // would use. Without this an iDRAC row with an explicit
+        // walk_concurrency=4 + vendors=["dell"] override still tested
+        // at the safety-floor concurrency=1 + walk-all default,
+        // surfacing as "Test failed: HTTP 504" because the full
+        // 67-OID walk exceeded NPM's proxy_read_timeout. Backend
+        // honours these or falls through to globals when blank.
+        const snmp = (row.snmp || {});
         const r = await fetch('/api/hosts/test', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -10285,6 +10382,19 @@ function app() {
             // chain runs. Without this, SNMP-only rows reported "all
             // skipped" + ping-only rows skipped their reachability check.
             snmp_name:   (row.snmp_name   || '').trim(),
+            // Per-host SNMP overrides (community / version / port /
+            // v3 / walk_concurrency / vendors / wall_clock_budget).
+            // Each is forwarded only when set so blanks fall through
+            // to the global defaults server-side.
+            snmp_community:        (snmp.community        || '').trim(),
+            snmp_version:          (snmp.version          || '').trim(),
+            snmp_port:             snmp.port              || 0,
+            snmp_v3_user:          (snmp.v3_user          || '').trim(),
+            snmp_v3_auth_key:      (snmp.v3_auth_key      || '').trim(),
+            snmp_v3_priv_key:      (snmp.v3_priv_key      || '').trim(),
+            snmp_walk_concurrency: snmp.walk_concurrency  || 0,
+            snmp_wall_clock_budget: snmp.wall_clock_budget || 0,
+            snmp_vendors:          Array.isArray(snmp.vendors) ? snmp.vendors : [],
             ping_enabled: !!(row.ping && row.ping.enabled),
             host_id:     (row.id          || '').trim(),
           }),

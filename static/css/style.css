@@ -4143,6 +4143,31 @@ body.login {
     transition: transform 0.15s;
 }
 
+/* Accent variant for the drawer's Show debug + SSH toggles. The
+ * default `.host-debug-toggle` reads as muted (text-dim on
+ * transparent) which makes the buttons easy to miss inside dense host
+ * drawers. The `--accent` variant uses --primary-soft as the
+ * resting background plus a brighter border so the buttons stay
+ * visible at a glance without competing with the page's primary
+ * actions. Hover deepens the accent slightly. */
+.host-debug-toggle--accent {
+    background: color-mix(in srgb, var(--primary) 8%, transparent);
+    border-color: color-mix(in srgb, var(--primary) 30%, var(--border));
+    color: color-mix(in srgb, var(--primary) 70%, var(--text));
+}
+.host-debug-toggle--accent:hover {
+    background: color-mix(in srgb, var(--primary) 14%, transparent);
+    border-color: color-mix(in srgb, var(--primary) 55%, var(--border));
+    color: var(--text);
+}
+.host-debug-toggle-icon {
+    color: color-mix(in srgb, var(--primary) 70%, var(--text-dim));
+    flex-shrink: 0;
+}
+.host-debug-toggle--accent:hover .host-debug-toggle-icon {
+    color: var(--primary);
+}
+
 .host-debug-hint {
     color: var(--text-faint);
     font-size: var(--fs-xs);
