@@ -6811,6 +6811,15 @@ async def api_hosts_debug(
                     "v3_user": v3_user_kick,
                     "v3_auth_set": bool(v3_auth_kick),
                     "v3_priv_set": bool(v3_priv_kick),
+                    # Per-host override + global tunable so the operator
+                    # can see WHICH value the probe used. None = "no
+                    # per-host override, fell back to the global
+                    # tunable" — the resolved field shows the actual
+                    # value used inside probe_snmp.
+                    "walk_concurrency": walk_conc_kick,
+                    "walk_concurrency_global": int(
+                        tuning.tuning_int("tuning_snmp_per_host_walk_concurrency")
+                    ),
                 }
 
     # ---- Beszel --------------------------------------------------
@@ -9663,6 +9672,13 @@ async def api_me(request: Request):
             # SNMP-specific cadence on operators who run SNMP at a
             # different cadence than Beszel/NE.
             "snmp_sample_interval_seconds": tuning.tuning_int("tuning_snmp_sample_interval_seconds"),
+            # Global SNMP per-host walk concurrency. Surfaced so the
+            # Admin → Hosts editor can render the per-host
+            # walk_concurrency input's placeholder as the resolved
+            # global value (instead of a hardcoded "1") — operator
+            # immediately sees what value the row will use when blank
+            # vs the override they're typing.
+            "snmp_per_host_walk_concurrency": tuning.tuning_int("tuning_snmp_per_host_walk_concurrency"),
             # Scheduler-tz state so the admin Schedules tab can badge
             # "TZ: <name> → falling back to UTC" when the operator typed
             # an invalid IANA name. ``configured`` = raw setting,
