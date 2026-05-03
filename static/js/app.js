@@ -15647,19 +15647,51 @@ function app() {
     // palette; the legend below the chart pairs name + last reading.
     dellTempProbes(hostId) {
       // Sorted probe metadata for the chart + legend. Returns an array
-      // of `{idx, name, points, last_c, color}` — empty when the host
-      // has no temp history yet. Sort key: probe_idx (string-natural)
-      // so Inlet (1.x) renders above Exhaust (2.x) consistently.
+      // of `{idx, name, points, last_c, color}`. Two sources merge:
+      //   1) hostSnmpTempHistory — persisted samples from the sampler
+      //      (provides the time-series points for the chart)
+      //   2) drawerHost.host_dell_temps — live probe payload from the
+      //      most recent /api/hosts/one fetch (provides immediate
+      //      readings while history accumulates)
+      // The merge lets the chart slot render as soon as the drawer is
+      // open — pre-fix the chart card sat at "Collecting data..." until
+      // 2 sampler ticks (~10 min) had landed two persisted samples.
       const entry = this.hostSnmpTempHistory[hostId] || {};
       const probes = entry.probes || {};
-      const out = [];
+      const drawer = (this.drawerHost && this.drawerHost.id === hostId)
+                     ? this.drawerHost : null;
+      const liveTemps = drawer && Array.isArray(drawer.host_dell_temps)
+                        ? drawer.host_dell_temps : [];
       const palette = [
         'var(--info)', 'var(--warning)', 'var(--success)',
         'var(--danger)', 'var(--primary)', '#a78bfa',
         '#ec4899', '#06b6d4',
       ];
-      let i = 0;
-      const idxs = Object.keys(probes).sort((a, b) => {
+      // Build a unified probe map keyed by idx — history rows define
+      // the probe set when present; live rows top up any probe that
+      // history doesn't know about yet (first-tick scenario where the
+      // sampler hasn't run but the drawer probe just landed).
+      const merged = {};
+      for (const idx of Object.keys(probes)) {
+        merged[idx] = { idx, name: (probes[idx] || {}).name || `temp-${idx}`,
+                        points: Array.isArray((probes[idx] || {}).points)
+                                ? (probes[idx] || {}).points : [] };
+      }
+      const nowTs = Math.floor(Date.now() / 1000);
+      for (const t of liveTemps) {
+        const idx = String(t.idx || '');
+        if (!idx) continue;
+        if (!merged[idx]) {
+          merged[idx] = { idx, name: t.name || `temp-${idx}`, points: [] };
+        }
+        // Append the live reading as a synthetic "now" sample only
+        // when history is empty for this probe — otherwise the
+        // sampler-persisted points are authoritative for time series.
+        if (!merged[idx].points.length && t.celsius != null) {
+          merged[idx].points = [{ ts: nowTs, c: +t.celsius }];
+        }
+      }
+      const idxs = Object.keys(merged).sort((a, b) => {
         const na = a.split('.').map(n => +n || 0);
         const nb = b.split('.').map(n => +n || 0);
         for (let k = 0; k < Math.max(na.length, nb.length); k++) {
@@ -15668,16 +15700,18 @@ function app() {
         }
         return 0;
       });
+      const out = [];
+      let i = 0;
       for (const idx of idxs) {
-        const p = probes[idx] || {};
-        const pts = Array.isArray(p.points) ? p.points : [];
+        const p = merged[idx];
+        const pts = p.points;
         let lastC = null;
         for (let j = pts.length - 1; j >= 0; j--) {
           if (pts[j].c != null) { lastC = pts[j].c; break; }
         }
         out.push({
           idx,
-          name: p.name || `temp-${idx}`,
+          name: p.name,
           points: pts,
           last_c: lastC,
           color: palette[i % palette.length],
@@ -15696,6 +15730,17 @@ function app() {
           if (pt.c != null && pt.c > m) m = pt.c;
         }
       }
+      // Also consider live drawer readings so the y-axis max stays
+      // correct on first-tick scenarios where history is empty but
+      // dellTempProbes synthesised single "now" points from the live
+      // host_dell_temps payload.
+      const drawer = (this.drawerHost && this.drawerHost.id === hostId)
+                     ? this.drawerHost : null;
+      if (drawer && Array.isArray(drawer.host_dell_temps)) {
+        for (const t of drawer.host_dell_temps) {
+          if (t && t.celsius != null && +t.celsius > m) m = +t.celsius;
+        }
+      }
       // Domain floor — 60°C is a sensible upper bound for an
       // idle / lightly-loaded server so a flat 30-40°C line still has
       // visible vertical movement against the same axis as a loaded
@@ -15708,24 +15753,47 @@ function app() {
       // time-domain (1h / 6h / 24h / 7d) lines up with every other
       // drawer chart AND so multi-hour sampling gaps render as visual
       // breaks instead of fake-smooth bridges across the dead period.
+      // Single-point fallback: when only one sample exists, _snmpPathGapped
+      // emits `M x,y` (no L) which draws nothing in SVG. We extend the
+      // path to a 4-pixel horizontal nub at the current y-coordinate so
+      // the operator sees the line is alive while the second sample
+      // accumulates. Once history catches up the full polyline replaces
+      // the nub naturally.
       if (!Array.isArray(points) || !points.length) return '';
       const vals = points.map(p => (p.c != null ? +p.c : null));
       const times = points.map(p => p.ts);
       const max = this.dellTempMaxC(hostId);
-      return this._snmpPathGapped(vals, max, { times });
+      const path = this._snmpPathGapped(vals, max, { times });
+      const validCount = vals.filter(v => v != null).length;
+      if (validCount === 1 && path) {
+        // Single moveto produces no visible stroke. Append a short
+        // horizontal lineto so the polyline draws as a tiny visible
+        // segment at the current reading.
+        return path + ' l 4 0';
+      }
+      return path;
     },
     dellHasTempHistory(hostId) {
-      // Require at least one probe with ≥2 points so a polyline has
-      // something to actually draw. Pre-fix this summed points across
-      // probes, so 1 sample × 4 probes = 4 total → gate returned true →
-      // chart slot rendered, but every polyline had 1 point each
-      // (invisible). Result was the legend showing live readings while
-      // the chart looked empty. Per-probe gate keeps the "Collecting
-      // data..." placeholder up until at least one probe has a real line.
+      // Mount the chart slot whenever a probe has at least one sample
+      // OR the live drawer payload has a `host_dell_temps` reading we
+      // can synthesize a "now" point from (`dellTempProbes` does the
+      // merge). dellTempLine handles single-point series by appending a
+      // 4-pixel horizontal nub so the line is visible before history
+      // accumulates the second point. Pre-fix this required ≥2 persisted
+      // points per probe, leaving the "Collecting data..." placeholder
+      // up for 5-10 minutes after deploy — the legend kept showing live
+      // values while the chart slot stayed empty, which read as broken.
       const entry = this.hostSnmpTempHistory[hostId] || {};
       const probes = entry.probes || {};
       for (const idx of Object.keys(probes)) {
-        if (((probes[idx] || {}).points || []).length >= 2) return true;
+        if (((probes[idx] || {}).points || []).length >= 1) return true;
+      }
+      const drawer = (this.drawerHost && this.drawerHost.id === hostId)
+                     ? this.drawerHost : null;
+      if (drawer && Array.isArray(drawer.host_dell_temps)) {
+        for (const t of drawer.host_dell_temps) {
+          if (t && t.celsius != null) return true;
+        }
       }
       return false;
     },
