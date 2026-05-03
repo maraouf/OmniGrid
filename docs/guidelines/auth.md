@@ -148,8 +148,9 @@ aid for existing deploys, then ignored — the DB is authoritative after seeding
 - **Top-nav "Settings"** item (view-based, not a modal) — personal settings only.
   Sidebar sections (sub-tabs):
   - **Profile** — identity (display name / email / bio / avatar / topbar widgets / appearance).
-  - **Notifications** — per-user opt-in/out for the 12 op events + the user-login security
-    event. Admin-disabled events grey out.
+  - **Notifications** — per-user opt-in/out for the 14 op events (stack/container/service/swarm-agent
+    update + restart + remove + prune, success + failure pairs) plus the security events
+    (`user_login`, `host_paused`). Admin-disabled events grey out.
   - **Ignore list** — image / stack ignore patterns.
   - **Language** — UI language picker (EN / AR with RTL; more by dropping a JSON in
     `static/i18n/`).
@@ -168,8 +169,9 @@ aid for existing deploys, then ignored — the DB is authoritative after seeding
     one-click revoke.
   - **API tokens** — create named tokens with role; raw value shown ONCE in a reveal modal
     (we store SHA-256 only); revoke any token.
-  - **Notifications** — global Apprise URL + tag + per-event toggles (12 op events + 1
-    security event). Master toggle gates dependent inputs.
+  - **Notifications** — global Apprise URL + tag + per-medium master toggles (`app` /
+    `apprise`) + per-event toggles (14 op events + 2 security events: `user_login` /
+    `host_paused`). Master toggle gates dependent inputs.
   - **Portainer** — connection settings + public URL. Master toggle.
   - **Authentik OIDC** — SSO provider config. Master toggle. See `docs/guidelines/authentik.md`.
   - **Providers** (Beszel / Pulse / node-exporter / Webmin / Ping / SNMP — renamed from

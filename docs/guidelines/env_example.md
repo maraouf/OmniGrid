@@ -300,12 +300,14 @@ for default).
   widget reports `configured: false`; there is NO fallback to `api.open-meteo.com` anymore.
 - **Apprise** (`apprise_url`, `apprise_tag`, `portainer_public_url`). Edited from
   Admin → Notifications.
-- **Per-event notification toggles** — 12 op events
+- **Per-event notification toggles** — 14 op events
   (`notify_event_{stack_update, container_update, container_restart, container_remove,
-  service_restart, prune}_{success, failure}`) plus one security event
-  (`notify_event_user_login`, default OFF). Admin → Notifications hosts the global gates;
-  Settings → Notifications hosts the per-user opt-in/out (stored in
-  `users.ui_prefs.notify_events`). Two-layer scoping: admin gate first, then per-user.
+  service_restart, swarm_agent_restart, prune}_{success, failure}`) plus two security events
+  (`notify_event_user_login`, default OFF; `notify_event_host_paused`, default ON). Admin →
+  Notifications hosts the global gates AND the per-medium master toggles
+  (`notify_medium_app` / `notify_medium_apprise`, both default ON); Settings → Notifications
+  hosts the per-user opt-in/out (stored in `users.ui_prefs.notify_events`). Two-layer
+  scoping: admin gate + medium gate first, then per-user.
 - **TOTP / 2FA policy** (`totp_allowed`, `totp_required_for_admins`,
   `totp_required_for_users`, `totp_lockout_max_failures`, `totp_lockout_minutes`). Edited
   from Admin → Authentication. Per-user `totp_force_required` flag lives on the `users`

@@ -1,7 +1,6 @@
 # Metrics guide — OmniGrid Prometheus / Grafana setup
 
-Companion to research proposal C1 (see `notes/notes_agent_research.txt`, "Research round —
-2026-04-22"). Describes how to expose, scrape, and visualise OmniGrid's own fleet metrics.
+Describes how to expose, scrape, and visualise OmniGrid's own fleet metrics.
 
 ## Status
 
@@ -26,8 +25,10 @@ Backend wiring shipped with this endpoint:
   (NOT `app.mount` — Starlette's Mount only matches `/metrics/` with a trailing slash, which
   breaks default Prometheus scrapers; see [Common pitfalls](#common-pitfalls)).
 
-The dashboard JSON (`notes/grafana_dashboard_omnigrid.json`) is ready to import; panels light up
-as soon as Prometheus starts scraping.
+The dashboard JSON ships in two flavours — `docs/grafana_dashboard_omnigrid.example.json`
+(public-shippable, placeholder URLs, importable as-is) and `notes/grafana_dashboard_omnigrid.json`
+(operator-private working copy with live URLs). Either is ready to import; panels light up as
+soon as Prometheus starts scraping.
 
 ## Port & URL matrix
 
@@ -259,7 +260,8 @@ You should see `HELP` / `TYPE` lines for the metrics listed above.
 1. Grafana → Connections → Data sources → Add data source → Prometheus. Set URL to
    `http://prometheus:9090` (or wherever Prometheus lives). Save & Test.
 2. Grafana → Dashboards → New → Import → Upload JSON file. Use
-   `notes/grafana_dashboard_omnigrid.json` (already in this repo). When prompted:
+   `docs/grafana_dashboard_omnigrid.example.json` (public copy) or the operator-private
+   `notes/grafana_dashboard_omnigrid.json` (live URLs). When prompted:
    - Name: leave as `OmniGrid — Fleet Status`.
    - UID: leave as `omnigrid-fleet` (or change to avoid collision).
    - DS_PROMETHEUS: pick the data source you just created.
@@ -305,8 +307,10 @@ You should see `HELP` / `TYPE` lines for the metrics listed above.
 
 ## Related files
 
-- `notes/notes_agent_research.txt` — proposal C1 (this metric set).
-- `notes/grafana_dashboard_omnigrid.json` — ready-to-import dashboard.
+- `docs/grafana_dashboard_omnigrid.example.json` — public-shippable Grafana
+  dashboard template with placeholder URLs (importable as-is).
+- `notes/grafana_dashboard_omnigrid.json` — operator's working dashboard
+  with live URLs (kept under `notes/`, not shipped publicly).
 - `logic/metrics.py` — registry + metric objects + `populate_from_cache()` +
   `register_cache_age_collector()`.
 - `main.py` — `@app.get("/metrics")` handler + `_lifespan` wiring.

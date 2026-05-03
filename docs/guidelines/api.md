@@ -543,9 +543,9 @@ Routes that are **safe to script against long-term**:
 
 - `/api/healthz`, `/api/version`, `/metrics` — never break.
 - `/api/items`, `/api/stats`, `/api/stats/history`, `/api/ops`, `/api/history` — additions only; existing fields are not removed.
-- `/api/update/stack/{id}`, `/api/update/container/{id}`, `/api/restart/*`, `/api/remove/*` — contract is `{op_id}` always.
+- `/api/update/stack/{id}`, `/api/update/container/{id}`, `/api/restart/*`, `/api/remove/*`, `/api/prune/node/{hostname}`, `/api/swarm/restart-agent` — contract is `{op_id}` always.
 - `/api/hosts/list`, `/api/hosts/one/{id}`, `/api/hosts/history`, `/api/hosts/config` — additive.
-- `/api/schedules*`, `/api/backups*` — additive.
+- `/api/schedules*`, `/api/backups*`, `/api/notifications*` — additive.
 
 Routes that are **likely to grow / change shape** as the project evolves:
 

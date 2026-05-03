@@ -58,7 +58,7 @@ Second MINOR cut on top of `1.1.0` — rolls up **118 closed issues** under the 
 ### Schedules & automation
 
 - `/api/ops` poll cadence is now a tunable (Admin → Config → "Ops poll cadence (ms)"). Backed by `tuning_ops_... (#145) [Enhancement]
-- Schedules ("Prune debian13docker", "Refresh fleet cache") were re-seeding on every container boot even afte... (#159) [Enhancement]
+- Schedules ("Prune <node>", "Refresh fleet cache") were re-seeding on every container boot even afte... (#159) [Enhancement]
 - Rows could get stuck "running" forever after a lifespan cancel mid-run. `fire_schedule()` records `(last_op... (#175) [Bug]
 - **Unified topbar refresh cadence** (#206). Replaced the separate SYNC + STATS pickers with ONE control offe... (#206) [Enhancement]
 ### Notifications
