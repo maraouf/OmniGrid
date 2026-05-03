@@ -1656,6 +1656,70 @@ def extract_stats(
     return stats
 
 
+# Vendor signatures matched against sysDescr.0 (case-insensitive) for
+# auto-detection. Each entry maps a vendor key (used to gate vendor-
+# specific walks) to a list of substrings any of which marks a positive
+# detection. Order doesn't matter — all keys are evaluated. New entries
+# slot in by adding their walks to ``_VENDOR_WALK_GROUPS`` AND a
+# substring set here.
+_VENDOR_SIGNATURES: dict[str, tuple[str, ...]] = {
+    "dell": (
+        "poweredge", "idrac", "openmanage", "dell ", "dell remote access",
+    ),
+    "cisco": (
+        "cisco ios", "cisco nx-os", "cisco ios xr", "cisco ios-xe",
+        "ciscosystems", "cisco systems",
+    ),
+    "apc": (
+        "apc web/snmp", "apc network management", "smart-ups", "back-ups",
+        "symmetra", "powernet",
+    ),
+    "synology": (
+        "synology", "diskstation", "rackstation",
+    ),
+    "ucd": (
+        "linux ", "freebsd ", "ucd-snmp", "net-snmp", "openwrt", "debian ",
+        "ubuntu ", "alpine ", "raspbian ",
+    ),
+    "printer": (
+        "hp laserjet", "hp officejet", "brother ", "epson ", "canon ",
+        "kyocera", "ricoh ", "xerox ", "lexmark", "konica minolta",
+        "samsung ", "fuji xerox",
+    ),
+}
+
+
+def _detect_vendors_from_sysdescr(sys_descr: str) -> set[str]:
+    """Return the set of vendor keys matched against ``sys_descr``.
+
+    Case-insensitive substring scan against ``_VENDOR_SIGNATURES``. An
+    agent CAN match multiple vendors (e.g. a Linux-based net-snmp host
+    that also runs Cisco software) — every match is honoured.
+
+    Returns an empty set when ``sys_descr`` is empty / unrecognised.
+    The caller treats an empty result as "fall back to walk-all" so an
+    unknown agent stays covered (no regression vs the pre-#901 single-
+    phase behaviour).
+    """
+    if not sys_descr:
+        return set()
+    haystack = sys_descr.lower()
+    matched: set[str] = set()
+    for vendor, needles in _VENDOR_SIGNATURES.items():
+        for needle in needles:
+            if needle in haystack:
+                matched.add(vendor)
+                break
+    return matched
+
+
+# Valid per-host vendor-override values (passes through to probe_snmp's
+# `vendors` kwarg). Mirrors the keys in `_VENDOR_SIGNATURES`. The
+# special ``"auto"`` value (operator-facing) is translated to None
+# before reaching probe_snmp.
+_VALID_VENDOR_KEYS: frozenset[str] = frozenset(_VENDOR_SIGNATURES.keys())
+
+
 async def probe_snmp(
     host: str,
     *,
@@ -1671,6 +1735,7 @@ async def probe_snmp(
     bypass_cooldown: bool = False,
     wall_clock_budget: Optional[float] = None,
     walk_concurrency: Optional[int] = None,
+    vendors: Optional[set[str]] = None,
 ) -> dict:
     """Probe one SNMP-speaking host. See module docstring for the contract.
 
@@ -1753,19 +1818,67 @@ async def probe_snmp(
         return {"hosts": {}, "error": f"snmp: transport setup failed: {e}"}
 
     # ----------------------------------------------------------------
-    # Fan out the GET + walks in parallel. asyncio.gather keeps the
-    # wall-clock close to the slowest individual SNMP RTT instead of
-    # adding them up. pysnmp's session is reentrant — each `getCmd` /
-    # `bulkCmd` call carries its own request ID.
+    # Phase 0 — sysDescr GET. Runs SOLO before any other walk so we can
+    # detect the vendor from the response and prune irrelevant vendor
+    # walks before they add to the wall-clock budget. The cost is one
+    # extra round-trip (~one walk's worth of latency, ~0.5-1s on a
+    # typical agent) but the savings on multi-vendor probes are huge:
+    # an iDRAC needs only base + Dell walks (~50 OIDs) so skipping
+    # Cisco / APC / UCD / Synology / Printer walks (~17 OIDs) drops
+    # ~16s of wall-clock at concurrency=1.
+    #
+    # Per-host ``vendors`` override (operator declared on the curated
+    # row) bypasses auto-detection — useful for agents with stripped
+    # sysDescr or for forcing a specific vendor's walks even when
+    # auto-detect would skip them. ``None`` (the default) means
+    # auto-detect from sysDescr.
     # ----------------------------------------------------------------
     try:
-        # sys GET expanded with sysContact + sysLocation; new
-        # ENTITY-MIB walks added so device model / serial / firmware
-        # come back even on agents that don't expose Host Resources MIB.
-        sys_task = _snmp_get(engine, auth, target, [
-            _OID_SYS_NAME, _OID_SYS_DESCR, _OID_SYS_UPTIME,
-            _OID_SYS_CONTACT, _OID_SYS_LOCATION,
-        ])
+        try:
+            sys_resp_phase0 = await _snmp_get(engine, auth, target, [
+                _OID_SYS_NAME, _OID_SYS_DESCR, _OID_SYS_UPTIME,
+                _OID_SYS_CONTACT, _OID_SYS_LOCATION,
+            ])
+        except (asyncio.CancelledError, KeyboardInterrupt):
+            raise
+        except Exception:
+            # Phase 0 failure → empty response. Phase 1 still runs but
+            # vendor detection will return empty → walk-all fallback.
+            # Keeps the probe useful on agents where sysDescr fails but
+            # other OIDs respond.
+            sys_resp_phase0 = {}
+        sys_descr_str = ""
+        if isinstance(sys_resp_phase0, dict):
+            sys_descr_str = str(sys_resp_phase0.get(_OID_SYS_DESCR, "") or "")
+        # Resolve active vendor set. Order: per-host override > auto-
+        # detection > walk-all fallback.
+        if vendors is not None:
+            active_vendors = {v for v in vendors if v in _VALID_VENDOR_KEYS}
+        else:
+            active_vendors = _detect_vendors_from_sysdescr(sys_descr_str)
+        # Empty after resolution = fall back to walk-all so unknown
+        # agents (sysDescr stripped, novel hardware) stay covered.
+        if not active_vendors:
+            active_vendors = set(_VALID_VENDOR_KEYS)
+        # Dell-only fleets skip ENTITY-MIB walks — Dell-RAC-MIB has the
+        # chassis identity (model / serial / firmware) already, so the
+        # generic ENTITY-MIB walks are pure overhead on a homogeneous
+        # Dell server. Saves 5 walks (~5s at concurrency=1).
+        skip_entity_mib = (active_vendors == {"dell"})
+        # Resolved-coroutine helpers — instant-return placeholders that
+        # plug into the existing 67-slot result list when a vendor is
+        # pruned. Keeps the unpacking at the bottom of probe_snmp
+        # untouched: skipped walks return [] / {} → downstream
+        # extractors emit no fields for that vendor (correct).
+        async def _resolved_value(v):
+            return v
+        async def _resolved_dict():
+            return {}
+        async def _resolved_list():
+            return []
+        # Re-stamp Phase 0's sys response into the slot the unpack
+        # expects so `sys_task` carries the same shape as before.
+        sys_task = _resolved_value(sys_resp_phase0)
         cpu_task = _snmp_walk(engine, auth, target, _OID_HR_CPU_LOAD)
         st_type_task = _snmp_walk(engine, auth, target, _OID_HR_STORAGE_TYPE)
         st_desc_task = _snmp_walk(engine, auth, target, _OID_HR_STORAGE_DESC)
@@ -1783,100 +1896,168 @@ async def probe_snmp(
         # an empty walk; per-iface link_speed_mbps stays None and the
         # heatmap renders the iface in grey ("unknown speed").
         if_speed_task = _snmp_walk(engine, auth, target, _OID_IF_HIGH_SPEED)
-        # ENTITY-MIB physical-component walks. Vendor-agnostic
-        # source for model name / serial / firmware on enterprise gear.
-        ent_descr_task = _snmp_walk(engine, auth, target, _OID_ENT_DESCR)
-        ent_name_task = _snmp_walk(engine, auth, target, _OID_ENT_NAME)
-        ent_serial_task = _snmp_walk(engine, auth, target, _OID_ENT_SERIAL_NUM)
-        ent_model_task = _snmp_walk(engine, auth, target, _OID_ENT_MODEL_NAME)
-        ent_fw_task = _snmp_walk(engine, auth, target, _OID_ENT_SOFTWARE_REV)
-        # Vendor-private MIB GETs/walks. Each agent silently
-        # returns "noSuchObject" when the OID isn't supported, so a
-        # non-Dell / non-Cisco device incurs only the round-trip cost
-        # of a few extra UDP packets — no error path.
-        dell_vendor_task = _snmp_get(engine, auth, target, [
-            _OID_DELL_CHASSIS_SERVICE_TAG,
-            _OID_DELL_CHASSIS_MODEL,
-            _OID_DELL_RAC_FIRMWARE,
-            _OID_DELL_GLOBAL_SYS_STATUS,
-            _OID_DELL_SYSTEM_SERVICE_TAG,
-            _OID_DELL_SYSTEM_MODEL_NAME,
-        ])
-        # Dell server health tables (iDRAC) — fans, temps, PSUs,
-        # voltages, amperage, physical / virtual disks, BIOS. Empty walks
-        # on non-Dell agents; per-table extractor is tolerant.
-        dell_fan_status_task   = _snmp_walk(engine, auth, target, _OID_DELL_FAN_STATUS)
-        dell_fan_reading_task  = _snmp_walk(engine, auth, target, _OID_DELL_FAN_READING)
-        dell_fan_type_task     = _snmp_walk(engine, auth, target, _OID_DELL_FAN_TYPE)
-        dell_fan_loc_task      = _snmp_walk(engine, auth, target, _OID_DELL_FAN_LOCATION)
-        dell_temp_status_task  = _snmp_walk(engine, auth, target, _OID_DELL_TEMP_STATUS)
-        dell_temp_reading_task = _snmp_walk(engine, auth, target, _OID_DELL_TEMP_READING)
-        dell_temp_type_task    = _snmp_walk(engine, auth, target, _OID_DELL_TEMP_TYPE)
-        dell_temp_loc_task     = _snmp_walk(engine, auth, target, _OID_DELL_TEMP_LOCATION)
-        dell_psu_status_task   = _snmp_walk(engine, auth, target, _OID_DELL_PSU_STATUS)
-        dell_psu_watts_task    = _snmp_walk(engine, auth, target, _OID_DELL_PSU_WATTS)
-        dell_psu_type_task     = _snmp_walk(engine, auth, target, _OID_DELL_PSU_TYPE)
-        dell_psu_loc_task      = _snmp_walk(engine, auth, target, _OID_DELL_PSU_LOCATION)
-        dell_volt_status_task  = _snmp_walk(engine, auth, target, _OID_DELL_VOLT_STATUS)
-        dell_volt_reading_task = _snmp_walk(engine, auth, target, _OID_DELL_VOLT_READING)
-        dell_volt_loc_task     = _snmp_walk(engine, auth, target, _OID_DELL_VOLT_LOCATION)
-        dell_amp_status_task   = _snmp_walk(engine, auth, target, _OID_DELL_AMP_STATUS)
-        dell_amp_reading_task  = _snmp_walk(engine, auth, target, _OID_DELL_AMP_READING)
-        dell_amp_type_task     = _snmp_walk(engine, auth, target, _OID_DELL_AMP_TYPE)
-        dell_amp_loc_task      = _snmp_walk(engine, auth, target, _OID_DELL_AMP_LOCATION)
-        dell_pd_name_task      = _snmp_walk(engine, auth, target, _OID_DELL_PD_NAME)
-        dell_pd_state_task     = _snmp_walk(engine, auth, target, _OID_DELL_PD_STATE)
-        dell_pd_capacity_task  = _snmp_walk(engine, auth, target, _OID_DELL_PD_CAPACITY)
-        dell_pd_serial_task    = _snmp_walk(engine, auth, target, _OID_DELL_PD_SERIAL)
-        dell_pd_revision_task  = _snmp_walk(engine, auth, target, _OID_DELL_PD_REVISION)
-        dell_vd_name_task      = _snmp_walk(engine, auth, target, _OID_DELL_VD_NAME)
-        dell_vd_state_task     = _snmp_walk(engine, auth, target, _OID_DELL_VD_STATE)
-        dell_vd_size_task      = _snmp_walk(engine, auth, target, _OID_DELL_VD_SIZE)
-        dell_vd_layout_task    = _snmp_walk(engine, auth, target, _OID_DELL_VD_LAYOUT)
-        dell_bios_version_task = _snmp_walk(engine, auth, target, _OID_DELL_BIOS_VERSION)
-        dell_bios_date_task    = _snmp_walk(engine, auth, target, _OID_DELL_BIOS_RELEASE_DATE)
-        cisco_hw_task = _snmp_get(engine, auth, target, [
-            _OID_CISCO_PRODUCT_HW_VER,
-        ])
-        cisco_mem_used_task = _snmp_walk(engine, auth, target, _OID_CISCO_MEM_POOL_USED)
-        cisco_mem_free_task = _snmp_walk(engine, auth, target, _OID_CISCO_MEM_POOL_FREE)
-        cisco_mem_name_task = _snmp_walk(engine, auth, target, _OID_CISCO_MEM_POOL_NAME)
-        cisco_cpu_task = _snmp_walk(engine, auth, target, _OID_CISCO_CPU_TOTAL_5SEC)
-        # APC PowerNet-MIB. One GET covers identity + battery +
-        # output. Non-APC devices return noSuchObject; extractor tolerates.
-        apc_vendor_task = _snmp_get(engine, auth, target, [
-            _OID_APC_UPS_MODEL, _OID_APC_UPS_NAME,
-            _OID_APC_UPS_FIRMWARE, _OID_APC_UPS_SERIAL,
-            _OID_APC_UPS_BATT_STATUS, _OID_APC_UPS_BATT_CAPACITY,
-            _OID_APC_UPS_BATT_TEMP_C, _OID_APC_UPS_BATT_RUNTIME,
-            _OID_APC_UPS_OUTPUT_STATUS, _OID_APC_UPS_OUTPUT_LOAD,
-        ])
-        # UCD-SNMP-MIB. Memory + CPU% (by mode) GETs; load
-        # average + dskTable walks. Non-net-snmp devices return empty.
-        ucd_mem_cpu_task = _snmp_get(engine, auth, target, [
-            _OID_UCD_MEM_TOTAL_REAL, _OID_UCD_MEM_AVAIL_REAL, _OID_UCD_MEM_TOTAL_FREE,
-            _OID_UCD_MEM_BUFFER, _OID_UCD_MEM_CACHED,
-            _OID_UCD_SS_CPU_USER, _OID_UCD_SS_CPU_SYSTEM, _OID_UCD_SS_CPU_IDLE,
-        ])
-        ucd_load_task = _snmp_walk(engine, auth, target, _OID_UCD_LA_LOAD_INT)
-        ucd_dsk_path_task = _snmp_walk(engine, auth, target, _OID_UCD_DSK_PATH)
-        ucd_dsk_total_task = _snmp_walk(engine, auth, target, _OID_UCD_DSK_TOTAL)
-        ucd_dsk_used_task = _snmp_walk(engine, auth, target, _OID_UCD_DSK_USED)
-        ucd_dsk_pct_task = _snmp_walk(engine, auth, target, _OID_UCD_DSK_PERCENT)
+        # ENTITY-MIB physical-component walks. Vendor-agnostic source
+        # for model name / serial / firmware on enterprise gear. Pruned
+        # on Dell-only agents because Dell-RAC-MIB has the same identity
+        # data and ENTITY-MIB is a redundant 5-walk overhead.
+        if skip_entity_mib:
+            ent_descr_task  = _resolved_list()
+            ent_name_task   = _resolved_list()
+            ent_serial_task = _resolved_list()
+            ent_model_task  = _resolved_list()
+            ent_fw_task     = _resolved_list()
+        else:
+            ent_descr_task  = _snmp_walk(engine, auth, target, _OID_ENT_DESCR)
+            ent_name_task   = _snmp_walk(engine, auth, target, _OID_ENT_NAME)
+            ent_serial_task = _snmp_walk(engine, auth, target, _OID_ENT_SERIAL_NUM)
+            ent_model_task  = _snmp_walk(engine, auth, target, _OID_ENT_MODEL_NAME)
+            ent_fw_task     = _snmp_walk(engine, auth, target, _OID_ENT_SOFTWARE_REV)
+        # Vendor-private MIB GETs/walks. Each vendor block is gated
+        # on whether it's in `active_vendors` (resolved at the top of
+        # this try block from per-host override > sysDescr auto-detect
+        # > walk-all fallback). Skipped vendors return empty
+        # placeholders so the result-unpacking 67 slots below stay
+        # intact and the downstream extractors emit no fields for
+        # vendors that don't apply.
+        if "dell" in active_vendors:
+            dell_vendor_task = _snmp_get(engine, auth, target, [
+                _OID_DELL_CHASSIS_SERVICE_TAG,
+                _OID_DELL_CHASSIS_MODEL,
+                _OID_DELL_RAC_FIRMWARE,
+                _OID_DELL_GLOBAL_SYS_STATUS,
+                _OID_DELL_SYSTEM_SERVICE_TAG,
+                _OID_DELL_SYSTEM_MODEL_NAME,
+            ])
+            # Dell server health tables (iDRAC) — fans, temps, PSUs,
+            # voltages, amperage, physical / virtual disks, BIOS.
+            dell_fan_status_task   = _snmp_walk(engine, auth, target, _OID_DELL_FAN_STATUS)
+            dell_fan_reading_task  = _snmp_walk(engine, auth, target, _OID_DELL_FAN_READING)
+            dell_fan_type_task     = _snmp_walk(engine, auth, target, _OID_DELL_FAN_TYPE)
+            dell_fan_loc_task      = _snmp_walk(engine, auth, target, _OID_DELL_FAN_LOCATION)
+            dell_temp_status_task  = _snmp_walk(engine, auth, target, _OID_DELL_TEMP_STATUS)
+            dell_temp_reading_task = _snmp_walk(engine, auth, target, _OID_DELL_TEMP_READING)
+            dell_temp_type_task    = _snmp_walk(engine, auth, target, _OID_DELL_TEMP_TYPE)
+            dell_temp_loc_task     = _snmp_walk(engine, auth, target, _OID_DELL_TEMP_LOCATION)
+            dell_psu_status_task   = _snmp_walk(engine, auth, target, _OID_DELL_PSU_STATUS)
+            dell_psu_watts_task    = _snmp_walk(engine, auth, target, _OID_DELL_PSU_WATTS)
+            dell_psu_type_task     = _snmp_walk(engine, auth, target, _OID_DELL_PSU_TYPE)
+            dell_psu_loc_task      = _snmp_walk(engine, auth, target, _OID_DELL_PSU_LOCATION)
+            dell_volt_status_task  = _snmp_walk(engine, auth, target, _OID_DELL_VOLT_STATUS)
+            dell_volt_reading_task = _snmp_walk(engine, auth, target, _OID_DELL_VOLT_READING)
+            dell_volt_loc_task     = _snmp_walk(engine, auth, target, _OID_DELL_VOLT_LOCATION)
+            dell_amp_status_task   = _snmp_walk(engine, auth, target, _OID_DELL_AMP_STATUS)
+            dell_amp_reading_task  = _snmp_walk(engine, auth, target, _OID_DELL_AMP_READING)
+            dell_amp_type_task     = _snmp_walk(engine, auth, target, _OID_DELL_AMP_TYPE)
+            dell_amp_loc_task      = _snmp_walk(engine, auth, target, _OID_DELL_AMP_LOCATION)
+            dell_pd_name_task      = _snmp_walk(engine, auth, target, _OID_DELL_PD_NAME)
+            dell_pd_state_task     = _snmp_walk(engine, auth, target, _OID_DELL_PD_STATE)
+            dell_pd_capacity_task  = _snmp_walk(engine, auth, target, _OID_DELL_PD_CAPACITY)
+            dell_pd_serial_task    = _snmp_walk(engine, auth, target, _OID_DELL_PD_SERIAL)
+            dell_pd_revision_task  = _snmp_walk(engine, auth, target, _OID_DELL_PD_REVISION)
+            dell_vd_name_task      = _snmp_walk(engine, auth, target, _OID_DELL_VD_NAME)
+            dell_vd_state_task     = _snmp_walk(engine, auth, target, _OID_DELL_VD_STATE)
+            dell_vd_size_task      = _snmp_walk(engine, auth, target, _OID_DELL_VD_SIZE)
+            dell_vd_layout_task    = _snmp_walk(engine, auth, target, _OID_DELL_VD_LAYOUT)
+            dell_bios_version_task = _snmp_walk(engine, auth, target, _OID_DELL_BIOS_VERSION)
+            dell_bios_date_task    = _snmp_walk(engine, auth, target, _OID_DELL_BIOS_RELEASE_DATE)
+        else:
+            dell_vendor_task       = _resolved_dict()
+            dell_fan_status_task   = _resolved_list()
+            dell_fan_reading_task  = _resolved_list()
+            dell_fan_type_task     = _resolved_list()
+            dell_fan_loc_task      = _resolved_list()
+            dell_temp_status_task  = _resolved_list()
+            dell_temp_reading_task = _resolved_list()
+            dell_temp_type_task    = _resolved_list()
+            dell_temp_loc_task     = _resolved_list()
+            dell_psu_status_task   = _resolved_list()
+            dell_psu_watts_task    = _resolved_list()
+            dell_psu_type_task     = _resolved_list()
+            dell_psu_loc_task      = _resolved_list()
+            dell_volt_status_task  = _resolved_list()
+            dell_volt_reading_task = _resolved_list()
+            dell_volt_loc_task     = _resolved_list()
+            dell_amp_status_task   = _resolved_list()
+            dell_amp_reading_task  = _resolved_list()
+            dell_amp_type_task     = _resolved_list()
+            dell_amp_loc_task      = _resolved_list()
+            dell_pd_name_task      = _resolved_list()
+            dell_pd_state_task     = _resolved_list()
+            dell_pd_capacity_task  = _resolved_list()
+            dell_pd_serial_task    = _resolved_list()
+            dell_pd_revision_task  = _resolved_list()
+            dell_vd_name_task      = _resolved_list()
+            dell_vd_state_task     = _resolved_list()
+            dell_vd_size_task      = _resolved_list()
+            dell_vd_layout_task    = _resolved_list()
+            dell_bios_version_task = _resolved_list()
+            dell_bios_date_task    = _resolved_list()
+        if "cisco" in active_vendors:
+            cisco_hw_task = _snmp_get(engine, auth, target, [
+                _OID_CISCO_PRODUCT_HW_VER,
+            ])
+            cisco_mem_used_task = _snmp_walk(engine, auth, target, _OID_CISCO_MEM_POOL_USED)
+            cisco_mem_free_task = _snmp_walk(engine, auth, target, _OID_CISCO_MEM_POOL_FREE)
+            cisco_mem_name_task = _snmp_walk(engine, auth, target, _OID_CISCO_MEM_POOL_NAME)
+            cisco_cpu_task      = _snmp_walk(engine, auth, target, _OID_CISCO_CPU_TOTAL_5SEC)
+        else:
+            cisco_hw_task       = _resolved_dict()
+            cisco_mem_used_task = _resolved_list()
+            cisco_mem_free_task = _resolved_list()
+            cisco_mem_name_task = _resolved_list()
+            cisco_cpu_task      = _resolved_list()
+        # APC PowerNet-MIB. One GET covers identity + battery + output.
+        if "apc" in active_vendors:
+            apc_vendor_task = _snmp_get(engine, auth, target, [
+                _OID_APC_UPS_MODEL, _OID_APC_UPS_NAME,
+                _OID_APC_UPS_FIRMWARE, _OID_APC_UPS_SERIAL,
+                _OID_APC_UPS_BATT_STATUS, _OID_APC_UPS_BATT_CAPACITY,
+                _OID_APC_UPS_BATT_TEMP_C, _OID_APC_UPS_BATT_RUNTIME,
+                _OID_APC_UPS_OUTPUT_STATUS, _OID_APC_UPS_OUTPUT_LOAD,
+            ])
+        else:
+            apc_vendor_task = _resolved_dict()
+        # UCD-SNMP-MIB. Memory + CPU% GETs; load + dskTable walks.
+        if "ucd" in active_vendors:
+            ucd_mem_cpu_task = _snmp_get(engine, auth, target, [
+                _OID_UCD_MEM_TOTAL_REAL, _OID_UCD_MEM_AVAIL_REAL, _OID_UCD_MEM_TOTAL_FREE,
+                _OID_UCD_MEM_BUFFER, _OID_UCD_MEM_CACHED,
+                _OID_UCD_SS_CPU_USER, _OID_UCD_SS_CPU_SYSTEM, _OID_UCD_SS_CPU_IDLE,
+            ])
+            ucd_load_task      = _snmp_walk(engine, auth, target, _OID_UCD_LA_LOAD_INT)
+            ucd_dsk_path_task  = _snmp_walk(engine, auth, target, _OID_UCD_DSK_PATH)
+            ucd_dsk_total_task = _snmp_walk(engine, auth, target, _OID_UCD_DSK_TOTAL)
+            ucd_dsk_used_task  = _snmp_walk(engine, auth, target, _OID_UCD_DSK_USED)
+            ucd_dsk_pct_task   = _snmp_walk(engine, auth, target, _OID_UCD_DSK_PERCENT)
+        else:
+            ucd_mem_cpu_task   = _resolved_dict()
+            ucd_load_task      = _resolved_list()
+            ucd_dsk_path_task  = _resolved_list()
+            ucd_dsk_total_task = _resolved_list()
+            ucd_dsk_used_task  = _resolved_list()
+            ucd_dsk_pct_task   = _resolved_list()
         # SYNOLOGY-MIB. One GET covers identity + system status.
-        syno_vendor_task = _snmp_get(engine, auth, target, [
-            _OID_SYNO_MODEL_NAME, _OID_SYNO_SERIAL_NUMBER, _OID_SYNO_DSM_VERSION,
-            _OID_SYNO_SYSTEM_STATUS, _OID_SYNO_SYSTEM_TEMP, _OID_SYNO_UPGRADE_AVAIL,
-        ])
-        # Printer-MIB. Page count + console message GET; per-
-        # supply walks (description / max / level). Non-printer agents
-        # return empty for all of these; extractor tolerates.
-        prt_basic_task = _snmp_get(engine, auth, target, [
-            _OID_PRT_PAGE_COUNT, _OID_PRT_CONSOLE_MSG,
-        ])
-        prt_supply_descr_task = _snmp_walk(engine, auth, target, _OID_PRT_SUPPLIES_DESCR)
-        prt_supply_max_task   = _snmp_walk(engine, auth, target, _OID_PRT_SUPPLIES_MAX_CAP)
-        prt_supply_level_task = _snmp_walk(engine, auth, target, _OID_PRT_SUPPLIES_LEVEL)
+        if "synology" in active_vendors:
+            syno_vendor_task = _snmp_get(engine, auth, target, [
+                _OID_SYNO_MODEL_NAME, _OID_SYNO_SERIAL_NUMBER, _OID_SYNO_DSM_VERSION,
+                _OID_SYNO_SYSTEM_STATUS, _OID_SYNO_SYSTEM_TEMP, _OID_SYNO_UPGRADE_AVAIL,
+            ])
+        else:
+            syno_vendor_task = _resolved_dict()
+        # Printer-MIB. Page count + console message GET; per-supply
+        # walks (description / max / level).
+        if "printer" in active_vendors:
+            prt_basic_task = _snmp_get(engine, auth, target, [
+                _OID_PRT_PAGE_COUNT, _OID_PRT_CONSOLE_MSG,
+            ])
+            prt_supply_descr_task = _snmp_walk(engine, auth, target, _OID_PRT_SUPPLIES_DESCR)
+            prt_supply_max_task   = _snmp_walk(engine, auth, target, _OID_PRT_SUPPLIES_MAX_CAP)
+            prt_supply_level_task = _snmp_walk(engine, auth, target, _OID_PRT_SUPPLIES_LEVEL)
+        else:
+            prt_basic_task        = _resolved_dict()
+            prt_supply_descr_task = _resolved_list()
+            prt_supply_max_task   = _resolved_list()
+            prt_supply_level_task = _resolved_list()
 
         # wrap the gather in wait_for so the TimeoutError catch
         # becomes reachable (asyncio.gather alone can't raise TimeoutError
@@ -2062,6 +2243,20 @@ async def probe_snmp(
                 "wall_clock_budget_global":   tunable_budget_global,
                 "completed_branches":         done_count,
                 "total_branches":             len(running),
+                # Vendor pruning diagnostics — operator can see which
+                # vendor walks were live AND why (per-host override,
+                # sysDescr auto-detect, or walk-all fallback).
+                "active_vendors":             sorted(active_vendors),
+                "active_vendors_source": (
+                    "per-host override" if vendors is not None
+                    else (
+                        "auto-detected from sysDescr"
+                        if _detect_vendors_from_sysdescr(sys_descr_str)
+                        else "walk-all fallback (sysDescr empty / unrecognised)"
+                    )
+                ),
+                "sys_descr":                  sys_descr_str[:200],
+                "skip_entity_mib":            skip_entity_mib,
             }
     except (asyncio.CancelledError, KeyboardInterrupt):
         # Outer cancellation (parent task killed). Flush our running

@@ -6151,6 +6151,38 @@
                            :title="t('admin_hosts.snmp_walk_concurrency_hint')">
                   </div>
                 </div>
+                <!-- Vendor MIB selector — operator-declared subset of
+                     dell / cisco / apc / ucd / synology / printer. Empty
+                     = auto-detect from sysDescr (the common case;
+                     covers 95% of agents). Set explicitly when
+                     auto-detect picks wrong (sysDescr stripped, novel
+                     hardware) or when you want to force a vendor's
+                     walks even when auto-detect would skip them.
+                     Pruning irrelevant vendor walks drops a Dell
+                     iDRAC's 67-walk probe to ~50 walks (~13s saved at
+                     concurrency=1). -->
+                <div class="mt-3">
+                  <label class="block text-[10.5px] uppercase tracking-wider text-[var(--text-faint)] mb-1"
+                         :title="t('admin_hosts.snmp_vendors_hint')">Vendor MIBs</label>
+                  <div class="flex flex-wrap gap-3 text-[11.5px]">
+                    <template x-for="vendor in ['dell', 'cisco', 'apc', 'ucd', 'synology', 'printer']" :key="vendor">
+                      <label class="flex items-center gap-1.5 select-none cursor-pointer"
+                             :class="(isReadonly() || !row.enabled) ? 'opacity-50 cursor-not-allowed' : ''">
+                        <input type="checkbox"
+                               :checked="snmpVendorChecked(row, vendor)"
+                               @change="toggleSnmpVendor(idx, vendor, $event.target.checked)"
+                               :disabled="isReadonly() || !row.enabled">
+                        <span class="text-[var(--text-dim)] mono" x-text="vendor"></span>
+                      </label>
+                    </template>
+                  </div>
+                  <p class="text-[10.5px] text-[var(--text-faint)] mt-1.5"
+                     x-show="!(row.snmp && Array.isArray(row.snmp.vendors) && row.snmp.vendors.length)"
+                     x-text="t('admin_hosts.snmp_vendors_auto')"></p>
+                  <p class="text-[10.5px] text-[var(--text-faint)] mt-1.5"
+                     x-show="row.snmp && Array.isArray(row.snmp.vendors) && row.snmp.vendors.length"
+                     x-text="t('admin_hosts.snmp_vendors_explicit', { vendors: (row.snmp && row.snmp.vendors || []).join(', ') })"></p>
+                </div>
               </div>
               <!-- Row 3 — test button + per-provider result line. The
                    result lists each probed provider with a tick or

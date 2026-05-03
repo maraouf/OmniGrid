@@ -3394,6 +3394,14 @@ async def api_snmp_test(
         walk_conc_test = int(walk_conc_test) if walk_conc_test else None
     except (TypeError, ValueError):
         walk_conc_test = None
+    # Per-host vendor MIB selector — same payload key the sampler reads.
+    # None = auto-detect; explicit list = bypass auto-detect.
+    vendors_test_raw = body.get("vendors") if isinstance(body, dict) else None
+    vendors_test = (
+        set(vendors_test_raw)
+        if isinstance(vendors_test_raw, list) and vendors_test_raw
+        else None
+    )
 
     # consume tuning_snmp_probe_timeout_seconds. Test endpoint uses
     # max(tunable, 10s) so a tiny tunable doesn't cripple manual smoke probes.
@@ -3414,6 +3422,7 @@ async def api_snmp_test(
         # creds) could never re-test until the cool-down expired.
         bypass_cooldown=True,
         walk_concurrency=walk_conc_test,
+        vendors=vendors_test,
     )
     # If the operator-initiated probe succeeded, clear any pending
     # cool-down so the next automatic sampler tick picks up the host
@@ -4484,6 +4493,16 @@ async def _merge_one_host(h: dict, state: dict, *, force: bool = False) -> tuple
                         snmp_walk_conc = int(snmp_walk_conc) if snmp_walk_conc else None
                     except (TypeError, ValueError):
                         snmp_walk_conc = None
+                    # Per-host vendor MIB selector — bypass auto-detect
+                    # for agents with stripped sysDescr or to force a
+                    # vendor's walks even when auto-detect would skip
+                    # them. None = auto-detect (the common case).
+                    snmp_vendors_raw = row_snmp.get("vendors")
+                    snmp_vendors = (
+                        set(snmp_vendors_raw)
+                        if isinstance(snmp_vendors_raw, list) and snmp_vendors_raw
+                        else None
+                    )
                     try:
                         result = await _snmp.probe_snmp(
                             snmp_target,
@@ -4496,6 +4515,7 @@ async def _merge_one_host(h: dict, state: dict, *, force: bool = False) -> tuple
                             active_sources=active,
                             timeout=snmp_timeout,
                             walk_concurrency=snmp_walk_conc,
+                            vendors=snmp_vendors,
                         )
                     except Exception as e:  # noqa: BLE001
                         result = {"hosts": {}, "error": f"snmp probe failed: {e}"}
@@ -5813,6 +5833,21 @@ def _clean_host_snmp(raw: Any) -> dict:
                 out["walk_concurrency"] = wc
         except (TypeError, ValueError):
             pass
+    # Per-host vendor MIB selector. Operator-declared list of vendor
+    # MIBs to walk against THIS host (subset of dell / cisco / apc / ucd
+    # / synology / printer). Empty / missing = auto-detect from sysDescr
+    # (current default behaviour). Trims the OID set to base + matching
+    # vendors so an iDRAC doesn't waste budget walking Cisco / APC /
+    # Synology / Printer MIBs that always return noSuchObject.
+    raw_vendors = raw.get("vendors")
+    if isinstance(raw_vendors, list):
+        valid_vendor_set = {"dell", "cisco", "apc", "ucd", "synology", "printer"}
+        clean_vendors = sorted({
+            str(v).strip().lower() for v in raw_vendors
+            if isinstance(v, str) and str(v).strip().lower() in valid_vendor_set
+        })
+        if clean_vendors:
+            out["vendors"] = clean_vendors
     return out
 
 
@@ -6781,6 +6816,14 @@ async def api_hosts_debug(
                     walk_conc_kick = int(walk_conc_kick) if walk_conc_kick else None
                 except (TypeError, ValueError):
                     walk_conc_kick = None
+                # Per-host vendor MIB selector. None = auto-detect from
+                # sysDescr; explicit list = bypass auto-detect.
+                vendors_raw_kick = row_snmp_kick.get("vendors")
+                vendors_kick = (
+                    set(vendors_raw_kick)
+                    if isinstance(vendors_raw_kick, list) and vendors_raw_kick
+                    else None
+                )
                 snmp_task = asyncio.create_task(_snmp.probe_snmp(
                     target_kick,
                     community=community_kick,
@@ -6790,6 +6833,7 @@ async def api_hosts_debug(
                     v3_auth_key=v3_auth_kick,
                     v3_priv_key=v3_priv_kick,
                     walk_concurrency=walk_conc_kick,
+                    vendors=vendors_kick,
                     timeout=8.0,
                     active_sources=active,
                     verbose=True,

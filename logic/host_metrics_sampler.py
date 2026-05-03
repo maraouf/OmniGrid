@@ -765,6 +765,15 @@ async def _probe_one_snmp(host: dict, sem: asyncio.Semaphore) -> None:
             row_walk_conc = int(row_walk_conc) if row_walk_conc else None
         except (TypeError, ValueError):
             row_walk_conc = None
+        # Per-host vendor MIB selector — auto-detect from sysDescr when
+        # None, otherwise the operator-declared subset (dell / cisco /
+        # apc / ucd / synology / printer).
+        row_vendors_raw = snmp_cfg.get("vendors")
+        row_vendors = (
+            set(row_vendors_raw)
+            if isinstance(row_vendors_raw, list) and row_vendors_raw
+            else None
+        )
         now = time.time()
         # Round-count auto-pause threshold. 0 = disabled
         # (operator opted out). Per-tick read so an Admin → Config save
@@ -777,6 +786,7 @@ async def _probe_one_snmp(host: dict, sem: asyncio.Semaphore) -> None:
                 v3_user=v3_user, v3_auth_key=v3_auth, v3_priv_key=v3_priv,
                 timeout=snmp_timeout,
                 walk_concurrency=row_walk_conc,
+                vendors=row_vendors,
             )
         except Exception as e:  # noqa: BLE001
             print(f"[host_metrics_sampler] {snmp_key} probe error: {e}")

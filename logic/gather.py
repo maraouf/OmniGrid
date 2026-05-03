@@ -951,6 +951,14 @@ async def _gather_impl() -> None:
                     row_walk_conc = int(row_walk_conc) if row_walk_conc else None
                 except (TypeError, ValueError):
                     row_walk_conc = None
+                # Per-host vendor MIB selector. None = auto-detect from
+                # sysDescr at probe time.
+                row_vendors_raw = row_snmp.get("vendors")
+                row_vendors = (
+                    set(row_vendors_raw)
+                    if isinstance(row_vendors_raw, list) and row_vendors_raw
+                    else None
+                )
                 async with snmp_sem:
                     result = await _snmp.probe_snmp(
                         target_host,
@@ -963,6 +971,7 @@ async def _gather_impl() -> None:
                         active_sources=active_sources,
                         timeout=snmp_timeout,
                         walk_concurrency=row_walk_conc,
+                        vendors=row_vendors,
                     )
                 if result.get("error") and not result.get("hosts"):
                     return h, {"exporter_error": f"snmp: {result['error']}"}
