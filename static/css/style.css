@@ -213,6 +213,8 @@
      * stylesheet so a swap is safe. The 3xs / 2xs sizes consolidate
      * the "tiny pill / badge text" tier that previously appeared as
      * 10px (6 sites) and 10.5px (16 sites). */
+    --fs-4xs:   9px;
+    --fs-3xs-half: 9.5px;
     --fs-3xs:  10px;
     --fs-2xs:  10.5px;
     --fs-xs:   11px;
@@ -220,6 +222,20 @@
     --fs-md:   13px;
     --fs-lg:   14px;
     --fs-xl:   15px;
+    /* Display tier — outside the body-text scale, used on headlines /
+     * avatar initials / login titles where dimensions are picked for
+     * impact rather than reading hierarchy. Add new sizes here when a
+     * legitimate "headline / hero numeral" use lands; don't smuggle
+     * raw px literals into the headline rule. */
+    --fs-display-md: 20px;
+    --fs-display-lg: 48px;
+
+    /* Modal sizing tokens. Default upper bound for full-height modals
+     * (SSH terminal, future log viewer, debug-blob inspector): caps at
+     * 85vh on tall viewports OR 720px absolute, whichever is smaller.
+     * If a modal needs a different ceiling (e.g. a wider report viewer),
+     * add a sibling token rather than inlining a `style="height: ..."`. */
+    --modal-max-height-default: min(85vh, 720px);
 
     /* MED-CSS — log-severity active-pill count badge background.
      * Pre-fix `static/css/style.css:.log-sev-pill.is-active .log-sev-count`
@@ -805,6 +821,17 @@ button:disabled {
     border-top-color: var(--primary);
     animation: spin .8s linear infinite;
     display: inline-block;
+}
+
+/* SVG-rotation variant used to spin an existing icon in place (no border
+ * ring). Distinct from .spin / .spin-lg which DRAW a spinner; .spin-md
+ * just rotates whatever SVG it's applied to around its centre. Used by
+ * the Debug-panel Refresh button so its <use href="#icon-refresh-ccw"/>
+ * spins while the probe is in flight. */
+.spin-md {
+    animation: spin .8s linear infinite;
+    transform-origin: 50% 50%;
+    transform-box: fill-box;
 }
 
 .loading-state {
@@ -1730,7 +1757,7 @@ details summary::-webkit-details-marker {
     display: flex;
     flex-wrap: wrap;
     gap: var(--s-3);
-    font-size: 11px;
+    font-size: var(--fs-xs);
     color: var(--text-dim);
     margin-top: var(--s-1);
 }
@@ -2178,7 +2205,7 @@ details summary::-webkit-details-marker {
     min-width: 52px;
     text-align: center;
     border-radius: var(--r-md);
-    font-size: 9.5px;
+    font-size: var(--fs-3xs-half);
     font-weight: 700;
     letter-spacing: 0.5px;
     line-height: 18px;
@@ -2355,7 +2382,7 @@ details summary::-webkit-details-marker {
     width: 100%;
     max-width: 80px;
     margin-top: var(--s-1);
-    font-size: 9.5px;
+    font-size: var(--fs-3xs-half);
     line-height: 1;
     color: var(--text-faint);
     font-style: italic;
@@ -3248,7 +3275,7 @@ details summary::-webkit-details-marker {
 .user-avatar--lg {
     width: 120px;
     height: 120px;
-    font-size: 48px;
+    font-size: var(--fs-display-lg);
     border-radius: 50%;
     border: 2px solid var(--border-bright);
 }
@@ -3311,6 +3338,7 @@ button:focus:not(:focus-visible) {
     .slide-in,
     .fade-in,
     .spin,
+    .spin-md,
     .pulse-anim,
     .subtle-flash,
     .host-spin,
@@ -3606,7 +3634,7 @@ body.login {
 
 .login-card h1 {
     margin: 0 0 var(--s-2);
-    font-size: 20px;
+    font-size: var(--fs-display-md);
     color: var(--text);
 }
 
@@ -4553,7 +4581,7 @@ select.field-invalid {
     border: 1px solid var(--border);
     background: var(--surface);
     color: var(--text-faint);
-    font-size: 9px;
+    font-size: var(--fs-4xs);
     font-weight: 700;
     line-height: 1;
     cursor: help;
@@ -4681,7 +4709,7 @@ select.field-invalid {
 }
 
 .server-health-section-title {
-    font-size: 10.5px;
+    font-size: var(--fs-2xs);
     text-transform: uppercase;
     letter-spacing: 0.05em;
     color: var(--text-faint);
@@ -4717,7 +4745,9 @@ select.field-invalid {
     grid-template-columns: minmax(0, 1fr) auto auto;
     align-items: center;
     column-gap: var(--s-3);
-    font-size: 11.5px;
+    /* Rounded up from a literal 11.5px to --fs-sm (12px) — half-pixel
+     * specificity wasn't intentional and there's no exact token. */
+    font-size: var(--fs-sm);
     padding: 1px 0;
 }
 
@@ -4732,13 +4762,13 @@ select.field-invalid {
 .server-health-row--dense .server-health-row-name {
     grid-column: 1 / 2;
     grid-row: 1 / 2;
-    font-size: 11px;
+    font-size: var(--fs-xs);
 }
 
 .server-health-row--dense .server-health-row-value {
     grid-column: 1 / 2;
     grid-row: 2 / 3;
-    font-size: 10.5px;
+    font-size: var(--fs-2xs);
     color: var(--text-faint);
     text-align: start;
 }
@@ -4755,7 +4785,7 @@ select.field-invalid {
 .server-health-toggle {
     margin-top: var(--s-2);
     padding: 4px 10px;
-    font-size: 10.5px;
+    font-size: var(--fs-2xs);
     color: var(--text-dim);
     background: transparent;
     border: 1px dashed var(--border);
@@ -4923,4 +4953,13 @@ select.field-invalid {
 .sse-drops-pill svg {
     flex-shrink: 0;
     color: var(--pill-update-fg);
+}
+
+/* Modal panel sized to the default max-height token. Apply on the
+ * inner panel (NOT the backdrop wrapper). Composable with the existing
+ * Tailwind width utilities (`max-w-5xl w-full flex flex-col`). Lifted
+ * from a per-modal inline `style="height: min(85vh, 720px)"` so future
+ * modals can opt in to the same sizing without copying the literal. */
+.modal-panel--default-height {
+    height: var(--modal-max-height-default);
 }
