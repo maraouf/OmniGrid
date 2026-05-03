@@ -13875,6 +13875,37 @@ function app() {
           this.loadHostHistory(host.beszel_id || '', host.id);
         }
       }
+      // Inline-sparkline backfill — every visible host that has been
+      // probed at least once (in `_hostSeenIds`) and has Beszel or NE
+      // telemetry but no usable history yet gets a one-shot history
+      // fetch on every poll cycle. The IntersectionObserver-driven
+      // initial prefetch fires only on first-intersect; if that first
+      // call returned an empty series (e.g. Beszel hub momentarily
+      // unreachable at page load) the row's sparkline would never
+      // populate without this retry. Skip when the cache already has
+      // ≥2 points so we don't re-fetch every 15s for hosts whose
+      // history is fresh. Same SNMP retry layered alongside.
+      for (const id of (this._hostSeenIds || [])) {
+        const host = this.hosts.find(h => h.id === id);
+        if (!host) continue;
+        if (host.beszel_id || host.ne_url) {
+          const key = this.hostHistoryKey(host);
+          const cached = key && this.hostHistory && this.hostHistory[key];
+          if (!cached
+              || !Array.isArray(cached.series)
+              || cached.series.length < 2) {
+            try { this.loadHostHistory(host.beszel_id || '', host.id); } catch {}
+          }
+        }
+        if (host.snmp_enabled && typeof this.loadHostSnmpHistory === 'function') {
+          const snmpCached = this.hostSnmpHistory && this.hostSnmpHistory[host.id];
+          if (!snmpCached
+              || !Array.isArray(snmpCached.points)
+              || snmpCached.points.length < 2) {
+            try { this.loadHostSnmpHistory(host.id, 1); } catch {}
+          }
+        }
+      }
       // Refresh the open drawer's chart history on every host-poll
       // tick (#363 followup). The `Updated Xs/m/h ago` freshness label
       // tracks the last successful chart fetch — without this hook
@@ -15290,9 +15321,18 @@ function app() {
       // historical temp samples is enough to mount the grid wrapper.
       if (Array.isArray(h.host_dell_temps) && h.host_dell_temps.length) return true;
       if (this.dellHasTempHistory && this.dellHasTempHistory(h.id)) return true;
-      return !!((h.host_cpu_per_core || []).length > 0
-                || h.host_load_1m || h.host_load_5m || h.host_load_15m
-                || h.host_mem_buffers || h.host_mem_cached);
+      if ((h.host_cpu_per_core || []).length > 0
+          || h.host_load_1m || h.host_load_5m || h.host_load_15m
+          || h.host_mem_buffers || h.host_mem_cached) return true;
+      // Final fallback: any SNMP-enabled host opens the grid so the
+      // chart cards mount immediately on drawer-open. Each card's own
+      // x-show still gates on data presence — empty cards just render
+      // their "Collecting data..." placeholder until samples accumulate.
+      // Pre-fix the grid stayed hidden until the first SNMP probe
+      // populated host_* fields (10-20s window after drawer-open),
+      // making the host look chart-less when it would soon have data.
+      if (h.snmp_enabled === true) return true;
+      return false;
     },
     // Detect a reboot in the SNMP uptime history. Walks the
     // points pairwise from latest to oldest looking for the LAST
