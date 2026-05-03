@@ -1470,26 +1470,37 @@ details summary::-webkit-details-marker {
  * area, stretches to 100% width, and traces the trend on top of the
  * background fill. preserveAspectRatio="none" on the SVG lets the
  * 100×16 viewBox stretch horizontally to whatever width the parent
- * .stat-bar ended up — no per-host width math. Stroke uses
- * `currentColor` mixed with the surface so the line reads as a
- * subtle overlay regardless of the bar's fill colour underneath. */
+ * .stat-bar ended up — no per-host width math. */
 .host-row-spark {
     position: absolute;
     inset: 0;
     width: 100%;
     height: 100%;
     pointer-events: none;
-    color: var(--text-on-surface, var(--text));
-    opacity: 0.55;
-    mix-blend-mode: luminosity;
+    /* High-contrast white stroke with a subtle dark drop-shadow so the
+     * line stays visible on BOTH the bar's coloured fill (green / amber
+     * / red) AND the unfilled surface-3 background. Pre-fix used
+     * mix-blend-mode: luminosity which made the line invisible on
+     * high-fill bars (84% disk → mostly red fill underneath; the line
+     * blended to nothing). White at 0.85 opacity reads cleanly on
+     * every fill colour AND the dark surface. */
+    color: rgba(255, 255, 255, 0.85);
+    z-index: 1;
+}
+:root[data-theme="light"] .host-row-spark {
+    /* Dark stroke on light theme — same contrast contract reversed. */
+    color: rgba(0, 0, 0, 0.7);
 }
 .host-row-spark path {
     fill: none;
     stroke: currentColor;
-    stroke-width: 1.25;
+    stroke-width: 1.5;
     stroke-linecap: round;
     stroke-linejoin: round;
     vector-effect: non-scaling-stroke;
+    /* 1px drop shadow lifts the line off any fill colour so it reads
+     * clearly even on a bar that's 90%+ saturated red (high-disk hosts). */
+    filter: drop-shadow(0 0 1px rgba(0, 0, 0, 0.5));
 }
 
 .stat-bar > .fill {
