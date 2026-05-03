@@ -14624,22 +14624,29 @@ function app() {
     // the bars on the host rows (desktop + mobile) and the per-card
     // CPU/Mem/Disk/Net/DiskIO charts in the drawer.
     //
-    // SNMP counts as telemetry when the host opted-in (`snmp_enabled
-    // === true` is the per-host gate from hosts_config[].snmp). UCD-
-    // net-snmp + hrProcessorLoad cover CPU%, hrStorageRam covers
-    // Memory%; Disk is provider-dependent (some agents expose
-    // dskTable, others don't) but the bar will read 0% honestly —
-    // matches "no disk telemetry from this provider" rather than
-    // hiding the whole row's CPU + Mem signal because of one
-    // missing axis. Pre-fix `hostHasTelemetry` only matched the
-    // four unix-style providers, so SNMP-only hosts (managed
-    // routers, switches, dd-wrt boxes) had stat-bars + sparklines
-    // hidden even though `cpu_percent` / `mem_percent` were filled.
+    // SNMP counts as telemetry only when the agent actually reports
+    // host-resource data (CPU% via UCD or hrProcessorLoad, Memory
+    // total via hrStorageRam). Chassis BMCs like Dell iDRAC / Cisco
+    // IMC / Supermicro IPMI expose SNMP for hardware sensors (fans,
+    // temps, PSU, RAID, BIOS) but NOT host CPU / Memory / Disk —
+    // their `vendor_ucd_mem_cpu` walk is empty. Gating SNMP on
+    // `(h.mem_total > 0 || h.cpu_percent > 0)` keeps the stat-bars
+    // + sparklines lit for OS-class SNMP agents (DD-WRT, OpenWrt,
+    // Linux UCD, Synology) and hidden for chassis BMCs where CPU /
+    // Mem rendering as 0% would mislead the operator into thinking
+    // the host is idle when really the agent doesn't expose those
+    // metrics at all. Beszel / Pulse / NE / Webmin always count
+    // because they're host-OS agents that always cover CPU / Mem.
     hostHasTelemetry(h) {
       if (!h) return false;
-      return !!(h.beszel_name || h.pulse_name || h.ne_url
-                || h.webmin_name
-                || (h.snmp_name && h.snmp_enabled === true));
+      if (h.beszel_name || h.pulse_name || h.ne_url || h.webmin_name) return true;
+      if (h.snmp_name && h.snmp_enabled === true) {
+        const cpu = +h.cpu_percent || 0;
+        const memTot = +h.mem_total || 0;
+        const memPct = +h.mem_percent || 0;
+        return cpu > 0 || memTot > 0 || memPct > 0;
+      }
+      return false;
     },
     // Display list of agents enabled on a host — used by the drawer's
     // dedicated "Enabled agents" card. Returns rich objects so the
@@ -17646,6 +17653,24 @@ function app() {
     diskPercentOf(h) {
       if (!h || !h.disk_total) return 0;
       return Math.round((h.disk_used / h.disk_total) * 100);
+    },
+    // Percent label that distinguishes "genuinely zero" from "small
+    // but non-zero" by rendering "<1%" when 0 < v < 1 (e.g. 39 MB
+    // used on a 232 GB disk = 0.016% which rounds to 0%, hiding the
+    // signal that there IS data). Operator-reported on a dd-wrt
+    // host whose /opt mount had a few MB used out of 232 GB and the
+    // bar label read "0%" alongside a non-empty fill — confused
+    // "is this loading?" vs "is this near-empty?". Uses 1-decimal
+    // precision for fractional values < 10 so 1.7% reads as "1.7%"
+    // instead of "2%". Integers above 10. Negative / NaN / falsy
+    // → "0%" (defensive — shouldn't happen but keeps the label
+    // shape consistent).
+    fmtPercentLabel(v) {
+      const n = +v;
+      if (!Number.isFinite(n) || n <= 0) return '0%';
+      if (n < 1) return '<1%';
+      if (n < 10) return n.toFixed(1) + '%';
+      return Math.round(n) + '%';
     },
     // -------------------- Per-host Health Score --------------------
     // Synthesises CPU / Memory / Disk / Provider / Pending-Updates
