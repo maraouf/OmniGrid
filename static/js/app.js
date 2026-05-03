@@ -14,7 +14,7 @@
 // emit point and auto-swaps to the `-dark.svg` URL when the document
 // is in dark theme. Slugs NOT in this set get the same URL on both
 // themes — most brand icons render fine on both backgrounds and don't
-// need the second file (#451). Adding a new dark variant: drop the
+// need the second file. Adding a new dark variant: drop the
 // `<slug>-dark.svg` under `static/img/icons/` AND add the slug here.
 // Operators who set `h.icon = '<slug>-dark'` explicitly bypass the
 // auto-swap (the `-dark` suffix is detected and short-circuits).
@@ -101,7 +101,7 @@ const CURATED_REFRESH_FIELDS = new Set([
   'sampling_paused', 'failure_window_started_at',
   'consecutive_failures', 'last_error', 'paused_at',
   'last_failure_ts',
-  // Per-provider auto-pause state (#797). `{snmp: {paused, ...},
+  // Per-provider auto-pause state. `{snmp: {paused, ...},
   // webmin: {paused, ...}}` populated only when the provider has
   // a row in `host_failure_state`. Empty object for healthy hosts.
   'provider_pause_state',
@@ -161,7 +161,7 @@ const CURATED_REFRESH_FIELDS = new Set([
   // empty string and hid the entire UPS info card. Explicit overlay
   // collapses missing keys to null so the gate behaves predictably
   // AND a recovered probe overwrites cleanly. Operator-reported
-  // (#823): UPS card hidden on a host where the SNMP probe was
+  // : UPS card hidden on a host where the SNMP probe was
   // working; root cause was the row being initialised pre-card-gate
   // before the probe had finished, with no subsequent overlay
   // because the field wasn't in this set.
@@ -174,7 +174,7 @@ const CURATED_REFRESH_FIELDS = new Set([
   // so they collapse to null when a probe goes missing instead of
   // sticking a stale value indefinitely.
   'host_model', 'host_serial', 'host_firmware', 'host_vendor',
-  // Printer-MIB rollups (#824). Supplies array + lifetime page
+  // Printer-MIB rollups. Supplies array + lifetime page
   // counter + console message — same overlay-explicit contract so
   // the printer card's row gates evaluate cleanly. Stale snapshot
   // fallback paints these dim with the .stale class via the
@@ -280,7 +280,7 @@ function app() {
       return [0, 5, 15, 30, 60].includes(v) ? v : 15;
     })(),
     activeOps: [],
-    // Real-time event stream (#454). EventSource connection to /api/events;
+    // Real-time event stream. EventSource connection to /api/events;
     // when healthy, every polling loop in this component idles. When the
     // stream drops AND we haven't seen a heartbeat for ``_sseIdleThresholdMs``
     // ms, polling resumes as the fallback. Re-connect retries are handled
@@ -312,7 +312,7 @@ function app() {
     // (which doesn't always fire on silent half-open sockets).
     _sseFreshnessTimer: null,
     view: (['stacks','services','nodes','hosts','history','settings','admin'].includes(localStorage.getItem('view')) ? localStorage.getItem('view') : 'stacks'),
-    // In-app notifications (#855). Surfaces as a POPUP overlay (NOT a
+    // In-app notifications. Surfaces as a POPUP overlay (NOT a
     // top-level view) — operators wanted a quick check + dismiss without
     // navigating away from whatever they were doing. Same modal pattern
     // as the hotkeys help dialog. Loaded via /api/notifications when
@@ -391,7 +391,7 @@ function app() {
         return [];
       }
     })(),
-    // Slide-out drawer mode (#239) — clicking a host row opens this
+    // Slide-out drawer mode — clicking a host row opens this
     // drawer instead of expanding the row inline. `drawerHost` is the
     // live host object reference (kept up-to-date by the existing
     // `loadHosts` reconcile loop, since rows mutate fields in place
@@ -444,7 +444,7 @@ function app() {
     // every keystroke. Keeps rows from re-sorting mid-typing. See
     // filteredHostsConfig() + rebuildHostsConfigOrder() for the rule.
     hostsConfigSortedOrder: [],
-    // Per-field validation errors for inline rendering (#136). Keys
+    // Per-field validation errors for inline rendering. Keys
     // follow the pattern "<scope>_<idx>_<field>" (e.g.
     // "host_3_webmin_url", "group_0_range"). `setFieldError` /
     // `clearFieldError` / `hasFieldError` / `fieldError` wrap the map
@@ -454,13 +454,13 @@ function app() {
     hostsConfigSaving: false,
     hostsConfigDirty: false,
     hostsConfigFilter: '',
-    // Client-side pagination for the Admin → Hosts editor (#331). At
+    // Client-side pagination for the Admin → Hosts editor. At
     // ~200 hosts the rendered DOM (each row is a multi-input form
     // card) becomes heavy; slicing the rendered list to one page at
     // a time keeps tab switches + filter typing snappy. Full array
     // still lives in `hostsConfig`, so dirty tracking + duplicate-id
     // validator + save-path are untouched. Page index persists across
-    // reloads (#340) so the operator returns to the same page after
+    // reloads so the operator returns to the same page after
     // tab navigation, full reload, or browser restart. A `$watch` in
     // `init()` writes the value back; a clamp in `loadHostsConfig`
     // catches the case where the stored page is now beyond the data.
@@ -577,7 +577,7 @@ function app() {
     })(),
     // Wall-clock millis ticked every 30s by init() — drives the
     // "Updated Xm ago" freshness hint in the host-drawer chart-grid
-    // header (#363). Reactive so Alpine re-evaluates the helper.
+    // header. Reactive so Alpine re-evaluates the helper.
     hostHistoryNow: 0,
     showHotkeys: false,
     opsExpanded: true,
@@ -704,7 +704,7 @@ function app() {
     pingTestHostId: '',
     pingTestResult: null,
     // #344 / SNMP test widget state. UX unified with the Ping
-    // test (#343) — the picker shows curated hosts that have an
+    // test — the picker shows curated hosts that have an
     // `snmp_name` mapped, mirroring `pingTestHostId` instead of a
     // free-text host input. `testSnmpConnection` resolves the row's
     // SNMP target + overrides client-side and submits them to the
@@ -776,7 +776,7 @@ function app() {
     },
     sshSettingsDirty: false,
     sshSettingsBusy: false,
-    // Dirty trackers (#220) — same pattern as `sshSettingsDirty` /
+    // Dirty trackers — same pattern as `sshSettingsDirty` /
     // `hostsConfigDirty` / `hostStatsDirty()`. Each tab's Save button
     // shows the amber unsaved-changes ring + dot when its flag is
     // true. Marked by @input / @change on every relevant input;
@@ -794,7 +794,7 @@ function app() {
     _oidcBaseline: '',
     _debugBaseline: '',
     _totpPolicyBaseline: '',
-    // Admin → Config (#337). DB-overridable process tunables. `tuningForm`
+    // Admin → Config. DB-overridable process tunables. `tuningForm`
     // holds string values (blank = clear / fall back to env). `tuningEffective`
     // mirrors the GET /api/admin/tuning response so the form can render
     // env-fallback / default placeholders + the resolved current value.
@@ -828,7 +828,7 @@ function app() {
       // here. Same `tuningForm` / `tuningEffective` / `saveTuning`
       // Alpine state, so no separate plumbing needed.
       // host_snapshots read-side cache TTL in seconds. Was
-      // missing from this list (#516) so the Admin → Process tunables
+      // missing from this list so the Admin → Process tunables
       // form silently omitted the row.
       'tuning_host_snapshots_cache_ttl_seconds',
       // SPA loadHosts() concurrency cap on per-host
@@ -849,7 +849,7 @@ function app() {
       // the generic Process tunables form so operators editing NE
       // config have the timeout knob ready to hand. Same
       // `tuningForm` / `tuningEffective` / `saveTuning` Alpine
-      // state — just rendered in the domain-specific home (#552).
+      // state — just rendered in the domain-specific home.
       // #541 / frontend SSE knobs delivered via /api/me.
       'tuning_sse_idle_threshold_seconds',
       'tuning_pollops_sse_keepalive_seconds',
@@ -860,7 +860,7 @@ function app() {
       // outer host-provider cache.
       'tuning_host_provider_cache_ttl_seconds',
       // per-host Webmin caches MOVED to Settings → Host stats
-      // → Webmin section per operator request (#553). See
+      // → Webmin section per operator request. See
       // `relocatedTuningKeys` below — they keep the same Alpine
       // state via the union helper, just don't render in the
       // generic Process tunables form.
@@ -873,7 +873,7 @@ function app() {
       //    expect to find it; `relocatedTuningKeys` carries it through Save).
     ],
     // Tunables rendered OUTSIDE the generic Process tunables form
-    // (#550, #552, #553). Same `tuningForm` / `tuningEffective` /
+    //. Same `tuningForm` / `tuningEffective` /
     // `saveTuning` state as the Process tunables form — just rendered
     // in domain-specific sections (Logs / Webmin / NE) so operators
     // editing related config have the knob ready to hand. The
@@ -927,11 +927,11 @@ function app() {
       ],
     },
     relocatedTuningKeys: [
-      'tuning_log_retention_days',                // → Admin → Logs (#550)
-      'tuning_webmin_probe_budget_seconds',       // → Settings → Host stats → Webmin (#550)
-      'tuning_node_exporter_probe_timeout_seconds', // → Settings → Host stats → NE (#552)
-      'tuning_webmin_host_cache_ttl_seconds',     // → Settings → Host stats → Webmin (#553)
-      'tuning_webmin_host_fail_cache_ttl_seconds',// → Settings → Host stats → Webmin (#553)
+      'tuning_log_retention_days', // → Admin → Logs 
+      'tuning_webmin_probe_budget_seconds', // → Settings → Host stats → Webmin 
+      'tuning_node_exporter_probe_timeout_seconds', // → Settings → Host stats → NE 
+      'tuning_webmin_host_cache_ttl_seconds', // → Settings → Host stats → Webmin 
+      'tuning_webmin_host_fail_cache_ttl_seconds',// → Settings → Host stats → Webmin 
       // Ping provider tunables (rendered in Host stats → Ping).
       'tuning_ping_interval_seconds',
       'tuning_ping_concurrency',
@@ -950,16 +950,16 @@ function app() {
       'tuning_snmp_unreachable_cooldown_seconds',
       // SNMP-specific sample interval (0 = use global cadence).
       'tuning_snmp_sample_interval_seconds',
-      // SNMP per-(provider, host) auto-pause threshold (#797). N
+      // SNMP per-(provider, host) auto-pause threshold. N
       // consecutive failed sampler rounds → mark host as Paused on
       // the SNMP chip; operator clears via Resume button.
       'tuning_snmp_failure_pause_rounds',
-      // Webmin per-(provider, host) auto-pause threshold (#797).
+      // Webmin per-(provider, host) auto-pause threshold.
       // Same semantic as the SNMP one; counts failed _merge_one_host
       // probes (cool-down responses don't count).
       'tuning_webmin_failure_pause_rounds',
       // Beszel / Pulse / node-exporter / Ping per-(provider, host)
-      // auto-pause thresholds (#804). Generalised the SNMP+Webmin
+      // auto-pause thresholds. Generalised the SNMP+Webmin
       // pattern to every provider so the chip + Resume button work
       // uniformly. Hub-based providers (Beszel/Pulse) only count
       // hub-OK + missing-host as failures, so a global hub blip
@@ -1017,7 +1017,7 @@ function app() {
     _profileBaseline: '',
     profileBusy: false,
     avatarBusy: false,
-    // TOTP / 2FA enrolment state (#345). Mirrors the /api/me/totp shape
+    // TOTP / 2FA enrolment state. Mirrors the /api/me/totp shape
     // plus a few transient enrolment fields used during the QR -> verify
     // step. backup_codes is `[{code, used_at}]` plain after the GET; the
     // hide/unhide eye is purely client-side (`totpCodesRevealed`).
@@ -1032,7 +1032,7 @@ function app() {
     totpRevealCodes: [],     // one-time plaintext list right after enrol/regen
     totpDisableForm: { password: '' },
     totpDisableBusy: false,
-    // WebAuthn / passkeys (#381). Mirrors the /api/me/webauthn shape.
+    // WebAuthn / passkeys. Mirrors the /api/me/webauthn shape.
     // `list` is the array of enrolled credentials; `busy` covers either
     // the register or revoke ceremony so the operator can't double-tap.
     // `supported` is the SERVER capability flag (false on builds where
@@ -1074,13 +1074,13 @@ function app() {
     logSinceTs: 0,
     logAuto: true,
     logFilter: '',
-    // Severity multi-select filter (#422). Defaults: all four levels
+    // Severity multi-select filter. Defaults: all four levels
     // visible. Persists to localStorage so reload preserves the view.
     // Severity values match the strings `logSeverity()` returns.
     logSeverityLevels: ['error', 'warn', 'ok', 'info'],
     logSeverityFilter: { error: true, warn: true, ok: true, info: true },
     logPollHandle: null,
-    // Sub-tab state for the Logs admin view (#425). 'live' shows the
+    // Sub-tab state for the Logs admin view. 'live' shows the
     // existing in-memory ring viewer; 'files' shows the persistent
     // daily log files with a download button + live-tail of a
     // selected file.
@@ -1149,7 +1149,7 @@ function app() {
       try {
         const v = localStorage.getItem('hostStatsTab');
         // `'snmp'` was missing from the init-time whitelist when
-        // the SNMP provider landed (#344), so any operator who picked
+        // the SNMP provider landed, so any operator who picked
         // the SNMP tab got reset to `'beszel'` on every refresh
         // (the setter wrote `'snmp'` correctly, but the IIFE filtered
         // it out on the next page load and fell through to the
@@ -1234,7 +1234,7 @@ function app() {
             this.applyServerUiPrefs();
           }
           // Capture the header-prefs dirty baseline AFTER hydration
-          // (#379). The baseline initialiser is `''` (the empty
+          //. The baseline initialiser is `''` (the empty
           // string sentinel set on the data() block) and the
           // snapshot helper returns a populated JSON string, so
           // without this re-baseline the form always reads dirty
@@ -1304,7 +1304,7 @@ function app() {
         }
       });
 
-      // Notifications popup (#855). Lazy-load on open; the 30s polling
+      // Notifications popup. Lazy-load on open; the 30s polling
       // fallback only fires when SSE is disconnected (push-driven
       // updates land via _handleNotificationCreated). Driven by
       // `showNotificationsPopup` since the popup is no longer a
@@ -1344,7 +1344,7 @@ function app() {
       // the unfiltered list).
       this.$watch('hostsConfigFilter', () => { this.hostsConfigPage = 1; });
       // Persist page index so reload / tab navigation lands on the same
-      // page (#340). Pairs with the localStorage initialiser above.
+      // page. Pairs with the localStorage initialiser above.
       this.$watch('hostsConfigPage', v => {
         try { localStorage.setItem('hostsConfigPage', String(v)); } catch {}
       });
@@ -1357,7 +1357,7 @@ function app() {
       this.$watch('hostsConfigSortedOrder', () => this._clampHostsConfigPage());
       this.$watch('hostsConfigFilter',      () => this._clampHostsConfigPage());
       this.$watch('hostsConfigPerPage',     () => this._clampHostsConfigPage());
-      // Same persistence for the host-groups editor (#348).
+      // Same persistence for the host-groups editor.
       this.$watch('hostGroupsPage', v => {
         try { localStorage.setItem('hostGroupsPage', String(v)); } catch {}
       });
@@ -1373,7 +1373,7 @@ function app() {
       });
       window.addEventListener('keydown', (e) => this.handleHotkey(e));
       // Click-outside listener for the chart `?` tap-driven tooltip
-      // (#413). The trigger spans + tooltip body each call
+      //. The trigger spans + tooltip body each call
       // `@click.stop` so they're EXCLUDED from this handler — taps
       // anywhere else dismiss whatever's open.
       document.addEventListener('click', () => {
@@ -1406,7 +1406,7 @@ function app() {
       this.startVersionWatcher();
       this.startHeaderClock();
       this.startHeaderWeather();
-      // Persisted unified refresh cadence (#486). Mirrors into legacy
+      // Persisted unified refresh cadence. Mirrors into legacy
       // `autoRefresh` + `statsInterval` so existing pollers see the
       // operator's choice through the keys they already read. When
       // `refreshInterval` is 0 (Off) every poller stays asleep until
@@ -1436,7 +1436,7 @@ function app() {
       // unified picker). The 1s timer that drove it is gone too — no
       // sense burning a tick per second on a no-op.
       // Tick `hostHistoryNow` every second so the host-drawer charts'
-      // "Updated Xs/Xm/Xh ago" label counts in real time (#363).
+      // "Updated Xs/Xm/Xh ago" label counts in real time.
       // Operator needs the seconds digit to tick visibly — a 30s
       // cadence made the label feel frozen. One int assignment per
       // second is a negligible cost; Alpine only re-evaluates the
@@ -1609,7 +1609,7 @@ function app() {
       if (!this.me) return false;
       return this._profileBaseline !== this._profileSnapshot();
     },
-    // Per-user notification toggle disable gate (#357). Returns true
+    // Per-user notification toggle disable gate. Returns true
     // when the admin has globally disabled this event — UI greys out
     // the user-side checkbox and shows a "disabled by admin" tooltip.
     // The data model only narrows DOWN from the admin layer, so the
@@ -1631,7 +1631,7 @@ function app() {
       const f = this.assetForm || {};
       const s = this.assetStatus || {};
       const norm = v => (v == null ? '' : String(v));
-      // Master switch (#204) — toggle change is dirty even when no
+      // Master switch — toggle change is dirty even when no
       // form field changed. Compared against the server-supplied
       // baseline captured into `assetStatus.enabled` by loadSettings.
       const enabledBaseline = (s.enabled !== false);
@@ -2292,7 +2292,7 @@ function app() {
       // Clone so edits don't mutate the list until Save. `params_text` is
       // a pretty-printed JSON blob for the textarea; we re-parse on save.
       // The `kind` + `cadence_mode` selects need the documented empty →
-      // $nextTick → reassign dance from CLAUDE.md (#426): the modal's
+      // $nextTick → reassign dance from CLAUDE.md : the modal's
       // <select> elements mount alongside their <template x-for>
       // <option> children, but Alpine commits x-model BEFORE the
       // options exist — so the matching <option value="X"> is missing
@@ -2721,7 +2721,7 @@ function app() {
       return this._hostStatsBaseline !== this._hostStatsSnapshot()
           || this.tuningDirty();
     },
-    // In-flight flag (#555) for the unified host_stats Save button so
+    // In-flight flag for the unified host_stats Save button so
     // the spinner / "Saving…" label fires the same way as the
     // per-section Save buttons did pre-#555.
     hostStatsSaving: false,
@@ -2971,7 +2971,7 @@ function app() {
             this.settings.webmin_password_set = true;
             this.settings.webmin_password = '';
           }
-          // SNMP v3 keys (#344). Same flip-flag-and-clear pattern as
+          // SNMP v3 keys. Same flip-flag-and-clear pattern as
           // every other write-only secret in this form.
           if (payload.snmp_v3_auth_key) {
             this.settings.snmp_v3_auth_key_set = true;
@@ -3037,7 +3037,7 @@ function app() {
     // Blank = clear override, fall back to the baked-in default.
     // Admin → Hosts toggle: show / hide the host-drawer debug panel
     // Save the Debug-tab settings via the smart-getter dirty pattern
-    // (#342) — POSTs the toggle, re-baselines on success so the amber
+    // — POSTs the toggle, re-baselines on success so the amber
     // "Unsaved" indicator clears, and reports failure via toast.
     debugSaving: false,
     async saveDebugSettings() {
@@ -3237,7 +3237,7 @@ function app() {
         return true;
       });
     },
-    // Multi-select severity controls (#422). Persist to localStorage so
+    // Multi-select severity controls. Persist to localStorage so
     // the view survives a reload. setAll/errorsOnly mirror the same
     // shape as the Notifications event grid's bulk buttons.
     toggleLogSeverity(level) {
@@ -3291,7 +3291,7 @@ function app() {
         }
       } catch (_) {}
     },
-    // Persistent log files (#425). Lists / views / live-tails the
+    // Persistent log files. Lists / views / live-tails the
     // daily files under /app/data/logs/. Download URL is the same
     // route, no streaming — the file is small (one day's logs).
     async loadLogFiles() {
@@ -3335,7 +3335,7 @@ function app() {
     },
     // Parse the file body into the same {ts, stream, text} shape the
     // Live tab uses, so the renderer can reuse `logSeverity` +
-    // `colorizeLogText` + the `log-line--<sev>` class scheme (#427).
+    // `colorizeLogText` + the `log-line--<sev>` class scheme.
     // File format from `logic/logs.py:_persist_line`:
     //   `2026-04-27T12:34:56Z LEVEL  message body`
     // Where LEVEL is one of ERROR / WARN / SUCCESS / INFO. Any line
@@ -3722,7 +3722,7 @@ function app() {
     },
 
     // ----------------------------------------------------------------
-    // TOTP / 2FA management (#345). Three call sites:
+    // TOTP / 2FA management. Three call sites:
     //   - Profile (self): loadTotpStatus / startTotpEnrol / confirmTotpEnrol
     //                     / disableTotpSelf / regenerateTotpCodes
     //   - Admin -> Users: adminDisableTotp(u)
@@ -3731,7 +3731,7 @@ function app() {
     // hide/unhide eye is purely client-side.
     // ----------------------------------------------------------------
     // ----------------------------------------------------------------
-    // WebAuthn / passkeys (#381). Mirror the TOTP UX shape: load on
+    // WebAuthn / passkeys. Mirror the TOTP UX shape: load on
     // page open, expose register/revoke from the Profile -> Security
     // card, surface count + browser-support hint in the SPA's state.
     // ----------------------------------------------------------------
@@ -3831,7 +3831,7 @@ function app() {
       // user-gesture chain intact for password-manager extensions
       // (1Password / Bitwarden / iCloud Keychain) so they get a chance
       // to offer the "save passkey" sheet alongside the OS-native
-      // picker (#431).
+      // picker.
       const nameRes = await Swal.fire({
         title: this.t('settings.profile.passkeys.name_prompt_title'),
         text: this.t('settings.profile.passkeys.name_prompt_body'),
@@ -3868,7 +3868,7 @@ function app() {
           // Surface the real error reason — silent toast made it
           // impossible to tell apart "user dismissed the picker",
           // "device declined", "extension blocked", "RP ID mismatch"
-          // (#431). DOMException.name is the canonical key
+          //. DOMException.name is the canonical key
           // (NotAllowedError / SecurityError / InvalidStateError /
           // AbortError); fall through to the generic message when the
           // browser threw a non-DOMException.
@@ -3882,7 +3882,7 @@ function app() {
             this.showToast(this.t('toasts.passkey_register_failed'), 'error');
           }
           // POST the failure to the server so it lands in Admin → Logs
-          // alongside the matching register-start line (#433). Fire-
+          // alongside the matching register-start line. Fire-
           // and-forget — a logging endpoint shouldn't be able to
           // cascade into the user-visible flow.
           try {
@@ -4225,7 +4225,7 @@ function app() {
       }
     },
 
-    // Per-user force-2FA toggle (#376). Admin flips this flag to make
+    // Per-user force-2FA toggle. Admin flips this flag to make
     // a specific user MUST have 2FA on regardless of the global
     // role-policy. Forcing on a user who hasn't enrolled yet causes
     // their next login to land in the forced-enrolment QR flow.
@@ -4535,7 +4535,7 @@ function app() {
     // the server to re-send (and the JS/CSS assets use
     // ?v=<version> bust-tokens so they'll re-fetch too).
     // URLSearchParams.set replaces any existing `_v` so consecutive
-    // reloads don't append `&_v=...&_v=...&_v=...` (#418).
+    // reloads don't append `&_v=...&_v=...&_v=...`.
     reloadForNewVersion() {
       const params = new URLSearchParams(location.search);
       params.set('_v', this.newVersionString || String(Date.now()));
@@ -4905,7 +4905,7 @@ function app() {
       return this.barLevel(v);
     },
 
-    // Generic in-place reconcile helper (#418). Updates `target` to
+    // Generic in-place reconcile helper. Updates `target` to
     // match `incoming` row-by-row, keyed on the named field
     // (default `id`; stacks pass `'name'` since they don't carry an
     // id). Operations:
@@ -4987,7 +4987,7 @@ function app() {
           this.portainerConfigured = d.portainer_configured;
         }
         // Cache state is implementation detail — the unified refresh
-        // picker (#486) is the operator's mental model for "how live
+        // picker is the operator's mental model for "how live
         // is this dashboard". Cleared rather than deleted so any
         // remaining bindings render empty instead of crashing.
         this.cacheLabel = '';
@@ -5041,7 +5041,7 @@ function app() {
           webmin_password_set: !!(d.webmin && d.webmin.password_set),
           webmin_verify_tls: d.webmin ? !!d.webmin.verify_tls : false,
           webmin_aliases: (d.webmin && d.webmin.aliases) || {},
-          // Ping provider (#343). No secrets — every field round-trips
+          // Ping provider. No secrets — every field round-trips
           // in the clear. `has_icmp_support` reflects whether icmplib
           // is importable on the server; SPA uses it to disable the
           // ICMP toggle with a hint when the package is missing.
@@ -5049,7 +5049,7 @@ function app() {
           ping_default_port:     (d.ping && Number.isFinite(d.ping.default_port)) ? d.ping.default_port : 443,
           ping_use_icmp:         !!(d.ping && d.ping.use_icmp),
           ping_has_icmp_support: !!(d.ping && d.ping.has_icmp_support),
-          // SNMP provider (#344). v3 secret keys flow as `_set` flags
+          // SNMP provider. v3 secret keys flow as `_set` flags
           // (write-only contract); community / version / port / aliases
           // round-trip in the clear. `has_snmp_support` reflects whether
           // pysnmp is importable on the server; SPA uses it to disable
@@ -5087,7 +5087,7 @@ function app() {
           scheduler_timezone: d.scheduler_timezone || '',
           // Open-Meteo upstream (weather widget). Blank = default.
           open_meteo_url: d.open_meteo_url || '',
-          // Per-service master switches (#204). Default true so legacy
+          // Per-service master switches. Default true so legacy
           // deploys keep working before the operator interacts with
           // the toggles.
           apprise_enabled:    d.apprise_enabled    !== false,
@@ -5111,14 +5111,14 @@ function app() {
         for (const k of (this.notifyEventKeys || [])) {
           this.settings[k] = !!d[k];
         }
-        // Per-medium master switches (#855). Default true when the
+        // Per-medium master switches. Default true when the
         // backend hasn't shipped the field yet (older builds) so the
         // SPA's checkbox doesn't silently default to OFF on a fresh
         // upgrade; matches `NOTIFY_MEDIUM_DEFAULTS` server-side.
         for (const k of (this.notifyMediumKeys || [])) {
           this.settings[k] = (d[k] !== false);
         }
-        // TOTP / 2FA policy (#345). Hydrate the five fields so the
+        // TOTP / 2FA policy. Hydrate the five fields so the
         // Admin -> Config tab can render the inputs + the existing
         // saveSettings flow can ship the values back.
         this.settings.totp_allowed              = (d.totp_allowed !== false);
@@ -5128,7 +5128,7 @@ function app() {
           Number.isFinite(d.totp_lockout_max_failures) ? d.totp_lockout_max_failures : 5;
         this.settings.totp_lockout_minutes      =
           Number.isFinite(d.totp_lockout_minutes) ? d.totp_lockout_minutes : 15;
-        // Passkey master toggle (#453). Hydrated alongside the TOTP
+        // Passkey master toggle. Hydrated alongside the TOTP
         // group because both Save through the same totpPolicySnapshot
         // dirty tracker. Pre-fix the checkbox bound to a never-set
         // `settings.passkeys_allowed`, so on every page load it
@@ -5341,7 +5341,7 @@ function app() {
     },
     async _savePortainerSettingsImpl() {
       const body = {
-        // Master switch (#204) saved alongside the URL / API key /
+        // Master switch saved alongside the URL / API key /
         // endpoint / verify_tls so the operator's toggle persists on
         // Save (no per-checkbox auto-save).
         portainer_enabled:     !!this.settings.portainer_enabled,
@@ -5493,7 +5493,7 @@ function app() {
         .map(h => ({ id: h.id, label: this.hostDisplayName(h) || h.id }));
     },
     async testPingConnection() {
-      // One-shot live probe against a curated host (#343). Server-side
+      // One-shot live probe against a curated host. Server-side
       // honours unsaved overrides (port + transport are optional in
       // the body), so the operator can test before committing.
       const hid = (this.pingTestHostId || '').trim();
@@ -5548,7 +5548,7 @@ function app() {
         .map(h => ({ id: h.id, label: this.hostDisplayName(h) || h.id }));
     },
     // #344 / SNMP test widget. UX-unified with the Ping test
-    // (#343): operator picks a curated SNMP-mapped host from the
+    // : operator picks a curated SNMP-mapped host from the
     // dropdown, the helper looks up the row's `snmp_name` (target IP /
     // hostname) + per-row overrides (community / version / port /
     // v3 USM), and posts them to `/api/snmp/test`. Falls back to
@@ -5748,7 +5748,7 @@ function app() {
       this.sshSettingsBusy = true;
       try {
         const body = {
-          // Master switch (#204) saved alongside the rest of the form
+          // Master switch saved alongside the rest of the form
           // — flipping the toggle marks the form dirty; clicking Save
           // commits both the toggle and any field edits in one go.
           ssh_enabled:                   !!this.settings.ssh_enabled,
@@ -5831,7 +5831,7 @@ function app() {
         }
         // Scroll the just-expanded SSH-run body to the top of the
         // drawer viewport so the operator doesn't have to scroll
-        // down on a long drawer (#364). $nextTick lets x-show flip
+        // down on a long drawer. $nextTick lets x-show flip
         // before we measure; data-host-section keeps the selector
         // stable across host changes.
         this.$nextTick(() => {
@@ -6209,7 +6209,7 @@ function app() {
         } else if (ev.code === 4401) {
           this.terminalCloseReason = this.t('hosts_extra_ssh.terminal.cookie_expired');
         } else if (ev.code === 4403) {
-          // 4403 covers both "origin mismatch" (#474) and "not admin".
+          // 4403 covers both "origin mismatch" and "not admin".
           // The reason string distinguishes them so the operator gets
           // the right diagnostic.
           if (reasonText.includes('origin')) {
@@ -6635,7 +6635,7 @@ function app() {
         lockout_minutes:         +s.totp_lockout_minutes || 15,
         // Passkey master toggle joins the same dirty/baseline group
         // as the TOTP policy fields so a single Save covers both
-        // sub-systems (#432).
+        // sub-systems.
         passkeys_allowed:        !!s.passkeys_allowed,
       });
     },
@@ -6692,7 +6692,7 @@ function app() {
       });
     },
     oidcDirty()      { return this._oidcBaseline      !== this._oidcSnapshot(); },
-    // Admin → Config (#337). Load DB / env / default state from the
+    // Admin → Config. Load DB / env / default state from the
     // dedicated endpoint so the form can render placeholders for the
     // env-fallback behind each input. `tuningForm[k]` is always a
     // string — blank means "clear the override", non-blank means
@@ -6822,7 +6822,7 @@ function app() {
     markOpenMeteoDirty()  {},
     markPortainerFormDirty() {},
     markOidcFormDirty()   {},
-    // Auto-save a single per-service "enabled" master switch (#204).
+    // Auto-save a single per-service "enabled" master switch.
     // Wired to the @change of the toggle checkbox for Apprise /
     // Open-Meteo / Portainer / SSH so the operator doesn't have to
     // hunt for a Save button just to flip the master switch. Sends
@@ -6933,7 +6933,7 @@ function app() {
       // dataset in the file, not whichever page is on screen.
       return `/api/history.${fmt}?` + this._historyQueryParams().toString();
     },
-    // --- History server-side paging (#446) ---
+    // --- History server-side paging ---
     historyTotalPages() {
       const per = Math.max(1, this.historyPerPage || 50);
       return Math.max(1, Math.ceil((this.historyTotal || 0) / per));
@@ -7041,7 +7041,7 @@ function app() {
       await this.loadHistory();
       this.showToast(this.t('toasts.history_cleared'));
     },
-    // ---------------- in-app notifications (#855) ----------------
+    // ---------------- in-app notifications ----------------
     notificationsQuery() {
       const params = new URLSearchParams();
       params.set('limit', String(this.notificationsLimit || 50));
@@ -7367,13 +7367,13 @@ function app() {
           }
         } catch (e) {}
         // Cadence is operator-tunable via Admin → Config →
-        // tuning_ops_poll_interval_seconds (#417, #514). Backend
+        // tuning_ops_poll_interval_seconds. Backend
         // multiplies × 1000 before delivery as
         // `me.client_config.ops_poll_ms`, so the setTimeout call below
         // still consumes ms. Resolved per-tick so a Save in
         // Admin → Config takes effect on the very next cycle (after
         // /api/me re-flows). Defaults to 2 seconds (= 2000 ms) if absent.
-        // SSE-fallback gate (#454). When the live event stream is
+        // SSE-fallback gate. When the live event stream is
         // healthy, op deltas arrive via /api/events and re-running the
         // poll is wasted work. Stretch the cadence to a slow keepalive
         // (every 30s) so a stalled stream we haven't yet detected
@@ -7413,7 +7413,7 @@ function app() {
     pollOpsNow() { this.pollOps(); },
 
     // ===================================================================
-    // Real-time event stream (#454)
+    // Real-time event stream 
     // ===================================================================
     // EventSource connects to /api/events on cookie-authed browsers and
     // dispatches one handler per server-side event type. Every existing
@@ -7676,7 +7676,7 @@ function app() {
         if (this._isSelfEvent(e)) return;
         console.log('[live] event=history:appended → loadHistory', e.data ? e.data.slice(0, 200) : '');
         // Reload via the same paginated endpoint — the in-place
-        // reconcile (#444) keeps each row's <details> open/closed
+        // reconcile keeps each row's <details> open/closed
         // state intact.
         try { this.loadHistory && this.loadHistory(); } catch (_) {}
       });
@@ -7821,7 +7821,7 @@ function app() {
       } catch (_) {}
     },
 
-    // SSE self-filter check (#534). Returns true when the incoming
+    // SSE self-filter check. Returns true when the incoming
     // event's payload.client_id matches the local tab's id (set by
     // auth-fetch.js into window.__ogClientId on first fetch). Used at
     // the top of every data-bearing handler so an SSE event published
@@ -7955,14 +7955,14 @@ function app() {
         try { this.pollOps(); } catch (_) {}
       }
       // Host-drawer history chart timer also follows the picker now
-      // (#486). Re-arm it under the new cadence whenever the operator
+      //. Re-arm it under the new cadence whenever the operator
       // switches modes while the drawer is open. Off → clear; Live →
       // 30s baseline; interval → operator's chosen cadence.
       if (this._drawerHistoryTimer) {
         clearInterval(this._drawerHistoryTimer);
         this._drawerHistoryTimer = null;
       }
-      // NE-only Live mode → push-driven (#496) → no timer.
+      // NE-only Live mode → push-driven → no timer.
       // Beszel / NE+Beszel Live → 30s timer (push event covers NE
       // half but Beszel data still needs polling). Interval modes
       // use the picker cadence regardless. Off → no timer.
@@ -7996,7 +7996,7 @@ function app() {
           this._pollWrap(this.loadHostPingHistory(this.drawerHost.id));
         }, pingMs);
       }
-      // Sparklines (#486) — Off kills the timer; Live / interval
+      // Sparklines — Off kills the timer; Live / interval
       // modes restart at the 5min baseline (sparklines are coarse
       // 24h aggregates, the picker doesn't change their cadence).
       if (this._sparksTimer) {
@@ -8454,7 +8454,7 @@ function app() {
     //      - 'failing' → mapped on this host but provider didn't hit
     //                    here OR returned data with a paused/down
     //                    self-status. Chip turns red.
-    // Per-provider chip colour resolver (#596). Resolution order:
+    // Per-provider chip colour resolver. Resolution order:
     //   1. `this.settings.provider_color_<name>` — live admin form
     //      state, hydrated by `loadSettings()` at init AND on every
     //      Save. This is what makes the chip-style update REACTIVELY
@@ -8500,7 +8500,7 @@ function app() {
         '--chip-fg: ' + c + ';'
       );
     },
-    // Hex-colour normaliser (#643) — used by the per-provider chip
+    // Hex-colour normaliser — used by the per-provider chip
     // colour text input alongside the native colour picker. Operators
     // can paste any of these forms and have them coerced into the
     // canonical `#rrggbb` shape the backend's `^#[0-9a-fA-F]{6}$`
@@ -8525,7 +8525,7 @@ function app() {
       if (fullHex.test(v)) return v.toLowerCase();
       return v;  // invalid — let the input's `pattern` flag it
     },
-    // Provider name → /img/icons/<slug>.svg filename (#607). Mostly
+    // Provider name → /img/icons/<slug>.svg filename. Mostly
     // identity except for `node_exporter` → `node-exporter` (the
     // resolver convention prefers hyphens over underscores in icon
     // filenames). Returns the bare slug; the consumer wraps it in
@@ -8534,10 +8534,10 @@ function app() {
       if (name === 'node_exporter') return 'node-exporter';
       return name;
     },
-    // Inline style for `.provider-icon` (#607) — paints a mono SVG
+    // Inline style for `.provider-icon` — paints a mono SVG
     // mask in the per-provider chip colour. Use this on a `<span>`
     // when you want the provider's icon recoloured by the operator's
-    // chip-colour customisation (#596). Pairs naturally with
+    // chip-colour customisation. Pairs naturally with
     // `providerChipStyle()` when the icon sits inside a `pill-custom`
     // chip (the parent's `--chip-fg` already provides the colour, so
     // the icon picks it up via `currentColor` automatically). Use this
@@ -8563,7 +8563,7 @@ function app() {
       const add = (name, mapped, selfStatus) => {
         if (!mapped) return;
         if (!active.includes(name)) return;
-        // Per-(provider, host) auto-pause (#797) wins over every
+        // Per-(provider, host) auto-pause wins over every
         // other state — operator has explicitly marked this provider
         // off for this host until they manually resume it. Render the
         // 'paused' chip even when the provider isn't globally-OK so
@@ -8602,7 +8602,7 @@ function app() {
       // want that "no data yet" case to render a misleading red chip,
       // so only flip to 'down' when the value is explicitly false.
       add('ping',          !!h.ping_enabled, h.ping_alive === false ? 'down' : null);
-      // SNMP (#344) — chip renders when the row has a snmp_name
+      // SNMP — chip renders when the row has a snmp_name
       // alias AND `snmp.enabled === true` (#654 opt-in / #714 fix).
       // Same rules as the other providers: globally enabled, globally
       // healthy, hit on this host = ok, mapped-but-no-hit = failing.
@@ -8671,7 +8671,7 @@ function app() {
       try { return (window.t && window.t('stale_marker.tooltip', { age: ago })) || ('Last live data ' + ago + ' ago'); }
       catch (_) { return 'Last live data ' + ago + ' ago'; }
     },
-    // Theme-aware icon swap (#451). Wraps every icon-URL emit point so
+    // Theme-aware icon swap. Wraps every icon-URL emit point so
     // brands that ship a `<slug>-dark.svg` variant (KNOWN_DARK_ICONS)
     // get the dark URL when the document is in dark theme. Reads
     // `this.themePref` reactively so cycling theme via the toolbar
@@ -8735,7 +8735,7 @@ function app() {
       //
       // Theme-aware swap: every return point routes through
       // `_themeIcon(url)` so brands with a `-dark.svg` variant
-      // auto-resolve to the dark URL when in dark theme (#451).
+      // auto-resolve to the dark URL when in dark theme.
       if (!name) return '';
       // Exact / whole-name overrides (checked first).
       const overrides = {
@@ -8900,7 +8900,7 @@ function app() {
       if (info.exporter_error) exporterStatus = 'error';
       else if (hostStatsEnabled && (hostMemTotal > 0 || Number.isFinite(info.host_boot_ts) || (info.mounts && info.mounts.length))) exporterStatus = 'ok';
       else if (hostStatsEnabled) exporterStatus = 'error';  // enabled but no data came back
-      // Per-node provider hits (#591) — backend records which providers
+      // Per-node provider hits — backend records which providers
       // actually contributed data for THIS node into ``_providers`` per
       // gather. Falls back to the global active set on hosts that
       // haven't been re-gathered since this field was added (e.g.
@@ -8923,11 +8923,11 @@ function app() {
         exporterError: info.exporter_error || null,
         hostStatsSource: source,             // CSV string, legacy callers
         hostStatsSources: [...sourceSet],     // array form for new callers (GLOBAL)
-        nodeProvidersHit: providersHit,       // per-node list (#591)
+        nodeProvidersHit: providersHit, // per-node list 
       };
     },
     // Label for the green/red chip on a node row — reflects the
-    // providers that actually probed THIS node (#591). Falls back to
+    // providers that actually probed THIS node. Falls back to
     // the global active set on rows missing per-node tracking (e.g.
     // before the first post-upgrade gather).
     nodeProviderChip(host) {
@@ -9175,7 +9175,7 @@ function app() {
       if (!this._maxSize) return 0;
       return Math.min(100, (s.size_root / this._maxSize) * 100);
     },
-    // LOW-VISUAL — stat-bar thresholds are operator-tunable (#688).
+    // LOW-VISUAL — stat-bar thresholds are operator-tunable.
     // Pre-fix the 60 / 85 thresholds were hardcoded; CLAUDE.md's
     // no-static-config rule says operator-tunable visual thresholds
     // belong in TUNABLES. Now sourced from `client_config` (per-call
@@ -9568,7 +9568,7 @@ function app() {
       return parts.length ? parts.join(' · ') : '';
     },
     openDrawer(item) { this.drawerItem = item; },
-    // Body-scroll lock helper (#835). Called from the Alpine root's
+    // Body-scroll lock helper. Called from the Alpine root's
     // `x-effect` whenever any drawer-state changes — sets / clears a
     // `.drawer-scroll-lock` class on BOTH html and body so the scroll
     // viewport (which varies by browser — Chrome on html, Safari on
@@ -9638,7 +9638,7 @@ function app() {
       // Reload deliberately (confirms via SweetAlert) or bypass when
       // clean. Native confirm() was the original implementation but
       // it doesn't translate / RTL-flip and can't theme to the dark
-      // surface tokens (#445).
+      // surface tokens.
       if (this.hostsConfigDirty) {
         const ok = await this.confirmDialog({
           title: this.t('admin_hosts.unsaved_confirm_title'),
@@ -9658,7 +9658,7 @@ function app() {
         }
         const d = await r.json();
         this.hostsConfig = Array.isArray(d.hosts) ? d.hosts : [];
-        // Invalidate filtered-list cache (#636) — see saveHostsConfig
+        // Invalidate filtered-list cache — see saveHostsConfig
         // for the full rationale. Cache key doesn't notice an array
         // identity swap, so without this `pagedHostsConfig()` would
         // keep returning pre-load row references on the next render.
@@ -9705,7 +9705,7 @@ function app() {
         this.hostsConfigDirty = false;
         this.rebuildHostsConfigOrder();
         // Clamp paging to the loaded data — preserves the persisted
-        // page (#340) when valid, and falls back to the new last page
+        // page when valid, and falls back to the new last page
         // when the data has shrunk. Don't unconditionally reset to 1:
         // the operator expects to return to the same page after reload.
         this.hostsConfigPage = Math.min(
@@ -9770,7 +9770,7 @@ function app() {
     // Admin-editor view filter. We return a list of ``{row, idx}``
     // tuples so the template can render only matching rows while
     // still having the original index for move/remove/test actions.
-    // Memoised filter result. ENH-006 (#421) — `pagedHostsConfig` and
+    // Memoised filter result. ENH-006 — `pagedHostsConfig` and
     // `hostsConfigTotalPages` both call this getter on every Alpine
     // re-evaluation. With 500 hosts + a typing-driven filter that's
     // 1000+ walks per keystroke. Cache the result keyed on
@@ -9840,7 +9840,7 @@ function app() {
       // Clamp lazily — mutating state inside a getter would break
       // Alpine reactivity, so we just compute the safe page. The
       // visible state is normalised separately via `_clampHostsConfigPage`
-      // (#440) on a $watch tick so `hostsConfigPage` itself eventually
+      // on a $watch tick so `hostsConfigPage` itself eventually
       // catches up to the truth.
       const page = Math.min(Math.max(1, this.hostsConfigPage), totalPages);
       const start = (page - 1) * per;
@@ -10102,7 +10102,7 @@ function app() {
         // SweetAlert with two buttons — OK = replace, Cancel = merge.
         // Replaces the original native confirm() so the dialog
         // theme-matches the dark surface tokens and i18n's
-        // (#445).
+        //.
         const replace = await this.confirmDialog({
           title: this.t('admin_hosts.import_replace_confirm_title') || this.t('actions.confirm'),
           html:  this.t('admin_hosts.import_replace_confirm_html', { existing: existing.length, incoming: incoming.length }),
@@ -10131,7 +10131,7 @@ function app() {
         for (const row of cleanIncoming) byId[row.id] = row;  // overwrite on id collision
         this.hostsConfig = Object.values(byId);
       }
-      // Invalidate filtered-list cache (#636) — array identity swap
+      // Invalidate filtered-list cache — array identity swap
       // doesn't move the cache key.
       this._filteredHostsConfigCache.key = '';
       this._filteredHostsConfigCache.value = null;
@@ -10167,7 +10167,7 @@ function app() {
     // / Webmin / Ping / SNMP) is mapped on this row. The "Test providers"
     // button disables when none are set — there's nothing to probe and
     // the backend would return all-skipped anyway. SNMP + Ping added
-    // (#650): pre-fix an SNMP-only or Ping-only row showed the button
+    // : pre-fix an SNMP-only or Ping-only row showed the button
     // greyed out even with the row's snmp_name set or ping.enabled=true,
     // so the operator had no way to test those providers from the
     // Admin → Hosts editor.
@@ -11431,7 +11431,7 @@ function app() {
         // `enabled: true` flag survives the round-trip. Absence (or
         // `enabled: false`) means SSH is OFF for the host.
         //
-        // **DO NOT add a legacy `disabled=true` fallback here** (#628):
+        // **DO NOT add a legacy `disabled=true` fallback here** :
         // this `norm()` runs on EVERY save, not just at import time.
         // A defensive `else if (sshIn.disabled !== true) sshOut.enabled
         // = true` would auto-enable every row that lacks an explicit
@@ -11442,7 +11442,7 @@ function app() {
         // re-applying that conversion per-save corrupts subsequent
         // operator edits.
         if (sshIn.enabled === true) sshOut.enabled = true;
-        // Per-host ping (#343). Same shape contract as ssh — strip
+        // Per-host ping. Same shape contract as ssh — strip
         // falsy / blank keys so empty strings don't poison the merge.
         const pingIn = h.ping || {};
         const pingOut = {};
@@ -11453,7 +11453,7 @@ function app() {
         }
         const pt = String(pingIn.transport || '').trim().toLowerCase();
         if (pt === 'tcp' || pt === 'icmp') pingOut.transport = pt;
-        // Per-host SNMP override (#344). Same strip-blanks pattern as
+        // Per-host SNMP override. Same strip-blanks pattern as
         // ssh / ping — every key falls back to the global default when
         // empty, so we only persist explicit overrides.
         const snmpIn = h.snmp || {};
@@ -11518,7 +11518,7 @@ function app() {
         return {
           id:            (h.id || '').trim(),
           // Empty label is INTENTIONAL — `hostDisplayName(h)` falls
-          // back to `assetForHost(h).name` (#621). Don't auto-fill
+          // back to `assetForHost(h).name`. Don't auto-fill
           // with id here, because that would PIN the id forever and
           // the operator's intent to "use the asset's name" would be
           // silently dropped on every save.
@@ -11528,7 +11528,7 @@ function app() {
           beszel_name:   (h.beszel_name || '').trim(),
           pulse_name:    (h.pulse_name || '').trim(),
           webmin_name:   (h.webmin_name || '').trim(),
-          // SNMP target alias (#344). Empty means "no SNMP for this
+          // SNMP target alias. Empty means "no SNMP for this
           // host". Backend's _clean_host_snmp validates the override
           // dict; bare snmp_name flows through as a string.
           snmp_name:     (h.snmp_name || '').trim(),
@@ -11628,7 +11628,7 @@ function app() {
       }
     },
 
-    // --- Host groups (#93 + #134) ---
+    // --- Host groups ---
     // Operator-defined custom_number ranges that bucket hosts into
     // collapsible sections in the Hosts view. Supports 2-level
     // nesting via `parent_name` + a free-text `ip_range`.
@@ -11791,7 +11791,7 @@ function app() {
       if (!g) return '';
       const name = String(g.name || '');
       const num = (g.number != null && +g.number > 0) ? +g.number : null;
-      // Format: "<number>. <name>" — dot separator (#244) for visual
+      // Format: "<number>. <name>" — dot separator for visual
       // clarity in the Hosts view headings ("32. ISP Routers" reads
       // cleaner than "32 ISP Routers" when the name itself contains
       // numbers).
@@ -12144,7 +12144,7 @@ function app() {
     },
     markHostGroupDirty() { this.hostGroupsDirty = true; },
 
-    // ---- Inline-field-error helpers (#136) ----
+    // ---- Inline-field-error helpers ----
     // Keyed storage lives on `fieldErrors`. Callers set a specific
     // error text for a specific input (keyed by a stable "scope_idx_field"
     // id) and the templates render red-bordered inputs + an error
@@ -12474,7 +12474,7 @@ function app() {
     //     },
     //     { group: null, hosts: [h, h] }   // Ungrouped, trailing
     //   ]
-    // Memoised result. ENH-008 (#423) — `groupedHosts()` is called on
+    // Memoised result. ENH-008 — `groupedHosts()` is called on
     // every Alpine re-render. With 500 hosts × 30 groups the inner
     // O(N×M) walk is 15k comparisons per tick. Cache keyed on the
     // identities of the source arrays + the host list's length and the
@@ -12912,7 +12912,7 @@ function app() {
     // One-time debug: if we have a Type object with a long `type` but
     // Resolve the human-visible display name for a host row, used by
     // the Hosts grid + drawer header + every "open this host" toast.
-    // Resolution order (#621):
+    // Resolution order :
     //   1. Operator-set `h.label` from Admin → Hosts (highest priority)
     //   2. Asset inventory's `name` (asset.Name / asset.CalculatedName
     //      via `assetForHost(h).name`) — lets operators leave the
@@ -13306,7 +13306,7 @@ function app() {
             // place reconcile. Toggling `_loading = true` here caused
             // the status-dot template to flash from dot → spinner →
             // dot on every 15s poll cycle (most visible on paused /
-            // down hosts whose red dot was the visual anchor) (#416).
+            // down hosts whose red dot was the visual anchor).
             for (const k of CURATED_FIELDS) {
               if (k in h) existing[k] = h[k];
             }
@@ -13573,7 +13573,7 @@ function app() {
         styled: true,
       };
     },
-    // Drawer mode (#239): row is "expanded" when its host matches
+    // Drawer mode : row is "expanded" when its host matches
     // the currently-open drawer. Used for chevron rotation +
     // hover-tint suppression on the source row, exactly as the
     // legacy inline-expansion behaved.
@@ -13642,7 +13642,7 @@ function app() {
     },
     // Smooth-scrolls the host-drawer's inner scroller so the named
     // section (`data-host-section="<kind>-<host_id>"`) lands near the
-    // top (#364). Plain `scrollIntoView({block:'start'})` worked in
+    // top. Plain `scrollIntoView({block:'start'})` worked in
     // Chrome but Safari was scrolling the page instead of the drawer
     // — so this helper finds the drawer's scrollable ancestor
     // explicitly and sets `scrollTop` directly. Two rAFs after the
@@ -13823,7 +13823,7 @@ function app() {
     hostEnabledAgents(h) {
       if (!h) return [];
       // Each chip is `pill-custom` so it picks up the configured
-      // per-provider colour via providerChipStyle (#596). The
+      // per-provider colour via providerChipStyle. The
       // hand-mapped pill class names left over from the original
       // implementation are deliberately dropped — the colour now
       // flows from the operator-settable provider_color_* settings,
@@ -13968,7 +13968,7 @@ function app() {
         }), 'warning');
       }
     },
-    // Per-(provider, host) auto-pause lookup (#797). Returns the
+    // Per-(provider, host) auto-pause lookup. Returns the
     // pause-state row for `name` on `h`, or null when the provider
     // isn't paused for this host. Backend populates
     // `provider_pause_state: {snmp: {paused, consecutive_failures,
@@ -14070,7 +14070,7 @@ function app() {
     // Resume-button busy-state map. Keyed `<host_id>:<provider>` so
     // simultaneous resumes on different providers don't collide.
     providerResumeBusy: {},
-    // Manual resume action for the per-provider auto-pause (#797).
+    // Manual resume action for the per-provider auto-pause.
     // POSTs /api/hosts/{id}/provider/{name}/resume which clears the
     // failure-state row + the in-memory cool-down for that provider.
     // Optimistic UI: clear the local pause row immediately so the
@@ -14337,7 +14337,7 @@ function app() {
       if (host.snmp_enabled && _cacheStale(this.hostSnmpTempHistory[host.id])) {
         this.loadHostSnmpTempHistory(host.id, this.hostHistoryRange || 1);
       }
-      // Dedicated drawer-history poll (#365) — keeps the chart series +
+      // Dedicated drawer-history poll — keeps the chart series +
       // the `Updated Xs ago` freshness label in sync regardless of
       // whether the operator has the host-list poll enabled (when
       // `statsInterval=0` the loadHosts setInterval never fires, so a
@@ -14348,7 +14348,7 @@ function app() {
       //   - Off → no timer (static-snapshot promise).
       //   - Live + NE-only host → no timer; the new
       //     `host:history_appended` push event refreshes the chart on
-      //     every sampler write (#496).
+      // every sampler write.
       //   - Live + Beszel host (or NE+Beszel hybrid) → 30s timer
       //     because Beszel data isn't push-driven from our side
       //     (PocketBase owns the writes; we'd need a PB → bus
@@ -14613,7 +14613,7 @@ function app() {
       // True when at least one iface has ≥ 2 ticks of bps history.
       // Link speed used for the divisor is either the agent-reported
       // ifHighSpeed (preferred) or a 100 Mbps fallback assumption
-      // (#827) — printers / embedded gear that don't expose
+      // — printers / embedded gear that don't expose
       // ifHighSpeed previously had this card stuck at "Collecting…"
       // forever. The fallback divisor is announced in the legend
       // tooltip so operators know the percentages are an
@@ -14702,7 +14702,7 @@ function app() {
       }
       return null;
     },
-    // 100 Mbps fallback when ifHighSpeed isn't exposed (#827) —
+    // 100 Mbps fallback when ifHighSpeed isn't exposed —
     // printers / embedded gear with no managed-NIC reporting still
     // produce a percentage on the per-port utilization chart instead
     // of leaving the card stuck at "Collecting data…". The chart's
@@ -14715,7 +14715,7 @@ function app() {
     },
     // Utilization % for one iface = max(in, out) bps × 8 ÷ link_bps × 100.
     // Falls back to a 100 Mbps assumption when link speed unknown
-    // (#827) — pre-fix this returned null so the percent legend stayed
+    // — pre-fix this returned null so the percent legend stayed
     // blank on printers and the line chart stayed empty forever.
     snmpIfaceUtilizationPct(hostId, ifname, h) {
       const link = this.snmpIfaceLinkSpeedMbps(hostId, ifname, h)
@@ -14942,7 +14942,7 @@ function app() {
     // Build a polyline `points` attribute from a series of values.
     // Normalises against `max` (default = max value in series) so the
     // chart spans the full SVG viewBox. ViewBox 420×120 matches the
-    // existing Beszel / NE chart cards (#717) so the SNMP charts
+    // existing Beszel / NE chart cards so the SNMP charts
     // render at the same scale + gridline density as their cousins.
     // #815 — Unified drawer time-domain for every host-drawer chart.
     // Returns the [tMinSec, tMaxSec] window the picker has selected
@@ -15257,7 +15257,7 @@ function app() {
       }
       return out;
     },
-    // APC UPS Output Load % over the picker window (#820).
+    // APC UPS Output Load % over the picker window.
     // Renders the percentage of UPS capacity in use — e.g. 13% on a
     // 10 kVA Smart-UPS RT means the connected gear is drawing ~1.3 kVA.
     // Reads `load_percent` from `host_snmp_samples` rows; NULL slots
@@ -15545,7 +15545,7 @@ function app() {
       return 0;
     },
     // Banner copy — derives the per-tick interval from the SAME tunable
-    // the SNMP sampler uses. Resolution order (#833):
+    // the SNMP sampler uses. Resolution order :
     //   1. tuning_snmp_sample_interval_seconds when > 0 (SNMP runs at
     //      its own cadence, distinct from the global Beszel/NE one).
     //   2. tuning_stats_sample_interval_seconds (legacy / inherited
@@ -15713,7 +15713,7 @@ function app() {
       }
     },
     // Subtle freshness label for the host-drawer chart-grid header
-    // (#363). Returns a short translated string like "Updated 2m ago"
+    //. Returns a short translated string like "Updated 2m ago"
     // or empty when the cache hasn't seen a successful fetch yet
     // (caller hides the line). Reads `hostHistoryNow` (ticked every
     // 30s) so the label stays current without re-fetching the data.
@@ -15779,7 +15779,7 @@ function app() {
     // (history fetched via Beszel path → no collectors dict), and
     // freshly-loaded hosts whose first /api/hosts/history reply hasn't
     // landed yet. Drives the Disk I/O / Network "enable the collector"
-    // empty-state branches in the host drawer (#347).
+    // empty-state branches in the host drawer.
     hostCollectorMissing(h, name) {
       if (!h || !h.ne_url) return false;
       const key = this.hostHistoryKey(h);
@@ -15848,7 +15848,7 @@ function app() {
       }
     },
 
-    // Permanent-fail tracking helpers (#383). Backend sets
+    // Permanent-fail tracking helpers. Backend sets
     // `h.sampling_paused: true` on the host record once consecutive
     // probe failures exceed the configured window
     // (`tuning_host_permanent_fail_window_seconds`). Frontend renders an
@@ -15884,7 +15884,7 @@ function app() {
       // proxy holding the connection), the button gets re-enabled
       // after 30s. Prevents the stuck-disabled state operators hit
       // when the page came back from a network blip with the busy
-      // flag still set (#816).
+      // flag still set.
       const safetyTimer = setTimeout(() => { h._resumeBusy = false; }, 30000);
       try {
         const r = await fetch('/api/hosts/' + encodeURIComponent(h.id) + '/resume-sampling', {
@@ -15929,7 +15929,7 @@ function app() {
       }
     },
 
-    // Tap-driven tooltip state for the chart `?` icons (#413). Holds
+    // Tap-driven tooltip state for the chart `?` icons. Holds
     // a `<host_id>:<metric_key>` string when a tooltip is open, null
     // when nothing is showing. Mobile lacks hover so the native :title
     // never fires; this Alpine state powers a click-to-toggle tooltip
@@ -15982,7 +15982,7 @@ function app() {
     },
 
     // Per-host definitive source label for the chart-help tooltips
-    // (#390). Resolves the actual provider that populates a given
+    //. Resolves the actual provider that populates a given
     // metric for THIS host, considering what's mapped on the host
     // record + each metric's provider precedence. Falls back to the
     // generic i18n string when nothing is configured. Network has
@@ -16006,7 +16006,7 @@ function app() {
       // for "what populates this for this host". NE-only metrics that
       // Beszel doesn't track are flagged when Beszel is the only source.
       const precedence = {
-        // CPU is now sampled by NE too (#402) — derived from
+        // CPU is now sampled by NE too — derived from
         // node_cpu_seconds_total deltas — so NE qualifies as a
         // CPU provider alongside Beszel. SNMP fallback for managed
         // network gear / printers / UPSes.
@@ -16016,7 +16016,7 @@ function app() {
         disk_io:    ['beszel', 'ne'],
         load_avg:   ['beszel', 'ne', 'snmp'],
         swap:       ['beszel'],
-        // Temperature comes from Beszel only today (#437) — node-
+        // Temperature comes from Beszel only today — node-
         // exporter exposes thermal via `node_hwmon_temp_celsius` but
         // OmniGrid's NE sampler doesn't extract those yet. Add 'ne'
         // to the precedence list when that work lands.
@@ -16077,7 +16077,7 @@ function app() {
       return primary;
     },
 
-    // Busy flag (#837). True while the picker's underlying loaders
+    // Busy flag. True while the picker's underlying loaders
     // are in flight — bound to each picker button's `:disabled` so
     // operators can't queue rapid 1h → 6h → 24h clicks while the
     // first fetch is still resolving (the SPA used to lag the chart
@@ -16095,7 +16095,7 @@ function app() {
       // Safety timer — if any single loader hangs forever (network
       // freeze, broken proxy holding the connection), the busy flag
       // would otherwise stick true. 30s mirrors the per-host probe
-      // budget (#506); the operator regains control even when a fetch
+      // budget ; the operator regains control even when a fetch
       // never resolves.
       const safetyTimer = setTimeout(() => {
         this.hostHistoryRangeBusy = false;
@@ -16377,7 +16377,7 @@ function app() {
     // (used directly in the chart header) and raw numeric values
     // (used by templates to decide flat-signal collapsing).
     // Shared peak across multiple keys — used by the combined Net I/O
-    // and Disk I/O charts (#318 / #319) so the two polylines render
+    // and Disk I/O charts so the two polylines render
     // against the same y-axis and are visually comparable.
     // Returns 0 when no data so the caller can short-circuit the chart.
     hostChartMax(systemId, keys) {
@@ -16412,7 +16412,7 @@ function app() {
       return this.hostChartMax(systemId, keys) === 0;
     },
     // Per-sensor temperature readout for the chart card stats line
-    // (#437). Returns [[sensor_name, celsius], ...] sorted hottest-
+    //. Returns [[sensor_name, celsius], ...] sorted hottest-
     // first, capped at 3 — modern hosts can expose 8+ sensors
     // (coretemp_package + nvme_composite + acpitz + per-core +
     // hwmon …) and shoving them all into the inline header
@@ -16428,7 +16428,7 @@ function app() {
       rows.sort((a, b) => Number(b[1]) - Number(a[1]));
       return rows.slice(0, 3);
     },
-    // True when the host emits more sensors than we show inline (#437).
+    // True when the host emits more sensors than we show inline.
     // Drives the "+N more" chip the operator sees when there's a long
     // tail beyond the top 3.
     hostTemperatureExtraCount(h) {
@@ -16436,7 +16436,7 @@ function app() {
       const n = Object.keys(t).length;
       return n > 3 ? (n - 3) : 0;
     },
-    // Deterministic per-sensor colour token (#439). Cycles through the
+    // Deterministic per-sensor colour token. Cycles through the
     // five existing pill / accent tokens so we don't introduce new
     // colour literals (CLAUDE.md token discipline). Index comes from
     // a sorted-name lookup so each sensor always gets the same colour
@@ -16452,7 +16452,7 @@ function app() {
       const idx = sortedNames.indexOf(name);
       return palette[(idx >= 0 ? idx : 0) % palette.length];
     },
-    // Multi-line chart helper for the Temperature card (#439). Produces
+    // Multi-line chart helper for the Temperature card. Produces
     // one polyline per sensor with auto-scaled Y axis, padded ±5°C so
     // tight ranges still render with clear vertical movement. Sensors
     // are discovered by walking every point's `temps` dict (the union,
@@ -16562,7 +16562,7 @@ function app() {
       // visual rhythm as `yAxisPercent()` (`100% / 50% / 0%`). Earlier
       // ship used 4 labels which made the inner two land at 33%/66%
       // of the y-axis div — visually offset from anything meaningful
-      // on the chart and read as "labels out of bounds" (#443).
+      // on the chart and read as "labels out of bounds".
       const mid = lo + (hi - lo) / 2;
       const yAxis = [hi, mid, lo].map(v => Math.round(v) + '°');
       return { lines, dByColor, yAxis, min: lo, max: hi, sortedNames };

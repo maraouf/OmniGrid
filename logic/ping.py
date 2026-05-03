@@ -1,6 +1,6 @@
 """TCP-connect (and optional ICMP) reachability probe — Ping host-stats provider.
 
-Fifth host-stats provider (#343). Unlike Beszel / Pulse / node-exporter
+Fifth host-stats provider. Unlike Beszel / Pulse / node-exporter
 / Webmin, Ping carries NO host telemetry beyond reachability + latency:
 ``host_ping_alive`` (bool), ``host_ping_rtt_ms`` (float),
 ``host_ping_loss_pct`` (float). It runs LAST in the merge order so its

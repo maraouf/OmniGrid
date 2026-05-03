@@ -420,7 +420,7 @@ def resolve_ssh_params(host_id: str, hosts_config: list[dict]) -> dict:
     # re-printing the 9+ trace lines would be pure noise. First call
     # ever (or first after ANY input change) emits the full trace.
     from logic.db import get_setting as _get_setting
-    # Per-service master switch (#204). When SSH is globally disabled
+    # Per-service master switch. When SSH is globally disabled
     # in Admin → SSH, force every resolution to "disabled" with a
     # clear error. The stored creds + per-host overrides STAY in the
     # settings table — flipping the switch back on resumes service
@@ -712,7 +712,7 @@ async def run_command(
     # `resolve_ssh_params` recorded via `password_source`. We re-read
     # the source's actual password value here (not stashed on
     # resolved[] — keeps secrets out of audit logs) and fall through
-    # to global on a miss. BUG-009 fix (#415): if the recorded source
+    # to global on a miss. BUG-009 fix : if the recorded source
     # has no password (operator deleted the field but didn't flip the
     # classification), downgrade `password_source` to `"global"` in
     # both `resolved` and `base_result` so the audit row reflects what

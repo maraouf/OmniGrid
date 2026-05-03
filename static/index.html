@@ -48,7 +48,7 @@
   // pinch on the page). `e.scale !== 1` detects iOS-specific
   // pinch-scale events. The 300ms double-tap detector blocks the
   // iOS double-tap-to-zoom shortcut. Operator-requested behaviour
-  // (#385). Listeners use `{passive: false}` because preventDefault()
+  //. Listeners use `{passive: false}` because preventDefault()
   // requires it. Attached to BOTH document and window so iOS Safari
   // can't bypass via either path.
   (function () {
@@ -110,7 +110,7 @@
 <script src="/node_modules/@xterm/addon-fit/lib/addon-fit.js"></script>
 <script src="/node_modules/@xterm/addon-web-links/lib/addon-web-links.js"></script>
 <!-- qrcode-generator — pure-JS QR rendering used by the Profile -> Two-
-     factor authentication enrolment flow (#345). UMD bundle exposes
+     factor authentication enrolment flow. UMD bundle exposes
      a global `qrcode(typeNumber, errorCorrectionLevel)` factory. -->
 <script src="/node_modules/qrcode-generator/dist/qrcode.js"></script>
 <link rel="stylesheet" href="/css/style.css?v=__APP_VERSION__">
@@ -204,7 +204,7 @@
     <!-- Lucide: target (concentric circles + center dot — visual metaphor for "default value / what you'd land on if you cleared the override"). -->
     <symbol id="icon-target" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/></symbol>
 
-    <!-- Brand-shaped mono icons for Admin sidebar tabs (#421). Both
+    <!-- Brand-shaped mono icons for Admin sidebar tabs. Both
          use currentColor so they inherit the same line-icon styling
          as the other sidebar entries. Portainer is a solid bold "P"
          with the signature accent square. Authentik is a mono port
@@ -481,7 +481,7 @@
                 <span x-text="initial()"></span>
               </template>
             </span>
-            <!-- Unread-notifications badge (#855). Shows the count
+            <!-- Unread-notifications badge. Shows the count
                  (capped at 99+) when any notifications are unread.
                  Hidden entirely at 0 — operators don't want a "0" pill
                  cluttering the avatar. ARIA label is i18n-driven so
@@ -507,7 +507,7 @@
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
             <span x-text="t('user_menu.profile')"></span>
           </button>
-          <!-- In-app notifications (#855). Same row treatment as the
+          <!-- In-app notifications. Same row treatment as the
                other menu items + an inline unread chip on the right
                so the operator sees the count without leaving the
                dropdown. The chip is hidden at 0 so a clean state
@@ -550,7 +550,7 @@
          between clock+weather and the search input). On desktop:
          restores the flex row with border-top divider. -->
     <div class="contents sm:flex sm:items-center sm:gap-2 sm:px-5 sm:py-1.5 sm:max-w-full sm:mx-auto sm:border-t sm:border-[var(--border)] sm:flex-wrap">
-      <!-- Unified refresh-cadence picker (#486). Replaces the SYNC +
+      <!-- Unified refresh-cadence picker. Replaces the SYNC +
            STATS pair. ONE control with FIVE choices: "Live" (push via
            SSE — `refreshInterval = -1`) OR a polling cadence
            (Off / 30s / 1m / 5m). When Live is selected the SSE pipe
@@ -581,7 +581,7 @@
         </template>
       </div>
       <span class="hidden sm:inline flex-1"></span>
-      <!-- Connection-state pill (#486). Mirrors the picker's chosen
+      <!-- Connection-state pill. Mirrors the picker's chosen
            mode and shows real-time activity:
              • Live (SSE on, healthy)         → green dot, label "Live"
              • Live (SSE reconnecting)        → amber pulse,  label "Live"
@@ -611,7 +611,7 @@
            renders a small amber chip alongside the SSE pill when the
            bus has dropped events for this tab (fired from the
            `:overflow` SSE handler). One-glance signal that the bus is
-           overwhelmed; the per-overflow toast (#527) is the in-the-
+           overwhelmed; the per-overflow toast is the in-the-
            moment alert, this chip is the running tally. -->
       <div class="sse-drops-pill order-4 sm:order-none"
            x-show="_sseDropped > 0"
@@ -1620,7 +1620,7 @@
          uptime, agent, cores, arch, kernel). Expanding a row reveals
          SYSTEM + HARDWARE cards. See /api/hosts for the data shape. -->
     <div x-show="view==='hosts'" class="space-y-3">
-      <!-- Drawer backdrop (#239) — dims the page behind the host
+      <!-- Drawer backdrop — dims the page behind the host
            detail drawer + closes it on click. Same pattern as the
            item / node drawers: outer fixed-position box at z-30 (the
            drawer panel itself is z-40 on `.host-drawer`), inner
@@ -1940,7 +1940,7 @@
                 <div class="flex items-center gap-1.5 min-w-0">
                   <span class="label" x-text="hostTypePrefix(h) + hostDisplayName(h)"></span>
                   <!-- Permanent-fail + stale badges — same priority
-                       order as the desktop table (#383, #449). Paused
+                       order as the desktop table. Paused
                        is more severe (red) so it wins; stale falls
                        through with amber when not paused. -->
                   <svg x-show="h.sampling_paused"
@@ -1961,7 +1961,7 @@
                      globally enabled AND mapped to this host but
                      didn't return data (paused / unreachable / 401).
                      Brand color when healthy — driven by
-                     `providerColor()` (#596), per-provider customisable
+                     `providerColor()`, per-provider customisable
                      under Settings → Providers. -->
                 <template x-for="p in providerStates(h)" :key="p.name">
                   <span class="chip text-[9.5px] px-1 py-0"
@@ -1977,7 +1977,7 @@
                  contributes CPU / Mem / Disk gauges. Ping-only hosts
                  are "up" via reachability but don't have those
                  gauges; rendering empty bars on them looks broken
-                 (#569). Offline / unknown hosts collapse the whole
+                 . Offline / unknown hosts collapse the whole
                  row to just header + status dot so "0%" bars don't
                  imply "loading" on a host that's down. -->
             <div class="host-mobile-card-metrics" x-show="h.status === 'up' && hostHasTelemetry(h)">
@@ -2135,7 +2135,7 @@
                           x-text="'#' + h.custom_number"></span>
                     <span class="font-semibold text-[13px] mono truncate"
                           x-text="hostTypePrefix(h) + hostDisplayName(h)"></span>
-                    <!-- Permanent-fail badge (#383). Renders only when
+                    <!-- Permanent-fail badge. Renders only when
                          the host_metrics_sampler has auto-paused the
                          host after consecutive probe failures. Title
                          spells out the elapsed window in minutes. -->
@@ -2144,7 +2144,7 @@
                          class="text-[var(--danger)] flex-shrink-0"
                          :title="t('hosts_extra.permanent_fail.badge_title', { minutes: hostFailureMinutes(h) })"
                          aria-hidden="true"><use href="#icon-alert-triangle"/></svg>
-                    <!-- Stale-data badge (#449). Fires when one or
+                    <!-- Stale-data badge. Fires when one or
                          more provider went down and the row is
                          showing values restored from the persisted
                          snapshot. Lower visual priority than the
@@ -2161,7 +2161,7 @@
                          globally enabled AND mapped to this host but
                          didn't return data (paused / unreachable / 401).
                          Brand color when healthy — driven by
-                         `providerColor()` (#596), per-provider
+                         `providerColor()`, per-provider
                          customisable under Settings → Providers. -->
                     <template x-for="p in providerStates(h)" :key="p.name">
                       <span class="chip text-[9.5px] px-1 py-0"
@@ -2232,7 +2232,7 @@
                    column alone communicate the state. -->
               <!-- CPU % — gated on hostHasTelemetry so ping-only
                    hosts (which can be 'up' via reachability but
-                   contribute no CPU gauge) don't render an empty bar (#569). -->
+                   contribute no CPU gauge) don't render an empty bar. -->
               <div>
                 <template x-if="h.status === 'up' && hostHasTelemetry(h)">
                   <div>
@@ -2342,7 +2342,7 @@
               </div>
             </div>
 
-            <!-- Detail drawer (#239) lives at top-level — see
+            <!-- Detail drawer lives at top-level — see
                  the HOST DETAIL DRAWER block near the bottom of
                  this file. -->
                 </div><!-- /host-row wrapper from desktop template (line 2017) -->
@@ -2784,7 +2784,7 @@
 
       </div>
 
-      <!-- ===== SECURITY section (#389) — settings-sidebar peer of
+      <!-- ===== SECURITY section — settings-sidebar peer of
            Profile / Notifications / Ignore list / Language. Hosts the
            change-password card AND the TOTP / 2FA enrolment card; the
            Profile grid stays focused on identity (display name / email
@@ -2865,7 +2865,7 @@
           </template>
         </section>
 
-        <!-- Two-factor authentication card (#345). Local users only —
+        <!-- Two-factor authentication card. Local users only —
              Authentik users see an i18n hint pointing at their IdP. -->
         <section class="bg-[var(--surface)] border border-[var(--border)] rounded-md p-5"
                  x-show="me && me.source === 'local'">
@@ -3058,10 +3058,10 @@
               </template>
               <!-- Top margin gives breathing room above the action row
                    so the "Add a passkey" button doesn't sit flush
-                   against the bottom of the passkey-list card (#435). -->
+                   against the bottom of the passkey-list card. -->
               <div class="flex items-center gap-2 flex-wrap mt-3">
                 <!-- Admin can disable passkey enrolment globally via
-                     the Authentication tab (#432). Existing enrolments
+                     the Authentication tab. Existing enrolments
                      stay listed + revocable; only the Add button hides
                      so the operator-side "I want to register a new
                      key" path is the one blocked. -->
@@ -3687,7 +3687,7 @@
                             x-text="u.disabled ? t('states.disabled') : t('states.active')"></span>
                     </td>
                     <td class="px-4 py-2">
-                      <!-- 2FA / TOTP column (#345). Possible states:
+                      <!-- 2FA / TOTP column. Possible states:
                            - On: enrolled (green pill)
                            - Off: not enrolled, policy not forcing it
                            - Required: not enrolled but policy will force on next login
@@ -3700,7 +3700,7 @@
                         <span>
                           <!-- Pill priority: enrolled (green) > forced-but-not-yet (warning)
                                > off (muted). The forced-but-not-yet state surfaces the per-
-                               user policy override (#376) so admins can see at a glance who
+                               user policy override so admins can see at a glance who
                                is required to enrol. -->
                           <span x-show="u.totp_enabled" class="pill pill-success"
                                 x-text="t('admin.users.totp_on')"></span>
@@ -3715,7 +3715,7 @@
                       </template>
                     </td>
                     <td class="px-4 py-2">
-                      <!-- Passkeys (#381). Local users only — Authentik
+                      <!-- Passkeys. Local users only — Authentik
                            IdPs manage their own MFA. Count includes
                            every WebAuthn credential the user has
                            enrolled. Operator-readable hint via :title. -->
@@ -3738,7 +3738,7 @@
                     <td class="px-4 py-2 mono text-[11px] text-[var(--text-dim)]"
                         x-text="fmtDate(u.last_login_at)"></td>
                     <td class="px-4 py-2 text-end">
-                      <!-- Iconified actions row (#400). Each button is a
+                      <!-- Iconified actions row. Each button is a
                            square icon with the existing `:title` for
                            hover hint; clusters separated visually so the
                            operator can scan identity / 2FA / destructive
@@ -3762,7 +3762,7 @@
                           <svg width="14" height="14" aria-hidden="true"><use href="#icon-key"/></svg>
                         </button>
                         <span class="user-action-sep" x-show="u.auth_source==='local'"></span>
-                        <!-- Disable 2FA — admin override (#345). Visible
+                        <!-- Disable 2FA — admin override. Visible
                              only for local users with TOTP currently
                              enabled. Audited via history.op_type=
                              totp_admin_disabled. -->
@@ -3774,7 +3774,7 @@
                           <svg width="14" height="14" aria-hidden="true"><use href="#icon-shield"/></svg>
                         </button>
                         <!-- Force / Unforce 2FA — per-user policy
-                             override (#376). Audited via history.
+                             override. Audited via history.
                              op_type=totp_force_set. Hidden for
                              Authentik users (TOTP doesn't apply). -->
                         <button x-show="u.auth_source==='local' && !u.totp_force_required"
@@ -3851,7 +3851,7 @@
                 <template x-for="s in sessions" :key="s.token_id">
                   <tr class="border-t border-[var(--border)]">
                     <td class="px-4 py-2 font-medium" x-text="s.username || t('admin.sessions.deleted_user')"></td>
-                    <!-- Auth method pill (#436). Colour family follows
+                    <!-- Auth method pill. Colour family follows
                          the project's pill-* tokens: passkey / totp /
                          oidc are "secured" → pill-success / pill-info;
                          password / bootstrap are "single-factor" →
@@ -3994,7 +3994,7 @@
                 :class="settings.apprise_enabled ? 'pill-ok' : 'pill-muted'"
                 x-text="settings.apprise_enabled ? t('admin_integrations.enabled_pill') : t('admin_integrations.disabled_pill')"></span>
         </div>
-        <!-- Master switch (#204). Disables `notify()` in the backend
+        <!-- Master switch. Disables `notify()` in the backend
              without erasing the URL/tag — flip back on to resume.
              Saves alongside the URL/tag when the operator clicks
              Save below (no auto-save on change). -->
@@ -4015,7 +4015,7 @@
                :disabled="isReadonly() || !settings.apprise_enabled"
                :placeholder="t('settings.notifications.tag_placeholder')" class="w-full mt-2">
 
-        <!-- Per-medium master switches (#855). Independent of the
+        <!-- Per-medium master switches. Independent of the
              top-level Apprise enable toggle — flipping `notify_medium_app`
              off silences in-app notifications without disabling the
              event entirely; flipping `notify_medium_apprise` off does
@@ -4094,7 +4094,7 @@
             </template>
           </div>
 
-          <!-- Sampler events — split from Security (#420) because
+          <!-- Sampler events — split from Security because
                "host sampling auto-paused" is operational signal, not
                an authentication / login event. -->
           <div class="border-t border-[var(--border)] pt-3 mb-3">
@@ -4285,7 +4285,7 @@
                   x-text="portainerStatus ? (portainerStatus.configured ? t('settings.portainer.configured') : t('settings.portainer.not_configured')) : ''"></span>
           </div>
           <div x-show="portainerStatus" class="space-y-3">
-            <!-- Master switch (#204). Disables every Portainer-bound
+            <!-- Master switch. Disables every Portainer-bound
                  fetch via `is_configured()` so the app degrades
                  gracefully (Stacks/Services/Nodes empty, no error
                  spam) without erasing the stored URL or API key.
@@ -4561,7 +4561,7 @@
                     :class="hasHostStatsSource(tab[0]) ? 'dot-on' : 'dot-off'"
                     :title="hasHostStatsSource(tab[0]) ? t('settings.host_stats.tab_active_dot') : t('settings.host_stats.tab_inactive_dot')"></span>
               <!-- mono provider icon painted in the operator-
-                   customised chip colour (#596). Active tab gets the
+                   customised chip colour. Active tab gets the
                    full provider colour; inactive tabs use a muted
                    token-driven foreground so the strip doesn't read
                    like six saturated buttons all at once. -->
@@ -4574,7 +4574,7 @@
             </button>
           </template>
         </div>
-        <!-- Per-provider config blocks (#213) — visible always, inputs
+        <!-- Per-provider config blocks — visible always, inputs
              disabled when the matching toggle in the source-list above
              is off. Wrapper div carries `opacity-60` so the off state
              reads as "saved but inactive" instead of disappearing.
@@ -4659,7 +4659,7 @@
               </div>
             </template>
           </div>
-          <!-- Per-provider chip colour (#596) — operator-customisable
+          <!-- Per-provider chip colour — operator-customisable
                override that flows into the row-chip + drawer-chip
                render via `providerChipStyle`. Empty means "use the
                built-in default colour" (a distinct hue per provider). -->
@@ -4794,7 +4794,7 @@
               </div>
             </template>
           </div>
-          <!-- Per-provider chip colour (#596). -->
+          <!-- Per-provider chip colour. -->
           <div class="pt-3 mt-3 border-t border-[var(--border)] flex items-center gap-3 flex-wrap">
             <label class="text-[11px] flex items-center gap-2">
               <span x-text="t('settings.host_stats.chip_color_label')"></span>
@@ -4917,7 +4917,7 @@
               </div>
             </template>
           </div>
-          <!-- Per-provider chip colour (#596). -->
+          <!-- Per-provider chip colour. -->
           <div class="pt-3 mt-3 border-t border-[var(--border)] flex items-center gap-3 flex-wrap">
             <label class="text-[11px] flex items-center gap-2">
               <span x-text="t('settings.host_stats.chip_color_label')"></span>
@@ -5006,7 +5006,7 @@
 
           <!-- Webmin tunables — three knobs moved here from the
                generic Process tunables section per operator request
-               (#550, #553) so operators tweaking Webmin creds have
+                so operators tweaking Webmin creds have
                every related knob ready to hand. Same `tuningForm` /
                `tuningEffective` Alpine state. ONE shared Save button
                at the bottom rather than per-card (Save POSTs the
@@ -5056,7 +5056,7 @@
                  tunable changes into the same POST so operators have
                  ONE Save action covering the whole tab. -->
           </div>
-          <!-- Per-provider chip colour (#596). -->
+          <!-- Per-provider chip colour. -->
           <div class="pt-3 mt-3 border-t border-[var(--border)] flex items-center gap-3 flex-wrap">
             <label class="text-[11px] flex items-center gap-2">
               <span x-text="t('settings.host_stats.chip_color_label')"></span>
@@ -5084,7 +5084,7 @@
           </div>
         </div>
 
-        <!-- Ping (#343) — fifth provider. No credentials, no aliases.
+        <!-- Ping — fifth provider. No credentials, no aliases.
              Defaults flow into per-host config; per-host overrides win.
              Per-host opt-in still gates probing, so this block is the
              "globals" panel. -->
@@ -5197,7 +5197,7 @@
               </div>
             </template>
           </div>
-          <!-- Per-provider chip colour (#596). -->
+          <!-- Per-provider chip colour. -->
           <div class="pt-3 mt-3 border-t border-[var(--border)] flex items-center gap-3 flex-wrap">
             <label class="text-[11px] flex items-center gap-2">
               <span x-text="t('settings.host_stats.chip_color_label')"></span>
@@ -5249,7 +5249,7 @@
                module path is missing — the inline error pinpoints it.
                import_error stays empty when the import succeeds. The
                import-error line uses the same `--warning` (orange)
-               token as the unavailable hint (#647) so the diagnostic
+               token as the unavailable hint so the diagnostic
                reads as a unified warning block rather than a two-tone
                muted-then-bright surface. -->
           <div x-show="!settings.snmp_has_snmp_support" class="space-y-1">
@@ -5350,7 +5350,7 @@
           </div>
 
           <!-- Test button + result chip — UX unified with the Ping
-               test (#649). Picker shows curated hosts that have an
+               test. Picker shows curated hosts that have an
                `snmp_name` mapped; testSnmpConnection resolves the
                row's target + overrides client-side and submits to
                /api/snmp/test, falling back to global defaults
@@ -5420,7 +5420,7 @@
             </template>
           </div>
 
-          <!-- Per-provider chip colour (#596). -->
+          <!-- Per-provider chip colour. -->
           <div class="pt-3 mt-3 border-t border-[var(--border)] flex items-center gap-3 flex-wrap">
             <label class="text-[11px] flex items-center gap-2">
               <span x-text="t('settings.host_stats.chip_color_label')"></span>
@@ -5479,7 +5479,7 @@
         <!-- Heading + intro take full width; actions wrap to a new
              row below so the intro doesn't squeeze into a 6-line
              sliver on typical desktops. Spacing matches the
-             standardised admin-tab pattern (#615 / #617). -->
+             standardised admin-tab pattern. -->
         <div class="flex items-center gap-2 mb-2">
           <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true"><use href="#icon-server"/></svg>
           <h3 class="font-semibold text-[13px]" x-text="t('admin_hosts.heading')"></h3>
@@ -5640,7 +5640,7 @@
                       x-text="'#' + row.custom_number"></span>
                 <span class="font-semibold text-[12.5px] mono truncate" x-text="row.id || '(new host)'"></span>
                 <!-- Display-only · label suffix on the collapsed row
-                     header. Resolution chain (#637): operator-set
+                     header. Resolution chain : operator-set
                      `row.label` first (highest priority), else the
                      asset inventory's name via `assetForHost(row).name`
                      (matches the public Hosts page behaviour from
@@ -5663,7 +5663,7 @@
                                  ? t('admin_hosts.label_source_asset', { name: assetForHost(row).name })
                                  : (row.label || '')">
                     <span x-text="'· ' + (row.label || (assetForHost(row) && assetForHost(row).name) || '')" class="truncate"></span>
-                    <!-- Tiny indicator (#638) — 9px package glyph
+                    <!-- Tiny indicator — 9px package glyph
                          appears ONLY when the suffix came from the
                          asset inventory (operator left the label
                          blank). Operator-typed labels render no
@@ -5678,16 +5678,16 @@
                 <span x-show="!row.enabled" class="chip text-[9.5px] px-1 py-0 pill-warning" x-text="t('states.disabled')"></span>
                 <!-- Spacer pushes the per-row provider chip strip + the
                      SSH state icon to the trailing edge of the row
-                     (#607). Pre-fix the chips sat inline next to the
+                     . Pre-fix the chips sat inline next to the
                      host name and crowded the row when many providers
                      were mapped; floating right keeps the row scannable
                      and frees horizontal space for long host labels. -->
                 <span class="ms-auto"></span>
                 <!-- Per-row provider icons — bare mono SVG painted in
                      the operator-set provider colour from Settings →
-                     Providers (#596 / #607). No chip bubble around
+                     Providers. No chip bubble around
                      them: matches the trailing SSH state icon's bare
-                     style (#608) so the strip reads as a row of
+                     style so the strip reads as a row of
                      equal-weight glyphs rather than coloured-box
                      chips. `title` attr surfaces the canonical
                      provider name on hover for accessibility +
@@ -5759,7 +5759,7 @@
                   <!-- DON'T rebuild the sort on cn blur. Tabbing
                        out of cn used to instantly re-sort the row into
                        its numeric position, which on a paged editor
-                       (#331) could move the row to a DIFFERENT page
+                        could move the row to a DIFFERENT page
                        mid-edit. Instead, mark the row dirty here and
                        let the parent card's @focusout fire the sort
                        only when focus actually leaves the entire row. -->
@@ -5996,7 +5996,7 @@
                 </div>
               </div>
               <!-- ========== Ping block ==========
-                   Per-host ping opt-in (#343). Default OFF. When
+                   Per-host ping opt-in. Default OFF. When
                    checked, optional port + transport overrides reveal;
                    they cascade over the globals from Settings →
                    Providers → Ping. Pulled out of the SSH section so
@@ -6046,7 +6046,7 @@
                   </div>
                 </div>
               </div>
-              <!-- ========== SNMP block (#344) ==========
+              <!-- ========== SNMP block ==========
                    Per-host SNMP target alias + optional v2c/v3 override
                    block. Bare `snmp_name` covers the common case (one
                    curated row → one SNMP-reachable IP/host); the
@@ -6056,10 +6056,10 @@
                    = "inherit the global default". -->
               <div class="pt-2 mt-1 border-t border-dashed border-[var(--border)]">
                 <div class="text-[10px] uppercase tracking-wider text-[var(--text-faint)] mb-2 font-semibold">SNMP</div>
-                <!-- Per-host enable checkbox (#654) — parallels
+                <!-- Per-host enable checkbox — parallels
                      ping.enabled. OPT-IN: defaults to OFF unless
                      `row.snmp.enabled === true`. The previous
-                     default-true semantics (#651) auto-enabled SNMP
+                     default-true semantics auto-enabled SNMP
                      on every row that had snmp_name set, which
                      surprised operators creating fresh rows — the
                      checkbox showed checked even before they typed
@@ -6265,7 +6265,7 @@
                     x-text="t('admin_hosts.filter_clear')"></button>
           </div>
 
-          <!-- Pagination controls (#331) — only visible when the
+          <!-- Pagination controls — only visible when the
                filtered list spans more than one page. The full array
                stays in memory; only the rendered slice changes per
                page, so dirty tracking + duplicate-id validation across
@@ -6364,12 +6364,12 @@
 
       </section>
 
-      <!-- HOST GROUPS TAB (#135) — extracted from the Hosts tab for
+      <!-- HOST GROUPS TAB — extracted from the Hosts tab for
            clarity. Same `hostGroups` state; now includes parent
            dropdown + IP range text field for 2-level nesting. -->
       <section x-show="adminTab==='host_groups'" class="bg-[var(--surface)] border border-[var(--border)] rounded-md p-5">
         <!-- Spacing matches the standardised admin-tab pattern
-             (#615 / #617): `mb-2` on title row, no top-margin on
+             : `mb-2` on title row, no top-margin on
              the description paragraphs, `mb-3` on the last
              paragraph for separation from the editor below. -->
         <div class="flex items-center gap-2 mb-2">
@@ -6659,7 +6659,7 @@
           </template>
         </div>
 
-        <!-- Pagination controls (#348) — only render when the list
+        <!-- Pagination controls — only render when the list
              spans more than one page. Mirrors the Hosts editor block
              at line 3866 so the two surfaces feel uniform. The full
              group list stays in memory; only the rendered slice is
@@ -6709,7 +6709,7 @@
           </div>
         </div>
 
-        <!-- Sticky action bar (#348) — same pattern as
+        <!-- Sticky action bar — same pattern as
              `.hosts-config-actionbar` so the two admin surfaces
              behave identically. Add / Collapse-all / Save / count /
              scroll-to-top with the existing dirty-ring pattern. -->
@@ -7047,7 +7047,7 @@
                 :class="settings.ssh_enabled ? 'pill-ok' : 'pill-muted'"
                 x-text="settings.ssh_enabled ? t('admin_integrations.enabled_pill') : t('admin_integrations.disabled_pill')"></span>
         </div>
-        <!-- Master switch (#204). When off, every `resolve_ssh_params`
+        <!-- Master switch. When off, every `resolve_ssh_params`
              call short-circuits to disabled=true with a clear error,
              and every host-drawer SSH card reads as "Not configured".
              Stored creds + per-host overrides STAY in the settings
@@ -7801,7 +7801,7 @@
         </section>
       </div>
 
-      <!-- LOGS TAB — two sub-tabs (#425): Live (in-memory ring buffer)
+      <!-- LOGS TAB — two sub-tabs : Live (in-memory ring buffer)
            and Files (persistent daily logs on disk with download). -->
       <div x-show="adminTab==='logs'" class="space-y-3">
         <div class="flex items-center gap-1 border-b border-[var(--border)]">
@@ -7902,7 +7902,7 @@
              x-text="t('admin.logs.hint')"></p>
         </section>
 
-        <!-- FILES sub-tab — persistent daily log files on disk (#425).
+        <!-- FILES sub-tab — persistent daily log files on disk.
              Two-pane layout: list of files on the left (or stacked on
              mobile), live-tail viewer on the right when a file is
              selected. Each file row carries a download button that
@@ -8022,7 +8022,7 @@
                visible. Tail size is capped to keep the DOM cheap; for
                full content the operator uses the Download button.
                Reuses the Live tab's per-line template + colourisation
-               (#427) so timestamp + level + [tag] chips render with
+                so timestamp + level + [tag] chips render with
                the same accent classes. -->
           <div x-show="logSelectedFile" class="border-t border-[var(--border)] pt-3 space-y-2">
             <div class="flex flex-wrap items-center gap-2">
@@ -8098,7 +8098,7 @@
         </section>
       </div>
 
-      <!-- CONFIG TAB — process-level tunables (#337). Six knobs that
+      <!-- CONFIG TAB — process-level tunables. Six knobs that
            previously required an env-var change + restart now resolve
            via DB > env > code default. Blank input = clear DB override
            and fall back to env / default (placeholder reflects the
@@ -8228,7 +8228,7 @@
             <p class="text-[11px] text-[var(--text-faint)] -mt-1 ms-6"
                x-text="t('admin.config.totp.allowed_hint')"></p>
 
-            <!-- Passkey master toggle (#432). Mirrors `totp_allowed`
+            <!-- Passkey master toggle. Mirrors `totp_allowed`
                  in shape and semantics: when off, register-start
                  returns 403 + login flow drops 'webauthn' from the
                  methods list, but existing enrolments stay listed
@@ -8336,7 +8336,7 @@
             </label>
           </div>
 
-          <!-- Save button + dirty indicator (#342) — same pattern as the
+          <!-- Save button + dirty indicator — same pattern as the
                other admin tabs (Apprise / OpenMeteo / Portainer / OIDC /
                Config). Toggling the checkbox just marks the tab dirty;
                operator commits via Save. -->
@@ -8398,7 +8398,7 @@
   </div>
 
 
-  <!-- ================== HOST DETAIL DRAWER (#239) ==================
+  <!-- ================== HOST DETAIL DRAWER ==================
        Slide-out panel that replaces the legacy inline row expansion.
        Lives at top-level (outside both .hosts-mobile-cards and
        .hosts-desktop-table) so it renders on phone AND desktop —
@@ -8428,7 +8428,7 @@
                        @error="$event.target.style.display='none'">
                   <h2 class="text-[14px] font-semibold mono break-all"
                       x-text="hostTypePrefix(h) + hostDisplayName(h)"></h2>
-                  <!-- Asset-source indicator (#638) — same tiny 9px
+                  <!-- Asset-source indicator — same tiny 9px
                        package glyph the editor row uses to mark
                        names sourced from the asset inventory rather
                        than an operator-typed label. Visible only
@@ -8444,7 +8444,7 @@
                   <!-- quick "Edit in Admin" jump from the host
                        drawer header. Same close-drawer + view-switch +
                        focusHostsConfigRow chain the System card's
-                       "+ Add URL" link uses (#719); admin-only since
+                       "+ Add URL" link uses ; admin-only since
                        only admins can edit the curated host list. -->
                   <button x-show="me && me.role === 'admin'"
                           @click="(() => { const _hid = h.id; closeHostDrawer(); view='admin'; openAdminTab('hosts').then(() => focusHostsConfigRow(_hid)); })()"
@@ -8458,7 +8458,7 @@
                           :title="t('actions.close') || 'Close'">✕</button>
                 </div>
               </div>
-              <!-- Permanent-fail banner (#383) — fires when the
+              <!-- Permanent-fail banner — fires when the
                    host_metrics_sampler has auto-paused this host after
                    the configured failure window. Shows last error +
                    minutes since the streak started + a Resume button
@@ -8520,7 +8520,7 @@
                    banner — the status dot + debug panel already
                    tell the story without the extra scary yellow.
                    Also suppressed when ANY provider is auto-paused
-                   on this host (#838) AND when snapshot data is
+                   on this host AND when snapshot data is
                    being served (#838 follow-up — `isStale(h)` true).
                    The "could not match" copy is misleading on hosts
                    where the provider HAD matched and is now just
@@ -8566,7 +8566,7 @@
                    from the bottom-of-card rollup (UX-ENH-003) so the
                    two affordances stay in lock-step. Disabled gate
                    shares `canResumeAny(h)` with the bottom-of-card
-                   rollup + per-chip buttons (#816) so a stuck busy
+                   rollup + per-chip buttons so a stuck busy
                    flag never produces "top button enabled, per-chip
                    button disabled". -->
               <template x-if="h.enabled !== false && !h.sampling_paused && isAdmin() && pausedProvidersFor(h).length > 0">
@@ -8623,7 +8623,7 @@
                          x-text="isAllStale(h)
                            ? t('host_drawer.stale.body_bulk', { age: staleAge(h) })
                            : t('host_drawer.stale.body', { age: staleAge(h), count: (h._stale_fields || []).length })"></div>
-                    <!-- Surface the actual stale field names (#825).
+                    <!-- Surface the actual stale field names.
                          Operator-reported phantom banner: "1 field(s)
                          restored" while every chip showed Updated 2m
                          ago. The 1 field was off-screen in some card
@@ -8974,7 +8974,7 @@
                   </dl>
                 </section>
 
-                <!-- ENABLED AGENTS (#571) — dedicated card listing
+                <!-- ENABLED AGENTS — dedicated card listing
                      the providers WIRED on this curated row, rendered
                      as colored pills (not a comma-joined string in the
                      System card — operator wanted real visual chips).
@@ -8986,7 +8986,7 @@
                      row grey — did I forget to enable an agent?". Chip
                      colour comes from `providerColor()` — defaults to a
                      distinct hue per provider and overridable via
-                     Settings → Providers (#596). -->
+                     Settings → Providers. -->
                 <template x-if="hostEnabledAgents(h).length">
                   <section class="rounded border border-[var(--border)] bg-[var(--surface)] p-4 md:col-span-6">
                     <h4 class="text-[10.5px] uppercase tracking-wider text-[var(--text-faint)] mb-3" x-text="t('host_drawer.system.agents')"></h4>
@@ -9043,7 +9043,7 @@
                               </button>
                             </template>
                           </span>
-                          <!-- Last successful probe timestamp subtitle (#785).
+                          <!-- Last successful probe timestamp subtitle.
                                Reads provider_pause_state[<name>].last_ok_ts
                                (epoch seconds). Hidden when the provider has
                                never had a successful probe recorded yet
@@ -9100,7 +9100,7 @@
                      / vendor / swap_used) stay mounted when every
                      live provider is offline. Mirrors the symmetry
                      introduced for UPS / Printer / Network cards
-                     (#823 / #824) — the operator's last-known view of
+                      — the operator's last-known view of
                      the hardware shouldn't disappear just because the
                      SNMP / NE / Webmin probes are temporarily failing,
                      since the snapshot fallback is exactly what's
@@ -9250,7 +9250,7 @@
                       <dd class="mono text-end break-all text-[var(--text-faint)]"
                           x-text="assetForHost(h).serial"></dd>
                     </template>
-                    <!-- SNMP-derived hardware (#726). entPhysicalTable +
+                    <!-- SNMP-derived hardware. entPhysicalTable +
                          Cisco MIB walks populate host_model / host_serial /
                          host_firmware on the API row. Each gated on its
                          own field so hosts without SNMP (or without the
@@ -9329,7 +9329,7 @@
                               x-text="h.status"></span>
                       </dd>
                     </template>
-                    <!-- Services summary (#321). Row appears only when the
+                    <!-- Services summary. Row appears only when the
                          host's Beszel agent is reporting services (total > 0).
                          Always shows "{N} services"; appends "· {F} failed"
                          in red when failures exist; lists failed names
@@ -9363,7 +9363,7 @@
                   </dl>
                 </section>
 
-                <!-- UPS — APC PowerNet-MIB data (#683 / #703). Rendered
+                <!-- UPS — APC PowerNet-MIB data. Rendered
                      ONLY when the host probed via SNMP returned PowerNet
                      data — `host_ups_status` is the gate. Status badge
                      plus battery / load gauges using the same `.stat-bar`
@@ -9380,7 +9380,7 @@
                      section also surfaces when the values are stale
                      (snapshot fallback), so a probe outage doesn't
                      blank the card. Live OR stale on any single field
-                     is enough. (#823) -->
+                     is enough. -->
                 <section x-show="!!(h.host_ups_status)
                                  || typeof h.host_battery_percent === 'number'
                                  || typeof h.host_battery_temp_c === 'number'
@@ -9676,7 +9676,7 @@
                   </div>
                 </section>
 
-                <!-- PRINTER — Printer-MIB toner / supply levels (#702).
+                <!-- PRINTER — Printer-MIB toner / supply levels.
                      Section gate fires on EITHER live data OR cached
                      snapshot data so the card stays visible while the
                      SNMP provider is unreachable (#824, mirrors #819's
@@ -9773,7 +9773,7 @@
                          Port-Channel pool with no traffic, switch ports
                          with no link) get partitioned out and hidden
                          behind a toggle below — switches expose 30+
-                         interfaces and most are unused (#705). Sorted by
+                         interfaces and most are unused. Sorted by
                          total traffic descending so the dominant NIC
                          floats to the top. -->
                     <template x-for="(iface, i) in networkIfacesBusyVisible(h)" :key="'r' + i">
@@ -10061,8 +10061,8 @@
                    to ALL chart cards in the drawer (CPU / Mem / Disk /
                    Net / Disk-IO / Load + Ping + SNMP). `setHostHistoryRange`
                    re-fires `loadHostHistory` (Beszel/NE), `loadHostPingHistory`
-                   (#585), and `loadHostSnmpHistory` / `loadHostSnmpIfaceHistory`
-                   (#813) so picker clicks refresh every series in
+                   , and `loadHostSnmpHistory` / `loadHostSnmpIfaceHistory`
+                    so picker clicks refresh every series in
                    lock-step. Gate widened over time: `h.ping_enabled`
                    for ping-only hosts, `hostHasSnmpCharts(h)` for SNMP-
                    only hosts (managed switches / UPSes / NVRs / embedded
@@ -10072,7 +10072,7 @@
                    x-show="((h.beszel_id || h.ne_url) && h.status === 'up' && (h.providers || []).length > 0) || h.ping_enabled || hostHasSnmpCharts(h)">
                 <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true"><use href="#icon-clock"/></svg>
                 <!-- Buttons disabled while the picker's underlying
-                     loaders are in flight (#837). Prevents the operator
+                     loaders are in flight. Prevents the operator
                      from rapid-clicking 1h → 6h → 24h while the first
                      fetch is still resolving — pre-fix the SPA lagged
                      the chart updates on slow networks and presented
@@ -10114,7 +10114,7 @@
                           @click="setHostHistoryRange(168)"
                           x-text="t('host_drawer.charts.range_7d')"></button>
                 </div>
-                <!-- Subtle data-freshness hint (#363) — only shows after
+                <!-- Subtle data-freshness hint — only shows after
                      the first successful fetch. Ticks every 30s via the
                      shared `hostHistoryNow` timer in init() so the
                      "Xm ago" label stays current without re-fetching.
@@ -10153,7 +10153,7 @@
               </div>
 
               <!-- Ping latency — promoted to its own full-width row
-                   ABOVE the CPU/Mem/Disk grid (#599). RTT shape doesn't
+                   ABOVE the CPU/Mem/Disk grid. RTT shape doesn't
                    match the percentage cards (different y-axis, narrow
                    value range, ms unit), so giving it dedicated space
                    reads cleaner than wedging it into the 2-col grid
@@ -10241,7 +10241,7 @@
                    so NE-only hosts also get historical charts). Hosts
                    with neither show the "link to Beszel / set NE URL"
                    hint above instead of an empty "Collecting data…" grid.
-                   Ping was promoted out of this layout (#599); the
+                   Ping was promoted out of this layout ; the
                    gate no longer needs to consider `h.ping_enabled`
                    since ping-only hosts are served by the standalone
                    row above. -->
@@ -10743,12 +10743,12 @@
 
                 <!-- Pages printed chart REMOVED per operator
                      request. The Printer card already surfaces the
-                     lifetime page count as an 18 px headline (#743);
+                     lifetime page count as an 18 px headline ;
                      the pages-per-day rate sparkline added marginal
                      value for the cost of a permanently-spinner card
                      on idle printers. -->
 
-                <!-- APC UPS Output Load % chart (#820). Reads
+                <!-- APC UPS Output Load % chart. Reads
                      `load_percent` from `host_snmp_samples` rows the
                      sampler writes when host_load_percent is present.
                      Y-axis pinned to 100% so a busy UPS doesn't auto-
@@ -10795,7 +10795,7 @@
                   </template>
                 </div>
 
-                <!-- APC UPS Battery % chart (#820). Discharge curve
+                <!-- APC UPS Battery % chart. Discharge curve
                      when on battery + recharge curve afterwards.
                      Same pattern as Output Load. -->
                 <div class="metric-card"
@@ -10837,7 +10837,7 @@
                   </template>
                 </div>
 
-                <!-- APC UPS Battery Temperature chart (#820). Auto-
+                <!-- APC UPS Battery Temperature chart. Auto-
                      ranges to max(50, observed_max) so a flat-ish 36°C
                      line still has vertical movement instead of
                      compressing into the bottom margin of a 0..100
@@ -10945,7 +10945,7 @@
               <div class="mt-3 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4"
                    x-show="(h.beszel_id || h.ne_url) && h.status === 'up' && (h.providers || []).length > 0"
                    :class="hostHistoryRangeBusy ? 'charts-refreshing' : ''">
-                <!-- CPU % — hidden for ping-only hosts (#569). The
+                <!-- CPU % — hidden for ping-only hosts. The
                      grid wrapper now opens for ping_enabled too so the
                      Ping chart renders, but ping doesn't contribute a
                      CPU gauge. -->
@@ -11007,7 +11007,7 @@
                   </template>
                 </div>
 
-                <!-- Memory % — same telemetry gate as CPU (#569). -->
+                <!-- Memory % — same telemetry gate as CPU. -->
                 <div class="metric-card metric-card--mem" x-show="h.beszel_id || h.ne_url">
                   <div class="metric-card-head">
                     <div class="metric-card-title">
@@ -11058,7 +11058,7 @@
                   </template>
                 </div>
 
-                <!-- Disk % — same telemetry gate (#569). -->
+                <!-- Disk % — same telemetry gate. -->
                 <div class="metric-card metric-card--disk" x-show="h.beszel_id || h.ne_url">
                   <div class="metric-card-head">
                     <div class="metric-card-title">
@@ -11114,7 +11114,7 @@
                    #318 / #319 / was 2 separate Net cards; now
                    one Network card with both lines on a shared y-axis,
                    plus Disk I/O + Load Average. Ping was promoted to
-                   its own full-width row above the 3-col grid (#599)
+                   its own full-width row above the 3-col grid 
                    because its visual proportions (ms y-axis, narrow
                    value range) read poorly in a half-width slot beside
                    B/s gauges. The wrapper's gate no longer carries
@@ -11255,12 +11255,12 @@
                      see the standalone full-width row above the
                      3-col CPU/Mem/Disk grid. -->
 
-                <!-- ====== Disk I/O (#319) — same dual-line pattern as
+                <!-- ====== Disk I/O — same dual-line pattern as
                      the combined Network card. Read/write summed across
                      mounts in `logic/beszel.py:fetch_system_history` for
                      Beszel hosts and across non-loopback / non-partition
                      block devices in `logic/host_metrics_sampler.py` for
-                     NE-only hosts (#339). Card stays visible across
+                     NE-only hosts. Card stays visible across
                      both source types — the "idle" hint correctly
                      surfaces a genuinely-quiet disk regardless of source. -->
                 <div class="metric-card metric-card--disk"
@@ -11353,7 +11353,7 @@
                   </template>
                 </div>
 
-                <!-- ====== Load Average (#320) — three polylines for
+                <!-- ====== Load Average — three polylines for
                      1m / 5m / 15m on a shared y-axis. Beszel's `la`
                      field is parsed in fetch_system_history into
                      `la1` / `la5` / `la15`. Hidden when all three
@@ -11427,7 +11427,7 @@
                   </template>
                 </div>
 
-                <!-- ====== Bandwidth (#322) — single-line aggregate of
+                <!-- ====== Bandwidth — single-line aggregate of
                      in + out bytes/s, mirroring Beszel's "Bandwidth"
                      chart. Distinct from the Network card above (which
                      splits In + Out into two lines): this is the
@@ -11485,7 +11485,7 @@
                   </template>
                 </div>
 
-                <!-- ====== Swap usage (#327) — single-line plot of
+                <!-- ====== Swap usage — single-line plot of
                      swap-percent (`s`) over time. Hidden when the
                      host doesn't have swap configured (every point
                      is 0). Beszel's source field: `s` for percent,
@@ -11540,7 +11540,7 @@
                   </template>
                 </div>
 
-                <!-- TEMPERATURE chart (#437). Renders only when the
+                <!-- TEMPERATURE chart. Renders only when the
                      Beszel agent emits at least one thermal sensor in
                      stats.t (Raspberry Pi → cpu_thermal; Intel/AMD with
                      coretemp → package_id_0; NVMe SSDs → nvme_composite).
@@ -11575,10 +11575,10 @@
                          than fit inline. Each chip carries a colour
                          swatch matching its line in the chart so the
                          operator can map name → line at a glance
-                         (#439). Each chip is `whitespace-nowrap` so
+                         . Each chip is `whitespace-nowrap` so
                          name+swatch+value stay visually paired even
                          when the header row wraps on a narrow drawer
-                         (#437). -->
+                         . -->
                     <div class="metric-card-stats"
                          x-show="h.host_temperatures && Object.keys(h.host_temperatures).length > 0">
                       <template x-for="[name, c] in hostTemperatureRows(h)" :key="name">
@@ -11597,7 +11597,7 @@
                   </div>
                   <!-- Multi-line chart — one polyline per sensor, with
                        auto-scaled Y axis padded ±5°C and colour-cycle
-                       matching the header swatches (#439). Y-axis
+                       matching the header swatches. Y-axis
                        labels mirror the percentage charts' layout
                        so the operator can read off °C without
                        hovering. -->
@@ -12486,7 +12486,7 @@
   </div>
 
   <!-- ================== NOTIFICATIONS POPUP ==================
-       In-app notifications surface (#855). Operators wanted a quick
+       In-app notifications surface. Operators wanted a quick
        check + dismiss without losing their place on whatever view they
        were on, so this is a modal overlay (same pattern as the hotkeys
        modal below) rather than a top-level view. Click the avatar →

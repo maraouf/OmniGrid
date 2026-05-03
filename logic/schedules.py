@@ -171,7 +171,7 @@ def _next_fixed_time_run(
          no recorded run for it → next = today's anchor (fire now).
          Grace = ``TICK_INTERVAL_SECONDS * 2`` (≈120s by default) so a
          scheduler tick that lands ~30 seconds after the anchor still
-         catches today's fire window. See note_todo without
+         catches today's fire window.
          the grace window, daily / weekly / monthly schedules never
          fired because the strictly-less-than check skipped the
          anchor on every tick that landed after it.
@@ -1081,7 +1081,7 @@ async def _run_prune_logs(params: dict) -> tuple[str, Awaitable[tuple[int, str]]
     twice in a minute just produces a second history row with 0 files
     deleted. Mirrors the gather_refresh / asset_inventory_refresh
     pattern: no Operation, writes a history row directly when done so
-    it shows up in the History tab + the schedules queue. (#425)
+    it shows up in the History tab + the schedules queue. 
     """
     op_id = "sched-" + secrets.token_hex(4)
 
@@ -1317,7 +1317,7 @@ def seed_default_schedules(conn: sqlite3.Connection, nodes: list[str]) -> None:
 
     Gated on the ``default_schedules_seeded`` setting — once true, no
     re-seeding ever happens, even if the operator has deleted the
-    seeded rows in the meantime (#430). Previously each seed gated on
+    seeded rows in the meantime. Previously each seed gated on
     its own name not already existing, which meant deleting the rows
     just brought them back on the next boot. Operators with their own
     custom-named equivalents (RefreshCache, ScheduledPruneAllNodes,
@@ -1334,7 +1334,7 @@ def seed_default_schedules(conn: sqlite3.Connection, nodes: list[str]) -> None:
     if (get_setting("default_schedules_seeded", "") or "").lower() == "true":
         return
 
-    # ENH-014 (#429) — `seed_default_schedules` is called from BOTH
+    # ENH-014 — `seed_default_schedules` is called from BOTH
     # `_lifespan` (with empty nodes) AND the first `gather()` (with
     # nodes). On a fast-booting Swarm both calls can pass the gate
     # check above and double-INSERT before either reaches
@@ -1417,7 +1417,7 @@ def seed_default_schedules(conn: sqlite3.Connection, nodes: list[str]) -> None:
             if seeded:
                 print("[scheduler] default schedules seeded; flag latched")
 
-    # ENH-014 (#429) — close the BEGIN IMMEDIATE transaction. Commit
+    # ENH-014 — close the BEGIN IMMEDIATE transaction. Commit
     # whether seeded or not so the flag write (if any) lands and the
     # write lock is released for the other concurrent caller.
     try:

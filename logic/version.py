@@ -10,7 +10,7 @@ as a visible signal.
 
 Pre-2026-04-30 this module also exposed ``write_version`` for the
 Admin → Version page. Both were removed alongside the deploy migration
-to image-build (#606): the per-file bind mount that made writes
+to image-build : the per-file bind mount that made writes
 durable no longer exists, so any container-side write would land in
 the overlay layer and disappear on the next ``service update --force``.
 Operators now seed MAJOR/MINOR by editing repo-root ``VERSION.txt``,

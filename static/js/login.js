@@ -7,7 +7,7 @@
 // top so markup like `<h1 data-i18n="app.name">OmniGrid</h1>` renders
 // translated text without Alpine.
 //
-// The form supports a multi-step TOTP flow (#345) when the backend
+// The form supports a multi-step TOTP flow when the backend
 // returns step="totp_required" or step="totp_setup_required" instead
 // of an immediate cookie. State machine:
 //   password -> {ok}                                    -> redirect
@@ -66,7 +66,7 @@ function applyI18nDom() {
     ssoBtn:  document.getElementById('ssoBtn'),
   };
 
-  // Multi-step state (#345). Holds the payload from the password step
+  // Multi-step state. Holds the payload from the password step
   // so the second-step submit can post the challenge_id back.
   let totpState = null;
 
@@ -211,7 +211,7 @@ function applyI18nDom() {
         } catch (_) {}
       } catch (_) {
         showErr(tx('login.network_error', 'Network error. Try again.'));
-        // Same clear-on-error UX for network failures (#559).
+        // Same clear-on-error UX for network failures.
         try {
           const pw = document.getElementById('p');
           if (pw) { pw.value = ''; pw.focus(); }
@@ -246,7 +246,7 @@ function applyI18nDom() {
   function showEl(el) { if (el) el.style.display = ''; }
 
   // ----------------------------------------------------------------
-  // WebAuthn / passkey helpers (#381). The wire shape uses base64url
+  // WebAuthn / passkey helpers. The wire shape uses base64url
   // strings for every byte field so JSON-over-fetch round-trips
   // cleanly. Browsers expose the underlying buffers as ArrayBuffer;
   // these helpers hide the conversion at the API boundary.
@@ -272,7 +272,7 @@ function applyI18nDom() {
     }
   }
   function b64uDecode(s) {
-    // ENH-005 (#420) — validate the input before handing it to atob so a
+    // ENH-005 — validate the input before handing it to atob so a
     // malformed `allowCredentials[i].id` from the server surfaces as a
     // diagnostic operator-readable error instead of a generic
     // `InvalidCharacterError`. Empty / non-string is a programming error;

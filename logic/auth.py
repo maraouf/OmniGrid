@@ -236,7 +236,7 @@ def init_auth_schema(conn: sqlite3.Connection) -> None:
         created_by INTEGER REFERENCES users(id)
     );
 
-    -- WebAuthn / FIDO2 passkey credentials (#381). One row per
+    -- WebAuthn / FIDO2 passkey credentials. One row per
     -- enrolled key; users can have multiple. credential_id is the
     -- raw bytes returned by the authenticator (NOT base64-encoded
     -- here; the API layer encodes for the wire). public_key is the
@@ -269,14 +269,14 @@ def init_auth_schema(conn: sqlite3.Connection) -> None:
         "ALTER TABLE users ADD COLUMN display_name TEXT",
         "ALTER TABLE users ADD COLUMN bio TEXT",
         "ALTER TABLE users ADD COLUMN avatar_path TEXT",
-        # Per-user UI preferences (#313). JSON blob for cross-device
+        # Per-user UI preferences. JSON blob for cross-device
         # sync of toggles like headerWeatherEnabled / headerClockEnabled
         # that previously lived only in browser localStorage. Server
         # is the source of truth; localStorage is a fast-path cache.
         # Default '{}' so existing rows hydrate to "no overrides" and
         # the SPA falls back to its own per-toggle defaults.
         "ALTER TABLE users ADD COLUMN ui_prefs TEXT DEFAULT '{}'",
-        # TOTP-based 2FA (#345). Five additive columns; secret + backup
+        # TOTP-based 2FA. Five additive columns; secret + backup
         # codes are Fernet-encrypted at rest (see logic/totp.py). Authentik
         # users never set these fields -- their IdP handles MFA. Lockout
         # state mirrors the per-IP rate-limit pattern but is per-user.
@@ -285,14 +285,14 @@ def init_auth_schema(conn: sqlite3.Connection) -> None:
         "ALTER TABLE users ADD COLUMN totp_backup_codes_json TEXT",
         "ALTER TABLE users ADD COLUMN totp_failed_attempts INTEGER NOT NULL DEFAULT 0",
         "ALTER TABLE users ADD COLUMN totp_locked_until INTEGER",
-        # Per-user force-2FA override (#376). Admin-only flag that
+        # Per-user force-2FA override. Admin-only flag that
         # overrides the global totp_required_for_admins / _users
         # policy: when 1, this specific user MUST have 2FA on, even
         # if the global policy doesn't require it for their role.
         # Authentik users still skip — auth_source='local' gate
         # short-circuits TOTP everywhere.
         "ALTER TABLE users ADD COLUMN totp_force_required INTEGER NOT NULL DEFAULT 0",
-        # Per-session auth-method tag (#436). Surfaces in Admin → Sessions
+        # Per-session auth-method tag. Surfaces in Admin → Sessions
         # so the operator can see at a glance which factor each active
         # session was authenticated with: 'password' (single-factor
         # local), 'totp' (local + TOTP code), 'passkey' (local +
@@ -301,7 +301,7 @@ def init_auth_schema(conn: sqlite3.Connection) -> None:
         # 'password' which is the right behaviour for any session
         # minted before this column existed (pre-2FA era).
         "ALTER TABLE sessions ADD COLUMN auth_method TEXT NOT NULL DEFAULT 'password'",
-        # Per-credential RP-ID (#605). Stamped at registration from the
+        # Per-credential RP-ID. Stamped at registration from the
         # request's effective hostname so we can detect "credential
         # registered under a different domain" at login time and surface
         # a clearer error than the browser's silent QR fallback. Existing
@@ -330,12 +330,12 @@ class User:
     role: str
     auth_source: str
     disabled: bool
-    # TOTP-based 2FA (#345). ``totp_enabled`` is the canonical "is 2FA
+    # TOTP-based 2FA. ``totp_enabled`` is the canonical "is 2FA
     # active for this user" flag. The encrypted secret is NEVER on the
     # User dataclass -- callers fetch via get_user_totp_secret to reduce
     # the surface where it could leak into a serialised payload.
     totp_enabled: bool = False
-    # Per-user force-2FA override (#376). Defaults False so existing
+    # Per-user force-2FA override. Defaults False so existing
     # User constructions don't need updating.
     totp_force_required: bool = False
 
@@ -470,7 +470,7 @@ def list_users(conn: sqlite3.Connection) -> list[dict]:
     button). The encrypted secret + backup codes are deliberately NOT
     returned — they never need to leave the server.
 
-    Adds ``passkey_count`` (#381) so the admin view shows how many
+    Adds ``passkey_count`` so the admin view shows how many
     WebAuthn credentials each user has enrolled. Cheap aggregate join
     -- single SQL statement, indexed on ``user_credentials(user_id)``.
     """
@@ -487,7 +487,7 @@ def list_users(conn: sqlite3.Connection) -> list[dict]:
 
 
 def set_user_totp_force_required(conn: sqlite3.Connection, user_id: int, force: bool) -> None:
-    """Admin-only: flip the per-user force-2FA flag (#376).
+    """Admin-only: flip the per-user force-2FA flag.
 
     No effect on Authentik users — the call sites guard on auth_source
     upstream so we don't need to re-check here. Doesn't touch any other
@@ -530,7 +530,7 @@ def delete_user(conn: sqlite3.Connection, user_id: int) -> None:
     SQLite doesn't enforce the REFERENCES clause without PRAGMA
     foreign_keys=ON, so we do the cascade manually. api_tokens keep
     working (just lose the "created_by" backpointer) — revoking the
-    token is a separate admin action. Passkeys (#381) cascade because
+    token is a separate admin action. Passkeys cascade because
     they're identity material — leaving them dangling would let a
     recycled user_id silently inherit them.
     """
@@ -750,7 +750,7 @@ def admin_reset_password(
     change_password, no current-password check — the acting admin already
     has that authority. Invalidates every session for the target user.
 
-    ALSO clears any TOTP enrolment (#345) AND every passkey (#381):
+    ALSO clears any TOTP enrolment AND every passkey :
     operators reset passwords when a user has lost access; that
     usually means their authenticator device is gone too. The user
     re-enrols via Profile after the next login if 2FA is still
@@ -766,7 +766,7 @@ def admin_reset_password(
 
 
 # ----------------------------------------------------------------------------
-# TOTP (2FA) helpers (#345)
+# TOTP (2FA) helpers 
 # ----------------------------------------------------------------------------
 def get_user_totp_secret(
     conn: sqlite3.Connection, user_id: int,
@@ -897,7 +897,7 @@ def clear_totp_lockout(conn: sqlite3.Connection, user_id: int) -> None:
 
 
 # ----------------------------------------------------------------------------
-# WebAuthn / FIDO2 passkey credentials (#381)
+# WebAuthn / FIDO2 passkey credentials 
 # ----------------------------------------------------------------------------
 def list_user_credentials(
     conn: sqlite3.Connection, user_id: int,
@@ -1008,7 +1008,7 @@ def add_user_credential(
     browser, but a malicious / quirky client could still POST a
     duplicate). The caller maps this to 409 Conflict.
 
-    ``rp_id`` (#605) — the effective hostname the credential was
+    ``rp_id`` — the effective hostname the credential was
     registered under, copied from the request's ``request.url.hostname``
     (or X-Forwarded-Host) at registration time. Stored so login can
     detect "credential registered under a different domain" and
@@ -1237,7 +1237,7 @@ def create_session(
 
     ``auth_method`` tags the session with the factor used to authenticate
     so Admin → Sessions can show "password" / "totp" / "passkey" /
-    "oidc" / "bootstrap" per row (#436). Default is "password" so
+    "oidc" / "bootstrap" per row. Default is "password" so
     callers that don't care (legacy paths) get the safe value without
     needing to be touched.
     """
@@ -1252,7 +1252,7 @@ def create_session(
     # Diagnostic line so the operator can verify auth_method propagation
     # in Admin → Logs without inspecting the SQLite directly. The
     # session_method column on Admin → Sessions reads from the same
-    # row this print line attests to (#436).
+    # row this print line attests to.
     print(f"[auth] session created user_id={user_id} method={auth_method!r} ip={ip!r}")
     return issue_session_cookie(token_id, expires_at), expires_at
 

@@ -16,7 +16,7 @@ Concurrency caps (``REGISTRY_CONCURRENCY`` / ``STATS_CONCURRENCY``)
 resolve via :mod:`logic.tuning` — DB setting > env var > code default.
 Call sites use ``portainer.registry_concurrency()`` /
 ``portainer.stats_concurrency()`` so each gather sees the current value
-without restart (#337).
+without restart.
 """
 import os
 import sqlite3
@@ -165,7 +165,7 @@ def invalidate_portainer_cache() -> None:
 
 def is_configured() -> bool:
     """True when both URL and API key are non-empty AND the per-service
-    master switch (#204) is on. Callers use this as a pre-flight check
+    master switch is on. Callers use this as a pre-flight check
     so they can short-circuit instead of firing a doomed httpx request
     against an empty URL — and the master-switch path lets an operator
     flip Portainer off (during maintenance, debugging, etc.) without

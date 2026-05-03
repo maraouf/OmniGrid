@@ -1,4 +1,4 @@
-"""WebAuthn / FIDO2 passkey support for local-auth users (#381).
+"""WebAuthn / FIDO2 passkey support for local-auth users.
 
 Companion to ``logic/totp.py`` -- second factor that doesn't require the
 user to type a 6-digit code. Users enrol passkeys (1Password / iCloud
@@ -216,7 +216,7 @@ def make_registration_options(
     # (Touch ID / Windows Hello). Without this, some browsers funnel
     # straight to the OS-native picker and never give the password-
     # manager extension a chance to surface its "save passkey" sheet
-    # (#431). The webauthn lib doesn't expose this in its dataclass yet,
+    #. The webauthn lib doesn't expose this in its dataclass yet,
     # so we splice it onto the dict after serialisation.
     options_dict["hints"] = ["client-device", "hybrid", "security-key"]
     return options_dict, bytes(options.challenge)
@@ -254,7 +254,7 @@ def verify_registration(
     # `transports=["evil"]` which then made `make_authentication_options`
     # fall back to dropping the field entirely. Filter to the official
     # set so the row stays honest. Module-scope `_ALLOWED_TRANSPORTS`
-    # frozenset (#670) — hoisted from this loop so it doesn't reallocate
+    # frozenset — hoisted from this loop so it doesn't reallocate
     # per call.
     transports = [
         t.lower() for t in transports_raw
@@ -340,7 +340,7 @@ def make_authentication_options(
         # listed. Force `internal` first when present, then USB / BLE /
         # NFC / hybrid in their natural fallback order so the picker
         # tries the local platform before any cross-device flow.
-        # `_TRANSPORT_ORDER` is module-scope (#670) — hoisted from this
+        # `_TRANSPORT_ORDER` is module-scope — hoisted from this
         # loop so it doesn't reallocate per credential.
         ts = [t for t in _TRANSPORT_ORDER if t in ts_set]
         try:
@@ -378,7 +378,7 @@ def make_authentication_options(
     )
     import json as _json
     options_dict = _json.loads(options_to_json(options))
-    # WebAuthn Level 3 `hints` field on the assertion (#600) — same
+    # WebAuthn Level 3 `hints` field on the assertion — same
     # nudge the registration path uses (line ~203). Without this,
     # Safari and Chrome on macOS frequently default to the hybrid
     # (QR-code) flow when stored credentials don't carry explicit

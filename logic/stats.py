@@ -380,8 +380,7 @@ async def gather_stats() -> None:
     if not items_cache["items"]:
         # Diagnostic — surfaces the early-return that would explain
         # why /api/stats returns {} despite stats_samples being
-        # populated. The note_todo #250 thread chased this for a
-        # while; the operator log capture will pin the cause.
+        # populated. The operator log capture will pin the cause.
         print(f"[stats] gather_stats early-return: items_cache empty (size={len(items_cache.get('items') or [])})")
         return
     if not portainer.is_configured():

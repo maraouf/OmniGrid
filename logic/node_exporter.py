@@ -281,7 +281,7 @@ def parse_disk_counters(text: str) -> dict:
         key=lambda r: r["name"],
     )
 
-    # FreeBSD fallback (#352): Linux pass found nothing → try the
+    # FreeBSD fallback : Linux pass found nothing → try the
     # `node_devstat_bytes_total{device,type}` family. Same shape out
     # so the caller (`probe_node` → sampler) doesn't care which family
     # produced the bytes.
@@ -375,7 +375,7 @@ def parse_exporter_text(text: str) -> dict:
     uname_machine = ""
     uname_release = ""
     cpu_labels: set[str] = set()
-    # CPU-seconds counters for %CPU derivation (#402). Sum across all
+    # CPU-seconds counters for %CPU derivation. Sum across all
     # CPUs, ALL modes for total; only mode=idle for idle. The sampler
     # delta-maths these against the previous tick to compute %CPU =
     # 100 * (1 - (delta_idle / delta_total)).
@@ -482,7 +482,7 @@ def parse_exporter_text(text: str) -> dict:
             # Sum cumulative seconds across all CPUs and ALL modes
             # for the total; only mode=idle for idle. The sampler
             # delta-maths these against the previous tick to derive
-            # %CPU = 100 * (1 - (delta_idle / delta_total)). (#402)
+            # %CPU = 100 * (1 - (delta_idle / delta_total)). 
             try:
                 cpu_seconds_total += value
                 if labels.get("mode") == "idle":
@@ -600,7 +600,7 @@ def parse_exporter_text(text: str) -> dict:
         "host_dmi_product":      dmi_product,
         "host_dmi_serial":       dmi_serial,
         "host_dmi_bios_version": dmi_bios_version,
-        # CPU-seconds counters for sampler %CPU derivation (#402).
+        # CPU-seconds counters for sampler %CPU derivation.
         # Zero-values mean "node_cpu_seconds_total absent" — the
         # sampler skips %CPU computation in that case (chart stays
         # empty rather than showing nonsense).

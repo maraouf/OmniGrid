@@ -267,7 +267,7 @@ async def _notify_medium_apprise(
     if not url:
         print("[notify] apprise skipped — no apprise_url configured")
         return {"ok": False, "skipped": "no_url"}
-    # Per-user routing override (#356) — mailto recipient lookup. The
+    # Per-user routing override — mailto recipient lookup. The
     # per-event + per-user opt-out gates have already fired in the outer
     # dispatcher; here we only need the email lookup. Defensive try so a
     # DB blip on the user lookup doesn't tank the dispatch.

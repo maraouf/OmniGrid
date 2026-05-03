@@ -1,4 +1,4 @@
-"""Smoke test for the WebAuthn helper module (#381).
+"""Smoke test for the WebAuthn helper module.
 
 Live PublicKeyCredential simulation needs a real authenticator -- out of
 scope for this suite. Instead we verify:

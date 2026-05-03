@@ -151,7 +151,7 @@ async def _probe_one(host: dict, sem: asyncio.Semaphore) -> None:
     empty row in /api/hosts (ping_alive=null forever).
     """
     async with sem:
-        # Per-(ping, host) auto-pause short-circuit (#804). Skip the
+        # Per-(ping, host) auto-pause short-circuit. Skip the
         # probe entirely when operator has marked this host paused.
         # Done HERE not at the loop level so the failure-state row is
         # checked per-host every tick (cheap SELECT).
@@ -197,7 +197,7 @@ async def _probe_one(host: dict, sem: asyncio.Semaphore) -> None:
             # Distinct from the alive=False case below: alive=False is
             # the actual data the operator wants surfaced, not a fault.
             sampler_error = err
-        # Auto-pause accounting (#804): only sampler errors count;
+        # Auto-pause accounting : only sampler errors count;
         # plain alive=False is the data, not a fault.
         if sampler_error:
             await _rec_pause_outcome(

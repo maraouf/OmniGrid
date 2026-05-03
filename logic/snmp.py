@@ -1,4 +1,4 @@
-"""SNMP host-stats provider — sixth in the host-stats family (#344).
+"""SNMP host-stats provider — sixth in the host-stats family.
 
 Read-only consumer of SNMP-speaking devices: managed switches, routers,
 print servers, UPS units, network printers, managed APs — anything that
@@ -1609,7 +1609,7 @@ def extract_stats(
     ``active_sources`` is honoured to suppress fields a richer provider
     would emit better — same pattern as Webmin.
 
-    ``entity_walks`` (#681) — optional dict of ENTITY-MIB sub-walks
+    ``entity_walks`` — optional dict of ENTITY-MIB sub-walks
     (``descr`` / ``name`` / ``serial`` / ``model`` / ``firmware``) for
     devices that don't expose Host Resources MIB but DO carry vendor
     identification under entPhysicalEntry.
@@ -1748,7 +1748,7 @@ async def probe_snmp(
     isn't readable — common on appliances that disable SNMP system
     naming).
 
-    ``verbose`` (#675) — when True, the response also carries a ``raw``
+    ``verbose`` — when True, the response also carries a ``raw``
     sub-dict with the parsed system / cpu / storage / interface walks
     (string-keyed pretty-print so the operator can see WHICH OIDs the
     agent answered). Used by the host-drawer debug panel — left OFF on

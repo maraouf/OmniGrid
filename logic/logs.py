@@ -12,7 +12,7 @@ module tees the two standard streams into:
      ``/opt/omnigrid/data/logs/`` on the host. Retention is enforced
      by ``prune_old_logs(days)`` called from a lifespan-managed task
      in ``main.py``, with the ``days`` value tunable via
-     ``tuning_log_retention_days`` (#424).
+     ``tuning_log_retention_days``.
 
 Contract:
   - ``install()`` is idempotent. Safe to call multiple times (the first
@@ -336,7 +336,7 @@ class _TeeStream:
                 rec = {"ts": now, "stream": self._label, "text": line}
                 _buf.append(rec)
                 # Persist to today's daily file. Best-effort — see
-                # _persist_line() for the failure-mode contract. (#424)
+                # _persist_line() for the failure-mode contract. 
                 _persist_line(rec)
         except Exception:
             # Never let the tee break real logging. Swallow and move on.

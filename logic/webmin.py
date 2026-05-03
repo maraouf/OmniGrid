@@ -32,8 +32,6 @@ need a new code path.
 Auth: HTTP Basic with a dedicated read-only Webmin user. This sidesteps
 the session-cookie + CSRF dance; the operator enables Basic for the
 API user via ``no_session=<user>=<name>`` in ``/etc/webmin/miniserv.conf``.
-See ``notes/notes_agent_research.txt`` (Round 2026-04-24 evening —
-Webmin) for the full rationale.
 
 Units: Webmin is unit-inconsistent across modules. ``system-status``
 returns memory in KiB; ``mount`` returns disk in bytes; ``uptime`` is
@@ -552,7 +550,7 @@ def _scrape_net(soup) -> Optional[ET.Element]:
     header names "Name"/"Interface"/"Device", then pull the address
     and MAC columns by header match. Webmin 2.x sometimes splits
     physical / virtual / VLAN NICs across multiple tables under
-    separate ``<h3>`` sections; ENH-009 (#424) — walk every matching
+    separate ``<h3>`` sections; ENH-009 — walk every matching
     table and de-dup by NIC name (first-seen wins for the IP / MAC
     columns) so the operator's drawer shows the union, not just the
     physical list. The output is a sequence of

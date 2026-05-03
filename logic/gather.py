@@ -23,7 +23,7 @@ from logic.db import db_conn
 
 
 # Canonical label-value sets for `omnigrid_items_total{status, type}`
-# (#434). Single source of truth for the label cartesian product so
+#. Single source of truth for the label cartesian product so
 # `metrics.populate_from_cache` can pre-seed every known combination
 # at zero — Grafana queries against any specific combination always
 # match a series. Adding a new value (e.g. `swarm-task` for raw task
@@ -263,14 +263,14 @@ def save_host_snapshots(nodes_info: dict) -> int:
         print(f"[gather] save_host_snapshots failed: {e}")
         return 0
     # Bust the read-side cache so the next caller sees the freshest
-    # snapshots immediately after a write (#467). Pre-fix the cache
+    # snapshots immediately after a write. Pre-fix the cache
     # was time-based only and could serve a stale map for up to TTL.
     _snapshots_cache["map"] = None
     _snapshots_cache["ts"] = 0.0
     return len(rows)
 
 
-# Short-TTL cache for ``load_host_snapshots`` (#467). The SPA fans out
+# Short-TTL cache for ``load_host_snapshots``. The SPA fans out
 # N parallel ``/api/hosts/one/{id}`` calls per refresh, each of which
 # triggers ``apply_host_snapshot_fallback`` → ``load_host_snapshots()``
 # → a full SELECT against ``host_snapshots``. With 50 hosts that's 50
@@ -291,7 +291,7 @@ def load_host_snapshots() -> dict[str, dict]:
     init_db has run) or any other DB failure.
 
     Cached for the operator-tunable
-    ``tuning_host_snapshots_cache_ttl_seconds`` window (#467) — the
+    ``tuning_host_snapshots_cache_ttl_seconds`` window — the
     snapshot table is written once per gather tick and read O(N) times
     per SPA refresh, so caching the read is a strict win. The cache is
     busted on every ``save_host_snapshots`` write so write→read
@@ -751,7 +751,7 @@ async def _gather_impl() -> None:
         # see logic/db.py:active_host_stats_providers (CONS-004).
         active_sources = active_host_stats_providers()
 
-        # Per-node provider-hit tracker (#591). Drives the SPA chip in
+        # Per-node provider-hit tracker. Drives the SPA chip in
         # the Nodes view ("3 sources" / "exporter") so the count
         # reflects what actually probed THIS node, not the global CSV
         # of enabled providers. An ``exporter_error``-only payload from
@@ -877,7 +877,7 @@ async def _gather_impl() -> None:
                 if _provider_returned_data(stats):
                     nodes_info[host].setdefault("_providers", []).append("pulse")
 
-        # SNMP (#344) — sixth provider. Per-host probe (no central hub).
+        # SNMP — sixth provider. Per-host probe (no central hub).
         # Slots BETWEEN Pulse and Beszel in the merge order: SNMP carries
         # coarser data than Beszel/NE/Webmin (no per-mount disk on most
         # embedded gear, no kernel/arch reporting, only standard MIB-II
@@ -1103,7 +1103,7 @@ async def _gather_impl() -> None:
                 if _provider_returned_data(stats):
                     nodes_info[host].setdefault("_providers", []).append("webmin")
 
-        # Ping (#343) — fifth provider. LAST in the merge order because
+        # Ping — fifth provider. LAST in the merge order because
         # its data is the coarsest (reachability + RTT only); a richer
         # provider's CPU% / mem / disk values must never be overwritten
         # by Ping's empty-handed merge. Per-host opt-in via

@@ -156,7 +156,7 @@ def generate_backup_codes(n: int = 10) -> list[str]:
 
 
 def _backup_code_hash(plain: str) -> str:
-    """SHA-256 hex of the canonical 8-digit form. ENH-011 (#426) — used
+    """SHA-256 hex of the canonical 8-digit form. ENH-011 — used
     for O(1) consume-time lookup so we no longer decrypt every code on
     every attempt. Hash-only access is safe: the hash is the proof the
     user knew the plaintext, and the encrypted blob still backs the
@@ -226,7 +226,7 @@ def consume_backup_code(stored_json: Optional[str], attempt: str) -> tuple[bool,
     and a new JSON blob is returned. On no-match (or all entries already
     used), returns ``(False, None)``.
 
-    ENH-011 (#426): preferred path is O(1) lookup by ``code_hash``
+    ENH-011 : preferred path is O(1) lookup by ``code_hash``
     (SHA-256 of the canonical 8-digit form). Pre-#426 entries lack
     the hash field — for those we fall back to the legacy decrypt-
     and-compare loop. Backfill happens lazily: a successful legacy-

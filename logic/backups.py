@@ -125,7 +125,7 @@ def create_backup(prefix: str = "omnigrid-backup") -> dict:
         _snapshot_db_to(db_tmp)
 
         # ENH-010 / record the schema_migrations head so the
-        # restore path (#477) can detect "this backup was taken on a
+        # restore path can detect "this backup was taken on a
         # newer schema; upgrade OmniGrid first" and refuse with a
         # clear error instead of silently restoring incompatible data.
         # Best-effort: if the migrations table doesn't exist yet
