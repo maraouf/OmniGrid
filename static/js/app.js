@@ -1414,8 +1414,18 @@ function app() {
           e.key === '/' || e.code === 'Slash'
         );
         if (!isPaletteCombo) return;
+        // Single-fire sentinel — operator-reported diagnostic
+        // showed `was=true` on first Ctrl+K press, meaning the
+        // toggle had run TWICE per press (once flipping false→true
+        // then immediately true→false, leaving the modal hidden).
+        // Likely cause: the bubble-phase `handleHotkey` also
+        // matched the same combo and re-toggled. Stamp the event
+        // so any subsequent listener bails out cleanly.
+        if (e._cmdpal_handled) return;
+        e._cmdpal_handled = true;
         e.preventDefault();
         e.stopPropagation();
+        e.stopImmediatePropagation();
         console.log('[cmdpal] capture-phase hotkey matched, toggling palette (was=' + this.commandPaletteOpen + ')');
         if (this.commandPaletteOpen) this.closeCommandPalette();
         else this.openCommandPalette();
@@ -10099,9 +10109,37 @@ function app() {
       if (!q) return 1;
       const lc = String(label || '').toLowerCase();
       if (!lc) return 0;
+      // Multi-word query: every token must match the label
+      // somewhere; the result is the MIN of per-token scores so a
+      // strong match on one token doesn't drown a weak / missing
+      // match on another. Operator-reported on the Cisco SG300
+      // switch where the asset name is "Cisco SG300-52MP 52-Port
+      // Gigabit PoE Managed Switch" — typing "cisco switch"
+      // previously failed because the literal substring "cisco
+      // switch" doesn't appear (the words are at opposite ends of
+      // the label). Tokenizing splits the query, scores each
+      // token's best match against the label independently, and
+      // returns the worst of those — so any token that's
+      // genuinely absent from the label drops the score to 0.
+      const qTokens = q.split(/\s+/).filter(Boolean);
+      if (qTokens.length > 1) {
+        let minScore = Infinity;
+        for (const t of qTokens) {
+          const s = this._scoreSingleToken(lc, t);
+          if (s === 0) return 0;
+          if (s < minScore) minScore = s;
+        }
+        return minScore === Infinity ? 0 : minScore;
+      }
+      return this._scoreSingleToken(lc, q);
+    },
+    // Per-token scoring — same rules the original
+    // `_commandScoreLabel` applied to the whole query before the
+    // multi-word tokenization. Exact match 100, prefix 80, word-
+    // prefix 60, substring 40, miss 0.
+    _scoreSingleToken(lc, q) {
       if (lc === q) return 100;
       if (lc.startsWith(q)) return 80;
-      // word-prefix: any whitespace/punctuation-separated token starts with q
       const tokens = lc.split(/[\s_\-./:]+/);
       for (const t of tokens) {
         if (t === q) return 90;
@@ -14439,6 +14477,29 @@ function app() {
                 || !Array.isArray(cached.series)
                 || cached.series.length < 2) {
               this.loadHostHistory(row.beszel_id || '', row.id);
+            }
+          }
+          // Same backfill for SNMP — operator reported on a Cisco
+          // SG300-28P switch that the row CPU bar + sparkline only
+          // appeared after drawer-open-then-close. Same root cause
+          // as the unix-style providers above: IntersectionObserver
+          // fires loadHostSnmpHistory on first scroll-into-view but
+          // the row was still a skeleton (snmp_enabled flag from
+          // /api/hosts/list arrives before the per-host probe lands
+          // — visibility gates depend on history existing AND
+          // having a non-zero point, which the observer's first
+          // fire might not have populated yet). Drawer-open had its
+          // own loadHostSnmpHistory call (line ~15394) so opening
+          // the drawer bridged the gap. Now that the per-host
+          // probe just landed and `snmp_enabled` is reliably set,
+          // kick off the SNMP history fetch immediately if the
+          // cache is still empty / sparse.
+          if (row.snmp_enabled === true && typeof this.loadHostSnmpHistory === 'function') {
+            const snmpCached = this.hostSnmpHistory && this.hostSnmpHistory[row.id];
+            if (!snmpCached
+                || !Array.isArray(snmpCached.points)
+                || snmpCached.points.length < 2) {
+              this.loadHostSnmpHistory(row.id, 1);
             }
           }
         } catch (_) { /* defensive — never block the probe path */ }
