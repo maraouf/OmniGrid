@@ -1253,6 +1253,52 @@
     "confirm_title": "Restart Portainer agent service?",
     "confirm_text": "This will force-update the Portainer agent global service. Every node's agent task respawns and re-registers with the manager. Workload services are not touched. The agent service is auto-discovered (by image prefix + name pattern); if multiple candidates are found the op fails with a list so you can pick manually."
   },
+  "command_palette": {
+    "dialog_label": "Command palette",
+    "placeholder": "Search hosts, services, admin, views…",
+    "empty_state": "No matches — try a different keyword.",
+    "start_typing": "Start typing to search hosts, services, admin pages, views…",
+    "group": {
+      "hosts": "host",
+      "items": "service",
+      "admin": "admin",
+      "views": "view",
+      "hotkeys": "key"
+    },
+    "admin": {
+      "users": "Admin → Users",
+      "sessions": "Admin → Sessions",
+      "tokens": "Admin → API Tokens",
+      "schedules": "Admin → Schedules",
+      "hosts": "Admin → Hosts",
+      "host_groups": "Admin → Host Groups",
+      "ssh": "Admin → SSH",
+      "logs": "Admin → Logs",
+      "tuning": "Admin → Process Tunables",
+      "backups": "Admin → Backups",
+      "notifications": "Admin → Notifications",
+      "asset": "Admin → Asset Inventory",
+      "auth": "Admin → Authentication",
+      "oidc": "Admin → Authentik OIDC",
+      "portainer": "Admin → Portainer"
+    },
+    "view": {
+      "stacks": "Stacks view",
+      "services": "Services view",
+      "nodes": "Nodes view",
+      "hosts": "Hosts view",
+      "history": "History view"
+    },
+    "hotkey": {
+      "focus_search": "Focus search",
+      "refresh_cached": "Refresh (cached)",
+      "refresh_force": "Refresh (force)",
+      "open_notifications": "Open notifications",
+      "show_hotkeys": "Show hotkeys cheat sheet",
+      "escape": "Close modal / drawer / clear filters",
+      "open_palette": "Open command palette"
+    }
+  },
   "hotkeys": {
     "title": "Keyboard shortcuts",
     "hint": "Shortcuts are disabled while typing in an input field. Press <kbd class=\"kbd\">Esc</kbd> to exit a field.",

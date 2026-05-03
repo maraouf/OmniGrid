@@ -1425,6 +1425,36 @@ details summary::-webkit-details-marker {
 }
 
 /* ---------------------------------------------------------------------------
+   Command palette (Cmd-K / Ctrl-K) — universal "go anywhere" search
+   modal. Selected-row highlight follows arrow-key nav AND mouse hover
+   (each maps to commandPaletteSelectedIdx so Enter activates whichever
+   one was last pointed at). Per-group pill colours pull from the
+   provider/admin token family — kept narrow on purpose so adding a new
+   `kind` (e.g. "action") needs ONE new `.cmdpal-kind-action` rule.
+   --------------------------------------------------------------------------- */
+.cmdpal-row {
+    transition: background 0.08s linear;
+}
+.cmdpal-row-active {
+    background: var(--row-hover);
+}
+.cmdpal-kind-pill {
+    flex-shrink: 0;
+    background: var(--surface-2);
+    color: var(--text-dim);
+    font-family: var(--font-mono);
+    font-weight: 600;
+    letter-spacing: 0.4px;
+    min-width: 56px;
+    text-align: center;
+}
+.cmdpal-kind-hosts    { background: rgba(34, 197, 94, 0.18);  color: var(--success); }
+.cmdpal-kind-items    { background: rgba(59, 130, 246, 0.18); color: var(--info); }
+.cmdpal-kind-admin    { background: rgba(167, 139, 250, 0.18); color: var(--text); }
+.cmdpal-kind-views    { background: rgba(236, 72, 153, 0.18); color: var(--warning); }
+.cmdpal-kind-hotkeys  { background: rgba(148, 163, 184, 0.20); color: var(--text-faint); }
+
+/* ---------------------------------------------------------------------------
    Notification preferences grid (Profile → Notifications)
    Per-event × per-medium checkbox grid. Column count is dynamic
    (one column per registered medium + label column + "all" toggle),
