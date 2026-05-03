@@ -1969,14 +1969,52 @@ async def probe_snmp(
             dell_vd_size_task, dell_vd_layout_task,
             dell_bios_version_task, dell_bios_date_task,
         ]
-        results = await asyncio.wait_for(asyncio.gather(
-            *(_bounded(t) for t in all_tasks),
-            return_exceptions=False,
-        ), timeout=wall_clock_budget_resolved)
-    except asyncio.TimeoutError:
-        _arm_cooldown(host_clean, port_int)
-        return {"hosts": {}, "error": f"snmp: timeout against {host_clean}:{port_int}"}
+        # Wrap each pre-constructed coroutine in an asyncio.Task so we
+        # can observe per-task completion state on timeout. Tracking
+        # tasks (instead of awaiting raw coroutines via gather) lets us
+        # report how far the probe got before the wall-clock fired —
+        # operators chasing "snmp: timeout" can distinguish "agent is
+        # dead" from "agent is fine but we ran ~67 OID walks at default
+        # concurrency=1 and didn't finish in time".
+        running = [asyncio.create_task(_bounded(t)) for t in all_tasks]
+        try:
+            results = await asyncio.wait_for(asyncio.gather(
+                *running, return_exceptions=False,
+            ), timeout=wall_clock_budget_resolved)
+        except asyncio.TimeoutError:
+            # Cancel still-running tasks + flush their cancellations so
+            # nothing leaks past the function return. ``gather`` with
+            # ``return_exceptions=True`` swallows the CancelledErrors
+            # raised by the explicit cancel() calls below.
+            done_count = sum(1 for t in running if t.done() and not t.cancelled())
+            for t in running:
+                if not t.done():
+                    t.cancel()
+            await asyncio.gather(*running, return_exceptions=True)
+            _arm_cooldown(host_clean, port_int)
+            return {
+                "hosts": {},
+                "error": (
+                    f"snmp: timeout against {host_clean}:{port_int} "
+                    f"({done_count} of {len(running)} OID branches "
+                    f"completed within {int(wall_clock_budget_resolved)}s budget) "
+                    f"— raise tuning_snmp_per_host_walk_concurrency in "
+                    f"Admin → Config (default 1) if the agent handles "
+                    f"parallel queries safely, OR raise "
+                    f"tuning_snmp_wall_clock_budget_seconds (default 60s)"
+                ),
+            }
     except (asyncio.CancelledError, KeyboardInterrupt):
+        # Outer cancellation (parent task killed). Flush our running
+        # tasks so we don't leak them — same rationale as the
+        # TimeoutError branch above, just no error return shape.
+        for t in running:
+            if not t.done():
+                t.cancel()
+        try:
+            await asyncio.gather(*running, return_exceptions=True)
+        except (asyncio.CancelledError, KeyboardInterrupt):
+            pass
         raise
     except Exception as e:
         return {"hosts": {}, "error": f"snmp: probe failed: {e}"}

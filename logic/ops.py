@@ -35,7 +35,7 @@ import asyncio
 import json
 import time
 import uuid
-from typing import Awaitable, Callable, Optional
+from typing import Awaitable, Callable, Optional, Union
 
 import httpx
 
@@ -427,27 +427,36 @@ async def notify(
         if get_setting_bool(f"notify_event_{event}", default=default_on) is False:
             print(f"[notify] skipped — event '{event}' disabled by operator")
             return
-    # Per-user opt-out (#357). Logged once, gates ALL mediums for THIS
-    # actor — mirrors the previous behaviour. Token / system actors
-    # (negative ids) skip the per-user lookup so scheduler-fired
-    # notifications still land.
+    # Per-user opt-out lookup happens ONCE here — the per-(event, medium)
+    # gate is applied inside the medium fan-out below so a user can
+    # route, say, success events to Apprise only and failures to In-app
+    # only. Token / system actors (negative ids) skip the per-user
+    # lookup so scheduler-fired notifications still land.
+    user_event_pref: Optional[Union[bool, dict]] = None
     if event and actor_username:
         try:
             from logic import auth as _auth
             with db_conn() as _c:
                 _u = _auth.get_user_by_username(_c, actor_username)
                 if _u and _u.id >= 0:
-                    user_prefs = _auth.get_user_notify_prefs(_c, _u.id)
-                    if user_prefs and user_prefs.get(event, True) is False:
-                        print(
-                            f"[notify] skipped — user '{actor_username}' "
-                            f"opted out of '{event}'"
-                        )
-                        return
+                    prefs_map = _auth.get_user_notify_prefs(_c, _u.id) or {}
+                    if event in prefs_map:
+                        user_event_pref = prefs_map[event]
         except Exception as _e:
             # Defensive: never let a pref lookup failure break the
-            # admin-gate decision.
+            # admin-gate decision. user_event_pref stays None ⇒ default
+            # to "enabled across every medium" (legacy behaviour).
             print(f"[notify] user-pref lookup failed for '{actor_username}': {_e}")
+    # Legacy bare-bool false short-circuits every medium — matches the
+    # pre-per-medium behaviour for users who haven't migrated their
+    # ui_prefs yet AND for events the user explicitly opted out of in
+    # full via the SPA's Disable-all button (still stored as bare bool).
+    if user_event_pref is False:
+        print(
+            f"[notify] skipped — user '{actor_username}' opted out of "
+            f"'{event}' across every medium"
+        )
+        return
     # Build the per-medium dispatch list (skip disabled).
     senders: list[Awaitable[dict]] = []
     fired_mediums: list[str] = []
@@ -455,6 +464,23 @@ async def notify(
         if not _is_medium_enabled(medium_name):
             print(f"[notify] medium '{medium_name}' disabled — skipped")
             continue
+        # Per-(event, medium) user gate. Three shapes to handle:
+        #   - None / not-in-map: default-on for every medium (legacy
+        #     behaviour — fresh users with no per-event choice land here)
+        #   - bool True: enabled across every medium (legacy bare-bool)
+        #   - dict {medium: bool}: per-medium routing — missing key
+        #     defaults to True (medium added after the user's last save
+        #     should still fire by default; explicit opt-out is the only
+        #     way to silence a medium). bool False already short-circuited
+        #     above so we don't see it here.
+        if isinstance(user_event_pref, dict):
+            if user_event_pref.get(medium_name, True) is False:
+                print(
+                    f"[notify] medium '{medium_name}' skipped — user "
+                    f"'{actor_username}' routed '{event}' away from "
+                    f"this channel"
+                )
+                continue
         senders.append(sender(
             title=title, body=body, severity=severity,
             event=event, actor_username=actor_username,

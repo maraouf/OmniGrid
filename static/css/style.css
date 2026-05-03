@@ -1398,6 +1398,31 @@ details summary::-webkit-details-marker {
 }
 
 /* ---------------------------------------------------------------------------
+   Notification preferences grid (Profile → Notifications)
+   Per-event × per-medium checkbox grid. Column count is dynamic
+   (one column per registered medium + label column + "all" toggle),
+   driven by an inline `grid-template-columns` style. Row group
+   headers span every column via `grid-column: 1 / span N` (also
+   inline). The `.contents` wrapper on each row's container makes
+   the row's children direct grid items so each checkbox lands in
+   its own column without an extra wrapper.
+   --------------------------------------------------------------------------- */
+.notify-grid {
+    display: grid;
+    column-gap: var(--s-3);
+    row-gap: 0;
+    align-items: center;
+}
+.notify-grid > .contents {
+    display: contents;
+}
+/* Hover-highlight the entire row when any cell is hovered — gives
+   the operator a clear sightline across "this event, every channel". */
+.notify-grid > .contents:hover > div {
+    background: var(--row-hover);
+}
+
+/* ---------------------------------------------------------------------------
    Stat bars (CPU / Memory / Disk)
    Drive width and fill colour via --w and --c inline state
    --------------------------------------------------------------------------- */

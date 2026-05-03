@@ -117,7 +117,15 @@
     "notifications": {
       "title": "Notifications",
       "subtitle": "Choose which event notifications you receive. Toggles greyed out have been disabled globally by an admin.",
-      "disabled_by_admin": "Disabled globally by admin"
+      "subtitle_per_medium": "Route each event to one or more delivery channels. Empty rows mean you won't be notified at all for that event. Channels disabled globally by an admin still appear but won't deliver until re-enabled.",
+      "disabled_by_admin": "Disabled globally by admin",
+      "medium_globally_disabled": "Channel disabled globally — re-enable in Admin → Notifications for this column to deliver",
+      "column_event": "Event",
+      "column_all": "All",
+      "column_all_hint": "Toggle every channel for this event in one click",
+      "row_all_hint": "Click to enable / disable every channel for this row",
+      "column_header_hint": "Click: enable this channel across every event · Right-click: disable across every event",
+      "medium_column_hint": "Toggle this channel across every event"
     }
   },
   "filters": {

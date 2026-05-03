@@ -6672,6 +6672,98 @@ async def api_hosts_debug(
         "webmin": None, "snmp": None,
     }
 
+    # ---- SNMP kickoff (early launch) -----------------------------
+    # SNMP is the slowest provider in the handler — at default
+    # per-host walk concurrency=1, ~67 OID branches across base +
+    # Dell + Cisco + APC + UCD + Synology + Printer MIBs serialise
+    # to 30-50s on slow BMC-class agents. Pre-launching it as an
+    # asyncio Task here means it runs concurrently with every
+    # downstream provider's `await client.get(...)` (each httpx
+    # call yields to the event loop, so the SNMP probe gets to
+    # advance during their wait_for / sleep / read points). Total
+    # wall-clock for the handler becomes roughly max(SNMP_budget,
+    # other_providers_sum) instead of SNMP + others, fitting under
+    # the upstream proxy_read_timeout (~60s default on Nginx Proxy
+    # Manager) even when the iDRAC pushes against the SNMP budget.
+    # Result is awaited at the bottom of the handler in the SNMP
+    # block where the response shape is built.
+    snmp_task = None
+    snmp_meta: dict[str, Any] = {}
+    if "snmp" in active:
+        from logic import snmp as _snmp
+        if not _snmp.has_snmp_support():
+            providers_raw["snmp"] = {"_error": "pysnmp not installed"}
+        else:
+            row_snmp_kick = (record.get("snmp")
+                             if isinstance(record.get("snmp"), dict)
+                             else {})
+            try:
+                sn_aliases_kick = json.loads(
+                    get_setting("snmp_aliases", "{}") or "{}"
+                )
+                if not isinstance(sn_aliases_kick, dict):
+                    sn_aliases_kick = {}
+            except ValueError:
+                sn_aliases_kick = {}
+            # Same HARD-GATE as `_merge_one_host` — alias OR snmp_name
+            # resolves the target (no bare-id fallthrough), AND
+            # `record.snmp.enabled === true` is required. Hosts without
+            # SNMP enrolled leave snmp_task as None, the panel hides
+            # the slot.
+            target_kick = (
+                sn_aliases_kick.get(record["id"])
+                or (record.get("snmp_name") or "").strip()
+                or ""
+            )
+            enabled_kick = row_snmp_kick.get("enabled") is True
+            if target_kick and enabled_kick:
+                community_kick = ((row_snmp_kick.get("community") or "").strip()
+                                  or (get_setting("snmp_default_community", "") or "public"))
+                version_kick = (((row_snmp_kick.get("version") or "").strip().lower())
+                                or (get_setting("snmp_default_version", "") or "v2c").lower()
+                                or "v2c")
+                try:
+                    port_kick = int(row_snmp_kick.get("port")
+                                    or get_setting("snmp_default_port", "") or "161")
+                except (TypeError, ValueError):
+                    port_kick = 161
+                v3_user_kick = ((row_snmp_kick.get("v3_user") or "").strip()
+                                or get_setting("snmp_v3_user", "") or "")
+                v3_auth_kick = ((row_snmp_kick.get("v3_auth_key") or "").strip()
+                                or get_setting("snmp_v3_auth_key", "") or "")
+                v3_priv_kick = ((row_snmp_kick.get("v3_priv_key") or "").strip()
+                                or get_setting("snmp_v3_priv_key", "") or "")
+                snmp_task = asyncio.create_task(_snmp.probe_snmp(
+                    target_kick,
+                    community=community_kick,
+                    version=version_kick,
+                    port=port_kick,
+                    v3_user=v3_user_kick,
+                    v3_auth_key=v3_auth_kick,
+                    v3_priv_key=v3_priv_kick,
+                    timeout=8.0,
+                    active_sources=active,
+                    verbose=True,
+                    bypass_cooldown=True,
+                    # 50s wall-clock budget for the debug path —
+                    # gives slow BMC-class agents (iDRAC9 / IPMI /
+                    # printers) headroom for the full ~67-OID walk
+                    # at the safety-default concurrency=1. Sampler /
+                    # gather paths still use the operator-tunable
+                    # `tuning_snmp_wall_clock_budget_seconds`
+                    # (default 60s).
+                    wall_clock_budget=50.0,
+                ))
+                snmp_meta = {
+                    "target": target_kick,
+                    "community": community_kick,
+                    "version": version_kick,
+                    "port": port_kick,
+                    "v3_user": v3_user_kick,
+                    "v3_auth_set": bool(v3_auth_kick),
+                    "v3_priv_set": bool(v3_priv_kick),
+                }
+
     # ---- Beszel --------------------------------------------------
     if "beszel" in active and record.get("beszel_name"):
         hub_url = get_setting("beszel_hub_url", "") or ""
@@ -6922,113 +7014,37 @@ async def api_hosts_debug(
         except Exception as e:
             providers_raw["ping"] = {"_error": str(e)}
 
-    # ---- SNMP (#344) — fresh probe against THIS host. Surfaces the
-    #      raw response shape (host_key + first few stats fields) so
-    #      operators can confirm community/version/port resolution and
-    #      see which OIDs the agent actually answered. -------------
-    if "snmp" in active:
-        from logic import snmp as _snmp
-        if not _snmp.has_snmp_support():
-            providers_raw["snmp"] = {"_error": "pysnmp not installed"}
-        else:
-            row_snmp = (record.get("snmp") if isinstance(record.get("snmp"), dict)
-                        else {})
-            try:
-                sn_aliases = json.loads(get_setting("snmp_aliases", "{}") or "{}")
-                if not isinstance(sn_aliases, dict):
-                    sn_aliases = {}
-            except ValueError:
-                sn_aliases = {}
-            # HARD-GATE: probe ONLY when an alias OR a curated `snmp_name`
-            # resolves a target — same anti-bare-id-fallthrough rule
-            # `_merge_one_host` enforces. Pre-fix the debug handler fell
-            # back to ``record["id"]`` as the SNMP target on every
-            # SNMP-fleet-enabled deploy, so opening the debug panel for a
-            # ping-only / Beszel-only host fired a 20s SNMP probe against
-            # the host's bare id and timed out — pollutes the panel with a
-            # red SNMP error chip on hosts the operator never enrolled.
-            # Per-host enable gate (#654 contract) ALSO required: SNMP
-            # only fires when the operator explicitly checks the per-host
-            # SNMP enable box. Both gates mirror `_merge_one_host` so
-            # debug always shows what the live row actually probes.
-            snmp_target = (
-                sn_aliases.get(record["id"])
-                or (record.get("snmp_name") or "").strip()
-                or ""
-            )
-            snmp_enabled = row_snmp.get("enabled") is True
-            if not snmp_target or not snmp_enabled:
-                # Per-host SNMP not configured for THIS host — leave the
-                # raw slot as None so `hasDebugData()` hides the SNMP
-                # block in the panel. Suppresses the spurious 20s
-                # SNMP-against-bare-id probe that the previous bare-id
-                # fallthrough fired on ping-only / Beszel-only hosts.
-                providers_raw["snmp"] = None
-            else:
-                community = ((row_snmp.get("community") or "").strip()
-                             or (get_setting("snmp_default_community", "") or "public"))
-                version = (((row_snmp.get("version") or "").strip().lower())
-                           or (get_setting("snmp_default_version", "") or "v2c").lower()
-                           or "v2c")
-                try:
-                    port = int(row_snmp.get("port")
-                               or get_setting("snmp_default_port", "") or "161")
-                except (TypeError, ValueError):
-                    port = 161
-                v3_user = ((row_snmp.get("v3_user") or "").strip()
-                           or get_setting("snmp_v3_user", "") or "")
-                v3_auth = ((row_snmp.get("v3_auth_key") or "").strip()
-                           or get_setting("snmp_v3_auth_key", "") or "")
-                v3_priv = ((row_snmp.get("v3_priv_key") or "").strip()
-                           or get_setting("snmp_v3_priv_key", "") or "")
-                try:
-                    # verbose=True surfaces the parsed walks
-                    # (system / cpu / storage / interfaces) so the
-                    # debug panel can show what SNMP data is actually
-                    # available, not just the connection params.
-                    r = await _snmp.probe_snmp(
-                        snmp_target,
-                        community=community, version=version, port=port,
-                        v3_user=v3_user, v3_auth_key=v3_auth,
-                        v3_priv_key=v3_priv,
-                        timeout=8.0, active_sources=active,
-                        verbose=True,
-                        # Debug panel is operator-initiated (admin opened
-                        # the host drawer's debug section) — bypass the
-                        # unreachable cool-down so the panel always shows
-                        # a real probe result rather than the throttle
-                        # placeholder. Same rationale as `/api/snmp/test`.
-                        bypass_cooldown=True,
-                        # Cap SNMP wall-clock at 20s for the debug path
-                        # so the cumulative response time of every probe
-                        # in this handler stays under the typical reverse-
-                        # proxy proxy_read_timeout (~60s). Operators
-                        # tuning a slow Dell iDRAC / WD MyCloud / printer
-                        # via Admin → Config still get the full 60s
-                        # default budget on background sampler ticks.
-                        wall_clock_budget=20.0,
-                    )
-                    providers_raw["snmp"] = {
-                        "target":     snmp_target,
-                        "community":  community,
-                        "version":    version,
-                        "port":       port,
-                        "v3_user":    v3_user,
-                        "v3_auth_set": bool(v3_auth),
-                        "v3_priv_set": bool(v3_priv),
-                        "hosts_keys": sorted((r.get("hosts") or {}).keys()),
-                        "error":      r.get("error"),
-                        # full probed data: every parsed OID, per-row
-                        # storage table (RAM + disks), per-row interface
-                        # counters, and a quick walk-summary header so
-                        # operators can see at a glance which OID families
-                        # the agent answered.
-                        "raw":        r.get("raw") or {},
-                    }
-                    if r.get("hosts"):
-                        providers_normalized["snmp"] = next(iter(r["hosts"].values()))
-                except Exception as e:  # noqa: BLE001
-                    providers_raw["snmp"] = {"_error": str(e)}
+    # ---- SNMP (await the early-launched probe) -------------------
+    # The probe was kicked off at the top of the handler (see "SNMP
+    # kickoff (early launch)" block above) so it could run
+    # concurrently with the Beszel / Pulse / NE / Webmin / Ping
+    # awaits. Now we synchronise on the result and build the response
+    # shape. Hosts without SNMP enrolled have snmp_task = None and
+    # providers_raw["snmp"] was already set above — we just skip.
+    if snmp_task is not None:
+        try:
+            r = await snmp_task
+            providers_raw["snmp"] = {
+                "target":      snmp_meta["target"],
+                "community":   snmp_meta["community"],
+                "version":     snmp_meta["version"],
+                "port":        snmp_meta["port"],
+                "v3_user":     snmp_meta["v3_user"],
+                "v3_auth_set": snmp_meta["v3_auth_set"],
+                "v3_priv_set": snmp_meta["v3_priv_set"],
+                "hosts_keys":  sorted((r.get("hosts") or {}).keys()),
+                "error":       r.get("error"),
+                # Full probed data: every parsed OID, per-row
+                # storage table (RAM + disks), per-row interface
+                # counters, plus a walk-summary header so operators
+                # can see at a glance which OID families the agent
+                # answered.
+                "raw":         r.get("raw") or {},
+            }
+            if r.get("hosts"):
+                providers_normalized["snmp"] = next(iter(r["hosts"].values()))
+        except Exception as e:  # noqa: BLE001
+            providers_raw["snmp"] = {"_error": str(e)}
 
     # ---- Merged (best-of) ----------------------------------------
     merged: dict = {}
@@ -9671,12 +9687,38 @@ async def api_me(request: Request):
         }
         with db_conn() as _c:
             user_prefs = auth.get_user_notify_prefs(_c, profile["id"])
-        resolved = {
-            name: bool(user_prefs[name]) if name in user_prefs else admin_map[name]
-            for name in _NOTIFY_EVENT_NAMES
-        }
+        # Per-medium roster — every medium with a global enable toggle
+        # AND a NOTIFY_MEDIUMS sender registered. Surfaced so the SPA
+        # can render one Profile→Notifications column per available
+        # medium without a separate /api/notify-mediums round-trip.
+        from logic.ops import NOTIFY_MEDIUMS as _ops_mediums
+        from logic.ops import _is_medium_enabled as _ops_medium_enabled
+        notify_mediums = [
+            {"name": m, "enabled": bool(_ops_medium_enabled(m))}
+            for m in _ops_mediums.keys()
+        ]
+        # Resolved per-event map: now `{event: bool | {medium: bool}}`
+        # to mirror the per-medium granularity introduced for Profile→
+        # Notifications. Three resolution shapes per event:
+        #   - User has stored a per-medium dict → return the dict (the
+        #     SPA renders one checkbox per medium, defaults missing
+        #     keys to True client-side).
+        #   - User has stored a bare bool (legacy, OR they opted out
+        #     across every medium via the SPA's Disable-all bulk
+        #     button) → return the bool.
+        #   - User has no stored value → fall back to the admin gate
+        #     (the legacy "default to admin state" contract). Returned
+        #     as a bare bool so the SPA renders the admin state across
+        #     every medium column uniformly.
+        resolved: dict = {}
+        for name in _NOTIFY_EVENT_NAMES:
+            if name in user_prefs:
+                resolved[name] = user_prefs[name]
+            else:
+                resolved[name] = admin_map[name]
         out["notify_events"] = resolved
         out["notify_events_admin"] = admin_map
+        out["notify_mediums"] = notify_mediums
         # TOTP / 2FA summary (#345). Surfaced on /api/me so the SPA can
         # render the Profile section + the "Required by policy" banner
         # without a follow-up round-trip on every page load. Detailed
@@ -9740,48 +9782,46 @@ async def api_me_ui_prefs(body: UiPrefsIn, request: Request):
     return {"ui_prefs": merged}
 
 
-class UserNotifyPrefsIn(BaseModel):
-    """Partial-update payload for PATCH /api/me/notify-prefs (#357).
-
-    Each of the 13 fields is Optional[bool]; ``None`` means "leave
-    unchanged", ``True`` / ``False`` set the per-user opt-in state.
-    The backend rejects any attempt to opt INTO an event the admin
-    has globally disabled (the data model only meaningfully scopes
-    DOWN from the admin layer).
-    """
-    stack_update_success: Optional[bool] = None
-    stack_update_failure: Optional[bool] = None
-    container_update_success: Optional[bool] = None
-    container_update_failure: Optional[bool] = None
-    container_restart_success: Optional[bool] = None
-    container_restart_failure: Optional[bool] = None
-    container_remove_success: Optional[bool] = None
-    container_remove_failure: Optional[bool] = None
-    service_restart_success: Optional[bool] = None
-    service_restart_failure: Optional[bool] = None
-    prune_success: Optional[bool] = None
-    prune_failure: Optional[bool] = None
-    user_login: Optional[bool] = None
-
-
 @app.patch("/api/me/notify-prefs")
 async def api_me_notify_prefs(
-    body: UserNotifyPrefsIn,
+    request: Request,
     user: auth.User = Depends(auth.current_user),
 ):
-    """Per-user opt-in/out for the 13 notification events (#357).
+    """Per-user opt-in/out for the per-event notification preferences.
 
     Layered ON TOP of the admin-side ``notify_event_*`` gates: a
     notification fires only when (admin enabled) AND (user opted-in,
     or hasn't expressed a pref → defaults to admin state). Refuses to
-    set a pref to True for an event admin has disabled — the model
-    only narrows DOWN from the admin layer.
+    set a pref to True (or any per-medium bool=True) for an event the
+    admin has globally disabled — the model only narrows DOWN.
+
+    Payload shapes (free-form JSON dict — Pydantic validation is
+    bypassed because the per-medium dict shape is operator-extensible
+    via ``NOTIFY_MEDIUMS`` and a rigid model would require a deploy
+    every time a medium lands):
+
+      - ``{"event": true|false}`` — legacy bare-bool; sets the event
+        across every globally-enabled medium.
+      - ``{"event": {"app": true, "apprise": false}}`` — per-medium
+        routing. Missing medium keys default to True (medium added
+        after the user's last save still fires by default; explicit
+        opt-out is the only way to silence a medium).
+      - Mixed shapes per call are fine — some events as bare bool,
+        others as per-medium dicts.
+
+    Unknown event names are rejected (400) so a SPA-side typo doesn't
+    silently land a malformed pref.
 
     API-token "users" (negative ids) can't store prefs.
     """
     if user.id < 0:
         raise HTTPException(400, "API tokens cannot store notify prefs")
-    payload = body.dict(exclude_unset=True)
+    try:
+        payload = await request.json()
+    except (ValueError, TypeError):
+        raise HTTPException(400, "request body must be JSON")
+    if not isinstance(payload, dict):
+        raise HTTPException(400, "request body must be a JSON object")
     # Admin gate snapshot — refuse opt-IN for admin-disabled events.
     admin_map = {
         name: get_setting_bool(
@@ -9789,35 +9829,86 @@ async def api_me_notify_prefs(
         )
         for name in _NOTIFY_EVENT_NAMES
     }
-    for name, value in payload.items():
-        if value is True and admin_map.get(name) is False:
+    # Validate every event + value-shape BEFORE writing so a partial
+    # save can't leave the user's prefs in a half-applied state.
+    valid_event_names = set(_NOTIFY_EVENT_NAMES)
+    cleaned: dict = {}
+    for ev_name, value in payload.items():
+        if ev_name not in valid_event_names:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Unknown event '{ev_name}'.",
+            )
+        if value is None:
+            # Skip — same as "leave unchanged", per the legacy contract.
+            continue
+        if isinstance(value, bool):
+            if value is True and admin_map.get(ev_name) is False:
+                raise HTTPException(
+                    status_code=400,
+                    detail=(
+                        f"Event '{ev_name}' is disabled by admin; "
+                        f"cannot enable per-user."
+                    ),
+                )
+            cleaned[ev_name] = value
+        elif isinstance(value, dict):
+            per_medium: dict = {}
+            for med_name, med_val in value.items():
+                if not isinstance(med_val, bool):
+                    raise HTTPException(
+                        status_code=400,
+                        detail=(
+                            f"Per-medium value for '{ev_name}.{med_name}' "
+                            f"must be a boolean."
+                        ),
+                    )
+                if med_val is True and admin_map.get(ev_name) is False:
+                    raise HTTPException(
+                        status_code=400,
+                        detail=(
+                            f"Event '{ev_name}' is disabled by admin; "
+                            f"cannot enable per-user (any medium)."
+                        ),
+                    )
+                per_medium[str(med_name)] = bool(med_val)
+            if per_medium:
+                cleaned[ev_name] = per_medium
+        else:
             raise HTTPException(
                 status_code=400,
                 detail=(
-                    f"Event '{name}' is disabled by admin; "
-                    "cannot enable per-user."
+                    f"Value for '{ev_name}' must be a boolean OR an "
+                    f"object mapping medium → boolean."
                 ),
             )
     # Read-modify-write so unspecified events keep their stored value.
     with db_conn() as c:
         current = auth.get_user_notify_prefs(c, user.id)
         merged = dict(current)
-        for name, value in payload.items():
-            if value is None:
-                continue
-            merged[name] = bool(value)
+        for ev_name, value in cleaned.items():
+            merged[ev_name] = value
         auth.set_user_notify_prefs(c, user.id, merged)
-    # Resolved response shape mirrors api_get_me's ``notify_events``
-    # block so the SPA can drop it straight into state.
-    resolved = {
-        name: (
-            bool(merged[name]) if name in merged else admin_map[name]
-        )
-        for name in _NOTIFY_EVENT_NAMES
-    }
+    # Per-medium roster echoed back so the SPA can re-render the grid
+    # without a separate /api/me round-trip.
+    from logic.ops import NOTIFY_MEDIUMS as _ops_mediums
+    from logic.ops import _is_medium_enabled as _ops_medium_enabled
+    notify_mediums = [
+        {"name": m, "enabled": bool(_ops_medium_enabled(m))}
+        for m in _ops_mediums.keys()
+    ]
+    # Resolved map mirrors api_get_me's shape exactly so the SPA can
+    # drop the response straight into state.
+    resolved: dict = {}
+    for name in _NOTIFY_EVENT_NAMES:
+        if name in merged:
+            resolved[name] = merged[name]
+        else:
+            resolved[name] = admin_map[name]
     return {
         "notify_events": resolved,
         "notify_events_admin": admin_map,
+        "notify_mediums": notify_mediums,
     }
 
 
