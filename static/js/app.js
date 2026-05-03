@@ -9185,6 +9185,19 @@ function app() {
       const n = parseInt(v, 10);
       return Number.isFinite(n) && n >= 30 && n <= 90 ? n : 60;
     },
+    // Resolved global SNMP per-host walk concurrency — drives the
+    // Admin → Hosts editor's per-row "Walk concurrency" input
+    // placeholder. Shows the actual effective default value (NOT a
+    // hardcoded "1") so the operator can tell whether the per-host
+    // override they're typing differs from the global. Sourced from
+    // `me.client_config.snmp_per_host_walk_concurrency` so an Admin →
+    // Config save takes effect on the next /api/me round-trip.
+    snmpWalkConcurrencyPlaceholder() {
+      const v = this.me && this.me.client_config
+        && this.me.client_config.snmp_per_host_walk_concurrency;
+      const n = parseInt(v, 10);
+      return Number.isFinite(n) && n >= 1 ? String(n) : '1';
+    },
     _statBarCritPct() {
       const v = this.me && this.me.client_config && this.me.client_config.stat_bar_crit_pct;
       const n = parseInt(v, 10);
