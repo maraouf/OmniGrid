@@ -696,6 +696,11 @@
         "enable_all": "Enable all",
         "disable_all": "Disable all",
         "errors_only": "Errors only",
+        "bulk_pattern_label": "Bulk:",
+        "bulk_pattern_success_to": "successes to",
+        "bulk_pattern_failure_to": "failures to",
+        "bulk_pattern_skip": "— skip —",
+        "bulk_pattern_apply": "Apply",
         "security_section": "Security events",
         "sampler_section": "Sampler events",
         "user_login": "User signed in",
@@ -871,6 +876,26 @@
         "tuning_snmp_per_host_walk_concurrency": {
           "label": "SNMP per-host walk concurrency",
           "help": "Caps how many _snmp_get / _snmp_walk operations OmniGrid sends in parallel against ONE host. Default 1 (fully serialised — CLI-equivalent wire-level pattern) protects slow BMC-class agents (iDRAC9, IPMI, low-power embedded snmpd) from UDP receive-queue overflow when 60+ concurrent bulk requests arrive simultaneously — observed pattern is `[snmp] WALK errorIndication: No SNMP response received before timeout` for ~15 of ~60 OID branches per probe. Raise to 8-16 if your fleet is uniformly fast (Cisco / Synology / linux net-snmp): a 60-OID probe at 100 ms RTT serialises to ~6 s wall-clock at concurrency=1 vs ~0.5 s at concurrency=16. Range 1..16. Default 1."
+        },
+        "tuning_snmp_walk_concurrency_dell": {
+          "label": "SNMP walk concurrency — Dell (auto-detect override)",
+          "help": "Per-vendor walk_concurrency default that kicks in when sysDescr auto-detect resolves to Dell ONLY (no per-host override set, no other vendor matched). Dell iDRAC9 / iDRAC10 / Cisco IMC / Supermicro IPMI handle parallel queries fine and benefit dramatically from > 1 because pysnmp's per-walk overhead compounds 67× at concurrency=1. Recommended: 4 for a homogeneous Dell fleet. Default 0 (disabled — falls through to the generic per-host walk_concurrency above). Range 0..16."
+        },
+        "tuning_snmp_walk_concurrency_cisco": {
+          "label": "SNMP walk concurrency — Cisco (auto-detect override)",
+          "help": "Per-vendor walk_concurrency default for Cisco IOS / NX-OS / IOS-XR / IOS-XE auto-detected agents. Cisco gear typically handles parallel queries well — recommended 8 for a Cisco fleet. Default 0 (disabled). Range 0..16."
+        },
+        "tuning_snmp_walk_concurrency_synology": {
+          "label": "SNMP walk concurrency — Synology (auto-detect override)",
+          "help": "Per-vendor walk_concurrency default for Synology DiskStation / RackStation auto-detected agents. Synology DSM's snmpd handles parallel queries reasonably well — recommended 4. Default 0 (disabled). Range 0..16."
+        },
+        "tuning_snmp_walk_concurrency_ucd": {
+          "label": "SNMP walk concurrency — UCD/net-snmp (auto-detect override)",
+          "help": "Per-vendor walk_concurrency default for net-snmp / ucd-snmp / OpenWrt auto-detected agents. Linux net-snmp is generally fast — recommended 8. Default 0 (disabled). Range 0..16."
+        },
+        "tuning_snmp_walk_concurrency_printer": {
+          "label": "SNMP walk concurrency — Printers (auto-detect override)",
+          "help": "Per-vendor walk_concurrency default for HP / Brother / Epson / Canon / Kyocera / Ricoh / Xerox / Lexmark / Konica Minolta / Samsung-printer-line auto-detected agents. Printers usually drop UDP packets under parallel load — leave at 0 (= use the safety-floor generic default of 1) unless your specific model is known to handle parallel queries. Default 0 (disabled). Range 0..16."
         },
         "tuning_snmp_concurrency": {
           "label": "SNMP probe concurrency",
@@ -1957,6 +1982,9 @@
     "heading": "Hosts",
     "intro": "Define the machines you want to monitor and map each to the names used by every enabled provider. OmniGrid fetches all providers on every refresh and merges the best values per host — missing fields degrade to what the other providers returned.",
     "snmp_walk_concurrency_hint": "How many SNMP walks run in parallel against THIS host. Blank = the global default (1, the safety floor). Server-class BMCs like Dell iDRAC, Cisco IMC, and Supermicro IPMI handle parallel queries fine and need 4-8 to fit pysnmp's per-walk overhead inside the probe budget. Leave blank for low-power printers / NAS / OpenWrt-class gear that drop UDP packets at higher concurrency.",
+    "snmp_walk_concurrency_placeholder": "Inherited: {value}",
+    "snmp_wall_clock_budget_label": "Wall-clock budget (s)",
+    "snmp_wall_clock_budget_hint": "Total wall-clock budget for ONE SNMP probe against THIS host (seconds). Blank = the global default (60s). Slow iDRAC chassis with the BIOS / virtual-disk / power-supply walks may need 90-120s; embedded snmpd's typically finish well under the default. Range 5..600s.",
     "snmp_vendors_label": "Vendor MIBs",
     "snmp_vendors_hint": "Which vendor MIBs to walk for THIS host. Leave every box unchecked to auto-detect from sysDescr (covers 95% of agents). Check explicit vendors to bypass auto-detect — useful when sysDescr is stripped, novel hardware, or to force vendor walks the auto-detect would skip. Pruning irrelevant vendor walks drops a Dell iDRAC's 67-walk probe to ~50 walks (~13s saved at concurrency=1).",
     "snmp_vendors_auto": "Auto-detect from sysDescr (no override).",

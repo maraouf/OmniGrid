@@ -911,6 +911,11 @@ function app() {
         'tuning_snmp_probe_timeout_seconds',
         'tuning_snmp_wall_clock_budget_seconds',
         'tuning_snmp_per_host_walk_concurrency',
+        'tuning_snmp_walk_concurrency_dell',
+        'tuning_snmp_walk_concurrency_cisco',
+        'tuning_snmp_walk_concurrency_synology',
+        'tuning_snmp_walk_concurrency_ucd',
+        'tuning_snmp_walk_concurrency_printer',
         'tuning_snmp_concurrency',
         'tuning_snmp_sample_interval_seconds',
         'tuning_snmp_unreachable_cooldown_seconds',
@@ -6618,6 +6623,38 @@ function app() {
         }
       }
     },
+    // Bulk-pattern picker state — operator selects one medium for
+    // "all success events" and another for "all failure events" via
+    // the picker rendered under the Errors-only button. Empty string
+    // = "leave the corresponding side untouched". Persisted in-memory
+    // only (the row's persistence happens via the PATCH that
+    // saveProfile fires on the next save).
+    userNotifyBulkSuccessMedium: '',
+    userNotifyBulkFailureMedium: '',
+    // One-click bulk-set: route every success event to
+    // ``successMedium`` AND every failure event to ``failureMedium``.
+    // Either side can be empty — that side is left untouched. The
+    // chosen medium is the ONLY one enabled for those events; every
+    // other medium for the same event is set to false (matching the
+    // Errors-only pattern's all-or-nothing-per-medium contract).
+    // Skips events the admin has globally disabled (the backend would
+    // 400 such an opt-in anyway; see api_me_notify_prefs).
+    setUserNotifyEventsByMediumPattern(successMedium, failureMedium) {
+      const f = this.profileForm || {};
+      if (!f.notify_events) f.notify_events = {};
+      const mediums = this.notifyMediumNames();
+      const apply = (eventKey, chosen) => {
+        if (this.userNotifyEventDisabledByAdmin(eventKey)) return;
+        const bare = this._bareEventName(eventKey);
+        const slot = {};
+        for (const m of mediums) slot[m] = (m === chosen);
+        f.notify_events[bare] = slot;
+      };
+      for (const g of this.notifyEventGroups) {
+        if (successMedium) apply(g.success, successMedium);
+        if (failureMedium) apply(g.failure, failureMedium);
+      }
+    },
     _debugSnapshot() {
       const s = this.settings || {};
       return JSON.stringify({
@@ -9198,16 +9235,29 @@ function app() {
     },
     // Resolved global SNMP per-host walk concurrency — drives the
     // Admin → Hosts editor's per-row "Walk concurrency" input
-    // placeholder. Shows the actual effective default value (NOT a
-    // hardcoded "1") so the operator can tell whether the per-host
-    // override they're typing differs from the global. Sourced from
-    // `me.client_config.snmp_per_host_walk_concurrency` so an Admin →
-    // Config save takes effect on the next /api/me round-trip.
+    // placeholder. Shows the actual effective default value prefixed
+    // with "Inherited: " so an empty input + placeholder "Inherited: 1"
+    // visually distinguishes itself from a real value of 1 (pre-fix
+    // operator couldn't tell whether they'd left the field blank or
+    // typed 1). Sourced from `me.client_config.snmp_per_host_walk_concurrency`
+    // so an Admin → Config save takes effect on the next /api/me round-trip.
     snmpWalkConcurrencyPlaceholder() {
       const v = this.me && this.me.client_config
         && this.me.client_config.snmp_per_host_walk_concurrency;
       const n = parseInt(v, 10);
-      return Number.isFinite(n) && n >= 1 ? String(n) : '1';
+      const num = Number.isFinite(n) && n >= 1 ? n : 1;
+      return this.t('admin_hosts.snmp_walk_concurrency_placeholder', { value: num });
+    },
+    // Per-host wall-clock-budget input placeholder — same "Inherited: <N>"
+    // pattern as walk_concurrency. Sourced from
+    // me.client_config.snmp_wall_clock_budget_seconds (surfaced from the
+    // tunable on /api/me).
+    snmpWallClockBudgetPlaceholder() {
+      const v = this.me && this.me.client_config
+        && this.me.client_config.snmp_wall_clock_budget_seconds;
+      const n = parseInt(v, 10);
+      const num = Number.isFinite(n) && n >= 5 ? n : 60;
+      return this.t('admin_hosts.snmp_walk_concurrency_placeholder', { value: num });
     },
     // Per-host SNMP vendor MIB selector. Empty list = auto-detect from
     // sysDescr (the common case; covers 95% of agents). Operator can
@@ -11506,22 +11556,35 @@ function app() {
         // (Dell iDRAC, Cisco IMC, Supermicro IPMI) handle parallel
         // queries fine and need > 1 to fit pysnmp's per-walk overhead
         // inside the probe budget. Blank / missing → fall through to
-        // the global tunable default. Range 1..32 mirrors the
-        // backend's _clean_host_snmp validator.
+        // the global tunable default. Range 1..16 mirrors the
+        // backend's _clean_host_snmp validator AND the global
+        // tuning_snmp_per_host_walk_concurrency bounds.
         if (snmpIn.walk_concurrency) {
           const wc = parseInt(snmpIn.walk_concurrency, 10);
-          if (Number.isFinite(wc) && wc >= 1 && wc <= 32) {
+          if (Number.isFinite(wc) && wc >= 1 && wc <= 16) {
             snmpOut.walk_concurrency = wc;
           }
         }
+        // Per-host wall_clock_budget override. Same shape as
+        // walk_concurrency — overrides
+        // tuning_snmp_wall_clock_budget_seconds when supplied.
+        // Range 5..600 mirrors the global tunable's bounds.
+        if (snmpIn.wall_clock_budget) {
+          const wcb = parseInt(snmpIn.wall_clock_budget, 10);
+          if (Number.isFinite(wcb) && wcb >= 5 && wcb <= 600) {
+            snmpOut.wall_clock_budget = wcb;
+          }
+        }
         // Per-host vendor MIB selector. Operator-declared list of
-        // vendor MIBs to walk for THIS host (subset of dell / cisco /
-        // apc / ucd / synology / printer). Empty / missing = auto-
+        // vendor MIBs to walk for THIS host (subset of the canonical
+        // vendor key set sourced from /api/me's
+        // client_config.snmp_vendor_keys — single source of truth at
+        // logic/snmp.py:_VALID_VENDOR_KEYS). Empty / missing = auto-
         // detect from sysDescr (the common case). Useful for agents
         // with stripped sysDescr or to force a vendor's walks even
         // when auto-detect would skip them.
         if (Array.isArray(snmpIn.vendors)) {
-          const validSet = new Set(['dell','cisco','apc','ucd','synology','printer']);
+          const validSet = new Set(this.snmpVendorKeys());
           const cleanVendors = Array.from(new Set(
             snmpIn.vendors
               .map(v => String(v || '').trim().toLowerCase())

@@ -1821,6 +1821,14 @@ class SettingsIn(BaseModel):
     tuning_snmp_concurrency: Optional[str] = None
     tuning_snmp_wall_clock_budget_seconds: Optional[str] = None
     tuning_snmp_per_host_walk_concurrency: Optional[str] = None
+    # Per-vendor walk_concurrency global defaults — kick in when
+    # active_vendors resolves to exactly one vendor AND no per-host
+    # override is set AND the vendor's tunable is non-zero.
+    tuning_snmp_walk_concurrency_dell: Optional[str] = None
+    tuning_snmp_walk_concurrency_cisco: Optional[str] = None
+    tuning_snmp_walk_concurrency_synology: Optional[str] = None
+    tuning_snmp_walk_concurrency_ucd: Optional[str] = None
+    tuning_snmp_walk_concurrency_printer: Optional[str] = None
     # SNMP per-host cache TTLs, distinct from the Webmin pair.
     tuning_snmp_host_cache_ttl_seconds: Optional[str] = None
     tuning_snmp_host_fail_cache_ttl_seconds: Optional[str] = None
@@ -3432,13 +3440,28 @@ async def api_snmp_test(
             _snmp._clear_cooldown(host, port)
         except Exception:
             pass
+    # Diagnostics surface for operators retesting after a per-host
+    # walk_concurrency / wall_clock_budget edit — confirm the new value
+    # was actually picked up without opening the debug panel. probe_snmp
+    # builds these on both success and timeout paths so they're
+    # available regardless of outcome.
+    diag_keys = (
+        "walk_concurrency_resolved", "walk_concurrency_source",
+        "walk_concurrency_global",
+        "wall_clock_budget_resolved", "wall_clock_budget_source",
+        "wall_clock_budget_global",
+        "active_vendors", "active_vendors_source",
+    )
+    diag = {k: result[k] for k in diag_keys if k in result}
     if result.get("error") and not result.get("hosts"):
         return {"ok": False,
-                "detail": _humanise_probe_error(result["error"], "SNMP")}
+                "detail": _humanise_probe_error(result["error"], "SNMP"),
+                **diag}
     hosts = result.get("hosts") or {}
     if not hosts:
         return {"ok": False,
-                "detail": "no parseable response — check community / version / port"}
+                "detail": "no parseable response — check community / version / port",
+                **diag}
     host_key = next(iter(hosts))
     stats = hosts[host_key]
     cpu = stats.get("host_cpu_percent")
@@ -3458,7 +3481,7 @@ async def api_snmp_test(
     if nics:
         detail_bits.append(f"nics={nics}")
     return {"ok": True, "detail": " · ".join(detail_bits),
-            "host_key": host_key}
+            "host_key": host_key, **diag}
 
 
 # ----------------------------------------------------------------------------
@@ -4455,11 +4478,24 @@ async def _merge_one_host(h: dict, state: dict, *, force: bool = False) -> tuple
             # SNMP cache behaviour).
             snmp_success_ttl = tuning.tuning_int("tuning_snmp_host_cache_ttl_seconds")
             snmp_fail_ttl = tuning.tuning_int("tuning_snmp_host_fail_cache_ttl_seconds")
-            cached = _snmp_host_cache.get(h["id"])
+            # Resolve the per-host vendor override BEFORE the cache
+            # lookup so the cache key includes it. Without that, an
+            # operator changing `row.snmp.vendors` from `["dell"]` to
+            # `["dell", "cisco"]` keeps serving the cached `["dell"]`
+            # result for `tuning_snmp_host_cache_ttl_seconds` (default
+            # 30s) so the new Cisco walks don't kick in until expiry.
+            # Including the frozenset in the key auto-invalidates on
+            # edit. None vendors (auto-detect) hash distinctly.
+            snmp_vendors = _clean_vendors_input(row_snmp.get("vendors"))
+            cache_key = (
+                h["id"],
+                frozenset(snmp_vendors) if snmp_vendors else None,
+            )
+            cached = _snmp_host_cache.get(cache_key)
             if cached and (now - cached[0]) < snmp_success_ttl:
                 result = cached[1]
             else:
-                fail_cached = _snmp_host_fail_cache.get(h["id"])
+                fail_cached = _snmp_host_fail_cache.get(cache_key)
                 if fail_cached and (now - fail_cached[0]) < snmp_fail_ttl:
                     result = fail_cached[1]
                 else:
@@ -4490,11 +4526,14 @@ async def _merge_one_host(h: dict, state: dict, *, force: bool = False) -> tuple
                         snmp_walk_conc = int(snmp_walk_conc) if snmp_walk_conc else None
                     except (TypeError, ValueError):
                         snmp_walk_conc = None
-                    # Per-host vendor MIB selector — bypass auto-detect
-                    # for agents with stripped sysDescr or to force a
-                    # vendor's walks even when auto-detect would skip
-                    # them. None = auto-detect (the common case).
-                    snmp_vendors = _clean_vendors_input(row_snmp.get("vendors"))
+                    # Per-host wall-clock budget override. Same
+                    # contract as walk_concurrency — None = use the
+                    # global tunable; explicit int = override.
+                    snmp_wcb = row_snmp.get("wall_clock_budget")
+                    try:
+                        snmp_wcb = float(snmp_wcb) if snmp_wcb else None
+                    except (TypeError, ValueError):
+                        snmp_wcb = None
                     try:
                         result = await _snmp.probe_snmp(
                             snmp_target,
@@ -4508,12 +4547,13 @@ async def _merge_one_host(h: dict, state: dict, *, force: bool = False) -> tuple
                             timeout=snmp_timeout,
                             walk_concurrency=snmp_walk_conc,
                             vendors=snmp_vendors,
+                            wall_clock_budget=snmp_wcb,
                         )
                     except Exception as e:  # noqa: BLE001
                         result = {"hosts": {}, "error": f"snmp probe failed: {e}"}
                     if (result.get("hosts") or {}):
-                        _snmp_host_cache[h["id"]] = (now, result)
-                        _snmp_host_fail_cache.pop(h["id"], None)
+                        _snmp_host_cache[cache_key] = (now, result)
+                        _snmp_host_fail_cache.pop(cache_key, None)
                         # Per-(snmp, host) success path. Routes through
                         # `record_provider_outcome` so the
                         # `host_provider_last_ok` UPSERT lands — the
@@ -4528,8 +4568,8 @@ async def _merge_one_host(h: dict, state: dict, *, force: bool = False) -> tuple
                             print(f"[hosts] snmp success-record "
                                   f"failed for {h.get('id')!r}: {ex}")
                     else:
-                        _snmp_host_fail_cache[h["id"]] = (now, result)
-                        _snmp_host_cache.pop(h["id"], None)
+                        _snmp_host_fail_cache[cache_key] = (now, result)
+                        _snmp_host_cache.pop(cache_key, None)
                         err = result.get("error") or "empty hosts map"
                         err_str = str(err)
                         # Cool-down responses are SKIPS, not real
@@ -5860,6 +5900,20 @@ def _clean_host_snmp(raw: Any) -> dict:
             wc = int(walk_conc)
             if 1 <= wc <= 16:
                 out["walk_concurrency"] = wc
+        except (TypeError, ValueError):
+            pass
+    # Per-host wall-clock budget override. Same shape as
+    # ``walk_concurrency`` — overrides
+    # ``tuning_snmp_wall_clock_budget_seconds`` when supplied; falls
+    # through to the tunable when blank. Lets a slow iDRAC pin a 90s
+    # budget while the rest of the fleet stays at the 60s default.
+    # Range 5..600 (matches the global tunable's bounds).
+    wcb = raw.get("wall_clock_budget")
+    if wcb not in (None, "", 0):
+        try:
+            wcb_i = int(wcb)
+            if 5 <= wcb_i <= 600:
+                out["wall_clock_budget"] = wcb_i
         except (TypeError, ValueError):
             pass
     # Per-host vendor MIB selector. Operator-declared list of vendor
@@ -9780,6 +9834,11 @@ async def api_me(request: Request):
             # immediately sees what value the row will use when blank
             # vs the override they're typing.
             "snmp_per_host_walk_concurrency": tuning.tuning_int("tuning_snmp_per_host_walk_concurrency"),
+            # Global SNMP wall-clock budget — surfaced so the per-host
+            # `wall_clock_budget` input's placeholder can render the
+            # resolved global default ("Inherited: 60") instead of a
+            # hardcoded literal.
+            "snmp_wall_clock_budget_seconds": tuning.tuning_int("tuning_snmp_wall_clock_budget_seconds"),
             # Scheduler-tz state so the admin Schedules tab can badge
             # "TZ: <name> → falling back to UTC" when the operator typed
             # an invalid IANA name. ``configured`` = raw setting,

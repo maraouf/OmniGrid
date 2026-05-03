@@ -3272,6 +3272,41 @@
                   x-text="t('admin.notifications.events.errors_only')"></button>
         </div>
 
+        <!-- Bulk-pattern picker — operator picks one medium for "all
+             success events" and another for "all failure events" so
+             they can route SUCCESSES to (e.g.) In-app and FAILURES to
+             Apprise in one click instead of clicking 12+ checkboxes.
+             Operates on profileForm.notify_events; skips events the
+             admin has globally disabled. -->
+        <div class="flex items-center gap-2 flex-wrap mt-3 pt-3 border-t border-[var(--border)] text-[11.5px]">
+          <span class="text-[var(--text-dim)] me-1"
+                x-text="t('admin.notifications.events.bulk_pattern_label')"></span>
+          <span class="text-[var(--text-faint)]"
+                x-text="t('admin.notifications.events.bulk_pattern_success_to')"></span>
+          <select x-model="userNotifyBulkSuccessMedium"
+                  class="bg-[var(--surface-2)] border border-[var(--border)] rounded px-1.5 py-0.5">
+            <option value="" x-text="t('admin.notifications.events.bulk_pattern_skip')"></option>
+            <template x-for="m in notifyMediumNames()" :key="m">
+              <option :value="m" x-text="m"></option>
+            </template>
+          </select>
+          <span class="text-[var(--text-faint)]"
+                x-text="t('admin.notifications.events.bulk_pattern_failure_to')"></span>
+          <select x-model="userNotifyBulkFailureMedium"
+                  class="bg-[var(--surface-2)] border border-[var(--border)] rounded px-1.5 py-0.5">
+            <option value="" x-text="t('admin.notifications.events.bulk_pattern_skip')"></option>
+            <template x-for="m in notifyMediumNames()" :key="m">
+              <option :value="m" x-text="m"></option>
+            </template>
+          </select>
+          <button type="button"
+                  @click="setUserNotifyEventsByMediumPattern(userNotifyBulkSuccessMedium, userNotifyBulkFailureMedium)"
+                  :disabled="!userNotifyBulkSuccessMedium && !userNotifyBulkFailureMedium"
+                  :class="(!userNotifyBulkSuccessMedium && !userNotifyBulkFailureMedium) ? 'opacity-50 cursor-not-allowed' : ''"
+                  class="btn btn-soft"
+                  x-text="t('admin.notifications.events.bulk_pattern_apply')"></button>
+        </div>
+
         <div class="flex items-center gap-3 flex-wrap mt-4 pt-4 border-t border-[var(--border)]">
           <button @click="saveProfile()" :disabled="profileBusy"
                   :class="profileDirty() ? 'ring-2 ring-[var(--warning)]' : ''"
@@ -6142,13 +6177,32 @@
                   <div>
                     <label class="block text-[10.5px] uppercase tracking-wider text-[var(--text-faint)] mb-1"
                            :title="t('admin_hosts.snmp_walk_concurrency_hint')">Walk concurrency</label>
-                    <input type="number" min="1" max="32"
+                    <input type="number" min="1" max="16"
                            :value="row.snmp && row.snmp.walk_concurrency || ''"
                            @input="hostsConfig[idx].snmp = Object.assign({}, hostsConfig[idx].snmp || {}, { walk_concurrency: $event.target.value ? parseInt($event.target.value, 10) : null }); markHostRowDirty(idx)"
                            :disabled="isReadonly() || !row.enabled"
                            class="w-full mono text-[12.5px] py-1.5"
                            :placeholder="snmpWalkConcurrencyPlaceholder()"
                            :title="t('admin_hosts.snmp_walk_concurrency_hint')">
+                  </div>
+                  <!-- Per-host SNMP wall-clock budget override. Same
+                       shape as walk_concurrency — overrides
+                       tuning_snmp_wall_clock_budget_seconds when the
+                       global default (60s) is too tight for THIS host.
+                       Useful for slow iDRAC9 chassis where a 90s budget
+                       gives the BIOS / virtual-disk / power-supply
+                       walks headroom without raising the global. -->
+                  <div>
+                    <label class="block text-[10.5px] uppercase tracking-wider text-[var(--text-faint)] mb-1"
+                           :title="t('admin_hosts.snmp_wall_clock_budget_hint')"
+                           x-text="t('admin_hosts.snmp_wall_clock_budget_label')"></label>
+                    <input type="number" min="5" max="600"
+                           :value="row.snmp && row.snmp.wall_clock_budget || ''"
+                           @input="hostsConfig[idx].snmp = Object.assign({}, hostsConfig[idx].snmp || {}, { wall_clock_budget: $event.target.value ? parseInt($event.target.value, 10) : null }); markHostRowDirty(idx)"
+                           :disabled="isReadonly() || !row.enabled"
+                           class="w-full mono text-[12.5px] py-1.5"
+                           :placeholder="snmpWallClockBudgetPlaceholder()"
+                           :title="t('admin_hosts.snmp_wall_clock_budget_hint')">
                   </div>
                 </div>
                 <!-- Vendor MIB selector — operator-declared subset of
