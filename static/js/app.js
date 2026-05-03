@@ -15749,29 +15749,29 @@ function app() {
     },
     dellTempLine(hostId, points) {
       // SVG path `d` for one probe's series, normalised against the
-      // chart's shared y-max. Re-uses _snmpPathGapped so the unified
-      // time-domain (1h / 6h / 24h / 7d) lines up with every other
-      // drawer chart AND so multi-hour sampling gaps render as visual
-      // breaks instead of fake-smooth bridges across the dead period.
-      // Single-point fallback: when only one sample exists, _snmpPathGapped
-      // emits `M x,y` (no L) which draws nothing in SVG. We extend the
-      // path to a 4-pixel horizontal nub at the current y-coordinate so
-      // the operator sees the line is alive while the second sample
-      // accumulates. Once history catches up the full polyline replaces
-      // the nub naturally.
+      // chart's shared y-max. The viewBox is 0 0 420 120 with
+      // preserveAspectRatio="none", so x ∈ [0, 420] spans the full
+      // chart width and y ∈ [0, 120] spans the full chart height.
+      //
+      // Single-point fallback: when only one valid sample exists,
+      // _snmpPathGapped maps the synthetic "now" timestamp to the right
+      // edge of the time domain — producing `M ~420,y` with no `L`
+      // follow-up, which draws nothing AND a 4-pixel nub extension
+      // would clip past the right edge. Instead, when the series has
+      // exactly one valid point, render a full-width horizontal line
+      // at the current temperature so the user sees an actual reading.
+      // The full polyline replaces this once a second sample lands.
       if (!Array.isArray(points) || !points.length) return '';
-      const vals = points.map(p => (p.c != null ? +p.c : null));
-      const times = points.map(p => p.ts);
+      const validPts = points.filter(p => p && p.c != null);
       const max = this.dellTempMaxC(hostId);
-      const path = this._snmpPathGapped(vals, max, { times });
-      const validCount = vals.filter(v => v != null).length;
-      if (validCount === 1 && path) {
-        // Single moveto produces no visible stroke. Append a short
-        // horizontal lineto so the polyline draws as a tiny visible
-        // segment at the current reading.
-        return path + ' l 4 0';
+      if (validPts.length === 1) {
+        const c = +validPts[0].c;
+        const y = Math.max(0, Math.min(120, 120 - (c / max) * 120));
+        return `M 0,${y.toFixed(1)} L 420,${y.toFixed(1)}`;
       }
-      return path;
+      const vals = points.map(p => (p && p.c != null ? +p.c : null));
+      const times = points.map(p => p && p.ts);
+      return this._snmpPathGapped(vals, max, { times });
     },
     dellHasTempHistory(hostId) {
       // Mount the chart slot whenever a probe has at least one sample
