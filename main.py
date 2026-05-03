@@ -5189,6 +5189,20 @@ def _shape_host_api_row(
         "ping_port":        (int((h.get("ping") or {}).get("port"))
                              if (h.get("ping") or {}).get("port") is not None else None),
         "ping_transport":   ((h.get("ping") or {}).get("transport") or None),
+        # Resolved ping TARGET — what `logic.ping_sampler._probe_one`
+        # actually feeds to `probe_ping`. Resolution chain mirrors
+        # `logic.db.curated_ping_hosts`: per-host `ssh.fqdn` → per-host
+        # `ssh.host` → curated `id` as last-resort fallback. Surfacing
+        # the resolved value lets the SPA's `?` info-bubble tooltip
+        # tell the operator the actual hostname / IP being probed,
+        # not just the curated host_id (which often can't resolve via
+        # DNS — e.g. bare ids like "ftth" / "router1" that work as
+        # labels but aren't actual DNS records).
+        "ping_target":      (
+            ((h.get("ssh") or {}).get("fqdn")
+             or (h.get("ssh") or {}).get("host")
+             or h["id"]).strip() or h["id"]
+        ) if bool((h.get("ping") or {}).get("enabled", False)) else None,
         "ping_alive":       bool(s.get("host_ping_alive")) if s.get("host_ping_alive") is not None else None,
         "ping_rtt_ms":      (float(s.get("host_ping_rtt_ms")) if s.get("host_ping_rtt_ms") is not None else None),
         "ping_loss_pct":    (float(s.get("host_ping_loss_pct")) if s.get("host_ping_loss_pct") is not None else None),

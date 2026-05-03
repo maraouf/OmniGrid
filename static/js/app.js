@@ -16631,7 +16631,19 @@ function app() {
         const hostTransport = String((h && h.ping_transport) || '').toLowerCase();
         const useIcmp = (hostTransport === 'icmp')
                      || (hostTransport === '' && !!cfgGlobal.use_icmp);
-        const targetName = (h && (h.label || h.id || '')).toString().trim() || '';
+        // Use the BACKEND-RESOLVED ping target so the tooltip names
+        // the actual DNS / IP being probed — not just the curated
+        // host_id (which is often a label like "ftth" that doesn't
+        // resolve via DNS). `h.ping_target` is computed in
+        // `_shape_host_api_row` per the same chain
+        // `logic.db.curated_ping_hosts` uses: ssh.fqdn → ssh.host →
+        // host.id. Falls back to label/id if the API row predates the
+        // ping_target field (defence-in-depth on a stale SPA cache).
+        const targetName = (
+          (h && h.ping_target)
+          || (h && (h.label || h.id || ''))
+          || ''
+        ).toString().trim();
         let probeStr;
         if (useIcmp) {
           probeStr = 'ICMP';
