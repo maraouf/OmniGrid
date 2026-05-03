@@ -2136,8 +2136,13 @@
                          :title="t('columns.cpu') + ': ' + (h.cpu_percent || 0).toFixed(1) + '%' + (h.cores ? ' (' + h.cores + ' cores)' : '') + (isStaleField(h, 'host_cpu_percent') ? ' — ' + staleAge(h) : '')">
                       <div class="fill"></div>
                     </div>
-                    <div class="text-[10.5px] mono mt-1"
-                         x-text="(h.cpu_percent || 0).toFixed(1) + '%' + (h.cores ? ' (' + h.cores + ')' : '')"></div>
+                    <div class="text-[10.5px] mono mt-1 flex items-center">
+                      <span x-text="(h.cpu_percent || 0).toFixed(1) + '%' + (h.cores ? ' (' + h.cores + ')' : '')"></span>
+                      <svg x-show="hostHasInlineSpark(h, 'cpu')" class="host-row-spark"
+                           viewBox="0 0 60 16" preserveAspectRatio="none" aria-hidden="true">
+                        <path :d="hostInlineSparkline(h, 'cpu')"/>
+                      </svg>
+                    </div>
                   </div>
                 </template>
               </div>
@@ -2151,10 +2156,14 @@
                          :title="t('columns.memory') + ': ' + Math.round(h.mem_percent || memPercentOf(h)) + '%' + (h.mem_total ? ' (' + fmtBytes(h.mem_used) + ' / ' + fmtBytes(h.mem_total) + ')' : '') + ((isStaleField(h, 'host_mem_total') || isStaleField(h, 'host_mem_used')) ? ' — ' + staleAge(h) : '')">
                       <div class="fill"></div>
                     </div>
-                    <div class="text-[10.5px] mono mt-1">
+                    <div class="text-[10.5px] mono mt-1 flex items-center">
                       <span x-text="Math.round(h.mem_percent || memPercentOf(h)) + '%'"></span>
                       <span class="text-[var(--text-faint)]" x-show="h.mem_total"
                             x-text="' (' + fmtBytes(h.mem_used) + '/' + fmtBytes(h.mem_total) + ')'"></span>
+                      <svg x-show="hostHasInlineSpark(h, 'memory')" class="host-row-spark"
+                           viewBox="0 0 60 16" preserveAspectRatio="none" aria-hidden="true">
+                        <path :d="hostInlineSparkline(h, 'memory')"/>
+                      </svg>
                     </div>
                   </div>
                 </template>
@@ -2190,10 +2199,14 @@
                         <div class="fill"></div>
                       </div>
                     </template>
-                    <div class="text-[10.5px] mono mt-1">
+                    <div class="text-[10.5px] mono mt-1 flex items-center">
                       <span x-text="Math.round(h.disk_percent || diskPercentOf(h)) + '%'"></span>
                       <span class="text-[var(--text-faint)]" x-show="h.disk_total"
                             x-text="' (' + fmtBytes(h.disk_used) + '/' + fmtBytes(h.disk_total) + ')'"></span>
+                      <svg x-show="hostHasInlineSpark(h, 'disk')" class="host-row-spark"
+                           viewBox="0 0 60 16" preserveAspectRatio="none" aria-hidden="true">
+                        <path :d="hostInlineSparkline(h, 'disk')"/>
+                      </svg>
                     </div>
                   </div>
                 </template>

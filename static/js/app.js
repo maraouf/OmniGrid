@@ -9522,6 +9522,48 @@ function app() {
       if (pct > this._statBarWarnPct()) return 'warn';
       return '';
     },
+    // Tiny inline sparkline for the Hosts row. Returns an SVG `d` path
+    // string scaled to the 60×16 box used by `.host-row-spark` next to
+    // each CPU / Memory / Disk stat-bar. Reuses `hostHistory[key].series`
+    // already fetched by the drawer-history loader — when no series is
+    // loaded yet (dead row, host with no telemetry, or pre-load), returns
+    // empty string and the element renders nothing. Keys map: CPU →
+    // `cpu`, Memory → `mp`, Disk → `dp` (matches the drawer charts).
+    // Values are clamped to 0..100 since these metrics are percentages.
+    hostInlineSparkline(h, metric) {
+      if (!h) return '';
+      const key = this.hostHistoryKey ? this.hostHistoryKey(h) : (h.beszel_id || h.id || '');
+      if (!key) return '';
+      const entry = this.hostHistory && this.hostHistory[key];
+      if (!entry || !entry.series || entry.series.length < 2) return '';
+      // Map our public metric name to the series field name.
+      const FIELD = { cpu: 'cpu', memory: 'mp', disk: 'dp' };
+      const k = FIELD[metric];
+      if (!k) return '';
+      const W = 60, H = 16;
+      const PAD_T = 1, PAD_B = 1;
+      const usableH = H - PAD_T - PAD_B;
+      const series = entry.series;
+      const n = series.length;
+      const out = [];
+      let lastNull = true;
+      for (let i = 0; i < n; i++) {
+        const v = Number(series[i][k]);
+        if (!Number.isFinite(v)) { lastNull = true; continue; }
+        const clamped = Math.max(0, Math.min(100, v));
+        const x = (i / (n - 1)) * W;
+        const y = PAD_T + usableH - (clamped / 100) * usableH;
+        out.push(`${lastNull ? 'M' : 'L'}${x.toFixed(1)},${y.toFixed(1)}`);
+        lastNull = false;
+      }
+      return out.join(' ');
+    },
+    // True when the host has at least 2 data points for `metric` so the
+    // sparkline has something to draw. Drives the SVG's x-show gate so
+    // dead / unloaded rows don't render an empty 60px placeholder.
+    hostHasInlineSpark(h, metric) {
+      return !!this.hostInlineSparkline(h, metric);
+    },
     // Single source of truth for stat-bar a11y attrs. Returns a plain
     // object spread via x-bind so every `.stat-bar` consumer announces
     // as a real progressbar instead of an empty div. The label key
@@ -13475,6 +13517,29 @@ function app() {
           if (!ids.length) return;
           for (const id of ids) this._hostSeenIds.add(id);
           this._runHostRefreshQueue(ids).catch(() => {});
+          // Warm host history for visible rows so the inline 1h-trend
+          // sparkline next to each CPU / Mem / Disk stat-bar has data
+          // to render without waiting for the operator to open the
+          // drawer first. One-shot per host — `loadHostHistory` is a
+          // no-op when history is already present and fresh. Off-screen
+          // hosts never enter the observer's queue, so a 200-host fleet
+          // doesn't pay the prefetch cost up-front.
+          for (const id of ids) {
+            const h = (this.hosts || []).find(x => x && x.id === id);
+            if (!h) continue;
+            const key = this.hostHistoryKey(h);
+            if (!key) continue;
+            if (this.hostHistory && this.hostHistory[key]
+                && Array.isArray(this.hostHistory[key].series)
+                && this.hostHistory[key].series.length >= 2) continue;
+            // Only pre-fetch when the host has a Beszel/NE telemetry
+            // source — Ping-only / SNMP-only hosts populate via different
+            // history loaders (snmp_history) and don't feed the inline
+            // CPU/Mem/Disk sparklines anyway.
+            if (h.beszel_id || h.ne_url) {
+              try { this.loadHostHistory(h.beszel_id || '', h.id); } catch {}
+            }
+          }
         }, 200);
       };
       const handle = (entries) => {
@@ -16459,25 +16524,32 @@ function app() {
       };
       // Ping label resolves the per-host transport + port the user
       // actually configured (or the global defaults when no per-host
-      // override is set). Pre-fix the tooltip read literally
-      // "Ping probe (this host)" with no indication of WHAT was being
-      // probed. ICMP transport renders as "Ping probe (ICMP)"; TCP
-      // transport renders as "Ping probe (TCP :<port>)". Per-host
-      // values come from the API row (`ping_transport` / `ping_port`);
-      // global defaults come from `me.client_config.ping`.
+      // override is set), AND prefixes the resolved host so the
+      // tooltip names WHICH target is being probed. Pre-fix the
+      // tooltip read literally "Ping probe (this host)" or "(ICMP)"
+      // with no indication of which host the probe targeted.
+      // Format: "Ping probe (<host> · ICMP)" or "Ping probe (<host> · TCP :<port>)".
+      // Per-host values come from the API row (`ping_transport` /
+      // `ping_port`); global defaults come from `me.client_config.ping`;
+      // host name comes from `h.label || h.id`.
       let pingLabel = '';
       if (pingEnabled) {
         const cfgGlobal = (this.me && this.me.client_config && this.me.client_config.ping) || {};
         const hostTransport = String((h && h.ping_transport) || '').toLowerCase();
         const useIcmp = (hostTransport === 'icmp')
                      || (hostTransport === '' && !!cfgGlobal.use_icmp);
+        const targetName = (h && (h.label || h.id || '')).toString().trim() || '';
+        let probeStr;
         if (useIcmp) {
-          pingLabel = 'Ping probe (ICMP)';
+          probeStr = 'ICMP';
         } else {
           const port = (h && Number(h.ping_port))
                        || (cfgGlobal.default_port ? Number(cfgGlobal.default_port) : 443);
-          pingLabel = `Ping probe (TCP :${port})`;
+          probeStr = `TCP :${port}`;
         }
+        pingLabel = targetName
+          ? `Ping probe (${targetName} · ${probeStr})`
+          : `Ping probe (${probeStr})`;
       }
       const providers = {
         beszel: beszelLabel ? `Beszel agent (${beszelLabel})` : '',

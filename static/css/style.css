@@ -1463,6 +1463,30 @@ details summary::-webkit-details-marker {
     border: 1px solid var(--border);
 }
 
+/* Inline 1h-trend sparkline next to each Hosts-row stat-bar's percent
+ * text. 60×16 fixed box so it lines up with the bar above. Stroke
+ * picks up `--text-faint` on the dim default; the consumer can pass
+ * a class to override (e.g. `.host-row-spark--ok` for green) — kept
+ * monochrome by default so a 200-host fleet doesn't read like a
+ * Christmas tree. Vertical-align: middle keeps it aligned with the
+ * sibling percent text on the same line. */
+.host-row-spark {
+    display: inline-block;
+    width: 60px;
+    height: 16px;
+    margin-inline-start: var(--s-1);
+    vertical-align: middle;
+    color: var(--text-faint);
+    flex-shrink: 0;
+}
+.host-row-spark path {
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+}
+
 .stat-bar > .fill {
     position: absolute;
     inset: 0;
