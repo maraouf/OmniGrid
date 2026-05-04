@@ -7606,13 +7606,12 @@ function app() {
       // we'll actually act on. Pre-fix the log fired even on self-
       // originated events that _handleOpEvent then filtered out — log
       // spam on every op the originating tab triggered.
-      es.addEventListener('op:created',   (e) => { onAny(); if (this._isSelfEvent(e)) return; console.log('[live] event=op:created', e.data ? e.data.slice(0, 200) : ''); this._handleOpEvent(e, 'created'); });
-      es.addEventListener('op:updated',   (e) => { onAny(); if (this._isSelfEvent(e)) return; console.log('[live] event=op:updated', e.data ? e.data.slice(0, 200) : ''); this._handleOpEvent(e, 'updated'); });
-      es.addEventListener('op:completed', (e) => { onAny(); if (this._isSelfEvent(e)) return; console.log('[live] event=op:completed', e.data ? e.data.slice(0, 200) : ''); this._handleOpEvent(e, 'completed'); });
+      es.addEventListener('op:created',   (e) => { onAny(); if (this._isSelfEvent(e)) return; this._handleOpEvent(e, 'created'); });
+      es.addEventListener('op:updated',   (e) => { onAny(); if (this._isSelfEvent(e)) return; this._handleOpEvent(e, 'updated'); });
+      es.addEventListener('op:completed', (e) => { onAny(); if (this._isSelfEvent(e)) return; this._handleOpEvent(e, 'completed'); });
       es.addEventListener('cache:invalidated', (e) => {
         onAny();
         if (this._isSelfEvent(e)) return;
-        console.log('[live] event=cache:invalidated → refresh(true)', e.data ? e.data.slice(0, 200) : '');
         // Items dataset is large enough that delta-broadcasting it
         // isn't worth it for V1 — kick a forced refresh instead, and
         // let the existing in-place reconcile in `refresh()` do its
@@ -7747,7 +7746,6 @@ function app() {
       es.addEventListener('schedule:fired', (e) => {
         onAny();
         if (this._isSelfEvent(e)) return;
-        console.log('[live] event=schedule:fired → loadSchedules + loadScheduleQueue', e.data ? e.data.slice(0, 200) : '');
         // Schedule rows + queue rebuild via the same helpers the
         // Schedules tab uses. They reconcile in place via #439's
         // _reconcileById path so re-firing them mid-tab doesn't
@@ -7758,7 +7756,6 @@ function app() {
       es.addEventListener('history:appended', (e) => {
         onAny();
         if (this._isSelfEvent(e)) return;
-        console.log('[live] event=history:appended → loadHistory', e.data ? e.data.slice(0, 200) : '');
         // Reload via the same paginated endpoint — the in-place
         // reconcile keeps each row's <details> open/closed
         // state intact.

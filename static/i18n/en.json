@@ -9,6 +9,9 @@
     "unsaved_title": "You have unsaved changes — click Save to commit them.",
     "hint_global_default": "(global default)"
   },
+  "item": {
+    "drawer_title": "Item details"
+  },
   "warnings": {
     "session_secret_auto": {
       "title": "SESSION_SECRET not set — sessions will not survive a restart",
@@ -1066,7 +1069,8 @@
         "gather_refresh": "Refresh cache",
         "backup": "Backup database",
         "asset_inventory_refresh": "Refresh asset inventory",
-        "prune_logs": "Prune log files"
+        "prune_logs": "Prune log files",
+        "prune_notifications": "Prune notifications"
       },
       "run_at_label": "Run at (optional)",
       "run_at_placeholder": "HH:MM — leave empty to use interval",
@@ -1330,7 +1334,8 @@
       "bulk_restart": "Bulk restart",
       "bulk_remove": "Bulk remove",
       "expand_all": "Expand all stacks",
-      "collapse_all": "Collapse all stacks"
+      "collapse_all": "Collapse all stacks",
+      "command_palette": "Command palette"
     }
   },
   "toasts": {
