@@ -129,7 +129,19 @@
       "column_all_hint": "Toggle every channel for this event in one click",
       "row_all_hint": "Click to enable / disable every channel for this row",
       "column_header_hint": "Click: enable this channel across every event · Right-click: disable across every event",
-      "medium_column_hint": "Toggle this channel across every event"
+      "medium_column_hint": "Toggle this channel across every event",
+      "search_placeholder": "Search events…",
+      "search_no_match": "No events match \"{query}\"",
+      "expand_all": "Expand all",
+      "collapse_all": "Collapse all",
+      "cat_count_title": "Events with at least one channel routing them",
+      "cat_chip_title": "Click to toggle {medium} for every event in this category",
+      "cat_operations": "Operations",
+      "cat_operations_desc": "Stack / container / service updates, restarts, removes, prunes, and Swarm-agent restart events.",
+      "cat_health": "System health",
+      "cat_health_desc": "Sampler auto-pause and unhealthy-state events surfaced by background watchers.",
+      "cat_security": "Security",
+      "cat_security_desc": "Authentication-related events such as user sign-in."
     }
   },
   "filters": {
