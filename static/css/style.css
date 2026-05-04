@@ -2622,7 +2622,7 @@ details summary::-webkit-details-marker {
     align-items: center;
     font-size: var(--fs-2xs);
     font-weight: 500;
-    padding: 2px var(--s-2);
+    padding: var(--s-1) var(--s-2);
     border-radius: var(--r-sm);
     border: 1px solid var(--border);
     background: var(--surface);

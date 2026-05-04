@@ -290,10 +290,10 @@
                cold load with no visual hint that fresh data is
                arriving on its own. -->
           <svg width="13" height="13" aria-hidden="true"
-               :class="((view==='hosts' ? hostsLoading : loading) || cacheRefreshing || hubProbing) ? 'animate-spin' : ''"><use href="/img/ui-sprite.svg#icon-rotate-cw"/></svg>
-          <span x-show="!(view==='hosts' ? hostsLoading : loading) && !(cacheRefreshing || hubProbing)" x-text="t('actions.refresh')"></span>
+               :class="((view==='hosts' ? hostsLoading : loading) || cacheRefreshing || hubProbing || statsRefreshing) ? 'animate-spin' : ''"><use href="/img/ui-sprite.svg#icon-rotate-cw"/></svg>
+          <span x-show="!(view==='hosts' ? hostsLoading : loading) && !(cacheRefreshing || hubProbing || statsRefreshing)" x-text="t('actions.refresh')"></span>
           <span x-show="view==='hosts' ? hostsLoading : loading" x-text="t('actions.refreshing')"></span>
-          <span x-show="!(view==='hosts' ? hostsLoading : loading) && (cacheRefreshing || hubProbing)"
+          <span x-show="!(view==='hosts' ? hostsLoading : loading) && (cacheRefreshing || hubProbing || statsRefreshing)"
                 x-text="t('actions.refreshing_bg') || 'Refreshing…'"></span>
         </button>
         <!-- Deploy watcher — only visible when /api/version returns a
@@ -4682,6 +4682,51 @@
                flushes apprise + tuning together) — the standalone
                Save was operator-flagged as redundant. Dirty marker
                appears in the page-level Save's amber ring. -->
+        </div>
+        <!-- Notifications panel page size — sister tunable to the
+             retention dial, surfaced HERE in Admin → Notifications
+             rather than only in Admin → Config (operators editing
+             notification config wanted both knobs side-by-side).
+             Also still auto-rendered in Admin → Config via the
+             tuningKeys array; this is an additional in-context editor,
+             not a relocation. -->
+        <div x-show="tuningLoaded" class="bg-[var(--surface-2)] border border-[var(--border)] rounded-md p-4 mt-3">
+          <div class="flex items-center gap-2 mb-2">
+            <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true"><use href="/img/ui-sprite.svg#icon-layers"/></svg>
+            <h4 class="font-semibold text-[12.5px]"
+                x-text="t('admin.config.fields.tuning_notification_page_size.label')"></h4>
+          </div>
+          <p class="text-[11px] text-[var(--text-faint)] mb-2 leading-snug"
+             x-text="t('admin.config.fields.tuning_notification_page_size.help')"></p>
+          <div class="flex flex-wrap items-center gap-2">
+            <input type="number"
+                   x-model="tuningForm['tuning_notification_page_size']"
+                   :placeholder="tuningPlaceholder('tuning_notification_page_size')"
+                   :min="(tuningEffective['tuning_notification_page_size'] || {}).min"
+                   :max="(tuningEffective['tuning_notification_page_size'] || {}).max"
+                   :disabled="!isAdmin() || tuningSaving"
+                   class="w-44 mono text-[12.5px]">
+            <div class="bounds-chips" role="group"
+                 :aria-label="t('admin.config.bounds.group_label')">
+              <span class="bounds-chip bounds-chip--min"
+                    :title="t('admin.config.bounds.min_title')">
+                <svg width="11" height="11" aria-hidden="true"><use href="/img/ui-sprite.svg#icon-arrow-down-to-line"/></svg>
+                <span x-text="(tuningEffective['tuning_notification_page_size'] || {}).min"></span>
+              </span>
+              <span class="bounds-chip bounds-chip--max"
+                    :title="t('admin.config.bounds.max_title')">
+                <svg width="11" height="11" aria-hidden="true"><use href="/img/ui-sprite.svg#icon-arrow-up-to-line"/></svg>
+                <span x-text="(tuningEffective['tuning_notification_page_size'] || {}).max"></span>
+              </span>
+              <span class="bounds-chip bounds-chip--default"
+                    :title="t('admin.config.bounds.default_title')">
+                <svg width="11" height="11" aria-hidden="true"><use href="/img/ui-sprite.svg#icon-target"/></svg>
+                <span x-text="(tuningEffective['tuning_notification_page_size'] || {}).default"></span>
+              </span>
+            </div>
+            <span class="text-[11px] text-[var(--text-dim)] ms-auto"
+                  x-text="t('admin.config.effective_label', { value: (tuningEffective['tuning_notification_page_size'] || {}).effective })"></span>
+          </div>
         </div>
       </section>
 

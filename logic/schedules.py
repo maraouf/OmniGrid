@@ -1219,12 +1219,19 @@ async def _run_prune_notifications(
     return op_id, task  # type: ignore[return-value]
 
 
-# Module-level cooldown anchor for the swarm-agent-health autoheal
-# kind. Tracks the wall-clock of the last RESTART action (notify
-# actions consume their OWN anchor, see below). Read at the top of
-# the runner; updated AFTER a successful restart spawn. Single
-# in-memory float because the runner only fires from the lifespan-
-# managed scheduler tick (single-replica invariant).
+# Module-level cooldown anchors for the swarm-agent-health autoheal
+# kind. Persisted across container restarts via `set_setting` so an
+# attacker (or buggy schedule cron) can't bypass the cooldown by
+# repeatedly restarting OmniGrid. The in-memory floats below mirror
+# the persisted values and are loaded lazily via
+# `_load_swarm_autoheal_anchors()` on first read each tick — the
+# runner only fires from the lifespan-managed scheduler tick (single-
+# replica invariant), so single-process state is safe.
+#
+# Setting keys (DB):
+#   swarm_autoheal_last_restart_ts — float epoch seconds
+#   swarm_autoheal_last_notify_ts  — float epoch seconds
+#   swarm_autoheal_last_notify_set — JSON-encoded sorted list of host ids
 _swarm_autoheal_last_restart_ts: float = 0.0
 # Notify-only-path de-dup state. Without this a once-per-minute
 # schedule paged 60×/hour while an agent stayed down. Two gates
@@ -1232,11 +1239,63 @@ _swarm_autoheal_last_restart_ts: float = 0.0
 # operator-tunable knob silences repeats over the cool-down window;
 # (b) transition gate — if the unhealthy host SET is unchanged since
 # the last fire, skip. Either gate clearing fires the next event.
-# `_swarm_autoheal_last_notify_ts` floats together with restart-ts;
-# the unhealthy SET is stored as a frozenset so equality comparison
-# is order-insensitive.
 _swarm_autoheal_last_notify_ts: float = 0.0
 _swarm_autoheal_last_notify_set: frozenset = frozenset()
+_swarm_autoheal_anchors_loaded: bool = False
+
+
+def _load_swarm_autoheal_anchors() -> None:
+    """Lazy-load the persisted cooldown anchors from settings on
+    first read after a process start. Subsequent reads use the
+    in-memory mirror. Failure-safe: any DB error leaves the anchors
+    at their zero defaults (consistent with "fresh start, no
+    cooldown" semantics).
+    """
+    global _swarm_autoheal_last_restart_ts
+    global _swarm_autoheal_last_notify_ts, _swarm_autoheal_last_notify_set
+    global _swarm_autoheal_anchors_loaded
+    if _swarm_autoheal_anchors_loaded:
+        return
+    _swarm_autoheal_anchors_loaded = True
+    from logic.db import get_setting
+    try:
+        rt = get_setting("swarm_autoheal_last_restart_ts", "") or ""
+        if rt:
+            _swarm_autoheal_last_restart_ts = float(rt)
+    except (ValueError, TypeError):
+        pass
+    try:
+        nt = get_setting("swarm_autoheal_last_notify_ts", "") or ""
+        if nt:
+            _swarm_autoheal_last_notify_ts = float(nt)
+    except (ValueError, TypeError):
+        pass
+    try:
+        ns_raw = get_setting("swarm_autoheal_last_notify_set", "") or ""
+        if ns_raw:
+            _swarm_autoheal_last_notify_set = frozenset(json.loads(ns_raw))
+    except (ValueError, TypeError, json.JSONDecodeError):
+        pass
+
+
+def _persist_swarm_autoheal_restart_ts(ts: float) -> None:
+    """Write the restart anchor to settings. Best-effort."""
+    from logic.db import set_setting
+    try:
+        set_setting("swarm_autoheal_last_restart_ts", str(float(ts)))
+    except Exception as e:  # noqa: BLE001
+        print(f"[scheduler] persist swarm_autoheal_last_restart_ts failed: {e}")
+
+
+def _persist_swarm_autoheal_notify_state(ts: float, host_set: frozenset) -> None:
+    """Write the notify-side anchors to settings. Best-effort."""
+    from logic.db import set_setting
+    try:
+        set_setting("swarm_autoheal_last_notify_ts", str(float(ts)))
+        set_setting("swarm_autoheal_last_notify_set",
+                    json.dumps(sorted(host_set)))
+    except Exception as e:  # noqa: BLE001
+        print(f"[scheduler] persist swarm_autoheal_last_notify_state failed: {e}")
 
 
 async def _run_swarm_agent_health(
@@ -1279,6 +1338,10 @@ async def _run_swarm_agent_health(
         from logic.db import get_setting
 
         global _swarm_autoheal_last_restart_ts
+        # Lazy-load persisted cooldown anchors on first run after
+        # process start so a container restart doesn't reset them.
+        # Idempotent — flips a sentinel after first load.
+        _load_swarm_autoheal_anchors()
         started = time.time()
         status = "success"
         err: Optional[str] = None
@@ -1341,6 +1404,7 @@ async def _run_swarm_agent_health(
                                 _ops.do_restart_swarm_agent(op),
                             )
                             _swarm_autoheal_last_restart_ts = started
+                            _persist_swarm_autoheal_restart_ts(started)
                             action_taken = "restart_triggered"
                             print(
                                 f"[scheduler] swarm_agent_health: restart "
@@ -1420,6 +1484,7 @@ async def _run_swarm_agent_health(
                             )
                             _swarm_autoheal_last_notify_ts = started
                             _swarm_autoheal_last_notify_set = current_set
+                            _persist_swarm_autoheal_notify_state(started, current_set)
                         except Exception as ne:
                             print(
                                 f"[scheduler] swarm_agent_health notify "

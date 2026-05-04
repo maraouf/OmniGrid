@@ -691,6 +691,44 @@ def init_db():
         CREATE INDEX IF NOT EXISTS idx_host_snmp_temp_samples_host_probe_ts
             ON host_snmp_temp_samples(host_id, probe_idx, ts DESC);
 
+        -- Append-only transition log for the host pause/resume
+        -- lifecycle. Pre-fix the timeline endpoint synthesised
+        -- `provider_paused` / `provider_recovered` events from
+        -- the CURRENT `host_failure_state` snapshot — meaning a
+        -- host that had paused → resumed → paused → resumed showed
+        -- only the LATEST state, not the history. This table
+        -- captures every transition so the timeline reflects the
+        -- true incident sequence. Pruned by the same retention
+        -- knob the time-series tables use (`tuning_stats_history_days`).
+        --
+        -- Schema:
+        --   host_id  — BARE host_id (not the prefixed `<provider>:<id>`
+        --              form used by host_failure_state rows). Always
+        --              the operator-visible identifier so the timeline
+        --              filters on host_id IN (...) work.
+        --   provider — '' for whole-host events; '<provider>' for
+        --              per-(provider, host) events.
+        --   kind     — 'paused' | 'recovered' (extensible — future
+        --              kinds like 'manual_pause' / 'manual_resume'
+        --              can drop in without schema migration).
+        --   error    — last error string (only set on 'paused'
+        --              events; truncated to 500 chars).
+        --   actor    — 'sampler' | 'admin:<username>' | 'scheduler'
+        --              so audit trails can distinguish auto vs manual.
+        CREATE TABLE IF NOT EXISTS host_failure_events (
+            id       INTEGER PRIMARY KEY AUTOINCREMENT,
+            ts       REAL NOT NULL,
+            host_id  TEXT NOT NULL,
+            provider TEXT NOT NULL DEFAULT '',
+            kind     TEXT NOT NULL,
+            error    TEXT,
+            actor    TEXT
+        );
+        CREATE INDEX IF NOT EXISTS idx_host_failure_events_ts
+            ON host_failure_events(ts DESC);
+        CREATE INDEX IF NOT EXISTS idx_host_failure_events_host_ts
+            ON host_failure_events(host_id, ts DESC);
+
         -- Last-known per-host nodes_info blob (Beszel / Pulse /
         -- node-exporter / Webmin merged). Written at the end of every
         -- successful gather, read at startup AND on every gather to
@@ -1001,9 +1039,39 @@ async def _log_pruner_loop() -> None:
 # ============================================================================
 @app.get("/api/stats")
 async def api_stats(force: bool = False):
+    """Serve cached / seeded stats instantly; refresh in background.
+
+    Cold-load instant paint pattern (mirrors `/api/items` Fix A): when
+    ``_stats_cache["stats"]`` already holds entries — including those
+    seeded from `stats_samples` at boot — return them IMMEDIATELY
+    regardless of the TTL or ``force`` flag, and kick ``_gather_stats``
+    into a single-flighted background task. Pre-fix the TTL guard
+    blocked on a synchronous gather whenever ``ts`` was older than
+    `tuning_stats_cache_ttl_seconds` — and `seed_stats_cache_from_db`
+    deliberately stamps ``ts=0.0`` so the seeded entries get refreshed
+    on the first call, which made every page load wait through the
+    full gather before bars / sparklines could paint. Cold-empty cache
+    (no in-memory data — first `/api/stats` after a fresh container
+    that has never gathered) still blocks; there's nothing to serve.
+
+    The SPA's existing `_stale: True` markers on seeded entries drive
+    the dimmed `.stale` treatment so operators see "this is from cache
+    while we refresh" rather than fully-bright but stale numbers.
+    """
     now = time.time()
-    if force or not _stats_cache["stats"] or (now - _stats_cache["ts"] > tuning.tuning_int("tuning_stats_cache_ttl_seconds")):
+    has_cached_stats = bool(_stats_cache.get("stats"))
+    cache_stale = (now - _stats_cache["ts"]) > tuning.tuning_int("tuning_stats_cache_ttl_seconds")
+    stats_refreshing = False
+
+    if not has_cached_stats:
+        # Truly cold: no data to serve, must block on the gather. Same
+        # contract as the cold path in /api/items.
         await _gather_stats()
+    elif force or cache_stale:
+        # Have data, even if stale or seeded with ts=0: serve it
+        # instantly + kick refresh in the background. Single-flight
+        # guard prevents a poll burst from firing N concurrent gathers.
+        stats_refreshing = _kick_background_stats_gather()
     # Swarm agent unhealthy detection — surfaces every node where
     # the per-node `_agent_health` consecutive-failure counter has
     # crossed the operator-tunable threshold. SPA renders a banner
@@ -1028,6 +1096,11 @@ async def api_stats(force: bool = False):
         "ts": _stats_cache["ts"],
         "age": int(now - _stats_cache["ts"]) if _stats_cache["ts"] else None,
         "unhealthy_agents": unhealthy_agents,
+        # True when a background _gather_stats was kicked and the
+        # response body is from the prior snapshot. SPA's topbar
+        # refresh button reads this to surface a "Refreshing…"
+        # indicator. Mirrors `/api/items` ``cache_refreshing``.
+        "stats_refreshing": stats_refreshing,
     }
 
 
@@ -4706,6 +4779,12 @@ def _peek_cached_host_provider_state() -> dict | None:
 # each fanning out to Portainer with the same payload. The guard tracks the
 # current task and ignores subsequent kicks while it's still running.
 _background_gather_task: "asyncio.Task | None" = None
+# Mirror single-flight guard for ``_gather_stats``. Same rationale:
+# without it a burst of /api/stats calls would each fire a parallel
+# stats gather while the previous one is still running, multiplying
+# Portainer + container fan-out cost. The guard tracks the current
+# task and ignores subsequent kicks while it's in flight.
+_background_stats_task: "asyncio.Task | None" = None
 
 
 def _kick_background_gather() -> bool:
@@ -4728,6 +4807,31 @@ def _kick_background_gather() -> bool:
         # No running event loop (called from a sync context that isn't
         # inside a request handler) — caller can fall back to awaiting
         # ``_gather()`` directly if they really need fresh data.
+        return False
+
+
+def _kick_background_stats_gather() -> bool:
+    """Same single-flight pattern as ``_kick_background_gather`` but
+    for the stats cache. Used by ``/api/stats`` to serve the warm
+    cache instantly + refresh in background. Returns True when a task
+    is running (just-scheduled OR already in flight); False on no-loop.
+
+    The seed-from-DB path stamps ``_stats_cache["ts"] = 0.0`` so the
+    legacy TTL check at the top of ``api_stats`` would always fall
+    through to a synchronous ``_gather_stats()`` and block the response
+    on a fresh page load — even though cached values were already
+    available to serve. Routing through this kick instead serves the
+    seeded cache first, then refreshes in the background; the next
+    poll cycle picks up the live values.
+    """
+    global _background_stats_task
+    try:
+        if _background_stats_task is not None and not _background_stats_task.done():
+            return True
+        loop = asyncio.get_running_loop()
+        _background_stats_task = loop.create_task(_gather_stats())
+        return True
+    except RuntimeError:
         return False
 
 
@@ -6171,6 +6275,24 @@ def _invalidate_provider_state_cache() -> None:
     waiting up to TTL for the next refresh."""
     _provider_state_cache["ts"] = 0.0
     _provider_state_cache["by_host"] = {}
+
+
+def _full_host_cache_bust() -> None:
+    """Single-flight cache-bust helper — calls BOTH
+    ``invalidate_host_provider_cache()`` AND
+    ``_invalidate_provider_state_cache()`` so callers can't
+    accidentally drift from the contract.
+
+    Any code path that mutates ``host_failure_state`` OR
+    ``host_provider_last_ok`` MUST call this (or both invalidators
+    individually). Pre-fix the four bulk endpoints called only the
+    provider-cache invalidator; the per-provider state-cache row
+    stayed cached for up to 5s, leading to chips rendering as
+    still-paused right after a Resume. Routing every writer through
+    this helper makes the contract impossible to forget.
+    """
+    invalidate_host_provider_cache()
+    _invalidate_provider_state_cache()
 
 
 def _sqlite_like_escape(s: str) -> str:
@@ -9332,16 +9454,30 @@ async def api_hosts_timeline(
     try:
         with db_conn() as c:
             # ---- ops history ------------------------------------------
-            placeholders = ",".join(["?"] * len(name_candidates))
+            # The placeholders literal is built from the constant `?`
+            # character — `name_candidates` only controls the COUNT,
+            # never the placeholder STRING. Static analysers
+            # (CodeQL, semgrep python.django.security.audit.sqli) flag
+            # any f-string SQL builder regardless. The value is safely
+            # parameterised below; we suppress with bandit's `# nosec`
+            # marker so the audit trail makes the rationale explicit
+            # at the call site instead of forcing a contrived rebuild
+            # without f-strings (which would just make the SQL harder
+            # to read).
+            ph_count = max(1, len(name_candidates))
+            placeholders = ",".join(["?"] * ph_count)
+            hist_sql = (
+                "SELECT ts, op_type, status, actor, target_name, target_id, "
+                "target_stack, error, duration "
+                "FROM history "
+                "WHERE ts >= ? AND ("
+                "  target_id IN (" + placeholders + ") "
+                "  OR target_name IN (" + placeholders + ")"
+                ") "
+                "ORDER BY ts DESC LIMIT ?"
+            )  # nosec B608 — placeholders is a constant `?` string built from len(name_candidates); no taint flows from name_candidates into the SQL string itself.
             hist_rows = c.execute(
-                f"SELECT ts, op_type, status, actor, target_name, target_id, "
-                f"target_stack, error, duration "
-                f"FROM history "
-                f"WHERE ts >= ? AND ("
-                f"  target_id IN ({placeholders}) "
-                f"  OR target_name IN ({placeholders})"
-                f") "
-                f"ORDER BY ts DESC LIMIT ?",
+                hist_sql,
                 (since, *name_candidates, *name_candidates, lim),
             ).fetchall()
             for r in hist_rows:
@@ -9391,77 +9527,121 @@ async def api_hosts_timeline(
                 })
                 counts["notifications"] += 1
 
-            # ---- failure state snapshots ------------------------------
-            # Bare host id + every per-provider prefixed key. The
-            # current row reflects current state (we don't have a
-            # historical log of pause/resume transitions in DB), so
-            # surface paused rows as a SINGLE "provider_paused" event
-            # at paused_at (or last_failure_ts) and last-OK rows as
-            # "provider_recovered" events.
+            # ---- failure transition events ----------------------------
+            # Pre-fix this synthesised `provider_paused` /
+            # `provider_recovered` events from the CURRENT snapshot of
+            # `host_failure_state` + `host_provider_last_ok`, which
+            # meant a host that paused → resumed → paused → resumed
+            # over the requested window only showed the LATEST state,
+            # not the sequence. The new `host_failure_events`
+            # append-only table captures every transition and replaces
+            # both the failure-state and last-ok branches with one
+            # ordered query. Schema-fallback path: if the table is
+            # missing (e.g. a pre-migration deploy), we silently fall
+            # back to the legacy current-state snapshot logic so the
+            # timeline doesn't break during the rollout window.
+            transition_rows = []
             try:
-                # Escape `%` / `_` / `\` in hid before embedding in the
-                # LIKE pattern — a curated id like `web_01` would
-                # otherwise match every `snmp:webX01` row via SQLite's
-                # underscore wildcard. Pair with ESCAPE '\\' in the SQL.
-                like_hid = _sqlite_like_escape(hid)
-                fail_rows = c.execute(
-                    "SELECT host_id, paused, paused_at, last_failure_ts, last_error, "
-                    "consecutive_failures "
-                    "FROM host_failure_state "
-                    "WHERE host_id = ? OR host_id LIKE ? ESCAPE '\\'",
-                    (hid, f"%:{like_hid}"),
+                transition_rows = c.execute(
+                    "SELECT ts, host_id, provider, kind, error, actor "
+                    "FROM host_failure_events "
+                    "WHERE host_id = ? AND ts >= ? "
+                    "ORDER BY ts DESC LIMIT ?",
+                    (hid, since, lim),
                 ).fetchall()
             except Exception:
-                fail_rows = []
-            for r in fail_rows:
-                key = r["host_id"] or ""
-                provider = key.split(":", 1)[0] if ":" in key else "host"
-                if not r["paused"]:
-                    continue
-                ts = int(r["paused_at"] or r["last_failure_ts"] or 0)
-                if ts < since:
-                    continue
-                events.append({
-                    "ts":       ts,
-                    "kind":     "provider_paused",
-                    "severity": "warning",
-                    "title":    f"{provider} sampling paused",
-                    "body":     (r["last_error"] or "auto-paused after consecutive failures")[:300],
-                    "actor":    "sampler",
-                    "metadata": {
-                        "provider":             provider,
-                        "consecutive_failures": int(r["consecutive_failures"] or 0),
-                    },
-                })
-                counts["failures"] += 1
-
-            # ---- last-OK rows (recoveries) ----------------------------
-            try:
-                like_hid = _sqlite_like_escape(hid)
-                ok_rows = c.execute(
-                    "SELECT host_id, last_ok_ts "
-                    "FROM host_provider_last_ok "
-                    "WHERE host_id = ? OR host_id LIKE ? ESCAPE '\\'",
-                    (hid, f"%:{like_hid}"),
-                ).fetchall()
-            except Exception:
-                ok_rows = []
-            for r in ok_rows:
-                key = r["host_id"] or ""
-                provider = key.split(":", 1)[0] if ":" in key else "host"
-                ts = int(r["last_ok_ts"] or 0)
-                if ts < since:
-                    continue
-                events.append({
-                    "ts":       ts,
-                    "kind":     "provider_recovered",
-                    "severity": "success",
-                    "title":    f"{provider} probe ok",
-                    "body":     "Last successful probe",
-                    "actor":    "sampler",
-                    "metadata": {"provider": provider},
-                })
-                counts["recoveries"] += 1
+                transition_rows = []
+            if transition_rows:
+                for r in transition_rows:
+                    kind_raw = (r["kind"] or "").lower()
+                    provider = (r["provider"] or "").strip() or "host"
+                    if kind_raw == "paused":
+                        events.append({
+                            "ts":       int(r["ts"]),
+                            "kind":     "provider_paused",
+                            "severity": "warning",
+                            "title":    f"{provider} sampling paused",
+                            "body":     (r["error"] or "auto-paused after consecutive failures")[:300],
+                            "actor":    r["actor"] or "sampler",
+                            "metadata": {"provider": provider},
+                        })
+                        counts["failures"] += 1
+                    elif kind_raw == "recovered":
+                        events.append({
+                            "ts":       int(r["ts"]),
+                            "kind":     "provider_recovered",
+                            "severity": "success",
+                            "title":    f"{provider} sampling recovered",
+                            "body":     "Probe succeeded — auto-pause cleared",
+                            "actor":    r["actor"] or "sampler",
+                            "metadata": {"provider": provider},
+                        })
+                        counts["recoveries"] += 1
+            else:
+                # ---- legacy fallback: current-state snapshot only -----
+                # Used when host_failure_events is empty (fresh install
+                # before any transitions have been logged) OR when the
+                # SELECT raised (table missing pre-migration). Keeps the
+                # timeline functional during rollout; once the new table
+                # has events the fallback never fires.
+                try:
+                    like_hid = _sqlite_like_escape(hid)
+                    fail_rows = c.execute(
+                        "SELECT host_id, paused, paused_at, last_failure_ts, last_error, "
+                        "consecutive_failures "
+                        "FROM host_failure_state "
+                        "WHERE host_id = ? OR host_id LIKE ? ESCAPE '\\'",
+                        (hid, f"%:{like_hid}"),
+                    ).fetchall()
+                except Exception:
+                    fail_rows = []
+                for r in fail_rows:
+                    key = r["host_id"] or ""
+                    provider = key.split(":", 1)[0] if ":" in key else "host"
+                    if not r["paused"]:
+                        continue
+                    ts = int(r["paused_at"] or r["last_failure_ts"] or 0)
+                    if ts < since:
+                        continue
+                    events.append({
+                        "ts":       ts,
+                        "kind":     "provider_paused",
+                        "severity": "warning",
+                        "title":    f"{provider} sampling paused",
+                        "body":     (r["last_error"] or "auto-paused after consecutive failures")[:300],
+                        "actor":    "sampler",
+                        "metadata": {
+                            "provider":             provider,
+                            "consecutive_failures": int(r["consecutive_failures"] or 0),
+                        },
+                    })
+                    counts["failures"] += 1
+                try:
+                    like_hid = _sqlite_like_escape(hid)
+                    ok_rows = c.execute(
+                        "SELECT host_id, last_ok_ts "
+                        "FROM host_provider_last_ok "
+                        "WHERE host_id = ? OR host_id LIKE ? ESCAPE '\\'",
+                        (hid, f"%:{like_hid}"),
+                    ).fetchall()
+                except Exception:
+                    ok_rows = []
+                for r in ok_rows:
+                    key = r["host_id"] or ""
+                    provider = key.split(":", 1)[0] if ":" in key else "host"
+                    ts = int(r["last_ok_ts"] or 0)
+                    if ts < since:
+                        continue
+                    events.append({
+                        "ts":       ts,
+                        "kind":     "provider_recovered",
+                        "severity": "success",
+                        "title":    f"{provider} probe ok",
+                        "body":     "Last successful probe",
+                        "actor":    "sampler",
+                        "metadata": {"provider": provider},
+                    })
+                    counts["recoveries"] += 1
     except Exception as e:
         print(f"[hosts] timeline {hid!r} aggregation error: {e}")
         # Partial result — return what we have so far rather than 500.
@@ -9546,20 +9726,34 @@ async def api_hosts_bulk_pause(
     applied: list[str] = []
     errors: dict[str, str] = {}
     actor = _actor_from(request) or "admin"
-    for hid in matched:
+    # Single transaction for the whole batch — pre-fix this opened
+    # one db_conn() per host inside the loop. For 200 selected hosts
+    # that was 200 SQLite write transactions; SQLite's WAL handles it
+    # but the round-trip cost adds up. One outer connection +
+    # `executemany` for the bulk INSERT-OR-UPDATE batches all writes
+    # into a single transaction. Per-row failures (rare — schema-
+    # constraint violations on a row whose hid was de-duped at boundary)
+    # fall back to the per-row try/except path so partial-success
+    # error reporting still works without losing a whole batch on one
+    # bad row.
+    pause_tag = f"manually paused by {actor}"
+    if matched:
         try:
             with db_conn() as c:
+                rows = [
+                    (hid, float(now), pause_tag)
+                    for hid in matched
+                ]
                 # ``first_failure_ts`` is NOT NULL on the schema. On the
                 # INSERT path (host had no prior streak) we use the
-                # SENTINEL ``0.0`` rather than ``now`` — a manual pause is
-                # not a real failure event, so the host_metrics_sampler's
-                # "is the failure window expired?" math should not treat
-                # this row as a fresh streak. The value also distinguishes
-                # manual vs sampler-driven pauses for any future audit /
-                # restoration tooling. ON CONFLICT path leaves
-                # ``first_failure_ts`` untouched so an EXISTING failure
-                # streak's start-time isn't rewritten by a manual click.
-                c.execute(
+                # SENTINEL ``0.0`` rather than ``now`` — a manual pause
+                # is not a real failure event, so the
+                # host_metrics_sampler's "is the failure window
+                # expired?" math should not treat this row as a fresh
+                # streak. ON CONFLICT path leaves ``first_failure_ts``
+                # untouched so an EXISTING failure streak's start-time
+                # isn't rewritten by a manual click.
+                c.executemany(
                     "INSERT INTO host_failure_state "
                     "(host_id, first_failure_ts, consecutive_failures, "
                     " paused, paused_at, last_error) "
@@ -9567,11 +9761,31 @@ async def api_hosts_bulk_pause(
                     "ON CONFLICT(host_id) DO UPDATE SET "
                     "paused = 1, paused_at = excluded.paused_at, "
                     "last_error = excluded.last_error",
-                    (hid, float(now), f"manually paused by {actor}"),
+                    rows,
                 )
-            applied.append(hid)
-        except Exception as e:
-            errors[hid] = str(e)
+            applied = list(matched)
+        except Exception as batch_err:  # noqa: BLE001
+            # Batch failed (rare — likely DB-level error like disk
+            # full). Fall back to per-row writes so partial success
+            # is still possible + we get per-id error attribution.
+            print(f"[hosts] bulk-pause batch failed, falling back to "
+                  f"per-row: {batch_err}")
+            for hid in matched:
+                try:
+                    with db_conn() as c:
+                        c.execute(
+                            "INSERT INTO host_failure_state "
+                            "(host_id, first_failure_ts, consecutive_failures, "
+                            " paused, paused_at, last_error) "
+                            "VALUES (?, 0.0, 0, 1, ?, ?) "
+                            "ON CONFLICT(host_id) DO UPDATE SET "
+                            "paused = 1, paused_at = excluded.paused_at, "
+                            "last_error = excluded.last_error",
+                            (hid, float(now), pause_tag),
+                        )
+                    applied.append(hid)
+                except Exception as e:  # noqa: BLE001
+                    errors[hid] = str(e)
     # Publish per-host SSE events so cross-tab observers refresh in
     # place rather than waiting up to 15s for the next loadHosts poll.
     # The bare host_id keys mirror the per-host endpoint's contract;
@@ -9588,8 +9802,7 @@ async def api_hosts_bulk_pause(
             )
     except Exception as e:  # noqa: BLE001
         print(f"[hosts] bulk-pause SSE publish failed: {e}")
-    invalidate_host_provider_cache()
-    _invalidate_provider_state_cache()
+    _full_host_cache_bust()
     print(f"[hosts] bulk-pause by {actor}: {len(applied)} applied, "
           f"{len(missing)} missing, {len(errors)} errors")
     return {
@@ -9617,24 +9830,54 @@ async def api_hosts_bulk_resume(
     applied: list[str] = []
     errors: dict[str, str] = {}
     actor = _actor_from(request) or "admin"
-    for hid in matched:
+    # Single transaction for the whole batch — pre-fix this opened
+    # one db_conn() per host inside the loop. For 200 selected hosts
+    # that was 200 SQLite write transactions. One outer connection +
+    # batched DELETE collapses to a single transaction. Two passes:
+    # (1) bare-id rows via `host_id IN (?,?,…)` — exact match, no
+    # LIKE escape needed; (2) per-provider rows via `executemany` of
+    # `LIKE ? ESCAPE '\\'` patterns since SQLite has no `LIKE ANY`.
+    # Per-row failure (rare) falls back to per-host loop for partial
+    # success + per-id error attribution.
+    if matched:
         try:
             with db_conn() as c:
-                # Clear bare-id row AND every per-provider row. Escape
-                # LIKE meta-chars in hid so a curated id like `web_01`
-                # doesn't sweep unrelated `snmp:webX01` rows via the
-                # underscore wildcard.
-                like_hid = _sqlite_like_escape(hid)
+                # Pass 1: bare-id rows. Bulk DELETE in one statement.
+                placeholders = ",".join(["?"] * len(matched))
                 c.execute(
-                    "DELETE FROM host_failure_state "
-                    "WHERE host_id = ? OR host_id LIKE ? ESCAPE '\\'",
-                    (hid, f"%:{like_hid}"),
+                    "DELETE FROM host_failure_state WHERE host_id IN ("
+                    + placeholders + ")",  # nosec B608 — placeholders is constant `?` literals
+                    list(matched),
                 )
-            applied.append(hid)
-        except Exception as e:
-            errors[hid] = str(e)
-    invalidate_host_provider_cache()
-    _invalidate_provider_state_cache()
+                # Pass 2: per-provider prefixed rows. Use executemany
+                # with one LIKE pattern per host (escaped LIKE meta-chars
+                # so a curated id like `web_01` doesn't sweep unrelated
+                # `snmp:webX01` rows via the underscore wildcard).
+                like_patterns = [
+                    (f"%:{_sqlite_like_escape(hid)}",) for hid in matched
+                ]
+                c.executemany(
+                    "DELETE FROM host_failure_state "
+                    "WHERE host_id LIKE ? ESCAPE '\\'",
+                    like_patterns,
+                )
+            applied = list(matched)
+        except Exception as batch_err:  # noqa: BLE001
+            print(f"[hosts] bulk-resume batch failed, falling back "
+                  f"to per-row: {batch_err}")
+            for hid in matched:
+                try:
+                    with db_conn() as c:
+                        like_hid = _sqlite_like_escape(hid)
+                        c.execute(
+                            "DELETE FROM host_failure_state "
+                            "WHERE host_id = ? OR host_id LIKE ? ESCAPE '\\'",
+                            (hid, f"%:{like_hid}"),
+                        )
+                    applied.append(hid)
+                except Exception as e:  # noqa: BLE001
+                    errors[hid] = str(e)
+    _full_host_cache_bust()
     # SSE per-host fan-out — same shape as the per-host
     # /api/hosts/{id}/resume endpoint so the SPA's existing
     # `host:failure_state_changed` handler triggers a refreshHostRow
@@ -9716,8 +9959,7 @@ async def api_hosts_bulk_snmp_vendors(
     if applied:
         try:
             _save_hosts_config(new_curated)
-            invalidate_host_provider_cache()
-            _invalidate_provider_state_cache()
+            _full_host_cache_bust()
         except HTTPException as e:
             return {
                 "ok":      False,
@@ -9801,8 +10043,7 @@ async def api_hosts_bulk_snmp_tunables(
     if applied:
         try:
             _save_hosts_config(new_curated)
-            invalidate_host_provider_cache()
-            _invalidate_provider_state_cache()
+            _full_host_cache_bust()
         except HTTPException as e:
             return {
                 "ok":      False,
