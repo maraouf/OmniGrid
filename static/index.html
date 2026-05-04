@@ -4674,7 +4674,7 @@
                    reason via tooltip when Save is locked. -->
               <button @click="savePortainerSettings()"
                       :disabled="portainerSaving || !canSavePortainer()"
-                      :class="portainerDirty() ? 'ring-2 ring-[var(--warning)]' : ''"
+                      :class="portainerDirty() && canSavePortainer() ? 'ring-2 ring-[var(--warning)]' : ''"
                       :title="!canSavePortainer() ? t('settings.portainer.save_requires_test') : ''"
                       class="btn btn-primary text-[12px]">
                 <span x-show="!portainerSaving" x-text="t('settings.portainer.save_button')"></span>
@@ -4683,7 +4683,13 @@
               <button @click="testPortainerConnection()"
                       :disabled="!settings.portainer_enabled"
                       class="btn btn-soft text-[12px]" x-text="t('settings.portainer.test_button')"></button>
-              <span x-show="portainerDirty()"
+              <!-- "Unsaved" pulse-dot only when the form is dirty AND
+                   the gate would let us save. When the test-before-save
+                   gate is blocking, the reminder span below carries
+                   the message; doubling it up with the amber pulse
+                   sends mixed signals (orange = ready vs orange =
+                   blocked). -->
+              <span x-show="portainerDirty() && canSavePortainer()"
                     class="text-[11.5px] text-[var(--warning)] flex items-center gap-1.5">
                 <span class="w-1.5 h-1.5 rounded-full bg-[var(--warning)] animate-pulse"></span>
                 <span class="unsaved-flash" x-text="t('hosts_actions.unsaved_label')"></span>
@@ -4828,7 +4834,7 @@
                  fire either way). -->
             <button @click="saveOidcSettings()"
                     :disabled="oidcSaving || !canSaveOidc()"
-                    :class="oidcDirty() ? 'ring-2 ring-[var(--warning)]' : ''"
+                    :class="oidcDirty() && canSaveOidc() ? 'ring-2 ring-[var(--warning)]' : ''"
                     :title="!canSaveOidc() ? t('settings.oidc.save_requires_test') : ''"
                     class="btn btn-primary text-[12px]">
               <span x-show="!oidcSaving" x-text="t('actions.save')"></span>
@@ -4837,7 +4843,11 @@
             <button @click="testOidcConnection()"
                     :disabled="!oidcForm.enabled"
                     class="btn btn-soft text-[12px]" x-text="t('settings.oidc.test_button')"></button>
-            <span x-show="oidcDirty()"
+            <!-- "Unsaved" pulse-dot only when the form is dirty AND
+                 the gate would let us save. Reminder span below
+                 covers the gated case so we don't overload the amber
+                 pulse with two meanings. -->
+            <span x-show="oidcDirty() && canSaveOidc()"
                   class="text-[11.5px] text-[var(--warning)] flex items-center gap-1.5">
               <span class="w-1.5 h-1.5 rounded-full bg-[var(--warning)] animate-pulse"></span>
               <span class="unsaved-flash" x-text="t('hosts_actions.unsaved_label')"></span>
@@ -7441,7 +7451,7 @@
                (the backend won't probe upstream either way). -->
           <button x-show="isAdmin()" @click="saveAssetSettings()"
                   class="btn btn-primary text-[12px]"
-                  :class="assetDirty() ? 'ring-2 ring-[var(--warning)]' : ''"
+                  :class="assetDirty() && canSaveAsset() ? 'ring-2 ring-[var(--warning)]' : ''"
                   :disabled="assetSaving || !canSaveAsset()"
                   :title="!canSaveAsset() ? t('admin_assets.save_requires_test') : ''">
             <span x-show="!assetSaving" x-text="t('actions.save')"></span>
@@ -7449,9 +7459,11 @@
           </button>
           <!-- Unified dirty marker — same shape as Profile / Portainer /
                OIDC / Host stats tabs (warning text + pulsing dot +
-               label). Earlier version used a `pill pill-warning` chip
-               which was the odd one out across admin tabs. -->
-          <span x-show="assetDirty()"
+               label). Suppressed when the test-before-save gate is
+               blocking; the reminder span below carries the message
+               instead, avoiding the orange-pulse-but-can't-save
+               mixed signal. -->
+          <span x-show="assetDirty() && canSaveAsset()"
                 class="text-[11.5px] text-[var(--warning)] flex items-center gap-1.5"
                 :title="t('common.unsaved_title')">
             <span class="w-1.5 h-1.5 rounded-full bg-[var(--warning)] animate-pulse"></span>
