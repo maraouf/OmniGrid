@@ -463,6 +463,133 @@ def seed_nodes_info_from_snapshots() -> int:
     return len(seeded)
 
 
+# ---------------------------------------------------------------------------
+# Items / stacks / nodes snapshot — cross-restart cache persistence (#1002)
+#
+# Pre-fix: ``_cache`` was in-memory only. After a container restart the
+# first ``/api/items`` call had nothing to serve and blocked on the
+# full Portainer fan-out + image-digest probe (10-30s on a busy
+# cluster). With #1000's instant-paint Fix A in place subsequent
+# poll cycles never block, but the FIRST request after restart still
+# did because Fix A's only fallback was the in-memory cache.
+#
+# Fix: persist ``_cache`` to ``items_snapshot`` at the end of every
+# successful gather; seed it back into ``_cache`` at lifespan startup
+# so the FIRST request finds data and serves instantly while the live
+# gather runs in background. Mirrors the host_snapshots pattern; the
+# whole snapshot is one JSON blob in a single-row table because the
+# data is wholesale-replaced every gather (no per-item upsert needed).
+#
+# Stale markers: every item / stack / nodes_info entry seeded from the
+# snapshot gets ``_stale: True`` so the SPA can dim them until the
+# live gather overwrites. ``_cache["_stale"]`` carries the same flag at
+# the top level — set when seeded, cleared at the start of every fresh
+# gather so the cache itself reads as fresh while the gather runs.
+# ---------------------------------------------------------------------------
+
+
+def save_items_snapshot() -> bool:
+    """Persist ``_cache`` to the ``items_snapshot`` row.
+
+    Called at the END of every successful ``_gather_impl`` so the
+    persisted blob always reflects the latest known good state. Errors
+    are logged + swallowed — a failed snapshot must never break the
+    gather (e.g. transient SQLite lock during a backup).
+
+    Returns ``True`` on success, ``False`` on any error.
+    """
+    try:
+        # Strip the ``_stale`` markers off the cache before persisting —
+        # otherwise a save-load-save cycle would persist them as
+        # canonical state. Items / stacks already drop their per-row
+        # stale flag the moment a fresh gather replaces them, so
+        # serialising the whole cache as-is here is correct (we're
+        # writing AFTER a fresh gather, so nothing is stale).
+        payload = {
+            "items":      list(_cache.get("items") or []),
+            "stacks":     list(_cache.get("stacks") or []),
+            "nodes":      dict(_cache.get("nodes") or {}),
+            # nodes_info carries host_* fields with their own
+            # _stale_fields markers from the host_snapshots pipeline —
+            # those are PER-FIELD freshness hints distinct from the
+            # cache-level _stale flag and we want to preserve them.
+            "nodes_info": dict(_cache.get("nodes_info") or {}),
+            "ts":         float(_cache.get("ts") or 0.0),
+        }
+        blob = json.dumps(payload, default=str)
+        with db_conn() as c:
+            c.execute(
+                "INSERT OR REPLACE INTO items_snapshot(id, ts, data) "
+                "VALUES (1, ?, ?)",
+                (payload["ts"], blob),
+            )
+        return True
+    except Exception as e:  # noqa: BLE001
+        print(f"[gather] save_items_snapshot failed: {e}")
+        return False
+
+
+def seed_items_cache_from_snapshot() -> int:
+    """Populate ``_cache`` from the persisted ``items_snapshot`` row.
+
+    Called at lifespan startup. Stamps ``_stale: True`` on every
+    seeded item / stack / nodes_info entry so the SPA's dimmed-fallback
+    rendering kicks in until the live gather replaces the cache.
+    ``_cache["_stale"]`` carries the same flag at the top level so the
+    SPA can render a "refreshing…" hint without walking every row.
+
+    Returns the number of items seeded (0 if no snapshot exists or
+    the read fails — first-ever boot or a clean DB falls through to
+    the legacy block-on-gather behaviour).
+    """
+    try:
+        with db_conn() as c:
+            row = c.execute(
+                "SELECT ts, data FROM items_snapshot WHERE id = 1"
+            ).fetchone()
+        if not row:
+            return 0
+        payload = json.loads(row["data"]) if row["data"] else {}
+    except Exception as e:  # noqa: BLE001
+        print(f"[gather] seed_items_cache_from_snapshot failed: {e}")
+        return 0
+
+    items  = list(payload.get("items") or [])
+    stacks = list(payload.get("stacks") or [])
+    nodes  = dict(payload.get("nodes") or {})
+    nodes_info = dict(payload.get("nodes_info") or {})
+    ts = float(payload.get("ts") or row["ts"] or 0.0)
+
+    # Tag every row + the cache itself as stale until the live gather
+    # overwrites. Per-row mutation is safe — these came from JSON, no
+    # shared references with anything else.
+    for it in items:
+        if isinstance(it, dict):
+            it["_stale"] = True
+    for st in stacks:
+        if isinstance(st, dict):
+            st["_stale"] = True
+    for k, v in nodes_info.items():
+        if isinstance(v, dict):
+            v["_stale"] = True
+
+    _cache["items"] = items
+    _cache["stacks"] = stacks
+    _cache["nodes"] = nodes
+    # Don't clobber an already-seeded nodes_info from
+    # seed_nodes_info_from_snapshots if it ran first — merge instead so
+    # the host_snapshots-derived per-field _stale_fields markers stay
+    # intact for hosts present in both seed paths.
+    existing_ni = _cache.get("nodes_info") or {}
+    for k, v in nodes_info.items():
+        if k not in existing_ni:
+            existing_ni[k] = v
+    _cache["nodes_info"] = existing_ni
+    _cache["ts"] = ts
+    _cache["_stale"] = True
+    return len(items)
+
+
 def _parse_docker_ts(ts) -> Optional[float]:
     """Parse a Docker API timestamp (ISO 8601 with nanos, e.g.
     '2026-04-22T13:40:16.123456789Z') to epoch seconds.
@@ -1635,3 +1762,19 @@ async def _gather_impl() -> None:
             key=lambda s: (s["name"] or "").lower(),
         )
         _cache["ts"] = time.time()
+        # Fresh gather just landed — drop the boot-time stale marker so
+        # the cache reads as authoritative. Per-row `_stale` flags on
+        # `items` / `stacks` items are NOT carried over since the cache
+        # was wholesale-replaced above.
+        _cache.pop("_stale", None)
+        # Persist the just-built cache so a container restart can boot
+        # with a fully populated `_cache` and serve the FIRST
+        # `/api/items` request instantly. Single-row table — replaces
+        # the prior snapshot wholesale, so removed/ignored items
+        # auto-clear on the next successful gather. Failures are logged
+        # + swallowed inside the helper; the gather must never break on
+        # a snapshot write.
+        try:
+            save_items_snapshot()
+        except Exception as e:  # noqa: BLE001
+            print(f"[gather] save_items_snapshot failed: {e}")

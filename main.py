@@ -279,6 +279,21 @@ async def _lifespan(app: FastAPI):
                 print(f"[boot] seeded {n_hosts} host snapshots from host_snapshots")
         except Exception as e:
             print(f"[boot] seed_nodes_info_from_snapshots failed: {e}")
+        # Cross-restart items snapshot seed (#1002). Populate `_cache`
+        # from `items_snapshot` so the FIRST `/api/items` after a
+        # container restart returns the prior snapshot instantly while
+        # the live gather runs in the background. MUST run AFTER
+        # seed_nodes_info_from_snapshots because both touch
+        # `_cache["nodes_info"]` and the items-snapshot helper merges
+        # rather than clobbers. First-ever boot (empty table) returns 0
+        # and falls through to the legacy block-on-gather behaviour.
+        try:
+            from logic import gather as _gather_mod
+            n_items = _gather_mod.seed_items_cache_from_snapshot()
+            if n_items:
+                print(f"[boot] seeded {n_items} items from items_snapshot")
+        except Exception as e:
+            print(f"[boot] seed_items_cache_from_snapshot failed: {e}")
         # Orphan sweep on startup. Cleans stale `<provider>:<host_id>`
         # rows from `host_failure_state` + `host_provider_last_ok` where the
         # host has been deleted OR no longer has that provider configured.
@@ -688,6 +703,24 @@ def init_db():
             ts REAL NOT NULL,
             data TEXT NOT NULL
         );
+        -- Cross-restart persistence for the items / stacks / nodes
+        -- gather cache (#1002). Single-row table — `id=1` always —
+        -- carrying a JSON blob with `items` / `stacks` / `nodes` /
+        -- `nodes_info` / `ts`. Written at the end of every successful
+        -- `_gather()`, read at lifespan startup so the FIRST
+        -- `/api/items` after a container restart returns the prior
+        -- snapshot instantly while the live gather runs in the
+        -- background. Without this, post-restart the in-memory `_cache`
+        -- is empty and the first request blocks on the full Portainer
+        -- fan-out + image-digest probe (10-30s). Single-row design —
+        -- the gather replaces the snapshot wholesale, so stale-ignore
+        -- / removed-item cleanup is automatic on the next successful
+        -- gather. Cleared by an `INSERT OR REPLACE` on each save.
+        CREATE TABLE IF NOT EXISTS items_snapshot (
+            id INTEGER PRIMARY KEY,
+            ts REAL NOT NULL,
+            data TEXT NOT NULL
+        );
         -- Permanent-fail tracking. One row per host whose
         -- host_metrics_sampler has hit consecutive probe failures. When
         -- ``paused`` flips to 1, the sampler short-circuits subsequent
@@ -1017,9 +1050,39 @@ async def api_stats_history(item_id: str, hours: int = 24):
 
 @app.get("/api/items")
 async def api_items(force: bool = False):
+    """Return the items / stacks / nodes cache — instant when present.
+
+    Cold-load instant paint (Fix A): when ``_cache`` already holds
+    items, this endpoint returns them IMMEDIATELY regardless of the
+    TTL or ``force`` flag, and kicks ``_gather()`` into a single-
+    flighted background task. The SPA's auto-refresh path always
+    sends ``force=true`` per the legacy contract; pre-fix that meant
+    every poll cycle blocked on a fresh Portainer fan-out + image-
+    digest probe (10-30s). With Fix A the operator sees the prior
+    snapshot instantly while the live gather runs invisibly; the next
+    poll cycle (or the same SPA fetch if the operator hits ``r``
+    again a few seconds later) picks up the fresh state. Cold cache
+    (no items in ``_cache`` yet — typically the first
+    ``/api/items`` after a fresh container restart, before
+    ``items_snapshot`` cross-restart persistence ships in #1002) is
+    the only path that still awaits ``_gather()``: there's nothing
+    cached to serve, so blocking is the only honest option.
+    """
     now = time.time()
-    if force or not _cache["items"] or (now - _cache["ts"] > tuning.tuning_int("tuning_cache_ttl_seconds")):
+    cache_ttl = tuning.tuning_int("tuning_cache_ttl_seconds")
+    has_cached_data = bool(_cache.get("items"))
+    cache_stale = (now - _cache["ts"]) > cache_ttl
+    cache_refreshing = False
+
+    if not has_cached_data:
+        # Truly cold: no data to serve, must block on the gather.
         await _gather()
+    elif force or cache_stale:
+        # Have data, even if stale: serve it instantly + kick refresh
+        # in the background. Single-flight guard prevents a poll burst
+        # from firing N concurrent gathers.
+        cache_refreshing = _kick_background_gather()
+
     return {
         "items": _cache["items"],
         "stacks": _cache["stacks"],
@@ -1029,6 +1092,10 @@ async def api_items(force: bool = False):
         "nodes_info": _cache.get("nodes_info") or {},
         "cached": (now - _cache["ts"] > 1),
         "age": int(now - _cache["ts"]) if _cache["ts"] else None,
+        # True when a background gather was kicked and the response
+        # body is from the prior snapshot. SPA may render a subtle
+        # "refreshing…" hint; the next poll picks up the fresh data.
+        "cache_refreshing": cache_refreshing,
         # UX-003: lets the SPA distinguish "no items + Portainer connected"
         # (legitimate empty cluster) from "no items because Portainer was
         # never configured" (point operator at Settings → Portainer).
@@ -4553,6 +4620,116 @@ def invalidate_host_provider_cache() -> None:
     _snmp_host_fail_cache.clear()
 
 
+def _compute_host_provider_cache_key() -> tuple[set[str], tuple]:
+    """Return (active_sources, cache_key) — the active providers as a
+    set + the cache-bust key (sorted-active-tuple + cred-blob-hash).
+    Module-level so both ``_get_host_provider_state`` and the cheap
+    ``_peek_cached_host_provider_state`` helper share one definition;
+    a divergence between the two would mean the peek helper says
+    "cache warm" while the get helper recomputes a different key and
+    refires the probe. Re-callable so the post-lock path can refresh
+    the key after a settings save during the lock-wait without
+    risking the queued caller using a pre-save snapshot.
+    """
+    active_set = active_host_stats_providers()
+    # Cache key includes the active-sources tuple so a settings
+    # change like flipping `host_stats_source` from "beszel" to
+    # "beszel,pulse" auto-busts the cache. Save paths also call
+    # `invalidate_host_provider_cache()` directly for instant
+    # feedback; the key match is defence-in-depth.
+    # Credential-blob hash folded into the key so changing
+    # `beszel_password` (without flipping `host_stats_source`)
+    # busts the cache too.
+    cred_blob = "|".join((
+        get_setting("beszel_hub_url", "") or "",
+        get_setting("beszel_identity", "") or "",
+        get_setting("beszel_password", "") or "",
+        get_setting("beszel_verify_tls", "true") or "true",
+        get_setting("pulse_url", "") or "",
+        get_setting("pulse_token", "") or "",
+        get_setting("pulse_verify_tls", "true") or "true",
+        get_setting("webmin_url", "") or "",
+        get_setting("webmin_user", "") or "",
+        get_setting("webmin_password", "") or "",
+        get_setting("webmin_verify_tls", "true") or "true",
+        get_setting("node_exporter_url_template", "") or "",
+        get_setting("node_exporter_overrides", "") or "",
+        # SNMP — every credential / default that affects
+        # what the probe sees. v3 keys are the security-sensitive
+        # ones; the community + port + version + aliases also
+        # belong here so a global default change auto-busts the
+        # cache without waiting on the explicit invalidate path.
+        get_setting("snmp_default_community", "") or "",
+        get_setting("snmp_default_version", "") or "",
+        get_setting("snmp_default_port", "") or "",
+        get_setting("snmp_v3_user", "") or "",
+        get_setting("snmp_v3_auth_key", "") or "",
+        get_setting("snmp_v3_priv_key", "") or "",
+        get_setting("snmp_aliases", "") or "",
+    ))
+    cred_hash = hashlib.sha256(cred_blob.encode("utf-8")).hexdigest()[:16]
+    return active_set, (tuple(sorted(active_set)), cred_hash)
+
+
+def _peek_cached_host_provider_state() -> dict | None:
+    """Return the cached host provider state IF warm — else None.
+
+    Cheap, never blocks, never fires a probe. ``api_hosts_list`` uses
+    this to decide whether to await ``_get_host_provider_state`` (warm
+    case — instant) or serve snapshot rows immediately and kick the
+    probe in the background (cold case — Fix A from the cold-load
+    analysis). Cache is "warm" iff (a) state object exists, (b) TTL
+    not expired, AND (c) the stored cache key still matches the
+    current active-providers + cred-hash signature (a settings save
+    invalidates the key even before the explicit
+    ``invalidate_host_provider_cache`` call lands, so we can't trust a
+    stale-key cache to mirror current settings).
+    """
+    cached = _host_provider_cache.get("state")
+    cached_key = _host_provider_cache.get("key")
+    if not cached or not cached_key:
+        return None
+    cache_ttl = tuning.tuning_int("tuning_host_provider_cache_ttl_seconds")
+    if (time.time() - _host_provider_cache.get("ts", 0.0)) >= cache_ttl:
+        return None
+    _, current_key = _compute_host_provider_cache_key()
+    if cached_key != current_key:
+        return None
+    return cached
+
+
+# Single-flight guard for background gather kicks. ``_kick_background_gather``
+# fires ``_gather`` as a fire-and-forget task to refresh the items / stacks /
+# nodes cache without blocking the response. Without the guard a poll burst
+# (auto-refresh every 30s × N tabs open) would fire N concurrent gathers,
+# each fanning out to Portainer with the same payload. The guard tracks the
+# current task and ignores subsequent kicks while it's still running.
+_background_gather_task: "asyncio.Task | None" = None
+
+
+def _kick_background_gather() -> bool:
+    """Schedule ``_gather`` as a background task if none is running.
+
+    Returns ``True`` when a NEW task was scheduled (or an existing task
+    is already in flight — caller can treat both as "refresh in
+    progress"); ``False`` when scheduling failed (no event loop, etc.).
+    Safe to call from anywhere — sync or async context — as long as an
+    event loop is available.
+    """
+    global _background_gather_task
+    try:
+        if _background_gather_task is not None and not _background_gather_task.done():
+            return True
+        loop = asyncio.get_running_loop()
+        _background_gather_task = loop.create_task(_gather())
+        return True
+    except RuntimeError:
+        # No running event loop (called from a sync context that isn't
+        # inside a request handler) — caller can fall back to awaiting
+        # ``_gather()`` directly if they really need fresh data.
+        return False
+
+
 async def _get_host_provider_state(force: bool = False) -> dict:
     """Fetch + cache the provider state needed to merge any host.
 
@@ -4562,54 +4739,8 @@ async def _get_host_provider_state(force: bool = False) -> dict:
     calls from the SPA hits the cache; settings changes auto-clear
     after the TTL expires (no explicit invalidation needed).
     """
-    def _compute_cache_key() -> tuple[set[str], tuple]:
-        """Return (active_sources, cache_key) — the active providers as a
-        set + the cache-bust key (sorted-active-tuple + cred-blob-hash).
-        Re-callable so the post-lock path can refresh the key after a
-        settings save during the lock-wait (BUG-004 / #518) without
-        risking the queued caller using a pre-save snapshot.
-        """
-        active_set = active_host_stats_providers()
-        # Cache key includes the active-sources tuple so a settings
-        # change like flipping `host_stats_source` from "beszel" to
-        # "beszel,pulse" auto-busts the cache. Save paths also call
-        # `invalidate_host_provider_cache()` directly for instant
-        # feedback; the key match is defence-in-depth.
-        # BUG-010 fix — credential-blob hash folded into the key
-        # so changing `beszel_password` (without flipping
-        # `host_stats_source`) busts the cache too.
-        cred_blob = "|".join((
-            get_setting("beszel_hub_url", "") or "",
-            get_setting("beszel_identity", "") or "",
-            get_setting("beszel_password", "") or "",
-            get_setting("beszel_verify_tls", "true") or "true",
-            get_setting("pulse_url", "") or "",
-            get_setting("pulse_token", "") or "",
-            get_setting("pulse_verify_tls", "true") or "true",
-            get_setting("webmin_url", "") or "",
-            get_setting("webmin_user", "") or "",
-            get_setting("webmin_password", "") or "",
-            get_setting("webmin_verify_tls", "true") or "true",
-            get_setting("node_exporter_url_template", "") or "",
-            get_setting("node_exporter_overrides", "") or "",
-            # SNMP — every credential / default that affects
-            # what the probe sees. v3 keys are the security-sensitive
-            # ones; the community + port + version + aliases also
-            # belong here so a global default change auto-busts the
-            # cache without waiting on the explicit invalidate path.
-            get_setting("snmp_default_community", "") or "",
-            get_setting("snmp_default_version", "") or "",
-            get_setting("snmp_default_port", "") or "",
-            get_setting("snmp_v3_user", "") or "",
-            get_setting("snmp_v3_auth_key", "") or "",
-            get_setting("snmp_v3_priv_key", "") or "",
-            get_setting("snmp_aliases", "") or "",
-        ))
-        cred_hash = hashlib.sha256(cred_blob.encode("utf-8")).hexdigest()[:16]
-        return active_set, (tuple(sorted(active_set)), cred_hash)
-
     now = time.time()
-    active, cache_key = _compute_cache_key()
+    active, cache_key = _compute_host_provider_cache_key()
     # cache TTL is operator-tunable; resolve once at the top of
     # the function and reuse for both the pre-lock and post-lock checks
     # (within the same call, the value can't legitimately change).
@@ -4643,7 +4774,7 @@ async def _get_host_provider_state(force: bool = False) -> dict:
         # off). Generalisable rule: when single-flighting via lock-then-
         # recheck, re-COMPUTE the cache key inside the lock, don't just
         # re-read the cache.
-        active, cache_key = _compute_cache_key()
+        active, cache_key = _compute_host_provider_cache_key()
         # Re-check inside the lock: another caller may have populated
         # the cache while we were waiting. ``force`` requests always
         # re-probe but only the FIRST forced caller pays the cost —
@@ -6034,13 +6165,59 @@ async def api_hosts_list(force: bool = False):
     perceive the page as instant on every repeat visit instead of
     waiting through the cold-cache cliff. First-time visit (empty
     snapshot table) falls through to the legacy skeleton behaviour.
+
+    Cold-load instant paint (Fix A): when the host-provider cache is
+    cold OR ``force=true`` is requested, this endpoint NO LONGER
+    awaits ``_get_host_provider_state`` synchronously — it serves
+    snapshot rows immediately and kicks the hub probe into a
+    background asyncio task so subsequent ``/api/hosts/one/{id}``
+    fan-out calls (which the SPA fires right after this response
+    lands) hit the now-warming cache via the existing single-flight
+    lock. Response carries ``hub_probing: true`` when a background
+    refresh is in flight so the SPA can render a subtle indicator if
+    desired. Warm-cache calls keep the synchronous path — instant
+    anyway, and ``state.errors`` / ``state.active`` reflect the latest
+    probe.
     """
     from logic.gather import (
         load_host_snapshots as _load_snaps,
         apply_host_snapshot_fallback as _fallback,
     )
     curated = _load_hosts_config()
-    state = await _get_host_provider_state(force=force)
+
+    # Try the cheap peek first. Warm cache → use it (instant, includes
+    # probe errors + freshly-detected active providers). Cold cache OR
+    # force=true → serve snapshot rows immediately and kick the probe
+    # in the background. The SPA's per-host fan-out via
+    # /api/hosts/one/{id} will share the in-flight probe via
+    # `_host_provider_lock` so each row's eventual upgrade gets the
+    # fresh data without re-paying the hub-probe cost.
+    cached_state = None if force else _peek_cached_host_provider_state()
+    if cached_state is not None:
+        state = cached_state
+        hub_probing = False
+    else:
+        # Cheap subset: configured providers from settings (no probe).
+        # Empty errors / batch maps — the snapshot fallback below fills
+        # the visible fields; per-host fan-out fills live data.
+        active_set = active_host_stats_providers()
+        state = {
+            "active":     active_set,
+            "beszel_map": {},
+            "pulse_map":  {},
+            "errors":     {},
+        }
+        # Schedule the hub probe so subsequent /api/hosts/one/{id}
+        # calls hit a warming cache. Single-flight handles re-entry.
+        try:
+            asyncio.create_task(_get_host_provider_state(force=force))
+            hub_probing = True
+        except RuntimeError:
+            # No event loop (shouldn't happen inside a request handler) —
+            # fall back to the legacy synchronous path so the response
+            # still carries fresh provider data.
+            state = await _get_host_provider_state(force=force)
+            hub_probing = False
     any_enabled = bool(state["active"])
 
     # Load every snapshot once per request — cheap (single SQLite read,
@@ -6090,6 +6267,12 @@ async def api_hosts_list(force: bool = False):
         "hosts":           hosts,
         "curated_count":   len(curated),
         "enabled_count":   sum(1 for h in curated if h.get("enabled", True)),
+        # True when the response was served before the hub probe
+        # finished — SPA may render a subtle "refreshing…" hint. The
+        # per-host fan-out via /api/hosts/one/{id} naturally upgrades
+        # each row from stale to fresh as the probe completes, so no
+        # additional polling is required from the SPA on this flag.
+        "hub_probing":     hub_probing,
     }
 
 
