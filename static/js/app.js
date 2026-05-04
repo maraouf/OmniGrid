@@ -8893,12 +8893,17 @@ function app() {
       // unlike the bare `/img/icons/<slug>.svg` URL which the browser
       // can keep serving from disk cache for hours via heuristic
       // freshness on a Last-Modified header, even when the file on the
-      // server has been updated. The version marker (`window.__APP_VERSION__`)
+      // server has been updated. The version marker (`window.OG_VERSION`)
       // is set inline in `static/index.html` and substituted server-side
-      // at HTML serve time, so it bumps with every PATCH deploy. External
-      // / non-/img/icons/ URLs pass through unchanged.
+      // at HTML serve time, so it bumps with every PATCH deploy. The
+      // global is named OG_VERSION (not __APP_VERSION__) because the
+      // server-side substitution replaces every occurrence of the
+      // placeholder string — including the LHS identifier — which would
+      // otherwise produce `window.1.3.66 = "1.3.66"` ("Unexpected
+      // number" at the dot) when the version is numeric. External /
+      // non-/img/icons/ URLs pass through unchanged.
       if (/^\/img\/icons\//.test(final)) {
-        const v = (typeof window !== 'undefined' && window.__APP_VERSION__) || '';
+        const v = (typeof window !== 'undefined' && window.OG_VERSION) || '';
         if (v && v !== '__APP_VERSION__' && !final.includes('?')) {
           final = `${final}?v=${encodeURIComponent(v)}`;
         }
@@ -14793,23 +14798,33 @@ function app() {
     // strictly-positive sample so a host genuinely at idle (cpu=0
     // sustained) is correctly hidden alongside hosts that never
     // reported the metric at all.
-    _hostHasNonZeroSnmpHistory(h, metric) {
+    // Gate semantic: "this host's SNMP agent CAN report CPU/memory"
+    // (capability), NOT "this host has had non-zero CPU recently"
+    // (value). The DB-level distinction already exists:
+    // host_metrics_sampler writes `cpu_used_pct = float(v) if v is
+    // not None else None` — so an agent that returns 0% stores 0.0
+    // and an agent that doesn't expose CPU stores NULL. Mirror that
+    // here: any finite (non-null) value flips the gate, including 0.
+    // Hides bars only for genuine no-data hosts (APC UPS, iDRAC
+    // chassis BMC, basic switches that don't expose hrProcessorLoad
+    // / cpmCPUTotal*); shows bars for idle-at-0 hosts (Cisco SG300
+    // switches at 0% CPU) which is the truthful representation.
+    _hostHasFiniteSnmpHistory(h, metric) {
       if (!h) return false;
       const entry = this.hostSnmpHistory && this.hostSnmpHistory[h.id];
       const points = entry && Array.isArray(entry.points) ? entry.points : null;
       if (!points || points.length < 2) return false;
       if (metric === 'cpu') {
         for (const p of points) {
-          const v = Number(p && p.cpu_used_pct);
-          if (Number.isFinite(v) && v > 0) return true;
+          const v = p && p.cpu_used_pct;
+          if (v !== null && v !== undefined && Number.isFinite(Number(v))) return true;
         }
         return false;
       }
       if (metric === 'memory') {
         for (const p of points) {
-          const tot = Number(p && p.mem_total) || 0;
-          const used = Number(p && p.mem_used) || 0;
-          if (tot > 0 && used > 0) return true;
+          const tot = Number(p && p.mem_total);
+          if (Number.isFinite(tot) && tot > 0) return true;
         }
         return false;
       }
@@ -14821,8 +14836,9 @@ function app() {
       if (!h) return false;
       if (this._hostUnixAgent(h)) return true;
       if (h.snmp_name && h.snmp_enabled === true) {
-        const cpu = +h.cpu_percent || 0;
-        return cpu > 0 || this._hostHasNonZeroSnmpHistory(h, 'cpu');
+        const cpu = h.cpu_percent;
+        if (cpu !== null && cpu !== undefined && Number.isFinite(Number(cpu))) return true;
+        return this._hostHasFiniteSnmpHistory(h, 'cpu');
       }
       return false;
     },
@@ -14832,7 +14848,7 @@ function app() {
       if (h.snmp_name && h.snmp_enabled === true) {
         const memTot = +h.mem_total || 0;
         const memPct = +h.mem_percent || 0;
-        return memTot > 0 || memPct > 0 || this._hostHasNonZeroSnmpHistory(h, 'memory');
+        return memTot > 0 || memPct > 0 || this._hostHasFiniteSnmpHistory(h, 'memory');
       }
       return false;
     },
