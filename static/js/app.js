@@ -6710,6 +6710,33 @@ function app() {
       }
       return out;
     },
+    // Operations-category groups filtered by the active search. Each
+    // group represents ONE operation type (Stack updates / Container
+    // restarts / etc.) with paired `success_key` + `failure_key`.
+    // The group is included if its translated label matches OR if
+    // either underlying event key/kind matches — so searching
+    // "failure" still surfaces every group's failure side instead of
+    // collapsing the operation header. Empty list when the category
+    // has no `groups` (Health / Security stay flat).
+    notifyCategoryFilteredGroups(cat) {
+      const groups = (cat && cat.groups) || [];
+      const q = (this.notifySearchQuery || '').trim().toLowerCase();
+      if (!q) return groups;
+      const out = [];
+      const successKind = (this.t('admin.notifications.events.success') || '').toLowerCase();
+      const failureKind = (this.t('admin.notifications.events.failure') || '').toLowerCase();
+      for (const g of groups) {
+        const label = (this.t('admin.notifications.events.' + g.label) || '').toLowerCase();
+        const sk = (g.success_key || '').toLowerCase();
+        const fk = (g.failure_key || '').toLowerCase();
+        if (label.includes(q)
+            || successKind.includes(q) || failureKind.includes(q)
+            || sk.includes(q) || fk.includes(q)) {
+          out.push(g);
+        }
+      }
+      return out;
+    },
     // Per-(category, medium) state — 'all', 'none', or 'partial'.
     // Drives the chip styling in the category header so the user
     // can see at a glance which mediums the category is fully
