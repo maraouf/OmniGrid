@@ -836,7 +836,27 @@ function app() {
     _appriseBaseline: '',
     _openMeteoBaseline: '',
     _portainerBaseline: '',
+    // Snapshot of the form values that successfully passed a Test
+    // probe. Set to the current `_portainerSnapshot()` value on
+    // every successful `testPortainerConnection()`; cleared when the
+    // form is loaded fresh from the server (so the operator must
+    // re-test after edits). Used by `canSavePortainer()` to gate the
+    // Save button — admins can't Save an enabled Portainer config
+    // without first proving the URL / API key / endpoint round-trip
+    // works, so a typo'd config can't ship and break /api/items.
+    _portainerLastPassedTest: '',
+    // Same Test-before-Save gating as Portainer above — when OIDC is
+    // enabled, the operator must run a successful Test connection
+    // before Save unlocks. Cleared on form load; mutated on form
+    // edit (via dirty-tracker mismatch).
+    _oidcLastPassedTest: '',
     _oidcBaseline: '',
+    // Test-before-Save gate for Asset Inventory — same pattern as
+    // Portainer / OIDC. When asset_inventory_enabled is ON, Save is
+    // locked until a successful Test against the CURRENT form values.
+    // Any edit after a passing Test mutates `_assetSnapshot()` away
+    // from `_assetLastPassedTest`, re-locking Save.
+    _assetLastPassedTest: '',
     _debugBaseline: '',
     _totpPolicyBaseline: '',
     // Admin → Config. DB-overridable process tunables. `tuningForm`
@@ -945,6 +965,7 @@ function app() {
       ],
       pulse: [
         'tuning_pulse_failure_pause_rounds',
+        'tuning_pulse_probe_timeout_seconds',
       ],
       webmin: [
         'tuning_webmin_probe_budget_seconds',
@@ -1017,6 +1038,7 @@ function app() {
       // alive=False is the data, not a fault.
       'tuning_beszel_failure_pause_rounds',
       'tuning_pulse_failure_pause_rounds',
+      'tuning_pulse_probe_timeout_seconds',
       'tuning_node_exporter_failure_pause_rounds',
       'tuning_ping_failure_pause_rounds',
       // stat-bar warn / crit thresholds (frontend-consumed).
@@ -5383,11 +5405,14 @@ function app() {
 
     async testOidcConnection() {
       this.oidcTestResult = { pending: true };
+      // Snapshot the form NOW so we can stamp it on success — same
+      // pattern as `testPortainerConnection`.
+      const probedSnapshot = this._oidcSnapshot();
       try {
         // Send the in-flight verify_tls so an admin can flip the
-        // checkbox OFF and Test a self-signed issuer before saving
-        // (BUG-005). Backend falls back to the saved DB value when
-        // the key is missing.
+        // checkbox OFF and Test a self-signed issuer before saving.
+        // Backend falls back to the saved DB value when the key is
+        // missing.
         const r = await fetch('/api/oidc/test', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -5398,9 +5423,24 @@ function app() {
         });
         const j = await r.json().catch(() => ({}));
         this.oidcTestResult = { ok: !!j.ok, status: j.status || 0, detail: j.detail || '' };
+        if (j && j.ok) {
+          this._oidcLastPassedTest = probedSnapshot;
+        }
       } catch (e) {
         this.oidcTestResult = { ok: false, status: 0, detail: this.t('toasts.network_error') };
       }
+    },
+    // Save-button gate for OIDC — same shape as `canSavePortainer()`.
+    // When the OIDC master toggle is OFF, Save is unconstrained
+    // (no IdP probe will run anyway). When ON, the operator must
+    // run a successful Test against the CURRENT form values before
+    // Save unlocks; any edit after a passing Test re-locks Save by
+    // mutating `_oidcSnapshot()` away from `_oidcLastPassedTest`.
+    canSaveOidc() {
+      const enabled = !!(this.oidcForm && this.oidcForm.enabled);
+      if (!enabled) return true;
+      return this._oidcLastPassedTest === this._oidcSnapshot()
+             && !!this._oidcLastPassedTest;
     },
 
     async copyRedirectUri() {
@@ -5463,6 +5503,10 @@ function app() {
 
     async testPortainerConnection() {
       this.portainerTestResult = { pending: true };
+      // Snapshot the form NOW so we can stamp it on success. Compared
+      // to the live snapshot at Save-time so any edit between Test
+      // and Save invalidates the test result.
+      const probedSnapshot = this._portainerSnapshot();
       try {
         const r = await fetch('/api/portainer/test', {
           method: 'POST',
@@ -5476,9 +5520,24 @@ function app() {
         });
         const j = await r.json().catch(() => ({}));
         this.portainerTestResult = { ok: !!j.ok, status: j.status || 0, detail: j.detail || '' };
+        if (j && j.ok) {
+          this._portainerLastPassedTest = probedSnapshot;
+        }
       } catch (e) {
         this.portainerTestResult = { ok: false, status: 0, detail: this.t('toasts.network_error') };
       }
+    },
+    // Save-button gate. When portainer_enabled is OFF, no test required
+    // (the service won't be probed by the backend either). When ON,
+    // the operator must run a successful Test against the CURRENT
+    // form values before Save unlocks — typed values can't ship without
+    // proving the round-trip works. Any edit after a successful Test
+    // mutates `_portainerSnapshot()` away from `_portainerLastPassedTest`,
+    // re-locking Save and prompting the operator to re-test.
+    canSavePortainer() {
+      if (!(this.settings || {}).portainer_enabled) return true;
+      return this._portainerLastPassedTest === this._portainerSnapshot()
+             && !!this._portainerLastPassedTest;
     },
 
     async testBeszelConnection() {
@@ -6576,10 +6635,24 @@ function app() {
       // (paired success/failure); Health from notifyHealthEvents +
       // notifySamplerEvents (single-toggle health-style events);
       // Security from notifySecurityEvents.
+      //
+      // Operations also exposes a `groups` array — one entry per
+      // operation type (Stack updates / Container updates / Service
+      // restarts / etc.) with `{label, success_key, failure_key}` so
+      // the markup can render each pair under a small group heading
+      // instead of flattening 14 rows into a wall of text. `rows`
+      // stays alongside as the legacy flat shape for any consumer
+      // that wants the unbucketed list (search filter, count helpers).
       const ops = [];
+      const opsGroups = [];
       for (const g of this.notifyEventGroups) {
         ops.push({ key: g.success, label: g.label, kind: 'success' });
         ops.push({ key: g.failure, label: g.label, kind: 'failure' });
+        opsGroups.push({
+          label: g.label,
+          success_key: g.success,
+          failure_key: g.failure,
+        });
       }
       const health = [];
       for (const e of (this.notifySamplerEvents || [])) {
@@ -6599,6 +6672,7 @@ function app() {
           label_key: 'profile.notifications.cat_operations',
           desc_key:  'profile.notifications.cat_operations_desc',
           rows: ops,
+          groups: opsGroups,
         },
         {
           id: 'health',
@@ -6606,6 +6680,7 @@ function app() {
           label_key: 'profile.notifications.cat_health',
           desc_key:  'profile.notifications.cat_health_desc',
           rows: health,
+          groups: null,
         },
         {
           id: 'security',
@@ -6613,6 +6688,7 @@ function app() {
           label_key: 'profile.notifications.cat_security',
           desc_key:  'profile.notifications.cat_security_desc',
           rows: security,
+          groups: null,
         },
       ];
     },
@@ -7016,6 +7092,58 @@ function app() {
       });
     },
     oidcDirty()      { return this._oidcBaseline      !== this._oidcSnapshot(); },
+    // Test-before-Save snapshot for Asset Inventory. Mirrors the
+    // Portainer / OIDC `_xSnapshot()` pattern but covers BOTH auth
+    // modes (oauth2 and lifetime_token) so an admin can Test in either
+    // shape and the snapshot matches at Save time. Secrets follow the
+    // write-only contract — any non-empty form value is treated as a
+    // pending write (encoded as the marker `<set>`); blank means
+    // "keep current".
+    _assetSnapshot() {
+      const f = this.assetForm || {};
+      const s = this.assetStatus || {};
+      const mode = (f.auth_mode === 'lifetime_token') ? 'lifetime_token' : 'oauth2';
+      return JSON.stringify({
+        enabled:    !!(this.settings || {}).asset_inventory_enabled,
+        auth_mode:  mode,
+        base_url:   (f.base_url || '').trim(),
+        token_url:  (f.token_url || '').trim(),
+        client_id:  (f.client_id || '').trim(),
+        scope:      (f.scope || '').trim(),
+        client_secret:  f.client_secret  ? '<set>' : '',
+        lifetime_token: f.lifetime_token ? '<set>' : '',
+        service:    (f.service || '').trim(),
+        action:     (f.action  || '').trim(),
+        min_value:  String(f.min_value ?? '').trim(),
+        max_value:  String(f.max_value ?? '').trim(),
+        edit_url:   (f.edit_url_template || '').trim(),
+        verify_tls: !!f.verify_tls,
+        baseEnabled:   (s.enabled !== false),
+        baseAuth:      (s.auth_mode === 'lifetime_token') ? 'lifetime_token' : 'oauth2',
+        baseBaseUrl:   s.base_url  || '',
+        baseTokenUrl:  s.token_url || '',
+        baseClientId:  s.client_id || '',
+        baseScope:     s.scope     || '',
+        baseService:   s.service   || '',
+        baseAction:    s.action    || '',
+        baseMin:       (s.min_value != null) ? String(s.min_value) : '',
+        baseMax:       (s.max_value != null) ? String(s.max_value) : '',
+        baseEditUrl:   s.edit_url_template || '',
+        baseVerify:    (s.verify_tls !== false),
+      });
+    },
+    // Save-button gate for Asset Inventory — same shape as
+    // `canSavePortainer()` / `canSaveOidc()`. When the master toggle
+    // is OFF, Save is unconstrained (no upstream probe will run). When
+    // ON, the operator must run a successful Test against the CURRENT
+    // form values before Save unlocks; any edit after a passing Test
+    // re-locks Save by mutating `_assetSnapshot()` away from
+    // `_assetLastPassedTest`.
+    canSaveAsset() {
+      if (!(this.settings || {}).asset_inventory_enabled) return true;
+      return this._assetLastPassedTest === this._assetSnapshot()
+             && !!this._assetLastPassedTest;
+    },
     // Admin → Config. Load DB / env / default state from the
     // dedicated endpoint so the form can render placeholders for the
     // env-fallback behind each input. `tuningForm[k]` is always a
@@ -13733,6 +13861,9 @@ function app() {
     },
     async testAssetConnection() {
       this.assetTestResult = { pending: true };
+      // Snapshot the form NOW so we can stamp it on success — same
+      // pattern as `testPortainerConnection` / `testOidcConnection`.
+      const probedSnapshot = this._assetSnapshot();
       const mode = (this.assetForm.auth_mode === 'lifetime_token')
                      ? 'lifetime_token' : 'oauth2';
       // send the in-flight verify_tls so admins can flip the
@@ -13766,6 +13897,9 @@ function app() {
           ? this.formatError({ error: j.detail, error_code: j.error_code, error_params: j.error_params }, j.detail)
           : (j.detail || '');
         this.assetTestResult = { ok: !!j.ok, detail };
+        if (j && j.ok) {
+          this._assetLastPassedTest = probedSnapshot;
+        }
       } catch (e) {
         this.assetTestResult = { ok: false, detail: this.t('toasts.network_error') };
       }

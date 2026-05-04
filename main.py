@@ -1937,6 +1937,7 @@ class SettingsIn(BaseModel):
     tuning_webmin_failure_pause_rounds: Optional[str] = None
     tuning_beszel_failure_pause_rounds: Optional[str] = None
     tuning_pulse_failure_pause_rounds: Optional[str] = None
+    tuning_pulse_probe_timeout_seconds: Optional[str] = None
     tuning_node_exporter_failure_pause_rounds: Optional[str] = None
     tuning_ping_failure_pause_rounds: Optional[str] = None
     # stat-bar thresholds (frontend-consumed via /api/me).
@@ -7710,6 +7711,7 @@ async def api_hosts_debug(
         "tuning_webmin_failure_pause_rounds",
         "tuning_beszel_failure_pause_rounds",
         "tuning_pulse_failure_pause_rounds",
+        "tuning_pulse_probe_timeout_seconds",
         "tuning_node_exporter_failure_pause_rounds",
         "tuning_ping_failure_pause_rounds",
         "tuning_snmp_sample_interval_seconds",

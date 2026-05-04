@@ -4320,17 +4320,29 @@
                        aria-hidden="true"><use href="/img/ui-sprite.svg#icon-chevron-down"/></svg>
                 </button>
                 <div x-show="isNotifyCategoryExpanded('admin:' + cat.id)" x-cloak class="notify-category-body">
+                  <!-- Flat per-event rows mirroring the Profile page's
+                       format: "Stack updates · Success" / "Stack updates ·
+                       Failure" — one toggle per row. Success / failure
+                       suffixes carry green / red colour so the operator
+                       scans the kind column at a glance. Identical row
+                       shape across Operations / Health / Security so
+                       both surfaces (admin / profile) read consistently. -->
                   <template x-for="row in cat.rows" :key="'admin-row-' + row.key">
                     <div class="flex items-center justify-between gap-3 py-1">
-                      <span class="text-[12px] text-[var(--text)]"
-                            :title="t('admin.notifications.events.' + row.label)">
-                        <span x-text="t('admin.notifications.events.' + row.label)"></span>
+                      <div class="flex items-center gap-2 min-w-0">
+                        <span class="text-[12px] text-[var(--text)] truncate"
+                              :title="t('admin.notifications.events.' + row.label)"
+                              x-text="t('admin.notifications.events.' + row.label)"></span>
                         <template x-if="row.kind">
-                          <span class="text-[10.5px] text-[var(--text-faint)] ms-1"
-                                x-text="'· ' + t('admin.notifications.events.' + row.kind)"></span>
+                          <span class="text-[var(--text-faint)]" x-text="'·'"></span>
                         </template>
-                      </span>
-                      <label class="flex items-center gap-1.5 text-[11.5px] cursor-pointer select-none">
+                        <template x-if="row.kind">
+                          <span class="text-[11.5px] font-medium"
+                                :class="row.kind === 'failure' ? 'text-[var(--danger)]' : 'text-[var(--success)]'"
+                                x-text="t('admin.notifications.events.' + row.kind)"></span>
+                        </template>
+                      </div>
+                      <label class="flex items-center gap-1.5 text-[11.5px] cursor-pointer select-none flex-shrink-0">
                         <input type="checkbox"
                                :checked="settings[row.key]"
                                @change="settings[row.key] = $event.target.checked"
@@ -4368,17 +4380,22 @@
         </div>
 
         <div class="flex items-center gap-3 mt-4 pt-4 border-t border-[var(--border)] flex-wrap" x-show="isAdmin()">
-          <button @click="saveSettings()"
-                  :disabled="settingsSaving"
-                  :class="appriseDirty() ? 'ring-2 ring-[var(--warning)]' : ''"
+          <!-- Single Save covers BOTH the apprise / events form AND
+               the notification-retention tunable on the same page —
+               the standalone retention Save button was operator-flagged
+               as redundant; clicking the page-level Save now flushes
+               every dirty edit on the tab in one trip. -->
+          <button @click="saveSettings(); if (tuningDirty()) saveTuning();"
+                  :disabled="settingsSaving || tuningSaving"
+                  :class="(appriseDirty() || tuningDirty()) ? 'ring-2 ring-[var(--warning)]' : ''"
                   class="btn btn-primary text-[12px]">
-            <span x-show="!settingsSaving" x-text="t('actions.save')"></span>
-            <span x-show="settingsSaving" class="flex items-center gap-1"><span class="spin"></span><span x-text="t('actions.saving')"></span></span>
+            <span x-show="!(settingsSaving || tuningSaving)" x-text="t('actions.save')"></span>
+            <span x-show="settingsSaving || tuningSaving" class="flex items-center gap-1"><span class="spin"></span><span x-text="t('actions.saving')"></span></span>
           </button>
           <button @click="testNotify()"
                   :disabled="!settings.apprise_enabled"
                   class="btn btn-soft text-[12px]" x-text="t('actions.send_test')"></button>
-          <span x-show="appriseDirty()"
+          <span x-show="appriseDirty() || tuningDirty()"
                 class="text-[11.5px] text-[var(--warning)] flex items-center gap-1.5">
             <span class="w-1.5 h-1.5 rounded-full bg-[var(--warning)] animate-pulse"></span>
             <span class="unsaved-flash" x-text="t('hosts_actions.unsaved_label')"></span>
@@ -4428,20 +4445,10 @@
             <span class="text-[11px] text-[var(--text-dim)] ms-auto"
                   x-text="t('admin.config.effective_label', { value: (tuningEffective['tuning_notification_retention_days'] || {}).effective })"></span>
           </div>
-          <div class="flex items-center gap-3 mt-3" x-show="isAdmin()">
-            <button @click="saveTuning()"
-                    :disabled="tuningSaving"
-                    :class="tuningDirty() ? 'ring-2 ring-[var(--warning)]' : ''"
-                    class="btn btn-primary text-[12px]">
-              <span x-show="!tuningSaving" x-text="t('actions.save')"></span>
-              <span x-show="tuningSaving" class="flex items-center gap-1"><span class="spin"></span><span x-text="t('actions.saving')"></span></span>
-            </button>
-            <span x-show="tuningDirty()"
-                  class="text-[11.5px] text-[var(--warning)] flex items-center gap-1.5">
-              <span class="w-1.5 h-1.5 rounded-full bg-[var(--warning)] animate-pulse"></span>
-              <span class="unsaved-flash" x-text="t('hosts_actions.unsaved_label')"></span>
-            </span>
-          </div>
+          <!-- Save handled by the page-level Save button above (which
+               flushes apprise + tuning together) — the standalone
+               Save was operator-flagged as redundant. Dirty marker
+               appears in the page-level Save's amber ring. -->
         </div>
       </section>
 
@@ -4585,9 +4592,16 @@
                      class="w-full mono text-[12.5px]">
             </div>
             <div x-show="isAdmin()" class="flex items-center gap-3 pt-1 flex-wrap">
+              <!-- Save is GATED on a successful Test when the service
+                   is enabled — admins can't ship a typo'd URL / API key
+                   without proving the round-trip works first. When the
+                   master switch is OFF the gate releases (no probe
+                   will fire either way). The :title surfaces the
+                   reason via tooltip when Save is locked. -->
               <button @click="savePortainerSettings()"
-                      :disabled="portainerSaving"
+                      :disabled="portainerSaving || !canSavePortainer()"
                       :class="portainerDirty() ? 'ring-2 ring-[var(--warning)]' : ''"
+                      :title="!canSavePortainer() ? t('settings.portainer.save_requires_test') : ''"
                       class="btn btn-primary text-[12px]">
                 <span x-show="!portainerSaving" x-text="t('settings.portainer.save_button')"></span>
                 <span x-show="portainerSaving" class="flex items-center gap-1"><span class="spin"></span><span x-text="t('actions.saving')"></span></span>
@@ -4600,6 +4614,13 @@
                 <span class="w-1.5 h-1.5 rounded-full bg-[var(--warning)] animate-pulse"></span>
                 <span class="unsaved-flash" x-text="t('hosts_actions.unsaved_label')"></span>
               </span>
+              <!-- Inline reminder when Save is locked because the
+                   service is enabled but no successful Test has run
+                   against the CURRENT form values. Disappears the
+                   moment a Test passes; reappears on any edit after. -->
+              <span x-show="settings.portainer_enabled && !canSavePortainer()"
+                    class="text-[11.5px] text-[var(--text-faint)]"
+                    x-text="t('settings.portainer.save_requires_test')"></span>
             </div>
             <div x-show="portainerTestResult" class="text-[12px] rounded-md px-3 py-2"
                  :class="portainerTestResult && portainerTestResult.ok ? 'bg-[var(--pill-ok-bg)] text-[var(--pill-ok-fg)] border border-[var(--pill-ok-br)]' : 'bg-[var(--pill-error-bg)] text-[var(--pill-error-fg)] border border-[var(--pill-error-br)]'">
@@ -4725,9 +4746,16 @@
             </span>
           </label>
           <div x-show="isAdmin()" class="flex items-center gap-3 pt-1 flex-wrap">
+            <!-- Same Save-gating as Admin → Portainer: when OIDC is
+                 enabled, Save is locked until a Test connection has
+                 succeeded against the CURRENT form values; any edit
+                 after a passing Test re-locks Save. When the master
+                 toggle is OFF the gate releases (no IdP probe will
+                 fire either way). -->
             <button @click="saveOidcSettings()"
-                    :disabled="oidcSaving"
+                    :disabled="oidcSaving || !canSaveOidc()"
                     :class="oidcDirty() ? 'ring-2 ring-[var(--warning)]' : ''"
+                    :title="!canSaveOidc() ? t('settings.oidc.save_requires_test') : ''"
                     class="btn btn-primary text-[12px]">
               <span x-show="!oidcSaving" x-text="t('actions.save')"></span>
               <span x-show="oidcSaving" class="flex items-center gap-1"><span class="spin"></span><span x-text="t('actions.saving')"></span></span>
@@ -4740,6 +4768,9 @@
               <span class="w-1.5 h-1.5 rounded-full bg-[var(--warning)] animate-pulse"></span>
               <span class="unsaved-flash" x-text="t('hosts_actions.unsaved_label')"></span>
             </span>
+            <span x-show="oidcForm.enabled && !canSaveOidc()"
+                  class="text-[11.5px] text-[var(--text-faint)]"
+                  x-text="t('settings.oidc.save_requires_test')"></span>
           </div>
           <div x-show="oidcTestResult" class="text-[12px] rounded-md px-3 py-2"
                :class="oidcTestResult && oidcTestResult.ok ? 'bg-[var(--pill-ok-bg)] text-[var(--pill-ok-fg)] border border-[var(--pill-ok-br)]' : 'bg-[var(--pill-error-bg)] text-[var(--pill-error-fg)] border border-[var(--pill-error-br)]'">
@@ -7328,10 +7359,17 @@
             <span x-show="assetTestResult && assetTestResult.pending"
                   class="flex items-center gap-1"><span class="spin"></span><span x-text="t('admin_assets.testing')"></span></span>
           </button>
+          <!-- Test-before-Save gate: same pattern as Portainer / OIDC.
+               When asset_inventory_enabled is ON, Save is locked until
+               a Test connection has succeeded against the CURRENT
+               form values; any edit after a passing Test re-locks
+               Save. When the master toggle is OFF the gate releases
+               (the backend won't probe upstream either way). -->
           <button x-show="isAdmin()" @click="saveAssetSettings()"
                   class="btn btn-primary text-[12px]"
                   :class="assetDirty() ? 'ring-2 ring-[var(--warning)]' : ''"
-                  :disabled="assetSaving">
+                  :disabled="assetSaving || !canSaveAsset()"
+                  :title="!canSaveAsset() ? t('admin_assets.save_requires_test') : ''">
             <span x-show="!assetSaving" x-text="t('actions.save')"></span>
             <span x-show="assetSaving" class="flex items-center gap-1"><span class="spin"></span><span x-text="t('admin_assets.saving')"></span></span>
           </button>
@@ -7345,6 +7383,9 @@
             <span class="w-1.5 h-1.5 rounded-full bg-[var(--warning)] animate-pulse"></span>
             <span class="unsaved-flash" x-text="t('hosts_actions.unsaved_label')"></span>
           </span>
+          <span x-show="settings.asset_inventory_enabled && !canSaveAsset()"
+                class="text-[11.5px] text-[var(--text-faint)]"
+                x-text="t('admin_assets.save_requires_test')"></span>
           <button x-show="isAdmin()" @click="refreshAssetCache()"
                   class="btn btn-ghost text-[12px]"
                   :disabled="assetRefreshing || !settings.asset_inventory_enabled"
