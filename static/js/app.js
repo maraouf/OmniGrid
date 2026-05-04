@@ -8392,6 +8392,41 @@ function app() {
           }
         } catch (_) {}
       });
+      // Per-(provider, host) probe-status events. Backend fires these
+      // around each in-flight per-host probe slice (SNMP / Webmin / NE)
+      // so a chip pulses ONLY while ITS specific probe is running, not
+      // the whole row-wide `_loading` window. Cache hits skip the
+      // events (no real probe ran) so chips stay at rest. Beszel /
+      // Pulse / Ping skip too — they're either dict lookups (Beszel /
+      // Pulse) or sampler-driven reads (Ping) inside `_merge_one_host`.
+      // The row-level `_loading` pulse from #1003 still covers the
+      // initial-paint case for those.
+      const _setProvPolling = (host_id, provider, polling) => {
+        if (!host_id || !provider) return;
+        const row = (this.hosts || []).find(r => r && r.id === host_id);
+        if (!row) return;
+        if (!row._polling || typeof row._polling !== 'object') row._polling = {};
+        if (polling) row._polling[provider] = true;
+        else         delete row._polling[provider];
+      };
+      es.addEventListener('host:provider_probing', (e) => {
+        onAny();
+        if (this._isSelfEvent(e)) return;
+        try {
+          const data = JSON.parse(e.data || '{}');
+          const p = data.payload || {};
+          _setProvPolling(p.host_id, p.provider, true);
+        } catch (_) {}
+      });
+      es.addEventListener('host:provider_done', (e) => {
+        onAny();
+        if (this._isSelfEvent(e)) return;
+        try {
+          const data = JSON.parse(e.data || '{}');
+          const p = data.payload || {};
+          _setProvPolling(p.host_id, p.provider, false);
+        } catch (_) {}
+      });
       // host_metrics_sampler publishes this on every NE
       // sample INSERT. Refresh the drawer chart only when (a) it's
       // currently open AND (b) the open host matches the event's
@@ -9471,6 +9506,14 @@ function app() {
       // fetching". Replaced by the real per-provider state once data
       // lands.
       const rowLoading = h._loading === true;
+      // Per-(provider, host) polling map populated by the
+      // `host:provider_probing` / `host:provider_done` SSE events.
+      // Even after the row's overall `_loading` flips false (because
+      // the response landed for the providers that finished first),
+      // a slow per-provider probe still in flight keeps `_polling[p]`
+      // truthy. Chip pulses while EITHER row-loading OR its own
+      // per-provider polling flag is set.
+      const polling = (h._polling && typeof h._polling === 'object') ? h._polling : {};
       const add = (name, mapped, selfStatus) => {
         if (!mapped) return;
         if (!active.includes(name)) return;
@@ -9498,10 +9541,19 @@ function app() {
         let state;
         if (!got.has(name)) {
           // Probe hasn't returned a hit for this provider yet. If the
-          // row itself is still in flight, it's not "failing" — it's
-          // pending. Render with a subtle pulse animation in the
-          // provider's actual color via `.chip-loading`.
-          state = rowLoading ? 'loading' : 'failing';
+          // row itself is still in flight OR this specific provider's
+          // probe is currently in flight (per the SSE polling map),
+          // it's not "failing" — it's pending. Render with a subtle
+          // pulse animation in the provider's actual color via
+          // `.chip-loading`.
+          state = (rowLoading || polling[name] === true) ? 'loading' : 'failing';
+        } else if (polling[name] === true) {
+          // Provider previously hit BUT a fresh probe is currently
+          // in flight (e.g. force-refresh, drawer reopen). Pulse the
+          // chip to communicate "re-fetching" while keeping the chip
+          // in its known-good colour rather than dropping back to
+          // loading-grey.
+          state = 'loading';
         } else if (badStatus(selfStatus)) {
           state = 'failing';
         } else {
@@ -15115,6 +15167,9 @@ function app() {
             row._probe_timeout = (r.status === 504);
             row._probe_error = `HTTP ${r.status}`;
             row.status = 'unknown';
+            // Clear any lingering per-provider polling flags — the
+            // response failed so no `provider_done` events are coming.
+            row._polling = {};
           }
           return;
         }
@@ -15155,6 +15210,13 @@ function app() {
         row._loading = false;
         row._probe_timeout = false;
         row._probe_error = null;
+        // Per-provider polling map is now stale — the response landed
+        // with the authoritative state. Drop any lingering flags so a
+        // SSE `provider_done` that was lost in transit (rare —
+        // replica restart mid-probe) doesn't keep the chip pulsing
+        // forever. Future probes will re-populate via fresh
+        // `host:provider_probing` events.
+        row._polling = {};
         // History backfill after first probe lands. The
         // IntersectionObserver-driven prefetch fires when the row
         // FIRST scrolls into view — but at that moment the row is
