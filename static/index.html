@@ -838,12 +838,19 @@
                          load + bars/sparklines still arriving in the
                          background). Once stats land, swaps to a
                          small colored dot — green / amber / red /
-                         grey — driven by `stackStatusDotClass`. -->
+                         grey — driven by `stackStatusDotClass`. The
+                         stack-header dot is HIDDEN when the stack is
+                         expanded — the per-container dots in the rows
+                         below carry the granular status, so showing
+                         the rolled-up dot here too duplicates the
+                         signal. Loading spinner stays in both
+                         expanded + collapsed states (it's a global
+                         "stats not yet here" affordance, not a status). -->
                     <template x-if="!statsLoaded">
                       <span class="item-loading-spinner" aria-hidden="true"
                             :title="t('chips.loading_stats') || 'Loading stats…'"></span>
                     </template>
-                    <template x-if="statsLoaded">
+                    <template x-if="statsLoaded && !expanded.includes(stack.name)">
                       <span class="item-status-dot"
                             :class="stackStatusDotClass(stack)"
                             :title="t('chips.stack_status_' + stackStatusDotClass(stack).replace('is-', '')) || ''"></span>
@@ -901,7 +908,8 @@
                 </td>
               </tr>
               <template x-for="item in stack.items" :key="item.id">
-                <tr class="item-row" :class="selected.includes(item.id) ? 'sel' : ''"
+                <tr class="item-row"
+                    :class="[selected.includes(item.id) ? 'sel' : '', (item._stale || isStale(statsFor(item))) ? 'row-stale-flash' : '']"
                     x-show="expanded.includes(stack.name)"
                     @click="openDrawer(item)">
                   <td @click.stop>
@@ -909,7 +917,24 @@
                            :disabled="!isSelectable(item)"
                            class="w-[13px] h-[13px] accent-[var(--primary)] disabled:opacity-25">
                   </td>
-                  <td><span class="dot" :class="'dot-' + statusKey(item.status)"></span></td>
+                  <td>
+                    <!-- Per-container status dot. Spinner replaces it
+                         while the very first /api/stats round-trip is
+                         in flight (statsLoaded === false) so the row
+                         shows a clear "loading data" affordance instead
+                         of an honest-but-confusing grey dot. After
+                         statsLoaded flips, the colored item.status
+                         drives the dot — which is what the stack
+                         header used to show; per-container dots are
+                         the only status-dot in the expanded state. -->
+                    <template x-if="!statsLoaded">
+                      <span class="item-loading-spinner" aria-hidden="true"
+                            :title="t('chips.loading_stats') || 'Loading stats…'"></span>
+                    </template>
+                    <template x-if="statsLoaded">
+                      <span class="dot" :class="'dot-' + statusKey(item.status)"></span>
+                    </template>
+                  </td>
                   <td class="col-grow">
                     <div class="flex items-center gap-2">
                       <img class="app-icon sm" :src="itemIconUrl(item)" :alt="item.stack || item.name" loading="lazy"
@@ -1087,7 +1112,8 @@
           </thead>
           <tbody>
             <template x-for="item in sortedFiltered" :key="item.id">
-              <tr class="item-row" :class="selected.includes(item.id) ? 'sel' : ''"
+              <tr class="item-row"
+                  :class="[selected.includes(item.id) ? 'sel' : '', (item._stale || isStale(statsFor(item))) ? 'row-stale-flash' : '']"
                   @click="openDrawer(item)">
                 <td @click.stop>
                   <input type="checkbox" :value="item.id" x-model="selected"
@@ -1485,6 +1511,7 @@
                 </div>
                 <template x-for="item in stack.items" :key="node.name + '|' + item.id">
                   <div class="flex items-center gap-3 px-5 py-2 border-t border-[var(--border)] hover:bg-[var(--row-hover)] cursor-pointer"
+                       :class="(item._stale || isStale(statsFor(item))) ? 'row-stale-flash' : ''"
                        @click="openDrawer(item)">
                     <img :src="itemIconUrl(item)" x-show="itemIconUrl(item)" width="18" height="18" class="opacity-90 flex-shrink-0">
                     <div class="flex-1 min-w-0">
@@ -3375,47 +3402,74 @@
           <template x-for="cat in notifyCategories()" :key="cat.id">
             <section class="notify-category"
                      x-show="notifySearchQuery === '' || notifyCategoryFilteredRows(cat).length > 0">
-              <button type="button"
-                      class="notify-category-header"
-                      @click="toggleNotifyCategoryExpanded(cat.id)"
-                      :aria-expanded="isNotifyCategoryExpanded(cat.id) ? 'true' : 'false'">
-                <div class="flex flex-col min-w-0 flex-1">
-                  <span class="text-[12.5px] font-semibold text-[var(--text)]"
-                        x-text="t(cat.label_key)"></span>
-                  <span class="text-[10.5px] text-[var(--text-faint)] truncate"
-                        x-text="t(cat.desc_key)"></span>
-                </div>
-                <!-- enabled-count badge -->
-                <span class="notify-cat-count"
-                      :title="t('profile.notifications.cat_count_title') || 'Events with at least one channel routing'">
-                  <span x-text="notifyCategoryEnabledCount(cat).on"></span>
-                  <span class="text-[var(--text-faint)]" x-text="' / ' + notifyCategoryEnabledCount(cat).total"></span>
-                </span>
-                <!-- per-medium state chips. clicking a chip cycles
-                     all → none → all for that medium across the
-                     entire category. -->
-                <template x-for="m in notifyMediumNames()" :key="cat.id + '_chip_' + m">
-                  <span class="notify-cat-chip"
-                        :class="'notify-cat-chip--' + notifyCategoryStateForMedium(cat, m)
-                                + (notifyMediumIsGloballyEnabled(m) ? '' : ' notify-cat-chip--admin-disabled')"
-                        :title="(notifyMediumIsGloballyEnabled(m)
-                                 ? (t('profile.notifications.cat_chip_title', { medium: t('admin.notifications.medium_' + m) }) || ('Click to toggle ' + m + ' for this category'))
-                                 : (t('profile.notifications.medium_globally_disabled') || 'Disabled by admin'))"
-                        @click.stop="toggleNotifyCategoryMedium(cat.id, m)">
-                    <span x-text="t('admin.notifications.medium_' + m)"></span>
-                    <svg width="9" height="9" class="ms-1" aria-hidden="true">
-                      <use :href="notifyCategoryStateForMedium(cat, m) === 'all' ? '/img/ui-sprite.svg#icon-activity'
-                                  : (notifyCategoryStateForMedium(cat, m) === 'partial' ? '/img/ui-sprite.svg#icon-help-circle'
-                                  : '/img/ui-sprite.svg#icon-x' || '/img/ui-sprite.svg#icon-help-circle')"/>
-                    </svg>
+              <!-- Header row. The expand/collapse trigger and the
+                   per-medium bulk-toggle chips are SIBLING <button>
+                   elements — nesting interactive content inside a
+                   parent <button> is invalid HTML5 (browsers handle
+                   focus / Enter activation inconsistently for
+                   nested-button cases) AND defeats the keyboard
+                   navigation contract per CLAUDE.md's "Clickable
+                   elements MUST be <button type='button'>" rule.
+                   The wrapper is a flex row, not a button itself. -->
+              <div class="notify-category-header">
+                <button type="button"
+                        class="notify-category-toggle"
+                        @click="toggleNotifyCategoryExpanded(cat.id)"
+                        :aria-expanded="isNotifyCategoryExpanded(cat.id) ? 'true' : 'false'"
+                        :aria-controls="'notify-cat-body-' + cat.id">
+                  <svg width="14" height="14"
+                       class="text-[var(--text-dim)] flex-shrink-0"
+                       aria-hidden="true">
+                    <use :href="'/img/ui-sprite.svg#' + cat.icon"/>
+                  </svg>
+                  <div class="flex flex-col min-w-0 flex-1 text-start">
+                    <span class="text-[12.5px] font-semibold text-[var(--text)]"
+                          x-text="t(cat.label_key)"></span>
+                    <span class="text-[10.5px] text-[var(--text-faint)] truncate"
+                          x-text="t(cat.desc_key)"></span>
+                  </div>
+                  <span class="notify-cat-count"
+                        :title="t('profile.notifications.cat_count_title') || 'Events with at least one channel routing'">
+                    <span x-text="notifyCategoryEnabledCount(cat).on"></span>
+                    <span class="text-[var(--text-faint)]" x-text="' / ' + notifyCategoryEnabledCount(cat).total"></span>
                   </span>
-                </template>
-                <svg width="11" height="11"
-                     class="text-[var(--text-faint)] flex-shrink-0 transition-transform"
-                     :class="isNotifyCategoryExpanded(cat.id) ? 'rotate-180' : ''"
-                     aria-hidden="true"><use href="/img/ui-sprite.svg#icon-chevron-down"/></svg>
-              </button>
-              <div x-show="isNotifyCategoryExpanded(cat.id)" x-cloak class="notify-category-body">
+                  <svg width="11" height="11"
+                       class="text-[var(--text-faint)] flex-shrink-0 transition-transform"
+                       :class="isNotifyCategoryExpanded(cat.id) ? 'rotate-180' : ''"
+                       aria-hidden="true"><use href="/img/ui-sprite.svg#icon-chevron-down"/></svg>
+                </button>
+                <!-- per-medium state chips. Sibling <button>s, NOT
+                     nested in the toggle. Clicking a chip cycles all
+                     → none → all for that medium across the entire
+                     category. Disabled-by-admin chips render as
+                     <span> (no click target) so the operator sees
+                     the channel can't be toggled until the admin
+                     re-enables it globally. -->
+                <div class="notify-cat-chip-row" role="group"
+                     :aria-label="t(cat.label_key) + ' bulk medium toggles'">
+                  <template x-for="m in notifyMediumNames()" :key="cat.id + '_chip_' + m">
+                    <button type="button"
+                            class="notify-cat-chip"
+                            :class="'notify-cat-chip--' + notifyCategoryStateForMedium(cat, m)
+                                    + (notifyMediumIsGloballyEnabled(m) ? '' : ' notify-cat-chip--admin-disabled')"
+                            :disabled="!notifyMediumIsGloballyEnabled(m)"
+                            :title="(notifyMediumIsGloballyEnabled(m)
+                                     ? (t('profile.notifications.cat_chip_title', { medium: t('admin.notifications.medium_' + m) }) || ('Click to toggle ' + m + ' for this category'))
+                                     : (t('profile.notifications.medium_globally_disabled') || 'Disabled by admin'))"
+                            :aria-pressed="notifyCategoryStateForMedium(cat, m) === 'all' ? 'true' : (notifyCategoryStateForMedium(cat, m) === 'none' ? 'false' : 'mixed')"
+                            @click="toggleNotifyCategoryMedium(cat.id, m)">
+                      <span x-text="t('admin.notifications.medium_' + m)"></span>
+                      <svg width="9" height="9" class="ms-1" aria-hidden="true">
+                        <use :href="notifyCategoryStateForMedium(cat, m) === 'all' ? '/img/ui-sprite.svg#icon-activity'
+                                    : (notifyCategoryStateForMedium(cat, m) === 'partial' ? '/img/ui-sprite.svg#icon-help-circle'
+                                    : '/img/ui-sprite.svg#icon-bug')"/>
+                      </svg>
+                    </button>
+                  </template>
+                </div>
+              </div>
+              <div x-show="isNotifyCategoryExpanded(cat.id)" x-cloak class="notify-category-body"
+                   :id="'notify-cat-body-' + cat.id">
                 <!-- Sub-header column labels — only visible inside
                      the expanded body. -->
                 <div class="notify-grid notify-grid-body"

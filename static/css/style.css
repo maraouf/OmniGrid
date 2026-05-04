@@ -1501,6 +1501,44 @@ details summary::-webkit-details-marker {
     animation: subtle-flash 2s ease-in-out infinite;
 }
 
+/* Stale-cache flash treatment for items / stacks / nodes rows.
+   Painted IMMEDIATELY at page load from the persisted snapshot in
+   `items_snapshot` (or stats_samples for per-item bars); replaced
+   in-place once the live gather finishes. The flash signals "you're
+   looking at last-known data while we refresh in the background" —
+   subtle enough to not draw attention but distinct enough that
+   operators can tell the difference between "fresh" and "we just
+   restored this row from disk".
+
+   Implementation note: on .stat-bar / .spark we also have a
+   `.stale` class that dims the colour AND adds a dashed border;
+   .row-stale-flash is a SOFTER row-level signal (subtle opacity
+   pulse + a thin amber leading border so a long list isn't all
+   blinking at once). The two compose — a row that's fully stale
+   gets the soft pulse AND its bars get the dimmed dashed-border
+   treatment. */
+@keyframes row-stale-pulse {
+    0%, 100% { opacity: 1; }
+    50%      { opacity: 0.78; }
+}
+.row-stale-flash {
+    animation: row-stale-pulse 2.4s ease-in-out infinite;
+    box-shadow: inset 3px 0 0 0 color-mix(in srgb, var(--warning) 55%, transparent);
+}
+.row-stale-flash:hover {
+    /* Pause the pulse on hover so the operator can read the row
+       without optical jitter, but keep the leading border as the
+       static "this is from cache" hint. */
+    animation: none;
+    opacity: 1;
+}
+@media (prefers-reduced-motion: reduce) {
+    .row-stale-flash {
+        animation: none;
+        opacity: 0.85;
+    }
+}
+
 /* ---------------------------------------------------------------------------
    Command palette (Cmd-K / Ctrl-K) — universal "go anywhere" search
    modal. Selected-row highlight follows arrow-key nav AND mouse hover
@@ -2524,25 +2562,44 @@ details summary::-webkit-details-marker {
     border-radius: var(--r-md);
     overflow: hidden;
 }
+/* Header is a flex ROW (not a button) so the expand/collapse toggle
+   and per-medium bulk-toggle chips can be sibling <button>s — nesting
+   buttons is invalid HTML5 + breaks keyboard nav per CLAUDE.md's
+   "Clickable elements MUST be <button type='button'>" rule. */
 .notify-category-header {
     display: flex;
     align-items: center;
     gap: var(--s-3);
     width: 100%;
     padding: var(--s-3) var(--s-4);
+    flex-wrap: wrap;
+}
+.notify-category-toggle {
+    display: flex;
+    align-items: center;
+    gap: var(--s-3);
+    flex: 1 1 auto;
+    min-width: 0;
     background: transparent;
     border: 0;
+    padding: 0;
     text-align: start;
     cursor: pointer;
     color: var(--text);
-    transition: background-color 0.12s ease;
 }
-.notify-category-header:hover {
-    background: var(--surface-3);
+.notify-category-toggle:hover {
+    color: var(--primary);
 }
-.notify-category-header:focus-visible {
+.notify-category-toggle:focus-visible {
     outline: 2px solid var(--primary);
-    outline-offset: -2px;
+    outline-offset: 2px;
+    border-radius: var(--r-sm);
+}
+.notify-cat-chip-row {
+    display: flex;
+    align-items: center;
+    gap: var(--s-2);
+    flex-wrap: wrap;
 }
 .notify-cat-count {
     font-size: var(--fs-sm);
@@ -2575,8 +2632,15 @@ details summary::-webkit-details-marker {
     user-select: none;
     transition: background-color 0.12s ease, border-color 0.12s ease;
 }
-.notify-cat-chip:hover {
+.notify-cat-chip:hover:not(:disabled) {
     border-color: var(--border-bright);
+}
+.notify-cat-chip:focus-visible {
+    outline: 2px solid var(--primary);
+    outline-offset: 2px;
+}
+.notify-cat-chip:disabled {
+    cursor: not-allowed;
 }
 .notify-cat-chip--all {
     background: color-mix(in srgb, var(--success) 16%, transparent);
