@@ -246,6 +246,11 @@ function app() {
                     ? Math.max(10, Math.min(500, parseInt(localStorage.getItem('historyPerPage') || '50', 10) || 50))
                     : 50),
     stats: {}, _statsTimer: null, _maxSize: 1,
+    // Flips to true on the first successful `/api/stats` response so
+    // the Stacks / Services rows swap their loading spinner for the
+    // resolved status dot. Stays true once flipped — the spinner is
+    // an initial-paint affordance, not a per-poll signal.
+    statsLoaded: false,
     // Swarm agent unhealthy banner — populated by `loadStats` from
     // `/api/stats`'s `unhealthy_agents` field. Each entry is
     // `{host, fails, since_ts, task_cids}`. Banner renders at the
@@ -4809,6 +4814,13 @@ function app() {
         // poll, so the console doesn't drown in repetition.
         const ids = Object.keys(this.stats);
         const withStats = ids.filter(id => this.stats[id] && this.stats[id].has_stats).length;
+        // Flips true on the FIRST successful `/api/stats` response so
+        // the Stacks / Services rows can swap their loading spinner
+        // for the resolved status dot. Stays true for the rest of the
+        // session — a transient `/api/stats` failure later doesn't
+        // re-show the spinner because the existing data is still
+        // authoritative.
+        this.statsLoaded = true;
         if ((this.items || []).length > 0 && ids.length > 0 && withStats === 0) {
           if (!this._warnedNoStats) {
             this._warnedNoStats = true;
@@ -9451,6 +9463,14 @@ function app() {
         const s = String(v || '').toLowerCase();
         return s === 'paused' || s === 'down' || s === 'unreachable';
       };
+      // Row-level loading flag — true while `/api/hosts/one/{id}` is
+      // in flight for this row OR before the first such call has
+      // landed. We use it to flag "probe hasn't replied yet" as a
+      // distinct state from "probe replied with no data" so the chip
+      // doesn't render red (= broken) when the truth is "still
+      // fetching". Replaced by the real per-provider state once data
+      // lands.
+      const rowLoading = h._loading === true;
       const add = (name, mapped, selfStatus) => {
         if (!mapped) return;
         if (!active.includes(name)) return;
@@ -9476,9 +9496,17 @@ function app() {
         // the provider IS working — render the ok chip.
         if (!globalOk.has(name) && !got.has(name)) return;
         let state;
-        if (!got.has(name))      state = 'failing';
-        else if (badStatus(selfStatus)) state = 'failing';
-        else                     state = 'ok';
+        if (!got.has(name)) {
+          // Probe hasn't returned a hit for this provider yet. If the
+          // row itself is still in flight, it's not "failing" — it's
+          // pending. Render with a subtle pulse animation in the
+          // provider's actual color via `.chip-loading`.
+          state = rowLoading ? 'loading' : 'failing';
+        } else if (badStatus(selfStatus)) {
+          state = 'failing';
+        } else {
+          state = 'ok';
+        }
         out.push({ name, state });
       };
       add('beszel',        !!(h.beszel_name && String(h.beszel_name).trim()), h.beszel_status);
@@ -19239,6 +19267,39 @@ function app() {
       // Red because this IS a real failure to reach the host.
       if (status === 'unknown') return 'var(--danger)';
       return 'var(--text-faint)';
+    },
+
+    // Stacks/Services row status indicator — drives the small dot
+    // before the row icon. Returns one of `is-up` (green, all healthy),
+    // `is-degraded` (amber, has updates pending OR partial degraded),
+    // `is-down` (red, any item offline / errored), or `is-unknown`
+    // (grey, nothing actionable). The corresponding spinner state is
+    // gated on `statsLoaded` — until the first /api/stats response
+    // lands, the row renders a spinner instead of a dot so operators
+    // see the "still fetching data in background" affordance the user
+    // requested. Once stats are in, the dot reflects the rolled-up
+    // state of the stack's items.
+    stackStatusDotClass(stack) {
+      if (!stack) return 'is-unknown';
+      if ((stack.offline || 0) > 0) return 'is-down';
+      if ((stack.errors  || 0) > 0) return 'is-down';
+      if ((stack.degraded || 0) > 0 || (stack.updates || 0) > 0) return 'is-degraded';
+      if ((stack.unknowns || 0) > 0) return 'is-unknown';
+      if ((stack.uptodate || 0) > 0 || (stack.total || 0) > 0) return 'is-up';
+      return 'is-unknown';
+    },
+    // Per-item dot — used by the Services view's leading column.
+    // Mirrors the stack helper's tiers off item.status / item.health
+    // so the same colour family lights up across both views.
+    itemStatusDotClass(item) {
+      if (!item) return 'is-unknown';
+      const status = String(item.status || '').toLowerCase();
+      const health = String(item.health || '').toLowerCase();
+      if (status === 'error' || health === 'offline')   return 'is-down';
+      if (status === 'update' || health === 'degraded') return 'is-degraded';
+      if (status === 'up-to-date' && health === 'healthy') return 'is-up';
+      if (status === 'unknown' || !status) return 'is-unknown';
+      return 'is-unknown';
     },
 
     // hover-title for the host status dot. Surfaces the probe

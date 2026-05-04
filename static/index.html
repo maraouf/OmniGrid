@@ -832,6 +832,22 @@
                 <td><span class="chev" :class="expanded.includes(stack.name) ? 'open' : ''">▶</span></td>
                 <td colspan="2">
                   <div class="flex items-center gap-2">
+                    <!-- Loading spinner → resolved status dot.
+                         Spinner spins while `/api/stats` hasn't
+                         returned for the first time (initial page
+                         load + bars/sparklines still arriving in the
+                         background). Once stats land, swaps to a
+                         small colored dot — green / amber / red /
+                         grey — driven by `stackStatusDotClass`. -->
+                    <template x-if="!statsLoaded">
+                      <span class="item-loading-spinner" aria-hidden="true"
+                            :title="t('chips.loading_stats') || 'Loading stats…'"></span>
+                    </template>
+                    <template x-if="statsLoaded">
+                      <span class="item-status-dot"
+                            :class="stackStatusDotClass(stack)"
+                            :title="t('chips.stack_status_' + stackStatusDotClass(stack).replace('is-', '')) || ''"></span>
+                    </template>
                     <img class="app-icon" :src="stackIconUrl(stack)" :alt="stack.name" loading="lazy"
                          x-show="stackIconUrl(stack)"
                          @error="$el.classList.add('broken')"
@@ -1078,7 +1094,25 @@
                          :disabled="!isSelectable(item)"
                          class="w-[13px] h-[13px] accent-[var(--primary)] disabled:opacity-25">
                 </td>
-                <td><span class="dot" :class="'dot-' + statusKey(item.status)"></span></td>
+                <!-- Spinner while `/api/stats` hasn't returned for the
+                     first time; swaps to a small colored dot once
+                     stats land. Existing `dot dot-<status>` ring (the
+                     update-state pill colour) was conflating "needs
+                     update" with "loading" — the new pattern keeps the
+                     update-state separate (rendered in the Status
+                     column) and uses this leading dot purely for
+                     load + roll-up health state. -->
+                <td>
+                  <template x-if="!statsLoaded">
+                    <span class="item-loading-spinner" aria-hidden="true"
+                          :title="t('chips.loading_stats') || 'Loading stats…'"></span>
+                  </template>
+                  <template x-if="statsLoaded">
+                    <span class="item-status-dot"
+                          :class="itemStatusDotClass(item)"
+                          :title="t('chips.item_status_' + itemStatusDotClass(item).replace('is-', '')) || ''"></span>
+                  </template>
+                </td>
                 <td class="mono text-[12.5px] col-grow">
                   <div class="flex items-center gap-2">
                     <img class="app-icon sm" :src="itemIconUrl(item)" :alt="item.stack || item.name" loading="lazy"
@@ -2027,9 +2061,13 @@
                      under Settings → Providers. -->
                 <template x-for="p in providerStates(h)" :key="p.name">
                   <span class="chip text-[9.5px] px-1 py-0"
-                        :class="p.state === 'failing' ? 'pill-error' : (p.state === 'paused' ? 'pill-warning' : 'pill-custom')"
+                        :class="p.state === 'failing' ? 'pill-error'
+                                : (p.state === 'paused' ? 'pill-warning'
+                                : (p.state === 'loading' ? 'pill-custom chip-loading' : 'pill-custom'))"
                         :style="(p.state === 'failing' || p.state === 'paused') ? '' : providerChipStyle(p.name)"
-                        :title="p.state === 'paused' ? t('hosts_extra.provider_paused', { provider: p.name, count: p.consecutive_failures, error: p.last_error || '—' }) : (p.state === 'failing' ? t('hosts_extra.provider_failing', { provider: p.name }) : '')"
+                        :title="p.state === 'paused' ? t('hosts_extra.provider_paused', { provider: p.name, count: p.consecutive_failures, error: p.last_error || '—' })
+                                : (p.state === 'failing' ? t('hosts_extra.provider_failing', { provider: p.name })
+                                : (p.state === 'loading' ? t('hosts_extra.provider_loading', { provider: p.name }) || (p.name + ' — fetching…') : ''))"
                         x-text="p.name === 'node_exporter' ? 'exporter' : p.name"></span>
                 </template>
               </div>
@@ -2301,9 +2339,13 @@
                          customisable under Settings → Providers. -->
                     <template x-for="p in providerStates(h)" :key="p.name">
                       <span class="chip text-[9.5px] px-1 py-0"
-                            :class="p.state === 'failing' ? 'pill-error' : (p.state === 'paused' ? 'pill-warning' : 'pill-custom')"
+                            :class="p.state === 'failing' ? 'pill-error'
+                                    : (p.state === 'paused' ? 'pill-warning'
+                                    : (p.state === 'loading' ? 'pill-custom chip-loading' : 'pill-custom'))"
                             :style="(p.state === 'failing' || p.state === 'paused') ? '' : providerChipStyle(p.name)"
-                            :title="p.state === 'paused' ? t('hosts_extra.provider_paused', { provider: p.name, count: p.consecutive_failures, error: p.last_error || '—' }) : (p.state === 'failing' ? t('hosts_extra.provider_failing', { provider: p.name }) : '')"
+                            :title="p.state === 'paused' ? t('hosts_extra.provider_paused', { provider: p.name, count: p.consecutive_failures, error: p.last_error || '—' })
+                                    : (p.state === 'failing' ? t('hosts_extra.provider_failing', { provider: p.name })
+                                    : (p.state === 'loading' ? t('hosts_extra.provider_loading', { provider: p.name }) || (p.name + ' — fetching…') : ''))"
                             x-text="p.name === 'node_exporter' ? 'exporter' : p.name"></span>
                     </template>
                   </div>
