@@ -85,8 +85,13 @@
 <!-- Expose the app version to JS so client-side helpers (e.g. icon
      URL cache-bust in `_themeIcon`) can append the same `?v=` query
      string the script tags use. The literal `__APP_VERSION__` marker
-     is substituted server-side at HTML serve time (main.py:api_index). -->
-<script>window.__APP_VERSION__ = "__APP_VERSION__";</script>
+     is substituted server-side at HTML serve time (main.py:api_index).
+     The global is named `OG_VERSION` (not `__APP_VERSION__`) so the
+     server-side substitution doesn't replace the LHS identifier — when
+     the version is numeric like `1.3.66`, replacing both sides would
+     produce `window.1.3.66 = "1.3.66"` which is "Unexpected number"
+     at the dot. The reader in app.js mirrors this name. -->
+<script>window.OG_VERSION = "__APP_VERSION__";</script>
 <script src="/js/i18n.js?v=__APP_VERSION__"></script>
 <!-- Poppins is vendored under /fonts/ and declared in css/style.css. No
      external font fetches — the app stays functional fully offline. -->
