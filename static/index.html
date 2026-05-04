@@ -3296,12 +3296,12 @@
         <div class="flex items-center gap-2 mb-3 flex-wrap">
           <div class="relative flex-1 min-w-[220px]">
             <svg width="13" height="13"
-                 class="absolute start-2 top-1/2 -translate-y-1/2 text-[var(--text-faint)] pointer-events-none"
+                 class="absolute start-3 top-1/2 -translate-y-1/2 text-[var(--text-faint)] pointer-events-none"
                  aria-hidden="true"><use href="/img/ui-sprite.svg#icon-search"/></svg>
             <input type="text"
                    x-model="notifySearchQuery"
                    :placeholder="t('profile.notifications.search_placeholder') || 'Search events…'"
-                   class="w-full ps-7 pe-2 py-1.5 text-[12px]"
+                   class="w-full ps-9 pe-8 py-1.5 text-[12px]"
                    :aria-label="t('profile.notifications.search_placeholder') || 'Search events'">
             <button type="button"
                     x-show="notifySearchQuery"
@@ -3331,11 +3331,6 @@
                       class="notify-category-header"
                       @click="toggleNotifyCategoryExpanded(cat.id)"
                       :aria-expanded="isNotifyCategoryExpanded(cat.id) ? 'true' : 'false'">
-                <svg width="14" height="14"
-                     class="text-[var(--text-dim)] flex-shrink-0"
-                     aria-hidden="true">
-                  <use :href="'/img/ui-sprite.svg#' + cat.icon"/>
-                </svg>
                 <div class="flex flex-col min-w-0 flex-1">
                   <span class="text-[12.5px] font-semibold text-[var(--text)]"
                         x-text="t(cat.label_key)"></span>
@@ -4290,94 +4285,63 @@
           <h4 class="font-semibold text-[12.5px] mb-1" x-text="t('admin.notifications.events.title')"></h4>
           <p class="text-[11px] text-[var(--text-faint)] mb-3" x-text="t('admin.notifications.events.subtitle')"></p>
 
-          <div class="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-1.5 mb-3">
-            <template x-for="g in notifyEventGroups" :key="g.label">
-              <div class="flex items-center justify-between gap-3 py-1">
-                <span class="text-[12px] text-[var(--text)]"
-                      x-text="t('admin.notifications.events.' + g.label)"></span>
-                <div class="flex items-center gap-3">
-                  <label class="flex items-center gap-1.5 text-[11.5px] cursor-pointer select-none">
-                    <input type="checkbox"
-                           :checked="settings[g.success]"
-                           @change="settings[g.success] = $event.target.checked"
-                           :disabled="isReadonly() || !settings.apprise_enabled">
-                    <span class="text-[var(--text-dim)]" x-text="t('admin.notifications.events.success')"></span>
-                  </label>
-                  <label class="flex items-center gap-1.5 text-[11.5px] cursor-pointer select-none">
-                    <input type="checkbox"
-                           :checked="settings[g.failure]"
-                           @change="settings[g.failure] = $event.target.checked"
-                           :disabled="isReadonly() || !settings.apprise_enabled">
-                    <span class="text-[var(--text-dim)]" x-text="t('admin.notifications.events.failure')"></span>
-                  </label>
+          <!-- Categorised event toggles — same `notifyCategories()`
+               source the Profile → Notifications page uses, so both
+               surfaces stay aligned and adding a new event in one
+               place auto-appears in the other. Admin keeps single-
+               toggle-per-event semantics (global enable / disable per
+               event); per-medium routing lives on the Profile page.
+               Each category renders as a collapsible card; events
+               under that category show as a flat per-row toggle list.
+               Operations rows expand to two checkboxes (success /
+               failure) since they pair via `notifyEventGroups`; Health
+               + Security rows show a single Enabled toggle. -->
+          <div class="flex flex-col gap-2 mb-3">
+            <template x-for="cat in notifyCategories()" :key="'admin-cat-' + cat.id">
+              <section class="notify-category">
+                <button type="button"
+                        class="notify-category-header"
+                        @click="toggleNotifyCategoryExpanded('admin:' + cat.id)"
+                        :aria-expanded="isNotifyCategoryExpanded('admin:' + cat.id) ? 'true' : 'false'">
+                  <div class="flex flex-col min-w-0 flex-1">
+                    <span class="text-[12.5px] font-semibold text-[var(--text)]"
+                          x-text="t(cat.label_key)"></span>
+                    <span class="text-[10.5px] text-[var(--text-faint)] truncate"
+                          x-text="t(cat.desc_key)"></span>
+                  </div>
+                  <span class="notify-cat-count"
+                        :title="t('admin.notifications.events.cat_count_title') || 'Events globally enabled in this category'">
+                    <span x-text="cat.rows.filter(r => settings[r.key]).length"></span>
+                    <span class="text-[var(--text-faint)]" x-text="' / ' + cat.rows.length"></span>
+                  </span>
+                  <svg width="11" height="11"
+                       class="text-[var(--text-faint)] flex-shrink-0 transition-transform"
+                       :class="isNotifyCategoryExpanded('admin:' + cat.id) ? 'rotate-180' : ''"
+                       aria-hidden="true"><use href="/img/ui-sprite.svg#icon-chevron-down"/></svg>
+                </button>
+                <div x-show="isNotifyCategoryExpanded('admin:' + cat.id)" x-cloak class="notify-category-body">
+                  <template x-for="row in cat.rows" :key="'admin-row-' + row.key">
+                    <div class="flex items-center justify-between gap-3 py-1">
+                      <span class="text-[12px] text-[var(--text)]"
+                            :title="t('admin.notifications.events.' + row.label)">
+                        <span x-text="t('admin.notifications.events.' + row.label)"></span>
+                        <template x-if="row.kind">
+                          <span class="text-[10.5px] text-[var(--text-faint)] ms-1"
+                                x-text="'· ' + t('admin.notifications.events.' + row.kind)"></span>
+                        </template>
+                      </span>
+                      <label class="flex items-center gap-1.5 text-[11.5px] cursor-pointer select-none">
+                        <input type="checkbox"
+                               :checked="settings[row.key]"
+                               @change="settings[row.key] = $event.target.checked"
+                               :disabled="isReadonly() || !settings.apprise_enabled">
+                        <span class="text-[var(--text-dim)]"
+                              x-text="t('admin.notifications.events.enabled')"></span>
+                      </label>
+                    </div>
+                  </template>
                 </div>
-              </div>
-            </template>
-          </div>
-
-          <!-- Security events — single-toggle per event (no
-               success/failure pair). Default OFF for opt-in — login
-               traffic gets noisy on multi-user deployments. -->
-          <div class="border-t border-[var(--border)] pt-3 mb-3">
-            <div class="text-[10.5px] text-[var(--text-faint)] uppercase tracking-wider mb-2"
-                 x-text="t('admin.notifications.events.security_section')"></div>
-            <template x-for="e in notifySecurityEvents" :key="e.key">
-              <div class="flex items-center justify-between gap-3 py-1">
-                <span class="text-[12px] text-[var(--text)]"
-                      x-text="t('admin.notifications.events.' + e.label)"></span>
-                <label class="flex items-center gap-1.5 text-[11.5px] cursor-pointer select-none">
-                  <input type="checkbox"
-                         :checked="settings[e.key]"
-                         @change="settings[e.key] = $event.target.checked"
-                         :disabled="isReadonly() || !settings.apprise_enabled">
-                  <span class="text-[var(--text-dim)]" x-text="t('admin.notifications.events.enabled')"></span>
-                </label>
-              </div>
-            </template>
-          </div>
-
-          <!-- Sampler events — split from Security because
-               "host sampling auto-paused" is operational signal, not
-               an authentication / login event. -->
-          <div class="border-t border-[var(--border)] pt-3 mb-3">
-            <div class="text-[10.5px] text-[var(--text-faint)] uppercase tracking-wider mb-2"
-                 x-text="t('admin.notifications.events.sampler_section')"></div>
-            <template x-for="e in notifySamplerEvents" :key="e.key">
-              <div class="flex items-center justify-between gap-3 py-1">
-                <span class="text-[12px] text-[var(--text)]"
-                      x-text="t('admin.notifications.events.' + e.label)"></span>
-                <label class="flex items-center gap-1.5 text-[11.5px] cursor-pointer select-none">
-                  <input type="checkbox"
-                         :checked="settings[e.key]"
-                         @change="settings[e.key] = $event.target.checked"
-                         :disabled="isReadonly() || !settings.apprise_enabled">
-                  <span class="text-[var(--text-dim)]" x-text="t('admin.notifications.events.enabled')"></span>
-                </label>
-              </div>
-            </template>
-          </div>
-
-          <!-- Health events — global admin toggle for every entry in
-               `notifyHealthEvents` (currently `swarm_agent_unhealthy`
-               from the swarm_agent_health schedule kind). Mirrors the
-               Sampler block's pattern: each row binds to settings[e.key]
-               for the global on/off; per-user opt-in lives in the
-               Profile → Notifications grid. -->
-          <div class="border-t border-[var(--border)] pt-3 mb-3">
-            <div class="text-[10.5px] text-[var(--text-faint)] uppercase tracking-wider mb-2"
-                 x-text="t('admin.notifications.events.health_section') || 'Health'"></div>
-            <template x-for="e in notifyHealthEvents" :key="e.key">
-              <div class="flex items-center justify-between gap-3 py-1">
-                <span class="text-[12px] text-[var(--text)]"
-                      x-text="t('admin.notifications.events.' + e.label)"></span>
-                <label class="flex items-center gap-1.5 text-[11.5px] cursor-pointer select-none">
-                  <input type="checkbox"
-                         :checked="settings[e.key]"
-                         @change="settings[e.key] = $event.target.checked"
-                         :disabled="isReadonly() || !settings.apprise_enabled">
-                  <span class="text-[var(--text-dim)]" x-text="t('admin.notifications.events.enabled')"></span>
-                </label>
-              </div>
+              </section>
             </template>
           </div>
 
