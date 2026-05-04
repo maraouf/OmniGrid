@@ -2448,6 +2448,59 @@ details summary::-webkit-details-marker {
     to { transform: rotate(360deg); }
 }
 
+/* Provider chip pulse while the row's per-host probe is in flight.
+   Keeps the chip in the provider's brand color (so operators recognise
+   which provider is which) but pulses the opacity to communicate
+   "still fetching data" — distinct from `pill-error` (red, "broken /
+   no data") which previously rendered during the loading window and
+   incorrectly read as a failure. Subtle by design — saturated pulses
+   would be more noticeable but read as alarm. */
+@keyframes provider-loading-pulse {
+    0%, 100% { opacity: 1; }
+    50%      { opacity: 0.55; }
+}
+.chip-loading {
+    animation: provider-loading-pulse 1.4s ease-in-out infinite;
+}
+
+/* Items / Stacks status spinner. Sized identically to the host
+   variant (10x10) so the row rhythm stays consistent across views.
+   Renders before the icon while `/api/stats` hasn't returned for
+   the first time. */
+.item-loading-spinner {
+    display: inline-block;
+    width: 10px;
+    height: 10px;
+    border: 1.5px solid var(--border-bright);
+    border-top-color: var(--primary);
+    border-radius: 50%;
+    animation: host-spin 0.7s linear infinite;
+    flex-shrink: 0;
+}
+
+/* Items / Stacks aggregate status dot. Same colour family as the
+   host status dots (`.dot-status-*` further down the file) — green
+   when healthy, amber when degraded / has updates pending, red when
+   any item is offline / errored, grey when nothing's known yet. */
+.item-status-dot {
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    flex-shrink: 0;
+    background: var(--text-faint);
+}
+.item-status-dot.is-up       { background: var(--success); }
+.item-status-dot.is-down     { background: var(--danger); }
+.item-status-dot.is-degraded { background: var(--warning); }
+.item-status-dot.is-unknown  { background: var(--text-faint); }
+
+@media (prefers-reduced-motion: reduce) {
+    .host-loading-spinner,
+    .item-loading-spinner { animation: none; border-top-color: var(--primary); }
+    .chip-loading { animation: none; opacity: 0.7; }
+}
+
 /* Hosts row bulk-selection checkbox. Sized to match the chevron
    beside it so the row layout stays balanced. */
 .hosts-row-select {

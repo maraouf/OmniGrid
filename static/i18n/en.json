@@ -229,7 +229,16 @@
     "upd_suffix": "upd",
     "err_suffix": "err",
     "unknown_short": "?",
-    "ok_suffix": "ok"
+    "ok_suffix": "ok",
+    "loading_stats": "Loading stats…",
+    "stack_status_up": "All items healthy",
+    "stack_status_degraded": "Updates pending or partially degraded",
+    "stack_status_down": "One or more items offline / errored",
+    "stack_status_unknown": "State unresolved",
+    "item_status_up": "Healthy + up to date",
+    "item_status_degraded": "Update pending or degraded",
+    "item_status_down": "Offline / errored",
+    "item_status_unknown": "State unresolved"
   },
   "tooltips": {
     "cpu_24h": "CPU — last 24h",
@@ -1747,6 +1756,7 @@
     "provider_count_many": "{count} providers",
     "provider_failing": "{provider} is enabled and mapped for this host but returned no data (probe failed / agent paused / unreachable / auth error). Open the drawer's Debug panel for the provider's raw response.",
     "provider_paused": "{provider} auto-paused after {count} consecutive probe failures. Last error: {error}. Probes are stopped until you click Resume.",
+    "provider_loading": "{provider} — fetching data…",
     "provider_resume": "Resume",
     "provider_resuming": "…",
     "provider_resume_title": "Clear the {provider} auto-pause for this host so probes start running again. The next failed probe will start a fresh failure counter.",
