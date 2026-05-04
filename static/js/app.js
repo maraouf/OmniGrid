@@ -1426,7 +1426,6 @@ function app() {
         e.preventDefault();
         e.stopPropagation();
         e.stopImmediatePropagation();
-        console.log('[cmdpal] capture-phase hotkey matched, toggling palette (was=' + this.commandPaletteOpen + ')');
         if (this.commandPaletteOpen) this.closeCommandPalette();
         else this.openCommandPalette();
       }, { capture: true });
@@ -1438,11 +1437,7 @@ function app() {
       // rendering (Alpine x-show / CSS / scoping). Splits the
       // diagnostic so the operator can tell which layer is broken.
       try {
-        window.__omnigridOpenPalette = () => {
-          console.log('[cmdpal] window.__omnigridOpenPalette() called, was=' + this.commandPaletteOpen);
-          this.openCommandPalette();
-          console.log('[cmdpal] open called, commandPaletteOpen now=' + this.commandPaletteOpen);
-        };
+        window.__omnigridOpenPalette = () => { this.openCommandPalette(); };
       } catch (_) { /* defensive */ }
       // Click-outside listener for the chart `?` tap-driven tooltip
       //. The trigger spans + tooltip body each call
@@ -4892,16 +4887,6 @@ function app() {
         }
         const d = await r.json();
         this.sparks = d.series || {};
-        try {
-          const sparkIds = Object.keys(this.sparks);
-          const withData = sparkIds.filter(id => Array.isArray(this.sparks[id]) && this.sparks[id].length > 0).length;
-          const sample = sparkIds.slice(0, 2).map(id => ({
-            id, points: (this.sparks[id] || []).length,
-            first: (this.sparks[id] || [])[0] || null,
-            last: (this.sparks[id] || []).slice(-1)[0] || null,
-          }));
-          console.log('[sparks] loadSparks: keys=' + sparkIds.length + ' with_points=' + withData + ' requested_for=' + ids.length, sample);
-        } catch (_) { /* never let logging crash the path */ }
         // Self-diagnostic — fires once when sparks come back empty
         // AND we have items. The most common cause is item-id drift
         // (stats_samples table has rows under historical container/
@@ -7505,10 +7490,8 @@ function app() {
                               && this.me.client_config.pollops_sse_keepalive_ms) || 30000;
         const opsPollMs = this._sseConnected ? keepAliveMs : fastMs;
         if (this._sseConnected && !this._opsLiveLogged) {
-          console.log('[live] pollOps cadence: SSE up → ' + keepAliveMs + 'ms keepalive (was ' + fastMs + 'ms)');
           this._opsLiveLogged = true;
         } else if (!this._sseConnected && this._opsLiveLogged) {
-          console.log('[live] pollOps cadence: SSE down → ' + fastMs + 'ms fast polling');
           this._opsLiveLogged = false;
         }
         this._opsTimer = setTimeout(tick, opsPollMs);
@@ -7570,7 +7553,6 @@ function app() {
       es.addEventListener('open', () => {
         onAny();
         this._sseReconnects += 1;
-        console.log('[live] SSE open: connected (reconnect #' + this._sseReconnects + ')');
         // First connect carries _sseReconnects === 1 (baseline). Every
         // bump above 1 represents a recover from a drop — kick a one-
         // shot REST refresh so the SPA catches up on what it missed
@@ -7586,7 +7568,6 @@ function app() {
       // confirmation of healthy stream rather than a real event.
       es.addEventListener('hello', () => {
         onAny();
-        console.log('[live] event=hello (bus upgrade confirmed)');
       });
       // `keepalive` heartbeat. Server emits one every
       // tuning_sse_heartbeat_seconds during quiet windows so the
@@ -7642,7 +7623,6 @@ function app() {
         onAny();
         if (this._isSelfEvent(e)) return;
         const fired = this.statsInterval > 0;
-        console.log('[live] event=stats:refreshed → loadStats=' + fired + (fired ? '' : ' (statsInterval=0, suppressed)'), e.data ? e.data.slice(0, 200) : '');
         // Hint event — the stats payload itself isn't broadcast (cheap
         // to fetch via /api/stats and the existing TTL gate prevents
         // back-to-back pulls). Skip when statsInterval=0 (operator
