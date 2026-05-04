@@ -438,6 +438,16 @@ function app() {
     // dialog so the operator can review the change before sending.
     bulkSnmpVendorsModal: { open: false, vendors: [], mode: 'set' },
     bulkSnmpTunablesModal: { open: false, walk_concurrency: '', wall_clock_budget: '', clear: false },
+    // Progressive UI feedback after a bulk action lands. Set to
+    // {applied, total, action, ts} for ~5 s after the response, then
+    // cleared by `_bulkAppliedTimer`. Each affected host row also
+    // gets a transient `_bulkApplied: true` flag drained at the
+    // same time. Drives the small "✓ N/M applied" badge above the
+    // Hosts toolbar AND the per-row check glyph next to the
+    // hostname so the operator gets a per-host confirmation as
+    // each id settles.
+    bulkAppliedSummary: null,
+    _bulkAppliedTimer: null,
     // ---- Host timeline state ----------------------------------------
     // Per-host timeline cache. Shape: hostTimeline[host_id] = {events,
     // counts, loading, error, loadedAt, hours}. The drawer's Timeline
@@ -683,7 +693,7 @@ function app() {
     })(),
     _autoTimer: null, _opsTimer: null,
     cacheLabel: '',
-    settings: { apprise_url: '', apprise_tag: '', swarm_autoheal_action: 'notify', portainer_public_url: '', debug_panel_enabled: true,
+    settings: { apprise_url: '', apprise_tag: '', swarm_autoheal_action: 'notify', swarm_autoheal_bootstrap_enabled: true, portainer_public_url: '', debug_panel_enabled: true,
                 // TOTP / 2FA policy defaults so the Admin -> Config inputs
                 // bind cleanly before the first /api/settings response.
                 totp_allowed: true, totp_required_for_admins: false, totp_required_for_users: false,
@@ -3673,12 +3683,20 @@ function app() {
         'webauthn',
         // SNMP host-stats provider diagnostics.
         'snmp',
+        // Bulk-action operations on the Hosts view (pause /
+        // resume / vendors / tunables). Distinct sub-tag so
+        // operators can grep all bulk activity in one shot.
+        'hosts:bulk',
       ]);
       // Replace [xxx] at the start of (or inside) the line. Allow
-      // underscores / hyphens for tag names like [host_net_sampler].
-      const withTags = esc.replace(/\[([a-z][a-z0-9_.\-]*?)\]/gi, (_m, tag) => {
+      // underscores / hyphens / colons for tag names like
+      // [host_net_sampler] and the [hosts:bulk] sub-tag family.
+      const withTags = esc.replace(/\[([a-z][a-z0-9_.:\-]*?)\]/gi, (_m, tag) => {
         const key = tag.toLowerCase();
-        const cls = tagColors.has(key) ? ('log-tag log-tag--' + key) : 'log-tag';
+        // Colons in tag names map to hyphens in the CSS class so
+        // selectors stay simple (no escape required for `:`).
+        const cssKey = key.replace(/:/g, '-');
+        const cls = tagColors.has(key) ? ('log-tag log-tag--' + cssKey) : 'log-tag';
         return '<span class="' + cls + '">[' + tag + ']</span>';
       });
       return withTags;
@@ -5165,6 +5183,11 @@ function app() {
           apprise_url: d.apprise_url || '',
           apprise_tag: d.apprise_tag || '',
           swarm_autoheal_action: (d.swarm_autoheal_action === 'restart') ? 'restart' : 'notify',
+          // First-boot auto-bootstrap of a default swarm_agent_health
+          // schedule. Backend defaults to true; defensive default
+          // here matches so a missing GET key doesn't drop the
+          // checkbox to unchecked.
+          swarm_autoheal_bootstrap_enabled: (d.swarm_autoheal_bootstrap_enabled !== false),
           portainer_public_url: d.portainer_public_url || '',
           backup_retention_count: Number.isFinite(d.backup_retention_count) ? d.backup_retention_count : 0,
           // Host-stats source + per-provider config. Mutually exclusive —
@@ -5530,6 +5553,18 @@ function app() {
         // Portainer admin tab. Backend treats it as keep-current-if-
         // missing, so sending an empty string is a deliberate clear.
         portainer_public_url:  (this.settings.portainer_public_url || '').trim(),
+        // Swarm autoheal action — moved to the Portainer admin panel
+        // (the action targets Portainer's agent service). Saved
+        // through this same POST so the operator's choice flips on
+        // the same Save click as the rest of the Portainer config.
+        swarm_autoheal_action: (this.settings.swarm_autoheal_action === 'restart') ? 'restart' : 'notify',
+        // First-boot auto-bootstrap toggle for the default
+        // swarm_agent_health schedule. Same Save click as the action
+        // selector so the operator's intent applies in one round-trip.
+        // Stored as a "true"/"false" string per the existing settings
+        // shape (Pydantic Optional[str]).
+        swarm_autoheal_bootstrap_enabled:
+          this.settings.swarm_autoheal_bootstrap_enabled ? 'true' : 'false',
       };
       if (this.portainerForm.api_key && this.portainerForm.api_key.trim()) {
         body.portainer_api_key = this.portainerForm.api_key;
@@ -6948,13 +6983,28 @@ function app() {
       for (const k of this.notifyEventKeys) events[k] = !!s[k];
       const mediums = {};
       for (const k of (this.notifyMediumKeys || [])) mediums[k] = !!s[k];
+      // Notifications-panel-scoped tunables. Pre-fix these were edited
+      // through their own auto-rendered Admin → Config form which had
+      // its own Save flow; the operator wants them flush against the
+      // Notifications panel's Save button so toggling
+      // `tuning_notification_retention_days` /
+      // `tuning_notification_page_size` flips the same amber ring as
+      // the per-event toggles. Reading from `tuningForm` keeps the
+      // shape consistent with the auto-rendered Config form;
+      // saveSettings POSTs both the per-event keys AND the tunables
+      // through SettingsIn so the round-trip stays clean.
+      const tf = this.tuningForm || {};
+      const notifTunables = {
+        retention: (tf.tuning_notification_retention_days ?? '').toString(),
+        page_size: (tf.tuning_notification_page_size ?? '').toString(),
+      };
       return JSON.stringify({
         enabled: !!s.apprise_enabled,
         url:     s.apprise_url || '',
         tag:     s.apprise_tag || '',
-        autoheal: s.swarm_autoheal_action || 'notify',
         events,
         mediums,
+        notifTunables,
       });
     },
     appriseDirty()   { return this._appriseBaseline   !== this._appriseSnapshot(); },
@@ -7515,6 +7565,16 @@ function app() {
         baseVerify:  !!s.verify_tls,
         publicUrl:   (this.settings || {}).portainer_public_url || '',
         basePublic:  this._portainerPublicBaseline || '',
+        // Swarm autoheal action lives in the Portainer panel
+        // (the action targets Portainer's agent service, not a
+        // notifications routing concern). Folded into this snapshot
+        // so toggling the dropdown flips the Portainer Save button's
+        // amber ring.
+        autoheal:    (this.settings || {}).swarm_autoheal_action || 'notify',
+        // First-boot auto-bootstrap toggle for the default
+        // swarm_agent_health schedule. Folded in alongside the action
+        // selector so toggling either dirties the Portainer panel.
+        autohealBootstrap: !!(this.settings || {}).swarm_autoheal_bootstrap_enabled,
       });
     },
     portainerDirty() { return this._portainerBaseline !== this._portainerSnapshot(); },
@@ -19249,7 +19309,8 @@ function app() {
           this.showToast(this.t('hosts_extra.bulk.error', { error: detail }) || detail, 'error');
           return data;
         }
-        const applied = (data.applied || []).length;
+        const appliedIds = Array.isArray(data.applied) ? data.applied : [];
+        const applied = appliedIds.length;
         const errors = Object.keys(data.errors || {}).length;
         const skipped = (data.skipped || []).length;
         if (errors > 0) {
@@ -19262,6 +19323,36 @@ function app() {
             || (applied + ' hosts updated');
           this.showToast(msg, 'success');
         }
+        // Progressive UI feedback — mark each applied row so the
+        // per-row check glyph + the summary badge both render
+        // immediately. Clears after 5 s via a single shared timer.
+        // In-place mutation only (Alpine reactive-array rule).
+        const appliedSet = new Set(appliedIds.map(String));
+        if (Array.isArray(this.hosts)) {
+          for (const row of this.hosts) {
+            if (row && appliedSet.has(String(row.id))) {
+              row._bulkApplied = true;
+            }
+          }
+        }
+        this.bulkAppliedSummary = {
+          applied,
+          total: ids.length,
+          action: path,
+          ts: Date.now(),
+        };
+        if (this._bulkAppliedTimer) {
+          clearTimeout(this._bulkAppliedTimer);
+        }
+        this._bulkAppliedTimer = setTimeout(() => {
+          if (Array.isArray(this.hosts)) {
+            for (const row of this.hosts) {
+              if (row && row._bulkApplied) row._bulkApplied = false;
+            }
+          }
+          this.bulkAppliedSummary = null;
+          this._bulkAppliedTimer = null;
+        }, 5000);
         // Force a refresh so the row state reflects the change.
         if (typeof this.loadHosts === 'function') {
           this.loadHosts(true);

@@ -148,6 +148,7 @@
     --log-tag-beszel:           #22c55e;
     --log-tag-pulse:            #a78bfa;
     --log-tag-hosts:            #3b82f6;
+    --log-tag-hosts-bulk:       #6366f1;
     --log-tag-host-net-sampler: #14b8a6;
     --log-tag-ssh:              #ec4899;
     --log-tag-portainer:        #0ea5e9;
@@ -405,6 +406,7 @@
     --log-tag-beszel:           #15803d;
     --log-tag-pulse:            #6d28d9;
     --log-tag-hosts:            #1d4ed8;
+    --log-tag-hosts-bulk:       #4338ca;
     --log-tag-host-net-sampler: #0f766e;
     --log-tag-ssh:              #be185d;
     --log-tag-portainer:        #0369a1;
@@ -2450,6 +2452,7 @@ details summary::-webkit-details-marker {
 .log-tag--beszel       { color: var(--log-tag-beszel);           background: color-mix(in srgb, var(--log-tag-beszel) 14%, transparent); }
 .log-tag--pulse        { color: var(--log-tag-pulse);            background: color-mix(in srgb, var(--log-tag-pulse) 14%, transparent); }
 .log-tag--hosts        { color: var(--log-tag-hosts);            background: color-mix(in srgb, var(--log-tag-hosts) 14%, transparent); }
+.log-tag--hosts-bulk   { color: var(--log-tag-hosts-bulk);       background: color-mix(in srgb, var(--log-tag-hosts-bulk) 14%, transparent); }
 .log-tag--host_net_sampler { color: var(--log-tag-host-net-sampler); background: color-mix(in srgb, var(--log-tag-host-net-sampler) 14%, transparent); }
 .log-tag--ssh          { color: var(--log-tag-ssh);              background: color-mix(in srgb, var(--log-tag-ssh) 14%, transparent); }
 .log-tag--portainer    { color: var(--log-tag-portainer);        background: color-mix(in srgb, var(--log-tag-portainer) 14%, transparent); }
@@ -2742,6 +2745,40 @@ details summary::-webkit-details-marker {
     font-weight: 600;
     font-size: var(--fs-md);
     white-space: nowrap;
+}
+
+/* HOSTS BULK PROGRESS BADGE — appears above the toolbar for ~5 s
+   after a bulk action lands. Pairs with the per-row
+   `.bulk-applied-glyph` check icon so operators get both the
+   summary + per-row confirmation. Auto-clears via the shared
+   `_bulkAppliedTimer` in `_hostsBulkPost`. */
+.hosts-bulk-progress {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--s-2);
+    padding: var(--s-1) var(--s-3);
+    margin-bottom: var(--s-2);
+    background: color-mix(in srgb, var(--success) 14%, transparent);
+    color: var(--success);
+    border: 1px solid color-mix(in srgb, var(--success) 35%, transparent);
+    border-radius: var(--r-md);
+    font-size: var(--fs-sm);
+    font-weight: 600;
+}
+
+/* Per-row bulk-applied check glyph next to the hostname.
+   Same green tone as the progress badge to read as one
+   coherent confirmation gesture. */
+.bulk-applied-glyph {
+    color: var(--success);
+    animation: bulk-applied-fade-in 0.25s ease-out;
+}
+@keyframes bulk-applied-fade-in {
+    from { opacity: 0; transform: scale(0.7); }
+    to   { opacity: 1; transform: scale(1); }
+}
+@media (prefers-reduced-motion: reduce) {
+    .bulk-applied-glyph { animation: none; }
 }
 
 /* TIMELINE — host drawer's incident-triage list. One row per event

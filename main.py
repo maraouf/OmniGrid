@@ -326,6 +326,54 @@ async def _lifespan(app: FastAPI):
         except Exception as e:
             print(f"[boot] notify template audit failed: {e}")
 
+        # Schedule-kind audit gate — same shape as the notify template
+        # audit above. Walks `SCHEDULE_KINDS`, verifies every runner is
+        # async + name-matches the `_run_<kind>` convention + has a
+        # docstring. Drift logs a WARN line; new schedule kinds added
+        # later this turn or in future PRs catch any plumbing error
+        # that would otherwise only surface at fire time. Static-only
+        # — does NOT fire any runner (would legitimately spawn ops).
+        try:
+            sched_audit = schedules.audit_schedule_kinds()
+            if (sched_audit.get("missing_async")
+                    or sched_audit.get("name_mismatches")
+                    or sched_audit.get("missing_docstrings")):
+                print(
+                    f"[boot] schedule kinds audit: "
+                    f"missing_async={sched_audit.get('missing_async') or []} "
+                    f"name_mismatches={sched_audit.get('name_mismatches') or []} "
+                    f"missing_docstrings={sched_audit.get('missing_docstrings') or []}"
+                )
+        except Exception as e:
+            print(f"[boot] schedule kinds audit failed: {e}")
+
+        # First-boot helper — auto-create a default swarm_agent_health
+        # schedule when Portainer is configured AND no equivalent row
+        # exists yet. Operators who want to opt out flip
+        # `swarm_autoheal_bootstrap_enabled` to false in Admin →
+        # Portainer before the next restart. Idempotent + latched
+        # via `swarm_autoheal_bootstrap_done` so a deleted-on-purpose
+        # row stays deleted across restarts.
+        try:
+            with _db.db_conn() as _conn:
+                bootstrap_status = schedules.bootstrap_swarm_agent_health_schedule(_conn)
+            if bootstrap_status.get("status") == "created":
+                print(
+                    f"[boot] swarm_agent_health bootstrap: "
+                    f"created default schedule "
+                    f"name={bootstrap_status.get('name')!r}"
+                )
+            elif bootstrap_status.get("status") == "skipped_portainer_unconfigured":
+                # Verbose enough that an operator wondering "why didn't
+                # it auto-bootstrap" finds the answer in Admin → Logs
+                # without grepping the source. Will retry next boot.
+                print(
+                    "[boot] swarm_agent_health bootstrap: "
+                    "skipped — Portainer not configured (will retry on next boot)"
+                )
+        except Exception as e:  # noqa: BLE001
+            print(f"[boot] swarm_agent_health bootstrap failed: {e}")
+
     seed_task = asyncio.create_task(_seed_caches_bg(), name="boot-seed-caches")
     sampler = asyncio.create_task(_stats_sampler_loop(), name="stats-sampler")
     scheduler = asyncio.create_task(schedules.scheduler_loop(), name="scheduler")
@@ -2006,6 +2054,14 @@ class SettingsIn(BaseModel):
     # TUNABLES knob, because it's a categorical choice rather than
     # a numeric range.
     swarm_autoheal_action: Optional[str] = None
+    # First-boot auto-bootstrap of a default swarm_agent_health schedule.
+    # Default behaviour (unset / "true"): the lifespan boot helper creates
+    # one 5-minute schedule when Portainer is configured AND no equivalent
+    # row exists yet. Operators who want to opt out flip this to "false"
+    # in Admin → Portainer; the bootstrap-done latch
+    # (`swarm_autoheal_bootstrap_done`) ensures a deleted-on-purpose row
+    # stays deleted across restarts.
+    swarm_autoheal_bootstrap_enabled: Optional[str] = None
     tuning_stats_history_days: Optional[str] = None
     tuning_stats_sample_interval_seconds: Optional[str] = None
     # host_metrics_sampler permanent-fail window. Same DB-key
@@ -2191,6 +2247,12 @@ async def api_get_settings(request: Request):
         "apprise_url": get_setting("apprise_url", ""),
         "apprise_tag": get_setting("apprise_tag", ""),
         "swarm_autoheal_action": (get_setting("swarm_autoheal_action", "notify") or "notify").lower(),
+        # First-boot auto-bootstrap toggle for the default
+        # swarm_agent_health schedule. Operators flip this to false
+        # to opt out before the bootstrap-done latch trips.
+        "swarm_autoheal_bootstrap_enabled": (
+            get_setting("swarm_autoheal_bootstrap_enabled", "true") or "true"
+        ).lower() != "false",
         # Per-event notification toggles. Resolved through
         # get_setting_bool so the frontend gets clean booleans (no
         # client-side string parsing). Default true preserves the
@@ -2487,6 +2549,19 @@ async def _api_set_settings_inner(s, request, _portainer):
                 detail="swarm_autoheal_action must be 'notify' or 'restart'.",
             )
         set_setting("swarm_autoheal_action", action or "notify")
+    if s.swarm_autoheal_bootstrap_enabled is not None:
+        # Accept booleans + the legacy "true"/"false" string shape
+        # via Pydantic's str annotation. Empty string falls back to
+        # the default ("true") on the read side.
+        raw = (s.swarm_autoheal_bootstrap_enabled or "").strip().lower()
+        if raw in ("", "true", "false"):
+            set_setting("swarm_autoheal_bootstrap_enabled", raw or "true")
+        else:
+            raise HTTPException(
+                status_code=400,
+                detail="swarm_autoheal_bootstrap_enabled must be "
+                       "'true' or 'false'.",
+            )
     # Per-event notification toggles. Each value MUST be
     # "true" / "false" / "" (empty clears → read-side falls back to
     # the default-true via get_setting_bool). Anything else is a
@@ -9442,17 +9517,42 @@ async def api_hosts_timeline(
     # Display name candidates — used for fuzzy-matching history rows
     # whose `target_id` doesn't exactly match (e.g. older
     # ssh_run rows persisted target_name=hostname instead of host_id).
+    # Free-form fields (label / *_name) can collide across hosts —
+    # operator types "Web server" as the label of host A AND host B,
+    # the OR clause downstream would surface B's history rows in A's
+    # timeline. Filter the extras to only names THIS host has actually
+    # used in past history rows (target_id=hid) so cross-host
+    # collisions can't bleed across timelines. The bare hid is always
+    # preserved; legacy rows with target_id=NULL but target_name=label
+    # can still match iff the same label has been associated with this
+    # host_id at some point.
     name_candidates: set[str] = {hid}
+    extras: set[str] = set()
     for k in ("label", "snmp_name", "beszel_name", "pulse_name", "webmin_name"):
         v = (row.get(k) or "").strip()
         if v:
-            name_candidates.add(v)
+            extras.add(v)
     since = int(time.time() - h * 3600)
     events: list[dict] = []
     counts = {"ops": 0, "notifications": 0, "failures": 0, "recoveries": 0}
 
     try:
         with db_conn() as c:
+            # Pre-filter the free-form name candidates. On a DB error,
+            # fall back to including every extra (legacy behaviour) —
+            # over-matching is preferable to under-matching on a
+            # transient DB blip.
+            if extras:
+                try:
+                    used_rows = c.execute(
+                        "SELECT DISTINCT target_name FROM history "
+                        "WHERE target_id=? AND target_name IS NOT NULL",
+                        (hid,),
+                    ).fetchall()
+                    used = {r[0] for r in used_rows if r[0]}
+                    name_candidates |= (extras & used)
+                except Exception:  # noqa: BLE001
+                    name_candidates |= extras
             # ---- ops history ------------------------------------------
             # The placeholders literal is built from the constant `?`
             # character — `name_candidates` only controls the COUNT,
@@ -9768,7 +9868,7 @@ async def api_hosts_bulk_pause(
             # Batch failed (rare — likely DB-level error like disk
             # full). Fall back to per-row writes so partial success
             # is still possible + we get per-id error attribution.
-            print(f"[hosts] bulk-pause batch failed, falling back to "
+            print(f"[hosts:bulk] pause batch failed, falling back to "
                   f"per-row: {batch_err}")
             for hid in matched:
                 try:
@@ -9801,9 +9901,9 @@ async def api_hosts_bulk_pause(
                 client_id=client_id,
             )
     except Exception as e:  # noqa: BLE001
-        print(f"[hosts] bulk-pause SSE publish failed: {e}")
+        print(f"[hosts:bulk] pause SSE publish failed: {e}")
     _full_host_cache_bust()
-    print(f"[hosts] bulk-pause by {actor}: {len(applied)} applied, "
+    print(f"[hosts:bulk] pause by {actor}: {len(applied)} applied, "
           f"{len(missing)} missing, {len(errors)} errors")
     return {
         "ok":      not errors,
@@ -9863,7 +9963,7 @@ async def api_hosts_bulk_resume(
                 )
             applied = list(matched)
         except Exception as batch_err:  # noqa: BLE001
-            print(f"[hosts] bulk-resume batch failed, falling back "
+            print(f"[hosts:bulk] resume batch failed, falling back "
                   f"to per-row: {batch_err}")
             for hid in matched:
                 try:
@@ -9892,8 +9992,8 @@ async def api_hosts_bulk_resume(
                 client_id=client_id,
             )
     except Exception as e:  # noqa: BLE001
-        print(f"[hosts] bulk-resume SSE publish failed: {e}")
-    print(f"[hosts] bulk-resume by {actor}: {len(applied)} applied, "
+        print(f"[hosts:bulk] resume SSE publish failed: {e}")
+    print(f"[hosts:bulk] resume by {actor}: {len(applied)} applied, "
           f"{len(missing)} missing, {len(errors)} errors")
     return {
         "ok":      not errors,
@@ -9968,7 +10068,7 @@ async def api_hosts_bulk_snmp_vendors(
                 "errors":  {"_save": e.detail},
             }
     actor = _actor_from(request) or "admin"
-    print(f"[hosts] bulk-snmp-vendors by {actor} mode={mode} "
+    print(f"[hosts:bulk] snmp-vendors by {actor} mode={mode} "
           f"vendors={sorted(cleaned_input)}: {len(applied)} applied, "
           f"{len(missing)} missing, {len(errors)} errors")
     return {
@@ -10052,7 +10152,7 @@ async def api_hosts_bulk_snmp_tunables(
                 "errors":  {"_save": e.detail},
             }
     actor = _actor_from(request) or "admin"
-    print(f"[hosts] bulk-snmp-tunables by {actor} "
+    print(f"[hosts:bulk] snmp-tunables by {actor} "
           f"clear={body.clear} wc={wc} wcb={wcb}: "
           f"{len(applied)} applied, {len(missing)} missing, {len(errors)} errors")
     return {
