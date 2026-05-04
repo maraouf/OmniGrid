@@ -51,6 +51,18 @@ TUNABLES: dict[str, tuple[str, int, int, int]] = {
     # for noisy fleets where one bad gather isn't worth surfacing.
     # Range 1..20.
     "tuning_swarm_agent_unhealthy_threshold": ("SWARM_AGENT_UNHEALTHY_THRESHOLD", 3, 1, 20),
+    # Swarm autoheal cooldown — how many minutes must pass between
+    # consecutive auto-restart actions on the same agent service so a
+    # thrashing agent doesn't pin the manager in a restart loop.
+    # `swarm_agent_health` schedule kind reads the in-memory module-
+    # level last-action timestamp on every fire and short-circuits
+    # when the elapsed time is under this threshold. Default 30 min;
+    # range 1..1440 (24h max). Operators with very fragile fleets
+    # may want to lower it; chronic-flapper situations want it
+    # raised to give manual investigation time before another
+    # restart cycle. Notify-mode bypasses the cooldown — only the
+    # restart action consumes it.
+    "tuning_swarm_autoheal_cooldown_minutes":   ("SWARM_AUTOHEAL_COOLDOWN_MINUTES", 30, 1, 1440),
     "tuning_stats_history_days":            ("STATS_HISTORY_DAYS",             7,  1,  365),
     "tuning_stats_sample_interval_seconds": ("STATS_SAMPLE_INTERVAL_SECONDS", 300, 30,  3600),
     # host_metrics_sampler permanent-fail window. After this many

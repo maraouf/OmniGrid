@@ -64,6 +64,7 @@ NOTIFY_EVENT_NAMES = (
     "service_restart_failure",
     "swarm_agent_restart_success",
     "swarm_agent_restart_failure",
+    "swarm_agent_unhealthy",
     "prune_success",
     "prune_failure",
     "user_login",

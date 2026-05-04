@@ -407,6 +407,30 @@ function app() {
     // drawer header toggles it. Resets to false on closeHostDrawer
     // so reopening a drawer always lands collapsed.
     healthPopoverOpen: false,
+    // ---- Hosts bulk-selection state ---------------------------------
+    // Reactive Set of host ids the operator has selected via the row
+    // checkbox. Drives the sticky bottom action bar visibility +
+    // count badge. Set so membership checks are O(1) and the reactive
+    // get/set proxy still sees mutation. Cleared on view change AND
+    // when the operator clicks "Clear" on the bar.
+    selectedHosts: new Set(),
+    // Bulk-action modals — pure UI state. Each opens a SweetAlert-style
+    // dialog so the operator can review the change before sending.
+    bulkSnmpVendorsModal: { open: false, vendors: [], mode: 'set' },
+    bulkSnmpTunablesModal: { open: false, walk_concurrency: '', wall_clock_budget: '', clear: false },
+    // ---- Host timeline state ----------------------------------------
+    // Per-host timeline cache. Shape: hostTimeline[host_id] = {events,
+    // counts, loading, error, loadedAt, hours}. The drawer's Timeline
+    // card consumes this directly; reactive so the chevron rotates +
+    // empty/loading/error states render off the same map.
+    hostTimeline: {},
+    // Per-host expand state — Timeline card is collapsed by default
+    // so the drawer's first paint stays light. Persisted only in
+    // memory (not localStorage) — fresh open should always start
+    // collapsed.
+    timelineExpanded: {},
+    // Per-host range picker state (24h / 7d / 30d). Default 7d.
+    hostTimelineRange: {},
     hostsSearch: '',
     // clickable provider filter on the Hosts toolbar. Set of
     // active filters (provider names + 'none' for "no provider mapped")
@@ -639,7 +663,7 @@ function app() {
     })(),
     _autoTimer: null, _opsTimer: null,
     cacheLabel: '',
-    settings: { apprise_url: '', apprise_tag: '', portainer_public_url: '', debug_panel_enabled: true,
+    settings: { apprise_url: '', apprise_tag: '', swarm_autoheal_action: 'notify', portainer_public_url: '', debug_panel_enabled: true,
                 // TOTP / 2FA policy defaults so the Admin -> Config inputs
                 // bind cleanly before the first /api/settings response.
                 totp_allowed: true, totp_required_for_admins: false, totp_required_for_users: false,
@@ -1141,7 +1165,7 @@ function app() {
     scheduleQueueSearch: '',
     _scheduleQueueSearchTimer: null,
     scheduleQueueTotalPages: 1,
-    scheduleKinds: ['prune_node', 'prune_all_nodes', 'gather_refresh', 'backup', 'asset_inventory_refresh'],
+    scheduleKinds: ['prune_node', 'prune_all_nodes', 'gather_refresh', 'backup', 'asset_inventory_refresh', 'prune_logs', 'prune_notifications', 'swarm_agent_health'],
     scheduleMinInterval: 60,
     scheduleBusy: false,
     // Create form. `params_text` is a raw JSON textarea — we parse on submit
@@ -5064,6 +5088,7 @@ function app() {
         this.settings = {
           apprise_url: d.apprise_url || '',
           apprise_tag: d.apprise_tag || '',
+          swarm_autoheal_action: (d.swarm_autoheal_action === 'restart') ? 'restart' : 'notify',
           portainer_public_url: d.portainer_public_url || '',
           backup_retention_count: Number.isFinite(d.backup_retention_count) ? d.backup_retention_count : 0,
           // Host-stats source + per-provider config. Mutually exclusive —
@@ -6472,6 +6497,9 @@ function app() {
       'notify_event_container_remove_failure',
       'notify_event_service_restart_success',
       'notify_event_service_restart_failure',
+      'notify_event_swarm_agent_restart_success',
+      'notify_event_swarm_agent_restart_failure',
+      'notify_event_swarm_agent_unhealthy',
       'notify_event_prune_success',
       'notify_event_prune_failure',
       'notify_event_user_login',
@@ -6494,7 +6522,15 @@ function app() {
       { label: 'container_restart',  success: 'notify_event_container_restart_success',  failure: 'notify_event_container_restart_failure' },
       { label: 'container_remove',   success: 'notify_event_container_remove_success',   failure: 'notify_event_container_remove_failure' },
       { label: 'service_restart',    success: 'notify_event_service_restart_success',    failure: 'notify_event_service_restart_failure' },
+      { label: 'swarm_agent_restart', success: 'notify_event_swarm_agent_restart_success', failure: 'notify_event_swarm_agent_restart_failure' },
       { label: 'prune',              success: 'notify_event_prune_success',              failure: 'notify_event_prune_failure' },
+    ],
+    // Sampler-style events that don't have a paired success/failure
+    // shape but DO surface an unhealthy state. The
+    // `swarm_agent_health` schedule kind fires `swarm_agent_unhealthy`
+    // when its detection threshold trips and the action is "notify".
+    notifyHealthEvents: [
+      { label: 'swarm_agent_unhealthy', key: 'notify_event_swarm_agent_unhealthy' },
     ],
     // Security events — single-toggle per event (no success/failure
     // pair like ops events). Rendered as a separate row beneath the
@@ -6531,6 +6567,7 @@ function app() {
         enabled: !!s.apprise_enabled,
         url:     s.apprise_url || '',
         tag:     s.apprise_tag || '',
+        autoheal: s.swarm_autoheal_action || 'notify',
         events,
         mediums,
       });
@@ -18147,6 +18184,291 @@ function app() {
     // because the popover lives inside the drawer template tree.
     toggleHealthPopover() {
       this.healthPopoverOpen = !this.healthPopoverOpen;
+    },
+    // ===== HOST TIMELINE =============================================
+    // Triage view inside the drawer aggregating ops, notifications,
+    // provider auto-pause + recovery markers per host. Backed by
+    // GET /api/hosts/{id}/timeline?hours=N. Cached per-host with
+    // a 30s TTL (faster invalidation when the operator clicks
+    // refresh or changes the range). Reads + writes
+    // `this.hostTimeline[hid]` and `this.hostTimelineRange[hid]`.
+    toggleHostTimeline(hostId) {
+      const id = (hostId || '').toString();
+      if (!id) return;
+      const wasOpen = !!this.timelineExpanded[id];
+      this.timelineExpanded[id] = !wasOpen;
+      // First open → kick off the fetch. Subsequent opens use the
+      // cache unless it's stale.
+      if (!wasOpen) {
+        const cache = this.hostTimeline[id];
+        const now = Date.now();
+        const stale = !cache
+          || !cache.loadedAt
+          || (now - cache.loadedAt) > 30000;
+        if (stale) {
+          this.loadHostTimeline(id, false);
+        }
+      }
+    },
+    setHostTimelineRange(hostId, hours) {
+      const id = (hostId || '').toString();
+      const h = Math.max(1, Math.min(720, parseInt(hours, 10) || 168));
+      if (!id) return;
+      this.hostTimelineRange[id] = h;
+      // Clear cache so the new range is honoured immediately.
+      delete this.hostTimeline[id];
+      this.loadHostTimeline(id, true);
+    },
+    async loadHostTimeline(hostId, force) {
+      const id = (hostId || '').toString();
+      if (!id) return;
+      const hours = this.hostTimelineRange[id] || 168;
+      // Mark loading flag without clearing the existing event list so
+      // the operator sees stale-then-fresh rather than a flash of
+      // empty during refetch.
+      const existing = this.hostTimeline[id] || {};
+      this.hostTimeline[id] = {
+        ...existing,
+        loading: true,
+        error: null,
+        hours,
+      };
+      try {
+        const r = await fetch(
+          '/api/hosts/' + encodeURIComponent(id) + '/timeline?hours=' + hours,
+          { credentials: 'same-origin' },
+        );
+        if (!r.ok) {
+          const detail = await r.text().catch(() => '');
+          throw new Error('HTTP ' + r.status + (detail ? ': ' + detail.slice(0, 200) : ''));
+        }
+        const data = await r.json();
+        this.hostTimeline[id] = {
+          events:   Array.isArray(data.events) ? data.events : [],
+          counts:   data.counts || { ops: 0, notifications: 0, failures: 0, recoveries: 0 },
+          loading:  false,
+          error:    null,
+          loadedAt: Date.now(),
+          hours,
+        };
+      } catch (e) {
+        this.hostTimeline[id] = {
+          ...(this.hostTimeline[id] || {}),
+          loading: false,
+          error: (e && e.message) ? e.message : 'timeline fetch failed',
+          hours,
+        };
+      }
+    },
+    hostTimelineKindLabel(kind) {
+      const k = (kind || '').toString();
+      const key = 'host_drawer.timeline.kind_' + k;
+      const tr = this.t(key);
+      if (tr && tr !== key) return tr;
+      // Fallback when i18n key is missing — humanise the enum.
+      return k.replace(/_/g, ' ').replace(/^\w/, c => c.toUpperCase());
+    },
+    hostTimelineKindChipClass(kind) {
+      switch ((kind || '').toString()) {
+        case 'op':                 return 'pill-info';
+        case 'notification':       return 'pill-warning';
+        case 'provider_paused':    return 'pill-error';
+        case 'provider_recovered': return 'pill-ok';
+        default:                   return 'pill-muted';
+      }
+    },
+    hostTimelineIconRef(kind, severity) {
+      const sev = (severity || 'info').toString();
+      const k = (kind || '').toString();
+      if (k === 'provider_recovered' || sev === 'success') return 'icon-activity';
+      if (k === 'provider_paused')                          return 'icon-alert-triangle';
+      if (k === 'notification')                             return 'icon-bell';
+      if (sev === 'error')                                  return 'icon-bug';
+      return 'icon-info';
+    },
+    hostTimelineTimeLabel(ts) {
+      const n = Number(ts);
+      if (!Number.isFinite(n) || n <= 0) return '';
+      try {
+        const d = new Date(n * 1000);
+        return d.toLocaleString();
+      } catch {
+        return '';
+      }
+    },
+    // ===== HOSTS BULK SELECTION ======================================
+    // Selection helpers. The Hosts main view's row checkbox stops
+    // propagation so click on the row body still opens the drawer
+    // but click on the checkbox only toggles selection.
+    isHostSelected(hostId) {
+      return this.selectedHosts.has((hostId || '').toString());
+    },
+    toggleHostSelection(hostId) {
+      const id = (hostId || '').toString();
+      if (!id) return;
+      if (this.selectedHosts.has(id)) {
+        this.selectedHosts.delete(id);
+      } else {
+        this.selectedHosts.add(id);
+      }
+      // Re-assign so Alpine sees the mutation (Set mutations don't
+      // trigger reactivity by themselves).
+      this.selectedHosts = new Set(this.selectedHosts);
+    },
+    clearHostSelection() {
+      this.selectedHosts = new Set();
+    },
+    selectedHostCount() {
+      return this.selectedHosts.size;
+    },
+    selectedHostsArray() {
+      return Array.from(this.selectedHosts);
+    },
+    // Select-all-visible (filtered by current Hosts toolbar state).
+    selectAllVisibleHosts() {
+      const ids = (this.filteredHosts() || [])
+        .map(h => h && h.id)
+        .filter(Boolean)
+        .map(String);
+      this.selectedHosts = new Set(ids);
+    },
+    // ===== HOSTS BULK ACTIONS ========================================
+    // Each action POSTs to a `/api/hosts/bulk/<action>` endpoint and
+    // surfaces the partial-success response via the existing toast
+    // helpers. Selection is preserved on success so the operator can
+    // chain actions; cleared on operator click of "Clear".
+    async _hostsBulkPost(path, payload, successMsgKey) {
+      const ids = this.selectedHostsArray();
+      if (ids.length === 0) return;
+      const body = { host_ids: ids, ...(payload || {}) };
+      try {
+        const r = await fetch('/api/hosts/bulk/' + path, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'same-origin',
+          body: JSON.stringify(body),
+        });
+        const data = await r.json().catch(() => ({}));
+        if (!r.ok) {
+          const detail = data && (data.detail || data.error)
+            || ('HTTP ' + r.status);
+          this.showToast(this.t('hosts_extra.bulk.error', { error: detail }) || detail, 'error');
+          return data;
+        }
+        const applied = (data.applied || []).length;
+        const errors = Object.keys(data.errors || {}).length;
+        const skipped = (data.skipped || []).length;
+        if (errors > 0) {
+          this.showToast(
+            this.t('hosts_extra.bulk.partial', { applied, errors }) || (applied + ' applied, ' + errors + ' errors'),
+            'warning',
+          );
+        } else {
+          const msg = this.t(successMsgKey || 'hosts_extra.bulk.success', { applied })
+            || (applied + ' hosts updated');
+          this.showToast(msg, 'success');
+        }
+        // Force a refresh so the row state reflects the change.
+        if (typeof this.loadHosts === 'function') {
+          this.loadHosts(true);
+        }
+        return data;
+      } catch (e) {
+        this.showToast(
+          this.t('hosts_extra.bulk.error', { error: (e && e.message) || 'request failed' })
+            || 'Bulk action failed',
+          'error',
+        );
+      }
+    },
+    async bulkPauseHosts() {
+      if (this.selectedHostCount() === 0) return;
+      // SweetAlert confirm — destructive (sampler will skip these
+      // hosts until manually resumed).
+      try {
+        const result = await Swal.fire({
+          title: this.t('hosts_extra.bulk.pause_confirm_title') || 'Pause sampling?',
+          text:  this.t('hosts_extra.bulk.pause_confirm_body', { count: this.selectedHostCount() })
+                 || ('Pause sampling on ' + this.selectedHostCount() + ' host(s)?'),
+          icon:  'warning',
+          showCancelButton: true,
+          confirmButtonText: this.t('hosts_extra.bulk.pause_confirm_ok') || 'Pause',
+          cancelButtonText:  this.t('actions.cancel') || 'Cancel',
+        });
+        if (!result.isConfirmed) return;
+      } catch { return; }
+      await this._hostsBulkPost('pause', null, 'hosts_extra.bulk.pause_success');
+    },
+    async bulkResumeHosts() {
+      if (this.selectedHostCount() === 0) return;
+      await this._hostsBulkPost('resume', null, 'hosts_extra.bulk.resume_success');
+    },
+    openBulkSnmpVendorsModal() {
+      if (this.selectedHostCount() === 0) return;
+      this.bulkSnmpVendorsModal = { open: true, vendors: [], mode: 'set' };
+    },
+    closeBulkSnmpVendorsModal() {
+      this.bulkSnmpVendorsModal = { open: false, vendors: [], mode: 'set' };
+    },
+    toggleBulkVendor(v) {
+      const cur = this.bulkSnmpVendorsModal.vendors || [];
+      const idx = cur.indexOf(v);
+      if (idx >= 0) {
+        cur.splice(idx, 1);
+      } else {
+        cur.push(v);
+      }
+      this.bulkSnmpVendorsModal = { ...this.bulkSnmpVendorsModal, vendors: [...cur] };
+    },
+    async submitBulkSnmpVendors() {
+      const m = this.bulkSnmpVendorsModal || {};
+      await this._hostsBulkPost(
+        'snmp_vendors',
+        { vendors: m.vendors || [], mode: m.mode || 'set' },
+        'hosts_extra.bulk.snmp_vendors_success',
+      );
+      this.closeBulkSnmpVendorsModal();
+    },
+    openBulkSnmpTunablesModal() {
+      if (this.selectedHostCount() === 0) return;
+      this.bulkSnmpTunablesModal = {
+        open: true,
+        walk_concurrency: '',
+        wall_clock_budget: '',
+        clear: false,
+      };
+    },
+    closeBulkSnmpTunablesModal() {
+      this.bulkSnmpTunablesModal = {
+        open: false,
+        walk_concurrency: '',
+        wall_clock_budget: '',
+        clear: false,
+      };
+    },
+    async submitBulkSnmpTunables() {
+      const m = this.bulkSnmpTunablesModal || {};
+      const payload = { clear: !!m.clear };
+      if (!m.clear) {
+        const wc = parseInt(m.walk_concurrency, 10);
+        if (Number.isFinite(wc)) payload.walk_concurrency = wc;
+        const wcb = parseInt(m.wall_clock_budget, 10);
+        if (Number.isFinite(wcb)) payload.wall_clock_budget = wcb;
+        if (payload.walk_concurrency == null && payload.wall_clock_budget == null) {
+          this.showToast(
+            this.t('hosts_extra.bulk.snmp_tunables_empty')
+              || 'Set at least one tunable or enable Clear',
+            'warning',
+          );
+          return;
+        }
+      }
+      await this._hostsBulkPost(
+        'snmp_tunables',
+        payload,
+        'hosts_extra.bulk.snmp_tunables_success',
+      );
+      this.closeBulkSnmpTunablesModal();
     },
     // Segmented-bar helper — percent-full of a single mount, used as
     // the INNER fill width inside an equal-width slot. Each mount

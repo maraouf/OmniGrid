@@ -1219,6 +1219,174 @@ async def _run_prune_notifications(
     return op_id, task  # type: ignore[return-value]
 
 
+# Module-level cooldown anchor for the swarm-agent-health autoheal
+# kind. Tracks the wall-clock of the last RESTART action (notify
+# actions don't consume the cooldown — they're cheap). Read at the
+# top of the runner; updated AFTER a successful restart spawn.
+# Single in-memory float because the runner only fires from the
+# lifespan-managed scheduler tick (single-replica invariant).
+_swarm_autoheal_last_restart_ts: float = 0.0
+
+
+async def _run_swarm_agent_health(
+    params: dict,
+) -> tuple[str, Awaitable[tuple[int, str]]]:
+    """Periodic Portainer-agent health probe + autoheal action.
+
+    Detection: reuses the `_agent_health` map populated by every
+    `gather_stats()` cycle. A node is "unhealthy" when its consecutive
+    bad-gather count meets or exceeds
+    ``tuning_swarm_agent_unhealthy_threshold``. The map is populated
+    naturally by the existing /api/stats path; the schedule kind
+    snapshots the current state and acts on it.
+
+    Action branches on the ``swarm_autoheal_action`` setting:
+
+    * ``"notify"`` (default) — fires the existing
+      ``swarm_agent_unhealthy`` Apprise event ONCE per detection.
+      Cheap; no cooldown.
+    * ``"restart"`` — additionally spawns a `do_restart_swarm_agent`
+      Operation. Cooldown gate: refuses to act when the last restart
+      fired within ``tuning_swarm_autoheal_cooldown_minutes``. Without
+      the gate a thrashing agent service could pin the manager in a
+      restart loop.
+
+    Per-run history row carries the resolved action + node count in
+    ``target_name`` so the operator can audit decisions without
+    cross-referencing settings + the live `_agent_health` map.
+
+    Skip-if-no-unhealthy: when the map shows zero unhealthy nodes,
+    the runner writes a no-op history row and returns success. This
+    keeps the schedule's run history honest about how often the
+    detection fired vs how often it actually did anything.
+    """
+    op_id = "sched-" + secrets.token_hex(4)
+
+    async def runner() -> tuple[int, str]:
+        from logic import stats as _stats_mod
+        from logic import tuning as _tuning_mod
+        from logic.db import get_setting
+
+        global _swarm_autoheal_last_restart_ts
+        started = time.time()
+        status = "success"
+        err: Optional[str] = None
+        action_taken = "noop"
+        unhealthy_hosts: list[str] = []
+        try:
+            threshold = _tuning_mod.tuning_int(
+                "tuning_swarm_agent_unhealthy_threshold",
+            )
+            health = _stats_mod.get_agent_health() or {}
+            unhealthy_hosts = sorted([
+                host for host, h in health.items()
+                if isinstance(h, dict) and int(h.get("fails") or 0) >= threshold
+            ])
+            if not unhealthy_hosts:
+                action_taken = "noop_healthy"
+            else:
+                action = (get_setting("swarm_autoheal_action", "notify")
+                          or "notify").lower()
+                if action == "restart":
+                    cooldown_min = _tuning_mod.tuning_int(
+                        "tuning_swarm_autoheal_cooldown_minutes",
+                    )
+                    elapsed_s = started - _swarm_autoheal_last_restart_ts
+                    if _swarm_autoheal_last_restart_ts > 0 \
+                       and elapsed_s < cooldown_min * 60:
+                        action_taken = "skipped_cooldown"
+                        print(
+                            f"[scheduler] swarm_agent_health: cooldown "
+                            f"({int(elapsed_s)}s < {cooldown_min*60}s); "
+                            f"unhealthy={unhealthy_hosts}",
+                        )
+                    else:
+                        op = _ops.new_op(
+                            "restart_swarm_agent",
+                            "",
+                            "<portainer-agent>",
+                            actor=SCHEDULER_ACTOR,
+                        )
+                        # Spawn-and-forget. The op handler writes its
+                        # own history row + Apprise event; we don't
+                        # await it because the schedule tick must
+                        # return quickly. Set the cooldown anchor
+                        # eagerly so a runaway scheduler can't
+                        # double-spawn within the cooldown window.
+                        _swarm_autoheal_last_restart_ts = started
+                        asyncio.create_task(
+                            _ops.do_restart_swarm_agent(op),
+                        )
+                        action_taken = "restart_triggered"
+                        print(
+                            f"[scheduler] swarm_agent_health: restart "
+                            f"triggered op_id={op.id}; "
+                            f"unhealthy={unhealthy_hosts}",
+                        )
+                else:
+                    # notify-only path. Fire the dedicated
+                    # `swarm_agent_unhealthy` Apprise event so the
+                    # operator hears about the detection through the
+                    # configured notification mediums (in-app +
+                    # Apprise external) without auto-restarting.
+                    action_taken = "notified"
+                    try:
+                        await _ops.notify(
+                            "⚠️ Portainer agent(s) unhealthy",
+                            f"Unhealthy nodes (>={threshold} consecutive bad "
+                            f"gathers): {', '.join(unhealthy_hosts)}. "
+                            f"Action: notify-only (configurable in Admin → "
+                            f"Notifications).",
+                            "warning",
+                            event="swarm_agent_unhealthy",
+                            actor_username=SCHEDULER_ACTOR,
+                            target_kind="schedule",
+                            target_id="swarm_agent_health",
+                            metadata={"unhealthy": unhealthy_hosts,
+                                      "threshold": threshold},
+                        )
+                    except Exception as ne:
+                        print(
+                            f"[scheduler] swarm_agent_health notify "
+                            f"failed: {ne}",
+                        )
+                    print(
+                        f"[scheduler] swarm_agent_health: notify-only "
+                        f"action; unhealthy={unhealthy_hosts}",
+                    )
+        except Exception as e:
+            status = "error"
+            err = str(e)
+            print(f"[scheduler] swarm_agent_health failed: {e}")
+
+        duration = int(time.time() - started)
+        target_name = f"{action_taken} ({len(unhealthy_hosts)} unhealthy)"
+        try:
+            with db_conn() as c:
+                c.execute(
+                    "INSERT INTO history "
+                    "(ts, op_type, target_name, target_id, target_stack, "
+                    " status, duration, events, error, actor) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    (
+                        started, "swarm_agent_health",
+                        target_name,
+                        op_id, None,
+                        status, duration,
+                        json.dumps([
+                            {"action": action_taken, "unhealthy": unhealthy_hosts},
+                        ]),
+                        err, SCHEDULER_ACTOR,
+                    ),
+                )
+        except Exception as e:
+            print(f"[scheduler] swarm_agent_health history write failed: {e}")
+        return (duration, status)
+
+    task = asyncio.create_task(runner())
+    return op_id, task  # type: ignore[return-value]
+
+
 SCHEDULE_KINDS: dict[str, KindRunner] = {
     "prune_node":                _run_prune_node,
     "prune_all_nodes":           _run_prune_all_nodes,
@@ -1227,6 +1395,7 @@ SCHEDULE_KINDS: dict[str, KindRunner] = {
     "asset_inventory_refresh":   _run_asset_inventory_refresh,
     "prune_logs":                _run_prune_logs,
     "prune_notifications":       _run_prune_notifications,
+    "swarm_agent_health":        _run_swarm_agent_health,
 }
 
 

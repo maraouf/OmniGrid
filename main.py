@@ -1842,6 +1842,15 @@ class SettingsIn(BaseModel):
     tuning_stats_targeted_timeout_seconds: Optional[str] = None
     tuning_stats_untargeted_timeout_seconds: Optional[str] = None
     tuning_swarm_agent_unhealthy_threshold: Optional[str] = None
+    tuning_swarm_autoheal_cooldown_minutes: Optional[str] = None
+    # Swarm autoheal action — `notify` (default; the
+    # swarm_agent_health schedule kind only fires the
+    # `swarm_agent_unhealthy` notification when the threshold trips)
+    # or `restart` (additionally calls do_restart_swarm_agent within
+    # the cooldown window). Stored as a settings KV row, not a
+    # TUNABLES knob, because it's a categorical choice rather than
+    # a numeric range.
+    swarm_autoheal_action: Optional[str] = None
     tuning_stats_history_days: Optional[str] = None
     tuning_stats_sample_interval_seconds: Optional[str] = None
     # host_metrics_sampler permanent-fail window. Same DB-key
@@ -1955,6 +1964,13 @@ class SettingsIn(BaseModel):
     notify_event_container_remove_failure: Optional[str] = None
     notify_event_service_restart_success: Optional[str] = None
     notify_event_service_restart_failure: Optional[str] = None
+    # Swarm autoheal — restart success / failure / unhealthy detection.
+    # The first two are fired by `do_restart_swarm_agent` directly;
+    # the third is fired by the `swarm_agent_health` schedule kind
+    # in notify-only mode. All three default ON.
+    notify_event_swarm_agent_restart_success: Optional[str] = None
+    notify_event_swarm_agent_restart_failure: Optional[str] = None
+    notify_event_swarm_agent_unhealthy: Optional[str] = None
     notify_event_prune_success: Optional[str] = None
     notify_event_prune_failure: Optional[str] = None
     # Security event — defaults to OFF (login traffic is noisy).
@@ -2017,6 +2033,7 @@ async def api_get_settings(request: Request):
         "asset_inventory_enabled": (get_setting("asset_inventory_enabled", "true") or "true").lower() == "true",
         "apprise_url": get_setting("apprise_url", ""),
         "apprise_tag": get_setting("apprise_tag", ""),
+        "swarm_autoheal_action": (get_setting("swarm_autoheal_action", "notify") or "notify").lower(),
         # Per-event notification toggles. Resolved through
         # get_setting_bool so the frontend gets clean booleans (no
         # client-side string parsing). Default true preserves the
@@ -2031,6 +2048,9 @@ async def api_get_settings(request: Request):
         "notify_event_container_remove_failure":  get_setting_bool("notify_event_container_remove_failure", True),
         "notify_event_service_restart_success":   get_setting_bool("notify_event_service_restart_success", True),
         "notify_event_service_restart_failure":   get_setting_bool("notify_event_service_restart_failure", True),
+        "notify_event_swarm_agent_restart_success": get_setting_bool("notify_event_swarm_agent_restart_success", True),
+        "notify_event_swarm_agent_restart_failure": get_setting_bool("notify_event_swarm_agent_restart_failure", True),
+        "notify_event_swarm_agent_unhealthy":     get_setting_bool("notify_event_swarm_agent_unhealthy", True),
         "notify_event_prune_success":             get_setting_bool("notify_event_prune_success", True),
         "notify_event_prune_failure":             get_setting_bool("notify_event_prune_failure", True),
         # Security event — default OFF (login spam is noisy; opt-in).
@@ -2302,6 +2322,14 @@ async def _api_set_settings_inner(s, request, _portainer):
                     "true" if s.asset_inventory_enabled else "false")
     if s.apprise_url is not None: set_setting("apprise_url", s.apprise_url)
     if s.apprise_tag is not None: set_setting("apprise_tag", s.apprise_tag)
+    if s.swarm_autoheal_action is not None:
+        action = (s.swarm_autoheal_action or "").strip().lower()
+        if action not in ("", "notify", "restart"):
+            raise HTTPException(
+                status_code=400,
+                detail="swarm_autoheal_action must be 'notify' or 'restart'.",
+            )
+        set_setting("swarm_autoheal_action", action or "notify")
     # Per-event notification toggles. Each value MUST be
     # "true" / "false" / "" (empty clears → read-side falls back to
     # the default-true via get_setting_bool). Anything else is a
@@ -8662,6 +8690,518 @@ async def api_hosts_snmp_temp_history(
             "c":  (float(r[3]) if r[3] is not None else None),
         })
     return {"probes": probes, "error": None}
+
+
+@app.get("/api/hosts/{host_id}/timeline")
+async def api_hosts_timeline(
+    host_id: str,
+    hours: int = 168,
+    limit: int = 200,
+    _admin: auth.User = Depends(auth.require_admin),
+):
+    """Unified per-host event timeline for incident triage.
+
+    Aggregates four signal sources keyed to ``host_id``:
+
+    * ``history`` rows where ``target_id`` matches the host id OR the
+      target name resolves to the host (covers the ``op_type='ssh_run'``
+      / ``'snmp_resume'`` / etc. surfaces that target the host
+      directly).
+    * ``notifications`` rows whose ``target_kind == 'host'`` AND
+      ``target_id == host_id``.
+    * ``host_failure_state`` snapshots for both the bare host_id row
+      and every per-provider ``<provider>:<host_id>`` row — these
+      surface as ``provider_paused`` events keyed off the row's
+      ``paused_at`` (or ``last_failure_ts`` when present).
+    * ``host_provider_last_ok`` rows — surfaces as ``provider_recovered``
+      events (last successful probe per provider).
+
+    Returns the merged stream sorted newest-first with a unified
+    envelope per event:
+
+    .. code-block:: json
+
+        {
+          "events": [
+            {
+              "ts": 1714500000,
+              "kind": "op",                  // op | notification | provider_paused | provider_recovered
+              "severity": "success",         // success | error | warning | info
+              "title": "Container update",
+              "body": "stack/web — pulled :latest",
+              "actor": "alice",
+              "metadata": {...}
+            }
+          ],
+          "counts": {"ops": 12, "notifications": 5, "failures": 2, "recoveries": 3},
+          "host_id": "<id>",
+          "hours": 168
+        }
+    """
+    h = max(1, min(720, int(hours or 168)))  # 30-day max
+    lim = max(10, min(2000, int(limit or 200)))
+    hid = (host_id or "").strip()
+    if not hid:
+        raise HTTPException(400, "host_id required")
+    curated = _load_hosts_config()
+    row = next((r for r in curated if r.get("id") == hid), None)
+    if row is None:
+        raise HTTPException(404, f"Host not found: {hid}")
+    # Display name candidates — used for fuzzy-matching history rows
+    # whose `target_id` doesn't exactly match (e.g. older
+    # ssh_run rows persisted target_name=hostname instead of host_id).
+    name_candidates: set[str] = {hid}
+    for k in ("label", "snmp_name", "beszel_name", "pulse_name", "webmin_name"):
+        v = (row.get(k) or "").strip()
+        if v:
+            name_candidates.add(v)
+    since = int(time.time() - h * 3600)
+    events: list[dict] = []
+    counts = {"ops": 0, "notifications": 0, "failures": 0, "recoveries": 0}
+
+    try:
+        with db_conn() as c:
+            # ---- ops history ------------------------------------------
+            placeholders = ",".join(["?"] * len(name_candidates))
+            hist_rows = c.execute(
+                f"SELECT ts, op_type, status, actor, target_name, target_id, "
+                f"target_stack, error, duration "
+                f"FROM history "
+                f"WHERE ts >= ? AND ("
+                f"  target_id IN ({placeholders}) "
+                f"  OR target_name IN ({placeholders})"
+                f") "
+                f"ORDER BY ts DESC LIMIT ?",
+                (since, *name_candidates, *name_candidates, lim),
+            ).fetchall()
+            for r in hist_rows:
+                status = (r["status"] or "").lower()
+                severity = "success" if status == "success" else "error" if status == "error" else "info"
+                op_type = r["op_type"] or "op"
+                title_target = r["target_name"] or r["target_id"] or hid
+                events.append({
+                    "ts":       int(r["ts"]),
+                    "kind":     "op",
+                    "severity": severity,
+                    "title":    f"{op_type}",
+                    "body":     f"{title_target}" + (f" — {r['error']}" if r['error'] else ""),
+                    "actor":    r["actor"] or "system",
+                    "metadata": {
+                        "op_type":      op_type,
+                        "status":       status,
+                        "target_name":  r["target_name"],
+                        "target_id":    r["target_id"],
+                        "target_stack": r["target_stack"],
+                        "duration":     r["duration"],
+                    },
+                })
+                counts["ops"] += 1
+
+            # ---- notifications ----------------------------------------
+            notif_rows = c.execute(
+                "SELECT id, ts, event, severity, title, body, actor, "
+                "target_kind, target_id, metadata "
+                "FROM notifications "
+                "WHERE ts >= ? AND target_kind = 'host' AND target_id = ? "
+                "ORDER BY ts DESC LIMIT ?",
+                (since, hid, lim),
+            ).fetchall()
+            for r in notif_rows:
+                events.append({
+                    "ts":       int(r["ts"]),
+                    "kind":     "notification",
+                    "severity": (r["severity"] or "info").lower(),
+                    "title":    r["title"] or r["event"] or "notification",
+                    "body":     r["body"] or "",
+                    "actor":    r["actor"] or "",
+                    "metadata": {
+                        "id":    int(r["id"]),
+                        "event": r["event"] or "",
+                    },
+                })
+                counts["notifications"] += 1
+
+            # ---- failure state snapshots ------------------------------
+            # Bare host id + every per-provider prefixed key. The
+            # current row reflects current state (we don't have a
+            # historical log of pause/resume transitions in DB), so
+            # surface paused rows as a SINGLE "provider_paused" event
+            # at paused_at (or last_failure_ts) and last-OK rows as
+            # "provider_recovered" events.
+            try:
+                fail_rows = c.execute(
+                    "SELECT host_id, paused, paused_at, last_failure_ts, last_error, "
+                    "consecutive_failures "
+                    "FROM host_failure_state "
+                    "WHERE host_id = ? OR host_id LIKE ?",
+                    (hid, f"%:{hid}"),
+                ).fetchall()
+            except Exception:
+                fail_rows = []
+            for r in fail_rows:
+                key = r["host_id"] or ""
+                provider = key.split(":", 1)[0] if ":" in key else "host"
+                if not r["paused"]:
+                    continue
+                ts = int(r["paused_at"] or r["last_failure_ts"] or 0)
+                if ts < since:
+                    continue
+                events.append({
+                    "ts":       ts,
+                    "kind":     "provider_paused",
+                    "severity": "warning",
+                    "title":    f"{provider} sampling paused",
+                    "body":     (r["last_error"] or "auto-paused after consecutive failures")[:300],
+                    "actor":    "sampler",
+                    "metadata": {
+                        "provider":             provider,
+                        "consecutive_failures": int(r["consecutive_failures"] or 0),
+                    },
+                })
+                counts["failures"] += 1
+
+            # ---- last-OK rows (recoveries) ----------------------------
+            try:
+                ok_rows = c.execute(
+                    "SELECT host_id, last_ok_ts "
+                    "FROM host_provider_last_ok "
+                    "WHERE host_id = ? OR host_id LIKE ?",
+                    (hid, f"%:{hid}"),
+                ).fetchall()
+            except Exception:
+                ok_rows = []
+            for r in ok_rows:
+                key = r["host_id"] or ""
+                provider = key.split(":", 1)[0] if ":" in key else "host"
+                ts = int(r["last_ok_ts"] or 0)
+                if ts < since:
+                    continue
+                events.append({
+                    "ts":       ts,
+                    "kind":     "provider_recovered",
+                    "severity": "success",
+                    "title":    f"{provider} probe ok",
+                    "body":     "Last successful probe",
+                    "actor":    "sampler",
+                    "metadata": {"provider": provider},
+                })
+                counts["recoveries"] += 1
+    except Exception as e:
+        print(f"[hosts] timeline {hid!r} aggregation error: {e}")
+        # Partial result — return what we have so far rather than 500.
+
+    events.sort(key=lambda e: e["ts"], reverse=True)
+    if len(events) > lim:
+        events = events[:lim]
+
+    return {
+        "host_id": hid,
+        "hours":   h,
+        "events":  events,
+        "counts":  counts,
+    }
+
+
+# ---- Multi-host bulk-action endpoints --------------------------------
+# Powers the Hosts main view's sticky bulk-action bar. Each endpoint
+# accepts ``{host_ids: [...]}`` plus action-specific payload, validates
+# every id against the curated ``hosts_config`` list, applies the
+# change, persists the list, and returns
+# ``{ok: bool, applied: [ids...], skipped: [ids...], errors: {id: msg}}``
+# so the SPA can surface partial-success states.
+
+
+class HostsBulkPauseIn(BaseModel):
+    host_ids: list[str]
+
+
+class HostsBulkResumeIn(BaseModel):
+    host_ids: list[str]
+
+
+class HostsBulkSnmpVendorsIn(BaseModel):
+    host_ids: list[str]
+    vendors: list[str]   # subset of _VALID_VENDOR_KEYS, [] = clear (auto-detect)
+    mode: str = "set"    # "set" (replace) | "add" (union) | "remove" (difference)
+
+
+class HostsBulkSnmpTunablesIn(BaseModel):
+    host_ids: list[str]
+    walk_concurrency: Optional[int] = None
+    wall_clock_budget: Optional[int] = None
+    clear: bool = False  # when true, REMOVES the per-host override (falls back to global tunable)
+
+
+def _bulk_resolve_host_ids(host_ids: list[str], curated: list[dict]) -> tuple[list[str], list[str]]:
+    """Return (matched_ids, missing_ids) by intersecting the requested
+    set against the curated hosts_config index. Order preserved from
+    the input list. De-duplicated."""
+    by_id = {h.get("id"): h for h in curated}
+    seen: set[str] = set()
+    matched: list[str] = []
+    missing: list[str] = []
+    for raw in (host_ids or []):
+        hid = (raw or "").strip()
+        if not hid or hid in seen:
+            continue
+        seen.add(hid)
+        if hid in by_id:
+            matched.append(hid)
+        else:
+            missing.append(hid)
+    return matched, missing
+
+
+@app.post("/api/hosts/bulk/pause")
+async def api_hosts_bulk_pause(
+    body: HostsBulkPauseIn,
+    request: Request,
+    _u: auth.User = Depends(auth.require_admin),
+):
+    """Mark every host in the request as auto-paused. Inserts/updates
+    a row in ``host_failure_state`` with ``paused=1`` and
+    ``paused_at=now`` so the lifespan-managed sampler short-circuits
+    on the next tick. Idempotent — already-paused hosts return as
+    ``applied`` so the bar's count badge stays consistent.
+    """
+    curated = _load_hosts_config()
+    matched, missing = _bulk_resolve_host_ids(body.host_ids, curated)
+    now = int(time.time())
+    applied: list[str] = []
+    errors: dict[str, str] = {}
+    actor = _actor_from(request) or "admin"
+    for hid in matched:
+        try:
+            with db_conn() as c:
+                # ``first_failure_ts`` is NOT NULL on the schema, so we
+                # supply it on INSERT but leave it untouched on UPDATE
+                # so an existing failure streak's start-time isn't
+                # rewritten by a manual pause click.
+                c.execute(
+                    "INSERT INTO host_failure_state "
+                    "(host_id, first_failure_ts, consecutive_failures, "
+                    " paused, paused_at, last_error) "
+                    "VALUES (?, ?, 0, 1, ?, ?) "
+                    "ON CONFLICT(host_id) DO UPDATE SET "
+                    "paused = 1, paused_at = excluded.paused_at, "
+                    "last_error = excluded.last_error",
+                    (hid, float(now), float(now), f"manually paused by {actor}"),
+                )
+            applied.append(hid)
+        except Exception as e:
+            errors[hid] = str(e)
+    invalidate_host_provider_cache()
+    print(f"[hosts] bulk-pause by {actor}: {len(applied)} applied, "
+          f"{len(missing)} missing, {len(errors)} errors")
+    return {
+        "ok":      not errors,
+        "applied": applied,
+        "skipped": missing,
+        "errors":  errors,
+    }
+
+
+@app.post("/api/hosts/bulk/resume")
+async def api_hosts_bulk_resume(
+    body: HostsBulkResumeIn,
+    request: Request,
+    _u: auth.User = Depends(auth.require_admin),
+):
+    """Clear the auto-pause marker for every host in the request.
+    Mirrors `/api/hosts/{host_id}/resume-sampling` per-row with the
+    same cool-down clearing semantics, but skips the per-provider
+    cool-down probes for speed — bulk callers that need full cool-down
+    cleanup can fall back to the per-host endpoint.
+    """
+    curated = _load_hosts_config()
+    matched, missing = _bulk_resolve_host_ids(body.host_ids, curated)
+    applied: list[str] = []
+    errors: dict[str, str] = {}
+    actor = _actor_from(request) or "admin"
+    for hid in matched:
+        try:
+            with db_conn() as c:
+                # Clear bare-id row AND every per-provider row.
+                c.execute(
+                    "DELETE FROM host_failure_state "
+                    "WHERE host_id = ? OR host_id LIKE ?",
+                    (hid, f"%:{hid}"),
+                )
+            applied.append(hid)
+        except Exception as e:
+            errors[hid] = str(e)
+    invalidate_host_provider_cache()
+    print(f"[hosts] bulk-resume by {actor}: {len(applied)} applied, "
+          f"{len(missing)} missing, {len(errors)} errors")
+    return {
+        "ok":      not errors,
+        "applied": applied,
+        "skipped": missing,
+        "errors":  errors,
+    }
+
+
+@app.post("/api/hosts/bulk/snmp_vendors")
+async def api_hosts_bulk_snmp_vendors(
+    body: HostsBulkSnmpVendorsIn,
+    request: Request,
+    _u: auth.User = Depends(auth.require_admin),
+):
+    """Apply an SNMP vendor MIB selection to every host in the request.
+
+    ``mode``:
+      * ``"set"`` (default) — replace each row's ``snmp.vendors`` with
+        the supplied list. Empty list clears the override → resume
+        auto-detect from sysDescr.
+      * ``"add"`` — union the supplied vendors into each row's existing
+        list. Useful for "also enable Cisco MIBs on these hosts" without
+        clobbering existing per-host selections.
+      * ``"remove"`` — difference. Drops each supplied vendor from the
+        existing list; empty result removes the override (auto-detect).
+    """
+    curated = _load_hosts_config()
+    matched, missing = _bulk_resolve_host_ids(body.host_ids, curated)
+    cleaned_input = _clean_vendors_input(body.vendors) or set()
+    mode = (body.mode or "set").lower()
+    if mode not in ("set", "add", "remove"):
+        raise HTTPException(400, f"Unsupported mode: {mode}")
+    applied: list[str] = []
+    errors: dict[str, str] = {}
+    new_curated: list[dict] = []
+    for h in curated:
+        hid = h.get("id")
+        if hid not in matched:
+            new_curated.append(h)
+            continue
+        try:
+            snmp_block = h.get("snmp") if isinstance(h.get("snmp"), dict) else {}
+            existing = set(snmp_block.get("vendors") or [])
+            if mode == "set":
+                next_vendors = set(cleaned_input)
+            elif mode == "add":
+                next_vendors = existing | cleaned_input
+            else:  # remove
+                next_vendors = existing - cleaned_input
+            new_block = dict(snmp_block)
+            if next_vendors:
+                new_block["vendors"] = sorted(next_vendors)
+            else:
+                new_block.pop("vendors", None)
+            new_h = dict(h)
+            new_h["snmp"] = new_block
+            new_curated.append(new_h)
+            applied.append(hid)
+        except Exception as e:
+            errors[hid] = str(e)
+            new_curated.append(h)
+    if applied:
+        try:
+            _save_hosts_config(new_curated)
+            invalidate_host_provider_cache()
+        except HTTPException as e:
+            return {
+                "ok":      False,
+                "applied": [],
+                "skipped": missing + applied,
+                "errors":  {"_save": e.detail},
+            }
+    actor = _actor_from(request) or "admin"
+    print(f"[hosts] bulk-snmp-vendors by {actor} mode={mode} "
+          f"vendors={sorted(cleaned_input)}: {len(applied)} applied, "
+          f"{len(missing)} missing, {len(errors)} errors")
+    return {
+        "ok":      not errors,
+        "applied": applied,
+        "skipped": missing,
+        "errors":  errors,
+        "mode":    mode,
+        "vendors": sorted(cleaned_input),
+    }
+
+
+@app.post("/api/hosts/bulk/snmp_tunables")
+async def api_hosts_bulk_snmp_tunables(
+    body: HostsBulkSnmpTunablesIn,
+    request: Request,
+    _u: auth.User = Depends(auth.require_admin),
+):
+    """Apply per-host SNMP tunable overrides to every host in the request.
+
+    Supported fields: ``walk_concurrency`` (1..16), ``wall_clock_budget``
+    (5..600 seconds). Both optional — only fields present in the request
+    are touched. ``clear=true`` REMOVES the override fields from each
+    row's snmp block so the row falls back to the global tunable.
+    """
+    curated = _load_hosts_config()
+    matched, missing = _bulk_resolve_host_ids(body.host_ids, curated)
+    # Validate inputs against the same bounds _clean_host_snmp uses.
+    wc: Optional[int] = None
+    if body.walk_concurrency is not None and not body.clear:
+        try:
+            wc = int(body.walk_concurrency)
+            if not (1 <= wc <= 16):
+                raise HTTPException(400, "walk_concurrency must be in [1, 16]")
+        except (TypeError, ValueError):
+            raise HTTPException(400, "walk_concurrency must be an integer")
+    wcb: Optional[int] = None
+    if body.wall_clock_budget is not None and not body.clear:
+        try:
+            wcb = int(body.wall_clock_budget)
+            if not (5 <= wcb <= 600):
+                raise HTTPException(400, "wall_clock_budget must be in [5, 600]")
+        except (TypeError, ValueError):
+            raise HTTPException(400, "wall_clock_budget must be an integer")
+    if not body.clear and wc is None and wcb is None:
+        raise HTTPException(400, "supply walk_concurrency, wall_clock_budget, or clear=true")
+    applied: list[str] = []
+    errors: dict[str, str] = {}
+    new_curated: list[dict] = []
+    for h in curated:
+        hid = h.get("id")
+        if hid not in matched:
+            new_curated.append(h)
+            continue
+        try:
+            snmp_block = dict(h.get("snmp") or {}) if isinstance(h.get("snmp"), dict) else {}
+            if body.clear:
+                snmp_block.pop("walk_concurrency", None)
+                snmp_block.pop("wall_clock_budget", None)
+            else:
+                if wc is not None:
+                    snmp_block["walk_concurrency"] = wc
+                if wcb is not None:
+                    snmp_block["wall_clock_budget"] = wcb
+            new_h = dict(h)
+            new_h["snmp"] = snmp_block
+            new_curated.append(new_h)
+            applied.append(hid)
+        except Exception as e:
+            errors[hid] = str(e)
+            new_curated.append(h)
+    if applied:
+        try:
+            _save_hosts_config(new_curated)
+            invalidate_host_provider_cache()
+        except HTTPException as e:
+            return {
+                "ok":      False,
+                "applied": [],
+                "skipped": missing + applied,
+                "errors":  {"_save": e.detail},
+            }
+    actor = _actor_from(request) or "admin"
+    print(f"[hosts] bulk-snmp-tunables by {actor} "
+          f"clear={body.clear} wc={wc} wcb={wcb}: "
+          f"{len(applied)} applied, {len(missing)} missing, {len(errors)} errors")
+    return {
+        "ok":                  not errors,
+        "applied":             applied,
+        "skipped":             missing,
+        "errors":              errors,
+        "walk_concurrency":    wc,
+        "wall_clock_budget":   wcb,
+        "clear":               body.clear,
+    }
 
 
 class PingTestIn(BaseModel):
