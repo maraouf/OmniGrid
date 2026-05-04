@@ -3404,6 +3404,18 @@
                               <span x-text="t('admin.notifications.events.' + kind)"
                                     :class="kind === 'failure' ? 'text-[var(--danger)]' : 'text-[var(--success)]'"
                                     class="font-medium"></span>
+                              <!-- Profile-side template inspector — opens
+                                   the same modal as Admin in READ-ONLY
+                                   mode so users can see what title/body
+                                   the admin has configured for this event
+                                   without touching it. -->
+                              <button type="button"
+                                      class="notify-tmpl-info-btn text-[var(--text-faint)] hover:text-[var(--text)]"
+                                      @click="openNotifyTemplateViewer(kind === 'success' ? grp.success_key.replace(/^notify_event_/, '') : grp.failure_key.replace(/^notify_event_/, ''))"
+                                      :title="t('profile.notify_templates.view_template_title')"
+                                      :aria-label="t('profile.notify_templates.view_template_title')">
+                                <svg width="11" height="11" aria-hidden="true"><use href="/img/ui-sprite.svg#icon-info"/></svg>
+                              </button>
                             </div>
                             <template x-for="m in notifyMediumNames()" :key="cat.id + '_grp_' + grp.label + '_' + kind + '_' + m">
                               <div class="py-1.5 flex items-center justify-center">
@@ -3452,6 +3464,15 @@
                                   :class="row.kind === 'failure' ? 'text-[var(--danger)]' : 'text-[var(--success)]'"
                                   class="font-medium"></span>
                           </template>
+                          <!-- Profile-side template inspector. Same modal,
+                               read-only mode for non-admins. -->
+                          <button type="button"
+                                  class="btn-reset text-[var(--text-faint)] hover:text-[var(--text)] flex-shrink-0"
+                                  @click="openNotifyTemplateViewer(row.key.replace(/^notify_event_/, ''))"
+                                  :title="t('profile.notify_templates.view_template_title')"
+                                  :aria-label="t('profile.notify_templates.view_template_title')">
+                            <svg width="11" height="11" aria-hidden="true"><use href="/img/ui-sprite.svg#icon-info"/></svg>
+                          </button>
                         </div>
                         <template x-for="m in notifyMediumNames()" :key="cat.id + '_chk_' + m + '_' + row.key">
                           <div class="py-1.5 flex items-center justify-center">
@@ -4388,12 +4409,24 @@
                              x-text="t('admin.notifications.events.' + grp.label)"></div>
                         <template x-for="kind in ['success', 'failure']" :key="'admin-grp-' + grp.label + '-' + kind">
                           <div class="flex items-center justify-between gap-3 py-1 ps-3">
-                            <div class="flex items-center gap-1.5 min-w-0">
+                            <!-- Label group is clickable — opens the
+                                 template editor modal. The checkbox sits
+                                 in its own label so a click on it doesn't
+                                 propagate. Operator-stressed "stellar UI,
+                                 no clutter" — the row stays a single
+                                 visual unit; only the textual label
+                                 carries the open-modal affordance. -->
+                            <button type="button"
+                                    class="flex items-center gap-1.5 min-w-0 flex-1 text-start cursor-pointer notify-event-row-btn"
+                                    @click="openNotifyTemplateEditor(kind === 'success' ? grp.success_key.replace(/^notify_event_/, '') : grp.failure_key.replace(/^notify_event_/, ''))"
+                                    :title="t('admin.notify_templates.edit_button_title')">
                               <span class="text-[var(--text-faint)]" aria-hidden="true">↳</span>
                               <span class="text-[11.5px] font-medium"
                                     :class="kind === 'failure' ? 'text-[var(--danger)]' : 'text-[var(--success)]'"
                                     x-text="t('admin.notifications.events.' + kind)"></span>
-                            </div>
+                              <svg width="11" height="11" class="text-[var(--text-faint)] flex-shrink-0 flip-rtl"
+                                   aria-hidden="true"><use href="/img/ui-sprite.svg#icon-chevron-right"/></svg>
+                            </button>
                             <label class="flex items-center gap-1.5 text-[11.5px] cursor-pointer select-none flex-shrink-0">
                               <input type="checkbox"
                                      :checked="settings[kind === 'success' ? grp.success_key : grp.failure_key]"
@@ -4410,11 +4443,15 @@
                   <template x-if="!cat.groups">
                     <template x-for="row in cat.rows" :key="'admin-row-' + row.key">
                       <div class="flex items-center justify-between gap-3 py-1">
-                        <div class="flex items-center gap-2 min-w-0">
+                        <button type="button"
+                                class="flex items-center gap-2 min-w-0 flex-1 text-start cursor-pointer notify-event-row-btn"
+                                @click="openNotifyTemplateEditor(row.key.replace(/^notify_event_/, ''))"
+                                :title="t('admin.notify_templates.edit_button_title')">
                           <span class="text-[12px] text-[var(--text)] truncate"
-                                :title="t('admin.notifications.events.' + row.label)"
                                 x-text="t('admin.notifications.events.' + row.label)"></span>
-                        </div>
+                          <svg width="11" height="11" class="text-[var(--text-faint)] flex-shrink-0 flip-rtl"
+                               aria-hidden="true"><use href="/img/ui-sprite.svg#icon-chevron-right"/></svg>
+                        </button>
                         <label class="flex items-center gap-1.5 text-[11.5px] cursor-pointer select-none flex-shrink-0">
                           <input type="checkbox"
                                  :checked="settings[row.key]"
@@ -4674,7 +4711,7 @@
                    reason via tooltip when Save is locked. -->
               <button @click="savePortainerSettings()"
                       :disabled="portainerSaving || !canSavePortainer()"
-                      :class="portainerDirty() && canSavePortainer() ? 'ring-2 ring-[var(--warning)]' : ''"
+                      :class="portainerDirty() ? 'ring-2 ring-[var(--warning)]' : ''"
                       :title="!canSavePortainer() ? t('settings.portainer.save_requires_test') : ''"
                       class="btn btn-primary text-[12px]">
                 <span x-show="!portainerSaving" x-text="t('settings.portainer.save_button')"></span>
@@ -4683,13 +4720,7 @@
               <button @click="testPortainerConnection()"
                       :disabled="!settings.portainer_enabled"
                       class="btn btn-soft text-[12px]" x-text="t('settings.portainer.test_button')"></button>
-              <!-- "Unsaved" pulse-dot only when the form is dirty AND
-                   the gate would let us save. When the test-before-save
-                   gate is blocking, the reminder span below carries
-                   the message; doubling it up with the amber pulse
-                   sends mixed signals (orange = ready vs orange =
-                   blocked). -->
-              <span x-show="portainerDirty() && canSavePortainer()"
+              <span x-show="portainerDirty()"
                     class="text-[11.5px] text-[var(--warning)] flex items-center gap-1.5">
                 <span class="w-1.5 h-1.5 rounded-full bg-[var(--warning)] animate-pulse"></span>
                 <span class="unsaved-flash" x-text="t('hosts_actions.unsaved_label')"></span>
@@ -4834,7 +4865,7 @@
                  fire either way). -->
             <button @click="saveOidcSettings()"
                     :disabled="oidcSaving || !canSaveOidc()"
-                    :class="oidcDirty() && canSaveOidc() ? 'ring-2 ring-[var(--warning)]' : ''"
+                    :class="oidcDirty() ? 'ring-2 ring-[var(--warning)]' : ''"
                     :title="!canSaveOidc() ? t('settings.oidc.save_requires_test') : ''"
                     class="btn btn-primary text-[12px]">
               <span x-show="!oidcSaving" x-text="t('actions.save')"></span>
@@ -4843,11 +4874,7 @@
             <button @click="testOidcConnection()"
                     :disabled="!oidcForm.enabled"
                     class="btn btn-soft text-[12px]" x-text="t('settings.oidc.test_button')"></button>
-            <!-- "Unsaved" pulse-dot only when the form is dirty AND
-                 the gate would let us save. Reminder span below
-                 covers the gated case so we don't overload the amber
-                 pulse with two meanings. -->
-            <span x-show="oidcDirty() && canSaveOidc()"
+            <span x-show="oidcDirty()"
                   class="text-[11.5px] text-[var(--warning)] flex items-center gap-1.5">
               <span class="w-1.5 h-1.5 rounded-full bg-[var(--warning)] animate-pulse"></span>
               <span class="unsaved-flash" x-text="t('hosts_actions.unsaved_label')"></span>
@@ -7451,7 +7478,7 @@
                (the backend won't probe upstream either way). -->
           <button x-show="isAdmin()" @click="saveAssetSettings()"
                   class="btn btn-primary text-[12px]"
-                  :class="assetDirty() && canSaveAsset() ? 'ring-2 ring-[var(--warning)]' : ''"
+                  :class="assetDirty() ? 'ring-2 ring-[var(--warning)]' : ''"
                   :disabled="assetSaving || !canSaveAsset()"
                   :title="!canSaveAsset() ? t('admin_assets.save_requires_test') : ''">
             <span x-show="!assetSaving" x-text="t('actions.save')"></span>
@@ -7459,11 +7486,12 @@
           </button>
           <!-- Unified dirty marker — same shape as Profile / Portainer /
                OIDC / Host stats tabs (warning text + pulsing dot +
-               label). Suppressed when the test-before-save gate is
-               blocking; the reminder span below carries the message
-               instead, avoiding the orange-pulse-but-can't-save
-               mixed signal. -->
-          <span x-show="assetDirty() && canSaveAsset()"
+               label). Always tracks the dirty state so an edit (e.g.
+               flipping verify_tls) shows the cue immediately, even
+               when the test-before-save gate has re-locked the Save
+               button — the reminder span below carries the gate state
+               separately. -->
+          <span x-show="assetDirty()"
                 class="text-[11.5px] text-[var(--warning)] flex items-center gap-1.5"
                 :title="t('common.unsaved_title')">
             <span class="w-1.5 h-1.5 rounded-full bg-[var(--warning)] animate-pulse"></span>
@@ -13178,6 +13206,173 @@
         </div>
         <div class="p-4 border-t border-[var(--border)] flex justify-end">
           <button @click="lastCreatedToken = null" class="btn btn-primary text-[12px]" x-text="t('admin.token_modal.saved')"></button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ================== NOTIFICATION TEMPLATE EDITOR / VIEWER ==================
+       Admin-only edit modal (writable) + Profile-side viewer (read-only)
+       for per-event notification templates. Both modes share the same
+       markup; mode is gated on `notifyTemplateEditor.readOnly`. Open
+       via `openNotifyTemplateEditor(event)` (admin) or
+       `openNotifyTemplateViewer(event)` (read-only). Esc / backdrop
+       click closes; live preview pane debounces keystrokes by 200ms. -->
+  <div x-show="notifyTemplateEditor.open" class="fixed inset-0 z-50 fade-in" x-cloak>
+    <div @click="closeNotifyTemplateEditor()" class="absolute inset-0 backdrop-strong"></div>
+    <div class="relative flex items-start justify-center p-4 h-full overflow-auto scrollbar"
+         role="dialog" aria-modal="true"
+         :aria-label="notifyTemplateEditor.readOnly ? t('profile.notify_templates.modal_title') : t('admin.notify_templates.modal_title')"
+         @keydown.escape.window="closeNotifyTemplateEditor()">
+      <div class="bg-[var(--surface)] border border-[var(--border)] rounded-md max-w-3xl w-full max-h-[90vh] overflow-y-auto scrollbar mt-[5vh]">
+        <!-- Sticky header — title + reset link + close. -->
+        <div class="p-4 border-b border-[var(--border)] flex justify-between items-start gap-3 sticky top-0 bg-[var(--surface)] z-10">
+          <div class="min-w-0 flex-1">
+            <h2 class="text-[15px] font-semibold flex items-center gap-2 flex-wrap">
+              <span x-text="notifyTemplateEditor.readOnly ? t('profile.notify_templates.modal_title') : t('admin.notify_templates.modal_title')"></span>
+              <span class="chip pill-info text-[10.5px]"
+                    x-text="t('admin.notifications.events.' + (notifyTemplateEvent && notifyTemplateEvent.label || ''))"
+                    x-show="notifyTemplateEvent && notifyTemplateEvent.label"></span>
+            </h2>
+            <p class="text-[11.5px] text-[var(--text-faint)] mt-0.5"
+               x-text="notifyTemplateEditor.readOnly ? t('profile.notify_templates.modal_subtitle') : t('admin.notify_templates.modal_subtitle')"></p>
+          </div>
+          <div class="flex items-center gap-2">
+            <!-- Reset link — admin only, enabled only when current
+                 differs from default. -->
+            <button type="button"
+                    x-show="!notifyTemplateEditor.readOnly"
+                    :disabled="!notifyTemplateEditorIsDirty()"
+                    @click="resetNotifyTemplateEditor()"
+                    class="btn btn-ghost text-[11.5px]"
+                    x-text="t('admin.notify_templates.reset_to_default')"></button>
+            <button @click="closeNotifyTemplateEditor()" class="btn btn-ghost"
+                    :aria-label="t('actions.close')">✕</button>
+          </div>
+        </div>
+
+        <div class="p-5 space-y-4" x-show="notifyTemplateEditor.event">
+          <!-- Title editor + chip strip. -->
+          <div>
+            <label class="block text-[11.5px] font-medium text-[var(--text-dim)] mb-1.5"
+                   x-text="t('admin.notify_templates.title_label')"></label>
+            <template x-if="!notifyTemplateEditor.readOnly">
+              <input type="text"
+                     x-ref="notifyTemplateTitleInput"
+                     x-model="notifyTemplateEditor.title"
+                     :placeholder="notifyTemplateEditor.title_default"
+                     @input.debounce.200ms="refreshNotifyTemplatePreview()"
+                     class="w-full mono text-[12.5px]">
+            </template>
+            <template x-if="notifyTemplateEditor.readOnly">
+              <pre class="bg-[var(--surface-2)] rounded-md px-3 py-2 text-[12.5px] whitespace-pre-wrap break-words mono"
+                   x-text="notifyTemplateEditor.title || notifyTemplateEditor.title_default"></pre>
+            </template>
+            <!-- Inline chip strip for inserting placeholders into the
+                 title. Click → insert at the current caret position via
+                 insertNotifyTemplatePlaceholder. -->
+            <div x-show="!notifyTemplateEditor.readOnly"
+                 class="flex flex-wrap gap-1.5 mt-2 items-center">
+              <span class="text-[10.5px] text-[var(--text-faint)] me-1"
+                    x-text="t('admin.notify_templates.chip_strip_label')"></span>
+              <template x-for="ph in notifyTemplateEditor.available_placeholders" :key="'title-chip-' + ph">
+                <button type="button"
+                        @click="insertNotifyTemplatePlaceholder('title', ph)"
+                        class="chip pill-info text-[11px] mono cursor-pointer"
+                        :title="t('admin.notify_templates.placeholder_help.' + ph) + ' → ' + (notifyTemplateEditor.samples[ph] || '')"
+                        x-text="'{' + ph + '}'"></button>
+              </template>
+            </div>
+          </div>
+
+          <!-- Body editor. -->
+          <div>
+            <label class="block text-[11.5px] font-medium text-[var(--text-dim)] mb-1.5"
+                   x-text="t('admin.notify_templates.body_label')"></label>
+            <template x-if="!notifyTemplateEditor.readOnly">
+              <textarea x-ref="notifyTemplateBodyInput"
+                        x-model="notifyTemplateEditor.body"
+                        :placeholder="notifyTemplateEditor.body_default"
+                        @input.debounce.200ms="refreshNotifyTemplatePreview()"
+                        rows="6"
+                        class="w-full mono text-[12.5px]"></textarea>
+            </template>
+            <template x-if="notifyTemplateEditor.readOnly">
+              <pre class="bg-[var(--surface-2)] rounded-md px-3 py-2 text-[12.5px] whitespace-pre-wrap break-words mono"
+                   x-text="notifyTemplateEditor.body || notifyTemplateEditor.body_default || t('admin.notify_templates.body_empty_hint')"></pre>
+            </template>
+            <div x-show="!notifyTemplateEditor.readOnly"
+                 class="flex flex-wrap gap-1.5 mt-2 items-center">
+              <span class="text-[10.5px] text-[var(--text-faint)] me-1"
+                    x-text="t('admin.notify_templates.chip_strip_label')"></span>
+              <template x-for="ph in notifyTemplateEditor.available_placeholders" :key="'body-chip-' + ph">
+                <button type="button"
+                        @click="insertNotifyTemplatePlaceholder('body', ph)"
+                        class="chip pill-info text-[11px] mono cursor-pointer"
+                        :title="t('admin.notify_templates.placeholder_help.' + ph) + ' → ' + (notifyTemplateEditor.samples[ph] || '')"
+                        x-text="'{' + ph + '}'"></button>
+              </template>
+            </div>
+          </div>
+
+          <!-- Live preview pane. -->
+          <div class="border-t border-[var(--border)] pt-3">
+            <div class="flex items-center justify-between gap-2 mb-1.5">
+              <label class="text-[11.5px] font-medium text-[var(--text-dim)]"
+                     x-text="t('admin.notify_templates.preview_label')"></label>
+              <span class="text-[10.5px] text-[var(--text-faint)]"
+                    x-text="t('admin.notify_templates.preview_sample_hint')"></span>
+            </div>
+            <div class="bg-[var(--surface-2)] rounded-md px-3 py-2 space-y-1.5">
+              <div class="text-[12.5px] font-semibold text-[var(--text)]"
+                   x-text="notifyTemplateEditor.preview.rendered_title || notifyTemplateEditor.title_default"></div>
+              <div class="text-[12px] text-[var(--text-dim)] whitespace-pre-wrap break-words"
+                   x-text="notifyTemplateEditor.preview.rendered_body || notifyTemplateEditor.body_default || t('admin.notify_templates.body_empty_hint')"></div>
+            </div>
+            <!-- Unknown-placeholder warning. -->
+            <div x-show="(notifyTemplateEditor.preview.unknown_placeholders || []).length > 0"
+                 class="text-[11px] text-[var(--warning)] mt-1.5 flex items-start gap-1.5">
+              <svg width="11" height="11" aria-hidden="true" class="flex-shrink-0 mt-0.5"><use href="/img/ui-sprite.svg#icon-alert-triangle"/></svg>
+              <span>
+                <span x-text="t('admin.notify_templates.unknown_placeholder_warning')"></span>
+                <span class="mono" x-text="(notifyTemplateEditor.preview.unknown_placeholders || []).map(p => '{' + p + '}').join(', ')"></span>
+              </span>
+            </div>
+          </div>
+
+          <!-- Read-only viewer note. -->
+          <div x-show="notifyTemplateEditor.readOnly"
+               class="text-[11px] text-[var(--text-faint)] italic"
+               x-text="t('profile.notify_templates.readonly_note')"></div>
+        </div>
+
+        <!-- Footer — Save / Send test (admin) OR Close-only (read-only). -->
+        <div class="p-4 border-t border-[var(--border)] flex items-center gap-2 flex-wrap sticky bottom-0 bg-[var(--surface)]">
+          <template x-if="!notifyTemplateEditor.readOnly">
+            <div class="flex items-center gap-2 flex-wrap">
+              <button @click="saveNotifyTemplate()"
+                      :disabled="notifyTemplateEditor.saving || !notifyTemplateEditorIsDirty()"
+                      :class="notifyTemplateEditorIsDirty() ? 'ring-2 ring-[var(--warning)]' : ''"
+                      class="btn btn-primary text-[12px]">
+                <span x-show="!notifyTemplateEditor.saving" x-text="t('actions.save')"></span>
+                <span x-show="notifyTemplateEditor.saving" class="flex items-center gap-1"><span class="spin"></span><span x-text="t('actions.saving')"></span></span>
+              </button>
+              <button @click="testNotifyTemplate()"
+                      :disabled="notifyTemplateEditor.testing"
+                      class="btn btn-soft text-[12px]">
+                <span x-show="!notifyTemplateEditor.testing" x-text="t('admin.notify_templates.send_test')"></span>
+                <span x-show="notifyTemplateEditor.testing" class="flex items-center gap-1"><span class="spin"></span><span x-text="t('actions.saving')"></span></span>
+              </button>
+              <span x-show="notifyTemplateEditorIsDirty()"
+                    class="text-[11.5px] text-[var(--warning)] flex items-center gap-1.5">
+                <span class="w-1.5 h-1.5 rounded-full bg-[var(--warning)] animate-pulse"></span>
+                <span x-text="t('hosts_actions.unsaved_label')"></span>
+              </span>
+            </div>
+          </template>
+          <button @click="closeNotifyTemplateEditor()"
+                  class="btn btn-soft text-[12px] ms-auto"
+                  x-text="t('actions.close')"></button>
         </div>
       </div>
     </div>

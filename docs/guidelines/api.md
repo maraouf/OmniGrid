@@ -465,6 +465,41 @@ channel independently of the per-event toggles; both default ON. Retention is co
 by `tuning_notification_retention_days` (default 90) and the operator-creatable
 `prune_notifications` schedule kind.
 
+### Notification templates (admin-only)
+
+Each event ships with a hard-coded default title + body; admins can override either
+through DB-backed settings (`notify_template_<event>_title` / `_body`). Three routes
+back the Admin → Notifications template editor and the Profile read-only viewer:
+
+```bash
+# List every event with current + default state
+curl -sS -H "Authorization: Bearer $TOKEN" \
+  https://omnigrid.example.com/api/admin/notify-templates | jq
+
+# Save a template (empty string = reset to default)
+curl -sS -H "Authorization: Bearer $TOKEN" -X POST \
+  -H 'Content-Type: application/json' \
+  -d '{"title": "✅ {name} updated by {actor}", "body": "Status: {status}"}' \
+  https://omnigrid.example.com/api/admin/notify-templates/stack_update_success | jq
+
+# Live preview against sample placeholder values (no state change)
+curl -sS -H "Authorization: Bearer $TOKEN" -X POST \
+  -H 'Content-Type: application/json' \
+  -d '{"title": "{name}", "body": "by {actor}"}' \
+  https://omnigrid.example.com/api/admin/notify-templates/stack_update_success/preview | jq
+
+# Fire one real notification through every enabled medium for verification
+curl -sS -H "Authorization: Bearer $TOKEN" -X POST \
+  -H 'Content-Type: application/json' \
+  -d '{}' \
+  https://omnigrid.example.com/api/admin/notify-templates/stack_update_success/test | jq
+```
+
+Curated placeholder whitelist: `{name}` / `{type}` / `{actor}` / `{host}` / `{time}`
+/ `{error}` / `{status}`. Unknown placeholders render verbatim (`{foo}`) so a typo
+never crashes the dispatch — the editor's preview pane highlights them in a warning
+chip. Templates round-trip UTF-8 (emoji friendly).
+
 ### Swarm-agent restart
 
 When the SPA detects a Portainer Swarm agent has been failing per-node container-stats

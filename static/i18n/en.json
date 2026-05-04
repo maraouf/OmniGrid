@@ -142,6 +142,12 @@
       "cat_health_desc": "Sampler auto-pause and unhealthy-state events surfaced by background watchers.",
       "cat_security": "Security",
       "cat_security_desc": "Authentication-related events such as user sign-in."
+    },
+    "notify_templates": {
+      "modal_title": "Notification template",
+      "modal_subtitle": "Title and body that fire when this event triggers. Read-only — your administrator manages templates.",
+      "view_template_title": "View notification template",
+      "readonly_note": "Templates are managed by your administrator. Reach out if you'd like a different message format."
     }
   },
   "filters": {
@@ -736,6 +742,35 @@
         "host_paused": "Host sampling auto-paused",
         "enabled": "Enabled",
         "cat_count_title": "Events globally enabled in this category"
+      }
+    },
+    "notify_templates": {
+      "modal_title": "Edit notification template",
+      "modal_subtitle": "Customise the title and body of this notification. Use the placeholder chips to insert dynamic values.",
+      "edit_button_title": "Click to edit this notification's template",
+      "title_label": "Title",
+      "body_label": "Body",
+      "body_empty_hint": "(empty body)",
+      "chip_strip_label": "Insert placeholder:",
+      "preview_label": "Live preview",
+      "preview_sample_hint": "Rendered with sample values",
+      "reset_to_default": "Reset to default",
+      "send_test": "Send test",
+      "saved_toast": "Template saved",
+      "test_sent": "Test notification sent",
+      "save_failed": "Failed to save template: {error}",
+      "load_failed": "Failed to load template: {error}",
+      "test_failed": "Failed to send test: {error}",
+      "unknown_event_error": "Unknown event '{event}'",
+      "unknown_placeholder_warning": "Unknown placeholder(s) — will render verbatim:",
+      "placeholder_help": {
+        "name": "Target's display name (stack / container / service / host).",
+        "type": "Operation or event type (e.g. stack_update_success).",
+        "actor": "User who triggered the operation, or 'system' for sampler-fired events.",
+        "host": "Resolved hostname for ops that target one host.",
+        "time": "ISO 8601 timestamp (UTC) of when the notification fired.",
+        "error": "Error message (failure events only). Truncated to 500 characters.",
+        "status": "Outcome — 'success', 'error', 'warning', or 'info'."
       }
     },
     "config": {

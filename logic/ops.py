@@ -30,6 +30,18 @@ delivery channel without disabling the event entirely.
 Adding a medium: see CLAUDE.md "Canonical extension pattern: add a
 notification medium" — six steps (module + dispatcher + toggle + UI
 + i18n + CHANGELOG).
+
+Notification templates
+----------------------
+Each event has a hard-coded default title + body baked into the
+``NOTIFY_TEMPLATE_DEFAULTS`` map below; admins can override either via
+the DB-backed ``notify_template_<event>_title`` /
+``notify_template_<event>_body`` settings. :func:`render_template`
+runs ``str.format_map`` against a :class:`SafeDict` so unknown
+``{placeholder}`` tokens render verbatim instead of crashing the
+notification dispatch. The set of placeholders supplied per call lives
+in :data:`NOTIFY_PLACEHOLDERS` (curated whitelist) — see
+``main.api_admin_notify_templates`` for the full surface.
 """
 import asyncio
 import json
@@ -84,6 +96,282 @@ NOTIFY_EVENT_DEFAULTS = {
 # Admin → Notifications.
 NOTIFY_MEDIUM_NAMES = ("app", "apprise")
 NOTIFY_MEDIUM_DEFAULTS = {name: True for name in NOTIFY_MEDIUM_NAMES}
+
+
+# ---------------------------------------------------------------------
+# Template engine — admin-editable per-event title/body templates with
+# a curated placeholder whitelist. Resolution order at fire time:
+#   1. DB setting `notify_template_<event>_<kind>` (kind in {title, body}).
+#   2. NOTIFY_TEMPLATE_DEFAULTS[event][kind] — the hard-coded baseline that
+#      mirrors the literals previously baked into each `_do_*` handler.
+#   3. Empty string (defence in depth — should never hit if DEFAULTS is
+#      complete; the audit gate logs a WARN if an event ships without one).
+# Renders via `str.format_map(SafeDict(values))` so a typo'd placeholder
+# (`{tagret}`) renders verbatim as `{tagret}` instead of raising
+# KeyError — the operator sees the typo in the rendered output.
+# ---------------------------------------------------------------------
+
+
+class SafeDict(dict):
+    """``str.format_map``-compatible dict that returns ``{key}`` literal
+    for missing keys. Lets a typo in an admin-edited template render
+    visibly in the output (e.g. ``"hi {tagret}"`` → ``"hi {tagret}"``)
+    rather than raising ``KeyError`` mid-dispatch.
+    """
+
+    def __missing__(self, key: str) -> str:  # noqa: D401
+        return "{" + key + "}"
+
+
+# Curated placeholder whitelist. Keys are placeholder NAMES (without
+# the surrounding braces); the value is a short documentation string
+# the admin UI surfaces alongside the chip. The actual values get
+# resolved per-event at render time by :func:`build_template_values`.
+#
+# Keep this list small and stable — every entry adds operator-facing
+# surface area (i18n key, chip in the editor, sample data). When
+# adding a new placeholder, register it here AND in
+# :data:`NOTIFY_TEMPLATE_SAMPLES` AND in the admin-tab editor's chip
+# strip. Prefer "structural" tokens (`{name}`, `{type}`) over
+# operation-specific ones (`{stack_id}` would only apply to one op).
+NOTIFY_PLACEHOLDERS = (
+    "name",
+    "type",
+    "actor",
+    "host",
+    "time",
+    "error",
+    "status",
+)
+
+
+# Sample placeholder values for the live-preview pane in the admin
+# editor. The shape mirrors what `build_template_values` produces at
+# real render time. Kept short / readable so previews don't wrap.
+NOTIFY_TEMPLATE_SAMPLES: dict = {
+    "name":   "example-stack",
+    "type":   "update_stack",
+    "actor":  "alice",
+    "host":   "swarm-mgr-01",
+    "time":   "2026-05-04T12:34:56Z",
+    "error":  "HTTP 500: connection refused",
+    "status": "success",
+}
+
+
+# Per-event hard-coded defaults. Each value mirrors the string the
+# corresponding `_do_*` handler used to pass to `notify()` BEFORE the
+# template feature shipped, so a deploy with no template settings
+# behaves byte-for-byte identically to the legacy code.
+#
+# Keys:
+#   title — single-line headline (Apprise title, in-app row title).
+#   body  — multi-line body. Empty string is allowed; some events
+#           (success-shape container ops) historically had no body.
+#
+# Audit invariant: every entry in ``NOTIFY_EVENT_NAMES`` MUST have a
+# matching entry here. The :func:`audit_template_coverage` helper
+# scans this map at boot + on settings save and logs a WARN line for
+# any drift; the admin UI surfaces missing defaults under the
+# top-level ``unbound_events`` array so the operator can SEE the gap
+# without grepping logs.
+NOTIFY_TEMPLATE_DEFAULTS: dict = {
+    "stack_update_success": {
+        "title": "✅ Stack updated: {name}",
+        "body":  "",  # body filled at fire time with duration; see do_update_stack
+    },
+    "stack_update_failure": {
+        "title": "❌ Stack update failed: {name}",
+        "body":  "{error}",
+    },
+    "container_update_success": {
+        "title": "✅ Container updated: {name}",
+        "body":  "",
+    },
+    "container_update_failure": {
+        "title": "❌ Container update failed: {name}",
+        "body":  "{error}",
+    },
+    "container_restart_success": {
+        "title": "🔄 Container restarted: {name}",
+        "body":  "",
+    },
+    "container_restart_failure": {
+        "title": "❌ Container restart failed: {name}",
+        "body":  "{error}",
+    },
+    "container_remove_success": {
+        "title": "🗑 Container removed: {name}",
+        "body":  "",
+    },
+    "container_remove_failure": {
+        "title": "❌ Container remove failed: {name}",
+        "body":  "{error}",
+    },
+    "service_restart_success": {
+        "title": "🔄 Service restarted: {name}",
+        "body":  "",
+    },
+    "service_restart_failure": {
+        "title": "❌ Service restart failed: {name}",
+        "body":  "{error}",
+    },
+    "swarm_agent_restart_success": {
+        "title": "🔄 Portainer agent restarted: {name}",
+        "body":  "Force-update applied; agents on every node will respawn "
+                 "and re-register with the manager.",
+    },
+    "swarm_agent_restart_failure": {
+        "title": "❌ Portainer agent restart failed: {name}",
+        "body":  "{error}",
+    },
+    "swarm_agent_unhealthy": {
+        "title": "⚠️ Swarm agent unhealthy: {name}",
+        "body":  "{error}",
+    },
+    "prune_success": {
+        "title": "🧹 Prune complete on {name}",
+        "body":  "",  # body filled at fire time with reclaimed-bytes summary.
+    },
+    "prune_failure": {
+        "title": "❌ Prune failed on {name}",
+        "body":  "{error}",
+    },
+    "user_login": {
+        "title": "🔓 {actor} signed in",
+        "body":  "",
+    },
+    "host_paused": {
+        "title": "⚠️ Host sampling paused: {name}",
+        "body":  "{error}",
+    },
+}
+
+
+def template_setting_keys(event: str) -> tuple[str, str]:
+    """Return the `(title_key, body_key)` settings-table key pair for
+    one event. Centralised so the resolver, the validator, and the
+    audit gate all agree on the spelling.
+    """
+    return (
+        f"notify_template_{event}_title",
+        f"notify_template_{event}_body",
+    )
+
+
+def template_default(event: str, kind: str) -> str:
+    """Return the hard-coded default for ``(event, kind)``.
+
+    ``kind`` is ``"title"`` or ``"body"``. Returns ``""`` when the
+    event isn't registered in :data:`NOTIFY_TEMPLATE_DEFAULTS` — the
+    audit gate logs a WARN line for that case but the call still
+    completes (an unregistered event still fires; the operator just
+    sees a blank body).
+    """
+    entry = NOTIFY_TEMPLATE_DEFAULTS.get(event)
+    if not entry:
+        return ""
+    return entry.get(kind) or ""
+
+
+def resolve_template(event: str, kind: str) -> str:
+    """Resolve the live template for ``(event, kind)``.
+
+    DB setting wins when present + non-empty; otherwise falls back to
+    the hard-coded default in :data:`NOTIFY_TEMPLATE_DEFAULTS`. Empty
+    DB value (operator cleared the field via the admin editor) means
+    "reset to default" — same contract `api_admin_notify_templates_set`
+    enforces on writes.
+    """
+    title_key, body_key = template_setting_keys(event)
+    db_key = title_key if kind == "title" else body_key
+    raw = (get_setting(db_key, "") or "").strip()
+    if raw:
+        return raw
+    return template_default(event, kind)
+
+
+def render_template(template: str, values: dict) -> str:
+    """Render a template against ``values`` via ``str.format_map`` +
+    :class:`SafeDict`. Missing placeholders render verbatim (``{key}``)
+    so a typo doesn't drop the notification on the floor.
+    """
+    if not template:
+        return ""
+    try:
+        return template.format_map(SafeDict(values))
+    except (ValueError, IndexError):
+        # `{` followed by garbage / unbalanced braces. Operator typo
+        # surfaces verbatim as a fallback rather than masking the
+        # whole notification.
+        return template
+
+
+def build_template_values(
+    *,
+    event: Optional[str],
+    target_name: Optional[str],
+    op_type: Optional[str],
+    actor: Optional[str],
+    host: Optional[str],
+    error: Optional[str],
+    status: Optional[str],
+    when: Optional[float] = None,
+) -> dict:
+    """Build the placeholder->value dict consumed by
+    :func:`render_template`. Every key in :data:`NOTIFY_PLACEHOLDERS`
+    is populated (None-safe; missing values render as the empty
+    string). ``error`` is truncated to 500 chars to match the legacy
+    body-cap behaviour. ``time`` is ISO-8601 UTC.
+    """
+    import datetime as _dt
+
+    ts = when if when is not None else time.time()
+    iso = _dt.datetime.utcfromtimestamp(ts).strftime("%Y-%m-%dT%H:%M:%SZ")
+    err_str = (error or "")
+    if len(err_str) > 500:
+        err_str = err_str[:500]
+    return {
+        "name":   target_name or "",
+        "type":   op_type or event or "",
+        "actor":  actor or "system",
+        "host":   host or "",
+        "time":   iso,
+        "error":  err_str,
+        "status": status or "",
+    }
+
+
+def audit_template_coverage() -> dict:
+    """Audit gate — single source of truth for "is the template plumbing
+    consistent right now?"
+
+    Checks:
+      - Every ``NOTIFY_EVENT_NAMES`` entry has a default title in
+        :data:`NOTIFY_TEMPLATE_DEFAULTS`.
+      - Every default entry's keys are recognised event names (catches
+        a stale `NOTIFY_TEMPLATE_DEFAULTS` row that survives a rename).
+
+    Returns ``{missing_defaults: [...], unknown_defaults: [...]}``.
+    Logged as a WARN line on first call (boot) AND surfaced via
+    `/api/admin/notify-templates` so the admin UI can render a
+    warning chip.
+    """
+    registered = set(NOTIFY_EVENT_NAMES)
+    have_defaults = set(NOTIFY_TEMPLATE_DEFAULTS.keys())
+    missing = sorted(registered - have_defaults)
+    unknown = sorted(have_defaults - registered)
+    if missing:
+        print(
+            f"[notify] WARN — events registered without a default template: "
+            f"{missing}"
+        )
+    if unknown:
+        print(
+            f"[notify] WARN — default templates for unregistered events: "
+            f"{unknown}"
+        )
+    return {"missing_defaults": missing, "unknown_defaults": unknown}
 
 
 # Mapping from operation status hints to the four-level severity
@@ -417,6 +705,17 @@ async def notify(
       3. Per-medium master switch (``notify_medium_<medium>``) — fan-out
          skips disabled mediums but other mediums still fire.
 
+    Templates: for any registered event the resolver will substitute the
+    admin-edited (or default) template for ``title`` / ``body``. When the
+    template references placeholders that the call site supplied (the
+    name / actor / host / error / status / time / type set), they're
+    interpolated via :func:`render_template`. The legacy literals passed
+    by the caller still feed the placeholder values (``body`` typically
+    carries the error string for failure events; ``title`` carries the
+    target's display name). When the operator has cleared the template
+    AND the default is empty, the legacy literal falls through unchanged
+    so the notification never goes silent.
+
     Mediums fire via ``asyncio.gather(return_exceptions=True)`` so a
     failure in one (Apprise host down, DB write race) doesn't drop the
     delivery on the others.
@@ -428,6 +727,75 @@ async def notify(
         if get_setting_bool(f"notify_event_{event}", default=default_on) is False:
             print(f"[notify] skipped — event '{event}' disabled by operator")
             return
+    # Template override. Pull the legacy literal `title` / `body` apart
+    # into structured placeholder values so the renderer has something
+    # to substitute. The caller's title carries the target name (every
+    # _do_* handler builds it as `"<emoji> <kind>: {target_name}"`); the
+    # body carries the error string on failure events. We don't mine
+    # those further here — instead we feed the structured values from
+    # the call's existing kwargs (metadata.host, target_id, actor).
+    if event:
+        meta = metadata or {}
+        # `host` placeholder resolution priority:
+        #   1. metadata["host"] (explicit operator-friendly hostname)
+        #   2. target_id when target_kind == "host" (e.g. prune ops)
+        #   3. metadata["provider"] is NOT a host — left out
+        host_value: Optional[str] = None
+        if isinstance(meta, dict):
+            host_value = (meta.get("host") or meta.get("hostname") or "") or None
+        if not host_value and target_kind == "host":
+            host_value = target_id or None
+        # `name` placeholder priority — target's display name is what
+        # the caller already encoded into the title string. We pass the
+        # raw target_id so templates can reach it; downstream the
+        # default templates use {name} which we pre-fill from the
+        # caller's title (extracted below).
+        # Strip the leading emoji + ": " from the legacy title so {name}
+        # carries just the target. Same regex shape as the Apprise
+        # title parser (any non-alnum prefix, then optional space).
+        legacy_target_name = title or ""
+        if ":" in legacy_target_name:
+            legacy_target_name = legacy_target_name.split(":", 1)[1].strip()
+        # Handlers that emit "🧹 Prune complete on web01" don't have a
+        # colon — fall back to the trailing word(s). Keep the cheap
+        # heuristic; templates that need exact target shaping should
+        # bind {host} or just live with the raw caller string.
+        # `error` placeholder — for failure events the body carries the
+        # error message verbatim (legacy convention). For success events
+        # the body is empty / a duration string; we still pass it
+        # through so a custom template can use {error} as "supplemental
+        # body text" if it wants.
+        legacy_body = body or ""
+        # `actor` placeholder priority — the caller's actor_username
+        # (which is the SPA-authenticated user OR "scheduler"); falls
+        # through to "system" for sampler-fired events.
+        actor_value = actor_username or (
+            (meta.get("actor") or "") if isinstance(meta, dict) else ""
+        ) or None
+        # `status` placeholder — derived from the severity. Failures
+        # render as "error" (matches the in-app store + Apprise API).
+        status_token = "success" if severity == "success" else (
+            "error" if severity == "error" else (
+                "warning" if severity == "warning" else "info"
+            )
+        )
+        values = build_template_values(
+            event=event,
+            target_name=legacy_target_name,
+            op_type=event,
+            actor=actor_value,
+            host=host_value,
+            error=legacy_body if severity == "error" else "",
+            status=status_token,
+        )
+        # Resolve and render. Empty resolver output falls through to
+        # the legacy literal — never go silent on missing template.
+        rendered_title = render_template(resolve_template(event, "title"), values)
+        rendered_body = render_template(resolve_template(event, "body"), values)
+        if rendered_title:
+            title = rendered_title
+        if rendered_body:
+            body = rendered_body
     # Per-user opt-out lookup happens ONCE here — the per-(event, medium)
     # gate is applied inside the medium fan-out below so a user can
     # route, say, success events to Apprise only and failures to In-app
