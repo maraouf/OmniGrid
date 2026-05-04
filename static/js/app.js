@@ -14836,8 +14836,15 @@ function app() {
       if (!h) return false;
       if (this._hostUnixAgent(h)) return true;
       if (h.snmp_name && h.snmp_enabled === true) {
-        const cpu = h.cpu_percent;
-        if (cpu !== null && cpu !== undefined && Number.isFinite(Number(cpu))) return true;
+        // Live cpu > 0 is an unambiguous signal — show bar.
+        // Live cpu === 0 is ambiguous: the API row's
+        // `cpu_percent` defaults to 0 when the SNMP probe didn't
+        // report CPU at all (APC UPS, iDRAC chassis BMC), so we
+        // can't tell "agent doesn't expose CPU" from "agent at
+        // 0%" off the live value alone. Defer to SNMP history,
+        // which writes NULL when the agent didn't expose
+        // host_cpu_percent and a real 0.0 when the agent reported 0.
+        if (Number(h.cpu_percent) > 0) return true;
         return this._hostHasFiniteSnmpHistory(h, 'cpu');
       }
       return false;
@@ -14846,9 +14853,12 @@ function app() {
       if (!h) return false;
       if (this._hostUnixAgent(h)) return true;
       if (h.snmp_name && h.snmp_enabled === true) {
+        // Mem-total > 0 (live) is the capability signal — UPS / chassis
+        // BMC agents that don't expose hrStorage RAM don't surface a
+        // total. History fallback uses the same rule.
         const memTot = +h.mem_total || 0;
-        const memPct = +h.mem_percent || 0;
-        return memTot > 0 || memPct > 0 || this._hostHasFiniteSnmpHistory(h, 'memory');
+        if (memTot > 0) return true;
+        return this._hostHasFiniteSnmpHistory(h, 'memory');
       }
       return false;
     },
@@ -16299,6 +16309,20 @@ function app() {
         out.push(this._snmpPathGapped(vals, 100, { times }));
       }
       return out;
+    },
+    // Returns a SINGLE SVG path-d string with one subpath per core.
+    // Each subpath starts with `M` (the gapped-path builder already
+    // emits `M ... L ...`), so concatenating them produces a valid
+    // path with N disconnected polylines. Avoids the `<template x-for>`
+    // inside SVG where Alpine 3.x's x-for scope doesn't always
+    // establish the iteration variable cleanly (browser HTML parsers
+    // don't treat `<template>` as a real template element when it's
+    // inside the SVG namespace, which can leave the inner directive
+    // evaluated against the parent scope where the iteration var is
+    // undefined).
+    snmpCpuPerCoreCombinedLine(hostId) {
+      const lines = this.snmpCpuPerCoreLines(hostId);
+      return lines && lines.length ? lines.join(' ') : '';
     },
     snmpCpuUsedPctLine(hostId) {
       const series = (this.hostSnmpHistory[hostId] || {}).points || [];

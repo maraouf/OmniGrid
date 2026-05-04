@@ -10602,9 +10602,7 @@
                         <line class="metric-grid" x1="0" y1="30" x2="420" y2="30"/>
                         <line class="metric-grid" x1="0" y1="60" x2="420" y2="60"/>
                         <line class="metric-grid" x1="0" y1="90" x2="420" y2="90"/>
-                        <template x-for="(line, i) in snmpCpuPerCoreLines(h.id)" :key="'cpu-' + i">
-                          <path fill="none" stroke="var(--info)" stroke-opacity="0.55" stroke-width="1" :d="line"></path>
-                        </template>
+                        <path fill="none" stroke="var(--info)" stroke-opacity="0.55" stroke-width="1" :d="snmpCpuPerCoreCombinedLine(h.id)"></path>
                         <path fill="none" stroke="var(--success)" stroke-width="1.5" :d="snmpCpuUsedPctLine(h.id)"></path>
                       </svg>
                       <div class="metric-x-axis">
