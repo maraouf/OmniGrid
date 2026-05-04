@@ -734,7 +734,8 @@
         "sampler_section": "Sampler events",
         "user_login": "User signed in",
         "host_paused": "Host sampling auto-paused",
-        "enabled": "Enabled"
+        "enabled": "Enabled",
+        "cat_count_title": "Events globally enabled in this category"
       }
     },
     "config": {

@@ -3487,7 +3487,7 @@
           <!-- Empty-state when no category has any matching row. -->
           <div x-show="notifySearchQuery && notifyCategories().every(c => notifyCategoryFilteredRows(c).length === 0)"
                class="text-[11.5px] text-[var(--text-faint)] italic py-3 text-center"
-               x-text="t('profile.notifications.search_no_match', { query: notifySearchQuery }) || ('No events match \"' + notifySearchQuery + '\"')"></div>
+               x-text="t('profile.notifications.search_no_match', { query: notifySearchQuery })"></div>
         </div>
 
         <!-- User-side convenience buttons — Enable all / Disable all /
