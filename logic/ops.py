@@ -140,7 +140,15 @@ NOTIFY_PLACEHOLDERS = (
     "actor",
     "host",
     "time",
+    # ``error`` is the legacy slot, populated only when severity ==
+    # "error" so success / warning templates that bind {error} render
+    # empty. ``message`` is the always-populated counterpart — caller's
+    # body verbatim regardless of severity. Templates for warning-
+    # severity events (e.g. swarm_agent_unhealthy) MUST bind {message}
+    # rather than {error} or the body renders empty and operators get
+    # an unfilled placeholder visible in the notification.
     "error",
+    "message",
     "status",
 )
 
@@ -149,13 +157,14 @@ NOTIFY_PLACEHOLDERS = (
 # editor. The shape mirrors what `build_template_values` produces at
 # real render time. Kept short / readable so previews don't wrap.
 NOTIFY_TEMPLATE_SAMPLES: dict = {
-    "name":   "example-stack",
-    "type":   "update_stack",
-    "actor":  "alice",
-    "host":   "swarm-mgr-01",
-    "time":   "2026-05-04T12:34:56Z",
-    "error":  "HTTP 500: connection refused",
-    "status": "success",
+    "name":    "example-stack",
+    "type":    "update_stack",
+    "actor":   "alice",
+    "host":    "swarm-mgr-01",
+    "time":    "2026-05-04T12:34:56Z",
+    "error":   "HTTP 500: connection refused",
+    "message": "Probe ran, 3 nodes flagged unhealthy",
+    "status":  "success",
 }
 
 
@@ -227,7 +236,11 @@ NOTIFY_TEMPLATE_DEFAULTS: dict = {
     },
     "swarm_agent_unhealthy": {
         "title": "⚠️ Swarm agent unhealthy: {name}",
-        "body":  "{error}",
+        # ``{message}`` is always-populated (caller's body verbatim)
+        # regardless of severity, vs ``{error}`` which is only set on
+        # severity=="error". Warnings (this event's typical severity)
+        # would render an empty body otherwise.
+        "body":  "{message}",
     },
     "prune_success": {
         "title": "🧹 Prune complete on {name}",
@@ -317,12 +330,18 @@ def build_template_values(
     error: Optional[str],
     status: Optional[str],
     when: Optional[float] = None,
+    message: Optional[str] = None,
 ) -> dict:
     """Build the placeholder->value dict consumed by
     :func:`render_template`. Every key in :data:`NOTIFY_PLACEHOLDERS`
     is populated (None-safe; missing values render as the empty
-    string). ``error`` is truncated to 500 chars to match the legacy
-    body-cap behaviour. ``time`` is ISO-8601 UTC.
+    string). ``error`` and ``message`` are truncated to 500 chars to
+    match the legacy body-cap behaviour. ``time`` is ISO-8601 UTC.
+
+    ``error`` is the legacy slot — only populated when severity is
+    "error" by the caller (callers pre-fix passed ``""`` for success /
+    warning). ``message`` is the always-populated counterpart for
+    warning / success templates that need a non-empty body.
     """
     import datetime as _dt
 
@@ -331,14 +350,18 @@ def build_template_values(
     err_str = (error or "")
     if len(err_str) > 500:
         err_str = err_str[:500]
+    msg_str = (message or "")
+    if len(msg_str) > 500:
+        msg_str = msg_str[:500]
     return {
-        "name":   target_name or "",
-        "type":   op_type or event or "",
-        "actor":  actor or "system",
-        "host":   host or "",
-        "time":   iso,
-        "error":  err_str,
-        "status": status or "",
+        "name":    target_name or "",
+        "type":    op_type or event or "",
+        "actor":   actor or "system",
+        "host":    host or "",
+        "time":    iso,
+        "error":   err_str,
+        "message": msg_str,
+        "status":  status or "",
     }
 
 
@@ -785,7 +808,15 @@ async def notify(
             op_type=event,
             actor=actor_value,
             host=host_value,
+            # Legacy `{error}` slot — populated only on severity=="error"
+            # so success / warning templates that bind {error} render
+            # empty (matches the pre-template-engine convention where
+            # the body was the error message ONLY on failure).
             error=legacy_body if severity == "error" else "",
+            # New `{message}` slot — caller's body verbatim regardless
+            # of severity. Warning / informational templates that need
+            # a non-empty body bind {message} instead of {error}.
+            message=legacy_body,
             status=status_token,
         )
         # Resolve and render. Empty resolver output falls through to

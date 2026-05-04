@@ -6172,6 +6172,24 @@ def _invalidate_provider_state_cache() -> None:
     _provider_state_cache["by_host"] = {}
 
 
+def _sqlite_like_escape(s: str) -> str:
+    """Escape SQLite LIKE meta-characters (``%``, ``_``, ``\\``) so a
+    host id containing them can be embedded in a LIKE pattern without
+    matching unrelated rows.
+
+    Pair with ``LIKE ? ESCAPE '\\'`` in the SQL. Example:
+    ``f"%:{_sqlite_like_escape(hid)}"`` builds a leading-wildcard
+    pattern that matches ONLY ``<provider>:<hid>`` literal forms.
+
+    Without escaping, a curated host id like ``web_01`` would match
+    every ``snmp:webX01`` / ``webmin:webY01`` row via the underscore
+    wildcard — bulk-resume on the original host would silently
+    delete unrelated hosts' failure-state rows. Same trap applied
+    to the timeline endpoint's per-host SELECTs.
+    """
+    return (s or "").replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
+
 def _provider_pause_state_for_host(host_id: str) -> dict:
     """Per-host slice of the cached full-table provider-state index.
 
@@ -9380,12 +9398,17 @@ async def api_hosts_timeline(
             # at paused_at (or last_failure_ts) and last-OK rows as
             # "provider_recovered" events.
             try:
+                # Escape `%` / `_` / `\` in hid before embedding in the
+                # LIKE pattern — a curated id like `web_01` would
+                # otherwise match every `snmp:webX01` row via SQLite's
+                # underscore wildcard. Pair with ESCAPE '\\' in the SQL.
+                like_hid = _sqlite_like_escape(hid)
                 fail_rows = c.execute(
                     "SELECT host_id, paused, paused_at, last_failure_ts, last_error, "
                     "consecutive_failures "
                     "FROM host_failure_state "
-                    "WHERE host_id = ? OR host_id LIKE ?",
-                    (hid, f"%:{hid}"),
+                    "WHERE host_id = ? OR host_id LIKE ? ESCAPE '\\'",
+                    (hid, f"%:{like_hid}"),
                 ).fetchall()
             except Exception:
                 fail_rows = []
@@ -9413,11 +9436,12 @@ async def api_hosts_timeline(
 
             # ---- last-OK rows (recoveries) ----------------------------
             try:
+                like_hid = _sqlite_like_escape(hid)
                 ok_rows = c.execute(
                     "SELECT host_id, last_ok_ts "
                     "FROM host_provider_last_ok "
-                    "WHERE host_id = ? OR host_id LIKE ?",
-                    (hid, f"%:{hid}"),
+                    "WHERE host_id = ? OR host_id LIKE ? ESCAPE '\\'",
+                    (hid, f"%:{like_hid}"),
                 ).fetchall()
             except Exception:
                 ok_rows = []
@@ -9542,6 +9566,7 @@ async def api_hosts_bulk_pause(
         except Exception as e:
             errors[hid] = str(e)
     invalidate_host_provider_cache()
+    _invalidate_provider_state_cache()
     print(f"[hosts] bulk-pause by {actor}: {len(applied)} applied, "
           f"{len(missing)} missing, {len(errors)} errors")
     return {
@@ -9572,16 +9597,21 @@ async def api_hosts_bulk_resume(
     for hid in matched:
         try:
             with db_conn() as c:
-                # Clear bare-id row AND every per-provider row.
+                # Clear bare-id row AND every per-provider row. Escape
+                # LIKE meta-chars in hid so a curated id like `web_01`
+                # doesn't sweep unrelated `snmp:webX01` rows via the
+                # underscore wildcard.
+                like_hid = _sqlite_like_escape(hid)
                 c.execute(
                     "DELETE FROM host_failure_state "
-                    "WHERE host_id = ? OR host_id LIKE ?",
-                    (hid, f"%:{hid}"),
+                    "WHERE host_id = ? OR host_id LIKE ? ESCAPE '\\'",
+                    (hid, f"%:{like_hid}"),
                 )
             applied.append(hid)
         except Exception as e:
             errors[hid] = str(e)
     invalidate_host_provider_cache()
+    _invalidate_provider_state_cache()
     print(f"[hosts] bulk-resume by {actor}: {len(applied)} applied, "
           f"{len(missing)} missing, {len(errors)} errors")
     return {
@@ -9649,6 +9679,7 @@ async def api_hosts_bulk_snmp_vendors(
         try:
             _save_hosts_config(new_curated)
             invalidate_host_provider_cache()
+            _invalidate_provider_state_cache()
         except HTTPException as e:
             return {
                 "ok":      False,
@@ -9733,6 +9764,7 @@ async def api_hosts_bulk_snmp_tunables(
         try:
             _save_hosts_config(new_curated)
             invalidate_host_provider_cache()
+            _invalidate_provider_state_cache()
         except HTTPException as e:
             return {
                 "ok":      False,

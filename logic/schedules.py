@@ -1221,11 +1221,22 @@ async def _run_prune_notifications(
 
 # Module-level cooldown anchor for the swarm-agent-health autoheal
 # kind. Tracks the wall-clock of the last RESTART action (notify
-# actions don't consume the cooldown — they're cheap). Read at the
-# top of the runner; updated AFTER a successful restart spawn.
-# Single in-memory float because the runner only fires from the
-# lifespan-managed scheduler tick (single-replica invariant).
+# actions consume their OWN anchor, see below). Read at the top of
+# the runner; updated AFTER a successful restart spawn. Single
+# in-memory float because the runner only fires from the lifespan-
+# managed scheduler tick (single-replica invariant).
 _swarm_autoheal_last_restart_ts: float = 0.0
+# Notify-only-path de-dup state. Without this a once-per-minute
+# schedule paged 60×/hour while an agent stayed down. Two gates
+# combine: (a) cooldown anchor identical to the restart path so an
+# operator-tunable knob silences repeats over the cool-down window;
+# (b) transition gate — if the unhealthy host SET is unchanged since
+# the last fire, skip. Either gate clearing fires the next event.
+# `_swarm_autoheal_last_notify_ts` floats together with restart-ts;
+# the unhealthy SET is stored as a frozenset so equality comparison
+# is order-insensitive.
+_swarm_autoheal_last_notify_ts: float = 0.0
+_swarm_autoheal_last_notify_set: frozenset = frozenset()
 
 
 async def _run_swarm_agent_health(
@@ -1329,29 +1340,71 @@ async def _run_swarm_agent_health(
                     # operator hears about the detection through the
                     # configured notification mediums (in-app +
                     # Apprise external) without auto-restarting.
-                    action_taken = "notified"
-                    try:
-                        await _ops.notify(
-                            "⚠️ Portainer agent(s) unhealthy",
-                            f"Unhealthy nodes (>={threshold} consecutive bad "
-                            f"gathers): {', '.join(unhealthy_hosts)}. "
-                            f"Action: notify-only (configurable in Admin → "
-                            f"Notifications).",
-                            "warning",
-                            event="swarm_agent_unhealthy",
-                            actor_username=SCHEDULER_ACTOR,
-                            target_kind="schedule",
-                            target_id="swarm_agent_health",
-                            metadata={"unhealthy": unhealthy_hosts,
-                                      "threshold": threshold},
-                        )
-                    except Exception as ne:
+                    #
+                    # De-dup gates: a once-per-minute schedule with a
+                    # genuinely down agent would page 60×/hour without
+                    # this. Fire only when EITHER (a) the unhealthy
+                    # host set has changed since the last notify (e.g.
+                    # a new node failed, or a previous one recovered),
+                    # OR (b) the cooldown elapsed (so a chronically
+                    # down host still gets reminded periodically). The
+                    # cooldown reuses the autoheal cooldown tunable so
+                    # operators have ONE knob for "how often do I
+                    # want to hear about this".
+                    global _swarm_autoheal_last_notify_ts, _swarm_autoheal_last_notify_set
+                    cooldown_min = _tuning_mod.tuning_int(
+                        "tuning_swarm_autoheal_cooldown_minutes",
+                    )
+                    current_set = frozenset(unhealthy_hosts)
+                    set_changed = (current_set != _swarm_autoheal_last_notify_set)
+                    elapsed_s = started - _swarm_autoheal_last_notify_ts
+                    cooldown_elapsed = (
+                        _swarm_autoheal_last_notify_ts == 0
+                        or elapsed_s >= cooldown_min * 60
+                    )
+                    if not (set_changed or cooldown_elapsed):
+                        action_taken = "notify_skipped_dedup"
                         print(
-                            f"[scheduler] swarm_agent_health notify "
-                            f"failed: {ne}",
+                            f"[scheduler] swarm_agent_health: notify "
+                            f"skipped (set unchanged, "
+                            f"{int(elapsed_s)}s < {cooldown_min*60}s); "
+                            f"unhealthy={unhealthy_hosts}",
                         )
+                    else:
+                        action_taken = "notified"
+                        # Pre-compute a clean target name for the {name}
+                        # template placeholder (the legacy template
+                        # parser splits caller's title on `:` to extract
+                        # {name}; passing a colon-formed title here means
+                        # `{name}` resolves to the host list rather than
+                        # the entire title — which would otherwise lead
+                        # to `"⚠️ Swarm agent unhealthy: ⚠️ Portainer
+                        # agent(s) unhealthy"` double-prefix on render).
+                        host_list_str = ", ".join(unhealthy_hosts) or "<none>"
+                        try:
+                            await _ops.notify(
+                                f"⚠️ Portainer agent(s) unhealthy: {host_list_str}",
+                                f"Unhealthy nodes (>={threshold} consecutive bad "
+                                f"gathers): {host_list_str}. "
+                                f"Action: notify-only (configurable in Admin → "
+                                f"Notifications).",
+                                "warning",
+                                event="swarm_agent_unhealthy",
+                                actor_username=SCHEDULER_ACTOR,
+                                target_kind="schedule",
+                                target_id="swarm_agent_health",
+                                metadata={"unhealthy": unhealthy_hosts,
+                                          "threshold": threshold},
+                            )
+                            _swarm_autoheal_last_notify_ts = started
+                            _swarm_autoheal_last_notify_set = current_set
+                        except Exception as ne:
+                            print(
+                                f"[scheduler] swarm_agent_health notify "
+                                f"failed: {ne}",
+                            )
                     print(
-                        f"[scheduler] swarm_agent_health: notify-only "
+                        f"[scheduler] swarm_agent_health: {action_taken} "
                         f"action; unhealthy={unhealthy_hosts}",
                     )
         except Exception as e:
