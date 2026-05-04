@@ -369,6 +369,14 @@ TUNABLES: dict[str, tuple[str, int, int, int]] = {
     # would otherwise have nothing to prune); max ~10y as the same
     # runaway-disk safety net other retention knobs carry.
     "tuning_notification_retention_days": ("NOTIFICATION_RETENTION_DAYS", 90, 1, 3650),
+    # Notifications panel page size. Default 25 — the popup felt
+    # overwhelming at the previous 50 on busy fleets where every
+    # gather emits new entries. Range 5..200 — < 5 forces too many
+    # paginated fetches; > 200 risks slow render on the in-app
+    # store. Surfaced to the SPA via /api/me's `client_config.notifications_page_size`
+    # so the user-side popup picks up the resolved value without a
+    # restart.
+    "tuning_notification_page_size":      ("NOTIFICATION_PAGE_SIZE", 25, 5, 200),
 }
 
 

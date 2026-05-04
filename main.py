@@ -2028,6 +2028,7 @@ class SettingsIn(BaseModel):
     # In-app notifications retention window (days). Drives the
     # prune_notifications schedule kind.
     tuning_notification_retention_days: Optional[str] = None
+    tuning_notification_page_size: Optional[str] = None
     # -----------------------------------------------------------------
     # Per-event notification toggles. Each maps to one of the
     # 12 (event group × success/failure) notify() call sites in
@@ -9548,23 +9549,45 @@ async def api_hosts_bulk_pause(
     for hid in matched:
         try:
             with db_conn() as c:
-                # ``first_failure_ts`` is NOT NULL on the schema, so we
-                # supply it on INSERT but leave it untouched on UPDATE
-                # so an existing failure streak's start-time isn't
-                # rewritten by a manual pause click.
+                # ``first_failure_ts`` is NOT NULL on the schema. On the
+                # INSERT path (host had no prior streak) we use the
+                # SENTINEL ``0.0`` rather than ``now`` — a manual pause is
+                # not a real failure event, so the host_metrics_sampler's
+                # "is the failure window expired?" math should not treat
+                # this row as a fresh streak. The value also distinguishes
+                # manual vs sampler-driven pauses for any future audit /
+                # restoration tooling. ON CONFLICT path leaves
+                # ``first_failure_ts`` untouched so an EXISTING failure
+                # streak's start-time isn't rewritten by a manual click.
                 c.execute(
                     "INSERT INTO host_failure_state "
                     "(host_id, first_failure_ts, consecutive_failures, "
                     " paused, paused_at, last_error) "
-                    "VALUES (?, ?, 0, 1, ?, ?) "
+                    "VALUES (?, 0.0, 0, 1, ?, ?) "
                     "ON CONFLICT(host_id) DO UPDATE SET "
                     "paused = 1, paused_at = excluded.paused_at, "
                     "last_error = excluded.last_error",
-                    (hid, float(now), float(now), f"manually paused by {actor}"),
+                    (hid, float(now), f"manually paused by {actor}"),
                 )
             applied.append(hid)
         except Exception as e:
             errors[hid] = str(e)
+    # Publish per-host SSE events so cross-tab observers refresh in
+    # place rather than waiting up to 15s for the next loadHosts poll.
+    # The bare host_id keys mirror the per-host endpoint's contract;
+    # SPA's `host:failure_state_changed` handler triggers a
+    # refreshHostRow per id.
+    try:
+        from logic import events as _events
+        client_id = _request_client_id(request)
+        for hid in applied:
+            _events.publish(
+                "host:failure_state_changed",
+                {"host_id": hid, "paused": True, "actor": actor},
+                client_id=client_id,
+            )
+    except Exception as e:  # noqa: BLE001
+        print(f"[hosts] bulk-pause SSE publish failed: {e}")
     invalidate_host_provider_cache()
     _invalidate_provider_state_cache()
     print(f"[hosts] bulk-pause by {actor}: {len(applied)} applied, "
@@ -9612,6 +9635,21 @@ async def api_hosts_bulk_resume(
             errors[hid] = str(e)
     invalidate_host_provider_cache()
     _invalidate_provider_state_cache()
+    # SSE per-host fan-out — same shape as the per-host
+    # /api/hosts/{id}/resume endpoint so the SPA's existing
+    # `host:failure_state_changed` handler triggers a refreshHostRow
+    # per id without waiting for the 15s loadHosts poll.
+    try:
+        from logic import events as _events
+        client_id = _request_client_id(request)
+        for hid in applied:
+            _events.publish(
+                "host:failure_state_changed",
+                {"host_id": hid, "paused": False, "actor": actor},
+                client_id=client_id,
+            )
+    except Exception as e:  # noqa: BLE001
+        print(f"[hosts] bulk-resume SSE publish failed: {e}")
     print(f"[hosts] bulk-resume by {actor}: {len(applied)} applied, "
           f"{len(missing)} missing, {len(errors)} errors")
     return {
@@ -11272,6 +11310,12 @@ async def api_me(request: Request):
             # (30..90 / 50..99).
             "stat_bar_warn_pct": tuning.tuning_int("tuning_stat_bar_warn_pct"),
             "stat_bar_crit_pct": tuning.tuning_int("tuning_stat_bar_crit_pct"),
+            # Notifications panel page size — SPA reads this as the
+            # initial value of `notificationsLimit`. Operator-tunable
+            # via Admin → Notifications. Range 5..200 enforced at
+            # both write-time (TUNABLES bounds) and read-time
+            # (`tuning_int` clamps).
+            "notifications_page_size": tuning.tuning_int("tuning_notification_page_size"),
             # Sampler tick cadence (used by the SNMP "warming up" banner
             # so the "~N min" hint reflects the operator's configured
             # interval rather than a stale literal). Stored as seconds;

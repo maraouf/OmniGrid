@@ -1312,28 +1312,50 @@ async def _run_swarm_agent_health(
                             f"unhealthy={unhealthy_hosts}",
                         )
                     else:
-                        op = _ops.new_op(
-                            "restart_swarm_agent",
-                            "",
-                            "<portainer-agent>",
-                            actor=SCHEDULER_ACTOR,
-                        )
-                        # Spawn-and-forget. The op handler writes its
-                        # own history row + Apprise event; we don't
-                        # await it because the schedule tick must
-                        # return quickly. Set the cooldown anchor
-                        # eagerly so a runaway scheduler can't
-                        # double-spawn within the cooldown window.
-                        _swarm_autoheal_last_restart_ts = started
-                        asyncio.create_task(
-                            _ops.do_restart_swarm_agent(op),
-                        )
-                        action_taken = "restart_triggered"
-                        print(
-                            f"[scheduler] swarm_agent_health: restart "
-                            f"triggered op_id={op.id}; "
-                            f"unhealthy={unhealthy_hosts}",
-                        )
+                        # Spawn the restart op + stamp the cooldown
+                        # anchor only after the create_task call
+                        # returns. Pre-fix this set the anchor BEFORE
+                        # the spawn — if `_ops.do_restart_swarm_agent`
+                        # raised synchronously (op_id collision,
+                        # cancellation during construction) the
+                        # anchor was locked in for the cooldown
+                        # window even though no real restart
+                        # happened, so the next tick wouldn't retry.
+                        # Now: stamp the anchor only on a successful
+                        # `create_task` call (the task is scheduled;
+                        # whether its body succeeds is the op
+                        # handler's responsibility — this matches
+                        # the "create_task succeeded → cooldown
+                        # consumed" semantic). If create_task itself
+                        # raises, action_taken stays "restart_failed"
+                        # and the anchor is unchanged so the next
+                        # tick can retry immediately.
+                        try:
+                            op = _ops.new_op(
+                                "restart_swarm_agent",
+                                "",
+                                "<portainer-agent>",
+                                actor=SCHEDULER_ACTOR,
+                            )
+                            _restart_task = asyncio.create_task(
+                                _ops.do_restart_swarm_agent(op),
+                            )
+                            _swarm_autoheal_last_restart_ts = started
+                            action_taken = "restart_triggered"
+                            print(
+                                f"[scheduler] swarm_agent_health: restart "
+                                f"triggered op_id={op.id}; "
+                                f"unhealthy={unhealthy_hosts}",
+                            )
+                        except (asyncio.CancelledError, KeyboardInterrupt):
+                            raise
+                        except Exception as ce:  # noqa: BLE001
+                            action_taken = "restart_failed"
+                            print(
+                                f"[scheduler] swarm_agent_health: restart "
+                                f"spawn failed (cooldown NOT consumed): "
+                                f"{ce}",
+                            )
                 else:
                     # notify-only path. Fire the dedicated
                     # `swarm_agent_unhealthy` Apprise event so the
