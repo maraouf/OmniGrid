@@ -2458,6 +2458,104 @@ details summary::-webkit-details-marker {
     cursor: pointer;
 }
 
+/* CATEGORISED PROFILE → NOTIFICATIONS PANEL (#993).
+   Three collapsible category cards (Operations / Health / Security).
+   Each card's header carries the bulk-toggle state + a chevron;
+   the body hosts the per-event grid (reuses .notify-grid). Designed
+   so the catalogue scales — adding a new event drops into one of
+   the existing categories without growing the panel's vertical
+   footprint at-rest. */
+.notify-category {
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: var(--r-md);
+    overflow: hidden;
+}
+.notify-category-header {
+    display: flex;
+    align-items: center;
+    gap: var(--s-3);
+    width: 100%;
+    padding: var(--s-3) var(--s-4);
+    background: transparent;
+    border: 0;
+    text-align: start;
+    cursor: pointer;
+    color: var(--text);
+    transition: background-color 0.12s ease;
+}
+.notify-category-header:hover {
+    background: var(--surface-3);
+}
+.notify-category-header:focus-visible {
+    outline: 2px solid var(--primary);
+    outline-offset: -2px;
+}
+.notify-cat-count {
+    font-size: var(--fs-sm);
+    font-weight: 600;
+    color: var(--text);
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--r-sm);
+    padding: 0 var(--s-2);
+    flex-shrink: 0;
+}
+/* Per-medium category-state chip. Three colour tiers reflect how
+   many events in the category route through the medium:
+     all     — strong success tint (every event on)
+     partial — amber tint (mixed)
+     none    — muted grey (every event off)
+   Admin-disabled mediums get a strikethrough hint. */
+.notify-cat-chip {
+    display: inline-flex;
+    align-items: center;
+    font-size: var(--fs-2xs);
+    font-weight: 500;
+    padding: 2px var(--s-2);
+    border-radius: var(--r-sm);
+    border: 1px solid var(--border);
+    background: var(--surface);
+    color: var(--text-dim);
+    cursor: pointer;
+    flex-shrink: 0;
+    user-select: none;
+    transition: background-color 0.12s ease, border-color 0.12s ease;
+}
+.notify-cat-chip:hover {
+    border-color: var(--border-bright);
+}
+.notify-cat-chip--all {
+    background: color-mix(in srgb, var(--success) 16%, transparent);
+    border-color: color-mix(in srgb, var(--success) 38%, transparent);
+    color: var(--success);
+}
+.notify-cat-chip--partial {
+    background: color-mix(in srgb, var(--warning) 16%, transparent);
+    border-color: color-mix(in srgb, var(--warning) 38%, transparent);
+    color: var(--warning);
+}
+.notify-cat-chip--none {
+    background: var(--surface);
+    border-color: var(--border);
+    color: var(--text-faint);
+}
+.notify-cat-chip--admin-disabled {
+    text-decoration: line-through;
+    opacity: 0.6;
+    cursor: not-allowed;
+}
+.notify-category-body {
+    padding: var(--s-3) var(--s-4) var(--s-3) var(--s-4);
+    border-top: 1px solid var(--border);
+    background: var(--surface);
+}
+.notify-grid-body {
+    /* Inherits .notify-grid base; this body variant trims the gap
+       slightly for in-card density. */
+    gap: var(--s-1) var(--s-3);
+}
+
 /* HOSTS BULK ACTION BAR — sticky at the bottom of the viewport when
    one or more hosts are selected. Mirrors the items bulk bar pattern
    but anchored to the bottom (vs sticky-top) because the Hosts view's

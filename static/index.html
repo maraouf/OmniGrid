@@ -1585,7 +1585,7 @@
                          class="me-1"
                          :checked="(bulkSnmpVendorsModal.vendors || []).includes(v)"
                          @change="toggleBulkVendor(v)">
-                  <span x-text="v"></span>
+                  <span x-text="snmpVendorLabel(v)"></span>
                 </label>
               </template>
             </div>
@@ -3275,189 +3275,171 @@
         </div>
         <p class="text-[11.5px] text-[var(--text-faint)] mb-3" x-text="t('profile.notifications.subtitle_per_medium')"></p>
 
-        <!-- Per-medium column header — labels each delivery channel +
-             gives the user a one-click "toggle every event for this
-             channel" affordance via clickable headers. The header is
-             dimmed when the channel is globally disabled (admin
-             flipped off the whole medium), with a tooltip explaining
-             why per-event toggles in that column won't fire even when
-             checked. -->
-        <div class="notify-grid"
-             :style="'grid-template-columns: minmax(0, 1fr) ' + notifyMediumNames().map(() => 'auto').join(' ') + ' auto'">
-          <!-- Header row -->
-          <div class="text-[10.5px] text-[var(--text-faint)] uppercase tracking-wider pb-2 border-b border-[var(--border)]"
-               x-text="t('profile.notifications.column_event')"></div>
-          <template x-for="m in notifyMediumNames()" :key="m">
-            <div class="text-[10.5px] uppercase tracking-wider pb-2 border-b border-[var(--border)] text-center"
-                 :class="notifyMediumIsGloballyEnabled(m) ? 'text-[var(--text-dim)]' : 'text-[var(--text-faint)] opacity-60'"
-                 :title="notifyMediumIsGloballyEnabled(m) ? t('profile.notifications.medium_column_hint') : t('profile.notifications.medium_globally_disabled')">
-              <button type="button" class="inline-flex items-center gap-1.5 cursor-pointer hover:text-[var(--text)]"
-                      @click="toggleUserNotifyMediumColumn(m, true)"
-                      @contextmenu.prevent="toggleUserNotifyMediumColumn(m, false)"
-                      :title="t('profile.notifications.column_header_hint')">
-                <span x-text="t('admin.notifications.medium_' + m)"></span>
-                <svg x-show="!notifyMediumIsGloballyEnabled(m)" width="10" height="10" class="opacity-70" aria-hidden="true"><use href="/img/ui-sprite.svg#icon-alert-triangle"/></svg>
+        <!-- ============== CATEGORISED NOTIFICATIONS PANEL ==========
+             Replaces the flat per-event matrix with three collapsible
+             category cards (Operations / Health / Security). Each
+             category header carries an active-count badge + per-medium
+             state chips that bulk-toggle the whole category. Search
+             input at the top filters event rows live.
+
+             Why this shape over the flat grid: the event catalogue
+             scales as new sources ship (host_paused, swarm_agent_*,
+             pending updates and more in the pipeline) — a 30-row
+             flat matrix overwhelms users. Categories collapse the
+             noise by default; users expand only the rows they care
+             about. The data model is unchanged: profileForm.notify_events
+             still keys events by bare name + per-medium dict, and
+             the existing helpers drive the per-row checkboxes inside
+             each expanded category. -->
+
+        <!-- Search + expand-all controls -->
+        <div class="flex items-center gap-2 mb-3 flex-wrap">
+          <div class="relative flex-1 min-w-[220px]">
+            <svg width="13" height="13"
+                 class="absolute start-2 top-1/2 -translate-y-1/2 text-[var(--text-faint)] pointer-events-none"
+                 aria-hidden="true"><use href="/img/ui-sprite.svg#icon-search"/></svg>
+            <input type="text"
+                   x-model="notifySearchQuery"
+                   :placeholder="t('profile.notifications.search_placeholder') || 'Search events…'"
+                   class="w-full ps-7 pe-2 py-1.5 text-[12px]"
+                   :aria-label="t('profile.notifications.search_placeholder') || 'Search events'">
+            <button type="button"
+                    x-show="notifySearchQuery"
+                    @click="notifySearchQuery = ''"
+                    class="absolute end-2 top-1/2 -translate-y-1/2 text-[var(--text-faint)] hover:text-[var(--text)]"
+                    :title="t('actions.clear') || 'Clear'">✕</button>
+          </div>
+          <button type="button"
+                  @click="expandAllNotifyCategories(true)"
+                  class="btn btn-ghost text-[11.5px]"
+                  x-text="t('profile.notifications.expand_all') || 'Expand all'"></button>
+          <button type="button"
+                  @click="expandAllNotifyCategories(false)"
+                  class="btn btn-ghost text-[11.5px]"
+                  x-text="t('profile.notifications.collapse_all') || 'Collapse all'"></button>
+        </div>
+
+        <!-- Category cards. Each iterates notifyCategoryFilteredRows
+             so search filters rows BEFORE they render; categories
+             with zero matching rows hide entirely so the panel
+             collapses gracefully. -->
+        <div class="flex flex-col gap-2">
+          <template x-for="cat in notifyCategories()" :key="cat.id">
+            <section class="notify-category"
+                     x-show="notifySearchQuery === '' || notifyCategoryFilteredRows(cat).length > 0">
+              <button type="button"
+                      class="notify-category-header"
+                      @click="toggleNotifyCategoryExpanded(cat.id)"
+                      :aria-expanded="isNotifyCategoryExpanded(cat.id) ? 'true' : 'false'">
+                <svg width="14" height="14"
+                     class="text-[var(--text-dim)] flex-shrink-0"
+                     aria-hidden="true">
+                  <use :href="'/img/ui-sprite.svg#' + cat.icon"/>
+                </svg>
+                <div class="flex flex-col min-w-0 flex-1">
+                  <span class="text-[12.5px] font-semibold text-[var(--text)]"
+                        x-text="t(cat.label_key)"></span>
+                  <span class="text-[10.5px] text-[var(--text-faint)] truncate"
+                        x-text="t(cat.desc_key)"></span>
+                </div>
+                <!-- enabled-count badge -->
+                <span class="notify-cat-count"
+                      :title="t('profile.notifications.cat_count_title') || 'Events with at least one channel routing'">
+                  <span x-text="notifyCategoryEnabledCount(cat).on"></span>
+                  <span class="text-[var(--text-faint)]" x-text="' / ' + notifyCategoryEnabledCount(cat).total"></span>
+                </span>
+                <!-- per-medium state chips. clicking a chip cycles
+                     all → none → all for that medium across the
+                     entire category. -->
+                <template x-for="m in notifyMediumNames()" :key="cat.id + '_chip_' + m">
+                  <span class="notify-cat-chip"
+                        :class="'notify-cat-chip--' + notifyCategoryStateForMedium(cat, m)
+                                + (notifyMediumIsGloballyEnabled(m) ? '' : ' notify-cat-chip--admin-disabled')"
+                        :title="(notifyMediumIsGloballyEnabled(m)
+                                 ? (t('profile.notifications.cat_chip_title', { medium: t('admin.notifications.medium_' + m) }) || ('Click to toggle ' + m + ' for this category'))
+                                 : (t('profile.notifications.medium_globally_disabled') || 'Disabled by admin'))"
+                        @click.stop="toggleNotifyCategoryMedium(cat.id, m)">
+                    <span x-text="t('admin.notifications.medium_' + m)"></span>
+                    <svg width="9" height="9" class="ms-1" aria-hidden="true">
+                      <use :href="notifyCategoryStateForMedium(cat, m) === 'all' ? '/img/ui-sprite.svg#icon-activity'
+                                  : (notifyCategoryStateForMedium(cat, m) === 'partial' ? '/img/ui-sprite.svg#icon-help-circle'
+                                  : '/img/ui-sprite.svg#icon-x' || '/img/ui-sprite.svg#icon-help-circle')"/>
+                    </svg>
+                  </span>
+                </template>
+                <svg width="11" height="11"
+                     class="text-[var(--text-faint)] flex-shrink-0 transition-transform"
+                     :class="isNotifyCategoryExpanded(cat.id) ? 'rotate-180' : ''"
+                     aria-hidden="true"><use href="/img/ui-sprite.svg#icon-chevron-down"/></svg>
               </button>
-            </div>
-          </template>
-          <div class="text-[10.5px] text-[var(--text-faint)] uppercase tracking-wider pb-2 border-b border-[var(--border)] text-center"
-               x-text="t('profile.notifications.column_all')"
-               :title="t('profile.notifications.column_all_hint')"></div>
-
-          <!-- Operations events — twelve rows (six groups × success/
-               failure). Flattened via notifyAllOpsRows() so each row
-               is a single grid line; clean Alpine x-for iteration. -->
-          <template x-for="row in notifyAllOpsRows()" :key="row.key">
-            <div class="contents">
-              <div class="py-1.5 text-[12px] text-[var(--text)] flex items-center gap-2 min-w-0">
-                <!-- :title carries the same translated label so users
-                     hovering a truncated row see the full text in a
-                     tooltip (matters for long French / German labels
-                     that overflow the grid column). truncate + min-w-0
-                     on parent gives the span a real width to clip
-                     against; the title fallback rescues the meaning. -->
-                <span x-text="t('admin.notifications.events.' + row.label)"
-                      :title="t('admin.notifications.events.' + row.label)"
-                      class="text-[var(--text-dim)] truncate"></span>
-                <span class="text-[var(--text-faint)]" x-text="'·'"></span>
-                <span x-text="t('admin.notifications.events.' + row.kind)"
-                      :title="t('admin.notifications.events.' + row.kind)"
-                      :class="row.kind === 'failure' ? 'text-[var(--danger)]' : 'text-[var(--success)]'"
-                      class="font-medium"></span>
-              </div>
-              <template x-for="m in notifyMediumNames()" :key="m + '_' + row.key">
-                <div class="py-1.5 flex items-center justify-center">
-                  <label class="inline-flex items-center select-none p-1 rounded hover:bg-[var(--surface-2)]"
-                         :class="userNotifyEventDisabledByAdmin(row.key) ? 'opacity-50 cursor-not-allowed' : (notifyMediumIsGloballyEnabled(m) ? 'cursor-pointer' : 'opacity-60 cursor-pointer')"
-                         :title="userNotifyEventDisabledByAdmin(row.key)
-                                   ? t('profile.notifications.disabled_by_admin')
-                                   : (notifyMediumIsGloballyEnabled(m) ? '' : t('profile.notifications.medium_globally_disabled'))">
-                    <input type="checkbox"
-                           :checked="userNotifyEventValue(row.key, m)"
-                           @change="setUserNotifyEventValue(row.key, m, $event.target.checked)"
-                           :disabled="userNotifyEventDisabledByAdmin(row.key)">
-                  </label>
+              <div x-show="isNotifyCategoryExpanded(cat.id)" x-cloak class="notify-category-body">
+                <!-- Sub-header column labels — only visible inside
+                     the expanded body. -->
+                <div class="notify-grid notify-grid-body"
+                     :style="'grid-template-columns: minmax(0, 1fr) ' + notifyMediumNames().map(() => 'auto').join(' ') + ' auto'">
+                  <div class="text-[10.5px] text-[var(--text-faint)] uppercase tracking-wider pb-1.5 border-b border-[var(--border)]"
+                       x-text="t('profile.notifications.column_event')"></div>
+                  <template x-for="m in notifyMediumNames()" :key="cat.id + '_hdr_' + m">
+                    <div class="text-[10.5px] uppercase tracking-wider pb-1.5 border-b border-[var(--border)] text-center"
+                         :class="notifyMediumIsGloballyEnabled(m) ? 'text-[var(--text-dim)]' : 'text-[var(--text-faint)] opacity-60'"
+                         :title="notifyMediumIsGloballyEnabled(m) ? t('profile.notifications.medium_column_hint') : t('profile.notifications.medium_globally_disabled')">
+                      <span x-text="t('admin.notifications.medium_' + m)"></span>
+                      <svg x-show="!notifyMediumIsGloballyEnabled(m)" width="10" height="10" class="opacity-70 ms-1 inline-block" aria-hidden="true"><use href="/img/ui-sprite.svg#icon-alert-triangle"/></svg>
+                    </div>
+                  </template>
+                  <div class="text-[10.5px] text-[var(--text-faint)] uppercase tracking-wider pb-1.5 border-b border-[var(--border)] text-center"
+                       x-text="t('profile.notifications.column_all')"></div>
+                  <!-- Filtered rows (respects notifySearchQuery). -->
+                  <template x-for="row in notifyCategoryFilteredRows(cat)" :key="cat.id + '_row_' + row.key">
+                    <div class="contents">
+                      <div class="py-1.5 text-[12px] text-[var(--text)] flex items-center gap-2 min-w-0">
+                        <span x-text="t('admin.notifications.events.' + row.label)"
+                              :title="t('admin.notifications.events.' + row.label)"
+                              class="text-[var(--text-dim)] truncate"></span>
+                        <template x-if="row.kind">
+                          <span class="text-[var(--text-faint)]" x-text="'·'"></span>
+                        </template>
+                        <template x-if="row.kind">
+                          <span x-text="t('admin.notifications.events.' + row.kind)"
+                                :title="t('admin.notifications.events.' + row.kind)"
+                                :class="row.kind === 'failure' ? 'text-[var(--danger)]' : 'text-[var(--success)]'"
+                                class="font-medium"></span>
+                        </template>
+                      </div>
+                      <template x-for="m in notifyMediumNames()" :key="cat.id + '_chk_' + m + '_' + row.key">
+                        <div class="py-1.5 flex items-center justify-center">
+                          <label class="inline-flex items-center select-none p-1 rounded hover:bg-[var(--surface-2)]"
+                                 :class="userNotifyEventDisabledByAdmin(row.key) ? 'opacity-50 cursor-not-allowed' : (notifyMediumIsGloballyEnabled(m) ? 'cursor-pointer' : 'opacity-60 cursor-pointer')"
+                                 :title="userNotifyEventDisabledByAdmin(row.key)
+                                           ? t('profile.notifications.disabled_by_admin')
+                                           : (notifyMediumIsGloballyEnabled(m) ? '' : t('profile.notifications.medium_globally_disabled'))">
+                            <input type="checkbox"
+                                   :checked="userNotifyEventValue(row.key, m)"
+                                   @change="setUserNotifyEventValue(row.key, m, $event.target.checked)"
+                                   :disabled="userNotifyEventDisabledByAdmin(row.key)">
+                          </label>
+                        </div>
+                      </template>
+                      <div class="py-1.5 flex items-center justify-center">
+                        <label class="inline-flex items-center select-none p-1 rounded hover:bg-[var(--surface-2)]"
+                               :class="userNotifyEventDisabledByAdmin(row.key) ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'"
+                               :title="userNotifyEventDisabledByAdmin(row.key) ? t('profile.notifications.disabled_by_admin') : t('profile.notifications.row_all_hint')">
+                          <input type="checkbox"
+                                 :checked="userNotifyEventRowAll(row.key)"
+                                 @change="toggleUserNotifyEventRow(row.key, $event.target.checked)"
+                                 :disabled="userNotifyEventDisabledByAdmin(row.key)">
+                        </label>
+                      </div>
+                    </div>
+                  </template>
                 </div>
-              </template>
-              <div class="py-1.5 flex items-center justify-center">
-                <label class="inline-flex items-center select-none p-1 rounded hover:bg-[var(--surface-2)]"
-                       :class="userNotifyEventDisabledByAdmin(row.key) ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'"
-                       :title="userNotifyEventDisabledByAdmin(row.key) ? t('profile.notifications.disabled_by_admin') : t('profile.notifications.row_all_hint')">
-                  <input type="checkbox"
-                         :checked="userNotifyEventRowAll(row.key)"
-                         @change="toggleUserNotifyEventRow(row.key, $event.target.checked)"
-                         :disabled="userNotifyEventDisabledByAdmin(row.key)">
-                </label>
               </div>
-            </div>
+            </section>
           </template>
-
-          <!-- Security section header — spans every column. -->
-          <div class="text-[10.5px] text-[var(--text-faint)] uppercase tracking-wider mt-3 pt-3 border-t border-[var(--border)]"
-               :style="'grid-column: 1 / span ' + (notifyMediumNames().length + 2)"
-               x-text="t('admin.notifications.events.security_section')"></div>
-          <template x-for="e in notifySecurityEvents" :key="e.key">
-            <div class="contents">
-              <div class="py-1.5 text-[12px] text-[var(--text-dim)]"
-                   x-text="t('admin.notifications.events.' + e.label)"></div>
-              <template x-for="m in notifyMediumNames()" :key="m + '_' + e.label">
-                <div class="py-1.5 flex items-center justify-center">
-                  <label class="inline-flex items-center select-none p-1 rounded hover:bg-[var(--surface-2)]"
-                         :class="userNotifyEventDisabledByAdmin(e.key) ? 'opacity-50 cursor-not-allowed' : (notifyMediumIsGloballyEnabled(m) ? 'cursor-pointer' : 'opacity-60 cursor-pointer')"
-                         :title="userNotifyEventDisabledByAdmin(e.key)
-                                   ? t('profile.notifications.disabled_by_admin')
-                                   : (notifyMediumIsGloballyEnabled(m) ? '' : t('profile.notifications.medium_globally_disabled'))">
-                    <input type="checkbox"
-                           :checked="userNotifyEventValue(e.key, m)"
-                           @change="setUserNotifyEventValue(e.key, m, $event.target.checked)"
-                           :disabled="userNotifyEventDisabledByAdmin(e.key)">
-                  </label>
-                </div>
-              </template>
-              <div class="py-1.5 flex items-center justify-center">
-                <label class="inline-flex items-center select-none p-1 rounded hover:bg-[var(--surface-2)]"
-                       :class="userNotifyEventDisabledByAdmin(e.key) ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'"
-                       :title="userNotifyEventDisabledByAdmin(e.key) ? t('profile.notifications.disabled_by_admin') : t('profile.notifications.row_all_hint')">
-                  <input type="checkbox"
-                         :checked="userNotifyEventRowAll(e.key)"
-                         @change="toggleUserNotifyEventRow(e.key, $event.target.checked)"
-                         :disabled="userNotifyEventDisabledByAdmin(e.key)">
-                </label>
-              </div>
-            </div>
-          </template>
-
-          <!-- Sampler section header. -->
-          <div class="text-[10.5px] text-[var(--text-faint)] uppercase tracking-wider mt-3 pt-3 border-t border-[var(--border)]"
-               :style="'grid-column: 1 / span ' + (notifyMediumNames().length + 2)"
-               x-text="t('admin.notifications.events.sampler_section')"></div>
-          <template x-for="e in notifySamplerEvents" :key="e.key">
-            <div class="contents">
-              <div class="py-1.5 text-[12px] text-[var(--text-dim)]"
-                   x-text="t('admin.notifications.events.' + e.label)"></div>
-              <template x-for="m in notifyMediumNames()" :key="m + '_' + e.label">
-                <div class="py-1.5 flex items-center justify-center">
-                  <label class="inline-flex items-center select-none p-1 rounded hover:bg-[var(--surface-2)]"
-                         :class="userNotifyEventDisabledByAdmin(e.key) ? 'opacity-50 cursor-not-allowed' : (notifyMediumIsGloballyEnabled(m) ? 'cursor-pointer' : 'opacity-60 cursor-pointer')"
-                         :title="userNotifyEventDisabledByAdmin(e.key)
-                                   ? t('profile.notifications.disabled_by_admin')
-                                   : (notifyMediumIsGloballyEnabled(m) ? '' : t('profile.notifications.medium_globally_disabled'))">
-                    <input type="checkbox"
-                           :checked="userNotifyEventValue(e.key, m)"
-                           @change="setUserNotifyEventValue(e.key, m, $event.target.checked)"
-                           :disabled="userNotifyEventDisabledByAdmin(e.key)">
-                  </label>
-                </div>
-              </template>
-              <div class="py-1.5 flex items-center justify-center">
-                <label class="inline-flex items-center select-none p-1 rounded hover:bg-[var(--surface-2)]"
-                       :class="userNotifyEventDisabledByAdmin(e.key) ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'"
-                       :title="userNotifyEventDisabledByAdmin(e.key) ? t('profile.notifications.disabled_by_admin') : t('profile.notifications.row_all_hint')">
-                  <input type="checkbox"
-                         :checked="userNotifyEventRowAll(e.key)"
-                         @change="toggleUserNotifyEventRow(e.key, $event.target.checked)"
-                         :disabled="userNotifyEventDisabledByAdmin(e.key)">
-                </label>
-              </div>
-            </div>
-          </template>
-
-          <!-- Health section — sampler-shape rows for events that
-               surface an unhealthy state. Today: swarm_agent_unhealthy
-               from the swarm_agent_health schedule kind. -->
-          <div class="text-[10.5px] text-[var(--text-faint)] uppercase tracking-wider mt-3 pt-3 border-t border-[var(--border)]"
-               :style="'grid-column: 1 / span ' + (notifyMediumNames().length + 2)"
-               x-text="t('admin.notifications.events.health_section') || 'Health'"></div>
-          <template x-for="e in notifyHealthEvents" :key="e.key">
-            <div class="contents">
-              <div class="py-1.5 text-[12px] text-[var(--text-dim)]"
-                   x-text="t('admin.notifications.events.' + e.label)"></div>
-              <template x-for="m in notifyMediumNames()" :key="m + '_' + e.label">
-                <div class="py-1.5 flex items-center justify-center">
-                  <label class="inline-flex items-center select-none p-1 rounded hover:bg-[var(--surface-2)]"
-                         :class="userNotifyEventDisabledByAdmin(e.key) ? 'opacity-50 cursor-not-allowed' : (notifyMediumIsGloballyEnabled(m) ? 'cursor-pointer' : 'opacity-60 cursor-pointer')"
-                         :title="userNotifyEventDisabledByAdmin(e.key)
-                                   ? t('profile.notifications.disabled_by_admin')
-                                   : (notifyMediumIsGloballyEnabled(m) ? '' : t('profile.notifications.medium_globally_disabled'))">
-                    <input type="checkbox"
-                           :checked="userNotifyEventValue(e.key, m)"
-                           @change="setUserNotifyEventValue(e.key, m, $event.target.checked)"
-                           :disabled="userNotifyEventDisabledByAdmin(e.key)">
-                  </label>
-                </div>
-              </template>
-              <div class="py-1.5 flex items-center justify-center">
-                <label class="inline-flex items-center select-none p-1 rounded hover:bg-[var(--surface-2)]"
-                       :class="userNotifyEventDisabledByAdmin(e.key) ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'"
-                       :title="userNotifyEventDisabledByAdmin(e.key) ? t('profile.notifications.disabled_by_admin') : t('profile.notifications.row_all_hint')">
-                  <input type="checkbox"
-                         :checked="userNotifyEventRowAll(e.key)"
-                         @change="toggleUserNotifyEventRow(e.key, $event.target.checked)"
-                         :disabled="userNotifyEventDisabledByAdmin(e.key)">
-                </label>
-              </div>
-            </div>
-          </template>
+          <!-- Empty-state when no category has any matching row. -->
+          <div x-show="notifySearchQuery && notifyCategories().every(c => notifyCategoryFilteredRows(c).length === 0)"
+               class="text-[11.5px] text-[var(--text-faint)] italic py-3 text-center"
+               x-text="t('profile.notifications.search_no_match', { query: notifySearchQuery }) || ('No events match \"' + notifySearchQuery + '\"')"></div>
         </div>
 
         <!-- User-side convenience buttons — Enable all / Disable all /
@@ -4361,6 +4343,30 @@
             <div class="text-[10.5px] text-[var(--text-faint)] uppercase tracking-wider mb-2"
                  x-text="t('admin.notifications.events.sampler_section')"></div>
             <template x-for="e in notifySamplerEvents" :key="e.key">
+              <div class="flex items-center justify-between gap-3 py-1">
+                <span class="text-[12px] text-[var(--text)]"
+                      x-text="t('admin.notifications.events.' + e.label)"></span>
+                <label class="flex items-center gap-1.5 text-[11.5px] cursor-pointer select-none">
+                  <input type="checkbox"
+                         :checked="settings[e.key]"
+                         @change="settings[e.key] = $event.target.checked"
+                         :disabled="isReadonly() || !settings.apprise_enabled">
+                  <span class="text-[var(--text-dim)]" x-text="t('admin.notifications.events.enabled')"></span>
+                </label>
+              </div>
+            </template>
+          </div>
+
+          <!-- Health events — global admin toggle for every entry in
+               `notifyHealthEvents` (currently `swarm_agent_unhealthy`
+               from the swarm_agent_health schedule kind). Mirrors the
+               Sampler block's pattern: each row binds to settings[e.key]
+               for the global on/off; per-user opt-in lives in the
+               Profile → Notifications grid. -->
+          <div class="border-t border-[var(--border)] pt-3 mb-3">
+            <div class="text-[10.5px] text-[var(--text-faint)] uppercase tracking-wider mb-2"
+                 x-text="t('admin.notifications.events.health_section') || 'Health'"></div>
+            <template x-for="e in notifyHealthEvents" :key="e.key">
               <div class="flex items-center justify-between gap-3 py-1">
                 <span class="text-[12px] text-[var(--text)]"
                       x-text="t('admin.notifications.events.' + e.label)"></span>

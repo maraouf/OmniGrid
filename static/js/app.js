@@ -6557,6 +6557,197 @@ function app() {
       }
       return rows;
     },
+    // ---- Categorised notification list (Profile → Notifications) ----
+    // Groups every event into one of three buckets so the per-event
+    // matrix scales as more events are added without overwhelming the
+    // user with one flat 30-row grid. Each category is rendered as a
+    // collapsible card; the category header carries:
+    //   - icon + label
+    //   - active-count badge (`X / N enabled`)
+    //   - one chip per medium showing that category's column state
+    //     (all / partial / none) — clicking flips every event in the
+    //     category for that medium
+    //   - chevron toggling the row list visible
+    // The flat per-row matrix moves INSIDE each card. Search, presets,
+    // and dirty-tracking continue to operate against the same
+    // profileForm.notify_events store.
+    notifyCategories() {
+      // Operations rows come from the existing notifyEventGroups
+      // (paired success/failure); Health from notifyHealthEvents +
+      // notifySamplerEvents (single-toggle health-style events);
+      // Security from notifySecurityEvents.
+      const ops = [];
+      for (const g of this.notifyEventGroups) {
+        ops.push({ key: g.success, label: g.label, kind: 'success' });
+        ops.push({ key: g.failure, label: g.label, kind: 'failure' });
+      }
+      const health = [];
+      for (const e of (this.notifySamplerEvents || [])) {
+        health.push({ key: e.key, label: e.label, kind: null });
+      }
+      for (const e of (this.notifyHealthEvents || [])) {
+        health.push({ key: e.key, label: e.label, kind: null });
+      }
+      const security = [];
+      for (const e of (this.notifySecurityEvents || [])) {
+        security.push({ key: e.key, label: e.label, kind: null });
+      }
+      return [
+        {
+          id: 'operations',
+          icon: 'icon-activity',
+          label_key: 'profile.notifications.cat_operations',
+          desc_key:  'profile.notifications.cat_operations_desc',
+          rows: ops,
+        },
+        {
+          id: 'health',
+          icon: 'icon-alert-triangle',
+          label_key: 'profile.notifications.cat_health',
+          desc_key:  'profile.notifications.cat_health_desc',
+          rows: health,
+        },
+        {
+          id: 'security',
+          icon: 'icon-shield',
+          label_key: 'profile.notifications.cat_security',
+          desc_key:  'profile.notifications.cat_security_desc',
+          rows: security,
+        },
+      ];
+    },
+    // Rows that match the current search query (case-insensitive
+    // substring against the translated event label OR the underlying
+    // event key). Returns the input array unchanged when no search
+    // is active so the common case is allocation-free.
+    notifyCategoryFilteredRows(cat) {
+      const rows = (cat && cat.rows) || [];
+      const q = (this.notifySearchQuery || '').trim().toLowerCase();
+      if (!q) return rows;
+      const out = [];
+      for (const r of rows) {
+        const label = (this.t('admin.notifications.events.' + r.label) || '').toLowerCase();
+        const kind  = r.kind ? (this.t('admin.notifications.events.' + r.kind) || '').toLowerCase() : '';
+        if (label.includes(q) || kind.includes(q) || (r.key || '').toLowerCase().includes(q)) {
+          out.push(r);
+        }
+      }
+      return out;
+    },
+    // Per-(category, medium) state — 'all', 'none', or 'partial'.
+    // Drives the chip styling in the category header so the user
+    // can see at a glance which mediums the category is fully
+    // routing to. Skips admin-disabled events from the count so a
+    // greyed row doesn't drag a category to "partial" forever.
+    notifyCategoryStateForMedium(cat, medium) {
+      const rows = (cat && cat.rows) || [];
+      let on = 0, off = 0;
+      for (const r of rows) {
+        if (this.userNotifyEventDisabledByAdmin(r.key)) continue;
+        if (this.userNotifyEventValue(r.key, medium)) on += 1;
+        else off += 1;
+      }
+      if (on === 0 && off === 0) return 'none';
+      if (off === 0) return 'all';
+      if (on === 0) return 'none';
+      return 'partial';
+    },
+    notifyCategoryEnabledCount(cat) {
+      const rows = (cat && cat.rows) || [];
+      let total = 0, on = 0;
+      const mediums = this.notifyMediumNames();
+      for (const r of rows) {
+        if (this.userNotifyEventDisabledByAdmin(r.key)) continue;
+        total += 1;
+        // "Enabled" for the count = at least one medium routes the event.
+        for (const m of mediums) {
+          if (this.userNotifyEventValue(r.key, m)) { on += 1; break; }
+        }
+      }
+      return { on, total };
+    },
+    // Toggle every event in a category for ONE medium. Skips
+    // admin-disabled events. Click on the medium chip in the
+    // category header.
+    toggleNotifyCategoryMedium(catId, medium, nextValue) {
+      const cat = (this.notifyCategories() || []).find(c => c.id === catId);
+      if (!cat) return;
+      // Resolve the next value: if not supplied, flip based on
+      // current state (all → none, partial/none → all).
+      let v = nextValue;
+      if (v === undefined) {
+        const state = this.notifyCategoryStateForMedium(cat, medium);
+        v = (state !== 'all');
+      }
+      const f = this.profileForm || {};
+      if (!f.notify_events) f.notify_events = {};
+      const mediums = this.notifyMediumNames();
+      for (const r of cat.rows) {
+        if (this.userNotifyEventDisabledByAdmin(r.key)) continue;
+        const bare = this._bareEventName(r.key);
+        let slot = f.notify_events[bare];
+        if (!slot || typeof slot !== 'object') {
+          const prev = !!slot;
+          slot = {};
+          for (const mm of mediums) slot[mm] = prev;
+          f.notify_events[bare] = slot;
+        }
+        slot[medium] = !!v;
+      }
+    },
+    // Toggle EVERY medium for every event in the category — the
+    // "All" master chip per category.
+    toggleNotifyCategoryAll(catId, nextValue) {
+      const cat = (this.notifyCategories() || []).find(c => c.id === catId);
+      if (!cat) return;
+      let v = nextValue;
+      if (v === undefined) {
+        // Flip based on whether ANY medium is "all" — defaults to
+        // turning everything ON when the category is mixed/off.
+        const mediums = this.notifyMediumNames();
+        const allOn = mediums.every(m => this.notifyCategoryStateForMedium(cat, m) === 'all');
+        v = !allOn;
+      }
+      const f = this.profileForm || {};
+      if (!f.notify_events) f.notify_events = {};
+      const mediums = this.notifyMediumNames();
+      for (const r of cat.rows) {
+        if (this.userNotifyEventDisabledByAdmin(r.key)) continue;
+        const bare = this._bareEventName(r.key);
+        const slot = {};
+        for (const m of mediums) slot[m] = !!v;
+        f.notify_events[bare] = slot;
+      }
+    },
+    notifyCategoryAllState(cat) {
+      const mediums = this.notifyMediumNames();
+      const states = mediums.map(m => this.notifyCategoryStateForMedium(cat, m));
+      if (states.every(s => s === 'all'))  return 'all';
+      if (states.every(s => s === 'none')) return 'none';
+      return 'partial';
+    },
+    isNotifyCategoryExpanded(catId) {
+      // Default-expanded for the FIRST category (operations) so
+      // first-time users see the rows immediately; the rest collapse
+      // to keep the panel short.
+      if (this.notifyCategoryExpanded[catId] === undefined) {
+        return catId === 'operations';
+      }
+      return !!this.notifyCategoryExpanded[catId];
+    },
+    toggleNotifyCategoryExpanded(catId) {
+      const cur = this.isNotifyCategoryExpanded(catId);
+      this.notifyCategoryExpanded = {
+        ...this.notifyCategoryExpanded,
+        [catId]: !cur,
+      };
+    },
+    expandAllNotifyCategories(value) {
+      const v = (value !== false);
+      const next = {};
+      for (const c of this.notifyCategories()) next[c.id] = v;
+      this.notifyCategoryExpanded = next;
+    },
     _appriseSnapshot() {
       const s = this.settings || {};
       const events = {};
@@ -6719,6 +6910,12 @@ function app() {
     // = "leave the corresponding side untouched". Persisted in-memory
     // only (the row's persistence happens via the PATCH that
     // saveProfile fires on the next save).
+    // Profile → Notifications redesign state (#993). Search filters
+    // event rows live; per-category expand/collapse map keyed by
+    // category id (default-expanded for 'operations' so first-time
+    // users see rows immediately).
+    notifySearchQuery: '',
+    notifyCategoryExpanded: {},
     userNotifyBulkSuccessMedium: '',
     userNotifyBulkFailureMedium: '',
     // One-click bulk-set: route every success event to
