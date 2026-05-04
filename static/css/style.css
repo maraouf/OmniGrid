@@ -2557,6 +2557,47 @@ details summary::-webkit-details-marker {
     gap: var(--s-1) var(--s-3);
 }
 
+/* Clickable event-label row in Admin → Notifications. Strips the
+   default <button> chrome but keeps the focus ring + cursor for
+   keyboard users — affordance is "click anywhere on the row's
+   textual area to open the template editor". */
+.notify-event-row-btn {
+    background: transparent;
+    border: 0;
+    padding: 0;
+    color: inherit;
+    font: inherit;
+}
+.notify-event-row-btn:hover {
+    color: var(--text);
+}
+.notify-event-row-btn:focus-visible {
+    outline: 2px solid var(--primary);
+    outline-offset: 2px;
+    border-radius: var(--r-sm);
+}
+
+/* Profile-side info button next to each notification event. Uses the
+   same reset shape as the row button but stays small + flush against
+   the label. */
+.notify-tmpl-info-btn {
+    background: transparent;
+    border: 0;
+    padding: var(--s-1);
+    line-height: 1;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    border-radius: var(--r-sm);
+}
+.notify-tmpl-info-btn:hover {
+    background: var(--surface-2);
+}
+.notify-tmpl-info-btn:focus-visible {
+    outline: 2px solid var(--primary);
+    outline-offset: 2px;
+}
+
 /* HOSTS BULK ACTION BAR — sticky at the bottom of the viewport when
    one or more hosts are selected. Mirrors the items bulk bar pattern
    but anchored to the bottom (vs sticky-top) because the Hosts view's

@@ -295,6 +295,21 @@ async def _lifespan(app: FastAPI):
                       f"host_failure_state / host_provider_last_ok")
         except Exception as e:
             print(f"[boot] orphan sweep failed: {e}")
+        # Notification template audit — verify every event registered in
+        # NOTIFY_EVENT_NAMES has a matching default in
+        # NOTIFY_TEMPLATE_DEFAULTS. Drift surfaces as a WARN log line +
+        # a flag on /api/admin/notify-templates so the SPA's editor can
+        # render a warning chip. Cheap; runs once at boot.
+        try:
+            audit = _ops_mod.audit_template_coverage()
+            if audit.get("missing_defaults") or audit.get("unknown_defaults"):
+                print(
+                    f"[boot] notify template audit: "
+                    f"missing_defaults={audit.get('missing_defaults') or []} "
+                    f"unknown_defaults={audit.get('unknown_defaults') or []}"
+                )
+        except Exception as e:
+            print(f"[boot] notify template audit failed: {e}")
 
     seed_task = asyncio.create_task(_seed_caches_bg(), name="boot-seed-caches")
     sampler = asyncio.create_task(_stats_sampler_loop(), name="stats-sampler")
@@ -3216,6 +3231,293 @@ def _settings_version_for_payload() -> int:
 @app.get("/api/admin/tuning")
 async def api_admin_tuning(_admin: auth.User = Depends(auth.require_admin)):
     return tuning.effective_state()
+
+
+# ----------------------------------------------------------------------------
+# Notification templates — admin-only editor surface.
+# ----------------------------------------------------------------------------
+# Each event in `NOTIFY_EVENT_NAMES` ships with hard-coded baseline
+# templates (`logic.ops.NOTIFY_TEMPLATE_DEFAULTS`); admins can override
+# the title or body via DB-backed settings (`notify_template_<event>_title`
+# / `_body`). Three routes power the Admin → Notifications template
+# editor + the Profile → Notifications read-only popup:
+#
+#   GET  /api/admin/notify-templates                 — list every event +
+#                                                       its current state.
+#   POST /api/admin/notify-templates/{event}         — write title/body
+#                                                       (empty string =
+#                                                       reset to default).
+#   POST /api/admin/notify-templates/{event}/preview — render with sample
+#                                                       values for the
+#                                                       live-preview pane.
+#   POST /api/admin/notify-templates/{event}/test    — fire one real
+#                                                       notification through
+#                                                       the live dispatcher
+#                                                       so the admin can
+#                                                       see the rendered
+#                                                       output land in
+#                                                       Apprise + the
+#                                                       in-app inbox.
+#
+# Resolution order at fire time: DB setting (when non-empty) → hard-coded
+# default → empty (defence in depth — the audit gate flags missing
+# defaults so this branch is unreachable in practice). See CLAUDE.md
+# "How notification templates resolve" + "How to add a new notify event
+# with a template default" for the canonical extension pattern.
+# ----------------------------------------------------------------------------
+class NotifyTemplateIn(BaseModel):
+    """PUT/POST body for the per-event template editor.
+
+    Both fields are optional — sending only ``title`` updates just that
+    field. Empty string is a sentinel for "reset to default" (deletes
+    the DB row); a non-empty string saves verbatim. Mirrors the
+    keep-current-if-blank contract used elsewhere in the codebase
+    (Webmin password, Portainer API key, etc.).
+    """
+    title: Optional[str] = None
+    body:  Optional[str] = None
+
+
+class NotifyTemplatePreviewIn(BaseModel):
+    """POST body for the live-preview pane. ``title`` / ``body`` are
+    rendered against the sample placeholder values (see
+    :data:`NOTIFY_TEMPLATE_SAMPLES`) and the response carries the
+    resolved strings + metadata about which placeholders fired.
+    """
+    title: Optional[str] = None
+    body:  Optional[str] = None
+
+
+def _shape_notify_template_row(event: str) -> dict:
+    """Build the API JSON shape for ONE event's template state.
+
+    Used by :func:`api_admin_notify_templates` (list endpoint) and
+    :func:`api_admin_notify_templates_set` (single-event response).
+    """
+    title_key, body_key = _ops_mod.template_setting_keys(event)
+    raw_title = (get_setting(title_key, "") or "")
+    raw_body  = (get_setting(body_key,  "") or "")
+    default_title = _ops_mod.template_default(event, "title")
+    default_body  = _ops_mod.template_default(event, "body")
+    return {
+        "event": event,
+        "title": raw_title if raw_title else default_title,
+        "body":  raw_body  if raw_body  else default_body,
+        "title_default": default_title,
+        "body_default":  default_body,
+        "title_is_default": (not raw_title),
+        "body_is_default":  (not raw_body),
+    }
+
+
+@app.get("/api/admin/notify-templates")
+async def api_admin_notify_templates(_admin: auth.User = Depends(auth.require_admin)):
+    """List every registered event + its template state.
+
+    Returns:
+      - ``events``: list of per-event objects (see
+        :func:`_shape_notify_template_row`).
+      - ``available_placeholders``: tuple of placeholder names the
+        editor surfaces as clickable chips. Curated whitelist —
+        :data:`NOTIFY_PLACEHOLDERS`.
+      - ``samples``: sample values used by the live-preview pane (so
+        the SPA can render a hint label "{name} → example-stack" next
+        to each chip without a separate round-trip).
+      - ``unbound_events``: events that fire ``notify(event=...)`` in
+        code but aren't in :data:`NOTIFY_EVENT_NAMES` (audit gate;
+        empty when the codebase is consistent — surfaced as a warning
+        chip in the SPA).
+      - ``missing_defaults`` / ``unknown_defaults``: see
+        :func:`audit_template_coverage`.
+    """
+    audit = _ops_mod.audit_template_coverage()
+    return {
+        "events": [
+            _shape_notify_template_row(name) for name in _NOTIFY_EVENT_NAMES
+        ],
+        "available_placeholders": list(_ops_mod.NOTIFY_PLACEHOLDERS),
+        "samples": dict(_ops_mod.NOTIFY_TEMPLATE_SAMPLES),
+        "missing_defaults": audit.get("missing_defaults") or [],
+        "unknown_defaults": audit.get("unknown_defaults") or [],
+        # Reserved for the future "scan the codebase for unregistered
+        # notify(event=...) calls" enforcement; currently always empty
+        # because the audit gate runs against the static defaults map.
+        "unbound_events": [],
+    }
+
+
+@app.post("/api/admin/notify-templates/{event}")
+async def api_admin_notify_templates_set(
+    event: str,
+    body: NotifyTemplateIn,
+    _admin: auth.User = Depends(auth.require_admin),
+):
+    """Write one event's template title and/or body.
+
+    Empty string is a sentinel: clears the DB row so the resolver
+    falls back to the hard-coded default. Non-empty string saves
+    verbatim (UTF-8 round-trip; emoji friendly).
+
+    Validates the event name against :data:`NOTIFY_EVENT_NAMES` so a
+    typo can't silently land a stray settings row that nothing reads.
+    """
+    if event not in _NOTIFY_EVENT_NAMES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unknown event '{event}'. Must be one of: "
+                   f"{', '.join(sorted(_NOTIFY_EVENT_NAMES))}.",
+        )
+    title_key, body_key = _ops_mod.template_setting_keys(event)
+    # Both fields use the keep-current-if-None contract (None ⇒ no-op);
+    # explicit empty string ⇒ clear (fall back to default at resolve
+    # time). Single defer-context so the cross-tab settings:updated
+    # SSE event fires once even if both fields changed.
+    from logic.db import defer_settings_version_bump
+    with defer_settings_version_bump():
+        if body.title is not None:
+            set_setting(title_key, body.title or "")
+        if body.body is not None:
+            set_setting(body_key, body.body or "")
+    return _shape_notify_template_row(event)
+
+
+@app.post("/api/admin/notify-templates/{event}/preview")
+async def api_admin_notify_templates_preview(
+    event: str,
+    body: NotifyTemplatePreviewIn,
+    _admin: auth.User = Depends(auth.require_admin),
+):
+    """Render an in-flight template against sample values.
+
+    Drives the live-preview pane in the editor — the SPA debounces
+    keystrokes and POSTs the in-progress title/body, displaying the
+    rendered output as the operator types. Also surfaces:
+      - ``used_placeholders``: every ``{key}`` token found in either
+        template, in stable order — operator can confirm the chip
+        clicks landed.
+      - ``unknown_placeholders``: tokens NOT in
+        :data:`NOTIFY_PLACEHOLDERS`. Renders as the verbatim ``{key}``
+        in the output (no KeyError) but the editor highlights them so
+        the operator sees the typo.
+
+    Event name is still validated even though preview doesn't write
+    state — keeps the 400-on-typo contract symmetrical.
+    """
+    if event not in _NOTIFY_EVENT_NAMES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unknown event '{event}'. Must be one of: "
+                   f"{', '.join(sorted(_NOTIFY_EVENT_NAMES))}.",
+        )
+    samples = dict(_ops_mod.NOTIFY_TEMPLATE_SAMPLES)
+    title_in = body.title or ""
+    body_in  = body.body  or ""
+    rendered_title = _ops_mod.render_template(title_in, samples)
+    rendered_body  = _ops_mod.render_template(body_in,  samples)
+    # Token analysis — find every {placeholder} occurrence. Curly braces
+    # inside a single-quoted JSON value are rare in practice; the regex
+    # tolerates whitespace inside the braces (`{ name }` → `name`) but
+    # not nested braces (which str.format_map would reject anyway).
+    token_re = re.compile(r"\{\s*([a-zA-Z_][a-zA-Z0-9_]*)\s*\}")
+    found_tokens: list[str] = []
+    seen: set[str] = set()
+    for src in (title_in, body_in):
+        for m in token_re.finditer(src):
+            t = m.group(1)
+            if t in seen:
+                continue
+            seen.add(t)
+            found_tokens.append(t)
+    valid_set = set(_ops_mod.NOTIFY_PLACEHOLDERS)
+    used = [t for t in found_tokens if t in valid_set]
+    unknown = [t for t in found_tokens if t not in valid_set]
+    return {
+        "rendered_title": rendered_title,
+        "rendered_body":  rendered_body,
+        "used_placeholders": used,
+        "unknown_placeholders": unknown,
+        "samples": samples,
+    }
+
+
+@app.post("/api/admin/notify-templates/{event}/test")
+async def api_admin_notify_templates_test(
+    event: str,
+    body: NotifyTemplatePreviewIn,
+    request: Request,
+    _admin: auth.User = Depends(auth.require_admin),
+):
+    """Fire one real notification through the live dispatcher.
+
+    The body's ``title`` / ``body`` are SAVED to the DB before the
+    fire so the dispatcher resolves the in-progress template (matching
+    what the admin is about to commit). After firing, the response
+    carries the rendered strings + the per-medium fan-out outcome.
+
+    Marked as a TEST run via metadata so the in-app row is visually
+    distinguishable from a real op-fired notification (the SPA's
+    notifications panel can highlight `metadata.test: true` rows).
+    """
+    if event not in _NOTIFY_EVENT_NAMES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unknown event '{event}'. Must be one of: "
+                   f"{', '.join(sorted(_NOTIFY_EVENT_NAMES))}.",
+        )
+    # Stash whatever the admin has typed (if anything) so the
+    # dispatcher's `resolve_template` picks it up. None → no write,
+    # leaving the previously-saved value (or default) in play.
+    title_key, body_key = _ops_mod.template_setting_keys(event)
+    from logic.db import defer_settings_version_bump
+    with defer_settings_version_bump():
+        if body.title is not None:
+            set_setting(title_key, body.title or "")
+        if body.body is not None:
+            set_setting(body_key, body.body or "")
+    # Build sample-flavoured kwargs so the dispatcher's placeholder
+    # resolver lands on the sample values. The SPA's "Send test"
+    # button is admin-only, so the actor is whoever clicked it.
+    samples = dict(_ops_mod.NOTIFY_TEMPLATE_SAMPLES)
+    actor = getattr(getattr(request.state, "user", None), "username", None) or "system"
+    # Determine target_kind from the event name — failure events
+    # commonly target the same kind as their success siblings; we
+    # don't introspect that here and just use the sample {host} as
+    # the target_id so the in-app row's deep-link shape is sane.
+    legacy_title = "🔔 Test: " + samples.get("name", "example")
+    legacy_body  = samples.get("error", "") if event.endswith("_failure") else ""
+    severity = "error" if event.endswith("_failure") else "success"
+    try:
+        await notify(
+            legacy_title,
+            legacy_body,
+            severity,
+            event=event,
+            actor_username=actor,
+            target_kind="host",
+            target_id=samples.get("host") or "",
+            metadata={
+                "test": True,
+                "host": samples.get("host") or "",
+            },
+        )
+    except Exception as e:
+        return {
+            "ok": False,
+            "error": f"{type(e).__name__}: {e}",
+        }
+    return {
+        "ok": True,
+        "event": event,
+        # Re-render against samples so the response carries what the
+        # admin should expect to see in their inbox; saves a separate
+        # /preview round-trip.
+        "rendered_title": _ops_mod.render_template(
+            _ops_mod.resolve_template(event, "title"), samples,
+        ),
+        "rendered_body": _ops_mod.render_template(
+            _ops_mod.resolve_template(event, "body"), samples,
+        ),
+    }
 
 
 # ----------------------------------------------------------------------------

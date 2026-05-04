@@ -7021,6 +7021,324 @@ function app() {
     notifyCategoryExpanded: {},
     userNotifyBulkSuccessMedium: '',
     userNotifyBulkFailureMedium: '',
+    // Notification template editor state. ONE shared model drives BOTH
+    // admin-edit mode (writable) AND profile-side viewer mode (read-only).
+    // `event` is the bare event name (no `notify_event_` prefix). The
+    // editor is opened via openNotifyTemplateEditor / openNotifyTemplateViewer
+    // and closed via closeNotifyTemplateEditor (Esc / backdrop / Close).
+    // `preview` is refreshed by a 200ms-debounced call to
+    // refreshNotifyTemplatePreview() — server-rendered so the typo-
+    // detection logic stays in one place.
+    notifyTemplateEditor: {
+      open: false,
+      readOnly: false,
+      event: '',           // bare event name
+      title: '',           // current edit value (empty = use default)
+      body: '',
+      title_default: '',   // hard-coded default (placeholder hint + reset target)
+      body_default: '',
+      title_baseline: '',  // baseline for dirty tracking; captured on open
+      body_baseline: '',
+      available_placeholders: [],
+      samples: {},
+      preview: { rendered_title: '', rendered_body: '', used_placeholders: [], unknown_placeholders: [] },
+      saving: false,
+      testing: false,
+    },
+    notifyTemplateEvent: null,  // {label, key, kind?} resolved at open time
+
+    // ---- Notification template editor handlers ----
+    // Locate the {label, kind} metadata for ONE bare event name so the
+    // modal's header chip + i18n can render the human-readable bits.
+    // Walks the same notifyEventGroups / notifyHealthEvents / etc.
+    // arrays the rest of the SPA uses, so a new event added in any of
+    // those four arrays automatically resolves a label here too.
+    _resolveNotifyTemplateEvent(bareEventName) {
+      const fullKey = 'notify_event_' + bareEventName;
+      for (const g of (this.notifyEventGroups || [])) {
+        if (g.success === fullKey) return { label: g.label, kind: 'success', key: fullKey };
+        if (g.failure === fullKey) return { label: g.label, kind: 'failure', key: fullKey };
+      }
+      for (const e of (this.notifyHealthEvents || [])) {
+        if (e.key === fullKey) return { label: e.label, kind: null, key: fullKey };
+      }
+      for (const e of (this.notifySecurityEvents || [])) {
+        if (e.key === fullKey) return { label: e.label, kind: null, key: fullKey };
+      }
+      for (const e of (this.notifySamplerEvents || [])) {
+        if (e.key === fullKey) return { label: e.label, kind: null, key: fullKey };
+      }
+      // Fallback: render the bare event name verbatim if our static
+      // arrays don't know about it (audit gate already logs a WARN
+      // line in that case).
+      return { label: bareEventName, kind: null, key: fullKey };
+    },
+    // Open the editor in READ-WRITE mode (admin only — a non-admin
+    // who somehow lands here gets the read-only render via isAdmin
+    // gating in the modal markup, but we guard at the entry point too
+    // for defence in depth).
+    async openNotifyTemplateEditor(bareEventName) {
+      if (!this.isAdmin()) {
+        return this.openNotifyTemplateViewer(bareEventName);
+      }
+      await this._loadAndShowNotifyTemplate(bareEventName, false);
+    },
+    // Open the editor in READ-ONLY mode for users to inspect what
+    // template fires for a given event. Same modal, different mode.
+    async openNotifyTemplateViewer(bareEventName) {
+      await this._loadAndShowNotifyTemplate(bareEventName, true);
+    },
+    async _loadAndShowNotifyTemplate(bareEventName, readOnly) {
+      try {
+        const r = await fetch('/api/admin/notify-templates');
+        if (!r.ok) {
+          // Read-only mode: a non-admin profile-popup user can't hit
+          // the admin endpoint. The endpoint is admin-only by design;
+          // for read-only we fall back to a minimal client-side
+          // shape (just renders the bare event with no template).
+          if (readOnly && r.status === 403) {
+            this._showMinimalNotifyTemplateViewer(bareEventName);
+            return;
+          }
+          throw new Error(`HTTP ${r.status}`);
+        }
+        const d = await r.json();
+        const events = (d && d.events) || [];
+        const ev = events.find(e => e.event === bareEventName);
+        if (!ev) {
+          if (window.Swal) Swal.fire({ icon: 'error', text: this.t('admin.notify_templates.unknown_event_error', { event: bareEventName }) });
+          return;
+        }
+        this.notifyTemplateEvent = this._resolveNotifyTemplateEvent(bareEventName);
+        const title = ev.title_is_default ? '' : (ev.title || '');
+        const body  = ev.body_is_default  ? '' : (ev.body  || '');
+        this.notifyTemplateEditor = {
+          open: true,
+          readOnly: !!readOnly,
+          event: bareEventName,
+          title: title,
+          body: body,
+          title_default: ev.title_default || '',
+          body_default: ev.body_default || '',
+          title_baseline: title,
+          body_baseline: body,
+          available_placeholders: d.available_placeholders || [],
+          samples: d.samples || {},
+          preview: { rendered_title: '', rendered_body: '', used_placeholders: [], unknown_placeholders: [] },
+          saving: false,
+          testing: false,
+        };
+        // First preview render — server side so we get the same
+        // placeholder analysis the operator will see during edits.
+        this.refreshNotifyTemplatePreview();
+      } catch (e) {
+        if (window.Swal) Swal.fire({ icon: 'error', text: this.t('admin.notify_templates.load_failed', { error: String(e.message || e) }) });
+      }
+    },
+    // Defence-in-depth fallback when the admin-only list endpoint
+    // 403s (a non-admin clicking the profile-popup info-icon while
+    // tab-permissions are flapping). Renders the modal with no
+    // template content so the user sees "No template configured"
+    // instead of a stuck loading state.
+    _showMinimalNotifyTemplateViewer(bareEventName) {
+      this.notifyTemplateEvent = this._resolveNotifyTemplateEvent(bareEventName);
+      this.notifyTemplateEditor = {
+        open: true,
+        readOnly: true,
+        event: bareEventName,
+        title: '',
+        body: '',
+        title_default: '',
+        body_default: '',
+        title_baseline: '',
+        body_baseline: '',
+        available_placeholders: [],
+        samples: {},
+        preview: { rendered_title: '', rendered_body: '', used_placeholders: [], unknown_placeholders: [] },
+        saving: false,
+        testing: false,
+      };
+    },
+    closeNotifyTemplateEditor() {
+      this.notifyTemplateEditor.open = false;
+      // Reset the saving flags so the next open doesn't carry stale
+      // state if a save was in flight at close-time.
+      this.notifyTemplateEditor.saving = false;
+      this.notifyTemplateEditor.testing = false;
+    },
+    notifyTemplateEditorIsDirty() {
+      const e = this.notifyTemplateEditor || {};
+      return (e.title || '') !== (e.title_baseline || '')
+          || (e.body || '')  !== (e.body_baseline || '');
+    },
+    resetNotifyTemplateEditor() {
+      // Resets the editor's title + body to empty (which the backend
+      // treats as "fall back to default"). Operator still has to click
+      // Save to commit; before that, the live preview shows what the
+      // default looks like (matches the baseline-hydrated `_default`
+      // strings).
+      this.notifyTemplateEditor.title = '';
+      this.notifyTemplateEditor.body  = '';
+      this.refreshNotifyTemplatePreview();
+    },
+    // Insert a `{placeholder}` literal at the caret position of the
+    // appropriate textarea. Falls back to appending if the caret can't
+    // be read (textarea hasn't been focused yet). Refreshes preview
+    // immediately so the chip click feels responsive.
+    insertNotifyTemplatePlaceholder(field, placeholder) {
+      const ref = field === 'title'
+        ? this.$refs.notifyTemplateTitleInput
+        : this.$refs.notifyTemplateBodyInput;
+      const insert = '{' + placeholder + '}';
+      const cur = (this.notifyTemplateEditor[field] || '');
+      if (!ref) {
+        this.notifyTemplateEditor[field] = cur + insert;
+      } else {
+        const start = ref.selectionStart != null ? ref.selectionStart : cur.length;
+        const end   = ref.selectionEnd   != null ? ref.selectionEnd   : cur.length;
+        const next = cur.slice(0, start) + insert + cur.slice(end);
+        this.notifyTemplateEditor[field] = next;
+        // Restore the caret position to AFTER the insert so subsequent
+        // chip clicks chain naturally.
+        this.$nextTick(() => {
+          if (ref) {
+            ref.focus();
+            const newPos = start + insert.length;
+            try { ref.setSelectionRange(newPos, newPos); } catch (_e) { /* ignore */ }
+          }
+        });
+      }
+      this.refreshNotifyTemplatePreview();
+    },
+    async refreshNotifyTemplatePreview() {
+      const e = this.notifyTemplateEditor;
+      if (!e || !e.event) return;
+      // Send the IN-PROGRESS strings (or empty → server falls back to
+      // default at render time). Server is the single source of truth
+      // for placeholder validation (curated whitelist lives in
+      // logic/ops.py); avoid duplicating the regex on the client.
+      const titleStr = e.title || e.title_default || '';
+      const bodyStr  = e.body  || e.body_default  || '';
+      try {
+        const r = await fetch(
+          '/api/admin/notify-templates/' + encodeURIComponent(e.event) + '/preview',
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ title: titleStr, body: bodyStr }),
+          },
+        );
+        if (!r.ok) {
+          // Read-only mode 403s on a non-admin caller. Render a
+          // best-effort client-side preview so the modal still shows
+          // something; the unknown-placeholder warning won't fire,
+          // which is fine for the read-only case.
+          if (r.status === 403) {
+            const safe = (s) => (s || '').replace(/\{[^}]*\}/g, (tok) => tok);
+            this.notifyTemplateEditor.preview = {
+              rendered_title: safe(titleStr),
+              rendered_body:  safe(bodyStr),
+              used_placeholders: [],
+              unknown_placeholders: [],
+            };
+            return;
+          }
+          throw new Error('HTTP ' + r.status);
+        }
+        const d = await r.json();
+        // Mutate-in-place so Alpine effect dependents (the live preview
+        // pane) re-render without reassigning the whole `notifyTemplateEditor`.
+        this.notifyTemplateEditor.preview = {
+          rendered_title: d.rendered_title || '',
+          rendered_body:  d.rendered_body  || '',
+          used_placeholders:    d.used_placeholders    || [],
+          unknown_placeholders: d.unknown_placeholders || [],
+        };
+      } catch (err) {
+        // Silent on transient probe errors — preview stays at last good
+        // state. Console line for diagnostics.
+        console.warn('[notify-templates] preview fetch failed:', err);
+      }
+    },
+    async saveNotifyTemplate() {
+      const e = this.notifyTemplateEditor;
+      if (!e || !e.event || e.readOnly) return;
+      e.saving = true;
+      try {
+        const r = await fetch(
+          '/api/admin/notify-templates/' + encodeURIComponent(e.event),
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ title: e.title || '', body: e.body || '' }),
+          },
+        );
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        const d = await r.json();
+        // Refresh the editor's baseline + defaults from the server
+        // response so the dirty flag clears AND the placeholder hints
+        // reflect what's now in the DB.
+        this.notifyTemplateEditor.title          = d.title_is_default ? '' : (d.title || '');
+        this.notifyTemplateEditor.body           = d.body_is_default  ? '' : (d.body  || '');
+        this.notifyTemplateEditor.title_default  = d.title_default || '';
+        this.notifyTemplateEditor.body_default   = d.body_default || '';
+        this.notifyTemplateEditor.title_baseline = this.notifyTemplateEditor.title;
+        this.notifyTemplateEditor.body_baseline  = this.notifyTemplateEditor.body;
+        if (window.Swal) {
+          Swal.fire({
+            icon: 'success',
+            title: this.t('admin.notify_templates.saved_toast'),
+            timer: 1400,
+            showConfirmButton: false,
+            toast: true,
+            position: 'bottom-end',
+          });
+        }
+      } catch (err) {
+        if (window.Swal) Swal.fire({ icon: 'error', text: this.t('admin.notify_templates.save_failed', { error: String(err.message || err) }) });
+      } finally {
+        this.notifyTemplateEditor.saving = false;
+      }
+    },
+    async testNotifyTemplate() {
+      const e = this.notifyTemplateEditor;
+      if (!e || !e.event || e.readOnly) return;
+      e.testing = true;
+      try {
+        const r = await fetch(
+          '/api/admin/notify-templates/' + encodeURIComponent(e.event) + '/test',
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ title: e.title || '', body: e.body || '' }),
+          },
+        );
+        const d = await r.json().catch(() => ({}));
+        if (!r.ok || d.ok === false) {
+          throw new Error(d.error || ('HTTP ' + r.status));
+        }
+        if (window.Swal) {
+          Swal.fire({
+            icon: 'success',
+            title: this.t('admin.notify_templates.test_sent'),
+            text: d.rendered_title || '',
+            timer: 2200,
+            showConfirmButton: false,
+            toast: true,
+            position: 'bottom-end',
+          });
+        }
+        // After test: mutate baseline so any saved-during-test value
+        // is now the new baseline (the test endpoint persists what
+        // the operator typed before firing).
+        this.notifyTemplateEditor.title_baseline = this.notifyTemplateEditor.title || '';
+        this.notifyTemplateEditor.body_baseline  = this.notifyTemplateEditor.body  || '';
+      } catch (err) {
+        if (window.Swal) Swal.fire({ icon: 'error', text: this.t('admin.notify_templates.test_failed', { error: String(err.message || err) }) });
+      } finally {
+        this.notifyTemplateEditor.testing = false;
+      }
+    },
     // One-click bulk-set: route every success event to
     // ``successMedium`` AND every failure event to ``failureMedium``.
     // Either side can be empty — that side is left untouched. The
