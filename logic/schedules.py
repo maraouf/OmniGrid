@@ -1539,6 +1539,159 @@ SCHEDULE_KINDS: dict[str, KindRunner] = {
 }
 
 
+def bootstrap_swarm_agent_health_schedule(conn: sqlite3.Connection) -> dict:
+    """First-boot helper — auto-create a default ``swarm_agent_health``
+    schedule when Portainer is configured AND no equivalent row exists
+    yet.
+
+    Pre-fix the ``swarm_agent_health`` kind required an admin-created
+    schedule row to fire — the underlying detection (`_agent_health`
+    map populated by every gather_stats cycle) was active but had no
+    runner triggering on it, so operators who never set up the
+    schedule miss the autoheal feature entirely. This helper runs at
+    boot inside ``_lifespan`` and creates a sensible default
+    (5-minute cadence, ``notify`` action via the existing
+    ``swarm_autoheal_action`` setting which defaults to ``notify``).
+
+    Gated by THREE conditions, all of which must hold:
+
+    1. ``swarm_autoheal_bootstrap_enabled`` setting is not ``"false"``.
+       Operators who do NOT want auto-bootstrap flip this to false in
+       Admin → Portainer before the Portainer settings save (or
+       before the next restart, post-config). Default true.
+    2. ``swarm_autoheal_bootstrap_done`` setting is unset. Latched to
+       ``"true"`` after the first attempt regardless of outcome
+       (created OR skipped because something already existed) so the
+       helper never re-creates a deleted-on-purpose row.
+    3. Portainer is configured (``logic.portainer.is_configured()``).
+       Without it the schedule kind has nothing to detect against.
+       This branch does NOT latch the flag — try again on the next
+       boot once the operator has set up Portainer.
+
+    Returns a status dict for diagnostic logging from the caller.
+    """
+    from logic.db import get_setting, set_setting
+    from logic import portainer as _portainer
+
+    bootstrap_enabled = (get_setting("swarm_autoheal_bootstrap_enabled", "")
+                         or "").strip().lower()
+    bootstrap_done = (get_setting("swarm_autoheal_bootstrap_done", "")
+                      or "").strip().lower() == "true"
+
+    if bootstrap_done:
+        return {"status": "skipped_already_done"}
+    if bootstrap_enabled == "false":
+        # Operator opt-out — latch the flag so we don't keep retrying.
+        set_setting("swarm_autoheal_bootstrap_done", "true")
+        return {"status": "skipped_operator_opt_out"}
+    if not _portainer.is_configured():
+        return {"status": "skipped_portainer_unconfigured"}
+
+    # Already-exists check. Idempotent — operators who manually
+    # created an equivalent row before this helper landed get a
+    # latched flag without a duplicate.
+    existing = conn.execute(
+        "SELECT 1 FROM schedules WHERE kind='swarm_agent_health' LIMIT 1"
+    ).fetchone()
+    if existing is not None:
+        set_setting("swarm_autoheal_bootstrap_done", "true")
+        return {"status": "skipped_existing_row"}
+
+    # Create the default. Same shape as the seeds in
+    # :func:`seed_default_schedules` — `enabled=True` because the
+    # action default is `notify` (cheap / non-destructive); operators
+    # who want `restart` flip the action knob in Admin → Portainer.
+    name = "Swarm agent health (auto)"
+    try:
+        create_schedule(
+            conn,
+            name=name,
+            kind="swarm_agent_health",
+            params={},
+            interval_seconds=300,  # 5 min — matches the runbook's docstring.
+            enabled=True,
+        )
+    except sqlite3.IntegrityError:
+        # Race with another bootstrap caller, or a row with the same
+        # name was deleted then immediately re-created — treat as
+        # already-exists for latch purposes.
+        pass
+    set_setting("swarm_autoheal_bootstrap_done", "true")
+    return {"status": "created", "name": name}
+
+
+def audit_schedule_kinds() -> dict:
+    """Audit gate — single source of truth for "is the schedule-kind
+    plumbing consistent right now?"
+
+    STATIC checks only — does NOT fire any runner. Firing every kind on
+    boot would legitimately spawn operations (prune jobs, agent
+    restarts, backups) which is unsafe even with sample params; the
+    safer contract is "verify the surface is consistent" and trust
+    each runner's own try/except + history-write to catch behaviour
+    bugs at fire time.
+
+    Checks:
+      - Every entry in ``SCHEDULE_KINDS`` maps to a coroutine function
+        (``async def``). A non-coroutine slipped into the dispatch
+        table would explode at fire time when ``await runner(params)``
+        runs against a regular function — better to catch it at boot.
+      - Every entry's name follows the ``_run_<kind>`` convention.
+        Catches typos where a kind named ``foo`` was wired to the
+        ``_run_bar`` runner (silently broken on rename).
+      - Every runner exposes a non-empty docstring. Conventions matter:
+        new kinds without prose make the operator-facing
+        ``docs/guidelines/scheduler.md`` "Current kinds" table drift.
+
+    Returns ``{kinds_audited, missing_async, name_mismatches,
+    missing_docstrings}``. Logged as one WARN line on first call (boot)
+    AND surfaced via a future ``/api/admin/schedules/audit`` endpoint
+    so the admin UI can render a warning chip if the codebase drifts.
+    """
+    import inspect
+    audited = sorted(SCHEDULE_KINDS.keys())
+    missing_async: list[str] = []
+    name_mismatches: list[str] = []
+    missing_docstrings: list[str] = []
+    for kind, runner in SCHEDULE_KINDS.items():
+        if not inspect.iscoroutinefunction(runner):
+            missing_async.append(kind)
+        # Convention check: callable name should be `_run_<kind>`.
+        # Every shipping runner follows this; future contributors who
+        # wire a kind to a callable with a different name should pick
+        # one OR the other consistent (rename the function or alias
+        # the kind).
+        expected_name = f"_run_{kind}"
+        actual_name = getattr(runner, "__name__", "")
+        if actual_name != expected_name:
+            name_mismatches.append(
+                f"kind={kind!r} → {actual_name!r} (expected {expected_name!r})"
+            )
+        if not (runner.__doc__ or "").strip():
+            missing_docstrings.append(kind)
+    if missing_async:
+        print(
+            f"[schedules] WARN — kinds wired to non-async callables: "
+            f"{missing_async}"
+        )
+    if name_mismatches:
+        print(
+            f"[schedules] WARN — kind/runner name mismatches: "
+            f"{name_mismatches}"
+        )
+    if missing_docstrings:
+        print(
+            f"[schedules] WARN — kinds without runner docstrings: "
+            f"{missing_docstrings}"
+        )
+    return {
+        "kinds_audited":       audited,
+        "missing_async":       sorted(missing_async),
+        "name_mismatches":     sorted(name_mismatches),
+        "missing_docstrings":  sorted(missing_docstrings),
+    }
+
+
 # ----------------------------------------------------------------------------
 # Firing
 # ----------------------------------------------------------------------------

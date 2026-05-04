@@ -291,6 +291,9 @@
     "test_all": "Test all",
     "testing": "Testing…",
     "clear": "Clear",
+    "clear_search": "Clear search",
+    "expand": "Expand",
+    "collapse": "Collapse",
     "prune_now": "Prune now"
   },
   "states": {
@@ -723,6 +726,8 @@
       "swarm_autoheal_hint": "When the swarm_agent_health schedule kind detects an unhealthy Portainer agent, what should happen? Notify-only fires the existing notification event. Auto-restart additionally spawns a do_restart_swarm_agent op subject to the cooldown tunable.",
       "swarm_autoheal_notify": "Notify only (default)",
       "swarm_autoheal_restart": "Auto-restart agent service",
+      "swarm_autoheal_bootstrap_label": "Auto-create default swarm_agent_health schedule",
+      "swarm_autoheal_bootstrap_hint": "On first boot, when Portainer is configured AND no equivalent row exists, OmniGrid auto-creates a 5-minute swarm_agent_health schedule so the autoheal action fires without manual setup. Disable this BEFORE the first boot if you prefer to manage the schedule yourself. Once a schedule exists (auto or manual), this toggle has no further effect — deleting the auto-created row leaves it deleted.",
       "events": {
         "title": "Per-event notifications",
         "subtitle": "Enable / disable specific notification events. Test notifications always send regardless of these toggles.",
@@ -1682,7 +1687,9 @@
       "clear": "Clear",
       "success": "{applied} hosts updated",
       "partial": "{applied} applied, {errors} errors",
-      "error": "Bulk action failed: {error}"
+      "error": "Bulk action failed: {error}",
+      "progress_badge": "✓ {applied} / {total} applied",
+      "row_applied": "Bulk action applied to this host"
     },
     "permanent_fail": {
       "badge_title": "Sampling paused — host has been unreachable for {minutes}m",

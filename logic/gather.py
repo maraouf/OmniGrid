@@ -488,6 +488,18 @@ def seed_nodes_info_from_snapshots() -> int:
 # ---------------------------------------------------------------------------
 
 
+# Cap the items_snapshot blob to a reasonable upper bound so a runaway
+# gather (e.g. on a misconfigured fleet with N×100 phantom containers)
+# doesn't produce a multi-MB JSON blob that strains SQLite's blob
+# handling on the read-back path. 5 MiB easily covers a few hundred
+# hosts × dozens of items each with full Pulse / Beszel / NE
+# enrichment; anything above that is more likely a bug than legitimate
+# scale. When tripped, we log + skip the write — the prior snapshot
+# stays canonical and operators see "stale" rendering on the next
+# restart instead of an oversized blob the read path can't handle.
+_ITEMS_SNAPSHOT_MAX_BYTES = 5 * 1024 * 1024
+
+
 def save_items_snapshot() -> bool:
     """Persist ``_cache`` to the ``items_snapshot`` row.
 
@@ -495,6 +507,13 @@ def save_items_snapshot() -> bool:
     persisted blob always reflects the latest known good state. Errors
     are logged + swallowed — a failed snapshot must never break the
     gather (e.g. transient SQLite lock during a backup).
+
+    Size-capped to ``_ITEMS_SNAPSHOT_MAX_BYTES`` (5 MiB). When the
+    serialised payload exceeds the cap we log a WARN line and skip
+    the write; the prior snapshot row stays canonical so the next
+    restart still has SOMETHING to seed from (just slightly older
+    data), and operators see the bound's-tripped log line as a
+    diagnostic for the runaway gather.
 
     Returns ``True`` on success, ``False`` on any error.
     """
@@ -517,6 +536,16 @@ def save_items_snapshot() -> bool:
             "ts":         float(_cache.get("ts") or 0.0),
         }
         blob = json.dumps(payload, default=str)
+        blob_bytes = len(blob.encode("utf-8"))
+        if blob_bytes > _ITEMS_SNAPSHOT_MAX_BYTES:
+            print(
+                f"[gather] save_items_snapshot SKIPPED — payload size "
+                f"{blob_bytes // 1024} KiB exceeds the {_ITEMS_SNAPSHOT_MAX_BYTES // 1024} KiB cap. "
+                f"items={len(payload['items'])}, stacks={len(payload['stacks'])}, "
+                f"nodes={len(payload['nodes'])}, nodes_info={len(payload['nodes_info'])}. "
+                f"Prior snapshot stays canonical."
+            )
+            return False
         with db_conn() as c:
             c.execute(
                 "INSERT OR REPLACE INTO items_snapshot(id, ts, data) "
