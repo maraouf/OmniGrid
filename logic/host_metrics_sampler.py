@@ -429,6 +429,25 @@ async def _record_failure(
                 # name (when present) carries through as a separate
                 # field for chip rendering.
                 bare_host, provider = _split_failure_key(host_id)
+                # Append-only transition log — captures the EDGE
+                # (paused → unpaused → paused → ...) so the timeline
+                # endpoint can render the true history rather than
+                # synthesising events from the current snapshot. Same
+                # transaction as the UPDATE above so a partial commit
+                # can't leave the log out of sync with the state row.
+                # Best-effort error swallow: a transition-log failure
+                # must not block the pause itself (the load-bearing
+                # side effect lives in host_failure_state).
+                try:
+                    c.execute(
+                        "INSERT INTO host_failure_events "
+                        "(ts, host_id, provider, kind, error, actor) "
+                        "VALUES (?, ?, ?, 'paused', ?, 'sampler')",
+                        (now, bare_host, provider or "", err_short),
+                    )
+                except Exception as ev_err:
+                    print(f"[host_metrics_sampler] {host_id!r} "
+                          f"failure-event log write failed: {ev_err}")
                 print(f"[host_metrics_sampler] {host_id!r} AUTO-PAUSED after "
                       f"{int(now - first_ts)}s of consecutive failures "
                       f"({new_fails} attempts) — operator must POST "
@@ -570,17 +589,50 @@ async def record_provider_outcome(
         )
 
 
-def _clear_failure(host_id: str) -> None:
+def _clear_failure(host_id: str, *, actor: str = "sampler") -> None:
     """Clear the failure tracking row on a successful probe. No-op
-    when there's no row to clear (the common case)."""
+    when there's no row to clear (the common case).
+
+    ``actor`` distinguishes auto-recovery ("sampler" — default — fired
+    when a probe lands successfully) from manual resume ("admin:<user>"
+    — passed by the API endpoints that wrap a resume click). Logged
+    on the recovery transition row in `host_failure_events` so the
+    timeline can render auto vs manual recoveries differently.
+    """
     had_row = False
+    paused_was = False
     try:
         with db_conn() as c:
+            # Snapshot whether the row was paused BEFORE the delete so
+            # we know whether to emit a 'recovered' transition event.
+            # Recovery from a non-paused failure streak (the streak
+            # fizzled before reaching the threshold) doesn't deserve
+            # an event — that's normal sampler noise and would flood
+            # the timeline.
+            row = c.execute(
+                "SELECT paused FROM host_failure_state WHERE host_id = ?",
+                (host_id,),
+            ).fetchone()
+            paused_was = bool(row[0]) if row else False
             cur = c.execute(
                 "DELETE FROM host_failure_state WHERE host_id = ?",
                 (host_id,),
             )
             had_row = (cur.rowcount or 0) > 0
+            if had_row and paused_was:
+                # Append-only transition log — captures the
+                # paused → recovered EDGE.
+                bare_host, provider = _split_failure_key(host_id)
+                try:
+                    c.execute(
+                        "INSERT INTO host_failure_events "
+                        "(ts, host_id, provider, kind, error, actor) "
+                        "VALUES (?, ?, ?, 'recovered', NULL, ?)",
+                        (time.time(), bare_host, provider or "", actor),
+                    )
+                except Exception as ev_err:
+                    print(f"[host_metrics_sampler] {host_id!r} "
+                          f"recovery-event log write failed: {ev_err}")
     except Exception as e:
         print(f"[host_metrics_sampler] {host_id!r} failure-state clear error: {e}")
         return
@@ -1027,6 +1079,15 @@ def _prune_old_samples() -> int:
             # fleet of servers; same window as the rest.
             cur4 = c.execute("DELETE FROM host_snmp_temp_samples WHERE ts < ?", (cutoff,))
             removed += cur4.rowcount or 0
+            # Append-only failure-transition log. Retention shares the
+            # same `tuning_stats_history_days` window — operators
+            # typically want the timeline window aligned with the
+            # other time-series (a 7-day chart paired with a 30-day
+            # transition log would be confusing). Cheap (a few rows
+            # per host per outage) so even on a flaky fleet the
+            # blob stays small.
+            cur5 = c.execute("DELETE FROM host_failure_events WHERE ts < ?", (cutoff,))
+            removed += cur5.rowcount or 0
             return removed
     except Exception as e:
         print(f"[host_metrics_sampler] prune failed: {e}")

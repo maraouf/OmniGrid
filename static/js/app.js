@@ -366,6 +366,7 @@ function app() {
     // see the system is working even when the foreground call is done.
     cacheRefreshing: false,
     hubProbing: false,
+    statsRefreshing: false,
     drawerItem: null,
     // Node drawer — separate from drawerItem. Opens from the Nodes view
     // when the operator clicks a node row. Shape: {name, aliasInput}.
@@ -4822,6 +4823,15 @@ function app() {
         }
         const d = await r.json();
         this.stats = d.stats || {};
+        // Background-refresh indicator. /api/stats now serves the
+        // seeded cache instantly + kicks `_gather_stats` in the
+        // background; ``stats_refreshing`` is true while the
+        // background gather is in flight. Composes with the existing
+        // `cacheRefreshing` / `hubProbing` flags so the topbar
+        // refresh button pulses the spinner whenever ANY background
+        // refresh is running. Auto-clears on the next poll once the
+        // background gather lands.
+        this.statsRefreshing = !!d.stats_refreshing;
         // Swarm agent unhealthy detection — populated by gather_stats
         // when a Swarm node has consecutive bad gather cycles (every
         // task-derived cid on the node returned None). Empty array on
@@ -6834,6 +6844,16 @@ function app() {
     toggleNotifyCategoryMedium(catId, medium, nextValue) {
       const cat = (this.notifyCategories() || []).find(c => c.id === catId);
       if (!cat) return;
+      // Short-circuit if the medium is admin-disabled globally.
+      // The chip's CSS already shows strikethrough + cursor:
+      // not-allowed, but the click handler still fires unless we
+      // gate here — so an operator click on a disabled chip would
+      // silently mutate user prefs that don't take effect until
+      // the admin re-enables the medium globally, leaving stale
+      // routing landing without the operator noticing. Both
+      // helpers (Medium toggle + the All toggle) gate on the
+      // same predicate.
+      if (!this.notifyMediumIsGloballyEnabled(medium)) return;
       // Resolve the next value: if not supplied, flip based on
       // current state (all → none, partial/none → all).
       let v = nextValue;
@@ -6873,11 +6893,23 @@ function app() {
       const f = this.profileForm || {};
       if (!f.notify_events) f.notify_events = {};
       const mediums = this.notifyMediumNames();
+      // Filter the medium list to only globally-enabled channels —
+      // skip flipping prefs for an admin-disabled medium since that
+      // setting can't take effect until the admin re-enables and
+      // we don't want stale routing silently sitting on the user's
+      // profile. Same gate as toggleNotifyCategoryMedium.
+      const liveMediums = mediums.filter(m => this.notifyMediumIsGloballyEnabled(m));
       for (const r of cat.rows) {
         if (this.userNotifyEventDisabledByAdmin(r.key)) continue;
         const bare = this._bareEventName(r.key);
-        const slot = {};
-        for (const m of mediums) slot[m] = !!v;
+        // Preserve any pre-existing per-medium values for
+        // admin-disabled channels — only mutate the live ones. This
+        // keeps the operator's prior choice on a disabled medium
+        // intact for when the admin re-enables it.
+        const existing = (f.notify_events[bare] && typeof f.notify_events[bare] === 'object')
+          ? f.notify_events[bare] : {};
+        const slot = { ...existing };
+        for (const m of liveMediums) slot[m] = !!v;
         f.notify_events[bare] = slot;
       }
     },
@@ -6953,11 +6985,25 @@ function app() {
     // /api/me load. Falls back to the canonical `[app, apprise]` pair
     // for older deploys / first-paint before /api/me lands.
     notifyMediumNames() {
+      // Memoised — input is `this.me.notify_mediums` which is set
+      // ONCE per /api/me round-trip. Pre-fix the helper rebuilt the
+      // names array on every render call (Profile-panel x-for + 5
+      // helper sites). Cache key is the underlying me-object identity
+      // so a fresh /api/me response (which Object.assign-mutates
+      // this.me) busts automatically when the array changes.
       const list = (this.me && Array.isArray(this.me.notify_mediums))
         ? this.me.notify_mediums : null;
-      if (list && list.length) return list.map(m => m.name);
-      return ['app', 'apprise'];
+      if (this._notifyMediumNamesCacheList === list && this._notifyMediumNamesCache) {
+        return this._notifyMediumNamesCache;
+      }
+      this._notifyMediumNamesCacheList = list;
+      this._notifyMediumNamesCache = (list && list.length)
+        ? list.map(m => m.name)
+        : ['app', 'apprise'];
+      return this._notifyMediumNamesCache;
     },
+    _notifyMediumNamesCache: null,
+    _notifyMediumNamesCacheList: null,
     notifyMediumIsGloballyEnabled(name) {
       const list = (this.me && Array.isArray(this.me.notify_mediums))
         ? this.me.notify_mediums : null;
@@ -14815,8 +14861,19 @@ function app() {
           for (const id of ids) {
             const h = (this.hosts || []).find(x => x && x.id === id);
             if (!h) continue;
-            // Beszel / NE prefetch
-            if (h.beszel_id || h.ne_url || h.pulse_name || h.webmin_name) {
+            // Beszel / NE / Pulse / Webmin prefetch. Gate accepts
+            // either the post-probe `beszel_id` OR the curated
+            // `beszel_name` (operator alias) — pre-fix the gate
+            // required `beszel_id` which is only populated AFTER a
+            // successful per-host /api/hosts/one/{id} probe lands.
+            // For Beszel-only hosts that meant sparklines stayed
+            // empty until the per-host probe completed, even though
+            // the history time-series in `host_metrics_samples` was
+            // already queryable. `loadHostHistory` itself accepts
+            // an empty beszel_id and falls back to host_id-keyed
+            // history (NE / Pulse / Webmin), so the broader gate is
+            // safe.
+            if (h.beszel_id || h.beszel_name || h.ne_url || h.pulse_name || h.webmin_name) {
               const key = this.hostHistoryKey(h);
               const cached = key && this.hostHistory && this.hostHistory[key];
               if (!cached
