@@ -3298,10 +3298,16 @@
             <svg width="13" height="13"
                  class="absolute start-3 top-1/2 -translate-y-1/2 text-[var(--text-faint)] pointer-events-none"
                  aria-hidden="true"><use href="/img/ui-sprite.svg#icon-search"/></svg>
+            <!-- Inline padding overrides the global `input[type="text"] {
+                 padding: 5px 10px }` rule whose attribute-selector
+                 specificity beats Tailwind's `ps-9` / `pe-8` utilities;
+                 without the override the leading search icon (~25px from
+                 the start edge) overlaps the placeholder text. -->
             <input type="text"
                    x-model="notifySearchQuery"
                    :placeholder="t('profile.notifications.search_placeholder') || 'Search events…'"
-                   class="w-full ps-9 pe-8 py-1.5 text-[12px]"
+                   class="w-full py-1.5 text-[12px]"
+                   style="padding-inline-start: 2.25rem; padding-inline-end: 2rem;"
                    :aria-label="t('profile.notifications.search_placeholder') || 'Search events'">
             <button type="button"
                     x-show="notifySearchQuery"
@@ -3769,8 +3775,9 @@
             <div>
               <label class="block text-[11px] text-[var(--text-dim)] mb-1">
                 <span x-text="t('settings.oidc.client_secret')"></span>
-                <span class="text-[var(--text-faint)]"
-                      x-text="oidcStatus && oidcStatus.client_secret_set ? t('settings.oidc.client_secret_set') : t('settings.oidc.client_secret_not_set')"></span>
+                <span x-show="oidcStatus && oidcStatus.client_secret_set"
+                      class="text-[var(--success)]"
+                      x-text="t('settings.oidc.client_secret_set')"></span>
               </label>
               <input x-model="oidcForm.client_secret" type="password" :disabled="isReadonly()"
                      :placeholder="t('settings.oidc.client_secret_placeholder')"
@@ -4657,8 +4664,9 @@
             <div>
               <label class="block text-[11px] text-[var(--text-dim)] mb-1">
                 <span x-text="t('settings.portainer.api_key_label')"></span>
-                <span class="text-[var(--text-faint)]"
-                      x-text="portainerStatus && portainerStatus.api_key_set ? t('settings.portainer.api_key_set') : t('settings.portainer.api_key_not_set')"></span>
+                <span x-show="portainerStatus && portainerStatus.api_key_set"
+                      class="text-[var(--success)]"
+                      x-text="t('settings.portainer.api_key_set')"></span>
               </label>
               <input x-model="portainerForm.api_key" type="password"
                      @input="markPortainerFormDirty()"
@@ -4794,8 +4802,9 @@
             <div>
               <label class="block text-[11px] text-[var(--text-dim)] mb-1">
                 <span x-text="t('settings.oidc.client_secret')"></span>
-                <span class="text-[var(--text-faint)]"
-                      x-text="oidcStatus && oidcStatus.client_secret_set ? t('settings.oidc.client_secret_set') : t('settings.oidc.client_secret_not_set')"></span>
+                <span x-show="oidcStatus && oidcStatus.client_secret_set"
+                      class="text-[var(--success)]"
+                      x-text="t('settings.oidc.client_secret_set')"></span>
               </label>
               <input x-model="oidcForm.client_secret" type="password"
                      @input="markOidcFormDirty()"
