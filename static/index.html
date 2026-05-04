@@ -282,10 +282,19 @@
                 :disabled="view==='hosts' ? hostsLoading : loading"
                 class="btn btn-ghost text-[12px] hidden sm:inline-flex items-center gap-1.5"
                 :title="t('topbar.refresh_title')">
+          <!-- Spinner icon spins on EITHER (a) the foreground refresh
+               in flight (loading / hostsLoading) OR (b) a backend
+               background gather is running (cacheRefreshing /
+               hubProbing flags from /api/items + /api/hosts/list).
+               Without (b) the operator sees stale-cache rows after a
+               cold load with no visual hint that fresh data is
+               arriving on its own. -->
           <svg width="13" height="13" aria-hidden="true"
-               :class="(view==='hosts' ? hostsLoading : loading) ? 'animate-spin' : ''"><use href="/img/ui-sprite.svg#icon-rotate-cw"/></svg>
-          <span x-show="!(view==='hosts' ? hostsLoading : loading)" x-text="t('actions.refresh')"></span>
+               :class="((view==='hosts' ? hostsLoading : loading) || cacheRefreshing || hubProbing) ? 'animate-spin' : ''"><use href="/img/ui-sprite.svg#icon-rotate-cw"/></svg>
+          <span x-show="!(view==='hosts' ? hostsLoading : loading) && !(cacheRefreshing || hubProbing)" x-text="t('actions.refresh')"></span>
           <span x-show="view==='hosts' ? hostsLoading : loading" x-text="t('actions.refreshing')"></span>
+          <span x-show="!(view==='hosts' ? hostsLoading : loading) && (cacheRefreshing || hubProbing)"
+                x-text="t('actions.refreshing_bg') || 'Refreshing…'"></span>
         </button>
         <!-- Deploy watcher — only visible when /api/version returns a
              string different from the one captured at page boot.
@@ -827,7 +836,9 @@
           </thead>
           <template x-for="stack in filteredStacks" :key="stack.name">
             <tbody>
-              <tr class="group-row" @click="toggleStack(stack.name)">
+              <tr class="group-row"
+                  :class="(stack._stale || (stack.items || []).some(i => i._stale)) ? 'row-stale-flash' : ''"
+                  @click="toggleStack(stack.name)">
                 <td></td>
                 <td><span class="chev" :class="expanded.includes(stack.name) ? 'open' : ''">▶</span></td>
                 <td colspan="2">
@@ -846,7 +857,15 @@
                          signal. Loading spinner stays in both
                          expanded + collapsed states (it's a global
                          "stats not yet here" affordance, not a status). -->
-                    <template x-if="!statsLoaded">
+                    <!-- Spinner / dot follow the SAME expand/collapse
+                         gate so they don't double-render with the
+                         per-container indicators below. Collapsed →
+                         show the rolled-up indicator here; expanded →
+                         hide so the per-container indicators in the
+                         child rows carry the signal alone. The
+                         spinner-vs-dot swap is unchanged (`statsLoaded`
+                         flips false→true on first /api/stats response). -->
+                    <template x-if="!statsLoaded && !expanded.includes(stack.name)">
                       <span class="item-loading-spinner" aria-hidden="true"
                             :title="t('chips.loading_stats') || 'Loading stats…'"></span>
                     </template>
@@ -972,7 +991,7 @@
                   <td class="hidden md:table-cell stat-cell">
                     <template x-if="statsFor(item).has_stats">
                       <div>
-                        <div class="stat-bar" x-bind="statBarBind(statsFor(item).cpu_percent, 'columns.cpu')" :class="[barLevel(statsFor(item).cpu_percent), isStale(statsFor(item)) ? 'stale' : '']" :style="`--w:${statsFor(item).cpu_percent}%`" :title="staleAge(statsFor(item))">
+                        <div class="stat-bar" x-bind="statBarBind(statsFor(item).cpu_percent, 'columns.cpu')" :class="[barLevel(statsFor(item).cpu_percent), (!statsLoaded || isStale(statsFor(item))) ? 'stale' : '']" :style="`--w:${statsFor(item).cpu_percent}%`" :title="staleAge(statsFor(item))">
                           <div class="fill"></div>
                           <div class="label" x-text="cpuLabel(statsFor(item).cpu_percent)"></div>
                         </div>
@@ -991,7 +1010,7 @@
                   <td class="hidden md:table-cell stat-cell">
                     <template x-if="statsFor(item).has_stats">
                       <div>
-                        <div class="stat-bar" x-bind="statBarBind(memPercent(item), 'columns.memory')" :class="[barLevel(memPercent(item)), isStale(statsFor(item)) ? 'stale' : '']" :style="`--w:${memPercent(item)}%`" :title="staleAge(statsFor(item))">
+                        <div class="stat-bar" x-bind="statBarBind(memPercent(item), 'columns.memory')" :class="[barLevel(memPercent(item)), (!statsLoaded || isStale(statsFor(item))) ? 'stale' : '']" :style="`--w:${memPercent(item)}%`" :title="staleAge(statsFor(item))">
                           <div class="fill"></div>
                           <div class="label" x-text="memPercent(item).toFixed(0) + '%'"></div>
                         </div>
@@ -1010,7 +1029,7 @@
                   </td>
                   <td class="hidden xl:table-cell stat-cell">
                     <template x-if="statsFor(item).has_size">
-                      <div class="stat-bar info" x-bind="statBarBind(diskPercent(item), 'columns.disk')" :class="isStale(statsFor(item)) ? 'stale' : ''" :style="`--w:${diskPercent(item)}%`" :title="staleAge(statsFor(item))">
+                      <div class="stat-bar info" x-bind="statBarBind(diskPercent(item), 'columns.disk')" :class="(!statsLoaded || isStale(statsFor(item))) ? 'stale' : ''" :style="`--w:${diskPercent(item)}%`" :title="staleAge(statsFor(item))">
                         <div class="fill"></div>
                         <div class="label" x-text="fmtBytes(statsFor(item).size_root)"></div>
                       </div>
@@ -1159,7 +1178,7 @@
                 </td>
                 <td class="hidden md:table-cell stat-cell">
                   <template x-if="statsFor(item).has_stats">
-                    <div class="stat-bar" x-bind="statBarBind(statsFor(item).cpu_percent, 'columns.cpu')" :class="[barLevel(statsFor(item).cpu_percent), isStale(statsFor(item)) ? 'stale' : '']" :style="`--w:${statsFor(item).cpu_percent}%`" :title="staleAge(statsFor(item))">
+                    <div class="stat-bar" x-bind="statBarBind(statsFor(item).cpu_percent, 'columns.cpu')" :class="[barLevel(statsFor(item).cpu_percent), (!statsLoaded || isStale(statsFor(item))) ? 'stale' : '']" :style="`--w:${statsFor(item).cpu_percent}%`" :title="staleAge(statsFor(item))">
                       <div class="fill"></div>
                       <div class="label" x-text="cpuLabel(statsFor(item).cpu_percent)"></div>
                     </div>
@@ -1171,7 +1190,7 @@
                 <td class="hidden md:table-cell stat-cell">
                   <template x-if="statsFor(item).has_stats">
                     <div>
-                      <div class="stat-bar" x-bind="statBarBind(memPercent(item), 'columns.memory')" :class="[barLevel(memPercent(item)), isStale(statsFor(item)) ? 'stale' : '']" :style="`--w:${memPercent(item)}%`" :title="staleAge(statsFor(item))">
+                      <div class="stat-bar" x-bind="statBarBind(memPercent(item), 'columns.memory')" :class="[barLevel(memPercent(item)), (!statsLoaded || isStale(statsFor(item))) ? 'stale' : '']" :style="`--w:${memPercent(item)}%`" :title="staleAge(statsFor(item))">
                         <div class="fill"></div>
                         <div class="label" x-text="memPercent(item).toFixed(0) + '%'"></div>
                       </div>
@@ -1184,7 +1203,7 @@
                 </td>
                 <td class="hidden xl:table-cell stat-cell">
                   <template x-if="statsFor(item).has_size">
-                    <div class="stat-bar info" x-bind="statBarBind(diskPercent(item), 'columns.disk')" :class="isStale(statsFor(item)) ? 'stale' : ''" :style="`--w:${diskPercent(item)}%`" :title="staleAge(statsFor(item))">
+                    <div class="stat-bar info" x-bind="statBarBind(diskPercent(item), 'columns.disk')" :class="(!statsLoaded || isStale(statsFor(item))) ? 'stale' : ''" :style="`--w:${diskPercent(item)}%`" :title="staleAge(statsFor(item))">
                       <div class="fill"></div>
                       <div class="label" x-text="fmtBytes(statsFor(item).size_root)"></div>
                     </div>

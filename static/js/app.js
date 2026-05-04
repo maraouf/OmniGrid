@@ -335,7 +335,13 @@ function app() {
     notificationsUnread: 0,
     notificationsTotal: 0,
     notificationsLoading: false,
-    notificationsLimit: 50,
+    // Notifications page size. Initial value is 25 (UX-tightened from
+    // the previous 50 — the popup felt overwhelming on busy fleets).
+    // Operator can override via Admin → Notifications → "Notifications
+    // page size" which writes to `tuning_notification_page_size` and
+    // is delivered to the SPA via /api/me's `client_config`. Falls
+    // back to 25 here when the API hasn't surfaced the override yet.
+    notificationsLimit: 25,
     notificationsOffset: 0,
     // Filter state — persisted in-memory only; a reload starts with
     // every severity visible and unread-only off so operators land on
@@ -352,6 +358,14 @@ function app() {
     selected: [],
     expanded: (() => { try { return JSON.parse(localStorage.getItem('expanded') || '[]'); } catch (e) { return []; } })(),
     loading: false,
+    // Background-refresh indicators. The /api/items + /api/hosts/list
+    // endpoints serve cached / snapshot data instantly when warm and
+    // kick a background gather → set `cache_refreshing: true` /
+    // `hub_probing: true` on the response. The topbar refresh button
+    // pulses + reads "Refreshing…" while these are true so operators
+    // see the system is working even when the foreground call is done.
+    cacheRefreshing: false,
+    hubProbing: false,
     drawerItem: null,
     // Node drawer — separate from drawerItem. Opens from the Nodes view
     // when the operator clicks a node row. Shape: {name, aliasInput}.
@@ -1055,6 +1069,7 @@ function app() {
       // operators editing notification config wanted the retention
       // dial in the same place).
       'tuning_notification_retention_days',
+      'tuning_notification_page_size',
     ],
     tuningForm: {},
     tuningEffective: {},
@@ -1303,6 +1318,15 @@ function app() {
           }
           this.me = m;
           this.syncProfileForm();
+          // Adopt operator-tunable notifications page size from
+          // /api/me's client_config. Falls back to the in-data()
+          // default (25) when missing. Bounds-clamped by the backend
+          // resolver so a corrupt setting can't flood the popup.
+          const npsRaw = m && m.client_config && m.client_config.notifications_page_size;
+          const nps = parseInt(npsRaw, 10);
+          if (Number.isFinite(nps) && nps > 0) {
+            this.notificationsLimit = nps;
+          }
           // apply per-user UI prefs from the server so the
           // weather/clock toggles (etc.) sync across devices for the
           // same login. Runs AFTER `me` lands so applyServerUiPrefs
@@ -5107,6 +5131,14 @@ function app() {
         // is this dashboard". Cleared rather than deleted so any
         // remaining bindings render empty instead of crashing.
         this.cacheLabel = '';
+        // Background-refresh indicator. /api/items returns
+        // `cache_refreshing: true` when the in-memory cache was
+        // served instantly + a fresh gather kicked off in
+        // background. Drives the topbar refresh button's "Refreshing…"
+        // pulse so the operator sees the system is still working
+        // even after the foreground call completed. Auto-clears
+        // on the next poll once the background gather lands.
+        this.cacheRefreshing = !!d.cache_refreshing;
         // Only fire stats alongside a forced refresh when stats
         // polling is actually enabled. With statsInterval=0 the
         // operator explicitly chose "off", so auto-refresh
@@ -6643,6 +6675,19 @@ function app() {
     // and dirty-tracking continue to operate against the same
     // profileForm.notify_events store.
     notifyCategories() {
+      // Memoised — the input arrays (notifyEventGroups,
+      // notifySamplerEvents, notifyHealthEvents, notifySecurityEvents)
+      // are STATIC at runtime (declared once on the app() data
+      // block). Pre-fix this rebuilt the full categories array on
+      // every render — called from the x-for in the markup +
+      // notifyCategoryStateForMedium + notifyCategoryFilteredRows +
+      // notifyCategoryEnabledCount + toggle handlers — at ~5+
+      // rebuilds per reactivity tick × 17+ events. Alpine treated
+      // each rebuild as a fresh array and tore down / re-created
+      // the per-row template (which the project's reactive-array
+      // rule explicitly prohibits). Cache once; the static input
+      // never changes so the cache never needs invalidation.
+      if (this._notifyCategoriesCache) return this._notifyCategoriesCache;
       // Operations rows come from the existing notifyEventGroups
       // (paired success/failure); Health from notifyHealthEvents +
       // notifySamplerEvents (single-toggle health-style events);
@@ -6677,7 +6722,7 @@ function app() {
       for (const e of (this.notifySecurityEvents || [])) {
         security.push({ key: e.key, label: e.label, kind: null });
       }
-      return [
+      this._notifyCategoriesCache = [
         {
           id: 'operations',
           icon: 'icon-activity',
@@ -6703,7 +6748,9 @@ function app() {
           groups: null,
         },
       ];
+      return this._notifyCategoriesCache;
     },
+    _notifyCategoriesCache: null,
     // Rows that match the current search query (case-insensitive
     // substring against the translated event label OR the underlying
     // event key). Returns the input array unchanged when no search
@@ -7853,7 +7900,7 @@ function app() {
     // ---------------- in-app notifications ----------------
     notificationsQuery() {
       const params = new URLSearchParams();
-      params.set('limit', String(this.notificationsLimit || 50));
+      params.set('limit', String(this.notificationsLimit || 25));
       params.set('offset', String(this.notificationsOffset || 0));
       if (this.notificationsFilterUnread) params.set('unread_only', 'true');
       if (this.notificationsFilterSeverity && this.notificationsFilterSeverity !== 'all') {
@@ -7912,9 +7959,9 @@ function app() {
     // accumulation) — each click is a fresh server fetch with the
     // appropriate offset, the response replaces `this.notifications`,
     // and the previous page's rows are released for GC.
-    notificationsPage()      { return Math.floor((this.notificationsOffset || 0) / (this.notificationsLimit || 50)) + 1; },
+    notificationsPage()      { return Math.floor((this.notificationsOffset || 0) / (this.notificationsLimit || 25)) + 1; },
     notificationsPageCount() {
-      const limit = this.notificationsLimit || 50;
+      const limit = this.notificationsLimit || 25;
       const total = this.notificationsTotal || 0;
       return Math.max(1, Math.ceil(total / limit));
     },
@@ -7922,12 +7969,12 @@ function app() {
     notificationsHasPrev()   { return (this.notificationsOffset || 0) > 0; },
     async notificationsNextPage() {
       if (this.notificationsLoading || !this.notificationsHasNext()) return;
-      this.notificationsOffset = (this.notificationsOffset || 0) + (this.notificationsLimit || 50);
+      this.notificationsOffset = (this.notificationsOffset || 0) + (this.notificationsLimit || 25);
       await this._reloadNotificationsPage();
     },
     async notificationsPrevPage() {
       if (this.notificationsLoading || !this.notificationsHasPrev()) return;
-      const prev = (this.notificationsOffset || 0) - (this.notificationsLimit || 50);
+      const prev = (this.notificationsOffset || 0) - (this.notificationsLimit || 25);
       this.notificationsOffset = Math.max(0, prev);
       await this._reloadNotificationsPage();
     },
@@ -7994,7 +8041,7 @@ function app() {
           this.notificationsTotal = (this.notificationsTotal || 0) + 1;
           // Trim to prevent unbounded growth when the view stays open
           // for hours (SSE bursts during a deploy can deliver dozens).
-          const cap = (this.notificationsLimit || 50) * 4;
+          const cap = (this.notificationsLimit || 25) * 4;
           if (this.notifications.length > cap) {
             this.notifications.length = cap;
           }
@@ -14906,6 +14953,13 @@ function app() {
         this.hostsError = d.error || '';
         this.hostsProviderErrors = d.provider_errors || {};
         this.hostsActiveSources = Array.isArray(d.active) ? d.active : [];
+        // Background-refresh indicator. /api/hosts/list returns
+        // `hub_probing: true` when it served snapshot rows instantly
+        // and a fresh Beszel + Pulse hub probe is running in the
+        // background. Drives the topbar refresh button's "Refreshing…"
+        // pulse so the operator sees the system is working even
+        // after the foreground call completed.
+        this.hubProbing = !!d.hub_probing;
         // Merge with EXISTING rows to prevent the flicker that
         // happens when the 15s poll re-runs and resets every row to
         // the grey skeleton (hiding graphs / provider chips for a
@@ -14998,6 +15052,23 @@ function app() {
         const cleaned = (this.hostsExpanded || []).filter(n => valid.has(n));
         if (cleaned.length !== (this.hostsExpanded || []).length) {
           this.hostsExpanded = cleaned;
+        }
+        // Trim the bulk-selection set to hosts that still exist —
+        // operator-deleted rows would otherwise stay counted in
+        // selectedHostCount() and make the bulk bar render a stale
+        // count badge until the operator clicks Clear. Bulk POSTs
+        // would silently skip the dead id but the count miscount is
+        // still confusing UX.
+        if (this.selectedHosts && this.selectedHosts.size > 0) {
+          let trimmed = 0;
+          const next = new Set();
+          for (const id of this.selectedHosts) {
+            if (incomingIds.has(id)) next.add(id);
+            else trimmed += 1;
+          }
+          if (trimmed > 0) {
+            this.selectedHosts = next;
+          }
         }
       } catch (e) {
         // Set the error flag but DON'T wipe the array — same rationale

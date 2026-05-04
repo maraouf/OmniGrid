@@ -287,6 +287,7 @@
     "cleanup": "Cleanup",
     "refresh": "Refresh",
     "refreshing": "Refreshing…",
+    "refreshing_bg": "Refreshing…",
     "test_all": "Test all",
     "testing": "Testing…",
     "clear": "Clear",
@@ -858,6 +859,10 @@
         "tuning_notification_retention_days": {
           "label": "Notifications retention (days)",
           "help": "How long rows in the in-app notifications store are kept before the prune_notifications schedule kind deletes them. Drives the badge / Notifications page time horizon. Independent from log retention so operators can keep a multi-month notifications trail (audit / quarterly review) without inflating the daily log file disk usage. Lower it on a tiny SQLite footprint; raise it for longer audit trails. Default 90 days. Pruner clamps to the (1, 3650) range at consume time so a corrupt DB row can't disable the sweep entirely. Takes effect on the next prune_notifications run; a manual Run-now from Admin → Schedules applies the new value immediately."
+        },
+        "tuning_notification_page_size": {
+          "label": "Notifications page size",
+          "help": "How many notifications the in-app popup loads per fetch. Default 25 — operators on busy fleets where every gather emits new entries reported the previous 50 felt overwhelming. Lower it (toward 5) for a tighter scroll-less popup; raise it (toward 200) when you want to see a longer slice of recent events without paginating. Range 5..200 enforced at write-time + clamped at read-time. Takes effect on the next /api/me round-trip + the next time the popup opens (existing open popup keeps its current value until reload)."
         },
         "tuning_host_snapshots_cache_ttl_seconds": {
           "label": "Host snapshots cache TTL (seconds)",
