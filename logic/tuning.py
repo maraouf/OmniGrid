@@ -329,6 +329,13 @@ TUNABLES: dict[str, tuple[str, int, int, int]] = {
     # Beszel — only counts when hub fetch succeeded but the host wasn't
     # found OR Pulse reported the host status as down. 0 = disabled.
     "tuning_pulse_failure_pause_rounds": ("PULSE_FAILURE_PAUSE_ROUNDS", 5, 0, 50),
+    # Pulse hub probe timeout (seconds). Single hub fetch covers every
+    # host — `host_pulse_sampler` and `_get_host_provider_state` both
+    # consume this. Default 15s — Pulse's `/api/state` is typically a
+    # sub-second response on a healthy hub but the operator may run
+    # behind a slow proxy or against an under-provisioned PVE cluster
+    # where the per-node enumeration takes longer.
+    "tuning_pulse_probe_timeout_seconds": ("PULSE_PROBE_TIMEOUT_SECONDS", 15, 1, 120),
     # node-exporter per-host auto-pause threshold. Per-host scrape, so
     # the failure semantic is the same as Webmin: probe attempt that
     # raised OR returned exporter_error. 0 = disabled. Range 0..50.

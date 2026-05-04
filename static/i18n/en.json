@@ -617,6 +617,7 @@
       "verify_tls": "Verify TLS (uncheck for self-signed certs)",
       "save_button": "Save",
       "test_button": "Test connection",
+      "save_requires_test": "Run a successful Test connection first — Save is gated until the URL / API key / endpoint round-trip works.",
       "public_title": "Portainer public URL",
       "public_desc": "Browser-facing URL for \"Open in Portainer\" deep links. May differ from the API URL when Portainer sits behind a reverse proxy.",
       "public_placeholder": "https://portainer.example.com"
@@ -659,7 +660,8 @@
       "verify_tls_hint": "Leave on when the issuer has a publicly-trusted cert. Turn off for homelab issuers behind an internal CA whose root isn't in the container's trust store (e.g. <code class=\"mono\">*.example.com</code> with a self-signed PKI). Mirrors the behaviour of Portainer's Verify TLS toggle.",
       "group_case_sensitive_title": "Match admin group name exactly (case-sensitive)",
       "group_case_sensitive_hint": "Leave on (default) for byte-exact matching of the admin group claim. Turn off when the IdP returns mixed-case group names that don't match the value you typed above (e.g. you typed <code class=\"mono\">OmniGrid-Admins</code> but Authentik returns <code class=\"mono\">omnigrid-admins</code>). Off compares both sides lowered.",
-      "test_button": "Test connection"
+      "test_button": "Test connection",
+      "save_requires_test": "Run a successful Test connection first — Save is gated until the issuer URL discovery + JWKS round-trip works."
     },
     "shortcuts": {
       "title": "Keyboard shortcuts",
@@ -959,6 +961,10 @@
         "tuning_pulse_failure_pause_rounds": {
           "label": "Pulse auto-pause threshold (rounds)",
           "help": "After this many consecutive rounds where the Pulse hub fetch SUCCEEDED but this specific host was missing from the hub map (or reported status=down/paused/unreachable), the (pulse, host) pair is marked auto-paused — subsequent merges are SKIPPED until the operator clicks Resume on the Pulse chip. Hub-level outages don't count. Default 5. Set 0 to disable. Range 0..50."
+        },
+        "tuning_pulse_probe_timeout_seconds": {
+          "label": "Pulse hub probe timeout (seconds)",
+          "help": "Per-fetch timeout for the Pulse `/api/state` hub call. One hub fetch covers every Pulse-mapped host, so this knob bounds the SAMPLER tick wall-clock and the synchronous probe path used by /api/hosts/list. Default 15s — Pulse responds sub-second on a healthy hub but slow proxies / under-provisioned PVE clusters can take longer. Lower (e.g. 5s) on a fast LAN; raise (e.g. 30s) if the hub is behind a slow Cloudflare Tunnel. Range 1..120s. Takes effect on the next sampler tick."
         },
         "tuning_node_exporter_failure_pause_rounds": {
           "label": "node-exporter auto-pause threshold (rounds)",
@@ -2418,6 +2424,7 @@
     "saving": "Saving…",
     "saved": "Asset inventory settings saved",
     "save_failed": "Save failed",
+    "save_requires_test": "Run a successful Test connection before saving.",
     "refresh": "Refresh now",
     "refreshing": "Refreshing…",
     "refresh_ok": "Refreshed — {count} assets cached",
