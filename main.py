@@ -4926,6 +4926,42 @@ async def _do_host_provider_probe(active: set[str], cache_key: tuple) -> dict:
     return state
 
 
+def _publish_provider_probe_event(host_id: str, provider: str, kind: str,
+                                   started_at: float | None = None) -> None:
+    """Fire a per-(provider, host) probe-status SSE event.
+
+    ``kind`` is either ``probing`` (slice entered, real fetch about to
+    run) or ``done`` (slice complete — success OR failure). The SPA's
+    ``host:provider_probing`` / ``host:provider_done`` handlers track
+    ``h._polling[provider] = bool`` per row so the chip pulses ONLY
+    while ITS probe is in flight (not the row-wide `_loading` window).
+
+    Cache-hit paths skip these events — no actual fetch happened, the
+    chip shouldn't pulse for a microsecond dict lookup. Slow probes
+    (SNMP walks, Webmin three-tier fallback) are the operators' real
+    interest.
+
+    Errors are logged + swallowed; a failed publish must never break
+    the probe path.
+    """
+    try:
+        from logic import events as _events
+        payload = {
+            "host_id": host_id,
+            "provider": provider,
+        }
+        if kind == "probing":
+            payload["started_at"] = started_at if started_at is not None else time.time()
+        elif kind == "done":
+            payload["finished_at"] = time.time()
+            if started_at is not None:
+                payload["duration_ms"] = int((time.time() - started_at) * 1000)
+        _events.publish(f"host:provider_{kind}", payload)
+    except Exception as e:  # noqa: BLE001
+        print(f"[hosts] provider_{kind} publish failed for "
+              f"{host_id!r}/{provider!r}: {e}")
+
+
 async def _merge_one_host(h: dict, state: dict, *, force: bool = False) -> tuple[dict, list[str]]:
     """Merge one curated host with provider data. Runs NE + Webmin
     probes inline for THIS host only; Beszel/Pulse lookups hit the
@@ -4940,6 +4976,14 @@ async def _merge_one_host(h: dict, state: dict, *, force: bool = False) -> tuple
     Settings-save paths already invalidate every cache via
     `invalidate_host_provider_cache()`; this is the per-host force-
     refresh path (drawer reopen with `?force=true`).
+
+    Per-provider polling SSE events: each per-host probe slice that
+    actually hits the wire (cache miss) is bracketed by
+    ``host:provider_probing`` / ``host:provider_done`` events keyed
+    on (host_id, provider). The SPA's chip pulse driver consumes them
+    so a chip pulses ONLY while ITS probe is in flight, not the
+    whole row-wide `_loading` window. Cache hits skip the events
+    (no real fetch happened) so the chip stays at rest.
     """
     from logic import node_exporter as _ne
     from logic import pulse as _pulse
@@ -5107,6 +5151,12 @@ async def _merge_one_host(h: dict, state: dict, *, force: bool = False) -> tuple
                     snmp_excludes = row_snmp.get("exclude_mounts") or []
                     if not isinstance(snmp_excludes, list):
                         snmp_excludes = []
+                    # Per-provider probing event — fires only on cache
+                    # MISS (we're inside the cache-miss branch). Cache
+                    # hits skip the event entirely so the chip stays at
+                    # rest for the microsecond dict lookup.
+                    _probe_started = time.time()
+                    _publish_provider_probe_event(h["id"], "snmp", "probing", _probe_started)
                     try:
                         result = await _snmp.probe_snmp(
                             snmp_target,
@@ -5125,6 +5175,8 @@ async def _merge_one_host(h: dict, state: dict, *, force: bool = False) -> tuple
                         )
                     except Exception as e:  # noqa: BLE001
                         result = {"hosts": {}, "error": f"snmp probe failed: {e}"}
+                    finally:
+                        _publish_provider_probe_event(h["id"], "snmp", "done", _probe_started)
                     if (result.get("hosts") or {}):
                         _snmp_host_cache[cache_key] = (now, result)
                         _snmp_host_fail_cache.pop(cache_key, None)
@@ -5263,6 +5315,11 @@ async def _merge_one_host(h: dict, state: dict, *, force: bool = False) -> tuple
             _ne_timeout = tuning.tuning_int("tuning_node_exporter_probe_timeout_seconds")
             _ne_pause_rounds = tuning.tuning_int("tuning_node_exporter_failure_pause_rounds")
             from logic.host_metrics_sampler import record_provider_outcome
+            # Per-provider probing SSE event — NE has no per-host
+            # cache (each call hits the wire), so every entry to this
+            # block fires the start/done pair.
+            _probe_started = time.time()
+            _publish_provider_probe_event(h["id"], "node_exporter", "probing", _probe_started)
             try:
                 async with httpx.AsyncClient(verify=False, timeout=float(_ne_timeout)) as ne_client:
                     stats = await _ne.probe_node(ne_client, h["ne_url"])
@@ -5284,6 +5341,8 @@ async def _merge_one_host(h: dict, state: dict, *, force: bool = False) -> tuple
                     error=str(e),
                     round_threshold=_ne_pause_rounds,
                 )
+            finally:
+                _publish_provider_probe_event(h["id"], "node_exporter", "done", _probe_started)
 
     # Webmin (per-host probe, 20s outer budget matching api_hosts).
     # Consults a 30s per-host result cache — Webmin is the slowest
@@ -5320,6 +5379,9 @@ async def _merge_one_host(h: dict, state: dict, *, force: bool = False) -> tuple
                     # Webmin probe budget is operator-tunable;
                     # shared with the legacy `api_hosts` consumer.
                     _wm_budget = tuning.tuning_int("tuning_webmin_probe_budget_seconds")
+                    # Per-provider probing SSE event (cache miss only).
+                    _probe_started = time.time()
+                    _publish_provider_probe_event(h["id"], "webmin", "probing", _probe_started)
                     try:
                         result = await asyncio.wait_for(
                             _webmin.probe_webmin(
@@ -5333,6 +5395,8 @@ async def _merge_one_host(h: dict, state: dict, *, force: bool = False) -> tuple
                         result = {"hosts": {}, "error": f"webmin probe timeout after {_wm_budget}s"}
                     except Exception as e:  # noqa: BLE001
                         result = {"hosts": {}, "error": f"webmin probe failed: {e}"}
+                    finally:
+                        _publish_provider_probe_event(h["id"], "webmin", "done", _probe_started)
                     # Cache the OUTCOME — successes go in the long-lived
                     # cache (30s TTL), failures go in the negative cache
                     # (5s TTL) so a hung Webmin doesn't re-burn 20s on
