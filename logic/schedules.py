@@ -257,7 +257,7 @@ def _next_weekly_run(
     # uses (`_day_anchor_ts` honours `_scheduler_tz()`). Without
     # alignment, container-local time near midnight in operator-TZ
     # can produce the wrong day-of-week and either fire a day early
-    # / late or skip the firing day entirely. See BUG-002 in
+    # / late or skip the firing day entirely. See in
     # notes/code_review_2026-04-25.md.
     tz = _scheduler_tz()
     if tz is not None:
@@ -300,7 +300,7 @@ def _next_monthly_run(
     dom = max(1, min(int(day_of_month), 31))
     # `y, m` MUST come from the same timezone the anchor calc uses —
     # at month boundaries, container-local UTC can disagree with
-    # operator-TZ and pick the wrong calendar month. See BUG-002.
+    # operator-TZ and pick the wrong calendar month. See .
     tz = _scheduler_tz()
     if tz is not None:
         import datetime
@@ -382,7 +382,7 @@ def init_schedules_schema(conn: sqlite3.Connection) -> None:
     # Idempotent column adds for deployments upgrading from earlier schemas.
     # - run_at_hhmm: time-of-day anchor for daily/weekly/monthly modes.
     # - cadence_mode: which of the four modes the row is using. Legacy rows
-    #   with NULL are treated as 'daily' if run_at_hhmm is set, else 'interval'.
+    # with NULL are treated as 'daily' if run_at_hhmm is set, else 'interval'.
     # - days_of_week: JSON int array (Mon=0..Sun=6) — weekly mode only.
     # - day_of_month: 1..31 (clamped to the month's last day) — monthly only.
     for ddl in (
@@ -1006,7 +1006,7 @@ async def _run_asset_inventory_refresh(
                         "asset_inventory base_url and lifetime_token are required "
                         "for the lifetime-token auth mode"
                     )
-                # #417 / ENH-001 — honour the asset_inventory_verify_tls
+                # / — honour the asset_inventory_verify_tls
                 # setting (default True) so operators with a self-signed
                 # asset API can opt out without monkey-patching.
                 _verify_tls_raw = (get_setting("asset_inventory_verify_tls", "true") or "true").strip().lower()
@@ -1229,9 +1229,9 @@ async def _run_prune_notifications(
 # replica invariant), so single-process state is safe.
 #
 # Setting keys (DB):
-#   swarm_autoheal_last_restart_ts — float epoch seconds
-#   swarm_autoheal_last_notify_ts  — float epoch seconds
-#   swarm_autoheal_last_notify_set — JSON-encoded sorted list of host ids
+# swarm_autoheal_last_restart_ts — float epoch seconds
+# swarm_autoheal_last_notify_ts  — float epoch seconds
+# swarm_autoheal_last_notify_set — JSON-encoded sorted list of host ids
 _swarm_autoheal_last_restart_ts: float = 0.0
 # Notify-only-path de-dup state. Without this a once-per-minute
 # schedule paged 60×/hour while an agent stayed down. Two gates
@@ -1437,7 +1437,7 @@ async def _run_swarm_agent_health(
                     # configured notification mediums (in-app +
                     # Apprise external) without auto-restarting.
                     #
-                    # Transitions-only de-dup: fire ONE
+                  # Transitions-only de-dup: fire ONE
                     # `swarm_agent_unhealthy` per host that just became
                     # unhealthy AND ONE `swarm_agent_recovered` per host
                     # that just recovered. A sustained outage no longer
@@ -1845,7 +1845,7 @@ def seed_default_schedules(conn: sqlite3.Connection, nodes: list[str]) -> None:
     if (get_setting("default_schedules_seeded", "") or "").lower() == "true":
         return
 
-    # ENH-014 — `seed_default_schedules` is called from BOTH
+    # `seed_default_schedules` is called from BOTH
     # `_lifespan` (with empty nodes) AND the first `gather()` (with
     # nodes). On a fast-booting Swarm both calls can pass the gate
     # check above and double-INSERT before either reaches
@@ -1928,7 +1928,7 @@ def seed_default_schedules(conn: sqlite3.Connection, nodes: list[str]) -> None:
             if seeded:
                 print("[scheduler] default schedules seeded; flag latched")
 
-    # ENH-014 — close the BEGIN IMMEDIATE transaction. Commit
+    # close the BEGIN IMMEDIATE transaction. Commit
     # whether seeded or not so the flag write (if any) lands and the
     # write lock is released for the other concurrent caller.
     try:
@@ -1967,7 +1967,7 @@ async def scheduler_loop() -> None:
     process-restart time. Operators who want a "fire on restart"
     behaviour should bump last_run_at down manually, or click Run now.
     """
-    # BUG-004 ghost-clear  — fire
+    # ghost-clear  — fire
     # records ``(last_op_id, last_duration=NULL)`` synchronously, then
     # spawns a fire-and-forget waiter that rewrites the row with the
     # real duration + status when the op finishes. If the lifespan is

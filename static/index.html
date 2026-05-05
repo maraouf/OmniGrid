@@ -58,7 +58,7 @@
   //. Listeners use `{passive: false}` because preventDefault()
   // requires it. Attached to BOTH document and window so iOS Safari
   // can't bypass via either path.
-  (function () {
+  (function {
     var pd = function (e) {
       try { e.preventDefault(); } catch (_) {}
     };
@@ -115,7 +115,7 @@
 <script src="/node_modules/@tailwindcss/browser/dist/index.global.js"></script>
 <script src="/js/alpine-gate.js?v=__APP_VERSION__"></script>
 <script src="/node_modules/sweetalert2/dist/sweetalert2.all.min.js"></script>
-<!-- xterm.js — interactive SSH terminal modal (TODO #170). UMD bundles
+<!-- xterm.js — interactive SSH terminal modal. UMD bundles
      expose window.Terminal + window.FitAddon + window.WebLinksAddon. -->
 <link rel="stylesheet" href="/node_modules/@xterm/xterm/css/xterm.css">
 <script src="/node_modules/@xterm/xterm/lib/xterm.js"></script>
@@ -725,7 +725,7 @@
               :title="t('warnings.session_secret_auto.dismiss_title')">✕</button>
     </div>
 
-    <!-- #370 / UX-004: Bootstrap-admin env vars still set in .env even
+    <!-- / Bootstrap-admin env vars still set in .env even
          though the users table is non-empty. Bootstrap path is now a
          no-op on every restart, but a wiped DB would silently re-seed
          from the env values + the password is sitting plaintext on
@@ -1482,7 +1482,7 @@
 
             <!-- Disk — when node-exporter is available, show REAL host
                  disk (all non-pseudo mounts, from node_filesystem_*
-                 metrics). Docker daemon footprint (from /system/df)
+               metrics). Docker daemon footprint (from /system/df)
                  stays as a second line so operators can see both. -->
             <div>
               <template x-if="nodeStats(node.name).hasHostStats && nodeStats(node.name).hostDiskTotal">
@@ -1799,7 +1799,7 @@
                 <span x-text="t('hosts_extra.merged_from', { sources: (hostsActiveSources || []).map(s => s === 'node_exporter' ? 'node-exporter' : s).join(' + ') })"></span>
               </span>
               <!-- Polling-cadence label gated on `refreshInterval`
-                   (the unified picker from #486), NOT `statsInterval`.
+                   (the unified picker), NOT `statsInterval`.
                    `statsInterval === 0` is true in BOTH Live mode AND
                    Off mode (because Live maps `statsInterval=0` so the
                    SPA polls idle while SSE pushes), so reading
@@ -1825,7 +1825,7 @@
                  (mask-image + currentColor) match the Admin → Hosts
                  collapsed-card chip strip so the visual language is
                  consistent across both surfaces. State / error /
-                 unmatched colouring kept from #596.
+                 unmatched colouring kept.
                  The chip's :class adds `chip-active` when the chip is
                  in the filter set so operators see the currently-
                  selected providers at a glance. -->
@@ -3856,7 +3856,7 @@
             <input type="checkbox" x-model="settings.beszel_verify_tls" :disabled="isReadonly()">
             <span x-text="t('settings.host_stats.beszel_verify_tls')"></span>
           </label>
-          <!-- #700 third-pass fix: switched from flex+justify-between
+          <!-- third-pass fix: switched from flex+justify-between
                to a 2-column grid (1fr for the result span, auto for
                the button). Flex+justify-between only works when both
                children participate in the layout; with `flex-wrap`
@@ -4074,7 +4074,7 @@
 
     <!-- ===== ADMIN VIEW (admin role only) ===== -->
     <div x-show="view==='admin'" class="page-layout">
-      <!-- UX-008: mobile sidebar replacement. Below 768px the
+      <!-- mobile sidebar replacement. Below 768px the
            full-width button list eats half the viewport; a single
            <select> is denser and matches platform conventions for
            narrow screens. The desktop <aside> below stays for
@@ -4351,7 +4351,7 @@
                                    : s.auth_method === 'totp' ? 'pill-success'
                                    : s.auth_method === 'oidc' ? 'pill-info'
                                    : 'pill-muted')">
-                        <!-- UX-ENH-005 / small Authentik logo
+                        <!-- small Authentik logo
                              prefix on OIDC rows so operators recognise
                              SSO sessions vs local at a glance. -->
                         <template x-if="s.auth_method === 'oidc'">
@@ -6384,15 +6384,13 @@
                      header. Resolution chain : operator-set
                      `row.label` first (highest priority), else the
                      asset inventory's name via `assetForHost(row).name`
-                     (matches the public Hosts page behaviour from
-                     #621). Editor textbox stays bound to raw
+                     (matches the public Hosts page behaviour). Editor textbox stays bound to raw
                      `row.label` so an empty input means "use the
                      asset's name" — typing populates the literal,
                      clearing reverts to the asset-name fallback.
                      Long labels ellipsis-truncate (`min-w-0
                      max-w-[280px] truncate`) so the SSH icon
-                     never wraps to a second line.
-                     #638: subtle source indicator — asset-derived
+                     never wraps to a second line.: subtle source indicator — asset-derived
                      names render in italic so the operator can tell
                      at a glance which rows are using the asset
                      fallback vs an explicit operator-typed label.
@@ -7579,7 +7577,7 @@
         </div>
       </section>
 
-      <!-- ASSET INVENTORY TAB (ticket #78 + #126) — two auth modes:
+      <!-- ASSET INVENTORY TAB — two auth modes:
            OAuth2 client_credentials (legacy) OR a static lifetime
            token POSTed to services.php. Manual refresh only — the
            cache at /app/data/asset_inventory.json is the source of
@@ -7701,7 +7699,7 @@
                        class="w-full mono text-[12.5px] py-1.5"
                        :placeholder="t('admin_assets.scope_placeholder')">
               </div>
-              <!-- #417 / ENH-001 — TLS verification toggle for the asset
+              <!-- / — TLS verification toggle for the asset
                    API. Default checked; flip off for self-signed
                    homelab endpoints. Mirrors the Portainer / Beszel
                    verify_tls shape. -->
@@ -8204,7 +8202,7 @@
                anchor calculation and silently falls back to container-
                local time when ZoneInfo rejects the value. Surface that
                state so the operator can spot the typo without grepping
-               Admin → Logs (ENH-017). -->
+               Admin → Logs. -->
           <div x-show="me && me.client_config && me.client_config.scheduler_tz && me.client_config.scheduler_tz.fallback"
                class="mt-3 text-[11.5px] rounded-md px-3 py-2 bg-[var(--pill-error-bg)] text-[var(--pill-error-fg)] border border-[var(--pill-error-br)]"
                x-text="t('scheduler_settings.tz_fallback_warning', { tz: (me && me.client_config && me.client_config.scheduler_tz && me.client_config.scheduler_tz.configured) || '' })"></div>
@@ -9145,8 +9143,7 @@
         </section>
       </div>
 
-      <!-- (Admin → Version page removed 2026-04-30 alongside #606's
-           deploy migration to image-build. The page wrote to
+      <!-- (Admin → Version page removed 2026-04-30 alongside            deploy migration to image-build. The page wrote to
            /app/VERSION.txt via a per-file bind that no longer exists;
            writes would have landed in the container's ephemeral
            overlay layer and disappeared on the next service update.
@@ -9406,7 +9403,7 @@
               <!-- Stale-snapshot banner — fires when the backend stamped
                    `_stale_fields` on this host because at least one
                    provider went down and we're falling back to the last
-                   cached snapshot (UX-001). Banner answers "wait, is
+                   cached snapshot. Banner answers "wait, is
                    this number live?" before the operator chases a ghost
                    metric. The drawer cards themselves dim individual
                    fields via the `.stale` CSS class via :class binding. -->
@@ -9420,13 +9417,13 @@
                    Resume". Hidden when the host is disabled
                    (sampling-suppressed banner takes precedence), when
                    whole-host sampling is paused (banner above already
-                   conveys an actionable Resume + #816 wires that
+                   conveys an actionable Resume + wires that
                    Resume to also clear paused providers — surfacing
                    both banners with two contradictory enable-states
                    is what operators reported as confusing), AND only
                    shows when the operator can actually act (admin).
                    The "Resume all" button reuses `resumeAllProviders`
-                   from the bottom-of-card rollup (UX-ENH-003) so the
+                   from the bottom-of-card rollup so the
                    two affordances stay in lock-step. Disabled gate
                    shares `canResumeAny(h)` with the bottom-of-card
                    rollup + per-chip buttons so a stuck busy
@@ -9950,7 +9947,7 @@
                     <dd class="text-end">
                       <a x-show="h.url" :href="h.url" target="_blank" rel="noopener"
                          class="text-[var(--primary)] hover:underline mono" x-text="h.url"></a>
-                      <!-- #719: previous wiring only set `adminTab`
+                      <!--: previous wiring only set `adminTab`
                            which has no visible effect when the SPA is
                            on the Hosts view — the click looked dead.
                            Now: close the drawer, switch the SPA to
@@ -9959,7 +9956,7 @@
                            into view + auto-expand it so the operator
                            lands directly on the URL field they wanted
                            to edit. -->
-                      <!-- #719 (revised): pre-fix the click chained
+                      <!-- (revised): pre-fix the click chained
                            `$nextTick(() => focusHostsConfigRow(h.id))`
                            after `openAdminTab('hosts')`, but
                            `openAdminTab` is async + AWAITS
@@ -10723,8 +10720,7 @@
                       x-text="t('host_drawer.printer.heading')"></h4>
                   <!-- printer freshness line. Always visible
                        when SNMP history exists; renders in `--warning`
-                       orange (matches the SNMP chart freshness banner
-                       from #744 and the snapshot-stale banner pattern).
+                       orange (matches the SNMP chart freshness banner and the snapshot-stale banner pattern).
                        Operators wanted explicit "last refreshed Xm
                        ago" visibility on the printer card whether or
                        not the data was actually stale — the original
@@ -12185,7 +12181,7 @@
               <div class="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4"
                    x-show="(h.beszel_id || h.ne_url || h.pulse_name || h.webmin_name) && h.status === 'up' && (h.providers || []).length > 0">
 
-                <!-- ====== Network (combined In + Out, #318) ======
+                <!-- ====== Network (combined In + Out) ======
                      Two polylines on one SVG, shared y-axis via
                      `hostChartMax(['nr','ns'])` so the lines are
                      directly comparable. Legend at top shows both
@@ -13230,7 +13226,7 @@
                                 @click="testSshConnection(h.id)"
                                 :disabled="!!sshTestBusy[h.id]"
                                 x-text="sshTestBusy[h.id] ? t('hosts_extra_ssh.running') : t('hosts_extra_ssh.test_button')"></button>
-                        <!-- Interactive PTY terminal modal (TODO #170). Admin-only,
+                        <!-- Interactive PTY terminal modal. Admin-only,
                              same gating as the rest of the SSH card. Disabled until
                              SSH is configured + the host is up — same rules as the
                              one-shot Run button. Styled as a primary action with
@@ -14010,7 +14006,7 @@
     </div>
   </div>
 
-  <!-- ================== INTERACTIVE SSH TERMINAL MODAL (TODO #170) ==================
+  <!-- ================== INTERACTIVE SSH TERMINAL MODAL ==================
        Live PTY-backed shell. Browser <-WSS-> backend <-asyncssh-> target.
        Cookie-authed; admin-only. Audit row written at session OPEN + CLOSE
        (start/end events only — keystrokes never logged). Esc / X to close.

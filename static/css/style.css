@@ -55,7 +55,7 @@
     --surface-2: #131c2b;
     --surface-3: #1b2538;
     --border: #1e293b;
-    --border-bright: #283449;
+    --border-bright:;
 
     /* Text */
     --text: #e2e8f0;
@@ -112,8 +112,8 @@
     --debug-merged:   #a78bfa;   /* violet — merged best-of */
     --debug-rendered: #22c55e;   /* emerald — what ships to UI */
 
-    /* Interactive SSH terminal modal (TODO #170) */
-    --terminal-bg:    #000000;
+    /* Interactive SSH terminal modal */
+    --terminal-bg:;
     --terminal-fg:    #e2e8f0;
     --terminal-status-ok-bg:   rgba(34, 197, 94, .12);
     --terminal-status-ok-fg:   #4ade80;
@@ -125,7 +125,7 @@
        Distinct from --surface-3 (panel chrome) and --border-bright
        (separator lines) so the cancel pill reads as a button rather
        than chrome. Used by confirmDialog() in app.js. */
-    --btn-cancel-bg:  #374151;
+    --btn-cancel-bg:;
     --pill-degraded-bg: rgba(245, 158, 11, .12);
     --pill-degraded-br: rgba(245, 158, 11, .25);
     --pill-degraded-fg: #fbbf24;
@@ -330,7 +330,7 @@
     --border-bright: #cbd5e1;
 
     --text: #0f172a;
-    --text-dim: #475569;
+    --text-dim:;
     --text-faint: #64748b;
     --text-on-primary: #ffffff;
     --text-on-warning: #1a0e00;
@@ -354,13 +354,13 @@
     --pill-error-fg: #b91c1c;
     --pill-unknown-bg: rgba(100, 116, 139, .08);
     --pill-unknown-br: rgba(100, 116, 139, .25);
-    --pill-unknown-fg: #475569;
+    --pill-unknown-fg:;
     --pill-ignored-bg: rgba(100, 116, 139, .06);
     --pill-ignored-br: rgba(100, 116, 139, .20);
     --pill-ignored-fg: #64748b;
     --pill-offline-bg: rgba(100, 116, 139, .08);
     --pill-offline-br: rgba(100, 116, 139, .25);
-    --pill-offline-fg: #475569;
+    --pill-offline-fg:;
     --pill-degraded-bg: rgba(217, 119, 6, .10);
     --pill-degraded-br: rgba(217, 119, 6, .30);
     --pill-degraded-fg: #b45309;
@@ -388,7 +388,7 @@
     --debug-merged:   #7c3aed;
     --debug-rendered: #16a34a;
 
-    /* Interactive SSH terminal modal (TODO #170) — keep the viewport
+    /* Interactive SSH terminal modal — keep the viewport
        black-on-light even in light mode so xterm-256color sequences land
        on the contrast they expect (most palettes assume a dark bg). */
     --terminal-bg:    #0b1220;
@@ -400,7 +400,7 @@
     --terminal-status-err-bg:  rgba(220, 38, 38, .14);
     --terminal-status-err-fg:  #b91c1c;
     /* Neutral cancel-button background for SweetAlert dialogs —
-       light-mode value (lighter slate than the dark-mode #374151).
+       light-mode value (lighter slate than the dark-mode).
        Used by confirmDialog() in app.js. */
     --btn-cancel-bg:  #9ca3af;
 
@@ -418,7 +418,7 @@
     --log-tag-host-net-sampler: #0f766e;
     --log-tag-ssh:              #be185d;
     --log-tag-portainer:        #0369a1;
-    --log-tag-i18n:             #475569;
+    --log-tag-i18n:;
     --log-tag-ops:              #b45309;
     --log-tag-schedules:        #6d28d9;
     --log-tag-gather:           #0e7490;
@@ -1211,15 +1211,15 @@ button:disabled {
  * label + a small leading dot in the chip's own colour gives a clean
  * "selected" cue without competing with the chip's pill colour.
  * - `border` becomes a 1px solid in `currentColor` (the chip's text
- *   colour, which matches the pill family). On a `.pill-error` chip
- *   that's red; on `.pill-info` it's blue; on the neutral "All" chip
- *   it falls back to `--text-dim`.
+ * colour, which matches the pill family). On a `.pill-error` chip
+ * that's red; on `.pill-info` it's blue; on the neutral "All" chip
+ * it falls back to `--text-dim`.
  * - `font-weight: 600` so the label bolds — gives colour-blind
- *   operators a non-colour signal too.
+ * operators a non-colour signal too.
  * - The `::before` dot is the operator-suggested visual cue: a small
- *   solid disc in `currentColor` rendered inside the chip just before
- *   the label. It only appears on `.chip-active` and disappears the
- *   moment the chip is deselected.
+ * solid disc in `currentColor` rendered inside the chip just before
+ * the label. It only appears on `.chip-active` and disappears the
+ * moment the chip is deselected.
  * - `margin-inline-end` keeps RTL clean. */
 .chip.chip-active {
     border-color: currentColor;
@@ -1331,7 +1331,7 @@ button.health-chip:hover {
     border-radius: 3px;
 }
 
-/* #680 follow-up — clickable chips must meet the touch-target rule on
+/* follow-up — clickable chips must meet the touch-target rule on
  * phones (CLAUDE.md mandates --touch-target-min for mobile interactive
  * elements). The base .chip is 11px font + 2px·6px padding (~18px tall)
  * which is comfortable on desktop but below tap target on mobile. Only
@@ -4736,7 +4736,7 @@ body.login {
     background: var(--text-faint);
 }
 
-/* UX-ENH-001 / distinct "reconnecting" state. The dot ticks
+/* distinct "reconnecting" state. The dot ticks
    amber instead of red so operators see "we're trying" rather than
    "we gave up". Animation reuses the existing sse-pulse keyframes. */
 .sse-pill--reconnecting {
@@ -5552,7 +5552,7 @@ select.field-invalid {
 }
 
 /* ---------------------------------------------------------------------------
-   Interactive SSH terminal modal (TODO #170)
+   Interactive SSH terminal modal
    --------------------------------------------------------------------------- */
 .terminal-host {
     width: 100%;
@@ -5596,10 +5596,10 @@ select.field-invalid {
 /* Admin → Process tunables — bounds chips. Three small chips
  * inline with the input render the min / max / default values, each
  * with a Lucide icon that telegraphs the semantic at a glance:
- *   min     → arrow-down-to-line   (lower bound / floor)
- *   max     → arrow-up-to-line     (upper bound / ceiling)
- *   default → target               (the anchor — what you'd land on
- *                                    if you cleared the override)
+ * min     → arrow-down-to-line   (lower bound / floor)
+ * max     → arrow-up-to-line     (upper bound / ceiling)
+ * default → target               (the anchor — what you'd land on
+ *                                  if you cleared the override)
  * Icon colour differentiates: min/max use --text-faint (subtle —
  * they're metadata bounds), default uses --primary (small accent so
  * the operator's eye finds the "where it lands by default" value).

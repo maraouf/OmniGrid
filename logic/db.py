@@ -252,7 +252,7 @@ def curated_ne_hosts() -> list[dict]:
     ``ne_url`` and ``id``. Replaces the byte-for-byte duplicate
     ``_load_curated_hosts`` helpers that lived in
     ``logic/host_net_sampler.py`` and ``logic/host_metrics_sampler.py``
-    (CONS-001).
+   .
 
     Malformed rows (non-dict, missing id, blank ne_url) are silently
     skipped — same forgiving contract the samplers had before, so a

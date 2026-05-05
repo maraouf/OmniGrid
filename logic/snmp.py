@@ -90,7 +90,7 @@ from typing import Optional
 from logic import tuning as _tuning
 # Cool-down on consecutive timeouts. Different lever than the Webmin /
 # SSH 401 cool-down (no auth challenge in SNMP — there's no credential
-# lockout to defend against). Pre-#678 we shared
+# lockout to defend against). Pre-fix we shared
 # `tuning_auth_failure_cooldown_seconds` with Webmin / SSH; operators
 # debugging "SNMP timing out" reached for the wrong knob. Now uses a
 # dedicated `tuning_snmp_unreachable_cooldown_seconds` (default 300s,
@@ -160,7 +160,7 @@ _OID_ENT_PHYS_CLASS   = "1.3.6.1.2.1.47.1.1.1.1.5"
 # Service tag = serial; chassis model = product name; racFirmwareVersion
 # = iDRAC firmware string (e.g. "5.10.30.00"). globalSystemStatus uses
 # the standard Dell Systems Management Server Health enum:
-#   1=other, 2=unknown, 3=ok, 4=non-critical, 5=critical, 6=non-recoverable
+# 1=other, 2=unknown, 3=ok, 4=non-critical, 5=critical, 6=non-recoverable
 _OID_DELL_CHASSIS_SERVICE_TAG = "1.3.6.1.4.1.674.10892.5.1.3.2.0"
 _OID_DELL_CHASSIS_MODEL       = "1.3.6.1.4.1.674.10892.5.1.3.3.0"
 _OID_DELL_RAC_FIRMWARE        = "1.3.6.1.4.1.674.10892.5.1.1.6.0"
@@ -175,72 +175,72 @@ _OID_DELL_SYSTEM_MODEL_NAME   = "1.3.6.1.4.1.674.10892.5.4.300.10.1.9.1"
 _OID_DELL_BIOS_VERSION        = "1.3.6.1.4.1.674.10892.5.4.300.50.1.8"
 _OID_DELL_BIOS_RELEASE_DATE   = "1.3.6.1.4.1.674.10892.5.4.300.50.1.7"
 # Dell coolingDeviceTable (fans). One row per fan; 5.4.700.12.1.x:
-#   .5 = coolingDeviceStatus (enum)
-#   .6 = coolingDeviceReading (RPM)
-#   .7 = coolingDeviceType (enum: 3=fan, 4=blower, 10=cooled-air-fan, etc.)
-#   .8 = coolingDeviceLocationName (string)
+# .5 = coolingDeviceStatus (enum)
+# .6 = coolingDeviceReading (RPM)
+# .7 = coolingDeviceType (enum: 3=fan, 4=blower, 10=cooled-air-fan, etc.)
+# .8 = coolingDeviceLocationName (string)
 _OID_DELL_FAN_STATUS    = "1.3.6.1.4.1.674.10892.5.4.700.12.1.5"
 _OID_DELL_FAN_READING   = "1.3.6.1.4.1.674.10892.5.4.700.12.1.6"
 _OID_DELL_FAN_TYPE      = "1.3.6.1.4.1.674.10892.5.4.700.12.1.7"
 _OID_DELL_FAN_LOCATION  = "1.3.6.1.4.1.674.10892.5.4.700.12.1.8"
 # Dell temperatureProbeTable. 5.4.700.20.1.x:
-#   .5 = temperatureProbeStatus (enum)
-#   .6 = temperatureProbeReading (deci-degC; 232 = 23.2 °C)
-#   .7 = temperatureProbeType (enum)
-#   .8 = temperatureProbeLocationName (string — e.g. "CPU1 Temp", "Inlet Temp")
+# .5 = temperatureProbeStatus (enum)
+# .6 = temperatureProbeReading (deci-degC; 232 = 23.2 °C)
+# .7 = temperatureProbeType (enum)
+# .8 = temperatureProbeLocationName (string — e.g. "CPU1 Temp", "Inlet Temp")
 _OID_DELL_TEMP_STATUS   = "1.3.6.1.4.1.674.10892.5.4.700.20.1.5"
 _OID_DELL_TEMP_READING  = "1.3.6.1.4.1.674.10892.5.4.700.20.1.6"
 _OID_DELL_TEMP_TYPE     = "1.3.6.1.4.1.674.10892.5.4.700.20.1.7"
 _OID_DELL_TEMP_LOCATION = "1.3.6.1.4.1.674.10892.5.4.700.20.1.8"
 # Dell powerSupplyTable. 5.4.600.12.1.x:
-#   .5 = powerSupplyStatus (enum)
-#   .6 = powerSupplyOutputWatts (deci-watts; 7500 = 750 W per Dell MIB)
-#   .7 = powerSupplyType (enum: AC / DC)
-#   .8 = powerSupplyLocationName
-#   .12 = powerSupplyConfigurationErrorType (mismatch / not-redundant / etc.)
+# .5 = powerSupplyStatus (enum)
+# .6 = powerSupplyOutputWatts (deci-watts; 7500 = 750 W per Dell MIB)
+# .7 = powerSupplyType (enum: AC / DC)
+# .8 = powerSupplyLocationName
+# .12 = powerSupplyConfigurationErrorType (mismatch / not-redundant / etc.)
 _OID_DELL_PSU_STATUS    = "1.3.6.1.4.1.674.10892.5.4.600.12.1.5"
 _OID_DELL_PSU_WATTS     = "1.3.6.1.4.1.674.10892.5.4.600.12.1.6"
 _OID_DELL_PSU_TYPE      = "1.3.6.1.4.1.674.10892.5.4.600.12.1.7"
 _OID_DELL_PSU_LOCATION  = "1.3.6.1.4.1.674.10892.5.4.600.12.1.8"
 # Dell voltageProbeTable. 5.4.600.20.1.x:
-#   .5 = voltageProbeStatus
-#   .6 = voltageProbeReading (millivolts)
-#   .8 = voltageProbeLocationName
+# .5 = voltageProbeStatus
+# .6 = voltageProbeReading (millivolts)
+# .8 = voltageProbeLocationName
 _OID_DELL_VOLT_STATUS   = "1.3.6.1.4.1.674.10892.5.4.600.20.1.5"
 _OID_DELL_VOLT_READING  = "1.3.6.1.4.1.674.10892.5.4.600.20.1.6"
 _OID_DELL_VOLT_LOCATION = "1.3.6.1.4.1.674.10892.5.4.600.20.1.8"
 # Dell amperageProbeTable — also carries PSU input watts on iDRAC9+.
 # 5.4.600.30.1.x:
-#   .5 = amperageProbeStatus
-#   .6 = amperageProbeReading (deci-amperes for current probes; watts
-#         direct for type=23 system-power probes)
-#   .7 = amperageProbeType (24=power-consumption, 23=watts, 1-3=current)
-#   .8 = amperageProbeLocationName
+# .5 = amperageProbeStatus
+# .6 = amperageProbeReading (deci-amperes for current probes; watts
+#       direct for type=23 system-power probes)
+# .7 = amperageProbeType (24=power-consumption, 23=watts, 1-3=current)
+# .8 = amperageProbeLocationName
 _OID_DELL_AMP_STATUS    = "1.3.6.1.4.1.674.10892.5.4.600.30.1.5"
 _OID_DELL_AMP_READING   = "1.3.6.1.4.1.674.10892.5.4.600.30.1.6"
 _OID_DELL_AMP_TYPE      = "1.3.6.1.4.1.674.10892.5.4.600.30.1.7"
 _OID_DELL_AMP_LOCATION  = "1.3.6.1.4.1.674.10892.5.4.600.30.1.8"
 # Dell physicalDiskTable — per-disk identity + state + capacity.
 # 5.5.1.20.130.4.1.x:
-#   .2 = physicalDiskName ("Physical Disk 0:1:0")
-#   .4 = physicalDiskState (enum: 1=ready, 2=failed, 3=online, 4=offline,
-#        5=degraded, 6=recovering, 7=removed, 8=rebuild, 11=foreign,
-#        13=clear, 14=blocked, 15=non-raid, 16=ready-removed, etc.)
-#   .6 = physicalDiskCapacityInMB (megabytes)
-#   .10 = physicalDiskSerialNo
-#   .11 = physicalDiskRevision
+# .2 = physicalDiskName ("Physical Disk 0:1:0")
+# .4 = physicalDiskState (enum: 1=ready, 2=failed, 3=online, 4=offline,
+#      5=degraded, 6=recovering, 7=removed, 8=rebuild, 11=foreign,
+#      13=clear, 14=blocked, 15=non-raid, 16=ready-removed, etc.)
+# .6 = physicalDiskCapacityInMB (megabytes)
+# .10 = physicalDiskSerialNo
+# .11 = physicalDiskRevision
 _OID_DELL_PD_NAME       = "1.3.6.1.4.1.674.10892.5.5.1.20.130.4.1.2"
 _OID_DELL_PD_STATE      = "1.3.6.1.4.1.674.10892.5.5.1.20.130.4.1.4"
 _OID_DELL_PD_CAPACITY   = "1.3.6.1.4.1.674.10892.5.5.1.20.130.4.1.6"
 _OID_DELL_PD_SERIAL     = "1.3.6.1.4.1.674.10892.5.5.1.20.130.4.1.10"
 _OID_DELL_PD_REVISION   = "1.3.6.1.4.1.674.10892.5.5.1.20.130.4.1.11"
 # Dell virtualDiskTable (RAID arrays). 5.5.1.20.140.1.1.x:
-#   .2  = virtualDiskName
-#   .4  = virtualDiskState (1=ready, 2=failed, 3=online, 4=offline,
-#         5=degraded, 6=verifying, etc.)
-#   .6  = virtualDiskSizeInMB
-#   .13 = virtualDiskLayout (1=concat, 2=raid-0, 3=raid-1, 4=raid-5,
-#         5=raid-6, 6=raid-10, 7=raid-50, 8=raid-60)
+# .2  = virtualDiskName
+# .4  = virtualDiskState (1=ready, 2=failed, 3=online, 4=offline,
+#       5=degraded, 6=verifying, etc.)
+# .6  = virtualDiskSizeInMB
+# .13 = virtualDiskLayout (1=concat, 2=raid-0, 3=raid-1, 4=raid-5,
+#       5=raid-6, 6=raid-10, 7=raid-50, 8=raid-60)
 _OID_DELL_VD_NAME       = "1.3.6.1.4.1.674.10892.5.5.1.20.140.1.1.2"
 _OID_DELL_VD_STATE      = "1.3.6.1.4.1.674.10892.5.5.1.20.140.1.1.4"
 _OID_DELL_VD_SIZE       = "1.3.6.1.4.1.674.10892.5.5.1.20.140.1.1.6"
@@ -443,17 +443,17 @@ _LOOPBACK_PREFIXES = ("lo", "loopback", "null", "vlan-internal", "docker", "veth
 #
 # pysnmp version compat — multiple breaking changes between 6.x and 7.x:
 #  1. Module path: `pysnmp.hlapi.asyncio` (5.x / 6.x) — some 7.x lines
-#     ALSO ship a `pysnmp.hlapi.v3arch.asyncio` namespace. Try v3arch
-#     first, fall back to the legacy path.
+#   ALSO ship a `pysnmp.hlapi.v3arch.asyncio` namespace. Try v3arch
+#   first, fall back to the legacy path.
 #  2. Function names: `getCmd` / `bulkCmd` (camelCase, ≤6.x) renamed
-#     to `get_cmd` / `bulk_cmd` (PEP 8 snake_case, 7.x).
+#   to `get_cmd` / `bulk_cmd` (PEP 8 snake_case, 7.x).
 #  3. USM protocol constants: `usmHMACSHA256AuthProtocol` etc. (camelCase,
-#     ≤6.x) renamed to `USM_AUTH_HMAC192_SHA256` (UPPER_SNAKE_CASE, 7.x).
-#     The full mapping isn't documented anywhere stable; resolve each
-#     constant by trying every known historical name and let `_resolve`
-#     return None when none match — the v3 USM probe path raises a
-#     clear "v3 protocol unavailable" error in that case while v2c
-#     probes keep working unaffected.
+#   ≤6.x) renamed to `USM_AUTH_HMAC192_SHA256` (UPPER_SNAKE_CASE, 7.x).
+#   The full mapping isn't documented anywhere stable; resolve each
+#   constant by trying every known historical name and let `_resolve`
+#   return None when none match — the v3 USM probe path raises a
+#   clear "v3 protocol unavailable" error in that case while v2c
+#   probes keep working unaffected.
 # Strategy: resolve every symbol by name lookup against the imported
 # module rather than `from … import …` — that lets one missing or
 # renamed symbol fail JUST that symbol's branch (v3 USM specifically)
@@ -836,7 +836,7 @@ def _last_index(oid_full: str, base: str) -> str:
 # ---------------------------------------------------------------------
 def extract_sys_info(get_result: dict) -> dict:
     """Shape sysName / sysDescr / sysUpTime / sysContact / sysLocation
-    into host_* fields. #681 added contact + location alongside the
+    into host_* fields. added contact + location alongside the
     pre-existing system info."""
     out: dict = {}
     name = _coerce_str(get_result.get(_OID_SYS_NAME))
@@ -848,9 +848,9 @@ def extract_sys_info(get_result: dict) -> dict:
         out["host_hostname"] = name
     if descr:
         # sysDescr typically reads:
-        #   "Linux router 5.15.0 #1 SMP Tue Apr 1 ..."
-        #   "RouterOS RB4011iGS+, RouterOS 6.49.7"
-        #   "HP ETHERNET MULTI-ENVIRONMENT, Firmware version 12.34"
+        # "Linux router 5.15.0 #1 SMP Tue Apr 1 ..."
+        # "RouterOS RB4011iGS+, RouterOS 6.49.7"
+        # "HP ETHERNET MULTI-ENVIRONMENT, Firmware version 12.34"
         # Best-effort split: first token before the first comma OR the
         # first whitespace-separated word.
         out["host_os"] = descr
@@ -1431,7 +1431,7 @@ def extract_entity_info(walk_results: dict) -> dict:
 def extract_cpu_percent(walk_result: dict) -> dict:
     """Shape hrProcessorLoad walk into host_cpu_percent (mean across cores)
     AND host_cpu_per_core (per-index list, sorted by hrProcessorIndex
-    so per-core lines render in the same order across ticks). #713 added
+    so per-core lines render in the same order across ticks). added
     the per-core list so the host drawer can plot one chart line per
     core; pre-fix we kept only the mean.
     """
@@ -1981,7 +1981,7 @@ async def probe_snmp(
     # Cisco / APC / UCD / Synology / Printer walks (~17 OIDs) drops
     # ~16s of wall-clock at concurrency=1.
     #
-    # Per-host ``vendors`` override (operator declared on the curated
+  # Per-host ``vendors`` override (operator declared on the curated
     # row) bypasses auto-detection — useful for agents with stripped
     # sysDescr or for forcing a specific vendor's walks even when
     # auto-detect would skip them. ``None`` (the default) means
@@ -2314,7 +2314,7 @@ async def probe_snmp(
             # stays quiet. ``close()`` is a no-op if the coroutine
             # already started, so the body path is unaffected.
             #
-            # Explicit acquire/release (instead of ``async with walk_sem:``)
+          # Explicit acquire/release (instead of ``async with walk_sem:``)
             # makes the placeholder-bypass + cancellation-cleanup paths
             # read uniformly — each branch is one statement, not nested
             # under a context manager. The try/finally guarantees

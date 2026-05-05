@@ -102,11 +102,11 @@ NOTIFY_MEDIUM_DEFAULTS = {name: True for name in NOTIFY_MEDIUM_NAMES}
 # ---------------------------------------------------------------------
 # Template engine — admin-editable per-event title/body templates with
 # a curated placeholder whitelist. Resolution order at fire time:
-#   1. DB setting `notify_template_<event>_<kind>` (kind in {title, body}).
-#   2. NOTIFY_TEMPLATE_DEFAULTS[event][kind] — the hard-coded baseline that
-#      mirrors the literals previously baked into each `_do_*` handler.
-#   3. Empty string (defence in depth — should never hit if DEFAULTS is
-#      complete; the audit gate logs a WARN if an event ships without one).
+# 1. DB setting `notify_template_<event>_<kind>` (kind in {title, body}).
+# 2. NOTIFY_TEMPLATE_DEFAULTS[event][kind] — the hard-coded baseline that
+#    mirrors the literals previously baked into each `_do_*` handler.
+# 3. Empty string (defence in depth — should never hit if DEFAULTS is
+#    complete; the audit gate logs a WARN if an event ships without one).
 # Renders via `str.format_map(SafeDict(values))` so a typo'd placeholder
 # (`{tagret}`) renders verbatim as `{tagret}` instead of raising
 # KeyError — the operator sees the typo in the rendered output.
@@ -194,9 +194,9 @@ NOTIFY_TEMPLATE_SAMPLES: dict = {
 # behaves byte-for-byte identically to the legacy code.
 #
 # Keys:
-#   title — single-line headline (Apprise title, in-app row title).
-#   body  — multi-line body. Empty string is allowed; some events
-#           (success-shape container ops) historically had no body.
+# title — single-line headline (Apprise title, in-app row title).
+# body  — multi-line body. Empty string is allowed; some events
+#         (success-shape container ops) historically had no body.
 #
 # Audit invariant: every entry in ``NOTIFY_EVENT_NAMES`` MUST have a
 # matching entry here. The :func:`audit_template_coverage` helper
@@ -913,9 +913,9 @@ async def notify(
     if event:
         meta = metadata or {}
         # `host` placeholder resolution priority:
-        #   1. metadata["host"] (explicit operator-friendly hostname)
-        #   2. target_id when target_kind == "host" (e.g. prune ops)
-        #   3. metadata["provider"] is NOT a host — left out
+        # 1. metadata["host"] (explicit operator-friendly hostname)
+        # 2. target_id when target_kind == "host" (e.g. prune ops)
+        # 3. metadata["provider"] is NOT a host — left out
         host_value: Optional[str] = None
         if isinstance(meta, dict):
             host_value = (meta.get("host") or meta.get("hostname") or "") or None
@@ -1035,14 +1035,14 @@ async def notify(
             print(f"[notify] medium '{medium_name}' disabled — skipped")
             continue
         # Per-(event, medium) user gate. Three shapes to handle:
-        #   - None / not-in-map: default-on for every medium (legacy
-        #     behaviour — fresh users with no per-event choice land here)
-        #   - bool True: enabled across every medium (legacy bare-bool)
-        #   - dict {medium: bool}: per-medium routing — missing key
-        #     defaults to True (medium added after the user's last save
-        #     should still fire by default; explicit opt-out is the only
-        #     way to silence a medium). bool False already short-circuited
-        #     above so we don't see it here.
+        # - None / not-in-map: default-on for every medium (legacy
+        #   behaviour — fresh users with no per-event choice land here)
+        # - bool True: enabled across every medium (legacy bare-bool)
+        # - dict {medium: bool}: per-medium routing — missing key
+        #   defaults to True (medium added after the user's last save
+        #   should still fire by default; explicit opt-out is the only
+        #   way to silence a medium). bool False already short-circuited
+        #   above so we don't see it here.
         if isinstance(user_event_pref, dict):
             if user_event_pref.get(medium_name, True) is False:
                 print(
@@ -1082,7 +1082,7 @@ async def notify_with_retry(
 ) -> None:
     """Fire-and-forget `notify` with bounded retry on dispatch failure.
 
-    ENH-009 / extracted from `host_metrics_sampler._record_failure`'s
+    extracted from `host_metrics_sampler._record_failure`'s
     inner closure so other callers (login event, future schedule kinds,
     anomaly watchers) get the same retry semantics without copy-pasting.
     `label` is a short tag prepended to error logs so the operator can

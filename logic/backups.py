@@ -44,9 +44,9 @@ from logic.version import APP_VERSION
 
 
 # Layout of the data volume:
-#   <data_dir>/omnigrid.db             SQLite file
-#   <data_dir>/avatars/                user-uploaded images
-#   <data_dir>/backups/                zip archives (owned by this module)
+# <data_dir>/omnigrid.db             SQLite file
+# <data_dir>/avatars/                user-uploaded images
+# <data_dir>/backups/                zip archives (owned by this module)
 #
 # When DB_PATH is unset (config-error mode — see logic/db.py), main.py's
 # lifespan installs a config-error middleware so backups never gets
@@ -124,7 +124,7 @@ def create_backup(prefix: str = "omnigrid-backup") -> dict:
         db_tmp = os.path.join(tmp, "omnigrid.db")
         _snapshot_db_to(db_tmp)
 
-        # ENH-010 / record the schema_migrations head so the
+        # record the schema_migrations head so the
         # restore path can detect "this backup was taken on a
         # newer schema; upgrade OmniGrid first" and refuse with a
         # clear error instead of silently restoring incompatible data.
@@ -263,12 +263,12 @@ def restore_from_file(path: str) -> dict:
     ensure_dirs()
     _validate_zip_entries(path)
 
-    # ENH-011 / refuse a restore from a backup taken on a NEWER
+    # refuse a restore from a backup taken on a NEWER
     # schema head than the running app. The DB swap itself succeeds
     # (SQLite reads are forgiving), but the running code expects the
     # old shape and operators end up debugging "why is the schedules
     # tab broken" hours later. Read metadata.json's `schema_head`
-    # (added in ENH-010 / #476) BEFORE the swap; compare to live head.
+    # (added in ) BEFORE the swap; compare to live head.
     # Backups taken pre-fix have no schema_head and bypass this check
     # (back-compat — those legacy backups are presumed compatible).
     try:
@@ -303,8 +303,8 @@ def restore_from_file(path: str) -> dict:
         print(f"[backups] WARN: schema_head pre-check skipped: {e}")
 
     # 1) Safety snapshot of current state — silently continue if it fails
-    #    (e.g. brand-new install with almost nothing to snapshot). A restore
-    #    that can't take a safety snapshot is still better than no restore.
+    #  (e.g. brand-new install with almost nothing to snapshot). A restore
+    #  that can't take a safety snapshot is still better than no restore.
     safety = None
     try:
         safety_meta = create_backup(prefix="auto-before-restore")
@@ -328,14 +328,14 @@ def restore_from_file(path: str) -> dict:
         new_avatars = os.path.join(tmp, "avatars")
 
         # 3) Replace DB atomically — rename on the same filesystem is atomic.
-        #    Any in-flight db_conn() is an independent sqlite3 handle on the
-        #    old inode; it'll see old data until it closes, which is fine
-        #    (every db_conn() is a short-lived context manager).
+        #  Any in-flight db_conn() is an independent sqlite3 handle on the
+        #  old inode; it'll see old data until it closes, which is fine
+        #  (every db_conn() is a short-lived context manager).
         os.replace(new_db, DB_PATH)
 
         # 4) Replace avatars dir. Move old one to a tmp name, move new in,
-        #    delete old — gives us a rollback window if the new tree has
-        #    a permissions issue.
+        #  delete old — gives us a rollback window if the new tree has
+        #  a permissions issue.
         bak_av = AVATAR_DIR + ".old"
         if os.path.isdir(AVATAR_DIR):
             if os.path.isdir(bak_av):

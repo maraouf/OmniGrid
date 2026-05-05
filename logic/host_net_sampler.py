@@ -50,13 +50,13 @@ from logic.db import db_conn, get_setting
 
 # Sanity bounds for accepting a counter delta as a valid rate.
 # - ``delta_seconds`` between 60s and 900s catches clock skew (negative or
-#   near-zero) and long outages (missed ticks where a "rate" would smear
-#   hours of traffic over one sample).
+# near-zero) and long outages (missed ticks where a "rate" would smear
+# hours of traffic over one sample).
 # - ``delta_bytes`` between 0 (monotonic) and 10 GB filters counter
-#   rollovers (negative deltas on a restart) and implausible spikes that
-#   almost always mean the kernel counter wrapped. 10 GB over 5 minutes
-#   is ~34 MB/s — well above any realistic homelab link — so any sample
-#   above that is almost certainly a rollover, not real traffic.
+# rollovers (negative deltas on a restart) and implausible spikes that
+# almost always mean the kernel counter wrapped. 10 GB over 5 minutes
+# is ~34 MB/s — well above any realistic homelab link — so any sample
+# above that is almost certainly a rollover, not real traffic.
 _MIN_DELTA_SECONDS = 60
 _MAX_DELTA_SECONDS = 900
 _MIN_DELTA_BYTES   = 0
@@ -65,7 +65,7 @@ _MAX_DELTA_BYTES   = 10 * 1024 * 1024 * 1024  # 10 GB
 
 # Active-providers parser + curated-hosts walker live in logic/db.py —
 # single source of truth shared with main.py / gather.py / both
-# samplers (CONS-001 + CONS-004).
+# samplers .
 from logic.db import (
     active_host_stats_providers as _active_providers,
     curated_ne_hosts as _load_curated_hosts,
@@ -222,7 +222,7 @@ async def host_net_sampler_loop() -> None:
     # sample. The sanity-bounds checks would catch most of these (Δs >
     # 900 → skip), but a restart that lands inside the window would
     # still write a wrong rate. Clearing here makes the first tick after
-    # any restart establish a fresh baseline. BUG-005 in the code review.
+    # any restart establish a fresh baseline. in the code review.
     _last_counters.clear()
     # Wait a beat so the DB tables are created + hosts_config is loaded
     # before the first probe. Same pattern as stats_sampler_loop.

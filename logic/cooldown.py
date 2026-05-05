@@ -8,7 +8,7 @@ call.
 
 Used to avoid hammering an upstream after a 401 — both the SSH
 runner (per-(host_id, user)) and the Webmin probe (per-(base_url,
-user)) hit this pattern. Centralised here in #271 / CONS-004 so the
+user)) hit this pattern. Centralised here in so the
 TTL semantics + lazy-expiry behaviour stay in lockstep.
 
 Single-process state — fine for OmniGrid's single-replica deploy

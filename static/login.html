@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no" />
 <title data-i18n-title="login.tab_title">OmniGrid — Sign in</title>
 <script>
-  (function () {
+  (function {
     let pref = localStorage.getItem('theme') || 'auto';
     let sysLight = window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches;
     let resolved = pref === 'auto' ? (sysLight ? 'light' : 'dark') : pref;

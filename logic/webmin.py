@@ -550,7 +550,7 @@ def _scrape_net(soup) -> Optional[ET.Element]:
     header names "Name"/"Interface"/"Device", then pull the address
     and MAC columns by header match. Webmin 2.x sometimes splits
     physical / virtual / VLAN NICs across multiple tables under
-    separate ``<h3>`` sections; ENH-009 — walk every matching
+    separate ``<h3>`` sections; — walk every matching
     table and de-dup by NIC name (first-seen wins for the IP / MAC
     columns) so the operator's drawer shows the union, not just the
     physical list. The output is a sequence of

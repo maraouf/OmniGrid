@@ -38,16 +38,16 @@ ITEM_TYPES: tuple[str, ...] = (
 
 
 # Module-level cache. Keys:
-#   items             — list of item dicts (services + orphans + standalones)
-#   stacks            — list of stack groups, sorted alphabetically
-#   nodes             — {NodeID: hostname}
-#   task_node_by_id   — {TaskID: hostname}, used by ops handlers to target
-#                       the right Swarm node's daemon via X-PortainerAgent-Target
-#   container_node_by_id — {ContainerID: hostname} for PLAIN compose
-#                          containers discovered via the per-node sweep;
-#                          stats polling consults this to target the right
-#                          worker for its /containers/{id}/stats call.
-#   ts                — epoch seconds of last successful gather (0 when stale)
+# items             — list of item dicts (services + orphans + standalones)
+# stacks            — list of stack groups, sorted alphabetically
+# nodes             — {NodeID: hostname}
+# task_node_by_id   — {TaskID: hostname}, used by ops handlers to target
+#                     the right Swarm node's daemon via X-PortainerAgent-Target
+# container_node_by_id — {ContainerID: hostname} for PLAIN compose
+#                        containers discovered via the per-node sweep;
+#                        stats polling consults this to target the right
+#                        worker for its /containers/{id}/stats call.
+# ts                — epoch seconds of last successful gather (0 when stale)
 _cache: dict = {
     "items": [],
     "ts": 0.0,
@@ -95,8 +95,7 @@ def _match_hosts_row(host: str, hosts_cfg: list[dict]) -> Optional[dict]:
         1. Exact match on ``id``.
         2. Short-hostname match: `host.split('.')[0] == id.split('.')[0]`
            — catches the "Docker reports bare hostname, operator
-           configured FQDN" and vice-versa cases that produce #144's
-           "3 sources error" symptom.
+           configured FQDN" and vice-versa cases that produce            "3 sources error" symptom.
         3. Provider-name match: any of the row's provider fields
            (``beszel_name`` / ``pulse_name`` / ``webmin_name``) equals
            the Docker hostname short form. Useful when the Docker
@@ -163,15 +162,15 @@ def invalidate_cache(reason: Optional[str] = None) -> None:
 # idea as ``stats_samples`` but for host-level data.
 #
 # Wire-up:
-#   - End of every successful gather → ``save_host_snapshots(nodes_info)``
-#     persists the merged blob (JSON column on a single row per host).
-#   - Inside ``_gather_impl``, AFTER providers run AND BEFORE we publish
-#     to ``_cache`` → ``apply_host_snapshot_fallback`` fills missing
-#     ``host_*`` fields from the persisted blob and tags the entry with
-#     ``_stale_fields=[...]`` so the UI can dim those bars.
-#   - At lifespan startup → ``load_host_snapshots()`` seeds
-#     ``_cache["nodes_info"]`` so the very first ``/api/items`` after a
-#     restart has data while the live gather is still running.
+# - End of every successful gather → ``save_host_snapshots(nodes_info)``
+#   persists the merged blob (JSON column on a single row per host).
+# - Inside ``_gather_impl``, AFTER providers run AND BEFORE we publish
+#   to ``_cache`` → ``apply_host_snapshot_fallback`` fills missing
+#   ``host_*`` fields from the persisted blob and tags the entry with
+#   ``_stale_fields=[...]`` so the UI can dim those bars.
+# - At lifespan startup → ``load_host_snapshots()`` seeds
+#   ``_cache["nodes_info"]`` so the very first ``/api/items`` after a
+#   restart has data while the live gather is still running.
 # ---------------------------------------------------------------------
 # Field families that are RUNTIME provider data (not Swarm-level
 # inventory). Snapshot fallback only fills these — Swarm fields like
@@ -180,8 +179,7 @@ def invalidate_cache(reason: Optional[str] = None) -> None:
 #
 # previously a hand-
 # maintained tuple that silently drifted from extract_stats every time
-# a provider sprouted a new ``host_*`` field (root cause of BUG-001 —
-# load_*, swap, temperatures all blanked on snapshot fallback because
+# a provider sprouted a new ``host_*`` field (root cause of — # load_*, swap, temperatures all blanked on snapshot fallback because
 # they were missing from the whitelist). Replaced with a prefix +
 # bare-exception predicate so any ``host_*`` field the providers emit
 # gets snapshotted AND restored automatically. Bare-key exceptions
@@ -399,9 +397,9 @@ def apply_host_snapshot_fallback(
         snap_ts = snap.get("ts") or 0.0
         stale_fields: list[str] = []
         # Iterate the SNAPSHOT's keys instead of a hand-maintained
-        # whitelist (ENH-020). Any ``host_*`` field — plus the small
+        # whitelist. Any ``host_*`` field — plus the small
         # bare-exception set — auto-qualifies, so a provider that
-        # sprouts a new field (e.g. ``host_temperatures`` from #437)
+        # sprouts a new field (e.g. ``host_temperatures``)
         # gets restored on provider outage without a parallel edit
         # to a whitelist tuple. Operator-config fields written
         # alongside (label / icon / etc.) are excluded by the prefix
@@ -452,7 +450,7 @@ def seed_nodes_info_from_snapshots() -> int:
         # apply_host_snapshot_fallback recomputes this list against
         # the live state. Same prefix + bare-exception predicate as
         # the apply path so seed and restore stay in lock-step
-        # (ENH-020).
+        #.
         stale = [k for k in data.keys() if _is_snapshot_key(k)]
         if stale:
             data["_stale_fields"] = stale
@@ -734,7 +732,7 @@ def _seed_default_schedules_after_first_gather() -> None:
     The lifespan-time call to ``schedules.seed_default_schedules``
     runs BEFORE any gather has populated ``_cache["nodes"]``, so the
     "Prune <hostname>" sample schedule never gets created on a fresh
-    install (#BUG-008). This hook fires after the first successful
+    install. This hook fires after the first successful
     gather that produced a non-empty node list, then sets the flag so
     we don't re-check on every subsequent gather. The schedules.seed
     helper is itself idempotent now (gates per-name), so even if this
@@ -808,23 +806,23 @@ async def _gather_impl() -> None:
         # Per-node capacity + oldest-running-task timestamp. Keyed by
         # hostname so the frontend doesn't need to join NodeID → host
         # separately. Structure shipped in _cache["nodes_info"]:
-        #   {
-        #     hostname: {
-        #       id:            node UUID
-        #       role:          "manager" | "worker"
-        #       state:         "ready" | "down" | ... (Swarm Status.State)
-        #       availability:  "active" | "pause" | "drain"
-        #       cpu_cores:     int  (Description.Resources.NanoCPUs / 1e9)
-        #       mem_bytes:     int  (Description.Resources.MemoryBytes)
-        #       os:            e.g. "linux"
-        #       arch:          e.g. "x86_64"
-        #       engine:        docker engine version
-        #       oldest_running_ts: epoch seconds of the oldest task whose
-        #                          Status.State='running' on this node —
-        #                          serves as a per-node uptime proxy
-        #                          (Docker doesn't expose host boot time).
-        #     }
+        # {
+        #   hostname: {
+        #     id:            node UUID
+        #     role:          "manager" | "worker"
+        #     state:         "ready" | "down" | ... (Swarm Status.State)
+        #     availability:  "active" | "pause" | "drain"
+        #     cpu_cores:     int  (Description.Resources.NanoCPUs / 1e9)
+        #     mem_bytes:     int  (Description.Resources.MemoryBytes)
+        #     os:            e.g. "linux"
+        #     arch:          e.g. "x86_64"
+        #     engine:        docker engine version
+        #     oldest_running_ts: epoch seconds of the oldest task whose
+        #                        Status.State='running' on this node —
+        #                        serves as a per-node uptime proxy
+        #                        (Docker doesn't expose host boot time).
         #   }
+        # }
         nodes_info: dict[str, dict] = {}
         for n in nodes:
             desc = n.get("Description") or {}
@@ -905,7 +903,7 @@ async def _gather_impl() -> None:
         # host. Still Docker-only: reading the VM's /proc/mounts or df
         # for non-Docker mounts would require a node-agent.
         #
-        # Errors per-node are swallowed — a 500 on one daemon shouldn't
+      # Errors per-node are swallowed — a 500 on one daemon shouldn't
         # blank the whole Nodes view. Missing nodes keep docker_disk_bytes=0.
         async def _one_df(host: str):
             try:
@@ -944,16 +942,16 @@ async def _gather_impl() -> None:
         # uptime that Portainer doesn't expose. ``host_stats_source`` is
         # a CSV so operators can enable multiple providers that merge
         # into one picture per host:
-        #   ""                                → none
-        #   "beszel" / "node_exporter" / "pulse" / "webmin" → single
-        #   "beszel,pulse,node_exporter,webmin" → merged, best-of
+        # ""                                → none
+        # "beszel" / "node_exporter" / "pulse" / "webmin" → single
+        # "beszel,pulse,node_exporter,webmin" → merged, best-of
         # Merge order runs providers in increasing "authority" for
         # their specialty:
-        #   1. Beszel          (broad coverage, cross-platform)
-        #   2. Pulse           (deep on PVE, silent on non-PVE)
-        #   3. node-exporter   (deep on Linux — per-mount disks, NICs)
-        #   4. Webmin          (distro-native — pending updates, mounts
-        #                       per-host API, runs last as tiebreaker)
+        # 1. Beszel          (broad coverage, cross-platform)
+        # 2. Pulse           (deep on PVE, silent on non-PVE)
+        # 3. node-exporter   (deep on Linux — per-mount disks, NICs)
+        # 4. Webmin          (distro-native — pending updates, mounts
+        #                     per-host API, runs last as tiebreaker)
         # The ``_merge_best`` helper (below) only overwrites when the
         # new source has a meaningful value, so enabling Pulse on a
         # mixed fleet doesn't wipe Beszel's cpu/mem reading on hosts
@@ -963,13 +961,13 @@ async def _gather_impl() -> None:
         # same module main.py imports from. Single source of truth
         # for the "fold provider into nodes_info row" merge semantics
         # so the Hosts endpoint and the gather flow stay byte-
-        # identical. See #271 / CONS-003 for the dedup rationale.
+        # identical. See for the dedup rationale.
         from logic.merge import is_meaningful as _meaningful, merge_best as _merge_best
         from logic.db import get_setting, active_host_stats_providers
         from logic import beszel as _beszel
         from logic import node_exporter as _ne
         # Single helper covers the CSV-with-legacy-fallback parse —
-        # see logic/db.py:active_host_stats_providers (CONS-004).
+        # see logic/db.py:active_host_stats_providers.
         active_sources = active_host_stats_providers()
 
         # Per-node provider-hit tracker. Drives the SPA chip in
@@ -1023,7 +1021,7 @@ async def _gather_impl() -> None:
                         nodes_info[host]["exporter_error"] = f"beszel: {err}"
                         continue
                     # Resolution order: explicit alias → hosts_config
-                    # row's beszel_name (for #144's short-vs-FQDN case) →
+                    # row's beszel_name (for short-vs-FQDN case) →
                     # bare Docker hostname. First meaningful value wins.
                     beszel_name = aliases.get(host, "")
                     if not beszel_name:
@@ -1240,11 +1238,11 @@ async def _gather_impl() -> None:
             async with httpx.AsyncClient(verify=False, timeout=10.0) as ne_client:
                 async def _ne_probe(h):
                     # Resolution order for the target URL:
-                    #   1. explicit per-host override from the overrides map
-                    #   2. hosts_config row's `ne_url` (lets
-                    #      operators curate the exporter URL per host
-                    #      without touching the global template)
-                    #   3. template with {host} + {ip} substitution
+                    # 1. explicit per-host override from the overrides map
+                    # 2. hosts_config row's `ne_url` (lets
+                    #    operators curate the exporter URL per host
+                    #    without touching the global template)
+                    # 3. template with {host} + {ip} substitution
                     # The template supports both placeholders so mixed
                     # strings like "http://{host}.example.com:9100/metrics"
                     # still work when we fall through.
@@ -1293,7 +1291,7 @@ async def _gather_impl() -> None:
             async def _one_webmin(h: str):
                 url = webmin_aliases.get(h) or ""
                 if not url:
-                    # #144 fallback — check hosts_config for a webmin_url.
+                    # fallback — check hosts_config for a webmin_url.
                     # Not every hosts_config row carries one; when blank
                     # the existing "skip this host" behaviour wins.
                     row = _match_hosts_row(h, webmin_hosts_cfg)
@@ -1374,7 +1372,7 @@ async def _gather_impl() -> None:
         # containers; anything deployed with `docker compose up` on a
         # worker has no task ID and shows up as "local" without this.
         #
-        # When the Portainer endpoint is in AGENT mode, targeting each node
+      # When the Portainer endpoint is in AGENT mode, targeting each node
         # returns only that node's containers — disjoint sets, so we can
         # build a definitive ID → node map. When the endpoint is NOT in
         # agent mode (plain standalone Docker), every per-node call is
@@ -1708,20 +1706,20 @@ async def _gather_impl() -> None:
                 health = "offline"
 
             # Resolve the real node. Priority order (authoritative first):
-            #   1. `com.docker.swarm.node.id` label — Swarm stamps every
-            #      managed container (services, global services, even
-            #      orphan task containers whose tasks were shut down)
-            #      with this. Authoritative; comes from the scheduler.
-            #   2. Swarm task-ID → NodeID via task_node_by_id — covers
-            #      the rare case where the container has the task-id
-            #      label but not the node-id label (older Swarm versions).
-            #   3. Per-node agent-targeted container sweep — only signal
-            #      we have for plain compose containers on worker nodes.
-            #      Not perfect (overlaps between per-node responses can
-            #      mis-attribute a container) but self-heals via stats'
-            #      untargeted fallback on failure.
-            #   4. Fallback "local" — genuine single-node / non-agent
-            #      setups where we can't tell.
+            # 1. `com.docker.swarm.node.id` label — Swarm stamps every
+            #    managed container (services, global services, even
+            #    orphan task containers whose tasks were shut down)
+            #    with this. Authoritative; comes from the scheduler.
+            # 2. Swarm task-ID → NodeID via task_node_by_id — covers
+            #    the rare case where the container has the task-id
+            #    label but not the node-id label (older Swarm versions).
+            # 3. Per-node agent-targeted container sweep — only signal
+            #    we have for plain compose containers on worker nodes.
+            #    Not perfect (overlaps between per-node responses can
+            #    mis-attribute a container) but self-heals via stats'
+            #    untargeted fallback on failure.
+            # 4. Fallback "local" — genuine single-node / non-agent
+            #    setups where we can't tell.
             node_id_label = labels.get("com.docker.swarm.node.id")
             node_name = node_map.get(node_id_label) if node_id_label else None
             if not node_name:

@@ -23,9 +23,9 @@ from logic import tuning
 from logic.db import db_conn
 
 # The cache main.py's /api/stats route reads. Structure:
-#   stats: {item_id: {cpu_percent, mem_usage, mem_limit, size_root, size_rw,
-#                     has_stats, has_size}}
-#   ts:    epoch seconds of last successful gather
+# stats: {item_id: {cpu_percent, mem_usage, mem_limit, size_root, size_rw,
+#                   has_stats, has_size}}
+# ts:    epoch seconds of last successful gather
 _stats_cache: dict = {"stats": {}, "ts": 0.0}
 
 
@@ -40,11 +40,11 @@ _stats_cache: dict = {"stats": {}, "ts": 0.0}
 # the manager. Auto-restart is tracked separately for LATER.
 #
 # Shape: {hostname: {fails: int, since_ts: float, task_cids: int}}
-#   - fails: consecutive bad gathers
-#   - since_ts: epoch of FIRST bad gather (how long has this been broken?)
-#   - task_cids: how many task-derived cids were observed on the node
-#                during the most recent bad gather (operator-facing
-#                hint for "N containers worth of metrics are missing")
+# - fails: consecutive bad gathers
+# - since_ts: epoch of FIRST bad gather (how long has this been broken?)
+# - task_cids: how many task-derived cids were observed on the node
+#              during the most recent bad gather (operator-facing
+#              hint for "N containers worth of metrics are missing")
 _agent_health: dict[str, dict] = {}
 
 
@@ -262,7 +262,7 @@ async def _one_container_stats(
     """
     # Per-use reads of the timeout knobs so a Save in Admin → Config
     # takes effect on the next gather without a restart. Defaults are
-    # 12s targeted / 10s untargeted (see TUNABLES). Pre-#872 the
+    # 12s targeted / 10s untargeted (see TUNABLES). Pre-fix the
     # targeted timeout was hardcoded 4s — operator-reported that
     # Portainer's agent forwarding to busy worker nodes routinely
     # exceeded 4s, so the call would time out and the untargeted
@@ -445,24 +445,24 @@ async def gather_stats() -> None:
             containers = []
 
         # Track two sizes per container:
-        #   size_root = full image size on disk (SizeRootFs). Always non-zero and
-        #               the number a user thinks of when they say "disk size".
-        #   size_rw   = writable-layer delta. Useful to spot containers that are
-        #               leaking data into their filesystem, but usually ~0.
+        # size_root = full image size on disk (SizeRootFs). Always non-zero and
+        #             the number a user thinks of when they say "disk size".
+        # size_rw   = writable-layer delta. Useful to spot containers that are
+        #             leaking data into their filesystem, but usually ~0.
         size_root_by_cid: dict[str, int] = {}
         size_rw_by_cid: dict[str, int] = {}
         svc_by_cid: dict[str, Optional[str]] = {}
         # cid → hostname. Priority order (authoritative → heuristic):
-        #   1. per-node sweep result above — when present, this is the
-        #      DEFINITIVE answer because the container only appeared in
-        #      that node's per-node response.
-        #   2. ``com.docker.swarm.node.id`` label — Swarm's own scheduler
-        #      wrote this; reliable for anything Swarm-managed.
-        #   3. task_node_by_id via the task-ID label — fallback for
-        #      older Swarm versions that don't stamp node.id on the
-        #      container itself.
-        #   4. container_node_by_id from gather's per-node sweep —
-        #      only signal we have for plain compose containers.
+        # 1. per-node sweep result above — when present, this is the
+        #    DEFINITIVE answer because the container only appeared in
+        #    that node's per-node response.
+        # 2. ``com.docker.swarm.node.id`` label — Swarm's own scheduler
+        #    wrote this; reliable for anything Swarm-managed.
+        # 3. task_node_by_id via the task-ID label — fallback for
+        #    older Swarm versions that don't stamp node.id on the
+        #    container itself.
+        # 4. container_node_by_id from gather's per-node sweep —
+        #    only signal we have for plain compose containers.
         # _one_container_stats falls back to the untargeted request on
         # failure, so a wrong hint only costs one extra call.
         task_node_by_id = items_cache.get("task_node_by_id") or {}

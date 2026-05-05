@@ -37,7 +37,7 @@ first family to succeed wins.
 
 Cooldown: per-(host, port) `Cooldown` armed on TWO consecutive timeouts
 so a permanently-unreachable host doesn't burn timeout budget every
-tick. Same pattern as `logic/webmin.py` / `logic/ssh.py` (CONS-004 —
+tick. Same pattern as `logic/webmin.py` / `logic/ssh.py` (—
 single shared `Cooldown` implementation in `logic/cooldown.py`).
 """
 from __future__ import annotations

@@ -80,7 +80,7 @@ from logic.version import APP_VERSION, read_version
 # Portainer connection config is DB-backed / UI-managed — see
 # logic.portainer.get_portainer_settings(). Process-level tunables
 # (cache TTLs, concurrency caps, sample interval, history days) resolve
-# via logic.tuning (DB > env > default) — see #337.
+# via logic.tuning (DB > env > default).
 from logic import db as _db  # noqa: E402
 from logic.db import DB_PATH, db_conn, get_setting, get_setting_bool, set_setting, active_host_stats_providers  # noqa: E402,F401
 from logic import tuning  # noqa: E402
@@ -297,9 +297,9 @@ async def _lifespan(app: FastAPI):
         # Orphan sweep on startup. Cleans stale `<provider>:<host_id>`
         # rows from `host_failure_state` + `host_provider_last_ok` where the
         # host has been deleted OR no longer has that provider configured.
-        # Pre-#834 these accumulated until the operator re-saved a host config
+        # Pre-fix these accumulated until the operator re-saved a host config
         # — operator-reported pulse/beszel paused state on a Ping-only host
-        # carried over indefinitely after #832 hardened the probe-side gate.
+        # carried over indefinitely hardened the probe-side gate.
         # Running on every deploy ensures a fresh DB without operator action.
         try:
             curated = _load_hosts_config()
@@ -552,10 +552,10 @@ def init_db():
         # EXISTS / ALTER ... except OperationalError) so the worst case
         # was always recoverable, but rolling-back an interrupted boot
         # is cleaner than racing with `IF NOT EXISTS` on the next start.
-        # BUG-011 in the code review.
+        # in the code review.
         c.executescript("""
         BEGIN;
-        -- target_kind taxonomy column added in migration #3 (separate
+        -- target_kind taxonomy column added in migration 3 (separate
         -- from op_type which names the action). Values used today:
         -- 'op' (container / stack / service write op), 'schedule'
         -- (scheduler-fired runs), 'ssh' (admin SSH console), 'hosts'
@@ -574,7 +574,7 @@ def init_db():
         CREATE INDEX IF NOT EXISTS idx_history_op_type ON history(op_type);
         CREATE INDEX IF NOT EXISTS idx_history_target_name ON history(target_name);
         CREATE INDEX IF NOT EXISTS idx_history_status ON history(status);
-        -- idx_history_target_kind is created by migration #3 — keep it
+        -- idx_history_target_kind is created by migration — keep it
         -- there so legacy DBs (where the table exists without the
         -- column at init_db time) don't fail the executescript before
         -- migrations get a chance to ADD COLUMN.
@@ -829,7 +829,7 @@ def init_db():
         -- attempt, no log spam) until the operator explicitly resumes via
         -- POST /api/hosts/{id}/resume-sampling.
         --
-        -- Schema after migration #2 (split_provider_host_pk):
+        -- Schema after migration 2 (split_provider_host_pk):
         --   host_id  — bare host identifier (operator-visible).
         --   provider — '' for whole-host pauses (legacy bare-id rows
         --              from /api/hosts/{id}/pause-sampling); '<name>' for
@@ -849,17 +849,17 @@ def init_db():
             last_failure_ts      REAL,
             PRIMARY KEY (host_id, provider)
         );
-        -- idx_host_failure_state_provider is created by migration #2 —
+        -- idx_host_failure_state_provider is created by migration —
         -- on legacy DBs the table exists WITHOUT the `provider` column
         -- at this point in init_db (CREATE TABLE IF NOT EXISTS is a
         -- no-op when the table already exists), so the index creation
-        -- has to wait until migration #2 has rebuilt the table.
+        -- has to wait until migration has rebuilt the table.
 
         -- Per-(provider, host) last-successful-probe timestamp.
         -- Distinct from host_failure_state which only exists during a
         -- failure streak. last_ok lives ALWAYS — every
         -- record_provider_outcome with ok=True UPSERTs here. After
-        -- migration #2, host_id and provider are separate columns with
+        -- migration, host_id and provider are separate columns with
         -- composite PK. Drives the "Updated Xm ago" subtitle on each
         -- provider chip in the host drawer's Enabled-agents card.
         CREATE TABLE IF NOT EXISTS host_provider_last_ok (
@@ -869,7 +869,7 @@ def init_db():
             PRIMARY KEY (host_id, provider)
         );
         -- idx_host_provider_last_ok_provider — same story as above;
-        -- migration #2 owns the index creation so legacy DBs don't
+        -- migration owns the index creation so legacy DBs don't
         -- fail the executescript before migrations get to run.
 
         -- Ping reachability time-series. Populated by
@@ -929,7 +929,7 @@ def init_db():
         for ddl in (
             "ALTER TABLE history ADD COLUMN actor TEXT DEFAULT 'ui'",
             "ALTER TABLE history ADD COLUMN target_stack TEXT",
-            # target_kind taxonomy column — also handled by migration #3
+            # target_kind taxonomy column — also handled by migration 3
             # which runs at the end of init_db, but adding it here too
             # means any code path that touches `target_kind` BEFORE the
             # migration applies (e.g. an executescript reference earlier
@@ -942,7 +942,7 @@ def init_db():
             # NULL when the delta is out of bounds.
             "ALTER TABLE host_metrics_samples ADD COLUMN disk_read_bps REAL",
             "ALTER TABLE host_metrics_samples ADD COLUMN disk_write_bps REAL",
-            # ENH-018 — wall-clock of the MOST RECENT probe failure.
+            # wall-clock of the MOST RECENT probe failure.
             # ``first_failure_ts`` already records the start of the
             # streak; this is the timestamp of the latest failed
             # probe so the drawer can render "last error N seconds
@@ -1313,7 +1313,7 @@ async def api_items(force: bool = False):
         # body is from the prior snapshot. SPA may render a subtle
         # "refreshing…" hint; the next poll picks up the fresh data.
         "cache_refreshing": cache_refreshing,
-        # UX-003: lets the SPA distinguish "no items + Portainer connected"
+        # lets the SPA distinguish "no items + Portainer connected"
         # (legitimate empty cluster) from "no items because Portainer was
         # never configured" (point operator at Settings → Portainer).
         # Reading this avoids loading the full /api/settings payload just
@@ -1530,13 +1530,13 @@ async def api_op(op_id: str):
 # comment line — `EventSource.onmessage` doesn't fire for SSE comments,
 # so a comment-only heartbeat keeps the TCP socket alive but never
 # reaches the SPA's freshness watchdog (which advances
-# `_sseLastEventTs` only on real events). Pre-#561 the comment-form
+# `_sseLastEventTs` only on real events). Pre-fix the comment-form
 # caused a 30s-quiet-window false-flip into polling-fallback mode even
 # though the connection was healthy. The real-event form lets the
 # generic onmessage listener bump the timestamp on every heartbeat,
 # AND keeps the socket-warm property the comment had.
 # ============================================================================
-# #537 / both moved to TUNABLES (tuning_sse_heartbeat_seconds,
+# / both moved to TUNABLES (tuning_sse_heartbeat_seconds,
 # tuning_sse_max_lifetime_seconds). Resolve at the consumer site via
 # `tuning.tuning_int(...)` so a Save in Admin → Config takes effect on
 # the next /api/events reconnect — no module-level constants here so a
@@ -1936,7 +1936,7 @@ class SettingsIn(BaseModel):
     oidc_scopes: Optional[str] = None
     oidc_admin_group: Optional[str] = None
     oidc_verify_tls: Optional[bool] = None
-    # ENH-002 / case-insensitive admin-group claim match. Default
+    # case-insensitive admin-group claim match. Default
     # True preserves the legacy exact-match contract.
     oidc_group_case_sensitive: Optional[bool] = None
     # Backup retention: keep the N newest .zip files in /app/data/backups;
@@ -1972,7 +1972,7 @@ class SettingsIn(BaseModel):
     # Per-node name aliases — Docker hostname → Beszel system name. Use
     # when the name the operator gave a system in Beszel doesn't match
     # the Docker Swarm hostname. Example:
-    #   {"docker01": "docker.example.com"}
+    # {"docker01": "docker.example.com"}
     # Nodes not listed here fall back to identity mapping.
     beszel_aliases: Optional[dict] = None
     # Pulse (rcourtman/Pulse) — third host-stats provider. PVE-only.
@@ -2066,7 +2066,7 @@ class SettingsIn(BaseModel):
     asset_inventory_client_secret: Optional[str] = None
     asset_inventory_scope: Optional[str] = None
     clear_asset_inventory_client_secret: Optional[bool] = None
-    # #417 / ENH-001 — TLS verification toggle for the asset API.
+    # / — TLS verification toggle for the asset API.
     # Default True; flip to False for self-signed homelab endpoints.
     asset_inventory_verify_tls: Optional[bool] = None
     # Auth mode selector: "oauth2" (existing client_credentials flow)
@@ -2141,8 +2141,8 @@ class SettingsIn(BaseModel):
     clear_portainer_api_key: Optional[bool] = None
     clear_oidc_client_secret: Optional[bool] = None
     # JSON array of SSH custom actions. Each element:
-    #   {"id": "restart-beszel", "title": "Restart Beszel agent",
-    #    "command": "systemctl restart beszel-agent"}
+    # {"id": "restart-beszel", "title": "Restart Beszel agent",
+    #  "command": "systemctl restart beszel-agent"}
     # Empty array or missing = fall back to the hardcoded default
     # action list in the drawer (same 5 presets). {host} placeholder
     # in the command template is substituted at run time.
@@ -2205,7 +2205,7 @@ class SettingsIn(BaseModel):
     # fan-out in `loadHosts()`. Read on /api/me into
     # `me.client_config.hosts_parallel_fetch`.
     tuning_hosts_parallel_fetch: Optional[str] = None
-    # #537 / SSE heartbeat cadence + connection lifetime cap.
+    # / SSE heartbeat cadence + connection lifetime cap.
     tuning_sse_heartbeat_seconds: Optional[str] = None
     tuning_sse_max_lifetime_seconds: Optional[str] = None
     # Webmin probe outer budget (shared by /api/hosts and
@@ -2214,7 +2214,7 @@ class SettingsIn(BaseModel):
     # node-exporter per-host probe timeout (shared by /api/hosts,
     # /api/hosts/one, the debug endpoint, and host_metrics_sampler).
     tuning_node_exporter_probe_timeout_seconds: Optional[str] = None
-    # #541 / frontend SSE knobs delivered via /api/me's
+    # / frontend SSE knobs delivered via /api/me's
     # client_config (× 1000 ms conversion in main.py).
     tuning_sse_idle_threshold_seconds: Optional[str] = None
     tuning_pollops_sse_keepalive_seconds: Optional[str] = None
@@ -2222,7 +2222,7 @@ class SettingsIn(BaseModel):
     tuning_rate_limit_max_failures: Optional[str] = None
     tuning_rate_limit_window_seconds: Optional[str] = None
     tuning_rate_limit_lockout_seconds: Optional[str] = None
-    # #547 / outer host-provider cache + per-host Webmin caches.
+    # / outer host-provider cache + per-host Webmin caches.
     tuning_host_provider_cache_ttl_seconds: Optional[str] = None
     tuning_webmin_host_cache_ttl_seconds: Optional[str] = None
     tuning_webmin_host_fail_cache_ttl_seconds: Optional[str] = None
@@ -2235,7 +2235,7 @@ class SettingsIn(BaseModel):
     tuning_ping_concurrency: Optional[str] = None
     tuning_ping_probe_timeout_seconds: Optional[str] = None
     tuning_ping_cooldown_seconds: Optional[str] = None
-    # #344 / SNMP host-stats provider knobs. SettingsIn must list
+    # / SNMP host-stats provider knobs. SettingsIn must list
     # them so the POST /api/settings validator stops Pydantic v2's
     # extra="ignore" default from silently dropping them on save.
     tuning_snmp_probe_timeout_seconds: Optional[str] = None
@@ -2472,7 +2472,7 @@ async def api_get_settings(request: Request):
             "max_value":          (lambda v: int(v) if (v or "").strip().lstrip("-").isdigit() else None)(
                                      get_setting("asset_inventory_max_value", "")),
             "edit_url_template":  get_setting("asset_inventory_edit_url_template", "") or "",
-            # #417 / ENH-001 — TLS verification toggle. Default True.
+            # / — TLS verification toggle. Default True.
             "verify_tls":         (get_setting("asset_inventory_verify_tls", "true") or "true").strip().lower() != "false",
         },
         "portainer_public_url": get_setting("portainer_public_url", str(p.get("portainer_url") or "")),
@@ -2497,7 +2497,7 @@ async def api_get_settings(request: Request):
         # keeps single-value legacy rows ("beszel" / "node_exporter")
         # working without a migration; upgrades with only
         # ``node_exporter_enabled`` set default to that one source.
-        # Both fields derive from the single helper (CONS-004). The
+        # Both fields derive from the single helper. The
         # legacy string form is kept for back-compat with older SPA
         # bundles that read ``host_stats_source`` instead of the list.
         "host_stats_source": (",".join(sorted(active_host_stats_providers()))
@@ -2724,7 +2724,7 @@ async def _api_set_settings_inner(s, request, _portainer):
         set_setting(_key, _norm)
     # TOTP / 2FA policy. Booleans persisted as "true" / "false";
     # ints bounds-checked then stored as decimal strings (matches the
-    # tuning_* shape from #337). Same dirty + Save UI pattern as the
+    # tuning_* shape). Same dirty + Save UI pattern as the
     # other admin-tab toggles.
     if s.totp_allowed is not None:
         set_setting("totp_allowed", "true" if s.totp_allowed else "false")
@@ -3189,16 +3189,16 @@ async def _api_set_settings_inner(s, request, _portainer):
                 row_id = uuid.uuid4().hex
 
             # Password resolution:
-            #   1. New non-empty password → store it (clear flag is
-            #      ignored — operator typed a new value, that wins).
-            #   2. Empty + clear_password=true → erase (don't carry
-            #      forward).
-            #   3. Empty + no clear flag → carry forward the prior
-            #      persisted value (keep-current-if-blank — same
-            #      contract as every other secret in the settings
-            #      table). Lookup is by stable `id`, not by `name`,
-            #      so renames preserve the password but a new group
-            #      that happens to reuse an old name does NOT inherit.
+            # 1. New non-empty password → store it (clear flag is
+            #    ignored — operator typed a new value, that wins).
+            # 2. Empty + clear_password=true → erase (don't carry
+            #    forward).
+            # 3. Empty + no clear flag → carry forward the prior
+            #    persisted value (keep-current-if-blank — same
+            #    contract as every other secret in the settings
+            #    table). Lookup is by stable `id`, not by `name`,
+            #    so renames preserve the password but a new group
+            #    that happens to reuse an old name does NOT inherit.
             new_pw = str((ssh_in or {}).get("password") or "").strip()
             clear = bool((ssh_in or {}).get("clear_password"))
             if new_pw:
@@ -3297,13 +3297,13 @@ async def _api_set_settings_inner(s, request, _portainer):
 
         # Overlap: every pair of groups that is NOT parent-child must
         # be disjoint. Covers three cases in one rule:
-        #   - Two top-level groups overlapping (bad).
-        #   - A sub-group overlapping a top-level group that is NOT
-        #     its parent (bad — would double-assign hosts).
-        #   - Two sub-groups overlapping (bad — whether they share a
-        #     parent or not; cross-parent overlap is structurally
-        #     impossible when parents are disjoint, but we check
-        #     anyway as a belt-and-braces).
+        # - Two top-level groups overlapping (bad).
+        # - A sub-group overlapping a top-level group that is NOT
+        #   its parent (bad — would double-assign hosts).
+        # - Two sub-groups overlapping (bad — whether they share a
+        #   parent or not; cross-parent overlap is structurally
+        #   impossible when parents are disjoint, but we check
+        #   anyway as a belt-and-braces).
         # Parent-child pairs are expected to overlap (sub is contained
         # in parent by construction) and are skipped.
         def _is_parent_child(a: dict, b: dict) -> bool:
@@ -3343,7 +3343,7 @@ async def _api_set_settings_inner(s, request, _portainer):
                 )
             seen_numbers[num] = g["name"]
 
-        # Duplicate-id check — analogous to BUG-009's fix on hosts_config.
+        # Duplicate-id check — analogous to 's fix on hosts_config.
         # The password-merge logic at the top of this loop matches by
         # stable `id`; two incoming rows sharing the same id is an
         # ambiguous-state condition (operator hand-crafted JSON, UI race,
@@ -3471,7 +3471,7 @@ async def _api_set_settings_inner(s, request, _portainer):
             # the DB has the new value. `auto_provision_authentik`
             # would keep matching incoming OIDC logins against the
             # OLD group and route the wrong users to admin/readonly.
-            # See BUG-001 in notes/code_review_2026-04-25.md.
+            # See in notes/code_review_2026-04-25.md.
             auth_changed = True
         if s.oidc_verify_tls is not None:
             auth.set_auth_setting(c, "oidc_verify_tls",
@@ -3598,22 +3598,22 @@ async def api_admin_tuning(_admin: auth.User = Depends(auth.require_admin)):
 # / `_body`). Three routes power the Admin → Notifications template
 # editor + the Profile → Notifications read-only popup:
 #
-#   GET  /api/admin/notify-templates                 — list every event +
-#                                                       its current state.
-#   POST /api/admin/notify-templates/{event}         — write title/body
-#                                                       (empty string =
-#                                                       reset to default).
-#   POST /api/admin/notify-templates/{event}/preview — render with sample
-#                                                       values for the
-#                                                       live-preview pane.
-#   POST /api/admin/notify-templates/{event}/test    — fire one real
-#                                                       notification through
-#                                                       the live dispatcher
-#                                                       so the admin can
-#                                                       see the rendered
-#                                                       output land in
-#                                                       Apprise + the
-#                                                       in-app inbox.
+# GET  /api/admin/notify-templates                 — list every event +
+#                                                     its current state.
+# POST /api/admin/notify-templates/{event}         — write title/body
+#                                                     (empty string =
+#                                                     reset to default).
+# POST /api/admin/notify-templates/{event}/preview — render with sample
+#                                                     values for the
+#                                                     live-preview pane.
+# POST /api/admin/notify-templates/{event}/test    — fire one real
+#                                                     notification through
+#                                                     the live dispatcher
+#                                                     so the admin can
+#                                                     see the rendered
+#                                                     output land in
+#                                                     Apprise + the
+#                                                     in-app inbox.
 #
 # Resolution order at fire time: DB setting (when non-empty) → hard-coded
 # default → empty (defence in depth — the audit gate flags missing
@@ -3915,7 +3915,7 @@ async def api_oidc_test(
 
     Honours an in-flight ``verify_tls`` from the form when supplied so
     an admin can flip the checkbox OFF and Test a self-signed issuer
-    before saving (BUG-005). Missing key falls back to the saved DB
+    before saving. Missing key falls back to the saved DB
     value via ``oidc._verify_tls()``.
     """
     body = await request.json()
@@ -3998,7 +3998,7 @@ async def api_portainer_test(
         if ep.status_code == 404:
             # Specific Portainer-shaped message — keep the bespoke copy
             # rather than humanising. Operators recognise this exact
-            # phrasing from the related #360 / DEAD-002 fix.
+            # phrasing from the related fix.
             return {"ok": False, "status": 404,
                     "detail": f"endpoint {endpoint_id} not found on this Portainer",
                     "endpoint_id": endpoint_id}
@@ -4068,7 +4068,7 @@ async def api_webmin_test(
         url, user, password, verify_tls=verify_tls, timeout=10.0,
     )
     if result.get("error") and not result.get("hosts"):
-        # #369 / UX-003 follow-up: route Webmin's verbatim probe error
+        # follow-up: route Webmin's verbatim probe error
         # through the humaniser too. Common Webmin failure modes (auth
         # cool-down / module timeout / TLS handshake) all map cleanly.
         return {"ok": False,
@@ -4500,7 +4500,7 @@ def _asset_inventory_verify_tls() -> bool:
 
 # Local aliases for the canonical merge helpers in `logic/merge.py`.
 # Was a duplicated private implementation here AND in logic/gather.py;
-# centralised in #271 (CONS-003) so the merge semantics stay byte-
+# centralised so the merge semantics stay byte-
 # identical across the two call sites without a "don't import private
 # helpers across modules" caveat.
 from logic.merge import is_meaningful as _meaningful, merge_best as _merge_best
@@ -4511,7 +4511,7 @@ def _resolve_field(body: dict, body_key: str,
     """Pick a field value from ``body`` first, falling back to the
     persisted ``settings`` table when ``body[body_key]`` is blank.
 
-    Standard contract for the test-connection endpoints (CONS-007 in
+    Standard contract for the test-connection endpoints (in
     notes/code_review_2026-04-25.md): operators can hit Test BEFORE
     Save without re-typing every field — Test reuses whatever the
     previous Save committed. Empty / whitespace-only bodies, missing
@@ -4620,7 +4620,7 @@ def _format_provider_test_summary(
 
     Pulse + Beszel both produce identical "OK — reached <X>, N
     <thing>(s) visible: a, b, c (+rest)" summaries from the same
-    ``hosts`` map (CONS-003). One helper keeps the wording, truncation
+    ``hosts`` map. One helper keeps the wording, truncation
     threshold, and key ordering identical so a future copy-paste isn't
     needed; Webmin and Portainer keep their bespoke shapes because
     their probe contracts are different (Webmin returns a single
@@ -4844,16 +4844,16 @@ async def api_hosts(force: bool = False):
 # long enough that the page feels frozen.
 #
 # The split model:
-#   GET /api/hosts/list         — skeleton: curated list + global
-#                                 state (active sources, provider
-#                                 errors, hub URL). No per-host
-#                                 probes. Fast (<200ms).
-#   GET /api/hosts/one/{id}     — single host's merged data. Runs
-#                                 NE + Webmin probes for THAT host
-#                                 only; reuses Beszel / Pulse batch
-#                                 maps from a short-lived cache so a
-#                                 burst of N parallel calls doesn't
-#                                 incur N × batch-probe cost.
+# GET /api/hosts/list         — skeleton: curated list + global
+#                               state (active sources, provider
+#                               errors, hub URL). No per-host
+#                               probes. Fast (<200ms).
+# GET /api/hosts/one/{id}     — single host's merged data. Runs
+#                               NE + Webmin probes for THAT host
+#                               only; reuses Beszel / Pulse batch
+#                               maps from a short-lived cache so a
+#                               burst of N parallel calls doesn't
+#                               incur N × batch-probe cost.
 #
 # Legacy /api/hosts still works (metric scrapers / dashboards that
 # want one round-trip to see the whole fleet). The SPA calls the
@@ -4886,7 +4886,7 @@ _host_provider_lock = asyncio.Lock()
 # both Webmin cache TTLs are now operator-tunable via
 # `tuning_webmin_host_cache_ttl_seconds` (default 30s, success cache)
 # and `tuning_webmin_host_fail_cache_ttl_seconds` (default 5s, negative
-# cache from #506). Resolved per consumer-site read.
+# cache). Resolved per consumer-site read.
 _webmin_host_cache: dict[str, tuple[float, dict]] = {}
 _webmin_host_fail_cache: dict[str, tuple[float, dict]] = {}
 
@@ -5105,7 +5105,7 @@ async def _get_host_provider_state(force: bool = False) -> dict:
     _lock_wait_start = time.monotonic()
     async with _host_provider_lock:
         metrics.HOST_PROVIDER_LOCK_WAIT.observe(time.monotonic() - _lock_wait_start)
-        # BUG-004 fix — RE-COMPUTE active + cache_key inside the
+        # fix — RE-COMPUTE active + cache_key inside the
         # lock. A settings save during the lock-wait could have changed
         # `host_stats_source` or any credential, so the pre-lock values
         # are stale. Without this re-compute, a queued caller would run
@@ -5914,7 +5914,7 @@ async def _merge_one_host(h: dict, state: dict, *, force: bool = False,
     # so any host that ever has a successful probe gets a fallback
     # source.
     #
-    # Gate: persist ONLY when at least one snapshot-
+  # Gate: persist ONLY when at least one snapshot-
     # eligible field is LIVE (not from fallback). Pre-fix the gate
     # was "any meaningful host_* field present" — that fired even
     # when EVERY field came from `apply_host_snapshot_fallback`
@@ -6074,24 +6074,24 @@ def _shape_host_api_row(
     # Status precedence (revised — see operator complaint that hosts
     # were marked "down" purely because Beszel was paused/down even
     # when Pulse + node-exporter + Webmin were happily scraping):
-    #   1. ANY non-Beszel provider returning data → "up". Beszel's
-    #      self-reported status is suggestive but its agent can be
-    #      paused/down while the host is still reachable — pulse /
-    #      NE / webmin all probe via different paths/ports/protocols
-    #      and a successful scrape from any of them proves the host
-    #      is alive. SSH and other "is this host reachable" gates
-    #      depend on this status, so a single failing provider must
-    #      not lock other features out.
-    #   2. Beszel's explicit status (with paused → down normalisation)
-    #      when Beszel is the ONLY signal we have. Operator pauses
-    #      hosts in Beszel deliberately when they're offline; "down"
-    #      here reflects reality.
-    #   3. Pulse's explicit status as a secondary fallback.
-    #   4. "up" if any provider hit at all (covers Beszel-only
-    #      hosts where Beszel returned data with no explicit status).
-    #   5. "unconfigured" when no provider is mapped/enabled — grey.
-    #   6. "unknown" when providers ARE mapped + active but none
-    #      answered — surfaced red as a real outage signal.
+    # 1. ANY non-Beszel provider returning data → "up". Beszel's
+    #    self-reported status is suggestive but its agent can be
+    #    paused/down while the host is still reachable — pulse /
+    #    NE / webmin all probe via different paths/ports/protocols
+    #    and a successful scrape from any of them proves the host
+    #    is alive. SSH and other "is this host reachable" gates
+    #    depend on this status, so a single failing provider must
+    #    not lock other features out.
+    # 2. Beszel's explicit status (with paused → down normalisation)
+    #    when Beszel is the ONLY signal we have. Operator pauses
+    #    hosts in Beszel deliberately when they're offline; "down"
+    #    here reflects reality.
+    # 3. Pulse's explicit status as a secondary fallback.
+    # 4. "up" if any provider hit at all (covers Beszel-only
+    #    hosts where Beszel returned data with no explicit status).
+    # 5. "unconfigured" when no provider is mapped/enabled — grey.
+    # 6. "unknown" when providers ARE mapped + active but none
+    #    answered — surfaced red as a real outage signal.
     beszel_st = s.get("beszel_status")
     if beszel_st == "paused":
         beszel_st = "down"
@@ -6181,8 +6181,7 @@ def _shape_host_api_row(
         # SNMP chip iterators were gating on `h.snmp_name` alone, so a
         # host with snmp_name set but `snmp.enabled === false` STILL
         # rendered the SNMP chip on the Hosts page. The frontend gates
-        # now read `snmp_enabled === true && snmp_name` per #654's
-        # explicit opt-in contract.
+        # now read `snmp_enabled === true && snmp_name` per         # explicit opt-in contract.
         "snmp_enabled":    bool((h.get("snmp") or {}).get("enabled", False)),
         "url":             h.get("url") or "",
         "icon":            h.get("icon") or "",
@@ -6233,7 +6232,7 @@ def _shape_host_api_row(
         # index on the request via FastAPI Depends().
         "asset":            _resolve_asset_for_host(h.get("custom_number")),
         # Per-host SSH-enabled flag (opt-in semantics post
-        # migration #001). True only when the operator explicitly ticked
+        # migration 001). True only when the operator explicitly ticked
         # "Enable SSH for this host" in Admin → Hosts. The drawer's SSH
         # card + common-actions panel render only when this is true.
         "ssh_enabled":      bool((h.get("ssh") or {}).get("enabled", False)),
@@ -6416,7 +6415,7 @@ def _failure_state_for_host(host_id: str) -> dict:
     frontend's in-place reconcile preserve the previously-known values
     instead of momentarily flipping `sampling_paused` to false during
     a transient SQLite BUSY (which the frontend would render as the
-    icon vanishing and reappearing on every poll cycle — #405)."""
+    icon vanishing and reappearing on every poll cycle)."""
     try:
         with db_conn() as c:
             cur = c.execute(
@@ -6429,7 +6428,7 @@ def _failure_state_for_host(host_id: str) -> dict:
     except Exception:
         # Don't return falsy defaults — that would clobber a previously
         # paused row's marker on the wire. Empty dict means "no info,
-        # frontend keep what you had". See #405.
+        # frontend keep what you had". See.
         return {}
     if row is None:
         # Row genuinely absent — host has never failed.
@@ -6441,7 +6440,7 @@ def _failure_state_for_host(host_id: str) -> dict:
             "last_failure_ts":            0,
             "paused_at":                  0,
         }
-    # ENH-018 — surface ``last_failure_ts`` so the drawer can render
+    # surface ``last_failure_ts`` so the drawer can render
     # "last error N seconds ago" alongside the existing
     # "first failure M minutes ago" banner copy. Falls back to
     # ``first_failure_ts`` for rows that pre-date the column add (the
@@ -6450,7 +6449,7 @@ def _failure_state_for_host(host_id: str) -> dict:
     # surface ``paused_at`` so the drawer can render
     # "auto-paused N hours ago". Pre-fix the SELECT omitted this
     # column even though the sampler writes it on every paused
-    # transition. Same drift class as the ENH-018 ``last_failure_ts``
+    # transition. Same drift class as the ``last_failure_ts``
     # add — every additive ALTER TABLE means audit every SELECT
     # against that table (CLAUDE.md "SQL drift" rule).
     paused_at = row[5] if (len(row) > 5 and row[5] is not None) else 0
@@ -6827,7 +6826,7 @@ async def api_hosts_one(host_id: str, request: Request, force: bool = False):
     h = next((x for x in curated if x.get("id") == host_id), None)
     if h is None or not h.get("enabled", True):
         raise HTTPException(404, f"Host not found: {host_id}")
-    # Outer per-host budget (30s — #506). With #506's single-flight
+    # Outer per-host budget (30s). With single-flight
     # `_get_host_provider_state` lock, the cold-cache Beszel+Pulse cost
     # is paid by the FIRST caller only; subsequent fan-out calls reuse
     # the populated cache. Worst-case for the first caller is
@@ -6903,7 +6902,7 @@ def _load_hosts_config() -> list[dict]:
             # inventory's name when this is blank. The previous
             # `or hid` fallback (kept for years pre-asset-inventory)
             # silently overwrote that intent on EVERY load, defeating
-            # the save-side fixes in #632 / #635. Pass the literal
+            # the save-side fixes /. Pass the literal
             # stored value through.
             "label":       (h.get("label") or "").strip(),
             "ne_url":      (h.get("ne_url") or "").strip(),
@@ -6972,8 +6971,8 @@ def _clean_host_ssh(raw: Any) -> dict:
     dict, which the SSH module treats as "host opted OUT of SSH"
     under the post-fix opt-in semantics.
 
-    Pre-#622 the gate field was ``disabled`` (off-when-set, default =
-    inherit global). Post-#622 it's ``enabled`` (on-when-set, default
+    Pre-fix the gate field was ``disabled`` (off-when-set, default =
+    inherit global). Post-fix it's ``enabled`` (on-when-set, default
     = host is OFF). Inputs with the legacy ``disabled`` key are
     silently dropped here — the client-side ``norm()`` in
     `static/js/app.js` already converts old-shape backups at import
@@ -7274,7 +7273,7 @@ def _save_hosts_config(hosts: list[dict]) -> list[dict]:
     # Duplicate-id check — without this, two rows with the same id
     # would silently collapse via `seen[hid] = ...` (last wins),
     # losing the first row + its custom_number / IP / SSH overrides
-    # without any error to the operator (BUG-009 in the code review).
+    # without any error to the operator (in the code review).
     id_counts: dict[str, int] = {}
     for h in hosts:
         if not isinstance(h, dict):
@@ -7391,11 +7390,11 @@ def _sweep_orphan_provider_state_rows(live_ids: set) -> int:
     """Delete `<provider>:<host_id>` rows in `host_failure_state` and
     `host_provider_last_ok` whose suffix isn't in ``live_ids``. Also
     deletes BARE host_id rows whose value isn't in ``live_ids`` (these
-    come from the whole-host #383 sampler). ALSO deletes
+    come from the whole-host sampler). ALSO deletes
     per-provider rows where the host EXISTS in ``live_ids`` but the
     provider isn't actually configured on the host's curated row —
     catches orphans like "pulse:apc.example.com" on a host that only has
-    Ping enabled (the operator-reported case after #832 hardened the
+    Ping enabled (the operator-reported case hardened the
     probe-side gate but didn't clean the DB rows that accumulated
     pre-fix). Returns total rows removed.
 
@@ -7501,7 +7500,7 @@ async def api_hosts_resume_sampling(
             cleared = cur.rowcount or 0
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"resume-sampling failed: {e}")
-    # ENH-012 — also clear the SSH + Webmin auth cooldowns for
+    # also clear the SSH + Webmin auth cooldowns for
     # this host so a single resume click recovers from the
     # all-three-providers-paused-on-same-host case (sampler is paused,
     # SSH cooldown still arming, Webmin cooldown still arming). Each
@@ -7509,7 +7508,7 @@ async def api_hosts_resume_sampling(
     # on (base_url, user). For Webmin we walk the per-host alias map +
     # the global URL since either could be the cooldown target. Both
     # provider modules expose `_auth_cooldown_timer` per CLAUDE.md's
-    # "Add a host-stats provider" canonical checklist (CONS-004).
+    # "Add a host-stats provider" canonical checklist.
     cooldown_cleared: list[str] = []
     try:
         from logic import ssh as _ssh
@@ -8129,7 +8128,7 @@ async def api_hosts_debug(
     if record is None:
         raise HTTPException(404, f"no curated host with id={id!r}")
 
-    # Which providers are live? Same derivation as api_hosts (CONS-004).
+    # Which providers are live? Same derivation as api_hosts.
     active = active_host_stats_providers()
 
     providers_raw: dict[str, Any] = {
@@ -8483,9 +8482,9 @@ async def api_hosts_debug(
                 providers_raw["webmin"] = {"_error": str(e)}
 
     # ---- Ping — most recent samples + the resolved sampler
-    #      target so the operator can see exactly what address the
-    #      probe is hitting (DNS failure debugging). Only renders
-    #      when ping is in active AND this host is opted in. -------
+    #    target so the operator can see exactly what address the
+    #    probe is hitting (DNS failure debugging). Only renders
+    #    when ping is in active AND this host is opted in. -------
     if "ping" in active and bool((record.get("ping") or {}).get("enabled", False)):
         try:
             from logic import ping_sampler as _ping_sampler_dbg
@@ -8766,9 +8765,9 @@ async def api_hosts_debug(
 # SSH console — admin-only remote-command runner for the host drawer.
 #
 # Surface:
-#   GET  /api/hosts/{host_id}/ssh/status  — resolved connection params
-#   POST /api/hosts/{host_id}/ssh/test    — runs `whoami` with a short timeout
-#   POST /api/hosts/{host_id}/ssh/run     — body {command, dry_run}
+# GET  /api/hosts/{host_id}/ssh/status  — resolved connection params
+# POST /api/hosts/{host_id}/ssh/test    — runs `whoami` with a short timeout
+# POST /api/hosts/{host_id}/ssh/run     — body {command, dry_run}
 #
 # Every runner call lands in the history table as op_type='ssh_run' so
 # Admin → History carries a complete audit trail. Destructive-command
@@ -8944,7 +8943,7 @@ async def api_ssh_run(
 
 
 # ----------------------------------------------------------------------------
-# Interactive SSH terminal — TODO #170
+# Interactive SSH terminal
 # Browser <—WSS—> OmniGrid backend <—asyncssh shell—> target host.
 #
 # Auth: same og_session cookie as every other admin-only API path. The WS
@@ -9049,13 +9048,13 @@ async def ws_ssh_terminal(websocket: WebSocket, host_id: str):
     """Bridge a browser WebSocket to a live PTY-backed SSH shell.
 
     Frame protocol (browser → backend):
-      - **binary**     — raw stdin bytes (forwarded verbatim to the shell).
+      - **binary**   — raw stdin bytes (forwarded verbatim to the shell).
       - **text JSON**  — control message:
             ``{"type": "resize", "cols": N, "rows": M}``
             ``{"type": "ping"}``  (no-op; server pings are separate)
 
     Frame protocol (backend → browser):
-      - **binary**     — raw stdout bytes from the shell.
+      - **binary**   — raw stdout bytes from the shell.
       - **text JSON**  — control message:
             ``{"type": "ready", "resolved": {...}}``  on shell open.
             ``{"type": "error", "code": "...", "message": "..."}``  fatal.
@@ -9067,7 +9066,7 @@ async def ws_ssh_terminal(websocket: WebSocket, host_id: str):
     """
     from logic import ssh as _ssh
     # ---- 1) Cookie auth — manual because Depends(require_admin) doesn't
-    #         apply to WebSocket routes.
+    #       apply to WebSocket routes.
     user = None
     cookie = websocket.cookies.get(auth.COOKIE_NAME)
     if cookie:
@@ -9095,21 +9094,21 @@ async def ws_ssh_terminal(websocket: WebSocket, host_id: str):
         return
 
     # ---- 1.5) Origin gate — defence-in-depth against CSWSH. FastAPI's
-    #          WebSocket upgrades skip the HTTP middleware's CSRF path,
-    #          so admin-only WS routes can't rely on the same
-    #          double-submit cookie protection HTTP routes get. The
-    #          session cookie's ``SameSite=lax`` attribute blocks most
-    #          cross-site WS upgrades on Chromium / Firefox, but
-    #          subdomain attacks and custom proxy setups can still
-    #          leak the cookie. Reject the upgrade when the browser-
-    #          supplied Origin doesn't match the resolved server
-    #          origin. ``Origin`` may be empty for some non-browser
-    #          callers (e.g. command-line tools that explicitly bypass
-    #          it); we treat empty as "no claim made" and accept it
-    #          since the admin cookie + role gate already rejected
-    #          unauthenticated callers — the Origin gate is purely a
-    #          browser-CSWSH defence and a missing header isn't one of
-    #          those attack shapes.
+    #        WebSocket upgrades skip the HTTP middleware's CSRF path,
+    #        so admin-only WS routes can't rely on the same
+    #        double-submit cookie protection HTTP routes get. The
+    #        session cookie's ``SameSite=lax`` attribute blocks most
+    #        cross-site WS upgrades on Chromium / Firefox, but
+    #        subdomain attacks and custom proxy setups can still
+    #        leak the cookie. Reject the upgrade when the browser-
+    #        supplied Origin doesn't match the resolved server
+    #        origin. ``Origin`` may be empty for some non-browser
+    #        callers (e.g. command-line tools that explicitly bypass
+    #        it); we treat empty as "no claim made" and accept it
+    #        since the admin cookie + role gate already rejected
+    #        unauthenticated callers — the Origin gate is purely a
+    #        browser-CSWSH defence and a missing header isn't one of
+    #        those attack shapes.
     browser_origin = (websocket.headers.get("origin") or "").strip().lower()
     if browser_origin:
         expected_origin = _request_origin(websocket).strip().lower()
@@ -9411,15 +9410,15 @@ async def api_hosts_history(system_id: str = "", hours: int = 1, host_id: str = 
         # branch below; the host_id branch is for hosts whose
         # primary surface is node-exporter OR Pulse.
         #
-        # Resolution order:
-        #   1. Try host_metrics_sampler first (NE-only host) — most
-        #      common case on this branch.
-        #   2. Fall through to host_pulse_sampler when the curated
-        #      row has a `pulse_name` AND the NE table has no rows
-        #      for this host. Pulse-only hosts (Proxmox VMs without
-        #      a Beszel agent or node-exporter) land here so the
-        #      SPA's chart helpers + inline sparkline see the same
-        #      Beszel-compatible series envelope.
+      # Resolution order:
+        # 1. Try host_metrics_sampler first (NE-only host) — most
+        #    common case on this branch.
+        # 2. Fall through to host_pulse_sampler when the curated
+        #    row has a `pulse_name` AND the NE table has no rows
+        #    for this host. Pulse-only hosts (Proxmox VMs without
+        #    a Beszel agent or node-exporter) land here so the
+        #    SPA's chart helpers + inline sparkline see the same
+        #    Beszel-compatible series envelope.
         from logic import host_metrics_sampler as _hms
         try:
             series = _hms.history_series(hid, h)
@@ -9658,7 +9657,7 @@ async def api_hosts_snmp_iface_history(
             "ts": int(r[0]),
             "in_bytes":  (int(r[2]) if r[2] is not None else None),
             "out_bytes": (int(r[3]) if r[3] is not None else None),
-            # #725 slice 4 — IF-MIB ifHighSpeed (Mbps); NULL when the
+            # slice 4 — IF-MIB ifHighSpeed (Mbps); NULL when the
             # device doesn't expose it.
             "link_speed_mbps": (int(r[4]) if r[4] is not None else None),
         })
@@ -10384,7 +10383,7 @@ async def api_hosts_bulk_resume(
     actor = _actor_from(request) or "admin"
     # Single transaction for the whole batch — pre-fix this opened
     # one db_conn() per host inside the loop. For 200 selected hosts
-    # that was 200 SQLite write transactions. After migration #2 the
+    # that was 200 SQLite write transactions. After migration the
     # composite PK lets us DELETE every row (whole-host + every
     # per-provider variant) for a host in a single statement: the
     # IN list matches both ``host_id='hid' AND provider=''`` and
@@ -10929,7 +10928,7 @@ async def healthz():
     # (e.g. hand-bumping MAJOR/MINOR) show up without restarting the
     # container. File is tiny — a couple-microsecond stat+read each call.
     #
-    # The container healthcheck only cares about HTTP 200 vs non-200, so
+  # The container healthcheck only cares about HTTP 200 vs non-200, so
     # we intentionally keep returning 200 when config is broken — that
     # way Swarm doesn't crash-loop the task and the config-error page
     # stays reachable for the operator. The `ok` and `config_error`
@@ -10949,7 +10948,7 @@ async def api_version():
 
 
 # Admin → Version page was removed in 2026-04-30 alongside the deploy
-# migration to image-build. Pre-#606 the page wrote to /app/VERSION.txt
+# migration to image-build. Pre-fix the page wrote to /app/VERSION.txt
 # via a per-file bind mount; post-fix the file is baked into the image
 # at build time and any in-container write lands in the ephemeral
 # overlay layer that the next `service update --force` discards. The
@@ -11127,9 +11126,9 @@ async def api_logs_clear(_admin: auth.User = Depends(auth.require_admin)):
 # ----------------------------------------------------------------------------
 # Persistent log files. Daily files under /app/data/logs/.
 # Admin-only. Three routes:
-#   GET /api/admin/logs/files                      — directory listing
-#   GET /api/admin/logs/files/{name}?tail=N        — text body, last N lines (N optional)
-#   GET /api/admin/logs/files/{name}/download      — full file as attachment
+# GET /api/admin/logs/files                      — directory listing
+# GET /api/admin/logs/files/{name}?tail=N        — text body, last N lines (N optional)
+# GET /api/admin/logs/files/{name}/download      — full file as attachment
 # Filename is validated against the canonical regex inside `safe_log_path`
 # so path-traversal attempts (../, absolute paths) bounce with 404.
 # ----------------------------------------------------------------------------
@@ -11171,9 +11170,9 @@ async def api_admin_logs_file_download(
 # scoped because the matching cookie isn't issued until the second step
 # completes. Single-replica pinning (CLAUDE.md) makes this safe.
 # ``kind`` is one of:
-#   "totp_required"      — user has TOTP enrolled; verifying a code
-#   "totp_setup_required" — policy forces enrolment; user must set up
-#                            TOTP before the cookie is issued.
+# "totp_required"      — user has TOTP enrolled; verifying a code
+# "totp_setup_required" — policy forces enrolment; user must set up
+#                          TOTP before the cookie is issued.
 # ----------------------------------------------------------------------------
 _TOTP_CHALLENGE_TTL_SECONDS = 5 * 60
 _totp_challenges: dict[str, dict] = {}
@@ -11209,16 +11208,16 @@ def _peek_totp_challenge(cid: str) -> Optional[dict]:
 # in-memory dict shape as the TOTP store -- single-replica deploy makes it
 # safe. Pruned lazily on every read/write.
 #
-#   _webauthn_login_challenges -- raw challenge bytes pending second-
-#       factor verification. Keyed by challenge_id (opaque token the
-#       SPA echoes back). Created by /api/local-auth/webauthn-start;
-#       consumed by /api/local-auth/webauthn-finish. 5-min TTL.
+# _webauthn_login_challenges -- raw challenge bytes pending second-
+#     factor verification. Keyed by challenge_id (opaque token the
+#     SPA echoes back). Created by /api/local-auth/webauthn-start;
+#     consumed by /api/local-auth/webauthn-finish. 5-min TTL.
 #
-#   _webauthn_register_challenges -- raw challenge bytes pending
-#       enrolment. Keyed by user_id (the call sites are authed and we
-#       only allow one in-flight enrolment per user). Created by
-#       /api/me/webauthn/register-start; consumed by register-finish.
-#       5-min TTL.
+# _webauthn_register_challenges -- raw challenge bytes pending
+#     enrolment. Keyed by user_id (the call sites are authed and we
+#     only allow one in-flight enrolment per user). Created by
+#     /api/me/webauthn/register-start; consumed by register-finish.
+#     5-min TTL.
 #
 # RP ID + origin are derived per-request from the URL the SPA hit
 # (request.url.hostname / .scheme), so dev (localhost:8088) and prod
@@ -11289,7 +11288,7 @@ def _request_rp_id(request: Request) -> str:
     dev runs. Strip the ``:port`` suffix in every case — RP IDs are
     hostname-only.
 
-    ENH-015 / the WebAuthn register-finish path calls this
+    the WebAuthn register-finish path calls this
     twice (directly + via `_request_origin`); cache the resolved value
     on `request.state.rp_id` so the second call is a dict lookup.
     """
@@ -11345,7 +11344,7 @@ def _request_origin(request) -> str:
     proto = (request.headers.get("x-forwarded-proto", "")
              or request.url.scheme or "http").split(",")[0].strip().lower()
     if proto not in ("http", "https"):
-        # ENH-006 / reject bogus X-Forwarded-Proto values
+        # reject bogus X-Forwarded-Proto values
         # (e.g. "ftp", "file") instead of silently flipping to https.
         # Falls back to the actual request scheme; logs once so a
         # mis-configured proxy is debuggable from Admin → Logs.
@@ -11379,7 +11378,7 @@ async def api_local_login(
     password: str = Form(...),
 ):
     ip = auth._client_ip(request)
-    # ENH-012 / check both the IP-only bucket AND the
+    # check both the IP-only bucket AND the
     # (ip, username) bucket. The latter scopes lockout to the actual
     # user being typo'd at, so a corporate-NAT'd office isn't
     # collateral-damaged by one user's bad password.
@@ -11416,16 +11415,16 @@ async def api_local_login(
         # ----------------------------------------------------------------
         # 2FA gate. Branches before any
         # session cookie is issued:
-        #   (a) user has TOTP enabled OR passkeys enrolled -> respond
-        #       200 with step="totp_required" and methods=[...] so the
-        #       SPA renders one of (or both) "Authenticator code" /
-        #       "Use a passkey" inputs at the second-factor screen.
-        #   (b) policy requires 2FA for this role AND user has neither
-        #       TOTP nor passkeys -> respond step="totp_setup_required"
-        #       (forced TOTP enrolment; passkey-only enrolment-on-login
-        #       isn't offered because it requires a roundtrip the
-        #       legacy login form can't host).
-        #   (c) no 2FA, no requirement -> issue cookie (legacy path).
+        # (a) user has TOTP enabled OR passkeys enrolled -> respond
+        #     200 with step="totp_required" and methods=[...] so the
+        #     SPA renders one of (or both) "Authenticator code" /
+        #     "Use a passkey" inputs at the second-factor screen.
+        # (b) policy requires 2FA for this role AND user has neither
+        #     TOTP nor passkeys -> respond step="totp_setup_required"
+        #     (forced TOTP enrolment; passkey-only enrolment-on-login
+        #     isn't offered because it requires a roundtrip the
+        #     legacy login form can't host).
+        # (c) no 2FA, no requirement -> issue cookie (legacy path).
         # ----------------------------------------------------------------
         policy = _resolve_totp_policy()
         state = auth.get_user_totp_state(c, u.id)
@@ -12216,7 +12215,7 @@ async def api_me(request: Request):
     # Always included so the SPA can also clear a stale "dismissed" flag
     # once SESSION_SECRET is finally set in the env.
     out["session_secret_auto"] = (auth.auto_secret_warning() is not None)
-    # UX-004 / bootstrap admin env vars still set in `.env` AFTER the
+    # bootstrap admin env vars still set in `.env` AFTER the
     # users table has been seeded. The bootstrap path is then a harmless
     # no-op on every restart, but two operational risks remain: (a) wiping
     # the DB and restarting would silently re-seed an admin from the env
@@ -12272,16 +12271,16 @@ async def api_me(request: Request):
         # Resolved per-event map: now `{event: bool | {medium: bool}}`
         # to mirror the per-medium granularity introduced for Profile→
         # Notifications. Three resolution shapes per event:
-        #   - User has stored a per-medium dict → return the dict (the
-        #     SPA renders one checkbox per medium, defaults missing
-        #     keys to True client-side).
-        #   - User has stored a bare bool (legacy, OR they opted out
-        #     across every medium via the SPA's Disable-all bulk
-        #     button) → return the bool.
-        #   - User has no stored value → fall back to the admin gate
-        #     (the legacy "default to admin state" contract). Returned
-        #     as a bare bool so the SPA renders the admin state across
-        #     every medium column uniformly.
+        # - User has stored a per-medium dict → return the dict (the
+        #   SPA renders one checkbox per medium, defaults missing
+        #   keys to True client-side).
+        # - User has stored a bare bool (legacy, OR they opted out
+        #   across every medium via the SPA's Disable-all bulk
+        #   button) → return the bool.
+        # - User has no stored value → fall back to the admin gate
+        #   (the legacy "default to admin state" contract). Returned
+        #   as a bare bool so the SPA renders the admin state across
+        #   every medium column uniformly.
         resolved: dict = {}
         for name in _NOTIFY_EVENT_NAMES:
             if name in user_prefs:
@@ -12618,7 +12617,7 @@ async def api_serve_avatar(fname: str, _user: auth.User = Depends(auth.current_u
 
 
 # ============================================================================
-# Profile -> Two-factor authentication (TOTP) — #345.
+# Profile -> Two-factor authentication (TOTP) —.
 # ============================================================================
 class TotpEnrollConfirmIn(BaseModel):
     secret: str
@@ -13208,7 +13207,7 @@ async def api_delete_user(
         # the file on disk afterwards. Without this the file lingers
         # under /app/data/avatars/ and a recycled user-id (rare —
         # autoincrement reset / restore-from-backup) would silently
-        # inherit the orphan. BUG-008 in the code review.
+        # inherit the orphan. in the code review.
         profile = auth.get_user_profile(c, user_id) or {}
         avatar_path = (profile.get("avatar_path") or "").strip()
         auth.delete_user(c, user_id)

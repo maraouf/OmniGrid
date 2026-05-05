@@ -104,7 +104,7 @@ _FRIENDLY_NAME_RE = re.compile(r"^[\x20-\x7E -￿]{1,64}$")
 # saves the allocation on every webauthn ceremony.
 #
 # `_ALLOWED_TRANSPORTS` matches the documented `AuthenticatorTransport`
-# enum values; #463 / BUG-008 added the whitelist to defend against
+# enum values; added the whitelist to defend against
 # quirky / malicious clients persisting strings that then break the
 # assertion-options builder.
 _ALLOWED_TRANSPORTS = frozenset({"usb", "nfc", "ble", "internal", "hybrid"})
@@ -112,7 +112,7 @@ _ALLOWED_TRANSPORTS = frozenset({"usb", "nfc", "ble", "internal", "hybrid"})
 # as a hint to authenticator UIs. Safari on macOS uses the FIRST
 # listed transport as the default-UI nudge — `internal` first ensures
 # Touch ID / Windows Hello / Android biometric beats any cross-device
-# flow (USB key / hybrid QR). See #602 for the full rationale.
+# flow (USB key / hybrid QR). See for the full rationale.
 _TRANSPORT_ORDER = ("internal", "usb", "ble", "nfc", "hybrid")
 
 
@@ -311,7 +311,7 @@ def make_authentication_options(
         if not cid:
             continue
         ts = c.get("transports") or []
-        # #601 / Safari/Chrome on macOS default to the hybrid
+        # / Safari/Chrome on macOS default to the hybrid
         # (QR) flow at assertion time when a credential's stored
         # transports list is missing `internal` (common when the
         # browser emitted `["hybrid"]` only at registration, OR when
