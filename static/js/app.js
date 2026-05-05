@@ -65,7 +65,7 @@ const KNOWN_ICONS = new Set([
   'freenas', 'ftth', 'gigabyte', 'gitsync', 'glinet', 'glinet-dark', 'google',
   'google-home', 'grafana', 'hisense', 'homarr', 'home-assistant', 'homebridge',
   'hdhomerun', 'homepage', 'hp', 'huawei', 'humax', 'idrac', 'ikea', 'ilo',
-  'influxdb', 'jellyfin', 'jellyseerr', 'jtech', 'kali', 'kaonmedia', 'kavita', 'keycloak',
+  'influxdb', 'jellyfin', 'jellyseerr', 'seerr', 'jtech', 'kali', 'kaonmedia', 'kavita', 'keycloak',
   'komodo', 'kubernetes', 'lenovo', 'linuxmint', 'lubelogger', 'mail',
   'mailcow', 'meta', 'microsoft', 'mikrotik', 'mongodb', 'motorola',
   'myspeed', 'n8n', 'nest', 'netboot-xyz', 'netdata', 'nginx', 'nixplay',
@@ -1166,6 +1166,7 @@ function app() {
       { id: 'hosts',          label: 'Hosts',           icon: 'server' },
       { id: 'ssh',            label: 'SSH',             icon: 'terminal' },
       { id: 'assets',         label: 'Asset inventory', icon: 'package' },
+      { id: 'ai',             label: 'AI integration',  icon: 'cpu' },
       { id: 'schedules',      label: 'Schedules',       icon: 'calendar' },
       { id: 'backups',        label: 'Backups',         icon: 'archive' },
       { id: 'logs',           label: 'Logs',            icon: 'file-text' },
@@ -2258,6 +2259,13 @@ function app() {
       else if (tab === 'assets') {
         await this.loadSettings();
         await this.loadAssetCache();
+      }
+      else if (tab === 'ai') {
+        // Hydrates the per-provider form state + the dashboard.
+        // Two parallel calls — settings primes the form, dashboard
+        // primes the tile grid. Failure of either is non-fatal: the
+        // partial degrades to an empty-state.
+        await Promise.all([this.loadSettings(), this.loadAiDashboard(true)]);
       }
       else if (tab === 'config') {
         await this.loadTuning();
@@ -5282,6 +5290,13 @@ function app() {
           // legacy admin behaviour for fresh installs / pre-toggle
           // databases. Persisted via /api/settings on every flip.
           debug_panel_enabled: d.debug_panel_enabled !== false,
+          // AI integration master toggle + active provider — populated
+          // here so the Admin → AI tab's master switch + active-provider
+          // selector reflect the saved state on first render. Per-provider
+          // detail (model / base_url / api_key_set) is hydrated into
+          // `this.aiForm` separately by hydrateAiFromSettings(d).
+          ai_enabled:         !!(d.ai && d.ai.enabled),
+          ai_active_provider: (d.ai && d.ai.active_provider) || 'claude',
         };
         // Hydrate per-event notification toggles from the GET response.
         // The api_get_settings handler resolves each through
@@ -5369,6 +5384,10 @@ function app() {
         this._oidcBaseline       = this._oidcSnapshot();
         this._debugBaseline      = this._debugSnapshot();
         this._totpPolicyBaseline = this._totpPolicySnapshot();
+        // AI integration — hydrate the per-provider form state +
+        // capture its baseline. Mirrors the pattern above for the
+        // other admin-tab forms.
+        this.hydrateAiFromSettings(d);
 
         // --- Admin → SSH panel state ---
         this.hydrateSshSettings(d);
@@ -9502,6 +9521,232 @@ function app() {
       if (translated && translated !== key) return translated;
       return s.charAt(0).toUpperCase() + s.slice(1);
     },
+    // ---------------------------------------------------------------
+    // AI integration (Stage 1 foundation) — provider config + dashboard.
+    // No actual AI calls are made yet; this is the surface that future
+    // stages will write into via `logic/ai.py`.
+    // ---------------------------------------------------------------
+    aiProviderNames: ['claude', 'gemini', 'chatgpt', 'deepseek'],
+    aiProviderDisplayName(name) {
+      // Brand-stable casing for the four providers; unknown names get
+      // a capitalisation fallback so a future provider rendered before
+      // the i18n bundle catches up still reads correctly.
+      const known = {
+        claude:   'Claude',
+        gemini:   'Gemini',
+        chatgpt:  'ChatGPT',
+        deepseek: 'DeepSeek',
+      };
+      const k = String(name || '').toLowerCase();
+      if (known[k]) return known[k];
+      return k.charAt(0).toUpperCase() + k.slice(1);
+    },
+    aiProviderModelPlaceholder(name) {
+      // Defaults are sourced from the backend's `ai.defaults` block
+      // (api_get_settings) so a future endpoint rotation lands in
+      // ONE place. Local fallback string applies until the first
+      // settings GET resolves.
+      return ((this.aiDefaults || {})[name] || {}).model || '';
+    },
+    aiProviderModelHint(name) {
+      const key = `admin.ai.model_hint_${name}`;
+      const translated = this.t(key);
+      if (translated && translated !== key) return translated;
+      return this.t('admin.ai.model_hint_generic');
+    },
+    aiProviderBaseUrlPlaceholder(name) {
+      return ((this.aiDefaults || {})[name] || {}).base_url || '';
+    },
+    aiFormatNumber(n) {
+      const v = Number(n || 0);
+      if (!Number.isFinite(v)) return '0';
+      if (Math.abs(v) >= 1_000_000) return (v / 1_000_000).toFixed(2) + 'M';
+      if (Math.abs(v) >= 1_000)     return (v / 1_000).toFixed(1) + 'k';
+      return String(Math.round(v));
+    },
+    aiFormatTime(ts) {
+      if (!ts) return '—';
+      const d = new Date(ts * 1000);
+      // Compact YYYY-MM-DD HH:mm format; locale string is unstable
+      // across browsers / locales so we hand-format in UTC-equivalent
+      // local time the SPA's clock already uses elsewhere.
+      const pad = n => String(n).padStart(2, '0');
+      return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+    },
+
+    // Form state — `aiForm` mirrors `settings.ai.providers[*]` in a
+    // shape the inputs can bind directly to (api_key as a write-only
+    // string the user types into, api_key_set as the read-only flag
+    // for the placeholder/hint). `_aiBaselineSnapshot` captures the
+    // shape at form-load so dirty-tracking is precise (mirrors the
+    // Portainer / OIDC dirty pattern).
+    aiForm: {
+      providers: {
+        claude:   { enabled: false, model: '', base_url: '', api_key: '', api_key_set: false },
+        gemini:   { enabled: false, model: '', base_url: '', api_key: '', api_key_set: false },
+        chatgpt:  { enabled: false, model: '', base_url: '', api_key: '', api_key_set: false },
+        deepseek: { enabled: false, model: '', base_url: '', api_key: '', api_key_set: false },
+      },
+    },
+    // Canonical model + base URL defaults, hydrated from the backend's
+    // `ai.defaults` block on every settings load. Used as placeholder
+    // text + as the pre-fill value when the saved setting is empty.
+    aiDefaults: {},
+    _aiBaselineSnapshot: '',
+    aiSaving: false,
+    aiDashboard: null,
+    aiDashboardLoading: false,
+    aiRange: 24,                     // 1 / 24 / 168 / 720 hours
+    aiModalKey: null,                 // 'jobs' / 'cost' / 'tokens' / 'response_time' / 'accuracy' / 'passrate'
+    aiJobs: null,                     // { total, jobs: [...] }
+    aiJobsFilterProvider: '',
+    aiJobsFilterStatus: '',
+
+    _aiSnapshot() {
+      // Stable shape — `master_enabled` + `active_provider` + per-provider
+      // mirror. API key is stamped via the `api_key_set` boolean OR the
+      // typed string; either change marks the form dirty.
+      const p = this.aiForm.providers;
+      return JSON.stringify({
+        master:           !!this.settings.ai_enabled,
+        active_provider:  this.settings.ai_active_provider || '',
+        claude:   { en: !!p.claude.enabled,   m: p.claude.model   || '', u: p.claude.base_url   || '', k: p.claude.api_key   || '', s: !!p.claude.api_key_set   },
+        gemini:   { en: !!p.gemini.enabled,   m: p.gemini.model   || '', u: p.gemini.base_url   || '', k: p.gemini.api_key   || '', s: !!p.gemini.api_key_set   },
+        chatgpt:  { en: !!p.chatgpt.enabled,  m: p.chatgpt.model  || '', u: p.chatgpt.base_url  || '', k: p.chatgpt.api_key  || '', s: !!p.chatgpt.api_key_set  },
+        deepseek: { en: !!p.deepseek.enabled, m: p.deepseek.model || '', u: p.deepseek.base_url || '', k: p.deepseek.api_key || '', s: !!p.deepseek.api_key_set },
+      });
+    },
+    markAiFormDirty() {
+      // No-op — the watcher reads aiFormDirty() lazily off the snapshot.
+      // Function exists so the @input / @change bindings have a stable
+      // call site we can extend later (e.g. clearing per-provider
+      // last-test stamps when fields change).
+    },
+    aiFormDirty() {
+      return this._aiBaselineSnapshot !== '' && this._aiSnapshot() !== this._aiBaselineSnapshot;
+    },
+    hydrateAiFromSettings(d) {
+      // Called from loadSettings() after the GET resolves. Mirrors the
+      // round-trip shape into `aiForm.providers[*]`. Resets the
+      // baseline snapshot so the dirty cue stays clean post-load.
+      //
+      // Empty `model` / `base_url` fields are pre-filled from
+      // `ai.defaults` so a fresh deploy renders the canonical model id
+      // + API host already typed in (admin can override and Save, OR
+      // delete to opt out and have the placeholder show through).
+      // Either path persists deliberately — no surprises on the next
+      // load. The pre-fill happens BEFORE the baseline is captured so
+      // the dirty cue stays clean unless the operator actually edits.
+      const ai = (d && d.ai) || {};
+      const provs = ai.providers || {};
+      this.aiDefaults = ai.defaults || {};
+      this.settings.ai_enabled         = !!ai.enabled;
+      this.settings.ai_active_provider = ai.active_provider || 'claude';
+      this.aiProviderNames.forEach(name => {
+        const p   = provs[name] || {};
+        const dflt = (ai.defaults || {})[name] || {};
+        this.aiForm.providers[name] = {
+          enabled:     !!p.enabled,
+          // Prefer saved setting; fall back to canonical default so
+          // the field renders pre-filled instead of blank on first
+          // open.
+          model:       p.model    || dflt.model    || '',
+          base_url:    p.base_url || dflt.base_url || '',
+          api_key:     '',
+          api_key_set: !!p.api_key_set,
+        };
+      });
+      // Defer baseline capture one tick so Alpine's reactive
+      // assignments above are reflected in the snapshot.
+      this.$nextTick(() => { this._aiBaselineSnapshot = this._aiSnapshot(); });
+    },
+    async saveAiSettings() {
+      if (this.aiSaving || this.isReadonly()) return;
+      this.aiSaving = true;
+      try {
+        const body = {
+          ai_enabled:                    !!this.settings.ai_enabled,
+          ai_active_provider:            this.settings.ai_active_provider || 'claude',
+        };
+        this.aiProviderNames.forEach(name => {
+          const p = this.aiForm.providers[name];
+          body[`ai_provider_${name}_enabled`]  = !!p.enabled;
+          body[`ai_provider_${name}_model`]    = p.model || '';
+          body[`ai_provider_${name}_base_url`] = p.base_url || '';
+          // API key — keep-current-if-blank. Only send when the user
+          // typed something so an unchanged form doesn't blank the key.
+          if ((p.api_key || '').trim()) {
+            body[`ai_provider_${name}_api_key`] = p.api_key.trim();
+          }
+        });
+        const r = await fetch('/api/settings', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        });
+        if (!r.ok) {
+          const detail = await r.json().catch(() => ({}));
+          throw new Error(detail.detail || `HTTP ${r.status}`);
+        }
+        // Reload settings to pick up the freshly-flipped api_key_set
+        // booleans + reset the dirty baseline.
+        await this.loadSettings();
+        // Clear the user-typed api keys so the inputs don't carry the
+        // value across the dirty boundary (the GET response only
+        // surfaces api_key_set; the input ought to be blank again).
+        this.aiProviderNames.forEach(name => {
+          this.aiForm.providers[name].api_key = '';
+        });
+        this.$nextTick(() => { this._aiBaselineSnapshot = this._aiSnapshot(); });
+        this.toast('success', this.t('admin.ai.save_ok'));
+      } catch (e) {
+        console.error('[ai] saveAiSettings failed:', e);
+        this.toast('error', this.t('admin.ai.save_failed') + ': ' + (e.message || e));
+      } finally {
+        this.aiSaving = false;
+      }
+    },
+
+    setAiRange(hours) {
+      this.aiRange = hours;
+      this.loadAiDashboard(true);
+    },
+    async loadAiDashboard(force) {
+      if (this.aiDashboardLoading) return;
+      this.aiDashboardLoading = true;
+      try {
+        const r = await fetch(`/api/admin/ai/dashboard?hours=${encodeURIComponent(this.aiRange || 24)}`);
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        this.aiDashboard = await r.json();
+      } catch (e) {
+        console.error('[ai] loadAiDashboard failed:', e);
+        this.aiDashboard = null;
+      } finally {
+        this.aiDashboardLoading = false;
+      }
+    },
+    async loadAiJobs() {
+      const params = new URLSearchParams();
+      params.set('hours', String(this.aiRange || 24));
+      params.set('limit', '100');
+      if (this.aiJobsFilterProvider) params.set('provider', this.aiJobsFilterProvider);
+      if (this.aiJobsFilterStatus)   params.set('status',   this.aiJobsFilterStatus);
+      try {
+        const r = await fetch(`/api/admin/ai/jobs?${params.toString()}`);
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        this.aiJobs = await r.json();
+      } catch (e) {
+        console.error('[ai] loadAiJobs failed:', e);
+        this.aiJobs = null;
+      }
+    },
+    openAiModal(key) {
+      this.aiModalKey = key;
+      if (key === 'jobs') {
+        this.loadAiJobs();
+      }
+    },
+    closeAiModal() { this.aiModalKey = null; },
     // Physical-disk state pill — Dell OMSA arrayDiskState labels.
     // Visual encoding:
     // green  (pill-ok)     — `online` (active in a RAID array, healthy)
@@ -10042,7 +10287,13 @@ function app() {
       if (!name) return '';
       // Exact / whole-name overrides (checked first).
       const overrides = {
-        'seerr': 'jellyseerr',
+        // 'seerr' is its own brand (https://github.com/Fallenbagel/seerr)
+        // — distinct from 'jellyseerr' / 'overseerr'. Use the dedicated
+        // seerr.svg from homarr-labs dashboard-icons. The keyword scan
+        // below MUST list 'jellyseerr' before 'seerr' so a name like
+        // 'jellyseerr-redis' matches the jellyseerr icon first
+        // (substring 'seerr' is contained in both).
+        'seerr': 'seerr',
         'docker-prune': 'docker',
         'standalone': 'docker',
         'omnigrid': 'docker',
@@ -12849,6 +13100,11 @@ function app() {
         ['jellyfin',              'jellyfin'],
         ['jellyseerr',            'jellyseerr'],
         ['overseerr',             'jellyseerr'],
+        // 'seerr' (Fallenbagel/seerr) is a distinct brand; the icon
+        // resolver MUST list it AFTER 'jellyseerr' and 'overseerr' so
+        // 'jellyseerr-app' / 'overseerr-bg' match the longer phrase
+        // first (the substring 'seerr' is contained in all three names).
+        ['seerr',                 'seerr'],
         ['tautulli',              'tautulli'],
         ['bazarr',                'bazarr'],
         ['sonarr',                'sonarr'],

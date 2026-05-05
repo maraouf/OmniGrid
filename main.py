@@ -920,6 +920,61 @@ def init_db():
             ON notifications(ts DESC);
         CREATE INDEX IF NOT EXISTS idx_notifications_unread
             ON notifications(read_at) WHERE read_at IS NULL;
+        -- AI integration (Stage 1 foundation). One row per call to an
+        -- AI provider. Stage 1 ships the schema + admin surface; the
+        -- writer lives in `logic/ai.py` (Stage 2+) — when wired up,
+        -- every provider call records here so the dashboard can render
+        -- token usage / cost / pass-rate / accuracy / response-time
+        -- aggregates without needing a separate metrics store.
+        --
+        --   provider          — claude / gemini / chatgpt / deepseek
+        --   model             — provider-specific model id at call time
+        --                        (e.g. claude-opus-4-7, gpt-4o,
+        --                        gemini-2.5-pro, deepseek-chat). Stored
+        --                        per-row so the dashboard can break
+        --                        token usage down by model.
+        --   kind              — what the call was for (free-form;
+        --                        Stage 2+ defines the canonical kinds).
+        --   status            — running / success / error.
+        --   prompt_tokens     — input tokens consumed.
+        --   completion_tokens — output tokens generated.
+        --   total_tokens      — sum (or provider-reported total when it
+        --                        differs from prompt+completion).
+        --   cost_usd          — operator-visible cost in USD; computed
+        --                        from per-provider rate cards by the
+        --                        writer at insert time so historical
+        --                        rows survive a rate-card change.
+        --   response_time_ms  — end-to-end latency the writer measured.
+        --   accuracy_score    — 0..1 score from the optional accuracy
+        --                        check; NULL when the call was not
+        --                        validated.
+        --   accuracy_check    — JSON metadata about the validation
+        --                        (which check ran, expected vs actual,
+        --                        etc).
+        --   error             — short error message when status='error'.
+        --   metadata          — JSON catch-all (request id, retries,
+        --                        whatever the writer wants to keep).
+        CREATE TABLE IF NOT EXISTS ai_jobs (
+            id                INTEGER PRIMARY KEY AUTOINCREMENT,
+            ts                INTEGER NOT NULL,
+            provider          TEXT    NOT NULL,
+            model             TEXT,
+            kind              TEXT,
+            status            TEXT    NOT NULL,
+            prompt_tokens     INTEGER,
+            completion_tokens INTEGER,
+            total_tokens      INTEGER,
+            cost_usd          REAL,
+            response_time_ms  INTEGER,
+            accuracy_score    REAL,
+            accuracy_check    TEXT,
+            error             TEXT,
+            metadata          TEXT
+        );
+        CREATE INDEX IF NOT EXISTS idx_ai_jobs_ts
+            ON ai_jobs(ts DESC);
+        CREATE INDEX IF NOT EXISTS idx_ai_jobs_provider_ts
+            ON ai_jobs(provider, ts DESC);
         COMMIT;
         """)
         # Idempotent column additions for existing deployments. SQLite pre-3.35
@@ -2099,6 +2154,34 @@ class SettingsIn(BaseModel):
     # because <asset-api-host>'s URL scheme isn't part of the API guide.
     asset_inventory_edit_url_template: Optional[str] = None
     # -----------------------------------------------------------------
+    # AI integration (Stage 1 foundation — admin surface only). Four
+    # supported providers: claude / gemini / chatgpt / deepseek. Each
+    # has its own enable / model / base_url / api_key field set. Master
+    # `ai_enabled` gates the whole feature; `ai_active_provider` selects
+    # which provider any future "use AI" call routes through. API keys
+    # follow the keep-current-if-blank contract; the GET response only
+    # reports an `api_key_set` boolean, never the material. Stage 2+
+    # will introduce the actual call wrapper + writer for `ai_jobs`.
+    # -----------------------------------------------------------------
+    ai_enabled: Optional[bool] = None
+    ai_active_provider: Optional[str] = None
+    ai_provider_claude_enabled: Optional[bool] = None
+    ai_provider_claude_model: Optional[str] = None
+    ai_provider_claude_base_url: Optional[str] = None
+    ai_provider_claude_api_key: Optional[str] = None
+    ai_provider_gemini_enabled: Optional[bool] = None
+    ai_provider_gemini_model: Optional[str] = None
+    ai_provider_gemini_base_url: Optional[str] = None
+    ai_provider_gemini_api_key: Optional[str] = None
+    ai_provider_chatgpt_enabled: Optional[bool] = None
+    ai_provider_chatgpt_model: Optional[str] = None
+    ai_provider_chatgpt_base_url: Optional[str] = None
+    ai_provider_chatgpt_api_key: Optional[str] = None
+    ai_provider_deepseek_enabled: Optional[bool] = None
+    ai_provider_deepseek_model: Optional[str] = None
+    ai_provider_deepseek_base_url: Optional[str] = None
+    ai_provider_deepseek_api_key: Optional[str] = None
+    # -----------------------------------------------------------------
     # SSH console — admin-only remote command runner wired into the
     # host drawer. Global defaults; per-host overrides live in
     # ``hosts_config[].ssh`` (user / port / disabled). Secret fields
@@ -2474,6 +2557,39 @@ async def api_get_settings(request: Request):
             "edit_url_template":  get_setting("asset_inventory_edit_url_template", "") or "",
             # / — TLS verification toggle. Default True.
             "verify_tls":         (get_setting("asset_inventory_verify_tls", "true") or "true").strip().lower() != "false",
+        },
+        # AI integration — Stage 1 admin surface. Per-provider api_key
+        # round-trips as a `_set` boolean only; everything else returns
+        # in the clear so the form can render existing values.
+        # ``active_provider`` defaults to "claude" so a fresh deploy has
+        # a sensible default selected when the master toggle is flipped.
+        # ``defaults`` carries the canonical model id + API host for each
+        # provider so the SPA can pre-fill empty fields on first edit
+        # (admins can override per-deployment instead of typing every
+        # URL from scratch). The defaults block is NOT operator-tunable
+        # — it ships with the canonical endpoints; admins override by
+        # entering different values into the form, which then persist
+        # over the default. If a provider rotates its public host, the
+        # operator can keep using the old saved value OR clear the
+        # field to re-pick the new default on the next form load.
+        "ai": {
+            "enabled":         (get_setting("ai_enabled", "false") or "false").lower() == "true",
+            "active_provider": (get_setting("ai_active_provider", "") or "claude"),
+            "providers": {
+                name: {
+                    "enabled":     (get_setting(f"ai_provider_{name}_enabled", "false") or "false").lower() == "true",
+                    "model":       get_setting(f"ai_provider_{name}_model", "") or "",
+                    "base_url":    get_setting(f"ai_provider_{name}_base_url", "") or "",
+                    "api_key_set": bool(get_setting(f"ai_provider_{name}_api_key", "")),
+                }
+                for name in ("claude", "gemini", "chatgpt", "deepseek")
+            },
+            "defaults": {
+                "claude":   {"model": "claude-opus-4-7",   "base_url": "https://api.anthropic.com"},
+                "gemini":   {"model": "gemini-2.5-pro",    "base_url": "https://generativelanguage.googleapis.com"},
+                "chatgpt":  {"model": "gpt-4o",            "base_url": "https://api.openai.com"},
+                "deepseek": {"model": "deepseek-chat",     "base_url": "https://api.deepseek.com"},
+            },
         },
         "portainer_public_url": get_setting("portainer_public_url", str(p.get("portainer_url") or "")),
         "backup_retention_count": int(get_setting("backup_retention_count", "0") or "0"),
@@ -3425,6 +3541,40 @@ async def _api_set_settings_inner(s, request, _portainer):
         set_setting("asset_inventory_edit_url_template",
                     (s.asset_inventory_edit_url_template or "").strip())
 
+    # ----- AI integration (Stage 1) ----------------------------------
+    # Master toggle + active-provider validator + per-provider fields.
+    # API keys ride the keep-current-if-blank contract: only a non-empty
+    # string is persisted, so an empty POST keeps the existing key.
+    _AI_PROVIDER_NAMES = ("claude", "gemini", "chatgpt", "deepseek")
+    if s.ai_enabled is not None:
+        set_setting("ai_enabled", "true" if s.ai_enabled else "false")
+    if s.ai_active_provider is not None:
+        active = (s.ai_active_provider or "").strip().lower()
+        if active and active not in _AI_PROVIDER_NAMES:
+            raise HTTPException(
+                400,
+                f"ai_active_provider must be one of {','.join(_AI_PROVIDER_NAMES)}",
+            )
+        set_setting("ai_active_provider", active)
+    for _ai_name in _AI_PROVIDER_NAMES:
+        # enabled
+        _v = getattr(s, f"ai_provider_{_ai_name}_enabled", None)
+        if _v is not None:
+            set_setting(f"ai_provider_{_ai_name}_enabled", "true" if _v else "false")
+        # model
+        _v = getattr(s, f"ai_provider_{_ai_name}_model", None)
+        if _v is not None:
+            set_setting(f"ai_provider_{_ai_name}_model", (_v or "").strip())
+        # base_url
+        _v = getattr(s, f"ai_provider_{_ai_name}_base_url", None)
+        if _v is not None:
+            set_setting(f"ai_provider_{_ai_name}_base_url",
+                        (_v or "").strip().rstrip("/"))
+        # api_key — keep-current-if-blank
+        _v = getattr(s, f"ai_provider_{_ai_name}_api_key", None)
+        if _v is not None and (_v or "").strip():
+            set_setting(f"ai_provider_{_ai_name}_api_key", _v.strip())
+
     _cache["ts"] = 0  # force the next gather to re-read alias settings
 
     auth_changed = False
@@ -3575,6 +3725,285 @@ def _settings_version_for_payload() -> int:
         return get_settings_version()
     except Exception:
         return 0
+
+
+# ----------------------------------------------------------------------------
+# AI integration (Stage 1 foundation). Admin-only read surface for the
+# dashboard tiles + paginated job log. Writes (provider config) ride
+# the existing POST /api/settings additive contract — no new POST here.
+# Stage 2+ will add a per-provider Test endpoint and the actual call
+# wrapper that records into `ai_jobs`. For now the table is empty and
+# every aggregate returns zero / empty arrays — the SPA renders cleanly.
+# ----------------------------------------------------------------------------
+_AI_PROVIDER_NAMES_TUPLE = ("claude", "gemini", "chatgpt", "deepseek")
+
+
+@app.get("/api/admin/ai/dashboard")
+async def api_admin_ai_dashboard(
+    hours: int = 24,
+    _admin: auth.User = Depends(auth.require_admin),
+):
+    """Dashboard aggregates for the AI tab. Default window is 24h —
+    the SPA passes ``?hours=N`` for 1 / 24 / 168 / 720 ranges. Computes
+    everything in one round-trip so the SPA's tile grid renders in a
+    single fetch:
+
+      summary   — total jobs / success / error / running counts;
+                  pass_rate (success / non-running); total_tokens;
+                  total_cost_usd; avg_response_time_ms;
+                  avg_accuracy_score (NULL when no row has it).
+      providers — per-provider rows with the same shape as summary
+                  plus model breakdown (one entry per (provider,model)).
+      trend     — bucketed-by-hour series of (cost_usd, total_tokens,
+                  jobs, pass_rate, avg_accuracy_score) for the chart
+                  cards.
+
+    Empty schema returns zero / [] cleanly so the dashboard works
+    on a fresh deploy with no recorded jobs yet.
+    """
+    try:
+        hours = max(1, min(int(hours or 24), 24 * 30))
+    except (TypeError, ValueError):
+        hours = 24
+    cutoff = int(time.time()) - hours * 3600
+
+    summary = {
+        "total_jobs": 0, "success": 0, "error": 0, "running": 0,
+        "pass_rate": 0.0,
+        "total_tokens": 0, "prompt_tokens": 0, "completion_tokens": 0,
+        "total_cost_usd": 0.0,
+        "avg_response_time_ms": None,
+        "avg_accuracy_score": None,
+        "active_provider": (get_setting("ai_active_provider", "") or "claude"),
+    }
+    providers: dict[str, dict] = {
+        n: {
+            "name": n, "total_jobs": 0, "success": 0, "error": 0, "running": 0,
+            "pass_rate": 0.0, "total_tokens": 0, "total_cost_usd": 0.0,
+            "avg_response_time_ms": None, "avg_accuracy_score": None,
+            "models": [],
+            "enabled": (get_setting(f"ai_provider_{n}_enabled", "false") or "false").lower() == "true",
+            "model":   get_setting(f"ai_provider_{n}_model", "") or "",
+        }
+        for n in _AI_PROVIDER_NAMES_TUPLE
+    }
+    trend: list[dict] = []
+    try:
+        with db_conn() as c:
+            # Per-provider aggregates for the cards.
+            rows = c.execute(
+                """
+                SELECT provider,
+                       COUNT(*)                                         AS total,
+                       SUM(CASE WHEN status='success' THEN 1 ELSE 0 END) AS ok,
+                       SUM(CASE WHEN status='error'   THEN 1 ELSE 0 END) AS err,
+                       SUM(CASE WHEN status='running' THEN 1 ELSE 0 END) AS run,
+                       COALESCE(SUM(prompt_tokens),     0)              AS p_tok,
+                       COALESCE(SUM(completion_tokens), 0)              AS c_tok,
+                       COALESCE(SUM(total_tokens),      0)              AS t_tok,
+                       COALESCE(SUM(cost_usd),          0.0)            AS cost,
+                       AVG(response_time_ms)                            AS avg_rt,
+                       AVG(accuracy_score)                              AS avg_acc
+                  FROM ai_jobs
+                 WHERE ts >= ?
+                 GROUP BY provider
+                """,
+                (cutoff,),
+            ).fetchall()
+            for r in rows:
+                p = r["provider"] or ""
+                bucket = providers.setdefault(p, {
+                    "name": p, "total_jobs": 0, "success": 0, "error": 0, "running": 0,
+                    "pass_rate": 0.0, "total_tokens": 0, "total_cost_usd": 0.0,
+                    "avg_response_time_ms": None, "avg_accuracy_score": None,
+                    "models": [], "enabled": False, "model": "",
+                })
+                bucket["total_jobs"] = int(r["total"] or 0)
+                bucket["success"]    = int(r["ok"] or 0)
+                bucket["error"]      = int(r["err"] or 0)
+                bucket["running"]    = int(r["run"] or 0)
+                non_running = bucket["success"] + bucket["error"]
+                bucket["pass_rate"] = (bucket["success"] / non_running) if non_running else 0.0
+                bucket["total_tokens"]   = int(r["t_tok"] or 0)
+                bucket["total_cost_usd"] = float(r["cost"] or 0.0)
+                bucket["avg_response_time_ms"] = (float(r["avg_rt"]) if r["avg_rt"] is not None else None)
+                bucket["avg_accuracy_score"]   = (float(r["avg_acc"]) if r["avg_acc"] is not None else None)
+                # Roll into summary too.
+                summary["total_jobs"]     += bucket["total_jobs"]
+                summary["success"]        += bucket["success"]
+                summary["error"]          += bucket["error"]
+                summary["running"]        += bucket["running"]
+                summary["prompt_tokens"]  += int(r["p_tok"] or 0)
+                summary["completion_tokens"] += int(r["c_tok"] or 0)
+                summary["total_tokens"]   += bucket["total_tokens"]
+                summary["total_cost_usd"] += bucket["total_cost_usd"]
+
+            # Per-(provider, model) breakdown.
+            mrows = c.execute(
+                """
+                SELECT provider, model,
+                       COUNT(*)                                         AS total,
+                       COALESCE(SUM(total_tokens),  0)                  AS t_tok,
+                       COALESCE(SUM(cost_usd),      0.0)                AS cost
+                  FROM ai_jobs
+                 WHERE ts >= ? AND model IS NOT NULL AND model != ''
+                 GROUP BY provider, model
+                """,
+                (cutoff,),
+            ).fetchall()
+            for r in mrows:
+                p = r["provider"] or ""
+                if p in providers:
+                    providers[p]["models"].append({
+                        "model":        r["model"] or "",
+                        "total_jobs":   int(r["total"] or 0),
+                        "total_tokens": int(r["t_tok"] or 0),
+                        "total_cost_usd": float(r["cost"] or 0.0),
+                    })
+
+            # Summary-wide pass rate + averages.
+            non_running = summary["success"] + summary["error"]
+            summary["pass_rate"] = (summary["success"] / non_running) if non_running else 0.0
+            agg = c.execute(
+                "SELECT AVG(response_time_ms) AS avg_rt, "
+                "       AVG(accuracy_score)   AS avg_acc "
+                "  FROM ai_jobs WHERE ts >= ?",
+                (cutoff,),
+            ).fetchone()
+            if agg is not None:
+                summary["avg_response_time_ms"] = (
+                    float(agg["avg_rt"]) if agg["avg_rt"] is not None else None
+                )
+                summary["avg_accuracy_score"] = (
+                    float(agg["avg_acc"]) if agg["avg_acc"] is not None else None
+                )
+
+            # Hourly trend buckets — drives the time-series cards.
+            tr_rows = c.execute(
+                """
+                SELECT (ts / 3600) * 3600                               AS bucket,
+                       COUNT(*)                                         AS total,
+                       SUM(CASE WHEN status='success' THEN 1 ELSE 0 END) AS ok,
+                       SUM(CASE WHEN status='error'   THEN 1 ELSE 0 END) AS err,
+                       COALESCE(SUM(total_tokens), 0)                   AS t_tok,
+                       COALESCE(SUM(cost_usd),     0.0)                 AS cost,
+                       AVG(accuracy_score)                              AS avg_acc
+                  FROM ai_jobs
+                 WHERE ts >= ?
+                 GROUP BY bucket
+                 ORDER BY bucket ASC
+                """,
+                (cutoff,),
+            ).fetchall()
+            for r in tr_rows:
+                non_run = int(r["ok"] or 0) + int(r["err"] or 0)
+                trend.append({
+                    "ts":               int(r["bucket"] or 0),
+                    "jobs":             int(r["total"] or 0),
+                    "success":          int(r["ok"] or 0),
+                    "error":            int(r["err"] or 0),
+                    "total_tokens":     int(r["t_tok"] or 0),
+                    "total_cost_usd":   float(r["cost"] or 0.0),
+                    "pass_rate":        (int(r["ok"] or 0) / non_run) if non_run else 0.0,
+                    "avg_accuracy_score": (
+                        float(r["avg_acc"]) if r["avg_acc"] is not None else None
+                    ),
+                })
+    except Exception as e:
+        # DB blip is non-fatal — fall back to the empty shape so the SPA
+        # renders the empty-state instead of erroring.
+        print(f"[ai] dashboard aggregate failed: {e}")
+
+    return {
+        "window_hours": hours,
+        "summary":      summary,
+        "providers":    [providers[n] for n in _AI_PROVIDER_NAMES_TUPLE
+                         if n in providers] + [
+                            providers[k] for k in sorted(providers.keys())
+                            if k not in _AI_PROVIDER_NAMES_TUPLE
+                        ],
+        "trend":        trend,
+    }
+
+
+@app.get("/api/admin/ai/jobs")
+async def api_admin_ai_jobs(
+    hours: int = 168,
+    provider: str = "",
+    status: str = "",
+    limit: int = 100,
+    offset: int = 0,
+    _admin: auth.User = Depends(auth.require_admin),
+):
+    """Paginated job log for the dashboard's "Jobs" modal. Supports
+    optional ``?provider=`` and ``?status=`` filters. Newest first.
+    Caps `limit` at 500 to keep the response payload bounded.
+    """
+    try:
+        hours = max(1, min(int(hours or 168), 24 * 30))
+    except (TypeError, ValueError):
+        hours = 168
+    try:
+        limit = max(1, min(int(limit or 100), 500))
+    except (TypeError, ValueError):
+        limit = 100
+    try:
+        offset = max(0, int(offset or 0))
+    except (TypeError, ValueError):
+        offset = 0
+    cutoff = int(time.time()) - hours * 3600
+    where = ["ts >= ?"]
+    params: list = [cutoff]
+    if provider:
+        where.append("provider = ?")
+        params.append(provider.strip().lower())
+    if status:
+        where.append("status = ?")
+        params.append(status.strip().lower())
+    sql = (
+        "SELECT id, ts, provider, model, kind, status, "
+        "       prompt_tokens, completion_tokens, total_tokens, "
+        "       cost_usd, response_time_ms, accuracy_score, error "
+        f"  FROM ai_jobs WHERE {' AND '.join(where)} "
+        " ORDER BY ts DESC, id DESC LIMIT ? OFFSET ?"
+    )
+    params.extend([limit, offset])
+    rows: list[dict] = []
+    total = 0
+    try:
+        with db_conn() as c:
+            for r in c.execute(sql, params).fetchall():
+                rows.append({
+                    "id": int(r["id"]),
+                    "ts": int(r["ts"]),
+                    "provider": r["provider"],
+                    "model": r["model"] or "",
+                    "kind": r["kind"] or "",
+                    "status": r["status"],
+                    "prompt_tokens":     (int(r["prompt_tokens"])     if r["prompt_tokens"]     is not None else None),
+                    "completion_tokens": (int(r["completion_tokens"]) if r["completion_tokens"] is not None else None),
+                    "total_tokens":      (int(r["total_tokens"])      if r["total_tokens"]      is not None else None),
+                    "cost_usd":          (float(r["cost_usd"])        if r["cost_usd"]          is not None else None),
+                    "response_time_ms":  (int(r["response_time_ms"])  if r["response_time_ms"]  is not None else None),
+                    "accuracy_score":    (float(r["accuracy_score"])  if r["accuracy_score"]    is not None else None),
+                    "error":             r["error"] or "",
+                })
+            count_sql = (
+                f"SELECT COUNT(*) AS n FROM ai_jobs WHERE {' AND '.join(where[:-0] or where)}"
+            ) if False else (
+                f"SELECT COUNT(*) AS n FROM ai_jobs WHERE {' AND '.join(where)}"
+            )
+            row = c.execute(count_sql, params[:-2]).fetchone()
+            total = int(row["n"] or 0) if row else 0
+    except Exception as e:
+        print(f"[ai] jobs query failed: {e}")
+    return {
+        "window_hours": hours,
+        "limit":        limit,
+        "offset":       offset,
+        "total":        total,
+        "jobs":         rows,
+    }
 
 
 # ----------------------------------------------------------------------------

@@ -1,0 +1,356 @@
+      <div x-show="adminTab==='ai'" class="space-y-4">
+        <!-- Top section — master toggle + active provider selector +
+             Save button. Stage 1 ships configuration only; the actual
+             AI call wrapper + per-provider rate cards land in stage 2+. -->
+        <section class="bg-[var(--surface)] border border-[var(--border)] rounded-md p-5">
+          <div class="flex items-start justify-between gap-3">
+            <div>
+              <div class="flex items-center gap-2 mb-2">
+                <svg width="16" height="16" aria-hidden="true" class="text-[var(--text-dim)]">
+                  <use href="/img/ui-sprite.svg#icon-cpu"/>
+                </svg>
+                <h3 class="font-semibold text-[13px]" x-text="t('admin.ai.heading')"></h3>
+              </div>
+              <p class="text-[11.5px] text-[var(--text-faint)] mb-3" x-text="t('admin.ai.intro')"></p>
+            </div>
+            <span class="chip" :class="settings.ai_enabled ? 'pill-ok' : 'pill-muted'"
+                  x-text="settings.ai_enabled ? t('admin.ai.enabled_chip') : t('admin.ai.disabled_chip')"></span>
+          </div>
+
+          <div class="space-y-3">
+            <label class="flex items-center gap-2 text-[12.5px] cursor-pointer select-none">
+              <input type="checkbox" x-model="settings.ai_enabled"
+                     @change="markAiFormDirty()"
+                     :disabled="isReadonly()">
+              <span class="font-medium" x-text="t('admin.ai.master_label')"></span>
+              <span class="text-[11px] text-[var(--text-faint)]"
+                    x-text="settings.ai_enabled ? '' : t('admin.ai.master_hint_disabled')"></span>
+            </label>
+
+            <div class="grid grid-cols-1 md:grid-cols-[260px_1fr] gap-3 items-end">
+              <div>
+                <label class="block text-[11px] text-[var(--text-dim)] mb-1" x-text="t('admin.ai.active_provider_label')"></label>
+                <select x-model="settings.ai_active_provider"
+                        @change="markAiFormDirty()"
+                        :disabled="isReadonly() || !settings.ai_enabled"
+                        class="w-full text-[12.5px]">
+                  <template x-for="name in aiProviderNames" :key="name">
+                    <option :value="name"
+                            :disabled="!aiForm.providers[name].enabled"
+                            x-text="aiProviderDisplayName(name) + (!aiForm.providers[name].enabled ? ' — ' + t('admin.ai.disabled_chip') : '')"></option>
+                  </template>
+                </select>
+                <p class="text-[10.5px] text-[var(--text-faint)] mt-1"
+                   x-text="t('admin.ai.active_provider_hint')"></p>
+              </div>
+              <div class="flex items-center gap-2 flex-wrap">
+                <button @click="saveAiSettings()"
+                        :disabled="isReadonly() || aiSaving || !aiFormDirty()"
+                        class="btn btn-primary text-[12.5px]"
+                        :class="aiFormDirty() ? 'ring-2 ring-[var(--warning)]' : ''">
+                  <span x-show="!aiSaving" x-text="t('actions.save')"></span>
+                  <span x-show="aiSaving" class="flex items-center gap-1"><span class="spin"></span><span x-text="t('actions.saving')"></span></span>
+                </button>
+                <span x-show="aiFormDirty() && !aiSaving"
+                      class="text-[10.5px] text-[var(--warning)] flex items-center gap-1">
+                  <span class="dot dot-warning dot-pulse" aria-hidden="true"></span>
+                  <span class="unsaved-flash" x-text="t('common.unsaved')"></span>
+                </span>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- Dashboard tiles — top row of compact stat cards. Renders
+             zero / NA cleanly on a fresh deploy with no recorded jobs. -->
+        <section class="bg-[var(--surface)] border border-[var(--border)] rounded-md p-5">
+          <div class="flex items-center justify-between flex-wrap gap-2 mb-3">
+            <div class="flex items-center gap-2">
+              <svg width="14" height="14" aria-hidden="true" class="text-[var(--text-dim)]">
+                <use href="/img/ui-sprite.svg#icon-bar-chart-2"/>
+              </svg>
+              <h3 class="font-semibold text-[13px]" x-text="t('admin.ai.dashboard_title')"></h3>
+            </div>
+            <div class="flex items-center gap-2 text-[11px]">
+              <span class="text-[var(--text-faint)]" x-text="t('admin.ai.range_label')"></span>
+              <template x-for="opt in [[1,'range_1h'], [24,'range_24h'], [168,'range_7d'], [720,'range_30d']]" :key="opt[0]">
+                <button type="button"
+                        @click="setAiRange(opt[0])"
+                        class="btn btn-ghost text-[11px] px-2 py-0.5"
+                        :class="aiRange === opt[0] ? 'btn-soft' : ''"
+                        x-text="t('admin.ai.' + opt[1])"></button>
+              </template>
+              <span class="flex-1"></span>
+              <button type="button"
+                      @click="loadAiDashboard(true)"
+                      :disabled="aiDashboardLoading"
+                      class="btn btn-ghost text-[11px]"
+                      :title="t('admin.ai.refresh')">
+                <svg width="12" height="12" aria-hidden="true" :class="aiDashboardLoading ? 'spin-md' : ''">
+                  <use href="/img/ui-sprite.svg#icon-refresh-ccw"/>
+                </svg>
+              </button>
+            </div>
+          </div>
+
+          <!-- Tile grid — 6 compact summary cards. Click a card with
+               a modal handler to expand the relevant detail view. -->
+          <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
+            <button type="button" @click="openAiModal('jobs')" class="ai-tile">
+              <div class="ai-tile-label" x-text="t('admin.ai.tile.jobs')"></div>
+              <div class="ai-tile-value" x-text="(aiDashboard && aiDashboard.summary.total_jobs) || 0"></div>
+              <div class="ai-tile-sub"
+                   x-text="aiDashboard ? (aiDashboard.summary.success + ' / ' + aiDashboard.summary.error + ' / ' + aiDashboard.summary.running) : '— / — / —'"></div>
+            </button>
+            <button type="button" @click="openAiModal('passrate')" class="ai-tile">
+              <div class="ai-tile-label" x-text="t('admin.ai.tile.pass_rate')"></div>
+              <div class="ai-tile-value"
+                   x-text="aiDashboard ? (Math.round(aiDashboard.summary.pass_rate * 100) + '%') : '—'"></div>
+              <div class="ai-tile-sub" x-text="t('admin.ai.tile.pass_rate_sub')"></div>
+            </button>
+            <button type="button" @click="openAiModal('cost')" class="ai-tile">
+              <div class="ai-tile-label" x-text="t('admin.ai.tile.cost')"></div>
+              <div class="ai-tile-value"
+                   x-text="aiDashboard ? ('$' + (aiDashboard.summary.total_cost_usd || 0).toFixed(4)) : '$0.0000'"></div>
+              <div class="ai-tile-sub" x-text="t('admin.ai.tile.cost_sub')"></div>
+            </button>
+            <button type="button" @click="openAiModal('tokens')" class="ai-tile">
+              <div class="ai-tile-label" x-text="t('admin.ai.tile.tokens')"></div>
+              <div class="ai-tile-value" x-text="aiDashboard ? aiFormatNumber(aiDashboard.summary.total_tokens) : '0'"></div>
+              <div class="ai-tile-sub"
+                   x-text="aiDashboard ? (aiFormatNumber(aiDashboard.summary.prompt_tokens) + ' / ' + aiFormatNumber(aiDashboard.summary.completion_tokens)) : '— / —'"></div>
+            </button>
+            <button type="button" @click="openAiModal('response_time')" class="ai-tile">
+              <div class="ai-tile-label" x-text="t('admin.ai.tile.response_time')"></div>
+              <div class="ai-tile-value"
+                   x-text="(aiDashboard && aiDashboard.summary.avg_response_time_ms !== null) ? Math.round(aiDashboard.summary.avg_response_time_ms) + ' ms' : '—'"></div>
+              <div class="ai-tile-sub" x-text="t('admin.ai.tile.response_time_sub')"></div>
+            </button>
+            <button type="button" @click="openAiModal('accuracy')" class="ai-tile">
+              <div class="ai-tile-label" x-text="t('admin.ai.tile.accuracy')"></div>
+              <div class="ai-tile-value"
+                   x-text="(aiDashboard && aiDashboard.summary.avg_accuracy_score !== null) ? Math.round(aiDashboard.summary.avg_accuracy_score * 100) + '%' : '—'"></div>
+              <div class="ai-tile-sub" x-text="t('admin.ai.tile.accuracy_sub')"></div>
+            </button>
+          </div>
+
+          <!-- Per-provider breakdown — token + cost + jobs split by
+               provider with model rollups inline. Read-only. -->
+          <div class="mt-4 border-t border-[var(--border)] pt-3">
+            <div class="text-[11px] uppercase tracking-wider text-[var(--text-faint)] mb-2 font-semibold"
+                 x-text="t('admin.ai.by_provider_heading')"></div>
+            <div x-show="!aiDashboard || aiDashboard.providers.length === 0"
+                 class="text-[11.5px] text-[var(--text-faint)] italic"
+                 x-text="t('admin.ai.no_data')"></div>
+            <div x-show="aiDashboard && aiDashboard.providers.length > 0" class="ai-provider-grid">
+              <template x-for="p in (aiDashboard ? aiDashboard.providers : [])" :key="p.name">
+                <div class="ai-provider-row">
+                  <div class="flex items-center gap-2 min-w-0">
+                    <span class="chip text-[10px]" :class="p.enabled ? 'pill-ok' : 'pill-muted'"
+                          x-text="aiProviderDisplayName(p.name)"></span>
+                    <span class="text-[10.5px] text-[var(--text-faint)] truncate" x-show="p.model" x-text="p.model"></span>
+                  </div>
+                  <div class="ai-provider-stats">
+                    <span><span class="text-[var(--text-faint)]" x-text="t('admin.ai.tile.jobs') + ':'"></span>
+                          <span class="mono" x-text="p.total_jobs"></span></span>
+                    <span><span class="text-[var(--text-faint)]" x-text="t('admin.ai.tile.tokens') + ':'"></span>
+                          <span class="mono" x-text="aiFormatNumber(p.total_tokens)"></span></span>
+                    <span><span class="text-[var(--text-faint)]" x-text="t('admin.ai.tile.cost') + ':'"></span>
+                          <span class="mono" x-text="'$' + (p.total_cost_usd || 0).toFixed(4)"></span></span>
+                    <span><span class="text-[var(--text-faint)]" x-text="t('admin.ai.tile.pass_rate') + ':'"></span>
+                          <span class="mono" x-text="Math.round((p.pass_rate || 0) * 100) + '%'"></span></span>
+                  </div>
+                </div>
+              </template>
+            </div>
+          </div>
+        </section>
+
+        <!-- Per-provider configuration cards. Each renders the same
+             fields (enable / model / base URL / API key) so operators
+             can swap an active provider at any time without losing
+             stored credentials. API key uses the keep-current-if-blank
+             contract — empty input keeps the existing value. -->
+        <section class="bg-[var(--surface)] border border-[var(--border)] rounded-md p-5">
+          <div class="flex items-center gap-2 mb-3">
+            <svg width="14" height="14" aria-hidden="true" class="text-[var(--text-dim)]">
+              <use href="/img/ui-sprite.svg#icon-key"/>
+            </svg>
+            <h3 class="font-semibold text-[13px]" x-text="t('admin.ai.providers_heading')"></h3>
+          </div>
+          <p class="text-[11.5px] text-[var(--text-faint)] mb-3" x-text="t('admin.ai.providers_intro')"></p>
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <template x-for="name in aiProviderNames" :key="name">
+              <div class="ai-provider-card">
+                <div class="flex items-center justify-between mb-2">
+                  <div class="flex items-center gap-2">
+                    <span class="font-semibold text-[13px]" x-text="aiProviderDisplayName(name)"></span>
+                    <span class="chip text-[10px]" x-show="settings.ai_active_provider === name"
+                          :class="'pill-info'"
+                          x-text="t('admin.ai.active_chip')"></span>
+                  </div>
+                  <label class="flex items-center gap-1.5 text-[11.5px] cursor-pointer select-none">
+                    <input type="checkbox" x-model="aiForm.providers[name].enabled"
+                           @change="markAiFormDirty()"
+                           :disabled="isReadonly() || !settings.ai_enabled">
+                    <span x-text="t('admin_integrations.enabled_label')"></span>
+                  </label>
+                </div>
+                <div class="space-y-2">
+                  <div>
+                    <label class="block text-[10.5px] text-[var(--text-dim)] mb-1" x-text="t('admin.ai.model_label')"></label>
+                    <input type="text" x-model="aiForm.providers[name].model"
+                           @input="markAiFormDirty()"
+                           :disabled="isReadonly() || !settings.ai_enabled || !aiForm.providers[name].enabled"
+                           :placeholder="aiProviderModelPlaceholder(name)"
+                           class="w-full mono text-[12px]">
+                    <p class="text-[10px] text-[var(--text-faint)] mt-1"
+                       x-text="aiProviderModelHint(name)"></p>
+                  </div>
+                  <div>
+                    <label class="block text-[10.5px] text-[var(--text-dim)] mb-1">
+                      <span x-text="t('admin.ai.api_key_label')"></span>
+                    </label>
+                    <span x-show="aiForm.providers[name].api_key_set"
+                          class="block text-[10.5px] text-[var(--success)] mb-1"
+                          x-text="t('settings.secret_input.saved_hint')"></span>
+                    <input type="password" x-model="aiForm.providers[name].api_key"
+                           @input="markAiFormDirty()"
+                           :disabled="isReadonly() || !settings.ai_enabled || !aiForm.providers[name].enabled"
+                           :placeholder="aiForm.providers[name].api_key_set ? t('settings.secret_input.placeholder_keep') : t('admin.ai.api_key_placeholder')"
+                           autocomplete="new-password"
+                           class="w-full mono text-[12px]">
+                  </div>
+                  <div>
+                    <label class="block text-[10.5px] text-[var(--text-dim)] mb-1" x-text="t('admin.ai.base_url_label')"></label>
+                    <input type="url" x-model="aiForm.providers[name].base_url"
+                           @input="markAiFormDirty()"
+                           :disabled="isReadonly() || !settings.ai_enabled || !aiForm.providers[name].enabled"
+                           :placeholder="aiProviderBaseUrlPlaceholder(name)"
+                           class="w-full mono text-[12px]">
+                    <p class="text-[10px] text-[var(--text-faint)] mt-1" x-text="t('admin.ai.base_url_hint')"></p>
+                  </div>
+                </div>
+              </div>
+            </template>
+          </div>
+        </section>
+
+        <!-- Modal — opens via openAiModal('<key>'). Stage 1 surfaces
+             the recent jobs table; the chart-style modal kinds (cost /
+             tokens / accuracy / passrate / response_time) all share the
+             same container and render either an empty-state or a
+             tiny ASCII-style sparkline computed from `aiDashboard.trend`. -->
+        <div x-show="aiModalKey" class="fixed inset-0 z-50 fade-in" x-cloak>
+          <div @click="closeAiModal()" class="absolute inset-0 backdrop-strong"></div>
+          <div class="relative flex items-center justify-center p-4 w-full h-full overflow-auto scrollbar">
+            <div class="bg-[var(--surface)] border border-[var(--border)] rounded-md max-w-3xl w-full flex flex-col overflow-hidden shadow-xl"
+                 style="max-height: 80vh;"
+                 role="dialog" aria-modal="true"
+                 :aria-label="aiModalKey ? t('admin.ai.modal.' + aiModalKey + '_title') : ''"
+                 @click.stop>
+              <div class="flex items-center gap-2 p-3 border-b border-[var(--border)]">
+                <h4 class="font-semibold text-[13px] flex-1"
+                    x-text="aiModalKey ? t('admin.ai.modal.' + aiModalKey + '_title') : ''"></h4>
+                <button type="button" @click="closeAiModal()"
+                        class="btn btn-ghost text-[11px]"
+                        :aria-label="t('actions.close')">
+                  <svg width="12" height="12" aria-hidden="true"><use href="/img/ui-sprite.svg#icon-x"/></svg>
+                </button>
+              </div>
+              <div class="overflow-y-auto scrollbar p-4 flex-1">
+                <!-- Jobs modal — paginated job log. -->
+                <div x-show="aiModalKey === 'jobs'">
+                  <div class="flex items-center gap-2 flex-wrap mb-3">
+                    <select x-model="aiJobsFilterProvider"
+                            @change="loadAiJobs()"
+                            class="text-[11.5px] py-1">
+                      <option value="" x-text="t('admin.ai.modal.filter_all_providers')"></option>
+                      <template x-for="name in aiProviderNames" :key="name">
+                        <option :value="name" x-text="aiProviderDisplayName(name)"></option>
+                      </template>
+                    </select>
+                    <select x-model="aiJobsFilterStatus"
+                            @change="loadAiJobs()"
+                            class="text-[11.5px] py-1">
+                      <option value="" x-text="t('admin.ai.modal.filter_all_statuses')"></option>
+                      <option value="success" x-text="t('op_status.success')"></option>
+                      <option value="error"   x-text="t('op_status.error')"></option>
+                      <option value="running" x-text="t('op_status.running')"></option>
+                    </select>
+                    <span class="flex-1"></span>
+                    <span class="text-[10.5px] text-[var(--text-faint)]"
+                          x-text="aiJobs ? (aiJobs.total + ' ' + t('admin.ai.modal.total_jobs')) : ''"></span>
+                  </div>
+                  <div x-show="!aiJobs || aiJobs.jobs.length === 0"
+                       class="py-8 text-center text-[12px] text-[var(--text-faint)] italic"
+                       x-text="t('admin.ai.modal.empty_jobs')"></div>
+                  <table x-show="aiJobs && aiJobs.jobs.length > 0" class="w-full text-[11.5px] mono">
+                    <thead>
+                      <tr class="text-[10px] uppercase tracking-wider text-[var(--text-faint)] text-start">
+                        <th class="text-start py-1.5" x-text="t('admin.ai.modal.col_when')"></th>
+                        <th class="text-start py-1.5" x-text="t('admin.ai.modal.col_provider')"></th>
+                        <th class="text-start py-1.5" x-text="t('admin.ai.modal.col_model')"></th>
+                        <th class="text-start py-1.5" x-text="t('admin.ai.modal.col_status')"></th>
+                        <th class="text-end py-1.5" x-text="t('admin.ai.modal.col_tokens')"></th>
+                        <th class="text-end py-1.5" x-text="t('admin.ai.modal.col_cost')"></th>
+                        <th class="text-end py-1.5" x-text="t('admin.ai.modal.col_response')"></th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <template x-for="j in (aiJobs ? aiJobs.jobs : [])" :key="j.id">
+                        <tr class="border-t border-[var(--border)]">
+                          <td class="py-1" x-text="aiFormatTime(j.ts)"></td>
+                          <td class="py-1" x-text="aiProviderDisplayName(j.provider)"></td>
+                          <td class="py-1 truncate max-w-[140px]" x-text="j.model"></td>
+                          <td class="py-1"
+                              :class="j.status === 'success' ? 'text-[var(--success)]' : (j.status === 'error' ? 'text-[var(--danger)]' : 'text-[var(--text-faint)]')"
+                              x-text="opStatusLabel(j.status)"></td>
+                          <td class="py-1 text-end" x-text="aiFormatNumber(j.total_tokens || 0)"></td>
+                          <td class="py-1 text-end" x-text="(j.cost_usd !== null && j.cost_usd !== undefined) ? '$' + j.cost_usd.toFixed(4) : '—'"></td>
+                          <td class="py-1 text-end" x-text="(j.response_time_ms !== null && j.response_time_ms !== undefined) ? j.response_time_ms + ' ms' : '—'"></td>
+                        </tr>
+                      </template>
+                    </tbody>
+                  </table>
+                </div>
+
+                <!-- Trend / breakdown modals — share the same container.
+                     Stage 1 renders a simple table from aiDashboard.trend
+                     and leaves richer chart visualisations to stage 2+. -->
+                <div x-show="aiModalKey && aiModalKey !== 'jobs'">
+                  <p class="text-[11.5px] text-[var(--text-faint)] mb-3"
+                     x-text="aiModalKey ? t('admin.ai.modal.' + aiModalKey + '_desc') : ''"></p>
+                  <div x-show="!aiDashboard || aiDashboard.trend.length === 0"
+                       class="py-8 text-center text-[12px] text-[var(--text-faint)] italic"
+                       x-text="t('admin.ai.modal.empty_trend')"></div>
+                  <table x-show="aiDashboard && aiDashboard.trend.length > 0" class="w-full text-[11.5px] mono">
+                    <thead>
+                      <tr class="text-[10px] uppercase tracking-wider text-[var(--text-faint)]">
+                        <th class="text-start py-1.5" x-text="t('admin.ai.modal.col_when')"></th>
+                        <th class="text-end py-1.5" x-text="t('admin.ai.modal.col_jobs')"></th>
+                        <th class="text-end py-1.5" x-text="t('admin.ai.modal.col_pass_rate')"></th>
+                        <th class="text-end py-1.5" x-text="t('admin.ai.modal.col_tokens')"></th>
+                        <th class="text-end py-1.5" x-text="t('admin.ai.modal.col_cost')"></th>
+                        <th class="text-end py-1.5" x-text="t('admin.ai.modal.col_accuracy')"></th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <template x-for="t in (aiDashboard ? aiDashboard.trend : [])" :key="t.ts">
+                        <tr class="border-t border-[var(--border)]">
+                          <td class="py-1" x-text="aiFormatTime(t.ts)"></td>
+                          <td class="py-1 text-end" x-text="t.jobs"></td>
+                          <td class="py-1 text-end" x-text="Math.round((t.pass_rate || 0) * 100) + '%'"></td>
+                          <td class="py-1 text-end" x-text="aiFormatNumber(t.total_tokens || 0)"></td>
+                          <td class="py-1 text-end" x-text="'$' + (t.total_cost_usd || 0).toFixed(4)"></td>
+                          <td class="py-1 text-end" x-text="(t.avg_accuracy_score !== null && t.avg_accuracy_score !== undefined) ? Math.round(t.avg_accuracy_score * 100) + '%' : '—'"></td>
+                        </tr>
+                      </template>
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
