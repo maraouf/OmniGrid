@@ -1606,6 +1606,77 @@ details summary::-webkit-details-marker {
     outline: 2px solid var(--primary);
     outline-offset: -2px;
 }
+
+/* ---------------------------------------------------------------------------
+   Admin → AI integration (Stage 1 foundation)
+   --------------------------------------------------------------------------- */
+.ai-tile {
+    /* Reset native <button> chrome — the tile rows are <button> so
+     * keyboard activation works without ARIA-mismatch noise. */
+    appearance: none;
+    border: 1px solid var(--border);
+    background: var(--surface-2);
+    border-radius: var(--r-md, 6px);
+    padding: var(--s-3) var(--s-4);
+    text-align: start;
+    color: inherit;
+    font: inherit;
+    cursor: pointer;
+    transition: background 0.08s linear, border-color 0.08s linear;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+}
+.ai-tile:hover { background: var(--row-hover); border-color: var(--border-bright); }
+.ai-tile:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+.ai-tile-label {
+    font-size: var(--fs-2xs);
+    color: var(--text-faint);
+    text-transform: uppercase;
+    letter-spacing: 0.4px;
+}
+.ai-tile-value {
+    font-size: var(--fs-xl);
+    font-weight: 600;
+    color: var(--text);
+    font-variant-numeric: tabular-nums;
+}
+.ai-tile-sub {
+    font-size: var(--fs-2xs);
+    color: var(--text-faint);
+    font-family: var(--font-mono);
+}
+
+.ai-provider-grid {
+    display: flex;
+    flex-direction: column;
+    gap: var(--s-2);
+}
+.ai-provider-row {
+    display: grid;
+    grid-template-columns: minmax(160px, 220px) 1fr;
+    align-items: center;
+    gap: var(--s-3);
+    padding: var(--s-2) var(--s-3);
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: var(--r-sm, 4px);
+}
+.ai-provider-stats {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--s-3);
+    font-size: var(--fs-xs);
+}
+.ai-provider-stats > span { display: inline-flex; gap: 4px; }
+
+.ai-provider-card {
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: var(--r-md, 6px);
+    padding: var(--s-3) var(--s-4);
+}
 .cmdpal-kind-pill {
     flex-shrink: 0;
     background: var(--surface-2);
