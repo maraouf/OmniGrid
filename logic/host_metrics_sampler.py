@@ -319,6 +319,92 @@ _PROVIDER_PREFIXES = frozenset((
 ))
 
 
+# ---------------------------------------------------------------------------
+# Defensive "is this provider configured for this host" cache.
+#
+# Used by `record_provider_outcome` to refuse FAILURE recording for a
+# (host, provider) pair where the curated row doesn't have the matching
+# *_name / opt-in flag. Operator-reported pattern: the SPA's per-host
+# probe gate at `_merge_one_host` is correct, but if the curated config
+# silently carries a stale `beszel_name` (or any other provider mapping
+# the operator thought they cleared), the next probe cycle records a
+# real failure → eventually crosses the threshold → fires an email
+# pause-notification for a provider the operator says they "don't have
+# set up". The defence-in-depth: even if the call site forgot the
+# pre-record gate, the recorder itself refuses to write for a host that
+# isn't configured for that provider. Side effect: also cleans the
+# legacy paused state on first refusal so the orphan self-heals without
+# requiring a save / redeploy / manual resume.
+#
+# Cache invalidates on every hosts_config save (`api_hosts_config_set`
+# calls `_invalidate_host_provider_config_cache()` below) so a fresh
+# mapping takes effect on the very next probe.
+_HOST_PROVIDER_CONFIG_CACHE: dict[str, set[str]] | None = None
+_HOST_PROVIDER_CONFIG_CACHE_TS: float = 0.0
+# Cache TTL — even if invalidate isn't called, refresh from disk after
+# this many seconds. Belt-and-braces against any future code path that
+# writes hosts_config without going through the canonical save endpoint.
+_HOST_PROVIDER_CONFIG_CACHE_TTL_SEC = 60.0
+
+
+def _invalidate_host_provider_config_cache() -> None:
+    """Drop the cached host→{providers} map so the next failure-record
+    refresh from disk. Call after any hosts_config save."""
+    global _HOST_PROVIDER_CONFIG_CACHE, _HOST_PROVIDER_CONFIG_CACHE_TS
+    _HOST_PROVIDER_CONFIG_CACHE = None
+    _HOST_PROVIDER_CONFIG_CACHE_TS = 0.0
+
+
+def _host_provider_config() -> dict[str, set[str]]:
+    """Return ``{host_id: {provider, ...}}`` from the curated config.
+
+    Reads `settings.hosts_config` lazily and caches for ~60s. Mirrors the
+    same six-bool detection `_sweep_orphan_provider_state_rows` uses so
+    the two stay in lock-step.
+    """
+    global _HOST_PROVIDER_CONFIG_CACHE, _HOST_PROVIDER_CONFIG_CACHE_TS
+    now_ts = time.time()
+    if (
+        _HOST_PROVIDER_CONFIG_CACHE is not None
+        and (now_ts - _HOST_PROVIDER_CONFIG_CACHE_TS) < _HOST_PROVIDER_CONFIG_CACHE_TTL_SEC
+    ):
+        return _HOST_PROVIDER_CONFIG_CACHE
+    out: dict[str, set[str]] = {}
+    try:
+        raw = _get_setting("hosts_config", "") or ""
+        if raw:
+            import json as _json
+            data = _json.loads(raw)
+            if isinstance(data, list):
+                for h in data:
+                    if not isinstance(h, dict):
+                        continue
+                    hid = (h.get("id") or "").strip()
+                    if not hid:
+                        continue
+                    configured: set[str] = set()
+                    if (h.get("beszel_name")  or "").strip(): configured.add("beszel")
+                    if (h.get("pulse_name")   or "").strip(): configured.add("pulse")
+                    if (h.get("ne_url")       or "").strip(): configured.add("node_exporter")
+                    if (h.get("webmin_name")  or "").strip(): configured.add("webmin")
+                    if bool((h.get("ping") or {}).get("enabled", False)):
+                        configured.add("ping")
+                    if (h.get("snmp_name") or "").strip() and (
+                        isinstance(h.get("snmp"), dict) and h["snmp"].get("enabled") is True
+                    ):
+                        configured.add("snmp")
+                    out[hid] = configured
+    except Exception as e:
+        # DB read failure is non-fatal — fall back to "every provider
+        # configured" (legacy behaviour) so a transient blip doesn't
+        # silently disable failure recording for a real outage.
+        print(f"[host_metrics_sampler] host_provider_config refresh failed: {e}")
+        return {}
+    _HOST_PROVIDER_CONFIG_CACHE = out
+    _HOST_PROVIDER_CONFIG_CACHE_TS = now_ts
+    return out
+
+
 async def _record_failure(
     host_id: str, now: float, error: str,
     *, round_threshold: Optional[int] = None,
@@ -533,10 +619,61 @@ async def record_provider_outcome(
 
     Empty / falsy `host_id` or `provider` is a no-op so callers don't
     need defensive guards.
+
+    Defence-in-depth: when ``ok=False``, refuse to record the failure
+    if the host's curated row doesn't have ``provider`` configured (the
+    six-bool detection in `_host_provider_config`). Catches the
+    operator-reported pattern where a stale `beszel_name` / `pulse_name`
+    or a probe-side gate regression would otherwise accumulate failures
+    + fire a pause notification for a provider the operator says they
+    "don't have set up". On first refusal we ALSO delete any pre-existing
+    failure-state row for the (host, provider) pair so the orphan
+    self-heals without waiting for the next save / redeploy.
     """
     if not host_id or not provider:
         return
     log_label = f"{provider}:{host_id}"
+    if not ok:
+        # Defensive guard — see docstring. Skip recording AND wipe any
+        # leftover paused row from a pre-fix accumulation. Only known
+        # provider names get the check; unknown provider passes through
+        # so a future provider added without TUNABLE wiring can still
+        # record failures during initial bring-up.
+        if provider in _PROVIDER_PREFIXES:
+            cfg = _host_provider_config()
+            # Empty cfg dict means hosts_config read failed — fall back
+            # to "trust the caller's gate" to avoid silently disabling
+            # failure recording for a real outage during a DB blip.
+            if cfg and host_id in cfg and provider not in cfg[host_id]:
+                try:
+                    with db_conn() as c:
+                        cur = c.execute(
+                            "DELETE FROM host_failure_state "
+                            "WHERE host_id = ? AND provider = ?",
+                            (host_id, provider),
+                        )
+                        deleted = cur.rowcount or 0
+                        cur = c.execute(
+                            "DELETE FROM host_provider_last_ok "
+                            "WHERE host_id = ? AND provider = ?",
+                            (host_id, provider),
+                        )
+                        deleted += cur.rowcount or 0
+                except Exception as e:
+                    print(f"[host_metrics_sampler] {log_label} orphan cleanup failed: {e}")
+                    deleted = 0
+                if deleted:
+                    print(
+                        f"[host_metrics_sampler] {log_label} record refused: "
+                        f"host has no {provider} mapping in curated config "
+                        f"(cleaned {deleted} orphan row(s))"
+                    )
+                else:
+                    print(
+                        f"[host_metrics_sampler] {log_label} record refused: "
+                        f"host has no {provider} mapping in curated config"
+                    )
+                return
     if ok:
         _clear_failure(host_id, provider=provider)
         # Stamp the last-ok timestamp. Best-effort — a DB blip here

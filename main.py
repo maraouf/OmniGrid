@@ -7383,6 +7383,16 @@ async def api_hosts_config_set(
     except Exception as e:
         print(f"[hosts] orphan sweep failed: {e}")
     _invalidate_provider_state_cache()  # next /api/hosts/list rebuilds from clean state
+    # Drop the host_metrics_sampler's host_provider_config cache so the
+    # defensive guard in `record_provider_outcome` picks up the new
+    # mapping on the next probe. Without this, a probe that fires within
+    # the cache TTL after a save would still see the OLD mapping and
+    # could record a failure for a provider the operator just removed.
+    try:
+        from logic.host_metrics_sampler import _invalidate_host_provider_config_cache
+        _invalidate_host_provider_config_cache()
+    except Exception as e:
+        print(f"[hosts] host_provider_config cache invalidate failed: {e}")
     return {"hosts": saved, "count": len(saved)}
 
 
