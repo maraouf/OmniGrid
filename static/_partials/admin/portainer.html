@@ -162,19 +162,30 @@
               <button @click="testPortainerConnection()"
                       :disabled="!settings.portainer_enabled"
                       class="btn btn-soft text-[12px]" x-text="t('settings.portainer.test_button')"></button>
+              <!-- Last successful Test-connection timestamp. Stamped
+                   on every passing test, persisted across reloads via
+                   localStorage so the operator always sees when the
+                   round-trip last worked. Shared helper across every
+                   admin tab — Portainer / OIDC / Beszel / Pulse /
+                   Webmin / SNMP / Ping / Asset Inventory. -->
+              <span x-show="lastTestSuccessLabel('portainer')"
+                    class="text-[11.5px] text-[var(--text-faint)]"
+                    x-text="lastTestSuccessLabel('portainer')"></span>
               <span x-show="portainerDirty()"
                     class="text-[11.5px] text-[var(--warning)] flex items-center gap-1.5">
                 <span class="w-1.5 h-1.5 rounded-full bg-[var(--warning)] animate-pulse"></span>
                 <span class="unsaved-flash" x-text="t('hosts_actions.unsaved_label')"></span>
               </span>
-              <!-- Inline reminder when Save is locked because the
-                   service is enabled but no successful Test has run
-                   against the CURRENT form values. Disappears the
-                   moment a Test passes; reappears on any edit after. -->
-              <span x-show="settings.portainer_enabled && !canSavePortainer()"
-                    class="text-[11.5px] text-[var(--text-faint)]"
-                    x-text="t('settings.portainer.save_requires_test')"></span>
             </div>
+            <!-- Inline reminder when Save is locked because the
+                 service is enabled but no successful Test has run
+                 against the CURRENT form values. Hoisted onto its own
+                 row (was inside the button row previously, cramped on
+                 narrow viewports). Mirrors the Authentik OIDC layout
+                 — both reminders now wrap consistently. -->
+            <div x-show="settings.portainer_enabled && !canSavePortainer()"
+                 class="text-[11.5px] text-[var(--text-faint)] -mt-1"
+                 x-text="t('settings.portainer.save_requires_test')"></div>
             <div x-show="portainerTestResult" class="text-[12px] rounded-md px-3 py-2"
                  :class="portainerTestResult && portainerTestResult.ok ? 'bg-[var(--pill-ok-bg)] text-[var(--pill-ok-fg)] border border-[var(--pill-ok-br)]' : 'bg-[var(--pill-error-bg)] text-[var(--pill-error-fg)] border border-[var(--pill-error-br)]'">
               <template x-if="portainerTestResult && portainerTestResult.pending">

@@ -8,7 +8,11 @@
     "unsaved": "Unsaved",
     "unsaved_title": "You have unsaved changes — click Save to commit them.",
     "hint_global_default": "(global default)",
-    "seconds_short": "{value}s"
+    "seconds_short": "{value}s",
+    "just_now": "just now",
+    "minutes_ago": "{count}m ago",
+    "hours_ago": "{count}h ago",
+    "days_ago": "{count}d ago"
   },
   "item": {
     "drawer_title": "Item details"
@@ -728,6 +732,7 @@
   },
   "admin": {
     "intro": "User accounts, active sessions, and API tokens. Destructive actions prompt for confirmation.",
+    "last_connected_label": "Last connected: {rel}",
     "nodes": {
       "prune_prompt_title": "Prune {host}?",
       "prune_prompt_html": "<div style=\"text-align:left\"><p>Run <code>docker system prune -af --volumes</code> on <strong>{host}</strong>?</p><p>This deletes all stopped containers, unused networks, dangling images, and unreferenced volumes. Active services are not affected.</p></div>"
@@ -1776,7 +1781,22 @@
     "update_container": "update container",
     "restart_service": "restart service",
     "restart_container": "restart container",
-    "remove_container": "remove container"
+    "remove_container": "remove container",
+    "prune_node": "prune node",
+    "prune_all_nodes": "prune all nodes",
+    "ssh_run": "ssh run",
+    "ssh_terminal": "ssh terminal",
+    "gather_refresh": "gather refresh",
+    "backup": "backup",
+    "asset_inventory_refresh": "asset inventory refresh",
+    "prune_logs": "prune logs",
+    "prune_notifications": "prune notifications",
+    "swarm_agent_health": "swarm agent health",
+    "restart_swarm_agent": "restart swarm agent",
+    "totp_admin_disabled": "TOTP admin-disabled",
+    "totp_force_set": "TOTP force-set",
+    "hosts_bulk_pause": "hosts bulk pause",
+    "hosts_bulk_resume": "hosts bulk resume"
   },
   "op_status": {
     "running": "running",
@@ -2576,6 +2596,10 @@
       "parent_show": "Show form",
       "parent_hide": "Hide form",
       "parent_toggle_title": "Collapse this parent group's edit form. The summary row (number / name / range) stays visible so you can still identify the group at a glance.",
+      "collapse_all_parents": "Collapse all parents",
+      "collapse_all_parents_title": "Hide every top-level group's edit form. The summary row stays visible for each so you can still identify them.",
+      "expand_all_parents": "Expand all parents",
+      "expand_all_parents_title": "Re-show every top-level group's full edit form.",
       "collapse_all": "Collapse all children",
       "collapse_all_title": "Hide every parent group's sub-rows so only top-level rows are visible.",
       "expand_all": "Expand all children",

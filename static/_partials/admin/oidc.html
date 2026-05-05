@@ -138,15 +138,18 @@
             <button @click="testOidcConnection()"
                     :disabled="!oidcForm.enabled"
                     class="btn btn-soft text-[12px]" x-text="t('settings.oidc.test_button')"></button>
+            <span x-show="lastTestSuccessLabel('oidc')"
+                  class="text-[11.5px] text-[var(--text-faint)]"
+                  x-text="lastTestSuccessLabel('oidc')"></span>
             <span x-show="oidcDirty()"
                   class="text-[11.5px] text-[var(--warning)] flex items-center gap-1.5">
               <span class="w-1.5 h-1.5 rounded-full bg-[var(--warning)] animate-pulse"></span>
               <span class="unsaved-flash" x-text="t('hosts_actions.unsaved_label')"></span>
             </span>
-            <span x-show="oidcForm.enabled && !canSaveOidc()"
-                  class="text-[11.5px] text-[var(--text-faint)]"
-                  x-text="t('settings.oidc.save_requires_test')"></span>
           </div>
+          <div x-show="oidcForm.enabled && !canSaveOidc()"
+               class="text-[11.5px] text-[var(--text-faint)] -mt-1"
+               x-text="t('settings.oidc.save_requires_test')"></div>
           <div x-show="oidcTestResult" class="text-[12px] rounded-md px-3 py-2"
                :class="oidcTestResult && oidcTestResult.ok ? 'bg-[var(--pill-ok-bg)] text-[var(--pill-ok-fg)] border border-[var(--pill-ok-br)]' : 'bg-[var(--pill-error-bg)] text-[var(--pill-error-fg)] border border-[var(--pill-error-br)]'">
             <template x-if="oidcTestResult && oidcTestResult.pending">

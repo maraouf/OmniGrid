@@ -802,6 +802,17 @@ function app() {
     // needed for the unification.
     snmpTestHostId: '',
     snmpTestResult: null,
+    // Last successful Test-connection timestamp per provider, keyed
+    // by short name (`portainer` / `oidc` / `beszel` / `pulse` /
+    // `webmin` / `snmp` / `ping` / `asset_inventory`). Hydrated from
+    // the DB-backed `settings.last_test_success` block on every
+    // /api/settings load, written by the backend at the END of every
+    // successful test endpoint. epoch seconds; nullable. Server-side
+    // authoritative so every operator + browser sees the same value.
+    _lastTestSuccess: {},
+    // Tick once a minute so the relative-time labels next to every
+    // Test button refresh without reloading. Bound at init() time.
+    _lastTestSuccessNow: Math.floor(Date.now() / 1000),
     // The URL typed into the "Test one Webmin URL" scratch field.
     // Persisted to localStorage so operators don't have to retype it
     // every time they reload Host Stats to re-test after a config
@@ -1319,6 +1330,16 @@ function app() {
       // since boot. Single-replica + single-component-per-page so
       // there's no ambiguity about which instance to expose.
       try { window.omnigrid = this; } catch (_) {}
+      // Tick the last-test-success "now" reference once a minute so
+      // the relative-time labels next to every Test connection button
+      // refresh without reload. Cheap (one int assignment + reactive
+      // re-evaluation of the small set of `lastTestSuccessLabel(...)`
+      // bindings).
+      try {
+        setInterval(() => {
+          this._lastTestSuccessNow = Math.floor(Date.now() / 1000);
+        }, 60 * 1000);
+      } catch (_) {}
       // Restore persisted UI prefs that need to land before the first
       // render of their dependent views.
       this._restoreLogSeverity();
@@ -1347,6 +1368,46 @@ function app() {
           }
           this.me = m;
           this.syncProfileForm();
+          // Hydrate theme preference from the user's DB-backed
+          // `ui_prefs.theme` (cross-browser / cross-machine source of
+          // truth). localStorage stays as a per-browser fast-path
+          // cache — used for the initial paint before /api/me round-
+          // trips, but the DB value wins on every load. When the DB
+          // value differs from the localStorage cache, sync the cache
+          // so the next page load matches.
+          try {
+            const dbTheme = (m && m.ui_prefs && m.ui_prefs.theme) || '';
+            if (dbTheme && ['auto', 'light', 'dark'].includes(dbTheme)
+                && dbTheme !== this.themePref) {
+              this.themePref = dbTheme;
+              try { localStorage.setItem('theme', dbTheme); } catch (_) {}
+              this.applyTheme();
+            }
+          } catch (_) {}
+          // Hydrate host-drawer time-range picker from DB (#1103) —
+          // same shape as theme above. Override the localStorage cache
+          // when the DB has a value so the operator's preferred range
+          // follows them across browsers.
+          try {
+            const dbRange = m && m.ui_prefs && Number(m.ui_prefs.host_history_range);
+            if (Number.isFinite(dbRange) && dbRange > 0
+                && dbRange !== this.hostHistoryRange) {
+              // Setting the bound model triggers the existing $watch
+              // which writes the localStorage cache + re-PATCHes the
+              // backend. The PATCH is idempotent (same value) so the
+              // round-trip costs ~30ms once on /api/me load.
+              this.hostHistoryRange = dbRange;
+            }
+          } catch (_) {}
+          // Hydrate the last-Test-success cache from the DB-backed
+          // `client_config.last_test_success` block. Drives the
+          // "Last connected: <relative time>" label next to every Test
+          // connection button. Cross-browser / cross-machine consistent
+          // because the source is the `settings` KV row, not localStorage.
+          const lts = m && m.client_config && m.client_config.last_test_success;
+          if (lts && typeof lts === 'object') {
+            this._lastTestSuccess = { ...lts };
+          }
           // Adopt operator-tunable notifications page size from
           // /api/me's client_config. Falls back to the in-data()
           // default (25) when missing. Bounds-clamped by the backend
@@ -1398,9 +1459,14 @@ function app() {
       // the watchers so the initial assign doesn't spam pushState.
       this._applyRouteFromPath();
       // Persist the drawer-chart range so a refresh doesn't snap the
-      // picker back to 1h. Same pattern as the `view` watcher below.
+      // picker back to 1h. localStorage stays as a fast-path cache for
+      // first-paint before /api/me round-trips; the DB-backed
+      // `users.ui_prefs.host_history_range` is the cross-browser /
+      // cross-machine source of truth. Same shape as the theme
+      // migration (#1101).
       this.$watch('hostHistoryRange', v => {
         try { localStorage.setItem('hostHistoryRange', String(v)); } catch (_) {}
+        this.persistHostHistoryRange(v);
       });
       this.$watch('view', v => {
         localStorage.setItem('view', v);
@@ -5536,6 +5602,7 @@ function app() {
         this.oidcTestResult = { ok: !!j.ok, status: j.status || 0, detail: j.detail || '' };
         if (j && j.ok) {
           this._oidcLastPassedTest = probedSnapshot;
+          this.recordTestSuccess('oidc');
         }
       } catch (e) {
         this.oidcTestResult = { ok: false, status: 0, detail: this.t('toasts.network_error') };
@@ -5645,10 +5712,42 @@ function app() {
         this.portainerTestResult = { ok: !!j.ok, status: j.status || 0, detail: j.detail || '' };
         if (j && j.ok) {
           this._portainerLastPassedTest = probedSnapshot;
+          this.recordTestSuccess('portainer');
         }
       } catch (e) {
         this.portainerTestResult = { ok: false, status: 0, detail: this.t('toasts.network_error') };
       }
+    },
+
+    // Optimistic stamp of the last-test-success cache when a Test
+    // endpoint reports ok=true. Backend ALSO writes the same timestamp
+    // to the `settings` KV (`last_test_success_<provider>`) — that's
+    // the cross-browser source of truth, hydrated into
+    // `_lastTestSuccess` on every /api/me load via
+    // `client_config.last_test_success`. The optimistic stamp here is
+    // just so the label updates IMMEDIATELY on Test-success without
+    // waiting for the next /api/me round-trip.
+    recordTestSuccess(key) {
+      if (!key) return;
+      const ts = Math.floor(Date.now() / 1000);
+      this._lastTestSuccess = { ...(this._lastTestSuccess || {}), [key]: ts };
+    },
+    // Returns the formatted "Last connected: <relative time>" label
+    // for a provider key, or '' when no successful test has been
+    // recorded yet (so the consumer's `x-show` collapses cleanly).
+    // The relative-time math reads `_lastTestSuccessNow` so a 60s
+    // tick refreshes every label without reloading.
+    lastTestSuccessLabel(key) {
+      const ts = (this._lastTestSuccess || {})[key];
+      if (!ts) return '';
+      const now = this._lastTestSuccessNow || Math.floor(Date.now() / 1000);
+      const delta = Math.max(0, now - ts);
+      let rel;
+      if (delta < 60) rel = this.t('common.just_now') || 'just now';
+      else if (delta < 3600) rel = this.t('common.minutes_ago', { count: Math.floor(delta / 60) }) || `${Math.floor(delta / 60)}m ago`;
+      else if (delta < 86400) rel = this.t('common.hours_ago', { count: Math.floor(delta / 3600) }) || `${Math.floor(delta / 3600)}h ago`;
+      else rel = this.t('common.days_ago', { count: Math.floor(delta / 86400) }) || `${Math.floor(delta / 86400)}d ago`;
+      return this.t('admin.last_connected_label', { rel: rel }) || `Last connected ${rel}`;
     },
     // Save-button gate. When portainer_enabled is OFF, no test required
     // (the service won't be probed by the backend either). When ON,
@@ -5687,6 +5786,7 @@ function app() {
           detail: j.detail || this.t(j.ok ? 'toasts_extra.test_result_ok' : 'toasts_extra.test_result_failed'),
           systems: j.systems || [],
         };
+        if (j && j.ok) this.recordTestSuccess('beszel');
       } catch (e) {
         this.beszelTestResult = { pending: false, ok: false, detail: this.t('toasts.network_error') };
       }
@@ -5712,6 +5812,7 @@ function app() {
           detail: j.detail || this.t(j.ok ? 'toasts_extra.test_result_ok' : 'toasts_extra.test_result_failed'),
           nodes: j.nodes || [],
         };
+        if (j && j.ok) this.recordTestSuccess('pulse');
       } catch (e) {
         this.pulseTestResult = { pending: false, ok: false, detail: this.t('toasts.network_error') };
       }
@@ -5743,6 +5844,7 @@ function app() {
           ok: !!j.ok,
           detail: j.detail || this.t(j.ok ? 'toasts_extra.test_result_ok' : 'toasts_extra.test_result_failed'),
         };
+        if (j && j.ok) this.recordTestSuccess('webmin');
       } catch (e) {
         this.webminTestResult = { pending: false, ok: false, detail: this.t('toasts.network_error') };
       }
@@ -5791,6 +5893,7 @@ function app() {
               host: j.host || hid, port: j.port || '?', error: j.error || '—',
             });
         this.pingTestResult = { pending: false, ok: !!j.ok, detail };
+        if (j && j.ok) this.recordTestSuccess('ping');
       } catch (e) {
         this.pingTestResult = { pending: false, ok: false, detail: this.t('toasts.network_error') };
       }
@@ -5859,6 +5962,7 @@ function app() {
           pending: false, ok: !!j.ok,
           detail: j.detail || (j.ok ? 'OK' : this.t('toasts.save_failed')),
         };
+        if (j && j.ok) this.recordTestSuccess('snmp');
       } catch (e) {
         this.snmpTestResult = { pending: false, ok: false, detail: this.t('toasts.network_error') };
       }
@@ -9232,8 +9336,55 @@ function app() {
     cycleTheme() {
       const order = ['auto', 'light', 'dark'];
       this.themePref = order[(order.indexOf(this.themePref) + 1) % order.length];
-      localStorage.setItem('theme', this.themePref);
+      // Cache in localStorage for fast-path first-paint on the next
+      // page load (avoids a flash of wrong-theme while /api/me round-
+      // trips). The DB is the cross-browser / cross-machine source
+      // of truth — write through to the user's `ui_prefs.theme` so the
+      // operator's preference follows them across browsers.
+      try { localStorage.setItem('theme', this.themePref); } catch (_) {}
       this.applyTheme();
+      this.persistThemePref(this.themePref);
+    },
+    // Write-through to /api/me/ui-prefs so the theme follows the
+    // operator across browsers. Best-effort — a network blip leaves
+    // the localStorage cache as the fallback. Skipped for API-token
+    // pseudo-users (negative ids) since /api/me/ui-prefs returns 400
+    // for them.
+    async persistThemePref(value) {
+      if (!this.me || !this.me.id || this.me.id < 0) return;
+      try {
+        await fetch('/api/me/ui-prefs', {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ prefs: { theme: value } }),
+        });
+      } catch (e) {
+        // Localised cache still has the new value — operator sees the
+        // theme they picked on this browser; the next /api/me load will
+        // re-sync if the DB write eventually succeeds.
+        if (window.console && console.warn) {
+          console.warn('[theme] persist to DB failed:', e);
+        }
+      }
+    },
+    // Same write-through pattern for the host-drawer time-range
+    // picker. Stored under `ui_prefs.host_history_range` as an int so
+    // the operator's preferred range follows them across browsers.
+    async persistHostHistoryRange(value) {
+      if (!this.me || !this.me.id || this.me.id < 0) return;
+      const n = Number(value);
+      if (!Number.isFinite(n) || n <= 0) return;
+      try {
+        await fetch('/api/me/ui-prefs', {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ prefs: { host_history_range: n } }),
+        });
+      } catch (e) {
+        if (window.console && console.warn) {
+          console.warn('[host_history_range] persist to DB failed:', e);
+        }
+      }
     },
     _cssVar(name) {
       return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
@@ -14349,6 +14500,40 @@ function app() {
       return (this.hostGroupsEditorParentCollapsed || [])
         .includes(parentName || '');
     },
+    // Bulk collapse: hide every top-level group's edit form in one
+    // click. Useful when the editor has 10+ parents and the operator
+    // wants to scan only the summary headers. Persists to the same
+    // localStorage key as the per-parent toggle so the state survives
+    // reloads. Mirrors `collapseAllHostGroupChildren` for the children
+    // axis.
+    collapseAllHostGroupParents() {
+      const names = (this.hostGroups || [])
+        .filter(g => g && !g.parent_name && (g.name || '').trim())
+        .map(g => g.name);
+      this.hostGroupsEditorParentCollapsed = [...new Set(names)];
+      try {
+        if (typeof localStorage !== 'undefined') {
+          localStorage.setItem(
+            'hostGroupsEditorParentCollapsed',
+            JSON.stringify(this.hostGroupsEditorParentCollapsed),
+          );
+        }
+      } catch (_) {}
+    },
+    // Bulk expand: clear the parent-collapse set so every top-level
+    // group's edit form re-renders. Mirror of
+    // `expandAllHostGroupChildren`.
+    expandAllHostGroupParents() {
+      this.hostGroupsEditorParentCollapsed = [];
+      try {
+        if (typeof localStorage !== 'undefined') {
+          localStorage.setItem(
+            'hostGroupsEditorParentCollapsed',
+            JSON.stringify(this.hostGroupsEditorParentCollapsed),
+          );
+        }
+      } catch (_) {}
+    },
     // Toggle parent-self collapse for one top-level group. Independent
     // from the children-collapse set so an operator can hide the parent
     // form while keeping the children visible (or vice versa) when
@@ -15133,6 +15318,7 @@ function app() {
         this.assetTestResult = { ok: !!j.ok, detail };
         if (j && j.ok) {
           this._assetLastPassedTest = probedSnapshot;
+          this.recordTestSuccess('asset_inventory');
         }
       } catch (e) {
         this.assetTestResult = { ok: false, detail: this.t('toasts.network_error') };

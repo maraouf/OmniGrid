@@ -21,6 +21,30 @@
              through every parent's chevron when the editor list grows
              past ~5 parents. Only renders when there's at least one
              top-level group with children to toggle. -->
+        <div x-show="(hostGroups || []).filter(g => g && !g.parent_name && (g.name || '').trim()).length > 0"
+             class="flex items-center gap-2 mb-3 flex-wrap">
+          <!-- Bulk collapse / expand for the PARENT edit forms. Hides
+               (or shows) every top-level group's full editor in one
+               click; the compact summary line stays visible while
+               collapsed so the operator can still identify each group
+               at a glance. Independent from the children-bulk pair to
+               the right — parents and children collapse on separate
+               axes. -->
+          <button type="button"
+                  @click="collapseAllHostGroupParents()"
+                  class="host-group-chip host-group-chip--neutral"
+                  :title="t('admin_hosts.groups.collapse_all_parents_title')">
+            <svg width="10" height="10" stroke-width="2.4" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-chevron-down"/></svg>
+            <span x-text="t('admin_hosts.groups.collapse_all_parents')"></span>
+          </button>
+          <button type="button"
+                  @click="expandAllHostGroupParents()"
+                  class="host-group-chip host-group-chip--neutral"
+                  :title="t('admin_hosts.groups.expand_all_parents_title')">
+            <svg width="10" height="10" stroke-width="2.4" class="flip-rtl" aria-hidden="true" style="transform: rotate(90deg);"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-chevron-right"/></svg>
+            <span x-text="t('admin_hosts.groups.expand_all_parents')"></span>
+          </button>
+        </div>
         <div x-show="(hostGroups || []).filter(g => g && !g.parent_name && hostGroupChildCount(g.name) > 0).length > 0"
              class="flex items-center gap-2 mb-3 flex-wrap">
           <button type="button"

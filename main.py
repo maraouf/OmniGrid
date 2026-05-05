@@ -4427,6 +4427,27 @@ async def api_oidc_callback(request: Request):
     return await oidc.callback(request)
 
 
+def _stamp_test_success(provider: str, result: dict) -> dict:
+    """Stamp `last_test_success_<provider>` in the settings KV when the
+    test result reports ok=True. Returns the result dict unchanged so
+    handlers can use it as `return _stamp_test_success("portainer",
+    {...})`. DB-backed (not localStorage) so every operator + browser
+    sees the same value across machines. Best-effort — a stamping
+    failure logs and does NOT break the response.
+
+    Surfaced back to the SPA via `/api/me`'s `client_config.last_test_success`
+    block. The stamped timestamp is epoch seconds at the moment the
+    success was recorded.
+    """
+    if not isinstance(result, dict) or not result.get("ok"):
+        return result
+    try:
+        set_setting(f"last_test_success_{provider}", str(int(time.time())))
+    except Exception as e:
+        print(f"[test] last_test_success stamp failed for {provider}: {e}")
+    return result
+
+
 @app.post("/api/oidc/test")
 async def api_oidc_test(
     request: Request,
@@ -4445,7 +4466,7 @@ async def api_oidc_test(
     verify_tls = body.get("verify_tls")
     if verify_tls is not None:
         verify_tls = bool(verify_tls)
-    return await oidc.test_discovery(issuer, verify_tls=verify_tls)
+    return _stamp_test_success("oidc", await oidc.test_discovery(issuer, verify_tls=verify_tls))
 
 
 @app.post("/api/portainer/test")
@@ -4514,9 +4535,11 @@ async def api_portainer_test(
                 name = ep.json().get("Name") or f"#{endpoint_id}"
             except Exception:
                 name = f"#{endpoint_id}"
-            return {"ok": True, "status": 200,
-                    "detail": f"{prefix}, endpoint {name} reachable",
-                    "endpoint_id": endpoint_id}
+            return _stamp_test_success("portainer", {
+                "ok": True, "status": 200,
+                "detail": f"{prefix}, endpoint {name} reachable",
+                "endpoint_id": endpoint_id,
+            })
         if ep.status_code == 404:
             # Specific Portainer-shaped message — keep the bespoke copy
             # rather than humanising. Operators recognise this exact
@@ -4556,14 +4579,14 @@ async def api_pulse_test(
     result = await _pulse.probe_pulse(
         url, token, verify_tls=verify_tls, timeout=10.0,
     )
-    return _format_provider_test_summary(
+    return _stamp_test_success("pulse", _format_provider_test_summary(
         result,
         target_label="Pulse",
         item_singular="node",
         item_plural="node(s)",
         count_key="node_count",
         items_key="nodes",
-    )
+    ))
 
 
 @app.post("/api/webmin/test")
@@ -4614,8 +4637,10 @@ async def api_webmin_test(
     partial = result.get("partial_errors") or []
     if partial:
         detail += f" · partial: {len(partial)} module(s) failed"
-    return {"ok": True, "detail": detail, "host_key": host_key,
-            "partial_errors": partial}
+    return _stamp_test_success("webmin", {
+        "ok": True, "detail": detail, "host_key": host_key,
+        "partial_errors": partial,
+    })
 
 
 @app.post("/api/beszel/test")
@@ -4644,14 +4669,14 @@ async def api_beszel_test(
     # ``hosts`` shape so the helper can produce the standard summary.
     adapted = {"hosts": result.get("systems") or {},
                "error": result.get("error")}
-    return _format_provider_test_summary(
+    return _stamp_test_success("beszel", _format_provider_test_summary(
         adapted,
         target_label="hub",
         item_singular="system",
         item_plural="system(s)",
         count_key="system_count",
         items_key="systems",
-    )
+    ))
 
 
 @app.post("/api/snmp/test")
@@ -4804,8 +4829,10 @@ async def api_snmp_test(
         detail_bits.append(f"disk={disk // (1024**3)} GB")
     if nics:
         detail_bits.append(f"nics={nics}")
-    return {"ok": True, "detail": " · ".join(detail_bits),
-            "host_key": host_key, **diag}
+    return _stamp_test_success("snmp", {
+        "ok": True, "detail": " · ".join(detail_bits),
+        "host_key": host_key, **diag,
+    })
 
 
 # ----------------------------------------------------------------------------
@@ -4915,8 +4942,10 @@ async def api_asset_inventory_test(
         )
         if result.get("ok"):
             count = len(result.get("assets") or [])
-            return {"ok": True,
-                    "detail": f"OK — fetched {count} asset(s) from {endpoint}"}
+            return _stamp_test_success("asset_inventory", {
+                "ok": True,
+                "detail": f"OK — fetched {count} asset(s) from {endpoint}",
+            })
         out = {"ok": False, "detail": result.get("error") or "auth failed"}
         if "error_code" in result:
             out["error_code"] = result["error_code"]
@@ -4940,9 +4969,11 @@ async def api_asset_inventory_test(
     )
     if result.get("ok"):
         expires_in = result.get("expires_in") or 0
-        return {"ok": True,
-                "detail": (f"OK — got {result.get('token_type') or 'Bearer'} token"
-                           + (f", expires in {expires_in}s" if expires_in else ""))}
+        return _stamp_test_success("asset_inventory", {
+            "ok": True,
+            "detail": (f"OK — got {result.get('token_type') or 'Bearer'} token"
+                       + (f", expires in {expires_in}s" if expires_in else "")),
+        })
     return {"ok": False, "detail": result.get("error") or "auth failed"}
 
 
@@ -11234,24 +11265,52 @@ async def api_ping_test(
         target, port=int(port), transport=transport,
         timeout_seconds=timeout, count=3,
     )
-    return {
+    return _stamp_test_success("ping", {
         "ok":     bool(result.get("alive")),
         "host":   target,
         "port":   int(port),
         "transport": transport,
         **result,
-    }
+    })
 
 
 @app.get("/api/auth/providers")
-async def api_auth_providers():
+async def api_auth_providers(request: Request):
     """Public endpoint: advertises which login paths are live. The login
     page queries this before rendering the SSO button so unconfigured
     deployments don't show a dead button that 503s.
+
+    Multi-URL deployments: OIDC is reported `False` when the request's
+    hostname doesn't match the configured `oidc_redirect_uri`'s host.
+    OmniGrid is often reachable via multiple FQDNs (LAN /
+    Cloudflare-tunnel / VPN), but Authentik will only honour the SSO
+    flow for ONE registered redirect URI — opening the login page from
+    any other URL would show a button that fails the round-trip with a
+    "redirect_uri_mismatch" error. Hiding it on mismatched hostnames
+    saves the operator a confusing trip into Authentik's logs.
+    Hostname comparison is case-insensitive and ignores the port +
+    path; an unparseable redirect URI falls back to "show the button"
+    (defensive — better a useless button than hiding the SSO path on
+    a config typo).
     """
+    oidc_live = oidc.is_configured()
+    if oidc_live:
+        try:
+            redirect_uri = (get_setting("oidc_redirect_uri", "") or "").strip()
+            if redirect_uri:
+                from urllib.parse import urlparse
+                expected_host = (urlparse(redirect_uri).hostname or "").strip().lower()
+                request_host = (request.url.hostname or "").strip().lower()
+                # Both populated AND mismatched → hide the button.
+                # Either side blank → fall through to "show" (don't lock
+                # operators out on a misconfigured redirect URI).
+                if expected_host and request_host and expected_host != request_host:
+                    oidc_live = False
+        except Exception as e:  # noqa: BLE001
+            print(f"[auth] providers redirect_uri host-match check failed: {e}")
     return {
         "local": True,
-        "oidc": oidc.is_configured(),
+        "oidc": oidc_live,
     }
 
 
@@ -12709,6 +12768,21 @@ async def api_me(request: Request):
             "ping": {
                 "default_port": int(get_setting("ping_default_port", "443") or "443"),
                 "use_icmp":     get_setting_bool("ping_use_icmp", False),
+            },
+            # Last-Test-success timestamps per provider (DB-backed,
+            # cross-browser / cross-machine). Stamped at the END of every
+            # successful test endpoint via `_stamp_test_success`. Surfaced
+            # here so the SPA's `lastTestSuccessLabel(key)` helper can
+            # render "Last connected: <relative time>" next to every
+            # Test connection button. Missing keys = no successful test
+            # ever recorded; the SPA's `x-show` on the label collapses
+            # cleanly. epoch seconds.
+            "last_test_success": {
+                key: int(get_setting(f"last_test_success_{key}", "0") or "0") or None
+                for key in (
+                    "portainer", "oidc", "beszel", "pulse",
+                    "webmin", "snmp", "ping", "asset_inventory",
+                )
             },
             # Scheduler-tz state so the admin Schedules tab can badge
             # "TZ: <name> → falling back to UTC" when the operator typed
