@@ -296,17 +296,22 @@
                     </button>
                     <span x-show="aiTestState[name].result"
                           class="chip text-[10.5px] flex items-center gap-1 max-w-full truncate"
-                          :class="aiTestState[name].result && aiTestState[name].result.ok ? 'pill-ok' : 'pill-error'"
-                          :title="aiTestState[name].result ? aiTestState[name].result.detail : ''">
-                      <span x-text="aiTestState[name].result && aiTestState[name].result.ok ? t('admin.ai.test_ok') : t('admin.ai.test_failed')"></span>
-                      <span x-show="aiTestState[name].result && aiTestState[name].result.response_time_ms !== undefined"
+                          :class="aiTestState[name].result?.ok ? 'pill-ok' : 'pill-error'"
+                          :title="aiTestState[name].result?.detail || ''">
+                      <span x-text="aiTestState[name].result?.ok ? t('admin.ai.test_ok') : t('admin.ai.test_failed')"></span>
+                      <!-- Optional chaining everywhere — Alpine evaluates
+                           x-text on render even when the parent is hidden
+                           via x-show (the element stays in the DOM with
+                           display:none), so a null `result` would throw
+                           on `result.response_time_ms` without `?.`. -->
+                      <span x-show="aiTestState[name].result?.response_time_ms !== undefined"
                             class="text-[var(--text-faint)] mono"
-                            x-text="'(' + aiTestState[name].result.response_time_ms + ' ms)'"></span>
+                            x-text="'(' + (aiTestState[name].result?.response_time_ms ?? 0) + ' ms)'"></span>
                     </span>
                   </div>
-                  <p x-show="aiTestState[name].result && !aiTestState[name].result.ok"
+                  <p x-show="aiTestState[name].result && !aiTestState[name].result?.ok"
                      class="text-[10.5px] text-[var(--danger)] mono break-words"
-                     x-text="aiTestState[name].result ? aiTestState[name].result.detail : ''"></p>
+                     x-text="aiTestState[name].result?.detail || ''"></p>
                 </div>
               </div>
             </template>

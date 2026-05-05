@@ -1492,6 +1492,7 @@
       "notifications": "Admin → Notifications",
       "assets": "Admin → Asset Inventory",
       "asset": "Admin → Asset Inventory",
+      "ai": "Admin → AI Integration",
       "auth": "Admin → Authentication",
       "oidc": "Admin → Authentik OIDC",
       "portainer": "Admin → Portainer",
