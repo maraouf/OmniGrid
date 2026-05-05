@@ -94,6 +94,8 @@
     "refresh_live_title": "Open the event stream and update every chart on push. Closes when you pick Off or an interval.",
     "off": "Off",
     "refresh_title": "Manual refresh (r) — re-runs the active view's data fetch. Use when you want fresh data NOW without waiting for the next interval tick.",
+    "refreshing_bg": "Refreshing…",
+    "refreshing_bg_title": "A background gather is in flight — the response you're looking at is from the prior snapshot, fresh data lands on the next poll. The topbar Refresh spinner only fires for foreground fetches; this pill surfaces the background activity that round-3 of the spinner fix removed from the spinner gate.",
     "theme_title": "Theme: {pref} (click to cycle)",
     "hotkeys_title": "Keyboard shortcuts (?)",
     "cleanup_title": "Remove all {count} stopped/failed container(s)"
