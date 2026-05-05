@@ -1242,6 +1242,16 @@ _swarm_autoheal_last_restart_ts: float = 0.0
 _swarm_autoheal_last_notify_ts: float = 0.0
 _swarm_autoheal_last_notify_set: frozenset = frozenset()
 _swarm_autoheal_anchors_loaded: bool = False
+# Skip-if-no-change history-write guard. On a healthy fleet the
+# `swarm_agent_health` schedule kind fires every N minutes and walks
+# through to action_taken="noop_healthy" — at default 5-min cadence
+# that's 288 rows/day per scheduler with zero diagnostic value. Track
+# the last action_taken we ACTUALLY persisted so the next tick can
+# decide whether the row is a state-transition marker (worth keeping)
+# or a duplicate idle ping (skip the INSERT). The FIRST noop_healthy
+# AFTER a non-noop_healthy run still writes — that's the "system
+# returned to healthy" marker.
+_swarm_autoheal_last_persisted_action: str = ""
 
 
 def _load_swarm_autoheal_anchors() -> None:
@@ -1523,6 +1533,22 @@ async def _run_swarm_agent_health(
 
         duration = int(time.time() - started)
         target_name = f"{action_taken} ({len(unhealthy_hosts)} unhealthy)"
+        # Skip-if-no-change — when the action is the steady-state
+        # "noop_healthy" and the LAST persisted action was ALSO
+        # "noop_healthy", drop the INSERT. The operator-visible value
+        # of duplicate idle pings is zero (288 rows/day at 5-min
+        # cadence on a healthy fleet); the first noop_healthy AFTER a
+        # non-noop_healthy state still writes (state-transition
+        # marker), so "system returned to healthy" stays visible.
+        # `status != "ok"` always writes (errors / timeouts are
+        # diagnostic regardless of repeat count).
+        global _swarm_autoheal_last_persisted_action
+        if (action_taken == "noop_healthy"
+                and status == "ok"
+                and _swarm_autoheal_last_persisted_action == "noop_healthy"):
+            # Skip persistence; preserve the last-persisted-action so
+            # the NEXT non-noop tick still sees the right baseline.
+            return (duration, status)
         try:
             with db_conn() as c:
                 c.execute(
@@ -1541,6 +1567,7 @@ async def _run_swarm_agent_health(
                         err, SCHEDULER_ACTOR,
                     ),
                 )
+            _swarm_autoheal_last_persisted_action = action_taken
         except Exception as e:
             print(f"[scheduler] swarm_agent_health history write failed: {e}")
         return (duration, status)

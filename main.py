@@ -279,7 +279,7 @@ async def _lifespan(app: FastAPI):
                 print(f"[boot] seeded {n_hosts} host snapshots from host_snapshots")
         except Exception as e:
             print(f"[boot] seed_nodes_info_from_snapshots failed: {e}")
-        # Cross-restart items snapshot seed (#1002). Populate `_cache`
+        # Cross-restart items snapshot seed. Populate `_cache`
         # from `items_snapshot` so the FIRST `/api/items` after a
         # container restart returns the prior snapshot instantly while
         # the live gather runs in the background. MUST run AFTER
@@ -316,7 +316,12 @@ async def _lifespan(app: FastAPI):
         # a flag on /api/admin/notify-templates so the SPA's editor can
         # render a warning chip. Cheap; runs once at boot.
         try:
-            audit = _ops_mod.audit_template_coverage()
+            # Boot-only variant — emits the per-WARN-line trace AND
+            # the consolidated `[boot] notify template audit:` summary
+            # below. The GET path on /api/admin/notify-templates uses
+            # the data-only variant so a drift deploy doesn't re-flood
+            # the log on every Admin → Notifications visit.
+            audit = _ops_mod.audit_template_and_log()
             if audit.get("missing_defaults") or audit.get("unknown_defaults"):
                 print(
                     f"[boot] notify template audit: "
@@ -802,7 +807,7 @@ def init_db():
             data TEXT NOT NULL
         );
         -- Cross-restart persistence for the items / stacks / nodes
-        -- gather cache (#1002). Single-row table — `id=1` always —
+        -- gather cache. Single-row table — `id=1` always —
         -- carrying a JSON blob with `items` / `stacks` / `nodes` /
         -- `nodes_info` / `ts`. Written at the end of every successful
         -- `_gather()`, read at lifespan startup so the FIRST
@@ -951,7 +956,7 @@ def init_db():
             # rebooted in the gap (sysUpTime counter resets at boot).
             # Stored as seconds (not raw TimeTicks) so it matches the
             # `host_uptime_s` field convention every other provider
-            # uses. Additive — NULL for pre-#725a rows.
+            # uses. Additive — NULL for pre-uptime-column rows.
             "ALTER TABLE host_snmp_samples ADD COLUMN uptime_s INTEGER",
             # switch total throughput. Stored as the cumulative
             # IF-MIB ifHCInOctets / ifHCOutOctets sums (excluding
@@ -1244,7 +1249,7 @@ async def api_items(force: bool = False):
     again a few seconds later) picks up the fresh state. Cold cache
     (no items in ``_cache`` yet — typically the first
     ``/api/items`` after a fresh container restart, before
-    ``items_snapshot`` cross-restart persistence ships in #1002) is
+    ``items_snapshot`` cross-restart persistence has hydrated) is
     the only path that still awaits ``_gather()``: there's nothing
     cached to serve, so blocking is the only honest option.
     """
@@ -1265,10 +1270,14 @@ async def api_items(force: bool = False):
         # same task reference; the cold caller awaits it before
         # responding, the force caller fire-and-forgets and returns
         # the (still-cold but populated by the first caller) cache.
-        _kick_background_gather()
-        if _background_gather_task is not None:
+        # `_kick_background_gather` now returns the task directly so
+        # the cold-cache caller awaits the same task the single-flight
+        # guard tracks (no race between this await and a subsequent
+        # `_background_gather_task` read).
+        gather_task = _kick_background_gather()
+        if gather_task is not None:
             try:
-                await _background_gather_task
+                await gather_task
             except Exception as e:  # noqa: BLE001
                 # Don't let a transient gather error break the
                 # response — the SPA will retry on the next poll, and
@@ -3360,7 +3369,7 @@ async def _api_set_settings_inner(s, request, _portainer):
         clean_groups.sort(key=lambda g: (g["order"], g["name"]))
         set_setting("host_groups", json.dumps(clean_groups))
 
-    # --- Asset inventory (ticket #78) -------------------------------------
+    # --- Asset inventory --------------------------------------------------
     # Secret follows the keep-current-if-blank + clear-flag contract.
     if s.asset_inventory_base_url is not None:
         set_setting("asset_inventory_base_url",
@@ -3677,9 +3686,12 @@ async def api_admin_notify_templates(_admin: auth.User = Depends(auth.require_ad
         empty when the codebase is consistent — surfaced as a warning
         chip in the SPA).
       - ``missing_defaults`` / ``unknown_defaults``: see
-        :func:`audit_template_coverage`.
+        :func:`audit_template_data`.
     """
-    audit = _ops_mod.audit_template_coverage()
+    # Pure data variant — every Admin → Notifications visit calls this
+    # endpoint, so the audit must NOT log. The boot path uses
+    # `audit_template_and_log` for the one-time WARN trace.
+    audit = _ops_mod.audit_template_data()
     return {
         "events": [
             _shape_notify_template_row(name) for name in _NOTIFY_EVENT_NAMES
@@ -3778,13 +3790,26 @@ async def api_admin_notify_templates_preview(
             seen.add(t)
             found_tokens.append(t)
     valid_set = set(_ops_mod.NOTIFY_PLACEHOLDERS)
+    deprecated_map = dict(getattr(_ops_mod, "NOTIFY_DEPRECATED_PLACEHOLDERS", {}) or {})
     used = [t for t in found_tokens if t in valid_set]
-    unknown = [t for t in found_tokens if t not in valid_set]
+    deprecated = [
+        {"token": t, "replacement": deprecated_map[t]}
+        for t in found_tokens
+        if t in deprecated_map
+    ]
+    unknown = [
+        t for t in found_tokens
+        if t not in valid_set and t not in deprecated_map
+    ]
     return {
         "rendered_title": rendered_title,
         "rendered_body":  rendered_body,
         "used_placeholders": used,
         "unknown_placeholders": unknown,
+        # Tokens that USED to be supported but have since been retired.
+        # Editor SPA can render these inline with a warning marker +
+        # replacement hint, distinct from genuine unknown/typo tokens.
+        "deprecated_placeholders": deprecated,
         "samples": samples,
     }
 
@@ -4264,7 +4289,7 @@ async def api_snmp_test(
 
 
 # ----------------------------------------------------------------------------
-# Asset inventory (ticket #78) — <asset-api-host> OAuth2 client_credentials. Manual
+# Asset inventory — <asset-api-host> OAuth2 client_credentials. Manual
 # refresh only; reads go through the file cache at /app/data/asset_inventory.json.
 # ----------------------------------------------------------------------------
 def _is_asset_inventory_enabled() -> bool:
@@ -4817,7 +4842,7 @@ async def api_hosts(force: bool = False):
 #
 # The monolithic /api/hosts waits until every provider probe for every
 # host has returned. With Webmin / Pulse / slow node-exporter scrapes
-# this can take 10+ seconds even with the parallelisation in #85 —
+# this can take 10+ seconds even with the existing parallelisation —
 # long enough that the page feels frozen.
 #
 # The split model:
@@ -4995,27 +5020,31 @@ _background_gather_task: "asyncio.Task | None" = None
 _background_stats_task: "asyncio.Task | None" = None
 
 
-def _kick_background_gather() -> bool:
+def _kick_background_gather() -> "asyncio.Task | None":
     """Schedule ``_gather`` as a background task if none is running.
 
-    Returns ``True`` when a NEW task was scheduled (or an existing task
-    is already in flight — caller can treat both as "refresh in
-    progress"); ``False`` when scheduling failed (no event loop, etc.).
-    Safe to call from anywhere — sync or async context — as long as an
-    event loop is available.
+    Returns the in-flight task (newly-scheduled OR already-running) so
+    a cold-cache caller that genuinely needs fresh data can ``await``
+    the same task instead of issuing a parallel gather. Returns
+    ``None`` when scheduling failed (no event loop). Callers that
+    only need the boolean "is something running?" check
+    ``result is not None``.
+
+    Single-flight: if a prior task is still pending the existing task
+    is returned unchanged — never spawns two concurrent gathers.
     """
     global _background_gather_task
     try:
         if _background_gather_task is not None and not _background_gather_task.done():
-            return True
+            return _background_gather_task
         loop = asyncio.get_running_loop()
         _background_gather_task = loop.create_task(_gather())
-        return True
+        return _background_gather_task
     except RuntimeError:
         # No running event loop (called from a sync context that isn't
         # inside a request handler) — caller can fall back to awaiting
         # ``_gather()`` directly if they really need fresh data.
-        return False
+        return None
 
 
 def _kick_background_stats_gather() -> bool:
@@ -5240,7 +5269,8 @@ async def _do_host_provider_probe(active: set[str], cache_key: tuple) -> dict:
 
 
 def _publish_provider_probe_event(host_id: str, provider: str, kind: str,
-                                   started_at: float | None = None) -> None:
+                                   started_at: float | None = None,
+                                   *, client_id: str | None = None) -> None:
     """Fire a per-(provider, host) probe-status SSE event.
 
     ``kind`` is either ``probing`` (slice entered, real fetch about to
@@ -5253,6 +5283,14 @@ def _publish_provider_probe_event(host_id: str, provider: str, kind: str,
     chip shouldn't pulse for a microsecond dict lookup. Slow probes
     (SNMP walks, Webmin three-tier fallback) are the operators' real
     interest.
+
+    ``client_id`` threads the originating tab's UUID into the event so
+    the SPA's `_isSelfEvent` self-filter works on this event the same
+    way it does on every other write-handler-published event. Without
+    it the originating tab still receives + processes its own events
+    (cost is microscopic, but inconsistent with the rest of the
+    publish surface). Caller passes `_request_client_id(request)` from
+    the request-scoped header.
 
     Errors are logged + swallowed; a failed publish must never break
     the probe path.
@@ -5269,13 +5307,14 @@ def _publish_provider_probe_event(host_id: str, provider: str, kind: str,
             payload["finished_at"] = time.time()
             if started_at is not None:
                 payload["duration_ms"] = int((time.time() - started_at) * 1000)
-        _events.publish(f"host:provider_{kind}", payload)
+        _events.publish(f"host:provider_{kind}", payload, client_id=client_id)
     except Exception as e:  # noqa: BLE001
         print(f"[hosts] provider_{kind} publish failed for "
               f"{host_id!r}/{provider!r}: {e}")
 
 
-async def _merge_one_host(h: dict, state: dict, *, force: bool = False) -> tuple[dict, list[str]]:
+async def _merge_one_host(h: dict, state: dict, *, force: bool = False,
+                           client_id: str | None = None) -> tuple[dict, list[str]]:
     """Merge one curated host with provider data. Runs NE + Webmin
     probes inline for THIS host only; Beszel/Pulse lookups hit the
     cached batch maps. Returns (merged_dict, providers_hit).
@@ -5469,7 +5508,7 @@ async def _merge_one_host(h: dict, state: dict, *, force: bool = False) -> tuple
                     # hits skip the event entirely so the chip stays at
                     # rest for the microsecond dict lookup.
                     _probe_started = time.time()
-                    _publish_provider_probe_event(h["id"], "snmp", "probing", _probe_started)
+                    _publish_provider_probe_event(h["id"], "snmp", "probing", _probe_started, client_id=client_id)
                     try:
                         result = await _snmp.probe_snmp(
                             snmp_target,
@@ -5489,7 +5528,7 @@ async def _merge_one_host(h: dict, state: dict, *, force: bool = False) -> tuple
                     except Exception as e:  # noqa: BLE001
                         result = {"hosts": {}, "error": f"snmp probe failed: {e}"}
                     finally:
-                        _publish_provider_probe_event(h["id"], "snmp", "done", _probe_started)
+                        _publish_provider_probe_event(h["id"], "snmp", "done", _probe_started, client_id=client_id)
                     if (result.get("hosts") or {}):
                         _snmp_host_cache[cache_key] = (now, result)
                         _snmp_host_fail_cache.pop(cache_key, None)
@@ -5632,7 +5671,7 @@ async def _merge_one_host(h: dict, state: dict, *, force: bool = False) -> tuple
             # cache (each call hits the wire), so every entry to this
             # block fires the start/done pair.
             _probe_started = time.time()
-            _publish_provider_probe_event(h["id"], "node_exporter", "probing", _probe_started)
+            _publish_provider_probe_event(h["id"], "node_exporter", "probing", _probe_started, client_id=client_id)
             try:
                 async with httpx.AsyncClient(verify=False, timeout=float(_ne_timeout)) as ne_client:
                     stats = await _ne.probe_node(ne_client, h["ne_url"])
@@ -5655,7 +5694,7 @@ async def _merge_one_host(h: dict, state: dict, *, force: bool = False) -> tuple
                     round_threshold=_ne_pause_rounds,
                 )
             finally:
-                _publish_provider_probe_event(h["id"], "node_exporter", "done", _probe_started)
+                _publish_provider_probe_event(h["id"], "node_exporter", "done", _probe_started, client_id=client_id)
 
     # Webmin (per-host probe, 20s outer budget matching api_hosts).
     # Consults a 30s per-host result cache — Webmin is the slowest
@@ -6731,18 +6770,18 @@ async def api_hosts_list(force: bool = False):
     }
 
 
-async def _hosts_one_inner(h: dict, *, force: bool):
+async def _hosts_one_inner(h: dict, *, force: bool, client_id: str | None = None):
     """Inner helper for `/api/hosts/one/{host_id}` — fetches the
     provider state then merges this host's row. Split out so the
     outer endpoint can wrap the whole sequence in `asyncio.wait_for`.
     """
     state = await _get_host_provider_state(force=force)
-    merged_pair = await _merge_one_host(h, state, force=force)
+    merged_pair = await _merge_one_host(h, state, force=force, client_id=client_id)
     return state, merged_pair
 
 
 @app.get("/api/hosts/one/{host_id}")
-async def api_hosts_one(host_id: str, force: bool = False):
+async def api_hosts_one(host_id: str, request: Request, force: bool = False):
     """Merge ONE curated host with provider data.
 
     Called N times in parallel by the SPA after /api/hosts/list
@@ -6775,7 +6814,7 @@ async def api_hosts_one(host_id: str, force: bool = False):
     _probe_start = time.monotonic()
     try:
         state, (merged, providers) = await asyncio.wait_for(
-            _hosts_one_inner(h, force=force),
+            _hosts_one_inner(h, force=force, client_id=_request_client_id(request)),
             timeout=30.0,
         )
     except asyncio.TimeoutError:
@@ -9516,10 +9555,10 @@ async def api_hosts_snmp_history(
             "mem_buffers": (int(r[8]) if r[8] is not None else None),
             "mem_cached":  (int(r[9]) if r[9] is not None else None),
             "mem_free":    (int(r[10]) if r[10] is not None else None),
-            # uptime in seconds; NULL for pre-#725a rows.
+            # uptime in seconds; NULL for pre-uptime-column rows.
             "uptime_s":    (int(r[11]) if r[11] is not None else None),
             # cumulative IF-MIB ifHCInOctets / ifHCOutOctets
-            # sums; NULL for pre-#725b rows or when SNMP didn't return
+            # sums; NULL for pre-throughput-column rows or when SNMP didn't return
             # the counters (e.g. switch with hrStorage but no IF-MIB).
             # Chart layer computes per-pair deltas → bps; out-of-bounds
             # / negative deltas (counter wrap, reboot) are skipped.
@@ -10022,11 +10061,165 @@ def _bulk_resolve_host_ids(host_ids: list[str], curated: list[dict]) -> tuple[li
     return matched, missing
 
 
+# ---------------------------------------------------------------------------
+# Step-up reauth — single-flight short-lived tokens for bulk-destructive
+# admin actions. Operator-stressed: a SweetAlert-only "are you sure?"
+# is too easy to click through when the action affects N hosts at once.
+# Higher-stakes endpoints (currently only `/api/hosts/bulk/pause`) take
+# a `X-OmniGrid-Reauth-Token` header that the SPA mints by POSTing to
+# `/api/admin/reauth` with the operator's local password just before
+# the action. Tokens are single-use and TTL'd at 300s so a leaked
+# header on a long-lived tab doesn't unlock arbitrary writes.
+#
+# Authentik / SSO users have no local password — the reauth endpoint
+# returns a specific error code (`OG_REAUTH_NO_LOCAL_PASSWORD`) so the
+# SPA can fall back to the existing typed-hostname / SweetAlert confirm
+# without surfacing a misleading "wrong password" toast.
+# ---------------------------------------------------------------------------
+import secrets as _reauth_secrets
+
+_REAUTH_TTL_SECONDS = 300
+
+# Map of token → (user_id, expires_at). Single-replica safe (no
+# horizontal scale), so an in-memory map is fine. Tokens are deleted on
+# first successful use (single-use semantics).
+_reauth_tokens: dict[str, tuple[int, float]] = {}
+
+
+def _reauth_prune() -> None:
+    """Drop expired tokens from the in-memory map. Called opportunistically
+    on every mint + verify so the map can't grow unbounded. Single-pass
+    over the map; cheap (typical N is single-digit per-process).
+    """
+    now = time.time()
+    expired = [t for t, (_uid, exp) in _reauth_tokens.items() if exp <= now]
+    for t in expired:
+        _reauth_tokens.pop(t, None)
+
+
+class ReauthIn(BaseModel):
+    password: str
+
+
+@app.post("/api/admin/reauth")
+async def api_admin_reauth(
+    body: ReauthIn,
+    request: Request,
+    u: auth.User = Depends(auth.require_admin),
+):
+    """Mint a short-lived reauth token for the calling admin.
+
+    Verifies the supplied password against the user's stored bcrypt
+    hash. SSO / Authentik users have no local password; the response
+    code (`OG_REAUTH_NO_LOCAL_PASSWORD`) lets the SPA fall back to
+    the typed-hostname confirm path on bulk pause.
+    """
+    _reauth_prune()
+    pw = (body.password or "").strip()
+    if not pw:
+        raise HTTPException(400, detail="password required")
+    # Pull the user's local password hash. Authentik / SSO users have
+    # NULL or empty hashes — surface the distinct error so the SPA can
+    # branch UI paths.
+    try:
+        with db_conn() as c:
+            row = c.execute(
+                "SELECT password_hash FROM users WHERE id = ?",
+                (u.id,),
+            ).fetchone()
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(500, detail=f"reauth lookup failed: {e}") from e
+    stored = (row and row["password_hash"]) or ""
+    if not stored:
+        return {
+            "ok": False,
+            "error_code": "OG_REAUTH_NO_LOCAL_PASSWORD",
+            "detail": "Local password is not set for this account "
+                      "(SSO user). Use the typed-hostname confirm path.",
+        }
+    if not auth.verify_password(pw, stored):
+        # Don't differentiate "wrong password" from "no user" — same
+        # generic message reduces password-probing signal. The local-
+        # auth login rate-limiter already covers brute force; we
+        # don't double-rate-limit here because the reauth endpoint
+        # requires an already-authenticated admin session.
+        raise HTTPException(403, detail="reauth failed")
+    token = _reauth_secrets.token_urlsafe(32)
+    _reauth_tokens[token] = (int(u.id), time.time() + _REAUTH_TTL_SECONDS)
+    return {
+        "ok": True,
+        "token": token,
+        "expires_in": _REAUTH_TTL_SECONDS,
+    }
+
+
+def _user_has_local_password(user_id: int) -> bool:
+    """Return True iff the user has a stored bcrypt password hash.
+
+    SSO / Authentik users have NULL or empty hashes in the local
+    `users` table (auth happens upstream via OIDC). For those users
+    the reauth gate is meaningless — there's no password to verify
+    against — so the dependency falls back to the typed-confirm path
+    in the SPA without requiring a token.
+    """
+    try:
+        with db_conn() as c:
+            row = c.execute(
+                "SELECT password_hash FROM users WHERE id = ?",
+                (int(user_id),),
+            ).fetchone()
+    except Exception:
+        return False
+    return bool(row and (row["password_hash"] or "").strip())
+
+
+def _require_reauth(request: Request, u: auth.User = Depends(auth.require_admin)) -> auth.User:
+    """Dependency that consumes a `X-OmniGrid-Reauth-Token` header.
+
+    Single-use: the token is deleted on first successful verify so a
+    tab that leaks the header to JS console output can't replay.
+    Bound to the originating user's id, so a token minted for admin A
+    can't be replayed by admin B even if it leaked across sessions.
+
+    SSO users (no local password hash) bypass the reauth check —
+    there's no local password to verify against. The SPA's typed-
+    hostname / typed-count confirm path is the sole gate for those
+    callers; this dependency degrades gracefully so an Authentik
+    admin doesn't get locked out of bulk operations.
+    """
+    if not _user_has_local_password(u.id):
+        return u
+    _reauth_prune()
+    token = request.headers.get("X-OmniGrid-Reauth-Token", "").strip()
+    if not token:
+        raise HTTPException(
+            401,
+            detail="reauth required — POST /api/admin/reauth with your password",
+        )
+    pair = _reauth_tokens.get(token)
+    if pair is None:
+        raise HTTPException(401, detail="reauth token invalid or expired")
+    user_id, expires_at = pair
+    if time.time() >= expires_at:
+        _reauth_tokens.pop(token, None)
+        raise HTTPException(401, detail="reauth token expired")
+    if int(user_id) != int(u.id):
+        # Token doesn't match this caller — mismatch is a security
+        # signal worth surfacing as a distinct 403 rather than the
+        # generic 401, but only for debug. Operators don't routinely
+        # see this without something genuinely off.
+        raise HTTPException(403, detail="reauth token mismatch")
+    # Single-use — burn the token now. A second attempt (legitimate
+    # retry on an idempotent endpoint) needs a fresh reauth round-trip.
+    _reauth_tokens.pop(token, None)
+    return u
+
+
 @app.post("/api/hosts/bulk/pause")
 async def api_hosts_bulk_pause(
     body: HostsBulkPauseIn,
     request: Request,
-    _u: auth.User = Depends(auth.require_admin),
+    _u: auth.User = Depends(_require_reauth),
 ):
     """Mark every host in the request as auto-paused. Inserts/updates
     a row in ``host_failure_state`` with ``paused=1`` and

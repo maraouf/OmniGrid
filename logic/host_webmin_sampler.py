@@ -237,7 +237,29 @@ async def host_webmin_sampler_loop() -> None:
                                     verify_tls, timeout, active)
                     for h in hosts
                 ]
-                results = await asyncio.gather(*tasks, return_exceptions=True)
+                # Outer wall-clock budget so a wedged Webmin host can't
+                # starve the whole sampler tick. Operator-tunable via
+                # `tuning_webmin_sampler_budget_seconds`; the default 0
+                # ("auto") derives from probe_timeout × N hosts capped
+                # at 5 min. Explicit non-zero values pin the budget
+                # for fleets with unusual fan-out shapes.
+                _budget_override = tuning.tuning_int("tuning_webmin_sampler_budget_seconds")
+                if _budget_override > 0:
+                    _outer_budget = float(_budget_override)
+                else:
+                    _outer_budget = min(300.0, max(15.0, timeout * max(1, len(tasks))))
+                try:
+                    results = await asyncio.wait_for(
+                        asyncio.gather(*tasks, return_exceptions=True),
+                        timeout=_outer_budget,
+                    )
+                except asyncio.TimeoutError:
+                    print(
+                        f"[host_webmin_sampler] tick wall-clock budget "
+                        f"({_outer_budget:.0f}s) exceeded across {len(tasks)} "
+                        f"hosts — dropping partial results, will retry next tick"
+                    )
+                    results = []
                 now = time.time()
                 rows: list[tuple] = []
                 for h, res in zip(hosts, results):

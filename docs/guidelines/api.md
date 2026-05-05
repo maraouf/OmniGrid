@@ -320,6 +320,30 @@ snapshot table fall through to the legacy skeleton shape. Bearer-token
 clients see the same stale markers and can decide whether to trust them
 or force-fetch via `?force=true`.
 
+**Background-refresh contract.** Both `/api/items` and `/api/hosts/list`
+serve cached / snapshot data IMMEDIATELY when warm and kick the live
+refresh into a background `asyncio.create_task` (Fix A from the
+cold-load instant-paint work). Two response keys signal the in-flight
+state to operator scripts:
+
+- `cache_refreshing: bool` (on `/api/items`) — `true` when the in-memory
+  `_cache` was served immediately because data was present, AND a
+  background `_gather()` is in flight to refresh it. The next poll
+  picks up the fresh state. `false` when the cache is warm OR when a
+  cold-cache caller just awaited a fresh gather (in which case the
+  response body IS the fresh state, no refresh in flight).
+- `hub_probing: bool` (on `/api/hosts/list`) — `true` when the
+  Beszel + Pulse hub probe was kicked in the background and the
+  response carries snapshot rows + per-row `_stale_fields` markers
+  rather than a freshly-probed result. The per-host fan-out via
+  `/api/hosts/one/{id}` shares the in-flight hub probe via the
+  single-flight lock, so each row's eventual upgrade gets the fresh
+  data without re-paying the probe cost.
+
+Operator scripts that need authoritative data should poll until both
+flags read `false` (or use `?force=true` to await a fresh gather
+synchronously — at the cost of the 10-30s cold-cache wall-clock).
+
 For full telemetry on one host (cached 10s server-side; per-host probe budget is 30s — beyond that the endpoint returns a 504 with `detail: "per-host probe budget exceeded (30s) for <id>"` so OmniGrid's explicit 504 always fires before NPM's generic 60s `proxy_read_timeout`):
 
 ```bash

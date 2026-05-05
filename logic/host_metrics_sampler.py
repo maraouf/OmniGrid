@@ -308,8 +308,12 @@ def _get_failure_state(host_id: str, provider: str = "") -> Optional[dict]:
 
 
 # Frozen set of provider names that have the auto-pause contract.
-# Keep in sync with `main._PROVIDER_AUTO_PAUSE_NAMES`. Both lists
-# could be derived from `tuning.TUNABLES` in a future refactor.
+# CANONICAL source of truth — `main.py` imports this set (aliased as
+# `_PROVIDER_AUTO_PAUSE_NAMES`) so a seventh provider is a one-line
+# edit here. Could be derived from `tuning.TUNABLES` in a future
+# refactor by walking the `tuning_<provider>_failure_pause_rounds`
+# keys, but the literal set is cheaper to read at module load and
+# the duplication risk is gone.
 _PROVIDER_PREFIXES = frozenset((
     "beszel", "pulse", "node_exporter", "webmin", "ping", "snmp",
 ))

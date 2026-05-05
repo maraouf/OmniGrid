@@ -1895,7 +1895,7 @@
               <span x-text="t('filters.collapse_all')"></span>
             </button>
           </div>
-          <!-- Ticket #93: group expand/collapse. Visible only when the
+          <!-- Group expand/collapse. Visible only when the
                operator has defined at least one host group. -->
           <div x-show="hostGroups.length > 0 && hosts.length > 0"
                class="flex items-center gap-1 bg-[var(--surface-2)] rounded-md p-0.5 border border-[var(--border)]">
@@ -2012,7 +2012,7 @@
            full detail. Actions and per-row Test live in the drawer,
            not the card, to keep the tap target large. -->
       <div x-show="hostsConfigured" class="hosts-mobile-cards">
-        <!-- Ticket #93: grouped render. When host_groups is empty the
+        <!-- Grouped render. When host_groups is empty the
              helper returns a single {group: null, hosts: [...]} bucket
              so the markup degrades to the flat list. -->
         <template x-for="(bucket, bi) in groupedHosts()" :key="(bucket.group ? bucket.group.name : '_ungrouped') + ':' + bi">
@@ -2252,7 +2252,7 @@
           <div></div>
         </div>
 
-        <!-- Ticket #93: grouped render. When host_groups is empty the
+        <!-- Grouped render. When host_groups is empty the
              helper returns a single bucket so the markup degrades to
              the flat list. Group headings render only when there's at
              least one defined group — an all-ungrouped run keeps the
@@ -5209,7 +5209,7 @@
              the Admin tabs (`adminTab`) and Logs sub-tabs (`logsTab`)
              shape — `hostStatsTab` reactive state, persisted to
              `localStorage.hostStatsTab`. Adding a sixth provider
-             (SNMP — #344) is one line on this strip + one new tab
+             (SNMP) is one line on this strip + one new tab
              body below. -->
         <div class="flex items-center gap-1 border-b border-[var(--border)] mb-4 overflow-x-auto overflow-y-hidden scrollbar"
              role="tablist" aria-orientation="horizontal" :aria-label="t('settings.host_stats.tablist_label')">
@@ -10210,7 +10210,7 @@
                                ? ('1m / 5m / 15m load (% of total CPU capacity, ' + h.cores + ' cores)')
                                : '1m / 5m / 15m load average')"></dd>
                     </template>
-                    <!-- Asset inventory rows (ticket #78 follow-up).
+                    <!-- Asset inventory rows.
                          Matched by h.custom_number against the cached
                          <asset-api-host> asset list. Each row gated on its own
                          field so hosts without that data stay tidy.

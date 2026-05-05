@@ -261,6 +261,13 @@
     "last_glyph": "»",
     "per_page_option": "{count} / page"
   },
+  "reauth": {
+    "title": "Confirm with your password",
+    "text": "This action affects multiple hosts. Re-enter your password to proceed.",
+    "placeholder": "Password",
+    "confirm": "Confirm",
+    "failed": "Re-authentication failed."
+  },
   "actions": {
     "update_stack": "Update Stack",
     "updating": "Updating…",
