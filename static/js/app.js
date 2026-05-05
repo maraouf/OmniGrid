@@ -1330,6 +1330,30 @@ function app() {
       // since boot. Single-replica + single-component-per-page so
       // there's no ambiguity about which instance to expose.
       try { window.omnigrid = this; } catch (_) {}
+      // Wrap any orphan `<input type="password">` in a hidden
+      // `<form>` so Chrome / Edge stop logging "Password field is
+      // not contained in a form" warnings (~17 instances across
+      // admin tabs — Beszel / Pulse / Webmin / Portainer / OIDC /
+      // SSH / Asset / SNMP / host-groups secrets). The form uses
+      // `display: contents` so layout is unaffected; `submit.prevent`
+      // catches Enter-key submissions so Alpine's existing button
+      // handlers stay the source of truth. Runs on init AND on every
+      // settings-section / admin-tab open via a MutationObserver so
+      // dynamically-rendered partials get the same treatment.
+      try { this._wrapOrphanPasswordFields(); } catch (_) {}
+      try {
+        const obs = new MutationObserver(() => {
+          // Debounce — multiple Alpine x-if toggles fire in bursts;
+          // wrapping in microtask keeps the work tight.
+          if (this._wrapPwdScheduled) return;
+          this._wrapPwdScheduled = true;
+          queueMicrotask(() => {
+            this._wrapPwdScheduled = false;
+            try { this._wrapOrphanPasswordFields(); } catch (_) {}
+          });
+        });
+        obs.observe(document.body, { childList: true, subtree: true });
+      } catch (_) {}
       // Tick the last-test-success "now" reference once a minute so
       // the relative-time labels next to every Test connection button
       // refresh without reload. Cheap (one int assignment + reactive
@@ -5004,7 +5028,15 @@ function app() {
         // last session left the stats-interval picker on "Off". One
         // shot still fires below so the operator sees CURRENT data;
         // future ticks are intentionally suppressed.
-        console.warn('[stats] pollStats: stats polling is OFF (statsInterval=0). Re-enable it from the topbar interval picker. Firing one diagnostic loadStats() anyway so /api/stats response is logged once.');
+        // Logged ONCE per session — pre-fix every pollStats invocation
+        // (which fires on Live-mode SSE reconnect, view nav, etc.) re-
+        // emitted the warning, drowning out actionable console output.
+        // The `_pollStatsOffLogged` latch makes it appear once and
+        // stay quiet for the rest of the session.
+        if (!this._pollStatsOffLogged) {
+          console.warn('[stats] pollStats: stats polling is OFF (statsInterval=0). Re-enable it from the topbar interval picker. Firing one diagnostic loadStats() anyway so /api/stats response is logged once.');
+          this._pollStatsOffLogged = true;
+        }
         try { this.loadStats(); } catch (_) { /* never crash init */ }
         return;
       }
@@ -5731,6 +5763,29 @@ function app() {
       if (!key) return;
       const ts = Math.floor(Date.now() / 1000);
       this._lastTestSuccess = { ...(this._lastTestSuccess || {}), [key]: ts };
+    },
+    // Wrap every `<input type="password">` whose closest ancestor
+    // `<form>` is missing in a hidden `<form>` so Chromium stops
+    // emitting "Password field is not contained in a form" DevTools
+    // warnings (~17 instances across admin tabs — Beszel / Pulse /
+    // Webmin / Portainer / OIDC / SSH / Asset / SNMP / host-groups
+    // secrets). The form uses `display: contents` so layout is
+    // unaffected, AND `onsubmit="return false"` so an accidental
+    // Enter-key submit doesn't navigate the page (the SPA POSTs every
+    // secret via fetch, never form-submission). Idempotent — runs on
+    // init + on every Alpine DOM mutation; already-wrapped inputs
+    // skip cleanly via the `closest('form')` guard.
+    _wrapOrphanPasswordFields() {
+      const inputs = document.querySelectorAll('input[type="password"]');
+      for (const input of inputs) {
+        if (input.closest('form')) continue;
+        const form = document.createElement('form');
+        form.style.display = 'contents';
+        form.setAttribute('onsubmit', 'return false');
+        form.dataset.passwordWrap = '1';
+        input.parentNode.insertBefore(form, input);
+        form.appendChild(input);
+      }
     },
     // Returns the formatted "Last connected: <relative time>" label
     // for a provider key, or '' when no successful test has been
