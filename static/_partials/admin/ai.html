@@ -7,7 +7,7 @@
             <div>
               <div class="flex items-center gap-2 mb-2">
                 <svg width="16" height="16" aria-hidden="true" class="text-[var(--text-dim)]">
-                  <use href="/img/ui-sprite.svg#icon-cpu"/>
+                  <use href="/img/ui-sprite.svg#icon-zap"/>
                 </svg>
                 <h3 class="font-semibold text-[13px]" x-text="t('admin.ai.heading')"></h3>
               </div>
@@ -73,7 +73,7 @@
           <div class="flex items-center justify-between flex-wrap gap-2 mb-3">
             <div class="flex items-center gap-2">
               <svg width="14" height="14" aria-hidden="true" class="text-[var(--text-dim)]">
-                <use href="/img/ui-sprite.svg#icon-bar-chart-2"/>
+                <use href="/img/ui-sprite.svg#icon-activity"/>
               </svg>
               <h3 class="font-semibold text-[13px]" x-text="t('admin.ai.dashboard_title')"></h3>
             </div>
@@ -150,22 +150,51 @@
                  x-text="t('admin.ai.no_data')"></div>
             <div x-show="aiDashboard && aiDashboard.providers.length > 0" class="ai-provider-grid">
               <template x-for="p in (aiDashboard ? aiDashboard.providers : [])" :key="p.name">
-                <div class="ai-provider-row">
-                  <div class="flex items-center gap-2 min-w-0">
-                    <span class="chip text-[10px]" :class="p.enabled ? 'pill-ok' : 'pill-muted'"
-                          x-text="aiProviderDisplayName(p.name)"></span>
-                    <span class="text-[10.5px] text-[var(--text-faint)] truncate" x-show="p.model" x-text="p.model"></span>
+                <div class="ai-provider-row-group">
+                  <!-- Top row: provider summary across every model
+                       recorded in the selected period. -->
+                  <div class="ai-provider-row">
+                    <div class="flex items-center gap-2 min-w-0">
+                      <span class="chip text-[10px]" :class="p.enabled ? 'pill-ok' : 'pill-muted'"
+                            x-text="aiProviderDisplayName(p.name)"></span>
+                      <span class="text-[10.5px] text-[var(--text-faint)] truncate"
+                            x-show="p.model"
+                            :title="t('admin.ai.current_model_title')"
+                            x-text="t('admin.ai.current_model_label') + ' ' + p.model"></span>
+                    </div>
+                    <div class="ai-provider-stats">
+                      <span><span class="text-[var(--text-faint)]" x-text="t('admin.ai.tile.jobs') + ':'"></span>
+                            <span class="mono" x-text="p.total_jobs"></span></span>
+                      <span><span class="text-[var(--text-faint)]" x-text="t('admin.ai.tile.tokens') + ':'"></span>
+                            <span class="mono" x-text="aiFormatNumber(p.total_tokens)"></span></span>
+                      <span><span class="text-[var(--text-faint)]" x-text="t('admin.ai.tile.cost') + ':'"></span>
+                            <span class="mono" x-text="'$' + (p.total_cost_usd || 0).toFixed(4)"></span></span>
+                      <span><span class="text-[var(--text-faint)]" x-text="t('admin.ai.tile.pass_rate') + ':'"></span>
+                            <span class="mono" x-text="Math.round((p.pass_rate || 0) * 100) + '%'"></span></span>
+                    </div>
                   </div>
-                  <div class="ai-provider-stats">
-                    <span><span class="text-[var(--text-faint)]" x-text="t('admin.ai.tile.jobs') + ':'"></span>
-                          <span class="mono" x-text="p.total_jobs"></span></span>
-                    <span><span class="text-[var(--text-faint)]" x-text="t('admin.ai.tile.tokens') + ':'"></span>
-                          <span class="mono" x-text="aiFormatNumber(p.total_tokens)"></span></span>
-                    <span><span class="text-[var(--text-faint)]" x-text="t('admin.ai.tile.cost') + ':'"></span>
-                          <span class="mono" x-text="'$' + (p.total_cost_usd || 0).toFixed(4)"></span></span>
-                    <span><span class="text-[var(--text-faint)]" x-text="t('admin.ai.tile.pass_rate') + ':'"></span>
-                          <span class="mono" x-text="Math.round((p.pass_rate || 0) * 100) + '%'"></span></span>
-                  </div>
+                  <!-- Per-model sub-rows. The dashboard endpoint
+                       returns one entry per (provider, model) seen in
+                       the period, so swapping `gemini-2.5-pro` →
+                       `gemini-flash` mid-window keeps both visible
+                       with their own jobs / tokens / cost. Hidden
+                       when there's only one model OR the data is
+                       empty (Stage 1 fresh deploy). -->
+                  <template x-for="m in (p.models || [])" :key="p.name + ':' + m.model">
+                    <div class="ai-provider-model-row">
+                      <span class="ai-provider-model-name mono"
+                            :class="m.model === p.model ? 'is-current' : ''"
+                            x-text="m.model + (m.model === p.model ? ' · ' + t('admin.ai.current_chip') : '')"></span>
+                      <span class="ai-provider-model-stats">
+                        <span><span class="text-[var(--text-faint)]" x-text="t('admin.ai.tile.jobs') + ':'"></span>
+                              <span class="mono" x-text="m.total_jobs"></span></span>
+                        <span><span class="text-[var(--text-faint)]" x-text="t('admin.ai.tile.tokens') + ':'"></span>
+                              <span class="mono" x-text="aiFormatNumber(m.total_tokens)"></span></span>
+                        <span><span class="text-[var(--text-faint)]" x-text="t('admin.ai.tile.cost') + ':'"></span>
+                              <span class="mono" x-text="'$' + (m.total_cost_usd || 0).toFixed(4)"></span></span>
+                      </span>
+                    </div>
+                  </template>
                 </div>
               </template>
             </div>

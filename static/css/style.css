@@ -1653,15 +1653,20 @@ details summary::-webkit-details-marker {
     flex-direction: column;
     gap: var(--s-2);
 }
-.ai-provider-row {
-    display: grid;
-    grid-template-columns: minmax(160px, 220px) 1fr;
-    align-items: center;
-    gap: var(--s-3);
-    padding: var(--s-2) var(--s-3);
+.ai-provider-row-group {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
     background: var(--surface-2);
     border: 1px solid var(--border);
     border-radius: var(--r-sm, 4px);
+    padding: var(--s-2) var(--s-3);
+}
+.ai-provider-row {
+    display: grid;
+    grid-template-columns: minmax(180px, 240px) 1fr;
+    align-items: center;
+    gap: var(--s-3);
 }
 .ai-provider-stats {
     display: flex;
@@ -1670,6 +1675,41 @@ details summary::-webkit-details-marker {
     font-size: var(--fs-xs);
 }
 .ai-provider-stats > span { display: inline-flex; gap: 4px; }
+/* Per-(provider, model) historical sub-row. Each model that has
+ * recorded jobs in the selected window renders as its own line —
+ * lets admins see usage when the model id has been swapped mid-
+ * period (e.g. gemini-2.5-pro → gemini-flash). The "current"
+ * marker calls out which model id the provider is configured for
+ * RIGHT NOW; older models stay visible until they age out of the
+ * range filter. */
+.ai-provider-model-row {
+    display: grid;
+    grid-template-columns: minmax(180px, 240px) 1fr;
+    align-items: center;
+    gap: var(--s-3);
+    padding: 2px 0 2px var(--s-4);
+    border-inline-start: 2px solid var(--border);
+    margin-inline-start: var(--s-2);
+}
+.ai-provider-model-name {
+    font-size: var(--fs-2xs);
+    color: var(--text-dim);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.ai-provider-model-name.is-current {
+    color: var(--text);
+    font-weight: 600;
+}
+.ai-provider-model-stats {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--s-3);
+    font-size: var(--fs-2xs);
+    color: var(--text-faint);
+}
+.ai-provider-model-stats > span { display: inline-flex; gap: 4px; }
 
 .ai-provider-card {
     background: var(--surface-2);
