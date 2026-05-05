@@ -1690,6 +1690,8 @@
               </template>
             </div>
           </div>
+          <p class="text-[11.5px] text-[var(--text-faint)] mb-3"
+             x-text="t('hosts_extra.bulk.affects_count', { count: selectedHosts.size })"></p>
           <div class="flex items-center justify-end gap-2">
             <button type="button" @click="closeBulkSnmpVendorsModal()"
                     class="btn btn-ghost text-[12px]"
@@ -1734,6 +1736,8 @@
             <input type="checkbox" x-model="bulkSnmpTunablesModal.clear">
             <span x-text="t('hosts_extra.bulk.snmp_tunables_clear_label') || 'Clear (remove per-host overrides)'"></span>
           </label>
+          <p class="text-[11.5px] text-[var(--text-faint)] mb-3"
+             x-text="t('hosts_extra.bulk.affects_count', { count: selectedHosts.size })"></p>
           <div class="flex items-center justify-end gap-2">
             <button type="button" @click="closeBulkSnmpTunablesModal()"
                     class="btn btn-ghost text-[12px]"
@@ -2114,7 +2118,7 @@
                         :aria-label="t('hosts_extra.probe_timeout.badge_title_full')">
                     <svg width="12" height="12"
                          class="text-[var(--warning)]"
-                         aria-hidden="true"><use href="/img/ui-sprite.svg#icon-clock"/></svg>
+                         aria-hidden="true"><use href="/img/ui-sprite.svg#icon-zap"/></svg>
                   </span>
                   <span x-show="!h.sampling_paused && !h._probe_timeout && isStale(h)"
                         role="img"
@@ -2398,7 +2402,7 @@
                           :aria-label="t('hosts_extra.probe_timeout.badge_title_full')">
                       <svg width="13" height="13"
                            class="text-[var(--warning)]"
-                           aria-hidden="true"><use href="/img/ui-sprite.svg#icon-clock"/></svg>
+                           aria-hidden="true"><use href="/img/ui-sprite.svg#icon-zap"/></svg>
                     </span>
                     <!-- Stale-data badge. Fires when one or
                          more provider went down and the row is
@@ -3510,11 +3514,13 @@
                     <button type="button"
                             class="notify-cat-chip"
                             :class="'notify-cat-chip--' + notifyCategoryStateForMedium(cat, m)
-                                    + (notifyMediumIsGloballyEnabled(m) ? '' : ' notify-cat-chip--admin-disabled')"
+                                    + (notifyMediumIsGloballyEnabled(m) ? '' : ' notify-cat-chip--admin-disabled')
+                                    + (notifyCategoryDirtyForMedium(cat, m) ? ' notify-cat-chip--dirty' : '')"
                             :disabled="!notifyMediumIsGloballyEnabled(m)"
                             :title="(notifyMediumIsGloballyEnabled(m)
                                      ? (t('profile.notifications.cat_chip_title', { medium: t('admin.notifications.medium_' + m) }) || ('Click to toggle ' + m + ' for this category'))
-                                     : (t('profile.notifications.medium_globally_disabled') || 'Disabled by admin'))"
+                                     : (t('profile.notifications.medium_globally_disabled') || 'Disabled by admin'))
+                                    + (notifyCategoryDirtyForMedium(cat, m) ? ' — ' + (t('profile.notifications.cat_chip_dirty') || 'Unsaved change') : '')"
                             :aria-pressed="notifyCategoryStateForMedium(cat, m) === 'all' ? 'true' : (notifyCategoryStateForMedium(cat, m) === 'none' ? 'false' : 'mixed')"
                             @click="toggleNotifyCategoryMedium(cat.id, m)">
                       <span x-text="t('admin.notifications.medium_' + m)"></span>
@@ -3523,6 +3529,13 @@
                                     : (notifyCategoryStateForMedium(cat, m) === 'partial' ? '/img/ui-sprite.svg#icon-help-circle'
                                     : '/img/ui-sprite.svg#icon-bug')"/>
                       </svg>
+                      <!-- Dirty dot — visible only when this chip's
+                           routing has been changed by the operator
+                           but not yet Saved. Pairs with the page-Save's
+                           amber ring so the operator sees BOTH cues. -->
+                      <span x-show="notifyCategoryDirtyForMedium(cat, m)"
+                            class="notify-cat-chip-dirty-dot"
+                            :aria-label="t('profile.notifications.cat_chip_dirty') || 'Unsaved change'"></span>
                     </button>
                   </template>
                 </div>
@@ -13478,7 +13491,7 @@
             <h2 class="text-[15px] font-semibold flex items-center gap-2 flex-wrap">
               <span x-text="notifyTemplateEditor.readOnly ? t('profile.notify_templates.modal_title') : t('admin.notify_templates.modal_title')"></span>
               <span class="chip pill-info text-[10.5px]"
-                    x-text="t('admin.notifications.events.' + (notifyTemplateEvent && notifyTemplateEvent.label || ''))"
+                    x-text="(notifyTemplateEvent && notifyTemplateEvent.label) ? t('admin.notifications.events.' + notifyTemplateEvent.label) : ''"
                     x-show="notifyTemplateEvent && notifyTemplateEvent.label"></span>
             </h2>
             <p class="text-[11.5px] text-[var(--text-faint)] mt-0.5"

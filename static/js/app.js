@@ -6859,6 +6859,51 @@ function app() {
       if (on === 0) return 'none';
       return 'partial';
     },
+    // Per-(category, medium) dirty marker — true when AT LEAST ONE
+    // event in this category has a different routing for this medium
+    // than the last-saved baseline (`_profileBaseline`, captured on
+    // /api/me load + each successful saveProfile commit). Used by
+    // the chip markup to render a small amber dot when the operator's
+    // click hasn't yet been Saved, paired with the page-Save's amber
+    // dirty ring. Without this, the chip flips to "all" / "none" /
+    // "partial" the moment the operator clicks even though the change
+    // hasn't been persisted — if Save fails (network blip), the chip
+    // would lie about the persisted state.
+    notifyCategoryDirtyForMedium(cat, medium) {
+      const rows = (cat && cat.rows) || [];
+      if (rows.length === 0) return false;
+      let baseEvents = null;
+      try {
+        baseEvents = (JSON.parse(this._profileBaseline || '{}').notify_events) || {};
+      } catch { return false; }
+      const currentEvents = (this.profileForm && this.profileForm.notify_events) || {};
+      for (const r of rows) {
+        if (this.userNotifyEventDisabledByAdmin(r.key)) continue;
+        // Resolve current value via the same helper the chip's state
+        // uses so admin-default fallbacks compose identically.
+        const cur = !!this.userNotifyEventValue(r.key, medium);
+        // Resolve baseline value: same shape the helper expects, but
+        // against the last-saved snapshot.
+        const basePref = baseEvents[r.key];
+        let base;
+        if (basePref === undefined || basePref === null) {
+          // Fall back to the admin default (which the chip would also
+          // surface via userNotifyEventValue when the user has no
+          // explicit pref).
+          base = !!this.userNotifyEventValue(r.key, medium);
+        } else if (typeof basePref === 'boolean') {
+          base = !!basePref;
+        } else if (typeof basePref === 'object') {
+          // Per-medium dict shape. Missing key defaults to true (matches
+          // the live helper's contract for unrecognised medium keys).
+          base = basePref[medium] === undefined ? true : !!basePref[medium];
+        } else {
+          base = false;
+        }
+        if (cur !== base) return true;
+      }
+      return false;
+    },
     notifyCategoryEnabledCount(cat) {
       const rows = (cat && cat.rows) || [];
       let total = 0, on = 0;
@@ -15148,11 +15193,25 @@ function app() {
             }
           } else {
             // Brand-new row — push the full skeleton so it renders.
+            // Respect the backend's status when it's already populated —
+            // /api/hosts/list now promotes status='up' on cold-load
+            // when the snapshot fallback restored host_* runtime
+            // fields (the _stale_fields branch in
+            // _shape_host_api_row). Pre-fix this branch unconditionally
+            // forced status='loading' for every new row, stomping the
+            // backend's 'up' with the loading sentinel and hiding the
+            // CPU / Mem / Disk bars (their gates require
+            // h.status === 'up'). Now we keep whatever the backend
+            // sent unless the row is unconfigured (no providers mapped
+            // OR every provider disabled globally) or the backend left
+            // status blank (legacy responses + first-ever boot with no
+            // snapshot, where 'loading' is still the right initial
+            // sentinel).
             this.hosts.push({
               ...h,
               _seq: i,
               _loading: !skipProbe,
-              status: skipProbe ? 'unconfigured' : 'loading',
+              status: skipProbe ? 'unconfigured' : (h.status || 'loading'),
             });
           }
         }
@@ -19369,12 +19428,24 @@ function app() {
     async bulkPauseHosts() {
       if (this.selectedHostCount() === 0) return;
       // SweetAlert confirm — destructive (sampler will skip these
-      // hosts until manually resumed).
+      // hosts until manually resumed). Body shows the actual host
+      // names so the operator can verify the selection before
+      // committing — for >10 hosts the list is truncated to the first
+      // 10 + "...and N more" so a 200-host pause confirm doesn't fill
+      // the entire screen with hostnames.
+      const ids = this.selectedHostsArray();
+      const sample = ids.slice(0, 10);
+      const more = ids.length - sample.length;
+      const sampleHtml = sample.map(id => '<code>' + this._logEscape(id) + '</code>').join(', ');
+      const moreHtml = more > 0
+        ? ' ' + (this.t('hosts_extra.bulk.pause_confirm_more', { more }) || ('… and ' + more + ' more'))
+        : '';
       try {
         const result = await Swal.fire({
           title: this.t('hosts_extra.bulk.pause_confirm_title') || 'Pause sampling?',
-          text:  this.t('hosts_extra.bulk.pause_confirm_body', { count: this.selectedHostCount() })
-                 || ('Pause sampling on ' + this.selectedHostCount() + ' host(s)?'),
+          html:  (this.t('hosts_extra.bulk.pause_confirm_body', { count: this.selectedHostCount() })
+                  || ('Pause sampling on ' + this.selectedHostCount() + ' host(s)?'))
+                 + '<br><br><div class="text-[11.5px] text-[var(--text-dim)] mono break-words">' + sampleHtml + moreHtml + '</div>',
           icon:  'warning',
           showCancelButton: true,
           confirmButtonText: this.t('hosts_extra.bulk.pause_confirm_ok') || 'Pause',
