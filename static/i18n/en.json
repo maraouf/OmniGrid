@@ -1480,7 +1480,38 @@
       "items": "service",
       "admin": "admin",
       "views": "view",
-      "hotkeys": "key"
+      "hotkeys": "key",
+      "actions": "action",
+      "ai": "ai"
+    },
+    "action": {
+      "refresh_now":          "Trigger gather refresh now",
+      "refresh_now_sub":      "Force /api/items refetch + image-digest probe",
+      "reload_spa":           "Reload SPA",
+      "reload_spa_sub":       "Hard-reload the page",
+      "test_portainer":       "Force re-test Portainer connection",
+      "test_oidc":            "Force re-test Authentik OIDC",
+      "test_beszel":          "Force re-test Beszel hub",
+      "test_pulse":           "Force re-test Pulse",
+      "test_webmin":          "Force re-test Webmin",
+      "theme_dark":           "Switch theme to dark",
+      "theme_light":          "Switch theme to light",
+      "theme_auto":           "Switch theme to auto (system)",
+      "show_hotkeys":         "Show keyboard shortcuts",
+      "open_notifications":   "Open notifications panel",
+      "logout":               "Sign out",
+      "logout_confirm_title": "Sign out?",
+      "logout_confirm_text":  "End your current session.",
+      "destructive_confirm":  "This action affects live state — proceed?"
+    },
+    "ai": {
+      "ask_label":      "Ask AI: {query}",
+      "ask_sub":        "Send to the active AI provider",
+      "thinking_title": "Thinking…",
+      "answer_title":   "AI response",
+      "error_title":    "AI request failed",
+      "empty_response": "(empty response)",
+      "disabled":       "AI is disabled — enable it in Admin → AI Integration"
     },
     "admin": {
       "general": "Admin → General",

@@ -205,3 +205,194 @@ async def test_provider(
     out.setdefault("provider", p)
     out["response_time_ms"] = int((time.time() - started) * 1000)
     return out
+
+
+# ----------------------------------------------------------------------
+# Chat completion — full conversational request, used by surfaces that
+# need a real model response (not just a one-token health probe).
+# Currently the Cmd-K palette's "Ask AI" row dispatches here. Same
+# four-provider matrix as ``test_provider``; same response shape
+# (`{ok, text, detail, response_time_ms, provider, model, tokens}`).
+# Errors flow through `_interpret_http` so the operator sees the raw
+# upstream message (rate-limit / quota / auth) verbatim.
+# ----------------------------------------------------------------------
+
+
+async def _chat_claude(api_key: str, model: str, base_url: str,
+                        prompt: str, system_prompt: str, max_tokens: int,
+                        timeout: float) -> dict:
+    base = _resolve_endpoint("claude", base_url)
+    url = f"{base}/v1/messages"
+    headers = {
+        "x-api-key":         api_key,
+        "anthropic-version": "2023-06-01",
+        "content-type":      "application/json",
+    }
+    body: dict = {
+        "model":      model or _DEFAULT_MODELS["claude"],
+        "max_tokens": max_tokens,
+        "messages":   [{"role": "user", "content": prompt}],
+    }
+    if system_prompt:
+        body["system"] = system_prompt
+    async with httpx.AsyncClient(timeout=timeout) as c:
+        r = await c.post(url, headers=headers, json=body)
+    if r.status_code != 200:
+        return _interpret_http(r, "claude")
+    try:
+        j = r.json()
+        # Claude responds with content as a list of blocks.
+        blocks = j.get("content") or []
+        text_parts = [b.get("text", "") for b in blocks if isinstance(b, dict) and b.get("type") == "text"]
+        text = "".join(text_parts).strip()
+        usage = j.get("usage") or {}
+        return {
+            "ok": True, "status": 200, "text": text,
+            "tokens": {"prompt": int(usage.get("input_tokens", 0)),
+                       "completion": int(usage.get("output_tokens", 0))},
+            "model": j.get("model") or model,
+        }
+    except (ValueError, json.JSONDecodeError) as e:
+        return {"ok": False, "status": r.status_code,
+                "detail": f"claude response parse error: {e}", "provider": "claude"}
+
+
+async def _chat_gemini(api_key: str, model: str, base_url: str,
+                        prompt: str, system_prompt: str, max_tokens: int,
+                        timeout: float) -> dict:
+    base = _resolve_endpoint("gemini", base_url)
+    mdl = model or _DEFAULT_MODELS["gemini"]
+    url = f"{base}/v1beta/models/{mdl}:generateContent"
+    headers = {
+        "x-goog-api-key": api_key,
+        "content-type":   "application/json",
+    }
+    body: dict = {
+        "contents":         [{"parts": [{"text": prompt}]}],
+        "generationConfig": {"maxOutputTokens": max_tokens},
+    }
+    if system_prompt:
+        body["systemInstruction"] = {"parts": [{"text": system_prompt}]}
+    async with httpx.AsyncClient(timeout=timeout) as c:
+        r = await c.post(url, headers=headers, json=body)
+    if r.status_code != 200:
+        return _interpret_http(r, "gemini")
+    try:
+        j = r.json()
+        candidates = j.get("candidates") or []
+        text = ""
+        if candidates:
+            parts = ((candidates[0] or {}).get("content") or {}).get("parts") or []
+            text = "".join(p.get("text", "") for p in parts if isinstance(p, dict)).strip()
+        usage = j.get("usageMetadata") or {}
+        return {
+            "ok": True, "status": 200, "text": text,
+            "tokens": {"prompt": int(usage.get("promptTokenCount", 0)),
+                       "completion": int(usage.get("candidatesTokenCount", 0))},
+            "model": mdl,
+        }
+    except (ValueError, json.JSONDecodeError) as e:
+        return {"ok": False, "status": r.status_code,
+                "detail": f"gemini response parse error: {e}", "provider": "gemini"}
+
+
+async def _chat_openai_compatible(provider: str, api_key: str, model: str,
+                                   base_url: str, prompt: str, system_prompt: str,
+                                   max_tokens: int, timeout: float) -> dict:
+    base = _resolve_endpoint(provider, base_url)
+    url = f"{base}/v1/chat/completions"
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "content-type":  "application/json",
+    }
+    messages: list = []
+    if system_prompt:
+        messages.append({"role": "system", "content": system_prompt})
+    messages.append({"role": "user", "content": prompt})
+    body = {
+        "model":      model or _DEFAULT_MODELS.get(provider, ""),
+        "messages":   messages,
+        "max_tokens": max_tokens,
+    }
+    async with httpx.AsyncClient(timeout=timeout) as c:
+        r = await c.post(url, headers=headers, json=body)
+    if r.status_code != 200:
+        return _interpret_http(r, provider)
+    try:
+        j = r.json()
+        choices = j.get("choices") or []
+        text = ""
+        if choices:
+            msg = (choices[0] or {}).get("message") or {}
+            text = (msg.get("content") or "").strip()
+        usage = j.get("usage") or {}
+        return {
+            "ok": True, "status": 200, "text": text,
+            "tokens": {"prompt": int(usage.get("prompt_tokens", 0)),
+                       "completion": int(usage.get("completion_tokens", 0))},
+            "model": j.get("model") or model,
+        }
+    except (ValueError, json.JSONDecodeError) as e:
+        return {"ok": False, "status": r.status_code,
+                "detail": f"{provider} response parse error: {e}", "provider": provider}
+
+
+async def ask_provider(
+    provider: str,
+    *,
+    api_key: str,
+    prompt: str,
+    system_prompt: str = "",
+    model: str | None = None,
+    base_url: str | None = None,
+    max_tokens: int = 512,
+    timeout: float = 30.0,
+) -> dict:
+    """Ask one provider for a chat completion. Returns
+    ``{ok, text, detail, response_time_ms, provider, model, tokens}``.
+
+    Sibling of :func:`test_provider` — same dispatch matrix, but issues
+    a real conversational request rather than a one-token ping. Used
+    by the Cmd-K palette's "Ask AI" surface and any future feature
+    that needs a model response. Preserves the keep-current-if-blank
+    secret contract — the caller resolves the saved API key.
+    """
+    p = (provider or "").strip().lower()
+    if p not in SUPPORTED_PROVIDERS:
+        return {"ok": False, "status": 0, "provider": p,
+                "detail": f"Unsupported provider: {provider}",
+                "response_time_ms": 0}
+    if not (api_key or "").strip():
+        return {"ok": False, "status": 0, "provider": p,
+                "detail": "API key is not set. Configure it in Admin → AI Integration first.",
+                "response_time_ms": 0}
+    if not (prompt or "").strip():
+        return {"ok": False, "status": 0, "provider": p,
+                "detail": "prompt is required", "response_time_ms": 0}
+
+    started = time.time()
+    try:
+        if p == "claude":
+            out = await _chat_claude(api_key, model or "", base_url or "",
+                                     prompt, system_prompt, max_tokens, timeout)
+        elif p == "gemini":
+            out = await _chat_gemini(api_key, model or "", base_url or "",
+                                     prompt, system_prompt, max_tokens, timeout)
+        else:
+            out = await _chat_openai_compatible(p, api_key, model or "", base_url or "",
+                                                prompt, system_prompt, max_tokens, timeout)
+    except httpx.TimeoutException:
+        out = {"ok": False, "status": 0,
+               "detail": f"Request timed out after {timeout:.0f}s — the provider's API may be slow.",
+               "provider": p}
+    except httpx.RequestError as e:
+        out = {"ok": False, "status": 0,
+               "detail": f"Network error: {type(e).__name__}: {e}",
+               "provider": p}
+    except Exception as e:  # noqa: BLE001
+        out = {"ok": False, "status": 0,
+               "detail": f"{type(e).__name__}: {e}",
+               "provider": p}
+    out.setdefault("provider", p)
+    out["response_time_ms"] = int((time.time() - started) * 1000)
+    return out

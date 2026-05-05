@@ -1354,16 +1354,51 @@ async def do_retag_container_to_latest(op: Operation, container_id: str) -> None
             # handled the same way at the per-key level so image-defined
             # env vars don't leak into the new container while operator-
             # set env vars survive.
-            async def _image_config(ref: str) -> dict:
+            from urllib.parse import quote as _qt
+            async def _image_config(ref: str, label: str) -> dict:
+                # Image refs contain `:` and `/` (e.g. `ghcr.io/foo/bar:latest`).
+                # `quote(safe='/:')` keeps both literal so Docker's route
+                # handler `/images/{name:.+}/json` matches cleanly. httpx
+                # generally preserves these characters anyway, but doing
+                # it explicitly removes any ambiguity across versions.
+                encoded = _qt(ref, safe='/:')
                 u = (f"{portainer.PORTAINER_URL}/api/endpoints/"
                      f"{portainer.PORTAINER_ENDPOINT_ID}"
-                     f"/docker/images/{ref}/json")
-                resp = await client.get(u, headers=portainer.headers(agent_target=node))
+                     f"/docker/images/{encoded}/json")
+                try:
+                    resp = await client.get(u, headers=portainer.headers(agent_target=node))
+                except Exception as e:
+                    op.log(f"image inspect ({label}) failed: {e}", "warning")
+                    return {}
                 if resp.status_code >= 400:
+                    op.log(
+                        f"image inspect ({label}) HTTP {resp.status_code}: "
+                        f"{resp.text[:200]}", "warning",
+                    )
                     return {}
                 return (resp.json() or {}).get("Config") or {}
-            old_image_cfg = await _image_config(old_image_ref)
-            new_image_cfg = await _image_config(new_image_ref)
+            old_image_cfg = await _image_config(old_image_ref, "old")
+            new_image_cfg = await _image_config(new_image_ref, "new")
+            # Diagnostic — surface what each image declared so the
+            # operator can correlate the drop-decisions below with the
+            # actual Dockerfile defaults. Without these lines a "still
+            # crashes on entrypoint" failure mode looks identical to
+            # an "inspect call returned empty" failure mode.
+            op.log(
+                f"old image defaults: Entrypoint={old_image_cfg.get('Entrypoint')!r} "
+                f"Cmd={old_image_cfg.get('Cmd')!r} "
+                f"WorkingDir={old_image_cfg.get('WorkingDir')!r}"
+            )
+            op.log(
+                f"new image defaults: Entrypoint={new_image_cfg.get('Entrypoint')!r} "
+                f"Cmd={new_image_cfg.get('Cmd')!r} "
+                f"WorkingDir={new_image_cfg.get('WorkingDir')!r}"
+            )
+            op.log(
+                f"captured from running: Entrypoint={(inspect.get('Config') or {}).get('Entrypoint')!r} "
+                f"Cmd={(inspect.get('Config') or {}).get('Cmd')!r} "
+                f"WorkingDir={(inspect.get('Config') or {}).get('WorkingDir')!r}"
+            )
 
             # ---- 3. Capture config -----------------------------------------
             cfg = dict(inspect.get("Config") or {})
