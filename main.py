@@ -4006,6 +4006,54 @@ async def api_admin_ai_jobs(
     }
 
 
+@app.post("/api/admin/ai/{provider}/test")
+async def api_admin_ai_test(
+    provider: str,
+    body: dict,
+    _admin: auth.User = Depends(auth.require_admin),
+):
+    """Per-provider Test connection probe — same admin-only contract
+    as the Portainer / OIDC / Asset Inventory test endpoints. Sends
+    a single one-token "ping" through the provider's API to verify
+    the API key + model + base URL combine into a working call.
+
+    Body:
+        api_key  — optional. When non-empty, used as-is. When blank,
+                   falls back to the saved ``ai_provider_<p>_api_key``
+                   so the admin can re-test after first save without
+                   re-typing the secret. Mirrors the Portainer Test
+                   pattern.
+        model    — optional. Falls back to the saved model id, then to
+                   the canonical default for the provider.
+        base_url — optional. Falls back to the saved base URL, then to
+                   the canonical endpoint.
+
+    Returns ``{ok, status, detail, response_time_ms, provider}``. The
+    SPA renders ``detail`` inline next to the Test button so admins
+    can see "Invalid API key" / "Model not found" / etc. straight from
+    the upstream provider's error surface.
+    """
+    p = (provider or "").strip().lower()
+    from logic import ai as _ai
+    if p not in _ai.SUPPORTED_PROVIDERS:
+        raise HTTPException(400, f"Unsupported AI provider: {provider}")
+    body = body if isinstance(body, dict) else {}
+    # API key — non-empty body wins; otherwise fall back to saved.
+    api_key = (body.get("api_key") or "").strip()
+    if not api_key:
+        api_key = (get_setting(f"ai_provider_{p}_api_key", "") or "").strip()
+    model = (body.get("model") or "").strip() \
+        or (get_setting(f"ai_provider_{p}_model", "") or "").strip()
+    base_url = (body.get("base_url") or "").strip() \
+        or (get_setting(f"ai_provider_{p}_base_url", "") or "").strip()
+    return await _ai.test_provider(
+        p,
+        api_key=api_key,
+        model=model,
+        base_url=base_url,
+    )
+
+
 # ----------------------------------------------------------------------------
 # Process-level tunables. Admin-only read endpoint that surfaces
 # the DB / env / default tier per knob plus the resolved effective value.

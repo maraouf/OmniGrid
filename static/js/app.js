@@ -9601,6 +9601,18 @@ function app() {
     aiJobs: null,                     // { total, jobs: [...] }
     aiJobsFilterProvider: '',
     aiJobsFilterStatus: '',
+    // Per-provider Test state. `loading` while the probe is in
+    // flight; `result` is the most recent {ok, status, detail,
+    // response_time_ms, provider} dict from /api/admin/ai/{p}/test.
+    // Result is sticky until the next test fires so the success/fail
+    // chip stays visible during edits, mirroring the Portainer Test
+    // pattern.
+    aiTestState: {
+      claude:   { loading: false, result: null },
+      gemini:   { loading: false, result: null },
+      chatgpt:  { loading: false, result: null },
+      deepseek: { loading: false, result: null },
+    },
 
     _aiSnapshot() {
       // Stable shape — `master_enabled` + `active_provider` + per-provider
@@ -9747,6 +9759,63 @@ function app() {
       }
     },
     closeAiModal() { this.aiModalKey = null; },
+    async testAiProvider(name) {
+      // Per-provider Test connection probe. POSTs the typed-but-not-
+      // yet-saved api_key + model + base_url so admins can validate
+      // changes BEFORE committing them to the DB. When the api_key
+      // input is blank we send no key in the body and the backend
+      // falls back to the saved value — re-tests after Save don't
+      // require re-pasting the secret.
+      if (!this.aiTestState[name]) {
+        this.aiTestState[name] = { loading: false, result: null };
+      }
+      if (this.aiTestState[name].loading) return;
+      this.aiTestState[name].loading = true;
+      this.aiTestState[name].result = null;
+      try {
+        const p = this.aiForm.providers[name] || {};
+        const body = {
+          model:    p.model    || '',
+          base_url: p.base_url || '',
+        };
+        // Only send api_key when the user typed something. Blank →
+        // backend uses the saved key (if any).
+        if ((p.api_key || '').trim()) body.api_key = p.api_key.trim();
+        const r = await fetch(`/api/admin/ai/${encodeURIComponent(name)}/test`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        });
+        const data = await r.json().catch(() => ({}));
+        if (!r.ok && !('ok' in data)) {
+          // Backend raised before reaching the probe (auth / 4xx).
+          this.aiTestState[name].result = {
+            ok: false,
+            detail: (data && data.detail) || `HTTP ${r.status}`,
+            response_time_ms: 0,
+            provider: name,
+          };
+        } else {
+          this.aiTestState[name].result = data;
+        }
+        // Toast a one-line summary so the operator sees the outcome
+        // even without scrolling to the per-card chip.
+        if (this.aiTestState[name].result.ok) {
+          this.toast('success', this.t('admin.ai.test_ok') + ' · ' + this.aiProviderDisplayName(name));
+        } else {
+          this.toast('error',
+            this.aiProviderDisplayName(name) + ' · ' + (this.aiTestState[name].result.detail || this.t('admin.ai.test_failed')));
+        }
+      } catch (e) {
+        this.aiTestState[name].result = {
+          ok: false, detail: String(e && e.message || e),
+          response_time_ms: 0, provider: name,
+        };
+        this.toast('error', this.aiProviderDisplayName(name) + ' · ' + (e.message || e));
+      } finally {
+        this.aiTestState[name].loading = false;
+      }
+    },
     // Physical-disk state pill — Dell OMSA arrayDiskState labels.
     // Visual encoding:
     // green  (pill-ok)     — `online` (active in a RAID array, healthy)

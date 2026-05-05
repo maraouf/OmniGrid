@@ -185,7 +185,15 @@
                 <div class="flex items-center justify-between mb-2">
                   <div class="flex items-center gap-2">
                     <span class="font-semibold text-[13px]" x-text="aiProviderDisplayName(name)"></span>
-                    <span class="chip text-[10px]" x-show="settings.ai_active_provider === name"
+                    <!-- "Active" chip — only shows when EVERY gate is open:
+                         master AI is on AND this provider's per-provider
+                         enable is on AND it matches the active selector.
+                         Pre-fix the chip rendered just on the third gate,
+                         so a fresh deploy with `ai_active_provider=claude`
+                         (default) showed "Active" on Claude even though
+                         nothing was enabled. -->
+                    <span class="chip text-[10px]"
+                          x-show="settings.ai_enabled && aiForm.providers[name].enabled && settings.ai_active_provider === name"
                           :class="'pill-info'"
                           x-text="t('admin.ai.active_chip')"></span>
                   </div>
@@ -230,6 +238,40 @@
                            class="w-full mono text-[12px]">
                     <p class="text-[10px] text-[var(--text-faint)] mt-1" x-text="t('admin.ai.base_url_hint')"></p>
                   </div>
+                  <!-- Test connection — uses the saved api_key when the
+                       password input is blank (lets admins re-test after
+                       a successful Save without re-pasting the secret).
+                       Result chip stays inline so the toast doesn't
+                       have to carry per-provider error text. -->
+                  <div class="flex items-center gap-2 flex-wrap pt-1">
+                    <button type="button"
+                            @click="testAiProvider(name)"
+                            :disabled="isReadonly() || !settings.ai_enabled || !aiForm.providers[name].enabled || (!aiForm.providers[name].api_key && !aiForm.providers[name].api_key_set) || aiTestState[name].loading"
+                            class="btn btn-ghost text-[11.5px]">
+                      <span x-show="!aiTestState[name].loading"
+                            class="flex items-center gap-1">
+                        <svg width="11" height="11" aria-hidden="true"><use href="/img/ui-sprite.svg#icon-zap"/></svg>
+                        <span x-text="t('admin.ai.test_button')"></span>
+                      </span>
+                      <span x-show="aiTestState[name].loading"
+                            class="flex items-center gap-1">
+                        <span class="spin"></span>
+                        <span x-text="t('admin.ai.testing')"></span>
+                      </span>
+                    </button>
+                    <span x-show="aiTestState[name].result"
+                          class="chip text-[10.5px] flex items-center gap-1 max-w-full truncate"
+                          :class="aiTestState[name].result && aiTestState[name].result.ok ? 'pill-ok' : 'pill-error'"
+                          :title="aiTestState[name].result ? aiTestState[name].result.detail : ''">
+                      <span x-text="aiTestState[name].result && aiTestState[name].result.ok ? t('admin.ai.test_ok') : t('admin.ai.test_failed')"></span>
+                      <span x-show="aiTestState[name].result && aiTestState[name].result.response_time_ms !== undefined"
+                            class="text-[var(--text-faint)] mono"
+                            x-text="'(' + aiTestState[name].result.response_time_ms + ' ms)'"></span>
+                    </span>
+                  </div>
+                  <p x-show="aiTestState[name].result && !aiTestState[name].result.ok"
+                     class="text-[10.5px] text-[var(--danger)] mono break-words"
+                     x-text="aiTestState[name].result ? aiTestState[name].result.detail : ''"></p>
                 </div>
               </div>
             </template>
