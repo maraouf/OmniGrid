@@ -1439,7 +1439,7 @@
     "restart": "🔄 Restart",
     "restart_flash": "⚡",
     "remove_container": "🗑 Remove container",
-    "retag_latest": "Switch to :latest",
+    "retag_latest": "🏷 Switch to :latest",
     "retag_latest_title": "Rewrite the stack's compose file to track :latest instead of the current pinned tag, then redeploy. The original tag stays in the registry — manual rollback still works.",
     "portainer": "↗ Portainer",
     "registry": "📦 Registry",
