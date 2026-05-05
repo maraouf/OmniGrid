@@ -998,6 +998,7 @@ function app() {
         'tuning_pulse_probe_timeout_seconds',
       ],
       webmin: [
+        'tuning_webmin_probe_timeout_seconds',
         'tuning_webmin_probe_budget_seconds',
         'tuning_webmin_host_cache_ttl_seconds',
         'tuning_webmin_host_fail_cache_ttl_seconds',
@@ -1069,6 +1070,7 @@ function app() {
       'tuning_beszel_failure_pause_rounds',
       'tuning_pulse_failure_pause_rounds',
       'tuning_pulse_probe_timeout_seconds',
+      'tuning_webmin_probe_timeout_seconds',
       'tuning_node_exporter_failure_pause_rounds',
       'tuning_ping_failure_pause_rounds',
       // stat-bar warn / crit thresholds (frontend-consumed).
@@ -5167,11 +5169,14 @@ function app() {
         // even after the foreground call completed. Auto-clears
         // on the next poll once the background gather lands.
         this.cacheRefreshing = !!d.cache_refreshing;
-        // Only fire stats alongside a forced refresh when stats
-        // polling is actually enabled. With statsInterval=0 the
-        // operator explicitly chose "off", so auto-refresh
-        // shouldn't sneak a /api/stats call in via the back door.
-        if (force && this.statsInterval > 0) this.loadStats(true);
+        // Fire stats alongside a forced refresh UNLESS the cadence
+        // picker is set to Off. Pre-fix this gated on
+        // `statsInterval > 0`, but `setRefreshInterval` remaps Live
+        // (-1) to legacy `statsInterval = 0`, so a forced refresh in
+        // Live mode skipped /api/stats entirely — bars stayed on
+        // seeded stale data forever. Now any non-Off mode loads
+        // stats; only `refreshInterval === 0` (explicit Off) skips.
+        if (force && this.refreshInterval !== 0) this.loadStats(true);
       } catch (e) { this.showToast(this.t('toasts.load_failed', { error: e.message }), 'error'); }
       this.loading = false;
     },
@@ -8540,14 +8545,23 @@ function app() {
       es.addEventListener('stats:refreshed', (e) => {
         onAny();
         if (this._isSelfEvent(e)) return;
-        const fired = this.statsInterval > 0;
-        // Hint event — the stats payload itself isn't broadcast (cheap
-        // to fetch via /api/stats and the existing TTL gate prevents
-        // back-to-back pulls). Skip when statsInterval=0 (operator
-        // explicitly turned stats off) so the master switch still wins.
-        if (fired) {
-          try { this.loadStats && this.loadStats(); } catch (_) {}
-        }
+        // Hint event — the stats payload itself isn't broadcast
+        // (cheap to fetch via /api/stats and the existing TTL gate
+        // prevents back-to-back pulls). Trigger loadStats UNLESS the
+        // operator has set the cadence picker to Off
+        // (`refreshInterval === 0`); in Live mode (-1) and any
+        // positive cadence, fresh stats data is exactly what the
+        // operator opted in to see. Pre-fix this gated on
+        // `statsInterval > 0`, but `setRefreshInterval` remaps Live
+        // (-1) to legacy `statsInterval = 0` (since polling sleeps in
+        // Live and SSE drives updates), so the handler skipped Live
+        // entirely — the dashboard's stats data never refreshed in
+        // Live mode after a backend gather completed, leaving bars
+        // stuck on seeded-stale snapshot data and the topbar refresh
+        // spinner spinning on the never-cleared `stats_refreshing`
+        // flag from the initial response.
+        if (this.refreshInterval === 0) return;
+        try { this.loadStats && this.loadStats(); } catch (_) {}
       });
       es.addEventListener('host:row_updated', (e) => {
         onAny();
@@ -14518,6 +14532,81 @@ function app() {
       } catch (e) {
         this.showToast(this.t('admin_assets.save_failed') + ': ' + e.message, 'error');
       }
+    },
+    // Generic secret-clear helper — the seven admin-tab secret inputs
+    // (asset client_secret / asset lifetime_token / ssh password / ssh
+    // passphrase / ssh private_key / beszel_password / pulse_token /
+    // webmin_password / portainer_api_key / oidc_client_secret) all
+    // share the same SweetAlert-confirm + POST-clear-flag shape.
+    // Pre-fix each had its own `clearXxx` function with copy-pasted
+    // body. This canonical helper takes the i18n key family +
+    // backend-flag name + post-clear toast key and runs the flow.
+    // Kept the existing `clearAssetClientSecret` / etc. wrappers so
+    // their callers stay one-line.
+    async _clearSecret({ flag, titleKey, textKey, toastKey }) {
+      try {
+        const ok = await (window.Swal ? Swal.fire({
+          icon: 'warning',
+          title: this.t(titleKey),
+          text:  this.t(textKey),
+          showCancelButton: true,
+          confirmButtonText: this.t('actions.confirm'),
+          cancelButtonText:  this.t('actions.cancel'),
+        }).then(r => !!r.isConfirmed) : confirm(this.t(textKey)));
+        if (!ok) return;
+        const body = {};
+        body[flag] = true;
+        const r = await fetch('/api/settings', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        });
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        await this.loadSettings();
+        this.showToast(this.t(toastKey), 'success');
+      } catch (e) {
+        this.showToast((this.t('toasts.save_failed') || 'Save failed') + ': ' + e.message, 'error');
+      }
+    },
+    async clearBeszelPassword() {
+      return this._clearSecret({
+        flag: 'clear_beszel_password',
+        titleKey: 'settings.host_stats.clear_secret_title',
+        textKey:  'settings.host_stats.beszel_password_clear_text',
+        toastKey: 'settings.host_stats.beszel_password_cleared',
+      });
+    },
+    async clearPulseToken() {
+      return this._clearSecret({
+        flag: 'clear_pulse_token',
+        titleKey: 'settings.host_stats.clear_secret_title',
+        textKey:  'settings.host_stats.pulse_token_clear_text',
+        toastKey: 'settings.host_stats.pulse_token_cleared',
+      });
+    },
+    async clearWebminPassword() {
+      return this._clearSecret({
+        flag: 'clear_webmin_password',
+        titleKey: 'settings.host_stats.clear_secret_title',
+        textKey:  'settings.host_stats.webmin_password_clear_text',
+        toastKey: 'settings.host_stats.webmin_password_cleared',
+      });
+    },
+    async clearPortainerApiKey() {
+      return this._clearSecret({
+        flag: 'clear_portainer_api_key',
+        titleKey: 'settings.portainer.clear_secret_title',
+        textKey:  'settings.portainer.api_key_clear_text',
+        toastKey: 'settings.portainer.api_key_cleared',
+      });
+    },
+    async clearOidcClientSecret() {
+      return this._clearSecret({
+        flag: 'clear_oidc_client_secret',
+        titleKey: 'settings.oidc.clear_secret_title',
+        textKey:  'settings.oidc.client_secret_clear_text',
+        toastKey: 'settings.oidc.client_secret_cleared',
+      });
     },
     async testAssetConnection() {
       this.assetTestResult = { pending: true };

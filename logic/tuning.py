@@ -336,6 +336,14 @@ TUNABLES: dict[str, tuple[str, int, int, int]] = {
     # behind a slow proxy or against an under-provisioned PVE cluster
     # where the per-node enumeration takes longer.
     "tuning_pulse_probe_timeout_seconds": ("PULSE_PROBE_TIMEOUT_SECONDS", 15, 1, 120),
+    # Webmin sampler per-host probe wall-clock budget. Same shape as
+    # the Pulse / NE probe timeouts. Pre-fix the sampler read this key
+    # via `tuning_int(...)` but the key was never declared in TUNABLES,
+    # so the resolver raised `unknown tunable` on every tick (default
+    # 300s cadence) and the outer except-Exception silently caught the
+    # raise — the Webmin sampler effectively never ran. Default 8s
+    # matches the previous `or 8.0` fallback in the sampler code.
+    "tuning_webmin_probe_timeout_seconds": ("WEBMIN_PROBE_TIMEOUT_SECONDS", 8, 1, 120),
     # node-exporter per-host auto-pause threshold. Per-host scrape, so
     # the failure semantic is the same as Webmin: probe attempt that
     # raised OR returned exporter_error. 0 = disabled. Range 0..50.

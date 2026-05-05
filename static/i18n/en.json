@@ -445,6 +445,14 @@
       "beszel_test_button": "Test connection",
       "beszel_testing": "Testing…",
       "saved": "Host-stats settings saved",
+      "clear_secret_title": "Clear saved secret?",
+      "clear_secret_label": "Clear",
+      "beszel_password_clear_text": "Clear the saved Beszel password? Beszel probes will fail until you save a new one.",
+      "beszel_password_cleared": "Beszel password cleared",
+      "pulse_token_clear_text": "Clear the saved Pulse API token? Pulse probes will fail until you save a new one.",
+      "pulse_token_cleared": "Pulse API token cleared",
+      "webmin_password_clear_text": "Clear the saved Webmin password? Webmin probes will fail until you save a new one.",
+      "webmin_password_cleared": "Webmin password cleared",
       "pulse_url_label": "Pulse URL",
       "pulse_url_placeholder": "http://pulse.example.com:7655",
       "pulse_url_hint_html": "Base URL of your Pulse instance. OmniGrid will call <code class=\"mono\">{URL_PLACEHOLDER}/api/state</code> with the token below.",
@@ -638,6 +646,9 @@
       "save_button": "Save",
       "test_button": "Test connection",
       "save_requires_test": "Run a successful Test connection first — Save is gated until the URL / API key / endpoint round-trip works.",
+      "clear_secret_title": "Clear saved API key?",
+      "api_key_clear_text": "Clear the saved Portainer API key? Every Portainer-bound call (gather, ops, stats) will fail until you save a new one.",
+      "api_key_cleared": "Portainer API key cleared",
       "public_title": "Portainer public URL",
       "public_desc": "Browser-facing URL for \"Open in Portainer\" deep links. May differ from the API URL when Portainer sits behind a reverse proxy.",
       "public_placeholder": "https://portainer.example.com",
@@ -671,6 +682,9 @@
       "client_secret_set": " · set",
       "client_secret_not_set": "(not set)",
       "client_secret_placeholder": "Paste new secret or leave blank",
+      "clear_secret_title": "Clear saved client secret?",
+      "client_secret_clear_text": "Clear the saved Authentik client secret? OIDC sign-in will fail until you save a new one.",
+      "client_secret_cleared": "Authentik client secret cleared",
       "redirect_uri": "Redirect URI",
       "redirect_uri_note": "(paste this into Authentik's Redirect URIs allowlist)",
       "redirect_uri_hint": "Computed from the current request's origin. Authentik must have this exact value in its \"Redirect URIs\" allowlist, one per line.",
@@ -1023,6 +1037,10 @@
         "tuning_pulse_probe_timeout_seconds": {
           "label": "Pulse hub probe timeout (seconds)",
           "help": "Per-fetch timeout for the Pulse `/api/state` hub call. One hub fetch covers every Pulse-mapped host, so this knob bounds the SAMPLER tick wall-clock and the synchronous probe path used by /api/hosts/list. Default 15s — Pulse responds sub-second on a healthy hub but slow proxies / under-provisioned PVE clusters can take longer. Lower (e.g. 5s) on a fast LAN; raise (e.g. 30s) if the hub is behind a slow Cloudflare Tunnel. Range 1..120s. Takes effect on the next sampler tick."
+        },
+        "tuning_webmin_probe_timeout_seconds": {
+          "label": "Webmin per-host probe timeout (seconds)",
+          "help": "Per-fetch timeout for the Webmin Miniserv probe in the host_webmin_sampler. Default 8s matches the previous hardcoded fallback. Lower (e.g. 5s) on a fast LAN; raise (e.g. 30s) if Miniserv runs behind a slow proxy or returns chunked HTML responses that take time to parse. Range 1..120s. Takes effect on the next sampler tick."
         },
         "tuning_node_exporter_failure_pause_rounds": {
           "label": "node-exporter auto-pause threshold (rounds)",

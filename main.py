@@ -1112,9 +1112,18 @@ async def api_stats(force: bool = False):
     stats_refreshing = False
 
     if not has_cached_stats:
-        # Truly cold: no data to serve, must block on the gather. Same
-        # contract as the cold path in /api/items.
-        await _gather_stats()
+        # Truly cold: no data to serve, must block on the gather.
+        # Same single-flight contract as the cold path in /api/items
+        # — route through `_kick_background_stats_gather()` so a
+        # concurrent `force=true` caller doesn't spawn a parallel
+        # `gather_stats()` racing the cold caller on
+        # `_stats_cache` mutation.
+        _kick_background_stats_gather()
+        if _background_stats_task is not None:
+            try:
+                await _background_stats_task
+            except Exception as e:  # noqa: BLE001
+                print(f"[stats] cold-cache gather_stats failed: {e}")
     elif cache_stale or force:
         # Stale cache OR force-bypass — kick a refresh in the
         # background. Single-flight: no-op when one is already in
@@ -1208,8 +1217,27 @@ async def api_items(force: bool = False):
     cache_refreshing = False
 
     if not has_cached_data:
-        # Truly cold: no data to serve, must block on the gather.
-        await _gather()
+        # Truly cold: no data to serve, must block on the gather. Route
+        # through `_kick_background_gather()` so the single-flight
+        # guard covers this path too — pre-fix the cold-cache branch
+        # called `await _gather()` directly without setting
+        # `_background_gather_task`, so a concurrent caller hitting
+        # `force=true` could spawn a SECOND parallel `_gather()` racing
+        # the first one on `_cache` mutation. Now both paths share the
+        # same task reference; the cold caller awaits it before
+        # responding, the force caller fire-and-forgets and returns
+        # the (still-cold but populated by the first caller) cache.
+        _kick_background_gather()
+        if _background_gather_task is not None:
+            try:
+                await _background_gather_task
+            except Exception as e:  # noqa: BLE001
+                # Don't let a transient gather error break the
+                # response — the SPA will retry on the next poll, and
+                # the next branch happily serves whatever ``_cache``
+                # contains (possibly empty, in which case the SPA
+                # renders the existing empty-state ladder).
+                print(f"[items] cold-cache gather failed: {e}")
     elif cache_stale or force:
         # Stale cache OR force-bypass — kick a refresh in the
         # background. Single-flight: no-op when one is already in
@@ -2051,6 +2079,16 @@ class SettingsIn(BaseModel):
     clear_ssh_private_key: Optional[bool] = None
     clear_ssh_passphrase: Optional[bool] = None
     clear_ssh_password: Optional[bool] = None
+    # Provider-secret clear flags — pair with the existing
+    # asset / ssh clear flags so every admin-tab secret input has the
+    # same canonical "Clear" affordance. Each flag sets the
+    # corresponding settings KV row to "" (empty string), which the
+    # respective probe path treats as "no credential configured".
+    clear_beszel_password: Optional[bool] = None
+    clear_pulse_token: Optional[bool] = None
+    clear_webmin_password: Optional[bool] = None
+    clear_portainer_api_key: Optional[bool] = None
+    clear_oidc_client_secret: Optional[bool] = None
     # JSON array of SSH custom actions. Each element:
     #   {"id": "restart-beszel", "title": "Restart Beszel agent",
     #    "command": "systemctl restart beszel-agent"}
@@ -2180,6 +2218,7 @@ class SettingsIn(BaseModel):
     tuning_beszel_failure_pause_rounds: Optional[str] = None
     tuning_pulse_failure_pause_rounds: Optional[str] = None
     tuning_pulse_probe_timeout_seconds: Optional[str] = None
+    tuning_webmin_probe_timeout_seconds: Optional[str] = None
     tuning_node_exporter_failure_pause_rounds: Optional[str] = None
     tuning_ping_failure_pause_rounds: Optional[str] = None
     # stat-bar thresholds (frontend-consumed via /api/me).
@@ -2978,6 +3017,23 @@ async def _api_set_settings_inner(s, request, _portainer):
         set_setting("ssh_default_private_key_passphrase", "")
     if s.clear_ssh_password:
         set_setting("ssh_default_password", "")
+    # Provider-secret clear handlers. Each flag sets the corresponding
+    # settings KV row to empty so the keep-current-if-blank contract
+    # at every other write path treats the secret as "explicitly
+    # cleared" on the next save. Pairs with the SPA's per-secret
+    # `clear<Field>()` helper that fires this flag in isolation
+    # (separate POST so an in-flight form edit doesn't accidentally
+    # land alongside the clear).
+    if s.clear_beszel_password:
+        set_setting("beszel_password", "")
+    if s.clear_pulse_token:
+        set_setting("pulse_token", "")
+    if s.clear_webmin_password:
+        set_setting("webmin_password", "")
+    if s.clear_portainer_api_key:
+        set_setting("portainer_api_key", "")
+    if s.clear_oidc_client_secret:
+        set_setting("oidc_client_secret", "")
     # Custom SSH actions — JSON array replaces the whole list wholesale.
     # Full-replace semantics match how Admin → Hosts saves hosts_config.
     # Shape validation lives here so the runner can trust what it reads.
@@ -8562,6 +8618,7 @@ async def api_hosts_debug(
         "tuning_beszel_failure_pause_rounds",
         "tuning_pulse_failure_pause_rounds",
         "tuning_pulse_probe_timeout_seconds",
+        "tuning_webmin_probe_timeout_seconds",
         "tuning_node_exporter_failure_pause_rounds",
         "tuning_ping_failure_pause_rounds",
         "tuning_snmp_sample_interval_seconds",
