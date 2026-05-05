@@ -4,7 +4,7 @@
              sliver on typical desktops. Spacing matches the
              standardised admin-tab pattern. -->
         <div class="flex items-center gap-2 mb-2">
-          <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true"><use href="/img/ui-sprite.svg#icon-server"/></svg>
+          <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-server"/></svg>
           <h3 class="font-semibold text-[13px]" x-text="t('admin_hosts.heading')"></h3>
         </div>
         <p class="text-[11.5px] text-[var(--text-faint)] mb-3 leading-snug max-w-[720px]"
@@ -104,7 +104,7 @@
              visually tedious. Empty input = show all. -->
         <div x-show="!hostsConfigLoading && hostsConfig.length > 3"
              class="flex items-center gap-2 mb-3">
-          <svg width="14" height="14" class="text-[var(--text-faint)]" aria-hidden="true"><use href="/img/ui-sprite.svg#icon-search"/></svg>
+          <svg width="14" height="14" class="text-[var(--text-faint)]" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-search"/></svg>
           <input type="search" x-model.debounce.150ms="hostsConfigFilter"
                  class="flex-1 text-[12.5px] py-1.5"
                  :placeholder="t('admin_hosts.filter_placeholder')">
@@ -167,7 +167,7 @@
               <div class="flex items-center gap-2 cursor-pointer select-none flex-wrap"
                    :class="isHostConfigExpanded(row) ? 'mb-3' : ''"
                    @click="toggleHostConfigRow(row)">
-                <svg width="12" height="12" aria-hidden="true" class="text-[var(--text-dim)] transition-transform flip-rtl" :style="isHostConfigExpanded(row) ? 'transform: rotate(90deg)' : ''"><use href="/img/ui-sprite.svg#icon-chevron-right"/></svg>
+                <svg width="12" height="12" aria-hidden="true" class="text-[var(--text-dim)] transition-transform flip-rtl" :style="isHostConfigExpanded(row) ? 'transform: rotate(90deg)' : ''"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-chevron-right"/></svg>
                 <!-- "Click to edit" hint + SSH state dot — bound to
                      the LEFT of the row (right after the chevron) so
                      they stay visible regardless of how long the host
@@ -228,7 +228,7 @@
                     <svg x-show="!row.label && assetForHost(row) && assetForHost(row).name"
                          width="9" height="9"
                          class="text-[var(--text-faint)] flex-shrink-0 opacity-70"
-                         aria-hidden="true"><use href="/img/ui-sprite.svg#icon-package"/></svg>
+                         aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-package"/></svg>
                   </span>
                 </template>
                 <span x-show="!row.enabled" class="chip text-[9.5px] px-1 py-0 pill-warning" x-text="t('states.disabled')"></span>
@@ -274,7 +274,7 @@
                      width="13" height="13"
                      class="text-[var(--success)] flex-shrink-0"
                      aria-hidden="true"
-                     :title="t('admin_hosts.ssh_state.enabled')"><use href="/img/ui-sprite.svg#icon-terminal"/></svg>
+                     :title="t('admin_hosts.ssh_state.enabled')"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-terminal"/></svg>
                 <!-- Asset-inventory autofill — shown in the expanded-row
                      header only. Collapsed rows stay visually quiet; once
                      the operator opens a row to edit it, the chip appears
@@ -870,19 +870,19 @@
                           class="btn btn-ghost text-[12px] px-2"
                           :class="idx === 0 ? 'opacity-40 cursor-not-allowed' : ''"
                           :title="t('admin_hosts.groups.move_up_title')">
-                    <svg width="11" height="11" stroke-width="2.4" aria-hidden="true"><use href="/img/ui-sprite.svg#icon-chevron-up"/></svg>
+                    <svg width="11" height="11" stroke-width="2.4" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-chevron-up"/></svg>
                   </button>
                   <button x-show="isAdmin()" @click="moveHostRow(idx, +1)"
                           :disabled="idx === hostsConfig.length - 1"
                           class="btn btn-ghost text-[12px] px-2"
                           :class="idx === hostsConfig.length - 1 ? 'opacity-40 cursor-not-allowed' : ''"
                           :title="t('admin_hosts.groups.move_down_title')">
-                    <svg width="11" height="11" stroke-width="2.4" aria-hidden="true"><use href="/img/ui-sprite.svg#icon-chevron-down"/></svg>
+                    <svg width="11" height="11" stroke-width="2.4" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-chevron-down"/></svg>
                   </button>
                   <button x-show="isAdmin()" @click="duplicateHostRow(idx)"
                           class="btn btn-ghost text-[12px] px-2"
                           :title="t('admin_hosts.row.duplicate_title')">
-                    <svg width="11" height="11" aria-hidden="true"><use href="/img/ui-sprite.svg#icon-copy"/></svg>
+                    <svg width="11" height="11" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-copy"/></svg>
                   </button>
                   <button x-show="isAdmin()" @click="removeHostRow(idx)"
                           class="btn btn-ghost text-[12px] text-danger px-2"
