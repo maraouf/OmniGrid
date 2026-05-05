@@ -14248,6 +14248,29 @@ async def login_page():
     return _render_shell("static/login.html")
 
 
+# UI icon sprite. Served as a discrete route (not via the catch-all
+# StaticFiles mount) so we can attach `Cache-Control: no-cache,
+# must-revalidate` — the sprite is a single shared file consumed by
+# every <use href="/img/ui-sprite.svg#icon-..."/> in the SPA, and an
+# additive symbol edit (new brand icon, new tab icon) ships with the
+# next PATCH but the browser would otherwise hold the OLD sprite via
+# heuristic caching. With must-revalidate the browser sends an
+# If-Modified-Since on every navigation; unchanged file returns 304
+# (cheap), changed file returns 200 with the new symbols. Same
+# rationale + same headers as the SPA shell. Registered BEFORE the
+# StaticFiles "/" mount per CLAUDE.md mount-order rule.
+@app.get("/img/ui-sprite.svg")
+async def serve_ui_sprite():
+    path = "static/img/ui-sprite.svg"
+    if not os.path.isfile(path):
+        raise HTTPException(status_code=404, detail="UI sprite not found")
+    return FileResponse(
+        path,
+        media_type="image/svg+xml",
+        headers={"Cache-Control": "no-cache, must-revalidate"},
+    )
+
+
 # Shell-HTML cache — tiny map keyed by file path. Each entry stores the
 # assembled file bytes (with `<!-- INCLUDE: ... -->` markers expanded) and
 # the combined mtime tuple of the master file + every referenced partial;
