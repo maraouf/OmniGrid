@@ -213,10 +213,18 @@ def publish(
         _ident_raw = (payload or {}).get("host_id") or (payload or {}).get("op_id") \
                 or (payload or {}).get("schedule_id")
     _ident = _sanitise_ident(_ident_raw) if _ident_raw is not None else ""
-    if _ident:
-        print(f"[events] publish {type_} id={_ident}")
-    else:
-        print(f"[events] publish {type_}")
+    # Suppress the trace for high-frequency event types whose only
+    # consumer is the SPA's per-row chip pulse — on a 200-host fleet
+    # `host:provider_probing` / `host:provider_done` fire thousands of
+    # times per minute and bury actionable lines in Admin → Logs. The
+    # events still publish + dispatch normally; only the trace print is
+    # silenced. Add new type prefixes here when a publisher's volume
+    # outweighs its diagnostic value.
+    if not type_.startswith("host:provider_"):
+        if _ident:
+            print(f"[events] publish {type_} id={_ident}")
+        else:
+            print(f"[events] publish {type_}")
     # Stamp client_id into the payload (non-destructive: callers'
     # original dict isn't mutated; we make a shallow copy when needed).
     if client_id:

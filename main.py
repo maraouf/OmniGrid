@@ -6396,20 +6396,19 @@ def _failure_state_for_host(host_id: str) -> dict:
 
 
 # Providers that support per-(provider, host) auto-pause via the
-# round-count threshold model. Keys are the provider names that match
-# the front-end chip strip + `host_failure_state` row prefix
-# (`<provider>:<host_id>`). Generic shape — adding a new provider in
-# future is the documented six-step contract: (1) extend this tuple,
-# (2) add `tuning_<provider>_failure_pause_rounds` to TUNABLES,
-# (3) add it to SettingsIn, (4) add to `relocatedTuningKeys` in
-# `static/js/app.js`, (5) call `record_provider_outcome` at the probe
+# round-count threshold model. Single source of truth lives in
+# `logic/host_metrics_sampler._PROVIDER_PREFIXES` so adding a seventh
+# provider is a one-line change there instead of needing to keep two
+# literals in sync. Aliased here as a tuple for the legacy import shape
+# (callers iterate / `in` against it). Generic shape — adding a new
+# provider in future is the documented six-step contract: (1) extend
+# `_PROVIDER_PREFIXES`, (2) add `tuning_<provider>_failure_pause_rounds`
+# to TUNABLES, (3) add it to SettingsIn, (4) add to `relocatedTuningKeys`
+# in `static/js/app.js`, (5) call `record_provider_outcome` at the probe
 # site (or thread `round_threshold=` through the existing
 # `_record_failure` site), (6) add an i18n entry under
-# `admin.config.fields`. The resume endpoint below auto-handles the
-# row delete; per-provider cool-down clearing is provider-specific.
-_PROVIDER_AUTO_PAUSE_NAMES = (
-    "beszel", "pulse", "node_exporter", "webmin", "ping", "snmp",
-)
+# `admin.config.fields`.
+from logic.host_metrics_sampler import _PROVIDER_PREFIXES as _PROVIDER_AUTO_PAUSE_NAMES  # noqa: E402
 
 
 # Short-TTL cache for the full-table scans behind
@@ -9968,6 +9967,41 @@ class HostsBulkSnmpTunablesIn(BaseModel):
     clear: bool = False  # when true, REMOVES the per-host override (falls back to global tunable)
 
 
+def _bulk_write_history_rows(
+    host_ids: list[str], *,
+    op_type: str, actor: str, started_ts: float,
+) -> None:
+    """Write one history audit row per host for a bulk action.
+
+    Pre-fix the bulk-pause / bulk-resume endpoints left no audit trail
+    — only the per-host endpoints wrote rows. Bulk callers therefore
+    couldn't trace "who paused which 50 hosts at 03:14" through the
+    Admin → History or per-host Timeline surfaces. This helper closes
+    that gap by writing one row per matched host with a 'hosts' kind
+    so the existing `target_kind` filter buckets them correctly.
+
+    Best-effort — a per-row insert failure is logged and skipped so a
+    single corrupt row never makes the bulk response 500. Same shape
+    as the SCHEDULER_ACTOR / `_run_*` runners' history-row pattern.
+    """
+    if not host_ids:
+        return
+    try:
+        with db_conn() as c:
+            c.executemany(
+                "INSERT INTO history "
+                "(ts, op_type, target_kind, target_name, target_id, "
+                " target_stack, status, duration, events, error, actor) "
+                "VALUES (?, ?, 'hosts', ?, ?, NULL, 'success', 0.0, ?, NULL, ?)",
+                [
+                    (started_ts, op_type, hid, hid, "[]", actor)
+                    for hid in host_ids
+                ],
+            )
+    except Exception as e:  # noqa: BLE001
+        print(f"[hosts:bulk] history write failed for {op_type}: {e}")
+
+
 def _bulk_resolve_host_ids(host_ids: list[str], curated: list[dict]) -> tuple[list[str], list[str]]:
     """Return (matched_ids, missing_ids) by intersecting the requested
     set against the curated hosts_config index. Order preserved from
@@ -10066,14 +10100,22 @@ async def api_hosts_bulk_pause(
                     applied.append(hid)
                 except Exception as e:  # noqa: BLE001
                     errors[hid] = str(e)
+    # Per-host audit rows in `history` so Admin → History + the host
+    # drawer's Timeline tab pick up bulk actions (pre-fix bulk pause/
+    # resume left no audit trail — only the per-host endpoints did).
+    # `target_kind='hosts'` matches the migration-#3 backfill rule for
+    # `hosts_bulk_*` op_types. Best-effort; one bad row doesn't break
+    # the response.
+    if applied:
+        _bulk_write_history_rows(
+            applied, op_type="hosts_bulk_pause",
+            actor=actor, started_ts=float(now),
+        )
     # Publish ONE bulk SSE event so cross-tab observers reconcile N
     # rows from a single frame instead of N separate
-    # `host:failure_state_changed` events. Pre-fix this loop fanned
-    # out one event per applied id — for a 200-host bulk-pause that's
-    # 200 SSE frames hitting every connected client. The new
-    # `host:bulk_action_applied` event carries the full id list in one
-    # payload; the SPA handler iterates and triggers refreshHostRow
-    # per id (same effect, single SSE write).
+    # `host:failure_state_changed` events. The SPA handler iterates
+    # `host_ids` and triggers refreshHostRow per id (same effect,
+    # single SSE write).
     try:
         from logic import events as _events
         client_id = _request_client_id(request)
@@ -10150,6 +10192,13 @@ async def api_hosts_bulk_resume(
                 except Exception as e:  # noqa: BLE001
                     errors[hid] = str(e)
     _full_host_cache_bust()
+    # Per-host audit rows in `history` so Admin → History + the host
+    # drawer's Timeline tab pick up bulk resumes (mirrors bulk-pause).
+    if applied:
+        _bulk_write_history_rows(
+            applied, op_type="hosts_bulk_resume",
+            actor=actor, started_ts=time.time(),
+        )
     # ONE bulk SSE event covers every applied id — same contract as
     # the bulk-pause sister endpoint above. SPA's
     # `host:bulk_action_applied` handler iterates and refreshes each
