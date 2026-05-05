@@ -240,6 +240,9 @@
                     class="btn btn-soft text-[12px] justify-self-end"
                     x-text="(beszelTestResult && beszelTestResult.pending) ? t('settings.host_stats.beszel_testing') : t('settings.host_stats.beszel_test_button')"></button>
           </div>
+          <div x-show="lastTestSuccessLabel('beszel')"
+               class="text-[11px] text-[var(--text-faint)] -mt-1"
+               x-text="lastTestSuccessLabel('beszel')"></div>
           <p class="text-[10.5px] text-[var(--text-faint)]"
              x-text="t('settings.host_stats.beszel_naming_hint')"></p>
           <!-- Beszel auto-pause threshold. -->
@@ -373,6 +376,9 @@
                     class="btn btn-soft text-[12px] justify-self-end"
                     x-text="(pulseTestResult && pulseTestResult.pending) ? t('settings.host_stats.pulse_testing') : t('settings.host_stats.pulse_test_button')"></button>
           </div>
+          <div x-show="lastTestSuccessLabel('pulse')"
+               class="text-[11px] text-[var(--text-faint)] -mt-1"
+               x-text="lastTestSuccessLabel('pulse')"></div>
           <p class="text-[10.5px] text-[var(--text-faint)]" x-text="t('settings.host_stats.pulse_aliases_hint')"></p>
           <!-- Pulse auto-pause threshold. -->
           <div class="mt-3 pt-3 border-t border-[var(--border)] space-y-3"
@@ -508,6 +514,9 @@
                   class="text-[11.5px]"
                   x-text="(webminTestResult && webminTestResult.ok ? '✓ ' : '✗ ') + (webminTestResult && webminTestResult.detail || '')"></span>
           </div>
+          <div x-show="lastTestSuccessLabel('webmin')"
+               class="text-[11px] text-[var(--text-faint)] -mt-1"
+               x-text="lastTestSuccessLabel('webmin')"></div>
           <p class="text-[10.5px] text-[var(--text-faint)]"
              x-html="t('settings.host_stats.webmin_aliases_hint_html')"></p>
 
@@ -661,6 +670,9 @@
                   class="text-[10.5px] text-[var(--text-faint)] italic"
                   x-text="t('settings.host_stats.ping.test_no_hosts')"></span>
           </div>
+          <div x-show="lastTestSuccessLabel('ping')"
+               class="text-[11px] text-[var(--text-faint)] -mt-1"
+               x-text="lastTestSuccessLabel('ping')"></div>
           <!-- Ping tunables — same Alpine state as the other tunable
                cards (tuningForm / tuningEffective). Renders inline so
                operators tweaking ping have everything to hand. -->
@@ -883,6 +895,9 @@
                   class="text-[10.5px] text-[var(--text-faint)] italic"
                   x-text="t('settings.host_stats.snmp.test_no_hosts')"></span>
           </div>
+          <div x-show="lastTestSuccessLabel('snmp')"
+               class="text-[11px] text-[var(--text-faint)] -mt-1"
+               x-text="lastTestSuccessLabel('snmp')"></div>
 
           <!-- Tunables — SNMP probe timeout + concurrency. Same Alpine
                state pattern as the other relocated tunables. -->

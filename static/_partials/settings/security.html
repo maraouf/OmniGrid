@@ -1,11 +1,13 @@
       <section x-show="settingsSection === 'security'" class="page-grid space-y-5">
         <!-- Security card — change password (local users only).
-             Header icon matches the sidebar's `security` entry
-             (`icon-shield`) so the section's identity is consistent
-             across the navigation chrome and the page heading. -->
+             Header icon stays `icon-lock` so it doesn't duplicate the
+             Two-factor authentication card's `icon-shield` further
+             down. The sidebar's `security` entry uses shield to mark
+             the section as a whole — keeping per-card icons distinct
+             (lock / shield / key) so each card has its own identity. -->
         <section class="bg-[var(--surface)] border border-[var(--border)] rounded-md p-5">
           <div class="flex items-center gap-2 mb-4">
-            <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-shield"/></svg>
+            <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-lock"/></svg>
             <h3 class="font-semibold text-[13px]" x-text="t('settings.profile.security')"></h3>
           </div>
           <template x-if="me && me.source === 'local'">
