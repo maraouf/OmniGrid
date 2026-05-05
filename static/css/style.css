@@ -288,6 +288,14 @@
     --w: 0%;
     --c: var(--success);
     --avatar-hue: 210;
+    /* Mobile bottom-nav height — defaults to 0px on desktop where
+       the nav doesn't exist. Future runtime override (e.g. JS-set on
+       <html> when a touch viewport mounts a fixed bottom-nav) bumps
+       this so any fixed-bottom UI (.hosts-bulk-bar, future toast bar)
+       floats above the nav instead of overlapping. Always paired
+       with `env(safe-area-inset-bottom)` for iOS / Android home-bar
+       safe area. */
+    --mobile-nav-height: 0px;
     --chip-bg: var(--surface-2);
     --chip-br: var(--border);
     --chip-fg: var(--text-dim);
@@ -2634,9 +2642,17 @@ details summary::-webkit-details-marker {
 .notify-cat-chip {
     display: inline-flex;
     align-items: center;
-    font-size: var(--fs-2xs);
+    font-size: var(--fs-xs);
     font-weight: 500;
-    padding: var(--s-1) var(--s-2);
+    /* WCAG 2.5.5 (Target Size — minimum 24×24px). Pre-fix
+       `padding: var(--s-1) var(--s-2)` produced a ~4×8px content
+       area. Bumped vertical padding to `var(--s-2)` (8px each side)
+       + horizontal to `var(--s-3)` (10px each side) + min-height
+       guarantee so the chip clears 24×24 even with the smallest
+       label font. Cursor stays on the whole chip; the dirty-dot
+       indicator + status icon remain inside the box. */
+    padding: var(--s-2) var(--s-3);
+    min-height: 24px;
     border-radius: var(--r-sm);
     border: 1px solid var(--border);
     background: var(--surface);
@@ -2754,7 +2770,14 @@ details summary::-webkit-details-marker {
 .hosts-bulk-bar {
     position: fixed;
     left: 50%;
-    bottom: var(--s-4);
+    /* Float above any mobile bottom-nav / browser-chrome safe area
+       instead of overlapping it. `--mobile-nav-height` is a runtime
+       custom property the SPA sets to the height of the active mobile
+       bottom-nav (defaults to 0 on desktop where the nav doesn't
+       exist); `safe-area-inset-bottom` adds the iOS / Android home-bar
+       gutter on touch devices that report a non-zero inset. The base
+       `var(--s-4)` (12px) breathing room sits on top of both. */
+    bottom: calc(var(--mobile-nav-height, 0px) + env(safe-area-inset-bottom, 0px) + var(--s-4));
     transform: translateX(-50%);
     z-index: 35;
     display: flex;
@@ -2773,6 +2796,25 @@ details summary::-webkit-details-marker {
     font-weight: 600;
     font-size: var(--fs-md);
     white-space: nowrap;
+}
+/* Vertical separator between action groups in the bulk bar. The
+   sampler-state actions (Resume / Pause) and the SNMP-config actions
+   (Vendors / Tunables) touch different state planes — this divider
+   signals the boundary so the bar reads as two semantic groups
+   rather than a flat list of four equally-weighted actions.
+   Self-thinning at narrower viewports — when the bar wraps because
+   the viewport is too small, the divider hides instead of inserting
+   an awkward visual stub on a wrap line. */
+.hosts-bulk-bar-divider {
+    display: inline-block;
+    width: 1px;
+    height: 20px;
+    background: var(--border);
+    margin: 0 var(--s-1);
+    flex-shrink: 0;
+}
+@media (max-width: 600px) {
+    .hosts-bulk-bar-divider { display: none; }
 }
 
 /* HOSTS BULK PROGRESS BADGE — appears above the toolbar for ~5 s

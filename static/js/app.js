@@ -8590,6 +8590,41 @@ function app() {
           }
         } catch (_) {}
       });
+      // Bulk-action event — backend publishes ONE frame per bulk
+      // endpoint (pause / resume / snmp_vendors / snmp_tunables)
+      // carrying every applied host_id in the payload. SPA reconciles
+      // each id in the same way the per-host handler above does
+      // (single observer-pending Set + flush). For curated-config
+      // edits (snmp_vendors / snmp_tunables) we ALSO trigger a
+      // background `loadHosts(true)` so the curated overlay (snmp
+      // sub-block, vendors list) re-syncs across tabs.
+      es.addEventListener('host:bulk_action_applied', (e) => {
+        onAny();
+        if (this._isSelfEvent(e)) return;
+        try {
+          const data = JSON.parse(e.data || '{}');
+          const payload = data.payload || {};
+          const action = payload.action || '';
+          const ids = Array.isArray(payload.host_ids) ? payload.host_ids : [];
+          console.log('[live] event=host:bulk_action_applied action=' + action + ' ids=' + ids.length);
+          if (ids.length === 0) return;
+          // Per-row refresh — same path as the per-host handler.
+          this._hostObserverPending = this._hostObserverPending || new Set();
+          for (const id of ids) this._hostObserverPending.add(id);
+          if (typeof this._scheduleHostObserverFlush === 'function') {
+            this._scheduleHostObserverFlush();
+          } else if (typeof this._runHostRefreshQueue === 'function') {
+            this._runHostRefreshQueue(ids.slice()).catch(() => {});
+          }
+          // Curated-config actions also need a `hosts_config`-level
+          // reload so the SPA's snmp_name / snmp.vendors / snmp.walk_*
+          // overlays pick up the new server-side state.
+          if ((action === 'snmp_vendors' || action === 'snmp_tunables')
+              && typeof this.loadHosts === 'function') {
+            this.loadHosts(true);
+          }
+        } catch (_) {}
+      });
       // Per-(provider, host) probe-status events. Backend fires these
       // around each in-flight per-host probe slice (SNMP / Webmin / NE)
       // so a chip pulses ONLY while ITS specific probe is running, not
@@ -19291,12 +19326,18 @@ function app() {
       }
     },
     hostTimelineIconRef(kind, severity) {
+      // Per-kind icons distinct enough to read at a glance in a busy
+      // timeline — operator can spot a paused-provider entry without
+      // hovering for the title.
       const sev = (severity || 'info').toString();
       const k = (kind || '').toString();
-      if (k === 'provider_recovered' || sev === 'success') return 'icon-activity';
-      if (k === 'provider_paused')                          return 'icon-alert-triangle';
-      if (k === 'notification')                             return 'icon-bell';
-      if (sev === 'error')                                  return 'icon-bug';
+      if (k === 'op')                  return 'icon-history';
+      if (k === 'notification')        return 'icon-bell';
+      if (k === 'provider_paused')     return 'icon-pause';
+      if (k === 'provider_recovered')  return 'icon-check';
+      // Unknown kind — fall back on severity for forward-compat.
+      if (sev === 'success')           return 'icon-activity';
+      if (sev === 'error')             return 'icon-bug';
       return 'icon-info';
     },
     hostTimelineTimeLabel(ts) {
