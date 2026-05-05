@@ -845,8 +845,11 @@ def init_db():
             last_failure_ts      REAL,
             PRIMARY KEY (host_id, provider)
         );
-        CREATE INDEX IF NOT EXISTS idx_host_failure_state_provider
-            ON host_failure_state(provider);
+        -- idx_host_failure_state_provider is created by migration #2 —
+        -- on legacy DBs the table exists WITHOUT the `provider` column
+        -- at this point in init_db (CREATE TABLE IF NOT EXISTS is a
+        -- no-op when the table already exists), so the index creation
+        -- has to wait until migration #2 has rebuilt the table.
 
         -- Per-(provider, host) last-successful-probe timestamp.
         -- Distinct from host_failure_state which only exists during a
@@ -861,8 +864,9 @@ def init_db():
             last_ok_ts INTEGER NOT NULL,
             PRIMARY KEY (host_id, provider)
         );
-        CREATE INDEX IF NOT EXISTS idx_host_provider_last_ok_provider
-            ON host_provider_last_ok(provider);
+        -- idx_host_provider_last_ok_provider — same story as above;
+        -- migration #2 owns the index creation so legacy DBs don't
+        -- fail the executescript before migrations get to run.
 
         -- Ping reachability time-series. Populated by
         -- logic/ping_sampler.py at tuning_ping_interval_seconds
