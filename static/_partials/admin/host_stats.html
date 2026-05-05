@@ -227,7 +227,17 @@
                    :disabled="isReadonly() || !hasHostStatsSource('beszel')">
             <span x-text="t('settings.host_stats.beszel_verify_tls')"></span>
           </label>
-          <div class="grid grid-cols-[1fr_auto] items-center gap-2">
+          <!-- Test button on the LEFT, result text fills the remainder.
+               Pre-fix the grid was `[1fr_auto]` with the result first
+               and the button right-aligned via `justify-self-end` —
+               unify with the Pulse / Webmin / Portainer / OIDC layouts
+               where Test sits on the leading edge and the result chip
+               trails it. -->
+          <div class="grid grid-cols-[auto_1fr] items-center gap-2">
+            <button x-show="isAdmin()" @click="testBeszelConnection()"
+                    :disabled="(beszelTestResult && beszelTestResult.pending) || !hasHostStatsSource('beszel')"
+                    class="btn btn-soft text-[12px] justify-self-start"
+                    x-text="(beszelTestResult && beszelTestResult.pending) ? t('settings.host_stats.beszel_testing') : t('settings.host_stats.beszel_test_button')"></button>
             <span class="text-[11.5px] min-w-0"
                   :class="beszelTestResult && !beszelTestResult.pending
                           ? (beszelTestResult.ok ? 'text-[var(--success)]' : 'text-[var(--danger)]')
@@ -235,10 +245,6 @@
                   x-text="beszelTestResult && !beszelTestResult.pending
                           ? ((beszelTestResult.ok ? '✓ ' : '✗ ') + (beszelTestResult.detail || ''))
                           : ''"></span>
-            <button x-show="isAdmin()" @click="testBeszelConnection()"
-                    :disabled="(beszelTestResult && beszelTestResult.pending) || !hasHostStatsSource('beszel')"
-                    class="btn btn-soft text-[12px] justify-self-end"
-                    x-text="(beszelTestResult && beszelTestResult.pending) ? t('settings.host_stats.beszel_testing') : t('settings.host_stats.beszel_test_button')"></button>
           </div>
           <div x-show="lastTestSuccessLabel('beszel')"
                class="text-[11px] text-[var(--text-faint)] -mt-1"
@@ -363,7 +369,13 @@
                    :disabled="isReadonly() || !hasHostStatsSource('pulse')">
             <span x-text="t('settings.host_stats.pulse_verify_tls')"></span>
           </label>
-          <div class="grid grid-cols-[1fr_auto] items-center gap-2">
+          <!-- Test button on the LEFT, result text fills the remainder
+               (matches Beszel / Webmin / Portainer / OIDC layouts). -->
+          <div class="grid grid-cols-[auto_1fr] items-center gap-2">
+            <button x-show="isAdmin()" @click="testPulseConnection()"
+                    :disabled="(pulseTestResult && pulseTestResult.pending) || !hasHostStatsSource('pulse')"
+                    class="btn btn-soft text-[12px] justify-self-start"
+                    x-text="(pulseTestResult && pulseTestResult.pending) ? t('settings.host_stats.pulse_testing') : t('settings.host_stats.pulse_test_button')"></button>
             <span class="text-[11.5px] min-w-0"
                   :class="pulseTestResult && !pulseTestResult.pending
                           ? (pulseTestResult.ok ? 'text-[var(--success)]' : 'text-[var(--danger)]')
@@ -371,10 +383,6 @@
                   x-text="pulseTestResult && !pulseTestResult.pending
                           ? ((pulseTestResult.ok ? '✓ ' : '✗ ') + (pulseTestResult.detail || ''))
                           : ''"></span>
-            <button x-show="isAdmin()" @click="testPulseConnection()"
-                    :disabled="(pulseTestResult && pulseTestResult.pending) || !hasHostStatsSource('pulse')"
-                    class="btn btn-soft text-[12px] justify-self-end"
-                    x-text="(pulseTestResult && pulseTestResult.pending) ? t('settings.host_stats.pulse_testing') : t('settings.host_stats.pulse_test_button')"></button>
           </div>
           <div x-show="lastTestSuccessLabel('pulse')"
                class="text-[11px] text-[var(--text-faint)] -mt-1"

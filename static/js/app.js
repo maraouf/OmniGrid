@@ -20737,13 +20737,29 @@ function app() {
       }
     },
     // Eligibility gate for the drawer's "Switch to :latest" button.
-    // True iff the item is stack-managed AND its image tag is something
-    // OTHER than `latest` (no tag at all defaults to `:latest` so
-    // there's nothing to switch). Digest suffix `@sha256:...` is
-    // dropped before the tag-suffix check so digest-pinned-but-tagged-
-    // latest images (`foo:latest@sha256:...`) still hide the button.
+    // True iff the item is a container OR stack-managed item AND its
+    // image tag is something OTHER than `latest`. Two paths handle the
+    // dispatch downstream:
+    //   - Stack-managed (item.stack_id truthy) → case-1: rewrite the
+    //     compose file via /api/update/stack/{id}/retag-latest.
+    //   - Standalone container (item.raw_id truthy, stack_id null) →
+    //     case-2: recreate the container via
+    //     /api/update/container/{id}/retag-latest.
+    // Both paths require an image with a non-`latest` tag. Digest
+    // suffix `@sha256:...` is dropped before the tag-suffix check so
+    // digest-pinned-but-tagged-latest images still hide the button.
     canRetagToLatest(item) {
-      if (!item || !item.stack_id || !item.image) return false;
+      if (!item || !item.image) return false;
+      // Need either stack_id (Portainer-managed compose) OR raw_id
+      // (any container we can recreate via Docker). Service items
+      // have neither flag unique to them, but their `stack_id` would
+      // be set if they're stack-managed.
+      if (!item.stack_id && !item.raw_id) return false;
+      // Services aren't supported by either case yet — Swarm tasks
+      // need a different update flow (`docker service update --image
+      // ... --force`). Filter out so the button doesn't appear for
+      // service rows.
+      if (item.type === 'service' || item.type === 'orphan') return false;
       const noDigest = item.image.split('@')[0];
       const lastSlash = noDigest.lastIndexOf('/');
       const lastColon = noDigest.lastIndexOf(':');
@@ -20759,10 +20775,11 @@ function app() {
     // Multi-service stacks scope the retag to the operator-clicked
     // item's image_repo so sibling services keep their pinned tags.
     async retagStackToLatest(item) {
-      if (!item || !item.stack_id) return;
+      if (!item) return;
       const currentImage = item.image || '';
-      // Strip tag + digest to extract the repo for the optional filter.
-      // `<host>/<path>/<repo>:<tag>@sha256:...` → `<host>/<path>/<repo>`.
+      // Strip tag + digest to extract the repo for the optional filter
+      // / proposed-image preview. `<host>/<path>/<repo>:<tag>@sha256:...`
+      // → `<host>/<path>/<repo>`.
       let imageRepo = currentImage.split('@')[0];
       const lastColon = imageRepo.lastIndexOf(':');
       const lastSlash = imageRepo.lastIndexOf('/');
@@ -20772,23 +20789,38 @@ function app() {
         this.showToast(this.t('toasts.retag_already_latest', { name: item.name }), 'info');
         return;
       }
+      // Two dispatch paths — case-1 rewrites the Portainer-managed
+      // compose file (stack-level), case-2 recreates the container
+      // directly (works for non-Portainer-managed containers like
+      // Komodo). Same SweetAlert confirm + same button + same toast
+      // contract.
+      const isStackPath = !!item.stack_id;
       const ok = await this.confirmDialog({
         title: this.t('dialogs.retag_latest_title'),
         html: this.t('dialogs.retag_latest_html', {
           name:    item.name,
           oldImage: currentImage || '(unknown)',
           newImage: proposedImage,
-        }),
+        }) + (isStackPath ? '' : ('<div class="hint-top" style="margin-top:8px;color:var(--warning)">'
+              + (this.t('dialogs.retag_latest_recreate_note')
+                 || 'This container isn\'t managed by Portainer\'s stack engine — it will be stopped, removed, and recreated with the new tag. Named volumes + env + networks survive; transient state does not.')
+              + '</div>')),
         icon: 'warning', confirmText: this.t('actions.retag_latest'),
       });
       if (!ok) return;
-      const key = this._busyKey('stack', item.stack_id);
+      const key = isStackPath
+        ? this._busyKey('stack', item.stack_id)
+        : this._busyKey('item', item.raw_id || item.id);
       this._markBusy(key);
       try {
-        const r = await fetch(`/api/update/stack/${item.stack_id}/retag-latest`, {
+        const url = isStackPath
+          ? `/api/update/stack/${item.stack_id}/retag-latest`
+          : `/api/update/container/${item.raw_id || item.id}/retag-latest`;
+        const body = isStackPath ? { image_repo: imageRepo } : {};
+        const r = await fetch(url, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ image_repo: imageRepo }),
+          body: JSON.stringify(body),
         });
         if (!r.ok) throw new Error(await r.text());
         this.showToast(this.t('toasts.queued', { name: item.name }));

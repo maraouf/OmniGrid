@@ -560,7 +560,13 @@ body {
    --------------------------------------------------------------------------- */
 .scrollbar {
     scrollbar-width: thin;
-    scrollbar-color: transparent transparent;
+    /* Subtle visible thumb at rest — was transparent (which read as
+       "unstyled / Firefox default" in admin tables that legitimately
+       overflow). Operators kept reporting the scrollbar looked native
+       on Firefox in particular. Now visible-but-faint at rest, lifts
+       to full --border-bright on hover. Track stays transparent so
+       the scrollbar reads as a floating thumb, not a chrome rail. */
+    scrollbar-color: var(--border) transparent;
     transition: scrollbar-color .2s ease;
 }
 .scrollbar:hover {
@@ -574,7 +580,7 @@ body {
     background: transparent;
 }
 .scrollbar::-webkit-scrollbar-thumb {
-    background: transparent;
+    background: var(--border);
     border-radius: var(--r-md);
     transition: background .2s ease;
 }

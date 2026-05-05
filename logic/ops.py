@@ -1251,6 +1251,205 @@ async def do_update_container(op: Operation, container_id: str) -> None:
         gather.invalidate_cache()
 
 
+def _retag_image_string(image: str, target_repo: Optional[str] = None) -> Optional[str]:
+    """Strip tag + digest from `image`, append `:latest`. Returns None
+    if the image already tracks `:latest` (no work to do) or the parse
+    fails. ``target_repo`` (when supplied) gates the retag to a single
+    repo so multi-image stacks aren't surprised — Komodo-style single-
+    container case ignores it.
+    """
+    if not image:
+        return None
+    no_digest = image.split("@", 1)[0]
+    last_slash = no_digest.rfind("/")
+    last_colon = no_digest.rfind(":")
+    if last_colon > last_slash:
+        repo = no_digest[:last_colon]
+        tag = no_digest[last_colon + 1:]
+    else:
+        repo = no_digest
+        tag = ""
+    if target_repo and repo != target_repo:
+        return None
+    if tag == "latest" and "@" not in image:
+        return None
+    return f"{repo}:latest"
+
+
+async def do_retag_container_to_latest(op: Operation, container_id: str) -> None:
+    """Switch a non-Portainer-managed container's image tag to ``:latest``.
+
+    Workflow (preserves volumes, networks, env, command, restart policy):
+
+      1. Inspect the running container — capture name + Config +
+         HostConfig + NetworkSettings.Networks.
+      2. Compute the new image ref by stripping the current tag and
+         appending ``:latest``.
+      3. Pull the new image via ``POST /images/create?fromImage=...``.
+      4. Stop + remove the old container.
+      5. Create a fresh container with the SAME name + the captured
+         Config / HostConfig but with ``Image`` overridden to the new
+         ref. Networks beyond the first are reconnected via
+         ``POST /networks/{id}/connect`` since Docker's create endpoint
+         only attaches the first network from EndpointsConfig.
+      6. Start the new container.
+
+    Failure handling: any step before the remove succeeds raises and
+    leaves the original container intact. After the remove, a failure
+    leaves the operator with no running container — the SweetAlert
+    confirm flagged that risk before dispatch. Volumes survive because
+    they're named (not anonymous) on every well-formed container; if
+    the operator runs anonymous volumes those are lost on recreate
+    regardless of which path triggered it (this matches Portainer's
+    own "Recreate container" behaviour).
+    """
+    try:
+        node = portainer.node_for_container(gather.get_cache(), container_id)
+        op.log("Inspecting container" + (f" on node '{node}'" if node else ""))
+        async with httpx.AsyncClient(verify=portainer.VERIFY_TLS, timeout=600.0) as client:
+            inspect_url = (
+                f"{portainer.PORTAINER_URL}/api/endpoints/"
+                f"{portainer.PORTAINER_ENDPOINT_ID}"
+                f"/docker/containers/{container_id}/json"
+            )
+            r = await client.get(inspect_url, headers=portainer.headers(agent_target=node))
+            if r.status_code >= 400:
+                raise RuntimeError(f"inspect HTTP {r.status_code}: {r.text[:300]}")
+            inspect = r.json()
+            old_name = (inspect.get("Name") or "").lstrip("/")
+            old_image_ref = (inspect.get("Config") or {}).get("Image") or ""
+            new_image_ref = _retag_image_string(old_image_ref)
+            if not new_image_ref:
+                raise RuntimeError(
+                    f"Image already tracks :latest or unparseable ({old_image_ref!r})"
+                )
+            op.log(f"Retag {old_image_ref} → {new_image_ref}")
+
+            # ---- 2. Pull the new image -------------------------------------
+            pull_url = (
+                f"{portainer.PORTAINER_URL}/api/endpoints/"
+                f"{portainer.PORTAINER_ENDPOINT_ID}"
+                f"/docker/images/create?fromImage={new_image_ref}"
+            )
+            op.log("Pulling new image…")
+            r = await client.post(pull_url, headers=portainer.headers(agent_target=node))
+            if r.status_code >= 400:
+                raise RuntimeError(f"pull HTTP {r.status_code}: {r.text[:300]}")
+
+            # ---- 3. Capture config -----------------------------------------
+            cfg = dict(inspect.get("Config") or {})
+            host_cfg = dict(inspect.get("HostConfig") or {})
+            net_settings = inspect.get("NetworkSettings") or {}
+            networks = dict((net_settings.get("Networks") or {}))
+            cfg["Image"] = new_image_ref
+
+            # First network goes inline on create; the rest are reattached
+            # via /networks/<id>/connect AFTER create + before start.
+            first_network_name = next(iter(networks), None)
+            extra_networks = list(networks.items())[1:] if first_network_name else []
+            networking_config: dict = {}
+            if first_network_name:
+                first_endpoint = networks[first_network_name] or {}
+                networking_config = {
+                    "EndpointsConfig": {
+                        first_network_name: first_endpoint,
+                    }
+                }
+
+            # ---- 4. Stop + remove the old container ------------------------
+            op.log("Stopping old container…")
+            r = await client.post(
+                f"{portainer.PORTAINER_URL}/api/endpoints/"
+                f"{portainer.PORTAINER_ENDPOINT_ID}"
+                f"/docker/containers/{container_id}/stop?t=10",
+                headers=portainer.headers(agent_target=node),
+            )
+            # 304 = already stopped, OK; 404 = already gone, OK; >= 500 fails.
+            if r.status_code >= 500:
+                raise RuntimeError(f"stop HTTP {r.status_code}: {r.text[:300]}")
+
+            op.log("Removing old container…")
+            r = await client.delete(
+                f"{portainer.PORTAINER_URL}/api/endpoints/"
+                f"{portainer.PORTAINER_ENDPOINT_ID}"
+                f"/docker/containers/{container_id}?force=true&v=false",
+                headers=portainer.headers(agent_target=node),
+            )
+            if r.status_code >= 500:
+                raise RuntimeError(f"remove HTTP {r.status_code}: {r.text[:300]}")
+
+            # ---- 5. Create new container -----------------------------------
+            create_body = {
+                **{k: v for k, v in cfg.items() if k != "Hostname"},
+                "HostConfig": host_cfg,
+                "NetworkingConfig": networking_config,
+            }
+            # `Hostname` from inspect is the SHORT container id of the old
+            # container — Docker rejects it (or sets it to the new id's
+            # prefix anyway). Drop it so the new container gets a fresh
+            # hostname matching its own id; `Domainname` survives.
+            op.log(f"Creating new container '{old_name}'…")
+            r = await client.post(
+                f"{portainer.PORTAINER_URL}/api/endpoints/"
+                f"{portainer.PORTAINER_ENDPOINT_ID}"
+                f"/docker/containers/create?name={old_name}",
+                headers=portainer.headers(agent_target=node),
+                json=create_body,
+            )
+            if r.status_code >= 400:
+                raise RuntimeError(f"create HTTP {r.status_code}: {r.text[:300]}")
+            new_container_id = (r.json() or {}).get("Id") or ""
+            if not new_container_id:
+                raise RuntimeError("create returned no container Id")
+            op.log(f"Created {new_container_id[:12]}")
+
+            # ---- 5b. Reconnect extra networks ------------------------------
+            for net_name, endpoint in extra_networks:
+                connect_body = {
+                    "Container": new_container_id,
+                    "EndpointConfig": endpoint or {},
+                }
+                r = await client.post(
+                    f"{portainer.PORTAINER_URL}/api/endpoints/"
+                    f"{portainer.PORTAINER_ENDPOINT_ID}"
+                    f"/docker/networks/{net_name}/connect",
+                    headers=portainer.headers(agent_target=node),
+                    json=connect_body,
+                )
+                if r.status_code >= 400:
+                    op.log(f"warn: network connect '{net_name}' "
+                           f"HTTP {r.status_code}: {r.text[:200]}", "warning")
+
+            # ---- 6. Start --------------------------------------------------
+            op.log("Starting new container…")
+            r = await client.post(
+                f"{portainer.PORTAINER_URL}/api/endpoints/"
+                f"{portainer.PORTAINER_ENDPOINT_ID}"
+                f"/docker/containers/{new_container_id}/start",
+                headers=portainer.headers(agent_target=node),
+            )
+            if r.status_code >= 400:
+                raise RuntimeError(f"start HTTP {r.status_code}: {r.text[:300]}")
+            op.log("Container retagged + started", "success")
+        op.done("success")
+        await notify(
+            f"✅ Container retagged: {op.target_name}",
+            f"Switched to :latest — duration: {op.to_dict()['duration']:.1f}s",
+            "success",
+            event="container_update_success", actor_username=op.actor,
+            target_kind="container", target_id=str(op.target_id),
+        )
+    except Exception as e:
+        op.log(str(e), "error")
+        op.done("error", str(e))
+        await notify(f"❌ Container retag failed: {op.target_name}", str(e)[:500], "error",
+                     event="container_update_failure", actor_username=op.actor,
+                     target_kind="container", target_id=str(op.target_id))
+    finally:
+        persist_history(op)
+        gather.invalidate_cache()
+
+
 async def do_restart_container(op: Operation, container_id: str) -> None:
     try:
         node = portainer.node_for_container(gather.get_cache(), container_id)

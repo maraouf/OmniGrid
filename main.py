@@ -1464,6 +1464,35 @@ class StackRetagIn(BaseModel):
     image_repo: Optional[str] = None
 
 
+@app.post("/api/update/container/{container_id}/retag-latest")
+async def api_update_container_retag_latest(
+    container_id: str, bg: BackgroundTasks, request: Request,
+    _admin: auth.User = Depends(auth.require_admin),
+):
+    """Switch a non-Portainer-managed container's image tag to ``:latest``.
+
+    Sibling of ``api_update_stack_retag_latest`` (case 1) for containers
+    that aren't part of a Portainer-managed stack — e.g. Komodo's own
+    container, or any container deployed via raw `docker run` /
+    external compose. The handler captures the container's full
+    Config + HostConfig + Networks via inspect, pulls the new image,
+    stops + removes the old container, creates a fresh one with the
+    same name + new image + identical config, reconnects extra
+    networks, and starts it. Volumes survive because they're named
+    refs in the captured HostConfig.
+
+    Operator confirmed via SweetAlert because of the recreate risk —
+    transient state (anonymous volumes, ephemeral env, in-memory
+    sessions) is lost. Persistent state (named volumes, env vars from
+    compose / -e flags, restart policy) survives.
+    """
+    name, stack = _item_context(container_id)
+    op = new_op("update_container", container_id, name,
+                target_stack=stack, actor=_actor_from(request))
+    bg.add_task(_ops_mod.do_retag_container_to_latest, op, container_id)
+    return {"op_id": op.id}
+
+
 @app.post("/api/update/stack/{stack_id}/retag-latest")
 async def api_update_stack_retag_latest(
     stack_id: int, body: StackRetagIn, bg: BackgroundTasks, request: Request,
