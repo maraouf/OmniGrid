@@ -1881,7 +1881,7 @@ details summary::-webkit-details-marker {
     color: var(--text-dim);
 }
 
-/* Per-chart refreshing feedback (#837 follow-up). Dims every
+/* Per-chart refreshing feedback. Dims every
    metric-card inside the grid + adds a subtle pulse so operators
    see at a glance which charts are reloading. The pulse is
    reduced-motion-friendly via the standard prefers-reduced-motion
@@ -2570,7 +2570,7 @@ details summary::-webkit-details-marker {
     cursor: pointer;
 }
 
-/* CATEGORISED PROFILE → NOTIFICATIONS PANEL (#993).
+/* CATEGORISED PROFILE → NOTIFICATIONS PANEL.
    Three collapsible category cards (Operations / Health / Security).
    Each card's header carries the bulk-toggle state + a chevron;
    the body hosts the per-event grid (reuses .notify-grid). Designed

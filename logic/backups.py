@@ -269,7 +269,7 @@ def restore_from_file(path: str) -> dict:
     # old shape and operators end up debugging "why is the schedules
     # tab broken" hours later. Read metadata.json's `schema_head`
     # (added in ENH-010 / #476) BEFORE the swap; compare to live head.
-    # Backups taken pre-#476 have no schema_head and bypass this check
+    # Backups taken pre-fix have no schema_head and bypass this check
     # (back-compat — those legacy backups are presumed compatible).
     try:
         with zipfile.ZipFile(path, "r") as z:

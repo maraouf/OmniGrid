@@ -94,7 +94,7 @@ HOST_PROVIDER_LOCK_WAIT = Histogram(
     registry=REGISTRY,
     buckets=(0.001, 0.01, 0.05, 0.1, 0.25, 0.5, 1, 2, 5, 10, 20, 30),
 )
-# SSE event-bus health (#472 / ENH-005). Subscriber count + dropped
+# SSE event-bus health. Subscriber count + dropped
 # count are both surfaced via a single custom collector — same pattern
 # as `_CacheAgeCollector` — so the values reflect the bus's NOW-state
 # at every scrape, no polling task needed. A 2023-vintage bus

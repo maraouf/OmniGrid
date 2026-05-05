@@ -1489,7 +1489,8 @@
                 <div>
                   <div class="flex items-baseline justify-between mb-1.5">
                     <span class="text-[10.5px] uppercase tracking-wider text-[var(--text-faint)]"
-                          :title="t('nodes.host_disk_tooltip')">Host disk</span>
+                          :title="t('nodes.host_disk_tooltip')"
+                          x-text="t('nodes.host_disk_label')"></span>
                     <span class="text-[12px] mono"
                           x-text="hostDiskPercent(node.name).toFixed(1) + '% · '
                                   + fmtBytes(nodeStats(node.name).hostDiskUsed) + ' / '
@@ -1508,7 +1509,8 @@
                 <div>
                   <div class="flex items-baseline justify-between mb-1.5">
                     <span class="text-[10.5px] uppercase tracking-wider text-[var(--text-faint)]"
-                          :title="t('nodes.docker_disk_tooltip')">Docker disk</span>
+                          :title="t('nodes.docker_disk_tooltip')"
+                          x-text="t('nodes.docker_disk_label_short')"></span>
                     <span class="text-[12px] mono"
                           x-text="nodeStats(node.name).hasSize ? fmtBytes(nodeStats(node.name).dockerDisk) : '—'"></span>
                   </div>
@@ -1689,9 +1691,9 @@
             <label class="text-[11px] text-[var(--text-faint)] block mb-1"
                    x-text="t('hosts_extra.bulk.snmp_vendors_mode_label') || 'Mode'"></label>
             <select x-model="bulkSnmpVendorsModal.mode" class="text-[12px] w-full">
-              <option value="set" x-text="t('hosts_extra.bulk.snmp_vendors_mode_set') || 'Set (replace)'"></option>
-              <option value="add" x-text="t('hosts_extra.bulk.snmp_vendors_mode_add') || 'Add (union)'"></option>
-              <option value="remove" x-text="t('hosts_extra.bulk.snmp_vendors_mode_remove') || 'Remove (difference)'"></option>
+              <option value="set" x-text="t('hosts_extra.bulk.snmp_vendors_mode_set') || 'Replace selection'"></option>
+              <option value="add" x-text="t('hosts_extra.bulk.snmp_vendors_mode_add') || 'Add to existing'"></option>
+              <option value="remove" x-text="t('hosts_extra.bulk.snmp_vendors_mode_remove') || 'Remove from existing'"></option>
             </select>
           </div>
           <div class="mb-4">
@@ -6444,11 +6446,10 @@
                         :title="p.label"
                         aria-hidden="false"></span>
                 </template>
-                <!-- SSH-enabled indicator (#623, repositioned right
-                     in #629). Replaces the prior green/grey dot —
+                <!-- SSH-enabled indicator. Replaces the prior green/grey dot —
                      an explicit icon reads more decisively than a
                      tinted circle. COMPLETELY HIDDEN when SSH is not
-                     enabled for the row (post-#622 opt-in semantics —
+                     enabled for the row (post-fix opt-in semantics —
                      most rows will have it off by default); rendered
                      in `--success` green when enabled. Floats right
                      of the chips strip via the preceding `ms-auto`
@@ -7595,7 +7596,7 @@
         </div>
         <p class="text-[11.5px] text-[var(--text-faint)] mb-3 leading-snug max-w-[720px]"
            x-text="t('admin_assets.intro')"></p>
-        <!-- Master switch (#204 pattern). Disables /api/asset-inventory
+        <!-- Master switch. Disables /api/asset-inventory
              reads + refreshes + scheduled refreshes in the backend
              without erasing the credentials — flip back on to resume.
              The "Test connection" button still works while disabled
@@ -9383,7 +9384,7 @@
                    tell the story without the extra scary yellow.
                    Also suppressed when ANY provider is auto-paused
                    on this host AND when snapshot data is
-                   being served (#838 follow-up — `isStale(h)` true).
+                   being served` true).
                    The "could not match" copy is misleading on hosts
                    where the provider HAD matched and is now just
                    paused, OR where the snapshot fallback is serving
@@ -9485,6 +9486,19 @@
                          x-text="isAllStale(h)
                            ? t('host_drawer.stale.body_bulk', { age: staleAge(h) })
                            : t('host_drawer.stale.body', { age: staleAge(h), count: (h._stale_fields || []).length })"></div>
+                    <!-- Provider-level stale enumeration. Distinct
+                         from the field list below: this surfaces
+                         WHICH PROVIDERS are cached vs live so the
+                         operator can read "Beszel + Pulse cached"
+                         rather than reverse-engineering it from the
+                         field names. Hidden when no provider is
+                         stale (every mapped provider returned a hit
+                         this gather cycle). -->
+                    <div x-show="staleProviders(h).length > 0"
+                         class="text-[11px] text-[var(--text-dim)] mt-1"
+                         x-text="t('host_drawer.stale.providers_cached', {
+                                   providers: staleProviders(h).map(n => providerDisplayName(n)).join(', ')
+                                 })"></div>
                     <!-- Surface the actual stale field names.
                          Operator-reported phantom banner: "1 field(s)
                          restored" while every chip showed Updated 2m
@@ -10287,8 +10301,7 @@
                           :title="isStaleField(h, 'host_firmware') ? staleAge(h) : ''"
                           x-text="h.host_firmware || '—'"></dd>
                     </template>
-                    <!-- BIOS version + release date — Dell systemBIOSTable
-                         (#848 phase 2). Distinct from host_firmware which
+                    <!-- BIOS version + release date — Dell systemBIOSTable. Distinct from host_firmware which
                          on a Dell server actually carries the iDRAC
                          firmware string; host_bios_version is the
                          server's own BIOS / UEFI revision. Stale-fallback
@@ -10470,7 +10483,7 @@
                   </dl>
                 </section>
 
-                <!-- SERVER HEALTH — DELL-RAC-MIB grids (#848 phase 2).
+                <!-- SERVER HEALTH — DELL-RAC-MIB grids.
                      Renders for any host whose SNMP probe walked back
                      non-empty Dell server-health tables. Per-section
                      subsections gate on EITHER live data OR snapshot
@@ -10697,8 +10710,7 @@
                 <!-- PRINTER — Printer-MIB toner / supply levels.
                      Section gate fires on EITHER live data OR cached
                      snapshot data so the card stays visible while the
-                     SNMP provider is unreachable (#824, mirrors #819's
-                     UPS-card stale handling). Each supply renders as a
+                     SNMP provider is unreachable. Each supply renders as a
                      horizontal bar showing fill level (current/max);
                      the colour comes from the supply description (cyan /
                      magenta / yellow / black / waste). -->
@@ -11137,13 +11149,13 @@
                      shared `hostHistoryNow` timer in init() so the
                      "Xm ago" label stays current without re-fetching.
                      Hidden while the picker is reloading so the
-                     spinner below is the only indicator (#837 follow-up). -->
+                     spinner below is the only indicator. -->
                 <span class="text-[10.5px] italic text-[var(--text-faint)]"
                       x-show="hostHistoryFreshness(h) && !hostHistoryRangeBusy"
                       :title="hostHistoryFreshnessAbsolute(h)"
                       x-text="hostHistoryFreshness(h)"></span>
                 <!-- Refreshing spinner shown while the picker's
-                     underlying loaders are in flight (#837 follow-up).
+                     underlying loaders are in flight.
                      Pre-fix the buttons just disabled silently with no
                      visual cue that data was being fetched, so the
                      operator wasn't sure if the click had registered.
@@ -11899,7 +11911,7 @@
                   </template>
                 </div>
 
-                <!-- Dell server temperature-probe chart (#848 phase 3).
+                <!-- Dell server temperature-probe chart.
                      Multi-line — one polyline per probe (Inlet / Exhaust /
                      CPU1 / CPU2 / chipset / etc.) sharing a single y-axis.
                      Each probe gets a distinct hue from a palette via
@@ -12275,8 +12287,7 @@
                                 expect to fix. Gating on `h.ne_url` instead
                                 of `h.beszel_id` makes the rule "if NE is
                                 in play, show NE copy" regardless of
-                                whether Beszel is also configured. (#341
-                                follow-up.)
+                                whether Beszel is also configured.
                         -->
                         <template x-if="!h.ne_url">
                           <div class="text-[10.5px] text-[var(--text-faint)] mt-1"
@@ -12942,8 +12953,7 @@
                              scrollable so a huge raw dump doesn't push
                              the others off-screen. -->
                         <div class="host-debug-grid">
-                          <!-- Counters & state — moved to FIRST position
-                               (#828 follow-up). Operators investigating
+                          <!-- Counters & state — moved to FIRST position. Operators investigating
                                a host issue almost always want to see
                                failure-state + per-provider pause status
                                + sample row counts BEFORE waded through
@@ -13178,7 +13188,7 @@
                    hostname confirm before the real run (also enforced
                    backend-side via logic/ssh.command_is_destructive).
                    Visible only when SSH is ENABLED for this host
-                   (post-#622 opt-in semantics —
+                   (post-fix opt-in semantics —
                    hosts_config[].ssh.enabled=true). Gate reads
                    `h.ssh_enabled` straight from the row (not
                    sshStatus) so the panel never appears even for a

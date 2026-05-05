@@ -373,7 +373,12 @@ def build_template_values(
     import datetime as _dt
 
     ts = when if when is not None else time.time()
-    iso = _dt.datetime.utcfromtimestamp(ts).strftime("%Y-%m-%dT%H:%M:%SZ")
+    # Python 3.12+ deprecated `datetime.utcfromtimestamp(...)` in
+    # favour of the timezone-aware
+    # `datetime.fromtimestamp(ts, tz=timezone.utc)`. Container is now
+    # python:3.14-slim — using the deprecated form raised a
+    # DeprecationWarning on every notification render.
+    iso = _dt.datetime.fromtimestamp(ts, tz=_dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     err_str = (error or "")
     if len(err_str) > 500:
         err_str = err_str[:500]
@@ -925,8 +930,13 @@ async def notify(
         # carries just the target. Same regex shape as the Apprise
         # title parser (any non-alnum prefix, then optional space).
         legacy_target_name = title or ""
-        if ":" in legacy_target_name:
-            legacy_target_name = legacy_target_name.split(":", 1)[1].strip()
+        # Split on the LITERAL ": " (with the trailing space — emoji-
+        # prefix shape `"✅ Stack updated: foo"`). Bare ":" splits would
+        # mangle target names that legitimately contain a colon
+        # (e.g. an image-as-name like `redis:6.2`), producing
+        # `"6.2"` instead of `"redis:6.2"`.
+        if ": " in legacy_target_name:
+            legacy_target_name = legacy_target_name.split(": ", 1)[1].strip()
         # Handlers that emit "🧹 Prune complete on web01" don't have a
         # colon — fall back to the trailing word(s). Keep the cheap
         # heuristic; templates that need exact target shaping should

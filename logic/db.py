@@ -355,7 +355,7 @@ def curated_snmp_hosts() -> list[dict]:
     stays I/O-free beyond the one settings read.
 
     Single source of truth for "which hosts is OmniGrid SNMP-probing
-    right now" — consumed by the per-host probe path and (post-#679)
+    right now" — consumed by the per-host probe path and (post-fix)
     by the host_metrics_sampler's permanent-fail tracking pass.
     """
     import json as _json

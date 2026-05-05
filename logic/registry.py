@@ -21,7 +21,7 @@ DOCKERHUB_TOKEN = os.getenv("DOCKERHUB_TOKEN", "")
 
 
 # Bounded set of registry-label values for `omnigrid_registry_errors_total`
-# and `omnigrid_registry_latency_seconds` (#419 / ENH-004). Without this
+# and `omnigrid_registry_latency_seconds`. Without this
 # cap the label is the raw registry hostname and unbounded — an operator
 # pulling from 50 private registries would inflate Prometheus cardinality
 # proportionally. Known public registries map to themselves; everything
