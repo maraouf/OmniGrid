@@ -219,6 +219,12 @@
               <div class="ai-provider-card">
                 <div class="flex items-center justify-between mb-2">
                   <div class="flex items-center gap-2">
+                    <!-- Mono brand icon — `icon-claude` / `icon-gemini`
+                         / `icon-chatgpt` / `icon-deepseek` resolve via
+                         the sprite. Uses `name` directly as the icon
+                         suffix since the four `aiProviderNames` strings
+                         match the symbol ids verbatim. -->
+                    <svg width="16" height="16" class="text-[var(--text-dim)]" aria-hidden="true"><use :href="'/img/ui-sprite.svg?v=' + (window.OG_VERSION || '') + '#icon-' + name"/></svg>
                     <span class="font-semibold text-[13px]" x-text="aiProviderDisplayName(name)"></span>
                     <!-- "Active" chip — only shows when EVERY gate is open:
                          master AI is on AND this provider's per-provider

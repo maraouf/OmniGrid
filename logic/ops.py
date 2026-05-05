@@ -1125,9 +1125,52 @@ async def notify_with_retry(
 # Write ops. Each follows the same pattern: try/except/finally with
 # persist_history + cache invalidation in finally.
 # ---------------------------------------------------------------------
-async def do_update_stack(op: Operation, stack_id: int) -> None:
+def _retag_compose_to_latest(content: str, target_image_repo: Optional[str] = None) -> tuple[str, list[tuple[str, str]]]:
+    """Rewrite every ``image: <repo>:<tag>`` line in a compose file to
+    ``image: <repo>:latest``. Returns ``(new_content, replacements)``
+    where ``replacements`` is a list of ``(old_image, new_image)`` pairs
+    in the order they appeared.
+
+    When ``target_image_repo`` is supplied (e.g. ``"ghcr.io/foo/bar"``),
+    only image lines whose repo MATCHES that prefix get retagged — every
+    other ``image:`` line is left untouched. Useful when a stack has
+    multiple services and the operator only wants to switch one.
+
+    The matcher tolerates: optional surrounding quotes, leading
+    whitespace, and the ``@sha256:...`` digest suffix (digest is
+    dropped on retag — `:latest` always tracks the moving tag, a
+    pinned digest defeats the point). Lines already at ``:latest``
+    AND with no digest are left alone (idempotent — the helper can
+    re-run without churn).
+    """
+    import re as _re
+    pattern = _re.compile(
+        r"""(?P<indent>^\s*)image\s*:\s*(?P<quote>['"]?)(?P<repo>[^:'"@\s]+(?::[0-9]+)?(?:/[^:'"@\s]+)*)(?::(?P<tag>[^@'"\s]+))?(?:@sha256:[0-9a-f]+)?(?P=quote)\s*$""",
+        _re.MULTILINE,
+    )
+    replacements: list[tuple[str, str]] = []
+
+    def _repl(m: "_re.Match[str]") -> str:
+        indent = m.group("indent")
+        quote = m.group("quote") or ""
+        repo = m.group("repo")
+        old_tag = m.group("tag") or ""
+        if target_image_repo and repo != target_image_repo:
+            return m.group(0)
+        if old_tag == "latest" and "@sha256:" not in m.group(0):
+            return m.group(0)
+        old_image = repo + (f":{old_tag}" if old_tag else "")
+        new_image = f"{repo}:latest"
+        replacements.append((old_image, new_image))
+        return f"{indent}image: {quote}{new_image}{quote}"
+
+    new_content = pattern.sub(_repl, content)
+    return new_content, replacements
+
+
+async def do_update_stack(op: Operation, stack_id: int, *, retag_to_latest: bool = False, target_image_repo: Optional[str] = None) -> None:
     try:
-        op.log(f"Starting stack update (id={stack_id})")
+        op.log(f"Starting stack update (id={stack_id}, retag={retag_to_latest})")
         async with httpx.AsyncClient(verify=portainer.VERIFY_TLS, timeout=600.0) as client:
             stack = await portainer.pg(client, f"/api/stacks/{stack_id}")
             op.log(f"Resolved stack: {stack['Name']}")
@@ -1136,8 +1179,18 @@ async def do_update_stack(op: Operation, stack_id: int) -> None:
             except httpx.HTTPError as e:
                 raise RuntimeError(f"Can't fetch compose file (external stack?): {e}")
             op.log("Fetched compose file from Portainer")
+            content = file_data["StackFileContent"]
+            if retag_to_latest:
+                content, replacements = _retag_compose_to_latest(content, target_image_repo)
+                if not replacements:
+                    raise RuntimeError(
+                        "Retag-to-latest requested but no image: lines matched"
+                        + (f" (repo filter: {target_image_repo})" if target_image_repo else "")
+                    )
+                for old, new in replacements:
+                    op.log(f"Retagged {old} → {new}")
             body = {
-                "StackFileContent": file_data["StackFileContent"],
+                "StackFileContent": content,
                 "Env": stack.get("Env") or [],
                 "Prune": True,
                 "PullImage": True,

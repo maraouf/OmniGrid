@@ -589,6 +589,21 @@ function app() {
         return Array.isArray(parsed) ? parsed.filter(x => typeof x === 'string') : [];
       } catch { return []; }
     })(),
+    // Parent-self collapse — distinct from the children-collapse set
+    // above. When a parent name is in THIS set, the editor hides the
+    // parent's full edit form and shows only a one-line summary
+    // (number / name / range start–end) so the page stays compact when
+    // the operator's editing further down. Children stay independently
+    // visible (or hidden via the children set). Persisted separately
+    // so the two collapse states don't entangle.
+    hostGroupsEditorParentCollapsed: (() => {
+      try {
+        const raw = typeof localStorage !== 'undefined'
+          ? localStorage.getItem('hostGroupsEditorParentCollapsed') : null;
+        const parsed = raw ? JSON.parse(raw) : [];
+        return Array.isArray(parsed) ? parsed.filter(x => typeof x === 'string') : [];
+      } catch { return []; }
+    })(),
     // Pagination state for the Admin → Host groups editor. Mirrors the
     // hostsConfigPage / hostsConfigPerPage pattern so the
     // admin tab can scale past ~50 groups without a 100-card scroll.
@@ -14326,6 +14341,58 @@ function app() {
         });
       });
     },
+    // Parent-self collapse predicate. Top-level groups whose name is
+    // in `hostGroupsEditorParentCollapsed` hide their full edit form;
+    // only the compact summary header (number / name / range start-end)
+    // remains.
+    isHostGroupParentCollapsed(parentName) {
+      return (this.hostGroupsEditorParentCollapsed || [])
+        .includes(parentName || '');
+    },
+    // Toggle parent-self collapse for one top-level group. Independent
+    // from the children-collapse set so an operator can hide the parent
+    // form while keeping the children visible (or vice versa) when
+    // editing nested rows further down the page.
+    toggleHostGroupParentCollapsed(parentName) {
+      const name = (parentName || '').trim();
+      if (!name) return;
+      const set = new Set(this.hostGroupsEditorParentCollapsed || []);
+      if (set.has(name)) set.delete(name); else set.add(name);
+      this.hostGroupsEditorParentCollapsed = [...set];
+      try {
+        if (typeof localStorage !== 'undefined') {
+          localStorage.setItem(
+            'hostGroupsEditorParentCollapsed',
+            JSON.stringify(this.hostGroupsEditorParentCollapsed),
+          );
+        }
+      } catch (_) {}
+    },
+    // Compact one-line summary used in the collapsed parent header:
+    // "<number>. <name> · <range_start>-<range_end>". Number prefix
+    // and range tail are both optional; missing parts collapse cleanly
+    // (e.g. just "<name>" if number + range are blank).
+    hostGroupCollapsedSummary(g) {
+      if (!g) return '';
+      const parts = [];
+      const num = g.number;
+      const name = (g.name || '').trim();
+      if (Number.isFinite(num) && num > 0) {
+        parts.push(num + '. ' + name);
+      } else {
+        parts.push(name);
+      }
+      const rs = g.range_start;
+      const re = g.range_end;
+      if (Number.isFinite(rs) && Number.isFinite(re)) {
+        parts.push(rs + '-' + re);
+      } else if (Number.isFinite(rs)) {
+        parts.push(rs + '–');
+      } else if (Number.isFinite(re)) {
+        parts.push('–' + re);
+      }
+      return parts.filter(Boolean).join(' · ');
+    },
     toggleHostGroupChildrenCollapsed(parentName) {
       const name = (parentName || '').trim();
       if (!name) return;
@@ -20477,6 +20544,68 @@ function app() {
         const r = await fetch(`/api/update/stack/${stack.stack_id}`, { method: 'POST' });
         if (!r.ok) throw new Error(await r.text());
         this.showToast(this.t('toasts.queued', { name: stack.name }));
+        this.pollOpsNow();
+      } catch (e) {
+        this._clearBusy(key);
+        this.showToast(this.t('toasts.failed_with_error', { error: e.message }), 'error');
+      }
+    },
+    // Eligibility gate for the drawer's "Switch to :latest" button.
+    // True iff the item is stack-managed AND its image tag is something
+    // OTHER than `latest` (no tag at all defaults to `:latest` so
+    // there's nothing to switch). Digest suffix `@sha256:...` is
+    // dropped before the tag-suffix check so digest-pinned-but-tagged-
+    // latest images (`foo:latest@sha256:...`) still hide the button.
+    canRetagToLatest(item) {
+      if (!item || !item.stack_id || !item.image) return false;
+      const noDigest = item.image.split('@')[0];
+      const lastSlash = noDigest.lastIndexOf('/');
+      const lastColon = noDigest.lastIndexOf(':');
+      const tag = (lastColon > lastSlash) ? noDigest.slice(lastColon + 1) : '';
+      return tag && tag !== 'latest';
+    },
+    // Compose-stack image-tag swap: rewrites `image: <repo>:<tag>` →
+    // `image: <repo>:latest` in the stack's compose file, then runs the
+    // standard update path (Prune+PullImage). For single-service stacks
+    // (e.g. komodo running on a Compose-managed standalone container)
+    // this gives operators a one-click "track :latest from now on"
+    // affordance without manually editing the compose file in Portainer.
+    // Multi-service stacks scope the retag to the operator-clicked
+    // item's image_repo so sibling services keep their pinned tags.
+    async retagStackToLatest(item) {
+      if (!item || !item.stack_id) return;
+      const currentImage = item.image || '';
+      // Strip tag + digest to extract the repo for the optional filter.
+      // `<host>/<path>/<repo>:<tag>@sha256:...` → `<host>/<path>/<repo>`.
+      let imageRepo = currentImage.split('@')[0];
+      const lastColon = imageRepo.lastIndexOf(':');
+      const lastSlash = imageRepo.lastIndexOf('/');
+      if (lastColon > lastSlash) imageRepo = imageRepo.slice(0, lastColon);
+      const proposedImage = imageRepo + ':latest';
+      if (currentImage === proposedImage) {
+        this.showToast(this.t('toasts.retag_already_latest', { name: item.name }), 'info');
+        return;
+      }
+      const ok = await this.confirmDialog({
+        title: this.t('dialogs.retag_latest_title'),
+        html: this.t('dialogs.retag_latest_html', {
+          name:    item.name,
+          oldImage: currentImage || '(unknown)',
+          newImage: proposedImage,
+        }),
+        icon: 'warning', confirmText: this.t('actions.retag_latest'),
+      });
+      if (!ok) return;
+      const key = this._busyKey('stack', item.stack_id);
+      this._markBusy(key);
+      try {
+        const r = await fetch(`/api/update/stack/${item.stack_id}/retag-latest`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ image_repo: imageRepo }),
+        });
+        if (!r.ok) throw new Error(await r.text());
+        this.showToast(this.t('toasts.queued', { name: item.name }));
         this.pollOpsNow();
       } catch (e) {
         this._clearBusy(key);

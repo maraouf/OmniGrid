@@ -253,9 +253,15 @@
              :class="(assetTestResult && assetTestResult.ok) ? 'border-[var(--success)] text-[var(--success)]' : 'border-[var(--danger)] text-[var(--danger)]'"
              x-text="(assetTestResult && assetTestResult.detail) || ''"></div>
 
-        <!-- Cache preview -->
+        <!-- Cache preview — `icon-archive` reads as "stored / archived
+             snapshot" and matches the section's role of showing the
+             last successful refresh of the asset inventory cache file
+             on disk. -->
         <div class="mt-6 pt-5 border-t border-[var(--border)]">
-          <h4 class="font-semibold text-[12.5px] mb-2" x-text="t('admin_assets.cache_heading')"></h4>
+          <div class="flex items-center gap-2 mb-2">
+            <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-archive"/></svg>
+            <h4 class="font-semibold text-[12.5px]" x-text="t('admin_assets.cache_heading')"></h4>
+          </div>
           <div x-show="!assetCache || (assetCache && !assetCache.ok && !(assetCache.assets || []).length)"
                class="text-[12px] text-[var(--text-faint)] italic"
                x-text="(assetCache && assetCache.error) ? assetCache.error : t('admin_assets.cache_empty')"></div>

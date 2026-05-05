@@ -1457,6 +1457,51 @@ async def api_update_stack(
     return {"op_id": op.id}
 
 
+class StackRetagIn(BaseModel):
+    """Optional `image_repo` filter — when present, only image: lines whose
+    repo matches that prefix are retagged. Otherwise every image: line in
+    the compose file flips to `:latest`."""
+    image_repo: Optional[str] = None
+
+
+@app.post("/api/update/stack/{stack_id}/retag-latest")
+async def api_update_stack_retag_latest(
+    stack_id: int, body: StackRetagIn, bg: BackgroundTasks, request: Request,
+    _admin: auth.User = Depends(auth.require_admin),
+):
+    """Switch the stack's compose-file image references to ``:latest``.
+
+    Mutates the compose file in-place via ``_retag_compose_to_latest``,
+    then runs the standard update path (Prune=true, PullImage=true) so
+    Portainer pulls the new ``:latest`` digest and rolls the
+    container(s). Useful for stack-managed standalone containers that
+    were originally pinned to a version tag (e.g. ``ghcr.io/foo/bar:2.0.0-dev``)
+    and the operator now wants the moving ``:latest`` tag.
+
+    Optional ``image_repo`` filter — when supplied, only image: lines
+    whose repo matches that prefix are retagged (for stacks with
+    multiple services where only one needs the switch). Otherwise
+    every image: line in the compose file flips.
+
+    Note: the digest from the original tag is dropped on retag — pinning
+    a digest defeats the point of switching to a moving tag. Operators
+    who want to re-pin can manually edit the compose file in Portainer.
+    """
+    name = f"stack-{stack_id}"
+    for s in _cache["stacks"]:
+        if s.get("stack_id") == stack_id:
+            name = s["name"]
+            break
+    op = new_op("update_stack", str(stack_id), name,
+                target_stack=name, actor=_actor_from(request))
+    bg.add_task(
+        _do_update_stack, op, stack_id,
+        retag_to_latest=True,
+        target_image_repo=body.image_repo,
+    )
+    return {"op_id": op.id}
+
+
 @app.post("/api/update/container/{container_id}")
 async def api_update_container(
     container_id: str, bg: BackgroundTasks, request: Request,

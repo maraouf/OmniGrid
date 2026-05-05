@@ -59,6 +59,20 @@
                    no children yet, but the "+" stays visible). -->
               <div x-show="!g.parent_name && (g.name || '').trim()"
                    class="flex items-center gap-2 mb-2 -mt-1 flex-wrap">
+                <!-- Parent-self collapse — hides the parent group's
+                     own edit form (number / name / parent / range)
+                     and shows a compact summary line below. Distinct
+                     from the children-collapse toggle to its right
+                     which only hides the parent's sub-rows. -->
+                <button type="button"
+                        @click="toggleHostGroupParentCollapsed(g.name)"
+                        class="host-group-chip host-group-chip--neutral"
+                        :title="t('admin_hosts.groups.parent_toggle_title')">
+                  <svg width="10" height="10" stroke-width="2.4" class="flip-rtl" aria-hidden="true" :style="!isHostGroupParentCollapsed(g.name) ? 'transform: rotate(90deg)' : ''"><use :href="'/img/ui-sprite.svg?v=' + (window.OG_VERSION || '') + '#icon-chevron-right'"/></svg>
+                  <span x-text="isHostGroupParentCollapsed(g.name)
+                                  ? t('admin_hosts.groups.parent_show')
+                                  : t('admin_hosts.groups.parent_hide')"></span>
+                </button>
                 <button type="button"
                         x-show="hostGroupChildCount(g.name) > 0"
                         @click="toggleHostGroupChildrenCollapsed(g.name)"
@@ -97,7 +111,20 @@
                   <span x-text="hostGroupHeading(g)"></span>
                 </span>
               </div>
+              <!-- Compact summary line when the parent is collapsed.
+                   Shows number / name / range start-end on one line so
+                   the operator can identify the group at a glance
+                   without expanding the form. -->
+              <div x-show="!g.parent_name && isHostGroupParentCollapsed(g.name)"
+                   class="text-[12.5px] text-[var(--text-dim)] mono py-1 px-2 -mt-1"
+                   x-text="hostGroupCollapsedSummary(g)"></div>
               <!-- Row 1: name, parent picker, range, controls.
+                   Wrapped in `x-show` for top-level groups so the
+                   parent-collapse toggle above can hide the entire
+                   edit form. Sub-groups (`g.parent_name` truthy) always
+                   render their form regardless of the parent's collapse
+                   state — collapsing a parent doesn't hide its kids,
+                   that's a separate toggle.
                    Text inputs use `x-model.lazy` so the bound model
                    only commits on blur — typing into 22+ group cards
                    was sluggish because every keystroke re-ran
@@ -109,7 +136,8 @@
                    and inline-error clear (both cheap) so save-button
                    feedback is unchanged. The expensive reactive
                    cascade only runs once when the operator tabs away. -->
-              <div class="grid grid-cols-1 md:grid-cols-[90px_2fr_1.3fr_100px_100px_auto] gap-3 items-end">
+              <div x-show="!!g.parent_name || !isHostGroupParentCollapsed(g.name)"
+                   class="grid grid-cols-1 md:grid-cols-[90px_2fr_1.3fr_100px_100px_auto] gap-3 items-end">
                 <!-- Number first — operator's preferred Tab order is
                      NUMBER → NAME → PARENT → RANGE (digits typed first
                      so the prefix appears before the readable name in
@@ -221,8 +249,10 @@
               </div>
               <!-- Row 2: IP range only (NUMBER moved to row 1 first
                    column so the natural Tab order is NUMBER → NAME →
-                   PARENT → RANGE). -->
-              <div class="mt-2">
+                   PARENT → RANGE). Hidden when the parent is
+                   collapsed (top-level groups only). -->
+              <div x-show="!!g.parent_name || !isHostGroupParentCollapsed(g.name)"
+                   class="mt-2">
                 <label class="block text-[10.5px] uppercase tracking-wider text-[var(--text-faint)] mb-1 whitespace-nowrap"
                        x-text="t('admin_hosts.groups.ip_range_label')"></label>
                 <input type="text" x-model.lazy="g.ip_range"
@@ -235,8 +265,10 @@
                    Optional. Resolves at runtime in this priority
                    order: per-host → per-sub-group → per-main-group →
                    global default. Password is write-only — server
-                   returns a `password_set` flag instead of the value. -->
-              <div class="mt-3 pt-3 border-t border-dashed border-[var(--border)]">
+                   returns a `password_set` flag instead of the value.
+                   Hidden when the parent is collapsed. -->
+              <div x-show="!!g.parent_name || !isHostGroupParentCollapsed(g.name)"
+                   class="mt-3 pt-3 border-t border-dashed border-[var(--border)]">
                 <div class="text-[10.5px] uppercase tracking-wider text-[var(--text-faint)] mb-2"
                      x-text="t('admin_hosts.groups.ssh_heading')"></div>
                 <div class="grid grid-cols-1 md:grid-cols-[2fr_120px_2fr] gap-3 items-end">

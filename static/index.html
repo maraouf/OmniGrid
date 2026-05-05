@@ -7219,6 +7219,18 @@
               <button x-show="isAdmin()" @click="toggleIgnore(drawerItem)"
                       class="btn btn-soft justify-center text-[12px]"
                       x-text="drawerItem.ignored ? t('drawer.unignore') : t('drawer.ignore')"></button>
+              <!-- Switch-to-:latest — for stack-managed items pinned
+                   to a version tag. Mutates the compose file's image:
+                   line via the standard update path so Portainer pulls
+                   `:latest` next deploy. Hidden when the image already
+                   tracks `:latest` (or has no tag, i.e. defaults to
+                   `:latest` already). -->
+              <button x-show="isAdmin() && drawerItem.stack_id && canRetagToLatest(drawerItem)"
+                      @click="retagStackToLatest(drawerItem)"
+                      :disabled="isItemBusy(drawerItem)"
+                      class="btn btn-soft justify-center text-[12px]"
+                      :title="t('drawer.retag_latest_title')"
+                      x-text="t('drawer.retag_latest')"></button>
               <a x-show="drawerItem.stack_id"
                  :href="portainerDeepLink(drawerItem)" target="_blank"
                  class="btn btn-soft justify-center text-[12px] text-center" x-text="t('drawer.portainer')"></a>
@@ -7754,9 +7766,15 @@
          role="dialog" aria-modal="true" :aria-label="t('hotkeys.title')">
       <div class="bg-[var(--surface)] border border-[var(--border)] rounded-md max-w-2xl w-full max-h-[90vh] overflow-y-auto scrollbar">
         <div class="p-4 border-b border-[var(--border)] flex justify-between items-center sticky top-0 bg-[var(--surface)] z-10">
-          <div>
-            <h2 class="text-[15px] font-semibold" x-text="t('hotkeys.title')"></h2>
-            <p class="text-[11px] text-[var(--text-faint)] mt-0.5" x-html="t('hotkeys.hint')"></p>
+          <div class="flex items-start gap-2">
+            <!-- Header icon matches the Settings sidebar's `shortcuts`
+                 entry (`icon-help-circle`) so the modal's identity is
+                 consistent with the navigation chrome that opens it. -->
+            <svg width="16" height="16" class="text-[var(--text-dim)] mt-1" aria-hidden="true"><use :href="'/img/ui-sprite.svg?v=' + (window.OG_VERSION || '') + '#icon-help-circle'"/></svg>
+            <div>
+              <h2 class="text-[15px] font-semibold" x-text="t('hotkeys.title')"></h2>
+              <p class="text-[11px] text-[var(--text-faint)] mt-0.5" x-html="t('hotkeys.hint')"></p>
+            </div>
           </div>
           <button @click="showHotkeys=false" class="btn btn-ghost"
                   :aria-label="t('actions.close')">✕</button>

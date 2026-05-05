@@ -21,7 +21,13 @@
           <div class="text-[11.5px] text-[var(--text-dim)] mt-0.5" x-text="me && me.username"></div>
           <div class="mt-3 flex items-center gap-2">
             <span class="pill" :class="me && me.role === 'admin' ? 'pill-primary' : 'pill-muted'" x-text="me && me.role"></span>
-            <span class="chip inline-flex items-center gap-1.5">
+            <!-- Auth-source chip — `.chip` declares `display: inline-block`
+                 (deliberate, so multi-word chips wrap as one unit), so the
+                 sibling `inline-flex` Tailwind utility loses on cascade
+                 specificity and the icon + label stack vertically. Force
+                 inline-flex via the style attribute so the logo + text
+                 share one row. -->
+            <span class="chip items-center gap-1.5" style="display: inline-flex">
               <img x-show="me && me.source === 'authentik'" src="/img/icons/authentik.svg" alt="" class="w-3 h-3" aria-hidden="true">
               <span x-text="me && me.source"></span>
             </span>
