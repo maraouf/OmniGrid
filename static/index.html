@@ -2976,14 +2976,19 @@
   <!-- ================== ACTIVE OPS FLOATING PANEL ================== -->
   <div x-show="activeOps.length>0"
        class="fixed bottom-4 end-4 bg-[var(--surface)] border border-[var(--primary)]/40 rounded-md w-[380px] max-w-[calc(100vw-32px)] z-40 glow fade-in">
-    <div class="px-3 py-2 bg-[var(--surface-2)] border-b border-[var(--border)] flex items-center gap-2 cursor-pointer rounded-t-md"
-         @click="opsExpanded=!opsExpanded">
-      <span class="dot dot-primary dot-pulse"></span>
+    <button type="button"
+            class="active-ops-header w-full text-start px-3 py-2 bg-[var(--surface-2)] border-b border-[var(--border)] flex items-center gap-2 cursor-pointer rounded-t-md"
+            :aria-expanded="opsExpanded ? 'true' : 'false'"
+            aria-controls="active-ops-body"
+            @click="opsExpanded=!opsExpanded">
+      <span class="dot dot-primary dot-pulse" aria-hidden="true"></span>
       <span class="font-semibold text-[12px]" x-text="t('states.running', { count: activeOps.length })"></span>
       <span class="flex-1"></span>
-      <span x-text="opsExpanded ? '▼' : '▲'" class="text-[var(--text-dim)] text-[10px]"></span>
-    </div>
-    <div x-show="opsExpanded" class="max-h-80 overflow-y-auto scrollbar">
+      <svg width="10" height="10" stroke-width="2.4" aria-hidden="true" class="text-[var(--text-dim)]">
+        <use :href="opsExpanded ? '/img/ui-sprite.svg#icon-chevron-down' : '/img/ui-sprite.svg#icon-chevron-up'"/>
+      </svg>
+    </button>
+    <div id="active-ops-body" x-show="opsExpanded" class="max-h-80 overflow-y-auto scrollbar">
       <template x-for="op in activeOps" :key="op.id">
         <div class="p-2.5 border-b border-[var(--border)] last:border-0"
              :class="op.status === 'success' ? 'bg-[var(--success)]/10' : op.status === 'error' ? 'bg-[var(--danger)]/10' : ''">
