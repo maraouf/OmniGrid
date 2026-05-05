@@ -631,9 +631,17 @@ async def _notify_medium_app(
     """In-app notification store medium. Synchronous SQLite INSERT into
     ``notifications`` + SSE publish ``notification:created`` so the
     avatar badge + Notifications page update without a poll round-trip.
+
+    Body may be empty for events whose template defines title-only
+    rendering (e.g. ``user_login``: title=``"🔓 {actor} signed in"``,
+    body=``""``). The in-app store has no API constraint forcing a
+    non-empty body, unlike the Apprise medium — leave empty bodies
+    empty so the SPA's notifications panel doesn't render the title
+    twice (once as the title, once as a duplicate body line). The
+    Apprise medium keeps its ``body = body or title`` fallback because
+    Apprise rejects empty bodies at the HTTP layer.
     """
     ts = int(time.time())
-    body = body or title
     md_json: Optional[str] = None
     if metadata is not None:
         try:

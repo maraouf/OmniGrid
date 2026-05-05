@@ -639,7 +639,13 @@
       "save_requires_test": "Run a successful Test connection first — Save is gated until the URL / API key / endpoint round-trip works.",
       "public_title": "Portainer public URL",
       "public_desc": "Browser-facing URL for \"Open in Portainer\" deep links. May differ from the API URL when Portainer sits behind a reverse proxy.",
-      "public_placeholder": "https://portainer.example.com"
+      "public_placeholder": "https://portainer.example.com",
+      "swarm_autoheal_label": "Swarm autoheal action",
+      "swarm_autoheal_hint": "When the swarm_agent_health schedule kind detects an unhealthy Portainer agent, what should happen? Notify-only fires the existing notification event. Auto-restart additionally spawns a do_restart_swarm_agent op subject to the cooldown tunable.",
+      "swarm_autoheal_notify": "Notify only (default)",
+      "swarm_autoheal_restart": "Auto-restart agent service",
+      "swarm_autoheal_bootstrap_label": "Auto-create default swarm_agent_health schedule",
+      "swarm_autoheal_bootstrap_hint": "On first boot, when Portainer is configured AND no equivalent row exists, OmniGrid auto-creates a 5-minute swarm_agent_health schedule so the autoheal action fires without manual setup. Disable this BEFORE the first boot if you prefer to manage the schedule yourself. Once a schedule exists (auto or manual), this toggle has no further effect — deleting the auto-created row leaves it deleted."
     },
     "ignores": {
       "title": "Ignore list",
@@ -722,12 +728,6 @@
       "medium_help": "Each enabled event fans out to every channel below. Turn one off to silence it without disabling events globally — for example keep in-app on while quieting Apprise during a maintenance window.",
       "medium_app": "In-app notifications page",
       "medium_apprise": "Apprise (external)",
-      "swarm_autoheal_label": "Swarm autoheal action",
-      "swarm_autoheal_hint": "When the swarm_agent_health schedule kind detects an unhealthy Portainer agent, what should happen? Notify-only fires the existing notification event. Auto-restart additionally spawns a do_restart_swarm_agent op subject to the cooldown tunable.",
-      "swarm_autoheal_notify": "Notify only (default)",
-      "swarm_autoheal_restart": "Auto-restart agent service",
-      "swarm_autoheal_bootstrap_label": "Auto-create default swarm_agent_health schedule",
-      "swarm_autoheal_bootstrap_hint": "On first boot, when Portainer is configured AND no equivalent row exists, OmniGrid auto-creates a 5-minute swarm_agent_health schedule so the autoheal action fires without manual setup. Disable this BEFORE the first boot if you prefer to manage the schedule yourself. Once a schedule exists (auto or manual), this toggle has no further effect — deleting the auto-created row leaves it deleted.",
       "events": {
         "title": "Per-event notifications",
         "subtitle": "Enable / disable specific notification events. Test notifications always send regardless of these toggles.",
@@ -785,6 +785,7 @@
         "host": "Resolved hostname for ops that target one host.",
         "time": "ISO 8601 timestamp (UTC) of when the notification fired.",
         "error": "Error message (failure events only). Truncated to 500 characters.",
+        "message": "Body content for warning / informational events. Always populated regardless of severity (use this in templates instead of {error} for non-failure events).",
         "status": "Outcome — 'success', 'error', 'warning', or 'info'."
       }
     },
