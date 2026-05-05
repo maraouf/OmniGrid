@@ -1336,12 +1336,68 @@ async def do_retag_container_to_latest(op: Operation, container_id: str) -> None
             if r.status_code >= 400:
                 raise RuntimeError(f"pull HTTP {r.status_code}: {r.text[:300]}")
 
+            # ---- 2b. Inspect old + new image configs ----------------------
+            # Captured Config from the running container conflates two
+            # things: the image's Dockerfile defaults (ENTRYPOINT, CMD,
+            # WORKDIR, etc.) AND any operator-level overrides (compose
+            # `command:`, `docker run --entrypoint=...`, etc.). When we
+            # recreate with a NEW image whose filesystem layout differs
+            # (e.g. Komodo moved `entrypoint.sh` between :2.0.0-dev and
+            # :latest), copying the OLD image's defaults forces them on
+            # the new image and the container fails to start.
+            #
+            # Fix: for each ambiguous field (Entrypoint, Cmd, WorkingDir,
+            # User), if the captured value matches the OLD image's
+            # default (operator wasn't overriding) → drop it from the
+            # create payload so the NEW image's default applies. If it
+            # differs → keep it (genuine operator override). Env is
+            # handled the same way at the per-key level so image-defined
+            # env vars don't leak into the new container while operator-
+            # set env vars survive.
+            async def _image_config(ref: str) -> dict:
+                u = (f"{portainer.PORTAINER_URL}/api/endpoints/"
+                     f"{portainer.PORTAINER_ENDPOINT_ID}"
+                     f"/docker/images/{ref}/json")
+                resp = await client.get(u, headers=portainer.headers(agent_target=node))
+                if resp.status_code >= 400:
+                    return {}
+                return (resp.json() or {}).get("Config") or {}
+            old_image_cfg = await _image_config(old_image_ref)
+            new_image_cfg = await _image_config(new_image_ref)
+
             # ---- 3. Capture config -----------------------------------------
             cfg = dict(inspect.get("Config") or {})
             host_cfg = dict(inspect.get("HostConfig") or {})
             net_settings = inspect.get("NetworkSettings") or {}
             networks = dict((net_settings.get("Networks") or {}))
             cfg["Image"] = new_image_ref
+
+            # Drop image-default fields that the operator didn't
+            # explicitly override. Compare captured (Config from running
+            # container) to OLD image's default — when equal, the
+            # operator never set them, so let the NEW image's defaults
+            # apply by removing the field from the create payload.
+            for field in ("Entrypoint", "Cmd", "WorkingDir", "User"):
+                captured = cfg.get(field)
+                old_default = old_image_cfg.get(field)
+                if captured is not None and captured == old_default:
+                    cfg.pop(field, None)
+                    op.log(f"Inheriting {field} from new image (was image-default)")
+            # Env: filter out vars that came from the OLD image's ENV
+            # block; keep operator-set vars (which include compose env
+            # entries + `docker run -e ...`). The new image's ENV will
+            # apply automatically because Docker layers image ENV under
+            # the create-time ENV.
+            captured_env = list(cfg.get("Env") or [])
+            old_env_set = set(old_image_cfg.get("Env") or [])
+            if captured_env and old_env_set:
+                operator_env = [v for v in captured_env if v not in old_env_set]
+                if len(operator_env) != len(captured_env):
+                    op.log(
+                        f"Stripped {len(captured_env) - len(operator_env)} image-default env "
+                        f"var(s); kept {len(operator_env)} operator override(s)"
+                    )
+                cfg["Env"] = operator_env
 
             # First network goes inline on create; the rest are reattached
             # via /networks/<id>/connect AFTER create + before start.

@@ -55,7 +55,12 @@
     --surface-2: #131c2b;
     --surface-3: #1b2538;
     --border: #1e293b;
-    --border-bright:;
+    --border-bright: #334155; /* slate-700 — clearly visible against the
+                                 dark surface without being heavy. Pre-fix
+                                 this was empty (`--border-bright:;`) so
+                                 every consumer (scrollbar thumb, focus
+                                 rings, hover states) silently fell back
+                                 to browser-default white on dark theme. */
 
     /* Text */
     --text: #e2e8f0;
@@ -342,7 +347,10 @@
     --border-bright: #cbd5e1;
 
     --text: #0f172a;
-    --text-dim:;
+    --text-dim: #475569; /* slate-600 — readable mid-tone on the light
+                            surface. Pre-fix this was empty
+                            (`--text-dim:;`) so consumers fell back to
+                            browser default colour on light theme. */
     --text-faint: #64748b;
     --text-on-primary: #ffffff;
     --text-on-warning: #1a0e00;
