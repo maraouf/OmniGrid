@@ -742,6 +742,7 @@
         "service_restart": "Service restarts",
         "swarm_agent_restart": "Swarm agent restarts",
         "swarm_agent_unhealthy": "Swarm agent unhealthy",
+        "swarm_agent_recovered": "Swarm agent recovered",
         "prune": "Prune operations",
         "health_section": "Health events",
         "enable_all": "Enable all",

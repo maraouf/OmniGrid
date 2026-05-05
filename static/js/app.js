@@ -6648,6 +6648,7 @@ function app() {
       'notify_event_swarm_agent_restart_success',
       'notify_event_swarm_agent_restart_failure',
       'notify_event_swarm_agent_unhealthy',
+      'notify_event_swarm_agent_recovered',
       'notify_event_prune_success',
       'notify_event_prune_failure',
       'notify_event_user_login',
@@ -6679,6 +6680,7 @@ function app() {
     // when its detection threshold trips and the action is "notify".
     notifyHealthEvents: [
       { label: 'swarm_agent_unhealthy', key: 'notify_event_swarm_agent_unhealthy' },
+      { label: 'swarm_agent_recovered', key: 'notify_event_swarm_agent_recovered' },
     ],
     // Security events — single-toggle per event (no success/failure
     // pair like ops events). Rendered as a separate row beneath the

@@ -1427,72 +1427,94 @@ async def _run_swarm_agent_health(
                     # configured notification mediums (in-app +
                     # Apprise external) without auto-restarting.
                     #
-                    # De-dup gates: a once-per-minute schedule with a
-                    # genuinely down agent would page 60×/hour without
-                    # this. Fire only when EITHER (a) the unhealthy
-                    # host set has changed since the last notify (e.g.
-                    # a new node failed, or a previous one recovered),
-                    # OR (b) the cooldown elapsed (so a chronically
-                    # down host still gets reminded periodically). The
-                    # cooldown reuses the autoheal cooldown tunable so
-                    # operators have ONE knob for "how often do I
-                    # want to hear about this".
+                    # Transitions-only de-dup: fire ONE
+                    # `swarm_agent_unhealthy` per host that just became
+                    # unhealthy AND ONE `swarm_agent_recovered` per host
+                    # that just recovered. A sustained outage no longer
+                    # pages periodically; instead the operator gets one
+                    # alert per incident + one auto-recovered signal.
+                    # State plane: per-host membership in the previous
+                    # unhealthy set (`_swarm_autoheal_last_notify_set`)
+                    # is the gate. New members → unhealthy event. Lost
+                    # members → recovered event. Identical sets between
+                    # ticks → silent.
                     global _swarm_autoheal_last_notify_ts, _swarm_autoheal_last_notify_set
-                    cooldown_min = _tuning_mod.tuning_int(
-                        "tuning_swarm_autoheal_cooldown_minutes",
-                    )
                     current_set = frozenset(unhealthy_hosts)
-                    set_changed = (current_set != _swarm_autoheal_last_notify_set)
-                    elapsed_s = started - _swarm_autoheal_last_notify_ts
-                    cooldown_elapsed = (
-                        _swarm_autoheal_last_notify_ts == 0
-                        or elapsed_s >= cooldown_min * 60
-                    )
-                    if not (set_changed or cooldown_elapsed):
-                        action_taken = "notify_skipped_dedup"
+                    newly_unhealthy = sorted(current_set - _swarm_autoheal_last_notify_set)
+                    newly_recovered = sorted(_swarm_autoheal_last_notify_set - current_set)
+                    if not (newly_unhealthy or newly_recovered):
+                        action_taken = "notify_skipped_no_change"
                         print(
                             f"[scheduler] swarm_agent_health: notify "
-                            f"skipped (set unchanged, "
-                            f"{int(elapsed_s)}s < {cooldown_min*60}s); "
+                            f"skipped (no transitions); "
                             f"unhealthy={unhealthy_hosts}",
                         )
                     else:
                         action_taken = "notified"
-                        # Pre-compute a clean target name for the {name}
-                        # template placeholder (the legacy template
-                        # parser splits caller's title on `:` to extract
-                        # {name}; passing a colon-formed title here means
-                        # `{name}` resolves to the host list rather than
-                        # the entire title — which would otherwise lead
-                        # to `"⚠️ Swarm agent unhealthy: ⚠️ Portainer
-                        # agent(s) unhealthy"` double-prefix on render).
-                        host_list_str = ", ".join(unhealthy_hosts) or "<none>"
-                        try:
-                            await _ops.notify(
-                                f"⚠️ Portainer agent(s) unhealthy: {host_list_str}",
-                                f"Unhealthy nodes (>={threshold} consecutive bad "
-                                f"gathers): {host_list_str}. "
-                                f"Action: notify-only (configurable in Admin → "
-                                f"Notifications).",
-                                "warning",
-                                event="swarm_agent_unhealthy",
-                                actor_username=SCHEDULER_ACTOR,
-                                target_kind="schedule",
-                                target_id="swarm_agent_health",
-                                metadata={"unhealthy": unhealthy_hosts,
-                                          "threshold": threshold},
-                            )
-                            _swarm_autoheal_last_notify_ts = started
-                            _swarm_autoheal_last_notify_set = current_set
-                            _persist_swarm_autoheal_notify_state(started, current_set)
-                        except Exception as ne:
-                            print(
-                                f"[scheduler] swarm_agent_health notify "
-                                f"failed: {ne}",
-                            )
+                        # Fire the unhealthy event when one or more
+                        # hosts transitioned into the bad set this tick.
+                        # The host list in title / body / metadata is
+                        # the NEWLY-unhealthy ones — not every currently-
+                        # unhealthy host — so each host shows up in
+                        # exactly one unhealthy notification per
+                        # incident.
+                        if newly_unhealthy:
+                            host_list_str = ", ".join(newly_unhealthy) or "<none>"
+                            try:
+                                await _ops.notify(
+                                    f"⚠️ Portainer agent(s) unhealthy: {host_list_str}",
+                                    f"Newly unhealthy nodes (>={threshold} "
+                                    f"consecutive bad gathers): {host_list_str}. "
+                                    f"Action: notify-only (configurable in "
+                                    f"Admin → Notifications).",
+                                    "warning",
+                                    event="swarm_agent_unhealthy",
+                                    actor_username=SCHEDULER_ACTOR,
+                                    target_kind="schedule",
+                                    target_id="swarm_agent_health",
+                                    metadata={"unhealthy": newly_unhealthy,
+                                              "threshold": threshold},
+                                )
+                            except Exception as ne:
+                                print(
+                                    f"[scheduler] swarm_agent_health "
+                                    f"unhealthy notify failed: {ne}",
+                                )
+                        # Fire the recovered event when one or more
+                        # hosts dropped out of the bad set. Severity is
+                        # `success` so the notification reads as a
+                        # positive signal in the in-app store + Apprise
+                        # inbox.
+                        if newly_recovered:
+                            host_list_str = ", ".join(newly_recovered) or "<none>"
+                            try:
+                                await _ops.notify(
+                                    f"✅ Portainer agent(s) recovered: {host_list_str}",
+                                    f"Nodes that had been unhealthy are now "
+                                    f"healthy again: {host_list_str}.",
+                                    "success",
+                                    event="swarm_agent_recovered",
+                                    actor_username=SCHEDULER_ACTOR,
+                                    target_kind="schedule",
+                                    target_id="swarm_agent_health",
+                                    metadata={"recovered": newly_recovered},
+                                )
+                            except Exception as ne:
+                                print(
+                                    f"[scheduler] swarm_agent_health "
+                                    f"recovered notify failed: {ne}",
+                                )
+                        # Stamp the new state regardless of which event
+                        # fired (or both) so the next tick sees the
+                        # correct baseline.
+                        _swarm_autoheal_last_notify_ts = started
+                        _swarm_autoheal_last_notify_set = current_set
+                        _persist_swarm_autoheal_notify_state(started, current_set)
                     print(
                         f"[scheduler] swarm_agent_health: {action_taken} "
-                        f"action; unhealthy={unhealthy_hosts}",
+                        f"action; unhealthy={unhealthy_hosts} "
+                        f"newly_unhealthy={newly_unhealthy} "
+                        f"newly_recovered={newly_recovered}",
                     )
         except Exception as e:
             status = "error"
