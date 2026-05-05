@@ -14249,16 +14249,15 @@ async def login_page():
 
 
 # UI icon sprite. Served as a discrete route (not via the catch-all
-# StaticFiles mount) so we can attach `Cache-Control: no-cache,
-# must-revalidate` — the sprite is a single shared file consumed by
-# every <use href="/img/ui-sprite.svg#icon-..."/> in the SPA, and an
-# additive symbol edit (new brand icon, new tab icon) ships with the
-# next PATCH but the browser would otherwise hold the OLD sprite via
-# heuristic caching. With must-revalidate the browser sends an
-# If-Modified-Since on every navigation; unchanged file returns 304
-# (cheap), changed file returns 200 with the new symbols. Same
-# rationale + same headers as the SPA shell. Registered BEFORE the
-# StaticFiles "/" mount per CLAUDE.md mount-order rule.
+# StaticFiles mount) so we can attach a long-cache header — every
+# `<use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-..."/>` site
+# is version-busted by the shell renderer at request time, so the URL
+# itself changes on every PATCH bump. With `immutable` + a one-year
+# max-age the browser parks a single sprite copy across navigations
+# (no per-page revalidation round-trip) and the `?v=...` change forces
+# a fresh fetch the next time the SPA shell ships a new version.
+# Registered BEFORE the StaticFiles "/" mount per CLAUDE.md mount-order
+# rule.
 @app.get("/img/ui-sprite.svg")
 async def serve_ui_sprite():
     path = "static/img/ui-sprite.svg"
@@ -14267,7 +14266,7 @@ async def serve_ui_sprite():
     return FileResponse(
         path,
         media_type="image/svg+xml",
-        headers={"Cache-Control": "no-cache, must-revalidate"},
+        headers={"Cache-Control": "public, max-age=31536000, immutable"},
     )
 
 

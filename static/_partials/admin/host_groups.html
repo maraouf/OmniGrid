@@ -4,7 +4,7 @@
              the description paragraphs, `mb-3` on the last
              paragraph for separation from the editor below. -->
         <div class="flex items-center gap-2 mb-2">
-          <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true"><use href="/img/ui-sprite.svg#icon-layers"/></svg>
+          <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-layers"/></svg>
           <h3 class="font-semibold text-[13px]" x-text="t('admin_hosts.groups.heading')"></h3>
         </div>
         <p class="text-[11.5px] text-[var(--text-faint)] mb-2 leading-snug max-w-[720px]"
@@ -27,7 +27,7 @@
                   @click="collapseAllHostGroupChildren()"
                   class="host-group-chip host-group-chip--neutral"
                   :title="t('admin_hosts.groups.collapse_all_title') || 'Hide every parent group\'s sub-rows'">
-            <svg width="10" height="10" stroke-width="2.4" aria-hidden="true"><use href="/img/ui-sprite.svg#icon-chevron-down"/>
+            <svg width="10" height="10" stroke-width="2.4" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-chevron-down"/>
             </svg>
             <span x-text="t('admin_hosts.groups.collapse_all') || 'Collapse all children'"></span>
           </button>
@@ -35,7 +35,7 @@
                   @click="expandAllHostGroupChildren()"
                   class="host-group-chip host-group-chip--neutral"
                   :title="t('admin_hosts.groups.expand_all_title') || 'Show every parent group\'s sub-rows'">
-            <svg width="10" height="10" stroke-width="2.4" class="flip-rtl" aria-hidden="true" style="transform: rotate(90deg);"><use href="/img/ui-sprite.svg#icon-chevron-right"/></svg>
+            <svg width="10" height="10" stroke-width="2.4" class="flip-rtl" aria-hidden="true" style="transform: rotate(90deg);"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-chevron-right"/></svg>
             <span x-text="t('admin_hosts.groups.expand_all') || 'Expand all children'"></span>
           </button>
         </div>
@@ -64,7 +64,7 @@
                         @click="toggleHostGroupChildrenCollapsed(g.name)"
                         class="host-group-chip host-group-chip--neutral"
                         :title="t('admin_hosts.groups.children_toggle_title')">
-                  <svg width="10" height="10" stroke-width="2.4" class="flip-rtl" aria-hidden="true" :style="!isHostGroupChildrenCollapsed(g.name) ? 'transform: rotate(90deg)' : ''"><use href="/img/ui-sprite.svg#icon-chevron-right"/></svg>
+                  <svg width="10" height="10" stroke-width="2.4" class="flip-rtl" aria-hidden="true" :style="!isHostGroupChildrenCollapsed(g.name) ? 'transform: rotate(90deg)' : ''"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-chevron-right"/></svg>
                   <span x-text="(isHostGroupChildrenCollapsed(g.name)
                                   ? t('admin_hosts.groups.children_show')
                                   : t('admin_hosts.groups.children_hide'))
@@ -203,7 +203,7 @@
                           class="btn btn-ghost text-[12px] px-2"
                           :class="listIdx === 0 ? 'opacity-40 cursor-not-allowed' : ''"
                           :title="t('admin_hosts.groups.move_up_title')">
-                    <svg width="11" height="11" stroke-width="2.4" aria-hidden="true"><use href="/img/ui-sprite.svg#icon-chevron-up"/></svg>
+                    <svg width="11" height="11" stroke-width="2.4" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-chevron-up"/></svg>
                   </button>
                   <button x-show="isAdmin()" @click="moveHostGroupByListIdx(listIdx, +1)"
                           tabindex="-1"
@@ -211,7 +211,7 @@
                           class="btn btn-ghost text-[12px] px-2"
                           :class="listIdx === sortedGroupsForEditor().length - 1 ? 'opacity-40 cursor-not-allowed' : ''"
                           :title="t('admin_hosts.groups.move_down_title')">
-                    <svg width="11" height="11" stroke-width="2.4" aria-hidden="true"><use href="/img/ui-sprite.svg#icon-chevron-down"/></svg>
+                    <svg width="11" height="11" stroke-width="2.4" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-chevron-down"/></svg>
                   </button>
                   <button x-show="isAdmin()" @click="removeHostGroup(origIdx)"
                           tabindex="-1"

@@ -7,7 +7,7 @@
             <div>
               <div class="flex items-center gap-2 mb-2">
                 <svg width="16" height="16" aria-hidden="true" class="text-[var(--text-dim)]">
-                  <use href="/img/ui-sprite.svg#icon-zap"/>
+                  <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-zap"/>
                 </svg>
                 <h3 class="font-semibold text-[13px]" x-text="t('admin.ai.heading')"></h3>
               </div>
@@ -73,7 +73,7 @@
           <div class="flex items-center justify-between flex-wrap gap-2 mb-3">
             <div class="flex items-center gap-2">
               <svg width="14" height="14" aria-hidden="true" class="text-[var(--text-dim)]">
-                <use href="/img/ui-sprite.svg#icon-activity"/>
+                <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-activity"/>
               </svg>
               <h3 class="font-semibold text-[13px]" x-text="t('admin.ai.dashboard_title')"></h3>
             </div>
@@ -93,7 +93,7 @@
                       class="btn btn-ghost text-[11px]"
                       :title="t('admin.ai.refresh')">
                 <svg width="12" height="12" aria-hidden="true" :class="aiDashboardLoading ? 'spin-md' : ''">
-                  <use href="/img/ui-sprite.svg#icon-refresh-ccw"/>
+                  <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-refresh-ccw"/>
                 </svg>
               </button>
             </div>
@@ -209,7 +209,7 @@
         <section class="bg-[var(--surface)] border border-[var(--border)] rounded-md p-5">
           <div class="flex items-center gap-2 mb-3">
             <svg width="14" height="14" aria-hidden="true" class="text-[var(--text-dim)]">
-              <use href="/img/ui-sprite.svg#icon-key"/>
+              <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-key"/>
             </svg>
             <h3 class="font-semibold text-[13px]" x-text="t('admin.ai.providers_heading')"></h3>
           </div>
@@ -285,7 +285,7 @@
                             class="btn btn-ghost text-[11.5px]">
                       <span x-show="!aiTestState[name].loading"
                             class="flex items-center gap-1">
-                        <svg width="11" height="11" aria-hidden="true"><use href="/img/ui-sprite.svg#icon-zap"/></svg>
+                        <svg width="11" height="11" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-zap"/></svg>
                         <span x-text="t('admin.ai.test_button')"></span>
                       </span>
                       <span x-show="aiTestState[name].loading"
@@ -357,7 +357,7 @@
                 <button type="button" @click="closeAiModal()"
                         class="btn btn-ghost text-[11px]"
                         :aria-label="t('actions.close')">
-                  <svg width="12" height="12" aria-hidden="true"><use href="/img/ui-sprite.svg#icon-x"/></svg>
+                  <svg width="12" height="12" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-x"/></svg>
                 </button>
               </div>
               <div class="overflow-y-auto scrollbar p-4 flex-1">

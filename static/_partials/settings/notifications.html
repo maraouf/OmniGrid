@@ -1,6 +1,6 @@
       <section x-show="settingsSection === 'notifications'" class="bg-[var(--surface)] border border-[var(--border)] rounded-md p-5">
         <div class="flex items-center gap-2 mb-1">
-          <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true"><use href="/img/ui-sprite.svg#icon-bell"/></svg>
+          <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-bell"/></svg>
           <h3 class="font-semibold text-[13px]" x-text="t('profile.notifications.title')"></h3>
         </div>
         <p class="text-[11.5px] text-[var(--text-faint)] mb-3" x-text="t('profile.notifications.subtitle_per_medium')"></p>
@@ -27,7 +27,7 @@
           <div class="relative flex-1 min-w-[220px]">
             <svg width="13" height="13"
                  class="absolute start-3 top-1/2 -translate-y-1/2 text-[var(--text-faint)] pointer-events-none"
-                 aria-hidden="true"><use href="/img/ui-sprite.svg#icon-search"/></svg>
+                 aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-search"/></svg>
             <!-- Inline padding overrides the global `input[type="text"] {
                  padding: 5px 10px }` rule whose attribute-selector
                  specificity beats Tailwind's `ps-9` / `pe-8` utilities;
@@ -81,7 +81,7 @@
                   <svg width="14" height="14"
                        class="text-[var(--text-dim)] flex-shrink-0"
                        aria-hidden="true">
-                    <use :href="'/img/ui-sprite.svg#' + cat.icon"/>
+                    <use :href="'/img/ui-sprite.svg?v=__APP_VERSION__#' + cat.icon"/>
                   </svg>
                   <div class="flex flex-col min-w-0 flex-1 text-start">
                     <span class="text-[12.5px] font-semibold text-[var(--text)]"
@@ -97,7 +97,7 @@
                   <svg width="11" height="11"
                        class="text-[var(--text-faint)] flex-shrink-0 transition-transform"
                        :class="isNotifyCategoryExpanded(cat.id) ? 'rotate-180' : ''"
-                       aria-hidden="true"><use href="/img/ui-sprite.svg#icon-chevron-down"/></svg>
+                       aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-chevron-down"/></svg>
                 </button>
                 <!-- per-medium state chips. Sibling <button>s, NOT
                      nested in the toggle. Clicking a chip cycles all
@@ -123,9 +123,9 @@
                             @click="toggleNotifyCategoryMedium(cat.id, m)">
                       <span x-text="t('admin.notifications.medium_' + m)"></span>
                       <svg width="9" height="9" class="ms-1" aria-hidden="true">
-                        <use :href="notifyCategoryStateForMedium(cat, m) === 'all' ? '/img/ui-sprite.svg#icon-activity'
-                                    : (notifyCategoryStateForMedium(cat, m) === 'partial' ? '/img/ui-sprite.svg#icon-help-circle'
-                                    : '/img/ui-sprite.svg#icon-bug')"/>
+                        <use :href="notifyCategoryStateForMedium(cat, m) === 'all' ? '/img/ui-sprite.svg?v=__APP_VERSION__#icon-activity'
+                                    : (notifyCategoryStateForMedium(cat, m) === 'partial' ? '/img/ui-sprite.svg?v=__APP_VERSION__#icon-help-circle'
+                                    : '/img/ui-sprite.svg?v=__APP_VERSION__#icon-bug')"/>
                       </svg>
                       <!-- Dirty dot — visible only when this chip's
                            routing has been changed by the operator
@@ -151,7 +151,7 @@
                          :class="notifyMediumIsGloballyEnabled(m) ? 'text-[var(--text-dim)]' : 'text-[var(--text-faint)] opacity-60'"
                          :title="notifyMediumIsGloballyEnabled(m) ? t('profile.notifications.medium_column_hint') : t('profile.notifications.medium_globally_disabled')">
                       <span x-text="t('admin.notifications.medium_' + m)"></span>
-                      <svg x-show="!notifyMediumIsGloballyEnabled(m)" width="10" height="10" class="opacity-70 ms-1 inline-block" aria-hidden="true"><use href="/img/ui-sprite.svg#icon-alert-triangle"/></svg>
+                      <svg x-show="!notifyMediumIsGloballyEnabled(m)" width="10" height="10" class="opacity-70 ms-1 inline-block" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-alert-triangle"/></svg>
                     </div>
                   </template>
                   <div class="text-[10.5px] text-[var(--text-faint)] uppercase tracking-wider pb-1.5 border-b border-[var(--border)] text-center"
@@ -186,7 +186,7 @@
                                       @click="openNotifyTemplateViewer(kind === 'success' ? grp.success_key.replace(/^notify_event_/, '') : grp.failure_key.replace(/^notify_event_/, ''))"
                                       :title="t('profile.notify_templates.view_template_title')"
                                       :aria-label="t('profile.notify_templates.view_template_title')">
-                                <svg width="11" height="11" aria-hidden="true"><use href="/img/ui-sprite.svg#icon-info"/></svg>
+                                <svg width="11" height="11" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-info"/></svg>
                               </button>
                             </div>
                             <template x-for="m in notifyMediumNames()" :key="cat.id + '_grp_' + grp.label + '_' + kind + '_' + m">
@@ -243,7 +243,7 @@
                                   @click="openNotifyTemplateViewer(row.key.replace(/^notify_event_/, ''))"
                                   :title="t('profile.notify_templates.view_template_title')"
                                   :aria-label="t('profile.notify_templates.view_template_title')">
-                            <svg width="11" height="11" aria-hidden="true"><use href="/img/ui-sprite.svg#icon-info"/></svg>
+                            <svg width="11" height="11" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-info"/></svg>
                           </button>
                         </div>
                         <template x-for="m in notifyMediumNames()" :key="cat.id + '_chk_' + m + '_' + row.key">

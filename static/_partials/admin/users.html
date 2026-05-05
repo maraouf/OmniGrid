@@ -1,7 +1,7 @@
       <div x-show="adminTab==='users'" class="space-y-4">
         <section class="bg-[var(--surface)] border border-[var(--border)] rounded-md p-5">
           <div class="flex items-center gap-2 mb-2">
-            <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true"><use href="/img/ui-sprite.svg#icon-user"/></svg>
+            <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-user"/></svg>
             <h3 class="font-semibold text-[13px]" x-text="t('admin.users.create_title')"></h3>
           </div>
           <div class="grid grid-cols-1 md:grid-cols-2 gap-2">
@@ -29,7 +29,7 @@
         <section class="bg-[var(--surface)] border border-[var(--border)] rounded-md overflow-hidden">
           <div class="p-4 border-b border-[var(--border)] flex justify-between items-center">
             <div class="flex items-center gap-2">
-              <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true"><use href="/img/ui-sprite.svg#icon-user"/></svg>
+              <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-user"/></svg>
               <h3 class="font-semibold text-[13px]"><span x-text="t('admin.users.list_title')"></span> <span class="text-[var(--text-faint)] font-normal" x-text="'(' + users.length + ')'"></span></h3>
             </div>
             <button @click="loadUsers()" class="btn btn-ghost text-[11px]" x-text="t('actions.reload')"></button>
@@ -108,7 +108,7 @@
                       </template>
                       <template x-if="u.auth_source === 'local'">
                         <span class="inline-flex items-center gap-1">
-                          <svg width="12" height="12" aria-hidden="true" class="text-[var(--text-dim)]"><use href="/img/ui-sprite.svg#icon-key"/></svg>
+                          <svg width="12" height="12" aria-hidden="true" class="text-[var(--text-dim)]"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-key"/></svg>
                           <span class="pill"
                                 :class="(u.passkey_count || 0) > 0 ? 'pill-success' : 'pill-muted'"
                                 :title="(u.passkey_count || 0) > 0
@@ -131,18 +131,18 @@
                         <button @click="toggleUserRole(u)" class="user-action-btn"
                                 :title="u.role==='admin' ? t('admin.users.make_readonly') : t('admin.users.make_admin')"
                                 :aria-label="u.role==='admin' ? t('admin.users.make_readonly') : t('admin.users.make_admin')">
-                          <svg width="14" height="14" aria-hidden="true"><use href="/img/ui-sprite.svg#icon-arrow-up-right"/></svg>
+                          <svg width="14" height="14" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-arrow-up-right"/></svg>
                         </button>
                         <button @click="toggleUserDisabled(u)" class="user-action-btn"
                                 :title="u.disabled ? t('admin.users.enable') : t('admin.users.disable')"
                                 :aria-label="u.disabled ? t('admin.users.enable') : t('admin.users.disable')">
-                          <svg width="14" height="14" aria-hidden="true"><use href="/img/ui-sprite.svg#icon-lock"/></svg>
+                          <svg width="14" height="14" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-lock"/></svg>
                         </button>
                         <button x-show="u.auth_source==='local'" @click="resetUserPassword(u)"
                                 class="user-action-btn"
                                 :title="t('admin.users.reset_pw_title')"
                                 :aria-label="t('admin.users.reset_pw')">
-                          <svg width="14" height="14" aria-hidden="true"><use href="/img/ui-sprite.svg#icon-key"/></svg>
+                          <svg width="14" height="14" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-key"/></svg>
                         </button>
                         <span class="user-action-sep" x-show="u.auth_source==='local'"></span>
                         <!-- Disable 2FA — admin override. Visible
@@ -154,7 +154,7 @@
                                 class="user-action-btn user-action-btn--warning"
                                 :title="t('admin.users.totp_disable_title')"
                                 :aria-label="t('admin.users.totp_disable')">
-                          <svg width="14" height="14" aria-hidden="true"><use href="/img/ui-sprite.svg#icon-shield"/></svg>
+                          <svg width="14" height="14" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-shield"/></svg>
                         </button>
                         <!-- Force / Unforce 2FA — per-user policy
                              override. Audited via history.
@@ -165,14 +165,14 @@
                                 class="user-action-btn"
                                 :title="t('admin.users.totp_force_title')"
                                 :aria-label="t('admin.users.totp_force')">
-                          <svg width="14" height="14" aria-hidden="true"><use href="/img/ui-sprite.svg#icon-shield"/></svg>
+                          <svg width="14" height="14" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-shield"/></svg>
                         </button>
                         <button x-show="u.auth_source==='local' && u.totp_force_required"
                                 @click="adminForceTotp(u, false)"
                                 class="user-action-btn user-action-btn--warning"
                                 :title="t('admin.users.totp_unforce_title')"
                                 :aria-label="t('admin.users.totp_unforce')">
-                          <svg width="14" height="14" aria-hidden="true"><use href="/img/ui-sprite.svg#icon-shield"/></svg>
+                          <svg width="14" height="14" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-shield"/></svg>
                         </button>
                         <span class="user-action-sep"></span>
                         <button @click="deleteUser(u)"
@@ -180,7 +180,7 @@
                                 :disabled="me && u.id === me.id ? true : false"
                                 :title="me && u.id === me.id ? t('admin.users.delete_self_title') : t('admin.users.delete_title')"
                                 :aria-label="t('actions.delete')">
-                          <svg width="14" height="14" aria-hidden="true"><use href="/img/ui-sprite.svg#icon-trash"/></svg>
+                          <svg width="14" height="14" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-trash"/></svg>
                         </button>
                       </div>
                     </td>

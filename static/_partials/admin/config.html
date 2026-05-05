@@ -1,7 +1,7 @@
       <div x-show="adminTab==='config'" class="space-y-4">
         <section class="bg-[var(--surface)] border border-[var(--border)] rounded-md p-5">
           <div class="flex items-center gap-2 mb-2">
-            <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true"><use href="/img/ui-sprite.svg#icon-settings"/></svg>
+            <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-settings"/></svg>
             <h3 class="font-semibold text-[13px]" x-text="t('admin.config.title')"></h3>
           </div>
           <p class="text-[11.5px] text-[var(--text-faint)] mb-3 max-w-[720px]"
@@ -37,17 +37,17 @@
                        :aria-label="t('admin.config.bounds.group_label')">
                     <span class="bounds-chip bounds-chip--min"
                           :title="t('admin.config.bounds.min_title')">
-                      <svg width="11" height="11" aria-hidden="true"><use href="/img/ui-sprite.svg#icon-arrow-down-to-line"/></svg>
+                      <svg width="11" height="11" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-arrow-down-to-line"/></svg>
                       <span x-text="(tuningEffective[key] || {}).min"></span>
                     </span>
                     <span class="bounds-chip bounds-chip--max"
                           :title="t('admin.config.bounds.max_title')">
-                      <svg width="11" height="11" aria-hidden="true"><use href="/img/ui-sprite.svg#icon-arrow-up-to-line"/></svg>
+                      <svg width="11" height="11" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-arrow-up-to-line"/></svg>
                       <span x-text="(tuningEffective[key] || {}).max"></span>
                     </span>
                     <span class="bounds-chip bounds-chip--default"
                           :title="t('admin.config.bounds.default_title')">
-                      <svg width="11" height="11" aria-hidden="true"><use href="/img/ui-sprite.svg#icon-target"/></svg>
+                      <svg width="11" height="11" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-target"/></svg>
                       <span x-text="(tuningEffective[key] || {}).default"></span>
                     </span>
                   </div>

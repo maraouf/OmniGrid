@@ -12,7 +12,7 @@
 
         <section x-show="logsSubTab==='live'" class="bg-[var(--surface)] border border-[var(--border)] rounded-md p-4">
           <div class="flex flex-wrap items-center gap-2 mb-3">
-            <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true"><use href="/img/ui-sprite.svg#icon-file-text"/></svg>
+            <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-file-text"/></svg>
             <h3 class="font-semibold text-[13px]" x-text="t('admin.logs.title')"></h3>
             <span class="text-[11px] text-[var(--text-faint)]"
                   x-text="t('admin.logs.count', { n: filteredLogLines().length, total: logLines.length })"></span>
@@ -112,7 +112,7 @@
              there. -->
         <section x-show="logsSubTab==='files' && tuningLoaded" class="bg-[var(--surface)] border border-[var(--border)] rounded-md p-4">
           <div class="flex items-center gap-2 mb-3">
-            <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true"><use href="/img/ui-sprite.svg#icon-clock"/></svg>
+            <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-clock"/></svg>
             <h3 class="font-semibold text-[13px]"
                 x-text="t('admin.config.fields.tuning_log_retention_days.label')"></h3>
           </div>
@@ -130,17 +130,17 @@
                  :aria-label="t('admin.config.bounds.group_label')">
               <span class="bounds-chip bounds-chip--min"
                     :title="t('admin.config.bounds.min_title')">
-                <svg width="11" height="11" aria-hidden="true"><use href="/img/ui-sprite.svg#icon-arrow-down-to-line"/></svg>
+                <svg width="11" height="11" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-arrow-down-to-line"/></svg>
                 <span x-text="(tuningEffective['tuning_log_retention_days'] || {}).min"></span>
               </span>
               <span class="bounds-chip bounds-chip--max"
                     :title="t('admin.config.bounds.max_title')">
-                <svg width="11" height="11" aria-hidden="true"><use href="/img/ui-sprite.svg#icon-arrow-up-to-line"/></svg>
+                <svg width="11" height="11" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-arrow-up-to-line"/></svg>
                 <span x-text="(tuningEffective['tuning_log_retention_days'] || {}).max"></span>
               </span>
               <span class="bounds-chip bounds-chip--default"
                     :title="t('admin.config.bounds.default_title')">
-                <svg width="11" height="11" aria-hidden="true"><use href="/img/ui-sprite.svg#icon-target"/></svg>
+                <svg width="11" height="11" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-target"/></svg>
                 <span x-text="(tuningEffective['tuning_log_retention_days'] || {}).default"></span>
               </span>
             </div>
@@ -162,7 +162,7 @@
 
         <section x-show="logsSubTab==='files'" class="bg-[var(--surface)] border border-[var(--border)] rounded-md p-4 space-y-3">
           <div class="flex flex-wrap items-center gap-2">
-            <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true"><use href="/img/ui-sprite.svg#icon-archive"/></svg>
+            <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-archive"/></svg>
             <h3 class="font-semibold text-[13px]" x-text="t('admin.logs.files_title')"></h3>
             <span class="text-[11px] text-[var(--text-faint)]"
                   x-text="t('admin.logs.files_count', { n: logFiles.length })"></span>

@@ -5,7 +5,7 @@
         <div class="flex items-start justify-between">
           <div>
             <div class="flex items-center gap-2 mb-2">
-              <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true"><use href="/img/ui-sprite.svg#icon-bell"/></svg>
+              <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-bell"/></svg>
               <h3 class="font-semibold text-[13px]" x-text="t('settings.notifications.title')"></h3>
             </div>
             <p class="text-[11.5px] text-[var(--text-faint)] mb-3">
@@ -103,7 +103,7 @@
                   <svg width="11" height="11"
                        class="text-[var(--text-faint)] flex-shrink-0 transition-transform"
                        :class="isNotifyCategoryExpanded('admin:' + cat.id) ? 'rotate-180' : ''"
-                       aria-hidden="true"><use href="/img/ui-sprite.svg#icon-chevron-down"/></svg>
+                       aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-chevron-down"/></svg>
                 </button>
                 <div x-show="isNotifyCategoryExpanded('admin:' + cat.id)" x-cloak class="notify-category-body">
                   <!-- Operations renders as paired groups (one
@@ -137,7 +137,7 @@
                                     :class="kind === 'failure' ? 'text-[var(--danger)]' : 'text-[var(--success)]'"
                                     x-text="t('admin.notifications.events.' + kind)"></span>
                               <svg width="11" height="11" class="text-[var(--text-faint)] flex-shrink-0 flip-rtl"
-                                   aria-hidden="true"><use href="/img/ui-sprite.svg#icon-chevron-right"/></svg>
+                                   aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-chevron-right"/></svg>
                             </button>
                             <label class="flex items-center gap-1.5 text-[11.5px] cursor-pointer select-none flex-shrink-0">
                               <input type="checkbox"
@@ -162,7 +162,7 @@
                           <span class="text-[12px] text-[var(--text)] truncate"
                                 x-text="t('admin.notifications.events.' + row.label)"></span>
                           <svg width="11" height="11" class="text-[var(--text-faint)] flex-shrink-0 flip-rtl"
-                               aria-hidden="true"><use href="/img/ui-sprite.svg#icon-chevron-right"/></svg>
+                               aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-chevron-right"/></svg>
                         </button>
                         <label class="flex items-center gap-1.5 text-[11.5px] cursor-pointer select-none flex-shrink-0">
                           <input type="checkbox"
@@ -218,7 +218,7 @@
         <hr class="my-4 border-[var(--border)]" x-show="tuningLoaded">
         <div x-show="tuningLoaded" class="bg-[var(--surface-2)] border border-[var(--border)] rounded-md p-4">
           <div class="flex items-center gap-2 mb-2">
-            <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true"><use href="/img/ui-sprite.svg#icon-clock"/></svg>
+            <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-clock"/></svg>
             <h4 class="font-semibold text-[12.5px]"
                 x-text="t('admin.config.fields.tuning_notification_retention_days.label')"></h4>
           </div>
@@ -236,17 +236,17 @@
                  :aria-label="t('admin.config.bounds.group_label')">
               <span class="bounds-chip bounds-chip--min"
                     :title="t('admin.config.bounds.min_title')">
-                <svg width="11" height="11" aria-hidden="true"><use href="/img/ui-sprite.svg#icon-arrow-down-to-line"/></svg>
+                <svg width="11" height="11" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-arrow-down-to-line"/></svg>
                 <span x-text="(tuningEffective['tuning_notification_retention_days'] || {}).min"></span>
               </span>
               <span class="bounds-chip bounds-chip--max"
                     :title="t('admin.config.bounds.max_title')">
-                <svg width="11" height="11" aria-hidden="true"><use href="/img/ui-sprite.svg#icon-arrow-up-to-line"/></svg>
+                <svg width="11" height="11" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-arrow-up-to-line"/></svg>
                 <span x-text="(tuningEffective['tuning_notification_retention_days'] || {}).max"></span>
               </span>
               <span class="bounds-chip bounds-chip--default"
                     :title="t('admin.config.bounds.default_title')">
-                <svg width="11" height="11" aria-hidden="true"><use href="/img/ui-sprite.svg#icon-target"/></svg>
+                <svg width="11" height="11" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-target"/></svg>
                 <span x-text="(tuningEffective['tuning_notification_retention_days'] || {}).default"></span>
               </span>
             </div>
@@ -267,7 +267,7 @@
              not a relocation. -->
         <div x-show="tuningLoaded" class="bg-[var(--surface-2)] border border-[var(--border)] rounded-md p-4 mt-3">
           <div class="flex items-center gap-2 mb-2">
-            <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true"><use href="/img/ui-sprite.svg#icon-layers"/></svg>
+            <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-layers"/></svg>
             <h4 class="font-semibold text-[12.5px]"
                 x-text="t('admin.config.fields.tuning_notification_page_size.label')"></h4>
           </div>
@@ -285,17 +285,17 @@
                  :aria-label="t('admin.config.bounds.group_label')">
               <span class="bounds-chip bounds-chip--min"
                     :title="t('admin.config.bounds.min_title')">
-                <svg width="11" height="11" aria-hidden="true"><use href="/img/ui-sprite.svg#icon-arrow-down-to-line"/></svg>
+                <svg width="11" height="11" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-arrow-down-to-line"/></svg>
                 <span x-text="(tuningEffective['tuning_notification_page_size'] || {}).min"></span>
               </span>
               <span class="bounds-chip bounds-chip--max"
                     :title="t('admin.config.bounds.max_title')">
-                <svg width="11" height="11" aria-hidden="true"><use href="/img/ui-sprite.svg#icon-arrow-up-to-line"/></svg>
+                <svg width="11" height="11" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-arrow-up-to-line"/></svg>
                 <span x-text="(tuningEffective['tuning_notification_page_size'] || {}).max"></span>
               </span>
               <span class="bounds-chip bounds-chip--default"
                     :title="t('admin.config.bounds.default_title')">
-                <svg width="11" height="11" aria-hidden="true"><use href="/img/ui-sprite.svg#icon-target"/></svg>
+                <svg width="11" height="11" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-target"/></svg>
                 <span x-text="(tuningEffective['tuning_notification_page_size'] || {}).default"></span>
               </span>
             </div>
