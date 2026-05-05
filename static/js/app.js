@@ -1166,7 +1166,7 @@ function app() {
       { id: 'hosts',          label: 'Hosts',           icon: 'server' },
       { id: 'ssh',            label: 'SSH',             icon: 'terminal' },
       { id: 'assets',         label: 'Asset inventory', icon: 'package' },
-      { id: 'ai',             label: 'AI integration',  icon: 'cpu' },
+      { id: 'ai',             label: 'AI integration',  icon: 'zap' },
       { id: 'schedules',      label: 'Schedules',       icon: 'calendar' },
       { id: 'backups',        label: 'Backups',         icon: 'archive' },
       { id: 'logs',           label: 'Logs',            icon: 'file-text' },
@@ -9701,8 +9701,14 @@ function app() {
           throw new Error(detail.detail || `HTTP ${r.status}`);
         }
         // Reload settings to pick up the freshly-flipped api_key_set
-        // booleans + reset the dirty baseline.
-        await this.loadSettings();
+        // booleans + reset the dirty baseline. Also reload the
+        // dashboard so the per-provider breakdown reflects the new
+        // enabled state without a page refresh — pre-fix the chip
+        // colour in the breakdown was driven by `aiDashboard.providers[i].enabled`
+        // (set at dashboard fetch time), so a freshly-enabled
+        // provider stayed greyed out until the next manual reload.
+        // Both fetches are independent — fan out in parallel.
+        await Promise.all([this.loadSettings(), this.loadAiDashboard(true)]);
         // Clear the user-typed api keys so the inputs don't carry the
         // value across the dirty boundary (the GET response only
         // surfaces api_key_set; the input ought to be blank again).
