@@ -567,9 +567,12 @@ def init_db():
         );
         CREATE INDEX IF NOT EXISTS idx_history_ts ON history(ts DESC);
         CREATE INDEX IF NOT EXISTS idx_history_op_type ON history(op_type);
-        CREATE INDEX IF NOT EXISTS idx_history_target_kind ON history(target_kind);
         CREATE INDEX IF NOT EXISTS idx_history_target_name ON history(target_name);
         CREATE INDEX IF NOT EXISTS idx_history_status ON history(status);
+        -- idx_history_target_kind is created by migration #3 — keep it
+        -- there so legacy DBs (where the table exists without the
+        -- column at init_db time) don't fail the executescript before
+        -- migrations get a chance to ADD COLUMN.
 
         CREATE TABLE IF NOT EXISTS ignores (
             pattern TEXT PRIMARY KEY, kind TEXT NOT NULL,
@@ -918,6 +921,13 @@ def init_db():
         for ddl in (
             "ALTER TABLE history ADD COLUMN actor TEXT DEFAULT 'ui'",
             "ALTER TABLE history ADD COLUMN target_stack TEXT",
+            # target_kind taxonomy column — also handled by migration #3
+            # which runs at the end of init_db, but adding it here too
+            # means any code path that touches `target_kind` BEFORE the
+            # migration applies (e.g. an executescript reference earlier
+            # in init_db) doesn't fail. Idempotent via the
+            # OperationalError catch below.
+            "ALTER TABLE history ADD COLUMN target_kind TEXT",
             # disk I/O rates, derived per-tick by
             # host_metrics_sampler from node_disk_{read,written}_bytes_total.
             # Same skip-don't-synthesize discipline as the net rate columns;
