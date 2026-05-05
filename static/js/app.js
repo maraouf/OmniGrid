@@ -9710,10 +9710,10 @@ function app() {
           this.aiForm.providers[name].api_key = '';
         });
         this.$nextTick(() => { this._aiBaselineSnapshot = this._aiSnapshot(); });
-        this.toast('success', this.t('admin.ai.save_ok'));
+        this.showToast(this.t('admin.ai.save_ok'), 'success');
       } catch (e) {
         console.error('[ai] saveAiSettings failed:', e);
-        this.toast('error', this.t('admin.ai.save_failed') + ': ' + (e.message || e));
+        this.showToast(this.t('admin.ai.save_failed') + ': ' + (e.message || e), 'error');
       } finally {
         this.aiSaving = false;
       }
@@ -9801,17 +9801,18 @@ function app() {
         // Toast a one-line summary so the operator sees the outcome
         // even without scrolling to the per-card chip.
         if (this.aiTestState[name].result.ok) {
-          this.toast('success', this.t('admin.ai.test_ok') + ' · ' + this.aiProviderDisplayName(name));
+          this.showToast(this.t('admin.ai.test_ok') + ' · ' + this.aiProviderDisplayName(name), 'success');
         } else {
-          this.toast('error',
-            this.aiProviderDisplayName(name) + ' · ' + (this.aiTestState[name].result.detail || this.t('admin.ai.test_failed')));
+          this.showToast(
+            this.aiProviderDisplayName(name) + ' · ' + (this.aiTestState[name].result.detail || this.t('admin.ai.test_failed')),
+            'error');
         }
       } catch (e) {
         this.aiTestState[name].result = {
           ok: false, detail: String(e && e.message || e),
           response_time_ms: 0, provider: name,
         };
-        this.toast('error', this.aiProviderDisplayName(name) + ' · ' + (e.message || e));
+        this.showToast(this.aiProviderDisplayName(name) + ' · ' + (e.message || e), 'error');
       } finally {
         this.aiTestState[name].loading = false;
       }
