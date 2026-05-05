@@ -4128,6 +4128,107 @@ async def api_admin_ai_test(
     )
 
 
+class AiPaletteIn(BaseModel):
+    """Request body for the Cmd-K palette's AI assistant.
+
+    `query` is what the operator typed; `context` is a small SPA-side
+    blob giving the model the available host names / item names /
+    admin tabs / actions so the response can reference real OmniGrid
+    surfaces. The endpoint's system prompt orients the model as the
+    OmniGrid command-palette assistant.
+    """
+    query: str
+    context: Optional[dict] = None
+
+
+@app.post("/api/ai/palette")
+async def api_ai_palette(
+    body: AiPaletteIn,
+    _admin: auth.User = Depends(auth.require_admin),
+):
+    """Cmd-K palette AI assistant — admin-only.
+
+    Routes the operator's query through the active AI provider with a
+    system prompt that orients the model as a command-palette
+    assistant for OmniGrid. The SPA renders the response in a modal.
+    Master AI toggle + active provider come from the `ai_*` settings
+    block; missing config returns a clear ok=False so the SPA can
+    point the operator at the AI tab to set things up.
+
+    Future stage: parse structured tool-call responses (e.g. "the
+    operator wants to restart container X" → SPA executes that
+    action). For now the response is plain text — the operator reads
+    it and picks the next manual step.
+    """
+    if not get_setting_bool("ai_enabled", False):
+        return {"ok": False, "status": 0, "provider": "",
+                "detail": "AI integration is disabled. Enable it in Admin → AI Integration first.",
+                "response_time_ms": 0}
+    active = (get_setting("ai_active_provider", "") or "").strip().lower()
+    from logic import ai as _ai
+    if active not in _ai.SUPPORTED_PROVIDERS:
+        return {"ok": False, "status": 0, "provider": active,
+                "detail": "No active AI provider is selected. Pick one in Admin → AI Integration.",
+                "response_time_ms": 0}
+    if not get_setting_bool(f"ai_provider_{active}_enabled", False):
+        return {"ok": False, "status": 0, "provider": active,
+                "detail": f"Active provider '{active}' is not enabled. Enable it in Admin → AI Integration.",
+                "response_time_ms": 0}
+    api_key = (get_setting(f"ai_provider_{active}_api_key", "") or "").strip()
+    model = (get_setting(f"ai_provider_{active}_model", "") or "").strip()
+    base_url = (get_setting(f"ai_provider_{active}_base_url", "") or "").strip()
+
+    query = (body.query or "").strip()
+    if not query:
+        raise HTTPException(400, "query is required")
+    ctx = body.context if isinstance(body.context, dict) else {}
+
+    # System prompt — keep it tight; the provider's free-tier rate
+    # limits are the bottleneck on every test deployment. The operator
+    # gets a single short answer per click; the model is told to
+    # surface concrete OmniGrid actions / paths when relevant.
+    sys_prompt = (
+        "You are the Cmd-K palette assistant for OmniGrid, a Docker-Swarm "
+        "management dashboard. The operator just typed a query into the "
+        "command palette and wants help navigating, diagnosing, or acting. "
+        "Reply concisely (1-3 short paragraphs MAX). When relevant, name "
+        "the exact OmniGrid surface (e.g. 'Admin → Hosts', 'host drawer', "
+        "'item drawer', 'Stacks view'), the exact button or action "
+        "('click Switch to :latest', 'click Resume sampling'), or the "
+        "exact API endpoint. Don't invent features that aren't real. If "
+        "the operator's query is ambiguous, ask one short clarifying "
+        "question. Output plain text — no markdown headers."
+    )
+    # Trim context to keep token budget low.
+    user_prompt_parts = [f"Operator query: {query}"]
+    hosts = ctx.get("hosts") if isinstance(ctx, dict) else None
+    items = ctx.get("items") if isinstance(ctx, dict) else None
+    view = ctx.get("view") if isinstance(ctx, dict) else None
+    if view:
+        user_prompt_parts.append(f"Current view: {view}")
+    if isinstance(hosts, list) and hosts:
+        # Cap at ~30 — a 200-host fleet's full list would blow the
+        # token budget without adding signal for a single-query.
+        sample = hosts[:30]
+        user_prompt_parts.append("Available hosts: " + ", ".join(str(h) for h in sample))
+    if isinstance(items, list) and items:
+        sample = items[:30]
+        user_prompt_parts.append("Available items: " + ", ".join(str(i) for i in sample))
+    user_prompt = "\n".join(user_prompt_parts)
+
+    out = await _ai.ask_provider(
+        active,
+        api_key=api_key,
+        prompt=user_prompt,
+        system_prompt=sys_prompt,
+        model=model,
+        base_url=base_url,
+        max_tokens=400,
+        timeout=30.0,
+    )
+    return out
+
+
 # ----------------------------------------------------------------------------
 # Process-level tunables. Admin-only read endpoint that surfaces
 # the DB / env / default tier per knob plus the resolved effective value.
@@ -12797,6 +12898,15 @@ async def api_me(request: Request):
             "ping": {
                 "default_port": int(get_setting("ping_default_port", "443") or "443"),
                 "use_icmp":     get_setting_bool("ping_use_icmp", False),
+            },
+            # AI integration master state — surfaced so the SPA's
+            # Cmd-K palette can decide whether to render the "Ask AI"
+            # synthetic row. SPA gates on
+            # `me.client_config.ai.enabled === true` AND
+            # `me.client_config.ai.active_provider` being non-empty.
+            "ai": {
+                "enabled":         get_setting_bool("ai_enabled", False),
+                "active_provider": (get_setting("ai_active_provider", "") or "").strip().lower(),
             },
             # Last-Test-success timestamps per provider (DB-backed,
             # cross-browser / cross-machine). Stamped at the END of every

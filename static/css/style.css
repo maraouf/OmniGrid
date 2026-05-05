@@ -1759,6 +1759,15 @@ details summary::-webkit-details-marker {
 .cmdpal-kind-admin    { background: color-mix(in srgb, var(--primary) 18%, transparent); color: var(--text); }
 .cmdpal-kind-views    { background: color-mix(in srgb, var(--warning) 18%, transparent); color: var(--warning); }
 .cmdpal-kind-hotkeys  { background: color-mix(in srgb, var(--text-faint) 20%, transparent); color: var(--text-faint); }
+/* Verb commands (refresh / restart / pause / theme / sign out) — danger
+   accent so they read as "this DOES something" against the navigation
+   rows above. Action chips lead the result list when the query is verb-
+   prefixed, drop below navigation when not. */
+.cmdpal-kind-actions  { background: color-mix(in srgb, var(--danger) 18%, transparent); color: var(--danger); }
+/* AI assistant fallback row — uses the primary accent (same as the
+   admin kind) but with a slightly stronger mix so it stands out as the
+   "ask the model" affordance distinct from the navigation rows. */
+.cmdpal-kind-ai       { background: color-mix(in srgb, var(--primary) 28%, transparent); color: var(--primary); }
 
 /* ---------------------------------------------------------------------------
    Notification preferences grid (Profile → Notifications)

@@ -11787,10 +11787,149 @@ function app() {
       }
       return best;
     },
+    // Static action catalog — verb-first commands that the operator
+    // can invoke directly from the palette without navigating to a
+    // tab. Each entry is a { id, label, verbs, run, destructive? }
+    // descriptor; `verbs` boosts the score when the query starts with
+    // any of them so "restart" / "pause" / "update" / "test" / "theme"
+    // surface actions ahead of navigation results. `destructive: true`
+    // wraps the run() call in a SweetAlert confirm. Pattern mirrors
+    // Linear / Raycast / Notion command palette behaviour: the
+    // palette becomes the operator's primary CLI for routine ops
+    // (~80% of admin-tab nav can be replaced).
+    _commandActions() {
+      const t = (k, fb) => this.t(k) || fb;
+      // Build conditionally so disabled / unavailable actions don't
+      // pollute the result set. Each entry is appended only when its
+      // gate passes. `verbs` is a small ordered list of the words an
+      // operator types to look for THIS action (prefixes against the
+      // query — e.g. typing "ref" matches verbs "refresh" / "reload"
+      // → both surface).
+      const actions = [
+        // Refresh / data
+        { id: 'refresh-now',
+          label: t('command_palette.action.refresh_now', 'Trigger gather refresh now'),
+          sub:   t('command_palette.action.refresh_now_sub', 'Force /api/items refetch + image-digest probe'),
+          verbs: ['refresh', 'gather', 'reload', 'sync'],
+          run:   () => { this.refresh(true); } },
+        { id: 'reload-spa',
+          label: t('command_palette.action.reload_spa', 'Reload SPA'),
+          sub:   t('command_palette.action.reload_spa_sub', 'Hard-reload the page'),
+          verbs: ['reload', 'refresh'],
+          run:   () => { location.reload(); } },
+
+        // Re-test connections (only when the helper exists)
+        ...(typeof this.testPortainerConnection === 'function' ? [{
+          id: 'test-portainer',
+          label: t('command_palette.action.test_portainer', 'Force re-test Portainer'),
+          verbs: ['test', 'portainer'],
+          run:   () => { this.testPortainerConnection(); this.view = 'admin'; this.setAdminTab && this.setAdminTab('portainer'); }
+        }] : []),
+        ...(typeof this.testOidcConnection === 'function' ? [{
+          id: 'test-oidc',
+          label: t('command_palette.action.test_oidc', 'Force re-test Authentik OIDC'),
+          verbs: ['test', 'oidc', 'authentik'],
+          run:   () => { this.testOidcConnection(); this.view = 'admin'; this.setAdminTab && this.setAdminTab('oidc'); }
+        }] : []),
+        ...(typeof this.testBeszelConnection === 'function' ? [{
+          id: 'test-beszel',
+          label: t('command_palette.action.test_beszel', 'Force re-test Beszel hub'),
+          verbs: ['test', 'beszel'],
+          run:   () => { this.testBeszelConnection(); this.view = 'admin'; this.setAdminTab && this.setAdminTab('host_stats'); }
+        }] : []),
+        ...(typeof this.testPulseConnection === 'function' ? [{
+          id: 'test-pulse',
+          label: t('command_palette.action.test_pulse', 'Force re-test Pulse'),
+          verbs: ['test', 'pulse'],
+          run:   () => { this.testPulseConnection(); this.view = 'admin'; this.setAdminTab && this.setAdminTab('host_stats'); }
+        }] : []),
+        ...(typeof this.testWebminConnection === 'function' ? [{
+          id: 'test-webmin',
+          label: t('command_palette.action.test_webmin', 'Force re-test Webmin'),
+          verbs: ['test', 'webmin'],
+          run:   () => { this.testWebminConnection(); this.view = 'admin'; this.setAdminTab && this.setAdminTab('host_stats'); }
+        }] : []),
+
+        // Theme
+        { id: 'theme-dark',
+          label: t('command_palette.action.theme_dark', 'Switch theme to dark'),
+          verbs: ['theme', 'dark'],
+          run:   () => { this.themePref = 'dark'; try { localStorage.setItem('theme', 'dark'); } catch(_){}
+                         this.applyTheme(); this.persistThemePref && this.persistThemePref('dark'); } },
+        { id: 'theme-light',
+          label: t('command_palette.action.theme_light', 'Switch theme to light'),
+          verbs: ['theme', 'light'],
+          run:   () => { this.themePref = 'light'; try { localStorage.setItem('theme', 'light'); } catch(_){}
+                         this.applyTheme(); this.persistThemePref && this.persistThemePref('light'); } },
+        { id: 'theme-auto',
+          label: t('command_palette.action.theme_auto', 'Switch theme to auto (system)'),
+          verbs: ['theme', 'auto', 'system'],
+          run:   () => { this.themePref = 'auto'; try { localStorage.setItem('theme', 'auto'); } catch(_){}
+                         this.applyTheme(); this.persistThemePref && this.persistThemePref('auto'); } },
+
+        // Modals / panels
+        { id: 'show-hotkeys',
+          label: t('command_palette.action.show_hotkeys', 'Show keyboard shortcuts'),
+          verbs: ['hotkeys', 'shortcuts', 'help'],
+          run:   () => { this.showHotkeys = true; } },
+        ...(typeof this.toggleNotificationsPanel === 'function' ? [{
+          id: 'open-notifications',
+          label: t('command_palette.action.open_notifications', 'Open notifications panel'),
+          verbs: ['notifications', 'inbox', 'alerts'],
+          run:   () => { this.toggleNotificationsPanel(); }
+        }] : []),
+
+        // Sign out — destructive (terminates the session)
+        ...(typeof this.logout === 'function' ? [{
+          id: 'logout',
+          label: t('command_palette.action.logout', 'Sign out'),
+          verbs: ['logout', 'signout', 'logoff'],
+          destructive: true,
+          confirmTitle: t('command_palette.action.logout_confirm_title', 'Sign out?'),
+          confirmText:  t('command_palette.action.logout_confirm_text', 'End your current session'),
+          run:   () => { this.logout(); }
+        }] : []),
+      ];
+      return actions;
+    },
     commandPaletteResults() {
       const q = (this.commandPaletteQuery || '').trim().toLowerCase();
       const results = [];
       const MAX_PER_GROUP = 8;
+      // ACTIONS — verb-first commands. Score by max(label, verbs);
+      // verbs that prefix-match the query get a +20 boost so a
+      // verb-led query (`refresh` / `restart` / `theme dark`) ranks
+      // actions above navigation results. Empty query still surfaces
+      // every action at score 1 — operators see the catalog.
+      const actions = (typeof this._commandActions === 'function')
+        ? this._commandActions() : [];
+      const actionScored = actions.map(a => {
+        const labelScore = this._commandScoreLabel(a.label, q);
+        let verbBoost = 0;
+        if (q && Array.isArray(a.verbs)) {
+          for (const v of a.verbs) {
+            if (!v) continue;
+            const lv = String(v).toLowerCase();
+            if (lv === q) { verbBoost = Math.max(verbBoost, 100); break; }
+            if (lv.startsWith(q) || q.startsWith(lv + ' ')) {
+              verbBoost = Math.max(verbBoost, 70);
+            }
+          }
+        }
+        const score = Math.max(labelScore, verbBoost);
+        return { score, action: a };
+      }).filter(x => x.score > 0)
+        .sort((a, b) => b.score - a.score)
+        .slice(0, MAX_PER_GROUP);
+      for (const x of actionScored) {
+        results.push({
+          kind:  'action',
+          label: x.action.label,
+          sub:   x.action.sub || '',
+          payload: x.action,
+          group: 'actions',
+        });
+      }
       // Hosts — search id / label / asset name / vendor / model.
       const hostsList = (this.hosts || []).slice();
       const scored = hostsList.map(h => {
@@ -11889,6 +12028,31 @@ function app() {
           group: 'hotkeys',
         });
       }
+      // AI assistant fallback row — STRICT gate: when AI is disabled
+      // (master `ai_enabled=false`) OR no active provider is configured,
+      // the synthetic row MUST NOT appear and the palette behaves
+      // exactly like the pre-AI version (just navigation + actions).
+      // Three independent conditions all have to pass: (1) the operator
+      // typed at least 2 chars (skip stray keystrokes), (2) the master
+      // `ai_enabled` flag is true, (3) an `active_provider` is selected.
+      // The activation handler `_runCommandPaletteAi` re-checks the same
+      // gate as defence-in-depth so a stale cached row from a recent
+      // toggle-off can't fire. The backend `/api/ai/palette` ALSO
+      // re-checks both flags and returns ok=false if either is missing
+      // — three layers, no path to the AI provider when disabled.
+      const aiSurfaceEnabled = this._aiPaletteSurfaceEnabled();
+      if (aiSurfaceEnabled && q && q.length >= 2) {
+        const aiCfg = this.me.client_config.ai;
+        results.push({
+          kind:  'ai',
+          label: this.t('command_palette.ai.ask_label', { query: q })
+                 || ('Ask AI: ' + q),
+          sub:   this.t('command_palette.ai.ask_sub')
+                 || ('Route through ' + aiCfg.active_provider),
+          payload: { query: q, provider: aiCfg.active_provider },
+          group: 'ai',
+        });
+      }
       // Clamp the selected index so it doesn't point past the end of
       // a fresh result set after the query changed.
       if (this.commandPaletteSelectedIdx >= results.length) {
@@ -11947,6 +12111,143 @@ function app() {
           // something here, not just see the binding again.
           this.showHotkeys = true;
           break;
+        case 'action':
+          // Verb commands — `payload` is the descriptor returned by
+          // `_commandActions()`. Destructive actions (logout, etc.)
+          // confirm via the existing SweetAlert helper before running.
+          this._runCommandPaletteAction(sel.payload);
+          break;
+        case 'ai':
+          // AI assistant — opens a SweetAlert with a loading spinner,
+          // POSTs the query + minimal context to /api/ai/palette, and
+          // replaces the spinner with the model's response. Best-effort:
+          // any error surfaces as the dialog body so the operator can
+          // see WHY the AI didn't answer (master switch off, no API
+          // key, rate limited, etc.).
+          this._runCommandPaletteAi(sel.payload);
+          break;
+      }
+    },
+    async _runCommandPaletteAction(action) {
+      if (!action || typeof action.run !== 'function') return;
+      if (action.destructive) {
+        const ok = await this.confirmDialog({
+          title: action.confirmTitle || action.label,
+          html:  action.confirmText || (this.t('command_palette.action.destructive_confirm')
+                                         || 'This action affects live state — proceed?'),
+          icon:  'warning',
+          confirmText: action.confirmButton || (this.t('actions.confirm') || 'Confirm'),
+        });
+        if (!ok) return;
+      }
+      try {
+        await action.run();
+      } catch (e) {
+        if (typeof this.showToast === 'function') {
+          this.showToast(this.t('toasts.failed_with_error', { error: e.message }), 'error');
+        }
+      }
+    },
+    // Single source of truth for "should the AI surface be wired into
+    // Cmd-K right now?" Consulted both at result-build time (deciding
+    // whether to show the synthetic row) AND at activation time
+    // (defence-in-depth so a stale cached row from a recent admin
+    // toggle-off can't fire). When ANY condition fails (master switch,
+    // active provider, presence of /api/me's client_config block) the
+    // function returns false and the palette behaves exactly like the
+    // pre-AI version.
+    _aiPaletteSurfaceEnabled() {
+      try {
+        const aiCfg = this.me && this.me.client_config && this.me.client_config.ai;
+        if (!aiCfg) return false;
+        if (!aiCfg.enabled) return false;
+        if (!aiCfg.active_provider) return false;
+        return true;
+      } catch (_) {
+        return false;
+      }
+    },
+    async _runCommandPaletteAi(payload) {
+      const query = (payload && payload.query) || '';
+      if (!query) return;
+      // Defence-in-depth — re-check the gate at activation time. The
+      // result-build gate is already strict, but a stale cached row
+      // could survive a master-toggle-off if the operator opens the
+      // palette → toggles AI off in another tab → activates the AI
+      // row that was already rendered. This re-check + the backend's
+      // identical check make sure the AI provider is never called
+      // when AI is disabled.
+      if (!this._aiPaletteSurfaceEnabled()) {
+        if (typeof this.showToast === 'function') {
+          this.showToast(this.t('command_palette.ai.disabled')
+                         || 'AI is disabled — enable it in Admin → AI Integration', 'error');
+        }
+        return;
+      }
+      // Minimal context — top names only. Backend caps at 30 each so
+      // sending more is wasted bytes; sending fewer is a cheaper
+      // round-trip. Hosts: id is enough. Items: name is enough.
+      const hostsCtx = (this.hosts || []).slice(0, 30).map(h => h.id || h.host).filter(Boolean);
+      const itemsCtx = (this.items || []).slice(0, 30).map(i => i.name).filter(Boolean);
+      const ctx = {
+        view:  this.view || '',
+        hosts: hostsCtx,
+        items: itemsCtx,
+      };
+      // Open a SweetAlert immediately so the operator sees feedback
+      // even if the round-trip takes 5-10s.
+      const swal = (window.Swal || (typeof Swal !== 'undefined' && Swal));
+      if (!swal) {
+        if (typeof this.showToast === 'function') {
+          this.showToast('SweetAlert unavailable', 'error');
+        }
+        return;
+      }
+      swal.fire({
+        title: this.t('command_palette.ai.thinking_title') || 'Thinking…',
+        html:  '<div class="text-[12px] text-[var(--text-faint)] mono" style="text-align:left">'
+               + this._logEscape(query) + '</div>'
+               + '<div class="mt-3"><span class="spin-lg" aria-hidden="true"></span></div>',
+        showConfirmButton: false,
+        allowOutsideClick: true,
+      });
+      try {
+        const r = await fetch('/api/ai/palette', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ query, context: ctx }),
+        });
+        const j = await r.json().catch(() => ({}));
+        if (!r.ok || !j.ok) {
+          const detail = (j && j.detail) || (this.t('toasts.failed') || 'Failed');
+          swal.fire({
+            icon:  'error',
+            title: this.t('command_palette.ai.error_title') || 'AI request failed',
+            html:  '<div class="text-[12px] mono" style="text-align:left;white-space:pre-wrap">'
+                   + this._logEscape(detail) + '</div>',
+          });
+          return;
+        }
+        const answer = (j.text || '').trim() || (this.t('command_palette.ai.empty_response') || '(empty response)');
+        const tokens = (j.tokens && (j.tokens.prompt + j.tokens.completion)) || 0;
+        const subline = (j.provider || '?') + (j.model ? ' · ' + j.model : '')
+                        + (j.response_time_ms ? ' · ' + j.response_time_ms + 'ms' : '')
+                        + (tokens ? ' · ' + tokens + ' tokens' : '');
+        swal.fire({
+          icon:  'info',
+          title: this.t('command_palette.ai.answer_title') || 'AI response',
+          html:  '<div class="text-[12.5px]" style="text-align:left;white-space:pre-wrap">'
+                 + this._logEscape(answer) + '</div>'
+                 + '<div class="mt-3 text-[10.5px] text-[var(--text-faint)] mono" style="text-align:left">'
+                 + this._logEscape(subline) + '</div>',
+          width: 640,
+        });
+      } catch (e) {
+        swal.fire({
+          icon:  'error',
+          title: this.t('command_palette.ai.error_title') || 'AI request failed',
+          html:  '<div class="text-[12px] mono" style="text-align:left">' + this._logEscape(e.message || String(e)) + '</div>',
+        });
       }
     },
 
