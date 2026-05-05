@@ -2,7 +2,13 @@
         <div class="flex items-start justify-between">
           <div>
             <div class="flex items-center gap-2 mb-2 text-[var(--text-dim)]">
-              <svg width="14" height="14" aria-hidden="true">
+              <!-- viewBox + fill on the wrapper are defensive — some
+                   browsers don't propagate the symbol's own
+                   viewBox / fill through external `<use>` reliably,
+                   so duplicating them here forces the icon to render
+                   at the right scale even if the cross-document
+                   attribute chain breaks. -->
+              <svg width="14" height="14" viewBox="0 0 512 512" fill="currentColor" aria-hidden="true">
                 <use href="/img/ui-sprite.svg#icon-authentik"/>
               </svg>
               <h3 class="font-semibold text-[13px] text-[var(--text)]" x-text="t('settings.oidc.title')"></h3>
