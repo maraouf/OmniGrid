@@ -79,7 +79,7 @@ _AUTH_DEFAULTS = {
     # When True (legacy / default), the admin-group claim must match
     # `oidc_admin_group` byte-for-byte. When False, both are lowered
     # before comparison so operators don't have to chase Authentik's
-    # mixed-case group names. ENH-002 / #469.
+    # mixed-case group names. .
     "oidc_group_case_sensitive": True,
 }
 
@@ -465,7 +465,7 @@ def list_users(conn: sqlite3.Connection) -> list[dict]:
     """Return every user as a dict for the admin UI.
 
     Includes ``totp_enabled`` (rendered as the 2FA column's on/off pill)
-    and ``totp_force_required`` (the per-user policy override from #376
+    and ``totp_force_required`` (the per-user policy override
     that flips the pill to "Required" + enables the Force/Unforce
     button). The encrypted secret + backup codes are deliberately NOT
     returned — they never need to leave the server.
@@ -1281,7 +1281,7 @@ def slide_session_if_needed(
         "UPDATE sessions SET last_seen_at=?, expires_at=? WHERE token_id=?",
         (now, new_expires_at, token_id),
     )
-    # ENH-020 / publish a session:renewed event so the SPA tab
+    # publish a session:renewed event so the SPA tab
     # can update its "session expires in X" tooltip in real time
     # without polling. Best-effort: never let a publish failure block
     # the slide. Resolve the user_id from the session row so the SPA
@@ -1361,7 +1361,7 @@ def _username_key(ip: str, username: Optional[str]) -> Optional[str]:
 def rate_limit_check(ip: str, username: Optional[str] = None) -> None:
     """Raise 429 if THIS IP or the (ip, username) tuple is locked out.
 
-    ENH-012 / pre-fix the limiter keyed solely on IP, so a
+    pre-fix the limiter keyed solely on IP, so a
     single corporate-NAT'd office got locked out for ANY user's typo.
     Now both buckets are checked; lockout fires when either trips.
     """
@@ -1423,16 +1423,16 @@ def rate_limit_clear(ip: str, username: Optional[str] = None) -> None:
 # Middleware + deps (step-3 enforcement)
 # ----------------------------------------------------------------------------
 # Classification is deliberately coarse:
-#   - Everything NOT under /api/ is fully public. That covers the SPA shell,
-#     the login page, every static asset, vendor bundles, images, CSS. The
-#     SPA handles its own redirect to /login via /api/me, so there's no
-#     need for the middleware to gate HTML/CSS/JS.
-#   - Paths under /api/ split into two groups:
-#       * public: /api/healthz, /api/version, /metrics (scrape)
-#       * auth-optional: /api/local-auth/*, /api/me — user is resolved so
-#         handlers can behave differently when logged in, but no rejection
-#         if the request is unauthenticated.
-#       * everything else: 401 on missing identity.
+# - Everything NOT under /api/ is fully public. That covers the SPA shell,
+#   the login page, every static asset, vendor bundles, images, CSS. The
+#   SPA handles its own redirect to /login via /api/me, so there's no
+#   need for the middleware to gate HTML/CSS/JS.
+# - Paths under /api/ split into two groups:
+#     * public: /api/healthz, /api/version, /metrics (scrape)
+#     * auth-optional: /api/local-auth/*, /api/me — user is resolved so
+#       handlers can behave differently when logged in, but no rejection
+#       if the request is unauthenticated.
+#     * everything else: 401 on missing identity.
 PUBLIC_API_PATHS = frozenset({"/api/healthz", "/api/version", "/metrics"})
 
 AUTH_OPTIONAL_API_PREFIXES = (
@@ -1487,7 +1487,7 @@ def _resolve_user(request: Request, db_conn_factory) -> tuple[Optional[User], Op
     auth_h = request.headers.get("authorization", "")
     if auth_h.startswith("Bearer "):
         raw = auth_h[7:].strip()
-        # ENH-013 / defensive try/except so a transient SQLite
+        # defensive try/except so a transient SQLite
         # BUSY / OperationalError doesn't escape the middleware as a
         # 500. Treat any DB failure as "auth failed" — the caller's
         # request gets a clean 401 (or proceeds anonymously if the

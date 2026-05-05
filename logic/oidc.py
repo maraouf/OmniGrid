@@ -120,7 +120,7 @@ JWKS_TTL = 3600     # Same rationale. Unknown `kid` on a token forces a refresh
                     # without waiting out the TTL.
 
 # Asymmetric signing algorithms allowed for id_token verification
-# (BUG-008). Listed in the OIDC core spec as the set providers may use
+#. Listed in the OIDC core spec as the set providers may use
 # for id_tokens. Symmetric algorithms (HS256/HS384/HS512) are NOT in
 # this set: they'd require the operator to share the client_secret as
 # the verification key, and the spec prefers asymmetric so the JWKS
@@ -343,8 +343,7 @@ def _safe_next(value: Optional[str]) -> str:
       3. Return ``m.group(0)`` rather than the original ``value``, so
          the returned string flows from a Match object instead of the
          raw user input. This is the canonical CodeQL sanitiser
-         pattern and matches the JS-side ``login.js:nextPath()`` fix
-         from #871.
+         pattern and matches the JS-side ``login.js:nextPath()`` fix.
 
     Defensive fallback constant ``_SAFE_NEXT_FALLBACK`` (``"/"``) is
     used for every reject path so the return values are either a
@@ -569,7 +568,7 @@ async def callback(request: Request):
     except jwt.InvalidIssuerError as e:
         # Dig out the actual iss in the token so the operator can spot
         # trailing-slash / host mismatches without reaching for jwt.io.
-        # ENH-008 / route through the errors catalog so Apprise +
+        # route through the errors catalog so Apprise +
         # UI tone come from the structured code instead of raw PyJWT
         # text.
         try:
@@ -588,7 +587,7 @@ async def callback(request: Request):
         auth.rate_limit_record_failure(ip)
         # Pattern-match on PyJWT's exception class to pick the most
         # specific code; falls back to the generic "validation failed"
-        # bucket. ENH-008 / #474.
+        # bucket. .
         e_type = type(e).__name__
         e_msg = str(e)
         if e_type == "InvalidSignatureError":

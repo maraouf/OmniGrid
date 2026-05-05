@@ -65,8 +65,8 @@ def _resolved_tz():
 
     Resolution mirrors `_today_log_path()` exactly so rotation,
     pruning, and filename-date parsing all agree on what "today"
-    means (fixes the BUG-002 desync where rotation moved to
-    local-tz in #452 but the pruner stayed on UTC, producing a
+    means (fixes the desync where rotation moved to
+    local-tz but the pruner stayed on UTC, producing a
     one-day-late delete window in non-UTC offsets). Returns None
     when neither the DB setting nor a usable local clock are
     available; callers MUST treat None as "fall back to UTC" so
@@ -98,7 +98,7 @@ def _today_log_path() -> str:
     clock when the setting is blank, and to UTC as a last resort if
     even that fails (e.g. during very-early-boot before the DB exists).
 
-    Pre-#452 this used UTC unconditionally, which was confusing for
+    Pre-fix this used UTC unconditionally, which was confusing for
     operators in non-zero offsets: an operator in TZ=Africa/Cairo
     (UTC+2) sees writes at local 00:00–01:59 land in the previous
     UTC-day file, even though the local mtime says "today".
@@ -267,7 +267,7 @@ def prune_old_logs(retention_days: int, *, tz=None) -> int:
         return 0
     # Cutoff + filename-date interpretation must use the SAME zone the
     # rotation half (`_today_log_path`) uses, otherwise non-UTC operators
-    # see a one-day-late delete window (BUG-002 / #457). Both halves
+    # see a one-day-late delete window (). Both halves
     # route through `_resolved_tz()`; None means "fall back to UTC" and
     # both halves reproduce that same fallback.
     if tz is None:

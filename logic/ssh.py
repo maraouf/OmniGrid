@@ -108,7 +108,7 @@ DEFAULT_DESTRUCTIVE_PATTERNS = (
 )
 
 # Auth cool-down — keyed by (host_id, user). Mirrors logic/webmin.py.
-# Centralised in `logic/cooldown.py` per CONS-004. duration is
+# Centralised in `logic/cooldown.py` per . duration is
 # now operator-tunable via `tuning_auth_failure_cooldown_seconds`,
 # shared with Webmin so a single Save propagates to both consumers.
 from logic.cooldown import Cooldown
@@ -237,7 +237,7 @@ def _compute_resolve_signature(
     # stable serialisation regardless of dict key insertion order
     # (`repr(dict)` was sensitive to that — a hosts_config copy
     # with re-inserted keys would blow the cache and re-emit the
-    # full verbose trace). BUG-007 in the code review.
+    # full verbose trace). in the code review.
     m.update(json.dumps(record, sort_keys=True, default=str).encode("utf-8", "ignore"))
     # Only the fields that actually influence resolution — drops
     # known_hosts + fingerprint etc. which don't change auth path.
@@ -513,11 +513,11 @@ def resolve_ssh_params(host_id: str, hosts_config: list[dict]) -> dict:
 
     per_host = (record.get("ssh") or {}) if isinstance(record.get("ssh"), dict) else {}
     # Target hostname resolution priority:
-    #   1. per-host ssh.host override (operator pasted the full FQDN)
-    #   2. per-host ssh.fqdn (alias for 1)
-    #   3. record.id + ssh_fqdn_suffix (global suffix; ".example.com" →
-    #      "webserver" becomes "webserver.example.com")
-    #   4. record.id as-is
+    # 1. per-host ssh.host override (operator pasted the full FQDN)
+    # 2. per-host ssh.fqdn (alias for 1)
+    # 3. record.id + ssh_fqdn_suffix (global suffix; ".example.com" →
+    #    "webserver" becomes "webserver.example.com")
+    # 4. record.id as-is
     # We only append the suffix when the id has no dot — ids that
     # already contain a dot are treated as already-fully-qualified.
     ssh_host_override = (per_host.get("host") or per_host.get("fqdn") or "").strip()
@@ -712,7 +712,7 @@ async def run_command(
     # `resolve_ssh_params` recorded via `password_source`. We re-read
     # the source's actual password value here (not stashed on
     # resolved[] — keeps secrets out of audit logs) and fall through
-    # to global on a miss. BUG-009 fix : if the recorded source
+    # to global on a miss. fix : if the recorded source
     # has no password (operator deleted the field but didn't flip the
     # classification), downgrade `password_source` to `"global"` in
     # both `resolved` and `base_result` so the audit row reflects what
@@ -743,9 +743,9 @@ async def run_command(
 
     # Known-hosts handling — see module docstring's "Host-key handling"
     # section. asyncssh accepts:
-    #   - a known_hosts file path
-    #   - a tuple of (known_hosts, hashed_known_hosts) buffers
-    #   - ``None`` to skip verification (TOFU-ish for V1)
+    # - a known_hosts file path
+    # - a tuple of (known_hosts, hashed_known_hosts) buffers
+    # - ``None`` to skip verification (TOFU-ish for V1)
     known_hosts_arg: Any = None
     if g["known_hosts"]:
         try:
@@ -964,7 +964,7 @@ def ssh_status(host_id: str, hosts_config: list[dict]) -> dict:
         )
     # Strip every underscore-prefixed key from the resolved dict
     # before handing it to the API — those are internal-only
-    # bookkeeping fields (BUG-004 in the code review). Today
+    # bookkeeping fields (in the code review). Today
     # `_per_host_password` is the only one, but the strip is generic
     # so future internal flags don't leak by default.
     public_resolved = {k: v for k, v in resolved.items() if not str(k).startswith("_")}
@@ -1006,17 +1006,17 @@ def sanitize_command_for_audit(command: str) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Interactive shell — TODO #170
+# Interactive shell
 # ---------------------------------------------------------------------------
 # Live PTY-backed shell for the host-drawer Terminal modal. Bridges a
 # WebSocket coming from the SPA (binary frames = shell I/O, JSON text
 # frames = control messages) to an asyncssh interactive process.
 #
 # Reuses every safety rail the one-shot ``run_command`` already enforces:
-#   - ``request_pty="force"`` so sudo behaves correctly (CLAUDE.md
-#     "SSH runs need ``request_pty='force'``" rule).
-#   - per-(host_id, user) ``_arm_cooldown`` on auth failure.
-#   - same credential-resolution ladder + ``password_source`` lookup.
+# - ``request_pty="force"`` so sudo behaves correctly (CLAUDE.md
+#   "SSH runs need ``request_pty='force'``" rule).
+# - per-(host_id, user) ``_arm_cooldown`` on auth failure.
+# - same credential-resolution ladder + ``password_source`` lookup.
 #
 # Out of scope here: keystroke logging (privacy + audit volume — see
 # the route handler in main.py for the start/end-only history rows),

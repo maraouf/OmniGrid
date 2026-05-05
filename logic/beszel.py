@@ -325,8 +325,7 @@ async def fetch_system_history(
 
     ``stat_type`` defaults to None; when None, ``_pick_stat_type(hours)``
     selects the right aggregation tier so a 24h request hits ``20m`` rows
-    (retained for ~24h) instead of ``1m`` rows (retained for ~1h) — see
-    #818.
+    (retained for ~24h) instead of ``1m`` rows (retained for ~1h).
     """
     if not (base_url and identity and password and system_id):
         return {"series": [], "error": "missing hub credentials or system id"}
@@ -1081,7 +1080,7 @@ async def probe_hub(
                 services_by_system = {}
     except Exception as e:
         # Surface the probe failure in stdout so it lands in Admin →
-        # Logs. Mirrors the Pulse fix in #831 — operators should be
+        # Logs. Mirrors the Pulse fix — operators should be
         # able to see WHY the provider is down without grepping the
         # raw container log.
         print(f"[beszel] probe failed: {type(e).__name__}: {e} "

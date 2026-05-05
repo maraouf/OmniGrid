@@ -1,22 +1,22 @@
 // Global fetch wrapper installed before Alpine init. Does four things:
-//   1. Auto-attaches X-CSRF-Token on state-changing requests by copying
-//      the og_csrf cookie (double-submit defense). Server enforces this
-//      for cookie-authed callers on every POST/PUT/PATCH/DELETE.
-//   2. Recovers from a "CSRF token mismatch" 403 by re-fetching /api/me
-//      (which mints a fresh og_csrf cookie via the auth middleware) then
-//      replaying the original request once. Keeps a stale-cookie scenario
-//      (operator cleared cookies, lifespan restart cleared in-memory
-//      session that hadn't yet seeded the cookie, etc.) self-healing
-//      instead of asking the operator to refresh.
-//   3. Redirects to /login on a 401 response so session expiry is
-//      self-healing — user lands on the login page, authenticates,
-//      comes back to where they were.
-//   4. Attaches X-OmniGrid-Client-Id (UUID per tab, persisted in
-//      sessionStorage). Backend echoes this in any SSE event published
-//      off the same request; SSE handlers skip self-originated events
-//      so a write from THIS tab doesn't loop back as a redundant
-//      refresh / flicker. Read by `window.__ogClientId` from anywhere
-//      that needs to compare an incoming SSE event's client_id.
+// 1. Auto-attaches X-CSRF-Token on state-changing requests by copying
+//    the og_csrf cookie (double-submit defense). Server enforces this
+//    for cookie-authed callers on every POST/PUT/PATCH/DELETE.
+// 2. Recovers from a "CSRF token mismatch" 403 by re-fetching /api/me
+//    (which mints a fresh og_csrf cookie via the auth middleware) then
+//    replaying the original request once. Keeps a stale-cookie scenario
+//    (operator cleared cookies, lifespan restart cleared in-memory
+//    session that hadn't yet seeded the cookie, etc.) self-healing
+//    instead of asking the operator to refresh.
+// 3. Redirects to /login on a 401 response so session expiry is
+//    self-healing — user lands on the login page, authenticates,
+//    comes back to where they were.
+// 4. Attaches X-OmniGrid-Client-Id (UUID per tab, persisted in
+//    sessionStorage). Backend echoes this in any SSE event published
+//    off the same request; SSE handlers skip self-originated events
+//    so a write from THIS tab doesn't loop back as a redundant
+//    refresh / flicker. Read by `window.__ogClientId` from anywhere
+//    that needs to compare an incoming SSE event's client_id.
 (function () {
   const WRITE_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
   const orig = window.fetch;

@@ -233,7 +233,7 @@ def publish(
     try:
         bus.publish(type_, payload, ts)
     except Exception as e:
-        # ENH-018 / include a payload identity hint in the
+        # include a payload identity hint in the
         # error log so operators can correlate a regressed publish to
         # which op / host / schedule it referenced. `id` is the most
         # common identity field across the published event shapes

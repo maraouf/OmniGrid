@@ -209,7 +209,7 @@ def parse_disk_counters(text: str) -> dict:
            node_disk_written_bytes_total{device="sda"} 2345678
 
     2. FreeBSD ``node_devstat_bytes_total`` (the devstat collector —
-       opnsense / pfSense / TrueNAS / FreeBSD; #352):
+       opnsense / pfSense / TrueNAS / FreeBSD;):
 
            node_devstat_bytes_total{device="ada0",type="read"}  4119181824
            node_devstat_bytes_total{device="ada0",type="write"} 14823682183168
@@ -322,7 +322,7 @@ def parse_disk_counters(text: str) -> dict:
         # values). Returning None totals lets the caller surface NULL
         # downstream so the chart renders as "no data" rather than a
         # flat 0 line. Numeric 0 here would be ambiguous and produce
-        # exactly the "always-zero rate" footgun #343 hit on the
+        # exactly the "always-zero rate" footgun hit on the
         # Synology / RAID hosts before #_EXCLUDED_DISK_PREFIXES was
         # loosened.
         return {"devices": [], "total_read": None, "total_written": None}
@@ -530,9 +530,9 @@ def parse_exporter_text(text: str) -> dict:
     # Finalise mount list — compute used, drop any rows where size is 0
     # (kernel readahead race / unreadable mount).
     #
-    # ZFS pool dedup: datasets in the same pool report
-    #   size_i  = used_i + pool_avail
-    #   avail_i = pool_avail   (identical across siblings)
+  # ZFS pool dedup: datasets in the same pool report
+    # size_i  = used_i + pool_avail
+    # avail_i = pool_avail   (identical across siblings)
     # so a naive sum across N datasets inflates the apparent total by
     # (N-1) * pool_avail. Operator on a 14-dataset OPNsense `zroot`
     # pool saw host_disk_total ≈ 8.7 TB instead of the true 817 GB

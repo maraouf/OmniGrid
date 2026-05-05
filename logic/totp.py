@@ -156,7 +156,7 @@ def generate_backup_codes(n: int = 10) -> list[str]:
 
 
 def _backup_code_hash(plain: str) -> str:
-    """SHA-256 hex of the canonical 8-digit form. ENH-011 — used
+    """SHA-256 hex of the canonical 8-digit form. — used
     for O(1) consume-time lookup so we no longer decrypt every code on
     every attempt. Hash-only access is safe: the hash is the proof the
     user knew the plaintext, and the encrypted blob still backs the
@@ -170,7 +170,7 @@ def encrypt_backup_codes(plain_codes: list[str]) -> str:
 
     Each entry has shape
     ``{"code_encrypted": "<fernet>", "code_hash": "<sha256>", "used_at": null}``.
-    The ``code_hash`` field (added in #426) lets ``consume_backup_code``
+    The ``code_hash`` field (added) lets ``consume_backup_code``
     look up by hash in O(1) instead of decrypting every entry on every
     attempt; the encrypted blob is still the source for the Profile-side
     reveal flow.
@@ -226,8 +226,8 @@ def consume_backup_code(stored_json: Optional[str], attempt: str) -> tuple[bool,
     and a new JSON blob is returned. On no-match (or all entries already
     used), returns ``(False, None)``.
 
-    ENH-011 : preferred path is O(1) lookup by ``code_hash``
-    (SHA-256 of the canonical 8-digit form). Pre-#426 entries lack
+    preferred path is O(1) lookup by ``code_hash``
+    (SHA-256 of the canonical 8-digit form). Pre-fix entries lack
     the hash field — for those we fall back to the legacy decrypt-
     and-compare loop. Backfill happens lazily: a successful legacy-
     path match also writes the missing ``code_hash`` for the OTHER
@@ -262,7 +262,7 @@ def consume_backup_code(stored_json: Optional[str], attempt: str) -> tuple[bool,
             continue  # hash present but no match — skip without decrypt
         legacy_entries.append(entry)
 
-    # Legacy path — decrypt-and-compare for entries that pre-date #426.
+    # Legacy path — decrypt-and-compare for entries that pre-date.
     # Backfill code_hash on every entry we touch so the next consume
     # takes the fast path.
     matched = False

@@ -52,9 +52,9 @@ _MAX_DELTA_BYTES   = 10 * 1024 * 1024 * 1024  # 10 GB
 # within one sampler-task lifetime; cleared on lifespan cancel/restart
 # so the post-restart first delta is correctly SKIPPED. Tuple grew over
 # time:
-#   pre-fix: (ts, rx, tx) — 3 elements
-#   #339:     (ts, rx, tx, dr, dw) — 5 elements (disk added)
-#   #402:     (ts, rx, tx, dr, dw, cpu_total, cpu_idle) — 7 elements
+# pre-fix: (ts, rx, tx) — 3 elements
+#:     (ts, rx, tx, dr, dw) — 5 elements (disk added)
+#:     (ts, rx, tx, dr, dw, cpu_total, cpu_idle) — 7 elements
 # In-memory cache is restart-only so no migration needed; the
 # `_compute_row` decoder tolerantly len()-checks `prev`.
 _last_counters: dict[str, tuple] = {}  # host_id → variable-length tuple
@@ -68,7 +68,7 @@ _last_counters: dict[str, tuple] = {}  # host_id → variable-length tuple
 
 # Active-providers parser + curated-hosts walker live in logic/db.py —
 # single source of truth shared with main.py / gather.py / both
-# samplers (CONS-001 + CONS-004).
+# samplers .
 from logic.db import (
     active_host_stats_providers as _active_providers,
     curated_ne_hosts as _load_curated_hosts,
@@ -129,7 +129,7 @@ def _compute_row(
         Whole row is dropped only when every field would be NULL.
 
     Backwards compatibility: ``prev`` may be the legacy 3-tuple
-    ``(ts, rx, tx)`` from a process that started before #339 shipped.
+    ``(ts, rx, tx)`` from a process that started shipped.
     In-memory cache is wiped on restart so this only matters mid-process
     if a partial reload happened — handled by len()-checking ``prev``.
     """
@@ -189,7 +189,7 @@ def _compute_row(
         next_counter = (now, rx, tx, dr, dw, float(cpu_total_secs), float(cpu_idle_secs))
 
     # Decompose `prev` tolerantly — pre-fix entries are 3-tuples; #339
-    # added disk (5-tuple); #402 added CPU seconds (7-tuple). The cache
+    # added disk (5-tuple); added CPU seconds (7-tuple). The cache
     # is restart-only so older shapes only matter mid-process if a
     # partial reload happened — handled by len()-checking ``prev``.
     prev_ts = prev_rx = prev_tx = prev_dr = prev_dw = None
@@ -220,9 +220,9 @@ def _compute_row(
                     dr_rate = d_dr / delta_s
                     dw_rate = d_dw / delta_s
             # CPU-seconds delta. Skip when:
-            #   - no previous CPU sample (first tick / restart),
-            #   - delta_total <= 0 (clock skew / counter reset),
-            #   - delta_idle < 0 (counter reset → bogus negative %).
+            # - no previous CPU sample (first tick / restart),
+            # - delta_total <= 0 (clock skew / counter reset),
+            # - delta_idle < 0 (counter reset → bogus negative %).
             # Result clamped to [0, 100] so a mid-tick clock blip
             # can't surface 137% CPU on the chart.
             if (have_cpu_counters
@@ -277,7 +277,7 @@ def _get_failure_state(host_id: str, provider: str = "") -> Optional[dict]:
     consumers (auto-pause logic, future "auto-resume after N hours of
     inactivity" features) see the same shape the API surface does.
     Default ``provider=''`` reads the whole-host row (legacy bare-id
-    convention, now stored as the empty-string provider after migration #2).
+    convention, now stored as the empty-string provider after migration 2).
     """
     try:
         with db_conn() as c:
@@ -340,7 +340,7 @@ async def _record_failure(
         Pass 0 to disable auto-pause entirely (just record the failure).
 
     ``provider`` selects the (host_id, provider) row in the composite-PK
-    table after migration #2: ``''`` for whole-host pauses, ``'snmp'``
+    table after migration: ``''`` for whole-host pauses, ``'snmp'``
     / ``'webmin'`` / etc. for per-(provider, host) pauses.
 
     Async because the auto-pause transition fires an Apprise
@@ -430,7 +430,7 @@ async def _record_failure(
                 # moves on — the pause itself is the load-bearing
                 # side effect.
                 #
-                # emit-once-with-one-retry. If the first
+              # emit-once-with-one-retry. If the first
                 # `notify()` raises (Apprise URL down, network blip,
                 # apprise-api 5xx), wait 60s and try again ONCE. We
                 # deliberately don't loop forever (would spam if
@@ -634,7 +634,7 @@ async def _probe_one(
 ) -> None:
     """Probe NE for one host; insert a row if there's anything worth
     storing. Per-host failures isolated — one dead exporter doesn't
-    cascade to the rest of the fleet. Honours the #383 permanent-fail
+    cascade to the rest of the fleet. Honours the permanent-fail
     pause flag: if the host is paused, skip the probe entirely (no
     network attempt, no log spam).
     """
@@ -731,7 +731,7 @@ async def _probe_one_snmp(host: dict, sem: asyncio.Semaphore) -> None:
 
     Failure tracking uses the per-(provider, host) row in
     ``host_failure_state`` (composite PK ``(host_id='snmp:web01' ...)``
-    pre-migration, ``(host_id='web01', provider='snmp')`` post-migration #2).
+    pre-migration, ``(host_id='web01', provider='snmp')`` post-migration 2).
     The SNMP failure streak stays independent of the NE / Webmin streaks
     on the same host.
 
@@ -975,7 +975,7 @@ async def _probe_one_snmp(host: dict, sem: asyncio.Semaphore) -> None:
                                 tx = iface.get("tx_bytes")
                                 if rx is None and tx is None:
                                     continue
-                                # #725 slice 4 — IF-MIB ifHighSpeed
+                                # slice 4 — IF-MIB ifHighSpeed
                                 # (Mbps). NULL on devices that don't
                                 # expose v2c HC counters; heatmap
                                 # renders such ifaces in grey.
@@ -1340,7 +1340,7 @@ node_boot_time_seconds 1700000000
     dev_names = [d["name"] for d in disk["devices"]]
     assert dev_names == ["sda"], f"expected only sda, got {dev_names}"
 
-    # dm-* / md* are NO LONGER excluded after #343 (Synology / NAS use
+    # dm-* / md* are NO LONGER excluded (Synology / NAS use
     # them as the user-facing volumes). Verify they're counted now.
     nas_fixture = """\
 node_disk_read_bytes_total{device="dm-0"} 1000000
@@ -1510,7 +1510,7 @@ node_devstat_bytes_total{device="ada0",type="write"} 9999999
     assert row5["net_rx_bps"]   is None and row5["net_tx_bps"]   is None
     assert row5["disk_read_bps"] is None and row5["disk_write_bps"] is None
 
-    # Pre-#339 cache shape (3-tuple) — backwards compat. Disk rates
+    # Pre-fix cache shape (3-tuple) — backwards compat. Disk rates
     # should skip (no prev disk anchor), net rates compute normally.
     legacy_prev = (t0, 1000000, 500000)  # missing disk fields
     legacy_bumped = dict(parsed)

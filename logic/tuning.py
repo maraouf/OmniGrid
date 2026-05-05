@@ -23,16 +23,16 @@ TUNABLES: dict[str, tuple[str, int, int, int]] = {
     "tuning_stats_concurrency":             ("STATS_CONCURRENCY",             16,  1,  128),
     # Per-container stats fetch timeouts. `_one_container_stats` makes
     # up to two HTTP calls per running container per gather:
-    #   1. Targeted (with `X-PortainerAgent-Target=<host>`) — fast-fail
-    #      so we don't hang the gather on a dead worker. Bumped from
-    #      4s to 12s after operator-reported worker-node stats coming
-    #      back empty: Portainer's agent forwarding can take longer
-    #      than 4s on busy nodes, the call would time out, and the
-    #      untargeted fallback would 404 (manager doesn't have the
-    #      worker's cid).
-    #   2. Untargeted (no agent-target header) — fallback when the
-    #      targeted call fails. Manager-local containers respond
-    #      directly; worker-node cids return 404 here. 10s default.
+    # 1. Targeted (with `X-PortainerAgent-Target=<host>`) — fast-fail
+    #    so we don't hang the gather on a dead worker. Bumped from
+    #    4s to 12s after operator-reported worker-node stats coming
+    #    back empty: Portainer's agent forwarding can take longer
+    #    than 4s on busy nodes, the call would time out, and the
+    #    untargeted fallback would 404 (manager doesn't have the
+    #    worker's cid).
+    # 2. Untargeted (no agent-target header) — fallback when the
+    #    targeted call fails. Manager-local containers respond
+    #    directly; worker-node cids return 404 here. 10s default.
     # Both knobs operator-tunable so a flaky / slow Portainer setup
     # can be loosened without a redeploy. Range 1..60s — anything
     # under 1s is too short for the round-trip; anything over 60s
@@ -126,7 +126,7 @@ TUNABLES: dict[str, tuple[str, int, int, int]] = {
     "tuning_sse_max_lifetime_seconds": ("SSE_MAX_LIFETIME_SECONDS", 21600, 3600, 25200),
     # Webmin probe outer budget (seconds). Used by both
     # `_merge_one_host` (the per-host `asyncio.wait_for`) AND legacy
-    # `api_hosts`'s `_WEBMIN_PROBE_BUDGET`. Pre-#539 these duplicated
+    # `api_hosts`'s `_WEBMIN_PROBE_BUDGET`. Pre-fix these duplicated
     # the same 20s constant in two places. Default 20s — enough for a
     # slow Miniserv to respond on its three-tier fallback (XML → JSON
     # → HTML scrape) but well under the 30s outer `/api/hosts/one/<id>`
@@ -268,13 +268,13 @@ TUNABLES: dict[str, tuple[str, int, int, int]] = {
     "tuning_snmp_walk_concurrency_ucd":      ("SNMP_WALK_CONCURRENCY_UCD", 0, 0, 16),
     "tuning_snmp_walk_concurrency_printer":  ("SNMP_WALK_CONCURRENCY_PRINTER", 0, 0, 16),
     # SNMP per-host caches, distinct from the Webmin TTL knobs.
-    # Pre-#659 the SNMP per-host caches reused tuning_webmin_host_cache_ttl_seconds /
+    # Pre-fix the SNMP per-host caches reused tuning_webmin_host_cache_ttl_seconds /
     # tuning_webmin_host_fail_cache_ttl_seconds — operator changing the
     # Webmin TTL silently changed SNMP cache behaviour. Each provider's
     # per-host probe cache (success and fail) gets its OWN dial.
     "tuning_snmp_host_cache_ttl_seconds":      ("SNMP_HOST_CACHE_TTL_SECONDS", 30, 5, 300),
     "tuning_snmp_host_fail_cache_ttl_seconds": ("SNMP_HOST_FAIL_CACHE_TTL_SECONDS", 5, 1, 60),
-    # dedicated SNMP unreachable-cool-down dial. Pre-#678
+    # dedicated SNMP unreachable-cool-down dial. Pre-fix
     # SNMP shared `tuning_auth_failure_cooldown_seconds` with Webmin
     # / SSH (which makes sense for credential lockout but is the wrong
     # semantic for SNMP — there's no auth challenge to lock out

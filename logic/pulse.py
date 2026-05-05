@@ -44,7 +44,7 @@ def _num(v) -> float:
         return 0.0
 
 
-# ENH-013 — Pulse-version-aware unit detection. Older Pulse v3
+# Pulse-version-aware unit detection. Older Pulse v3
 # emits memory/disk in GiB; newer versions (v4+) emit them in bytes.
 # The previous "values < 10M are GiB" magnitude sniff misclassified
 # legitimately-tiny volumes (a 9 MiB embedded LXC volume looked like
@@ -166,7 +166,7 @@ def _pulse_mounts(guest: dict, gib: float) -> list[dict]:
                 continue
             total = _num(m.get("total") or m.get("max") or m.get("maxdisk") or m.get("size"))
             used = _num(m.get("used") or m.get("disk") or m.get("diskUsed"))
-            # ENH-013 — version-driven; magnitude fallback when
+            # version-driven; magnitude fallback when
             # Pulse `/api/version` couldn't be reached.
             if _value_is_gib(total, _current_probe_base_url):
                 total_gib = total
@@ -328,7 +328,7 @@ def extract_guest_stats(guest: dict) -> dict:
     mem_max = _num(guest.get("maxmem"))
     disk = _num(guest.get("disk"))
     disk_max = _num(guest.get("maxdisk"))
-    # ENH-013 — version-driven; magnitude fallback.
+    # version-driven; magnitude fallback.
     if _value_is_gib(mem_max, _current_probe_base_url):
         mem, mem_max = mem * gib, mem_max * gib
     if _value_is_gib(disk_max, _current_probe_base_url):
@@ -506,7 +506,7 @@ def extract_node_stats(node: dict) -> dict:
     mem_max = _num(node.get("maxmem"))
     disk = _num(node.get("disk"))
     disk_max = _num(node.get("maxdisk"))
-    # ENH-013 — version-driven; magnitude fallback.
+    # version-driven; magnitude fallback.
     if _value_is_gib(mem_max, _current_probe_base_url):
         mem, mem_max = mem * gib, mem_max * gib
     if _value_is_gib(disk_max, _current_probe_base_url):
@@ -571,7 +571,7 @@ async def probe_pulse(
             "hosts": {},
             "error": "pulse: invalid url — must be http:// or https:// with a hostname",
         }
-    # ENH-013 — set the module-level base-url hint BEFORE we
+    # set the module-level base-url hint BEFORE we
     # call any extractor so `_value_is_gib(..., base_url)` consults
     # the right cache entry. Probe `/api/version` once per (base_url)
     # pair to populate `_version_cache`; the magnitude heuristic is a

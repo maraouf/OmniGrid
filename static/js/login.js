@@ -10,12 +10,12 @@
 // The form supports a multi-step TOTP flow when the backend
 // returns step="totp_required" or step="totp_setup_required" instead
 // of an immediate cookie. State machine:
-//   password -> {ok}                                    -> redirect
-//             -> {step: totp_required, challenge_id}     -> totp form
-//             -> {step: totp_setup_required, secret,
-//                 provisioning_uri, challenge_id}        -> setup form
-//   totp -> {ok}              -> redirect
-//        -> {ok, backup_codes} -> reveal codes -> redirect on continue
+// password -> {ok}                                    -> redirect
+//           -> {step: totp_required, challenge_id}     -> totp form
+//           -> {step: totp_setup_required, secret,
+//               provisioning_uri, challenge_id}        -> setup form
+// totp -> {ok}              -> redirect
+//      -> {ok, backup_codes} -> reveal codes -> redirect on continue
 
 function applyI18nDom() {
   const els = document.querySelectorAll('[data-i18n]');
@@ -91,16 +91,16 @@ function applyI18nDom() {
     // query param could otherwise navigate the just-authenticated
     // session at an arbitrary domain (phishing). Hardening (closes
     // CodeQL `js/client-side-unvalidated-url-redirection`):
-    //   1. Reject anything that isn't `/`-prefixed (absolute URLs).
-    //   2. Reject `//host` (protocol-relative — same risk as 1).
-    //   3. Reject `/\\host` and `\\host` (browsers normalise backslashes
-    //      to forward slashes in URL parsing — `/\\evil.com` becomes
-    //      `//evil.com` and breaks (1) + (2)'s naive substring check).
-    //   4. As a final defence-in-depth, resolve the value against
-    //      `location.origin` via the `URL` constructor and confirm the
-    //      result still lives at the SAME origin — catches every
-    //      remaining edge case (e.g. `/​//evil.com` zero-width
-    //      tricks, IDN homographs, mixed-encoding nasties).
+    // 1. Reject anything that isn't `/`-prefixed (absolute URLs).
+    // 2. Reject `//host` (protocol-relative — same risk as 1).
+    // 3. Reject `/\\host` and `\\host` (browsers normalise backslashes
+    //    to forward slashes in URL parsing — `/\\evil.com` becomes
+    //    `//evil.com` and breaks (1) + (2)'s naive substring check).
+    // 4. As a final defence-in-depth, resolve the value against
+    //    `location.origin` via the `URL` constructor and confirm the
+    //    result still lives at the SAME origin — catches every
+    //    remaining edge case (e.g. `/​//evil.com` zero-width
+    //    tricks, IDN homographs, mixed-encoding nasties).
     // Falls back to `/` (the SPA root) on any rejection.
     const raw = new URLSearchParams(location.search).get('next') || '/';
     if (!raw.startsWith('/')) return '/';
@@ -185,7 +185,7 @@ function applyI18nDom() {
           const j = await r.json().catch(() => ({}));
           showErr(j.detail || tx('login.too_many_attempts', 'Too many attempts. Try again shortly.'));
         } else if (r.status === 403) {
-          // #557 — disabled-account case (#554's specialised path
+          // — disabled-account case (specialised path
           // returns 403 with a clear `detail` message). Surface the
           // backend's text instead of the generic "Sign-in failed".
           // Other 403s would also pass through here — that's fine
@@ -198,7 +198,7 @@ function applyI18nDom() {
         } else {
           showErr(tx('login.sign_in_failed', 'Sign-in failed (' + r.status + '). Try again.', { status: r.status }));
         }
-        // #559 — clear password field on ANY non-success response.
+        // — clear password field on ANY non-success response.
         // Operator request: don't leave the failing password sitting
         // in the input where a quick second click would re-submit
         // the same value, OR where it could be glanced at by anyone
@@ -252,7 +252,7 @@ function applyI18nDom() {
   // these helpers hide the conversion at the API boundary.
   // ----------------------------------------------------------------
   function b64uEncode(buf) {
-    // #443 — `btoa` rejects bytes whose values are above 0xFF
+    // — `btoa` rejects bytes whose values are above 0xFF
     // (`InvalidCharacterError`). Real-world: a future server that
     // populates `userHandle` with a UTF-8 marker, or a malformed
     // ArrayBuffer from a non-spec-compliant authenticator. Wrap in
@@ -272,7 +272,7 @@ function applyI18nDom() {
     }
   }
   function b64uDecode(s) {
-    // ENH-005 — validate the input before handing it to atob so a
+    // validate the input before handing it to atob so a
     // malformed `allowCredentials[i].id` from the server surfaces as a
     // diagnostic operator-readable error instead of a generic
     // `InvalidCharacterError`. Empty / non-string is a programming error;
@@ -356,7 +356,7 @@ function applyI18nDom() {
         return;
       }
       const startJ = await startResp.json();
-      // #605 — RP-ID mismatch short-circuit. When EVERY stored
+      // — RP-ID mismatch short-circuit. When EVERY stored
       // credential was registered under a different domain, the
       // browser will accept the assertion challenge but its local
       // credential lookup returns nothing — falling through to the
@@ -405,7 +405,7 @@ function applyI18nDom() {
       const j = await finishResp.json().catch(() => ({}));
       showErr(j.detail || tx('login.passkey_failed', 'Passkey sign-in failed.'));
     } catch (e) {
-      // #443 — surface diagnostic WebAuthn errors from the b64u
+      // — surface diagnostic WebAuthn errors from the b64u
       // helpers (`buildPublicKeyOptions` / `buildAssertionResponse`)
       // instead of collapsing them into the generic "Network error"
       // toast. Anything else stays generic.
@@ -695,7 +695,7 @@ function applyI18nDom() {
       const qr = window.qrcode(0, 'M');
       qr.addData(uri);
       qr.make();
-      // #438 — parse the SVG via DOMParser + adopt its <svg> root
+      // — parse the SVG via DOMParser + adopt its <svg> root
       // instead of `innerHTML = ...`. qrcode-generator's output is
       // trusted local lib data, but `innerHTML` is the documented
       // red-flag pattern for content-from-data flows. Falls through
