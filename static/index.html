@@ -21,13 +21,16 @@
 <!-- UI sprite preload — every <use href="/img/ui-sprite.svg#icon-..."/>
      reference depends on this single same-origin file. The preload hint
      starts the fetch in parallel with the HTML parse so icons appear
-     without a flash-of-unstyled-icon when the first paint runs. The
-     `as="image"` + `type="image/svg+xml"` pair matches what
-     `<use href="*.svg#id">` actually fetches under the hood. -->
-<link rel="preload" as="image" type="image/svg+xml" href="/img/ui-sprite.svg">
+     without a flash-of-unstyled-icon when the first paint runs.
+     `as="fetch"` + `crossorigin` is the correct destination for SVGs
+     consumed via `<use href>` — modern browsers fetch the sprite as a
+     document/fetch (not an image), so `as="image"` triggered a
+     "preloaded but not used" console warning even though the sprite
+     WAS being used. `crossorigin="anonymous"` is required by the
+     preload spec for `as="fetch"` even on same-origin requests. -->
+<link rel="preload" as="fetch" type="image/svg+xml" crossorigin="anonymous" href="/img/ui-sprite.svg">
 <link rel="apple-touch-icon" href="/img/logo/omnigrid.png">
 <link rel="shortcut icon" href="/img/logo/omnigrid.png">
-<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='7' fill='%233b82f6'/><g stroke='white' stroke-opacity='0.45' stroke-width='1.2' stroke-linecap='round'><line x1='8' y1='16' x2='24' y2='16'/><line x1='16' y1='8' x2='16' y2='24'/><line x1='8' y1='8' x2='24' y2='24'/><line x1='24' y1='8' x2='8' y2='24'/></g><g fill='white'><circle cx='8' cy='8' r='1.8'/><circle cx='24' cy='8' r='1.8'/><circle cx='8' cy='24' r='1.8'/><circle cx='24' cy='24' r='1.8'/><circle cx='16' cy='8' r='2'/><circle cx='16' cy='24' r='2'/><circle cx='8' cy='16' r='2'/><circle cx='24' cy='16' r='2'/><circle cx='16' cy='16' r='3.2'/></g></svg>">
 <script>
   (function() {
     var pref = localStorage.getItem('theme') || 'auto';
