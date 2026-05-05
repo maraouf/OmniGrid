@@ -1115,11 +1115,21 @@ async def api_stats(force: bool = False):
         # Truly cold: no data to serve, must block on the gather. Same
         # contract as the cold path in /api/items.
         await _gather_stats()
-    elif force or cache_stale:
-        # Have data, even if stale or seeded with ts=0: serve it
-        # instantly + kick refresh in the background. Single-flight
-        # guard prevents a poll burst from firing N concurrent gathers.
+    elif cache_stale:
+        # Cache is older than the TTL: serve the prior data + kick
+        # refresh in the background so the next poll lands fresh.
+        # `stats_refreshing=True` keeps the topbar refresh spinner
+        # pulsing until that next response carries fresh data.
         stats_refreshing = _kick_background_stats_gather()
+    elif force:
+        # Force-bypass with a fresh cache. SPA's auto-refresh path
+        # always sends `force=true` to bypass its own cadence cache,
+        # so this branch fires on every poll. Kick a background
+        # refresh for next-time but DON'T flag `stats_refreshing` —
+        # otherwise the topbar spinner would spin forever (every
+        # auto-refresh would reset the flag back to true). Spinner
+        # now only fires on genuinely-stale-cache paths.
+        _kick_background_stats_gather()
     # Swarm agent unhealthy detection — surfaces every node where
     # the per-node `_agent_health` consecutive-failure counter has
     # crossed the operator-tunable threshold. SPA renders a banner
@@ -1198,11 +1208,23 @@ async def api_items(force: bool = False):
     if not has_cached_data:
         # Truly cold: no data to serve, must block on the gather.
         await _gather()
-    elif force or cache_stale:
-        # Have data, even if stale: serve it instantly + kick refresh
-        # in the background. Single-flight guard prevents a poll burst
-        # from firing N concurrent gathers.
+    elif cache_stale:
+        # Have data but it's older than the TTL: serve it instantly +
+        # kick refresh in the background. `cache_refreshing=True`
+        # signals the SPA to keep the topbar refresh spinner pulsing
+        # until the next poll lands fresh data.
         cache_refreshing = _kick_background_gather()
+    elif force:
+        # Caller asked for a force refresh but the cache is still
+        # fresh — kick a background refresh for next-time but DON'T
+        # flag `cache_refreshing`. Without this gate the SPA's
+        # auto-refresh path (which always sends `force=true` to bypass
+        # the TTL gate on the SPA side) would receive
+        # `cache_refreshing=True` on every poll and the topbar
+        # spinner would spin forever — even when the cache is being
+        # served straight from a just-completed gather. Spinner now
+        # only fires on genuinely-stale-cache paths.
+        _kick_background_gather()
 
     return {
         "items": _cache["items"],
@@ -6495,10 +6517,30 @@ async def api_hosts_list(force: bool = False):
     # /api/hosts/one/{id} will share the in-flight probe via
     # `_host_provider_lock` so each row's eventual upgrade gets the
     # fresh data without re-paying the hub-probe cost.
-    cached_state = None if force else _peek_cached_host_provider_state()
+    # Always peek for a cached state — if one exists, the response
+    # is fresh enough to serve directly. `hub_probing=True` should
+    # only fire when there's literally no cached data to serve (cold
+    # boot before the first hub probe completes). Pre-fix `force=true`
+    # callers (the SPA's `loadHosts(true)` after every bulk action /
+    # settings save) skipped the peek and went straight to the
+    # kick-probe-and-flag branch, returning `hub_probing=true` on
+    # every forced refresh — the topbar spinner span stuck "on"
+    # indefinitely because every auto-refresh reset the flag back to
+    # true. Now we ALWAYS use the cached state when it exists; force
+    # still kicks a background refresh for next-time but doesn't
+    # flag the spinner.
+    cached_state = _peek_cached_host_provider_state()
     if cached_state is not None:
         state = cached_state
         hub_probing = False
+        # Force-bypass with a fresh cached state — kick a background
+        # refresh so the next call hits a re-probed cache, but don't
+        # signal hub_probing (we just served fresh data).
+        if force:
+            try:
+                asyncio.create_task(_get_host_provider_state(force=force))
+            except RuntimeError:
+                pass
     else:
         # Cheap subset: configured providers from settings (no probe).
         # Empty errors / batch maps — the snapshot fallback below fills
@@ -9909,18 +9951,25 @@ async def api_hosts_bulk_pause(
                     applied.append(hid)
                 except Exception as e:  # noqa: BLE001
                     errors[hid] = str(e)
-    # Publish per-host SSE events so cross-tab observers refresh in
-    # place rather than waiting up to 15s for the next loadHosts poll.
-    # The bare host_id keys mirror the per-host endpoint's contract;
-    # SPA's `host:failure_state_changed` handler triggers a
-    # refreshHostRow per id.
+    # Publish ONE bulk SSE event so cross-tab observers reconcile N
+    # rows from a single frame instead of N separate
+    # `host:failure_state_changed` events. Pre-fix this loop fanned
+    # out one event per applied id — for a 200-host bulk-pause that's
+    # 200 SSE frames hitting every connected client. The new
+    # `host:bulk_action_applied` event carries the full id list in one
+    # payload; the SPA handler iterates and triggers refreshHostRow
+    # per id (same effect, single SSE write).
     try:
         from logic import events as _events
         client_id = _request_client_id(request)
-        for hid in applied:
+        if applied:
             _events.publish(
-                "host:failure_state_changed",
-                {"host_id": hid, "paused": True, "actor": actor},
+                "host:bulk_action_applied",
+                {
+                    "action":   "pause",
+                    "host_ids": applied,
+                    "actor":    actor,
+                },
                 client_id=client_id,
             )
     except Exception as e:  # noqa: BLE001
@@ -10001,17 +10050,21 @@ async def api_hosts_bulk_resume(
                 except Exception as e:  # noqa: BLE001
                     errors[hid] = str(e)
     _full_host_cache_bust()
-    # SSE per-host fan-out — same shape as the per-host
-    # /api/hosts/{id}/resume endpoint so the SPA's existing
-    # `host:failure_state_changed` handler triggers a refreshHostRow
-    # per id without waiting for the 15s loadHosts poll.
+    # ONE bulk SSE event covers every applied id — same contract as
+    # the bulk-pause sister endpoint above. SPA's
+    # `host:bulk_action_applied` handler iterates and refreshes each
+    # row in place.
     try:
         from logic import events as _events
         client_id = _request_client_id(request)
-        for hid in applied:
+        if applied:
             _events.publish(
-                "host:failure_state_changed",
-                {"host_id": hid, "paused": False, "actor": actor},
+                "host:bulk_action_applied",
+                {
+                    "action":   "resume",
+                    "host_ids": applied,
+                    "actor":    actor,
+                },
                 client_id=client_id,
             )
     except Exception as e:  # noqa: BLE001
@@ -10091,6 +10144,27 @@ async def api_hosts_bulk_snmp_vendors(
                 "errors":  {"_save": e.detail},
             }
     actor = _actor_from(request) or "admin"
+    # Bulk SSE event so cross-tab observers reload `hosts_config` +
+    # refresh each affected row. Vendors edit curated config (NOT
+    # failure state) so the SPA handler does a `loadHosts(true)` for
+    # this action variant rather than per-row refresh.
+    try:
+        from logic import events as _events
+        client_id = _request_client_id(request)
+        if applied:
+            _events.publish(
+                "host:bulk_action_applied",
+                {
+                    "action":   "snmp_vendors",
+                    "host_ids": applied,
+                    "actor":    actor,
+                    "mode":     mode,
+                    "vendors":  sorted(cleaned_input),
+                },
+                client_id=client_id,
+            )
+    except Exception as e:  # noqa: BLE001
+        print(f"[hosts:bulk] snmp-vendors SSE publish failed: {e}")
     print(f"[hosts:bulk] snmp-vendors by {actor} mode={mode} "
           f"vendors={sorted(cleaned_input)}: {len(applied)} applied, "
           f"{len(missing)} missing, {len(errors)} errors")
@@ -10175,6 +10249,26 @@ async def api_hosts_bulk_snmp_tunables(
                 "errors":  {"_save": e.detail},
             }
     actor = _actor_from(request) or "admin"
+    # Bulk SSE event — same shape as the snmp-vendors sister, edits
+    # curated config not failure state.
+    try:
+        from logic import events as _events
+        client_id = _request_client_id(request)
+        if applied:
+            _events.publish(
+                "host:bulk_action_applied",
+                {
+                    "action":             "snmp_tunables",
+                    "host_ids":           applied,
+                    "actor":              actor,
+                    "clear":              bool(body.clear),
+                    "walk_concurrency":   wc,
+                    "wall_clock_budget":  wcb,
+                },
+                client_id=client_id,
+            )
+    except Exception as e:  # noqa: BLE001
+        print(f"[hosts:bulk] snmp-tunables SSE publish failed: {e}")
     print(f"[hosts:bulk] snmp-tunables by {actor} "
           f"clear={body.clear} wc={wc} wcb={wcb}: "
           f"{len(applied)} applied, {len(missing)} missing, {len(errors)} errors")

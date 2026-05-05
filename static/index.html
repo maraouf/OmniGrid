@@ -1636,6 +1636,12 @@
           <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>
           <span x-text="t('hosts_extra.bulk.pause') || 'Pause'"></span>
         </button>
+        <!-- Visual separator between sampler-state actions (Resume /
+             Pause — affect runtime sampling) and SNMP-config actions
+             (Vendors / Tunables — affect curated `hosts_config`). The
+             two groups touch different state planes; the divider
+             signals the semantic distinction at a glance. -->
+        <span class="hosts-bulk-bar-divider" aria-hidden="true"></span>
         <button type="button" @click="openBulkSnmpVendorsModal()"
                 class="btn btn-ghost text-[12px]"
                 :title="t('hosts_extra.bulk.snmp_vendors_title') || 'Apply SNMP vendor MIBs'">
