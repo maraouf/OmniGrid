@@ -4879,12 +4879,20 @@
                       class="text-[var(--success)]"
                       x-text="t('settings.portainer.api_key_set')"></span>
               </label>
-              <input x-model="portainerForm.api_key" type="password"
-                     @input="markPortainerFormDirty()"
-                     :disabled="isReadonly() || !settings.portainer_enabled"
-                     :placeholder="t('settings.portainer.api_key_placeholder')"
-                     autocomplete="new-password"
-                     class="w-full mono text-[12px]">
+              <div class="secret-input-row">
+                <input x-model="portainerForm.api_key" type="password"
+                       @input="markPortainerFormDirty()"
+                       :disabled="isReadonly() || !settings.portainer_enabled"
+                       :placeholder="t('settings.portainer.api_key_placeholder')"
+                       autocomplete="new-password"
+                       class="mono text-[12px]">
+                <button type="button"
+                        x-show="portainerStatus && portainerStatus.api_key_set && isAdmin()"
+                        @click="clearPortainerApiKey()"
+                        :disabled="!settings.portainer_enabled"
+                        class="btn btn-ghost text-[11.5px] secret-input-clear"
+                        x-text="t('settings.host_stats.clear_secret_label')"></button>
+              </div>
               <p class="text-[11px] text-[var(--text-faint)] mt-1" x-text="t('settings.portainer.api_key_hint')"></p>
             </div>
             <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -5063,12 +5071,20 @@
                       class="text-[var(--success)]"
                       x-text="t('settings.oidc.client_secret_set')"></span>
               </label>
-              <input x-model="oidcForm.client_secret" type="password"
-                     @input="markOidcFormDirty()"
-                     :disabled="isReadonly() || !oidcForm.enabled"
-                     :placeholder="t('settings.oidc.client_secret_placeholder')"
-                     autocomplete="new-password"
-                     class="w-full mono text-[12px]">
+              <div class="secret-input-row">
+                <input x-model="oidcForm.client_secret" type="password"
+                       @input="markOidcFormDirty()"
+                       :disabled="isReadonly() || !oidcForm.enabled"
+                       :placeholder="t('settings.oidc.client_secret_placeholder')"
+                       autocomplete="new-password"
+                       class="mono text-[12px]">
+                <button type="button"
+                        x-show="oidcStatus && oidcStatus.client_secret_set && isAdmin()"
+                        @click="clearOidcClientSecret()"
+                        :disabled="!oidcForm.enabled"
+                        class="btn btn-ghost text-[11.5px] secret-input-clear"
+                        x-text="t('settings.host_stats.clear_secret_label')"></button>
+              </div>
             </div>
           </div>
           <div>
@@ -5374,11 +5390,19 @@
                 <span x-show="settings.beszel_password_set" class="text-[var(--success)]"
                       x-text="t('settings.host_stats.beszel_password_set')"></span>
               </label>
-              <input x-model="settings.beszel_password" type="password"
-                     autocomplete="new-password"
-                     :disabled="isReadonly() || !hasHostStatsSource('beszel')"
-                     class="w-full text-[11.5px]"
-                     :placeholder="settings.beszel_password_set ? '••••••••' : t('settings.host_stats.beszel_password_placeholder')">
+              <div class="secret-input-row">
+                <input x-model="settings.beszel_password" type="password"
+                       autocomplete="new-password"
+                       :disabled="isReadonly() || !hasHostStatsSource('beszel')"
+                       class="text-[11.5px]"
+                       :placeholder="settings.beszel_password_set ? '••••••••' : t('settings.host_stats.beszel_password_placeholder')">
+                <button type="button"
+                        x-show="settings.beszel_password_set && isAdmin()"
+                        @click="clearBeszelPassword()"
+                        :disabled="!hasHostStatsSource('beszel')"
+                        class="btn btn-ghost text-[11.5px] secret-input-clear"
+                        x-text="t('settings.host_stats.clear_secret_label')"></button>
+              </div>
             </div>
           </div>
           <label class="inline-flex items-center gap-2 text-[12px] text-[var(--text-dim)]">
@@ -5499,11 +5523,19 @@
               <span x-text="t('settings.host_stats.pulse_token_label')"></span>
               <span x-show="settings.pulse_token_set" class="text-[var(--success)]" x-text="t('settings.host_stats.pulse_token_set_suffix')"></span>
             </label>
-            <input x-model="settings.pulse_token" type="password"
-                   autocomplete="new-password"
-                   :disabled="isReadonly() || !hasHostStatsSource('pulse')"
-                   class="w-full text-[11.5px]"
-                   :placeholder="settings.pulse_token_set ? t('settings.host_stats.pulse_token_set_placeholder') : t('settings.host_stats.pulse_token_placeholder')">
+            <div class="secret-input-row">
+              <input x-model="settings.pulse_token" type="password"
+                     autocomplete="new-password"
+                     :disabled="isReadonly() || !hasHostStatsSource('pulse')"
+                     class="text-[11.5px]"
+                     :placeholder="settings.pulse_token_set ? t('settings.host_stats.pulse_token_set_placeholder') : t('settings.host_stats.pulse_token_placeholder')">
+              <button type="button"
+                      x-show="settings.pulse_token_set && isAdmin()"
+                      @click="clearPulseToken()"
+                      :disabled="!hasHostStatsSource('pulse')"
+                      class="btn btn-ghost text-[11.5px] secret-input-clear"
+                      x-text="t('settings.host_stats.clear_secret_label')"></button>
+            </div>
           </div>
           <label class="inline-flex items-center gap-2 text-[12px] text-[var(--text-dim)]">
             <input type="checkbox" x-model="settings.pulse_verify_tls"
@@ -5625,11 +5657,19 @@
                 <span x-text="t('settings.host_stats.webmin_password_label')"></span>
                 <span x-show="settings.webmin_password_set" class="text-[var(--success)]" x-text="t('settings.host_stats.webmin_password_set_suffix')"></span>
               </label>
-              <input x-model="settings.webmin_password" type="password"
-                     autocomplete="new-password"
-                     :disabled="isReadonly() || !hasHostStatsSource('webmin')"
-                     class="w-full text-[11.5px]"
-                     :placeholder="settings.webmin_password_set ? t('settings.host_stats.webmin_password_set_placeholder') : t('settings.host_stats.webmin_password_placeholder')">
+              <div class="secret-input-row">
+                <input x-model="settings.webmin_password" type="password"
+                       autocomplete="new-password"
+                       :disabled="isReadonly() || !hasHostStatsSource('webmin')"
+                       class="text-[11.5px]"
+                       :placeholder="settings.webmin_password_set ? t('settings.host_stats.webmin_password_set_placeholder') : t('settings.host_stats.webmin_password_placeholder')">
+                <button type="button"
+                        x-show="settings.webmin_password_set && isAdmin()"
+                        @click="clearWebminPassword()"
+                        :disabled="!hasHostStatsSource('webmin')"
+                        class="btn btn-ghost text-[11.5px] secret-input-clear"
+                        x-text="t('settings.host_stats.clear_secret_label')"></button>
+              </div>
             </div>
           </div>
           <label class="inline-flex items-center gap-2 text-[12px] text-[var(--text-dim)]">
@@ -7625,14 +7665,15 @@
                         class="text-[var(--success)]"
                         x-text="t('admin_assets.client_secret_set')"></span>
                 </label>
-                <div class="flex items-center gap-2">
+                <div class="secret-input-row">
                   <input type="password" x-model="assetForm.client_secret" :disabled="isReadonly()"
-                         class="flex-1 mono text-[12.5px] py-1.5"
+                         class="mono text-[12.5px] py-1.5"
                          :placeholder="t('admin_assets.client_secret_placeholder')"
                          autocomplete="new-password">
-                  <button x-show="isAdmin() && assetStatus && assetStatus.client_secret_set"
+                  <button type="button"
+                          x-show="isAdmin() && assetStatus && assetStatus.client_secret_set"
                           @click="clearAssetClientSecret()"
-                          class="btn btn-ghost text-[11.5px]"
+                          class="btn btn-ghost text-[11.5px] secret-input-clear"
                           x-text="t('admin_assets.clear_secret')"></button>
                 </div>
               </div>
@@ -7664,14 +7705,15 @@
                         class="text-[var(--success)]"
                         x-text="t('admin_assets.lifetime_token_set')"></span>
                 </label>
-                <div class="flex items-center gap-2">
+                <div class="secret-input-row">
                   <input type="password" x-model="assetForm.lifetime_token" :disabled="isReadonly()"
-                         class="flex-1 mono text-[12.5px] py-1.5"
+                         class="mono text-[12.5px] py-1.5"
                          :placeholder="t('admin_assets.lifetime_token_placeholder')"
                          autocomplete="new-password">
-                  <button x-show="isAdmin() && assetStatus && assetStatus.lifetime_token_set"
+                  <button type="button"
+                          x-show="isAdmin() && assetStatus && assetStatus.lifetime_token_set"
                           @click="clearAssetLifetimeToken()"
-                          class="btn btn-ghost text-[11.5px]"
+                          class="btn btn-ghost text-[11.5px] secret-input-clear"
                           x-text="t('admin_assets.clear_lifetime_token')"></button>
                 </div>
               </div>
@@ -7871,19 +7913,21 @@
             <span x-text="t('admin_ssh.key_label')"></span>
             <span x-show="sshSettings.private_key_set" class="text-[var(--success)]"
                   x-text="t('admin_ssh.key_set')"></span>
+          </label>
+          <div class="secret-input-row">
+            <textarea x-model="sshSettings.private_key"
+                      @input="markSshSettingsDirty()"
+                      :disabled="isReadonly() || !settings.ssh_enabled"
+                      rows="6"
+                      class="mono text-[11px] py-1.5 scrollbar"
+                      :placeholder="sshSettings.private_key_set ? '••••••••' : t('admin_ssh.key_placeholder')"></textarea>
             <button type="button"
                     x-show="sshSettings.private_key_set && isAdmin()"
                     @click="clearSshSecret('private_key')"
-                    class="ms-auto text-[10.5px] text-[var(--danger)] hover:underline"
+                    class="btn btn-ghost text-[11.5px] secret-input-clear"
                     :title="t('admin_ssh.clear_key_title')"
                     x-text="t('admin_ssh.clear_label')"></button>
-          </label>
-          <textarea x-model="sshSettings.private_key"
-                    @input="markSshSettingsDirty()"
-                    :disabled="isReadonly() || !settings.ssh_enabled"
-                    rows="6"
-                    class="w-full mono text-[11px] py-1.5 scrollbar"
-                    :placeholder="sshSettings.private_key_set ? '••••••••' : t('admin_ssh.key_placeholder')"></textarea>
+          </div>
           <p class="text-[10.5px] text-[var(--text-faint)] mt-1"
              x-text="t('admin_ssh.key_hint')"></p>
         </div>
@@ -7892,19 +7936,21 @@
             <span x-text="t('admin_ssh.passphrase_label')"></span>
             <span x-show="sshSettings.passphrase_set" class="text-[var(--success)]"
                   x-text="t('admin_ssh.passphrase_set')"></span>
+          </label>
+          <div class="secret-input-row">
+            <input x-model="sshSettings.passphrase" type="password"
+                   autocomplete="new-password"
+                   @input="markSshSettingsDirty()"
+                   :disabled="isReadonly() || !settings.ssh_enabled"
+                   class="text-[12.5px]"
+                   :placeholder="sshSettings.passphrase_set ? '••••••••' : t('admin_ssh.passphrase_placeholder')">
             <button type="button"
                     x-show="sshSettings.passphrase_set && isAdmin()"
                     @click="clearSshSecret('passphrase')"
-                    class="ms-auto text-[10.5px] text-[var(--danger)] hover:underline"
+                    class="btn btn-ghost text-[11.5px] secret-input-clear"
                     :title="t('admin_ssh.clear_passphrase_title')"
                     x-text="t('admin_ssh.clear_label')"></button>
-          </label>
-          <input x-model="sshSettings.passphrase" type="password"
-                 autocomplete="new-password"
-                 @input="markSshSettingsDirty()"
-                 :disabled="isReadonly() || !settings.ssh_enabled"
-                 class="w-full text-[12.5px]"
-                 :placeholder="sshSettings.passphrase_set ? '••••••••' : t('admin_ssh.passphrase_placeholder')">
+          </div>
         </div>
         <!-- Password auth (alternative to private key). When both are
              set, the key wins. Useful for hosts that only accept
@@ -7913,19 +7959,21 @@
           <label class="block text-[11px] text-[var(--text-faint)] mb-1 flex items-center gap-2">
             <span x-text="t('admin_ssh.password_label')"></span>
             <span x-show="sshSettings.password_set" class="text-[var(--success)]"> · set</span>
+          </label>
+          <div class="secret-input-row">
+            <input x-model="sshSettings.password" type="password"
+                   autocomplete="new-password"
+                   @input="markSshSettingsDirty()"
+                   :disabled="isReadonly() || !settings.ssh_enabled"
+                   class="text-[12.5px]"
+                   :placeholder="sshSettings.password_set ? '••••••••' : 'Alternative to private key'">
             <button type="button"
                     x-show="sshSettings.password_set && isAdmin()"
                     @click="clearSshSecret('password')"
-                    class="ms-auto text-[10.5px] text-[var(--danger)] hover:underline"
+                    class="btn btn-ghost text-[11.5px] secret-input-clear"
                     :title="t('admin_ssh.clear_password_title')"
                     x-text="t('admin_ssh.clear_label')"></button>
-          </label>
-          <input x-model="sshSettings.password" type="password"
-                 autocomplete="new-password"
-                 @input="markSshSettingsDirty()"
-                 :disabled="isReadonly() || !settings.ssh_enabled"
-                 class="w-full text-[12.5px]"
-                 :placeholder="sshSettings.password_set ? '••••••••' : 'Alternative to private key'">
+          </div>
           <p class="text-[10.5px] text-[var(--text-faint)] mt-1">
             Used when no private key is configured, or when a per-host
             row overrides with its own password. Key auth wins when

@@ -205,6 +205,9 @@ PULSE_FAILURE_PAUSE_ROUNDS=5
 # Per-fetch timeout for the Pulse `/api/state` hub call. Bounds the
 # sampler tick wall-clock and the synchronous probe path. Default 15s.
 PULSE_PROBE_TIMEOUT_SECONDS=15
+# Per-host probe timeout for the Webmin Miniserv sampler. Default 8s
+# matches the previous hardcoded fallback in `host_webmin_sampler.py`.
+WEBMIN_PROBE_TIMEOUT_SECONDS=8
 NODE_EXPORTER_FAILURE_PAUSE_ROUNDS=5
 PING_FAILURE_PAUSE_ROUNDS=0
 
@@ -395,6 +398,7 @@ Quick index of every env var OmniGrid reads, grouped by scope:
 | `BESZEL_FAILURE_PAUSE_ROUNDS`     | Runtime     | `5`                  | Per-(beszel, host) auto-pause threshold. Hub-fetch-OK gate so a global hub outage doesn't cascade-pause every host. 0 = disabled. |
 | `PULSE_FAILURE_PAUSE_ROUNDS`      | Runtime     | `5`                  | Per-(pulse, host) auto-pause threshold. Same hub-fetch-OK contract as Beszel. 0 = disabled. |
 | `PULSE_PROBE_TIMEOUT_SECONDS`     | Runtime     | `15`                 | Per-fetch timeout for Pulse `/api/state` hub probe. Bounds sampler tick wall-clock + sync probe path. Range 1..120. |
+| `WEBMIN_PROBE_TIMEOUT_SECONDS`    | Runtime     | `8`                  | Per-host probe timeout for the Webmin Miniserv sampler. Range 1..120. |
 | `NODE_EXPORTER_FAILURE_PAUSE_ROUNDS` | Runtime  | `5`                  | Per-(node_exporter, host) auto-pause threshold. Per-host scrape, so any HTTP error / timeout / `exporter_error` counts. 0 = disabled. |
 | `PING_FAILURE_PAUSE_ROUNDS`       | Runtime     | `0`                  | Per-(ping, host) auto-pause threshold. Counts ONLY sampler-level errors (DNS, ICMP perm-denied, transport setup), NOT alive=False which is the actual data. Default 0 (disabled) so a normally-down host doesn't get its ping chip spuriously paused. |
 | `SSE_HEARTBEAT_SECONDS`           | Runtime     | `25`                 | SSE keepalive comment cadence.                                                   |

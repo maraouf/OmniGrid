@@ -2762,6 +2762,27 @@ details summary::-webkit-details-marker {
     outline-offset: 2px;
 }
 
+/* SECRET INPUT ROW — canonical layout for every admin-tab secret
+   field with a Clear-when-set affordance. One <input> + one Clear
+   button (visible only when `<field>_set` is true) sitting side-by-
+   side. Replaces the inconsistent mix of inline-link vs separate-row
+   styles that grew across asset_inventory / ssh / beszel / pulse /
+   webmin / portainer / oidc. The Clear button uses `btn btn-ghost`
+   for the canonical click affordance + WCAG 2.5.5 click target. */
+.secret-input-row {
+    display: flex;
+    align-items: center;
+    gap: var(--s-2);
+}
+.secret-input-row > input {
+    flex: 1;
+    min-width: 0;
+}
+.secret-input-row > .secret-input-clear {
+    flex-shrink: 0;
+    white-space: nowrap;
+}
+
 /* HOSTS BULK ACTION BAR — sticky at the bottom of the viewport when
    one or more hosts are selected. Mirrors the items bulk bar pattern
    but anchored to the bottom (vs sticky-top) because the Hosts view's
