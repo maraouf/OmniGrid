@@ -584,7 +584,17 @@ body {
     border-radius: var(--r-md);
     transition: background .2s ease;
 }
-.scrollbar:hover::-webkit-scrollbar-thumb {
+/* Two hover triggers — parent-hover (cursor anywhere in the scroll
+   container) AND thumb-hover (cursor directly over the bar). The
+   former handles "user is reading the table"; the latter handles
+   "user is grabbing the scrollbar to drag" — without the second
+   selector the thumb stayed at the rest colour during drag because
+   the cursor leaves the scrollable content area when grabbing the
+   scrollbar in some browsers (notably Firefox). The two selectors
+   carry the same colour so the visual effect stays consistent. */
+.scrollbar:hover::-webkit-scrollbar-thumb,
+.scrollbar::-webkit-scrollbar-thumb:hover,
+.scrollbar::-webkit-scrollbar-thumb:active {
     background: var(--border-bright);
 }
 
