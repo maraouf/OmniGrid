@@ -1684,6 +1684,11 @@
     "restart_container": "restart container",
     "remove_container": "remove container"
   },
+  "op_status": {
+    "running": "running",
+    "success": "success",
+    "error": "error"
+  },
   "placeholders": {
     "search_history": "Search name, id, error…",
     "search_resources": "Search resources, stacks, images…  (/)"
@@ -2287,6 +2292,9 @@
     "snmp_walk_concurrency_hint": "How many SNMP walks run in parallel against THIS host. Blank = the global default (1, the safety floor). Server-class BMCs like Dell iDRAC, Cisco IMC, and Supermicro IPMI handle parallel queries fine and need 4-8 to fit pysnmp's per-walk overhead inside the probe budget. Leave blank for low-power printers / NAS / OpenWrt-class gear that drop UDP packets at higher concurrency.",
     "snmp_walk_concurrency_placeholder": "Inherited: {value}",
     "snmp_community_label": "Community",
+    "snmp_version_label": "Version",
+    "section_providers": "Providers",
+    "section_ping": "Ping",
     "snmp_wall_clock_budget_label": "Wall-clock budget (s)",
     "snmp_wall_clock_budget_hint": "Total wall-clock budget for ONE SNMP probe against THIS host (seconds). Blank = the global default (60s). Slow iDRAC chassis with the BIOS / virtual-disk / power-supply walks may need 90-120s; embedded snmpd's typically finish well under the default. Range 5..600s.",
     "snmp_vendors_label": "Vendor MIBs",

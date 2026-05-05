@@ -319,6 +319,18 @@
     --col-disk: 90px;
     --col-node: 200px;
     --col-action: 150px;
+    --col-when: 170px;
+    --col-op: 140px;
+    --col-stack: 120px;
+    --col-actor: 100px;
+    --col-history-status: 90px;
+    --col-duration: 80px;
+
+    /* host-row-spark stroke + drop-shadow.
+     * White at 0.85 alpha reads cleanly on every fill colour AND the dark
+     * surface; the 1px shadow lifts the line off saturated bars. */
+    --spark-stroke: rgba(255, 255, 255, 0.85);
+    --spark-shadow: rgba(0, 0, 0, 0.5);
 }
 
 :root[data-theme="light"] {
@@ -454,6 +466,12 @@
      * badge visibly recedes into the surrounding chip on a bright
      * surface (the dark-theme value is calibrated for surface-2). */
     --log-sev-active-count-bg: rgba(15, 23, 42, 0.10);
+
+    /* host-row-spark — same contrast contract reversed for the
+     * bright surface: dark stroke at 0.7 alpha + same 1px shadow
+     * value (a darker-on-light shadow reads as a subtle halo). */
+    --spark-stroke: rgba(0, 0, 0, 0.7);
+    --spark-shadow: rgba(0, 0, 0, 0.5);
 }
 
 /* ---------------------------------------------------------------------------
@@ -1326,8 +1344,8 @@ button.health-chip:hover {
     inset-inline-start: 0;
     top: 0;
     bottom: 0;
-    width: var(--w, 0%);
-    background: var(--c, var(--success));
+    width: var(--w);
+    background: var(--c);
     border-radius: 3px;
 }
 
@@ -1584,11 +1602,11 @@ details summary::-webkit-details-marker {
     min-width: 56px;
     text-align: center;
 }
-.cmdpal-kind-hosts    { background: rgba(34, 197, 94, 0.18);  color: var(--success); }
-.cmdpal-kind-items    { background: rgba(59, 130, 246, 0.18); color: var(--info); }
-.cmdpal-kind-admin    { background: rgba(167, 139, 250, 0.18); color: var(--text); }
-.cmdpal-kind-views    { background: rgba(236, 72, 153, 0.18); color: var(--warning); }
-.cmdpal-kind-hotkeys  { background: rgba(148, 163, 184, 0.20); color: var(--text-faint); }
+.cmdpal-kind-hosts    { background: color-mix(in srgb, var(--success) 18%, transparent);  color: var(--success); }
+.cmdpal-kind-items    { background: color-mix(in srgb, var(--info) 18%, transparent); color: var(--info); }
+.cmdpal-kind-admin    { background: color-mix(in srgb, var(--primary) 18%, transparent); color: var(--text); }
+.cmdpal-kind-views    { background: color-mix(in srgb, var(--warning) 18%, transparent); color: var(--warning); }
+.cmdpal-kind-hotkeys  { background: color-mix(in srgb, var(--text-faint) 20%, transparent); color: var(--text-faint); }
 
 /* ---------------------------------------------------------------------------
    Notification preferences grid (Profile → Notifications)
@@ -1648,14 +1666,11 @@ details summary::-webkit-details-marker {
      * / red) AND the unfilled surface-3 background. Pre-fix used
      * mix-blend-mode: luminosity which made the line invisible on
      * high-fill bars (84% disk → mostly red fill underneath; the line
-     * blended to nothing). White at 0.85 opacity reads cleanly on
-     * every fill colour AND the dark surface. */
-    color: rgba(255, 255, 255, 0.85);
+     * blended to nothing). The token-driven stroke + shadow pair are
+     * declared on :root (dark) and :root[data-theme="light"] so each
+     * theme picks its own contrast values. */
+    color: var(--spark-stroke);
     z-index: 1;
-}
-:root[data-theme="light"] .host-row-spark {
-    /* Dark stroke on light theme — same contrast contract reversed. */
-    color: rgba(0, 0, 0, 0.7);
 }
 .host-row-spark path {
     fill: none;
@@ -1666,7 +1681,7 @@ details summary::-webkit-details-marker {
     vector-effect: non-scaling-stroke;
     /* 1px drop shadow lifts the line off any fill colour so it reads
      * clearly even on a bar that's 90%+ saturated red (high-disk hosts). */
-    filter: drop-shadow(0 0 1px rgba(0, 0, 0, 0.5));
+    filter: drop-shadow(0 0 1px var(--spark-shadow));
 }
 
 .stat-bar > .fill {
@@ -2797,7 +2812,7 @@ details summary::-webkit-details-marker {
        exist); `safe-area-inset-bottom` adds the iOS / Android home-bar
        gutter on touch devices that report a non-zero inset. The base
        `var(--s-4)` (12px) breathing room sits on top of both. */
-    bottom: calc(var(--mobile-nav-height, 0px) + env(safe-area-inset-bottom, 0px) + var(--s-4));
+    bottom: calc(var(--mobile-nav-height) + env(safe-area-inset-bottom, 0px) + var(--s-4));
     transform: translateX(-50%);
     z-index: 35;
     display: flex;
