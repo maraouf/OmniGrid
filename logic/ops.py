@@ -535,9 +535,10 @@ def persist_history(op: Operation) -> None:
     with db_conn() as c:
         cur = c.execute(
             "INSERT INTO history "
-            "(ts,op_type,target_name,target_id,target_stack,status,duration,events,error,actor) "
-            "VALUES (?,?,?,?,?,?,?,?,?,?)",
-            (op.started, op.op_type, op.target_name, op.target_id, op.target_stack,
+            "(ts,op_type,target_kind,target_name,target_id,target_stack,status,duration,events,error,actor) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+            (op.started, op.op_type, "op",
+             op.target_name, op.target_id, op.target_stack,
              op.status, duration,
              json.dumps(op.events), op.error, op.actor),
         )
@@ -550,6 +551,7 @@ def persist_history(op: Operation) -> None:
     # row that's already visible to /api/history.
     events.publish("history:appended", {
         "id": history_id, "ts": op.started, "op_type": op.op_type,
+        "target_kind": "op",
         "target_name": op.target_name, "target_id": op.target_id,
         "target_stack": op.target_stack, "status": op.status,
         "duration": duration, "error": op.error, "actor": op.actor,

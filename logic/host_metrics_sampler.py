@@ -270,28 +270,27 @@ def _compute_row(
 # short-circuit paused hosts AND writes on every probe outcome to
 # advance the counter / clear-on-success / auto-pause when the failure
 # window is exceeded.
-def _get_failure_state(host_id: str) -> Optional[dict]:
-    """Read the host_failure_state row for ``host_id``.
+def _get_failure_state(host_id: str, provider: str = "") -> Optional[dict]:
+    """Read the host_failure_state row for ``(host_id, provider)``.
 
     Column-parity with ``main._failure_state_for_host`` so internal
     consumers (auto-pause logic, future "auto-resume after N hours of
     inactivity" features) see the same shape the API surface does.
-    The SELECT used to lag the schema after `last_failure_ts` was
-    added — `_record_failure` populated it but
-    `_get_failure_state` couldn't read it back, so anyone relying on
-    "when was the last attempt?" through this helper got nothing.
+    Default ``provider=''`` reads the whole-host row (legacy bare-id
+    convention, now stored as the empty-string provider after migration #2).
     """
     try:
         with db_conn() as c:
             cur = c.execute(
                 "SELECT first_failure_ts, consecutive_failures, paused, "
                 "paused_at, last_error, last_failure_ts "
-                "FROM host_failure_state WHERE host_id = ?",
-                (host_id,),
+                "FROM host_failure_state WHERE host_id = ? AND provider = ?",
+                (host_id, provider),
             )
             row = cur.fetchone()
     except Exception as e:
-        print(f"[host_metrics_sampler] {host_id!r} failure-state read error: {e}")
+        print(f"[host_metrics_sampler] {host_id!r}/{provider!r} "
+              f"failure-state read error: {e}")
         return None
     if row is None:
         return None
@@ -308,36 +307,9 @@ def _get_failure_state(host_id: str) -> Optional[dict]:
     }
 
 
-def _split_failure_key(key: str) -> tuple[str, Optional[str]]:
-    """Split a failure-state row key into ``(bare_host_id, provider)``.
-
-    The table uses two key conventions side-by-side:
-      - bare ``host_id`` for whole-host pauses (#383 NE-mapped sampler).
-      - prefixed ``<provider>:<host_id>`` for per-(provider, host)
-        pauses so a host with broken SNMP but healthy
-        Beszel only marks ONE chip paused.
-
-    Returns ``(host_id, provider)`` for prefixed keys, ``(host_id, None)``
-    for bare keys. Used by SSE publishers to emit the BARE host_id +
-    a separate ``provider`` field — the SPA's ``refreshHostRow(id)``
-    needs the bare id (otherwise ``/api/hosts/one/snmp:web01`` 404s
-    silently). Reserved provider names live in the
-    ``_PROVIDER_PREFIXES`` frozen set so a bare host_id that happens
-    to contain a colon (e.g. an IPv6 literal — currently not used as a
-    host_id anywhere but defence-in-depth) doesn't get mis-split.
-    """
-    if ":" not in key:
-        return key, None
-    head, _, tail = key.partition(":")
-    if head in _PROVIDER_PREFIXES:
-        return tail, head
-    return key, None
-
-
-# Frozen set of provider names that prefix `host_failure_state` rows.
-# Extend whenever a new provider gets the auto-pause contract — keep
-# in sync with `main._PROVIDER_AUTO_PAUSE_NAMES`. Both lists could be
-# derived from `tuning.TUNABLES` in a future refactor.
+# Frozen set of provider names that have the auto-pause contract.
+# Keep in sync with `main._PROVIDER_AUTO_PAUSE_NAMES`. Both lists
+# could be derived from `tuning.TUNABLES` in a future refactor.
 _PROVIDER_PREFIXES = frozenset((
     "beszel", "pulse", "node_exporter", "webmin", "ping", "snmp",
 ))
@@ -346,6 +318,7 @@ _PROVIDER_PREFIXES = frozenset((
 async def _record_failure(
     host_id: str, now: float, error: str,
     *, round_threshold: Optional[int] = None,
+    provider: str = "",
 ) -> None:
     """Increment the failure counter, stamp first_failure_ts on the
     first failure of a new streak, auto-pause when the threshold is
@@ -362,14 +335,14 @@ async def _record_failure(
         minute — "5 rounds" means the same UX commitment in both cases).
         Pass 0 to disable auto-pause entirely (just record the failure).
 
+    ``provider`` selects the (host_id, provider) row in the composite-PK
+    table after migration #2: ``''`` for whole-host pauses, ``'snmp'``
+    / ``'webmin'`` / etc. for per-(provider, host) pauses.
+
     Async because the auto-pause transition fires an Apprise
     notification via ``asyncio.create_task`` — ``create_task`` requires
     a running event loop in scope, which we get for free inside an
-    async function. The previous sync-wrapper grabbed the loop via
-    ``asyncio.get_event_loop()`` which Python 3.12+ deprecates outside
-    a running coroutine and 3.14 removes. The DB writes themselves are
-    sqlite3-sync but the surrounding contract makes the function
-    awaitable so the notification dispatch can use the supported API.
+    async function.
     """
     # Three-tier lookup via the unified Tuning Config : DB > env >
     # default. ``tuning.tuning_int`` always returns at least the code
@@ -381,12 +354,14 @@ async def _record_failure(
     if window < 60:
         window = 60
     err_short = (error or "").strip()[:500]
+    bare_host = host_id
+    log_label = f"{provider}:{host_id}" if provider else host_id
     try:
         with db_conn() as c:
             cur = c.execute(
                 "SELECT first_failure_ts, consecutive_failures, paused "
-                "FROM host_failure_state WHERE host_id = ?",
-                (host_id,),
+                "FROM host_failure_state WHERE host_id = ? AND provider = ?",
+                (host_id, provider),
             )
             row = cur.fetchone()
             if row is None:
@@ -394,13 +369,13 @@ async def _record_failure(
                 # equals ``first_failure_ts`` for a single-tick streak;
                 # subsequent failures advance ``last_failure_ts`` only
                 # so the drawer can render "last error N seconds ago"
-                # without losing the streak start (ENH-018).
+                # without losing the streak start.
                 c.execute(
                     "INSERT INTO host_failure_state "
-                    "(host_id, first_failure_ts, last_failure_ts, "
+                    "(host_id, provider, first_failure_ts, last_failure_ts, "
                     "consecutive_failures, paused, paused_at, last_error) "
-                    "VALUES (?, ?, ?, 1, 0, NULL, ?)",
-                    (host_id, now, now, err_short),
+                    "VALUES (?, ?, ?, ?, 1, 0, NULL, ?)",
+                    (host_id, provider, now, now, err_short),
                 )
                 return
             first_ts, fails, paused = row[0], row[1], bool(row[2])
@@ -417,27 +392,16 @@ async def _record_failure(
                 c.execute(
                     "UPDATE host_failure_state SET consecutive_failures = ?, "
                     "paused = 1, paused_at = ?, last_failure_ts = ?, "
-                    "last_error = ? WHERE host_id = ?",
-                    (new_fails, now, now, err_short, host_id),
+                    "last_error = ? WHERE host_id = ? AND provider = ?",
+                    (new_fails, now, now, err_short, host_id, provider),
                 )
                 paused_minutes = max(1, int((now - first_ts) // 60))
-                # Per-(provider, host) pauses use prefixed keys
-                # (`snmp:web01`); whole-host pauses use bare host_id.
-                # Split here so SSE publish + Apprise body + the resume
-                # URL hint reference the BARE host_id (the SPA's
-                # `refreshHostRow(id)` 404s on prefixed). The provider
-                # name (when present) carries through as a separate
-                # field for chip rendering.
-                bare_host, provider = _split_failure_key(host_id)
                 # Append-only transition log — captures the EDGE
                 # (paused → unpaused → paused → ...) so the timeline
                 # endpoint can render the true history rather than
-                # synthesising events from the current snapshot. Same
-                # transaction as the UPDATE above so a partial commit
-                # can't leave the log out of sync with the state row.
-                # Best-effort error swallow: a transition-log failure
-                # must not block the pause itself (the load-bearing
-                # side effect lives in host_failure_state).
+                # synthesising events from the current snapshot. Best-
+                # effort error swallow: a transition-log failure must
+                # not block the pause itself.
                 try:
                     c.execute(
                         "INSERT INTO host_failure_events "
@@ -446,9 +410,9 @@ async def _record_failure(
                         (now, bare_host, provider or "", err_short),
                     )
                 except Exception as ev_err:
-                    print(f"[host_metrics_sampler] {host_id!r} "
+                    print(f"[host_metrics_sampler] {log_label!r} "
                           f"failure-event log write failed: {ev_err}")
-                print(f"[host_metrics_sampler] {host_id!r} AUTO-PAUSED after "
+                print(f"[host_metrics_sampler] {log_label!r} AUTO-PAUSED after "
                       f"{int(now - first_ts)}s of consecutive failures "
                       f"({new_fails} attempts) — operator must POST "
                       f"/api/hosts/{bare_host}"
@@ -528,11 +492,12 @@ async def _record_failure(
             else:
                 c.execute(
                     "UPDATE host_failure_state SET consecutive_failures = ?, "
-                    "last_failure_ts = ?, last_error = ? WHERE host_id = ?",
-                    (new_fails, now, err_short, host_id),
+                    "last_failure_ts = ?, last_error = ? "
+                    "WHERE host_id = ? AND provider = ?",
+                    (new_fails, now, err_short, host_id, provider),
                 )
     except Exception as e:
-        print(f"[host_metrics_sampler] {host_id!r} failure-state write error: {e}")
+        print(f"[host_metrics_sampler] {log_label!r} failure-state write error: {e}")
 
 
 async def record_provider_outcome(
@@ -567,9 +532,9 @@ async def record_provider_outcome(
     """
     if not host_id or not provider:
         return
-    key = f"{provider}:{host_id}"
+    log_label = f"{provider}:{host_id}"
     if ok:
-        _clear_failure(key)
+        _clear_failure(host_id, provider=provider)
         # Stamp the last-ok timestamp. Best-effort — a DB blip here
         # doesn't break the probe flow.
         try:
@@ -577,30 +542,35 @@ async def record_provider_outcome(
             with db_conn() as c:
                 c.execute(
                     "INSERT OR REPLACE INTO host_provider_last_ok "
-                    "(host_id, last_ok_ts) VALUES (?, ?)",
-                    (key, now_ts),
+                    "(host_id, provider, last_ok_ts) VALUES (?, ?, ?)",
+                    (host_id, provider, now_ts),
                 )
         except Exception as e:
-            print(f"[host_metrics_sampler] {key} last_ok upsert failed: {e}")
+            print(f"[host_metrics_sampler] {log_label} last_ok upsert failed: {e}")
     else:
         await _record_failure(
-            key, time.time(), error,
+            host_id, time.time(), error,
             round_threshold=round_threshold,
+            provider=provider,
         )
 
 
-def _clear_failure(host_id: str, *, actor: str = "sampler") -> None:
+def _clear_failure(
+    host_id: str, *,
+    actor: str = "sampler",
+    provider: str = "",
+) -> None:
     """Clear the failure tracking row on a successful probe. No-op
     when there's no row to clear (the common case).
 
-    ``actor`` distinguishes auto-recovery ("sampler" — default — fired
-    when a probe lands successfully) from manual resume ("admin:<user>"
-    — passed by the API endpoints that wrap a resume click). Logged
-    on the recovery transition row in `host_failure_events` so the
-    timeline can render auto vs manual recoveries differently.
+    ``provider=''`` clears the whole-host row; ``provider='<name>'``
+    clears the per-(provider, host) row. ``actor`` distinguishes
+    auto-recovery ("sampler" — default) from manual resume
+    ("admin:<user>" — passed by the API endpoints).
     """
     had_row = False
     paused_was = False
+    log_label = f"{provider}:{host_id}" if provider else host_id
     try:
         with db_conn() as c:
             # Snapshot whether the row was paused BEFORE the delete so
@@ -610,42 +580,42 @@ def _clear_failure(host_id: str, *, actor: str = "sampler") -> None:
             # an event — that's normal sampler noise and would flood
             # the timeline.
             row = c.execute(
-                "SELECT paused FROM host_failure_state WHERE host_id = ?",
-                (host_id,),
+                "SELECT paused FROM host_failure_state "
+                "WHERE host_id = ? AND provider = ?",
+                (host_id, provider),
             ).fetchone()
             paused_was = bool(row[0]) if row else False
             cur = c.execute(
-                "DELETE FROM host_failure_state WHERE host_id = ?",
-                (host_id,),
+                "DELETE FROM host_failure_state "
+                "WHERE host_id = ? AND provider = ?",
+                (host_id, provider),
             )
             had_row = (cur.rowcount or 0) > 0
             if had_row and paused_was:
                 # Append-only transition log — captures the
                 # paused → recovered EDGE.
-                bare_host, provider = _split_failure_key(host_id)
                 try:
                     c.execute(
                         "INSERT INTO host_failure_events "
                         "(ts, host_id, provider, kind, error, actor) "
                         "VALUES (?, ?, ?, 'recovered', NULL, ?)",
-                        (time.time(), bare_host, provider or "", actor),
+                        (time.time(), host_id, provider or "", actor),
                     )
                 except Exception as ev_err:
-                    print(f"[host_metrics_sampler] {host_id!r} "
+                    print(f"[host_metrics_sampler] {log_label!r} "
                           f"recovery-event log write failed: {ev_err}")
     except Exception as e:
-        print(f"[host_metrics_sampler] {host_id!r} failure-state clear error: {e}")
+        print(f"[host_metrics_sampler] {log_label!r} failure-state clear error: {e}")
         return
     if had_row:
         # SSE — only publish when something actually cleared. Most ticks
         # are no-ops (no failure row in the first place) so this avoids
-        # one event per host per tick on a healthy fleet. Split the
-        # prefixed key so the SPA's `refreshHostRow(id)` lookup uses
-        # the BARE host_id (otherwise `/api/hosts/one/snmp:web01` 404s).
-        bare_host, provider = _split_failure_key(host_id)
+        # one event per host per tick on a healthy fleet. Always emit
+        # the BARE host_id so the SPA's `refreshHostRow(id)` works;
+        # surface provider as a separate field.
         try:
             from logic import events as _events
-            payload = {"host_id": bare_host, "paused": False, "cleared": True}
+            payload = {"host_id": host_id, "paused": False, "cleared": True}
             if provider:
                 payload["provider"] = provider
             _events.publish("host:failure_state_changed", payload)
@@ -755,25 +725,25 @@ async def _probe_one_snmp(host: dict, sem: asyncio.Semaphore) -> None:
     """Probe one SNMP host on the sampler tick to record per-host
     failure state for the auto-pause behaviour, mirroring the NE pattern.
 
-    Failure tracking uses a prefixed key (``snmp:{host_id}``) so the
-    SNMP failure streak stays independent of the NE one. A host with
-    BOTH NE and SNMP mapped gets two parallel failure_state rows; each
-    auto-pauses independently when its provider fails through the
-    `tuning_host_permanent_fail_window_seconds` window.
+    Failure tracking uses the per-(provider, host) row in
+    ``host_failure_state`` (composite PK ``(host_id='snmp:web01' ...)``
+    pre-migration, ``(host_id='web01', provider='snmp')`` post-migration #2).
+    The SNMP failure streak stays independent of the NE / Webmin streaks
+    on the same host.
 
-    Phase-1 caveat: the SNMP-prefixed pause flag isn't surfaced in the
-    UI yet (the drawer's "sampling paused" banner reads the bare-id
-    row). Operators see the auto-pause via the `[host_metrics_sampler]
-    snmp:<host> AUTO-PAUSED` log line; UI surface comes in a follow-up.
+    Phase-1 caveat: the per-(provider, host) pause flag isn't surfaced
+    in the drawer banner yet (banner reads the whole-host row). Operators
+    see the auto-pause via the `[host_metrics_sampler] snmp:<host>
+    AUTO-PAUSED` log line; UI surface comes in a follow-up.
     """
     async with sem:
         from logic import snmp as _snmp
         if not _snmp.has_snmp_support():
             return
         hid = host["id"]
-        snmp_key = f"snmp:{hid}"
-        # Permanent-fail short-circuit (#383 pattern).
-        state = _get_failure_state(snmp_key)
+        snmp_key = f"snmp:{hid}"  # log label only — DB lookups use composite PK
+        # Permanent-fail short-circuit on the (host, snmp) row.
+        state = _get_failure_state(hid, "snmp")
         if state and state["paused"]:
             return
         # Resolve target via the SAME chain `_merge_one_host` uses.

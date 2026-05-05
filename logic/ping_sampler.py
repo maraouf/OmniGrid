@@ -162,8 +162,9 @@ async def _probe_one(host: dict, sem: asyncio.Semaphore) -> None:
             from logic.db import db_conn as _dbc
             with _dbc() as _c:
                 _r = _c.execute(
-                    "SELECT paused FROM host_failure_state WHERE host_id=?",
-                    (f"ping:{host['id']}",),
+                    "SELECT paused FROM host_failure_state "
+                    "WHERE host_id=? AND provider=?",
+                    (host["id"], "ping"),
                 ).fetchone()
             if _r and _r[0]:
                 return
