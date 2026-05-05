@@ -464,14 +464,14 @@ def seed_nodes_info_from_snapshots() -> int:
 
 
 # ---------------------------------------------------------------------------
-# Items / stacks / nodes snapshot — cross-restart cache persistence (#1002)
+# Items / stacks / nodes snapshot — cross-restart cache persistence.
 #
 # Pre-fix: ``_cache`` was in-memory only. After a container restart the
 # first ``/api/items`` call had nothing to serve and blocked on the
 # full Portainer fan-out + image-digest probe (10-30s on a busy
-# cluster). With #1000's instant-paint Fix A in place subsequent
+# cluster). With the instant-paint fallback in place subsequent
 # poll cycles never block, but the FIRST request after restart still
-# did because Fix A's only fallback was the in-memory cache.
+# did because the only fallback was the in-memory cache.
 #
 # Fix: persist ``_cache`` to ``items_snapshot`` at the end of every
 # successful gather; seed it back into ``_cache`` at lifespan startup
@@ -499,6 +499,16 @@ def seed_nodes_info_from_snapshots() -> int:
 # restart instead of an oversized blob the read path can't handle.
 _ITEMS_SNAPSHOT_MAX_BYTES = 5 * 1024 * 1024
 
+# Schema version stamped into every persisted blob. Bump when the
+# items / stacks / nodes_info shape gains a REQUIRED field that older
+# snapshots wouldn't have (e.g. a numeric column the SPA reads via
+# `Number.isFinite`). Mismatched versions on the read path drop the
+# snapshot rather than seeding a partial cache that would render
+# subtly wrong until the live gather replaces it. Current shape
+# matches the items-snapshot persistence shipped earlier — items /
+# stacks / nodes / nodes_info / ts.
+_ITEMS_SNAPSHOT_SCHEMA_VERSION = 1
+
 
 def save_items_snapshot() -> bool:
     """Persist ``_cache`` to the ``items_snapshot`` row.
@@ -525,6 +535,11 @@ def save_items_snapshot() -> bool:
         # serialising the whole cache as-is here is correct (we're
         # writing AFTER a fresh gather, so nothing is stale).
         payload = {
+            # Schema version — read path drops the snapshot entirely
+            # when this doesn't match the current expected version, so
+            # an upgrade that adds a required field never seeds a
+            # partial cache that renders subtly wrong.
+            "v":          _ITEMS_SNAPSHOT_SCHEMA_VERSION,
             "items":      list(_cache.get("items") or []),
             "stacks":     list(_cache.get("stacks") or []),
             "nodes":      dict(_cache.get("nodes") or {}),
@@ -581,6 +596,28 @@ def seed_items_cache_from_snapshot() -> int:
         payload = json.loads(row["data"]) if row["data"] else {}
     except Exception as e:  # noqa: BLE001
         print(f"[gather] seed_items_cache_from_snapshot failed: {e}")
+        return 0
+
+    # Schema-version gate — drop the snapshot entirely when the on-disk
+    # version doesn't match what this build expects. Pre-fix an older
+    # container's snapshot would seed `_cache` with a partial shape and
+    # the SPA would render subtle inconsistencies until the live gather
+    # replaced it; the gate is cheaper + safer. Missing `v` key means
+    # the snapshot pre-dates the version stamp (legacy from the
+    # initial items-snapshot release) — accept it as v1 to avoid forcing
+    # a one-off block-on-gather on the first boot post-upgrade. Future versions
+    # bump the constant; the gate then drops legacy snapshots cleanly.
+    snap_v = payload.get("v")
+    if snap_v is None:
+        snap_v = 1
+    if int(snap_v) != _ITEMS_SNAPSHOT_SCHEMA_VERSION:
+        print(
+            f"[gather] seed_items_cache_from_snapshot DROPPED — "
+            f"snapshot schema_version={snap_v}, expected "
+            f"{_ITEMS_SNAPSHOT_SCHEMA_VERSION}. Falling back to "
+            f"block-on-gather; the next successful gather will "
+            f"overwrite the snapshot at the current version."
+        )
         return 0
 
     items  = list(payload.get("items") or [])

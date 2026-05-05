@@ -135,6 +135,25 @@ class SafeDict(dict):
 # :data:`NOTIFY_TEMPLATE_SAMPLES` AND in the admin-tab editor's chip
 # strip. Prefer "structural" tokens (`{name}`, `{type}`) over
 # operation-specific ones (`{stack_id}` would only apply to one op).
+# Placeholders that USED to be valid but have been retired. The
+# preview endpoint surfaces these in a separate `deprecated_placeholders`
+# array (distinct from `unknown_placeholders`) so the editor SPA can
+# render them inline with a warning marker AND a "deprecated since X.Y"
+# tooltip — distinguishes "you typed something we never knew about"
+# (probable typo, red) from "we used to support this but no longer do"
+# (operator-action: rebind to the supported equivalent, amber). Empty
+# by default — entries get added when a placeholder is retired through
+# the standard deprecation cycle. Format: each entry maps the legacy
+# token to the recommended replacement (or ``None`` if no direct
+# replacement exists; the SPA renders "removed; no equivalent" in
+# that case).
+NOTIFY_DEPRECATED_PLACEHOLDERS: dict[str, str | None] = {
+    # Example shape (no actual deprecations yet):
+    # "old_token": "new_token",
+    # "removed_token": None,
+}
+
+
 NOTIFY_PLACEHOLDERS = (
     "name",
     "type",
@@ -373,25 +392,115 @@ def build_template_values(
     }
 
 
-def audit_template_coverage() -> dict:
-    """Audit gate — single source of truth for "is the template plumbing
-    consistent right now?"
+def _placeholder_tokens_in(template: str) -> set[str]:
+    """Extract `{name}` placeholder tokens from a template string.
+
+    Returns the set of token names (without the surrounding braces).
+    Skips numeric placeholders (`{0}`, `{1}`) and Python-format-style
+    field expressions (`{x.y}`, `{x[0]}`, `{x:>5}`) — those don't
+    apply to the curated `NOTIFY_PLACEHOLDERS` whitelist and we don't
+    want spurious WARN noise. Empty `{}` is also skipped.
+    """
+    if not template:
+        return set()
+    out: set[str] = set()
+    i = 0
+    n = len(template)
+    while i < n:
+        ch = template[i]
+        if ch == "{":
+            # Escaped `{{` — skip both chars.
+            if i + 1 < n and template[i + 1] == "{":
+                i += 2
+                continue
+            j = template.find("}", i + 1)
+            if j == -1:
+                break
+            tok = template[i + 1:j]
+            # Trim format spec / attribute access / index access — only
+            # the bare name matters for whitelist validation.
+            for sep in (":", ".", "["):
+                k = tok.find(sep)
+                if k != -1:
+                    tok = tok[:k]
+            tok = tok.strip()
+            # Skip empty + numeric tokens.
+            if tok and not tok.isdigit():
+                out.add(tok)
+            i = j + 1
+            continue
+        if ch == "}" and i + 1 < n and template[i + 1] == "}":
+            # Escaped `}}` — skip both chars.
+            i += 2
+            continue
+        i += 1
+    return out
+
+
+def audit_template_data() -> dict:
+    """Pure audit — returns the drift report without logging.
+
+    Used by `/api/admin/notify-templates` (called on every GET, so
+    must NOT log). Boot-time path uses :func:`audit_template_and_log`
+    instead.
 
     Checks:
       - Every ``NOTIFY_EVENT_NAMES`` entry has a default title in
         :data:`NOTIFY_TEMPLATE_DEFAULTS`.
       - Every default entry's keys are recognised event names (catches
         a stale `NOTIFY_TEMPLATE_DEFAULTS` row that survives a rename).
+      - Every `{token}` referenced by a default template is in the
+        :data:`NOTIFY_PLACEHOLDERS` whitelist (catches a typo'd
+        `{actor}` → `{atcor}` at boot rather than at first
+        notification fire).
 
-    Returns ``{missing_defaults: [...], unknown_defaults: [...]}``.
-    Logged as a WARN line on first call (boot) AND surfaced via
-    `/api/admin/notify-templates` so the admin UI can render a
-    warning chip.
+    Returns ``{missing_defaults: [...], unknown_defaults: [...],
+    unknown_placeholders: [{event, kind, token}, ...]}``.
     """
     registered = set(NOTIFY_EVENT_NAMES)
     have_defaults = set(NOTIFY_TEMPLATE_DEFAULTS.keys())
     missing = sorted(registered - have_defaults)
     unknown = sorted(have_defaults - registered)
+    # Walk every default template body and flag any `{token}` that
+    # isn't on the curated whitelist. Unknown tokens still render
+    # verbatim via `SafeDict.__missing__` (no crash) but operators
+    # rarely intend to ship a literal `{atcor}` in a notification.
+    whitelist = set(NOTIFY_PLACEHOLDERS)
+    unknown_placeholders: list[dict] = []
+    for event, body_map in (NOTIFY_TEMPLATE_DEFAULTS or {}).items():
+        if not isinstance(body_map, dict):
+            continue
+        for kind, template in body_map.items():
+            if not isinstance(template, str):
+                continue
+            for tok in sorted(_placeholder_tokens_in(template)):
+                if tok not in whitelist:
+                    unknown_placeholders.append({
+                        "event": event,
+                        "kind":  kind,
+                        "token": tok,
+                    })
+    return {
+        "missing_defaults":     missing,
+        "unknown_defaults":     unknown,
+        "unknown_placeholders": unknown_placeholders,
+    }
+
+
+def audit_template_and_log() -> dict:
+    """Boot-only audit — runs :func:`audit_template_data` AND prints a
+    WARN line for each kind of drift.
+
+    Pre-fix the single ``audit_template_coverage`` helper logged on
+    EVERY call, so a healthy GET path was silent but a drift deploy
+    flooded the log on every Admin → Notifications visit. Splitting
+    log-side effects into this helper keeps the boot trace
+    informative without re-emitting the same lines per request.
+    """
+    result = audit_template_data()
+    missing = result.get("missing_defaults") or []
+    unknown = result.get("unknown_defaults") or []
+    unknown_ph = result.get("unknown_placeholders") or []
     if missing:
         print(
             f"[notify] WARN — events registered without a default template: "
@@ -402,7 +511,28 @@ def audit_template_coverage() -> dict:
             f"[notify] WARN — default templates for unregistered events: "
             f"{unknown}"
         )
-    return {"missing_defaults": missing, "unknown_defaults": unknown}
+    if unknown_ph:
+        # Group by token for a tighter log. Operators care more about
+        # "which placeholder is misspelled" than about the per-event
+        # listing (that's available on the JSON payload for the
+        # admin UI).
+        seen: dict[str, list[str]] = {}
+        for row in unknown_ph:
+            seen.setdefault(row["token"], []).append(f"{row['event']}.{row['kind']}")
+        for tok, sites in sorted(seen.items()):
+            print(
+                f"[notify] WARN — unknown placeholder {{{tok}}} referenced by "
+                f"{len(sites)} default template(s): {sites[:5]}"
+                + (f" + {len(sites) - 5} more" if len(sites) > 5 else "")
+            )
+    return result
+
+
+# Backwards-compat alias — every caller in main.py now uses one of the
+# two more-specific helpers above. Kept for any out-of-tree consumer
+# that imported the original name; calls fall through to the data-only
+# variant (silent) rather than re-flooding the log.
+audit_template_coverage = audit_template_data
 
 
 # Mapping from operation status hints to the four-level severity

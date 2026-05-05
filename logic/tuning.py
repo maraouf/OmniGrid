@@ -344,6 +344,16 @@ TUNABLES: dict[str, tuple[str, int, int, int]] = {
     # raise — the Webmin sampler effectively never ran. Default 8s
     # matches the previous `or 8.0` fallback in the sampler code.
     "tuning_webmin_probe_timeout_seconds": ("WEBMIN_PROBE_TIMEOUT_SECONDS", 8, 1, 120),
+    # Outer wall-clock budget for one full Webmin sampler tick. The
+    # sampler fans out N parallel `_probe_one_host` calls (N = curated
+    # hosts with `webmin_name` set); without an outer cap a single
+    # wedged Webmin host can starve the whole tick. Default 0 means
+    # "auto-derive from probe_timeout × hosts capped at 5 min" which
+    # is the safe default for fleets <60 hosts; operators with very
+    # large fleets can pin a higher value if their per-host probe is
+    # genuinely fast and they want a bigger fan-out window. Range
+    # 0..600s (0 = auto). Resolved per-tick.
+    "tuning_webmin_sampler_budget_seconds": ("WEBMIN_SAMPLER_BUDGET_SECONDS", 0, 0, 600),
     # node-exporter per-host auto-pause threshold. Per-host scrape, so
     # the failure semantic is the same as Webmin: probe attempt that
     # raised OR returned exporter_error. 0 = disabled. Range 0..50.

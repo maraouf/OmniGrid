@@ -560,7 +560,7 @@ function app() {
     // a row's fields change so stale results aren't shown.
     hostsTestResults: {},
     hostsTestingAll: false,
-    // Host grouping (ticket #93). Operator-defined ranges over the
+    // Host grouping. Operator-defined ranges over the
     // custom_number field. Loaded in loadSettings; edited inline in
     // Admin → Hosts (below the row editor); persisted via POST
     // /api/settings {host_groups: [...]}. Collapse state is keyed
@@ -610,7 +610,7 @@ function app() {
       } catch {}
       return 50;
     })(),
-    // Asset inventory (ticket #78). `assetForm` is the editable form
+    // Asset inventory. `assetForm` is the editable form
     // state; `assetStatus` mirrors the server snapshot (secret `_set`
     // flag etc.). `assetCache` is the loaded /api/asset-inventory
     // payload — drives the preview block + drawer lookups.
@@ -5378,7 +5378,7 @@ function app() {
         // --- Admin → SSH panel state ---
         this.hydrateSshSettings(d);
 
-        // --- Host groups (ticket #93) ---
+        // --- Host groups ---
         // Server returns a clean list of {name, range_start, range_end,
         // order}. We keep the order-field for round-trip but also sort
         // here so the editor renders in the same order as the Hosts
@@ -5416,7 +5416,7 @@ function app() {
         // Bust groupedHosts() cache on every load (#423 / ENH-008).
         this.hostGroupsRevision = (this.hostGroupsRevision || 0) + 1;
 
-        // --- Asset inventory (ticket #78) ---
+        // --- Asset inventory ---
         this.assetStatus = d.asset_inventory || null;
         if (this.assetStatus) {
           this.assetForm = {
@@ -8648,7 +8648,7 @@ function app() {
       // events (no real probe ran) so chips stay at rest. Beszel /
       // Pulse / Ping skip too — they're either dict lookups (Beszel /
       // Pulse) or sampler-driven reads (Ping) inside `_merge_one_host`.
-      // The row-level `_loading` pulse from #1003 still covers the
+      // The row-level `_loading` pulse still covers the
       // initial-paint case for those.
       const _setProvPolling = (host_id, provider, polling) => {
         if (!host_id || !provider) return;
@@ -14445,7 +14445,7 @@ function app() {
       return out;
     },
 
-    // --- Asset inventory (ticket #78) ---
+    // --- Asset inventory ---
     async saveAssetSettings() {
       const body = {
         asset_inventory_auth_mode: (this.assetForm.auth_mode === 'lifetime_token')
@@ -18433,7 +18433,7 @@ function app() {
         // stats and emits per-GPU power / usage / VRAM in `stats.g`.
         gpu:         ['beszel'],
         // Network + Bandwidth share the same upstream + the NE-fallback
-        // when both are present. SNMP throughput chart (#725b) reads
+        // when both are present. SNMP throughput chart reads
         // ifHCInOctets / ifHCOutOctets from the device itself.
         network:    ['beszel', 'ne', 'snmp'],
         bandwidth:  ['beszel', 'ne', 'snmp'],
@@ -19482,14 +19482,68 @@ function app() {
     // surfaces the partial-success response via the existing toast
     // helpers. Selection is preserved on success so the operator can
     // chain actions; cleared on operator click of "Clear".
-    async _hostsBulkPost(path, payload, successMsgKey) {
+    // Step-up reauth — prompts the operator for their local password,
+    // POSTs to /api/admin/reauth, returns the short-lived token. SSO
+    // users (no local password) get a `OG_REAUTH_NO_LOCAL_PASSWORD`
+    // response; the caller falls back to a typed-count confirm in
+    // that case. Cancel returns null.
+    async _mintReauthToken() {
+      try {
+        const result = await Swal.fire({
+          title: this.t('reauth.title') || 'Confirm with your password',
+          text:  this.t('reauth.text')
+                 || 'This action affects multiple hosts. Re-enter your password to proceed.',
+          input: 'password',
+          inputAttributes: {
+            autocapitalize: 'off',
+            autocomplete: 'current-password',
+          },
+          inputPlaceholder: this.t('reauth.placeholder') || 'Password',
+          showCancelButton: true,
+          confirmButtonText: this.t('reauth.confirm') || 'Confirm',
+          cancelButtonText:  this.t('actions.cancel') || 'Cancel',
+        });
+        if (!result.isConfirmed) return null;
+        const pw = (result.value || '').trim();
+        if (!pw) return null;
+        const r = await fetch('/api/admin/reauth', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'same-origin',
+          body: JSON.stringify({ password: pw }),
+        });
+        const j = await r.json().catch(() => ({}));
+        if (j && j.error_code === 'OG_REAUTH_NO_LOCAL_PASSWORD') {
+          // SSO user — backend bypasses the reauth gate, so an empty
+          // string is the agreed signal "skip the header".
+          return '';
+        }
+        if (!r.ok || !j.ok) {
+          this.showToast(this.t('reauth.failed') || 'Re-authentication failed.', 'error');
+          return null;
+        }
+        return String(j.token || '');
+      } catch {
+        return null;
+      }
+    },
+    async _hostsBulkPost(path, payload, successMsgKey, opts = {}) {
       const ids = this.selectedHostsArray();
       if (ids.length === 0) return;
       const body = { host_ids: ids, ...(payload || {}) };
+      const headers = { 'Content-Type': 'application/json' };
+      // Caller may have minted a reauth token via `_mintReauthToken`
+      // for the destructive bulk-pause endpoint. Empty string =
+      // SSO user (backend bypasses the gate); null/undefined = no
+      // gate required (recoverable endpoints).
+      const reauthToken = (opts && typeof opts.reauthToken === 'string') ? opts.reauthToken : null;
+      if (reauthToken) {
+        headers['X-OmniGrid-Reauth-Token'] = reauthToken;
+      }
       try {
         const r = await fetch('/api/hosts/bulk/' + path, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers,
           credentials: 'same-origin',
           body: JSON.stringify(body),
         });
@@ -19585,7 +19639,18 @@ function app() {
         });
         if (!result.isConfirmed) return;
       } catch { return; }
-      await this._hostsBulkPost('pause', null, 'hosts_extra.bulk.pause_success');
+      // Step-up reauth — bulk pause is the most destructive bulk
+      // action (sampler stops probing every selected host until
+      // manually resumed), so the backend gates it behind a short-
+      // lived reauth token. Mint one now via `/api/admin/reauth`.
+      // Cancel / wrong password / network error = abort silently
+      // (the SweetAlert toast already explained the failure).
+      const reauthToken = await this._mintReauthToken();
+      if (reauthToken === null) return;
+      await this._hostsBulkPost(
+        'pause', null, 'hosts_extra.bulk.pause_success',
+        { reauthToken },
+      );
     },
     async bulkResumeHosts() {
       if (this.selectedHostCount() === 0) return;
