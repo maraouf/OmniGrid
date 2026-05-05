@@ -2,17 +2,16 @@
         <section class="bg-[var(--surface)] border border-[var(--border)] rounded-md p-5">
           <div class="flex items-start justify-between">
             <div>
-              <div class="flex items-center gap-2 mb-2 text-[var(--text-dim)]">
-                <!-- viewBox + fill on the wrapper are defensive — some
-                     browsers don't propagate the symbol's own
-                     viewBox / fill through external `<use>` reliably,
-                     so duplicating them here forces the icon to render
-                     at the right scale even if the cross-document
-                     attribute chain breaks. -->
-                <svg width="14" height="14" viewBox="0 0 169 219" fill="currentColor" aria-hidden="true">
+              <div class="flex items-center gap-2 mb-2">
+                <!-- text-color MUST be on the <svg>, not the parent — `currentColor`
+                     inside an external <use> doesn't reliably inherit
+                     from a parent div across browsers; it does inherit
+                     from the SVG element itself. Same pattern as every
+                     other working admin-header sprite consumer. -->
+                <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true">
                   <use href="/img/ui-sprite.svg#icon-portainer"/>
                 </svg>
-                <h3 class="font-semibold text-[13px] text-[var(--text)]" x-text="t('settings.portainer.connection_title')"></h3>
+                <h3 class="font-semibold text-[13px]" x-text="t('settings.portainer.connection_title')"></h3>
               </div>
               <p class="text-[11.5px] text-[var(--text-faint)] mb-3" x-text="t('settings.portainer.connection_desc')"></p>
             </div>
