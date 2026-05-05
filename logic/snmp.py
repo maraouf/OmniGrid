@@ -402,7 +402,7 @@ _OID_IF_HC_OUT_OCTETS = "1.3.6.1.2.1.31.1.1.1.10"
 # IF-MIB::ifHighSpeed — link speed in MEGAbits per second (Mbps).
 # Derived from the older 32-bit ifSpeed (bps) when the device only
 # supports IF-MIB v1; ifHighSpeed handles 10G+ links cleanly. Powers
-# the per-port utilization heatmap (#725 slice 4).
+# the per-port utilization heatmap.
 _OID_IF_HIGH_SPEED    = "1.3.6.1.2.1.31.1.1.1.15"
 
 # HOST-RESOURCES-MIB hrStorageType OID prefixes — the value of an
@@ -1433,7 +1433,7 @@ def extract_cpu_percent(walk_result: dict) -> dict:
     AND host_cpu_per_core (per-index list, sorted by hrProcessorIndex
     so per-core lines render in the same order across ticks). #713 added
     the per-core list so the host drawer can plot one chart line per
-    core; pre-#713 we kept only the mean.
+    core; pre-fix we kept only the mean.
     """
     if not walk_result:
         return {}
@@ -1824,7 +1824,7 @@ def _detect_vendors_from_sysdescr(sys_descr: str) -> set[str]:
 
     Returns an empty set when ``sys_descr`` is empty / unrecognised.
     The caller treats an empty result as "fall back to walk-all" so an
-    unknown agent stays covered (no regression vs the pre-#901 single-
+    unknown agent stays covered (no regression vs the pre-fix single-
     phase behaviour).
     """
     if not sys_descr:

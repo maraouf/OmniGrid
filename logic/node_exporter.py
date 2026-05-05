@@ -161,8 +161,7 @@ def parse_network_counters(text: str) -> dict:
 # (mdadm RAID) because on NAS / appliance hosts (Synology, TrueNAS,
 # OPNsense) the user-facing volume IS the dm/md device — excluding them
 # left those hosts with zero "real" devices and a perpetual 0 disk I/O
-# rate (#343 follow-up; an operator's Synology / RAID box was
-# returning all 0s exactly for this reason). Trade-off: hosts that
+# rate. Trade-off: hosts that
 # expose BOTH the underlying physical disks AND the dm/md layer on top
 # will double-count. That's a known limitation; better to over-report
 # than to silently report zero.
@@ -176,7 +175,7 @@ _EXCLUDED_DISK_PREFIXES = (
 
 # FreeBSD's `node_devstat_*` family uses different device naming. md*
 # is FreeBSD's memory disk (synthetic) — exclude here even though Linux
-# md0 (RAID) is now KEPT (#344 loosening). pass* is the SCSI passthrough
+# md0 (RAID) is now KEPT. pass* is the SCSI passthrough
 # device — synthetic, exclude. cd* is cd-rom — exclude. Real FreeBSD
 # storage devices come through as ada0 / ada1 (SATA), da0 / da1 (USB /
 # SCSI), nvd0 / nvme0 (NVMe), mfid0 (MFI RAID), zfs* — none match.

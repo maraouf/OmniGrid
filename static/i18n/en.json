@@ -343,6 +343,8 @@
     "prune_label": "Prune",
     "pruning_label": "Pruning…",
     "docker_disk_label": "Docker: {value}",
+    "host_disk_label": "Host disk",
+    "docker_disk_label_short": "Docker disk",
     "beszel": {
       "drawer_kicker": "Node",
       "alias_section_title": "Beszel host",
@@ -1386,21 +1388,27 @@
       "hotkeys": "key"
     },
     "admin": {
+      "general": "Admin → General",
       "users": "Admin → Users",
+      "authentication": "Admin → Authentication",
       "sessions": "Admin → Sessions",
       "tokens": "Admin → API Tokens",
       "schedules": "Admin → Schedules",
       "hosts": "Admin → Hosts",
+      "host_stats": "Admin → Providers",
       "host_groups": "Admin → Host Groups",
       "ssh": "Admin → SSH",
       "logs": "Admin → Logs",
+      "config": "Admin → Process Tunables",
       "tuning": "Admin → Process Tunables",
       "backups": "Admin → Backups",
       "notifications": "Admin → Notifications",
+      "assets": "Admin → Asset Inventory",
       "asset": "Admin → Asset Inventory",
       "auth": "Admin → Authentication",
       "oidc": "Admin → Authentik OIDC",
-      "portainer": "Admin → Portainer"
+      "portainer": "Admin → Portainer",
+      "debug": "Admin → Debug"
     },
     "view": {
       "stacks": "Stacks view",
@@ -1705,9 +1713,9 @@
       "snmp_vendors_modal_title": "Apply SNMP vendor MIBs to {count} host(s)",
       "snmp_vendors_modal_body": "Pick which vendor MIB families to walk on the selected hosts. Empty list with mode = set clears the override (resumes auto-detect from sysDescr).",
       "snmp_vendors_mode_label": "Mode",
-      "snmp_vendors_mode_set": "Set (replace)",
-      "snmp_vendors_mode_add": "Add (union)",
-      "snmp_vendors_mode_remove": "Remove (difference)",
+      "snmp_vendors_mode_set": "Replace selection",
+      "snmp_vendors_mode_add": "Add to existing",
+      "snmp_vendors_mode_remove": "Remove from existing",
       "snmp_vendors_picker_label": "Vendors",
       "snmp_vendors_success": "SNMP vendors applied to {applied} host(s)",
       "snmp_tunables": "Tunables",
@@ -1723,6 +1731,7 @@
       "clear": "Clear",
       "success": "{applied} hosts updated",
       "partial": "{applied} applied, {errors} errors",
+      "breakdown": "{applied} applied · {skipped} skipped · {errors} errors",
       "error": "Bulk action failed: {error}",
       "progress_badge": "✓ {applied} / {total} applied",
       "row_applied": "Bulk action applied to this host",
@@ -1902,7 +1911,8 @@
       "title": "Showing cached data — provider unavailable",
       "body": "Last live update {age} ago. {count} field(s) restored from the snapshot — values dimmed below are not live.",
       "title_bulk": "Provider unreachable — every metric below is cached",
-      "body_bulk": "Last live update {age} ago. The full host telemetry is being served from the snapshot. Per-field warning markers are suppressed because they'd appear on every row — check the chips above for which provider went down."
+      "body_bulk": "Last live update {age} ago. The full host telemetry is being served from the snapshot. Per-field warning markers are suppressed because they'd appear on every row — check the chips above for which provider went down.",
+      "providers_cached": "Cached providers: {providers}"
     },
     "paused_banner": {
       "title": "{count} provider(s) auto-paused on this host",

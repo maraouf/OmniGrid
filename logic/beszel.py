@@ -53,7 +53,7 @@ _token_cache: dict[tuple[str, str], dict] = {}
 # The "sample system_id has no efs key" line uses its own one-shot
 # guard (`_warned_sample_no_efs`) so it doesn't fire every cycle either.
 #
-# Cardinality cap (#422 / ENH-007): a fleet with rotating ephemeral
+# Cardinality cap: a fleet with rotating ephemeral
 # hostnames (uncommon but possible — short-lived k8s pods, dev VMs)
 # could grow this set unbounded over the lifetime of the process. Cap
 # at `_WARNED_NO_MOUNTS_CAP` entries with FIFO eviction via an OrderedDict

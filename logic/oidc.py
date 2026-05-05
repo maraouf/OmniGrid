@@ -460,7 +460,7 @@ async def callback(request: Request):
     auth.rate_limit_check(ip)
 
     # Pre-built Set-Cookie header that expires the flow cookie on every
-    # error path (#461 / BUG-006). Pre-fix only the success branch ran
+    # error path. Pre-fix only the success branch ran
     # `delete_cookie`; failure paths (state mismatch, token-exchange
     # 401, id_token validation error, missing email claim) left a
     # dangling 5-min cookie that could confuse a subsequent flow if the
@@ -742,7 +742,7 @@ async def _validate_id_token(
 
 
 def _find_key(jwks: dict, kid: Optional[str]) -> Optional[dict]:
-    # Reject `kid is None` (#460 / BUG-005). Pre-fix this returned
+    # Reject `kid is None`. Pre-fix this returned
     # `keys[0]` blindly, which during a multi-key JWKS rotation lets an
     # attacker who suppresses the `kid` header force verification
     # against whichever key happens to be first in the array — typically

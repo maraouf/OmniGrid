@@ -29,7 +29,7 @@ Credentials storage model:
     "is it set", never the material.
   - **Per-host** overrides live in ``hosts_config[].ssh`` as a JSON
     sub-dict with optional ``user`` / ``port`` / ``enabled`` keys
-    (post-#622, opt-in semantics — `enabled=true` is the explicit gate;
+    (post-fix, opt-in semantics — `enabled=true` is the explicit gate;
     no flag at all means SSH is OFF for this host). V1
     intentionally keeps key material GLOBAL only — per-host user + port
     is enough for the current use case without adding a named-keys
@@ -559,7 +559,7 @@ def resolve_ssh_params(host_id: str, hosts_config: list[dict]) -> dict:
             per_host_applied.append(f"port={resolved['port']}")
     except (TypeError, ValueError):
         pass
-    # Per-host SSH is OPT-IN (#622, post-migration #001): the operator
+    # Per-host SSH is OPT-IN: the operator
     # must explicitly tick "Enable SSH for this host" in Admin → Hosts
     # for the row to inherit the global Admin → SSH master switch.
     # Hosts without the flag stay disabled even when SSH is globally on.

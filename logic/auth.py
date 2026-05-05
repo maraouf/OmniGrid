@@ -341,7 +341,7 @@ class User:
 
 
 def _row_to_user(r: sqlite3.Row) -> User:
-    # Older rows (pre-#345 / pre-#376) won't have these columns; sqlite3.Row's
+    # Older rows (pre-fix / pre-fix) won't have these columns; sqlite3.Row's
     # keys work like dict keys, so probe via Index lookup with a try/except.
     try:
         totp_on = bool(r["totp_enabled"])
@@ -971,7 +971,7 @@ def get_credential_by_credential_id(
         return None
     ts = (r["transports"] or "").strip()
     # rp_id added so the helper stays in sync with the schema
-    # post-#605's additive ALTER. Login-finish doesn't currently consume
+    # post-fix's additive ALTER. Login-finish doesn't currently consume
     # the field (expected_rp_id comes from the challenge dict), but a
     # future caller wanting to detect "credential matches login but not
     # current page" should read this rather than a separate query.
@@ -1155,7 +1155,7 @@ def auto_provision_authentik(
         # Username collisions with a local user get a suffix so we never
         # conflate identities. Email is the real key for Authentik users.
         # First check the bare username; on collision use a random 4-digit
-        # suffix instead of linear `#2`/`#3`/... probing (#465 / BUG-010).
+        # suffix instead of linear `#2`/`#3`/... probing.
         # Linear probing was O(N) — three local users named `alice`,
         # `alice#2`, `alice#3` cost a fresh Authentik `alice` four DB
         # round-trips. Random suffix is O(1) in expectation; bounded retry

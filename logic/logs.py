@@ -247,7 +247,7 @@ def prune_old_logs(retention_days: int, *, tz=None) -> int:
     ``retention_days`` from now. Returns the count of files removed.
     Called from the lifespan-managed pruner loop in main.py.
 
-    ``tz`` (#471 / ENH-004): timezone for the cutoff math + filename-date
+    ``tz``: timezone for the cutoff math + filename-date
     parse. ``None`` (default) resolves through `_resolved_tz()` — the
     same chain `_today_log_path` uses, so the rotation, prune, and
     parser halves all agree on what "today" means. Pass an explicit

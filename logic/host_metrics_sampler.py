@@ -52,7 +52,7 @@ _MAX_DELTA_BYTES   = 10 * 1024 * 1024 * 1024  # 10 GB
 # within one sampler-task lifetime; cleared on lifespan cancel/restart
 # so the post-restart first delta is correctly SKIPPED. Tuple grew over
 # time:
-#   pre-#339: (ts, rx, tx) — 3 elements
+#   pre-fix: (ts, rx, tx) — 3 elements
 #   #339:     (ts, rx, tx, dr, dw) — 5 elements (disk added)
 #   #402:     (ts, rx, tx, dr, dw, cpu_total, cpu_idle) — 7 elements
 # In-memory cache is restart-only so no migration needed; the
@@ -188,7 +188,7 @@ def _compute_row(
     if have_net_counters or have_disk_counters or have_cpu_counters:
         next_counter = (now, rx, tx, dr, dw, float(cpu_total_secs), float(cpu_idle_secs))
 
-    # Decompose `prev` tolerantly — pre-#339 entries are 3-tuples; #339
+    # Decompose `prev` tolerantly — pre-fix entries are 3-tuples; #339
     # added disk (5-tuple); #402 added CPU seconds (7-tuple). The cache
     # is restart-only so older shapes only matter mid-process if a
     # partial reload happened — handled by len()-checking ``prev``.
@@ -997,7 +997,7 @@ async def _probe_one_snmp(host: dict, sem: asyncio.Semaphore) -> None:
                                     iface_rows,
                                 )
                         # Per-temperature-probe sample rows for Dell
-                        # server hosts (#848 phase 3). One row per probe
+                        # server hosts. One row per probe
                         # per tick when the SNMP probe extracted any
                         # temperatureProbeTable entries with a valid
                         # celsius reading. Skip-don't-synthesize: rows
@@ -1047,8 +1047,7 @@ def _prune_old_samples() -> int:
             # active interface per tick); same retention window.
             cur3 = c.execute("DELETE FROM host_snmp_iface_samples WHERE ts < ?", (cutoff,))
             removed += cur3.rowcount or 0
-            # Per-temperature-probe rows on Dell server hosts (#848
-            # phase 3). Multi-row-per-tick (typically 4-12 probes per
+            # Per-temperature-probe rows on Dell server hosts. Multi-row-per-tick (typically 4-12 probes per
             # iDRAC) so the retention budget gets consumed quickly on a
             # fleet of servers; same window as the rest.
             cur4 = c.execute("DELETE FROM host_snmp_temp_samples WHERE ts < ?", (cutoff,))
@@ -1357,7 +1356,7 @@ node_disk_written_bytes_total{device="loop0"} 99999999
     nas_names = [d["name"] for d in nas_disk["devices"]]
     assert "dm-0" in nas_names and "md0" in nas_names and "loop0" not in nas_names
 
-    # No-devices case (#343 follow-up): exporter without the diskstats
+    # No-devices case: exporter without the diskstats
     # collector returns no node_disk_* lines → parser returns None
     # totals → probe_node leaves the host_disk_*_total keys absent →
     # sampler stores NULL rate (not 0). Critical: distinguishing
@@ -1530,7 +1529,7 @@ node_devstat_bytes_total{device="ada0",type="write"} 9999999
     row7, next7 = _compute_row("h3", time.time(), {}, None)
     assert row7 is None and next7 is None
 
-    # No-disk probe with a previous-tick anchor (#343 follow-up): the
+    # No-disk probe with a previous-tick anchor: the
     # current probe lacks host_disk_*_total entirely. Disk rates MUST
     # stay null even though prev had disk anchors. Other fields keep
     # working (net rate computes normally).

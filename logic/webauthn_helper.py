@@ -249,7 +249,7 @@ def verify_registration(
     )
     transports_raw = (credential_json.get("response") or {}).get("transports") or []
     # Whitelist against the documented `AuthenticatorTransport` enum
-    # values (#463 / BUG-008). Pre-fix any client-supplied string was
+    # values. Pre-fix any client-supplied string was
     # persisted verbatim — a quirky / malicious client could store
     # `transports=["evil"]` which then made `make_authentication_options`
     # fall back to dropping the field entirely. Filter to the official
@@ -432,7 +432,7 @@ def verify_authentication(
     # observed for a credential, and reject any post-nonzero 0 update.
     # That requires a schema change (one extra BLOB / int column on
     # user_credentials), so it's deferred until a real regression hits.
-    # Defence-in-depth (#462 / BUG-007 / #662): the guard below
+    # Defence-in-depth: the guard below
     # explicitly rejects any backwards step in the non-zero range so
     # an upstream regression in the SAME range can't slip through.
     if new_sc and current_sign_count and new_sc < current_sign_count:

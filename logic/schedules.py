@@ -977,7 +977,7 @@ async def _run_asset_inventory_refresh(
         status = "success"
         err: Optional[str] = None
         count = 0
-        # Master switch (#204 pattern). When the operator flips Asset
+        # Master switch. When the operator flips Asset
         # Inventory off in Admin → Asset Inventory, scheduled refreshes
         # no-op without erasing the cache or the persisted credentials.
         if (get_setting("asset_inventory_enabled", "true") or "true").lower() != "true":

@@ -120,7 +120,7 @@ _TOTP_POLICY_DEFAULTS = {
 }
 
 
-# TOTP-policy resolution cache (#470 / ENH-003). The login flow calls
+# TOTP-policy resolution cache. The login flow calls
 # `_resolve_totp_policy()` 6+ times per typical sign-in, each previously
 # hitting 6 DB rows. A 2-second TTL collapses the burst into one read
 # without making settings changes feel laggy (the Admin -> Config Save
@@ -145,7 +145,7 @@ def _resolve_totp_policy() -> dict:
     read scalar booleans / ints. No env vars are consulted -- this is
     purely DB-backed (Admin -> Config edits the values).
 
-    Cached for `_TOTP_POLICY_CACHE_TTL_SECONDS` (#470 / ENH-003) — every
+    Cached for `_TOTP_POLICY_CACHE_TTL_SECONDS` — every
     login flow makes 6+ calls in quick succession, each previously
     hitting the DB. The cache is invalidated on every settings write
     via `_invalidate_totp_policy_cache()` so admin edits take effect
@@ -528,7 +528,7 @@ async def _config_error_guard(request: Request, call_next):
 # collector is wired below (once _cache exists), and every remaining
 # metric call site in this file references them via `metrics.NAME`.
 metrics.register_cache_age_collector(lambda: _cache)
-# SSE bus health collectors (#472 / ENH-005). Wires
+# SSE bus health collectors. Wires
 # `omnigrid_events_subscribers` + `omnigrid_events_dropped` on the
 # Prometheus registry so /metrics surfaces queue health alongside the
 # cache-age collector.
@@ -736,8 +736,7 @@ def init_db():
         CREATE INDEX IF NOT EXISTS idx_host_snmp_iface_samples_host_ts
             ON host_snmp_iface_samples(host_id, ts DESC);
 
-        -- Per-temperature-probe history for Dell server hosts (#848
-        -- phase 3). One row per (ts, host_id, probe_idx); the
+        -- Per-temperature-probe history for Dell server hosts. One row per (ts, host_id, probe_idx); the
         -- temperatureProbeTable typically reports 4-12 probes per
         -- server (Inlet / Exhaust / CPU1 / CPU2 / chipset / etc.) and
         -- the chart card renders one polyline per probe. probe_name
@@ -1642,8 +1641,7 @@ async def api_events(request: Request):
                 # Cap the connection's wall-clock lifetime so the auth
                 # middleware re-fires on the EventSource reconnect and
                 # the session cookie's sliding-window refresh has a
-                # chance to land before the 8h hard cap (#464 /
-                # BUG-009). Emit a synthetic `reconnect` hint so the
+                # chance to land before the 8h hard cap. Emit a synthetic `reconnect` hint so the
                 # SPA logs the cycle in dev-tools network tab; the
                 # `EventSource` API itself reconnects automatically on
                 # any normal end-of-stream.
@@ -2758,7 +2756,7 @@ async def _api_set_settings_inner(s, request, _portainer):
         set_setting("totp_lockout_minutes", str(n))
     if s.passkeys_allowed is not None:
         set_setting("passkeys_allowed", "true" if s.passkeys_allowed else "false")
-    # Invalidate the policy cache (#470 / ENH-003) so a Save in
+    # Invalidate the policy cache so a Save in
     # Admin -> Config takes effect on the next call instead of waiting
     # out the TTL window. Cheap — just resets the dict.
     if (s.totp_allowed is not None or s.totp_required_for_admins is not None
@@ -3950,7 +3948,7 @@ async def api_portainer_test(
         api_key = str(_portainer.get_portainer_settings().get("portainer_api_key") or "")
     if not url or not api_key:
         return {"ok": False, "status": 0, "detail": "URL and API key are both required"}
-    # Endpoint id (#360 / DEAD-002): probe `/api/endpoints/{id}` after
+    # Endpoint id: probe `/api/endpoints/{id}` after
     # /api/status to surface a misconfigured endpoint id at Test time
     # rather than have it 404 on the next gather. Falls back to the
     # saved value so an operator who hits Test before re-typing still
@@ -3970,7 +3968,7 @@ async def api_portainer_test(
             r = await client.get(f"{url}/api/status", headers=headers)
             if r.status_code != 200:
                 # Route the upstream failure through the humaniser
-                # (#369 / UX-003 follow-up) so the operator sees
+                # so the operator sees
                 # "Portainer rejected the credentials (HTTP 401 — ...)"
                 # instead of a bare body dump.
                 raw = f"HTTP {r.status_code}: {r.text[:200]}"
@@ -4493,7 +4491,7 @@ async def api_asset_inventory_refresh(
 
 def _asset_inventory_verify_tls() -> bool:
     """Read the operator-controlled `asset_inventory_verify_tls` setting
-    on every refresh (#417 / ENH-001). Default True so first-boot deploys
+    on every refresh. Default True so first-boot deploys
     keep validating TLS — homelab operators with self-signed asset APIs
     flip the toggle in Admin → Asset Inventory."""
     raw = (get_setting("asset_inventory_verify_tls", "true") or "true").strip().lower()
@@ -4530,7 +4528,7 @@ def _resolve_field(body: dict, body_key: str,
 
 def _humanise_probe_error(raw: str, target_label: str) -> str:
     """Pattern-match common upstream-failure shapes into operator-readable
-    one-liners (#369 / UX-003).
+    one-liners.
 
     Probes (Beszel / Pulse / Webmin) catch exceptions internally and return
     a stringified error in their ``error`` field. The raw text is sometimes
@@ -5270,7 +5268,8 @@ async def _do_host_provider_probe(active: set[str], cache_key: tuple) -> dict:
 
 def _publish_provider_probe_event(host_id: str, provider: str, kind: str,
                                    started_at: float | None = None,
-                                   *, client_id: str | None = None) -> None:
+                                   *, client_id: str | None = None,
+                                   ok: bool | None = None) -> None:
     """Fire a per-(provider, host) probe-status SSE event.
 
     ``kind`` is either ``probing`` (slice entered, real fetch about to
@@ -5307,6 +5306,16 @@ def _publish_provider_probe_event(host_id: str, provider: str, kind: str,
             payload["finished_at"] = time.time()
             if started_at is not None:
                 payload["duration_ms"] = int((time.time() - started_at) * 1000)
+            # Outcome hint — lets the SPA's `host:provider_done`
+            # handler flip the chip to its known-good (ok=True) /
+            # known-failed (ok=False) state from the SSE event itself,
+            # without waiting for the next /api/hosts/one/{id} round-
+            # trip. Snappier on slow networks. Caller passes ok=True
+            # on success branch, ok=False on failure branch, leaves
+            # None when the outcome isn't yet decided (e.g. cache-hit
+            # paths skip the events entirely so this is rare).
+            if ok is not None:
+                payload["ok"] = bool(ok)
         _events.publish(f"host:provider_{kind}", payload, client_id=client_id)
     except Exception as e:  # noqa: BLE001
         print(f"[hosts] provider_{kind} publish failed for "
@@ -5354,8 +5363,7 @@ async def _merge_one_host(h: dict, state: dict, *, force: bool = False,
         _snmp_host_fail_cache.pop(h["id"], None)
 
     # Pulse — coarse fallback layer.
-    # HARD-GATE on explicit `pulse_name` (#832 — mirrors SNMP's #651
-    # gate). Pre-fix the lookup fell through to `h["id"]` when no
+    # HARD-GATE on explicit `pulse_name`. Pre-fix the lookup fell through to `h["id"]` when no
     # alias was set, so every host got probed against the Pulse hub
     # using its host_id; the lookup always missed for non-Pulse hosts
     # and the "host not found in Pulse hub map" failure incremented
@@ -5509,6 +5517,11 @@ async def _merge_one_host(h: dict, state: dict, *, force: bool = False,
                     # rest for the microsecond dict lookup.
                     _probe_started = time.time()
                     _publish_provider_probe_event(h["id"], "snmp", "probing", _probe_started, client_id=client_id)
+                    # Pre-init so the finally block's `result.get(...)`
+                    # is safe even if the await raises a BaseException
+                    # (KeyboardInterrupt / asyncio.CancelledError) that
+                    # the broad `except Exception` doesn't catch.
+                    result: dict = {"hosts": {}}
                     try:
                         result = await _snmp.probe_snmp(
                             snmp_target,
@@ -5528,7 +5541,11 @@ async def _merge_one_host(h: dict, state: dict, *, force: bool = False,
                     except Exception as e:  # noqa: BLE001
                         result = {"hosts": {}, "error": f"snmp probe failed: {e}"}
                     finally:
-                        _publish_provider_probe_event(h["id"], "snmp", "done", _probe_started, client_id=client_id)
+                        _publish_provider_probe_event(
+                            h["id"], "snmp", "done", _probe_started,
+                            client_id=client_id,
+                            ok=bool(result.get("hosts") or {}),
+                        )
                     if (result.get("hosts") or {}):
                         _snmp_host_cache[cache_key] = (now, result)
                         _snmp_host_fail_cache.pop(cache_key, None)
@@ -5623,8 +5640,7 @@ async def _merge_one_host(h: dict, state: dict, *, force: bool = False,
                     merged["host_snmp_active_vendors_source"] = avs
 
     # Beszel.
-    # HARD-GATE on explicit `beszel_name` (#832 — same fix as Pulse
-    # above). Pre-fix the lookup fell through to `h["id"]` when no
+    # HARD-GATE on explicit `beszel_name`. Pre-fix the lookup fell through to `h["id"]` when no
     # alias was set, so non-Beszel hosts accumulated "host not found
     # in Beszel hub map" failures and auto-paused on a provider they
     # were never configured for.
@@ -5672,6 +5688,8 @@ async def _merge_one_host(h: dict, state: dict, *, force: bool = False,
             # block fires the start/done pair.
             _probe_started = time.time()
             _publish_provider_probe_event(h["id"], "node_exporter", "probing", _probe_started, client_id=client_id)
+            # Track outcome so the `done` event carries the ok hint.
+            ne_ok = False
             try:
                 async with httpx.AsyncClient(verify=False, timeout=float(_ne_timeout)) as ne_client:
                     stats = await _ne.probe_node(ne_client, h["ne_url"])
@@ -5679,6 +5697,7 @@ async def _merge_one_host(h: dict, state: dict, *, force: bool = False,
                 if stats and not stats.get("exporter_error"):
                     providers_hit.append("node_exporter")
                     await record_provider_outcome(h["id"], "node_exporter", True)
+                    ne_ok = True
                 else:
                     err = (stats or {}).get("exporter_error") or "no response"
                     await record_provider_outcome(
@@ -5694,7 +5713,10 @@ async def _merge_one_host(h: dict, state: dict, *, force: bool = False,
                     round_threshold=_ne_pause_rounds,
                 )
             finally:
-                _publish_provider_probe_event(h["id"], "node_exporter", "done", _probe_started, client_id=client_id)
+                _publish_provider_probe_event(
+                    h["id"], "node_exporter", "done", _probe_started,
+                    client_id=client_id, ok=ne_ok,
+                )
 
     # Webmin (per-host probe, 20s outer budget matching api_hosts).
     # Consults a 30s per-host result cache — Webmin is the slowest
@@ -5733,7 +5755,11 @@ async def _merge_one_host(h: dict, state: dict, *, force: bool = False,
                     _wm_budget = tuning.tuning_int("tuning_webmin_probe_budget_seconds")
                     # Per-provider probing SSE event (cache miss only).
                     _probe_started = time.time()
-                    _publish_provider_probe_event(h["id"], "webmin", "probing", _probe_started)
+                    _publish_provider_probe_event(h["id"], "webmin", "probing", _probe_started, client_id=client_id)
+                    # Pre-init for the finally's `result.get(...)` so a
+                    # BaseException (CancelledError / KeyboardInterrupt)
+                    # doesn't crash the SSE publish.
+                    result: dict = {"hosts": {}}
                     try:
                         result = await asyncio.wait_for(
                             _webmin.probe_webmin(
@@ -5748,7 +5774,11 @@ async def _merge_one_host(h: dict, state: dict, *, force: bool = False,
                     except Exception as e:  # noqa: BLE001
                         result = {"hosts": {}, "error": f"webmin probe failed: {e}"}
                     finally:
-                        _publish_provider_probe_event(h["id"], "webmin", "done", _probe_started)
+                        _publish_provider_probe_event(
+                            h["id"], "webmin", "done", _probe_started,
+                            client_id=client_id,
+                            ok=bool(result.get("hosts") or {}),
+                        )
                     # Cache the OUTCOME — successes go in the long-lived
                     # cache (30s TTL), failures go in the negative cache
                     # (5s TTL) so a hung Webmin doesn't re-burn 20s on
@@ -5884,7 +5914,7 @@ async def _merge_one_host(h: dict, state: dict, *, force: bool = False,
     # so any host that ever has a successful probe gets a fallback
     # source.
     #
-    # Gate (#830 follow-up): persist ONLY when at least one snapshot-
+    # Gate: persist ONLY when at least one snapshot-
     # eligible field is LIVE (not from fallback). Pre-fix the gate
     # was "any meaningful host_* field present" — that fired even
     # when EVERY field came from `apply_host_snapshot_fallback`
@@ -6276,7 +6306,7 @@ def _shape_host_api_row(
         "dmi_product":      (s.get("host_dmi_product") or ""),
         "dmi_serial":       (s.get("host_dmi_serial") or ""),
         "dmi_bios_version": (s.get("host_dmi_bios_version") or ""),
-        # SNMP vendor-specific fields (#682–#685, #702, #703). All of
+        # SNMP vendor-specific fields. All of
         # these are populated by `extract_vendor_info` only when the
         # corresponding vendor MIB returned data — non-vendor hosts get
         # empty / None / 0 here and the frontend cards gate on the
@@ -6314,7 +6344,7 @@ def _shape_host_api_row(
         "printer_page_count":      int(s.get("printer_page_count") or 0),
         "printer_supplies":        list(s.get("printer_supplies") or []),
         "printer_console_msg":     s.get("printer_console_msg") or "",
-        # Dell server-health (#848 phase 1). Populated by
+        # Dell server-health. Populated by
         # `extract_vendor_info` only when the SNMP probe walked back
         # non-empty DELL-RAC-MIB rows — non-Dell agents return empty
         # lists / 0 / "" and the SPA's "Server health" card render
@@ -6623,7 +6653,7 @@ async def api_hosts_list(force: bool = False):
     `force=true` bypasses the 10s `_host_provider_cache` memo. Used
     by the SPA right after a successful host-stats settings save so
     the operator sees the new provider state without waiting up to
-    10s for the next natural cache miss (#367 / UX-001).
+    10s for the next natural cache miss.
 
     Snapshot-first render: each row is pre-populated with the
     last-known `host_*` fields from the persisted `host_snapshots`
@@ -6940,7 +6970,7 @@ def _clean_host_ssh(raw: Any) -> dict:
     their types. Unknown keys are dropped so a malformed import can't
     smuggle arbitrary fields into the persisted JSON. Empty → empty
     dict, which the SSH module treats as "host opted OUT of SSH"
-    under the post-#622 opt-in semantics.
+    under the post-fix opt-in semantics.
 
     Pre-#622 the gate field was ``disabled`` (off-when-set, default =
     inherit global). Post-#622 it's ``enabled`` (on-when-set, default
@@ -6990,7 +7020,7 @@ def _clean_host_ssh(raw: Any) -> dict:
     # `disabled` field) leaves the row in the new "OFF until opted in"
     # default. The schema migration in `logic/migrations.py:#001`
     # handles legacy data on first boot — DO NOT add a defensive
-    # `disabled` fallback here (#628 root cause): the writer runs on
+    # `disabled` fallback here: the writer runs on
     # every save, not just at import, and any "fall back to enabled
     # when not explicitly disabled" branch would re-enable rows the
     # operator just unchecked elsewhere in the same save.
@@ -7378,7 +7408,7 @@ def _sweep_orphan_provider_state_rows(live_ids: set) -> int:
         live_ids = set(live_ids or [])
     # Build a per-host "providers configured" map so we can spot orphan
     # provider-prefixed rows. Mirror the same check
-    # `_merge_one_host` uses post-#832 to decide whether to probe each
+    # `_merge_one_host` uses post-fix to decide whether to probe each
     # provider for a given host.
     curated = _load_hosts_config()
     host_providers: dict[str, set] = {}
@@ -7413,7 +7443,7 @@ def _sweep_orphan_provider_state_rows(live_ids: set) -> int:
                         continue
                     # Per-provider orphan: host still curated but the
                     # provider isn't actually configured on its row.
-                    # Most common path is the pre-#832 fall-through that
+                    # Most common path is the pre-fix fall-through that
                     # probed Pulse/Beszel against `host.id` for hosts
                     # without the corresponding alias set. Skip whole-
                     # host rows (provider='') and unknown providers.
@@ -8186,7 +8216,7 @@ async def api_hosts_debug(
                 # Per-host vendor MIB selector. None = auto-detect from
                 # sysDescr; explicit list = bypass auto-detect.
                 vendors_kick = _clean_vendors_input(row_snmp_kick.get("vendors"))
-                # Per-host wall_clock_budget override (#918) capped at
+                # Per-host wall_clock_budget override capped at
                 # the debug-path ceiling. The DEBUG-PATH budget is
                 # deliberately tighter than the sampler-path budget
                 # because the debug panel traverses
@@ -9569,7 +9599,7 @@ async def api_hosts_snmp_history(
             # SPA computes deltas → pages-per-day.
             "printer_page_count": (int(r[14]) if r[14] is not None else None),
             # APC UPS time-series fields. NULL for non-UPS hosts
-            # or pre-#820 rows. Drives the Output Load / Battery /
+            # or pre-fix rows. Drives the Output Load / Battery /
             # Battery temperature charts in the host drawer's UPS card.
             "load_percent":     (float(r[15]) if r[15] is not None else None),
             "battery_percent":  (float(r[16]) if r[16] is not None else None),
@@ -9640,7 +9670,7 @@ async def api_hosts_snmp_temp_history(
     host_id: str, hours: int = 1,
     _admin: auth.User = Depends(auth.require_admin),
 ):
-    """Per-temperature-probe SNMP history for one host (#848 phase 3).
+    """Per-temperature-probe SNMP history for one host.
 
     Returns ``{probes: {probe_idx: {name, points: [...]}}, error: null}``
     with one series per probe (probe_idx is the trailing OID index,
@@ -10920,7 +10950,7 @@ async def api_version():
 
 # Admin → Version page was removed in 2026-04-30 alongside the deploy
 # migration to image-build. Pre-#606 the page wrote to /app/VERSION.txt
-# via a per-file bind mount; post-#606 the file is baked into the image
+# via a per-file bind mount; post-fix the file is baked into the image
 # at build time and any in-container write lands in the ephemeral
 # overlay layer that the next `service update --force` discards. The
 # durable seed path is now: edit repo-root VERSION.txt, commit, push —
@@ -11011,7 +11041,7 @@ async def api_weather(
         return {"configured": False}
     upstream = _open_meteo_url()
     if not upstream:
-        # Admin → General stores `open_meteo_url` (post-#354 split out
+        # Admin → General stores `open_meteo_url` (post-fix split out
         # of the legacy Notifications panel); blank disables the
         # widget entirely rather than forwarding to a hardcoded public
         # endpoint the operator didn't opt into.
@@ -11384,7 +11414,7 @@ async def api_local_login(
                 detail="Account is disabled. Contact your administrator.",
             )
         # ----------------------------------------------------------------
-        # 2FA gate (#345 TOTP + #381 passkeys). Branches before any
+        # 2FA gate. Branches before any
         # session cookie is issued:
         #   (a) user has TOTP enabled OR passkeys enrolled -> respond
         #       200 with step="totp_required" and methods=[...] so the
@@ -11483,7 +11513,7 @@ async def api_local_login(
     auth.set_session_cookie(resp, cookie_value, expires_at, request)
     auth.set_csrf_cookie(resp, csrf, expires_at, request)
     # Security event — opt-in via Admin → Notifications. Fire-and-
-    # forget via the shared retry helper (#475 / ENH-009) so a
+    # forget via the shared retry helper so a
     # transient Apprise blip doesn't drop the audit notification on
     # the floor.
     asyncio.create_task(notify_with_retry(
@@ -11762,7 +11792,7 @@ async def api_local_login_webauthn_start(
     # explanation. Compute the orphaned set so the SPA can surface a
     # clear "re-enrol from Profile" hint above the Passkey button.
     # Empty `rp_id` on a credential row means "registered before this
-    # column landed (#605 rollout)" — treat as unknown rather than
+    # column landed" — treat as unknown rather than
     # mismatched so the legacy creds don't fire spurious banners.
     orphaned = []
     matching = []

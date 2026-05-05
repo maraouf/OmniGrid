@@ -232,7 +232,7 @@ def _is_snapshot_key(key) -> bool:
 def _is_urlish(v) -> bool:
     """True when v looks like an http(s) URL string. Used to keep a
     stale iDRAC chassis URL from sticking in ``host_firmware`` across
-    restarts — pre-#938 the URL OID was mapped to host_firmware before
+    restarts — pre-fix the URL OID was mapped to host_firmware before
     the URL-detection routing landed, and the persisted value lingered
     in ``host_snapshots`` even after probes correctly route it to
     ``host_idrac_url``. Strip on both write AND read paths so the next
@@ -250,8 +250,8 @@ def save_host_snapshots(nodes_info: dict) -> int:
     JSON-encodes the merged ``nodes_info[host]`` dict. Strips fields
     starting with ``_`` (the stale-marker bookkeeping) so a restart
     doesn't read its own marker noise back as canonical data.
-    Also strips URL-shaped values from ``host_firmware`` (#938) so a
-    pre-#899 stale URL leak gets cleaned up on the next gather.
+    Also strips URL-shaped values from ``host_firmware`` so a
+    pre-fix stale URL leak gets cleaned up on the next gather.
     Returns the number of rows written.
     """
     if not nodes_info:
@@ -411,7 +411,7 @@ def apply_host_snapshot_fallback(
                 continue
             if _is_meaningful(info.get(key)):
                 continue
-            # Skip URL-shaped values for host_firmware (#938) — pre-#899
+            # Skip URL-shaped values for host_firmware — pre-fix
             # the iDRAC chassis URL was mapped to host_firmware before
             # URL detection routed it to host_idrac_url. Already-persisted
             # snapshots can carry the stale URL forever; the write-path

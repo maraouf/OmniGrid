@@ -305,7 +305,7 @@ function app() {
     // operators can see "events have been dropped" without watching
     // the console. Reset to 0 only on full page reload (per-tab state).
     _sseDropped: 0,
-    // Pill-flash signal (#486 enhancement). Reactive boolean that
+    // Pill-flash signal. Reactive boolean that
     // toggles true at the START of each interval-mode poll and back
     // to false ~600ms later, giving the topbar pill a visible green
     // pulse on every tick. Lets operators see "the system is polling
@@ -1290,7 +1290,7 @@ function app() {
                                     sessionStorage.getItem('sessionSecretWarningDismissed') === '1') || false,
     // Same dismissal pattern as the SESSION_SECRET banner — per-session,
     // re-appears after a restart so the operator sees the reminder until
-    // they actually clear the env vars (#370 / UX-004).
+    // they actually clear the env vars.
     bootstrapEnvWarningDismissed: (typeof sessionStorage !== 'undefined' &&
                                     sessionStorage.getItem('bootstrapEnvWarningDismissed') === '1') || false,
 
@@ -1304,7 +1304,7 @@ function app() {
       // there's no ambiguity about which instance to expose.
       try { window.omnigrid = this; } catch (_) {}
       // Restore persisted UI prefs that need to land before the first
-      // render of their dependent views (#422 logs severity filter).
+      // render of their dependent views.
       this._restoreLogSeverity();
       // i18n is already loaded (Alpine is gated on __i18nReady), but pull
       // the authoritative language list + current code/dir into the
@@ -1517,16 +1517,11 @@ function app() {
         if (this.commandPaletteOpen) this.closeCommandPalette();
         else this.openCommandPalette();
       }, { capture: true });
-      // Debug escape hatch: expose openCommandPalette + state on
-      // window so the operator can verify the modal renders by
-      // typing `__omnigridOpenPalette()` in the DevTools console.
-      // If that opens the panel, the issue is hotkey detection
-      // (browser pre-empting); if it doesn't, the issue is modal
-      // rendering (Alpine x-show / CSS / scoping). Splits the
-      // diagnostic so the operator can tell which layer is broken.
-      try {
-        window.__omnigridOpenPalette = () => { this.openCommandPalette(); };
-      } catch (_) { /* defensive */ }
+      // (Diagnostic `window.__omnigridOpenPalette` escape hatch
+      //  removed — the palette is verified working in production
+      //  and the global handle was just polluting the SPA's window
+      //  surface for operators who Tab-completed in DevTools.)
+
       // Click-outside listener for the chart `?` tap-driven tooltip
       //. The trigger spans + tooltip body each call
       // `@click.stop` so they're EXCLUDED from this handler — taps
@@ -2902,7 +2897,7 @@ function app() {
     },
     // In-flight flag for the unified host_stats Save button so
     // the spinner / "Saving…" label fires the same way as the
-    // per-section Save buttons did pre-#555.
+    // per-section Save buttons did pre-fix.
     hostStatsSaving: false,
 
     async saveHostStats() {
@@ -3173,7 +3168,7 @@ function app() {
           this.refresh(true);
           // ALSO re-fetch /api/hosts/list with force=true so the next
           // host-data render bypasses the 10s `_host_provider_cache`
-          // memo (#367 / UX-001). Without this, host rows could show
+          // memo. Without this, host rows could show
           // "Refreshing host data…" or stale provider state for up to
           // 10s after the save toast.
           this.loadHosts(true);
@@ -4926,7 +4921,7 @@ function app() {
       }
       const tick = async () => {
         // Bracket the request so the pill flashes green for the
-        // exact duration of the /api/stats round-trip (#486 flash).
+        // exact duration of the /api/stats round-trip.
         this._pollStart();
         try { await this.loadStats(); }
         finally { this._pollEnd(); }
@@ -5413,7 +5408,7 @@ function app() {
           order:       Number.isFinite(+g.order) ? +g.order : 0,
         })) : [];
         this.hostGroupsDirty = false;
-        // Bust groupedHosts() cache on every load (#423 / ENH-008).
+        // Bust groupedHosts() cache on every load.
         this.hostGroupsRevision = (this.hostGroupsRevision || 0) + 1;
 
         // --- Asset inventory ---
@@ -7220,7 +7215,7 @@ function app() {
     // = "leave the corresponding side untouched". Persisted in-memory
     // only (the row's persistence happens via the PATCH that
     // saveProfile fires on the next save).
-    // Profile → Notifications redesign state (#993). Search filters
+    // Profile → Notifications redesign state. Search filters
     // event rows live; per-category expand/collapse map keyed by
     // category id (default-expanded for 'operations' so first-time
     // users see rows immediately).
@@ -7831,7 +7826,7 @@ function app() {
     // call mark<X>Dirty() don't throw. The smart getters re-evaluate
     // automatically on form changes via Alpine reactivity, so these
     // calls are now unnecessary but harmless. Removing the markup
-    // bindings is a separate cleanup (#305 follow-up).
+    // bindings is a separate cleanup.
     markAppriseDirty()    {},
     markOpenMeteoDirty()  {},
     markPortainerFormDirty() {},
@@ -8069,7 +8064,7 @@ function app() {
       }
       return params.toString();
     },
-    // Open the notifications popup (#855 follow-up). Loads the latest
+    // Open the notifications popup. Loads the latest
     // page on every open so the operator's quick-check doesn't show
     // stale data — the SSE-driven badge keeps the count current while
     // the popup is closed, but the row list itself only refreshes on
@@ -8650,13 +8645,42 @@ function app() {
       // Pulse) or sampler-driven reads (Ping) inside `_merge_one_host`.
       // The row-level `_loading` pulse still covers the
       // initial-paint case for those.
+      // Minimum visible-pulse duration. Without this, fast probes
+      // (cache miss but warm hub, ~50-300ms) flash the chip once
+      // and settle so quickly the operator can't perceive the
+      // animation. Clamping the off-flip to 500ms after the on-flip
+      // gives the pulse one full cycle of the
+      // `provider-loading-pulse` keyframes (1.4s ease-in-out) so
+      // the flash registers visually. Slow probes (>500ms) don't
+      // see any added latency — the off-flip fires when the SSE
+      // `done` event lands, identical to before.
+      const _PROV_POLL_MIN_VISIBLE_MS = 500;
       const _setProvPolling = (host_id, provider, polling) => {
         if (!host_id || !provider) return;
         const row = (this.hosts || []).find(r => r && r.id === host_id);
         if (!row) return;
         if (!row._polling || typeof row._polling !== 'object') row._polling = {};
-        if (polling) row._polling[provider] = true;
-        else         delete row._polling[provider];
+        if (!row._pollingStart || typeof row._pollingStart !== 'object') row._pollingStart = {};
+        if (polling) {
+          row._polling[provider] = true;
+          row._pollingStart[provider] = Date.now();
+          return;
+        }
+        // Off-flip — clamp to minimum visible duration.
+        const startedAt = row._pollingStart[provider] || 0;
+        const elapsed = Date.now() - startedAt;
+        const remaining = _PROV_POLL_MIN_VISIBLE_MS - elapsed;
+        if (remaining > 0) {
+          // Defer the clear so the chip flashes through one full
+          // pulse cycle. setTimeout with the SAME row reference
+          // mutates in place; if the row is removed in the meantime
+          // the timer no-ops harmlessly.
+          setTimeout(() => {
+            try { delete row._polling[provider]; } catch (_) {}
+          }, remaining);
+        } else {
+          delete row._polling[provider];
+        }
       };
       es.addEventListener('host:provider_probing', (e) => {
         onAny();
@@ -9430,7 +9454,7 @@ function app() {
       const translated = this.t(key);
       return (translated && translated !== key) ? translated : (status || '');
     },
-    // Dell server-health pill helpers (#848 phase 2). All four lean
+    // Dell server-health pill helpers. All four lean
     // on the standard Dell Systems Management Server Health enum
     // (ok / non-critical / critical / non-recoverable / unknown /
     // other). Two flavours: server-health row status (fans / temps /
@@ -9823,7 +9847,7 @@ function app() {
       // so only flip to 'down' when the value is explicitly false.
       add('ping',          !!h.ping_enabled, h.ping_alive === false ? 'down' : null);
       // SNMP — chip renders when the row has a snmp_name
-      // alias AND `snmp.enabled === true` (#654 opt-in / #714 fix).
+      // alias AND `snmp.enabled === true`.
       // Same rules as the other providers: globally enabled, globally
       // healthy, hit on this host = ok, mapped-but-no-hit = failing.
       // SNMP doesn't carry its own self-status field (unlike
@@ -9871,6 +9895,38 @@ function app() {
       const sf = obj._stale_fields;
       if (!Array.isArray(sf)) return false;
       return sf.length >= 6;
+    },
+    // Provider-level stale enumeration. A provider is "stale" when
+    // it's MAPPED on the curated row (`*_name` / `ne_url` /
+    // `snmp_enabled`) but missing from `h.providers` (the live-hits
+    // list this gather cycle produced). The stale banner can surface
+    // these names so operators see "Beszel + Pulse cached, NE live"
+    // rather than just a generic "N field(s) restored" count. Order
+    // mirrors the merge order documented in CLAUDE.md (Pulse → SNMP →
+    // Beszel → NE → Webmin → Ping).
+    staleProviders(h) {
+      if (!h) return [];
+      const got = new Set(h.providers || []);
+      const out = [];
+      const trim = v => String(v || '').trim();
+      const push = (name, mapped) => {
+        if (!mapped) return;
+        if (got.has(name)) return;
+        out.push(name);
+      };
+      push('pulse',         !!trim(h.pulse_name));
+      push('snmp',          !!trim(h.snmp_name) && h.snmp_enabled === true);
+      push('beszel',        !!trim(h.beszel_name));
+      push('node_exporter', !!trim(h.ne_url));
+      push('webmin',        !!trim(h.webmin_name));
+      push('ping',          !!h.ping_enabled);
+      return out;
+    },
+    // Display label for a provider id — "node_exporter" → "exporter"
+    // matches the existing chip rendering convention.
+    providerDisplayName(name) {
+      if (name === 'node_exporter') return 'exporter';
+      return name;
     },
     staleAge(obj) {
       // UX-BUG-002 / return a clean fallback when `_stale_ts`
@@ -10851,7 +10907,7 @@ function app() {
       }
       return Array.from(by.entries()).map(([node, chips]) => ({ node, chips }));
     },
-    // i18n-aware topology pill tooltips (#843 follow-up). Pre-fix
+    // i18n-aware topology pill tooltips. Pre-fix
     // both the Stacks and Services views inlined `:title="group.node
     // + ' — ' + group.chips.length + ' replica' + (count===1 ? '' :
     // 's')"` — the JS template-literal i18n leak that travels with
@@ -10864,7 +10920,7 @@ function app() {
       const count = (group && group.chips && group.chips.length) || 0;
       const node = (group && group.node) || '';
       // Reuses existing topology.node_title / node_title_many keys
-      // (added pre-#814 for a different consumer; the i18n bundle
+      // (added pre-fix for a different consumer; the i18n bundle
       // already covers the singular/plural split). Pluralization
       // picks at call-time so non-binary plural locales can extend
       // their bundle without touching JS.
@@ -11074,17 +11130,25 @@ function app() {
     // Admin → <tab> view via setAdminTab. Adding a new admin tab here
     // surfaces it in the palette without touching anywhere else.
     _commandAdminRoutes() {
-      // Labels routed through t() so other locales translate cleanly.
-      // Each i18n key lives under `command_palette.admin.<tab>` —
-      // adding a new admin tab needs ONE new key + one entry here.
-      const tabs = [
-        'users', 'sessions', 'tokens', 'schedules', 'hosts',
-        'host_groups', 'ssh', 'logs', 'tuning', 'backups',
-        'notifications', 'asset', 'auth', 'oidc', 'portainer',
-      ];
-      return tabs.map(tab => ({
-        tab,
-        label: this.t('command_palette.admin.' + tab),
+      // Auto-derive the admin-tab list from `this.adminSections` —
+      // the canonical source of truth that drives the Admin → sub-nav.
+      // Pre-fix the tab list was hardcoded here as a separate literal,
+      // so adding a new admin tab needed two coordinated edits AND the
+      // IDs drifted (the prior literal had stale `auth` / `tuning` /
+      // `asset` aliases vs the current `authentication` / `config` /
+      // `assets` IDs in `adminSections`). The i18n bundle keeps the
+      // legacy aliases pointing at the same strings as the new IDs so
+      // operators on older locale files still see correct labels
+      // during the upgrade window. Adding a new admin tab now means
+      // adding ONE entry to `adminSections` plus ONE key to
+      // `i18n/en.json` under `command_palette.admin.<id>`.
+      const sections = Array.isArray(this.adminSections) ? this.adminSections : [];
+      return sections.map(s => ({
+        tab: s.id,
+        // Translate via `t()`; if the locale doesn't have the key, fall
+        // back to the section's static `label` (which the admin sub-nav
+        // already renders elsewhere).
+        label: (this.t('command_palette.admin.' + s.id) || s.label || s.id),
       }));
     },
     _commandTopViews() {
@@ -13263,7 +13327,7 @@ function app() {
         // flag — which is the exact symptom of "enabling host A
         // re-enables host C that was previously disabled". The schema
         // migration in `logic/migrations.py:_migration_001` handles
-        // legacy `disabled` → `enabled` ONCE on first boot post-#622;
+        // legacy `disabled` → `enabled` ONCE on first boot post-fix;
         // re-applying that conversion per-save corrupts subsequent
         // operator edits.
         if (sshIn.enabled === true) sshOut.enabled = true;
@@ -13436,7 +13500,7 @@ function app() {
           if (r && r.id && r._uid) oldUidById[r.id] = r._uid;
         }
         this.hostsConfig = d.hosts || [];
-        // Invalidate the filtered-list cache (#636 root cause): the
+        // Invalidate the filtered-list cache: the
         // cache key is `filter + length + order.length`, which DOESN'T
         // change when the array elements are replaced via `=`. Without
         // the explicit reset, `pagedHostsConfig()` keeps returning the
@@ -14037,7 +14101,7 @@ function app() {
       const first = Object.keys(this.fieldErrors || {})[0];
       if (!first) return;
       // If the first error is keyed against a hostsConfig row that
-      // lives on a different page (#331 paginates the editor),
+      // lives on a different page,
       // navigate to that page BEFORE the DOM query — otherwise the
       // .field-invalid element doesn't exist and focus silently
       // no-ops, leaving the operator confused about why save failed.
@@ -14054,7 +14118,7 @@ function app() {
           // page-jump above silently fails and the operator sees a
           // generic "Save failed" toast with no actionable target. Show
           // a SweetAlert with a one-click "Clear filter" action so they
-          // can reach the offending row (#368 / UX-002).
+          // can reach the offending row.
           if (typeof Swal !== 'undefined') {
             Swal.fire({
               icon: 'warning',
@@ -14266,7 +14330,7 @@ function app() {
         }
         // Reload so the server's cleaned / sorted view replaces ours.
         await this.loadSettings();
-        // Bust the groupedHosts() memo (#423 / ENH-008). loadSettings
+        // Bust the groupedHosts() memo. loadSettings
         // changes hostGroups in place; bumping the revision counter
         // forces the next access to recompute even if the array
         // identity / length didn't change.
@@ -14374,7 +14438,7 @@ function app() {
       // `[range_start, range_end, bucketIdx]`. With 30 groups the
       // bisection over a sorted array is O(log N) per host vs the
       // naive O(N) linear scan; saves ~14k comparisons per render
-      // with 500 hosts × 30 groups (#423 / ENH-008).
+      // with 500 hosts × 30 groups.
       const ranges = buckets
         .map((b, idx) => [b.group.range_start | 0, b.group.range_end | 0, idx])
         .sort((a, b) => a[0] - b[0]);
@@ -15221,7 +15285,7 @@ function app() {
       try {
         // `force=true` bypasses the backend's 10s `_host_provider_cache`
         // memo so a settings save → next loadHosts immediately reflects
-        // the new provider state (#367 / UX-001). Default polling path
+        // the new provider state. Default polling path
         // stays cached.
         const url = force ? '/api/hosts/list?force=true' : '/api/hosts/list';
         const r = await fetch(url);
@@ -15477,7 +15541,7 @@ function app() {
         }
       }
       // Refresh the open drawer's chart history on every host-poll
-      // tick (#363 followup). The `Updated Xs/m/h ago` freshness label
+      // tick. The `Updated Xs/m/h ago` freshness label
       // tracks the last successful chart fetch — without this hook
       // the label could read older than the user's host-poll cadence
       // because `loadHostHistory` was only invoked on drawer open
@@ -15705,7 +15769,7 @@ function app() {
         };
       }
       // Healthy state — use the operator-customised provider colour
-      // via `pill-custom` + `providerChipStyle()` (#621 follow-up).
+      // via `pill-custom` + `providerChipStyle()`.
       // The fixed `pill-ok` green ignored Settings → Providers colour
       // overrides; flip to pill-custom so the toolbar chip matches the
       // per-row chip's colouring.
@@ -15767,8 +15831,7 @@ function app() {
       }
     },
     // Jump to the host-drawer debug panel from another surface
-    // (#843 follow-up — paused-providers banner has a "View counters"
-    // link). Forces the panel OPEN (no toggle, since the operator's
+    //. Forces the panel OPEN (no toggle, since the operator's
     // intent here is "show me", not "flip"), triggers the lazy load
     // if cold, then scrolls. Idempotent — calling twice on an already-
     // open panel is a no-op except for the re-scroll, which is what
@@ -15890,7 +15953,7 @@ function app() {
         this.showToast(this.t('toasts_extra.nothing_to_copy'), 'warning');
         return;
       }
-      // Resolve the label through i18n (#843 follow-up). Pre-fix call
+      // Resolve the label through i18n. Pre-fix call
       // sites passed English literals like 'Counters' / 'Raw · Pulse'
       // — both the toast AND the prompt() fallback embedded that raw
       // English regardless of locale. Now: call sites pass an i18n
@@ -16066,8 +16129,7 @@ function app() {
     // distinct chips, so pill-primary is added for one slot). Ping
     // shows alongside the four telemetry providers because from the
     // operator's POV it's a distinct opt-in agent — even though it
-    // doesn't contribute CPU / Mem / Disk gauges (#571 follow-up:
-    // operator wanted color-coded pills, not a comma-joined list).
+    // doesn't contribute CPU / Mem / Disk gauges.
     hostEnabledAgents(h) {
       if (!h) return [];
       // Each chip is `pill-custom` so it picks up the configured
@@ -16082,7 +16144,7 @@ function app() {
       // disabled at the fleet level (operator un-ticked it in
       // Settings → Host stats) MUST NOT render its chip even when
       // the per-host alias / enable flag are still populated —
-      // pre-#816 a stale SNMP chip with a Paused state still appeared
+      // pre-fix a stale SNMP chip with a Paused state still appeared
       // on hosts where SNMP was globally disabled, while the per-chip
       // Resume was disabled (busy-flag stuck) and the rollup-Resume
       // was enabled. Filtering at the chip-render gate makes the
@@ -16104,7 +16166,7 @@ function app() {
       }
       return out;
     },
-    // List of paused provider names for one host (#797 / UX-ENH-003).
+    // List of paused provider names for one host.
     // Used by the drawer's "Resume all (N)" rollup button to enumerate
     // every chip currently in Paused state. Returns an empty array
     // when no provider is paused — the rollup hides cleanly.
@@ -16617,7 +16679,7 @@ function app() {
         this.loadHostSnmpIfaceHistory(host.id, this.hostHistoryRange || 1);
       }
       // Per-temperature-probe history powers the multi-line
-      // temperature chart card on Dell server hosts (#848 phase 3).
+      // temperature chart card on Dell server hosts.
       // Same gate + cadence; non-Dell hosts get an empty `probes`
       // object back so the chart card stays hidden cleanly.
       if (host.snmp_enabled && _cacheStale(this.hostSnmpTempHistory[host.id])) {
@@ -16676,7 +16738,7 @@ function app() {
         }, pingMs);
       }
       // Preload SSH status — admin only, and only when the host
-      // explicitly opted IN to SSH (#622, post-flip). Without this the
+      // explicitly opted IN to SSH. Without this the
       // SSH card header shows "Not configured" until the operator
       // clicks to expand it — a false-negative for opted-in fleets.
       if (this.isAdmin && this.isAdmin() && host.ssh_enabled) {
@@ -16737,8 +16799,7 @@ function app() {
         };
       }
     },
-    // Per-temperature-probe history for Dell server hosts (#848
-    // phase 3). Same shape as hostSnmpIfaceHistory but keyed by
+    // Per-temperature-probe history for Dell server hosts. Same shape as hostSnmpIfaceHistory but keyed by
     // probe_idx. `probes: { idx: { name, points: [{ts, c}, …] } }`.
     hostSnmpTempHistory: {},
     async loadHostSnmpTempHistory(hostId, hours) {
@@ -17707,7 +17768,7 @@ function app() {
       }
       return false;
     },
-    // Dell server temperature-probe chart helpers (#848 phase 3).
+    // Dell server temperature-probe chart helpers.
     // Multi-line — one polyline per probe, sharing a single y-axis
     // (max across all probes) so spikes on Inlet vs Exhaust are
     // visually comparable. Each probe gets a distinct hue from a small
@@ -18093,9 +18154,7 @@ function app() {
         // freshness label drift past one poll cycle. The chart
         // VALUES still preserve `prev.series` on empty so the visible
         // line doesn't blank, but the timestamp follows fetches.
-        // (#365 followup — was previously gated on `next.length`,
-        // which made the label appear stuck whenever a tick happened
-        // to land an empty reply.)
+        //
         const stamp = Date.now();
         this.hostHistory[cacheKey] = {
           loading: false,
@@ -18227,7 +18286,7 @@ function app() {
     async loadHostPingHistory(hostId) {
       if (!hostId) return;
       const key = 'ping:' + hostId;
-      // Honour the shared host-history range picker (#343 follow-up).
+      // Honour the shared host-history range picker.
       // Was hardcoded to ?hours=24; now reads `hostHistoryRange` so
       // the ping series re-fetches with the same window as CPU /
       // Memory / Disk / Net when the operator clicks 1h / 6h / 24h / 7d.
@@ -19558,11 +19617,18 @@ function app() {
         const applied = appliedIds.length;
         const errors = Object.keys(data.errors || {}).length;
         const skipped = (data.skipped || []).length;
-        if (errors > 0) {
-          this.showToast(
-            this.t('hosts_extra.bulk.partial', { applied, errors }) || (applied + ' applied, ' + errors + ' errors'),
-            'warning',
-          );
+        // Partial-failure / mixed-result toast — surface every
+        // category in the summary so the operator can tell at a
+        // glance which is which after a 50-host bulk action.
+        // Backend always returns {applied, skipped, errors}; the
+        // SPA used to show only the first two as "X applied, Y
+        // errors" and silently dropped the skipped count.
+        if (errors > 0 || skipped > 0) {
+          const tone = errors > 0 ? 'warning' : 'success';
+          const msg = this.t('hosts_extra.bulk.breakdown',
+                             { applied, errors, skipped })
+                      || `${applied} applied · ${skipped} skipped · ${errors} error${errors === 1 ? '' : 's'}`;
+          this.showToast(msg, tone);
         } else {
           const msg = this.t(successMsgKey || 'hosts_extra.bulk.success', { applied })
             || (applied + ' hosts updated');
