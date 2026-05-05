@@ -1697,6 +1697,35 @@ details summary::-webkit-details-marker {
      * clearly even on a bar that's 90%+ saturated red (high-disk hosts). */
     filter: drop-shadow(0 0 1px var(--spark-shadow));
 }
+/* Windows High-Contrast / forced-colors mode strips most colour
+ * declarations and replaces them with the OS palette. The 1px black
+ * drop-shadow we use to lift the spark off a saturated-red bar can
+ * "ghost" or disappear in HC mode because forced-colors doesn't
+ * recompute drop-shadow values against the system palette. Drop the
+ * shadow entirely there — `currentColor` from `--spark-stroke` already
+ * resolves to the system foreground colour, which has guaranteed
+ * contrast against the system background. */
+@media (forced-colors: active) {
+    .host-row-spark path {
+        filter: none;
+    }
+}
+
+/* Active Ops floating-panel header — a <button> rather than a clickable
+ * <div> so keyboard / screen-reader semantics work. Reset native button
+ * chrome that the existing Tailwind classes don't already cover (bg,
+ * padding, text-start are class-driven; appearance + border + the
+ * inherited font / color stay button-default unless reset). */
+.active-ops-header {
+    appearance: none;
+    border: 0;
+    color: inherit;
+    font: inherit;
+}
+.active-ops-header:focus-visible {
+    outline: 2px solid var(--primary);
+    outline-offset: -2px;
+}
 
 .stat-bar > .fill {
     position: absolute;
