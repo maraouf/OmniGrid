@@ -109,6 +109,7 @@
     "reconnecting_title": "Real-time event stream dropped — polling has resumed and the browser is auto-reconnecting in the background.",
     "off_title": "Refresh is set to Off — the dashboard is a static snapshot. Pick Live or an interval from the topbar to resume updates.",
     "polling_interval_title": "Polling every {seconds} seconds. The pill flashes green while a fetch is in flight; grey between ticks.",
+    "refreshing_title": "Background refresh in progress — the dashboard is fetching fresh data while showing the prior snapshot. The pill returns to its connection-state colour as soon as the refresh completes.",
     "dropped_label": "{count} dropped",
     "dropped_title": "{count} live events have been dropped this session because the bus's per-subscriber queue (256 events) was full. The SPA reconciled via REST after each drop, so the data is correct — this counter is a heads-up that bursts have exceeded queue capacity. Reset on page reload."
   },

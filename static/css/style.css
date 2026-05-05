@@ -4790,6 +4790,52 @@ body.login {
     transition: background 60ms ease-out, box-shadow 60ms ease-out;
 }
 
+/* Background-refresh override. Wins over every other SSE-pill state
+   class so operators see "data is coming in" regardless of whether
+   they're on Live / Polling / Off mode. The standalone refresh pill
+   that previously sat next to the topbar Refresh button collided
+   visually with the button itself; folding the signal into THIS pill
+   gives one canonical surface for "what's the heartbeat right now".
+   The dot becomes a spinning ring (border-top accent rotates) instead
+   of the solid pulsing dot — visually distinct from `sse-pill--live`'s
+   pulse so operators can tell "refreshing" from "alive but idle". */
+.sse-pill--refreshing {
+    color: var(--success);
+    border-color: var(--success);
+    background: var(--pill-healthy-bg);
+}
+
+.sse-pill--refreshing .sse-pill-dot {
+    width: 9px;
+    height: 9px;
+    flex: 0 0 9px;
+    background: transparent;
+    border: 1.5px solid color-mix(in srgb, var(--success) 30%, transparent);
+    border-top-color: var(--success);
+    border-radius: 50%;
+    /* Two coordinated animations: a fast spin (0.4s) + a fast
+       opacity pulse (0.5s ease-in-out) so the spinner reads as an
+       attention-grabbing "data is moving NOW" cue rather than a
+       gentle "thinking" cue. Operator-requested punchy feedback. */
+    animation:
+        sse-pill-spin 0.4s linear infinite,
+        sse-pill-flash 0.5s ease-in-out infinite;
+    box-sizing: border-box;
+}
+
+@keyframes sse-pill-spin {
+    to { transform: rotate(360deg); }
+}
+
+@keyframes sse-pill-flash {
+    0%, 100% { opacity: 1; }
+    50%      { opacity: 0.4; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .sse-pill--refreshing .sse-pill-dot { animation: none; }
+}
+
 @keyframes sse-pulse {
     0%, 100% { opacity: 1; }
     50%      { opacity: 0.45; }

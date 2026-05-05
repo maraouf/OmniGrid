@@ -299,18 +299,12 @@
           <span x-show="!(view==='hosts' ? hostsLoading : loading)" x-text="t('actions.refresh')"></span>
           <span x-show="view==='hosts' ? hostsLoading : loading" x-text="t('actions.refreshing')"></span>
         </button>
-        <!-- Background-gather indicator — restores the UI surface for
-             cacheRefreshing / hubProbing / statsRefreshing that round-3
-             of #1051 removed from the spinner gate. Renders as a subtle
-             muted pill (no animation, no spinner) so it never collides
-             with the foreground spinner above. Hidden during foreground
-             fetches because the spinner already covers that state. -->
-        <span x-show="(cacheRefreshing || hubProbing || statsRefreshing) && !(view==='hosts' ? hostsLoading : loading)"
-              class="pill pill-muted text-[10.5px] hidden sm:inline-flex items-center gap-1"
-              :title="t('topbar.refreshing_bg_title')">
-          <svg width="10" height="10" aria-hidden="true" style="opacity: 0.7"><use href="/img/ui-sprite.svg#icon-rotate-cw"/></svg>
-          <span x-text="t('topbar.refreshing_bg')"></span>
-        </span>
+        <!-- Background-gather indicator was a separate pill next to
+             this Refresh button; it collided visually with the button
+             and confused operators. Signal now folds into the SSE
+             pill on the right (`sse-pill--refreshing`) so a single
+             control surface shows both connection state AND
+             background-refresh activity. -->
         <!-- Deploy watcher — only visible when /api/version returns a
              string different from the one captured at page boot.
              Hard-reloads with a cache-busting query param so the new
@@ -506,6 +500,10 @@
       <span class="hidden sm:inline flex-1"></span>
       <!-- Connection-state pill. Mirrors the picker's chosen
            mode and shows real-time activity:
+             • Refreshing (any background gather / hub-probe / stats
+               refresh in flight) → GREEN pill + spinner. Wins over
+               every other state so operators always see "data is
+               coming in" regardless of mode.
              • Live (SSE on, healthy)         → green dot, label "Live"
              • Live (SSE reconnecting)        → amber pulse,  label "Live"
              • Off                            → grey dot,    label "Off"
@@ -515,13 +513,16 @@
            `_pollStart()` / `_pollEnd()` so operators see a green
            strobe on every interval tick. -->
       <div class="sse-pill order-4 sm:order-none"
-           :class="refreshInterval === -1
-                     ? (_sseConnected ? 'sse-pill--live'
-                        : (sseStatusKey() === 'events.reconnecting_title' ? 'sse-pill--reconnecting' : 'sse-pill--fallback'))
-                     : refreshInterval === 0
-                       ? 'sse-pill--off'
-                       : (_pollFlashing ? 'sse-pill--polling-active' : 'sse-pill--polling-idle')"
-           :title="refreshInterval === -1 ? t(sseStatusKey())
+           :class="(cacheRefreshing || hubProbing || statsRefreshing)
+                     ? 'sse-pill--refreshing'
+                     : refreshInterval === -1
+                       ? (_sseConnected ? 'sse-pill--live'
+                          : (sseStatusKey() === 'events.reconnecting_title' ? 'sse-pill--reconnecting' : 'sse-pill--fallback'))
+                       : refreshInterval === 0
+                         ? 'sse-pill--off'
+                         : (_pollFlashing ? 'sse-pill--polling-active' : 'sse-pill--polling-idle')"
+           :title="(cacheRefreshing || hubProbing || statsRefreshing) ? t('events.refreshing_title')
+                   : refreshInterval === -1 ? t(sseStatusKey())
                    : refreshInterval === 0 ? t('events.off_title')
                    : t('events.polling_interval_title', { seconds: refreshInterval })">
         <span class="sse-pill-dot" aria-hidden="true"></span>
